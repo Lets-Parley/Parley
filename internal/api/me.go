@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"hash/fnv"
 	"net/http"
 	"strings"
 
@@ -15,13 +14,7 @@ type meResponse struct {
 	AvatarHue int    `json:"avatarHue"`
 }
 
-// avatarHue derives a stable hue (0-359) from the user id; the client renders
-// the avatar (background + initials) in the DOM from this.
-func avatarHue(userID string) int {
-	h := fnv.New32a()
-	h.Write([]byte(userID))
-	return int(h.Sum32() % 360)
-}
+func avatarHue(userID string) int { return store.AvatarHue(userID) }
 
 func toMeResponse(u store.User) meResponse {
 	return meResponse{ID: u.ID, Name: u.Name, AvatarHue: avatarHue(u.ID)}

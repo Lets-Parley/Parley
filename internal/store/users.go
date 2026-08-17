@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"hash/fnv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -102,4 +103,12 @@ func (s *Users) Rename(ctx context.Context, userID, name string, oldTokenHash, n
 func (s *Users) DeleteToken(ctx context.Context, tokenHash []byte) error {
 	_, err := s.Pool.Exec(ctx, "delete from session_tokens where token_hash = $1", tokenHash)
 	return err
+}
+
+// AvatarHue derives a stable hue (0-359) from a user id; clients render the
+// avatar from it so every surface shows the same color per person.
+func AvatarHue(userID string) int {
+	h := fnv.New32a()
+	h.Write([]byte(userID))
+	return int(h.Sum32() % 360)
 }

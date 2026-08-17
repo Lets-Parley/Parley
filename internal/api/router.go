@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/jacorbello/parley/internal/hub"
+	"github.com/jacorbello/parley/internal/poker"
 	"github.com/jacorbello/parley/internal/store"
 	"github.com/jacorbello/parley/web"
 )
@@ -82,6 +83,8 @@ func Router(pool *pgxpool.Pool, secureCookies bool, allowedOrigin string) http.H
 			r.Post("/spaces/{slug}/join", a.handleJoinSpace)
 			r.Post("/spaces/{slug}/sessions", a.handleCreateSession)
 		})
+
+		poker.New(a.pool, a.hub, a.broadcastState).Mount(r)
 
 		// requireSessionMember answers 404 for anonymous callers too, so these
 		// routes sit outside RequireUser: a session's existence is never
