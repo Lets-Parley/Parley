@@ -2,8 +2,6 @@ package poker
 
 // specials are always appended: "?" = no idea, "coffee" = need a break.
 // They never enter numeric stats.
-// They are legal votes and illegal estimates: "the room needs a break" is not
-// a size. See isSpecial in stats.go.
 var specials = []string{"?", "coffee"}
 
 type Deck struct {
