@@ -34,7 +34,15 @@ export async function api<T = unknown>(
 }
 
 export type Me = { id: string; name: string; avatarHue: number };
-export type Person = { userId: string; name: string; avatarHue: number; spectator: boolean };
+/** Where a member currently has a socket open, within this space only. */
+export type SeatRef = { sessionId: string; title: string };
+export type Person = {
+  userId: string;
+  name: string;
+  avatarHue: number;
+  spectator: boolean;
+  at?: SeatRef;
+};
 export type SpaceView = {
   slug: string;
   name: string;
@@ -59,6 +67,8 @@ export type Results = {
 };
 export type Story = {
   id: string;
+  /** Ticket reference in the team's tracker; empty for an ad-hoc round. */
+  ref: string;
   title: string;
   notes: string;
   position: number;

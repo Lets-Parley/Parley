@@ -123,19 +123,25 @@ func (h *Handler) addStory(w http.ResponseWriter, r *http.Request, rc reqCtx) {
 	var body struct {
 		Title string `json:"title"`
 		Notes string `json:"notes"`
+		Ref   string `json:"ref"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
 	title := strings.TrimSpace(body.Title)
+	ref := strings.TrimSpace(body.Ref)
 	if title == "" || len(title) > 200 || len(body.Notes) > 2000 {
 		http.Error(w, `{"error":"title must be 1-200 characters, notes at most 2000"}`, http.StatusBadRequest)
 		return
 	}
+	if len(ref) > 40 {
+		http.Error(w, `{"error":"a ticket reference can be at most 40 characters"}`, http.StatusBadRequest)
+		return
+	}
 	_, err := h.pool.Exec(r.Context(), `
-		insert into stories (session_id, title, notes, position)
-		values ($1, $2, $3, (select coalesce(max(position), 0) + 1 from stories where session_id = $1))`,
-		rc.sess.ID, title, body.Notes)
+		insert into stories (session_id, title, notes, ref, position)
+		values ($1, $2, $3, $4, (select coalesce(max(position), 0) + 1 from stories where session_id = $1))`,
+		rc.sess.ID, title, body.Notes, ref)
 	if err != nil {
 		http.Error(w, `{"error":"could not add story"}`, http.StatusInternalServerError)
 		return
@@ -147,6 +153,7 @@ func (h *Handler) patchStory(w http.ResponseWriter, r *http.Request, rc reqCtx) 
 	var body struct {
 		Title    *string  `json:"title"`
 		Notes    *string  `json:"notes"`
+		Ref      *string  `json:"ref"`
 		Position *float64 `json:"position"`
 		Estimate *string  `json:"estimate"`
 	}
@@ -167,6 +174,14 @@ func (h *Handler) patchStory(w http.ResponseWriter, r *http.Request, rc reqCtx) 
 			return
 		}
 		h.pool.Exec(r.Context(), "update stories set notes = $2 where id = $1", rc.storyID, *body.Notes)
+	}
+	if body.Ref != nil {
+		ref := strings.TrimSpace(*body.Ref)
+		if len(ref) > 40 {
+			http.Error(w, `{"error":"a ticket reference can be at most 40 characters"}`, http.StatusBadRequest)
+			return
+		}
+		h.pool.Exec(r.Context(), "update stories set ref = $2 where id = $1", rc.storyID, ref)
 	}
 	if body.Position != nil {
 		h.pool.Exec(r.Context(), "update stories set position = $2 where id = $1", rc.storyID, *body.Position)

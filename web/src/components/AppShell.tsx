@@ -5,6 +5,7 @@ import type { ConnectionStatus } from "../lib/socket";
 import { useTheme } from "../lib/ui";
 import { Avatar } from "./Avatar";
 import { ConnectionBanner } from "./ConnectionBanner";
+import { MemberCard } from "./MemberCard";
 
 export function Logo({ size = 14 }: { size?: number }) {
   return (
@@ -59,6 +60,7 @@ export function AppShell({
   children,
 }: Props) {
   const [sideOpen, setSideOpen] = useState(sidebarDefault);
+  const [who, setWho] = useState<string | null>(null);
   const { isDark, toggle } = useTheme();
   const online = new Set(presence ?? members?.map((m) => m.userId) ?? []);
   const stack = (members ?? []).slice(0, 5);
@@ -102,9 +104,16 @@ export function AppShell({
         {stack.length > 0 && (
           <span className="hidden items-center lg:flex">
             {stack.map((m, i) => (
-              <span key={m.userId} style={{ marginLeft: i ? -8 : 0 }} className="ring-2 ring-surface rounded-full">
+              <button
+                key={m.userId}
+                title={m.name}
+                aria-label={m.name}
+                onClick={() => setWho(m.userId)}
+                style={{ marginLeft: i ? -8 : 0 }}
+                className="rounded-full ring-2 ring-surface"
+              >
                 <Avatar name={m.name} hue={m.avatarHue} size="sm" dim={!online.has(m.userId)} />
-              </span>
+              </button>
             ))}
             {overflow > 0 && (
               <span className="-ml-2 flex h-7 w-7 items-center justify-center rounded-full bg-felt-deep text-[10px] font-bold text-ink-soft ring-2 ring-surface">
@@ -183,7 +192,11 @@ export function AppShell({
                 </h2>
                 <ul className="flex flex-col gap-2">
                   {members.map((m) => (
-                    <li key={m.userId} className="flex items-center gap-2.5">
+                    <li key={m.userId}>
+                      <button
+                        onClick={() => setWho(m.userId)}
+                        className="-mx-1 flex w-[calc(100%+0.5rem)] items-center gap-2.5 rounded-chip px-1 py-0.5 text-left hover:bg-felt-deep"
+                      >
                       <span className="relative">
                         <Avatar name={m.name} hue={m.avatarHue} size="sm" dim={!online.has(m.userId)} />
                         <span
@@ -197,6 +210,12 @@ export function AppShell({
                       {me?.id === m.userId && (
                         <span className="font-mono text-[9px] text-ink-faint">you</span>
                       )}
+                      {m.at && (
+                        <span className="ml-auto shrink-0 font-mono text-[9px] text-go">
+                          {m.at.sessionId === activeSessionId ? "here" : "in session"}
+                        </span>
+                      )}
+                      </button>
                     </li>
                   ))}
                 </ul>
@@ -207,6 +226,15 @@ export function AppShell({
 
         <main className="relative min-w-0 flex-1">{children}</main>
       </div>
+
+      {who && members && (
+        <MemberCard
+          member={members.find((m) => m.userId === who)!}
+          isYou={me?.id === who}
+          activeSessionId={activeSessionId}
+          onClose={() => setWho(null)}
+        />
+      )}
     </div>
   );
 }

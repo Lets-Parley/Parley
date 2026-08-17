@@ -12,10 +12,19 @@ import (
 )
 
 type memberView struct {
-	UserID    string `json:"userId"`
-	Name      string `json:"name"`
-	AvatarHue int    `json:"avatarHue"`
-	Spectator bool   `json:"spectator"`
+	UserID    string   `json:"userId"`
+	Name      string   `json:"name"`
+	AvatarHue int      `json:"avatarHue"`
+	Spectator bool     `json:"spectator"`
+	At        *seatRef `json:"at,omitempty"`
+}
+
+// seatRef says which live session in this space a member currently has open, so
+// the roster can offer "go to where they are". It never names a session outside
+// the space, and the roster it rides on is members-only already.
+type seatRef struct {
+	SessionID string `json:"sessionId"`
+	Title     string `json:"title"`
 }
 
 func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
@@ -75,14 +84,27 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
 				return
 			}
-			views := make([]memberView, len(roster))
-			for i, m := range roster {
-				views[i] = memberView{UserID: m.UserID, Name: m.Name, AvatarHue: avatarHue(m.UserID), Spectator: m.Spectator}
-			}
 			sessions, err := a.sessions.ListBySpace(r.Context(), sp.ID)
 			if err != nil {
 				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
 				return
+			}
+			// Presence is read from the hub, not the database: a member is
+			// "at" a session only while a socket is actually open.
+			seats := map[string]*seatRef{}
+			for _, sess := range sessions {
+				if sess.EndedAt != nil {
+					continue
+				}
+				for _, uid := range a.hub.Connected(sess.ID) {
+					if _, taken := seats[uid]; !taken {
+						seats[uid] = &seatRef{SessionID: sess.ID, Title: sess.Title}
+					}
+				}
+			}
+			views := make([]memberView, len(roster))
+			for i, m := range roster {
+				views[i] = memberView{UserID: m.UserID, Name: m.Name, AvatarHue: avatarHue(m.UserID), Spectator: m.Spectator, At: seats[m.UserID]}
 			}
 			writeJSON(w, http.StatusOK, map[string]any{
 				"slug": sp.Slug, "name": sp.Name, "members": views, "sessions": sessions,

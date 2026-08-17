@@ -17,6 +17,7 @@ type WireVote struct {
 
 type WireStory struct {
 	ID           string     `json:"id"`
+	Ref          string     `json:"ref"`
 	Title        string     `json:"title"`
 	Notes        string     `json:"notes"`
 	Position     float64    `json:"position"`
@@ -63,7 +64,7 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	}
 
 	rows, err := pool.Query(ctx, `
-		select s.id, s.title, s.notes, s.position, s.estimate, s.status,
+		select s.id, s.ref, s.title, s.notes, s.position, s.estimate, s.status,
 		       coalesce(array_agg(v.user_id::text) filter (where v.user_id is not null), '{}')
 		from stories s
 		left join votes v on v.story_id = s.id
@@ -76,7 +77,7 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	defer rows.Close()
 	for rows.Next() {
 		var ws WireStory
-		if err := rows.Scan(&ws.ID, &ws.Title, &ws.Notes, &ws.Position, &ws.Estimate, &ws.Status, &ws.VotedUserIDs); err != nil {
+		if err := rows.Scan(&ws.ID, &ws.Ref, &ws.Title, &ws.Notes, &ws.Position, &ws.Estimate, &ws.Status, &ws.VotedUserIDs); err != nil {
 			return nil, err
 		}
 		st.Stories = append(st.Stories, ws)

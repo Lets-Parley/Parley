@@ -19,7 +19,7 @@ func exportCSV(env session.Envelope) ([][]string, error) {
 	for _, p := range env.Participants {
 		names[p.UserID] = p.Name
 	}
-	rows := [][]string{{"story", "status", "estimate", "votes", "detail"}}
+	rows := [][]string{{"ticket", "story", "status", "estimate", "votes", "detail"}}
 	for _, s := range st.Stories {
 		detail := ""
 		// Vote values exist in the wire state only for the revealed current
@@ -35,6 +35,7 @@ func exportCSV(env session.Envelope) ([][]string, error) {
 			estimate = *s.Estimate
 		}
 		rows = append(rows, []string{
+			session.SanitizeCell(s.Ref),
 			session.SanitizeCell(s.Title),
 			s.Status,
 			session.SanitizeCell(estimate),

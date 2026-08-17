@@ -28,7 +28,7 @@ export function Hand({
     <section className="mx-auto w-full max-w-[780px] rounded-panel bg-felt-deep px-4 pb-6 pt-4 shadow-well sm:px-6">
       <div className="mb-3.5 flex items-center justify-between gap-3">
         <h2 className="font-mono text-[11px] tracking-[0.06em] text-ink-faint">
-          YOUR HAND · {deckName}
+          YOUR HAND · <span className="capitalize">{deckName}</span>
         </h2>
         <div className="flex items-center gap-3">
           <span className="font-mono text-[10px] sm:hidden" style={{ color: selected ? "var(--color-go)" : "var(--color-ink-faint)" }}>

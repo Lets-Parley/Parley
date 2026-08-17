@@ -21,6 +21,9 @@ const DECKS = [
   { id: "powers-of-2", name: "Powers of 2", sample: ["1", "2", "4", "8", "16"] },
 ];
 
+type Kind = "All" | "Poker" | "Standup";
+type Sort = "Recent" | "Active first" | "A\u2013Z";
+
 function relativeDate(iso: string): string {
   const d = new Date(iso);
   const today = new Date();
@@ -38,6 +41,9 @@ export function SpacePage() {
   const [needName, setNeedName] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [kind, setKind] = useState<Kind>("All");
+  const [sort, setSort] = useState<Sort>("Recent");
 
   const space = useQuery({
     queryKey: ["space", slug],
@@ -93,7 +99,16 @@ export function SpacePage() {
     );
   }
 
-  const sessions = sp.sessions ?? [];
+  const all = sp.sessions ?? [];
+  const q = query.trim().toLowerCase();
+  const filtered = all
+    .filter((s) => (kind === "All" || s.kind === kind.toLowerCase()) && (!q || s.title.toLowerCase().includes(q)))
+    .sort((a, b) => {
+      if (sort === "A\u2013Z") return a.title.localeCompare(b.title);
+      if (sort === "Active first") return Number(!!a.endedAt) - Number(!!b.endedAt);
+      return 0; // "Recent" — the server already returns newest first.
+    });
+  const filtersOn = !!q || kind !== "All" || sort !== "Recent";
 
   return (
     <AppShell
@@ -102,7 +117,7 @@ export function SpacePage() {
       me={me.data ?? null}
       status="live"
       members={sp.members}
-      sessions={sessions}
+      sessions={all}
     >
       <div className="mx-auto max-w-[760px] px-6 py-9 sm:px-8">
         <div className="mb-5 flex items-center justify-between gap-4">
@@ -112,14 +127,68 @@ export function SpacePage() {
           </button>
         </div>
 
-        {sessions.length === 0 ? (
+        {all.length > 0 && (
+          <div className="mb-4 flex flex-wrap items-center gap-2.5">
+            <label className="flex min-w-[180px] flex-1 items-center gap-2 rounded-full border border-line bg-surface px-3.5 py-2">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] border-ink-faint" aria-hidden />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search sessions"
+                aria-label="Search sessions"
+                className="w-full bg-transparent text-[13px] outline-none"
+              />
+            </label>
+            <div className="flex gap-0.5 rounded-full bg-felt-deep p-[3px]">
+              {(["All", "Poker", "Standup"] as const).map((k) => (
+                <button
+                  key={k}
+                  onClick={() => setKind(k)}
+                  aria-pressed={kind === k}
+                  className={
+                    "rounded-full px-3 py-1.5 text-xs font-bold " +
+                    (kind === k ? "bg-surface text-ink shadow-rest" : "text-ink-soft")
+                  }
+                >
+                  {k}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setSort(sort === "Recent" ? "Active first" : sort === "Active first" ? "A\u2013Z" : "Recent")}
+              className="flex items-center gap-1.5 rounded-full border border-line bg-surface px-3.5 py-2 text-xs font-bold text-ink-soft hover:bg-surface-hi"
+            >
+              <span className="font-mono text-[10px] text-ink-faint">SORT</span>
+              {sort}
+            </button>
+            {filtersOn && (
+              <button
+                onClick={() => {
+                  setQuery("");
+                  setKind("All");
+                  setSort("Recent");
+                }}
+                className="px-1 py-2 text-xs font-bold text-accent"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        )}
+
+        {all.length === 0 ? (
           <EmptyTable
             heading="Nothing on the table yet"
             body={`Start a session and everyone in ${sp.name} can pull up a chair.`}
           />
+        ) : filtered.length === 0 ? (
+          <p className="px-2 py-9 text-center text-sm text-ink-soft">
+            Nothing matches {q ? `\u201c${query}\u201d` : "these filters"}
+            {kind === "All" ? "" : ` in ${kind.toLowerCase()} sessions`}.
+          </p>
         ) : (
           <ul className="flex flex-col gap-2.5">
-            {sessions.map((s) => (
+            {filtered.map((s) => (
               <li key={s.id}>
                 <Link
                   to={`/session/${s.id}`}

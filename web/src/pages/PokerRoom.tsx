@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api, type Envelope, type Me, type Person, type Story } from "../lib/api";
 import { useCountdown, useToast } from "../lib/ui";
@@ -70,8 +70,11 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
           {current ? (
             <div className="min-w-0 flex-1 basis-[240px]">
               <div className="flex items-center gap-2">
-                <span className="font-mono text-[11px] text-ink-faint">
-                  #{st.stories.findIndex((s) => s.id === current.id) + 1}
+                <span
+                  className="font-mono text-[11px]"
+                  style={{ color: current.ref ? "var(--color-ink-faint)" : "var(--color-brass)" }}
+                >
+                  {current.ref || "ad hoc · no ticket"}
                 </span>
                 <span className="rounded-full bg-accent-soft px-2 py-0.5 font-mono text-[10px] text-accent">
                   current
@@ -104,7 +107,7 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
                     onClick={async () => {
                       const value = heroOf(results).value;
                       if (await run(() => api("PATCH", `/api/stories/${current!.id}`, { estimate: value }))) {
-                        say(`Estimate ${value} saved to the story`);
+                        say(`Estimate ${value} saved to ${current!.ref || "the ad-hoc round"}`);
                       }
                     }}
                   >
@@ -182,7 +185,10 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
             <div className="flex items-center gap-2.5">
               {claimLeft !== null && claimLeft > 0 && <GraceRing left={claimLeft} total={GRACE_SECONDS} />}
               <button
-                disabled={!claimLeft || claimLeft > 0}
+                // Zero is the moment it becomes claimable, so test for null
+                // explicitly — a falsy check disables the button exactly when
+                // the grace period has run out.
+                disabled={claimLeft === null || claimLeft > 0}
                 onClick={async () => {
                   if (await run(() => api("POST", `/api/sessions/${env.id}/facilitator/claim`))) {
                     say("You're the facilitator now");
@@ -217,12 +223,28 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
           />
         ) : (
           <EmptyTable
-            canAdd={isFacilitator && !ended}
             heading={st.stories.length === 0 ? "Deal the first story" : "Nothing on the table"}
             body={
               st.stories.length === 0
-                ? "Add a story to the queue and the table opens for votes. Paste a link and Parley keeps it attached."
+                ? "Two ways in: queue up tickets, or just start pointing and keep the numbers wherever you already track them."
                 : "Pick a story from the queue and the table opens for votes."
+            }
+            footnote={
+              st.stories.length === 0
+                ? "Ad-hoc rounds need no ticket number — name it in a word, or leave it blank and read the result off the table."
+                : undefined
+            }
+            actions={
+              isFacilitator && !ended && st.stories.length === 0 ? (
+                <>
+                  <button className={buttonPrimary} onClick={quickRound}>
+                    Point something now
+                  </button>
+                  <span className="font-mono text-[11px] text-ink-faint">
+                    or use “+ Ticket” in the story queue
+                  </span>
+                </>
+              ) : undefined
             }
           />
         )}
@@ -258,6 +280,7 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
         stories={st.stories}
         currentStoryId={st.currentStoryId}
         isFacilitator={isFacilitator && !ended}
+        onQuickRound={quickRound}
         onError={setError}
       />
 
@@ -286,6 +309,19 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
       )}
     </div>
   );
+
+  // An ad-hoc round: a story with no ticket behind it, dealt straight to the
+  // table so the room can point something the tracker has never heard of.
+  async function quickRound() {
+    const before = new Set(st.stories.map((s) => s.id));
+    if (!(await run(() => api("POST", `/api/sessions/${env.id}/stories`, { title: "Ad-hoc round" })))) return;
+    const fresh = await api<Envelope>("GET", `/api/sessions/${env.id}`);
+    const added = fresh.state.stories.find((s) => !before.has(s.id));
+    if (added) {
+      await run(() => api("POST", `/api/sessions/${env.id}/select`, { storyId: added.id }));
+    }
+    say("Ad-hoc round on the table — no ticket needed");
+  }
 
   async function reset() {
     if (await run(() => api("POST", `/api/sessions/${env.id}/reset`))) {
@@ -321,11 +357,13 @@ function GraceRing({ left, total }: { left: number; total: number }) {
 export function EmptyTable({
   heading,
   body,
-  canAdd,
+  actions,
+  footnote,
 }: {
   heading: string;
   body: string;
-  canAdd?: boolean;
+  actions?: ReactNode;
+  footnote?: string;
 }) {
   return (
     <div className="flex flex-col items-center justify-center gap-5 px-8 py-16">
@@ -338,9 +376,10 @@ export function EmptyTable({
         <span className="absolute inset-x-1 bottom-0 top-11 rounded-[10px] border border-line bg-felt-deep" />
       </div>
       <p className="font-display text-[1.75rem]">{heading}</p>
-      <p className="max-w-[380px] text-center text-sm text-ink-soft text-pretty">{body}</p>
-      {canAdd && (
-        <p className="font-mono text-[11px] text-ink-faint">Use “+ Add” in the story queue.</p>
+      <p className="max-w-[420px] text-center text-sm text-ink-soft text-pretty">{body}</p>
+      {actions && <div className="flex flex-wrap items-center justify-center gap-2.5">{actions}</div>}
+      {footnote && (
+        <p className="max-w-[400px] text-center text-xs text-ink-faint text-pretty">{footnote}</p>
       )}
     </div>
   );

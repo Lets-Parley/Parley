@@ -8,12 +8,14 @@ export function StoryQueue({
   stories,
   currentStoryId,
   isFacilitator,
+  onQuickRound,
   onError,
 }: {
   sessionId: string;
   stories: Story[];
   currentStoryId: string | null;
   isFacilitator: boolean;
+  onQuickRound: () => void;
   onError: (msg: string) => void;
 }) {
   const [composing, setComposing] = useState(false);
@@ -43,12 +45,21 @@ export function StoryQueue({
           Story queue · {stories.length}
         </h2>
         {isFacilitator && (
-          <button
-            onClick={() => setComposing(true)}
-            className="text-xs font-bold text-accent hover:underline"
-          >
-            + Add
-          </button>
+          <span className="flex gap-2.5">
+            <button
+              onClick={onQuickRound}
+              title="Ad-hoc round, no ticket needed"
+              className="text-xs font-bold text-accent hover:underline"
+            >
+              + Ad hoc
+            </button>
+            <button
+              onClick={() => setComposing(true)}
+              className="text-xs font-bold text-accent hover:underline"
+            >
+              + Ticket
+            </button>
+          </span>
         )}
       </div>
 
@@ -87,8 +98,11 @@ export function StoryQueue({
             )}
 
             <span className="min-w-0 flex-1">
-              <span className="block font-mono text-[10px] text-ink-faint">
-                #{i + 1}
+              <span
+                className="block font-mono text-[10px]"
+                style={{ color: s.ref ? "var(--color-ink-faint)" : "var(--color-brass)" }}
+              >
+                {s.ref || "ad hoc"}
                 {s.id === currentStoryId && <span className="text-accent"> · current</span>}
               </span>
               <span className="block truncate text-[13px] font-semibold" title={s.title}>
@@ -121,8 +135,8 @@ export function StoryQueue({
       {composing && (
         <StoryComposer
           onClose={() => setComposing(false)}
-          onSubmit={async (title, notes) => {
-            await run(() => api("POST", `/api/sessions/${sessionId}/stories`, { title, notes }));
+          onSubmit={async (title, notes, ref) => {
+            await run(() => api("POST", `/api/sessions/${sessionId}/stories`, { title, notes, ref }));
             setComposing(false);
           }}
         />
@@ -136,19 +150,27 @@ function StoryComposer({
   onSubmit,
 }: {
   onClose: () => void;
-  onSubmit: (title: string, notes: string) => void;
+  onSubmit: (title: string, notes: string, ref: string) => void;
 }) {
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
+  const [ref, setRef] = useState("");
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (title.trim()) onSubmit(title.trim(), notes.trim());
+    if (title.trim()) onSubmit(title.trim(), notes.trim(), ref.trim());
   }
 
   return (
-    <Modal title="Add a story" onClose={onClose}>
+    <Modal title="Add a ticket" onClose={onClose}>
       <form onSubmit={submit} className="flex flex-col gap-3 pt-3">
+        <input
+          className={inputClass}
+          value={ref}
+          onChange={(e) => setRef(e.target.value)}
+          placeholder="Ticket, e.g. PAR-142 — leave blank for an ad-hoc round"
+          maxLength={40}
+        />
         <input
           className={inputClass}
           value={title}

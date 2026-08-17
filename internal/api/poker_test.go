@@ -310,3 +310,39 @@ func jsonDecode(t *testing.T, resp *http.Response, into any) {
 		t.Fatal(err)
 	}
 }
+
+// A story either carries a ticket reference or is an ad-hoc round; both shapes
+// have to survive the round trip, and an over-long ref has to be refused.
+func TestStoryTicketRef(t *testing.T) {
+	srv := testServer(t)
+	fac, _, id := setupSession(t, srv, "Ref Space")
+
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/stories",
+		`{"title":"Rate limiting","ref":"PAR-142"}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("add ticket story: %d", resp.StatusCode)
+	}
+	adHoc := addStory(t, srv, id, "Ad-hoc round", fac)
+
+	_, env := doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	stories := env["state"].(map[string]any)["stories"].([]any)
+	if got := stories[0].(map[string]any)["ref"]; got != "PAR-142" {
+		t.Fatalf("ticket ref round trip: %v", got)
+	}
+	if got := currentStory(env, adHoc)["ref"]; got != "" {
+		t.Fatalf("ad-hoc story should have an empty ref, got %v", got)
+	}
+
+	// Attaching a ticket to an ad-hoc round afterwards.
+	if resp, _ := doJSON(t, srv, "PATCH", "/api/stories/"+adHoc, `{"ref":"PAR-9"}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("patch ref: %d", resp.StatusCode)
+	}
+	_, env = doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	if got := currentStory(env, adHoc)["ref"]; got != "PAR-9" {
+		t.Fatalf("patched ref: %v", got)
+	}
+
+	if resp, _ := doJSON(t, srv, "PATCH", "/api/stories/"+adHoc,
+		`{"ref":"`+strings.Repeat("x", 41)+`"}`, fac); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("over-long ref: %d", resp.StatusCode)
+	}
+}
