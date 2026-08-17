@@ -114,7 +114,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           api.Router(pool, secureCookies),
+		Handler:           api.Router(pool, secureCookies, cfg.BaseURL.Scheme+"://"+cfg.BaseURL.Host),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

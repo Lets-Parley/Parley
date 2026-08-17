@@ -26,11 +26,14 @@ func testServer(t *testing.T) *httptest.Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
+	if _, err := pool.Exec(context.Background(), "drop schema public cascade; create schema public"); err != nil {
+		t.Fatal(err)
+	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	if err := db.Migrate(context.Background(), pool, log); err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(Router(pool, false))
+	srv := httptest.NewServer(Router(pool, false, "http://example.test"))
 	t.Cleanup(srv.Close)
 	return srv
 }
