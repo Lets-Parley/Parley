@@ -59,8 +59,8 @@ func passcodeMatches(want, got string) bool {
 // which a script would walk in an afternoon unthrottled. Attempts are counted
 // per client address so a wrong-code loop stalls long before it gets anywhere.
 //
-// ponytail: in-memory, which is right while the binary asserts single-replica
-// at boot; move the counter to Postgres or Redis if that ever changes.
+// The counter is in-memory, which holds while the binary asserts single-replica
+// at boot; it moves to Postgres or Redis if that ever changes.
 const (
 	passcodeAttemptLimit  = 8
 	passcodeAttemptWindow = time.Minute
