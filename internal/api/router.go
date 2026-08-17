@@ -3,16 +3,30 @@ package api
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/jacorbello/parley/internal/store"
 	"github.com/jacorbello/parley/web"
 )
 
-func Router(pool *pgxpool.Pool) http.Handler {
+type app struct {
+	pool          *pgxpool.Pool
+	users         *store.Users
+	secureCookies bool
+}
+
+func Router(pool *pgxpool.Pool, secureCookies bool) http.Handler {
+	a := &app{
+		pool:          pool,
+		users:         &store.Users{Pool: pool},
+		secureCookies: secureCookies,
+	}
+
 	r := chi.NewRouter()
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
@@ -36,7 +50,31 @@ func Router(pool *pgxpool.Pool) http.Handler {
 		w.Write([]byte("ok"))
 	})
 
+	r.Route("/api", func(r chi.Router) {
+		r.Use(requireJSONBody)
+		r.Use(resolvePrincipal(a.users))
+
+		r.Post("/me", a.handlePostMe)
+		r.Get("/me", a.handleGetMe)
+		r.Delete("/me", a.handleDeleteMe)
+	})
+
 	r.NotFound(web.SPAHandler())
 
 	return r
+}
+
+// requireJSONBody rejects non-GET requests whose body is not declared JSON,
+// which blocks cross-site form posts.
+func requireJSONBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.ContentLength != 0 {
+			ct := r.Header.Get("Content-Type")
+			if !strings.HasPrefix(ct, "application/json") {
+				http.Error(w, `{"error":"Content-Type must be application/json"}`, http.StatusUnsupportedMediaType)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
