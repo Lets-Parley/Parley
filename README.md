@@ -1,22 +1,107 @@
 # Parley
 
-Planning poker and daily standups for your team, at your table. Self-hosted,
+**Planning poker and daily standups for your team, at your table.** Self-hosted,
 open source, no accounts, no fuss.
 
-![A revealed planning poker round in Parley](docs/screenshot-reveal.png)
+[![ci](https://github.com/jacorbello/parley/actions/workflows/ci.yml/badge.svg)](https://github.com/jacorbello/parley/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
+[![container](https://img.shields.io/badge/ghcr.io-parley-2496ED?logo=docker&logoColor=white)](https://github.com/jacorbello/parley/pkgs/container/parley)
 
-- **Planning poker** — story queue, four deck presets, hidden votes with
-  auto-reveal, a proper histogram with per-deck stats (T-shirt decks get
-  mode/range, never a meaningless average), CSV export.
-- **Daily standup** — round-robin speaking order with a per-person timer,
-  skip/absent, yesterday's "today" carried forward automatically, and a
-  copyable blockers roundup at the end.
-- **Spaces** — one memorable link per team (`/s/platform-team`) plus a short
-  room code. New spaces are protected by default: people enter the code, pick
-  a name, get an avatar, and they're in. A space can also be opened, making
-  the link alone the invite.
-- One Go binary + Postgres. The frontend is embedded; there is nothing else
-  to run.
+![A revealed planning poker round in Parley](docs/screenshot-poker.png)
+
+## Contents
+
+- [Why](#why)
+- [Features](#features)
+- [More screenshots](#more-screenshots)
+- [Quickstart](#quickstart)
+- [Configuration](#configuration)
+- [Reverse proxy (HTTPS + WebSockets)](#reverse-proxy-https--websockets)
+- [Kubernetes](#kubernetes)
+- [Security model](#security-model)
+- [Backups](#backups)
+- [Upgrading](#upgrading)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Why
+
+Most planning-poker tools want an account, a workspace, a seat count, and a
+credit card before anyone can vote on a story. Parley wants a link.
+
+One Go binary and a Postgres database. The frontend is compiled into the binary,
+so there is no second service, no Node runtime in production, and nothing to
+keep in sync. Point a container at a database and you have a table your team can
+sit at.
+
+## Features
+
+### Planning poker
+
+- **Story queue.** Add work as a ticket (with a reference like `PLAT-412`) or as
+  an ad-hoc line item, with optional notes. Reorder with the arrows.
+- **Four decks:** Fibonacci, modified Fibonacci, T-shirt sizes, and powers of
+  two. Every deck carries `?` and a coffee card.
+- **Hidden votes.** Nobody sees a value until the round opens, which happens
+  automatically once everyone at the table has voted, or when the facilitator
+  calls it.
+- **Stats that suit the deck.** Median up front, per-value counts underneath,
+  average only when the deck is numeric. A T-shirt round reports mode and range
+  instead of inventing a meaningless "M-and-a-half".
+- **Save the estimate:** one click writes the agreed number onto the story and
+  moves the queue along.
+- **Spectators** can step back from the table and watch without holding up the
+  round. They don't count toward the auto-reveal.
+
+### Daily standup
+
+- **Round-robin order** with a per-person timer, so the quiet people get their
+  turn and the talkative ones can see the clock.
+- **Skip / absent** without losing anyone's place in the rotation.
+- **Yesterday writes itself.** Whatever you put in "today" last standup is
+  waiting in "yesterday" at the next one.
+- **Write ahead.** Fill your entry in before the meeting; it saves itself as you
+  type, and an incoming update from someone else can't eat your keystrokes.
+- **Blockers roundup** at the end, ready to copy into a channel.
+
+### Spaces
+
+- **One memorable link per team.** `/s/platform-team`, and that's the URL you
+  paste in chat.
+- **Protected by default.** New spaces get a six-character room code. People
+  enter the code, pick a name, get an avatar, and they're in. Any member can
+  mint a new code, or open the space so the link alone is the invite.
+- **Roster with presence:** who's around, who's in a session, and a jump
+  straight to the table they're sitting at.
+- **Session history**, searchable and filterable by kind or date.
+
+### Everything else
+
+- **No accounts.** A name and a cookie. Change your name whenever you like.
+- **Live for everyone.** WebSocket-backed, with a reconnect banner that tells the
+  truth about the connection instead of silently going stale.
+- **CSV export** for any session: estimates, votes per person, standup entries.
+  Cells that start with `=` are escaped, so an export can't run formulas in a
+  spreadsheet.
+- **Facilitator handover.** Hand off explicitly, or if the facilitator drops off,
+  anyone at the table can take over after a 60-second grace period.
+- **Light, dark, and system themes.**
+- **Boring to operate.** `/healthz` that never touches the database, `/readyz`
+  that does, structured JSON logs, migrations applied at boot, and a refusal to
+  start rather than run against a database a newer version has already migrated.
+
+## More screenshots
+
+| | |
+|---|---|
+| ![Standup in progress](docs/screenshot-standup.png) | ![The space page](docs/screenshot-space.png) |
+| A standup mid-rotation, timer running | Sessions, roster, and the room code |
+
+![The same round in dark mode](docs/screenshot-poker-dark.png)
 
 ## Quickstart
 
@@ -44,6 +129,18 @@ Two changes, made together:
 `BASE_URL` drives the WebSocket origin check and the session cookie's Secure
 flag; if it doesn't match how people actually reach the server, boards will
 sit at "reconnecting" or logins won't stick (see Troubleshooting).
+
+### From a prebuilt image
+
+Tagged releases publish a multi-arch image (amd64 and arm64) to
+`ghcr.io/jacorbello/parley`. Bring your own Postgres:
+
+```sh
+docker run -d --name parley -p 8080:8080 \
+  -e DATABASE_URL='postgres://parley:secret@db:5432/parley' \
+  -e BASE_URL='https://parley.example.com' \
+  ghcr.io/jacorbello/parley:latest
+```
 
 ## Configuration
 
@@ -84,6 +181,14 @@ location / {
 
 Set `BASE_URL=https://parley.example.com` to match.
 
+## Kubernetes
+
+`deploy/k8s/deployment.yaml` is a starting point. Two things in it are
+load-bearing rather than stylistic. `replicas: 1` + `strategy: Recreate`: the
+realtime hub is in-process, and a second replica refuses to start via a Postgres
+advisory lock. And the liveness probe hits `/healthz`, which never touches the
+database, because a DB blip must not restart the pod and drop every WebSocket.
+
 ## Security model
 
 Parley has **no user accounts by design**. A space is guarded by a shared room
@@ -91,7 +196,7 @@ code, not by identity: anyone holding the code can join, and joining grants
 full participation — seeing the roster, voting, and writing standup entries.
 Joins are broadcast to the room, so lurking is visible. Run Parley on your
 internal network, or behind your existing SSO proxy (oauth2-proxy, Authelia,
-Cloudflare Access — the reverse proxy snippet above is where it slots in).
+Cloudflare Access; the reverse proxy snippet above is where it slots in).
 
 Room codes are six characters from a 25-character alphabet, and wrong guesses
 are throttled per client address. They are stored **readable** in the database
@@ -107,6 +212,10 @@ What Parley does enforce: acting in a space requires having joined it; a
 protected space refuses joins without the code; session existence is never
 disclosed to non-members; facilitator-only actions (reveal, reset, closing a
 session) are server-checked.
+
+Found something? Open a
+[security advisory](https://github.com/jacorbello/parley/security/advisories/new)
+rather than a public issue.
 
 ## Backups
 
@@ -137,28 +246,25 @@ Postgres upgrades (16 → 17) are not automatic: `pg_dump` with the old
 version, start fresh with the new one, restore. Never just change the tag on
 an existing volume.
 
-## Kubernetes
-
-`deploy/k8s/deployment.yaml` is a starting point. Two things in it are
-load-bearing, not stylistic: `replicas: 1` + `strategy: Recreate` (the
-realtime hub is in-process; a second replica refuses to start via a Postgres
-advisory lock), and the liveness probe hits `/healthz` which never touches
-the database — a DB blip must not restart the pod and drop every WebSocket.
-
 ## Troubleshooting
 
-- **`docker compose up` fails with `set POSTGRES_PASSWORD in .env`** — copy
-  `.env.example` to `.env` and set a password. This is required on purpose;
-  there is no default database password.
-- **Permanent "reconnecting" banner** — the WebSocket origin check is
-  rejecting your browser. Set `BASE_URL` to the exact address in your address
-  bar (scheme, host, and port) and restart. Behind nginx, also confirm the
-  Upgrade/Connection headers from the snippet above.
-- **You set a name but every refresh forgets you** — `BASE_URL` is `https`
-  but you're browsing over plain `http`, so the browser drops the Secure
-  cookie. Serve over HTTPS or set an `http` BASE_URL.
-- **`/readyz` fails but `/healthz` is fine** — the app is up but Postgres is
-  unreachable. Check the `db` container and `DATABASE_URL`.
+- **`docker compose up` fails with `set POSTGRES_PASSWORD in .env`.** Copy
+  `.env.example` to `.env` and set a password. There is no default database
+  password, on purpose.
+- **Permanent "reconnecting" banner.** The WebSocket origin check is rejecting
+  your browser. Set `BASE_URL` to the exact address in your address bar (scheme,
+  host, and port) and restart. Behind nginx, also confirm the Upgrade/Connection
+  headers from the snippet above.
+- **You set a name but every refresh forgets you.** `BASE_URL` is `https` but
+  you're browsing over plain `http`, so the browser drops the Secure cookie.
+  Serve over HTTPS or set an `http` BASE_URL.
+- **`/readyz` fails but `/healthz` is fine.** The app is up, Postgres isn't.
+  Check the `db` container and `DATABASE_URL`.
+- **"That passcode doesn't match this space".** Codes are six characters and
+  case-insensitive; spaces and hyphens are ignored. After eight wrong tries
+  from one address, wait a minute before trying again.
+- **Nobody can start the standup.** The rotation is built from whoever has the
+  session open, so everyone joins first, then the facilitator starts.
 
 ## Development
 
@@ -169,9 +275,41 @@ TEST_DATABASE_URL=postgres://... go test -p 1 ./...  # + integration tests
 cd web && npm run dev                             # Vite dev server, proxies /api and /ws to :8080
 ```
 
-Session kinds (poker, standup) are self-contained packages registered in
-`internal/session` — adding a new kind means one new package and one
-`Register` call.
+`-p 1` matters: the integration tests share one database and migrate it, so
+running packages in parallel makes them fight over the schema.
+
+### Layout
+
+| Path | What lives there |
+|---|---|
+| `cmd/parley` | main — config, boot, single-replica lock |
+| `internal/api` | HTTP router, identity, spaces, sessions, room codes |
+| `internal/poker`, `internal/standup` | the session kinds |
+| `internal/session` | the registry the kinds plug into, plus CSV |
+| `internal/hub` | WebSocket fan-out and presence |
+| `internal/store` | Postgres queries |
+| `internal/db/migrations` | numbered SQL, applied at boot |
+| `web` | Vite + React frontend, embedded into the binary |
+
+Session kinds are self-contained packages registered in `internal/session`, so
+adding a new kind means one new package and one `Register` call.
+
+## Roadmap
+
+Nothing here is promised, and the order will change.
+
+- Knock-to-join: request access from the door, let the facilitator wave you in.
+- Per-user and per-team access to a space, so a rotated room code isn't the only
+  lever. The room code is deliberately a first step, not the destination.
+
+## Contributing
+
+Issues and pull requests are welcome. A few things that make review quick:
+
+- Open an issue before a large change, so nobody builds the wrong thing twice.
+- `go test -p 1 ./...` and `npm run lint` pass.
+- A behaviour change comes with a test that fails without it.
+- Migrations are additive and numbered; never edit one that has shipped.
 
 ## License
 
