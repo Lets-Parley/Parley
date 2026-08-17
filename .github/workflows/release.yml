@@ -26,7 +26,9 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            # Guarded: without this a v1.1.0-rc1 tag would move `latest` onto a
+            # pre-release, and the compose file defaults to `latest`.
+            type=raw,value=latest,enable=${{ !contains(github.ref, '-') }}
       - uses: docker/build-push-action@v6
         with:
           context: .

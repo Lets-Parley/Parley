@@ -20,9 +20,16 @@ spec:
       labels:
         app: parley
     spec:
+      # The old pod holds the boot advisory lock until it exits, and Recreate
+      # waits for that. http.Server.Shutdown does not close hijacked WebSocket
+      # connections, so give termination real room — a new pod that starts too
+      # early dies with "advisory lock ... already held".
+      terminationGracePeriodSeconds: 30
       containers:
         - name: parley
-          image: ghcr.io/jacorbello/parley:latest # pin a version tag in production
+          # A published tag, not :latest. Rolling back onto an older image after
+          # a migration ran makes Parley refuse to start (by design).
+          image: ghcr.io/jacorbello/parley:1.0.0
           ports:
             - containerPort: 8080
           env:
@@ -33,6 +40,28 @@ spec:
                   key: database-url
             - name: BASE_URL
               value: "https://parley.example.com" # the address users reach it at
+          # The first four are what the "restricted" Pod Security Standard
+          # checks: it reads the manifest, never the image, so the distroless
+          # nonroot USER does not satisfy runAsNonRoot on its own.
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+            # Not a PSS control. Parley never writes to disk — the frontend and
+            # the migrations are embedded, exports stream to the response.
+            readOnlyRootFilesystem: true
+          # Migrations run before the listener exists, so nothing answers on
+          # 8080 during boot. Without this, liveness starts failing at t=0 and
+          # kills the pod ~30s into a long migration.
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            periodSeconds: 5
+            failureThreshold: 12
           # Liveness never touches the database: a DB blip must not restart the
           # process and drop every WebSocket in the room.
           livenessProbe:
@@ -45,6 +74,10 @@ spec:
               path: /readyz
               port: 8080
             periodSeconds: 5
+          # No limits: nobody has measured Parley's steady-state footprint, and
+          # a memory limit guessed too low turns a busy room into an OOMKill
+          # that drops every WebSocket — the thing the liveness probe above is
+          # careful not to do. Measure yours, then set limits == requests.
           resources:
             requests:
               cpu: 50m
@@ -60,3 +93,33 @@ spec:
   ports:
     - port: 80
       targetPort: 8080
+# Parley ships no Postgres for Kubernetes — bring a managed database or an
+# operator, then hand the Deployment its connection string:
+#
+#   kubectl create secret generic parley \
+#     --from-literal=database-url='postgres://parley:secret@host:5432/parley'
+#
+# ---
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: parley
+#   annotations:
+#     # Parley pings every 25s; anything shorter than that cuts live boards.
+#     nginx.ingress.kubernetes.io/proxy-read-timeout: "75s"
+#     nginx.ingress.kubernetes.io/proxy-send-timeout: "75s"
+# spec:
+#   rules:
+#     - host: parley.example.com
+#       http:
+#         paths:
+#           - path: /
+#             pathType: Prefix
+#             backend:
+#               service:
+#                 name: parley
+#                 port:
+#                   number: 80
+#
+# Terminating TLS here means BASE_URL must be the https:// address, exactly as
+# users type it. Get it wrong and the session cookie is silently dropped.
