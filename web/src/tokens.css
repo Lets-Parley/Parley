@@ -116,3 +116,9 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
+
+@keyframes card-hop {
+  0% { transform: rotateY(180deg) translateY(0); }
+  40% { transform: rotateY(180deg) translateY(-8px); }
+  100% { transform: rotateY(180deg) translateY(0); }
+}
