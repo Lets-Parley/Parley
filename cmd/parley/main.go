@@ -80,16 +80,18 @@ func loadConfig() (config, error) {
 			RedirectURL:  strings.TrimSuffix(base.String(), "/") + "/auth/callback",
 			Scopes:       strings.Fields(envOr("OIDC_SCOPES", "profile email")),
 		}
+		// No client secret: the provider registration is a public client and
+		// PKCE alone ties the code to this browser, which is how Keycloak,
+		// Zitadel and Entra register an app of this shape by default.
 		for name, v := range map[string]string{
-			"OIDC_ISSUER":        cfg.OIDC.Issuer,
-			"OIDC_CLIENT_ID":     cfg.OIDC.ClientID,
-			"OIDC_CLIENT_SECRET": cfg.OIDC.ClientSecret,
+			"OIDC_ISSUER":    cfg.OIDC.Issuer,
+			"OIDC_CLIENT_ID": cfg.OIDC.ClientID,
 		} {
 			if v == "" {
 				return cfg, fmt.Errorf("%s is not set — AUTH_MODE=oidc needs it", name)
 			}
 		}
-		if _, err := url.Parse(cfg.OIDC.Issuer); err != nil || !strings.HasPrefix(cfg.OIDC.Issuer, "http") {
+		if u, err := url.Parse(cfg.OIDC.Issuer); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			return cfg, fmt.Errorf("OIDC_ISSUER %q is not a URL — use the issuer's base address, the one that serves /.well-known/openid-configuration", cfg.OIDC.Issuer)
 		}
 	default:

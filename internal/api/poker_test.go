@@ -368,3 +368,26 @@ func TestEstimateMustBeACardFromTheDeck(t *testing.T) {
 		t.Fatalf("a legitimate estimate was refused: %d", resp.StatusCode)
 	}
 }
+
+// An empty estimate is a clear. It used to leave the story flagged estimated
+// with nothing in it, which then reached the CSV export as a blank column.
+func TestClearingAnEstimateUnsetsTheStatus(t *testing.T) {
+	srv := testServer(t)
+	fac, _, id := setupSession(t, srv, "Estimate Clear Space")
+	story := addStory(t, srv, id, "Cleared story", fac)
+
+	if resp, _ := doJSON(t, srv, "PATCH", "/api/stories/"+story, `{"estimate":"5"}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("estimate save: %d", resp.StatusCode)
+	}
+	if resp, _ := doJSON(t, srv, "PATCH", "/api/stories/"+story, `{"estimate":""}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("estimate clear: %d", resp.StatusCode)
+	}
+	_, env := doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	st := currentStory(env, story)
+	if st["estimate"] != nil && st["estimate"] != "" {
+		t.Errorf("estimate still set after a clear: %v", st["estimate"])
+	}
+	if st["status"] == "estimated" {
+		t.Errorf("story is still marked estimated after a clear")
+	}
+}

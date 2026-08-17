@@ -44,7 +44,11 @@ spec:
             # visitor arrives wearing the controller's address and the
             # room-code throttle counts the whole internet as one client:
             # eight wrong guesses would lock everybody out of that space.
-            # Only correct while something in front sets the header itself.
+            # Only correct while the Ingress *overwrites* X-Forwarded-For.
+            # ingress-nginx does by default, but with use-forwarded-headers
+            # it appends instead, and the leftmost value — the one read here
+            # — is the caller's own again, throttle bypass and all. With an
+            # ELB or CDN in front, check that before leaving this true.
             - name: TRUST_PROXY_HEADERS
               value: "true"
           # The first four are what the "restricted" Pod Security Standard

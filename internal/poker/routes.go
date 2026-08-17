@@ -192,7 +192,11 @@ func (h *Handler) patchStory(w http.ResponseWriter, r *http.Request, rc reqCtx) 
 		// dash, the coffee glyph — becomes the story's permanent estimate and
 		// travels on into the CSV export.
 		est := strings.TrimSpace(*body.Estimate)
-		if est != "" {
+		if est == "" {
+			// An empty estimate is a clear, not an estimate of nothing.
+			h.pool.Exec(r.Context(),
+				"update stories set estimate = null, status = 'pending' where id = $1", rc.storyID)
+		} else {
 			var cfg Config
 			json.Unmarshal(rc.sess.Config, &cfg)
 			deck, ok := DeckByName(cfg.Deck)
@@ -203,9 +207,9 @@ func (h *Handler) patchStory(w http.ResponseWriter, r *http.Request, rc reqCtx) 
 				http.Error(w, `{"error":"an estimate has to be a card from this session's deck"}`, http.StatusBadRequest)
 				return
 			}
+			h.pool.Exec(r.Context(),
+				"update stories set estimate = $2, status = 'estimated' where id = $1", rc.storyID, est)
 		}
-		h.pool.Exec(r.Context(),
-			"update stories set estimate = $2, status = 'estimated' where id = $1", rc.storyID, est)
 	}
 	h.done(w, r, rc.sess.ID)
 }

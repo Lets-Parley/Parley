@@ -164,7 +164,7 @@ docker run -d --name parley -p 8080:8080 \
 | `AUTH_MODE` | no | `open` | `open` for no accounts, `oidc` to sign in through an identity provider |
 | `OIDC_ISSUER` | with `oidc` | — | Issuer base URL, the one serving `/.well-known/openid-configuration` |
 | `OIDC_CLIENT_ID` | with `oidc` | — | Client ID registered with the provider |
-| `OIDC_CLIENT_SECRET` | with `oidc` | — | Client secret |
+| `OIDC_CLIENT_SECRET` | no | — | Client secret. Leave unset for a public-client registration; PKCE carries the flow either way |
 | `OIDC_SCOPES` | no | `profile email` | Extra scopes; `openid` is always requested |
 
 Boot logs print the derived settings (`cookie_secure`, `allowed_ws_origin`)
@@ -207,6 +207,12 @@ Get this one the right way round, because it is wrong in both directions:
 - **Behind a proxy, left `false`** — every visitor arrives wearing the proxy's
   address, so the throttle counts them all as one client and eight wrong
   guesses lock the whole internet out of that space for a minute.
+- **Behind a proxy that _appends_ rather than overwrites** — Parley reads the
+  leftmost `X-Forwarded-For` entry, which in that case is still the caller's
+  own. nginx and Caddy overwrite by default; ingress-nginx with
+  `use-forwarded-headers`, or anything sitting behind an ELB or CDN, appends,
+  and `true` is then no safer than exposing the port directly. Check which
+  yours does before trusting the header.
 
 `deploy/k8s/deployment.yaml` sets it to `true` because an Ingress always
 terminates the connection. `docker-compose.yml` leaves it `false` because it
@@ -254,7 +260,7 @@ providers is a change of configuration:
 AUTH_MODE=oidc
 OIDC_ISSUER=https://keycloak.example.com/realms/yourteam
 OIDC_CLIENT_ID=parley
-OIDC_CLIENT_SECRET=...
+OIDC_CLIENT_SECRET=...   # omit for a public client
 ```
 
 Register `<BASE_URL>/auth/callback` as the redirect URI with your provider, and
@@ -271,9 +277,11 @@ Two things worth knowing before you switch a running instance:
   being accepted the moment it starts in `oidc` mode — otherwise turning
   sign-in on would change nothing for anyone already holding a cookie. Their
   accounts and rooms stay in the database, untouched and unmigrated, but the
-  people behind them come back as new federated accounts. Plan the switch for
-  an instance whose history you're willing to leave behind, or wait for account
-  linking.
+  people behind them come back as new federated accounts. There is no account
+  linking yet, so **a space created before the switch is stranded**: its owner
+  is an anonymous row nobody can sign in as again, and the space cannot be
+  administered even though its data is still there. Switch on a fresh instance,
+  or accept that the existing spaces are read-only history.
 
 Names come from the provider's claims — `name`, then `preferred_username`, then
 the local part of `email` — and refresh on every sign-in, so a rename upstream
