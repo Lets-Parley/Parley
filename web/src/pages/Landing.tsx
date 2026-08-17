@@ -5,17 +5,24 @@ import { useMe, useAuthMode, NameGate } from "../components/NameGate";
 import { Logo } from "../components/AppShell";
 import { buttonPrimary, inputClass } from "../components/Modal";
 
+// Deliberately sessionStorage, not localStorage: an abandoned space name should
+// die with the tab rather than greet someone next week.
+const pendingSpaceKey = "parley:pending-space";
+
 export function Landing() {
   const navigate = useNavigate();
   const me = useMe();
   const mode = useAuthMode();
-  const [name, setName] = useState("");
+  // Signing in leaves the page entirely, so the half-finished thought has to
+  // outlive the round trip or the name typed here is gone on the way back.
+  const [name, setName] = useState(() => sessionStorage.getItem(pendingSpaceKey) ?? "");
   const [needName, setNeedName] = useState(false);
   const [error, setError] = useState("");
 
   async function doCreate() {
     try {
       const sp = await api<SpaceView>("POST", "/api/spaces", { name });
+      sessionStorage.removeItem(pendingSpaceKey);
       navigate(`/s/${sp.slug}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not create the space.");
@@ -25,6 +32,7 @@ export function Landing() {
   function submit(e: FormEvent) {
     e.preventDefault();
     if (!me.data) {
+      sessionStorage.setItem(pendingSpaceKey, name);
       setNeedName(true);
       return;
     }
