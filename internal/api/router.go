@@ -116,7 +116,7 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Use(rejectCrossSite(a.allowedOrigin))
 		r.Use(requireJSONBody)
-		r.Use(resolvePrincipal(a.users))
+		r.Use(resolvePrincipal(a.users, mode == ModeOIDC))
 
 		r.Get("/auth", a.handleAuthConfig)
 		r.Post("/me", a.handlePostMe)
@@ -152,7 +152,7 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 		})
 	})
 
-	r.With(resolvePrincipal(a.users)).Get("/ws", a.handleWS)
+	r.With(resolvePrincipal(a.users, mode == ModeOIDC)).Get("/ws", a.handleWS)
 
 	r.NotFound(web.SPAHandler())
 

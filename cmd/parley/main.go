@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -61,7 +62,11 @@ func loadConfig() (config, error) {
 	// Only meaningful behind a proxy that sets the header itself. Exposed
 	// directly, trusting it lets a caller pick their own address and walk
 	// straight through the room-code throttle.
-	cfg.TrustProxy = envOr("TRUST_PROXY_HEADERS", "false") == "true"
+	trust, err := strconv.ParseBool(envOr("TRUST_PROXY_HEADERS", "false"))
+	if err != nil {
+		return cfg, fmt.Errorf("TRUST_PROXY_HEADERS %q is not a boolean — use true or false", os.Getenv("TRUST_PROXY_HEADERS"))
+	}
+	cfg.TrustProxy = trust
 
 	switch mode := strings.ToLower(envOr("AUTH_MODE", api.ModeOpen)); mode {
 	case api.ModeOpen:

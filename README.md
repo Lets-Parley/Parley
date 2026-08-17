@@ -160,7 +160,7 @@ docker run -d --name parley -p 8080:8080 \
 | `BASE_URL` | no | `http://localhost:8080` | The address users reach Parley at. Drives cookie `Secure` and the WebSocket origin check. |
 | `PORT` | no | `8080` | Listen port |
 | `LOG_LEVEL` | no | `info` | `debug` / `info` / `warn` / `error` |
-| `TRUST_PROXY_HEADERS` | no | `false` | Read the client address from `X-Forwarded-For`. Turn on **only** behind a proxy that sets it |
+| `TRUST_PROXY_HEADERS` | no | `false` | Read the client address from `X-Forwarded-For`. Required behind a proxy, unsafe without one — see below |
 | `AUTH_MODE` | no | `open` | `open` for no accounts, `oidc` to sign in through an identity provider |
 | `OIDC_ISSUER` | with `oidc` | — | Issuer base URL, the one serving `/.well-known/openid-configuration` |
 | `OIDC_CLIENT_ID` | with `oidc` | — | Client ID registered with the provider |
@@ -199,10 +199,18 @@ Set `BASE_URL=https://parley.example.com` to match, and set
 `TRUST_PROXY_HEADERS=true` so the room-code throttle counts real clients rather
 than seeing every request as coming from the proxy.
 
-Leave it `false` when Parley is reachable directly. `X-Forwarded-For` is written
-by whoever sends the request, so a server that trusts it without a proxy in
-front lets a script hand itself a fresh address on every guess and walk straight
-through the throttle.
+Get this one the right way round, because it is wrong in both directions:
+
+- **Directly reachable, set to `true`** — `X-Forwarded-For` is written by
+  whoever sends the request, so a script hands itself a fresh address per guess
+  and walks straight through the room-code throttle.
+- **Behind a proxy, left `false`** — every visitor arrives wearing the proxy's
+  address, so the throttle counts them all as one client and eight wrong
+  guesses lock the whole internet out of that space for a minute.
+
+`deploy/k8s/deployment.yaml` sets it to `true` because an Ingress always
+terminates the connection. `docker-compose.yml` leaves it `false` because it
+publishes the port straight to clients.
 
 ## Kubernetes
 
@@ -259,10 +267,13 @@ Two things worth knowing before you switch a running instance:
 - **The anonymous door closes.** With a provider configured, the endpoint that
   mints a nameless identity is refused outright — otherwise signing in would be
   optional and therefore pointless.
-- **Existing anonymous accounts stay in the database but can no longer sign
-  in**, and their rooms stay where they are. Nothing is deleted; nothing is
-  migrated onto a federated account either. Plan the switch for an instance
-  whose history you're willing to leave behind, or wait for account linking.
+- **Everyone is signed out.** Sessions created while the instance was open stop
+  being accepted the moment it starts in `oidc` mode — otherwise turning
+  sign-in on would change nothing for anyone already holding a cookie. Their
+  accounts and rooms stay in the database, untouched and unmigrated, but the
+  people behind them come back as new federated accounts. Plan the switch for
+  an instance whose history you're willing to leave behind, or wait for account
+  linking.
 
 Names come from the provider's claims — `name`, then `preferred_username`, then
 the local part of `email` — and refresh on every sign-in, so a rename upstream

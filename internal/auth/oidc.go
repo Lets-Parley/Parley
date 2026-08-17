@@ -8,10 +8,12 @@ package auth
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
@@ -58,6 +60,11 @@ func (p *Provider) discover(ctx context.Context) error {
 	if p.oauth != nil {
 		return nil
 	}
+	// Bounded: this runs while the lock is held, and http.DefaultClient has no
+	// timeout of its own, so a provider that accepts connections and then goes
+	// quiet would otherwise queue every sign-in behind it indefinitely.
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
 	prov, err := oidc.NewProvider(ctx, p.cfg.Issuer)
 	if err != nil {
 		return fmt.Errorf("could not reach the identity provider at %s: %w", p.cfg.Issuer, err)
@@ -108,7 +115,7 @@ func (p *Provider) Exchange(ctx context.Context, code, pkceVerifier, nonce strin
 	}
 	// The nonce ties this token to the browser that started the sign-in, which
 	// is what stops a token obtained elsewhere from being replayed here.
-	if idToken.Nonce != nonce {
+	if subtle.ConstantTimeCompare([]byte(idToken.Nonce), []byte(nonce)) != 1 {
 		return Identity{}, ErrNonceMismatch
 	}
 

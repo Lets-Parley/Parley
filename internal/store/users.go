@@ -21,6 +21,9 @@ var ErrNoUser = errors.New("no user for token")
 type User struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	// Issuer is empty for an anonymous account and names the identity provider
+	// for a federated one.
+	Issuer string `json:"-"`
 }
 
 type Users struct {
@@ -95,9 +98,11 @@ func (s *Users) ByToken(ctx context.Context, tokenHash []byte) (User, error) {
 	err := s.Pool.QueryRow(ctx, `
 		update session_tokens set last_used_at = now()
 		where token_hash = $1 and last_used_at > now() - $2::interval
-		returning user_id, (select name from users where id = user_id)`,
+		returning user_id,
+		          (select name from users where id = user_id),
+		          (select issuer from users where id = user_id)`,
 		tokenHash, tokenIdleExpiry,
-	).Scan(&u.ID, &u.Name)
+	).Scan(&u.ID, &u.Name, &u.Issuer)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNoUser
 	}

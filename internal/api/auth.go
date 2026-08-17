@@ -44,12 +44,27 @@ func randomToken() string {
 	return base64.RawURLEncoding.EncodeToString(raw)
 }
 
-// safeNext keeps an open redirect out of the sign-in flow. Only a path on this
-// site is allowed back: no scheme, no host, and no "//evil.example" which a
-// browser reads as protocol-relative.
+// safeNext keeps an open redirect out of the sign-in flow: only a path on this
+// site survives it.
+//
+// A leading "/" is not enough. A browser reads "\" as "/", so "/\evil.example"
+// is protocol-relative too, and it strips tab, newline and carriage return out
+// of a URL before parsing, so "/<tab>//evil.example" smuggles the same shape
+// past a prefix check. Anything that is not a plain path goes back to "/".
 func safeNext(raw string) string {
-	if raw == "" || !strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "//") {
+	if raw == "" || raw[0] != '/' {
 		return "/"
+	}
+	if len(raw) > 1 && (raw[1] == '/' || raw[1] == '\\') {
+		return "/"
+	}
+	if strings.ContainsRune(raw, '\\') {
+		return "/"
+	}
+	for _, r := range raw {
+		if r < 0x20 || r == 0x7f {
+			return "/"
+		}
 	}
 	return raw
 }
@@ -99,8 +114,10 @@ func (a *app) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	// Whatever happens next, this attempt is over.
-	defer clearFlowCookie(w, a.secureCookies)
+	// This attempt is over whatever happens next, and the header has to go out
+	// before the first write: a deferred SetCookie lands after Redirect or
+	// Error has already sent the headers, where it does nothing at all.
+	clearFlowCookie(w, a.secureCookies)
 
 	if e := r.URL.Query().Get("error"); e != "" {
 		desc := r.URL.Query().Get("error_description")
@@ -149,7 +166,10 @@ func (a *app) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	slog.Info("sign-in", "user_id", u.ID, "issuer", ident.Issuer)
 
 	setSessionCookie(w, plain, a.secureCookies)
-	http.Redirect(w, r, flow.Next, http.StatusFound)
+	// Checked again on the way out. The cookie is base64 JSON, not a signature,
+	// so whatever comes back out of it is input from the browser — clean when
+	// it was written is no promise it is clean when it is read.
+	http.Redirect(w, r, safeNext(flow.Next), http.StatusFound)
 }
 
 func clearFlowCookie(w http.ResponseWriter, secure bool) {

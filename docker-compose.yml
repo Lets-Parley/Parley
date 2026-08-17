@@ -8,6 +8,11 @@ services:
       DATABASE_URL: postgres://parley:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/parley
       BASE_URL: ${BASE_URL:-http://localhost:8080}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Leave false while the port is published straight to clients. Set it to
+      # true only once a reverse proxy in front sets X-Forwarded-For itself,
+      # otherwise a caller writes their own address and the room-code throttle
+      # never fires. See README "Reverse proxy".
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
     ports:
       # Bound to localhost by default. To reach it from other machines, change to
       # "0.0.0.0:8080:8080" AND set BASE_URL to the address teammates will use.

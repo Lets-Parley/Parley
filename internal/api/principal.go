@@ -19,13 +19,21 @@ func PrincipalFrom(ctx context.Context) (Principal, bool) {
 // resolvePrincipal attaches a Principal to the context when a valid session
 // cookie is present. It never rejects; handlers that need identity use
 // RequireUser.
-func resolvePrincipal(users *store.Users) func(http.Handler) http.Handler {
+//
+// federatedOnly turns an instance's switch to an identity provider into
+// something that actually takes effect. Refusing to mint new anonymous
+// identities does nothing about the ones already minted: their tokens stay
+// valid for the whole idle window, so without this an instance that turned
+// sign-in on would keep admitting everyone who had ever opened it.
+func resolvePrincipal(users *store.Users, federatedOnly bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if c, err := r.Cookie(sessionCookie); err == nil {
 				if hash, err := store.HashToken(c.Value); err == nil {
 					if u, err := users.ByToken(r.Context(), hash); err == nil {
-						r = r.WithContext(principal.With(r.Context(), Principal{UserID: u.ID, Display: u.Name}))
+						if !federatedOnly || u.Issuer != "" {
+							r = r.WithContext(principal.With(r.Context(), Principal{UserID: u.ID, Display: u.Name}))
+						}
 					}
 				}
 			}
