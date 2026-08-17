@@ -1,0 +1,118 @@
+@import "tailwindcss";
+
+/* Parley design tokens — "The Table".
+   Warm card-table neutrals; depth and texture only on cards and wells; Fraunces
+   confined to numerals and display headlines. Dark is lamplit, not gray-inverted.
+   Dark mode follows the system (no toggle in v1). */
+
+:root {
+  /* Light: daylight table */
+  --color-felt:        #EFE9DD;
+  --color-felt-deep:   #E4DCCC;
+  --color-surface:     #FBF8F1;
+  --color-surface-hi:  #FFFFFF;
+  --color-ink:         #2C2620;
+  --color-ink-soft:    #5C544A;
+  --color-ink-faint:   #8A8072;
+  --color-line:        #D8CFBE;
+  --color-accent:      #B4451F;
+  --color-accent-ink:  #FFF6EF;
+  --color-accent-soft: #F4DCCF;
+  --color-brass:       #8A6A1F;
+  --color-go:          #3E6E44;
+  --color-stop:        #A93B32;
+  --color-card-back:   #7A4A32;
+
+  --font-sans: "Nunito Sans", "Avenir Next", -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Fraunces", "Iowan Old Style", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --text-num-card: 2.5rem;
+  --text-num-table: 4.5rem;
+  --text-num-result: 6.5rem;
+
+  --radius-chip: 8px;
+  --radius-card: 14px;
+  --radius-panel: 20px;
+  --radius-pill: 999px;
+  --shadow-rest: 0 1px 2px rgb(44 38 32 / 0.1), 0 2px 8px rgb(44 38 32 / 0.08);
+  --shadow-lift: 0 2px 4px rgb(44 38 32 / 0.12), 0 10px 24px rgb(44 38 32 / 0.16);
+  --shadow-well: inset 0 2px 6px rgb(44 38 32 / 0.12);
+
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-settle: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-tap: 120ms;
+  --dur-lift: 180ms;
+  --dur-flip: 300ms;
+  --dur-stagger: 70ms;
+  --dur-toast: 220ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Dark: evening game — lamplit espresso */
+    --color-felt:        #221D17;
+    --color-felt-deep:   #1A1611;
+    --color-surface:     #2E2820;
+    --color-surface-hi:  #3A332A;
+    --color-ink:         #F1EADD;
+    --color-ink-soft:    #B5AB9B;
+    --color-ink-faint:   #7E7566;
+    --color-line:        #453D32;
+    --color-accent:      #E8956A;
+    --color-accent-ink:  #2A160C;
+    --color-accent-soft: #4A3527;
+    --color-brass:       #D9AE54;
+    --color-go:          #8FBE8F;
+    --color-stop:        #E88A7E;
+    --color-card-back:   #5C3826;
+    --shadow-rest: 0 1px 2px rgb(0 0 0 / 0.4), 0 2px 8px rgb(0 0 0 / 0.3);
+    --shadow-lift: 0 2px 4px rgb(0 0 0 / 0.45), 0 12px 28px rgb(0 0 0 / 0.4);
+    --shadow-well: inset 0 2px 6px rgb(0 0 0 / 0.45);
+  }
+}
+
+/* Expose the palette to Tailwind utilities (bg-felt, text-ink, border-line…). */
+@theme inline {
+  --color-felt: var(--color-felt);
+  --color-felt-deep: var(--color-felt-deep);
+  --color-surface: var(--color-surface);
+  --color-surface-hi: var(--color-surface-hi);
+  --color-ink: var(--color-ink);
+  --color-ink-soft: var(--color-ink-soft);
+  --color-ink-faint: var(--color-ink-faint);
+  --color-line: var(--color-line);
+  --color-accent: var(--color-accent);
+  --color-accent-ink: var(--color-accent-ink);
+  --color-accent-soft: var(--color-accent-soft);
+  --color-brass: var(--color-brass);
+  --color-go: var(--color-go);
+  --color-stop: var(--color-stop);
+  --color-card-back: var(--color-card-back);
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
+  --radius-chip: var(--radius-chip);
+  --radius-card: var(--radius-card);
+  --radius-panel: var(--radius-panel);
+  --shadow-rest: var(--shadow-rest);
+  --shadow-lift: var(--shadow-lift);
+  --shadow-well: var(--shadow-well);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-tap: 0ms;
+    --dur-lift: 0ms;
+    --dur-flip: 0ms;
+    --dur-stagger: 0ms;
+    --dur-toast: 0ms;
+    --ease-spring: ease-out;
+  }
+}
+
+body {
+  background: var(--color-felt);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
