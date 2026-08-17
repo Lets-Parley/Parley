@@ -4,21 +4,16 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/jacorbello/parley/internal/principal"
 	"github.com/jacorbello/parley/internal/store"
 )
 
 const sessionCookie = "parley_session"
 
-type Principal struct {
-	UserID  string
-	Display string
-}
-
-type ctxKey struct{}
+type Principal = principal.Principal
 
 func PrincipalFrom(ctx context.Context) (Principal, bool) {
-	p, ok := ctx.Value(ctxKey{}).(Principal)
-	return p, ok
+	return principal.From(ctx)
 }
 
 // resolvePrincipal attaches a Principal to the context when a valid session
@@ -30,8 +25,7 @@ func resolvePrincipal(users *store.Users) func(http.Handler) http.Handler {
 			if c, err := r.Cookie(sessionCookie); err == nil {
 				if hash, err := store.HashToken(c.Value); err == nil {
 					if u, err := users.ByToken(r.Context(), hash); err == nil {
-						ctx := context.WithValue(r.Context(), ctxKey{}, Principal{UserID: u.ID, Display: u.Name})
-						r = r.WithContext(ctx)
+						r = r.WithContext(principal.With(r.Context(), Principal{UserID: u.ID, Display: u.Name}))
 					}
 				}
 			}

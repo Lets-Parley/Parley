@@ -64,6 +64,7 @@ type Envelope struct {
 	Kind                 string     `json:"kind"`
 	Title                string     `json:"title"`
 	Phase                string     `json:"phase"`
+	Revealed             bool       `json:"revealed"`
 	Version              int64      `json:"version"`
 	FacilitatorID        string     `json:"facilitatorId"`
 	FacilitatorConnected bool       `json:"facilitatorConnected"`
@@ -101,6 +102,7 @@ func BuildEnvelope(ctx context.Context, pool *pgxpool.Pool, h *hub.Hub, sessions
 		Kind:                 sess.Kind,
 		Title:                sess.Title,
 		Phase:                sess.Phase,
+		Revealed:             sess.Revealed,
 		Version:              sess.Version,
 		FacilitatorID:        sess.FacilitatorID,
 		FacilitatorConnected: facConnected,
