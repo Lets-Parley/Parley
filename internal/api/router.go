@@ -94,6 +94,7 @@ func Router(pool *pgxpool.Pool, secureCookies bool, allowedOrigin string) http.H
 		r.Route("/sessions/{id}", func(r chi.Router) {
 			r.Use(a.requireSessionMember)
 			r.Get("/", a.handleGetSession)
+			r.Get("/export.csv", a.handleExportCSV)
 			r.Post("/facilitator/claim", a.handleClaimFacilitator)
 			r.Group(func(r chi.Router) {
 				r.Use(requireFacilitator)

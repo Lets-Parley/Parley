@@ -71,6 +71,13 @@ export function PokerRoom({
           </Link>
           <h1 className="font-display truncate text-3xl font-semibold">{env.title}</h1>
         </div>
+        <a
+          href={`/api/sessions/${env.id}/export.csv`}
+          download
+          className="text-sm font-bold text-ink-soft hover:text-accent"
+        >
+          Export CSV
+        </a>
         <PresenceStrip
           participants={env.participants}
           presence={env.presence}

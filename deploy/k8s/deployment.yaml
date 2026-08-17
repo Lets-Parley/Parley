@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: parley
+  labels:
+    app: parley
+spec:
+  # LOAD-BEARING: Parley's realtime hub is in-process, enforced by a Postgres
+  # advisory lock at boot. A second replica will refuse to start. Recreate
+  # (not RollingUpdate) means a few seconds of downtime per deploy — the
+  # client's reconnect banner makes that a non-event.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: parley
+  template:
+    metadata:
+      labels:
+        app: parley
+    spec:
+      containers:
+        - name: parley
+          image: ghcr.io/jacorbello/parley:latest # pin a version tag in production
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: parley
+                  key: database-url
+            - name: BASE_URL
+              value: "https://parley.example.com" # the address users reach it at
+          # Liveness never touches the database: a DB blip must not restart the
+          # process and drop every WebSocket in the room.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: parley
+spec:
+  selector:
+    app: parley
+  ports:
+    - port: 80
+      targetPort: 8080

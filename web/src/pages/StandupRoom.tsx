@@ -114,6 +114,13 @@ export function StandupRoom({ env, me, status }: { env: Envelope; me: Me; status
           </Link>
           <h1 className="font-display truncate text-3xl font-semibold">{env.title}</h1>
         </div>
+        <a
+          href={`/api/sessions/${env.id}/export.csv`}
+          download
+          className="text-sm font-bold text-ink-soft hover:text-accent"
+        >
+          Export CSV
+        </a>
         {speaking && st.speakerStartedAt && (
           <Timer startedAt={st.speakerStartedAt} seconds={st.secondsPerPerson} serverTime={env.serverTime} />
         )}
