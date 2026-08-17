@@ -79,8 +79,13 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 			for i, m := range roster {
 				views[i] = memberView{UserID: m.UserID, Name: m.Name, AvatarHue: avatarHue(m.UserID), Spectator: m.Spectator}
 			}
+			sessions, err := a.sessions.ListBySpace(r.Context(), sp.ID)
+			if err != nil {
+				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+				return
+			}
 			writeJSON(w, http.StatusOK, map[string]any{
-				"slug": sp.Slug, "name": sp.Name, "members": views,
+				"slug": sp.Slug, "name": sp.Name, "members": views, "sessions": sessions,
 			})
 			return
 		}

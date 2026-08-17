@@ -1,0 +1,150 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/jacorbello/parley/internal/session"
+	"github.com/jacorbello/parley/internal/store"
+)
+
+// broadcastState rebuilds the envelope and pushes it to every connection in the
+// room. Handlers call it after any mutation.
+func (a *app) broadcastState(ctx context.Context, sessionID string) {
+	env, err := session.BuildEnvelope(ctx, a.pool, a.hub, a.sessions, sessionID)
+	if err != nil {
+		slog.Error("could not build session state for broadcast", "session", sessionID, "error", err)
+		return
+	}
+	payload, err := json.Marshal(env)
+	if err != nil {
+		slog.Error("could not marshal session state", "session", sessionID, "error", err)
+		return
+	}
+	a.hub.Broadcast(sessionID, payload)
+}
+
+func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
+	p, _ := PrincipalFrom(r.Context())
+
+	sp, err := a.spaces.BySlug(r.Context(), chi.URLParam(r, "slug"))
+	if errors.Is(err, store.ErrNoSpace) {
+		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+		return
+	}
+	member, err := a.spaces.IsMember(r.Context(), sp.ID, p.UserID)
+	if err != nil || !member {
+		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
+		return
+	}
+
+	var body struct {
+		Kind   string          `json:"kind"`
+		Title  string          `json:"title"`
+		Config json.RawMessage `json:"config"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil {
+		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+		return
+	}
+	title := strings.TrimSpace(body.Title)
+	if title == "" || len(title) > 200 {
+		http.Error(w, `{"error":"title must be 1-200 characters"}`, http.StatusBadRequest)
+		return
+	}
+	if !session.Known(body.Kind) {
+		http.Error(w, `{"error":"kind must be poker or standup"}`, http.StatusBadRequest)
+		return
+	}
+	config, err := session.ParseConfig(body.Kind, body.Config)
+	if err != nil {
+		http.Error(w, `{"error":"invalid config for this session kind"}`, http.StatusBadRequest)
+		return
+	}
+
+	sess, err := a.sessions.Create(r.Context(), sp.ID, body.Kind, title, config, p.UserID)
+	if err != nil {
+		http.Error(w, `{"error":"could not create session"}`, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusCreated, sess)
+}
+
+func (a *app) handleGetSession(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r.Context())
+	env, err := session.BuildEnvelope(r.Context(), a.pool, a.hub, a.sessions, sess.ID)
+	if err != nil {
+		http.Error(w, `{"error":"could not load session"}`, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, env)
+}
+
+func (a *app) handleCloseSession(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r.Context())
+	if err := a.sessions.SetEnded(r.Context(), sess.ID, true); err != nil {
+		http.Error(w, `{"error":"could not close session"}`, http.StatusInternalServerError)
+		return
+	}
+	a.broadcastState(r.Context(), sess.ID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *app) handleReopenSession(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r.Context())
+	if err := a.sessions.SetEnded(r.Context(), sess.ID, false); err != nil {
+		http.Error(w, `{"error":"could not reopen session"}`, http.StatusInternalServerError)
+		return
+	}
+	a.broadcastState(r.Context(), sess.ID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *app) handleTransferFacilitator(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r.Context())
+	var body struct {
+		UserID string `json:"userId"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil || body.UserID == "" {
+		http.Error(w, `{"error":"userId is required"}`, http.StatusBadRequest)
+		return
+	}
+	err := a.sessions.TransferFacilitator(r.Context(), sess.ID, body.UserID)
+	if errors.Is(err, store.ErrNotEligible) {
+		http.Error(w, `{"error":"that person is not a member of this space"}`, http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		http.Error(w, `{"error":"could not transfer facilitator"}`, http.StatusInternalServerError)
+		return
+	}
+	a.broadcastState(r.Context(), sess.ID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *app) handleClaimFacilitator(w http.ResponseWriter, r *http.Request) {
+	p, _ := PrincipalFrom(r.Context())
+	sess := sessionFrom(r.Context())
+
+	err := a.sessions.ClaimFacilitator(r.Context(), sess.ID, p.UserID)
+	if errors.Is(err, store.ErrNotEligible) {
+		http.Error(w, `{"error":"the facilitator is still here — the role can be claimed after they have been gone a minute"}`, http.StatusConflict)
+		return
+	}
+	if err != nil {
+		http.Error(w, `{"error":"could not claim facilitator"}`, http.StatusInternalServerError)
+		return
+	}
+	a.broadcastState(r.Context(), sess.ID)
+	w.WriteHeader(http.StatusNoContent)
+}
