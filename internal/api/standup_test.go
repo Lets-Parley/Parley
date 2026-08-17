@@ -17,8 +17,9 @@ func standupSetup(t *testing.T, srv *httptest.Server, spaceName string) (fac, m1
 	m2 = signup(t, srv, "Cal")
 	_, sp := createSpace(t, srv, spaceName, fac)
 	slug = sp["slug"].(string)
+	code, _ := sp["passcode"].(string)
 	for _, c := range []*http.Cookie{m1, m2} {
-		if resp := joinSpace(t, srv, slug, c); resp.StatusCode != http.StatusNoContent {
+		if resp := joinSpace(t, srv, slug, c, code); resp.StatusCode != http.StatusNoContent {
 			t.Fatalf("join: %d", resp.StatusCode)
 		}
 	}

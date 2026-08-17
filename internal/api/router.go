@@ -25,6 +25,8 @@ type app struct {
 	hub           *hub.Hub
 	secureCookies bool
 	allowedOrigin string
+	// passcodeAttempts throttles room-code guessing at the join door.
+	passcodeAttempts *attemptLimiter
 }
 
 func Router(pool *pgxpool.Pool, secureCookies bool, allowedOrigin string) http.Handler {
@@ -36,6 +38,8 @@ func Router(pool *pgxpool.Pool, secureCookies bool, allowedOrigin string) http.H
 		hub:           hub.New(),
 		secureCookies: secureCookies,
 		allowedOrigin: allowedOrigin,
+
+		passcodeAttempts: newAttemptLimiter(),
 	}
 	a.hub.OnPresenceChange = func(sessionID string) {
 		a.broadcastState(context.Background(), sessionID)
@@ -82,6 +86,7 @@ func Router(pool *pgxpool.Pool, secureCookies bool, allowedOrigin string) http.H
 			r.Use(RequireUser)
 			r.Post("/spaces", a.handleCreateSpace)
 			r.Post("/spaces/{slug}/join", a.handleJoinSpace)
+			r.Post("/spaces/{slug}/passcode", a.handleSetPasscode)
 			r.Post("/spaces/{slug}/sessions", a.handleCreateSession)
 		})
 

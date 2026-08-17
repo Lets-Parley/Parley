@@ -11,8 +11,10 @@ open source, no accounts, no fuss.
 - **Daily standup** — round-robin speaking order with a per-person timer,
   skip/absent, yesterday's "today" carried forward automatically, and a
   copyable blockers roundup at the end.
-- **Spaces** — one memorable link per team (`/s/platform-team`). The link is
-  the invite; people pick a name, get an avatar, and they're in.
+- **Spaces** — one memorable link per team (`/s/platform-team`) plus a short
+  room code. New spaces are protected by default: people enter the code, pick
+  a name, get an avatar, and they're in. A space can also be opened, making
+  the link alone the invite.
 - One Go binary + Postgres. The frontend is embedded; there is nothing else
   to run.
 
@@ -84,18 +86,27 @@ Set `BASE_URL=https://parley.example.com` to match.
 
 ## Security model
 
-Parley has **no authentication by design**: anyone who has a space link can
-join that space, and joining grants full participation — seeing the roster,
-voting, and writing standup entries. Joins are broadcast to the room, so
-lurking is visible. Run Parley on your internal network, or behind your
-existing SSO proxy (oauth2-proxy, Authelia, Cloudflare Access — the reverse
-proxy snippet above is where it slots in).
+Parley has **no user accounts by design**. A space is guarded by a shared room
+code, not by identity: anyone holding the code can join, and joining grants
+full participation — seeing the roster, voting, and writing standup entries.
+Joins are broadcast to the room, so lurking is visible. Run Parley on your
+internal network, or behind your existing SSO proxy (oauth2-proxy, Authelia,
+Cloudflare Access — the reverse proxy snippet above is where it slots in).
 
-What Parley does enforce: acting in a space requires having joined it;
-session existence is never disclosed to non-members; facilitator-only actions
-(reveal, reset, closing a session) are server-checked; session cookies are
-opaque random tokens stored hashed, so a database backup contains no usable
-credentials.
+Room codes are six characters from a 25-character alphabet, and wrong guesses
+are throttled per client address. They are stored **readable** in the database
+on purpose: a room code is meant to be read off the space page by any member
+and passed on, the way a Meet or Zoom code is, so hashing it would only mean
+nobody could ever see it again. Treat a database dump as disclosing the room
+codes of every space — but not any member's identity. Session cookies remain
+opaque random tokens stored hashed, so a backup still contains no credentials
+that impersonate a person. Any member can mint a new code (retiring the old
+one) or open the space entirely.
+
+What Parley does enforce: acting in a space requires having joined it; a
+protected space refuses joins without the code; session existence is never
+disclosed to non-members; facilitator-only actions (reveal, reset, closing a
+session) are server-checked.
 
 ## Backups
 

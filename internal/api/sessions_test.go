@@ -93,7 +93,8 @@ func setupSession(t *testing.T, srv *httptest.Server, spaceName string) (facilit
 	member = signup(t, srv, "Mel")
 	_, sp := createSpace(t, srv, spaceName, facilitator)
 	slug := sp["slug"].(string)
-	if resp := joinSpace(t, srv, slug, member); resp.StatusCode != http.StatusNoContent {
+	code, _ := sp["passcode"].(string)
+	if resp := joinSpace(t, srv, slug, member, code); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("join: %d", resp.StatusCode)
 	}
 	resp, sess := createSession(t, srv, slug, "poker", "Sprint 12", facilitator)
@@ -237,7 +238,9 @@ func TestConcurrentClaimsHaveOneWinner(t *testing.T) {
 	fac, m1, id := setupSession(t, srv, "Race Space")
 	_ = fac
 	m2 := signup(t, srv, "Second")
-	if resp := joinSpace(t, srv, "race-space", m2); resp.StatusCode != http.StatusNoContent {
+	_, race := doJSON(t, srv, "GET", "/api/spaces/race-space", "", m1)
+	raceCode, _ := race["passcode"].(string)
+	if resp := joinSpace(t, srv, "race-space", m2, raceCode); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("join: %d", resp.StatusCode)
 	}
 

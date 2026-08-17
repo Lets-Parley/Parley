@@ -170,7 +170,9 @@ func TestAutoRevealOnlyOnVoteEvents(t *testing.T) {
 	srv := testServer(t)
 	fac, m1, id := setupSession(t, srv, "Auto Space")
 	m2 := signup(t, srv, "Third")
-	if resp := joinSpace(t, srv, "auto-space", m2); resp.StatusCode != http.StatusNoContent {
+	_, auto := doJSON(t, srv, "GET", "/api/spaces/auto-space", "", m1)
+	autoCode, _ := auto["passcode"].(string)
+	if resp := joinSpace(t, srv, "auto-space", m2, autoCode); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("join: %d", resp.StatusCode)
 	}
 	story := addStory(t, srv, id, "Auto story", fac)

@@ -46,6 +46,10 @@ export type Person = {
 export type SpaceView = {
   slug: string;
   name: string;
+  /** Whether joining needs the room code. Visible to strangers so the gate knows. */
+  protected: boolean;
+  /** The room code itself — only ever present for members. */
+  passcode?: string;
   members?: Person[];
   sessions?: SessionSummary[];
 };

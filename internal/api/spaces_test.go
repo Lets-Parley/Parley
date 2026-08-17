@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -43,9 +44,15 @@ func getSpace(t *testing.T, srv *httptest.Server, slug string, cookie *http.Cook
 	return resp, body
 }
 
-func joinSpace(t *testing.T, srv *httptest.Server, slug string, cookie *http.Cookie) *http.Response {
+// joinSpace knocks on a space door, optionally presenting its room code.
+func joinSpace(t *testing.T, srv *httptest.Server, slug string, cookie *http.Cookie, passcode ...string) *http.Response {
 	t.Helper()
-	req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/"+slug+"/join", nil)
+	var body io.Reader
+	if len(passcode) > 0 {
+		body = strings.NewReader(`{"passcode":"` + passcode[0] + `"}`)
+	}
+	req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/"+slug+"/join", body)
+	req.Header.Set("Content-Type", "application/json")
 	if cookie != nil {
 		req.AddCookie(cookie)
 	}
@@ -96,7 +103,7 @@ func TestDuplicateSlugConflicts(t *testing.T) {
 func TestSpaceLookupRedactsForNonMembers(t *testing.T) {
 	srv := testServer(t)
 	ada := signup(t, srv, "Ada")
-	createSpace(t, srv, "Secret Roster", ada)
+	_, sp := createSpace(t, srv, "Secret Roster", ada)
 
 	// Unauthenticated: name only.
 	resp, view := getSpace(t, srv, "secret-roster", nil)
@@ -114,8 +121,8 @@ func TestSpaceLookupRedactsForNonMembers(t *testing.T) {
 		t.Fatal("non-member lookup leaked the roster")
 	}
 
-	// After joining: roster visible.
-	if resp := joinSpace(t, srv, "secret-roster", eve); resp.StatusCode != http.StatusNoContent {
+	// After joining with the room code: roster visible.
+	if resp := joinSpace(t, srv, "secret-roster", eve, sp["passcode"].(string)); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("join: got %d", resp.StatusCode)
 	}
 	_, view3 := getSpace(t, srv, "secret-roster", eve)

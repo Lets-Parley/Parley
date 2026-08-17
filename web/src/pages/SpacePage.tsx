@@ -44,6 +44,8 @@ export function SpacePage() {
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<Kind>("All");
   const [sort, setSort] = useState<Sort>("Recent");
+  // Held across the name prompt so a joiner types the code exactly once.
+  const [pending, setPending] = useState("");
 
   const space = useQuery({
     queryKey: ["space", slug],
@@ -51,9 +53,10 @@ export function SpacePage() {
     retry: false,
   });
 
-  async function doJoin() {
+  async function doJoin(passcode?: string) {
     try {
-      await api("POST", `/api/spaces/${slug}/join`);
+      await api("POST", `/api/spaces/${slug}/join`, passcode ? { passcode } : {});
+      setError("");
       qc.invalidateQueries({ queryKey: ["space", slug] });
       say("You're seated — pull up a chair");
     } catch (e) {
@@ -84,14 +87,22 @@ export function SpacePage() {
         <Gate
           name={sp.name}
           slug={sp.slug}
+          locked={sp.protected}
           error={error}
-          onJoin={() => (me.data ? doJoin() : setNeedName(true))}
+          onJoin={(passcode) => {
+            if (!me.data) {
+              setPending(passcode ?? "");
+              setNeedName(true);
+              return;
+            }
+            doJoin(passcode);
+          }}
         />
         {needName && (
           <NameGate
             onDone={() => {
               setNeedName(false);
-              doJoin();
+              doJoin(pending || undefined);
             }}
           />
         )}
@@ -221,6 +232,13 @@ export function SpacePage() {
         )}
 
         {error && <p className="mt-4 text-center text-sm font-bold text-stop">{error}</p>}
+
+        <PasscodePanel
+          slug={sp.slug}
+          passcode={sp.passcode ?? ""}
+          onChanged={() => qc.invalidateQueries({ queryKey: ["space", slug] })}
+          onError={setError}
+        />
       </div>
 
       {creating && (
@@ -233,36 +251,144 @@ export function SpacePage() {
 function Gate({
   name,
   slug,
+  locked,
   error,
   onJoin,
 }: {
   name: string;
   slug: string;
+  locked: boolean;
   error: string;
-  onJoin: () => void;
+  onJoin: (passcode?: string) => void;
 }) {
+  const [code, setCode] = useState("");
+
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-4 p-8">
       <div className="flex items-center gap-2 opacity-80">
         <Logo />
         <span className="text-base font-extrabold">Parley</span>
       </div>
-      <div className="max-w-[420px] rounded-panel border border-line bg-surface px-11 py-9 text-center shadow-rest">
+      <div className="w-full max-w-[420px] rounded-panel border border-line bg-surface px-10 py-9 text-center shadow-rest">
         <h1 className="text-2xl font-extrabold tracking-tight">{name}</h1>
         <p className="mt-2 inline-block rounded-chip bg-felt-deep px-2.5 py-1 font-mono text-[11px] text-ink-faint">
           /s/{slug}
         </p>
         <div className="my-6 h-px bg-line" />
-        <p className="text-sm text-ink-soft text-pretty">
-          This table is members-only. If someone sent you here, that link is your
-          invite — it seats you with just a display name. No account, no password.
-        </p>
-        <button className={buttonPrimary + " mt-5"} onClick={onJoin}>
-          Take a seat
-        </button>
-        {error && <p className="mt-3 text-sm font-bold text-stop">{error}</p>}
+
+        {locked ? (
+          <>
+            <p className="text-sm text-ink-soft text-pretty">
+              This table is members-only. Enter the space passcode — whoever
+              invited you has it — and pick a display name. No account, no
+              password to remember.
+            </p>
+            <form
+              className="mt-5 flex gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (code.trim()) onJoin(code.trim());
+              }}
+            >
+              <input
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="Passcode"
+                aria-label="Space passcode"
+                maxLength={12}
+                autoFocus
+                className="min-w-0 flex-1 rounded-chip border bg-surface-hi px-3.5 py-2.5 text-center font-mono text-sm tracking-[0.16em] uppercase outline-none"
+                style={{ borderColor: error ? "var(--color-stop)" : "var(--color-line)" }}
+              />
+              <button
+                type="submit"
+                disabled={!code.trim()}
+                className="shrink-0 rounded-chip bg-accent px-4 py-2.5 text-[13px] font-bold text-accent-ink disabled:opacity-50"
+              >
+                Join
+              </button>
+            </form>
+            {error && <p className="mt-2 text-left text-xs font-semibold text-stop text-pretty">{error}</p>}
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-ink-soft text-pretty">
+              This space is open — the link is the invite. Pick a display name
+              and take a seat. No account, no password.
+            </p>
+            <button className={buttonPrimary + " mt-5"} onClick={() => onJoin()}>
+              Take a seat
+            </button>
+            {error && <p className="mt-3 text-sm font-bold text-stop">{error}</p>}
+          </>
+        )}
       </div>
     </main>
+  );
+}
+
+/** The room code, readable by members so they can pass it on. */
+function PasscodePanel({
+  slug,
+  passcode,
+  onChanged,
+  onError,
+}: {
+  slug: string;
+  passcode: string;
+  onChanged: () => void;
+  onError: (msg: string) => void;
+}) {
+  const say = useToast();
+  const [busy, setBusy] = useState(false);
+
+  async function set(open: boolean) {
+    setBusy(true);
+    try {
+      await api("POST", `/api/spaces/${slug}/passcode`, { open });
+      onChanged();
+      say(open ? "Space opened — the link is now the only thing needed" : "New passcode — the old one stops working");
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Could not update the passcode.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mt-8 flex flex-wrap items-center gap-3 rounded-card border border-line bg-surface px-5 py-4">
+      <div className="min-w-0 flex-1">
+        <h2 className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+          Space passcode
+        </h2>
+        {passcode ? (
+          <p className="mt-1 font-mono text-lg font-semibold tracking-[0.16em]">{passcode}</p>
+        ) : (
+          <p className="mt-1 text-[13px] text-ink-soft">
+            Open — anyone with the link can take a seat.
+          </p>
+        )}
+      </div>
+      {passcode && (
+        <button
+          className={buttonQuiet}
+          onClick={() => {
+            navigator.clipboard?.writeText(passcode);
+            say("Passcode copied");
+          }}
+        >
+          Copy
+        </button>
+      )}
+      <button className={buttonQuiet} disabled={busy} onClick={() => set(false)}>
+        {passcode ? "New code" : "Protect space"}
+      </button>
+      {passcode && (
+        <button className={buttonQuiet} disabled={busy} onClick={() => set(true)}>
+          Make open
+        </button>
+      )}
+    </section>
   );
 }
 
