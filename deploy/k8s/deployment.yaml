@@ -55,7 +55,9 @@ spec:
             readOnlyRootFilesystem: true
           # Migrations run before the listener exists, so nothing answers on
           # 8080 during boot. Without this, liveness starts failing at t=0 and
-          # kills the pod ~30s into a long migration.
+          # kills the pod 30s in. 60s of slack covers today's migrations and the
+          # database-connect retries, which give up at ~60s anyway — raise
+          # failureThreshold if you ever add a migration that rewrites a table.
           startupProbe:
             httpGet:
               path: /readyz

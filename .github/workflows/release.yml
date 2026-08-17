@@ -26,9 +26,9 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            # Guarded: without this a v1.1.0-rc1 tag would move `latest` onto a
-            # pre-release, and the compose file defaults to `latest`.
-            type=raw,value=latest,enable=${{ !contains(github.ref, '-') }}
+          # `latest` is not listed: flavor latest=auto (the default) already adds
+          # it for semver tags and skips it for pre-releases, which is what we
+          # want. Listing it explicitly would move `latest` onto a v1.1.0-rc1.
       - uses: docker/build-push-action@v6
         with:
           context: .
