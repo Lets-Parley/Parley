@@ -1,6 +1,7 @@
 package api
 
 import (
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -157,5 +158,55 @@ func TestOpenSpaceOnRequest(t *testing.T) {
 	stranger := signup(t, srv, "Stranger")
 	if resp, _ := doJSON(t, srv, "POST", "/api/spaces/open-room/join", "", stranger); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("open space join: %d", resp.StatusCode)
+	}
+}
+
+// Folding a random byte with modulo would make the first six letters of the
+// alphabet noticeably more likely; the generator uses rejection sampling, so
+// the distribution across positions stays flat.
+func TestNewPasscodeIsUnbiased(t *testing.T) {
+	const draws = 60000
+	counts := map[rune]int{}
+	for range draws {
+		for _, r := range newPasscode() {
+			counts[r]++
+		}
+	}
+	if len(counts) != len(passcodeAlphabet) {
+		t.Fatalf("only %d of %d characters ever appeared", len(counts), len(passcodeAlphabet))
+	}
+	expected := float64(draws*passcodeLength) / float64(len(passcodeAlphabet))
+	for r, n := range counts {
+		// A modulo fold would push the first six characters ~20% over; 8% is
+		// far outside sampling noise at this size but well under that bias.
+		if delta := (float64(n) - expected) / expected; delta > 0.08 || delta < -0.08 {
+			t.Fatalf("character %q appeared %d times, expected ~%.0f (%.1f%% off)", r, n, expected, delta*100)
+		}
+	}
+}
+
+// A chunked request declares Content-Length -1. The join door has to read the
+// passcode out of it anyway, or a correct code is silently refused.
+func TestPasscodeAcceptedFromChunkedBody(t *testing.T) {
+	srv := testServer(t)
+	owner := signup(t, srv, "Owner")
+	_, created := doJSON(t, srv, "POST", "/api/spaces", `{"name":"Chunked Room"}`, owner)
+	code := created["passcode"].(string)
+
+	stranger := signup(t, srv, "Stranger")
+	// http.NewRequest with a plain io.Reader (not *strings.Reader) leaves
+	// ContentLength unset, so net/http streams the body chunked.
+	body := io.MultiReader(strings.NewReader(`{"passcode":"` + code + `"}`))
+	req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/chunked-room/join", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", testOrigin)
+	req.AddCookie(stranger)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("chunked join refused: %d", resp.StatusCode)
 	}
 }

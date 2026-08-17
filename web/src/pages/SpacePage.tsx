@@ -126,7 +126,6 @@ export function SpacePage() {
       spaceSlug={sp.slug}
       spaceName={sp.name}
       me={me.data ?? null}
-      status="live"
       members={sp.members}
       sessions={all}
     >

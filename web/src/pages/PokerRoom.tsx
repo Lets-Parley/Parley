@@ -317,10 +317,13 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
     if (!(await run(() => api("POST", `/api/sessions/${env.id}/stories`, { title: "Ad-hoc round" })))) return;
     const fresh = await api<Envelope>("GET", `/api/sessions/${env.id}`);
     const added = fresh.state.stories.find((s) => !before.has(s.id));
-    if (added) {
-      await run(() => api("POST", `/api/sessions/${env.id}/select`, { storyId: added.id }));
+    if (!added) {
+      setError("The round was added but could not be found to deal — pick it from the queue.");
+      return;
     }
-    say("Ad-hoc round on the table — no ticket needed");
+    if (await run(() => api("POST", `/api/sessions/${env.id}/select`, { storyId: added.id }))) {
+      say("Ad-hoc round on the table — no ticket needed");
+    }
   }
 
   async function reset() {

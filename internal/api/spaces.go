@@ -139,11 +139,12 @@ func (a *app) handleJoinSpace(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Passcode string `json:"passcode"`
 	}
-	if r.ContentLength > 0 {
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil {
-			http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
-			return
-		}
+	// Decode whatever arrives rather than trusting Content-Length: a chunked
+	// request declares -1, and skipping the decode would drop a correct
+	// passcode and answer 403. An absent body is simply empty.
+	if err := decodeOptional(w, r, &body); err != nil {
+		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+		return
 	}
 
 	sp, err := a.spaces.BySlug(r.Context(), chi.URLParam(r, "slug"))
@@ -188,11 +189,9 @@ func (a *app) handleSetPasscode(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Open bool `json:"open"`
 	}
-	if r.ContentLength > 0 {
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil {
-			http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
-			return
-		}
+	if err := decodeOptional(w, r, &body); err != nil {
+		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+		return
 	}
 
 	sp, err := a.spaces.BySlug(r.Context(), chi.URLParam(r, "slug"))

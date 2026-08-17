@@ -33,7 +33,9 @@ type Props = {
   spaceName: string;
   title?: string;
   me: Me | null;
-  status: ConnectionStatus;
+  /** Omitted where there is no socket to report on — the dot must not claim
+      "live" on a page that never opened one. */
+  status?: ConnectionStatus;
   onRetry?: () => void;
   members?: Person[];
   presence?: string[];
@@ -65,6 +67,7 @@ export function AppShell({
   const online = new Set(presence ?? members?.map((m) => m.userId) ?? []);
   const stack = (members ?? []).slice(0, 5);
   const overflow = (members?.length ?? 0) - stack.length;
+  const whoMember = who ? members?.find((m) => m.userId === who) : undefined;
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -97,9 +100,11 @@ export function AppShell({
 
         <span className="flex-1" />
 
-        <span className="hidden sm:block">
-          <ConnectionDot status={status} />
-        </span>
+        {status && (
+          <span className="hidden sm:block">
+            <ConnectionDot status={status} />
+          </span>
+        )}
 
         {stack.length > 0 && (
           <span className="hidden items-center lg:flex">
@@ -145,7 +150,7 @@ export function AppShell({
         </button>
       </header>
 
-      <ConnectionBanner status={status} onRetry={onRetry} />
+      {status && <ConnectionBanner status={status} onRetry={onRetry} />}
 
       <div className="flex flex-1 items-stretch">
         {sideOpen && (
@@ -227,10 +232,12 @@ export function AppShell({
         <main className="relative min-w-0 flex-1">{children}</main>
       </div>
 
-      {who && members && (
+      {/* Looked up rather than asserted: a roster refresh can drop the member
+          whose card is open, and a stale id must close the card, not crash. */}
+      {whoMember && (
         <MemberCard
-          member={members.find((m) => m.userId === who)!}
-          isYou={me?.id === who}
+          member={whoMember}
+          isYou={me?.id === whoMember.userId}
           activeSessionId={activeSessionId}
           onClose={() => setWho(null)}
         />

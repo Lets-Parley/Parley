@@ -75,7 +75,12 @@ export function Table({
   meId: string;
 }) {
   const voted = new Set(votedUserIds);
-  const votedCount = seated.filter((p) => voted.has(p.userId) || votes.has(p.userId)).length;
+  const hasVoted = (p: Person) => voted.has(p.userId) || votes.has(p.userId);
+  const votedCount = seated.filter(hasVoted).length;
+  // Away seats show "zzz" and cannot vote, so counting them in the denominator
+  // means "N of N" never arrives while someone is disconnected. Anyone who
+  // already voted still counts, even if they dropped afterwards.
+  const canVote = seated.filter((p) => online.has(p.userId) || hasVoted(p)).length;
 
   return (
     <div className="overflow-x-auto pt-3.5">
@@ -133,7 +138,7 @@ export function Table({
       <p className="mt-1.5 text-center font-mono text-[11px] text-ink-faint">
         {revealed
           ? `${votedCount} ${votedCount === 1 ? "vote" : "votes"} on the table`
-          : `${votedCount} of ${seated.length} voted`}
+          : `${votedCount} of ${canVote} voted`}
       </p>
     </div>
   );

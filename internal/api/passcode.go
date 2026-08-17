@@ -3,6 +3,9 @@ package api
 import (
 	"crypto/rand"
 	"crypto/subtle"
+	"encoding/json"
+	"errors"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -17,11 +20,22 @@ const passcodeAlphabet = "ACDEFGHJKMNPQRTUVWXY34679"
 const passcodeLength = 6
 
 func newPasscode() string {
-	b := make([]byte, passcodeLength)
-	rand.Read(b) // crypto/rand.Read never returns an error; it panics instead.
-	out := make([]byte, passcodeLength)
-	for i, v := range b {
-		out[i] = passcodeAlphabet[int(v)%len(passcodeAlphabet)]
+	// Rejection sampling, not modulo: 256 is not a multiple of 25, so folding a
+	// raw byte would make the first six letters ~20% more likely and quietly
+	// shave entropy off the only thing guarding the room.
+	const limit = 256 - (256 % len(passcodeAlphabet))
+	out := make([]byte, 0, passcodeLength)
+	buf := make([]byte, passcodeLength)
+	for len(out) < passcodeLength {
+		rand.Read(buf) // crypto/rand.Read never returns an error; it panics instead.
+		for _, v := range buf {
+			if int(v) < limit {
+				out = append(out, passcodeAlphabet[int(v)%len(passcodeAlphabet)])
+				if len(out) == passcodeLength {
+					break
+				}
+			}
+		}
 	}
 	return string(out)
 }
@@ -100,4 +114,15 @@ func clientKey(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// decodeOptional reads a small JSON body when there is one, leaving the target
+// untouched when the request carries none. It never consults Content-Length,
+// which a chunked request declares as -1.
+func decodeOptional(w http.ResponseWriter, r *http.Request, into any) error {
+	err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(into)
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+	return err
 }
