@@ -29,7 +29,7 @@ func TestMigrateAppliesAndIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	pool.Exec(ctx, "drop table if exists migrations")
+	pool.Exec(ctx, "drop schema public cascade; create schema public")
 	if err := Migrate(ctx, pool, log); err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestMigrateRefusesNewerDatabase(t *testing.T) {
 	ctx := context.Background()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	pool.Exec(ctx, "drop table if exists migrations")
+	pool.Exec(ctx, "drop schema public cascade; create schema public")
 	if err := Migrate(ctx, pool, log); err != nil {
 		t.Fatal(err)
 	}
