@@ -17,6 +17,7 @@ import (
 type app struct {
 	pool          *pgxpool.Pool
 	users         *store.Users
+	spaces        *store.Spaces
 	secureCookies bool
 }
 
@@ -24,6 +25,7 @@ func Router(pool *pgxpool.Pool, secureCookies bool) http.Handler {
 	a := &app{
 		pool:          pool,
 		users:         &store.Users{Pool: pool},
+		spaces:        &store.Spaces{Pool: pool},
 		secureCookies: secureCookies,
 	}
 
@@ -57,6 +59,13 @@ func Router(pool *pgxpool.Pool, secureCookies bool) http.Handler {
 		r.Post("/me", a.handlePostMe)
 		r.Get("/me", a.handleGetMe)
 		r.Delete("/me", a.handleDeleteMe)
+
+		r.Get("/spaces/{slug}", a.handleGetSpace)
+		r.Group(func(r chi.Router) {
+			r.Use(RequireUser)
+			r.Post("/spaces", a.handleCreateSpace)
+			r.Post("/spaces/{slug}/join", a.handleJoinSpace)
+		})
 	})
 
 	r.NotFound(web.SPAHandler())
