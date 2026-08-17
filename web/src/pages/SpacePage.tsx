@@ -22,6 +22,7 @@ export function SpacePage() {
   const [error, setError] = useState("");
   const [title, setTitle] = useState("");
   const [deck, setDeck] = useState("fibonacci");
+  const [kind, setKind] = useState("poker");
 
   const space = useQuery({
     queryKey: ["space", slug],
@@ -50,9 +51,9 @@ export function SpacePage() {
     e.preventDefault();
     try {
       const sess = await api<SessionSummary>("POST", `/api/spaces/${slug}/sessions`, {
-        kind: "poker",
+        kind,
         title,
-        config: { deck },
+        config: kind === "poker" ? { deck } : {},
       });
       navigate(`/session/${sess.id}`);
     } catch (err) {
@@ -117,7 +118,7 @@ export function SpacePage() {
           </section>
 
           <section className="rounded-panel bg-surface p-6 shadow-rest">
-            <h2 className="mb-3 text-lg font-bold">New poker session</h2>
+            <h2 className="mb-3 text-lg font-bold">New session</h2>
             <form onSubmit={createSession} className="flex flex-col gap-3 sm:flex-row">
               <input
                 className={inputClass}
@@ -126,11 +127,17 @@ export function SpacePage() {
                 placeholder="Sprint 12 estimation"
                 maxLength={200}
               />
-              <select className={inputClass + " sm:w-56"} value={deck} onChange={(e) => setDeck(e.target.value)}>
-                {Object.entries(deckLabels).map(([k, label]) => (
-                  <option key={k} value={k}>{label}</option>
-                ))}
+              <select className={inputClass + " sm:w-40"} value={kind} onChange={(e) => setKind(e.target.value)}>
+                <option value="poker">Poker</option>
+                <option value="standup">Standup</option>
               </select>
+              {kind === "poker" && (
+                <select className={inputClass + " sm:w-56"} value={deck} onChange={(e) => setDeck(e.target.value)}>
+                  {Object.entries(deckLabels).map(([k, label]) => (
+                    <option key={k} value={k}>{label}</option>
+                  ))}
+                </select>
+              )}
               <button type="submit" className={buttonPrimary} disabled={!title.trim()}>Deal</button>
             </form>
             {error && <p className="mt-2 font-bold text-stop">{error}</p>}

@@ -2,6 +2,7 @@ import { useParams } from "react-router-dom";
 import { useSession } from "../lib/useSession";
 import { useMe, NameGate } from "../components/NameGate";
 import { PokerRoom } from "./PokerRoom";
+import { StandupRoom } from "./StandupRoom";
 
 export function SessionPage() {
   const { id = "" } = useParams();
@@ -25,5 +26,5 @@ export function SessionPage() {
   if (session.data.kind === "poker") {
     return <PokerRoom env={session.data} me={me.data} status={session.status} />;
   }
-  return <p className="p-8 text-center text-ink-soft">Standups are coming soon.</p>;
+  return <StandupRoom env={session.data} me={me.data} status={session.status} />;
 }
