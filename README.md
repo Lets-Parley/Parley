@@ -8,6 +8,9 @@ open source, no accounts, no fuss.
 [![go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
 [![container](https://img.shields.io/badge/ghcr.io-parley-2496ED?logo=docker&logoColor=white)](https://github.com/jacorbello/parley/pkgs/container/parley)
 
+**[www.letsparley.io](https://www.letsparley.io)** — docs, screenshots, and the
+quickstart.
+
 ![A revealed planning poker round in Parley](docs/screenshot-poker.png)
 
 ## Contents

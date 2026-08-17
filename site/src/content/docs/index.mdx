@@ -1,0 +1,68 @@
+---
+title: Parley
+description: Planning poker and daily standups for your team, at your table. Self-hosted, open source, no accounts, no fuss.
+template: splash
+hero:
+  tagline: Planning poker and daily standups for your team, at your table. One Go binary and a Postgres database.
+  image:
+    alt: A revealed planning poker round, five cards on the table and a median of 8
+    file: ../../assets/poker.png
+  actions:
+    - text: Get it running
+      link: /guides/quickstart/
+      icon: right-arrow
+    - text: Source on GitHub
+      link: https://github.com/jacorbello/parley
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Most tools want an account. Parley wants a link.
+
+No seat count, no workspace, no credit card before anyone can vote on a story.
+Name a space, share the link, and the people who open it are at the table.
+
+The frontend is compiled into the binary, so there is no second service, no Node
+runtime in production, and nothing to keep in sync. Point a container at a
+database and you have somewhere for your team to sit.
+
+```sh
+git clone https://github.com/jacorbello/parley && cd parley
+cp .env.example .env        # set POSTGRES_PASSWORD to anything
+docker compose up -d
+```
+
+<CardGrid>
+  <Card title="Planning poker">
+    A story queue that knows the difference between a ticket and an ad-hoc
+    round. Four decks. Hidden votes that open when everyone has played, or when
+    the facilitator calls it. Stats that suit the deck — a T-shirt round reports
+    mode and range instead of inventing an average.
+  </Card>
+  <Card title="Daily standup">
+    Round-robin order with a per-person timer, so the quiet people get their turn
+    and the talkative ones can see the clock. Yesterday writes itself from last
+    standup's today. Blockers roundup at the end, ready to paste into a channel.
+  </Card>
+  <Card title="Spaces">
+    One memorable link per team, protected by a six-character room code. See
+    who's around, who's mid-session, and jump straight to the table they're
+    sitting at.
+  </Card>
+  <Card title="Yours to run">
+    MIT licensed. No telemetry, no phone-home, no hosted tier you drift into.
+    Sign-in through your own identity provider if you want it, and no accounts
+    at all if you don't.
+  </Card>
+</CardGrid>
+
+## It behaves itself in production
+
+`/healthz` never touches the database, so a blip can't restart the pod and drop
+every WebSocket. `/readyz` does. Migrations apply at boot, and a binary older
+than its database refuses to start rather than corrupt it. Logs are structured
+JSON. Exports escape spreadsheet formulas.
+
+[Start here →](/guides/quickstart/)

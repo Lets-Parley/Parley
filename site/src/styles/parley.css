@@ -1,0 +1,28 @@
+/* Chart paper and navy ink, matching web/src/tokens.css so the site and the
+   product read as the same thing. Update both together or neither.
+   Only accent and background tokens are overridden: Starlight uses its
+   gray scale and --sl-color-white for foreground text, and redefining those
+   paints type the same colour as the page it sits on. */
+@import "@fontsource/instrument-sans/400.css";
+@import "@fontsource/instrument-sans/600.css";
+@import "@fontsource/instrument-sans/700.css";
+@import "@fontsource/jetbrains-mono/500.css";
+
+:root {
+  --sl-color-accent-low: #0f2a3d;
+  --sl-color-accent: #2f7ba8;
+  --sl-color-accent-high: #cfe3f0;
+  --sl-font: "Instrument Sans", -apple-system, "Segoe UI", sans-serif;
+  --sl-font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+:root[data-theme="light"] {
+  --sl-color-accent-low: #d6e4ee;
+  --sl-color-accent: #1d4e6e;
+  --sl-color-accent-high: #12202f;
+  --sl-color-bg: #f7f6f2;
+  --sl-color-bg-nav: #e9e7e1;
+}
+.hero img {
+  border-radius: 14px;
+  box-shadow: 0 18px 40px -18px rgb(18 32 47 / 0.45);
+}

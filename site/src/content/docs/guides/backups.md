@@ -1,0 +1,24 @@
+---
+title: Backups
+description: Dump it, restore it, and the one command that deletes everything.
+---
+
+```sh
+docker compose exec db pg_dump -U parley parley > parley-backup.sql
+```
+
+Restore into a fresh stack:
+
+```sh
+docker compose up -d db
+cat parley-backup.sql | docker compose exec -T db psql -U parley parley
+docker compose up -d
+```
+
+:::danger[down -v deletes your data]
+`docker compose down -v` removes the data volume: spaces, estimates, standup
+history, all of it. Plain `docker compose down` is safe.
+:::
+
+A dump contains every space's room code in readable form, and no credential
+that impersonates a person. See the [security model](/guides/security/).
