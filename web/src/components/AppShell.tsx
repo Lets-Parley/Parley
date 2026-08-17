@@ -1,11 +1,12 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import type { Me, Person, SessionSummary } from "../lib/api";
+import { api, type Me, type Person, type SessionSummary } from "../lib/api";
 import type { ConnectionStatus } from "../lib/socket";
 import { useTheme } from "../lib/ui";
 import { Avatar } from "./Avatar";
 import { ConnectionBanner } from "./ConnectionBanner";
 import { MemberCard } from "./MemberCard";
+import { useAuthMode } from "./NameGate";
 
 export function Logo({ size = 14 }: { size?: number }) {
   return (
@@ -64,6 +65,21 @@ export function AppShell({
   const [sideOpen, setSideOpen] = useState(sidebarDefault);
   const [who, setWho] = useState<string | null>(null);
   const { isDark, toggle } = useTheme();
+  const mode = useAuthMode();
+  // Only offered where it means something. In open mode the identity is just a
+  // name in a cookie, and "sign out" would promise more than it does.
+  const signedIn = mode.data?.mode === "oidc";
+
+  // Local sign-out: the cookie and its token row go, the identity provider's
+  // own session is left alone. Someone on a shared machine must sign out there
+  // too, which is why this says "Sign out" and not "Sign out everywhere".
+  async function signOut() {
+    try {
+      await api("DELETE", "/api/me");
+    } finally {
+      window.location.href = "/";
+    }
+  }
   const online = new Set(presence ?? members?.map((m) => m.userId) ?? []);
   const stack = (members ?? []).slice(0, 5);
   const overflow = (members?.length ?? 0) - stack.length;
@@ -135,6 +151,16 @@ export function AppShell({
             <Avatar name={me.name} hue={me.avatarHue} size="sm" />
             <span className="max-w-24 truncate text-[13px] font-bold">{me.name}</span>
           </span>
+        )}
+
+        {me && signedIn && (
+          <button
+            onClick={signOut}
+            title="Sign out"
+            className="hidden shrink-0 rounded-chip border border-line px-2.5 py-1.5 text-[12px] font-bold text-ink-soft hover:bg-felt-deep sm:block"
+          >
+            Sign out
+          </button>
         )}
 
         <button

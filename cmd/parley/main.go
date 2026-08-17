@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jacorbello/parley/internal/api"
+	"github.com/jacorbello/parley/internal/auth"
 	"github.com/jacorbello/parley/internal/db"
 )
 
@@ -22,6 +23,8 @@ type config struct {
 	Port        string
 	BaseURL     *url.URL
 	LogLevel    slog.Level
+	AuthMode    string
+	OIDC        auth.Config
 }
 
 func loadConfig() (config, error) {
@@ -52,6 +55,34 @@ func loadConfig() (config, error) {
 		cfg.LogLevel = slog.LevelError
 	default:
 		return cfg, fmt.Errorf("LOG_LEVEL %q is not one of debug, info, warn, error", lv)
+	}
+
+	switch mode := strings.ToLower(envOr("AUTH_MODE", api.ModeOpen)); mode {
+	case api.ModeOpen:
+		cfg.AuthMode = api.ModeOpen
+	case api.ModeOIDC:
+		cfg.AuthMode = api.ModeOIDC
+		cfg.OIDC = auth.Config{
+			Issuer:       os.Getenv("OIDC_ISSUER"),
+			ClientID:     os.Getenv("OIDC_CLIENT_ID"),
+			ClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
+			RedirectURL:  strings.TrimSuffix(base.String(), "/") + "/auth/callback",
+			Scopes:       strings.Fields(envOr("OIDC_SCOPES", "profile email")),
+		}
+		for name, v := range map[string]string{
+			"OIDC_ISSUER":        cfg.OIDC.Issuer,
+			"OIDC_CLIENT_ID":     cfg.OIDC.ClientID,
+			"OIDC_CLIENT_SECRET": cfg.OIDC.ClientSecret,
+		} {
+			if v == "" {
+				return cfg, fmt.Errorf("%s is not set — AUTH_MODE=oidc needs it", name)
+			}
+		}
+		if _, err := url.Parse(cfg.OIDC.Issuer); err != nil || !strings.HasPrefix(cfg.OIDC.Issuer, "http") {
+			return cfg, fmt.Errorf("OIDC_ISSUER %q is not a URL — use the issuer's base address, the one that serves /.well-known/openid-configuration", cfg.OIDC.Issuer)
+		}
+	default:
+		return cfg, fmt.Errorf("AUTH_MODE %q is not one of open, oidc", mode)
 	}
 
 	return cfg, nil
@@ -87,7 +118,15 @@ func main() {
 		"cookie_secure", secureCookies,
 		"allowed_ws_origin", cfg.BaseURL.Scheme+"://"+cfg.BaseURL.Host,
 		"port", cfg.Port,
+		"auth_mode", cfg.AuthMode,
 	)
+	if cfg.AuthMode == api.ModeOIDC {
+		log.Info("sign-in via identity provider",
+			"issuer", cfg.OIDC.Issuer,
+			"redirect_url", cfg.OIDC.RedirectURL,
+			"scopes", strings.Join(cfg.OIDC.Scopes, " "),
+		)
+	}
 	if secureCookies {
 		log.Warn("BASE_URL is https: the app must actually be reached over HTTPS, or browsers will silently drop the session cookie and logins will appear to succeed but never persist")
 	}
@@ -112,9 +151,20 @@ func main() {
 		os.Exit(1)
 	}
 
+	opts := api.Options{
+		SecureCookies: secureCookies,
+		AllowedOrigin: cfg.BaseURL.Scheme + "://" + cfg.BaseURL.Host,
+		AuthMode:      cfg.AuthMode,
+	}
+	if cfg.AuthMode == api.ModeOIDC {
+		// Discovery happens on the first sign-in rather than here: an identity
+		// provider that is down should not keep this server from starting.
+		opts.OIDC = auth.New(cfg.OIDC)
+	}
+
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           api.Router(pool, secureCookies, cfg.BaseURL.Scheme+"://"+cfg.BaseURL.Host),
+		Handler:           api.Router(pool, opts),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

@@ -1,13 +1,14 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type SpaceView } from "../lib/api";
-import { useMe, NameGate } from "../components/NameGate";
+import { useMe, useAuthMode, NameGate } from "../components/NameGate";
 import { Logo } from "../components/AppShell";
 import { buttonPrimary, inputClass } from "../components/Modal";
 
 export function Landing() {
   const navigate = useNavigate();
   const me = useMe();
+  const mode = useAuthMode();
   const [name, setName] = useState("");
   const [needName, setNeedName] = useState(false);
   const [error, setError] = useState("");
@@ -38,7 +39,9 @@ export function Landing() {
       </div>
       <p className="max-w-md text-ink-soft text-pretty">
         Planning poker and daily standups for your team, at your table.
-        Self-hosted, no accounts, no fuss.
+        {mode.data?.mode === "oidc"
+          ? " Sign in with your usual account."
+          : " Self-hosted, no accounts, no fuss."}
       </p>
       <form
         onSubmit={submit}

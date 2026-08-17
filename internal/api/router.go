@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/jacorbello/parley/internal/auth"
 	"github.com/jacorbello/parley/internal/hub"
 	"github.com/jacorbello/parley/internal/poker"
 	"github.com/jacorbello/parley/internal/standup"
@@ -25,21 +26,41 @@ type app struct {
 	hub           *hub.Hub
 	secureCookies bool
 	allowedOrigin string
+	// authMode is ModeOpen or ModeOIDC; oidc is non-nil only in the latter.
+	authMode string
+	oidc     *auth.Provider
 	// passcodeAttempts throttles room-code guessing at the join door.
 	passcodeAttempts *attemptLimiter
 }
 
-func Router(pool *pgxpool.Pool, secureCookies bool, allowedOrigin string) http.Handler {
+type Options struct {
+	SecureCookies bool
+	AllowedOrigin string
+	// AuthMode is ModeOpen (the default) or ModeOIDC.
+	AuthMode string
+	// OIDC must be set when AuthMode is ModeOIDC and is ignored otherwise.
+	OIDC *auth.Provider
+}
+
+func Router(pool *pgxpool.Pool, opts Options) http.Handler {
+	mode := opts.AuthMode
+	if mode == "" {
+		mode = ModeOpen
+	}
 	a := &app{
 		pool:          pool,
 		users:         &store.Users{Pool: pool},
 		spaces:        &store.Spaces{Pool: pool},
 		sessions:      &store.Sessions{Pool: pool},
 		hub:           hub.New(),
-		secureCookies: secureCookies,
-		allowedOrigin: allowedOrigin,
+		secureCookies: opts.SecureCookies,
+		allowedOrigin: opts.AllowedOrigin,
+		authMode:      mode,
 
 		passcodeAttempts: newAttemptLimiter(),
+	}
+	if mode == ModeOIDC {
+		a.oidc = opts.OIDC
 	}
 	a.hub.OnPresenceChange = func(sessionID string) {
 		a.broadcastState(context.Background(), sessionID)
@@ -72,11 +93,21 @@ func Router(pool *pgxpool.Pool, secureCookies bool, allowedOrigin string) http.H
 		w.Write([]byte("ok"))
 	})
 
+	// Sign-in lives outside /api: these are browser navigations that arrive
+	// from the identity provider's domain, so the JSON-body and cross-site
+	// guards that protect the API would reject them by design. Their own CSRF
+	// protection is the state value carried in the sign-in cookie.
+	r.Route("/auth", func(r chi.Router) {
+		r.Get("/login", a.handleAuthLogin)
+		r.Get("/callback", a.handleAuthCallback)
+	})
+
 	r.Route("/api", func(r chi.Router) {
 		r.Use(rejectCrossSite(a.allowedOrigin))
 		r.Use(requireJSONBody)
 		r.Use(resolvePrincipal(a.users))
 
+		r.Get("/auth", a.handleAuthConfig)
 		r.Post("/me", a.handlePostMe)
 		r.Get("/me", a.handleGetMe)
 		r.Delete("/me", a.handleDeleteMe)
