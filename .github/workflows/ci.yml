@@ -1,0 +1,58 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci && npm run build
+        working-directory: web
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test -p 1 -race ./...
+        env:
+          TEST_DATABASE_URL: postgres://test:test@127.0.0.1:5432/test
+
+  # The literal first-run path: the image boots against an EMPTY database and
+  # serves a usable page.
+  first-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t parley:smoke .
+      - run: |
+          docker network create smoke
+          docker run -d --name db --network smoke \
+            -e POSTGRES_USER=parley -e POSTGRES_PASSWORD=smoke -e POSTGRES_DB=parley \
+            postgres:16-alpine
+          for i in $(seq 1 30); do
+            docker exec db pg_isready -U parley && break; sleep 1
+          done
+          docker run -d --name app --network smoke -p 8080:8080 \
+            -e DATABASE_URL=postgres://parley:smoke@db:5432/parley \
+            parley:smoke
+          for i in $(seq 1 30); do
+            curl -fs http://127.0.0.1:8080/readyz && break; sleep 1
+          done
+          curl -fs http://127.0.0.1:8080/readyz
+          curl -fs http://127.0.0.1:8080/ | grep -qi '<div id="root">'
