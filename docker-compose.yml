@@ -1,0 +1,35 @@
+services:
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgres://parley:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/parley
+      BASE_URL: ${BASE_URL:-http://localhost:8080}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      # Bound to localhost by default. To reach it from other machines, change to
+      # "0.0.0.0:8080:8080" AND set BASE_URL to the address teammates will use.
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    # Pinned major version: an unpinned image upgraded across a Postgres major
+    # release leaves the data directory unreadable. See README "Upgrading".
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: parley
+      POSTGRES_DB: parley
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - parley-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U parley -d parley"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  parley-data:
