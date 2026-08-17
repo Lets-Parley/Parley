@@ -36,7 +36,7 @@ function SeatCard({
     const hop = consensus ? `, card-hop 450ms var(--ease-spring) ${620 + index * 40}ms` : "";
     return (
       <span
-        className="flex h-[70px] w-[50px] items-center justify-center rounded-chip border border-line bg-surface font-display text-2xl shadow-rest"
+        className="flex h-[70px] w-[50px] items-center justify-center rounded-chip border border-line bg-surface font-mono text-2xl shadow-rest"
         style={{ animation: flip + hop }}
       >
         {value ? faceOf(value) : "—"}

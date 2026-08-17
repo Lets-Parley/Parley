@@ -63,7 +63,7 @@ export function Hand({
                 disabled={disabled}
                 aria-pressed={isSel}
                 className={
-                  "hand-card flex h-16 items-center justify-center rounded-card border bg-surface font-display text-ink shadow-rest " +
+                  "hand-card flex h-16 items-center justify-center rounded-card border bg-surface font-mono text-ink shadow-rest " +
                   "sm:h-[90px] sm:w-16 " +
                   (isSel
                     ? "border-2 border-accent bg-accent-soft shadow-lift"

@@ -113,7 +113,7 @@ export function StoryQueue({
             {s.estimate ? (
               <span
                 title="Agreed estimate"
-                className="flex h-[33px] w-6 shrink-0 items-center justify-center rounded-[5px] border border-brass bg-surface font-display text-[0.8rem] shadow-rest"
+                className="flex h-[33px] w-6 shrink-0 items-center justify-center rounded-[5px] border border-brass bg-surface font-mono text-[0.8rem] shadow-rest"
               >
                 {faceOf(s.estimate)}
               </span>

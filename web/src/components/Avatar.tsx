@@ -26,10 +26,11 @@ export function Avatar({ name, hue, size = "md", facilitator, spectator, dim }: 
         width: px,
         height: px,
         fontSize: Math.round(px * 0.34),
-        // Identity hue folded into the table's warm arc — eight distinguishable
-        // chips that still read as one deck, never a stray green or blue.
-        background: `oklch(0.52 0.08 ${20 + (((hue % 360) + 360) % 360) / 360 * 70})`,
-        color: "#FFF6EF",
+        // Identity hue folded into the maritime arc, verdigris through harbour
+        // blue to indigo — distinguishable chips that still read as one signal
+        // set, never a stray warm orange.
+        background: `oklch(0.52 0.09 ${185 + (((hue % 360) + 360) % 360) / 360 * 105})`,
+        color: "#F4F8FB",
         boxShadow: "0 0 0 2px var(--color-surface), 0 0 0 3px var(--color-line)",
         opacity: spectator || dim ? 0.55 : 1,
       }}
