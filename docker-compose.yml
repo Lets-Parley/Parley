@@ -1,6 +1,9 @@
 services:
   app:
-    build: .
+    # Tagging v1.0.0 publishes the image as 1.0.0 — the metadata action strips
+    # the leading v. `docker compose pull` picks up a newer tag.
+    image: ghcr.io/jacorbello/parley:1.0.0
+    # build: .   # uncomment (and comment out image:) to build from source
     environment:
       DATABASE_URL: postgres://parley:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/parley
       BASE_URL: ${BASE_URL:-http://localhost:8080}

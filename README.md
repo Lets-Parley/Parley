@@ -107,11 +107,19 @@ sit at.
 
 ### On your own machine
 
+Two files, no checkout. Tagged releases publish a multi-arch image (amd64 and
+arm64) to `ghcr.io/jacorbello/parley`, and the compose file pulls it.
+
 ```sh
-git clone https://github.com/jacorbello/parley && cd parley
-cp .env.example .env        # set POSTGRES_PASSWORD to anything
+mkdir parley && cd parley
+base=https://raw.githubusercontent.com/jacorbello/parley/main
+curl -fsSLo docker-compose.yml $base/docker-compose.yml
+curl -fsSLo .env $base/.env.example   # set POSTGRES_PASSWORD to anything
 docker compose up -d
 ```
+
+To build from source instead, clone the repo and swap the commented `build:`
+line into `docker-compose.yml` for the `image:` line above it.
 
 Open http://localhost:8080 — you should see the Parley landing page. Name a
 space, share nothing yet: it's bound to localhost.
@@ -130,10 +138,9 @@ Two changes, made together:
 flag; if it doesn't match how people actually reach the server, boards will
 sit at "reconnecting" or logins won't stick (see Troubleshooting).
 
-### From a prebuilt image
+### Against a Postgres you already run
 
-Tagged releases publish a multi-arch image (amd64 and arm64) to
-`ghcr.io/jacorbello/parley`. Bring your own Postgres:
+Skip compose entirely and point the image at your own database:
 
 ```sh
 docker run -d --name parley -p 8080:8080 \
@@ -183,11 +190,28 @@ Set `BASE_URL=https://parley.example.com` to match.
 
 ## Kubernetes
 
-`deploy/k8s/deployment.yaml` is a starting point. Two things in it are
+`deploy/k8s/deployment.yaml` (in this repo — clone it, or fetch that one file)
+is a starting point. Two things in it are
 load-bearing rather than stylistic. `replicas: 1` + `strategy: Recreate`: the
 realtime hub is in-process, and a second replica refuses to start via a Postgres
 advisory lock. And the liveness probe hits `/healthz`, which never touches the
 database, because a DB blip must not restart the pod and drop every WebSocket.
+
+Parley ships no Postgres for Kubernetes. Bring a managed database or an
+operator, then give the Deployment its connection string and pin an image tag:
+
+```sh
+kubectl create secret generic parley \
+  --from-literal=database-url='postgres://parley:secret@host:5432/parley'
+kubectl apply -f deploy/k8s/deployment.yaml
+```
+
+A deploy or a node drain is a few seconds of downtime — one replica, `Recreate`,
+and the client's reconnect banner covering the gap. If a new pod logs
+`advisory lock ... already held`, the old one hasn't exited yet; it will start on
+the next retry. There is deliberately **no PodDisruptionBudget**: the only one
+that would protect a single replica (`maxUnavailable: 0`) deadlocks the drain it
+was meant to survive.
 
 ## Security model
 
@@ -236,7 +260,8 @@ docker compose up -d
 
 ## Upgrading
 
-**Parley:** pull the new tag and `docker compose up -d`. Migrations run
+**Parley:** bump the tag in `docker-compose.yml`, then `docker compose pull &&
+docker compose up -d`. Migrations run
 automatically at boot. Rolling *back* an image is only safe if the newer
 version didn't add migrations — if it did, Parley refuses to start with a
 message telling you so; restore from backup instead.
