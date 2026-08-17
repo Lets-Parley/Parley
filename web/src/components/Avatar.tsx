@@ -1,4 +1,4 @@
-const sizes = { sm: 24, md: 32, lg: 40 } as const;
+const sizes = { xs: 24, sm: 28, md: 38, lg: 46 } as const;
 
 export function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -13,20 +13,25 @@ type Props = {
   size?: keyof typeof sizes;
   facilitator?: boolean;
   spectator?: boolean;
+  /** Offline — the seat is still theirs, the chip just goes quiet. */
+  dim?: boolean;
 };
 
-export function Avatar({ name, hue, size = "md", facilitator, spectator }: Props) {
+export function Avatar({ name, hue, size = "md", facilitator, spectator, dim }: Props) {
   const px = sizes[size];
   return (
     <span
-      className="relative inline-flex items-center justify-center rounded-full font-bold select-none ring-1 ring-line"
+      className="relative inline-flex select-none items-center justify-center rounded-full font-bold"
       style={{
         width: px,
         height: px,
-        fontSize: px * 0.38,
-        background: `oklch(0.82 0.06 ${hue})`,
-        color: `oklch(0.32 0.05 ${hue})`,
-        opacity: spectator ? 0.7 : 1,
+        fontSize: Math.round(px * 0.34),
+        // Identity hue folded into the table's warm arc — eight distinguishable
+        // chips that still read as one deck, never a stray green or blue.
+        background: `oklch(0.52 0.08 ${20 + (((hue % 360) + 360) % 360) / 360 * 70})`,
+        color: "#FFF6EF",
+        boxShadow: "0 0 0 2px var(--color-surface), 0 0 0 3px var(--color-line)",
+        opacity: spectator || dim ? 0.55 : 1,
       }}
       title={name}
       aria-label={name}
@@ -34,8 +39,13 @@ export function Avatar({ name, hue, size = "md", facilitator, spectator }: Props
       {initialsOf(name)}
       {facilitator && (
         <span
-          className="absolute -right-0.5 -bottom-0.5 rounded-full bg-brass ring-2 ring-surface"
-          style={{ width: px * 0.28, height: px * 0.28 }}
+          className="absolute -right-px -bottom-px rounded-full bg-brass"
+          style={{
+            width: Math.max(8, px * 0.26),
+            height: Math.max(8, px * 0.26),
+            boxShadow: "0 0 0 2px var(--color-surface)",
+          }}
+          title="Facilitator"
           aria-label="facilitator"
         />
       )}

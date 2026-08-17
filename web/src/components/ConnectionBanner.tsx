@@ -1,21 +1,39 @@
 import type { ConnectionStatus } from "../lib/socket";
 
-const copy: Record<Exclude<ConnectionStatus, "live">, string> = {
-  reconnecting: "Connection lost — reconnecting…",
-  stale: "Still reconnecting. What you see may be out of date.",
-};
-
-export function ConnectionBanner({ status }: { status: ConnectionStatus }) {
+// Named failures only. Each banner says what happened, what it means for your
+// vote, and — when there's something to do — offers the one action.
+export function ConnectionBanner({
+  status,
+  onRetry,
+}: {
+  status: ConnectionStatus;
+  onRetry?: () => void;
+}) {
   if (status === "live") return null;
+  const stale = status === "stale";
   return (
     <div
       role="status"
-      className={
-        "fixed inset-x-0 top-0 z-50 py-2 text-center text-sm font-bold text-accent-ink " +
-        (status === "reconnecting" ? "bg-brass" : "bg-stop")
-      }
+      aria-live="polite"
+      className="flex shrink-0 items-center justify-center gap-2.5 border-b border-line px-5 py-2.5 text-[13px] font-semibold"
+      style={{
+        background: stale
+          ? "color-mix(in oklab, var(--color-stop) 14%, var(--color-surface))"
+          : "color-mix(in oklab, var(--color-brass) 18%, var(--color-surface))",
+      }}
     >
-      {copy[status]}
+      <span className={"h-2 w-2 shrink-0 rounded-full " + (stale ? "bg-stop" : "bg-brass")} />
+      {stale
+        ? "Connection lost — showing the table as it last stood. Votes may be out of date."
+        : "Reconnecting — your vote is safe."}
+      {stale && onRetry && (
+        <button
+          onClick={onRetry}
+          className="rounded-full border border-line bg-surface px-3 py-1 text-xs font-bold hover:bg-surface-hi"
+        >
+          Retry now
+        </button>
+      )}
     </div>
   );
 }

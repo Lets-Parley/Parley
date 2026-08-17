@@ -3,7 +3,11 @@
 /* Parley design tokens — "The Table".
    Warm card-table neutrals; depth and texture only on cards and wells; Fraunces
    confined to numerals and display headlines. Dark is lamplit, not gray-inverted.
-   Dark mode follows the system (no toggle in v1). */
+
+   Theme resolution: the palette below is the light default. Dark applies when
+   the system asks for it and the user has not pinned light, or when the user
+   has pinned dark. Never define a colour only inside a media/[data-theme] block
+   — the toggle has to win in both directions. */
 
 :root {
   /* Light: daylight table */
@@ -22,18 +26,18 @@
   --color-go:          #3E6E44;
   --color-stop:        #A93B32;
   --color-card-back:   #7A4A32;
+  --color-pip:         #FBF8F1;
 
   --font-sans: "Nunito Sans", "Avenir Next", -apple-system, "Segoe UI", sans-serif;
   --font-display: "Fraunces", "Iowan Old Style", Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
-  --text-num-card: 2.5rem;
-  --text-num-table: 4.5rem;
+  --text-num-card: 2.2rem;
+  --text-num-table: 1.5rem;
   --text-num-result: 6.5rem;
 
   --radius-chip: 8px;
   --radius-card: 14px;
   --radius-panel: 20px;
-  --radius-pill: 999px;
   --shadow-rest: 0 1px 2px rgb(44 38 32 / 0.1), 0 2px 8px rgb(44 38 32 / 0.08);
   --shadow-lift: 0 2px 4px rgb(44 38 32 / 0.12), 0 10px 24px rgb(44 38 32 / 0.16);
   --shadow-well: inset 0 2px 6px rgb(44 38 32 / 0.12);
@@ -47,9 +51,9 @@
   --dur-toast: 220ms;
 }
 
+/* Dark: evening game — lamplit espresso. */
 @media (prefers-color-scheme: dark) {
-  :root {
-    /* Dark: evening game — lamplit espresso */
+  :root:not([data-theme="light"]) {
     --color-felt:        #221D17;
     --color-felt-deep:   #1A1611;
     --color-surface:     #2E2820;
@@ -65,10 +69,33 @@
     --color-go:          #8FBE8F;
     --color-stop:        #E88A7E;
     --color-card-back:   #5C3826;
+    --color-pip:         #F1EADD;
     --shadow-rest: 0 1px 2px rgb(0 0 0 / 0.4), 0 2px 8px rgb(0 0 0 / 0.3);
     --shadow-lift: 0 2px 4px rgb(0 0 0 / 0.45), 0 12px 28px rgb(0 0 0 / 0.4);
     --shadow-well: inset 0 2px 6px rgb(0 0 0 / 0.45);
   }
+}
+
+:root[data-theme="dark"] {
+  --color-felt:        #221D17;
+  --color-felt-deep:   #1A1611;
+  --color-surface:     #2E2820;
+  --color-surface-hi:  #3A332A;
+  --color-ink:         #F1EADD;
+  --color-ink-soft:    #B5AB9B;
+  --color-ink-faint:   #7E7566;
+  --color-line:        #453D32;
+  --color-accent:      #E8956A;
+  --color-accent-ink:  #2A160C;
+  --color-accent-soft: #4A3527;
+  --color-brass:       #D9AE54;
+  --color-go:          #8FBE8F;
+  --color-stop:        #E88A7E;
+  --color-card-back:   #5C3826;
+  --color-pip:         #F1EADD;
+  --shadow-rest: 0 1px 2px rgb(0 0 0 / 0.4), 0 2px 8px rgb(0 0 0 / 0.3);
+  --shadow-lift: 0 2px 4px rgb(0 0 0 / 0.45), 0 12px 28px rgb(0 0 0 / 0.4);
+  --shadow-well: inset 0 2px 6px rgb(0 0 0 / 0.45);
 }
 
 /* Expose the palette to Tailwind utilities (bg-felt, text-ink, border-line…). */
@@ -88,6 +115,7 @@
   --color-go: var(--color-go);
   --color-stop: var(--color-stop);
   --color-card-back: var(--color-card-back);
+  --color-pip: var(--color-pip);
   --font-sans: var(--font-sans);
   --font-display: var(--font-display);
   --font-mono: var(--font-mono);
@@ -99,17 +127,6 @@
   --shadow-well: var(--shadow-well);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --dur-tap: 0ms;
-    --dur-lift: 0ms;
-    --dur-flip: 0ms;
-    --dur-stagger: 0ms;
-    --dur-toast: 0ms;
-    --ease-spring: ease-out;
-  }
-}
-
 body {
   background: var(--color-felt);
   color: var(--color-ink);
@@ -117,8 +134,21 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-@keyframes card-hop {
-  0% { transform: rotateY(180deg) translateY(0); }
-  40% { transform: rotateY(180deg) translateY(-8px); }
-  100% { transform: rotateY(180deg) translateY(0); }
+/* The hand fans, lifts under the cursor, and stays lifted once picked. Kept in
+   CSS rather than inline styles so :hover can win over the resting fan angle. */
+.hand-card {
+  transform: rotate(var(--rot, 0deg));
+  transition: transform var(--dur-lift) var(--ease-spring), box-shadow var(--dur-lift);
+}
+.hand-card:hover:not(:disabled) { transform: translateY(-6px) rotate(0deg); }
+.hand-card[aria-pressed="true"] { transform: translateY(-10px) rotate(0deg); }
+
+@keyframes flip-in { from { transform: rotateY(92deg) } to { transform: rotateY(0deg) } }
+@keyframes card-hop { 0% { transform: translateY(0) } 40% { transform: translateY(-8px) } 100% { transform: translateY(0) } }
+@keyframes stamp-in { from { transform: scale(1.15); opacity: 0 } to { transform: scale(1); opacity: 1 } }
+@keyframes toast-up { from { transform: translate(-50%, 12px); opacity: 0 } to { transform: translate(-50%, 0); opacity: 1 } }
+@keyframes modal-drop { from { transform: translateY(-6px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
 }

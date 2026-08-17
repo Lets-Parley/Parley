@@ -1,8 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { api, type Envelope, type Me } from "../lib/api";
-import type { ConnectionStatus } from "../lib/socket";
-import { ConnectionBanner } from "../components/ConnectionBanner";
 import { Avatar } from "../components/Avatar";
 import { buttonPrimary, buttonQuiet, inputClass } from "../components/Modal";
 
@@ -79,7 +76,7 @@ function Timer({ startedAt, seconds, serverTime }: { startedAt: string; seconds:
   );
 }
 
-export function StandupRoom({ env, me, status }: { env: Envelope; me: Me; status: ConnectionStatus }) {
+export function StandupRoom({ env, me }: { env: Envelope; me: Me }) {
   const st = env.state as unknown as StandupState;
   const isFacilitator = env.facilitatorId === me.id;
   const { draft, update, saveState } = useOwnEntryDraft(env, me.id);
@@ -105,15 +102,9 @@ export function StandupRoom({ env, me, status }: { env: Envelope; me: Me; status
     .join("\n");
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-4xl flex-col gap-6 p-4 sm:p-6">
-      <ConnectionBanner status={status} />
-      <header className="flex flex-wrap items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <Link to={`/s/${env.spaceSlug}`} className="text-sm font-bold text-accent hover:underline">
-            ← {env.spaceSlug}
-          </Link>
-          <h1 className="font-display truncate text-3xl font-semibold">{env.title}</h1>
-        </div>
+    <div className="mx-auto flex max-w-4xl flex-col gap-6 p-5 sm:p-7">
+      <header className="flex flex-wrap items-center gap-3 rounded-panel border border-line bg-surface px-5 py-4 shadow-rest">
+        <h1 className="min-w-0 flex-1 truncate text-lg font-extrabold tracking-tight">{env.title}</h1>
         <a
           href={`/api/sessions/${env.id}/export.csv`}
           download
@@ -136,7 +127,7 @@ export function StandupRoom({ env, me, status }: { env: Envelope; me: Me; status
               <li
                 key={e.userId}
                 className={
-                  "flex items-center gap-1.5 rounded-pill py-1 pl-1 pr-3 transition " +
+                  "flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3 transition " +
                   (isCurrent ? "bg-accent-soft shadow-lift" : e.skipped ? "opacity-40" : "bg-surface shadow-rest")
                 }
               >
