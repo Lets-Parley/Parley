@@ -348,3 +348,23 @@ func TestStoryTicketRef(t *testing.T) {
 		t.Fatalf("over-long ref: %d", resp.StatusCode)
 	}
 }
+
+// An estimate is a card, not whatever the client happened to be rendering. The
+// dash placeholder and the coffee glyph both reached this endpoint from the UI
+// and were stored verbatim, then travelled on into the CSV export.
+func TestEstimateMustBeACardFromTheDeck(t *testing.T) {
+	srv := testServer(t)
+	fac, _, id := setupSession(t, srv, "Estimate Guard Space")
+	story := addStory(t, srv, id, "Guarded story", fac)
+
+	for _, bad := range []string{"—", "☕", "coffee", "?", "XL", "1000"} {
+		resp, _ := doJSON(t, srv, "PATCH", "/api/stories/"+story, `{"estimate":"`+bad+`"}`, fac)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("estimate %q was accepted with %d, want 400", bad, resp.StatusCode)
+		}
+	}
+	// A real card from the session's deck still saves.
+	if resp, _ := doJSON(t, srv, "PATCH", "/api/stories/"+story, `{"estimate":"8"}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("a legitimate estimate was refused: %d", resp.StatusCode)
+	}
+}

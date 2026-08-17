@@ -187,8 +187,25 @@ func (h *Handler) patchStory(w http.ResponseWriter, r *http.Request, rc reqCtx) 
 		h.pool.Exec(r.Context(), "update stories set position = $2 where id = $1", rc.storyID, *body.Position)
 	}
 	if body.Estimate != nil {
+		// An estimate has to be a card from this session's deck. Without the
+		// check, whatever the client happened to be rendering — a placeholder
+		// dash, the coffee glyph — becomes the story's permanent estimate and
+		// travels on into the CSV export.
+		est := strings.TrimSpace(*body.Estimate)
+		if est != "" {
+			var cfg Config
+			json.Unmarshal(rc.sess.Config, &cfg)
+			deck, ok := DeckByName(cfg.Deck)
+			if !ok {
+				deck, _ = DeckByName("fibonacci")
+			}
+			if !deck.Has(est) || isSpecial(est) {
+				http.Error(w, `{"error":"an estimate has to be a card from this session's deck"}`, http.StatusBadRequest)
+				return
+			}
+		}
 		h.pool.Exec(r.Context(),
-			"update stories set estimate = $2, status = 'estimated' where id = $1", rc.storyID, *body.Estimate)
+			"update stories set estimate = $2, status = 'estimated' where id = $1", rc.storyID, est)
 	}
 	h.done(w, r, rc.sess.ID)
 }

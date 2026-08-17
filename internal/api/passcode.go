@@ -76,10 +76,25 @@ func newAttemptLimiter() *attemptLimiter {
 	return &attemptLimiter{hits: map[string][]time.Time{}, now: time.Now}
 }
 
-// allow records an attempt and reports whether it may proceed.
-func (l *attemptLimiter) allow(key string) bool {
+// blocked reports whether this client has spent its guesses. It does not
+// record anything: only a wrong answer costs a guess, so a team filing in
+// through the same office address does not lock out whoever arrives last.
+func (l *attemptLimiter) blocked(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.sweepLocked()
+	return len(l.hits[key]) >= passcodeAttemptLimit
+}
+
+// record charges one failed attempt against the key.
+func (l *attemptLimiter) record(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.sweepLocked()
+	l.hits[key] = append(l.hits[key], l.now())
+}
+
+func (l *attemptLimiter) sweepLocked() {
 	cutoff := l.now().Add(-passcodeAttemptWindow)
 
 	// Opportunistic sweep: without it a long-lived process accumulates a key
@@ -97,12 +112,6 @@ func (l *attemptLimiter) allow(key string) bool {
 			l.hits[k] = kept
 		}
 	}
-
-	if len(l.hits[key]) >= passcodeAttemptLimit {
-		return false
-	}
-	l.hits[key] = append(l.hits[key], l.now())
-	return true
 }
 
 // clientKey identifies the caller for throttling. RealIP has already applied

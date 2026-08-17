@@ -40,6 +40,10 @@ type Options struct {
 	AuthMode string
 	// OIDC must be set when AuthMode is ModeOIDC and is ignored otherwise.
 	OIDC *auth.Provider
+	// TrustProxyHeaders reads the client address from X-Forwarded-For and
+	// friends. Turn it on only when a proxy in front overwrites those headers;
+	// exposed directly, it hands every caller a free choice of address.
+	TrustProxyHeaders bool
 }
 
 func Router(pool *pgxpool.Pool, opts Options) http.Handler {
@@ -70,7 +74,14 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 	}
 
 	r := chi.NewRouter()
-	r.Use(middleware.RealIP)
+	// RealIP rewrites RemoteAddr from X-Forwarded-For, which the caller writes.
+	// That is correct behind a proxy that overwrites the header, and a hole
+	// anywhere else: the room-code throttle is keyed on the client address, so
+	// trusting a header the guesser controls would let a script reset its own
+	// limit on every request. Off unless the operator says otherwise.
+	if opts.TrustProxyHeaders {
+		r.Use(middleware.RealIP)
+	}
 	r.Use(middleware.Recoverer)
 	r.Use(securityHeaders)
 

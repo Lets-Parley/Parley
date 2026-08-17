@@ -25,6 +25,7 @@ type config struct {
 	LogLevel    slog.Level
 	AuthMode    string
 	OIDC        auth.Config
+	TrustProxy  bool
 }
 
 func loadConfig() (config, error) {
@@ -56,6 +57,11 @@ func loadConfig() (config, error) {
 	default:
 		return cfg, fmt.Errorf("LOG_LEVEL %q is not one of debug, info, warn, error", lv)
 	}
+
+	// Only meaningful behind a proxy that sets the header itself. Exposed
+	// directly, trusting it lets a caller pick their own address and walk
+	// straight through the room-code throttle.
+	cfg.TrustProxy = envOr("TRUST_PROXY_HEADERS", "false") == "true"
 
 	switch mode := strings.ToLower(envOr("AUTH_MODE", api.ModeOpen)); mode {
 	case api.ModeOpen:
@@ -119,6 +125,7 @@ func main() {
 		"allowed_ws_origin", cfg.BaseURL.Scheme+"://"+cfg.BaseURL.Host,
 		"port", cfg.Port,
 		"auth_mode", cfg.AuthMode,
+		"trust_proxy_headers", cfg.TrustProxy,
 	)
 	if cfg.AuthMode == api.ModeOIDC {
 		log.Info("sign-in via identity provider",
@@ -152,9 +159,10 @@ func main() {
 	}
 
 	opts := api.Options{
-		SecureCookies: secureCookies,
-		AllowedOrigin: cfg.BaseURL.Scheme + "://" + cfg.BaseURL.Host,
-		AuthMode:      cfg.AuthMode,
+		SecureCookies:     secureCookies,
+		AllowedOrigin:     cfg.BaseURL.Scheme + "://" + cfg.BaseURL.Host,
+		AuthMode:          cfg.AuthMode,
+		TrustProxyHeaders: cfg.TrustProxy,
 	}
 	if cfg.AuthMode == api.ModeOIDC {
 		// Discovery happens on the first sign-in rather than here: an identity

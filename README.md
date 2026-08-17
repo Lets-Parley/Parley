@@ -160,6 +160,7 @@ docker run -d --name parley -p 8080:8080 \
 | `BASE_URL` | no | `http://localhost:8080` | The address users reach Parley at. Drives cookie `Secure` and the WebSocket origin check. |
 | `PORT` | no | `8080` | Listen port |
 | `LOG_LEVEL` | no | `info` | `debug` / `info` / `warn` / `error` |
+| `TRUST_PROXY_HEADERS` | no | `false` | Read the client address from `X-Forwarded-For`. Turn on **only** behind a proxy that sets it |
 | `AUTH_MODE` | no | `open` | `open` for no accounts, `oidc` to sign in through an identity provider |
 | `OIDC_ISSUER` | with `oidc` | — | Issuer base URL, the one serving `/.well-known/openid-configuration` |
 | `OIDC_CLIENT_ID` | with `oidc` | — | Client ID registered with the provider |
@@ -194,7 +195,14 @@ location / {
 }
 ```
 
-Set `BASE_URL=https://parley.example.com` to match.
+Set `BASE_URL=https://parley.example.com` to match, and set
+`TRUST_PROXY_HEADERS=true` so the room-code throttle counts real clients rather
+than seeing every request as coming from the proxy.
+
+Leave it `false` when Parley is reachable directly. `X-Forwarded-For` is written
+by whoever sends the request, so a server that trusts it without a proxy in
+front lets a script hand itself a fresh address on every guess and walk straight
+through the throttle.
 
 ## Kubernetes
 

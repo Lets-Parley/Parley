@@ -90,6 +90,10 @@ export function SpacePage() {
           locked={sp.protected}
           error={error}
           onJoin={(passcode) => {
+            // Still loading is not the same as "has no identity": asking a
+            // member to pick a name again because their session hadn't
+            // arrived yet is worse than a moment's wait.
+            if (me.isLoading) return;
             if (!me.data) {
               setPending(passcode ?? "");
               setNeedName(true);
@@ -127,6 +131,9 @@ export function SpacePage() {
       spaceName={sp.name}
       me={me.data ?? null}
       members={sp.members}
+      // This page holds no socket of its own, so the only honest presence it
+      // has is who the server says is sitting in a live session right now.
+      presence={(sp.members ?? []).filter((m) => m.at).map((m) => m.userId)}
       sessions={all}
     >
       <div className="mx-auto max-w-[760px] px-6 py-9 sm:px-8">

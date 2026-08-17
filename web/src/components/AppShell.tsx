@@ -80,7 +80,10 @@ export function AppShell({
       window.location.href = "/";
     }
   }
-  const online = new Set(presence ?? members?.map((m) => m.userId) ?? []);
+  // No presence feed means presence is unknown, which is not the same as
+  // everyone being here: falling back to the whole roster lit a green dot
+  // beside people who were nowhere near the space.
+  const online = new Set(presence ?? []);
   const stack = (members ?? []).slice(0, 5);
   const overflow = (members?.length ?? 0) - stack.length;
   const whoMember = who ? members?.find((m) => m.userId === who) : undefined;
