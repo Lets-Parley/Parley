@@ -19,6 +19,22 @@ Nothing is in progress right now. The next thing to start is under **Next**.
 
 Accepted work, likely to be picked up after current priorities.
 
+### A room everyone can actually use
+
+A live room updates itself constantly, and right now none of those updates
+announce themselves. A screen-reader user cannot tell that a reveal has
+happened, who has voted, or whose turn it is in the rotation — and the "voted"
+signal is carried by colour alone. That is not a degraded experience, it is an
+excluded one.
+
+Announced state changes, vote indicators that survive without colour, full
+keyboard operation of the table, and a focus trap that behaves. Every component
+here already ships with a test beside it, so the work is to make accessibility
+one more thing those tests assert rather than a one-off audit that decays.
+
+- Status: Backlog
+- Target: v0.3.0
+
 ### An extensible core
 
 Adding a ceremony to Parley currently means touching the router, a database
@@ -31,9 +47,54 @@ the two existing kinds one shared authorization path instead of two
 reimplementations, and stops an unknown session kind from silently rendering the
 wrong room.
 
+It should also settle where storage sits. A session kind is currently handed a
+Postgres connection pool directly, which puts the database driver in the middle
+of the extension point this work exists to stabilise. Drawing that boundary now
+costs a little; drawing it after the interface is published costs a great deal
+more.
+
 - Status: Backlog
 - Target: v0.3.0
 - Tracking: [#8](https://github.com/lets-parley/parley/issues/8)
+
+### Yesterday's promise
+
+Standup already carries what you said you would do today into tomorrow's
+"yesterday". It then asks nothing about it. A day's work is never falsified, so
+a stuck item can quietly stay stuck for a fortnight while every individual
+morning feels fine.
+
+Each turn opens with what you said last time and one question: still on this?
+An item answered "no" twice running gets flagged as stuck — the item, not the
+person. No streaks, no percentages, nothing that turns a facilitation aid into a
+performance record.
+
+- Status: Backlog
+- Target: v0.3.0
+
+### A meeting that ends
+
+A session can be given a limit — a length, a number of stories — and when it
+runs out the room says so and publishes what it did not get to. The unfinished
+list is the artifact, and it is meant to be uncomfortable: a refinement backlog
+written from evidence rather than from memory.
+
+No tool that sells seats will ever ship this, which is reason enough.
+
+- Status: Backlog
+- Target: v0.3.0
+
+### Take the whole instance with you
+
+`parley export` writes every space, session, estimate, vote, and standup entry
+to a single versioned archive, and `parley import` reconstitutes it on another
+host. Data ownership is a claim until it is a file you are holding.
+
+A database dump is not portability, it is coupling. This is also the backup
+story for the many people whose backup story is currently nothing at all.
+Export lands first and on its own — it is half the work and most of the trust.
+
+- Status: Backlog
 
 ## Later
 
@@ -51,6 +112,33 @@ Depends on [#8](https://github.com/lets-parley/parley/issues/8).
 
 - Status: Backlog
 - Tracking: [#9](https://github.com/lets-parley/parley/issues/9)
+
+### A parking lot with an owner and a clock
+
+"Let's take that offline" is the most-spoken and least-honoured sentence in any
+ceremony. A first-class parking lot refuses to accept the deferral without a
+person and a date attached, then puts the item back in front of the room at the
+next session until somebody deals with it.
+
+This is the first thing Parley would store that belongs to a team rather than to
+a single session, which makes it a fair test of whether the boundary drawn by
+[#8](https://github.com/lets-parley/parley/issues/8) is in the right place.
+Worth building after that work, not before.
+
+- Status: Backlog
+
+### Postgres becomes optional
+
+One binary and one file on disk, with Postgres an opt-in for teams that outgrow
+it. A team of six estimating twice a week should not need a database container,
+a volume, and a backup plan before anyone can vote.
+
+Cheap once storage sits behind an interface, and expensive until it does — so
+this follows [#8](https://github.com/lets-parley/parley/issues/8) rather than
+racing it. Both backends would have to run the whole test suite in CI, or the
+two dialects drift and the less-used one quietly rots.
+
+- Status: Backlog
 
 ### The rest of the ceremonies
 
