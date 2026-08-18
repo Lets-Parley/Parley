@@ -2,7 +2,6 @@ package session
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 )
 
@@ -14,12 +13,22 @@ type testConfig struct {
 	Seconds int    `json:"seconds"`
 }
 
-// registerTestKind registers a throwaway kind and removes it afterwards, so
-// the shared registry is the same before and after the test.
+// registerTestKind registers a throwaway kind and restores whatever was there
+// before, so the registry is the same after the test as it was going in.
+//
+// The registry is an unsynchronized package-level map written at init time, so
+// nothing in this file may call t.Parallel().
 func registerTestKind(t *testing.T, kind string) {
 	t.Helper()
+	prev, existed := registry[kind]
 	Register(kind, nil, func() any { return &testConfig{} })
-	t.Cleanup(func() { delete(registry, kind) })
+	t.Cleanup(func() {
+		if existed {
+			registry[kind] = prev
+			return
+		}
+		delete(registry, kind)
+	})
 }
 
 func TestKnown(t *testing.T) {
@@ -87,18 +96,19 @@ func TestParseConfigNormalizesOutput(t *testing.T) {
 	}
 }
 
-func TestParseConfigIgnoresTrailingDocuments(t *testing.T) {
+func TestParseConfigRejectsTrailingDocuments(t *testing.T) {
 	registerTestKind(t, "kindtest")
-	// The decoder reads one value, so a second document appended to the body
-	// is silently dropped rather than merged. Pinned because the dropped half
-	// must not be able to smuggle a field past the first document's
-	// validation.
-	out, err := ParseConfig("kindtest", []byte(`{"deck":"fibonacci"} {"deck":"evil"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(out), "evil") {
-		t.Fatalf("ParseConfig = %s, want the trailing document dropped", out)
+	// The decoder reads one value. A second document appended to the body must
+	// be an error rather than a silent truncation, so the dropped half can
+	// never smuggle a field past the first document's validation.
+	for _, raw := range []string{
+		`{"deck":"fibonacci"} {"deck":"evil"}`,
+		`{"deck":"fibonacci"} garbage`,
+		`{"deck":"fibonacci"}{}`,
+	} {
+		if out, err := ParseConfig("kindtest", []byte(raw)); err == nil {
+			t.Errorf("ParseConfig(%s) = %s, want an error", raw, out)
+		}
 	}
 }
 
