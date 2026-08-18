@@ -1,0 +1,152 @@
+# AGENTS.md
+
+Operating notes for anyone — person or coding agent — making changes to Parley.
+This is the stuff you cannot infer by reading the code. For what Parley *is*, see
+[README.md](README.md); for policy, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Repository overview
+
+Parley is a self-hosted planning-poker and standup tool that ships as **one Go
+binary plus Postgres**. The React frontend is compiled into the binary with
+`go:embed`, so there is no Node runtime in production.
+
+Module `github.com/lets-parley/parley`, Go 1.26.3, chi + pgx + gorilla/websocket.
+
+| Path | Contents |
+| --- | --- |
+| `cmd/parley/` | config from env, boot, single-replica lock, graceful shutdown |
+| `internal/api/` | chi router, identity, spaces, sessions, room codes, authz, export, WebSocket |
+| `internal/auth/` | OpenID Connect relying party |
+| `internal/db/` | pool, boot lock, `migrations/*.sql` (embedded, run at boot) |
+| `internal/hub/` | WebSocket fan-out and presence |
+| `internal/poker/`, `internal/standup/` | the two session kinds |
+| `internal/session/` | kind registry and the wire envelope |
+| `internal/store/` | Postgres queries |
+| `web/` | Vite + React app; `web/embed.go` embeds `web/dist` |
+| `site/` | Astro/Starlight docs, published to www.letsparley.io |
+| `deploy/k8s/` | Kubernetes manifest |
+
+## Development
+
+```sh
+cd web && npm ci && npm run build && cd ..   # REQUIRED before any go build or go test
+export DATABASE_URL=postgres://parley:dev@localhost:5432/parley
+go run ./cmd/parley
+```
+
+Frontend work, with hot reload against a running backend:
+
+```sh
+cd web && npm run dev            # Vite on :5173, proxies /api and /ws to :8080
+```
+
+`web/embed.go` declares `//go:embed all:dist` and `web/dist/` is gitignored
+(only `.gitkeep` is tracked). **Skipping the npm build makes Go compilation
+fail**, and a stale `dist` compiles fine while silently serving an old UI. When
+in doubt, rebuild it.
+
+`DATABASE_URL` has no default and is fatal if missing. Everything else is
+optional: `PORT`, `BASE_URL`, `LOG_LEVEL`, `TRUST_PROXY_HEADERS`, `AUTH_MODE`,
+and the `OIDC_*` set when `AUTH_MODE=oidc`. See `.env.example`.
+
+## Testing
+
+```sh
+export TEST_DATABASE_URL=postgres://test:test@localhost:5432/test
+go vet ./...
+go test -p 1 -race ./...        # this is what CI runs
+cd web && npm run lint          # oxlint — CI does NOT run this, so you must
+```
+
+- **`-p 1` is mandatory.** Every package shares one test database and migrates
+  it; parallel packages race and fail confusingly.
+- **Without `TEST_DATABASE_URL` the integration tests silently skip**
+  (`internal/api/me_test.go`, `internal/db/migrate_test.go` call `t.Skip`). A
+  green `go test ./...` can mean almost nothing ran. Never report a passing test
+  run without saying whether the database was set.
+- Behavioural changes need a test, and the test must have been *seen to fail*
+  before the fix.
+- Style: stdlib `testing`, no assertion library, `httptest.Server` against a
+  real `pgxpool`, helpers colocated in the package's `_test.go` files.
+- There is no frontend test suite. Do not introduce a test framework as a
+  side-effect of another change — open an issue first.
+
+`.github/workflows/ci.yml` is the authoritative gate. Its `first-run` job also
+builds the Docker image and boots it against an empty database, which catches
+migration and embedding mistakes that unit tests miss.
+
+## Code conventions
+
+- Go is `gofmt`-formatted and must pass `go vet ./...`. There is no
+  golangci-lint config; don't add one as a drive-by.
+- Wrap errors in library code: `fmt.Errorf("reading foo: %w", err)`.
+- HTTP handlers return literal JSON error bodies —
+  ``http.Error(w, `{"error":"session not found"}`, http.StatusNotFound)`` — and
+  use the package-local `writeJSON` on success. Messages are lowercase and
+  explain the problem to a human.
+- Boot and config failures log `FATAL: …` via `slog` and `os.Exit(1)`, with a
+  message that tells the operator what to change.
+- Logging is `log/slog` JSON to stdout; config is read via `os.Getenv` and the
+  local `envOr` helper, validated once in `loadConfig()`.
+- Session kinds self-register through `session.Register(...)`. Kind configs
+  decode with `DisallowUnknownFields`, and a `StateFunc` must return only
+  redacted, client-safe data — it is broadcast to every participant.
+- Frontend: TypeScript strict via project references, oxlint
+  (`web/.oxlintrc.json`), PascalCase components in `web/src/components/`, pages
+  in `web/src/pages/`, helpers in `web/src/lib/`, design tokens in
+  `web/src/tokens.css`.
+
+## Gotchas
+
+1. **Migrations are append-only.** `internal/db/migrations/*.sql` are embedded
+   and versioned by filename sort order. Never edit or renumber a shipped
+   migration — the running database has already applied it. The binary refuses
+   to start if the database is ahead of it (`internal/db/migrate.go`).
+2. **`web/dist/**` is build output.** Never hand-edit it.
+3. **Single replica only.** `db.AcquireBootLock` takes a Postgres advisory lock
+   and a second instance exits fatally. Do not raise `replicas` in
+   `deploy/k8s/deployment.yaml`.
+4. **`BASE_URL` is security config.** It drives the WebSocket origin check and
+   whether the session cookie is `Secure`. Claiming `https` while serving plain
+   HTTP makes sign-in appear to work but never persist.
+5. **`TRUST_PROXY_HEADERS=true` without a real proxy in front is a
+   vulnerability** — clients can forge `X-Forwarded-For` and defeat the room-code
+   throttle. Default it to false.
+6. **`/healthz` must never touch the database; `/readyz` does.** A database blip
+   restarting the process would drop every live WebSocket. Preserve the split.
+7. **OIDC discovery happens on first sign-in, not at boot**, deliberately, so a
+   broken identity provider cannot stop the server from starting. Not a bug.
+8. Docker (not podman), distroless nonroot final image, container healthcheck is
+   the binary itself (`/parley -healthcheck`). Postgres is pinned to
+   `16-alpine` on purpose — an unplanned major upgrade breaks the data directory.
+9. Docs pages carry a `VerifiedStamp` recording the version and source file they
+   were transcribed from. Changing a default, limit, or security property means
+   updating the `site/` page **and** its stamp in the same PR.
+10. Dependabot watches only `site/`. Go modules and `web/` dependencies are
+    bumped by hand, with tests.
+
+## Scope
+
+One concern per pull request. No unrelated refactors, no repo-wide reformatting,
+no speculative abstractions, and no new dependencies or lint tooling without an
+issue first. For anything large, open an issue before writing code.
+
+## Commits and pull requests
+
+- Conventional Commits, lowercase and imperative, scope optional:
+  `feat(web): …`, `fix: …`, `docs: …`, `chore: …`. The body is prose explaining
+  the motivation. Squash merges append `(#NN)`.
+- Branches are `type/kebab-slug`, e.g. `feat/oidc-and-hardening`,
+  `docs/roadmap-structure`.
+- Behaviour changes update the `site/` docs in the same PR.
+- Report verification honestly: name the commands you ran and whether
+  `TEST_DATABASE_URL` was set. Never claim a check passed that you did not run.
+
+## Further reading
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — contribution policy and migration rules
+- [SECURITY.md](SECURITY.md) — report vulnerabilities privately, never as a
+  public issue
+- [ROADMAP.md](ROADMAP.md) — what is planned now, next, and later
+- `.github/workflows/ci.yml` — the checks that must pass
+- `site/src/content/docs/` — user-facing documentation source
