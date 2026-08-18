@@ -1,6 +1,17 @@
 ---
 // rows: [{ method, path, auth, purpose }]
 const { rows = [] } = Astro.props;
+
+// `method` is interpolated into a class name, so a non-string throws inside the
+// map with a stack trace that names neither the row nor this file. Fail here
+// with the offending path instead.
+const bad = rows.filter((r) => typeof r.method !== "string" || r.method === "");
+if (bad.length) {
+  throw new Error(
+    `RouteTable: every row needs a string 'method': ` +
+      bad.map((r) => r.path ?? "(no path)").join(", ")
+  );
+}
 ---
 <div class="routes">
   <table>

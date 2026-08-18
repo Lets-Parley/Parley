@@ -2,15 +2,28 @@
 // Credibility mechanism: says what version this page was transcribed against
 // and which file it came from, so a reader can check it and a future editor
 // knows what went stale.
-const { version, source } = Astro.props;
+//
+// The version is NOT a prop. It was hardcoded on 22 pages, which meant a
+// release had 22 chances to leave one behind saying something untrue.
+import { VERIFIED_VERSION } from "../verified.ts";
+
+const { source } = Astro.props;
 const repo = "https://github.com/lets-parley/parley/blob/main/";
 const files = Array.isArray(source) ? source : source ? [source] : [];
+
+// A stamp with no file is a claim with nothing to check, which is worse than
+// no stamp at all — it borrows the credibility without offering the evidence.
+if (files.length === 0) {
+  throw new Error(
+    "VerifiedStamp: `source` is required — name at least one file a reader can open."
+  );
+}
 ---
 <p class="stamp">
-  Verified against <strong>{version}</strong>
-  {files.length > 0 && <> · {files.map((f, i) => (<>
+  Verified against <strong>{VERIFIED_VERSION}</strong>
+  {" · "}{files.map((f, i) => (<>
     {i > 0 && <span>, </span>}<a href={`${repo}${f}`}><code>{f}</code></a>
-  </>))}</>}
+  </>))}
 </p>
 
 <style>

@@ -6,7 +6,7 @@ description: What the process is, how requests and WebSockets flow through it, a
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp version="v0.2.1" source={["cmd/parley/main.go", "internal/api/router.go", "internal/hub/hub.go"]} />
+<VerifiedStamp source={["cmd/parley/main.go", "internal/api/router.go", "internal/hub/hub.go"]} />
 
 Parley is one process and one database.
 
@@ -15,7 +15,8 @@ process serves the HTML, the API, and the WebSocket. There is no second service
 to deploy, no Node runtime in production, and no way for the frontend and backend
 to be at different versions.
 
-<svg viewBox="0 0 720 200" role="img" aria-label="A browser connects over HTTPS and WebSocket to a reverse proxy, which forwards to the single Parley process; the process holds an in-memory hub and talks to Postgres." style="width:100%;height:auto;color:currentColor;margin:1.5rem 0">
+<div class="diagram">
+<svg viewBox="0 0 720 200" role="img" aria-label="A browser connects over HTTPS and WebSocket to a reverse proxy, which forwards to the single Parley process; the process holds an in-memory hub and talks to Postgres." style="height:auto;color:currentColor">
   <g fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.85">
     <rect x="8" y="60" width="120" height="60" rx="10" />
     <rect x="196" y="60" width="120" height="60" rx="10" />
@@ -44,6 +45,7 @@ to be at different versions.
     <text x="666" y="104" font-size="11" opacity="0.7">all state</text>
   </g>
 </svg>
+</div>
 
 All durable state is in Postgres. The only thing held in the process is the
 WebSocket hub — the set of open connections per session — and the room-code

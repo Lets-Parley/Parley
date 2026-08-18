@@ -1,6 +1,6 @@
 ---
 title: Parley
-description: Planning poker and daily standups for your team, at your table. Self-hosted, open source, one Go binary and a Postgres database.
+description: Self-hosted planning poker and daily standups. One Go binary and a Postgres database. No accounts, no seat count — just a link your team follows.
 template: splash
 hero:
   tagline: One Go binary and a Postgres database. No accounts, no seat count, no credit card — just a link your team follows.
@@ -16,61 +16,107 @@ hero:
       variant: minimal
 ---
 
-import { CardGrid, Card } from "@astrojs/starlight/components";
+import { CardGrid, Card, LinkCard, Tabs, TabItem } from "@astrojs/starlight/components";
 
 ## Most tools want an account. Parley wants a link.
 
-```sh
-git clone https://github.com/lets-parley/parley && cd parley
-cp .env.example .env        # set POSTGRES_PASSWORD to anything
-docker compose up -d
-```
+<Tabs>
+  <TabItem label="Compose">
+    ```sh
+    git clone https://github.com/lets-parley/parley && cd parley
+    cp .env.example .env        # set POSTGRES_PASSWORD to anything
+    docker compose up -d
+    ```
+    That is the whole install, and it is on `:8080`. Compose binds to localhost
+    until you say otherwise.
+  </TabItem>
+  <TabItem label="Prebuilt image">
+    ```sh
+    docker run -d --name parley -p 8080:8080 \
+      -e DATABASE_URL='postgres://parley:secret@db:5432/parley' \
+      -e BASE_URL='https://parley.example.com' \
+      ghcr.io/lets-parley/parley:latest
+    ```
+    Multi-arch, amd64 and arm64. Bring your own Postgres.
+  </TabItem>
+  <TabItem label="Kubernetes">
+    Manifests live in `deploy/k8s/` — a Deployment pinned to one replica, a
+    Service, and a commented Ingress carrying the read-timeout annotations
+    WebSockets need. [Deploying to Kubernetes →](/operations/kubernetes/)
+  </TabItem>
+</Tabs>
 
-That is the whole install, and it is on `:8080`. The frontend is compiled into
-the binary, so there is no second service, no Node runtime in production, and no
-way for the two halves to end up at different versions.
+The frontend is compiled into the binary, so there is no second service, no Node
+runtime in production, and no way for the two halves to end up at different
+versions. Migrations run themselves at boot.
+
+## What's in it
 
 <CardGrid>
   <Card title="Planning poker">
-    A story queue with real ticket references, four decks, votes nobody can see
-    until the round opens, and statistics that suit the deck — no average over
-    T-shirt sizes. [What it does →](/features/planning-poker/)
+    A story queue with real ticket references. Four decks — Fibonacci, modified
+    Fibonacci, T-shirt, powers of two — each carrying `?` and a coffee card.
+    Votes stay hidden until the round opens, and a T-shirt round reports mode
+    and range rather than an average nobody can act on.
+    [What it does →](/features/planning-poker/)
   </Card>
   <Card title="Daily standup">
-    Round-robin with a timer, yesterday filled in from last time, and a blockers
-    roundup you can paste into a channel. [What it does →](/features/daily-standup/)
+    Round-robin with a 90-second clock, so the quiet people get their turn.
+    Skip someone without losing their place. Whatever you wrote under "today" is
+    waiting under "yesterday" tomorrow, and blockers collect into a list you can
+    paste into a channel. [What it does →](/features/daily-standup/)
   </Card>
   <Card title="Spaces">
-    One memorable link per team, a six-character room code, and a roster that
-    shows who is here and which table they are at.
+    One memorable link per team, `/s/platform-team`, and a six-character room
+    code that throttles wrong guesses per address. The roster shows who is here
+    and which table they are sitting at.
     [What it does →](/features/spaces-and-room-codes/)
   </Card>
 </CardGrid>
 
 ## What Parley doesn't do
 
-Parley runs as a **single replica**, has **no metrics endpoint**, **no roles
-beyond member and facilitator**, and **no audit log**. Room codes are stored
-readable on purpose, so a database dump discloses them.
+- **One replica, and it enforces that.** A second instance cannot take the
+  Postgres advisory lock and exits rather than serving a divergent board. Size
+  it vertically; deploy when nobody is mid-session.
+- **No metrics, tracing, request IDs or access log.** Structured JSON logs to
+  stdout are all it emits. Blackbox-probe `/readyz` and take request metrics
+  from your reverse proxy.
+- **No roles beyond member and facilitator.** Any member can rotate the room
+  code or open the space. Keep membership deliberate, or put an SSO proxy in
+  front of it.
+- **No SBOM, image signing or provenance.** Build from a tagged commit in your
+  own pipeline, or pin by digest and scan the published image yourself.
+- **Turning on OIDC signs everyone out.** Anonymous accounts are not linked to
+  federated ones. Switch on an instance whose history you are willing to leave
+  behind.
 
-Those are on one page, with the workaround next to each, because you should find
-out now and not three weeks in.
+All of them are on one page, each with its workaround, because the gaps are the
+reason to believe the rest.
 
 [Known limitations →](/known-limitations/)
 
-## It behaves itself in production
+## In production
 
 - `/healthz` never touches the database, so a Postgres blip does not restart the
   container and drop every socket in the room
-- Migrations run at boot, in a transaction each, and the binary refuses to start
-  against a schema newer than it knows
-- Structured JSON logs to stdout, and a boot line that tells you exactly what
-  configuration resolved to
 - `distroless/static`, non-root, no shell, `CGO_ENABLED=0`, amd64 and arm64
 - CSV exports escape spreadsheet formulas, and never contain a vote you were not
   allowed to see
-- One advisory lock means one replica — enforced at boot rather than discovered
-  at runtime
 
-[Start here →](/quickstart/) · [Operations →](/operations/) ·
-[Security →](/security/) · MIT licensed
+<CardGrid>
+  <LinkCard
+    title="Operations"
+    href="/operations/"
+    description="Architecture, deployment, backups, upgrades, and a symptom-keyed runbook. Written for whoever gets paged."
+  />
+  <LinkCard
+    title="Security"
+    href="/security/"
+    description="Threat model, authentication, authorization, data and privacy, and a single-page review pack for your reviewer."
+  />
+</CardGrid>
+
+<p style="text-align:center; margin-top:2.5rem;">
+  [Start here →](/quickstart/)
+</p>
