@@ -18,8 +18,8 @@ if (!light || !dark) {
 if (!alt) throw new Error("Screenshot: 'alt' is required.");
 ---
 <figure class="shot">
-  <Image class="light" src={light} alt={alt} width={width} densities={[1, 2]} />
-  <Image class="dark" src={dark} alt={alt} width={width} densities={[1, 2]} />
+  <Image class="light" src={light} alt={alt} width={width} densities={[1, 2]} loading="eager" />
+  <Image class="dark" src={dark} alt={alt} width={width} densities={[1, 2]} loading="eager" />
   {caption && <figcaption>{caption}</figcaption>}
 </figure>
 
@@ -33,9 +33,12 @@ if (!alt) throw new Error("Screenshot: 'alt' is required.");
   }
   /* Starlight's toggle writes data-theme on <html>, so the pair has to key off
      that and not prefers-color-scheme — otherwise flipping the theme leaves the
-     shots showing whatever the OS prefers. */
-  :global([data-theme="light"]) .shot :global(img.dark) { display: none; }
+     shots showing whatever the OS prefers. Light is the default rather than a
+     second attribute rule, so a reader whose data-theme never resolves still
+     sees exactly one shot. */
+  .shot :global(img.dark) { display: none; }
   :global([data-theme="dark"]) .shot :global(img.light) { display: none; }
+  :global([data-theme="dark"]) .shot :global(img.dark) { display: block; }
   figcaption {
     font-size: 0.875rem; color: var(--parley-muted);
     margin-top: 0.5rem;
