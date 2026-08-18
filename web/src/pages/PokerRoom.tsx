@@ -101,11 +101,14 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
                   Reveal
                 </button>
               ) : (
-                results && (
+                // Nothing to offer when the room only played "?" or coffee:
+                // there is no estimate in that round to write down.
+                results &&
+                heroOf(results).save && (
                   <button
                     className="rounded-full bg-go px-4 py-2.5 text-sm font-bold text-accent-ink shadow-rest transition hover:shadow-lift"
                     onClick={async () => {
-                      const value = heroOf(results).value;
+                      const value = heroOf(results).save!;
                       if (await run(() => api("PATCH", `/api/stories/${current!.id}`, { estimate: value }))) {
                         say(`Estimate ${value} saved to ${current!.ref || "the ad-hoc round"}`);
                       }
@@ -315,8 +318,16 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
   async function quickRound() {
     const before = new Set(st.stories.map((s) => s.id));
     if (!(await run(() => api("POST", `/api/sessions/${env.id}/stories`, { title: "Ad-hoc round" })))) return;
-    const fresh = await api<Envelope>("GET", `/api/sessions/${env.id}`);
-    const added = fresh.state.stories.find((s) => !before.has(s.id));
+    // Outside run(), a failure here rejected unhandled and the button just
+    // looked broken — while the story had in fact already been created.
+    let added;
+    try {
+      const fresh = await api<Envelope>("GET", `/api/sessions/${env.id}`);
+      added = fresh.state.stories.find((s) => !before.has(s.id));
+    } catch {
+      setError("The round was added but the table could not be refreshed — pick it from the queue.");
+      return;
+    }
     if (!added) {
       setError("The round was added but could not be found to deal — pick it from the queue.");
       return;

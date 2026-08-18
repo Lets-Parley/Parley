@@ -19,6 +19,7 @@ open source, no accounts, no fuss.
 - [Configuration](#configuration)
 - [Reverse proxy (HTTPS + WebSockets)](#reverse-proxy-https--websockets)
 - [Kubernetes](#kubernetes)
+- [Sign-in](#sign-in)
 - [Security model](#security-model)
 - [Backups](#backups)
 - [Upgrading](#upgrading)
@@ -81,7 +82,9 @@ sit at.
 
 ### Everything else
 
-- **No accounts.** A name and a cookie. Change your name whenever you like.
+- **No accounts, or your accounts.** A name and a cookie by default; point
+  `AUTH_MODE=oidc` at any OpenID Connect provider and people sign in with the
+  identity they already have.
 - **Live for everyone.** WebSocket-backed, with a reconnect banner that tells the
   truth about the connection instead of silently going stale.
 - **CSV export** for any session: estimates, votes per person, standup entries.
@@ -157,6 +160,12 @@ docker run -d --name parley -p 8080:8080 \
 | `BASE_URL` | no | `http://localhost:8080` | The address users reach Parley at. Drives cookie `Secure` and the WebSocket origin check. |
 | `PORT` | no | `8080` | Listen port |
 | `LOG_LEVEL` | no | `info` | `debug` / `info` / `warn` / `error` |
+| `TRUST_PROXY_HEADERS` | no | `false` | Read the client address from `X-Forwarded-For`. Required behind a proxy, unsafe without one — see below |
+| `AUTH_MODE` | no | `open` | `open` for no accounts, `oidc` to sign in through an identity provider |
+| `OIDC_ISSUER` | with `oidc` | — | Issuer base URL, the one serving `/.well-known/openid-configuration` |
+| `OIDC_CLIENT_ID` | with `oidc` | — | Client ID registered with the provider |
+| `OIDC_CLIENT_SECRET` | no | — | Client secret. Leave unset for a public-client registration; PKCE carries the flow either way |
+| `OIDC_SCOPES` | no | `profile email` | Extra scopes; `openid` is always requested |
 
 Boot logs print the derived settings (`cookie_secure`, `allowed_ws_origin`)
 so a misconfiguration is visible in the first three lines.
@@ -186,7 +195,28 @@ location / {
 }
 ```
 
-Set `BASE_URL=https://parley.example.com` to match.
+Set `BASE_URL=https://parley.example.com` to match, and set
+`TRUST_PROXY_HEADERS=true` so the room-code throttle counts real clients rather
+than seeing every request as coming from the proxy.
+
+Get this one the right way round, because it is wrong in both directions:
+
+- **Directly reachable, set to `true`** — `X-Forwarded-For` is written by
+  whoever sends the request, so a script hands itself a fresh address per guess
+  and walks straight through the room-code throttle.
+- **Behind a proxy, left `false`** — every visitor arrives wearing the proxy's
+  address, so the throttle counts them all as one client and eight wrong
+  guesses lock the whole internet out of that space for a minute.
+- **Behind a proxy that _appends_ rather than overwrites** — Parley reads the
+  leftmost `X-Forwarded-For` entry, which in that case is still the caller's
+  own. nginx and Caddy overwrite by default; ingress-nginx with
+  `use-forwarded-headers`, or anything sitting behind an ELB or CDN, appends,
+  and `true` is then no safer than exposing the port directly. Check which
+  yours does before trusting the header.
+
+`deploy/k8s/deployment.yaml` sets it to `true` because an Ingress always
+terminates the connection. `docker-compose.yml` leaves it `false` because it
+publishes the port straight to clients.
 
 ## Kubernetes
 
@@ -213,14 +243,64 @@ the next retry. There is deliberately **no PodDisruptionBudget**: the only one
 that would protect a single replica (`maxUnavailable: 0`) deadlocks the drain it
 was meant to survive.
 
+## Sign-in
+
+Parley runs in one of two modes, set by `AUTH_MODE` and fixed at boot.
+
+**`open`** is the default and the original: no accounts at all. People type a
+name, get an avatar, and take a seat. Nothing to administer, nothing to
+provision, and a stranger with the link and the room code is a participant.
+
+**`oidc`** hands sign-in to your identity provider. There is no vendor-specific
+code in Parley — it is a plain OpenID Connect relying party that reads the
+issuer's discovery document, so anything speaking OIDC works and switching
+providers is a change of configuration:
+
+```sh
+AUTH_MODE=oidc
+OIDC_ISSUER=https://keycloak.example.com/realms/yourteam
+OIDC_CLIENT_ID=parley
+OIDC_CLIENT_SECRET=...   # omit for a public client
+```
+
+Register `<BASE_URL>/auth/callback` as the redirect URI with your provider, and
+allow the `openid`, `profile`, and `email` scopes. Sign-in uses the
+authorization code flow with PKCE; the ID token's signature, audience, expiry,
+and nonce are all verified before an account is touched.
+
+Two things worth knowing before you switch a running instance:
+
+- **The anonymous door closes.** With a provider configured, the endpoint that
+  mints a nameless identity is refused outright — otherwise signing in would be
+  optional and therefore pointless.
+- **Everyone is signed out.** Sessions created while the instance was open stop
+  being accepted the moment it starts in `oidc` mode — otherwise turning
+  sign-in on would change nothing for anyone already holding a cookie. Their
+  accounts and rooms stay in the database, untouched and unmigrated, but the
+  people behind them come back as new federated accounts. There is no account
+  linking yet, so **a space created before the switch is stranded**: its owner
+  is an anonymous row nobody can sign in as again, and the space cannot be
+  administered even though its data is still there. Switch on a fresh instance,
+  or accept that the existing spaces are read-only history.
+
+Names come from the provider's claims — `name`, then `preferred_username`, then
+the local part of `email` — and refresh on every sign-in, so a rename upstream
+follows the person onto the roster. Signing out ends the Parley session only; it
+does not sign anyone out of the identity provider.
+
 ## Security model
 
-Parley has **no user accounts by design**. A space is guarded by a shared room
-code, not by identity: anyone holding the code can join, and joining grants
+In `open` mode Parley has **no user accounts**. A space is guarded by a shared
+room code, not by identity: anyone holding the code can join, and joining grants
 full participation — seeing the roster, voting, and writing standup entries.
 Joins are broadcast to the room, so lurking is visible. Run Parley on your
-internal network, or behind your existing SSO proxy (oauth2-proxy, Authelia,
-Cloudflare Access; the reverse proxy snippet above is where it slots in).
+internal network, behind an identity provider (see above), or behind an SSO
+proxy (oauth2-proxy, Authelia, Cloudflare Access; the reverse proxy snippet
+above is where it slots in).
+
+Room codes work the same either way. Identity says who you are; the code says
+which room you may enter. Signing in does not by itself get anyone into a
+space — per-user and per-team access to a space is still on the roadmap.
 
 Room codes are six characters from a 25-character alphabet, and wrong guesses
 are throttled per client address. They are stored **readable** in the database
@@ -324,6 +404,8 @@ adding a new kind means one new package and one `Register` call.
 Nothing here is promised, and the order will change.
 
 - Knock-to-join: request access from the door, let the facilitator wave you in.
+- Linking an existing anonymous account to a federated one, so an instance can
+  turn sign-in on without leaving its history behind.
 - Per-user and per-team access to a space, so a rotated room code isn't the only
   lever. The room code is deliberately a first step, not the destination.
 

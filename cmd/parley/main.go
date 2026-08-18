@@ -9,11 +9,13 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/jacorbello/parley/internal/api"
+	"github.com/jacorbello/parley/internal/auth"
 	"github.com/jacorbello/parley/internal/db"
 )
 
@@ -22,6 +24,9 @@ type config struct {
 	Port        string
 	BaseURL     *url.URL
 	LogLevel    slog.Level
+	AuthMode    string
+	OIDC        auth.Config
+	TrustProxy  bool
 }
 
 func loadConfig() (config, error) {
@@ -52,6 +57,45 @@ func loadConfig() (config, error) {
 		cfg.LogLevel = slog.LevelError
 	default:
 		return cfg, fmt.Errorf("LOG_LEVEL %q is not one of debug, info, warn, error", lv)
+	}
+
+	// Only meaningful behind a proxy that sets the header itself. Exposed
+	// directly, trusting it lets a caller pick their own address and walk
+	// straight through the room-code throttle.
+	trust, err := strconv.ParseBool(envOr("TRUST_PROXY_HEADERS", "false"))
+	if err != nil {
+		return cfg, fmt.Errorf("TRUST_PROXY_HEADERS %q is not a boolean — use true or false", os.Getenv("TRUST_PROXY_HEADERS"))
+	}
+	cfg.TrustProxy = trust
+
+	switch mode := strings.ToLower(envOr("AUTH_MODE", api.ModeOpen)); mode {
+	case api.ModeOpen:
+		cfg.AuthMode = api.ModeOpen
+	case api.ModeOIDC:
+		cfg.AuthMode = api.ModeOIDC
+		cfg.OIDC = auth.Config{
+			Issuer:       os.Getenv("OIDC_ISSUER"),
+			ClientID:     os.Getenv("OIDC_CLIENT_ID"),
+			ClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
+			RedirectURL:  strings.TrimSuffix(base.String(), "/") + "/auth/callback",
+			Scopes:       strings.Fields(envOr("OIDC_SCOPES", "profile email")),
+		}
+		// No client secret: the provider registration is a public client and
+		// PKCE alone ties the code to this browser, which is how Keycloak,
+		// Zitadel and Entra register an app of this shape by default.
+		for name, v := range map[string]string{
+			"OIDC_ISSUER":    cfg.OIDC.Issuer,
+			"OIDC_CLIENT_ID": cfg.OIDC.ClientID,
+		} {
+			if v == "" {
+				return cfg, fmt.Errorf("%s is not set — AUTH_MODE=oidc needs it", name)
+			}
+		}
+		if u, err := url.Parse(cfg.OIDC.Issuer); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return cfg, fmt.Errorf("OIDC_ISSUER %q is not a URL — use the issuer's base address, the one that serves /.well-known/openid-configuration", cfg.OIDC.Issuer)
+		}
+	default:
+		return cfg, fmt.Errorf("AUTH_MODE %q is not one of open, oidc", mode)
 	}
 
 	return cfg, nil
@@ -87,7 +131,16 @@ func main() {
 		"cookie_secure", secureCookies,
 		"allowed_ws_origin", cfg.BaseURL.Scheme+"://"+cfg.BaseURL.Host,
 		"port", cfg.Port,
+		"auth_mode", cfg.AuthMode,
+		"trust_proxy_headers", cfg.TrustProxy,
 	)
+	if cfg.AuthMode == api.ModeOIDC {
+		log.Info("sign-in via identity provider",
+			"issuer", cfg.OIDC.Issuer,
+			"redirect_url", cfg.OIDC.RedirectURL,
+			"scopes", strings.Join(cfg.OIDC.Scopes, " "),
+		)
+	}
 	if secureCookies {
 		log.Warn("BASE_URL is https: the app must actually be reached over HTTPS, or browsers will silently drop the session cookie and logins will appear to succeed but never persist")
 	}
@@ -112,9 +165,21 @@ func main() {
 		os.Exit(1)
 	}
 
+	opts := api.Options{
+		SecureCookies:     secureCookies,
+		AllowedOrigin:     cfg.BaseURL.Scheme + "://" + cfg.BaseURL.Host,
+		AuthMode:          cfg.AuthMode,
+		TrustProxyHeaders: cfg.TrustProxy,
+	}
+	if cfg.AuthMode == api.ModeOIDC {
+		// Discovery happens on the first sign-in rather than here: an identity
+		// provider that is down should not keep this server from starting.
+		opts.OIDC = auth.New(cfg.OIDC)
+	}
+
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           api.Router(pool, secureCookies, cfg.BaseURL.Scheme+"://"+cfg.BaseURL.Host),
+		Handler:           api.Router(pool, opts),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

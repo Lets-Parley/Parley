@@ -15,7 +15,9 @@ import (
 	"github.com/jacorbello/parley/internal/db"
 )
 
-func testServer(t *testing.T) *httptest.Server {
+// testPool hands back an empty, migrated database. Every caller starts from a
+// dropped schema, so tests never inherit each other's rows.
+func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
@@ -33,7 +35,12 @@ func testServer(t *testing.T) *httptest.Server {
 	if err := db.Migrate(context.Background(), pool, log); err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(Router(pool, false, "http://example.test"))
+	return pool
+}
+
+func testServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(Router(testPool(t), Options{AllowedOrigin: "http://example.test"}))
 	t.Cleanup(srv.Close)
 	return srv
 }

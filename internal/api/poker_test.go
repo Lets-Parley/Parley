@@ -348,3 +348,46 @@ func TestStoryTicketRef(t *testing.T) {
 		t.Fatalf("over-long ref: %d", resp.StatusCode)
 	}
 }
+
+// An estimate is a card, not whatever the client happened to be rendering. The
+// dash placeholder and the coffee glyph both reached this endpoint from the UI
+// and were stored verbatim, then travelled on into the CSV export.
+func TestEstimateMustBeACardFromTheDeck(t *testing.T) {
+	srv := testServer(t)
+	fac, _, id := setupSession(t, srv, "Estimate Guard Space")
+	story := addStory(t, srv, id, "Guarded story", fac)
+
+	for _, bad := range []string{"—", "☕", "coffee", "?", "XL", "1000"} {
+		resp, _ := doJSON(t, srv, "PATCH", "/api/stories/"+story, `{"estimate":"`+bad+`"}`, fac)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("estimate %q was accepted with %d, want 400", bad, resp.StatusCode)
+		}
+	}
+	// A real card from the session's deck still saves.
+	if resp, _ := doJSON(t, srv, "PATCH", "/api/stories/"+story, `{"estimate":"8"}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("a legitimate estimate was refused: %d", resp.StatusCode)
+	}
+}
+
+// An empty estimate is a clear. It used to leave the story flagged estimated
+// with nothing in it, which then reached the CSV export as a blank column.
+func TestClearingAnEstimateUnsetsTheStatus(t *testing.T) {
+	srv := testServer(t)
+	fac, _, id := setupSession(t, srv, "Estimate Clear Space")
+	story := addStory(t, srv, id, "Cleared story", fac)
+
+	if resp, _ := doJSON(t, srv, "PATCH", "/api/stories/"+story, `{"estimate":"5"}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("estimate save: %d", resp.StatusCode)
+	}
+	if resp, _ := doJSON(t, srv, "PATCH", "/api/stories/"+story, `{"estimate":""}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("estimate clear: %d", resp.StatusCode)
+	}
+	_, env := doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	st := currentStory(env, story)
+	if st["estimate"] != nil && st["estimate"] != "" {
+		t.Errorf("estimate still set after a clear: %v", st["estimate"])
+	}
+	if st["status"] == "estimated" {
+		t.Errorf("story is still marked estimated after a clear")
+	}
+}

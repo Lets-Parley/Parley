@@ -38,6 +38,16 @@ func (a *app) handleGetMe(w http.ResponseWriter, r *http.Request) {
 // handlePostMe creates an identity, or renames the existing one (rotating its
 // token) when the caller already has a valid session cookie.
 func (a *app) handlePostMe(w http.ResponseWriter, r *http.Request) {
+	// With an identity provider configured this is the whole of the bypass:
+	// anyone could otherwise mint themselves an anonymous identity here and
+	// never sign in at all. Names come from the provider in that mode, so
+	// renaming is refused too rather than being silently overwritten at the
+	// next sign-in.
+	if a.authMode == ModeOIDC {
+		http.Error(w, `{"error":"this server signs in through its identity provider"}`, http.StatusForbidden)
+		return
+	}
+
 	var body struct {
 		Name string `json:"name"`
 	}

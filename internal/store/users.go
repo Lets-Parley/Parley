@@ -21,6 +21,9 @@ var ErrNoUser = errors.New("no user for token")
 type User struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	// Issuer is empty for an anonymous account and names the identity provider
+	// for a federated one.
+	Issuer string `json:"-"`
 }
 
 type Users struct {
@@ -58,6 +61,36 @@ func (s *Users) Create(ctx context.Context, name string, tokenHash []byte) (User
 	return u, err
 }
 
+// UpsertFederated finds or creates the user behind an (issuer, subject) pair and
+// opens a session for them. The name is refreshed from the provider on every
+// sign-in: the IdP owns it in this mode, so a rename there follows the person
+// here rather than leaving a stale label on the roster.
+func (s *Users) UpsertFederated(ctx context.Context, issuer, subject, name string, tokenHash []byte) (User, error) {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return User{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	var u User
+	// The conflict target is the partial index, so this can only ever match
+	// another federated row — never an anonymous one.
+	if err := tx.QueryRow(ctx, `
+		insert into users (name, issuer, subject) values ($1, $2, $3)
+		on conflict (issuer, subject) where issuer <> ''
+		do update set name = excluded.name
+		returning id, name`,
+		name, issuer, subject,
+	).Scan(&u.ID, &u.Name); err != nil {
+		return User{}, err
+	}
+	if _, err := tx.Exec(ctx,
+		"insert into session_tokens (token_hash, user_id) values ($1, $2)", tokenHash, u.ID); err != nil {
+		return User{}, err
+	}
+	return u, tx.Commit(ctx)
+}
+
 // ByToken resolves a token hash to its user, refusing idle-expired tokens and
 // touching last_used_at so active sessions never expire.
 func (s *Users) ByToken(ctx context.Context, tokenHash []byte) (User, error) {
@@ -65,9 +98,11 @@ func (s *Users) ByToken(ctx context.Context, tokenHash []byte) (User, error) {
 	err := s.Pool.QueryRow(ctx, `
 		update session_tokens set last_used_at = now()
 		where token_hash = $1 and last_used_at > now() - $2::interval
-		returning user_id, (select name from users where id = user_id)`,
+		returning user_id,
+		          (select name from users where id = user_id),
+		          (select issuer from users where id = user_id)`,
 		tokenHash, tokenIdleExpiry,
-	).Scan(&u.ID, &u.Name)
+	).Scan(&u.ID, &u.Name, &u.Issuer)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNoUser
 	}

@@ -164,7 +164,8 @@ func (a *app) handleJoinSpace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if sp.Passcode != "" && !member {
-		if !a.passcodeAttempts.allow(clientKey(r) + "|" + sp.ID) {
+		key := clientKey(r) + "|" + sp.ID
+		if !a.passcodeAttempts.take(key) {
 			http.Error(w, `{"error":"too many tries — wait a minute, then enter the passcode again"}`, http.StatusTooManyRequests)
 			return
 		}
@@ -172,6 +173,7 @@ func (a *app) handleJoinSpace(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":"That passcode doesn't match this space. Passcodes are 6 characters — check for a typo, or ask whoever invited you."}`, http.StatusForbidden)
 			return
 		}
+		a.passcodeAttempts.refund(key)
 	}
 
 	if err := a.spaces.Join(r.Context(), sp.ID, p.UserID); err != nil {

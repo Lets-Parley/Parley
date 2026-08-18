@@ -49,20 +49,20 @@ func TestAttemptLimiterWindow(t *testing.T) {
 	l.now = func() time.Time { return now }
 
 	for i := range passcodeAttemptLimit {
-		if !l.allow("addr|space") {
+		if !l.take("addr|space") {
 			t.Fatalf("attempt %d should be allowed", i+1)
 		}
 	}
-	if l.allow("addr|space") {
+	if l.take("addr|space") {
 		t.Fatal("the attempt past the limit should be refused")
 	}
 	// A different caller is unaffected by someone else's guessing.
-	if !l.allow("other|space") {
+	if !l.take("other|space") {
 		t.Fatal("a different key should have its own budget")
 	}
 	// The window slides.
 	now = now.Add(passcodeAttemptWindow + time.Second)
-	if !l.allow("addr|space") {
+	if !l.take("addr|space") {
 		t.Fatal("the budget should refill after the window")
 	}
 	if len(l.hits) > 2 {
