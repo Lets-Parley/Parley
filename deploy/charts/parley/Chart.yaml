@@ -1,0 +1,21 @@
+apiVersion: v2
+name: parley
+description: Planning poker and daily standups for your team, at your table.
+type: application
+home: https://www.letsparley.io
+sources:
+  - https://github.com/lets-parley/parley
+maintainers:
+  - name: lets-parley
+    url: https://github.com/lets-parley
+keywords:
+  - planning-poker
+  - standup
+  - agile
+  - self-hosted
+
+# version is the chart's own version; appVersion is the Parley release it
+# defaults to deploying. The release workflow rewrites both from the git tag,
+# so a chart pulled from the registry always points at a real published image.
+version: 0.0.0
+appVersion: "0.2.1"

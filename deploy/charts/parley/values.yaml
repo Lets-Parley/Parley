@@ -1,0 +1,136 @@
+# Parley is one Go binary and a Postgres database. The frontend is compiled into
+# the binary, so this chart deploys a single Deployment and a Service — there is
+# no second service and no Node runtime in production.
+
+image:
+  repository: ghcr.io/lets-parley/parley
+  # Leave empty to track the chart's appVersion, which always names a published
+  # release. Setting it explicitly is fine; setting it to a *moving* tag is not,
+  # and the chart refuses to render if you try — see the note below.
+  #
+  # This guard is a convenience, not the safety net. A digest pin
+  # (repository@sha256:...) that resolves to an older image sails straight
+  # through it. The real protection is in Parley itself: rolling back onto an
+  # image older than the migrations that have already run makes it refuse to
+  # start, by design, rather than corrupt the schema.
+  tag: ""
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+# LOAD-BEARING while Parley's realtime hub is in-process: a second replica
+# refuses to start, so the chart refuses to render one. Multi-replica support
+# lands with the cross-replica fanout work; until then this must stay 1.
+replicaCount: 1
+
+database:
+  # Parley ships no Postgres — bring a managed database or an operator. Create
+  # the secret yourself and name it here:
+  #
+  #   kubectl create secret generic parley \
+  #     --from-literal=database-url='postgres://parley:secret@host:5432/parley'
+  #
+  # There is deliberately no default and no bundled Postgres subchart: a
+  # chart-managed database looks production-ready and is not.
+  existingSecret: ""
+  secretKey: database-url
+
+# The address users reach Parley at, exactly as they type it. Get this wrong and
+# the session cookie is silently dropped — if you terminate TLS at the Ingress,
+# this must be the https:// address.
+baseURL: https://parley.example.com
+
+# open  — anyone with the link picks a name and sits down.
+# oidc  — sign-in through your identity provider.
+auth:
+  mode: open
+  oidc:
+    issuer: ""
+    clientID: ""
+    # Read from a secret you create; never set the client secret in values.
+    existingSecret: ""
+    secretKey: oidc-client-secret
+
+# An Ingress terminates the connection, so without this every visitor arrives
+# wearing the controller's address and the room-code throttle counts the whole
+# internet as one client: eight wrong guesses would lock everybody out of that
+# space.
+#
+# Only correct while the Ingress *overwrites* X-Forwarded-For. ingress-nginx
+# does by default, but with use-forwarded-headers it appends instead, and the
+# leftmost value — the one Parley reads — is the caller's own again, throttle
+# bypass and all. With an ELB or CDN in front, check that before enabling.
+trustProxyHeaders: false
+
+logLevel: info
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations:
+    # Parley pings every 25s; anything shorter than that cuts live boards.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "75s"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "75s"
+  host: parley.example.com
+  path: /
+  pathType: Prefix
+  tls: []
+
+# The first four are what the "restricted" Pod Security Standard checks: it
+# reads the manifest, never the image, so the distroless nonroot USER does not
+# satisfy runAsNonRoot on its own.
+securityContext:
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
+  # Not a PSS control. Parley never writes to disk — the frontend and the
+  # migrations are embedded, exports stream to the response.
+  readOnlyRootFilesystem: true
+
+podSecurityContext: {}
+
+# No limits by default: nobody has measured Parley's steady-state footprint, and
+# a memory limit guessed too low turns a busy room into an OOMKill that drops
+# every WebSocket — the thing the liveness probe is careful not to do. Measure
+# yours, then set limits == requests.
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+probes:
+  # Migrations run before the listener exists, so nothing answers on 8080 during
+  # boot. Without this, liveness starts failing at t=0 and kills the pod 30s in.
+  # 60s of slack covers today's migrations and the database-connect retries,
+  # which give up at ~60s anyway — raise failureThreshold if you ever add a
+  # migration that rewrites a table.
+  startup:
+    periodSeconds: 5
+    failureThreshold: 12
+  # Liveness never touches the database: a DB blip must not restart the process
+  # and drop every WebSocket in the room.
+  liveness:
+    periodSeconds: 10
+  readiness:
+    periodSeconds: 5
+
+# The old pod holds its database connections until it exits. http.Server.Shutdown
+# does not close hijacked WebSocket connections, so give termination real room.
+terminationGracePeriodSeconds: 30
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

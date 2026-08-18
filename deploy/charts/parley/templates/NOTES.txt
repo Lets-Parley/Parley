@@ -1,0 +1,50 @@
+Parley {{ .Chart.AppVersion }} is installed as {{ include "parley.fullname" . }}.
+
+Users must reach it at exactly:
+
+    {{ .Values.baseURL }}
+
+That address is baked in as BASE_URL. If it does not match what people type —
+wrong scheme, wrong host, a trailing difference — the session cookie is silently
+dropped and nobody can sign in.
+
+{{ if not .Values.ingress.enabled }}No Ingress was created. To try it now:
+
+    kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "parley.fullname" . }} 8080:{{ .Values.service.port }}
+
+then open http://localhost:8080 — and set baseURL to that address, or the cookie
+will not stick.
+{{ else }}Ingress: {{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}{{ .Values.ingress.path }}
+
+Parley pings every 25s. The chart sets a 75s proxy read/send timeout for
+ingress-nginx; if you use a different controller, raise its WebSocket idle
+timeout above 25s or live boards will be cut mid-round.
+{{ end }}
+{{- if not .Values.trustProxyHeaders }}
+{{ if .Values.ingress.enabled }}
+WARNING: trustProxyHeaders is false but you are behind an Ingress. Every visitor
+will arrive wearing the ingress controller's address, so the room-code throttle
+counts the whole internet as one client: eight wrong guesses lock everybody out
+of that space.
+
+Set trustProxyHeaders=true — but only if your proxy *overwrites*
+X-Forwarded-For. ingress-nginx does by default; with use-forwarded-headers it
+appends instead, and then trusting it lets a guesser reset their own limit on
+every request.
+{{ end }}
+{{- end }}
+Check it came up:
+
+    kubectl --namespace {{ .Release.Namespace }} rollout status deploy/{{ include "parley.fullname" . }}
+    helm --namespace {{ .Release.Namespace }} test {{ .Release.Name }}
+
+Two things that will bite you later:
+
+  * Upgrades take a few seconds of downtime. Parley's realtime hub is
+    in-process, so the chart uses Recreate: the old pod must exit and release
+    its boot advisory lock before the new one starts. Clients reconnect on
+    their own.
+
+  * Do not roll back onto an image older than the migrations that have already
+    run. Parley will refuse to start rather than corrupt the schema. Restore
+    the database from backup first, or roll forward.

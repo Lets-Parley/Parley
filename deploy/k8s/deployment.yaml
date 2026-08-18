@@ -1,3 +1,10 @@
+# A plain manifest, kept for people who do not run Helm. If you do, the chart
+# in deploy/charts/parley carries these same settings with the sharp edges
+# guarded at render time:
+#
+#   helm install parley oci://ghcr.io/lets-parley/charts/parley \
+#     --set database.existingSecret=parley --set baseURL=https://parley.example.com
+#
 apiVersion: apps/v1
 kind: Deployment
 metadata:

@@ -58,3 +58,67 @@ jobs:
           done
           curl -fs http://127.0.0.1:8080/readyz
           curl -fs http://127.0.0.1:8080/ | grep -qi '<div id="root">'
+
+  # A chart that renders is not a chart that works. The default values render
+  # almost nothing — ingress is off, the database secret has no default — so
+  # linting alone would prove only that the YAML parses. Each case below asserts
+  # which side of the line it must land on.
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - run: helm lint deploy/charts/parley --set database.existingSecret=parley
+
+      # Every conditional template at once, so a broken branch cannot hide
+      # behind being disabled by default.
+      - name: renders with every feature enabled
+        run: |
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=parley \
+            --set ingress.enabled=true \
+            --set 'ingress.tls[0].hosts[0]=parley.example.com' \
+            --set 'ingress.tls[0].secretName=parley-tls' \
+            --set trustProxyHeaders=true > /tmp/all.yaml
+          for kind in Deployment Service ServiceAccount Ingress; do
+            grep -q "^kind: $kind$" /tmp/all.yaml || { echo "missing $kind"; exit 1; }
+          done
+
+      # The guards. Each of these MUST fail to render; a guard that never fires
+      # in CI is a guard nobody has tested.
+      - name: refuses a missing database secret
+        run: |
+          ! helm template parley deploy/charts/parley 2>/dev/null
+      - name: refuses a moving image tag
+        run: |
+          ! helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set image.tag=latest 2>/dev/null
+      - name: refuses a second replica
+        run: |
+          ! helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set replicaCount=2 2>/dev/null
+      - name: refuses oidc without a client secret
+        run: |
+          ! helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set auth.mode=oidc \
+            --set auth.oidc.issuer=https://idp.example.com \
+            --set auth.oidc.clientID=parley 2>/dev/null
+      - name: refuses ingress TLS with an http baseURL
+        run: |
+          ! helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set ingress.enabled=true \
+            --set 'ingress.tls[0].secretName=t' \
+            --set baseURL=http://parley.example.com 2>/dev/null
+
+      # The chart and the hand-written manifest must not drift apart on the
+      # settings that are load-bearing for security and for staying up.
+      - name: matches deploy/k8s/deployment.yaml on the settings that matter
+        run: |
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=parley --set image.tag=0.2.1 > /tmp/def.yaml
+          for want in 'type: Recreate' 'terminationGracePeriodSeconds: 30' \
+                      'runAsNonRoot: true' 'allowPrivilegeEscalation: false' \
+                      'readOnlyRootFilesystem: true' 'failureThreshold: 12' \
+                      'path: /healthz' 'path: /readyz' 'cpu: 50m' 'memory: 64Mi'; do
+            grep -q "$want" /tmp/def.yaml || { echo "chart lost: $want"; exit 1; }
+          done

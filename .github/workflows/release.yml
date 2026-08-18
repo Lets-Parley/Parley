@@ -36,3 +36,25 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  # The chart is versioned and published in lockstep with the image, so a chart
+  # pulled from the registry always names an image that exists. Both fields are
+  # rewritten from the tag rather than kept in sync by hand.
+  chart:
+    runs-on: ubuntu-latest
+    needs: image
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: stamp the version from the tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/^version: .*/version: ${VERSION}/" deploy/charts/parley/Chart.yaml
+          sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" deploy/charts/parley/Chart.yaml
+          helm lint deploy/charts/parley --set database.existingSecret=parley
+      - name: publish
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
+            --username ${{ github.actor }} --password-stdin
+          helm package deploy/charts/parley --destination /tmp
+          helm push /tmp/parley-*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
