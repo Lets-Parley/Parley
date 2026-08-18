@@ -43,7 +43,7 @@ export function ResultsPanel({ results }: { results: Results }) {
           {hero.label}
         </div>
         <div
-          className="font-display leading-none text-ink"
+          className="font-mono leading-none text-ink"
           style={{ fontSize: "var(--text-num-result)", animation: "stamp-in 350ms var(--ease-settle) 560ms both" }}
         >
           {hero.value}
@@ -70,7 +70,7 @@ export function ResultsPanel({ results }: { results: Results }) {
                 {Array.from({ length: row.count }, (_, j) => (
                   <span
                     key={j}
-                    className="flex h-[62px] w-[46px] items-center justify-center rounded-chip border font-display text-lg text-ink shadow-rest"
+                    className="flex h-[62px] w-[46px] items-center justify-center rounded-chip border font-mono text-lg text-ink shadow-rest"
                     style={{
                       marginBottom: j ? -46 : 0,
                       background: isMode

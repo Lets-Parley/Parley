@@ -1,8 +1,13 @@
 @import "tailwindcss";
 
-/* Parley design tokens — "The Table".
-   Warm card-table neutrals; depth and texture only on cards and wells; Fraunces
-   confined to numerals and display headlines. Dark is lamplit, not gray-inverted.
+/* Parley design tokens — "Maritime ink".
+   A parley is a talk under a flag of truce between two ships: chart paper and
+   navy ink, brass for the facilitator's authority, signal-flag red and verdigris
+   for stop/go. Depth and texture only on cards and wells; numerals are mono
+   because they are data — mono is for card values, timers and refs, never for
+   a person's name. Dark is a night watch, not a gray inversion.
+
+   `felt` is historical: it now names the page ground, not a card-table cloth.
 
    Theme resolution: the palette below is the light default. Dark applies when
    the system asks for it and the user has not pinned light, or when the user
@@ -10,26 +15,26 @@
    — the toggle has to win in both directions. */
 
 :root {
-  /* Light: daylight table */
-  --color-felt:        #EFE9DD;
-  --color-felt-deep:   #E4DCCC;
-  --color-surface:     #FBF8F1;
+  /* Light: chart paper */
+  --color-felt:        #E9E7E1;
+  --color-felt-deep:   #DBD8D0;
+  --color-surface:     #F7F6F2;
   --color-surface-hi:  #FFFFFF;
-  --color-ink:         #2C2620;
-  --color-ink-soft:    #5C544A;
-  --color-ink-faint:   #8A8072;
-  --color-line:        #D8CFBE;
-  --color-accent:      #B4451F;
-  --color-accent-ink:  #FFF6EF;
-  --color-accent-soft: #F4DCCF;
-  --color-brass:       #8A6A1F;
-  --color-go:          #3E6E44;
-  --color-stop:        #A93B32;
-  --color-card-back:   #7A4A32;
-  --color-pip:         #FBF8F1;
+  --color-ink:         #12202F;
+  --color-ink-soft:    #46596B;
+  --color-ink-faint:   #556472;
+  --color-line:        #C7C4BA;
+  --color-accent:      #1D4E6E;
+  --color-accent-ink:  #F4F8FB;
+  --color-accent-soft: #D6E4EE;
+  --color-brass:       #7A5A12;
+  --color-go:          #2A7060;
+  --color-stop:        #B33326;
+  --color-card-back:   #1D3346;
+  --color-pip:         #C9922E;
 
-  --font-sans: "Nunito Sans", "Avenir Next", -apple-system, "Segoe UI", sans-serif;
-  --font-display: "Fraunces", "Iowan Old Style", Georgia, serif;
+  --font-sans: "Instrument Sans", -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Instrument Sans", -apple-system, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
   --text-num-card: 2.2rem;
   --text-num-table: 1.5rem;
@@ -38,9 +43,9 @@
   --radius-chip: 8px;
   --radius-card: 14px;
   --radius-panel: 20px;
-  --shadow-rest: 0 1px 2px rgb(44 38 32 / 0.1), 0 2px 8px rgb(44 38 32 / 0.08);
-  --shadow-lift: 0 2px 4px rgb(44 38 32 / 0.12), 0 10px 24px rgb(44 38 32 / 0.16);
-  --shadow-well: inset 0 2px 6px rgb(44 38 32 / 0.12);
+  --shadow-rest: 0 1px 2px rgb(18 32 47 / 0.1), 0 2px 8px rgb(18 32 47 / 0.08);
+  --shadow-lift: 0 2px 4px rgb(18 32 47 / 0.12), 0 10px 24px rgb(18 32 47 / 0.16);
+  --shadow-well: inset 0 2px 6px rgb(18 32 47 / 0.12);
 
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-settle: cubic-bezier(0.22, 1, 0.36, 1);
@@ -51,25 +56,25 @@
   --dur-toast: 220ms;
 }
 
-/* Dark: evening game — lamplit espresso. */
+/* Dark: night watch — deep navy hull, paper-warm text. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --color-felt:        #221D17;
-    --color-felt-deep:   #1A1611;
-    --color-surface:     #2E2820;
-    --color-surface-hi:  #3A332A;
-    --color-ink:         #F1EADD;
-    --color-ink-soft:    #B5AB9B;
-    --color-ink-faint:   #7E7566;
-    --color-line:        #453D32;
-    --color-accent:      #E8956A;
-    --color-accent-ink:  #2A160C;
-    --color-accent-soft: #4A3527;
+    --color-felt:        #0E1726;
+    --color-felt-deep:   #0A101B;
+    --color-surface:     #162032;
+    --color-surface-hi:  #1E2B3F;
+    --color-ink:         #E9E7E1;
+    --color-ink-soft:    #A3B1C0;
+    --color-ink-faint:   #8494A4;
+    --color-line:        #2A3648;
+    --color-accent:      #5FA8D3;
+    --color-accent-ink:  #08131F;
+    --color-accent-soft: #1C3247;
     --color-brass:       #D9AE54;
-    --color-go:          #8FBE8F;
-    --color-stop:        #E88A7E;
-    --color-card-back:   #5C3826;
-    --color-pip:         #F1EADD;
+    --color-go:          #5FBFA6;
+    --color-stop:        #E3695C;
+    --color-card-back:   #0B1421;
+    --color-pip:         #C9922E;
     --shadow-rest: 0 1px 2px rgb(0 0 0 / 0.4), 0 2px 8px rgb(0 0 0 / 0.3);
     --shadow-lift: 0 2px 4px rgb(0 0 0 / 0.45), 0 12px 28px rgb(0 0 0 / 0.4);
     --shadow-well: inset 0 2px 6px rgb(0 0 0 / 0.45);
@@ -77,22 +82,22 @@
 }
 
 :root[data-theme="dark"] {
-  --color-felt:        #221D17;
-  --color-felt-deep:   #1A1611;
-  --color-surface:     #2E2820;
-  --color-surface-hi:  #3A332A;
-  --color-ink:         #F1EADD;
-  --color-ink-soft:    #B5AB9B;
-  --color-ink-faint:   #7E7566;
-  --color-line:        #453D32;
-  --color-accent:      #E8956A;
-  --color-accent-ink:  #2A160C;
-  --color-accent-soft: #4A3527;
+  --color-felt:        #0E1726;
+  --color-felt-deep:   #0A101B;
+  --color-surface:     #162032;
+  --color-surface-hi:  #1E2B3F;
+  --color-ink:         #E9E7E1;
+  --color-ink-soft:    #A3B1C0;
+  --color-ink-faint:   #8494A4;
+  --color-line:        #2A3648;
+  --color-accent:      #5FA8D3;
+  --color-accent-ink:  #08131F;
+  --color-accent-soft: #1C3247;
   --color-brass:       #D9AE54;
-  --color-go:          #8FBE8F;
-  --color-stop:        #E88A7E;
-  --color-card-back:   #5C3826;
-  --color-pip:         #F1EADD;
+  --color-go:          #5FBFA6;
+  --color-stop:        #E3695C;
+  --color-card-back:   #0B1421;
+  --color-pip:         #C9922E;
   --shadow-rest: 0 1px 2px rgb(0 0 0 / 0.4), 0 2px 8px rgb(0 0 0 / 0.3);
   --shadow-lift: 0 2px 4px rgb(0 0 0 / 0.45), 0 12px 28px rgb(0 0 0 / 0.4);
   --shadow-well: inset 0 2px 6px rgb(0 0 0 / 0.45);
@@ -133,6 +138,10 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
+
+/* Vote counts and card values change in place; tabular figures stop them
+   shimmering as digits swap. */
+.font-mono { font-variant-numeric: tabular-nums; }
 
 /* The hand fans, lifts under the cursor, and stays lifted once picked. Kept in
    CSS rather than inline styles so :hover can win over the resting fan angle. */

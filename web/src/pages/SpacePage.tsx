@@ -476,7 +476,7 @@ function NewSessionModal({
                     {d.sample.map((v) => (
                       <span
                         key={v}
-                        className="flex h-7 w-5 items-center justify-center rounded-[4px] border border-line bg-surface font-display text-[0.65rem]"
+                        className="flex h-7 w-5 items-center justify-center rounded-[4px] border border-line bg-surface font-mono text-[0.65rem]"
                       >
                         {v}
                       </span>
