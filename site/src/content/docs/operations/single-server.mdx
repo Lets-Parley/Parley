@@ -1,0 +1,82 @@
+---
+title: One server
+description: Compose, a domain and a reverse proxy — the whole team on one box, without a cluster.
+---
+
+Most teams running Parley need exactly this: one machine, one domain name, and
+everyone's laptop pointed at it. Parley
+[runs as a single replica by design](/operations/scaling-and-limits/), so one
+box is not a compromise — it is the shape the software is built for.
+
+This page stitches together three others. If you want the detail behind any
+step, follow the link rather than reading it twice here.
+
+## What the box needs
+
+Parley is one process and a Postgres database. A small cloud instance with 1 GB
+of memory runs both comfortably for a team of a few dozen; the connection pool
+and every timeout are listed under
+[Scaling and limits](/operations/scaling-and-limits/). What you actually need is
+less about size and more about these three:
+
+- A domain name pointed at the machine
+- Ports 80 and 443 reachable, for TLS certificates and for your team
+- Docker and the Compose plugin installed
+
+## 1. Bring up Parley
+
+Same Compose file as the [Quickstart](/quickstart/), and it is already shaped
+for production — the Postgres password has no default, the port binds to
+loopback rather than to the network, and the Postgres major version is pinned:
+
+```sh
+git clone https://github.com/lets-parley/parley && cd parley
+cp .env.example .env        # set POSTGRES_PASSWORD to something you generated
+docker compose up -d
+```
+
+Leave the loopback binding alone. Nothing should reach Parley except the proxy
+you are about to put in front of it. The rest of the Compose defaults, and why
+they are what they are, are covered in
+[Deployment](/operations/deployment/#docker-compose).
+
+## 2. Put a proxy in front
+
+Parley does not terminate TLS and does not want to. A proxy handles the
+certificate and forwards WebSockets — Caddy in one line, or nginx with the
+upgrade headers and a read timeout longer than a quiet standup speaker. Both
+configurations are on the [Reverse proxy](/operations/reverse-proxy/) page;
+copy them from there.
+
+## 3. Set two variables, then restart
+
+```sh
+BASE_URL=https://parley.example.com
+TRUST_PROXY_HEADERS=true
+```
+
+Both matter, and both fail in ways that are easy to misread:
+
+- `BASE_URL` must match what appears in the browser's address bar exactly —
+  scheme, host and port — or the WebSocket origin check rejects every
+  connection and the room looks frozen.
+- `TRUST_PROXY_HEADERS` must be `true` now that something is in front. Left at
+  `false`, every request looks like it came from the proxy, so eight wrong room
+  code guesses by anyone locks everyone out of that space. Set it to `true`
+  only because a proxy you control is setting `X-Forwarded-For` itself — see
+  [Getting TRUST_PROXY_HEADERS right](/operations/deployment/#getting-trust_proxy_headers-right).
+
+## 4. Back up the database
+
+Parley has no backup mechanism of its own; the whole state is in Postgres, so
+`pg_dump` on a schedule is the entire strategy. What a restore costs you, and
+the one thing it cannot recover, are on
+[Backups and recovery](/operations/backups-and-recovery/).
+
+## Before you hand out the link
+
+Run through the [hardening checklist](/security/hardening-checklist/) — it is
+short, and it is written for exactly this deployment. Upgrades are
+[migrations that run themselves at boot](/operations/upgrading/), with a few
+seconds of downtime while the new process takes over, so deploy when nobody is
+mid-session.

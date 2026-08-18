@@ -17,6 +17,37 @@ hero:
 ---
 
 import { CardGrid, Card, LinkCard, Tabs, TabItem } from "@astrojs/starlight/components";
+import Screenshot from "../../components/Screenshot.astro";
+import hiddenLight from "../../assets/hidden-votes-light.png";
+import hiddenDark from "../../assets/hidden-votes-dark.png";
+import tshirtLight from "../../assets/tshirt-results-light.png";
+import tshirtDark from "../../assets/tshirt-results-dark.png";
+import standupLight from "../../assets/standup-round-light.png";
+import standupDark from "../../assets/standup-round-dark.png";
+import spaceLight from "../../assets/space-room-code-light.png";
+import spaceDark from "../../assets/space-room-code-dark.png";
+import storyLight from "../../assets/story-queue-light.png";
+import storyDark from "../../assets/story-queue-dark.png";
+
+## What a round looks like
+
+Everyone votes at once, and nobody sees a number until the round opens. Your
+teammates don't install anything and don't sign up for anything — they open the
+link and type a name.
+
+<Screenshot
+  light={hiddenLight}
+  dark={hiddenDark}
+  alt="Four face-down cards at the table and two empty seats, with the line '4 of 6 voted' underneath and the viewer's own 5 raised in their hand."
+  caption="Mid-round: the count reads 4 of 6, and the only value anyone can see is the one in their own hand."
+/>
+
+<Screenshot
+  light={tshirtLight}
+  dark={tshirtDark}
+  alt="A revealed T-shirt round showing a large M under the word MODE, the line 'range S–L · 6 votes · ordinal deck, no average', and counts of S times one, M times four, L times one."
+  caption="Revealed. A T-shirt round reports mode and range, because averaging sizes gives you a number nobody can act on."
+/>
 
 ## Most tools want an account. Parley wants a link.
 
@@ -33,14 +64,22 @@ platform team required:
     That is the whole install, and it is on `:8080`. Compose binds to localhost
     until you say otherwise.
   </TabItem>
+  <TabItem label="One server">
+    Compose, a domain, and a reverse proxy in front — one box your whole team
+    points at, no cluster. Parley runs as a single replica by design, so this is
+    the shape it is built for, and a small cloud instance carries a team of a
+    few dozen. [One server →](/operations/single-server/)
+  </TabItem>
   <TabItem label="Prebuilt image">
     ```sh
     docker run -d --name parley -p 8080:8080 \
       -e DATABASE_URL='postgres://parley:secret@db:5432/parley' \
       -e BASE_URL='https://parley.example.com' \
-      ghcr.io/lets-parley/parley:latest
+      ghcr.io/lets-parley/parley:v0.2.0
     ```
-    Multi-arch, amd64 and arm64. Bring your own Postgres.
+    Multi-arch, amd64 and arm64. Bring your own Postgres. Run v0.2.0 or later:
+    v0.1.0 has a room-code throttle bypass and was deliberately never retagged
+    onto fixed code.
   </TabItem>
   <TabItem label="Kubernetes">
     Manifests live in `deploy/k8s/` — a Deployment pinned to one replica, a
@@ -59,20 +98,33 @@ versions. Migrations run themselves at boot.
   <Card title="Planning poker">
     A story queue with real ticket references. Four decks — Fibonacci, modified
     Fibonacci, T-shirt, powers of two — each carrying `?` and a coffee card.
-    Votes stay hidden until the round opens, and a T-shirt round reports mode
-    and range rather than an average nobody can act on.
+    <Screenshot
+      light={storyLight}
+      dark={storyDark}
+      alt="A poker room with ticket PLAT-412 on the table alongside its note, and a queue of five more items listed to the right."
+    />
     [What it does →](/features/planning-poker/)
   </Card>
   <Card title="Daily standup">
     Round-robin with a 90-second clock, so the quiet people get their turn.
-    Skip someone without losing their place. Whatever you wrote under "today" is
-    waiting under "yesterday" tomorrow, and blockers collect into a list you can
-    paste into a channel. [What it does →](/features/daily-standup/)
+    Whatever you wrote under "today" is waiting under "yesterday" tomorrow, and
+    blockers collect into a list you can paste into a channel.
+    <Screenshot
+      light={standupLight}
+      dark={standupDark}
+      alt="A standup in progress: a countdown reading 1:08, a rail of six speakers with one struck through, and the current speaker's yesterday, today and blockers fields."
+    />
+    [What it does →](/features/daily-standup/)
   </Card>
   <Card title="Spaces">
     One memorable link per team, `/s/platform-team`, and a six-character room
     code that throttles wrong guesses per address. The roster shows who is here
     and which table they are sitting at.
+    <Screenshot
+      light={spaceLight}
+      dark={spaceDark}
+      alt="A space page for Platform Team: a sidebar of sessions and six members with presence dots, recent sessions in the middle, and a panel showing the passcode TEAM49 with Copy, New code and Make open buttons."
+    />
     [What it does →](/features/spaces-and-room-codes/)
   </Card>
 </CardGrid>
@@ -110,12 +162,12 @@ are the reason to believe the rest.
   <LinkCard
     title="Operations"
     href="/operations/"
-    description="Architecture, deployment, backups, upgrades, and a symptom-keyed runbook. Written for whoever gets paged."
+    description="Architecture, deployment on one box or a cluster, backups, upgrades, and a runbook keyed by symptom."
   />
   <LinkCard
     title="Security"
     href="/security/"
-    description="Threat model, authentication, authorization, data and privacy, and a single-page review pack for your reviewer."
+    description="Threat model, authentication, authorization, data and privacy, and a single-page review pack."
   />
 </CardGrid>
 
