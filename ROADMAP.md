@@ -96,6 +96,7 @@ story for the many people whose backup story is currently nothing at all.
 Export lands first and on its own — it is half the work and most of the trust.
 
 - Status: Backlog
+- Target: v0.3.0
 
 ## Later
 
