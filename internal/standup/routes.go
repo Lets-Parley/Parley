@@ -104,6 +104,14 @@ func (h *Handler) putEntry(w http.ResponseWriter, r *http.Request, rc reqCtx) {
 // start snapshots the round-robin roster: connected non-spectator members, in
 // roster order. Carry-forward: each person's "yesterday" is prefilled with the
 // "today" they wrote in this space's most recent previous standup.
+//
+// New rows are numbered after the highest position already in the session
+// rather than from 1. Rows can exist before start runs — somebody filled their
+// update in early, or start is being run again now that a latecomer has
+// connected — and those keep their position through the "do nothing" below.
+// Numbering from 1 would hand a newcomer a slot one of them already holds, and
+// because advance walks to the next position after the current one, the loser
+// of that tie is silently dropped from the round.
 func (h *Handler) start(w http.ResponseWriter, r *http.Request, rc reqCtx) {
 	connected := h.hub.Connected(rc.sess.ID)
 	if len(connected) == 0 {
@@ -119,7 +127,8 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request, rc reqCtx) {
 		           where prev.user_id = m.user_id and ps.space_id = $2 and ps.id <> $1
 		           order by ps.created_at desc limit 1
 		       ), ''),
-		       row_number() over (order by u.name)
+		       (select coalesce(max(position), 0) from standup_entries where session_id = $1)
+		           + row_number() over (order by u.name)
 		from members m join users u on u.id = m.user_id
 		where m.space_id = $2 and not m.spectator and m.user_id::text = any($3)
 		on conflict (session_id, user_id) do nothing`,
