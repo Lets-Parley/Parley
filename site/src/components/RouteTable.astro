@@ -2,13 +2,10 @@
 // rows: [{ method, path, auth, purpose }]
 const { rows = [] } = Astro.props;
 
-// `method` is lowercased into a class name, so an unknown verb renders an
-// unstyled chip rather than failing. The set is the verbs `.m-*` below has
-// colours for — adding one here means adding a rule there.
-//
-// Normalise once and render from the same value that was validated: checking
-// a trimmed copy while rendering the raw one is how `" get "` passes and then
-// emits `class="m- get "`, matching no rule.
+// `method` becomes a class name, so it is normalised once and rendered from
+// the same value that was checked — validating a trimmed copy while rendering
+// the raw one is how `" get "` passes and emits `class="m- get "`, matching
+// no rule below.
 const KNOWN = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "WS"]);
 const routes = rows.map((r) => ({
   ...r,
