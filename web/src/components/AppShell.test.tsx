@@ -1,0 +1,162 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { AppShell, ConnectionDot, Logo } from "./AppShell";
+import { makePerson, renderApp } from "../test/render";
+import type { Me } from "../lib/api";
+
+const me: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 200 };
+
+const roster = [
+  makePerson({ userId: "dana", name: "Dana Whitfield" }),
+  makePerson({ userId: "marcus", name: "Marcus Okonjo" }),
+  makePerson({ userId: "priya", name: "Priya Raman" }),
+  makePerson({ userId: "tomas", name: "Tomas Herrera" }),
+  makePerson({ userId: "nina", name: "Nina Kowalski" }),
+  makePerson({ userId: "ben", name: "Ben Alvarez" }),
+];
+
+/** Answers the auth-mode probe every shell makes on mount. */
+function stubAuthMode(mode: "open" | "oidc") {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(
+    async () => ({ status: 200, ok: true, text: async () => JSON.stringify({ mode }) }) as Response,
+  );
+}
+
+function renderShell(over: Partial<Parameters<typeof AppShell>[0]> = {}) {
+  return renderApp(
+    <AppShell spaceSlug="platform-team" spaceName="Platform Team" me={me} {...over}>
+      <p>table</p>
+    </AppShell>,
+  );
+}
+
+afterEach(() => vi.restoreAllMocks());
+
+describe("Logo and ConnectionDot", () => {
+  it("hides the logo from screen readers — it carries no information", () => {
+    const { container } = renderApp(<Logo />);
+    expect(container.querySelector("[aria-hidden]")).toBeTruthy();
+  });
+
+  it("names each connection state in words, not only in colour", () => {
+    const { rerender } = renderApp(<ConnectionDot status="live" />);
+    expect(screen.getByText("live")).toBeTruthy();
+    rerender(<ConnectionDot status="reconnecting" />);
+    expect(screen.getByText("reconnecting")).toBeTruthy();
+    rerender(<ConnectionDot status="stale" />);
+    expect(screen.getByText("stale")).toBeTruthy();
+  });
+});
+
+describe("AppShell", () => {
+  it("renders the space and its children", () => {
+    stubAuthMode("open");
+    renderShell();
+    expect(screen.getByText("Platform Team")).toBeTruthy();
+    expect(screen.getByText("/s/platform-team")).toBeTruthy();
+    expect(screen.getByText("table")).toBeTruthy();
+  });
+
+  it("claims no connection state on a page that never opened a socket", () => {
+    stubAuthMode("open");
+    renderShell();
+    for (const s of ["live", "reconnecting", "stale"]) expect(screen.queryByText(s)).toBeNull();
+  });
+
+  it("shows the dot and the banner when there is a socket to report on", () => {
+    stubAuthMode("open");
+    renderShell({ status: "stale" });
+    expect(screen.getByText("stale")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toContain("Connection lost");
+  });
+
+  it("treats missing presence as unknown, not as everyone being here", () => {
+    // Falling back to the whole roster lit a green dot beside people who were
+    // nowhere near the space.
+    stubAuthMode("open");
+    renderShell({ members: roster.slice(0, 2) });
+    for (const m of roster.slice(0, 2)) {
+      expect(screen.getByRole("button", { name: m.name }).querySelector("span")!.style.opacity).toBe(
+        "0.55",
+      );
+    }
+  });
+
+  it("lights only the members the presence feed names", () => {
+    stubAuthMode("open");
+    renderShell({ members: roster.slice(0, 2), presence: ["dana"] });
+    const opacity = (name: string) =>
+      screen.getByRole("button", { name }).querySelector("span")!.style.opacity;
+    expect(opacity("Dana Whitfield")).toBe("1");
+    expect(opacity("Marcus Okonjo")).toBe("0.55");
+  });
+
+  it("caps the avatar stack at five and counts the rest", () => {
+    stubAuthMode("open");
+    renderShell({ members: roster });
+    expect(screen.getByText("+1")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Ben Alvarez" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Nina Kowalski" })).toBeTruthy();
+  });
+
+  it("shows no overflow badge when everyone fits", () => {
+    stubAuthMode("open");
+    renderShell({ members: roster.slice(0, 5) });
+    expect(screen.queryByText(/^\+\d/)).toBeNull();
+  });
+
+  it("opens a member card from the stack and closes it again", async () => {
+    stubAuthMode("open");
+    renderShell({ members: roster.slice(0, 2) });
+    await userEvent.click(screen.getByRole("button", { name: "Marcus Okonjo" }));
+    expect(screen.getByRole("dialog", { name: "Marcus Okonjo" })).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("offers no sign-out in open mode, where the identity is just a name in a cookie", async () => {
+    stubAuthMode("open");
+    renderShell();
+    await waitFor(() => expect(screen.getByText("Dana Whitfield")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+  });
+
+  it("offers sign-out once identities come from a provider", async () => {
+    stubAuthMode("oidc");
+    renderShell();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy());
+  });
+
+  it("offers nothing to sign out of when nobody is signed in", async () => {
+    stubAuthMode("oidc");
+    renderShell({ me: null });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull());
+  });
+
+  it("toggles the sidebar and reports its state", async () => {
+    stubAuthMode("open");
+    renderShell();
+    const toggle = screen.getByRole("button", { name: "Toggle sidebar" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    await userEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("starts closed where the table wants the width", () => {
+    stubAuthMode("open");
+    renderShell({ sidebarDefault: false });
+    expect(
+      screen.getByRole("button", { name: "Toggle sidebar" }).getAttribute("aria-expanded"),
+    ).toBe("false");
+  });
+
+  it("labels the theme toggle by what it will do", async () => {
+    stubAuthMode("open");
+    renderShell();
+    const toggle = screen.getByRole("button", { name: "Switch to dark theme" });
+    await userEvent.click(toggle);
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(screen.getByRole("button", { name: "Switch to light theme" })).toBeTruthy();
+  });
+});

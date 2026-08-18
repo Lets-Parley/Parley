@@ -1,4 +1,5 @@
 import type { Person } from "../lib/api";
+import { voteTally } from "../lib/derive";
 import { Avatar } from "./Avatar";
 
 const ROTATIONS = [-2, 3, -1, 2, -3, 1, 2];
@@ -75,12 +76,7 @@ export function Table({
   meId: string;
 }) {
   const voted = new Set(votedUserIds);
-  const hasVoted = (p: Person) => voted.has(p.userId) || votes.has(p.userId);
-  const votedCount = seated.filter(hasVoted).length;
-  // Away seats show "zzz" and cannot vote, so counting them in the denominator
-  // means "N of N" never arrives while someone is disconnected. Anyone who
-  // already voted still counts, even if they dropped afterwards.
-  const canVote = seated.filter((p) => online.has(p.userId) || hasVoted(p)).length;
+  const { votedCount, canVote } = voteTally(seated, online, votedUserIds, votes);
 
   return (
     <div className="overflow-x-auto pt-3.5">

@@ -423,7 +423,7 @@ poker and standup are code someone adds rather than surgery on the core.
 Issues and pull requests are welcome. A few things that make review quick:
 
 - Open an issue before a large change, so nobody builds the wrong thing twice.
-- `go test -p 1 ./...` and `npm run lint` pass.
+- `go test -p 1 ./...`, `npm test` and `npm run lint` pass.
 - A behaviour change comes with a test that fails without it.
 - Migrations are additive and numbered; never edit one that has shipped.
 

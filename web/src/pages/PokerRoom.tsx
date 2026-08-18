@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api, type Envelope, type Me, type Person, type Story } from "../lib/api";
+import { GRACE_SECONDS, claimState } from "../lib/derive";
 import { useCountdown, useToast } from "../lib/ui";
 import { Avatar } from "../components/Avatar";
 import { Hand } from "../components/Hand";
@@ -8,8 +9,6 @@ import { Modal, buttonDanger, buttonPrimary, buttonQuiet } from "../components/M
 import { ResultsPanel, heroOf } from "../components/ResultsPanel";
 import { StoryQueue } from "../components/StoryQueue";
 import { Table } from "../components/Table";
-
-const GRACE_SECONDS = 60;
 
 export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
   const say = useToast();
@@ -55,11 +54,8 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
   const votes = new Map((current?.votes ?? []).map((v) => [v.userId, v.value]));
   const results = env.revealed ? current?.results : undefined;
 
-  const offlineFor = env.facilitatorOfflineSince
-    ? Math.floor((Date.parse(env.serverTime) - Date.parse(env.facilitatorOfflineSince)) / 1000)
-    : null;
-  const showClaim = !env.facilitatorConnected && !isFacilitator && offlineFor !== null && !ended;
-  const claimLeft = useCountdown(showClaim ? Math.max(0, GRACE_SECONDS - offlineFor) : null);
+  const { showClaim, graceLeft } = claimState(env, isFacilitator);
+  const claimLeft = useCountdown(graceLeft);
   const facilitator = env.participants.find((p) => p.userId === env.facilitatorId);
 
   return (

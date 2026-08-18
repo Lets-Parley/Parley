@@ -1,0 +1,125 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { renderHook, waitFor } from "@testing-library/react";
+import type { ConnectionStatus } from "./socket";
+import { useSession } from "./useSession";
+
+const hub = {
+  onState: (_: unknown) => {},
+  onStatus: (_: ConnectionStatus) => {},
+  stopped: 0,
+};
+
+vi.mock("./socket", () => ({
+  connectSession: ({
+    onState,
+    onStatus,
+  }: {
+    onState: (s: unknown) => void;
+    onStatus: (s: ConnectionStatus) => void;
+  }) => {
+    hub.onState = onState;
+    hub.onStatus = onStatus;
+    return () => {
+      hub.stopped += 1;
+    };
+  },
+}));
+
+const envelope = (version: number, title = `v${version}`) => ({
+  id: "sess-1",
+  version,
+  title,
+});
+
+function mount(initial = envelope(5)) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const fetched: unknown[] = [initial];
+  vi.spyOn(globalThis, "fetch").mockImplementation(
+    async () =>
+      ({
+        status: 200,
+        ok: true,
+        text: async () => JSON.stringify(fetched[fetched.length - 1]),
+      }) as Response,
+  );
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  );
+  return { ...renderHook(() => useSession("sess-1"), { wrapper }), qc, fetched };
+}
+
+beforeEach(() => {
+  hub.stopped = 0;
+});
+afterEach(() => vi.restoreAllMocks());
+
+describe("useSession", () => {
+  it("loads the session and starts out live", async () => {
+    const { result } = mount();
+    await waitFor(() => expect(result.current.data).toBeTruthy());
+    expect(result.current.data).toMatchObject({ version: 5 });
+    expect(result.current.status).toBe("live");
+  });
+
+  it("shows a newer broadcast frame", async () => {
+    const { result } = mount();
+    await waitFor(() => expect(result.current.data).toBeTruthy());
+    hub.onState(envelope(6, "newer"));
+    await waitFor(() => expect(result.current.data).toMatchObject({ version: 6 }));
+  });
+
+  it("drops a frame older than the board already shows", async () => {
+    const { result } = mount();
+    await waitFor(() => expect(result.current.data).toBeTruthy());
+    hub.onState(envelope(3, "stale"));
+    await waitFor(() => expect(result.current.data).toMatchObject({ version: 5 }));
+    expect(result.current.data).not.toMatchObject({ title: "stale" });
+  });
+
+  it("lets an equal-version frame through — the guard is strictly greater-than", async () => {
+    // Pinning the current rule rather than assuming it: a same-version frame
+    // replaces the cached one, so a redundant rebroadcast is not discarded.
+    const { result } = mount();
+    await waitFor(() => expect(result.current.data).toBeTruthy());
+    hub.onState(envelope(5, "same version, later frame"));
+    await waitFor(() =>
+      expect(result.current.data).toMatchObject({ title: "same version, later frame" }),
+    );
+  });
+
+  it("does not let a refetch regress the board behind a newer frame", async () => {
+    const { result, qc, fetched } = mount();
+    await waitFor(() => expect(result.current.data).toBeTruthy());
+    hub.onState(envelope(9, "from the socket"));
+    await waitFor(() => expect(result.current.data).toMatchObject({ version: 9 }));
+
+    // A GET computed before the mutation lands after it.
+    fetched.push(envelope(7, "stale refetch"));
+    await qc.refetchQueries({ queryKey: ["session", "sess-1"] });
+    expect(result.current.data).toMatchObject({ version: 9, title: "from the socket" });
+  });
+
+  it("accepts a refetch that is genuinely newer", async () => {
+    const { result, qc, fetched } = mount();
+    await waitFor(() => expect(result.current.data).toBeTruthy());
+    fetched.push(envelope(11, "fresher"));
+    await qc.refetchQueries({ queryKey: ["session", "sess-1"] });
+    await waitFor(() => expect(result.current.data).toMatchObject({ version: 11 }));
+  });
+
+  it("surfaces the socket status to the caller", async () => {
+    const { result } = mount();
+    await waitFor(() => expect(result.current.data).toBeTruthy());
+    hub.onStatus("stale");
+    await waitFor(() => expect(result.current.status).toBe("stale"));
+  });
+
+  it("lets go of the socket on unmount", async () => {
+    const { result, unmount } = mount();
+    await waitFor(() => expect(result.current.data).toBeTruthy());
+    unmount();
+    expect(hub.stopped).toBe(1);
+  });
+});
