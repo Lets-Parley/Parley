@@ -1,0 +1,121 @@
+---
+title: Architecture
+description: What the process is, how requests and WebSockets flow through it, and what the health endpoints really check.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import SpecTable from "../../../components/SpecTable.astro";
+
+<VerifiedStamp version="v0.2.1" source={["cmd/parley/main.go", "internal/api/router.go", "internal/hub/hub.go"]} />
+
+Parley is one process and one database.
+
+The React frontend is compiled and embedded into the Go binary, so the same
+process serves the HTML, the API, and the WebSocket. There is no second service
+to deploy, no Node runtime in production, and no way for the frontend and backend
+to be at different versions.
+
+<svg viewBox="0 0 720 200" role="img" aria-label="A browser connects over HTTPS and WebSocket to a reverse proxy, which forwards to the single Parley process; the process holds an in-memory hub and talks to Postgres." style="width:100%;height:auto;color:currentColor;margin:1.5rem 0">
+  <g fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.85">
+    <rect x="8" y="60" width="120" height="60" rx="10" />
+    <rect x="196" y="60" width="120" height="60" rx="10" />
+    <rect x="384" y="20" width="180" height="140" rx="10" />
+    <rect x="404" y="92" width="140" height="50" rx="8" stroke-dasharray="4 3" />
+    <rect x="620" y="60" width="92" height="60" rx="10" />
+    <path d="M128 90 H196" marker-end="url(#a)" />
+    <path d="M316 90 H384" marker-end="url(#a)" />
+    <path d="M564 90 H620" marker-end="url(#a)" />
+  </g>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="currentColor" />
+    </marker>
+  </defs>
+  <g fill="currentColor" font-family="system-ui, sans-serif" font-size="13" text-anchor="middle">
+    <text x="68" y="86">Browser</text>
+    <text x="68" y="104" font-size="11" opacity="0.7">HTTPS + WS</text>
+    <text x="256" y="86">Reverse proxy</text>
+    <text x="256" y="104" font-size="11" opacity="0.7">TLS, timeouts</text>
+    <text x="474" y="48">parley</text>
+    <text x="474" y="66" font-size="11" opacity="0.7">one replica, SPA embedded</text>
+    <text x="474" y="115" font-size="11">in-memory hub</text>
+    <text x="474" y="131" font-size="11" opacity="0.7">rooms, presence</text>
+    <text x="666" y="86">Postgres</text>
+    <text x="666" y="104" font-size="11" opacity="0.7">all state</text>
+  </g>
+</svg>
+
+All durable state is in Postgres. The only thing held in the process is the
+WebSocket hub — the set of open connections per session — and the room-code
+attempt throttle. Both are rebuilt naturally on restart, and both are the reason
+Parley runs as a [single replica](/operations/scaling-and-limits/).
+
+## Boot sequence
+
+The process is deliberately fail-fast, and every fatal path prints a plain
+sentence naming the cause before exiting non-zero.
+
+1. Read configuration. A missing `DATABASE_URL`, an unparseable `BASE_URL`, an
+   unknown `LOG_LEVEL` or `AUTH_MODE`, or a non-boolean `TRUST_PROXY_HEADERS`
+   each stop the process here.
+2. Start the JSON logger and print the **boot settings line** — base URL, cookie
+   security, allowed WebSocket origin, port, auth mode, proxy trust. This line is
+   the fastest way to confirm what an instance actually thinks its configuration
+   is.
+3. Connect to Postgres — up to six attempts, with doubling backoff between them
+   and a 5-second timeout on each, so roughly a minute before it gives up. This
+   is what makes starting alongside a database container work.
+4. Take the boot lock. If another instance holds it, exit.
+5. Run migrations.
+6. Serve.
+
+## Requests and WebSockets
+
+A browser loads the SPA, calls the JSON API under `/api`, and opens one
+WebSocket per session it is watching. The socket carries the whole session state
+on attach and again after every mutation — there are no incremental patches.
+
+That design is why redaction lives in the serializer rather than in a handler: a
+client is sent a view built for it, so an unrevealed vote is absent from the
+payload rather than hidden by the frontend.
+
+<SpecTable caption="WebSocket lifecycle" rows={[
+  { name: "Ping interval", value: "25s", note: "Server to client" },
+  { name: "Pong deadline", value: "50s", note: "Missed, and the connection is closed" },
+  { name: "Write deadline", value: "5s", note: "Per frame" },
+  { name: "Send buffer", value: "16 frames", note: "Full buffer means a wedged reader — that connection is dropped rather than blocking the room" },
+  { name: "Presence debounce", value: "1.5s", note: "Roster churn is coalesced" },
+  { name: "Max frame read", value: "4096 bytes", note: "Clients send almost nothing; mutations go over HTTP" },
+]} />
+
+The send-buffer rule is the important one. One laptop on bad hotel wifi must
+never be able to freeze everyone else's board, so a connection that cannot keep
+up is dropped and told to reconnect.
+
+## Health endpoints
+
+<SpecTable rows={[
+  { name: "GET /healthz", value: "always 200", note: "Liveness. Never touches the database" },
+  { name: "GET /readyz", value: "200 or 503", note: "Readiness. Pings Postgres with a 3s timeout" },
+]} />
+
+:::caution[Do not point a liveness probe at /readyz]
+`/healthz` ignores the database on purpose. Liveness means *the process is
+alive*; readiness means *it can serve*. A liveness probe that pings Postgres
+restarts the container on every database blip — which drops every WebSocket in
+every room, and then every client reconnects at once into the service that was
+already struggling.
+:::
+
+The container image's own `HEALTHCHECK` runs `parley -healthcheck`, which fetches
+`/readyz` over loopback with a 3-second timeout and exits 0 or 1.
+
+## Shutdown
+
+On `SIGINT` or `SIGTERM` the server stops accepting new connections and is given
+10 seconds to finish in-flight requests.
+
+Hijacked WebSocket connections are **not** closed by that shutdown — they end
+when the process does. In practice clients see the socket drop and reconnect,
+which is what the reconnect banner in the UI is for. The Kubernetes manifest
+allows 30 seconds of termination grace to cover it.

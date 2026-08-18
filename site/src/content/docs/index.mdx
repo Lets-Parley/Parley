@@ -1,32 +1,24 @@
 ---
 title: Parley
-description: Planning poker and daily standups for your team, at your table. Self-hosted, open source, no accounts, no fuss.
+description: Planning poker and daily standups for your team, at your table. Self-hosted, open source, one Go binary and a Postgres database.
 template: splash
 hero:
-  tagline: Planning poker and daily standups for your team, at your table. One Go binary and a Postgres database.
+  tagline: One Go binary and a Postgres database. No accounts, no seat count, no credit card — just a link your team follows.
   image:
-    alt: A revealed planning poker round, five cards on the table and a median of 8
+    alt: A revealed planning poker round in Parley
     file: ../../assets/poker.png
   actions:
     - text: Get it running
-      link: /guides/quickstart/
+      link: /quickstart/
       icon: right-arrow
-    - text: Source on GitHub
-      link: https://github.com/lets-parley/parley
-      icon: external
+    - text: Read the threat model
+      link: /security/threat-model/
       variant: minimal
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+import { CardGrid, Card } from "@astrojs/starlight/components";
 
 ## Most tools want an account. Parley wants a link.
-
-No seat count, no workspace, no credit card before anyone can vote on a story.
-Name a space, share the link, and the people who open it are at the table.
-
-The frontend is compiled into the binary, so there is no second service, no Node
-runtime in production, and nothing to keep in sync. Point a container at a
-database and you have somewhere for your team to sit.
 
 ```sh
 git clone https://github.com/lets-parley/parley && cd parley
@@ -34,35 +26,51 @@ cp .env.example .env        # set POSTGRES_PASSWORD to anything
 docker compose up -d
 ```
 
+That is the whole install, and it is on `:8080`. The frontend is compiled into
+the binary, so there is no second service, no Node runtime in production, and no
+way for the two halves to end up at different versions.
+
 <CardGrid>
   <Card title="Planning poker">
-    A story queue that knows the difference between a ticket and an ad-hoc
-    round. Four decks. Hidden votes that open when everyone has played, or when
-    the facilitator calls it. Stats that suit the deck — a T-shirt round reports
-    mode and range instead of inventing an average.
+    A story queue with real ticket references, four decks, votes nobody can see
+    until the round opens, and statistics that suit the deck — no average over
+    T-shirt sizes. [What it does →](/features/planning-poker/)
   </Card>
   <Card title="Daily standup">
-    Round-robin order with a per-person timer, so the quiet people get their turn
-    and the talkative ones can see the clock. Yesterday writes itself from last
-    standup's today. Blockers roundup at the end, ready to paste into a channel.
+    Round-robin with a timer, yesterday filled in from last time, and a blockers
+    roundup you can paste into a channel. [What it does →](/features/daily-standup/)
   </Card>
   <Card title="Spaces">
-    One memorable link per team, protected by a six-character room code. See
-    who's around, who's mid-session, and jump straight to the table they're
-    sitting at.
-  </Card>
-  <Card title="Yours to run">
-    MIT licensed. No telemetry, no phone-home, no hosted tier you drift into.
-    Sign-in through your own identity provider if you want it, and no accounts
-    at all if you don't.
+    One memorable link per team, a six-character room code, and a roster that
+    shows who is here and which table they are at.
+    [What it does →](/features/spaces-and-room-codes/)
   </Card>
 </CardGrid>
 
+## What Parley doesn't do
+
+Parley runs as a **single replica**, has **no metrics endpoint**, **no roles
+beyond member and facilitator**, and **no audit log**. Room codes are stored
+readable on purpose, so a database dump discloses them.
+
+Those are on one page, with the workaround next to each, because you should find
+out now and not three weeks in.
+
+[Known limitations →](/known-limitations/)
+
 ## It behaves itself in production
 
-`/healthz` never touches the database, so a blip can't restart the pod and drop
-every WebSocket. `/readyz` does. Migrations apply at boot, and a binary older
-than its database refuses to start rather than corrupt it. Logs are structured
-JSON. Exports escape spreadsheet formulas.
+- `/healthz` never touches the database, so a Postgres blip does not restart the
+  container and drop every socket in the room
+- Migrations run at boot, in a transaction each, and the binary refuses to start
+  against a schema newer than it knows
+- Structured JSON logs to stdout, and a boot line that tells you exactly what
+  configuration resolved to
+- `distroless/static`, non-root, no shell, `CGO_ENABLED=0`, amd64 and arm64
+- CSV exports escape spreadsheet formulas, and never contain a vote you were not
+  allowed to see
+- One advisory lock means one replica — enforced at boot rather than discovered
+  at runtime
 
-[Start here →](/guides/quickstart/)
+[Start here →](/quickstart/) · [Operations →](/operations/) ·
+[Security →](/security/) · MIT licensed

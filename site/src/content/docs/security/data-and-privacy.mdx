@@ -1,0 +1,80 @@
+---
+title: Data and privacy
+description: Every field of personal data Parley stores, and what it deliberately does not keep.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import Capability from "../../../components/Capability.astro";
+
+<VerifiedStamp version="v0.2.1" source={["internal/db/migrations", "internal/store/users.go"]} />
+
+Parley stores very little about people, mostly because it never asks. In its
+default mode there is no account, no email address and no password.
+
+## Personal data, in full
+
+| Table | Field | What it is |
+|---|---|---|
+| `users` | `id` | A generated UUID. Public — it is broadcast to everyone in a room |
+| `users` | `name` | Up to 64 characters. Self-chosen, or derived from an identity-provider claim |
+| `users` | `issuer`, `subject` | Only for federated sign-in: which provider vouched for you, and your opaque id there. Empty for anonymous users |
+| `users` | `created_at` | Timestamp |
+| `session_tokens` | `token_hash` | SHA-256 of the bearer token. The token itself is never stored |
+| `session_tokens` | `user_id`, `created_at`, `last_used_at` | Which account, and when it was last seen |
+| `members` | `space_id`, `user_id`, `spectator`, `last_seen_at` | Which rooms you have joined |
+
+**No email address is stored**, even when signing in through a provider that
+supplies one — an email is used only to derive a display name, and then
+discarded. There is **no avatar URL** (avatars are generated from the name) and
+**no IP address column** anywhere.
+
+## Content data
+
+Everything else is what a team types: session titles, story titles and
+references, notes up to 2000 characters, votes, and standup entries of up to
+2000 characters each.
+
+Treat this as the sensitive data. A story note is where somebody writes the
+customer's name or the reason a deadline slipped. It is stored as plain text in
+Postgres, and it is what a database dump mostly contains.
+
+## What leaves the instance
+
+Nothing. Parley makes no outbound network calls, has no telemetry, no analytics,
+no crash reporting and no update check.
+
+The one exception is by configuration: with `AUTH_MODE=oidc`, the process talks
+to the identity provider you named, and only to it.
+
+## Retention and erasure
+
+<Capability rows={[
+  { name: "Retention policy", status: "not-built", detail: "Nothing expires and nothing is deleted. Data lives until you remove it from Postgres yourself." },
+  { name: "Account deletion", status: "not-built", detail: "There is no endpoint. <code>DELETE /api/me</code> ends a session, it does not delete the account. Deleting a <code>users</code> row must be done in SQL, and see the caveat below — it is not a clean cascade." },
+  { name: "Per-space export or erasure", status: "not-built", detail: "Export sessions to <a href='/features/exports/'>CSV</a> individually; erase with SQL against the documented <a href='/reference/database-schema/'>schema</a>." },
+  { name: "Expired token cleanup", status: "not-built", detail: "Tokens stop resolving after 90 idle days but rows are never swept, so <code>session_tokens</code> grows without bound. It is small — one row per sign-in — but if you run Parley for years, prune it on a schedule." },
+  { name: "Encryption at rest", status: "not-built", detail: "Parley encrypts nothing itself. Use an encrypted volume or your database provider's encryption." },
+  { name: "Telemetry", status: "out-of-scope", detail: "There is none, and adding it is not planned." },
+]} />
+
+## If you need to answer a data-subject request
+
+There is no tooling for it. In practice: `users` gives you the person's row,
+`members` the spaces they joined, and their content is reachable by `user_id`
+from `votes` and `standup_entries`.
+
+`members`, `session_tokens`, `votes` and `standup_entries` all cascade on delete,
+so removing the `users` row takes them with it.
+
+:::caution[Deleting a user who has facilitated a session will fail]
+`sessions.facilitator_id` and `sessions.current_speaker_id` reference `users(id)`
+**without** `on delete cascade`, so Postgres refuses the delete with a foreign-key
+violation rather than orphaning the session.
+
+Reassign or delete those sessions first. This is a deliberate consequence of the
+schema, not a bug, but it means "just delete the user row" does not work for
+anyone who has ever run a session.
+:::
+
+Verify against the [schema](/reference/database-schema/) before running anything
+destructive, and take a [backup](/operations/backups-and-recovery/) first.

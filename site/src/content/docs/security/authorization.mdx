@@ -1,0 +1,70 @@
+---
+title: Authorization
+description: Membership, facilitator rights, and what the server checks on every request.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import Capability from "../../../components/Capability.astro";
+
+<VerifiedStamp version="v0.2.1" source={["internal/api/authz.go", "internal/api/principal.go", "internal/store/sessions.go"]} />
+
+Parley has two authorization concepts and no more: **you are a member of the
+space**, and **you are the facilitator of this session**.
+
+## Membership
+
+Acting anywhere inside a space requires having joined it. That is checked on the
+server for every request, not implied by holding a URL.
+
+A non-member asking about a session gets **404, not 403**. This is deliberate: a
+403 confirms the session exists, which leaks the shape of a team's work to
+anyone who can guess an identifier. The same applies to the WebSocket, where
+membership is verified before the connection is upgraded.
+
+A non-member looking up a space gets its name and whether it is protected, and
+nothing else — no roster, no session list, no room code.
+
+## Facilitator
+
+The facilitator is one member per session, recorded on the session row. Only they
+can reveal a round, reset it, close the session, reopen it, or hand the role to
+someone else.
+
+Every one of those is enforced server-side. The poker and standup handlers
+re-check on each request rather than relying on the middleware chain having done
+it, so a route added in the wrong place fails closed.
+
+### Claiming an abandoned session
+
+If the facilitator disappears — closes the laptop mid-round — any member can
+claim the role after a **60-second server-side grace period**.
+
+Three details make that safe. The grace is measured by the server, not by a
+client saying "they're gone". Eligibility is decided from the server's own view
+of who is connected, never from a client-supplied user id. And the claim is a
+single conditional `UPDATE`, so two people racing for it produce one winner
+rather than two facilitators.
+
+The claim is broadcast and attributed by name — taking over is visible to the
+room, not silent.
+
+:::note[This banner is only in the poker room]
+The endpoint is kind-agnostic, but the countdown-and-claim UI is only wired into
+poker. If a standup's facilitator vanishes, end the session and start another.
+:::
+
+## Spectators
+
+A member can mark themselves a spectator. Spectators do not get a seat, cannot
+vote, and are excluded from the auto-reveal denominator. It is a self-service
+toggle, not a permission an administrator grants.
+
+## What there is not
+
+<Capability rows={[
+  { name: "Owner or admin roles", status: "not-built", detail: "Any member can rotate the room code or open the space. If that matters, keep membership small, or gate the whole instance behind an SSO proxy. Roles are on the <a href='/project/roadmap/'>roadmap</a>." },
+  { name: "Per-user or per-team space access", status: "not-built", detail: "A room code is the only gate. Signing in with OIDC proves who you are but grants nothing by itself." },
+  { name: "Removing a member", status: "not-built", detail: "Rotate the room code, which retires the old one immediately. Existing members stay members." },
+  { name: "Deleting a space or session", status: "not-built", detail: "Sessions can be closed but not deleted. Delete rows in Postgres if you must — the <a href='/reference/database-schema/'>schema</a> is documented." },
+  { name: "Read-only or guest access", status: "not-built", detail: "Spectator mode is the closest thing: no seat, no vote, but full read access." },
+]} />

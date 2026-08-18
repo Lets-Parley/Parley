@@ -1,0 +1,117 @@
+---
+title: Database schema
+description: The tables, the migrations, and the constraints that act as validation.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import SpecTable from "../../../components/SpecTable.astro";
+
+<VerifiedStamp version="v0.2.1" source={["internal/db/migrations", "internal/db/migrate.go"]} />
+
+Nine migrations, embedded in the binary and applied at boot. Postgres only —
+there is no second driver and no plan for one.
+
+## Migrations
+
+<SpecTable rows={[
+  { name: "0001_extensions", value: "pgcrypto", note: "The only extension Parley needs, for gen_random_uuid()" },
+  { name: "0002_identity", value: "users, session_tokens", note: "" },
+  { name: "0003_spaces", value: "spaces, members", note: "" },
+  { name: "0004_sessions", value: "sessions", note: "" },
+  { name: "0005_poker", value: "stories, votes", note: "Also adds sessions.current_story_id" },
+  { name: "0006_standup", value: "standup_entries", note: "Also adds sessions.current_speaker_id and speaker_started_at" },
+  { name: "0007_story_ref", value: "stories.ref", note: "Ticket reference, ≤40 chars" },
+  { name: "0008_space_passcode", value: "spaces.passcode", note: "Empty string means an open space" },
+  { name: "0009_federated_identity", value: "users.issuer, users.subject", note: "Behind a partial unique index" },
+]} />
+
+### How the runner behaves
+
+Files are read from the embedded filesystem, sorted lexically, and a migration's
+version is **its position in that list**. Each runs in its own transaction
+together with the row that records it, so a failure leaves no half-applied
+migration.
+
+If the database records a version **higher** than the number of files the binary
+has, the process refuses to start. That is the guard against rolling an image
+back past a migration it does not know about — it fails loudly instead of running
+against a schema from the future.
+
+There are no down-migrations, no checksums, and no dry-run. See
+[Upgrading](/operations/upgrading/).
+
+## Tables
+
+### users
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid | Primary key. Public — broadcast to every participant |
+| `name` | text | 1–64 characters, enforced by check constraint |
+| `issuer` | text | ≤255. Empty for anonymous users |
+| `subject` | text | ≤255. Empty for anonymous users |
+| `created_at` | timestamptz | |
+
+`(issuer, subject)` carries a unique index **partial on `issuer <> ''`**, so every
+anonymous row can share the empty pair while federated identities stay unique.
+
+### session_tokens
+
+| Column | Type | Notes |
+|---|---|---|
+| `token_hash` | bytea | SHA-256 of the bearer token, as raw bytes — it is the primary key. The token itself is never stored |
+| `user_id` | uuid | Cascades on user delete |
+| `created_at`, `last_used_at` | timestamptz | `last_used_at` drives the 90-day idle window |
+
+### spaces
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid | |
+| `slug` | text | Unique, and constrained to a lowercase URL-safe pattern |
+| `name` | text | 1–64 characters |
+| `passcode` | text | ≤12. **Plaintext by design** — empty means open |
+
+### members
+
+`(space_id, user_id)` composite primary key, plus `spectator` and `last_seen_at`.
+Both foreign keys cascade.
+
+### sessions
+
+| Column | Type | Notes |
+|---|---|---|
+| `kind` | text | `check (kind in ('poker','standup'))` — this constraint is why adding a ceremony currently needs a migration |
+| `title` | text | 1–200 characters |
+| `config` | jsonb | Write-once, decoded into a typed struct |
+| `phase`, `revealed`, `version` | | `version` increments on mutation |
+| `facilitator_id` | uuid | References `users` — **no cascade** |
+| `current_speaker_id` | uuid | Nullable, references `users` — **no cascade** |
+| `facilitator_seen_at` | timestamptz | Drives the 60-second claim grace |
+
+### stories, votes
+
+`stories` carries `title` (≤200), `notes` (≤2000), `ref` (≤40), a fractional
+`position` for reordering, and `estimate`. `votes` is keyed
+`(story_id, user_id)` and cascades on both.
+
+### standup_entries
+
+Keyed `(session_id, user_id)`, with `yesterday`, `today` and `blockers` each
+≤2000 characters, plus `skipped`.
+
+## Constraints are the validation layer
+
+Field lengths are enforced by `check` constraints in the database as well as in
+handlers. If you write to Parley's database directly, the constraints still hold
+— which is the intent.
+
+:::caution[Deleting a user is not a clean cascade]
+`members`, `session_tokens`, `votes` and `standup_entries` all cascade. But
+`sessions.facilitator_id` and `sessions.current_speaker_id` do **not**, so
+deleting a user who facilitates any session — or is its *current* speaker — fails
+on a foreign-key violation. Deal with those sessions first.
+
+`current_speaker_id` only ever holds the speaker of the moment and is cleared
+when a standup finishes, so merely having spoken does not block a delete.
+:::

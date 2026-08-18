@@ -1,0 +1,28 @@
+---
+title: Themes
+description: Light, dark, and follow-the-system.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import Capability from "../../../components/Capability.astro";
+
+<VerifiedStamp version="v0.2.1" source={["web/src/lib/ui.tsx", "web/src/tokens.css"]} />
+
+Parley has three theme states, not two: **light**, **dark**, and **system**,
+which follows the operating system and changes with it. System is the default,
+and the choice is stored in the browser under `parley:theme`.
+
+The palette is chart paper and navy ink in light, and a night-watch navy in dark.
+Numerals are set in a monospace face with tabular figures throughout, because a
+vote count is data and should line up in a column.
+
+Reduced-motion preferences are respected: the card flip and the countdown ring
+stop animating when the operating system asks them to.
+
+## What is not here
+
+<Capability rows={[
+  { name: "Custom themes or branding", status: "not-built", detail: "Fork and edit <code>web/src/tokens.css</code> — the palette is one file of custom properties. White-label theming is on the <a href='/project/roadmap/'>roadmap</a>." },
+  { name: "A verified mobile layout", status: "not-built", detail: "The layout is responsive but has never been formally tested on a handset. Use a tablet or a laptop for a session you care about." },
+  { name: "A per-space theme", status: "out-of-scope", detail: "The theme is a reader preference, not a property of a room." },
+]} />

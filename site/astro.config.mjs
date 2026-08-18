@@ -2,6 +2,10 @@
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 
+const description =
+  "Planning poker and daily standups for your team, at your table. " +
+  "Self-hosted, open source, one Go binary and a Postgres database.";
+
 export default defineConfig({
   site: "https://www.letsparley.io",
   integrations: [
@@ -9,8 +13,13 @@ export default defineConfig({
       title: "Parley",
       logo: { src: "./src/assets/logo.svg" },
       favicon: "/favicon.svg",
-      description:
-        "Planning poker and daily standups for your team, at your table. Self-hosted, open source.",
+      description,
+      head: [
+        { tag: "meta", attrs: { property: "og:image", content: "https://www.letsparley.io/og.png" } },
+        { tag: "meta", attrs: { property: "og:image:alt", content: "Parley — planning poker and daily standups, self-hosted" } },
+        { tag: "meta", attrs: { name: "twitter:card", content: "summary_large_image" } },
+        { tag: "meta", attrs: { name: "twitter:image", content: "https://www.letsparley.io/og.png" } },
+      ],
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/lets-parley/parley" },
       ],
@@ -18,25 +27,68 @@ export default defineConfig({
         baseUrl: "https://github.com/lets-parley/parley/edit/main/site/",
       },
       customCss: ["./src/styles/parley.css"],
+      // These pages run long and reference-heavy; the right-hand TOC is the
+      // real navigation on them, so it needs H3.
+      tableOfContents: { minHeadingLevel: 2, maxHeadingLevel: 3 },
       sidebar: [
+        { label: "Quickstart", link: "/quickstart/" },
         {
-          label: "Get started",
-          items: ["guides/quickstart", "guides/configuration"],
-        },
-        {
-          label: "Running it",
+          label: "Features",
           items: [
-            "guides/sign-in",
-            "guides/security",
-            "guides/reverse-proxy",
-            "guides/kubernetes",
-            "guides/backups",
-            "guides/upgrading",
+            { slug: "features", label: "Overview" },
+            "features/planning-poker",
+            "features/daily-standup",
+            "features/spaces-and-room-codes",
+            "features/exports",
+            "features/themes",
           ],
         },
         {
-          label: "Help",
-          items: ["guides/troubleshooting", "guides/development"],
+          label: "Operations",
+          items: [
+            { slug: "operations", label: "Overview" },
+            "operations/architecture",
+            "operations/deployment",
+            "operations/kubernetes",
+            "operations/reverse-proxy",
+            "operations/observability",
+            "operations/scaling-and-limits",
+            "operations/backups-and-recovery",
+            "operations/upgrading",
+            "operations/runbook",
+          ],
+        },
+        {
+          label: "Security",
+          items: [
+            { slug: "security", label: "Overview" },
+            "security/overview",
+            "security/threat-model",
+            "security/authentication",
+            "security/authorization",
+            "security/data-and-privacy",
+            "security/hardening-checklist",
+            "security/supply-chain",
+            "security/review-pack",
+          ],
+        },
+        {
+          label: "Reference",
+          collapsed: true,
+          items: [
+            { slug: "reference", label: "Overview" },
+            "reference/configuration",
+            "reference/api",
+            "reference/database-schema",
+            "reference/csv-format",
+            "reference/limits-and-defaults",
+          ],
+        },
+        { label: "Known limitations", link: "/known-limitations/" },
+        {
+          label: "Project",
+          collapsed: true,
+          items: ["project/roadmap", "project/releases", "project/contributing"],
         },
       ],
     }),

@@ -1,0 +1,99 @@
+---
+title: Scaling and limits
+description: The single-replica constraint, the connection pool, and every timeout that matters.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import SpecTable from "../../../components/SpecTable.astro";
+
+<VerifiedStamp version="v0.2.1" source={["cmd/parley/main.go", "internal/db/db.go", "internal/hub/hub.go"]} />
+
+## Parley runs as exactly one replica
+
+This is not a recommendation. It is enforced, and a second instance will refuse
+to start.
+
+At boot, the process takes a Postgres session-scoped advisory lock
+(`pg_try_advisory_lock`, key `0x7061726c6579`). If it cannot get the lock, it
+logs that another instance holds it and exits non-zero.
+
+The reason is the WebSocket hub. It lives in process memory, so two replicas
+would each hold half the room: your vote would reach the three people who landed
+on the same pod as you and nobody else. The room-code attempt throttle is
+in-memory for the same reason — split across two replicas, the limit doubles.
+
+Rather than let that fail quietly and confusingly at runtime, Parley refuses at
+boot.
+
+### What it costs
+
+Deployments have a gap. The Kubernetes manifest uses `strategy: Recreate`
+precisely because a rolling update would start a second pod that then exits on
+the lock. So a deploy stops the old process and starts a new one, and for a few
+seconds the board is stale and clients show their reconnect banner. That is the
+honest price of an in-process hub, and it is why the manifest ships that way.
+
+### The failover hazard
+
+The lock is held by a connection, not by a row. If Postgres fails over, is
+restored from a dump, or drops the connection, **the lock is gone** while the
+original process may still be running and serving.
+
+A new instance started at that moment will take the lock and boot happily,
+alongside a zombie. That is exactly the split-brain the lock exists to prevent.
+After any database failover or restore, confirm only one Parley process is
+running before you rely on it.
+
+## Connection pool
+
+<SpecTable rows={[
+  { name: "Max connections", value: "10", note: "Fixed, not configurable" },
+  { name: "Usable for requests", value: "9", note: "The boot lock permanently holds one and never releases it" },
+  { name: "Connect timeout", value: "5s", note: "" },
+  { name: "Startup retries", value: "6", note: "Doubling backoff, roughly a minute total" },
+  { name: "Statement timeout", value: "none", note: "pgx defaults; set one on the database role if you want one" },
+]} />
+
+The nine-not-ten point matters if you are sizing Postgres `max_connections`
+against several instances, or wondering why a pool that says 10 saturates at 9.
+
+## Server timeouts
+
+<SpecTable rows={[
+  { name: "ReadHeaderTimeout", value: "10s", note: "The only HTTP timeout set" },
+  { name: "ReadTimeout", value: "none", note: "Deliberate — a WebSocket is a long-lived read" },
+  { name: "WriteTimeout", value: "none", note: "Deliberate, same reason" },
+  { name: "IdleTimeout", value: "none", note: "Deliberate, same reason" },
+  { name: "Shutdown grace", value: "10s", note: "In-flight HTTP requests; hijacked sockets are not drained" },
+]} />
+
+Because the process sets no read or write timeout, **your reverse proxy is the
+thing that will time out a WebSocket**. Parley pings every 25 seconds, which
+resets an idle timer, so any proxy read timeout comfortably above that is safe —
+75 seconds is the value used in the [reverse proxy](/operations/reverse-proxy/)
+examples. A proxy defaulting to 60 seconds or less will cut sockets.
+
+## Request and payload limits
+
+<SpecTable rows={[
+  { name: "JSON request body", value: "64 KiB", note: "Most endpoints" },
+  { name: "Optional-body endpoints", value: "4 KiB", note: "The room-code join and passcode-rotate paths" },
+  { name: "WebSocket frame read", value: "4096 bytes", note: "Clients send almost nothing over the socket" },
+  { name: "Room-code attempts", value: "8 per 60s", note: "Per client address, per space" },
+]} />
+
+Everything else — field lengths, token lifetimes, the facilitator grace period —
+is in [Limits and defaults](/reference/limits-and-defaults/).
+
+## How far does one replica go?
+
+There is no published benchmark, and inventing one here would be dishonest.
+What can be said from the design: state is in Postgres, broadcasts are
+whole-session payloads sent to every connection in a room, and the hub holds one
+goroutine pair per connection.
+
+The scaling pressure is therefore **rooms × people × mutation rate**, and the
+first thing to watch is the database, not the Go process. For a team, or several
+teams, on modest hardware, this is not a concern. For an organisation-wide
+deployment, multi-replica realtime is on the
+[roadmap](/project/roadmap/) and is the thing that has to land first.

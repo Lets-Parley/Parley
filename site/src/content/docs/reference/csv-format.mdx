@@ -1,0 +1,53 @@
+---
+title: CSV format
+description: Exact columns per session kind, and the formula-injection escaping.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+
+<VerifiedStamp version="v0.2.1" source={["internal/poker/csv.go", "internal/standup/csv.go", "internal/session/csv.go"]} />
+
+```
+GET /api/sessions/{id}/export.csv
+```
+
+Members only. Served as an attachment named after the session title, sanitised.
+
+## Poker
+
+| Column | Contents |
+|---|---|
+| `ticket` | The story's reference, e.g. `PLAT-412`. Empty for an ad-hoc item |
+| `story` | Title |
+| `status` | Where the story is in the queue |
+| `estimate` | The value saved onto the story, if one was |
+| `votes` | How many people voted |
+| `detail` | `Name: value; Name: value`. **Only present for the current story, and only once revealed** |
+
+## Standup
+
+| Column | Contents |
+|---|---|
+| `name` | Display name |
+| `yesterday` | Their entry |
+| `today` | Their entry |
+| `blockers` | Their entry |
+| `skipped` | Whether they were marked absent |
+
+## It exports only what you could already see
+
+Rows are rendered from the same redacted view the WebSocket sends, not from raw
+storage. Unrevealed votes are structurally absent, so the export cannot be used
+to read a round early.
+
+## Formula injection
+
+Every text cell that begins with `=`, `+`, `-`, `@`, a tab or a carriage return is
+prefixed with a single quote.
+
+A story titled `=HYPERLINK("http://evil.example","Q3 planning")` would otherwise
+become a live formula the moment the file is opened in Excel, Sheets or
+LibreOffice. With the prefix it is text.
+
+This means a cell may have a leading `'` that was not in the original title. That
+is deliberate, and preferable to shipping executable spreadsheets.

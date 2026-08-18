@@ -1,0 +1,87 @@
+---
+title: Limits and defaults
+description: Field lengths, body caps, timeouts, pool sizes and lifetimes, in one place.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import SpecTable from "../../../components/SpecTable.astro";
+
+<VerifiedStamp version="v0.2.1" source={["internal/db/migrations", "internal/hub/hub.go", "internal/db/db.go", "internal/api/passcode.go", "cmd/parley/main.go"]} />
+
+Everything numeric, transcribed from source. None of these is configurable
+unless the page says so.
+
+## Field lengths
+
+<SpecTable rows={[
+  { name: "User name", value: "1–64", note: "Check constraint; also caps a name derived from an IdP claim" },
+  { name: "Space name", value: "1–64", note: "" },
+  { name: "Space slug", value: "1–64", note: "Lowercase, URL-safe pattern, unique" },
+  { name: "Room code", value: "6", note: "Column allows 12; the generator makes 6" },
+  { name: "Session title", value: "1–200", note: "" },
+  { name: "Story title", value: "1–200", note: "" },
+  { name: "Story notes", value: "≤2000", note: "" },
+  { name: "Story reference", value: "≤40", note: "" },
+  { name: "Standup fields", value: "≤2000 each", note: "yesterday, today, blockers" },
+  { name: "OIDC issuer / subject", value: "≤255 each", note: "" },
+]} />
+
+## Request limits
+
+<SpecTable rows={[
+  { name: "JSON request body", value: "64 KiB", note: "Most endpoints" },
+  { name: "Optional-body endpoints", value: "4 KiB", note: "Room-code join and passcode rotate" },
+  { name: "WebSocket frame read", value: "4096 bytes", note: "" },
+]} />
+
+## Timeouts
+
+<SpecTable rows={[
+  { name: "ReadHeaderTimeout", value: "10s", note: "The only HTTP server timeout set" },
+  { name: "ReadTimeout / WriteTimeout / IdleTimeout", value: "unset", note: "Deliberate — WebSockets are long-lived" },
+  { name: "Shutdown grace", value: "10s", note: "HTTP only; hijacked sockets are not drained" },
+  { name: "/readyz database ping", value: "3s", note: "" },
+  { name: "-healthcheck request", value: "3s", note: "" },
+  { name: "OIDC discovery", value: "15s", note: "Lazy and cached after the first success" },
+  { name: "Database connect", value: "5s", note: "Per attempt" },
+  { name: "Startup attempts", value: "6", note: "Five doubling backoffs from 1s, plus a 5s timeout each — about a minute" },
+]} />
+
+## WebSocket
+
+<SpecTable rows={[
+  { name: "Ping interval", value: "25s", note: "" },
+  { name: "Pong deadline", value: "50s", note: "" },
+  { name: "Write deadline", value: "5s", note: "Per frame" },
+  { name: "Send buffer", value: "16 frames", note: "Full means the connection is dropped, not the room blocked" },
+  { name: "Presence debounce", value: "1.5s", note: "" },
+]} />
+
+## Database pool
+
+<SpecTable rows={[
+  { name: "MaxConns", value: "10", note: "Not configurable" },
+  { name: "Usable for requests", value: "9", note: "The boot lock holds one permanently" },
+  { name: "MinConns / lifetimes", value: "pgx defaults", note: "Not set by Parley" },
+  { name: "Statement timeout", value: "none", note: "Set it on the database role if you want one" },
+]} />
+
+## Sessions and identity
+
+<SpecTable rows={[
+  { name: "Session token", value: "32 random bytes", note: "SHA-256 at rest" },
+  { name: "Server-side token expiry", value: "90 days idle", note: "Refreshed on every use" },
+  { name: "Session cookie Max-Age", value: "90 days", note: "Fixed from issue and never refreshed — the effective ceiling" },
+  { name: "Sign-in flow cookie", value: "600s", note: "oidc mode only" },
+  { name: "Expired token cleanup", value: "never", note: "Rows stop resolving but are not swept" },
+]} />
+
+## Rules of play
+
+<SpecTable rows={[
+  { name: "Room-code attempts", value: "8 per 60s", note: "Per client address, per space; sliding window" },
+  { name: "Room-code alphabet", value: "25 characters", note: "Confusable letters removed; ~244M combinations" },
+  { name: "Facilitator claim grace", value: "60s", note: "Server-measured; claim is one conditional UPDATE" },
+  { name: "Standup seconds per person", value: "90", note: "A session-config value, but no UI sets it" },
+  { name: "Poker decks", value: "4", note: "Fixed at session creation" },
+]} />

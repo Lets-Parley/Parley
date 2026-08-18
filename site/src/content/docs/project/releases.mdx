@@ -1,0 +1,55 @@
+---
+title: Releases
+description: Version history, and which versions you should not run.
+---
+
+Releases are on
+[GitHub](https://github.com/lets-parley/parley/releases). Images publish to
+`ghcr.io/lets-parley/parley` for `linux/amd64` and `linux/arm64` on every `v*`
+tag, and are anonymously pullable.
+
+Tagging `vX.Y.Z` publishes `X.Y.Z` and `X.Y`, and moves `latest` for non
+pre-release tags.
+
+## v0.2.1
+
+Parley moved to the `lets-parley` organisation. The module path is
+`github.com/lets-parley/parley` and images now publish to
+`ghcr.io/lets-parley/parley`. **No functional changes** from v0.2.0.
+
+## v0.2.0
+
+- Sign-in through any OpenID Connect provider, with `AUTH_MODE=open` unchanged
+  as the default
+- **A fix for a room-code throttle that could be bypassed** when Parley was
+  reachable directly
+- Estimates validated against the session's own deck
+- A new look: chart paper and navy ink, with tabular figures for vote counts
+
+## v0.1.0
+
+The first release: planning poker with four decks, daily standup, spaces with
+room codes, CSV export, and the documentation site.
+
+:::danger[Do not run v0.1.0]
+It contains the room-code throttle bypass fixed in v0.2.0. When Parley is
+reachable directly rather than through a proxy, the per-address limit on wrong
+room-code guesses could be evaded, making codes brute-forceable.
+
+The tag and image were **deliberately not moved** onto fixed code. Retagging
+would silently change what that version means for anyone who had already pulled
+it and would break digest verification — a clearly-labelled bad version is safer
+than a mutated one.
+
+Upgrade to v0.2.0 or later.
+:::
+
+There is no GitHub Release object for v0.1.0, only a tag and an image — it was
+tagged before release notes were being written. Its absence from the releases
+list does not mean it was withdrawn.
+
+## Upgrading
+
+See [Upgrading](/operations/upgrading/). Migrations are forward-only and the
+binary refuses to start against a schema newer than it knows, so take a
+[backup](/operations/backups-and-recovery/) before moving between versions.

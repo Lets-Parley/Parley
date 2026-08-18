@@ -8,8 +8,12 @@ open source, no accounts, no fuss.
 [![go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
 [![container](https://img.shields.io/badge/ghcr.io-parley-2496ED?logo=docker&logoColor=white)](https://github.com/lets-parley/parley/pkgs/container/parley)
 
-**[www.letsparley.io](https://www.letsparley.io)** — docs, screenshots, and the
-quickstart.
+**[www.letsparley.io](https://www.letsparley.io)** — the documentation:
+[quickstart](https://www.letsparley.io/quickstart/),
+[features](https://www.letsparley.io/features/),
+[operations](https://www.letsparley.io/operations/),
+[security](https://www.letsparley.io/security/), and a frank list of
+[known limitations](https://www.letsparley.io/known-limitations/).
 
 ![A revealed planning poker round in Parley](docs/screenshot-poker.png)
 
@@ -63,8 +67,9 @@ sit at.
 
 ### Daily standup
 
-- **Round-robin order** with a per-person timer, so the quiet people get their
-  turn and the talkative ones can see the clock.
+- **Round-robin order** with a 90-second-per-person timer, so the quiet people
+  get their turn and the talkative ones can see the clock. (The length is a
+  session setting the UI doesn't expose yet.)
 - **Skip / absent** without losing anyone's place in the rotation.
 - **Yesterday writes itself.** Whatever you put in "today" last standup is
   waiting in "yesterday" at the next one.
@@ -81,7 +86,8 @@ sit at.
   mint a new code, or open the space so the link alone is the invite.
 - **Roster with presence:** who's around, who's in a session, and a jump
   straight to the table they're sitting at.
-- **Session history**, searchable and filterable by kind or date.
+- **Session history**, searchable by title and filterable by kind, with a
+  most-recent / active-first / A–Z sort.
 
 ### Everything else
 
@@ -93,8 +99,9 @@ sit at.
 - **CSV export** for any session: estimates, votes per person, standup entries.
   Cells that start with `=` are escaped, so an export can't run formulas in a
   spreadsheet.
-- **Facilitator handover.** Hand off explicitly, or if the facilitator drops off,
-  anyone at the table can take over after a 60-second grace period.
+- **Facilitator takeover.** If the facilitator drops off, anyone at the table can
+  claim the role after a 60-second grace period, and the room is told who did.
+  (Explicit hand-off exists in the API but has no button yet.)
 - **Light, dark, and system themes.**
 - **Boring to operate.** `/healthz` that never touches the database, `/readyz`
   that does, structured JSON logs, migrations applied at boot, and a refusal to

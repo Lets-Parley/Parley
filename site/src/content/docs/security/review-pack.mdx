@@ -1,0 +1,106 @@
+---
+title: Security review pack
+description: One page for a security reviewer — summary, data inventory, controls, gaps, and what to ask next.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import Capability from "../../../components/Capability.astro";
+
+<VerifiedStamp version="v0.2.1" source={["internal/api", "internal/auth", "internal/db/migrations"]} />
+
+For anyone signing off on Parley for a team or an organisation. Everything here
+is also on the individual pages; this is the version you can read in one sitting
+or print.
+
+## What Parley is
+
+A self-hosted planning-poker and daily-standup tool. One Go binary with the
+frontend compiled in, plus a Postgres database. MIT licensed. No SaaS component,
+no telemetry, no outbound network calls except to an identity provider you
+configure.
+
+- **Deployment**: single container, single replica, enforced.
+- **Data**: everything is in your Postgres.
+- **Identity**: none by default; optionally any OpenID Connect provider.
+- **Access control**: a six-character room code per space.
+
+## The one-paragraph summary
+
+Parley is designed for a team that trusts each other and an operator who does
+not want an account system. Its access model is a shared room code, not
+identity — anyone holding a code has full participation in that space, and any
+member can change or remove that code. The interesting protections are around
+*vote secrecy* (strong, and structural) and *not disclosing what exists to
+strangers* (also strong). The gaps are concentrated in operations and governance:
+no roles, no audit log, no retention or erasure tooling, no metrics, and a
+release pipeline with no signing or SBOM.
+
+If your requirement is "a team of engineers estimates stories without a
+third-party SaaS", it fits well. If your requirement is "attributable,
+auditable, role-based access to work-planning data", it does not fit yet without
+an SSO proxy in front and some SQL of your own.
+
+## Data inventory
+
+| Data | Stored | Notes |
+|---|---|---|
+| Display name | Yes | ≤64 chars, self-chosen or from an IdP claim |
+| Email address | **No** | Used only to derive a name at sign-in, then discarded |
+| Password | **No** | There is no local password authentication at all |
+| IP address | **No** | No column; used transiently for throttling only |
+| Avatar image | **No** | Generated from the name |
+| Federated identity | Yes | Issuer + opaque subject, only in `oidc` mode |
+| Session tokens | Hashed | SHA-256; the token itself is never stored |
+| Room codes | **Plaintext** | Deliberate — see below |
+| Session content | Yes | Story titles, notes, votes, standup entries — free text |
+
+Full detail: [Data and privacy](/security/data-and-privacy/).
+
+## Controls
+
+<Capability rows={[
+  { name: "Vote secrecy before reveal", status: "built", detail: "Enforced in the serializer, so unrevealed votes are absent from API responses, WebSocket frames and CSV exports alike." },
+  { name: "Resource existence not disclosed", status: "built", detail: "Non-members receive 404 rather than 403 for sessions, including on the WebSocket upgrade." },
+  { name: "Cross-site request defence", status: "built", detail: "SameSite=Lax, an Origin and Sec-Fetch-Site check rejecting cross-site non-GET, and a JSON content-type requirement, in place of a CSRF token. Note a request with no Origin header, and a sibling subdomain (which browsers label same-site), are not caught by the header check — see the <a href='/security/threat-model/'>threat model</a>." },
+  { name: "Session token handling", status: "built", detail: "32 random bytes, SHA-256 at rest, HttpOnly cookie, Secure when BASE_URL is https." },
+  { name: "OIDC correctness", status: "built", detail: "Authorization code + PKCE (S256); signature, audience, expiry and nonce verified; state and nonce compared in constant time." },
+  { name: "Brute-force protection on room codes", status: "built", detail: "8 attempts per 60s per address per space, with a confusable-free alphabet and constant-time comparison." },
+  { name: "CSV formula-injection escaping", status: "built", detail: "Cells starting = + - @ tab or CR are quote-prefixed." },
+  { name: "Container hardening", status: "built", detail: "distroless static non-root; the k8s manifest adds drop ALL, no privilege escalation, seccomp RuntimeDefault, read-only root filesystem." },
+  { name: "Transport security", status: "not-built", detail: "Parley never terminates TLS and does not send HSTS. Terminate at a proxy and add HSTS there." },
+  { name: "Role-based access control", status: "not-built", detail: "None. Any member can do anything in a space, including rotating or removing its room code. Keep membership small, or gate the instance behind an SSO proxy." },
+  { name: "Audit logging", status: "not-built", detail: "None. Rows carry user_id and timestamps; reconstruct from Postgres if needed." },
+  { name: "Retention and erasure", status: "not-built", detail: "Nothing expires or deletes. Write your own SQL against the documented schema; note that deleting a user who facilitated a session is blocked by a foreign key." },
+  { name: "Rate limiting beyond room codes", status: "not-built", detail: "Apply it at your ingress." },
+  { name: "Metrics and tracing", status: "not-built", detail: "JSON logs only. Blackbox-probe /readyz and take request metrics from your proxy." },
+  { name: "SBOM, signing, provenance", status: "not-built", detail: "None published. Build the image yourself from a tagged commit, or pin by digest and scan with syft and trivy." },
+  { name: "Encryption at rest", status: "not-built", detail: "Use an encrypted volume or your database provider's encryption." },
+]} />
+
+## Accepted risks
+
+**Room codes are stored in plaintext.** A code exists to be read off the page and
+passed to a colleague. Hashing it would mean no member could look it up again.
+The consequence is that a database dump discloses every space's code — which is
+why a code is treated as a door, not as an identity.
+
+**Membership is the trust boundary.** There is no finer grain, by design and for
+now.
+
+**Anonymous participation is the default.** It is the product.
+
+## Questions a reviewer usually asks next
+
+- *Can we require SSO before anyone reaches a room?* Only by putting an SSO proxy
+  in front of the whole instance. `AUTH_MODE=oidc` identifies people, but does
+  not gate space access.
+- *Can we revoke one person's access?* Not individually. Rotate the room code, or
+  delete rows from `session_tokens` to sign everyone out.
+- *Can we prove who estimated what?* In `oidc` mode, yes, from the database. There
+  is no report and no audit trail; the data is there to query.
+- *What happens on a breach of the database?* Everything is disclosed, including
+  every room code. Session tokens are hashed, so they are not directly reusable.
+- *Is there a disclosure process?* Yes —
+  [GitHub security advisories](https://github.com/lets-parley/parley/security/advisories/new).
+  Note that **v0.1.0 has a known throttle bypass** and was deliberately not
+  retagged; use v0.2.0 or later.

@@ -1,0 +1,86 @@
+---
+title: Supply chain
+description: Dependencies, how the image is built, and what the release pipeline does not yet do.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import Capability from "../../../components/Capability.astro";
+
+<VerifiedStamp version="v0.2.1" source={["go.mod", "Dockerfile", ".github/workflows/ci.yml", ".github/workflows/release.yml"]} />
+
+This page is the one most likely to matter to a reviewer, so it is written
+without softening.
+
+## Dependencies
+
+Parley has **five direct Go dependencies**:
+
+| Module | What for |
+|---|---|
+| `github.com/coreos/go-oidc/v3` | OpenID Connect token verification |
+| `golang.org/x/oauth2` | Authorization code flow and PKCE |
+| `github.com/go-chi/chi/v5` | HTTP routing |
+| `github.com/gorilla/websocket` | WebSockets |
+| `github.com/jackc/pgx/v5` | Postgres driver and pool |
+
+Six further indirect modules come with those. There is no web framework, no ORM,
+no dependency-injection container and no logging library — logging is the
+standard library's `log/slog`.
+
+The frontend is React and Vite, built at image-build time and compiled into the
+binary. **No frontend dependency is served to a browser at runtime**, and there
+is no CDN: the CSP is `default-src 'self'` and everything is same-origin.
+
+## How the image is built
+
+Three stages: Node builds the frontend, Go cross-compiles a static binary with
+`CGO_ENABLED=0`, and the result is copied into
+`gcr.io/distroless/static-debian12:nonroot`.
+
+That final image has no shell, no package manager and no libc. Its attack
+surface is one static binary running as a non-root user. Published for
+`linux/amd64` and `linux/arm64` on every `v*` tag.
+
+## What CI actually checks
+
+`go vet`, the full test suite under `-race` against a real Postgres, a frontend
+build, and a first-run smoke test that boots the image against an empty database
+and asserts it serves a page.
+
+That is a real correctness gate. It is **not** a security gate, and the
+difference matters:
+
+## Gaps, stated plainly
+
+<Capability rows={[
+  { name: "Reproducible dependency set", status: "built", detail: "<code>go.mod</code> and <code>go.sum</code> pin and checksum every module; <code>package-lock.json</code> does the same for the frontend." },
+  { name: "Minimal runtime image", status: "built", detail: "distroless static, non-root, no shell." },
+  { name: "SBOM", status: "not-built", detail: "None is published. Generate your own: <code>syft ghcr.io/lets-parley/parley:0.2.1</code> — a static Go binary yields a good one." },
+  { name: "Image signing", status: "not-built", detail: "Images are not cosign-signed, so you cannot verify provenance cryptographically. Pin by digest instead of tag: <code>ghcr.io/lets-parley/parley@sha256:…</code>, which is immutable even though it is unsigned." },
+  { name: "Build provenance / SLSA attestation", status: "not-built", detail: "None. If your policy requires attested artifacts, build from source — the Dockerfile is the whole build and takes a few minutes." },
+  { name: "Vulnerability scanning in CI", status: "not-built", detail: "No govulncheck, CodeQL, gosec, Trivy or Grype runs. Scan the published image yourself: <code>trivy image ghcr.io/lets-parley/parley:0.2.1</code>, and <code>govulncheck ./...</code> against a source checkout." },
+  { name: "Automated updates for Go and frontend dependencies", status: "not-built", detail: "Dependabot is configured for <code>site/</code> npm packages only. Go modules and <code>web/</code> are updated manually and can lag. Watch releases, and scan before you upgrade." },
+  { name: "Actions pinned by digest", status: "not-built", detail: "Workflows use major tags (<code>@v4</code>, <code>@v5</code>) rather than commit SHAs, so a compromised action tag would affect a build. Fork and pin if your threat model includes that." },
+]} />
+
+## What to do about it
+
+If you are evaluating Parley for somewhere that cares about supply chain, the
+honest recommendation is: **build the image yourself from a tagged commit**. The
+build is a single Dockerfile with no private steps, it takes minutes, and it puts
+the provenance question entirely in your own pipeline where you already have the
+signing and attestation you need.
+
+If you use the published image, pin the digest and scan it. Do not rely on
+`latest`.
+
+## Known vulnerable versions
+
+**v0.1.0** contains a room-code throttle bypass, fixed in v0.2.0. The tag and
+image were left in place rather than retagged, so that anyone who pulled that
+digest still receives what they pulled. Do not deploy it.
+
+There is no separate security advisory for it: the repository had no known
+installs at the time, and the release notes carry the warning. Report anything
+new through a
+[security advisory](https://github.com/lets-parley/parley/security/advisories/new).

@@ -1,0 +1,23 @@
+---
+// Credibility mechanism: says what version this page was transcribed against
+// and which file it came from, so a reader can check it and a future editor
+// knows what went stale.
+const { version, source } = Astro.props;
+const repo = "https://github.com/lets-parley/parley/blob/main/";
+const files = Array.isArray(source) ? source : source ? [source] : [];
+---
+<p class="stamp">
+  Verified against <strong>{version}</strong>
+  {files.length > 0 && <> · {files.map((f, i) => (<>
+    {i > 0 && <span>, </span>}<a href={`${repo}${f}`}><code>{f}</code></a>
+  </>))}</>}
+</p>
+
+<style>
+  .stamp {
+    font-size: 0.8125rem; color: var(--parley-muted);
+    border-left: 2px solid var(--sl-color-accent);
+    padding: 0.15rem 0 0.15rem 0.7rem; margin: 0 0 1.5rem;
+  }
+  .stamp code { font-size: 0.8125rem; background: none; padding: 0; }
+</style>

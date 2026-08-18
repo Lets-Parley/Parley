@@ -1,0 +1,112 @@
+---
+title: HTTP API
+description: Every route, who may call it, and what it does.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import RouteTable from "../../../components/RouteTable.astro";
+
+<VerifiedStamp version="v0.2.1" source={["internal/api/router.go", "internal/poker/routes.go", "internal/standup/routes.go"]} />
+
+There is no API token scheme. Everything authenticates with the `parley_session`
+cookie, so the API is usable from a script only by reusing a browser session's
+cookie.
+
+Requests under `/api` that carry a body must send `Content-Type: application/json`,
+and non-GET requests are rejected with 403 if their `Origin` does not match
+`BASE_URL` or `Sec-Fetch-Site` says `cross-site`.
+
+## Health
+
+<RouteTable rows={[
+  { method: "GET", path: "/healthz", auth: "public", purpose: "Liveness. Always 200, never touches the database." },
+  { method: "GET", path: "/readyz", auth: "public", purpose: "Readiness. Pings Postgres with a 3s timeout; 503 if unreachable." },
+]} />
+
+## Sign-in
+
+These live outside `/api` on purpose: they are browser navigations arriving from
+the identity provider's domain, so the cross-site and JSON-body guards would
+reject them. Their own protection is the `state` value in the sign-in cookie.
+
+<RouteTable rows={[
+  { method: "GET", path: "/auth/login", auth: "public", purpose: "Begin the authorization code + PKCE flow. oidc mode only." },
+  { method: "GET", path: "/auth/callback", auth: "public", purpose: "Provider redirect. Verifies state, nonce, signature, audience and expiry, then issues a session." },
+]} />
+
+## Identity
+
+<RouteTable rows={[
+  { method: "GET", path: "/api/auth", auth: "public", purpose: "Report which auth mode this instance runs — open or oidc. The frontend uses it to pick a sign-in path." },
+  { method: "GET", path: "/api/me", auth: "session", purpose: "Current identity: id, name, avatar hue." },
+  { method: "POST", path: "/api/me", auth: "public", purpose: "Create or rename an anonymous identity. Refused with 403 in oidc mode." },
+  { method: "DELETE", path: "/api/me", auth: "session", purpose: "Sign out. Deletes the token row and clears the cookie." },
+]} />
+
+## Spaces
+
+<RouteTable rows={[
+  { method: "GET", path: "/api/spaces/{slug}", auth: "public", purpose: "Members get roster, sessions and room code. Non-members get only the name and whether it is protected." },
+  { method: "POST", path: "/api/spaces", auth: "user", purpose: "Create a space. Protected by default." },
+  { method: "POST", path: "/api/spaces/{slug}/join", auth: "user", purpose: "Join, sending {passcode} if the space is protected. Throttled at 8 attempts per 60s per address." },
+  { method: "POST", path: "/api/spaces/{slug}/passcode", auth: "member", purpose: "Mint a new code, or with {open:true} remove it. Any member may do this." },
+  { method: "POST", path: "/api/spaces/{slug}/sessions", auth: "member", purpose: "Create a session: kind, title, config." },
+]} />
+
+## Sessions
+
+Every route below requires membership of the session's space, and answers **404**
+rather than 403 otherwise — including for anonymous callers — so a session's
+existence is never disclosed.
+
+<RouteTable rows={[
+  { method: "GET", path: "/api/sessions/{id}", auth: "member", purpose: "The session envelope, redacted for the caller." },
+  { method: "GET", path: "/api/sessions/{id}/export.csv", auth: "member", purpose: "CSV of the session, rendered from the same redacted view." },
+  { method: "POST", path: "/api/sessions/{id}/facilitator/claim", auth: "member", purpose: "Claim the facilitator role after the 60s grace period. Any member." },
+  { method: "POST", path: "/api/sessions/{id}/facilitator", auth: "facilitator", purpose: "Hand the role to {userId}. Distinct from the claim route above." },
+  { method: "DELETE", path: "/api/sessions/{id}", auth: "facilitator", purpose: "Close the session." },
+  { method: "POST", path: "/api/sessions/{id}/reopen", auth: "facilitator", purpose: "Reopen a closed session." },
+]} />
+
+## Planning poker
+
+<RouteTable rows={[
+  { method: "POST", path: "/api/sessions/{id}/stories", auth: "member", purpose: "Add a story. title ≤200, notes ≤2000, ref ≤40." },
+  { method: "PATCH", path: "/api/stories/{id}", auth: "member", purpose: "Edit title, notes, ref, position or estimate. An estimate is validated against the session's deck; empty clears it." },
+  { method: "POST", path: "/api/stories/{id}/vote", auth: "member", purpose: "Cast or change your vote. Refused for spectators. Triggers the auto-reveal check." },
+  { method: "POST", path: "/api/sessions/{id}/select", auth: "facilitator", purpose: "Put a story on the table and clear the reveal." },
+  { method: "POST", path: "/api/sessions/{id}/reveal", auth: "facilitator", purpose: "Open the round." },
+  { method: "POST", path: "/api/sessions/{id}/reset", auth: "facilitator", purpose: "Clear votes on the current story." },
+  { method: "POST", path: "/api/sessions/{id}/spectator", auth: "member", purpose: "Toggle your own spectator seat with {on}." },
+]} />
+
+## Daily standup
+
+<RouteTable rows={[
+  { method: "PUT", path: "/api/sessions/{id}/standup", auth: "member", purpose: "Upsert your own yesterday / today / blockers. Each ≤2000 characters." },
+  { method: "POST", path: "/api/sessions/{id}/start", auth: "facilitator", purpose: "Snapshot the roster into a speaking order and prefill yesterday from the last standup." },
+  { method: "POST", path: "/api/sessions/{id}/next", auth: "facilitator", purpose: "Advance to the next speaker." },
+  { method: "POST", path: "/api/sessions/{id}/skip", auth: "facilitator", purpose: "Mark the current speaker skipped and advance." },
+]} />
+
+## WebSocket
+
+<RouteTable rows={[
+  { method: "WS", path: "/ws?session={id}", auth: "member", purpose: "Live session state. Membership is checked before the upgrade; a non-member gets 404." },
+]} />
+
+The socket is push-only in practice: clients send effectively nothing (frames are
+capped at 4096 bytes) and make changes over HTTP. On attach, and after every
+mutation, the server pushes the **whole session envelope**, redacted for that
+viewer — there are no incremental patches, and an unrevealed vote is absent from
+the payload rather than hidden by the client.
+
+The `Origin` header must match `BASE_URL`. An **empty** `Origin` is allowed, so
+that non-browser clients can connect.
+
+## Anything else
+
+An unmatched path under `/api/` returns a **plain-text** `404 page not found`,
+not JSON — worth knowing if your client parses every response body as JSON.
+Everything else falls through to the single-page app, so an unknown path outside
+`/api/` returns the frontend with a 200 rather than a 404.

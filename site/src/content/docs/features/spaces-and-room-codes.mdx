@@ -1,0 +1,59 @@
+---
+title: Spaces and room codes
+description: A memorable link, a six-character code, and a roster that shows who is where.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import Capability from "../../../components/Capability.astro";
+
+<VerifiedStamp version="v0.2.1" source={["internal/api/spaces.go", "internal/api/passcode.go", "web/src/pages/SpacePage.tsx"]} />
+
+A space is a team's room. It has a memorable URL — `/s/platform-team` — a roster,
+and a history of every session run in it.
+
+The URL is the point. It survives being pinned to a channel topic, and it is the
+same tomorrow, which is why Parley does not bury spaces behind a random slug.
+
+## Room codes
+
+New spaces are **protected by default**. Joining one needs a six-character code,
+drawn from a 25-character alphabet with the confusable letters removed — no `O`
+against `0`, no `I` against `1` — because this code gets read aloud in a meeting.
+
+Codes are matched case-insensitively and compared in constant time. Wrong guesses
+are throttled per client address: eight attempts per minute, per space.
+
+Any member can mint a new code, which immediately retires the old one, or open
+the space entirely so anyone with the link can take a seat.
+
+:::note[Room codes are stored readable, on purpose]
+A code is meant to be read off the space page and passed to somebody, the way a
+Meet or Zoom code is. Hashing it would mean no member could ever look it up
+again. The consequence — a database dump discloses every space's code — is
+stated plainly in the [security model](/security/overview/), and it is the reason
+a code is a door, not an identity.
+:::
+
+## The roster
+
+The roster shows everybody who has joined, with a live presence dot and, when
+they are sitting at a table, which one. Clicking through takes you to them.
+
+Presence comes from the WebSocket hub rather than from a "last seen" timestamp,
+so it reflects an actual open connection.
+
+## Session history
+
+Every session ever run in the space, live or ended, is listed with a badge and a
+relative date. You can search the titles, filter by kind — poker or standup — and
+cycle the sort between most recent, active first, and A–Z.
+
+## What is not here
+
+<Capability rows={[
+  { name: "Per-user or per-team access", status: "not-built", detail: "Put an SSO proxy in front, or turn on <a href='/security/authentication/'>OIDC</a> and keep spaces open only on a trusted network. Membership roles are on the roadmap." },
+  { name: "Filtering history by date", status: "not-built", detail: "Sort by most recent and scroll; search matches titles." },
+  { name: "Renaming or deleting a space", status: "not-built", detail: "Create a new one. Nothing removes a space today, including via the API." },
+  { name: "Owners and admins", status: "not-built", detail: "There is no role model: any member can rotate the code or open the space. Treat membership as trust, and see the <a href='/security/threat-model/'>threat model</a>." },
+  { name: "Knock-to-join", status: "not-built", detail: "Share the code. Requesting entry from the door is on the roadmap." },
+]} />

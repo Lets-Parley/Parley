@@ -1,0 +1,83 @@
+---
+title: Known limitations
+description: Everything Parley does not do, in one place, with the workaround where there is one.
+---
+
+import VerifiedStamp from "../../components/VerifiedStamp.astro";
+import Capability from "../../components/Capability.astro";
+
+<VerifiedStamp version="v0.2.1" />
+
+Every gap in the product, collected. It exists so you can find out what Parley
+will not do before you deploy it rather than three weeks after, and so that the
+rest of this documentation is worth believing.
+
+If something here matters more to you than something on the
+[roadmap](/project/roadmap/), say so in an issue.
+
+## Scale and availability
+
+<Capability rows={[
+  { name: "Multiple replicas", status: "not-built", detail: "Enforced at boot: a second instance exits. The WebSocket hub and the throttle are in-process. Run one replica, vertically sized. Multi-replica realtime is on the roadmap and is the thing blocking a hosted Parley." },
+  { name: "Zero-downtime deploys", status: "not-built", detail: "A consequence of the above — the manifest uses <code>Recreate</code>, so expect a few seconds where boards are stale and clients reconnect. Deploy outside a ceremony." },
+  { name: "Graceful WebSocket drain", status: "not-built", detail: "Shutdown closes HTTP but not hijacked sockets. Clients reconnect on their own; the banner in the UI is that story." },
+  { name: "Published performance numbers", status: "not-built", detail: "There is no benchmark, and inventing one would be dishonest. Watch Postgres first — that is where the pressure lands." },
+]} />
+
+## Operations
+
+<Capability rows={[
+  { name: "Metrics, tracing, request IDs, access log", status: "not-built", detail: "JSON logs to stdout are all Parley emits. Blackbox-probe <code>/readyz</code>, and take request metrics and access logs from your reverse proxy. See <a href='/operations/observability/'>Observability</a>." },
+  { name: "Backups", status: "not-built", detail: "Nothing backs itself up. Schedule <code>pg_dump</code>." },
+  { name: "Data retention or cleanup", status: "not-built", detail: "Nothing expires. <code>session_tokens</code> in particular grows forever — prune it yourself if the instance runs for years." },
+  { name: "Down-migrations or rollback", status: "not-built", detail: "Migrations are forward-only and the binary refuses to start against a newer schema. Roll back by restoring a backup taken before the upgrade." },
+  { name: "A bind-address setting", status: "not-built", detail: "The process listens on all interfaces; only <code>PORT</code> is configurable. Use a container port binding, a firewall, or a proxy." },
+  { name: "Configuration reload", status: "not-built", detail: "Everything is read once at boot. Restart to change anything." },
+]} />
+
+## Access and identity
+
+<Capability rows={[
+  { name: "Roles — owner, admin, read-only", status: "not-built", detail: "Membership is the only boundary: any member can rotate the room code or open the space. Keep membership deliberate, or put an SSO proxy in front. Roles are on the roadmap." },
+  { name: "Per-user or per-team space access", status: "not-built", detail: "A room code gates a space; identity does not. Gate the whole instance with an SSO proxy if you need this today." },
+  { name: "Removing a member", status: "not-built", detail: "Rotate the code — that retires the old one immediately. Existing members remain members." },
+  { name: "Account linking when switching to OIDC", status: "not-built", detail: "Turning sign-in on strands every anonymous account's history. Switch an instance you are willing to start fresh on, or wait — it is on the roadmap." },
+  { name: "Sign out everywhere, or admin revocation", status: "not-built", detail: "Delete rows from <code>session_tokens</code> in SQL. There is no admin surface." },
+  { name: "Account deletion or data-subject tooling", status: "not-built", detail: "SQL against the documented schema; note that deleting a user who facilitated a session is blocked by a foreign key." },
+  { name: "Audit log", status: "not-built", detail: "Rows carry <code>user_id</code> and timestamps. Reconstruct from Postgres." },
+]} />
+
+## Security posture
+
+<Capability rows={[
+  { name: "SBOM, image signing, provenance", status: "not-built", detail: "None published. Build from a tagged commit in your own pipeline, or pin by digest and scan with syft and trivy. See <a href='/security/supply-chain/'>Supply chain</a>." },
+  { name: "Vulnerability scanning in CI", status: "not-built", detail: "No govulncheck, CodeQL or Trivy runs. Scan the image and the source yourself." },
+  { name: "Automated updates for Go dependencies", status: "not-built", detail: "Dependabot covers the docs site\u0027s npm packages only. The Go modules and the frontend are updated by hand, so they can lag. Watch releases." },
+  { name: "HSTS and several modern headers", status: "not-built", detail: "Parley sets CSP, nosniff, X-Frame-Options and Referrer-Policy. Add HSTS, Permissions-Policy and the COOP/COEP/CORP family at your proxy." },
+  { name: "Rate limiting beyond room codes", status: "not-built", detail: "Space creation, session creation, API calls and WebSocket connections are unlimited. Rate limit at the ingress." },
+  { name: "Encryption at rest", status: "not-built", detail: "Use an encrypted volume or your provider's encryption." },
+  { name: "Room codes hashed at rest", status: "out-of-scope", detail: "Deliberate: a code is meant to be readable by members and passed on. A database dump therefore discloses every code. See the <a href='/security/threat-model/'>threat model</a>." },
+]} />
+
+## Product
+
+<Capability rows={[
+  { name: "Retrospectives, story mapping, and other ceremonies", status: "not-built", detail: "Poker and standup are the two session kinds. The rest is roadmap, and much of it is waiting on session kinds becoming a real extension point." },
+  { name: "A verified mobile layout", status: "not-built", detail: "Responsive, but never formally tested on a handset. Use a laptop or tablet for a session that matters." },
+  { name: "Custom decks", status: "not-built", detail: "Four fixed decks. Pick the closest." },
+  { name: "Configurable standup timer", status: "not-built", detail: "The server takes a <code>secondsPerPerson</code> value but no UI sets it, so 90 seconds is effectively fixed." },
+  { name: "Explicit facilitator handover in the UI", status: "not-built", detail: "The endpoint exists; no control calls it. The 60-second claim path is wired, and only in the poker room." },
+  { name: "Deleting spaces or sessions", status: "not-built", detail: "Sessions close but do not delete. Remove rows in SQL if you must." },
+  { name: "Filtering session history by date", status: "not-built", detail: "Search by title, filter by kind, sort by recency." },
+  { name: "Export formats beyond CSV", status: "not-built", detail: "Parse the CSV or read the API." },
+  { name: "Integrations, notifications, webhooks", status: "not-built", detail: "Parley makes no outbound calls at all, by design for now. Copy the blockers roundup by hand." },
+]} />
+
+## Deliberately not planned
+
+<Capability rows={[
+  { name: "Telemetry or analytics", status: "out-of-scope", detail: "Parley phones nobody, and that will not change." },
+  { name: "A hosted multi-tenant SaaS in this codebase", status: "out-of-scope", detail: "The single-replica design and the room-code model are shaped for self-hosting." },
+  { name: "Non-Postgres databases", status: "out-of-scope", detail: "Postgres only, deliberately — one driver, one dialect, one set of behaviours to reason about." },
+  { name: "In-app video or chat", status: "out-of-scope", detail: "Use the call you are already on." },
+]} />
