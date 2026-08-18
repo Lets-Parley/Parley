@@ -15,6 +15,8 @@ import (
 	"github.com/lets-parley/parley/internal/dbtest"
 
 	"github.com/lets-parley/parley/internal/db"
+	"github.com/lets-parley/parley/internal/hub"
+	"github.com/lets-parley/parley/internal/store"
 )
 
 // testPool hands back an empty, migrated database. Every caller starts from a
@@ -164,6 +166,32 @@ func TestLogoutInvalidatesToken(t *testing.T) {
 
 	if resp3, _ := getMe(t, srv, cookie); resp3.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("token still valid after logout: got %d", resp3.StatusCode)
+	}
+}
+
+func TestLogoutReportsTokenDeletionFailure(t *testing.T) {
+	pool, err := pgxpool.New(context.Background(), "postgres://unused:unused@127.0.0.1/unused")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Close()
+
+	a := &app{users: &store.Users{Pool: pool}, hub: hub.New()}
+	t.Cleanup(a.hub.Shutdown)
+	plain, _ := store.NewToken()
+	req := httptest.NewRequest(http.MethodDelete, "/api/me", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: plain})
+	rec := httptest.NewRecorder()
+
+	a.handleDeleteMe(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("logout after token deletion failure = %d, want 500", rec.Code)
+	}
+	for _, cookie := range rec.Result().Cookies() {
+		if cookie.Name == sessionCookie && cookie.MaxAge < 0 {
+			t.Fatal("logout cleared the browser cookie after database revocation failed")
+		}
 	}
 }
 

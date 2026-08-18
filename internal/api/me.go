@@ -92,7 +92,11 @@ func (a *app) handlePostMe(w http.ResponseWriter, r *http.Request) {
 func (a *app) handleDeleteMe(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil {
 		if hash, err := store.HashToken(c.Value); err == nil {
-			a.users.DeleteToken(r.Context(), hash)
+			if err := a.users.DeleteToken(r.Context(), hash); err != nil {
+				http.Error(w, `{"error":"could not end session"}`, http.StatusInternalServerError)
+				return
+			}
+			a.hub.DisconnectToken(string(hash))
 		}
 	}
 	clearSessionCookie(w, a.secureCookies)

@@ -30,6 +30,11 @@ type Users struct {
 	Pool *pgxpool.Pool
 }
 
+type TokenSession struct {
+	User      User
+	ExpiresAt time.Time
+}
+
 func NewToken() (plain string, hash []byte) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
@@ -94,19 +99,45 @@ func (s *Users) UpsertFederated(ctx context.Context, issuer, subject, name strin
 // ByToken resolves a token hash to its user, refusing idle-expired tokens and
 // touching last_used_at so active sessions never expire.
 func (s *Users) ByToken(ctx context.Context, tokenHash []byte) (User, error) {
+	sess, err := s.ResolveToken(ctx, tokenHash)
+	return sess.User, err
+}
+
+// ResolveToken resolves and refreshes a valid token and returns the resulting
+// idle expiry so long-lived transports can enforce the same session lifetime.
+func (s *Users) ResolveToken(ctx context.Context, tokenHash []byte) (TokenSession, error) {
 	var u User
+	var expiresAt time.Time
 	err := s.Pool.QueryRow(ctx, `
 		update session_tokens set last_used_at = now()
 		where token_hash = $1 and last_used_at > now() - $2::interval
 		returning user_id,
 		          (select name from users where id = user_id),
-		          (select issuer from users where id = user_id)`,
+		          (select issuer from users where id = user_id),
+		          last_used_at + $2::interval`,
 		tokenHash, tokenIdleExpiry,
-	).Scan(&u.ID, &u.Name, &u.Issuer)
+	).Scan(&u.ID, &u.Name, &u.Issuer, &expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return User{}, ErrNoUser
+		return TokenSession{}, ErrNoUser
 	}
-	return u, err
+	return TokenSession{User: u, ExpiresAt: expiresAt}, err
+}
+
+// TokenExpiry checks shared-store validity without counting the check itself as
+// user activity. HTTP requests refresh the idle window; an idle WebSocket does
+// not keep its own session alive indefinitely.
+func (s *Users) TokenExpiry(ctx context.Context, tokenHash []byte) (time.Time, error) {
+	var expiresAt time.Time
+	err := s.Pool.QueryRow(ctx, `
+		select last_used_at + $2::interval
+		from session_tokens
+		where token_hash = $1 and last_used_at > now() - $2::interval`,
+		tokenHash, tokenIdleExpiry,
+	).Scan(&expiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, ErrNoUser
+	}
+	return expiresAt, err
 }
 
 // Rename updates the user's name and rotates their token: the old token row is

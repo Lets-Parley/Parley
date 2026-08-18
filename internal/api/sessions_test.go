@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lets-parley/parley/internal/dbtest"
+	"github.com/lets-parley/parley/internal/store"
 )
 
 const testOrigin = "http://example.test"
@@ -86,6 +88,20 @@ func readEnvelope(t *testing.T, ws *websocket.Conn, timeout time.Duration) (map[
 		t.Fatalf("bad frame: %v", err)
 	}
 	return env, true
+}
+
+func readWSCloseCode(t *testing.T, ws *websocket.Conn, timeout time.Duration) int {
+	t.Helper()
+	ws.SetReadDeadline(time.Now().Add(timeout))
+	for {
+		if _, _, err := ws.ReadMessage(); err != nil {
+			var closeErr *websocket.CloseError
+			if errors.As(err, &closeErr) {
+				return closeErr.Code
+			}
+			t.Fatalf("read websocket close: %v", err)
+		}
+	}
 }
 
 func setupSession(t *testing.T, srv *httptest.Server, spaceName string) (facilitator, member *http.Cookie, sessionID string) {
@@ -324,6 +340,110 @@ func TestBroadcastReachesAllClients(t *testing.T) {
 		if !got {
 			t.Fatal("client did not receive the mutation broadcast")
 		}
+	}
+}
+
+func TestLogoutClosesWebSocketAuthenticatedByToken(t *testing.T) {
+	srv := testServer(t)
+	fac, _, id := setupSession(t, srv, "Logout Socket Space")
+
+	ws, _, err := dialWS(t, srv, id, fac, testOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+	if _, ok := readEnvelope(t, ws, 3*time.Second); !ok {
+		t.Fatal("no initial frame")
+	}
+
+	if resp, _ := doJSON(t, srv, "DELETE", "/api/me", "", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("logout: got %d, want 204", resp.StatusCode)
+	}
+	if code := readWSCloseCode(t, ws, 2*time.Second); code != websocket.ClosePolicyViolation {
+		t.Fatalf("logout websocket close code = %d, want %d", code, websocket.ClosePolicyViolation)
+	}
+}
+
+func TestWSRevalidatesTokenAgainstDatabase(t *testing.T) {
+	srv := httptest.NewServer(Router(testPool(t), Options{
+		AllowedOrigin:               testOrigin,
+		sessionRevalidationInterval: 20 * time.Millisecond,
+	}))
+	t.Cleanup(srv.Close)
+	fac, _, id := setupSession(t, srv, "Replica Revocation Space")
+
+	ws, _, err := dialWS(t, srv, id, fac, testOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+	if _, ok := readEnvelope(t, ws, 3*time.Second); !ok {
+		t.Fatal("no initial frame")
+	}
+
+	hash, err := store.HashToken(fac.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := testDBPool(t)
+	if _, err := pool.Exec(context.Background(), "delete from session_tokens where token_hash = $1", hash); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := readWSCloseCode(t, ws, 2*time.Second); code != websocket.ClosePolicyViolation {
+		t.Fatalf("database-revoked websocket close code = %d, want %d", code, websocket.ClosePolicyViolation)
+	}
+}
+
+func TestWSRejectsRevokedTokenAtHandshake(t *testing.T) {
+	srv := testServer(t)
+	fac, _, id := setupSession(t, srv, "Revoked Handshake Space")
+	hash, err := store.HashToken(fac.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := testDBPool(t)
+	if _, err := pool.Exec(context.Background(), "delete from session_tokens where token_hash = $1", hash); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, resp, err := dialWS(t, srv, id, fac, testOrigin); err == nil {
+		t.Fatal("revoked token websocket upgrade succeeded")
+	} else if resp == nil || resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("revoked token websocket response = %v, want 404", resp)
+	}
+}
+
+func TestWSClosesWhenTokenExpiresInDatabase(t *testing.T) {
+	srv := httptest.NewServer(Router(testPool(t), Options{
+		AllowedOrigin:               testOrigin,
+		sessionRevalidationInterval: 20 * time.Millisecond,
+	}))
+	t.Cleanup(srv.Close)
+	fac, _, id := setupSession(t, srv, "Expired Socket Space")
+
+	ws, _, err := dialWS(t, srv, id, fac, testOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+	if _, ok := readEnvelope(t, ws, 3*time.Second); !ok {
+		t.Fatal("no initial frame")
+	}
+
+	hash, err := store.HashToken(fac.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := testDBPool(t)
+	if _, err := pool.Exec(context.Background(), `
+		update session_tokens set last_used_at = now() - interval '91 days'
+		where token_hash = $1`, hash); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := readWSCloseCode(t, ws, 2*time.Second); code != websocket.ClosePolicyViolation {
+		t.Fatalf("expired websocket close code = %d, want %d", code, websocket.ClosePolicyViolation)
 	}
 }
 

@@ -53,6 +53,8 @@ type Options struct {
 	// friends. Turn it on only when a proxy in front overwrites those headers;
 	// exposed directly, it hands every caller a free choice of address.
 	TrustProxyHeaders bool
+
+	sessionRevalidationInterval time.Duration
 }
 
 func Router(pool *pgxpool.Pool, opts Options) http.Handler {
@@ -92,6 +94,10 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 	}
 	a.hub.OnFacilitatorSeen = func(sessionID, userID string) {
 		a.sessions.TouchFacilitatorSeen(context.Background(), sessionID, userID)
+	}
+	a.hub.RevalidationInterval = opts.sessionRevalidationInterval
+	a.hub.ValidateSession = func(ctx context.Context, tokenID string) (time.Time, error) {
+		return a.users.TokenExpiry(ctx, []byte(tokenID))
 	}
 
 	r := chi.NewRouter()

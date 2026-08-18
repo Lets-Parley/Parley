@@ -2,11 +2,16 @@
 // shared by the api core and feature packages without import cycles.
 package principal
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type Principal struct {
-	UserID  string
-	Display string
+	UserID         string
+	Display        string
+	TokenID        string
+	TokenExpiresAt time.Time
 }
 
 type ctxKey struct{}

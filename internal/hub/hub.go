@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -13,6 +14,7 @@ const (
 	pingInterval     = 25 * time.Second
 	pongDeadline     = 50 * time.Second
 	presenceDebounce = 1500 * time.Millisecond
+	maxRevalidate    = 30 * time.Second
 )
 
 type Conn struct {
@@ -20,82 +22,271 @@ type Conn struct {
 	SessionID string
 	ws        *websocket.Conn
 	send      chan []byte
-
-	// mu guards closed, and is held across the send below so a frame can never
-	// reach the channel after it is closed. Broadcast snapshots the room under
-	// the hub's mutex and writes outside it, so a connection can be closed
-	// underneath an in-flight frame; without this the send panics, and because
-	// the presence debounce broadcasts from a timer goroutine, that panic
-	// takes the process down rather than one request.
-	mu     sync.Mutex
-	closed bool
+	hub       *Hub
+	tokenID   string
+	expiresAt time.Time
+	closeCode int
+	closed    chan struct{}
+	ctx       context.Context
+	cancel    context.CancelFunc
+	expiry    *time.Timer
 }
 
-// Send queues a frame; a full buffer means the reader is wedged, so the
-// connection is dropped rather than blocking the room. A frame arriving for an
-// already-closed connection is discarded.
-func (c *Conn) Send(msg []byte) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
-		return
-	}
-	select {
-	case c.send <- msg:
-	default:
-		c.closed = true
-		close(c.send)
-	}
-}
-
-// Close is idempotent and safe to call while a Send is in flight.
 func (c *Conn) Close() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
-		return
-	}
-	c.closed = true
-	close(c.send)
+	c.hub.detach(c)
 }
 
 type Hub struct {
-	mu    sync.Mutex
-	rooms map[string]map[*Conn]struct{}
+	events       chan any
+	done         chan struct{}
+	shutdownOnce sync.Once
+	rooms        map[string]map[*Conn]struct{}
+	revoked      map[string]struct{}
 
 	// OnPresenceChange fires (debounced) after connects/disconnects settle.
 	OnPresenceChange func(sessionID string)
 	// OnFacilitatorSeen fires on connect and each pong so liveness reaches the DB.
 	OnFacilitatorSeen func(sessionID, userID string)
+	// ValidateSession checks session validity through the shared store.
+	ValidateSession      func(ctx context.Context, tokenID string) (time.Time, error)
+	RevalidationInterval time.Duration
 
 	timersMu sync.Mutex
 	timers   map[string]*time.Timer
 }
 
+type registerEvent struct {
+	conn     *Conn
+	initial  []byte
+	accepted chan bool
+}
+
+type unregisterEvent struct {
+	conn *Conn
+	done chan struct{}
+}
+
+type broadcastEvent struct {
+	sessionID string
+	msg       []byte
+	done      chan struct{}
+}
+
+type connectedEvent struct {
+	sessionID string
+	result    chan []string
+}
+
+type shutdownEvent struct {
+	done chan struct{}
+}
+
+type disconnectTokenEvent struct {
+	tokenID string
+	done    chan struct{}
+}
+
+type revalidationEvent struct {
+	conn      *Conn
+	expiresAt time.Time
+	err       error
+}
+
+type expiryEvent struct {
+	conn      *Conn
+	expiresAt time.Time
+}
+
+// SessionAuth identifies the session token that authenticated a WebSocket.
+type SessionAuth struct {
+	TokenID   string
+	ExpiresAt time.Time
+}
+
 func New() *Hub {
-	return &Hub{
-		rooms:  make(map[string]map[*Conn]struct{}),
-		timers: make(map[string]*time.Timer),
+	h := &Hub{
+		events:  make(chan any),
+		done:    make(chan struct{}),
+		rooms:   make(map[string]map[*Conn]struct{}),
+		revoked: make(map[string]struct{}),
+		timers:  make(map[string]*time.Timer),
 	}
+	go h.run()
+	return h
+}
+
+func (h *Hub) run() {
+	for event := range h.events {
+		switch e := event.(type) {
+		case registerEvent:
+			_, revoked := h.revoked[e.conn.tokenID]
+			if e.conn.tokenID != "" && (revoked || (!e.conn.expiresAt.IsZero() && !e.conn.expiresAt.After(time.Now()))) {
+				e.conn.closeCode = websocket.ClosePolicyViolation
+				e.conn.cancel()
+				close(e.conn.closed)
+				close(e.conn.send)
+				e.accepted <- false
+				continue
+			}
+			room := h.rooms[e.conn.SessionID]
+			if room == nil {
+				room = make(map[*Conn]struct{})
+				h.rooms[e.conn.SessionID] = room
+			}
+			room[e.conn] = struct{}{}
+			h.armExpiry(e.conn)
+			if e.initial != nil {
+				h.deliver(e.conn, e.initial)
+			}
+			e.accepted <- true
+		case unregisterEvent:
+			h.remove(e.conn, websocket.CloseNormalClosure)
+			close(e.done)
+		case broadcastEvent:
+			for c := range h.rooms[e.sessionID] {
+				h.deliver(c, e.msg)
+			}
+			close(e.done)
+		case connectedEvent:
+			seen := map[string]struct{}{}
+			out := []string{}
+			for c := range h.rooms[e.sessionID] {
+				if _, dup := seen[c.UserID]; !dup {
+					seen[c.UserID] = struct{}{}
+					out = append(out, c.UserID)
+				}
+			}
+			e.result <- out
+		case shutdownEvent:
+			for _, room := range h.rooms {
+				for c := range room {
+					h.remove(c, websocket.CloseGoingAway)
+				}
+			}
+			h.stopPresenceTimers()
+			close(h.done)
+			close(e.done)
+			return
+		case disconnectTokenEvent:
+			h.revoked[e.tokenID] = struct{}{}
+			for _, room := range h.rooms {
+				for c := range room {
+					if c.tokenID == e.tokenID {
+						h.remove(c, websocket.ClosePolicyViolation)
+					}
+				}
+			}
+			close(e.done)
+		case revalidationEvent:
+			if !h.registered(e.conn) {
+				continue
+			}
+			if e.err != nil || !e.expiresAt.After(time.Now()) {
+				h.remove(e.conn, websocket.ClosePolicyViolation)
+				continue
+			}
+			e.conn.expiresAt = e.expiresAt
+			h.armExpiry(e.conn)
+		case expiryEvent:
+			if h.registered(e.conn) && e.conn.expiresAt.Equal(e.expiresAt) {
+				if h.ValidateSession == nil {
+					h.remove(e.conn, websocket.ClosePolicyViolation)
+				} else {
+					go h.validate(e.conn)
+				}
+			}
+		}
+	}
+}
+
+func (h *Hub) submit(event any) bool {
+	select {
+	case h.events <- event:
+		return true
+	case <-h.done:
+		return false
+	}
+}
+
+func (h *Hub) deliver(c *Conn, msg []byte) {
+	select {
+	case c.send <- msg:
+	default:
+		h.remove(c, websocket.CloseNormalClosure)
+	}
+}
+
+func (h *Hub) registered(c *Conn) bool {
+	room := h.rooms[c.SessionID]
+	_, ok := room[c]
+	return ok
+}
+
+func (h *Hub) armExpiry(c *Conn) {
+	if c.expiresAt.IsZero() {
+		return
+	}
+	if c.expiry != nil {
+		c.expiry.Stop()
+	}
+	expiresAt := c.expiresAt
+	delay := time.Until(expiresAt)
+	if delay < 0 {
+		delay = 0
+	}
+	c.expiry = time.AfterFunc(delay, func() {
+		h.submit(expiryEvent{conn: c, expiresAt: expiresAt})
+	})
+}
+
+func (h *Hub) remove(c *Conn, closeCode int) {
+	room, ok := h.rooms[c.SessionID]
+	if !ok {
+		return
+	}
+	if _, ok := room[c]; !ok {
+		return
+	}
+	delete(room, c)
+	if len(room) == 0 {
+		delete(h.rooms, c.SessionID)
+	}
+	if c.expiry != nil {
+		c.expiry.Stop()
+	}
+	c.cancel()
+	c.closeCode = closeCode
+	close(c.closed)
+	close(c.send)
+	h.schedulePresence(c.SessionID)
 }
 
 // Attach registers the websocket and starts its reader/writer goroutines.
 // It returns after starting them; the caller is done with the connection.
 func (h *Hub) Attach(ws *websocket.Conn, sessionID, userID string, initial []byte) {
-	c := &Conn{UserID: userID, SessionID: sessionID, ws: ws, send: make(chan []byte, sendBuffer)}
+	h.AttachAuthenticated(ws, sessionID, userID, initial, SessionAuth{})
+}
 
-	h.mu.Lock()
-	room := h.rooms[sessionID]
-	if room == nil {
-		room = make(map[*Conn]struct{})
-		h.rooms[sessionID] = room
+// AttachAuthenticated binds a websocket to the session token used by its
+// handshake and starts its reader and writer goroutines.
+func (h *Hub) AttachAuthenticated(ws *websocket.Conn, sessionID, userID string, initial []byte, auth SessionAuth) {
+	ctx, cancel := context.WithCancel(context.Background())
+	c := &Conn{
+		UserID: userID, SessionID: sessionID, ws: ws,
+		send: make(chan []byte, sendBuffer), hub: h, tokenID: auth.TokenID,
+		expiresAt: auth.ExpiresAt, closeCode: websocket.CloseNormalClosure,
+		closed: make(chan struct{}), ctx: ctx, cancel: cancel,
 	}
-	room[c] = struct{}{}
-	h.mu.Unlock()
+	accepted := make(chan bool)
+	if !h.submit(registerEvent{conn: c, initial: initial, accepted: accepted}) {
+		ws.Close()
+		return
+	}
+	if !<-accepted {
+		go h.writer(c)
+		return
+	}
 
-	if initial != nil {
-		c.Send(initial)
-	}
 	if h.OnFacilitatorSeen != nil {
 		h.OnFacilitatorSeen(sessionID, userID)
 	}
@@ -103,20 +294,41 @@ func (h *Hub) Attach(ws *websocket.Conn, sessionID, userID string, initial []byt
 
 	go h.writer(c)
 	go h.reader(c)
+	if c.tokenID != "" && h.ValidateSession != nil {
+		go h.revalidate(ctx, c)
+	}
+}
+
+func (h *Hub) revalidate(ctx context.Context, c *Conn) {
+	interval := h.RevalidationInterval
+	if interval <= 0 || interval > maxRevalidate {
+		interval = maxRevalidate
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			h.validate(c)
+		}
+	}
+}
+
+func (h *Hub) validate(c *Conn) {
+	expiresAt, err := h.ValidateSession(c.ctx, c.tokenID)
+	if c.ctx.Err() != nil {
+		return
+	}
+	h.submit(revalidationEvent{conn: c, expiresAt: expiresAt, err: err})
 }
 
 func (h *Hub) detach(c *Conn) {
-	h.mu.Lock()
-	if room, ok := h.rooms[c.SessionID]; ok {
-		delete(room, c)
-		if len(room) == 0 {
-			delete(h.rooms, c.SessionID)
-		}
+	done := make(chan struct{})
+	if h.submit(unregisterEvent{conn: c, done: done}) {
+		<-done
 	}
-	h.mu.Unlock()
-	c.Close()
-	c.ws.Close()
-	h.schedulePresence(c.SessionID)
 }
 
 func (h *Hub) writer(c *Conn) {
@@ -127,7 +339,7 @@ func (h *Hub) writer(c *Conn) {
 		case msg, ok := <-c.send:
 			if !ok {
 				c.ws.SetWriteDeadline(time.Now().Add(writeDeadline))
-				c.ws.WriteMessage(websocket.CloseMessage, nil)
+				c.ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(c.closeCode, ""))
 				c.ws.Close()
 				return
 			}
@@ -166,33 +378,44 @@ func (h *Hub) reader(c *Conn) {
 	}
 }
 
-// Broadcast delivers a frame to every connection in the room. The conn list is
-// snapshotted under the mutex and writes happen outside it.
+// Broadcast delivers a frame to every connection in the room.
 func (h *Hub) Broadcast(sessionID string, msg []byte) {
-	h.mu.Lock()
-	conns := make([]*Conn, 0, len(h.rooms[sessionID]))
-	for c := range h.rooms[sessionID] {
-		conns = append(conns, c)
-	}
-	h.mu.Unlock()
-	for _, c := range conns {
-		c.Send(msg)
+	done := make(chan struct{})
+	if h.submit(broadcastEvent{sessionID: sessionID, msg: msg, done: done}) {
+		<-done
 	}
 }
 
 // Connected returns the distinct user ids with a live connection to the session.
 func (h *Hub) Connected(sessionID string) []string {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	seen := map[string]struct{}{}
-	out := []string{}
-	for c := range h.rooms[sessionID] {
-		if _, dup := seen[c.UserID]; !dup {
-			seen[c.UserID] = struct{}{}
-			out = append(out, c.UserID)
-		}
+	result := make(chan []string)
+	if !h.submit(connectedEvent{sessionID: sessionID, result: result}) {
+		return nil
 	}
-	return out
+	return <-result
+}
+
+// DisconnectToken synchronously removes all connections authenticated by the
+// token identifier. Future attaches for the same identifier are also refused.
+func (h *Hub) DisconnectToken(tokenID string) {
+	if tokenID == "" {
+		return
+	}
+	done := make(chan struct{})
+	if h.submit(disconnectTokenEvent{tokenID: tokenID, done: done}) {
+		<-done
+	}
+}
+
+// Shutdown synchronously removes every connection and stops the owner loop.
+// Calls racing with it either complete before shutdown or safely become no-ops.
+func (h *Hub) Shutdown() {
+	h.shutdownOnce.Do(func() {
+		done := make(chan struct{})
+		if h.submit(shutdownEvent{done: done}) {
+			<-done
+		}
+	})
 }
 
 func (h *Hub) schedulePresence(sessionID string) {
@@ -211,4 +434,13 @@ func (h *Hub) schedulePresence(sessionID string) {
 		h.timersMu.Unlock()
 		h.OnPresenceChange(sessionID)
 	})
+}
+
+func (h *Hub) stopPresenceTimers() {
+	h.timersMu.Lock()
+	defer h.timersMu.Unlock()
+	for sessionID, timer := range h.timers {
+		timer.Stop()
+		delete(h.timers, sessionID)
+	}
 }
