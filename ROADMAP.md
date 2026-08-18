@@ -1,112 +1,117 @@
 # Roadmap
 
-Nothing here is promised, and the order will change. This is the shape of where
-Parley could go, written down so the trade-offs are arguable in the open rather
-than decided quietly.
+This roadmap outlines the current direction of Parley.
 
-Parley today is planning poker and a daily standup: one Go binary, one Postgres
-database, no accounts. The destination sketched below is a collaboration surface
-for a delivery team — every agile ceremony, on a real whiteboard, self-hosted.
+It is not a guarantee of delivery dates or scope. Priorities change with
+feedback, technical constraints, and whatever turns out to matter once people
+are actually using the thing.
 
-Effort is one person's rough guess, not a commitment:
+For implementation status, see the GitHub Project:
+[Parley Roadmap](https://github.com/orgs/Lets-Parley/projects/1)
 
-| Key | Roughly |
-|---|---|
-| `S` | days |
-| `M` | one to two weeks |
-| `L` | three to six weeks |
-| `XL` | a quarter or more |
+## Now
 
-## Phase 0 — Foundations
+Work in progress or expected in the current development cycle.
 
-Groundwork that everything after it depends on. Two current invariants — the
-in-process hub with its single-instance advisory lock, and the two-value CHECK
-constraint on `sessions.kind` — have to give first.
+Nothing is in progress right now. The next thing to start is under **Next**.
 
-| Feature | What it is | Effort |
-|---|---|---|
-| Pluggable session kinds | Drop the `sessions.kind` CHECK for a registry-backed enum, so a new ceremony is code rather than a migration (`internal/session/registry.go`) | S |
-| Multi-replica realtime | Postgres `LISTEN`/`NOTIFY` fan-out behind `internal/hub/hub.go`, retiring the single-instance lock in `cmd/parley/main.go` | L |
-| Space membership roles | Owner, facilitator, member, spectator — replacing "any member can do anything" (`internal/api/authz.go`) | M |
-| Account linking | Merge an anonymous user into a federated identity on first sign-in, so turning OIDC on doesn't leave history behind | M |
-| Knock-to-join | Request access from the door and let a facilitator wave you in, instead of needing the room code | S |
-| Export framework | Generalise `internal/session/csv.go` into a per-kind exporter: CSV, JSON, Markdown, PDF | M |
-| Object storage | A blob abstraction (filesystem and S3) for uploads, thumbnails, and generated exports | M |
+## Next
 
-## Phase 1 — The ceremony suite
+Accepted work, likely to be picked up after current priorities.
 
-The rest of the meetings a delivery team already runs. Ships value fastest, and
-needs almost nothing from Phase 2.
+### An extensible core
 
-| Feature | What it is | Effort |
-|---|---|---|
-| Retrospective | A session kind with columns and cards, authorship hidden until reveal | L |
-| Grouping and dot voting | Cluster related cards, spend N votes each, sort by score | M |
-| Action items | Assignable, dated outcomes that outlive the session and reappear in the next one | M |
-| Retro templates | Start/Stop/Continue, Mad-Sad-Glad, 4Ls, Sailboat, Starfish, and custom | S |
-| User story mapping | Activity, step, and story across release swimlanes | L |
-| Sprint board | Columns with WIP limits, drag between them, assignee and estimate per card | L |
-| Async standup | Write your update on your own clock; a digest posts at a scheduled time | M |
-| Icebreakers and check-ins | An opening prompt, a mood poll, a round-robin question | S |
-| Team health check | Recurring dimensions scored as a radar, trended across sessions | M |
-| Facilitator toolkit | Shared countdown, phase locking, order shuffle, an everyone-answers gate | S |
-| Anonymous mode | A per-session toggle that hides authorship everywhere, not only before reveal | S |
-| Session series | Link sessions so a ceremony carries its own context forward automatically | M |
-| Cross-session analytics | Estimate accuracy, velocity, blocker frequency, action follow-through | M |
+Adding a ceremony to Parley currently means touching the router, a database
+constraint, a registry populated at package initialisation, and a ternary in the
+frontend. This makes session kinds a real extension point, so a retrospective or
+a story map is code someone adds rather than surgery on the core.
 
-## Phase 2 — The whiteboard
+Worth doing on its own merits: it also fixes a migration-versioning bug, gives
+the two existing kinds one shared authorization path instead of two
+reimplementations, and stops an unknown session kind from silently rendering the
+wrong room.
 
-The largest bet on this page, and the one worth deciding deliberately: a CRDT
-document engine is infrastructure, not a feature. Everything below it is
-comparatively small; the engine is the commitment.
+- Status: Backlog
+- Target: v0.3.0
+- Tracking: [#8](https://github.com/lets-parley/parley/issues/8)
 
-Scope here is the collaborative core. A diagramming suite, third-party app
-embeds, in-app video, and an enterprise admin console are explicitly out.
+## Later
 
-| Feature | What it is | Effort |
-|---|---|---|
-| Board document engine | A CRDT document per board, persisted to Postgres with snapshots | XL |
-| Infinite canvas | Pan, zoom, viewport culling, minimap, zoom-to-fit | L |
-| Sticky notes | Create, edit in place, recolour, resize, auto-pack into a grid | M |
-| Shapes and text | Rectangle, ellipse, diamond, triangle, free text, and styling | M |
-| Freehand ink | Pressure-aware strokes, highlighter, eraser | M |
-| Connectors | Arrows anchored to objects that follow them, with routing and labels | L |
-| Frames and sections | Named regions for grouping, presenting, and export boundaries | M |
-| Cursors and selection | Live cursors with names, remote selection outlines, follow-the-presenter | M |
-| Comments | Threads pinned to an object or a coordinate, with a resolved state | M |
-| Board templates | Retro, story map, brainwriting, SWOT, journey — and save any board as one | M |
-| Images and embeds | Paste or drag a file onto the canvas, stored via Phase 0 | M |
-| Board export | PNG, SVG, and PDF of a board or a single frame, plus structured JSON | M |
-| Board history | Snapshots, restore, and undo/redo that behaves with several people editing | L |
-| Voting and timer on canvas | Dot voting on any object and a shared timer overlay | S |
+Accepted direction, not currently scheduled.
 
-## Phase 3 — Beyond parity
+### A plugin system
 
-Where a self-hosted tool can do things a hosted one structurally cannot.
+Extend Parley without forking it — integrations, AI features, meeting notes,
+themes, and whole ceremonies, installed by the operator and running under
+capability grants they approve. Plugin code is sandboxed WebAssembly with no
+sockets and no database access; everything it reaches goes through a host
+function that checks the grant first.
 
-| Feature | What it is | Effort |
-|---|---|---|
-| Ceremony and canvas as one | Every ceremony is a board and every board can run a ceremony — a retro card and a sticky note are the same object | L |
-| Local-first boards | The CRDT engine already allows it: work offline, merge on reconnect | L |
-| Retro synthesis | Cluster cards, name the themes, draft the actions — bring your own model endpoint, so nothing leaves the instance | M |
-| Assisted facilitation | Notice a stalled round, suggest the next phase, nudge the quiet, write the recap | M |
-| Recaps and digests | A Markdown summary of any session, delivered by email, chat, or webhook | M |
-| Estimation intelligence | Flag the spread that means hidden disagreement; suggest from similar past stories | M |
-| Transcript to cards | Turn a meeting transcript into retro cards or action items, transcribed locally | L |
-| Embeddable boards | A read-only board in an iframe, and an API that makes a board data other tools can drive | M |
-| Integrations | Two-way issue sync with Jira, Linear, and GitHub; chat notifications; calendar-triggered ceremonies | L |
-| Presenter mode | Walk an audience frame by frame, for review and demo | S |
-| Timeline scrubber | Replay how a board or a ceremony actually evolved | M |
-| Single-purpose links | A signed link that does one thing — vote on this story, add your standup — and needs no login | S |
-| Governance | Audit log, retention policy, per-space export and erasure, SSO group to role mapping | M |
-| White-label theming | A logo, a palette, and a domain, for anyone hosting Parley on someone else's behalf | S |
+Depends on [#8](https://github.com/lets-parley/parley/issues/8).
 
-## Sequencing
+- Status: Backlog
+- Tracking: [#9](https://github.com/lets-parley/parley/issues/9)
 
-These phases are ordered by dependency, not by value. Phase 1 is the fastest
-path to a tool a team uses every day. Phase 2 is a fork in the road — Parley
-either becomes a whiteboard or deliberately declines to, and the best of Phase 3
-sits downstream of that answer.
+### The rest of the ceremonies
 
-Disagreement is useful here. If something below the line matters more to you
-than something above it, open an issue and say so.
+Retrospectives with grouping and dot voting, action items that outlive the
+meeting, user story mapping, a sprint board, async standups, team health checks.
+The meetings a delivery team already runs, in the tool they already have open.
+
+Some of these will arrive as plugins rather than core features, which is rather
+the point of the two entries above.
+
+- Status: Backlog
+
+### A collaborative whiteboard
+
+An infinite canvas with sticky notes, shapes, connectors, frames, live cursors,
+and comments — and every ceremony above able to run on it.
+
+This is the largest single bet on this page and deserves an explicit decision
+before anyone starts: the document engine underneath it is infrastructure, not a
+feature, and Parley either grows into a whiteboard or deliberately declines to.
+
+- Status: Backlog
+
+## Exploring
+
+Ideas under consideration, not committed to.
+
+- Boards that work offline and merge on reconnect — a genuine advantage for a
+  self-hosted tool, and nearly free once a conflict-free document engine exists
+- Retro synthesis and meeting recaps, with a bring-your-own model endpoint so
+  nothing leaves the instance
+- Two-way issue sync with Jira, Linear, and GitHub
+- Replaying how a board or a ceremony actually evolved
+- Signed single-purpose links — vote on this story, add your standup — that
+  need no login at all
+- Audit logging, retention policies, and SSO group-to-role mapping
+- White-label theming, for anyone hosting Parley on someone else's behalf
+
+## Completed
+
+### v0.2.0
+
+- Sign-in through any OpenID Connect provider, with `AUTH_MODE=open` unchanged
+  as the default
+- A fix for a room-code throttle that could be bypassed when Parley was reachable
+  directly — [upgrade from 0.1.0](https://github.com/lets-parley/parley/releases/tag/v0.2.0)
+- Estimates validated against the session's own deck
+- A new look: chart paper and navy ink, with tabular figures for vote counts
+
+### v0.1.0
+
+- Planning poker: story queue, four decks, hidden votes, deck-aware statistics
+- Daily standup: round-robin with a per-person timer and carried-over updates
+- Spaces with memorable links, a roster, and session history
+- Room codes, with per-address throttling on wrong guesses
+- CSV export
+- A documentation site at [letsparley.io](https://www.letsparley.io)
+
+## Feature requests
+
+Have an idea? [Open an issue](https://github.com/lets-parley/parley/issues/new).
+
+Being discussed here does not mean a feature has been accepted for
+implementation — the Status field above is the honest signal.
