@@ -81,6 +81,68 @@ func TestUnregisterAndBroadcastRemainRaceFree(t *testing.T) {
 	}
 }
 
+func TestBlockedWriterDoesNotStallOwnerLoop(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	ws := attachTestConn(t, h, "blocked-room")
+	defer ws.Close()
+
+	var conn *Conn
+	for c := range h.rooms["blocked-room"] {
+		conn = c
+	}
+	if conn == nil {
+		t.Fatal("attached connection not found")
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+	originalWrite := conn.writeMessage
+	conn.writeMessage = func(messageType int, data []byte) error {
+		if messageType == websocket.TextMessage {
+			select {
+			case <-started:
+			default:
+				close(started)
+			}
+			<-release
+		}
+		return originalWrite(messageType, data)
+	}
+
+	h.Broadcast("blocked-room", []byte("in-flight"))
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("writer did not begin the blocked write")
+	}
+	for i := 0; i < sendBuffer; i++ {
+		h.Broadcast("blocked-room", []byte("queued"))
+	}
+
+	overflowDone := make(chan struct{})
+	go func() {
+		h.Broadcast("blocked-room", []byte("overflow"))
+		close(overflowDone)
+	}()
+	snapshotDone := make(chan struct{})
+	go func() {
+		h.Connected("another-room")
+		close(snapshotDone)
+	}()
+
+	select {
+	case <-snapshotDone:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("blocked writer stalled an unrelated owner-loop snapshot")
+	}
+	select {
+	case <-overflowDone:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("overflow removal waited for blocked socket I/O")
+	}
+}
+
 func TestShutdownAndBroadcastRemainRaceFree(t *testing.T) {
 	h := New()
 	t.Cleanup(h.Shutdown)
@@ -143,6 +205,65 @@ func TestDisconnectTokenClosesOnlyMatchingConnections(t *testing.T) {
 	}
 }
 
+func TestBlockingConnectCallbackCannotDeadlockDisconnect(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	callbackStarted := make(chan struct{})
+	releaseCallback := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseCallback) }) }
+	defer release()
+	h.OnFacilitatorSeen = func(string, string) {
+		close(callbackStarted)
+		<-releaseCallback
+	}
+	attachReturned := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		h.AttachAuthenticated(ws, "room", "user", nil, SessionAuth{TokenID: "callback-token"})
+		close(attachReturned)
+	}))
+	defer srv.Close()
+	url := "ws" + strings.TrimPrefix(srv.URL, "http")
+	ws, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+	select {
+	case <-callbackStarted:
+	case <-time.After(time.Second):
+		t.Fatal("connect callback did not start")
+	}
+
+	disconnected := make(chan struct{})
+	go func() {
+		h.DisconnectToken("callback-token")
+		close(disconnected)
+	}()
+	select {
+	case <-disconnected:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("disconnect waited for a writer that had not been started")
+	}
+
+	ws.SetReadDeadline(time.Now().Add(time.Second))
+	if _, _, err := ws.ReadMessage(); err == nil {
+		t.Fatal("disconnected websocket remained open")
+	} else if closeErr, ok := err.(*websocket.CloseError); !ok || closeErr.Code != websocket.ClosePolicyViolation {
+		t.Fatalf("disconnected websocket close = %v, want policy violation", err)
+	}
+	release()
+	select {
+	case <-attachReturned:
+	case <-time.After(time.Second):
+		t.Fatal("attach did not return after callback release")
+	}
+}
+
 func TestDisconnectDropsQueuedFramesAndWaitsForWriterClose(t *testing.T) {
 	h := New()
 	t.Cleanup(h.Shutdown)
@@ -157,16 +278,30 @@ func TestDisconnectDropsQueuedFramesAndWaitsForWriterClose(t *testing.T) {
 		t.Fatal("attached connection not found")
 	}
 
-	conn.writeMu.Lock()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unblock()
+	originalWrite := conn.writeMessage
+	conn.writeMessage = func(messageType int, data []byte) error {
+		if messageType == websocket.TextMessage {
+			select {
+			case <-started:
+			default:
+				close(started)
+			}
+			<-release
+		}
+		return originalWrite(messageType, data)
+	}
 	h.Broadcast("room", []byte("in-flight"))
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("writer did not begin the in-flight frame")
+	}
 	deadline := time.Now().Add(time.Second)
-	for len(conn.send) != 0 && time.Now().Before(deadline) {
-		runtime.Gosched()
-	}
-	if len(conn.send) != 0 {
-		conn.writeMu.Unlock()
-		t.Fatal("writer did not take the in-flight frame")
-	}
 	h.Broadcast("room", []byte("queued"))
 
 	disconnected := make(chan struct{})
@@ -178,10 +313,9 @@ func TestDisconnectDropsQueuedFramesAndWaitsForWriterClose(t *testing.T) {
 		runtime.Gosched()
 	}
 	if !conn.removed.Load() {
-		conn.writeMu.Unlock()
 		t.Fatal("disconnect did not begin removal")
 	}
-	conn.writeMu.Unlock()
+	unblock()
 
 	select {
 	case <-disconnected:
@@ -195,10 +329,17 @@ func TestDisconnectDropsQueuedFramesAndWaitsForWriterClose(t *testing.T) {
 	}
 
 	ws.SetReadDeadline(time.Now().Add(time.Second))
-	if _, msg, err := ws.ReadMessage(); err == nil {
-		t.Fatalf("application frame %q was written after revocation", msg)
-	} else if closeErr, ok := err.(*websocket.CloseError); !ok || closeErr.Code != websocket.ClosePolicyViolation {
-		t.Fatalf("revoked token close = %v, want policy violation", err)
+	for {
+		_, msg, err := ws.ReadMessage()
+		if err != nil {
+			if closeErr, ok := err.(*websocket.CloseError); !ok || closeErr.Code != websocket.ClosePolicyViolation {
+				t.Fatalf("revoked token close = %v, want policy violation", err)
+			}
+			break
+		}
+		if string(msg) == "queued" {
+			t.Fatal("queued application frame was written after revocation")
+		}
 	}
 }
 
@@ -231,6 +372,82 @@ func TestAttachAfterDisconnectUsesDatabaseAuthority(t *testing.T) {
 		t.Fatal("database-revoked token websocket remained open")
 	} else if closeErr, ok := err.(*websocket.CloseError); !ok || closeErr.Code != websocket.ClosePolicyViolation {
 		t.Fatalf("database-revoked token close = %v, want policy violation", err)
+	}
+}
+
+func TestPendingValidationCancelsWhenPeerDisconnects(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	validationStarted := make(chan struct{})
+	validationCanceled := make(chan struct{})
+	h.ValidateSession = func(ctx context.Context, _ string) (time.Time, error) {
+		close(validationStarted)
+		<-ctx.Done()
+		close(validationCanceled)
+		return time.Time{}, ctx.Err()
+	}
+	attachReturned := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		h.AttachAuthenticated(ws, "room", "user", nil, SessionAuth{TokenID: "pending-peer"})
+		close(attachReturned)
+	}))
+	defer srv.Close()
+	url := "ws" + strings.TrimPrefix(srv.URL, "http")
+	ws, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-validationStarted:
+	case <-time.After(time.Second):
+		t.Fatal("validation did not start")
+	}
+	ws.Close()
+
+	select {
+	case <-validationCanceled:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("peer disconnect did not cancel pending validation")
+	}
+	select {
+	case <-attachReturned:
+	case <-time.After(time.Second):
+		t.Fatal("attach remained blocked after pending peer disconnected")
+	}
+}
+
+func TestPendingValidationTimesOut(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	h.ValidationTimeout = 20 * time.Millisecond
+	validationErr := make(chan error, 1)
+	h.ValidateSession = func(ctx context.Context, _ string) (time.Time, error) {
+		<-ctx.Done()
+		validationErr <- ctx.Err()
+		return time.Time{}, ctx.Err()
+	}
+	ws := attachAuthenticatedTestConn(t, h, "room", SessionAuth{
+		TokenID: "stalled-validation", ExpiresAt: time.Now().Add(time.Hour),
+	})
+	defer ws.Close()
+
+	select {
+	case err := <-validationErr:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("validation ended with %v, want deadline exceeded", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("stalled validation did not time out")
+	}
+	ws.SetReadDeadline(time.Now().Add(time.Second))
+	if _, _, err := ws.ReadMessage(); err == nil {
+		t.Fatal("timed-out validation left websocket open")
+	} else if closeErr, ok := err.(*websocket.CloseError); !ok || closeErr.Code != websocket.ClosePolicyViolation {
+		t.Fatalf("timed-out validation close = %v, want policy violation", err)
 	}
 }
 

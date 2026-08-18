@@ -409,11 +409,10 @@ func TestLogoutClosesWebSocketAuthenticatedByToken(t *testing.T) {
 }
 
 func TestWSRevalidatesTokenAgainstDatabase(t *testing.T) {
-	srv := httptest.NewServer(Router(testPool(t), Options{
+	srv := testServerWith(t, testPool(t), Options{
 		AllowedOrigin:               testOrigin,
 		sessionRevalidationInterval: 20 * time.Millisecond,
-	}))
-	t.Cleanup(srv.Close)
+	})
 	fac, _, id := setupSession(t, srv, "Replica Revocation Space")
 
 	ws, _, err := dialWS(t, srv, id, fac, testOrigin)
@@ -459,11 +458,10 @@ func TestWSRejectsRevokedTokenAtHandshake(t *testing.T) {
 }
 
 func TestWSClosesWhenTokenExpiresInDatabase(t *testing.T) {
-	srv := httptest.NewServer(Router(testPool(t), Options{
+	srv := testServerWith(t, testPool(t), Options{
 		AllowedOrigin:               testOrigin,
 		sessionRevalidationInterval: 20 * time.Millisecond,
-	}))
-	t.Cleanup(srv.Close)
+	})
 	fac, _, id := setupSession(t, srv, "Expired Socket Space")
 
 	ws, _, err := dialWS(t, srv, id, fac, testOrigin)

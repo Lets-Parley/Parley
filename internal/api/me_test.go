@@ -41,8 +41,17 @@ func testPool(t *testing.T) *pgxpool.Pool {
 
 func testServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewServer(Router(testPool(t), Options{AllowedOrigin: "http://example.test"}))
-	t.Cleanup(srv.Close)
+	return testServerWith(t, testPool(t), Options{AllowedOrigin: "http://example.test"})
+}
+
+func testServerWith(t *testing.T, pool *pgxpool.Pool, opts Options) *httptest.Server {
+	t.Helper()
+	handler := Router(pool, opts)
+	srv := httptest.NewServer(handler)
+	t.Cleanup(func() {
+		handler.Shutdown()
+		srv.Close()
+	})
 	return srv
 }
 

@@ -16,24 +16,33 @@ const (
 	pongDeadline     = 50 * time.Second
 	presenceDebounce = 1500 * time.Millisecond
 	maxRevalidate    = 30 * time.Second
+	maxValidation    = 30 * time.Second
+)
+
+const (
+	writeIdle uint32 = iota
+	writeActive
+	writeRemoved
+	writeActiveRemoved
 )
 
 type Conn struct {
-	UserID     string
-	SessionID  string
-	ws         *websocket.Conn
-	send       chan []byte
-	hub        *Hub
-	tokenID    string
-	expiresAt  time.Time
-	closeCode  int
-	ctx        context.Context
-	cancel     context.CancelFunc
-	expiry     *time.Timer
-	writeMu    sync.Mutex
-	removed    atomic.Bool
-	stop       chan struct{}
-	writerDone chan struct{}
+	UserID       string
+	SessionID    string
+	ws           *websocket.Conn
+	send         chan []byte
+	hub          *Hub
+	tokenID      string
+	expiresAt    time.Time
+	closeCode    atomic.Int32
+	ctx          context.Context
+	cancel       context.CancelFunc
+	expiry       *time.Timer
+	writeState   atomic.Uint32
+	removed      atomic.Bool
+	stop         chan struct{}
+	writerDone   chan struct{}
+	writeMessage func(messageType int, data []byte) error
 }
 
 func (c *Conn) Close() {
@@ -54,6 +63,7 @@ type Hub struct {
 	// ValidateSession checks session validity through the shared store.
 	ValidateSession      func(ctx context.Context, tokenID string) (time.Time, error)
 	RevalidationInterval time.Duration
+	ValidationTimeout    time.Duration
 
 	timersMu sync.Mutex
 	timers   map[string]*time.Timer
@@ -130,7 +140,11 @@ func (h *Hub) run() {
 			}
 			h.register(e)
 		case unregisterEvent:
-			h.remove(e.conn, websocket.CloseNormalClosure)
+			if _, pending := h.pending[e.conn]; pending {
+				h.rejectPending(e.conn, websocket.CloseNormalClosure)
+			} else {
+				h.remove(e.conn, websocket.CloseNormalClosure)
+			}
 			close(e.done)
 		case broadcastEvent:
 			for c := range h.rooms[e.sessionID] {
@@ -230,13 +244,11 @@ func (h *Hub) rejectPending(c *Conn, closeCode int) <-chan struct{} {
 		return nil
 	}
 	delete(h.pending, c)
-	c.removed.Store(true)
+	c.markRemoved()
 	c.cancel()
-	c.writeMu.Lock()
-	c.closeCode = closeCode
+	c.closeCode.Store(int32(closeCode))
 	close(c.stop)
 	close(c.send)
-	c.writeMu.Unlock()
 	pending.accepted <- false
 	return c.writerDone
 }
@@ -289,16 +301,14 @@ func (h *Hub) remove(c *Conn, closeCode int) <-chan struct{} {
 	if _, ok := room[c]; !ok {
 		return nil
 	}
-	c.removed.Store(true)
+	c.markRemoved()
 	if c.expiry != nil {
 		c.expiry.Stop()
 	}
 	c.cancel()
-	c.writeMu.Lock()
-	c.closeCode = closeCode
+	c.closeCode.Store(int32(closeCode))
 	close(c.stop)
 	close(c.send)
-	c.writeMu.Unlock()
 	delete(room, c)
 	if len(room) == 0 {
 		delete(h.rooms, c.SessionID)
@@ -320,29 +330,30 @@ func (h *Hub) AttachAuthenticated(ws *websocket.Conn, sessionID, userID string, 
 	c := &Conn{
 		UserID: userID, SessionID: sessionID, ws: ws,
 		send: make(chan []byte, sendBuffer), hub: h, tokenID: auth.TokenID,
-		expiresAt: auth.ExpiresAt, closeCode: websocket.CloseNormalClosure,
-		ctx: ctx, cancel: cancel, stop: make(chan struct{}), writerDone: make(chan struct{}),
+		expiresAt: auth.ExpiresAt,
+		ctx:       ctx, cancel: cancel, stop: make(chan struct{}), writerDone: make(chan struct{}),
+		writeMessage: ws.WriteMessage,
 	}
+	c.closeCode.Store(websocket.CloseNormalClosure)
 	accepted := make(chan bool)
 	if !h.submit(registerEvent{conn: c, initial: initial, accepted: accepted}) {
+		cancel()
 		ws.Close()
 		return
 	}
+	go h.writer(c)
+	go h.reader(c)
 	if !<-accepted {
-		go h.writer(c)
 		return
+	}
+	if c.tokenID != "" && h.ValidateSession != nil {
+		go h.revalidate(ctx, c)
 	}
 
 	if h.OnFacilitatorSeen != nil {
 		h.OnFacilitatorSeen(sessionID, userID)
 	}
 	h.schedulePresence(sessionID)
-
-	go h.writer(c)
-	go h.reader(c)
-	if c.tokenID != "" && h.ValidateSession != nil {
-		go h.revalidate(ctx, c)
-	}
 }
 
 func (h *Hub) revalidate(ctx context.Context, c *Conn) {
@@ -363,11 +374,21 @@ func (h *Hub) revalidate(ctx context.Context, c *Conn) {
 }
 
 func (h *Hub) validate(c *Conn) {
-	expiresAt, err := h.ValidateSession(c.ctx, c.tokenID)
+	ctx, cancel := context.WithTimeout(c.ctx, h.validationTimeout())
+	defer cancel()
+	expiresAt, err := h.ValidateSession(ctx, c.tokenID)
 	if c.ctx.Err() != nil {
 		return
 	}
 	h.submit(revalidationEvent{conn: c, expiresAt: expiresAt, err: err})
+}
+
+func (h *Hub) validationTimeout() time.Duration {
+	timeout := h.ValidationTimeout
+	if timeout <= 0 || timeout > maxValidation {
+		return maxValidation
+	}
+	return timeout
 }
 
 func (h *Hub) detach(c *Conn) {
@@ -398,27 +419,23 @@ func (h *Hub) writer(c *Conn) {
 				h.writeClose(c)
 				return
 			}
-			c.writeMu.Lock()
-			if c.removed.Load() {
-				c.writeMu.Unlock()
+			if !c.beginWrite() {
 				continue
 			}
 			c.ws.SetWriteDeadline(time.Now().Add(writeDeadline))
-			err := c.ws.WriteMessage(websocket.TextMessage, msg)
-			c.writeMu.Unlock()
+			err := c.writeMessage(websocket.TextMessage, msg)
+			c.finishWrite()
 			if err != nil {
 				h.detach(c)
 				return
 			}
 		case <-ticker.C:
-			c.writeMu.Lock()
-			if c.removed.Load() {
-				c.writeMu.Unlock()
+			if !c.beginWrite() {
 				continue
 			}
 			c.ws.SetWriteDeadline(time.Now().Add(writeDeadline))
-			err := c.ws.WriteMessage(websocket.PingMessage, nil)
-			c.writeMu.Unlock()
+			err := c.writeMessage(websocket.PingMessage, nil)
+			c.finishWrite()
 			if err != nil {
 				h.detach(c)
 				return
@@ -429,7 +446,38 @@ func (h *Hub) writer(c *Conn) {
 
 func (h *Hub) writeClose(c *Conn) {
 	c.ws.SetWriteDeadline(time.Now().Add(writeDeadline))
-	c.ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(c.closeCode, ""))
+	c.writeMessage(websocket.CloseMessage, websocket.FormatCloseMessage(int(c.closeCode.Load()), ""))
+}
+
+func (c *Conn) beginWrite() bool {
+	return c.writeState.CompareAndSwap(writeIdle, writeActive)
+}
+
+func (c *Conn) finishWrite() {
+	if c.writeState.CompareAndSwap(writeActive, writeIdle) {
+		return
+	}
+	c.writeState.CompareAndSwap(writeActiveRemoved, writeRemoved)
+}
+
+func (c *Conn) markRemoved() {
+	for {
+		switch c.writeState.Load() {
+		case writeIdle:
+			if c.writeState.CompareAndSwap(writeIdle, writeRemoved) {
+				c.removed.Store(true)
+				return
+			}
+		case writeActive:
+			if c.writeState.CompareAndSwap(writeActive, writeActiveRemoved) {
+				c.removed.Store(true)
+				return
+			}
+		default:
+			c.removed.Store(true)
+			return
+		}
+	}
 }
 
 func (h *Hub) reader(c *Conn) {
