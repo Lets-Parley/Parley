@@ -65,6 +65,7 @@ export default defineConfig({
             { slug: "operations", label: "Overview" },
             "operations/architecture",
             "operations/deployment",
+            "operations/single-server",
             "operations/kubernetes",
             "operations/reverse-proxy",
             "operations/observability",
