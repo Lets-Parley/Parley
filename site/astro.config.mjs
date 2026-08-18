@@ -62,6 +62,9 @@ export default defineConfig({
           label: "Security",
           items: [
             { slug: "security", label: "Overview" },
+            // Titled "What a room code protects" rather than "Security model":
+            // next to the group's own Overview and Threat model, a third
+            // similar-sounding entry gave a reviewer no way to pick.
             "security/overview",
             "security/threat-model",
             "security/authentication",

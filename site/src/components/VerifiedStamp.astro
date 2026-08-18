@@ -2,15 +2,68 @@
 // Credibility mechanism: says what version this page was transcribed against
 // and which file it came from, so a reader can check it and a future editor
 // knows what went stale.
-const { version, source } = Astro.props;
+//
+// The version is NOT a prop. It was hardcoded on 22 pages, which meant a
+// release had 22 chances to leave one behind saying something untrue.
+import { existsSync } from "node:fs";
+import { dirname, resolve, sep } from "node:path";
+import { VERIFIED_VERSION } from "../verified.ts";
+
+const { source } = Astro.props;
 const repo = "https://github.com/lets-parley/parley/blob/main/";
-const files = Array.isArray(source) ? source : source ? [source] : [];
+// Walk up to the repo root. `import.meta.url` is no good here — by the time
+// this runs the component is a bundled chunk under dist/ — and cwd depends on
+// where the build was invoked from, so anchor on a file only the root has.
+let root = process.cwd();
+while (!existsSync(resolve(root, "go.mod")) && dirname(root) !== root) {
+  root = dirname(root);
+}
+// Blank entries are not filtered away: dropping one silently renders a stamp
+// citing fewer files than the author wrote, which is the same missing-evidence
+// problem one level down.
+const files = (Array.isArray(source) ? source : source === undefined ? [] : [source])
+  .map((f) => (typeof f === "string" ? f.trim() : f));
+const blank = files.filter((f) => typeof f !== "string" || f === "");
+if (blank.length) {
+  throw new Error(
+    `VerifiedStamp: ${blank.length} \`source\` entr${blank.length > 1 ? "ies are" : "y is"} ` +
+      `blank or not a string — name a file or drop the entry.`
+  );
+}
+
+// A stamp with no file is a claim with nothing to check, which is worse than
+// no stamp at all — it borrows the credibility without offering the evidence.
+if (files.length === 0) {
+  throw new Error(
+    "VerifiedStamp: `source` is required — name at least one file a reader can open."
+  );
+}
+
+// And a stamp pointing at a path that no longer exists reads exactly as
+// confident as one that does. Paths are repo-root-relative; some are
+// directories, which existsSync covers too.
+// resolve() lets an absolute or `../` path escape the repo entirely and still
+// exist on the build machine, so the stamp would vouch for a file no reader
+// can open. Repo-relative only.
+const outside = files.filter((f) => !resolve(root, f).startsWith(resolve(root) + sep));
+if (outside.length) {
+  throw new Error(
+    `VerifiedStamp: source must be repo-relative: ${outside.join(", ")}`
+  );
+}
+const missing = files.filter((f) => !existsSync(resolve(root, f)));
+if (missing.length) {
+  throw new Error(
+    `VerifiedStamp: source not in the repo: ${missing.join(", ")} — the stamp ` +
+      `tells a reader they can open it.`
+  );
+}
 ---
 <p class="stamp">
-  Verified against <strong>{version}</strong>
-  {files.length > 0 && <> · {files.map((f, i) => (<>
+  Verified against <strong>{VERIFIED_VERSION}</strong>
+  {" · "}{files.map((f, i) => (<>
     {i > 0 && <span>, </span>}<a href={`${repo}${f}`}><code>{f}</code></a>
-  </>))}</>}
+  </>))}
 </p>
 
 <style>

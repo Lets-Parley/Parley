@@ -4,14 +4,14 @@
 const { rows = [], caption } = Astro.props;
 ---
 <div class="spec">
-  {caption && <p class="spec-caption">{caption}</p>}
   <table>
+    {caption && <caption class="spec-caption">{caption}</caption>}
     <tbody>
       {rows.map((r) => (
         <tr>
           <th scope="row">{r.name}</th>
           <td class="spec-value">{r.value}</td>
-          {r.note ? <td class="spec-note">{r.note}</td> : <td class="spec-note" />}
+          <td class="spec-note">{r.note}</td>
         </tr>
       ))}
     </tbody>
@@ -21,9 +21,11 @@ const { rows = [], caption } = Astro.props;
 <style>
   .spec { overflow-x: auto; margin: 1rem 0; }
   .spec table { width: 100%; border-collapse: collapse; display: table; }
+  /* A real <caption> rather than a <p> above the table, so assistive tech
+     associates it with the table it describes. */
   .spec-caption {
-    font-size: 0.8125rem; color: var(--parley-muted);
-    margin: 0 0 0.4rem; text-transform: uppercase; letter-spacing: 0.06em;
+    font-size: 0.8125rem; color: var(--parley-muted); text-align: left;
+    padding: 0 0 0.4rem; text-transform: uppercase; letter-spacing: 0.06em;
   }
   .spec th, .spec td {
     text-align: left; padding: 0.45rem 0.75rem 0.45rem 0;

@@ -6,7 +6,7 @@ description: Every route, who may call it, and what it does.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import RouteTable from "../../../components/RouteTable.astro";
 
-<VerifiedStamp version="v0.2.1" source={["internal/api/router.go", "internal/poker/routes.go", "internal/standup/routes.go"]} />
+<VerifiedStamp source={["internal/api/router.go", "internal/poker/routes.go", "internal/standup/routes.go"]} />
 
 There is no API token scheme. Everything authenticates with the `parley_session`
 cookie, so the API is usable from a script only by reusing a browser session's

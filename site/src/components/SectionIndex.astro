@@ -22,11 +22,16 @@ const { items = [] } = Astro.props;
     display: flex; flex-direction: column; gap: 0.3rem;
     border: 1px solid var(--parley-line);
     border-radius: var(--parley-radius-card);
-    padding: 0.9rem 1.05rem; background: var(--parley-surface);
+    padding: 0.9rem 1.05rem; background: var(--parley-surface-hi);
+    box-shadow: var(--parley-shadow-rest);
     text-decoration: none; color: inherit;
-    transition: border-color 0.15s ease, transform 0.15s ease;
+    transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
   }
-  .card:hover { border-color: var(--sl-color-accent); transform: translateY(-2px); }
+  .card:hover {
+    border-color: var(--sl-color-accent);
+    transform: translateY(-2px);
+    box-shadow: var(--parley-shadow-lift);
+  }
   .title { font-weight: 600; color: var(--sl-color-text-accent); }
   .blurb { font-size: 0.9375rem; color: var(--parley-muted); }
   @media (prefers-reduced-motion: reduce) {

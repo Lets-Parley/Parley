@@ -1,0 +1,40 @@
+---
+// A captioned product shot that follows the reader's theme.
+//
+// Two files per shot, light and dark. A light-mode reader looking at a dark
+// screenshot of a theme-aware app is the most common docs-site tell, and half
+// of Parley's existing captures are light-only, so this refuses a half pair
+// rather than silently showing the wrong one.
+import { Image } from "astro:assets";
+
+const { light, dark, alt, caption, width = 1280 } = Astro.props;
+
+if (!light || !dark) {
+  throw new Error(
+    `Screenshot: both 'light' and 'dark' are required (alt: ${alt ?? "none"}). ` +
+      `Capture the missing theme rather than reusing the other one.`
+  );
+}
+if (!alt) throw new Error("Screenshot: 'alt' is required.");
+---
+<figure class="shot">
+  <picture>
+    <source srcset={dark.src} media="(prefers-color-scheme: dark)" />
+    <Image src={light} alt={alt} width={width} densities={[1, 2]} />
+  </picture>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .shot { margin: 1.5rem 0; }
+  .shot :global(img) {
+    width: 100%; height: auto; display: block;
+    border: 1px solid var(--parley-line);
+    border-radius: var(--parley-radius-card);
+    box-shadow: var(--parley-shadow-rest);
+  }
+  figcaption {
+    font-size: 0.875rem; color: var(--parley-muted);
+    margin-top: 0.5rem;
+  }
+</style>

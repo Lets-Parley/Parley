@@ -6,7 +6,7 @@ description: Every field of personal data Parley stores, and what it deliberatel
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="v0.2.1" source={["internal/db/migrations", "internal/store/users.go"]} />
+<VerifiedStamp source={["internal/db/migrations", "internal/store/users.go"]} />
 
 Parley stores very little about people, mostly because it never asks. In its
 default mode there is no account, no email address and no password.
@@ -40,11 +40,14 @@ Postgres, and it is what a database dump mostly contains.
 
 ## What leaves the instance
 
-Nothing. Parley makes no outbound network calls, has no telemetry, no analytics,
-no crash reporting and no update check.
+Nothing, unless you configure it. Parley has no telemetry, no analytics, no
+crash reporting and no update check.
 
-The one exception is by configuration: with `AUTH_MODE=oidc`, the process talks
-to the identity provider you named, and only to it.
+In the default `open` mode it makes no outbound network calls at all. With
+`AUTH_MODE=oidc` it calls the identity provider you named and nothing else:
+the discovery document, the signing keys, and a token exchange per sign-in. The
+first two are fetched once and cached for the life of the process, so a warm
+process makes one call per sign-in, not three.
 
 ## Retention and erasure
 

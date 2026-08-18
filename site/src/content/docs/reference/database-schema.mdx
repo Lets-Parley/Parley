@@ -6,7 +6,7 @@ description: The tables, the migrations, and the constraints that act as validat
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp version="v0.2.1" source={["internal/db/migrations", "internal/db/migrate.go"]} />
+<VerifiedStamp source={["internal/db/migrations", "internal/db/migrate.go"]} />
 
 Nine migrations, embedded in the binary and applied at boot. Postgres only —
 there is no second driver and no plan for one.

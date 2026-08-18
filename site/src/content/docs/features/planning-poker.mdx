@@ -7,7 +7,7 @@ import Deck from "../../../components/Deck.astro";
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="v0.2.1" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go"]} />
+<VerifiedStamp source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go"]} />
 
 A poker session is a queue of work and a table of people. The facilitator puts
 one item on the table, everybody votes face-down, and the round opens either when
@@ -52,10 +52,9 @@ The round opens automatically once everyone who *can* vote has voted. Spectators
 are not in that denominator, and neither is anyone whose seat has gone away —
 otherwise "4 of 5" would hang forever because someone shut their laptop.
 
-One deliberate subtlety: the check runs **only when a vote lands**, never when
-somebody connects or disconnects. A disconnect can therefore shrink the
-denominator, but it can never be the thing that opens the round. If that were not
-true, closing a laptop would be a way to reveal everyone else's votes.
+The check runs **only when a vote lands** — never on connect or disconnect. A
+disconnect can shrink the denominator; it can never open the round. Otherwise
+closing a laptop would be a way to reveal everyone else's votes.
 
 ## Statistics that suit the deck
 

@@ -34,9 +34,11 @@ if (!deck) throw new Error(`Deck: unknown deck "${name}"`);
     <code class="key">{name}</code>
   </figcaption>
   <div class="cards">
-    {deck.values.map((v) => <span class="card">{v}</span>)}
-    <span class="card special">?</span>
-    <span class="card special" aria-label="coffee">☕</span>
+    {deck.values.map((v, i) => (
+      <span class="card" style={`--rot:${(i % 5) - 2}deg`}>{v}</span>
+    ))}
+    <span class="card special" style="--rot:1deg">?</span>
+    <span class="card special" aria-label="coffee" style="--rot:2deg">☕</span>
   </div>
   <p class="stats">{deck.stats}</p>
 </figure>
@@ -57,9 +59,19 @@ if (!deck) throw new Error(`Deck: unknown deck "${name}"`);
     border: 1px solid var(--parley-line);
     border-radius: var(--parley-radius-chip);
     background: var(--parley-surface-hi);
+    box-shadow: var(--parley-shadow-rest);
+    /* The app fans the hand rather than lining it up; mirroring that here is
+       what makes this read as Parley instead of as a table of chips.
+       See .hand-card in web/src/tokens.css. */
+    transform: rotate(var(--rot, 0deg));
+    transition: transform 0.15s ease;
   }
+  .cards:hover .card { transform: rotate(0deg); }
   .card.special { color: var(--parley-muted); }
   .stats {
     font-size: 0.875rem; color: var(--parley-muted); margin: 0.5rem 0 0;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .card { transition: none; }
   }
 </style>
