@@ -117,8 +117,10 @@ describe("AppShell", () => {
 
   it("offers no sign-out in open mode, where the identity is just a name in a cookie", async () => {
     stubAuthMode("open");
-    renderShell();
-    await waitFor(() => expect(screen.getByText("Dana Whitfield")).toBeTruthy());
+    const { queryClient } = renderShell();
+    // Wait for the auth probe to actually land. Waiting for the button to be
+    // absent proves nothing — it is absent before the fetch resolves too.
+    await waitFor(() => expect(queryClient.getQueryData(["auth-mode"])).toEqual({ mode: "open" }));
     expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
   });
 
@@ -130,8 +132,11 @@ describe("AppShell", () => {
 
   it("offers nothing to sign out of when nobody is signed in", async () => {
     stubAuthMode("oidc");
-    renderShell({ me: null });
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull());
+    const { queryClient } = renderShell({ me: null });
+    // Same trap: assert the mode resolved to oidc first, so the missing button
+    // is a decision rather than a race with the fetch.
+    await waitFor(() => expect(queryClient.getQueryData(["auth-mode"])).toEqual({ mode: "oidc" }));
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
   });
 
   it("toggles the sidebar and reports its state", async () => {

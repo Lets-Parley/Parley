@@ -75,16 +75,14 @@ export function Table({
   facilitatorId: string;
   meId: string;
 }) {
-  const voted = new Set(votedUserIds);
-  const { votedCount, canVote } = voteTally(seated, online, votedUserIds, votes);
+  const { votedCount, canVote, voted } = voteTally(seated, online, votedUserIds, votes);
 
   return (
     <div className="overflow-x-auto pt-3.5">
       <div className="mx-auto flex w-max items-start gap-3 px-2">
         {seated.map((p, i) => {
           const away = !online.has(p.userId);
-          const hasVote = voted.has(p.userId) || votes.has(p.userId);
-          const state = revealed ? "face" : hasVote ? "back" : away ? "away" : "empty";
+          const state = revealed ? "face" : voted.has(p.userId) ? "back" : away ? "away" : "empty";
           return (
             <div key={p.userId} className="flex w-[74px] shrink-0 flex-col items-center gap-2.5">
               <Avatar

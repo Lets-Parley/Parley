@@ -16,16 +16,23 @@ describe("voteTally", () => {
   const priya = person("priya");
   const seated = [dana, marcus, priya];
 
+  it("returns the one voted set the seat cards must also use", () => {
+    // The footer count and each seat's card have to agree; a second copy of
+    // this rule in the component let them diverge.
+    const t = voteTally(seated, new Set(["dana"]), ["dana"], new Map([["priya", "8"]]));
+    expect([...t.voted].sort()).toEqual(["dana", "priya"]);
+  });
+
   it("excludes an offline non-voter from the denominator", () => {
     // Priya dropped without voting: "2 of 2" must be reachable, otherwise the
     // room can never see a complete round while anyone is disconnected.
     const t = voteTally(seated, new Set(["dana", "marcus"]), ["dana", "marcus"], new Map());
-    expect(t).toEqual({ votedCount: 2, canVote: 2 });
+    expect(t).toMatchObject({ votedCount: 2, canVote: 2 });
   });
 
   it("counts an offline voter in both halves", () => {
     const t = voteTally(seated, new Set(["dana"]), ["dana", "marcus"], new Map());
-    expect(t).toEqual({ votedCount: 2, canVote: 2 });
+    expect(t).toMatchObject({ votedCount: 2, canVote: 2 });
   });
 
   it("unions votedUserIds and the revealed votes map without double counting", () => {
@@ -38,11 +45,11 @@ describe("voteTally", () => {
   it("counts someone present only in the votes map", () => {
     const votes = new Map([["priya", "8"]]);
     const t = voteTally(seated, new Set(["dana"]), [], votes);
-    expect(t).toEqual({ votedCount: 1, canVote: 2 });
+    expect(t).toMatchObject({ votedCount: 1, canVote: 2 });
   });
 
   it("reports 0 of 0 for an empty table rather than dividing by nothing", () => {
-    expect(voteTally([], new Set(), [], new Map())).toEqual({ votedCount: 0, canVote: 0 });
+    expect(voteTally([], new Set(), [], new Map())).toMatchObject({ votedCount: 0, canVote: 0 });
   });
 
   it("ignores presence for people who are not seated", () => {

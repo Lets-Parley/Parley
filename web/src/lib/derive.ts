@@ -15,12 +15,15 @@ export function voteTally(
   online: Set<string>,
   votedUserIds: string[],
   votes: Map<string, string>,
-): { votedCount: number; canVote: number } {
+): { votedCount: number; canVote: number; voted: Set<string> } {
+  // One rule for "has voted", shared by the count and by each seat's card —
+  // two copies of it can disagree, and then the footer contradicts the table.
   const voted = new Set(votedUserIds);
-  const hasVoted = (p: Person) => voted.has(p.userId) || votes.has(p.userId);
+  for (const userId of votes.keys()) voted.add(userId);
   return {
-    votedCount: seated.filter(hasVoted).length,
-    canVote: seated.filter((p) => online.has(p.userId) || hasVoted(p)).length,
+    votedCount: seated.filter((p) => voted.has(p.userId)).length,
+    canVote: seated.filter((p) => online.has(p.userId) || voted.has(p.userId)).length,
+    voted,
   };
 }
 

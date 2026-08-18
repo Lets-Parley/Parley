@@ -98,7 +98,15 @@ describe("useSession", () => {
     // A GET computed before the mutation lands after it.
     fetched.push(envelope(7, "stale refetch"));
     await qc.refetchQueries({ queryKey: ["session", "sess-1"] });
-    expect(result.current.data).toMatchObject({ version: 9, title: "from the socket" });
+    // Read the cache, not the hook snapshot: `result.current` still holds the
+    // pre-refetch render, so asserting on it passes even with the guard gone.
+    await waitFor(() =>
+      expect(qc.getQueryData(["session", "sess-1"])).toMatchObject({
+        version: 9,
+        title: "from the socket",
+      }),
+    );
+    expect(qc.getQueryData(["session", "sess-1"])).not.toMatchObject({ title: "stale refetch" });
   });
 
   it("accepts a refetch that is genuinely newer", async () => {
@@ -106,7 +114,12 @@ describe("useSession", () => {
     await waitFor(() => expect(result.current.data).toBeTruthy());
     fetched.push(envelope(11, "fresher"));
     await qc.refetchQueries({ queryKey: ["session", "sess-1"] });
-    await waitFor(() => expect(result.current.data).toMatchObject({ version: 11 }));
+    await waitFor(() =>
+      expect(qc.getQueryData(["session", "sess-1"])).toMatchObject({
+        version: 11,
+        title: "fresher",
+      }),
+    );
   });
 
   it("surfaces the socket status to the caller", async () => {
