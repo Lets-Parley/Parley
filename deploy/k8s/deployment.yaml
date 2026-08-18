@@ -47,17 +47,12 @@ spec:
                   key: database-url
             - name: BASE_URL
               value: "https://parley.example.com" # the address users reach it at
-            # An Ingress terminates the connection, so without this every
-            # visitor arrives wearing the controller's address and the
-            # room-code throttle counts the whole internet as one client:
-            # eight wrong guesses would lock everybody out of that space.
-            # Only correct while the Ingress *overwrites* X-Forwarded-For.
-            # ingress-nginx does by default, but with use-forwarded-headers
-            # it appends instead, and the leftmost value — the one read here
-            # — is the caller's own again, throttle bypass and all. With an
-            # ELB or CDN in front, check that before leaving this true.
+            # Safe default: forwarded addresses are ignored. To enable them,
+            # set this true and add TRUSTED_PROXY_CIDRS containing every
+            # Ingress/load-balancer CIDR that can be an immediate or forwarded
+            # proxy hop. Startup refuses true without that allowlist.
             - name: TRUST_PROXY_HEADERS
-              value: "true"
+              value: "false"
           # The first four are what the "restricted" Pod Security Standard
           # checks: it reads the manifest, never the image, so the distroless
           # nonroot USER does not satisfy runAsNonRoot on its own.

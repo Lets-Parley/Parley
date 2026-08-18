@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/lets-parley/parley/internal/httprequest"
 	"github.com/lets-parley/parley/internal/hub"
 	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/store"
@@ -30,8 +31,8 @@ func actions() map[string]session.Action {
 }
 
 func decode(w http.ResponseWriter, r *http.Request, into any) bool {
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(into); err != nil {
-		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, into); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
 		return false
 	}
 	return true
@@ -57,6 +58,8 @@ func writeMutationError(w http.ResponseWriter, err error, fallback string) {
 		http.Error(w, `{"error":"only the facilitator can do that"}`, http.StatusForbidden)
 	case errors.Is(err, store.ErrSessionEnded):
 		http.Error(w, `{"error":"this session has ended"}`, http.StatusConflict)
+	case errors.Is(err, store.ErrQuotaExceeded):
+		http.Error(w, `{"error":"story limit reached for this session"}`, http.StatusConflict)
 	default:
 		http.Error(w, `{"error":"`+fallback+`"}`, http.StatusInternalServerError)
 	}
@@ -97,6 +100,13 @@ func addStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	}
 	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
 		func(tx pgx.Tx, _ store.Session) error {
+			var count int
+			if err := tx.QueryRow(r.Context(), "select count(*) from stories where session_id = $1", ac.Session.ID).Scan(&count); err != nil {
+				return err
+			}
+			if ac.StoryLimit > 0 && count >= ac.StoryLimit {
+				return store.ErrQuotaExceeded
+			}
 			if _, err := tx.Exec(r.Context(), `
 				insert into stories (session_id, title, notes, ref, position)
 				values ($1, $2, $3, $4, (select coalesce(max(position), 0) + 1 from stories where session_id = $1))`,

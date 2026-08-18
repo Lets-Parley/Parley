@@ -53,7 +53,8 @@ func newSpace(t *testing.T, pool *pgxpool.Pool) Space {
 		prefix = strings.Trim(prefix[:40], "-")
 	}
 	slug := prefix + "-" + randSuffix(t)
-	sp, err := (&Spaces{Pool: pool}).Create(context.Background(), t.Name(), slug, "")
+	creator, _ := newUser(t, pool, "Creator "+randSuffix(t))
+	sp, err := (&Spaces{Pool: pool}).Create(context.Background(), t.Name(), slug, "", creator.ID, 50)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +257,8 @@ func TestSpaceCreateRejectsDuplicateSlug(t *testing.T) {
 	ctx := context.Background()
 
 	sp := newSpace(t, pool)
-	if _, err := spaces.Create(ctx, "Other name", sp.Slug, ""); err != ErrSlugTaken {
+	creator, _ := newUser(t, pool, "Duplicate Slug Creator")
+	if _, err := spaces.Create(ctx, "Other name", sp.Slug, "", creator.ID, 50); err != ErrSlugTaken {
 		t.Fatalf("duplicate slug: got %v, want ErrSlugTaken", err)
 	}
 	if _, err := spaces.BySlug(ctx, "no-such-space-"+randSuffix(t)); err != ErrNoSpace {

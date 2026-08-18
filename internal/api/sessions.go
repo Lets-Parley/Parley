@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/lets-parley/parley/internal/httprequest"
 	"github.com/lets-parley/parley/internal/store"
 )
 
@@ -53,8 +54,8 @@ func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		Title  string          `json:"title"`
 		Config json.RawMessage `json:"config"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil {
-		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
 		return
 	}
 	title := strings.TrimSpace(body.Title)
@@ -72,7 +73,11 @@ func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess, err := a.sessions.Create(r.Context(), sp.ID, body.Kind, title, config, p.UserID)
+	sess, err := a.sessions.Create(r.Context(), sp.ID, body.Kind, title, config, p.UserID, a.limits.SessionsPerSpace)
+	if errors.Is(err, store.ErrQuotaExceeded) {
+		http.Error(w, `{"error":"session limit reached for this space"}`, http.StatusConflict)
+		return
+	}
 	if err != nil {
 		http.Error(w, `{"error":"could not create session"}`, http.StatusInternalServerError)
 		return
@@ -129,7 +134,11 @@ func (a *app) handleTransferFacilitator(w http.ResponseWriter, r *http.Request) 
 	var body struct {
 		UserID string `json:"userId"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil || body.UserID == "" {
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"userId is required"}`)
+		return
+	}
+	if body.UserID == "" {
 		http.Error(w, `{"error":"userId is required"}`, http.StatusBadRequest)
 		return
 	}
@@ -177,8 +186,8 @@ func (a *app) handleSetSpectator(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		On bool `json:"on"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil {
-		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
 		return
 	}
 	err := a.sessions.WithActiveSession(r.Context(), sess.ID, p.UserID, false,

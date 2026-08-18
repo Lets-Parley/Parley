@@ -1,12 +1,12 @@
 package standup
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/lets-parley/parley/internal/httprequest"
 	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/store"
 )
@@ -45,8 +45,8 @@ func putEntry(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		Today     string `json:"today"`
 		Blockers  string `json:"blockers"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil {
-		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
 		return
 	}
 	if len(body.Yesterday) > 2000 || len(body.Today) > 2000 || len(body.Blockers) > 2000 {

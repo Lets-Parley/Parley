@@ -27,7 +27,7 @@ func newSession(t *testing.T, pool *pgxpool.Pool, names ...string) (Session, []U
 		}
 		members = append(members, u)
 	}
-	sess, err := (&Sessions{Pool: pool}).Create(ctx, sp.ID, "poker", "Sprint 12", []byte(`{}`), members[0].ID)
+	sess, err := (&Sessions{Pool: pool}).Create(ctx, sp.ID, "poker", "Sprint 12", []byte(`{}`), members[0].ID, 500)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func TestSessionOfARetiredKindStillLoads(t *testing.T) {
 	sp := newSpace(t, pool)
 	u, _ := newUser(t, pool, "Priya Raman")
 	sessions := &Sessions{Pool: pool}
-	sess, err := sessions.Create(ctx, sp.ID, kind, "Retro", []byte(`{}`), u.ID)
+	sess, err := sessions.Create(ctx, sp.ID, kind, "Retro", []byte(`{}`), u.ID, 500)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +315,7 @@ func TestSessionRejectsAnUnknownKind(t *testing.T) {
 
 	sp := newSpace(t, pool)
 	u, _ := newUser(t, pool, "Ben Alvarez")
-	_, err := (&Sessions{Pool: pool}).Create(ctx, sp.ID, "no-such-kind", "Nope", []byte(`{}`), u.ID)
+	_, err := (&Sessions{Pool: pool}).Create(ctx, sp.ID, "no-such-kind", "Nope", []byte(`{}`), u.ID, 500)
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) || pgErr.Code != "23503" {
 		t.Fatalf("creating a session of an unregistered kind: got %v, want a foreign_key_violation (23503)", err)

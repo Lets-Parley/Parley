@@ -12,10 +12,11 @@ import (
 )
 
 var (
-	ErrSlugTaken = errors.New("slug taken")
-	ErrNoSpace   = errors.New("no such space")
-	slugStrip    = regexp.MustCompile(`[^a-z0-9]+`)
-	slugTrim     = regexp.MustCompile(`^-+|-+$`)
+	ErrSlugTaken     = errors.New("slug taken")
+	ErrNoSpace       = errors.New("no such space")
+	ErrQuotaExceeded = errors.New("resource quota exceeded")
+	slugStrip        = regexp.MustCompile(`[^a-z0-9]+`)
+	slugTrim         = regexp.MustCompile(`^-+|-+$`)
 )
 
 type Space struct {
@@ -49,17 +50,38 @@ func Slugify(name string) string {
 	return s
 }
 
-func (s *Spaces) Create(ctx context.Context, name, slug, passcode string) (Space, error) {
+func (s *Spaces) Create(ctx context.Context, name, slug, passcode, creatorID string, limit int) (Space, error) {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return Space{}, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, "select id from users where id = $1 for update", creatorID); err != nil {
+		return Space{}, err
+	}
+	var count int
+	if err := tx.QueryRow(ctx, "select count(*) from spaces where creator_id = $1", creatorID).Scan(&count); err != nil {
+		return Space{}, err
+	}
+	if count >= limit {
+		return Space{}, ErrQuotaExceeded
+	}
 	var sp Space
-	err := s.Pool.QueryRow(ctx,
-		"insert into spaces (slug, name, passcode) values ($1, $2, $3) returning id, slug, name, passcode",
-		slug, name, passcode,
+	err = tx.QueryRow(ctx,
+		"insert into spaces (slug, name, passcode, creator_id) values ($1, $2, $3, $4) returning id, slug, name, passcode",
+		slug, name, passcode, creatorID,
 	).Scan(&sp.ID, &sp.Slug, &sp.Name, &sp.Passcode)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 		return Space{}, ErrSlugTaken
 	}
-	return sp, err
+	if err != nil {
+		return Space{}, err
+	}
+	if _, err := tx.Exec(ctx, "insert into members (space_id, user_id) values ($1, $2)", sp.ID, creatorID); err != nil {
+		return Space{}, err
+	}
+	return sp, tx.Commit(ctx)
 }
 
 func (s *Spaces) BySlug(ctx context.Context, slug string) (Space, error) {

@@ -18,6 +18,15 @@ const tokenIdleExpiry = 90 * 24 * time.Hour
 
 var ErrNoUser = errors.New("no user for token")
 
+var ErrIdentityRateLimited = errors.New("identity creation rate limited")
+
+type IdentityRateLimitError struct {
+	RetryAfter int
+}
+
+func (e *IdentityRateLimitError) Error() string { return ErrIdentityRateLimited.Error() }
+func (e *IdentityRateLimitError) Unwrap() error { return ErrIdentityRateLimited }
+
 type User struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -64,6 +73,68 @@ func (s *Users) Create(ctx context.Context, name string, tokenHash []byte) (User
 	_, err = s.Pool.Exec(ctx,
 		"insert into session_tokens (token_hash, user_id) values ($1, $2)", tokenHash, u.ID)
 	return u, err
+}
+
+func (s *Users) CreateOpen(ctx context.Context, name string, tokenHash []byte, clientAddress string, perClientLimit, globalLimit int) (User, error) {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return User{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	var bucket time.Time
+	var retryAfter int
+	if err := tx.QueryRow(ctx, `
+		select date_trunc('hour', now()),
+		       greatest(1, ceil(extract(epoch from date_trunc('hour', now()) + interval '1 hour' - now())))::integer`,
+	).Scan(&bucket, &retryAfter); err != nil {
+		return User{}, err
+	}
+	digest := sha256.Sum256([]byte(clientAddress))
+	var count int
+	if err := tx.QueryRow(ctx, `
+		insert into identity_creation_buckets (bucket_start, client_digest, count)
+		values ($1, $2, 1)
+		on conflict (bucket_start, client_digest) do update
+		set count = identity_creation_buckets.count + 1
+		where identity_creation_buckets.count < $3
+		returning count`, bucket, digest[:], perClientLimit).Scan(&count); errors.Is(err, pgx.ErrNoRows) {
+		return User{}, &IdentityRateLimitError{RetryAfter: retryAfter}
+	} else if err != nil {
+		return User{}, err
+	}
+	if err := tx.QueryRow(ctx, `
+		insert into identity_creation_global_buckets (bucket_start, count)
+		values ($1, 1)
+		on conflict (bucket_start) do update
+		set count = identity_creation_global_buckets.count + 1
+		where identity_creation_global_buckets.count < $2
+		returning count`, bucket, globalLimit).Scan(&count); errors.Is(err, pgx.ErrNoRows) {
+		return User{}, &IdentityRateLimitError{RetryAfter: retryAfter}
+	} else if err != nil {
+		return User{}, err
+	}
+
+	var u User
+	if err := tx.QueryRow(ctx,
+		"insert into users (name) values ($1) returning id, name", name,
+	).Scan(&u.ID, &u.Name); err != nil {
+		return User{}, err
+	}
+	if _, err := tx.Exec(ctx,
+		"insert into session_tokens (token_hash, user_id) values ($1, $2)", tokenHash, u.ID); err != nil {
+		return User{}, err
+	}
+	if _, err := tx.Exec(ctx, "delete from identity_creation_buckets where bucket_start < $1::timestamptz - interval '1 hour'", bucket); err != nil {
+		return User{}, err
+	}
+	if _, err := tx.Exec(ctx, "delete from identity_creation_global_buckets where bucket_start < $1::timestamptz - interval '1 hour'", bucket); err != nil {
+		return User{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return User{}, err
+	}
+	return u, nil
 }
 
 // UpsertFederated finds or creates the user behind an (issuer, subject) pair and

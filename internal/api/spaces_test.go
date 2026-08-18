@@ -162,3 +162,14 @@ func TestSlugify(t *testing.T) {
 		}
 	}
 }
+
+func TestJoinReturnsPayloadTooLargeForOversizedJSON(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/spaces/example/join", strings.NewReader(`{"passcode":"`+strings.Repeat("x", 4<<10)+`"}`))
+	rec := httptest.NewRecorder()
+
+	(&app{}).handleJoinSpace(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized JSON status = %d, want 413", rec.Code)
+	}
+}

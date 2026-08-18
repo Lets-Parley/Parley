@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/signal"
@@ -24,14 +25,18 @@ import (
 var version = "dev"
 
 type config struct {
-	DatabaseURL string
-	Port        string
-	BaseURL     *url.URL
-	LogLevel    slog.Level
-	AuthMode    string
-	OIDC        auth.Config
-	TrustProxy  bool
+	DatabaseURL       string
+	Port              string
+	BaseURL           *url.URL
+	LogLevel          slog.Level
+	AuthMode          string
+	OIDC              auth.Config
+	TrustProxy        bool
+	TrustedProxyCIDRs []netip.Prefix
+	Limits            abuseLimits
 }
+
+type abuseLimits = api.Limits
 
 func loadConfig() (config, error) {
 	cfg := config{
@@ -71,6 +76,39 @@ func loadConfig() (config, error) {
 		return cfg, fmt.Errorf("TRUST_PROXY_HEADERS %q is not a boolean — use true or false", os.Getenv("TRUST_PROXY_HEADERS"))
 	}
 	cfg.TrustProxy = trust
+	if trust {
+		raw := strings.TrimSpace(os.Getenv("TRUSTED_PROXY_CIDRS"))
+		if raw == "" {
+			return cfg, fmt.Errorf("TRUSTED_PROXY_CIDRS is not set — TRUST_PROXY_HEADERS=true needs the CIDRs of every trusted proxy hop")
+		}
+		for _, value := range strings.Split(raw, ",") {
+			prefix, err := netip.ParsePrefix(strings.TrimSpace(value))
+			if err != nil {
+				return cfg, fmt.Errorf("TRUSTED_PROXY_CIDRS contains invalid CIDR %q", strings.TrimSpace(value))
+			}
+			cfg.TrustedProxyCIDRs = append(cfg.TrustedProxyCIDRs, prefix.Masked())
+		}
+	}
+
+	limits := []struct {
+		name     string
+		fallback int
+		set      func(int)
+	}{
+		{"IDENTITY_IP_HOURLY_LIMIT", 10, func(v int) { cfg.Limits.IdentityIPHourly = v }},
+		{"IDENTITY_GLOBAL_HOURLY_LIMIT", 500, func(v int) { cfg.Limits.IdentityGlobalHourly = v }},
+		{"SPACE_LIMIT_PER_IDENTITY", 50, func(v int) { cfg.Limits.SpacesPerIdentity = v }},
+		{"SESSION_LIMIT_PER_SPACE", 500, func(v int) { cfg.Limits.SessionsPerSpace = v }},
+		{"STORY_LIMIT_PER_SESSION", 500, func(v int) { cfg.Limits.StoriesPerSession = v }},
+	}
+	for _, limit := range limits {
+		raw := envOr(limit.name, strconv.Itoa(limit.fallback))
+		value, err := strconv.Atoi(raw)
+		if err != nil || value <= 0 {
+			return cfg, fmt.Errorf("%s %q is not a positive integer", limit.name, raw)
+		}
+		limit.set(value)
+	}
 
 	switch mode := strings.ToLower(envOr("AUTH_MODE", api.ModeOpen)); mode {
 	case api.ModeOpen:
@@ -182,6 +220,8 @@ func main() {
 		AuthMode:          cfg.AuthMode,
 		TrustProxyHeaders: cfg.TrustProxy,
 		Version:           version,
+		TrustedProxyCIDRs: cfg.TrustedProxyCIDRs,
+		Limits:            cfg.Limits,
 	}
 	if cfg.AuthMode == api.ModeOIDC {
 		// Discovery happens on the first sign-in rather than here: an identity
@@ -191,11 +231,7 @@ func main() {
 
 	handler := api.Router(pool, opts)
 	defer handler.Shutdown()
-	srv := &http.Server{
-		Addr:              ":" + cfg.Port,
-		Handler:           handler,
-		ReadHeaderTimeout: 10 * time.Second,
-	}
+	srv := newHTTPServer(cfg.Port, handler)
 
 	go func() {
 		<-ctx.Done()
@@ -211,6 +247,17 @@ func main() {
 		os.Exit(1)
 	}
 	log.Info("shut down cleanly")
+}
+
+func newHTTPServer(port string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              ":" + port,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 }
 
 func runHealthcheck() int {

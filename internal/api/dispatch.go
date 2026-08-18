@@ -72,10 +72,11 @@ func (a *app) dispatch(w http.ResponseWriter, r *http.Request, name string) {
 		return
 	}
 	act.Do(w, r, session.ActionCtx{
-		Pool:      a.pool,
-		Hub:       a.hub,
-		Broadcast: a.broadcastState,
-		Session:   sess,
-		UserID:    p.UserID,
+		Pool:       a.pool,
+		Hub:        a.hub,
+		Broadcast:  a.broadcastState,
+		Session:    sess,
+		UserID:     p.UserID,
+		StoryLimit: a.limits.StoriesPerSession,
 	})
 }

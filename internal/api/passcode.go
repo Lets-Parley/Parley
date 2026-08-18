@@ -3,14 +3,14 @@ package api
 import (
 	"crypto/rand"
 	"crypto/subtle"
-	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/lets-parley/parley/internal/httprequest"
 )
 
 // Room codes avoid the character pairs people mis-read aloud (0/O, 1/I/L) —
@@ -140,18 +140,17 @@ func (l *attemptLimiter) sweepLocked() {
 // actually connected unless TRUST_PROXY_HEADERS put a forwarded address there;
 // the port changes per connection and is dropped.
 func clientKey(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
+	if addr, ok := parseClientAddress(r.RemoteAddr); ok {
+		return addr.String()
 	}
-	return host
+	return r.RemoteAddr
 }
 
 // decodeOptional reads a small JSON body when there is one, leaving the target
 // untouched when the request carries none. It never consults Content-Length,
 // which a chunked request declares as -1.
 func decodeOptional(w http.ResponseWriter, r *http.Request, into any) error {
-	err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(into)
+	err := httprequest.DecodeJSON(w, r, 4<<10, into)
 	if errors.Is(err, io.EOF) {
 		return nil
 	}

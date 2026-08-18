@@ -1,13 +1,13 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/lets-parley/parley/internal/httprequest"
 	"github.com/lets-parley/parley/internal/store"
 )
 
@@ -35,8 +35,8 @@ func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 		// Open opts out of the room code; the default is a protected space.
 		Open bool `json:"open"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil {
-		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
 		return
 	}
 	name := strings.TrimSpace(body.Name)
@@ -55,18 +55,17 @@ func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 		passcode = newPasscode()
 	}
 
-	sp, err := a.spaces.Create(r.Context(), name, slug, passcode)
+	sp, err := a.spaces.Create(r.Context(), name, slug, passcode, p.UserID, a.limits.SpacesPerIdentity)
 	if errors.Is(err, store.ErrSlugTaken) {
 		http.Error(w, `{"error":"that space name is taken — pick another"}`, http.StatusConflict)
 		return
 	}
-	if err != nil {
-		http.Error(w, `{"error":"could not create space"}`, http.StatusInternalServerError)
+	if errors.Is(err, store.ErrQuotaExceeded) {
+		http.Error(w, `{"error":"space limit reached for this identity"}`, http.StatusConflict)
 		return
 	}
-	// The creator is the first member.
-	if err := a.spaces.Join(r.Context(), sp.ID, p.UserID); err != nil {
-		http.Error(w, `{"error":"could not join space"}`, http.StatusInternalServerError)
+	if err != nil {
+		http.Error(w, `{"error":"could not create space"}`, http.StatusInternalServerError)
 		return
 	}
 	// The creator is the one person who has to see the code straight away.
@@ -143,7 +142,7 @@ func (a *app) handleJoinSpace(w http.ResponseWriter, r *http.Request) {
 	// request declares -1, and skipping the decode would drop a correct
 	// passcode and answer 403. An absent body is simply empty.
 	if err := decodeOptional(w, r, &body); err != nil {
-		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
 		return
 	}
 
@@ -192,7 +191,7 @@ func (a *app) handleSetPasscode(w http.ResponseWriter, r *http.Request) {
 		Open bool `json:"open"`
 	}
 	if err := decodeOptional(w, r, &body); err != nil {
-		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
 		return
 	}
 

@@ -173,7 +173,13 @@ release can be crashed remotely by a disconnecting client.
 | `BASE_URL` | no | `http://localhost:8080` | The address users reach Parley at. Drives cookie `Secure` and the WebSocket origin check. |
 | `PORT` | no | `8080` | Listen port |
 | `LOG_LEVEL` | no | `info` | `debug` / `info` / `warn` / `error` |
-| `TRUST_PROXY_HEADERS` | no | `false` | Read the client address from `X-Forwarded-For`. Required behind a proxy, unsafe without one — see below |
+| `TRUST_PROXY_HEADERS` | no | `false` | Trust canonical `X-Forwarded-For` only from allowlisted proxy hops — see below |
+| `TRUSTED_PROXY_CIDRS` | with proxy trust | — | Comma-separated CIDRs for every trusted immediate/intermediate proxy hop |
+| `IDENTITY_IP_HOURLY_LIMIT` | no | `10` | Open-mode identity creations per verified client address per hour |
+| `IDENTITY_GLOBAL_HOURLY_LIMIT` | no | `500` | Open-mode identity creations across the instance per hour |
+| `SPACE_LIMIT_PER_IDENTITY` | no | `50` | Spaces an identity may create |
+| `SESSION_LIMIT_PER_SPACE` | no | `500` | Sessions a space may contain |
+| `STORY_LIMIT_PER_SESSION` | no | `500` | Stories a planning-poker session may contain |
 | `AUTH_MODE` | no | `open` | `open` for no accounts, `oidc` to sign in through an identity provider |
 | `OIDC_ISSUER` | with `oidc` | — | Issuer base URL, the one serving `/.well-known/openid-configuration` |
 | `OIDC_CLIENT_ID` | with `oidc` | — | Client ID registered with the provider |
@@ -208,28 +214,25 @@ location / {
 }
 ```
 
-Set `BASE_URL=https://parley.example.com` to match, and set
-`TRUST_PROXY_HEADERS=true` so the room-code throttle counts real clients rather
-than seeing every request as coming from the proxy.
+Set `BASE_URL=https://parley.example.com` to match. If the proxy is the only
+path to Parley, set both `TRUST_PROXY_HEADERS=true` and
+`TRUSTED_PROXY_CIDRS=127.0.0.1/32` for the same-host examples above. Use the
+actual proxy network instead when it connects from another address.
 
 Get this one the right way round, because it is wrong in both directions:
 
-- **Directly reachable, set to `true`** — `X-Forwarded-For` is written by
-  whoever sends the request, so a script hands itself a fresh address per guess
-  and walks straight through the room-code throttle.
+- **Directly reachable, trust enabled** — only peers in `TRUSTED_PROXY_CIDRS`
+  can supply an address. Do not include client-reachable networks in that list.
 - **Behind a proxy, left `false`** — every visitor arrives wearing the proxy's
   address, so the throttle counts them all as one client and eight wrong
   guesses lock the whole internet out of that space for a minute.
-- **Behind a proxy that _appends_ rather than overwrites** — Parley reads the
-  leftmost `X-Forwarded-For` entry, which in that case is still the caller's
-  own. nginx and Caddy overwrite by default; ingress-nginx with
-  `use-forwarded-headers`, or anything sitting behind an ELB or CDN, appends,
-  and `true` is then no safer than exposing the port directly. Check which
-  yours does before trusting the header.
+- **Several proxy hops** — list every hop CIDR. Parley walks
+  `X-Forwarded-For` right-to-left through trusted hops and selects the first
+  untrusted address. Malformed chains and headers from untrusted immediate
+  peers are ignored; `X-Real-IP` and `True-Client-IP` are never used.
 
-`deploy/k8s/deployment.yaml` sets it to `true` because an Ingress always
-terminates the connection. `docker-compose.yml` leaves it `false` because it
-publishes the port straight to clients.
+Both `deploy/k8s/deployment.yaml` and `docker-compose.yml` default it to `false`.
+Enable it only after replacing the example topology with your proxy CIDRs.
 
 ## Kubernetes
 

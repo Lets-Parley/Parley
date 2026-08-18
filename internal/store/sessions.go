@@ -51,10 +51,29 @@ func scanSession(row pgx.Row) (Session, error) {
 	return s, err
 }
 
-func (s *Sessions) Create(ctx context.Context, spaceID, kind, title string, config []byte, facilitatorID string) (Session, error) {
-	return scanSession(s.Pool.QueryRow(ctx,
+func (s *Sessions) Create(ctx context.Context, spaceID, kind, title string, config []byte, facilitatorID string, limit int) (Session, error) {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return Session{}, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, "select id from spaces where id = $1 for update", spaceID); err != nil {
+		return Session{}, err
+	}
+	var count int
+	if err := tx.QueryRow(ctx, "select count(*) from sessions where space_id = $1", spaceID).Scan(&count); err != nil {
+		return Session{}, err
+	}
+	if count >= limit {
+		return Session{}, ErrQuotaExceeded
+	}
+	sess, err := scanSession(tx.QueryRow(ctx,
 		"insert into sessions (space_id, kind, title, config, facilitator_id) values ($1, $2, $3, $4, $5) returning "+sessionCols,
 		spaceID, kind, title, config, facilitatorID))
+	if err != nil {
+		return Session{}, err
+	}
+	return sess, tx.Commit(ctx)
 }
 
 func (s *Sessions) ByID(ctx context.Context, id string) (Session, error) {

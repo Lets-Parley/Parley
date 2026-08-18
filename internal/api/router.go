@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -38,6 +39,7 @@ type app struct {
 	oidc     *auth.Provider
 	// passcodeAttempts throttles room-code guessing at the join door.
 	passcodeAttempts *attemptLimiter
+	limits           Limits
 }
 
 type Options struct {
@@ -49,12 +51,40 @@ type Options struct {
 	OIDC *auth.Provider
 	// Version is the build's version string; "dev" when left unset.
 	Version string
-	// TrustProxyHeaders reads the client address from X-Forwarded-For and
-	// friends. Turn it on only when a proxy in front overwrites those headers;
-	// exposed directly, it hands every caller a free choice of address.
+	// TrustProxyHeaders reads X-Forwarded-For only from hops in
+	// TrustedProxyCIDRs. Other forwarding headers are always ignored.
 	TrustProxyHeaders bool
+	TrustedProxyCIDRs []netip.Prefix
+	Limits            Limits
 
 	sessionRevalidationInterval time.Duration
+}
+
+type Limits struct {
+	IdentityIPHourly     int
+	IdentityGlobalHourly int
+	SpacesPerIdentity    int
+	SessionsPerSpace     int
+	StoriesPerSession    int
+}
+
+func (l Limits) withDefaults() Limits {
+	if l.IdentityIPHourly == 0 {
+		l.IdentityIPHourly = 10
+	}
+	if l.IdentityGlobalHourly == 0 {
+		l.IdentityGlobalHourly = 500
+	}
+	if l.SpacesPerIdentity == 0 {
+		l.SpacesPerIdentity = 50
+	}
+	if l.SessionsPerSpace == 0 {
+		l.SessionsPerSpace = 500
+	}
+	if l.StoriesPerSession == 0 {
+		l.StoriesPerSession = 500
+	}
+	return l
 }
 
 // Handler owns both the HTTP router and the lifecycle of its WebSocket hub.
@@ -94,6 +124,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		version:       cmp.Or(opts.Version, "dev"),
 
 		passcodeAttempts: newAttemptLimiter(),
+		limits:           opts.Limits.withDefaults(),
 	}
 	if mode == ModeOIDC {
 		a.oidc = opts.OIDC
@@ -110,13 +141,10 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	}
 
 	r := chi.NewRouter()
-	// RealIP rewrites RemoteAddr from X-Forwarded-For, which the caller writes.
-	// That is correct behind a proxy that overwrites the header, and a hole
-	// anywhere else: the room-code throttle is keyed on the client address, so
-	// trusting a header the guesser controls would let a script reset its own
-	// limit on every request. Off unless the operator says otherwise.
+	// Forwarded addresses affect both open-mode identity creation and room-code
+	// throttles, so they are accepted only across an explicitly trusted chain.
 	if opts.TrustProxyHeaders {
-		r.Use(middleware.RealIP)
+		r.Use(trustedProxyHeaders(opts.TrustedProxyCIDRs))
 	}
 	r.Use(middleware.Recoverer)
 	r.Use(securityHeaders)
