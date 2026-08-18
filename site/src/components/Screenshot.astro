@@ -18,10 +18,8 @@ if (!light || !dark) {
 if (!alt) throw new Error("Screenshot: 'alt' is required.");
 ---
 <figure class="shot">
-  <picture>
-    <source srcset={dark.src} media="(prefers-color-scheme: dark)" />
-    <Image src={light} alt={alt} width={width} densities={[1, 2]} />
-  </picture>
+  <Image class="light" src={light} alt={alt} width={width} densities={[1, 2]} />
+  <Image class="dark" src={dark} alt={alt} width={width} densities={[1, 2]} />
   {caption && <figcaption>{caption}</figcaption>}
 </figure>
 
@@ -33,6 +31,11 @@ if (!alt) throw new Error("Screenshot: 'alt' is required.");
     border-radius: var(--parley-radius-card);
     box-shadow: var(--parley-shadow-rest);
   }
+  /* Starlight's toggle writes data-theme on <html>, so the pair has to key off
+     that and not prefers-color-scheme — otherwise flipping the theme leaves the
+     shots showing whatever the OS prefers. */
+  :global([data-theme="light"]) .shot :global(img.dark) { display: none; }
+  :global([data-theme="dark"]) .shot :global(img.light) { display: none; }
   figcaption {
     font-size: 0.875rem; color: var(--parley-muted);
     margin-top: 0.5rem;
