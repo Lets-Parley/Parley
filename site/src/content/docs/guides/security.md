@@ -1,0 +1,55 @@
+---
+title: Security model
+description: What a room code protects, what it does not, and what a database dump discloses.
+---
+
+## No accounts, by default
+
+In `open` mode a space is guarded by a shared room code, not by identity.
+Anyone holding the code can join, and joining grants full participation: seeing
+the roster, voting, writing standup entries. Joins are broadcast to the room, so
+lurking is visible.
+
+Run Parley on your internal network, behind [an identity
+provider](/guides/sign-in/), or behind an SSO proxy — oauth2-proxy, Authelia,
+Cloudflare Access. The [reverse proxy](/guides/reverse-proxy/) config is where
+that slots in.
+
+## Room codes
+
+Six characters from a 25-character alphabet, and wrong guesses are throttled per
+client address.
+
+They are stored **readable** in the database on purpose. A room code is meant to
+be read off the space page by any member and passed on, the way a Meet or Zoom
+code is, so hashing it would only mean nobody could ever see it again.
+
+Treat a database dump as disclosing the room codes of every space — but not any
+member's identity. Session cookies are opaque random tokens stored hashed, so a
+backup contains no credentials that impersonate a person.
+
+Any member can mint a new code, retiring the old one, or open the space
+entirely.
+
+:::note[The throttle depends on getting one setting right]
+Wrong-guess throttling keys on the client address, which means
+`TRUST_PROXY_HEADERS` has to match your deployment or the throttle either
+misses real guessers or punishes innocent ones. See
+[Configuration](/guides/configuration/).
+:::
+
+## What the server does enforce
+
+- Acting in a space requires having joined it.
+- A protected space refuses joins without the code.
+- A session's existence is never disclosed to non-members — the reply to a
+  stranger is the same 404 either way.
+- Facilitator-only actions (reveal, reset, closing a session) are checked
+  server-side, not hidden in the UI.
+- CSV cells beginning with `=` are escaped, so an export cannot run formulas in
+  a spreadsheet.
+
+## Reporting something
+
+Open a [security advisory](https://github.com/jacorbello/parley/security/advisories/new)
+rather than a public issue.
