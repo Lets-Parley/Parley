@@ -46,7 +46,14 @@ func newUser(t *testing.T, pool *pgxpool.Pool, name string) (User, string) {
 // newSpace creates a space with a slug unique to the calling test.
 func newSpace(t *testing.T, pool *pgxpool.Pool) Space {
 	t.Helper()
-	slug := Slugify(t.Name()) + "-" + randSuffix(t)
+	// The slug column caps at 64 characters, so the readable prefix is bounded
+	// to leave room for the suffix: a long test name must not fail as an
+	// opaque constraint violation.
+	prefix := Slugify(t.Name())
+	if len(prefix) > 40 {
+		prefix = strings.Trim(prefix[:40], "-")
+	}
+	slug := prefix + "-" + randSuffix(t)
 	sp, err := (&Spaces{Pool: pool}).Create(context.Background(), t.Name(), slug, "")
 	if err != nil {
 		t.Fatal(err)
@@ -79,14 +86,13 @@ func TestSlugify(t *testing.T) {
 }
 
 func TestSlugifyTruncatesWithoutTrailingDash(t *testing.T) {
-	// 64 chars of "a" then a space then more: the cut lands on the separator,
-	// which must not survive into the slug.
-	got := Slugify(strings.Repeat("a", 64) + " tail")
-	if len(got) > 64 {
-		t.Fatalf("slug is %d chars, want <= 64", len(got))
-	}
-	if got[len(got)-1] == '-' {
-		t.Fatalf("slug %q ends in a dash", got)
+	// 63 characters then a separator: the 64-character cut lands exactly on
+	// the dash, which must be trimmed rather than stored. The slug CHECK
+	// constraint requires an alphanumeric at both ends, so leaving it there
+	// turns a long space name into a constraint violation on insert.
+	got := Slugify(strings.Repeat("a", 63) + " tail")
+	if want := strings.Repeat("a", 63); got != want {
+		t.Fatalf("Slugify = %q, want %q", got, want)
 	}
 }
 
@@ -339,7 +345,11 @@ func TestSetPasscode(t *testing.T) {
 	if err := spaces.SetPasscode(ctx, sp.ID, ""); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := spaces.BySlug(ctx, sp.Slug); got.Passcode != "" {
-		t.Fatalf("passcode = %q after clearing, want empty", got.Passcode)
+	cleared, err := spaces.BySlug(ctx, sp.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.Passcode != "" {
+		t.Fatalf("passcode = %q after clearing, want empty", cleared.Passcode)
 	}
 }

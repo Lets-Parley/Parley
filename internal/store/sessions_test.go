@@ -98,9 +98,12 @@ func TestClaimFacilitatorNeedsAStaleSeat(t *testing.T) {
 		t.Fatalf("version = %d, want a bump over %d", got.Version, sess.Version)
 	}
 
-	// Claiming a seat you already hold is a no-op, not a second grant.
+	// Claiming a seat you already hold is a no-op, not a second grant. Go
+	// stale first so the grace-period clause is satisfied and the refusal can
+	// only come from the facilitator_id <> claimer check.
+	staleFacilitator(t, pool, sess.ID)
 	if err := sessions.ClaimFacilitator(ctx, sess.ID, claimer.ID); err != ErrNotEligible {
-		t.Fatalf("self-claim: got %v, want ErrNotEligible", err)
+		t.Fatalf("self-claim on a stale seat: got %v, want ErrNotEligible", err)
 	}
 
 	// Touching liveness closes the window again.
@@ -179,8 +182,12 @@ func TestTransferFacilitatorRequiresMembership(t *testing.T) {
 	if err := sessions.TransferFacilitator(ctx, sess.ID, outsider.ID); err != ErrNotEligible {
 		t.Fatalf("transfer to a non-member: got %v, want ErrNotEligible", err)
 	}
-	if got, _ := sessions.ByID(ctx, sess.ID); got.FacilitatorID != members[0].ID {
-		t.Fatalf("facilitator changed to %s on a rejected transfer", got.FacilitatorID)
+	unchanged, err := sessions.ByID(ctx, sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.FacilitatorID != members[0].ID {
+		t.Fatalf("facilitator changed to %s on a rejected transfer", unchanged.FacilitatorID)
 	}
 
 	if err := sessions.TransferFacilitator(ctx, sess.ID, members[1].ID); err != nil {
@@ -240,7 +247,10 @@ func TestSetEndedAndBumpVersion(t *testing.T) {
 	if err := sessions.BumpVersion(ctx, sess.ID); err != nil {
 		t.Fatal(err)
 	}
-	bumped, _ := sessions.ByID(ctx, sess.ID)
+	bumped, err := sessions.ByID(ctx, sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if bumped.Version != reopened.Version+1 {
 		t.Fatalf("version = %d, want %d", bumped.Version, reopened.Version+1)
 	}
