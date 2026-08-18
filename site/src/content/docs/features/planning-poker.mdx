@@ -6,6 +6,13 @@ description: Story queue, four decks, hidden votes, and statistics that suit the
 import Deck from "../../../components/Deck.astro";
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
+import Screenshot from "../../../components/Screenshot.astro";
+import queueLight from "../../../assets/story-queue-light.png";
+import queueDark from "../../../assets/story-queue-dark.png";
+import hiddenLight from "../../../assets/hidden-votes-light.png";
+import hiddenDark from "../../../assets/hidden-votes-dark.png";
+import tshirtLight from "../../../assets/tshirt-results-light.png";
+import tshirtDark from "../../../assets/tshirt-results-dark.png";
 
 <VerifiedStamp source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go"]} />
 
@@ -25,6 +32,13 @@ the WebSocket state and comes out in the [CSV export](/features/exports/) as its
 own column, so a session's output can be matched back to your tracker.
 
 Titles are capped at 200 characters, notes at 2000, and a reference at 40.
+
+<Screenshot
+  light={queueLight}
+  dark={queueDark}
+  alt="A poker room with PLAT-412 on the table and its note beneath the title, and a queue of five items to the right — four ticket references and one ad-hoc line."
+  caption="The item on the table carries its reference and its note; the queue behind it mixes tickets with the ad-hoc line somebody added mid-session."
+/>
 
 ## The decks
 
@@ -56,6 +70,13 @@ The check runs **only when a vote lands** — never on connect or disconnect. A
 disconnect can shrink the denominator; it can never open the round. Otherwise
 closing a laptop would be a way to reveal everyone else's votes.
 
+<Screenshot
+  light={hiddenLight}
+  dark={hiddenDark}
+  alt="Four face-down cards at the table and two empty seats, with the line '4 of 6 voted' underneath and the viewer's own 5 raised in their hand."
+  caption="Mid-round: four cards are down, the count reads 4 of 6, and the only value anyone can see is the one in their own hand."
+/>
+
 ## Statistics that suit the deck
 
 Numeric decks report a median up front, an average underneath, and a count for
@@ -65,6 +86,13 @@ Ordinal decks do not. A T-shirt round reports the **mode and the range** —
 "mostly M, spread S to L" — because the average of S, M and L is not a size. An
 "average: 4.5" over T-shirt sizes is a correctness bug displayed to the whole
 team on a shared screen, and Parley declines to render one.
+
+<Screenshot
+  light={tshirtLight}
+  dark={tshirtDark}
+  alt="A revealed T-shirt round showing a large M under the heading MODE, the line 'range S–L · 6 votes · ordinal deck, no average', and per-value counts of S ×1, M ×4 and L ×1."
+  caption="An ordinal deck reports the mode and the range, spells out that it will not average, and offers to save M onto the story."
+/>
 
 ## Ending the round
 

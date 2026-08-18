@@ -5,6 +5,9 @@ description: CSV of any session, with the spreadsheet-formula escaping you would
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
+import Screenshot from "../../../components/Screenshot.astro";
+import historyLight from "../../../assets/session-history-light.png";
+import historyDark from "../../../assets/session-history-dark.png";
 
 <VerifiedStamp source={["internal/api/export.go", "internal/poker/csv.go", "internal/standup/csv.go"]} />
 
@@ -16,6 +19,16 @@ GET /api/sessions/{id}/export.csv
 
 You must be a member of the space to fetch it. The file is named after the
 session title, sanitised.
+
+Finding the session to export is the space page's job: search the titles and
+filter by kind, then open the one you want and take the CSV from its room.
+
+<Screenshot
+  light={historyLight}
+  dark={historyDark}
+  alt="A space's session list filtered to poker with the search box reading 'sprint', narrowed to Sprint 34, 33 and 32 planning — one live, two ended."
+  caption="Search matches titles and the kind filter cuts the rest; every session in the list, live or ended, exports."
+/>
 
 ## Columns
 
