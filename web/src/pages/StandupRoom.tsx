@@ -59,14 +59,19 @@ function useOwnEntryDraft(env: Envelope, meId: string) {
 
 function Timer({ startedAt, seconds, serverTime }: { startedAt: string; seconds: number; serverTime: string }) {
   // Server clock offset estimated from the latest frame; the countdown is
-  // display-only and identical on every screen.
-  const offset = Date.parse(serverTime) - Date.now();
+  // display-only and identical on every screen. Captured once per frame
+  // (not per render) so Date.now() actually advances against a fixed
+  // offset instead of cancelling out on every tick.
+  const offset = useRef(Date.parse(serverTime) - Date.now());
+  useEffect(() => {
+    offset.current = Date.parse(serverTime) - Date.now();
+  }, [serverTime]);
   const [, tick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => tick((n) => n + 1), 500);
     return () => clearInterval(t);
   }, []);
-  const remaining = Math.ceil(seconds - (Date.now() + offset - Date.parse(startedAt)) / 1000);
+  const remaining = Math.ceil(seconds - (Date.now() + offset.current - Date.parse(startedAt)) / 1000);
   const shown = Math.max(0, remaining);
   const tone = remaining <= 0 ? "text-stop" : remaining <= seconds * 0.25 ? "text-brass" : "text-ink-soft";
   return (
