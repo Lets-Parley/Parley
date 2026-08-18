@@ -1,28 +1,96 @@
 /* Chart paper and navy ink, matching web/src/tokens.css so the site and the
    product read as the same thing. Update both together or neither.
-   Only accent and background tokens are overridden: Starlight uses its
-   gray scale and --sl-color-white for foreground text, and redefining those
-   paints type the same colour as the page it sits on. */
+
+   Only accent, background and hairline tokens are overridden: Starlight uses
+   its gray scale and --sl-color-white for foreground text, and redefining
+   those paints type the same colour as the page it sits on.
+
+   Note the ramp inverts between themes, matching Starlight's own props.css:
+   in dark, --sl-color-text-accent resolves to --sl-color-accent-high (so that
+   token is the light end); in light it resolves to --sl-color-accent (so
+   accent-high is the dark end). Getting this backwards makes links vanish. */
 @import "@fontsource/instrument-sans/400.css";
+@import "@fontsource/instrument-sans/400-italic.css";
 @import "@fontsource/instrument-sans/600.css";
 @import "@fontsource/instrument-sans/700.css";
+@import "@fontsource/jetbrains-mono/400.css";
 @import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/700.css";
 
+/* Dark is the default here, as it is in Starlight. */
 :root {
-  --sl-color-accent-low: #0f2a3d;
-  --sl-color-accent: #2f7ba8;
+  --sl-color-accent-low: #1c3247;
+  --sl-color-accent: #5fa8d3;
   --sl-color-accent-high: #cfe3f0;
+
+  --sl-color-bg: #0e1726;
+  --sl-color-bg-nav: #0a101b;
+  --sl-color-bg-sidebar: #0a101b;
+  --sl-color-bg-inline-code: #162032;
+  --sl-color-hairline: #2a3648;
+  --sl-color-hairline-light: #2a3648;
+  --sl-color-hairline-shade: #0a101b;
+
+  --parley-surface: #162032;
+  --parley-surface-hi: #1e2b3f;
+  --parley-line: #2a3648;
+  --parley-muted: #8494a4;
+  --parley-brass: #d9ae54;
+  --parley-go: #5fbfa6;
+  --parley-stop: #e3695c;
+
   --sl-font: "Instrument Sans", -apple-system, "Segoe UI", sans-serif;
   --sl-font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --sl-content-width: 50rem;
+
+  --parley-radius-card: 14px;
+  --parley-radius-chip: 8px;
 }
+
 :root[data-theme="light"] {
   --sl-color-accent-low: #d6e4ee;
   --sl-color-accent: #1d4e6e;
   --sl-color-accent-high: #12202f;
+
   --sl-color-bg: #f7f6f2;
   --sl-color-bg-nav: #e9e7e1;
+  --sl-color-bg-sidebar: #e9e7e1;
+  --sl-color-bg-inline-code: #e9e7e1;
+  --sl-color-hairline: #c7c4ba;
+  --sl-color-hairline-light: #c7c4ba;
+  --sl-color-hairline-shade: #dbd8d0;
+
+  --parley-surface: #ffffff;
+  --parley-surface-hi: #ffffff;
+  --parley-line: #c7c4ba;
+  --parley-muted: #556472;
+  --parley-brass: #7a5a12;
+  --parley-go: #2a7060;
+  --parley-stop: #b33326;
 }
+
+/* Numerals are data: mono and tabular wherever they line up in a column.
+   Mirrors the same rule in web/src/tokens.css. */
+.sl-markdown-content table td,
+.sl-markdown-content table th {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A wide table must scroll inside itself rather than blowing out the page.
+   Starlight does not wrap MDX-authored tables. */
+.sl-markdown-content table {
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.sl-markdown-content h1,
+.sl-markdown-content h2,
+.sl-markdown-content h3 {
+  letter-spacing: -0.005em;
+}
+
 .hero img {
-  border-radius: 14px;
+  border-radius: var(--parley-radius-card);
   box-shadow: 0 18px 40px -18px rgb(18 32 47 / 0.45);
 }

@@ -1,0 +1,32 @@
+---
+title: Security
+description: Parley's security model, threat model, authentication, authorization, data handling and supply chain.
+---
+
+import SectionIndex from "../../../components/SectionIndex.astro";
+
+Parley is a self-hosted tool that a team joins by following a link. That shapes
+everything below: the interesting questions are what a room code actually
+protects, what an operator is trusted to configure correctly, and what a database
+dump would disclose.
+
+These pages state what is enforced, what is deliberately not, and what is simply
+absent. Where something is absent there is a mitigation next to it — a gap with
+an answer is a decision, a gap without one is a hole.
+
+:::note[Reviewing Parley for your organisation?]
+The [Security review pack](/security/review-pack/) is a single page that collects
+the threat model, the data inventory, the supply-chain position and every known
+limitation, so you can read or print one document instead of eight.
+:::
+
+<SectionIndex items={[
+  { title: "Overview", href: "/security/overview/", blurb: "The security model in plain terms: what a room code is and is not." },
+  { title: "Threat model", href: "/security/threat-model/", blurb: "Assets, trust boundaries, who is in scope, and the risks accepted on purpose." },
+  { title: "Authentication", href: "/security/authentication/", blurb: "Anonymous and OpenID Connect, cookies, tokens, and session lifetime." },
+  { title: "Authorization", href: "/security/authorization/", blurb: "Membership, facilitator rights, and what the server checks on every request." },
+  { title: "Data and privacy", href: "/security/data-and-privacy/", blurb: "Every field of personal data Parley stores, and what it does not keep." },
+  { title: "Hardening checklist", href: "/security/hardening-checklist/", blurb: "The ordered list of things to get right before you expose it." },
+  { title: "Supply chain", href: "/security/supply-chain/", blurb: "Dependencies, the image, and what the release pipeline does not yet do." },
+  { title: "Review pack", href: "/security/review-pack/", blurb: "Everything above as one printable document." },
+]} />

@@ -1,0 +1,41 @@
+---
+// One environment variable with the five things an operator needs.
+// `fatal` means the process refuses to start on a bad value — worth its own
+// row because most of Parley's config is fail-fast.
+const { name, default: def, required = false, fatal = false, derives } = Astro.props;
+---
+<div class="env">
+  <h3 id={name}><code>{name}</code></h3>
+  <dl>
+    <dt>Default</dt>
+    <dd>{def ? <code>{def}</code> : <em>none</em>}</dd>
+    <dt>Required</dt>
+    <dd>{required ? <strong>Yes</strong> : "No"}</dd>
+    <dt>Bad value</dt>
+    <dd>{fatal ? "Refuses to start, with a named reason on stderr" : "Ignored"}</dd>
+    {derives && <><dt>Derives</dt><dd>{derives}</dd></>}
+  </dl>
+  <div class="env-body"><slot /></div>
+</div>
+
+<style>
+  .env {
+    border: 1px solid var(--parley-line);
+    border-radius: var(--parley-radius-card);
+    padding: 0.85rem 1.1rem; margin: 1.25rem 0;
+    background: var(--parley-surface);
+  }
+  .env h3 { margin-top: 0.2rem; margin-bottom: 0.6rem; font-size: 1.05rem; }
+  .env h3 code { background: none; padding: 0; }
+  .env dl {
+    display: grid; grid-template-columns: max-content 1fr;
+    gap: 0.2rem 1rem; margin: 0 0 0.5rem; font-size: 0.9375rem;
+  }
+  .env dt {
+    font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--parley-muted); font-weight: 600; padding-top: 0.15rem;
+  }
+  .env dd { margin: 0; }
+  .env-body :global(p:last-child) { margin-bottom: 0; }
+  @media (max-width: 30rem) { .env dl { grid-template-columns: 1fr; gap: 0 } }
+</style>

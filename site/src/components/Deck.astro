@@ -1,0 +1,65 @@
+---
+// The decks as Parley renders them. Values transcribed from
+// internal/poker/deck.go — every deck also carries "?" and a coffee card,
+// and neither ever enters the numeric stats.
+const DECKS = {
+  fibonacci: {
+    label: "Fibonacci",
+    values: ["1", "2", "3", "5", "8", "13", "21", "34"],
+    stats: "median, average, per-value counts",
+  },
+  "modified-fibonacci": {
+    label: "Modified Fibonacci",
+    values: ["0", "½", "1", "2", "3", "5", "8", "13", "20", "40", "100"],
+    stats: "median, average, per-value counts",
+  },
+  tshirt: {
+    label: "T-shirt",
+    values: ["XS", "S", "M", "L", "XL"],
+    stats: "mode and range — no average, because there isn't one",
+  },
+  "powers-of-2": {
+    label: "Powers of two",
+    values: ["1", "2", "4", "8", "16", "32"],
+    stats: "median, average, per-value counts",
+  },
+};
+const { name } = Astro.props;
+const deck = DECKS[name];
+if (!deck) throw new Error(`Deck: unknown deck "${name}"`);
+---
+<figure class="deck">
+  <figcaption>
+    <span class="label">{deck.label}</span>
+    <code class="key">{name}</code>
+  </figcaption>
+  <div class="cards">
+    {deck.values.map((v) => <span class="card">{v}</span>)}
+    <span class="card special">?</span>
+    <span class="card special" aria-label="coffee">☕</span>
+  </div>
+  <p class="stats">{deck.stats}</p>
+</figure>
+
+<style>
+  .deck { margin: 1.25rem 0; }
+  .deck figcaption {
+    display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.5rem;
+  }
+  .label { font-weight: 600; }
+  .key { font-size: 0.8125rem; color: var(--parley-muted); background: none; padding: 0; }
+  .cards { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .card {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 2.35rem; padding: 0.5rem 0.4rem;
+    font-family: var(--sl-font-mono); font-size: 0.9375rem; font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    border: 1px solid var(--parley-line);
+    border-radius: var(--parley-radius-chip);
+    background: var(--parley-surface-hi);
+  }
+  .card.special { color: var(--parley-muted); }
+  .stats {
+    font-size: 0.875rem; color: var(--parley-muted); margin: 0.5rem 0 0;
+  }
+</style>

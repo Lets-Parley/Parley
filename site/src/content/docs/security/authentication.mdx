@@ -1,0 +1,131 @@
+---
+title: Authentication
+description: Anonymous and OpenID Connect sign-in, cookies, tokens, and how long a session really lasts.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import SpecTable from "../../../components/SpecTable.astro";
+
+<VerifiedStamp version="v0.2.1" source={["internal/auth/oidc.go", "internal/api/auth.go", "internal/api/principal.go", "internal/store/users.go"]} />
+
+Parley runs in one of two modes, set by `AUTH_MODE` and fixed at boot.
+
+## open
+
+The default, and the original. No accounts: people type a name, get an avatar,
+and take a seat. Nothing to administer, nothing to provision. A stranger with
+the link and the room code is a participant.
+
+## oidc
+
+Sign-in goes to your identity provider. There is no vendor-specific code in
+Parley — it is a plain OpenID Connect relying party that reads the issuer's
+discovery document, so anything speaking OIDC works and switching providers is
+a change of configuration:
+
+```sh
+AUTH_MODE=oidc
+OIDC_ISSUER=https://keycloak.example.com/realms/yourteam
+OIDC_CLIENT_ID=parley
+OIDC_CLIENT_SECRET=...
+```
+
+Register `<BASE_URL>/auth/callback` as the redirect URI with your provider, and
+allow the `openid`, `profile` and `email` scopes.
+
+Sign-in uses the authorization code flow with PKCE. The ID token's signature,
+audience, expiry and nonce are all verified before an account is touched.
+
+:::caution[Two things to know before switching a running instance]
+**The anonymous door closes.** With a provider configured, the endpoint that
+mints a nameless identity is refused outright — otherwise signing in would be
+optional and therefore pointless.
+
+**Everyone is signed out.** Sessions created while the instance was open stop
+being accepted the moment it starts in `oidc` mode. Accounts and rooms stay in
+the database, untouched and unmigrated, but the people behind them come back as
+new federated accounts. Plan the switch for an instance whose history you're
+willing to leave behind, or wait for account linking.
+:::
+
+## Names
+
+Taken from the provider's claims — `name`, then `preferred_username`, then the
+local part of `email` — and refreshed on every sign-in, so a rename upstream
+follows the person onto the roster.
+
+## Signing out
+
+Ends the Parley session only. It does not sign anyone out of the identity
+provider, which matters on a shared machine.
+
+## Room codes still apply
+
+Identity says who you are. The room code says which room you may enter. Signing
+in does not by itself get anyone into a space — per-user and per-team access is
+on the roadmap.
+
+
+## Cookies
+
+<SpecTable caption="parley_session — the identity cookie" rows={[
+  { name: "Path", value: "/", note: "" },
+  { name: "HttpOnly", value: "yes", note: "" },
+  { name: "SameSite", value: "Lax", note: "Part of the cross-site request defence" },
+  { name: "Secure", value: "when BASE_URL is https", note: "This is why BASE_URL must be right" },
+  { name: "Max-Age", value: "90 days", note: "Fixed from issue — see below" },
+]} />
+
+<SpecTable caption="parley_signin — the sign-in flow cookie, oidc mode only" rows={[
+  { name: "Path", value: "/auth", note: "Never sent to the API" },
+  { name: "HttpOnly", value: "yes", note: "" },
+  { name: "SameSite", value: "Lax", note: "" },
+  { name: "Secure", value: "when BASE_URL is https", note: "" },
+  { name: "Max-Age", value: "600s", note: "Cleared before the redirect that spends it" },
+]} />
+
+The flow cookie holds the OAuth state, the nonce, the PKCE verifier and the page
+you were heading to. It is **base64 JSON, not signed or encrypted** — worth
+knowing, and survivable, because nothing in it is trusted on the way back: state
+and nonce are compared in constant time against the provider's response, and the
+redirect target is re-validated after the round trip rather than only when it was
+written.
+
+## Tokens
+
+The value in `parley_session` is 32 bytes of cryptographic randomness,
+base64url-encoded. The server stores only its **SHA-256 hash**, so a database
+dump does not yield working credentials.
+
+The user id is deliberately *not* in the cookie. It is public — every participant
+sees it — so a cookie containing it would be trivially forgeable no matter how it
+was signed.
+
+## How long a session actually lasts
+
+Two different clocks, and they do not agree. This catches people out, so it is
+worth stating precisely:
+
+- **Server side**, a token expires after **90 days of inactivity**, and every
+  request pushes that window out. An active token never ages out.
+- **Browser side**, the cookie is written with a **fixed 90-day `Max-Age` from
+  the moment it was issued**, and it is never rewritten on subsequent requests.
+
+The browser is therefore the binding constraint. Somebody who uses Parley every
+single day is **still signed out 90 days after signing in**, because the cookie
+expires even though the token behind it is perfectly healthy. They sign in again
+and carry on; nothing is lost. But do not tell your users that activity keeps
+them signed in, because it does not.
+
+## Revocation
+
+<SpecTable rows={[
+  { name: "Sign out", value: "supported", note: "Deletes the token row and clears the cookie" },
+  { name: "Rename", value: "rotates the token", note: "In one transaction" },
+  { name: "Sign out everywhere", value: "not supported", note: "Delete the user's rows from session_tokens in SQL" },
+  { name: "Administrative revocation", value: "not supported", note: "Same — there is no admin surface at all" },
+  { name: "Expired token cleanup", value: "never runs", note: "Rows stop resolving but are not swept" },
+]} />
+
+If you need to force everybody out of an instance right now, delete every row in
+`session_tokens`. Everyone signs in again; nothing else is affected.

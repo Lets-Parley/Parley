@@ -1,0 +1,86 @@
+---
+title: Roadmap
+description: What is being worked on, what is accepted, and what is only being explored.
+---
+
+Nothing here is a commitment to a date or a scope. This page mirrors
+[ROADMAP.md](https://github.com/lets-parley/parley/blob/main/ROADMAP.md) in the
+repository, which is the source of truth; the
+[issue tracker](https://github.com/lets-parley/parley/issues) has the detail.
+
+## Now
+
+Nothing is in progress. The next thing to start is under **Next**.
+
+## Next
+
+### An extensible core
+
+Adding a ceremony to Parley currently means touching the router, a database
+constraint, a registry populated at package initialisation, and a ternary in the
+frontend. This work makes session kinds a real extension point, so a
+retrospective or a story map is code someone adds rather than surgery on the
+core.
+
+It pays for itself on other grounds too: it fixes a migration-versioning bug,
+gives the two existing kinds one shared authorization path instead of two
+reimplementations, and stops an unknown session kind from silently rendering the
+wrong room.
+
+Tracking: [#8](https://github.com/lets-parley/parley/issues/8) · target v0.3.0
+
+## Later
+
+### A plugin system
+
+Extend Parley without forking it — integrations, meeting notes, themes, and whole
+ceremonies, installed by the operator and running under capability grants they
+approve. Plugin code would be sandboxed WebAssembly with no sockets and no
+database access, reaching everything through a host function that checks the
+grant first.
+
+Depends on the extensible core.
+Tracking: [#9](https://github.com/lets-parley/parley/issues/9)
+
+### The rest of the ceremonies
+
+Retrospectives with grouping and dot voting, action items that outlive the
+meeting, user story mapping, a sprint board, async standups, team health checks.
+
+Some of these will arrive as plugins rather than core features, which is rather
+the point of the two entries above.
+
+### A collaborative whiteboard
+
+An infinite canvas with sticky notes, shapes, connectors, frames, live cursors
+and comments — and every ceremony above able to run on it.
+
+The largest single bet on the page, and one that deserves an explicit decision
+before anyone starts: the document engine underneath it is infrastructure, not a
+feature.
+
+## Exploring
+
+Ideas under consideration, not committed to:
+
+- Boards that work offline and merge on reconnect
+- Retro synthesis and meeting recaps, with a bring-your-own model endpoint so
+  nothing leaves the instance
+- Two-way issue sync with Jira, Linear and GitHub
+- Replaying how a board or a ceremony actually evolved
+- Signed single-purpose links that need no login
+- Audit logging, retention policies, and SSO group-to-role mapping
+- White-label theming
+
+## Things this documentation says are missing
+
+Several gaps named in [Known limitations](/known-limitations/) — multi-replica
+realtime, membership roles, account linking, knock-to-join — are on the roadmap
+in the repository. Others, notably observability and supply-chain tooling, are
+not yet scheduled anywhere. That is the honest position rather than an implied
+promise.
+
+## Feature requests
+
+[Open an issue](https://github.com/lets-parley/parley/issues/new). Being
+discussed does not mean accepted — the status on the issue is the honest signal.

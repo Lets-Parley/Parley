@@ -1,0 +1,62 @@
+---
+title: Daily standup
+description: Round-robin with a per-person timer, carry-forward, and a blockers roundup.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import Capability from "../../../components/Capability.astro";
+
+<VerifiedStamp version="v0.2.1" source={["internal/standup/state.go", "internal/standup/routes.go", "web/src/pages/StandupRoom.tsx"]} />
+
+A standup session is three text fields per person — yesterday, today, blockers —
+and an order to speak in.
+
+## Writing ahead
+
+Everyone can fill their entry in before the standup starts, and most people
+should. Entries autosave as you type, roughly every 800ms, with a visible
+saving/saved indicator.
+
+The draft is deliberately **never rehydrated from an incoming broadcast**. Parley
+replaces the whole session state on every update, and an earlier version of this
+screen used that state to populate the textarea — which meant somebody else's
+edit could land mid-sentence and eat your keystrokes. Your own field is local
+until you stop typing.
+
+Each field is capped at 2000 characters.
+
+## Starting the round
+
+When the facilitator starts the standup, the server takes a snapshot of who is
+currently connected and not spectating, orders them by name, and that becomes the
+speaking order for the session. People who join later do not get spliced into an
+order that is already underway.
+
+At the same moment, **yesterday writes itself**: each person's "today" from the
+previous standup in that space is copied into their "yesterday". It is a draft,
+not a commitment — edit it or delete it.
+
+## Running the round
+
+The speaker rail shows who is up, who has been, and who was skipped. The
+facilitator advances with **Next**, or marks someone **absent** with Skip, which
+strikes them through and moves on.
+
+There is a per-person countdown, driven off the server's clock rather than the
+browser's, so everyone in the room sees the same number.
+
+## The blockers roundup
+
+Anything anybody typed into "blockers" collects into a single list at the end,
+with a copy-to-clipboard button — which is the bit that actually gets pasted into
+a channel afterwards.
+
+## What is not here
+
+<Capability rows={[
+  { name: "Configurable timer length", status: "not-built", detail: "The server supports a <code>secondsPerPerson</code> session setting and defaults it to 90, but nothing in the UI sets it. Treat 90 seconds as fixed." },
+  { name: "Async standup", status: "not-built", detail: "Write ahead of time and let the round run without you; a scheduled digest is on the <a href='/project/roadmap/'>roadmap</a>." },
+  { name: "Reordering the speaking order", status: "not-built", detail: "The order is by name. Skip moves past anyone who is not ready." },
+  { name: "Facilitator-offline claim", status: "not-built", detail: "The endpoint is kind-agnostic but the 60-second claim banner is only wired into the poker room. End and recreate the standup if its facilitator vanishes." },
+  { name: "Chasing people who did not write anything", status: "out-of-scope", detail: "Parley has no notification channel and does not want one." },
+]} />

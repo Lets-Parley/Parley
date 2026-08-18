@@ -1,0 +1,63 @@
+---
+// The honesty mechanism: one table per section, at the end.
+// Status is plain words, never a red badge — a missing feature is not a
+// warning, and if red means both "your data is at risk" and "no Prometheus
+// endpoint" it means nothing.
+//
+// rows: [{ name, status: 'built' | 'not-built' | 'out-of-scope', detail }]
+// Every 'not-built' row MUST carry a mitigation in `detail`. A gap with an
+// answer is a decision; a gap without one is a hole.
+const { rows = [] } = Astro.props;
+const label = {
+  built: "Built in",
+  "not-built": "Not built",
+  "out-of-scope": "Out of scope",
+};
+const missing = rows.filter((r) => r.status === "not-built" && !r.detail);
+if (missing.length) {
+  throw new Error(
+    `Capability: 'not-built' rows need a mitigation in \`detail\`: ` +
+      missing.map((r) => r.name).join(", ")
+  );
+}
+---
+<div class="cap">
+  <table>
+    <thead>
+      <tr><th>Capability</th><th>Status</th><th>What to do instead</th></tr>
+    </thead>
+    <tbody>
+      {rows.map((r) => (
+        <tr>
+          <th scope="row">{r.name}</th>
+          <td><span class={`tag tag-${r.status}`}>{label[r.status]}</span></td>
+          <td class="detail" set:html={r.detail ?? "—"} />
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+
+<style>
+  .cap { overflow-x: auto; margin: 1.25rem 0; }
+  .cap table { width: 100%; border-collapse: collapse; display: table; }
+  .cap th, .cap td {
+    text-align: left; padding: 0.5rem 0.75rem 0.5rem 0;
+    border-bottom: 1px solid var(--parley-line); vertical-align: top;
+  }
+  .cap thead th {
+    font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--parley-muted); font-weight: 600;
+  }
+  .cap tbody th { font-weight: 600; }
+  .tag {
+    display: inline-block; white-space: nowrap;
+    font-size: 0.75rem; font-weight: 600;
+    padding: 0.1rem 0.5rem; border-radius: var(--parley-radius-chip);
+    border: 1px solid currentColor;
+  }
+  .tag-built { color: var(--parley-go); }
+  .tag-not-built { color: var(--parley-brass); }
+  .tag-out-of-scope { color: var(--parley-muted); }
+  .detail { color: var(--parley-muted); font-size: 0.9375rem; }
+</style>

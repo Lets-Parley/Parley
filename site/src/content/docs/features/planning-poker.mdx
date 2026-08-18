@@ -1,0 +1,86 @@
+---
+title: Planning poker
+description: Story queue, four decks, hidden votes, and statistics that suit the deck.
+---
+
+import Deck from "../../../components/Deck.astro";
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import Capability from "../../../components/Capability.astro";
+
+<VerifiedStamp version="v0.2.1" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go"]} />
+
+A poker session is a queue of work and a table of people. The facilitator puts
+one item on the table, everybody votes face-down, and the round opens either when
+the last person votes or when the facilitator calls it.
+
+## The story queue
+
+Work goes in as either a **ticket** — with a reference like `PLAT-412` — or an
+**ad-hoc** line item, which is what you want when someone says "and what about
+the migration script?" mid-session. Both take optional notes, and both can be
+reordered with the arrows.
+
+The reference is real data rather than decoration: it travels through the API and
+the WebSocket state and comes out in the [CSV export](/features/exports/) as its
+own column, so a session's output can be matched back to your tracker.
+
+Titles are capped at 200 characters, notes at 2000, and a reference at 40.
+
+## The decks
+
+Four, chosen when the session is created and fixed for its lifetime. Every deck
+also carries `?` — "no idea" — and a coffee card. Neither ever enters the
+statistics.
+
+<Deck name="fibonacci" />
+<Deck name="modified-fibonacci" />
+<Deck name="tshirt" />
+<Deck name="powers-of-2" />
+
+A vote is validated against the session's own deck on the way in, so a client
+cannot store a value the deck does not contain.
+
+## Hidden votes and auto-reveal
+
+Nobody sees a value before the round opens. This is enforced where it has to be:
+the server builds a redacted view of the session for each viewer, and the
+WebSocket broadcasts that view — an unrevealed vote is structurally absent from
+the payload rather than present-but-hidden by the client.
+
+The round opens automatically once everyone who *can* vote has voted. Spectators
+are not in that denominator, and neither is anyone whose seat has gone away —
+otherwise "4 of 5" would hang forever because someone shut their laptop.
+
+One deliberate subtlety: the check runs **only when a vote lands**, never when
+somebody connects or disconnects. A disconnect can therefore shrink the
+denominator, but it can never be the thing that opens the round. If that were not
+true, closing a laptop would be a way to reveal everyone else's votes.
+
+## Statistics that suit the deck
+
+Numeric decks report a median up front, an average underneath, and a count for
+each value.
+
+Ordinal decks do not. A T-shirt round reports the **mode and the range** —
+"mostly M, spread S to L" — because the average of S, M and L is not a size. An
+"average: 4.5" over T-shirt sizes is a correctness bug displayed to the whole
+team on a shared screen, and Parley declines to render one.
+
+## Ending the round
+
+After the reveal the facilitator can save the agreed value onto the story with
+one click, which writes the estimate and moves the queue along. If a round has no
+saveable result — everyone voted `?`, or the deck is ordinal and there is no
+single winner — the save control does not appear rather than inventing something
+to write.
+
+Reset clears the votes on the current story and starts it again.
+
+## What is not here
+
+<Capability rows={[
+  { name: "Vote timer", status: "not-built", detail: "Use a facilitator's own timer. Auto-reveal already ends most rounds without one." },
+  { name: "Estimate history across sessions", status: "not-built", detail: "Export each session to CSV and keep them; cross-session analytics is on the <a href='/project/roadmap/'>roadmap</a>." },
+  { name: "Custom decks", status: "not-built", detail: "Pick the closest of the four. A custom deck needs a config path that does not exist yet." },
+  { name: "Editing a revealed vote", status: "out-of-scope", detail: "Reset the round instead — silently changing a revealed vote would make the reveal meaningless." },
+]} />

@@ -1,0 +1,21 @@
+---
+title: Features
+description: Everything Parley does today — planning poker, daily standup, spaces, exports and themes.
+---
+
+import SectionIndex from "../../../components/SectionIndex.astro";
+
+Parley runs two ceremonies today: planning poker and a daily standup. Both live
+inside a space, both are live over a WebSocket, and both export to CSV.
+
+What is on this page is what exists. Where something is deliberately absent, it
+says so and points at the workaround — [Known limitations](/known-limitations/)
+collects all of it in one place.
+
+<SectionIndex items={[
+  { title: "Planning poker", href: "/features/planning-poker/", blurb: "Story queue, four decks, hidden votes, and statistics that suit the deck." },
+  { title: "Daily standup", href: "/features/daily-standup/", blurb: "Round-robin with a timer, carry-forward, and a blockers roundup." },
+  { title: "Spaces and room codes", href: "/features/spaces-and-room-codes/", blurb: "A memorable link, a six-character code, and a roster that shows who is where." },
+  { title: "Exports", href: "/features/exports/", blurb: "CSV of any session, with the spreadsheet-formula escaping you would want." },
+  { title: "Themes", href: "/features/themes/", blurb: "Light, dark, and follow-the-system." },
+]} />

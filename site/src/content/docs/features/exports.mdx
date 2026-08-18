@@ -1,0 +1,51 @@
+---
+title: Exports
+description: CSV of any session, with the spreadsheet-formula escaping you would want.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import Capability from "../../../components/Capability.astro";
+
+<VerifiedStamp version="v0.2.1" source={["internal/api/export.go", "internal/poker/csv.go", "internal/standup/csv.go"]} />
+
+Any session exports to CSV from a link in its own room, or directly:
+
+```
+GET /api/sessions/{id}/export.csv
+```
+
+You must be a member of the space to fetch it. The file is named after the
+session title, sanitised.
+
+## Columns
+
+**Poker** — `ticket, story, status, estimate, votes, detail`. `votes` is how many
+people voted; `detail` spells out who voted what, and is only present for the
+current story once it has been revealed.
+
+**Standup** — `name, yesterday, today, blockers, skipped`.
+
+Full column semantics are in the [CSV reference](/reference/csv-format/).
+
+## It exports what you were allowed to see
+
+The CSV is rendered from the same redacted view the WebSocket sends, not from raw
+storage. An unrevealed vote is therefore structurally absent from the export —
+you cannot use the export as a side channel to read votes early.
+
+## Formula injection is escaped
+
+Any cell beginning `=`, `+`, `-`, `@`, tab or carriage return is prefixed with a
+single quote before it is written.
+
+Without this, a story titled `=HYPERLINK("http://evil.example","click")` becomes a
+live formula the moment someone opens the file in Excel, Sheets or LibreOffice.
+Parley writes CSV that a spreadsheet will treat as text.
+
+## What is not here
+
+<Capability rows={[
+  { name: "JSON, Markdown or PDF export", status: "not-built", detail: "Parse the CSV, or read the session over the API. A general export framework is on the <a href='/project/roadmap/'>roadmap</a>." },
+  { name: "Exporting a whole space at once", status: "not-built", detail: "Export sessions individually, or query Postgres directly — the schema is <a href='/reference/database-schema/'>documented</a>." },
+  { name: "Scheduled or automatic export", status: "not-built", detail: "Call the endpoint from cron with a member's session cookie." },
+]} />

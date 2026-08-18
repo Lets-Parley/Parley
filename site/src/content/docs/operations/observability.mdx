@@ -1,0 +1,62 @@
+---
+title: Observability
+description: What Parley emits, what it does not, and where to get the rest.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import Capability from "../../../components/Capability.astro";
+
+<VerifiedStamp version="v0.2.1" source={["cmd/parley/main.go", "internal/api/router.go"]} />
+
+This is a short page, and honestly so.
+
+Parley writes **structured JSON logs to stdout** and emits nothing else. There is
+no metrics endpoint, no tracing, no request IDs, and no HTTP access log.
+
+## Logs
+
+One line per event, JSON, at a level set by `LOG_LEVEL` (`debug`, `info`, `warn`,
+`error`; default `info`). Collect them the way you collect any container's
+stdout.
+
+The single most useful line is emitted at boot:
+
+```json
+{"time":"...","level":"INFO","msg":"boot settings","base_url":"https://parley.example.com",
+ "cookie_secure":true,"allowed_ws_origin":"https://parley.example.com","port":"8080",
+ "auth_mode":"oidc","trust_proxy_headers":true}
+```
+
+Almost every "it deploys but does not work" report — cookies not sticking, the
+WebSocket refusing to connect, sign-in redirecting to the wrong host — is visible
+in that one line. Read it first, before reading anything else.
+
+Beyond boot and database errors, the application logs deliberately little: a
+handful of lines around the sign-in flow, and session errors. Parley does not log
+request paths, user names, or session content.
+
+## What is missing, and what to do instead
+
+<Capability rows={[
+  { name: "Structured JSON logs", status: "built", detail: "stdout, one level, no rotation needed." },
+  { name: "Liveness and readiness endpoints", status: "built", detail: "<code>/healthz</code> and <code>/readyz</code> — see <a href='/operations/architecture/'>Architecture</a>." },
+  { name: "Metrics endpoint", status: "not-built", detail: "There is no <code>/metrics</code>. Blackbox-probe <code>/readyz</code> for availability, and take request rate and latency from your reverse proxy, which already sees every request." },
+  { name: "Distributed tracing", status: "not-built", detail: "Single process, single database — a trace would have two spans. Proxy access logs give you the same latency picture." },
+  { name: "Request IDs", status: "not-built", detail: "Have your proxy inject and log one. Parley will not echo it, so correlate on timestamp and path at the proxy." },
+  { name: "HTTP access log", status: "not-built", detail: "<code>middleware.Logger</code> is not mounted. Use the proxy's access log — it is the same data, and you already ship it." },
+  { name: "Audit log", status: "not-built", detail: "None exists. If you need to know who did what, the database rows carry <code>user_id</code> and timestamps; query them directly." },
+  { name: "Error reporting integration", status: "out-of-scope", detail: "Panics are recovered and logged; scrape them from stdout." },
+]} />
+
+## Is that enough?
+
+For this shape of service, mostly yes. Parley is a single replica with no
+background workers, no queues and no scheduled jobs. The two questions that
+matter operationally are *is the process up* and *can it reach Postgres*, and
+both are answered by probing `/readyz` from outside.
+
+What you genuinely lose without metrics is capacity planning — you cannot see
+WebSocket connection counts or room sizes without querying the database for
+members and sessions. If you are running Parley for a team, that is not a real
+gap. If you are running it for an organisation, it is, and it is worth saying so
+before you find out.

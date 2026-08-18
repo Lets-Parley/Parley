@@ -13,7 +13,7 @@ there is no default database password.
 The WebSocket origin check is rejecting your browser. Set `BASE_URL` to the
 exact address in your address bar — scheme, host and port — and restart. Behind
 nginx, confirm the Upgrade and Connection headers from the
-[reverse proxy](/guides/reverse-proxy/) config.
+[reverse proxy](/operations/reverse-proxy/) config.
 
 ### You set a name, but every refresh forgets you
 
@@ -35,7 +35,7 @@ After eight wrong tries from one address, wait a minute.
 
 The throttle is counting your whole team as one client because
 `TRUST_PROXY_HEADERS` is `false` behind a proxy. See
-[Configuration](/guides/configuration/).
+[Configuration](/reference/configuration/).
 
 ### Nobody can start the standup
 
@@ -46,4 +46,4 @@ then the facilitator starts.
 
 The previous instance hasn't exited yet. Parley is single-replica by design and
 takes a Postgres advisory lock to enforce it. It starts on the next retry. See
-[Kubernetes](/guides/kubernetes/).
+[Kubernetes](/operations/kubernetes/).

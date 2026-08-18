@@ -1,0 +1,38 @@
+---
+// Dense key/value table for limits, timeouts and defaults.
+// rows: [{ name, value, note? }]
+const { rows = [], caption } = Astro.props;
+---
+<div class="spec">
+  {caption && <p class="spec-caption">{caption}</p>}
+  <table>
+    <tbody>
+      {rows.map((r) => (
+        <tr>
+          <th scope="row">{r.name}</th>
+          <td class="spec-value">{r.value}</td>
+          {r.note ? <td class="spec-note">{r.note}</td> : <td class="spec-note" />}
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+
+<style>
+  .spec { overflow-x: auto; margin: 1rem 0; }
+  .spec table { width: 100%; border-collapse: collapse; display: table; }
+  .spec-caption {
+    font-size: 0.8125rem; color: var(--parley-muted);
+    margin: 0 0 0.4rem; text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .spec th, .spec td {
+    text-align: left; padding: 0.45rem 0.75rem 0.45rem 0;
+    border-bottom: 1px solid var(--parley-line); vertical-align: top;
+  }
+  .spec th { font-weight: 600; white-space: nowrap; }
+  .spec-value {
+    font-family: var(--sl-font-mono); font-size: 0.875rem;
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .spec-note { color: var(--parley-muted); font-size: 0.875rem; width: 100%; }
+</style>

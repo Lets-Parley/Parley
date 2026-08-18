@@ -1,0 +1,119 @@
+---
+title: Hardening checklist
+description: The ordered list of things to get right before you expose Parley to anyone.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import SpecTable from "../../../components/SpecTable.astro";
+
+<VerifiedStamp version="v0.2.1" source={["internal/api/security.go", "cmd/parley/main.go", "deploy/k8s/deployment.yaml"]} />
+
+In order. The first three are the ones that actually bite.
+
+## 1. Terminate TLS, and set BASE_URL to the https address
+
+Parley never terminates TLS. Put [Caddy or nginx](/operations/reverse-proxy/) in
+front of it.
+
+Then set `BASE_URL` to the exact address people use. This is not cosmetic —
+`BASE_URL` having an `https` scheme is **what turns on the `Secure` flag** on the
+session cookie. Get it wrong and the cookie goes out without `Secure`, the
+WebSocket origin check rejects the real origin, and the OIDC redirect points
+somewhere nobody will arrive.
+
+Confirm it from the boot log rather than from your intent:
+
+```
+"msg":"boot settings","base_url":"https://parley.example.com","cookie_secure":true,
+"allowed_ws_origin":"https://parley.example.com"
+```
+
+## 2. Set TRUST_PROXY_HEADERS to match your topology
+
+`true` if and only if a proxy you control sets `X-Forwarded-For` itself.
+
+Wrong in one direction the room-code throttle never fires; wrong in the other the
+whole internet shares one throttle bucket and eight bad guesses lock everyone
+out. [Deployment](/operations/deployment/) has the detail.
+
+## 3. Add HSTS at the proxy
+
+Parley does not send `Strict-Transport-Security` and will not. Add it where you
+terminate TLS.
+
+While you are there, these are the headers Parley **does** send on every
+response:
+
+<SpecTable rows={[
+  { name: "Content-Security-Policy", value: "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'", note: "" },
+  { name: "X-Content-Type-Options", value: "nosniff", note: "" },
+  { name: "X-Frame-Options", value: "DENY", note: "No embedding, anywhere" },
+  { name: "Referrer-Policy", value: "strict-origin-when-cross-origin", note: "" },
+]} />
+
+And these it does not, all of which belong at the proxy if you want them:
+`Strict-Transport-Security`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`,
+`Cross-Origin-Embedder-Policy`, `Cross-Origin-Resource-Policy`.
+
+Two notes on the CSP, so you can assess it rather than pattern-match it. There is
+no explicit `frame-ancestors` or `object-src`, but `default-src 'self'` is the
+fallback for `object-src`, `script-src`, `connect-src` and `font-src`, so those
+are covered; `X-Frame-Options: DENY` covers framing. The one genuine loosening is
+`style-src 'unsafe-inline'`, which the frontend needs today.
+
+## 4. Decide what a room code is worth to you
+
+A room code gates a space; it is not identity, it is stored readable, and any
+member can rotate it or remove it. See the [threat
+model](/security/threat-model/).
+
+If that is not enough for your data, do one of:
+
+- Keep the instance on an internal network only.
+- Turn on [OIDC](/security/authentication/) so participants are at least
+  attributable.
+- Put an SSO proxy — oauth2-proxy, Authelia, Cloudflare Access — in front of the
+  whole instance, which is the only way today to require identity *before* the
+  room code.
+
+## 5. Lock down the database
+
+The `DATABASE_URL` credential is effectively root over all Parley data. Give it
+its own role, its own database, and no superuser rights. Parley needs no
+extensions beyond `pgcrypto`, which migration `0001` creates.
+
+Consider setting a `statement_timeout` on the role — Parley sets none.
+
+## 6. Run the container as it ships
+
+The image is `distroless/static-debian12:nonroot`: no shell, no package manager,
+non-root by default. The Kubernetes manifest additionally sets
+`runAsNonRoot`, `allowPrivilegeEscalation: false`, `capabilities: drop: [ALL]`,
+`seccompProfile: RuntimeDefault` and `readOnlyRootFilesystem: true`.
+
+If you write your own manifest, carry all five across.
+
+## 7. Rate limit at the edge
+
+Only room-code guessing is throttled inside Parley. Space creation, session
+creation, API calls and WebSocket connections are not. Add limits at your
+ingress if the instance is reachable from anywhere untrusted.
+
+## 8. Back it up before it matters
+
+Nothing in Parley backs itself up.
+[Set up `pg_dump`](/operations/backups-and-recovery/) on day one.
+
+## 9. Pin what you deploy
+
+Parley does not sign or attest its images yet. Pin a digest rather than `latest`,
+and scan it yourself — [Supply chain](/security/supply-chain/) has the commands.
+
+## What you cannot harden
+
+- **There is no bind-address setting.** The process listens on all interfaces;
+  only `PORT` is configurable. Use a firewall, a container port binding, or a
+  proxy.
+- **There is no admin account, and no roles.** Any member of a space can do
+  anything within it.
+- **There is no audit log.**

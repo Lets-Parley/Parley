@@ -11,8 +11,8 @@ the roster, voting, writing standup entries. Joins are broadcast to the room, so
 lurking is visible.
 
 Run Parley on your internal network, behind [an identity
-provider](/guides/sign-in/), or behind an SSO proxy — oauth2-proxy, Authelia,
-Cloudflare Access. The [reverse proxy](/guides/reverse-proxy/) config is where
+provider](/security/authentication/), or behind an SSO proxy — oauth2-proxy, Authelia,
+Cloudflare Access. The [reverse proxy](/operations/reverse-proxy/) config is where
 that slots in.
 
 ## Room codes
@@ -35,7 +35,7 @@ entirely.
 Wrong-guess throttling keys on the client address, which means
 `TRUST_PROXY_HEADERS` has to match your deployment or the throttle either
 misses real guessers or punishes innocent ones. See
-[Configuration](/guides/configuration/).
+[Configuration](/reference/configuration/).
 :::
 
 ## What the server does enforce

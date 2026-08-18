@@ -1,0 +1,12 @@
+# The docs site gates on `npm audit` reporting zero findings. Without automated
+# updates that gate quietly rots: it keeps passing against an old lockfile while
+# advisories pile up upstream.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /site
+    schedule:
+      interval: weekly
+    groups:
+      astro:
+        patterns: ["astro", "@astrojs/*"]

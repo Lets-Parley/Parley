@@ -1,0 +1,18 @@
+---
+title: Reference
+description: Configuration, HTTP API, database schema, CSV format, and every limit and default.
+---
+
+import SectionIndex from "../../../components/SectionIndex.astro";
+
+Transcribed from the source, not from memory. Each page names the version it was
+checked against and links the file it came from; if the two disagree, the source
+is right and the page is a bug.
+
+<SectionIndex items={[
+  { title: "Configuration", href: "/reference/configuration/", blurb: "Every environment variable, its default, and whether a bad value stops the process." },
+  { title: "HTTP API", href: "/reference/api/", blurb: "Every route, who may call it, and what it does." },
+  { title: "Database schema", href: "/reference/database-schema/", blurb: "The tables, the migrations, and the constraints that act as validation." },
+  { title: "CSV format", href: "/reference/csv-format/", blurb: "Exact columns per session kind, and the formula-injection escaping." },
+  { title: "Limits and defaults", href: "/reference/limits-and-defaults/", blurb: "Field lengths, body caps, timeouts, pool sizes and lifetimes." },
+]} />

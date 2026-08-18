@@ -1,0 +1,46 @@
+---
+// rows: [{ method, path, auth, purpose }]
+const { rows = [] } = Astro.props;
+---
+<div class="routes">
+  <table>
+    <thead>
+      <tr><th>Method</th><th>Path</th><th>Who</th><th>Purpose</th></tr>
+    </thead>
+    <tbody>
+      {rows.map((r) => (
+        <tr>
+          <td><span class={`m m-${r.method.toLowerCase()}`}>{r.method}</span></td>
+          <td class="path"><code>{r.path}</code></td>
+          <td class="auth">{r.auth}</td>
+          <td class="purpose">{r.purpose}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+
+<style>
+  .routes { overflow-x: auto; margin: 1.25rem 0; }
+  .routes table { width: 100%; border-collapse: collapse; display: table; }
+  .routes th, .routes td {
+    text-align: left; padding: 0.4rem 0.75rem 0.4rem 0;
+    border-bottom: 1px solid var(--parley-line); vertical-align: top;
+  }
+  .routes thead th {
+    font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--parley-muted); font-weight: 600;
+  }
+  .m {
+    font-family: var(--sl-font-mono); font-size: 0.75rem; font-weight: 700;
+    padding: 0.1rem 0.4rem; border-radius: var(--parley-radius-chip);
+    border: 1px solid currentColor; white-space: nowrap;
+  }
+  .m-get { color: var(--parley-go); }
+  .m-post, .m-put, .m-patch { color: var(--sl-color-accent); }
+  .m-delete { color: var(--parley-stop); }
+  .m-ws { color: var(--parley-brass); }
+  .path code { font-size: 0.8125rem; white-space: nowrap; background: none; padding: 0; }
+  .auth { font-size: 0.875rem; white-space: nowrap; color: var(--parley-muted); }
+  .purpose { font-size: 0.9375rem; }
+</style>
