@@ -44,9 +44,10 @@ Nothing, unless you configure it. Parley has no telemetry, no analytics, no
 crash reporting and no update check.
 
 In the default `open` mode it makes no outbound network calls at all. With
-`AUTH_MODE=oidc` it makes exactly three, all to the identity provider you named
-and to nothing else: the discovery document, the signing keys, and the token
-exchange during sign-in.
+`AUTH_MODE=oidc` it calls the identity provider you named and nothing else:
+the discovery document, the signing keys, and a token exchange per sign-in. The
+first two are fetched once and cached for the life of the process, so a warm
+process makes one call per sign-in, not three.
 
 ## Retention and erasure
 
