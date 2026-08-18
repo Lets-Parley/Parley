@@ -92,3 +92,18 @@ func TestTrustedProxyHeadersIgnoresAlternateHeaders(t *testing.T) {
 		t.Fatalf("client key = %q, want socket peer", got)
 	}
 }
+
+func TestTrustedProxyHeadersRejectsDuplicateFieldLines(t *testing.T) {
+	h := trustedProxyHeaders(prefixes("10.0.0.0/8"))(keyHandler())
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "10.0.0.8:443"
+	req.Header.Add("X-Forwarded-For", "198.51.100.7")
+	req.Header.Add("X-Forwarded-For", "192.0.2.4")
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("X-Test-Client-Key"); got != "10.0.0.8" {
+		t.Fatalf("client key = %q, want verified socket peer", got)
+	}
+}

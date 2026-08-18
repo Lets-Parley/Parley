@@ -1,9 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -14,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lets-parley/parley/internal/auth"
+	"github.com/lets-parley/parley/internal/httprequest"
 	"github.com/lets-parley/parley/internal/hub"
 	"github.com/lets-parley/parley/internal/poker"
 	"github.com/lets-parley/parley/internal/session"
@@ -187,6 +190,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Use(rejectCrossSite(a.allowedOrigin))
 		r.Use(requireJSONBody)
+		r.Use(limitAPIRequestBody)
 		r.Use(resolvePrincipal(a.users, mode == ModeOIDC))
 
 		r.Get("/auth", a.handleAuthConfig)
@@ -246,6 +250,24 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	r.NotFound(web.SPAHandler())
 
 	return &Handler{Handler: r, hub: a.hub}
+}
+
+func limitAPIRequestBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			next.ServeHTTP(w, r)
+			return
+		}
+		bounded := http.MaxBytesReader(w, r.Body, httprequest.MaxJSONBody)
+		body, err := io.ReadAll(bounded)
+		bounded.Close()
+		if err != nil {
+			httprequest.WriteDecodeError(w, err, `{"error":"could not read request body"}`)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		next.ServeHTTP(w, r)
+	})
 }
 
 // requireJSONBody rejects non-GET requests whose body is not declared JSON,

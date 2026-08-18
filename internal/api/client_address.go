@@ -15,7 +15,12 @@ func trustedProxyHeaders(trusted []netip.Prefix) func(http.Handler) http.Handler
 				return
 			}
 
-			xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For"))
+			values := r.Header.Values("X-Forwarded-For")
+			if len(values) != 1 {
+				next.ServeHTTP(w, r)
+				return
+			}
+			xff := strings.TrimSpace(values[0])
 			if xff == "" {
 				next.ServeHTTP(w, r)
 				return
