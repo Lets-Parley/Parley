@@ -69,8 +69,15 @@ cd web && npm run lint          # oxlint — CI does NOT run this, so you must
   before the fix.
 - Style: stdlib `testing`, no assertion library, `httptest.Server` against a
   real `pgxpool`, helpers colocated in the package's `_test.go` files.
-- There is no frontend test suite. Do not introduce a test framework as a
-  side-effect of another change — open an issue first.
+- The frontend suite is Vitest + jsdom + Testing Library: `cd web && npm test`
+  (`npm run test:watch` while working). Tests sit beside their subject as
+  `*.test.ts`/`*.test.tsx`; `src/test/render.tsx` supplies the three providers
+  every screen assumes. It is deliberately thin — no jest-dom matchers, no
+  `globals: true`, so nothing had to be added to `tsconfig.app.json`.
+- Frontend behaviour changes need a test too, and the same rule applies: it
+  must have been seen to fail first. Every defect this project has shipped in
+  `web/` — the dead claim button, the member card, the frozen standup timer —
+  passed a green build.
 
 `.github/workflows/ci.yml` is the authoritative gate. Its `first-run` job also
 builds the Docker image and boots it against an empty database, which catches

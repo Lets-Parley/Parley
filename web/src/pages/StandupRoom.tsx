@@ -57,7 +57,7 @@ function useOwnEntryDraft(env: Envelope, meId: string) {
   return { draft, update, saveState };
 }
 
-function Timer({ startedAt, seconds, serverTime }: { startedAt: string; seconds: number; serverTime: string }) {
+export function Timer({ startedAt, seconds, serverTime }: { startedAt: string; seconds: number; serverTime: string }) {
   // Server clock offset estimated from the latest frame; the countdown is
   // display-only and identical on every screen. Captured once per frame
   // (not per render) so Date.now() actually advances against a fixed
