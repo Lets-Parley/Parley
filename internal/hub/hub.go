@@ -26,6 +26,12 @@ const (
 	writeActiveRemoved
 )
 
+const (
+	authPending uint32 = iota
+	authAccepted
+	authRemoved
+)
+
 type Conn struct {
 	UserID       string
 	SessionID    string
@@ -39,6 +45,7 @@ type Conn struct {
 	cancel       context.CancelFunc
 	expiry       *time.Timer
 	writeState   atomic.Uint32
+	authState    atomic.Uint32
 	removed      atomic.Bool
 	stop         chan struct{}
 	writerDone   chan struct{}
@@ -346,6 +353,9 @@ func (h *Hub) AttachAuthenticated(ws *websocket.Conn, sessionID, userID string, 
 	if !<-accepted {
 		return
 	}
+	if !c.authState.CompareAndSwap(authPending, authAccepted) {
+		return
+	}
 	if c.tokenID != "" && h.ValidateSession != nil {
 		go h.revalidate(ctx, c)
 	}
@@ -461,6 +471,7 @@ func (c *Conn) finishWrite() {
 }
 
 func (c *Conn) markRemoved() {
+	c.authState.Store(authRemoved)
 	for {
 		switch c.writeState.Load() {
 		case writeIdle:
@@ -486,7 +497,7 @@ func (h *Hub) reader(c *Conn) {
 	c.ws.SetReadDeadline(time.Now().Add(pongDeadline))
 	c.ws.SetPongHandler(func(string) error {
 		c.ws.SetReadDeadline(time.Now().Add(pongDeadline))
-		if h.OnFacilitatorSeen != nil {
+		if c.authState.Load() == authAccepted && h.OnFacilitatorSeen != nil {
 			h.OnFacilitatorSeen(c.SessionID, c.UserID)
 		}
 		return nil

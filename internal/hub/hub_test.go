@@ -420,6 +420,81 @@ func TestPendingValidationCancelsWhenPeerDisconnects(t *testing.T) {
 	}
 }
 
+func TestFacilitatorPongCallbackRequiresAcceptedConnection(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	validationStarted := make(chan struct{})
+	validationCanceled := make(chan struct{})
+	h.ValidateSession = func(ctx context.Context, tokenID string) (time.Time, error) {
+		if tokenID == "accepted-pong" {
+			return time.Now().Add(time.Hour), nil
+		}
+		close(validationStarted)
+		<-ctx.Done()
+		close(validationCanceled)
+		return time.Time{}, ctx.Err()
+	}
+	seen := make(chan struct{}, 2)
+	h.OnFacilitatorSeen = func(string, string) {
+		seen <- struct{}{}
+	}
+	attachReturned := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		h.AttachAuthenticated(ws, "room", "user", nil, SessionAuth{TokenID: "pending-pong"})
+		close(attachReturned)
+	}))
+	defer srv.Close()
+	url := "ws" + strings.TrimPrefix(srv.URL, "http")
+	ws, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-validationStarted:
+	case <-time.After(time.Second):
+		t.Fatal("validation did not start")
+	}
+	if err := ws.WriteControl(websocket.PongMessage, []byte("pending"), time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	ws.Close()
+	select {
+	case <-validationCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("peer disconnect did not cancel pending validation")
+	}
+	select {
+	case <-attachReturned:
+	case <-time.After(time.Second):
+		t.Fatal("pending attach did not return")
+	}
+	select {
+	case <-seen:
+		t.Fatal("pending websocket published facilitator liveness from Pong")
+	default:
+	}
+
+	accepted := attachAuthenticatedTestConn(t, h, "room", SessionAuth{TokenID: "accepted-pong"})
+	defer accepted.Close()
+	select {
+	case <-seen:
+	case <-time.After(time.Second):
+		t.Fatal("accepted websocket did not publish initial facilitator liveness")
+	}
+	if err := accepted.WriteControl(websocket.PongMessage, []byte("accepted"), time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-seen:
+	case <-time.After(time.Second):
+		t.Fatal("accepted websocket Pong did not publish facilitator liveness")
+	}
+}
+
 func TestPendingValidationTimesOut(t *testing.T) {
 	h := New()
 	t.Cleanup(h.Shutdown)
