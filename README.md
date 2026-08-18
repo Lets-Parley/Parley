@@ -405,12 +405,11 @@ adding a new kind means one new package and one `Register` call.
 ## Roadmap
 
 Nothing is promised, and the order will change. [ROADMAP.md](ROADMAP.md) has the
-long version: foundations first, then the rest of the ceremonies a delivery team
-runs, then a whiteboard to run them on.
+direction — Now, Next, Later, and what is still only being explored — and the
+[project board](https://github.com/orgs/Lets-Parley/projects/1) has the detail.
 
-Nearest up: knock-to-join, linking an anonymous account to a federated one, and
-per-user access to a space — the room code is deliberately a first step, not the
-destination.
+Next up is making session kinds a real extension point, so the ceremonies after
+poker and standup are code someone adds rather than surgery on the core.
 
 ## Contributing
 
