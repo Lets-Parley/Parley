@@ -7,6 +7,8 @@ export default defineConfig({
   integrations: [
     starlight({
       title: "Parley",
+      logo: { src: "./src/assets/logo.svg" },
+      favicon: "/favicon.svg",
       description:
         "Planning poker and daily standups for your team, at your table. Self-hosted, open source.",
       social: [
