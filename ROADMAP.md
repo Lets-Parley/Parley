@@ -34,6 +34,7 @@ one more thing those tests assert rather than a one-off audit that decays.
 
 - Status: Backlog
 - Target: v0.3.0
+- Tracking: [#47](https://github.com/lets-parley/parley/issues/47)
 
 ### An extensible core
 
