@@ -5,6 +5,9 @@
 // endpoint" it means nothing.
 //
 // rows: [{ name, status: 'built' | 'not-built' | 'out-of-scope', detail }]
+// `detail` is rendered with set:html so it can carry links and <code>. It is
+// authored in this repo and reviewed like any other source — never wire it to
+// user input or a CMS.
 // Every 'not-built' row MUST carry a mitigation in `detail`. A gap with an
 // answer is a decision; a gap without one is a hole.
 const { rows = [] } = Astro.props;
@@ -13,7 +16,24 @@ const label = {
   "not-built": "Not built",
   "out-of-scope": "Out of scope",
 };
-const missing = rows.filter((r) => r.status === "not-built" && !r.detail);
+
+// Reject an unknown status before anything else. Keying the guard below on the
+// literal "not-built" means a typo — "notbuilt", "Not-built" — would skip the
+// mitigation check and render an unlabelled badge, so the honesty rule would be
+// silently switched off by a misspelling.
+const unknown = rows.filter((r) => !Object.hasOwn(label, r.status));
+if (unknown.length) {
+  throw new Error(
+    `Capability: unknown status on row(s): ` +
+      unknown.map((r) => `${r.name} ("${r.status}")`).join(", ")
+  );
+}
+
+// Trimmed, because a whitespace-only detail is truthy and would sail through as
+// a mitigation while rendering an empty cell.
+const missing = rows.filter(
+  (r) => r.status === "not-built" && String(r.detail ?? "").trim() === ""
+);
 if (missing.length) {
   throw new Error(
     `Capability: 'not-built' rows need a mitigation in \`detail\`: ` +
