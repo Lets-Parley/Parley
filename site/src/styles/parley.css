@@ -116,6 +116,11 @@
   letter-spacing: -0.02em;
 }
 
+.sl-markdown-content h2,
+.sl-markdown-content h3 {
+  letter-spacing: -0.005em;
+}
+
 /* A long URL or connection string in prose must not push the line box out.
    The table rule above handles tables; this handles paragraphs. */
 .sl-markdown-content :not(pre) > code {
