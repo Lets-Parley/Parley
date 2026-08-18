@@ -163,6 +163,50 @@ func TestWSOriginRejected(t *testing.T) {
 	ws.Close()
 }
 
+func TestHandlerShutdownClosesHubSockets(t *testing.T) {
+	pool, err := pgxpool.New(context.Background(), "postgres://unused:unused@127.0.0.1/unused")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	handler := Router(pool, Options{AllowedOrigin: testOrigin})
+	handler.hub.OnFacilitatorSeen = nil
+	handler.hub.OnPresenceChange = nil
+
+	attached := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		handler.hub.Attach(ws, "room", "user", nil)
+		close(attached)
+	}))
+	defer srv.Close()
+	url := "ws" + strings.TrimPrefix(srv.URL, "http")
+	ws, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+	select {
+	case <-attached:
+	case <-time.After(time.Second):
+		t.Fatal("server did not attach websocket")
+	}
+
+	handler.Shutdown()
+
+	if code := readWSCloseCode(t, ws, time.Second); code != websocket.CloseGoingAway {
+		t.Fatalf("handler shutdown websocket close code = %d, want %d", code, websocket.CloseGoingAway)
+	}
+	select {
+	case <-handler.hub.Done():
+	default:
+		t.Fatal("handler shutdown left the hub owner running")
+	}
+}
+
 func TestCrossSitePostRejected(t *testing.T) {
 	srv := testServer(t)
 	ada := signup(t, srv, "Ada")

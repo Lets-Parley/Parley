@@ -189,9 +189,11 @@ func main() {
 		opts.OIDC = auth.New(cfg.OIDC)
 	}
 
+	handler := api.Router(pool, opts)
+	defer handler.Shutdown()
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           api.Router(pool, opts),
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -199,6 +201,7 @@ func main() {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		handler.Shutdown()
 		srv.Shutdown(shutCtx)
 	}()
 

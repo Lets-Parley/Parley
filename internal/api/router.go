@@ -57,7 +57,17 @@ type Options struct {
 	sessionRevalidationInterval time.Duration
 }
 
-func Router(pool *pgxpool.Pool, opts Options) http.Handler {
+// Handler owns both the HTTP router and the lifecycle of its WebSocket hub.
+type Handler struct {
+	http.Handler
+	hub *hub.Hub
+}
+
+func (h *Handler) Shutdown() {
+	h.hub.Shutdown()
+}
+
+func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	// A duplicate kind is a wiring mistake in this very function, so it can
 	// only be a programming error — fail the process rather than serve a
 	// registry that is missing a kind.
@@ -67,7 +77,6 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 			panic(fmt.Sprintf("wiring session kinds: %v", err))
 		}
 	}
-
 	mode := opts.AuthMode
 	if mode == "" {
 		mode = ModeOpen
@@ -208,7 +217,7 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 
 	r.NotFound(web.SPAHandler())
 
-	return r
+	return &Handler{Handler: r, hub: a.hub}
 }
 
 // requireJSONBody rejects non-GET requests whose body is not declared JSON,

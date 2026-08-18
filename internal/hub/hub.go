@@ -3,6 +3,7 @@ package hub
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -18,18 +19,21 @@ const (
 )
 
 type Conn struct {
-	UserID    string
-	SessionID string
-	ws        *websocket.Conn
-	send      chan []byte
-	hub       *Hub
-	tokenID   string
-	expiresAt time.Time
-	closeCode int
-	closed    chan struct{}
-	ctx       context.Context
-	cancel    context.CancelFunc
-	expiry    *time.Timer
+	UserID     string
+	SessionID  string
+	ws         *websocket.Conn
+	send       chan []byte
+	hub        *Hub
+	tokenID    string
+	expiresAt  time.Time
+	closeCode  int
+	ctx        context.Context
+	cancel     context.CancelFunc
+	expiry     *time.Timer
+	writeMu    sync.Mutex
+	removed    atomic.Bool
+	stop       chan struct{}
+	writerDone chan struct{}
 }
 
 func (c *Conn) Close() {
@@ -41,7 +45,7 @@ type Hub struct {
 	done         chan struct{}
 	shutdownOnce sync.Once
 	rooms        map[string]map[*Conn]struct{}
-	revoked      map[string]struct{}
+	pending      map[*Conn]registerEvent
 
 	// OnPresenceChange fires (debounced) after connects/disconnects settle.
 	OnPresenceChange func(sessionID string)
@@ -78,12 +82,12 @@ type connectedEvent struct {
 }
 
 type shutdownEvent struct {
-	done chan struct{}
+	done chan []<-chan struct{}
 }
 
 type disconnectTokenEvent struct {
 	tokenID string
-	done    chan struct{}
+	done    chan []<-chan struct{}
 }
 
 type revalidationEvent struct {
@@ -108,7 +112,7 @@ func New() *Hub {
 		events:  make(chan any),
 		done:    make(chan struct{}),
 		rooms:   make(map[string]map[*Conn]struct{}),
-		revoked: make(map[string]struct{}),
+		pending: make(map[*Conn]registerEvent),
 		timers:  make(map[string]*time.Timer),
 	}
 	go h.run()
@@ -119,26 +123,12 @@ func (h *Hub) run() {
 	for event := range h.events {
 		switch e := event.(type) {
 		case registerEvent:
-			_, revoked := h.revoked[e.conn.tokenID]
-			if e.conn.tokenID != "" && (revoked || (!e.conn.expiresAt.IsZero() && !e.conn.expiresAt.After(time.Now()))) {
-				e.conn.closeCode = websocket.ClosePolicyViolation
-				e.conn.cancel()
-				close(e.conn.closed)
-				close(e.conn.send)
-				e.accepted <- false
+			if e.conn.tokenID != "" && h.ValidateSession != nil {
+				h.pending[e.conn] = e
+				go h.validate(e.conn)
 				continue
 			}
-			room := h.rooms[e.conn.SessionID]
-			if room == nil {
-				room = make(map[*Conn]struct{})
-				h.rooms[e.conn.SessionID] = room
-			}
-			room[e.conn] = struct{}{}
-			h.armExpiry(e.conn)
-			if e.initial != nil {
-				h.deliver(e.conn, e.initial)
-			}
-			e.accepted <- true
+			h.register(e)
 		case unregisterEvent:
 			h.remove(e.conn, websocket.CloseNormalClosure)
 			close(e.done)
@@ -158,30 +148,53 @@ func (h *Hub) run() {
 			}
 			e.result <- out
 		case shutdownEvent:
+			writers := []<-chan struct{}{}
+			for c := range h.pending {
+				writers = append(writers, h.rejectPending(c, websocket.CloseGoingAway))
+			}
 			for _, room := range h.rooms {
 				for c := range room {
-					h.remove(c, websocket.CloseGoingAway)
+					if done := h.remove(c, websocket.CloseGoingAway); done != nil {
+						writers = append(writers, done)
+					}
 				}
 			}
 			h.stopPresenceTimers()
 			close(h.done)
-			close(e.done)
+			e.done <- writers
 			return
 		case disconnectTokenEvent:
-			h.revoked[e.tokenID] = struct{}{}
+			writers := []<-chan struct{}{}
+			for c := range h.pending {
+				if c.tokenID == e.tokenID {
+					writers = append(writers, h.rejectPending(c, websocket.ClosePolicyViolation))
+				}
+			}
 			for _, room := range h.rooms {
 				for c := range room {
 					if c.tokenID == e.tokenID {
-						h.remove(c, websocket.ClosePolicyViolation)
+						if done := h.remove(c, websocket.ClosePolicyViolation); done != nil {
+							writers = append(writers, done)
+						}
 					}
 				}
 			}
-			close(e.done)
+			e.done <- writers
 		case revalidationEvent:
+			if pending, ok := h.pending[e.conn]; ok {
+				if e.err != nil {
+					h.rejectPending(e.conn, websocket.ClosePolicyViolation)
+					continue
+				}
+				delete(h.pending, e.conn)
+				e.conn.expiresAt = e.expiresAt
+				h.register(pending)
+				continue
+			}
 			if !h.registered(e.conn) {
 				continue
 			}
-			if e.err != nil || !e.expiresAt.After(time.Now()) {
+			if e.err != nil {
 				h.remove(e.conn, websocket.ClosePolicyViolation)
 				continue
 			}
@@ -189,14 +202,43 @@ func (h *Hub) run() {
 			h.armExpiry(e.conn)
 		case expiryEvent:
 			if h.registered(e.conn) && e.conn.expiresAt.Equal(e.expiresAt) {
-				if h.ValidateSession == nil {
-					h.remove(e.conn, websocket.ClosePolicyViolation)
-				} else {
+				if h.ValidateSession != nil {
 					go h.validate(e.conn)
 				}
 			}
 		}
 	}
+}
+
+func (h *Hub) register(e registerEvent) {
+	room := h.rooms[e.conn.SessionID]
+	if room == nil {
+		room = make(map[*Conn]struct{})
+		h.rooms[e.conn.SessionID] = room
+	}
+	room[e.conn] = struct{}{}
+	h.armExpiry(e.conn)
+	if e.initial != nil {
+		h.deliver(e.conn, e.initial)
+	}
+	e.accepted <- true
+}
+
+func (h *Hub) rejectPending(c *Conn, closeCode int) <-chan struct{} {
+	pending, ok := h.pending[c]
+	if !ok {
+		return nil
+	}
+	delete(h.pending, c)
+	c.removed.Store(true)
+	c.cancel()
+	c.writeMu.Lock()
+	c.closeCode = closeCode
+	close(c.stop)
+	close(c.send)
+	c.writeMu.Unlock()
+	pending.accepted <- false
+	return c.writerDone
 }
 
 func (h *Hub) submit(event any) bool {
@@ -239,26 +281,30 @@ func (h *Hub) armExpiry(c *Conn) {
 	})
 }
 
-func (h *Hub) remove(c *Conn, closeCode int) {
+func (h *Hub) remove(c *Conn, closeCode int) <-chan struct{} {
 	room, ok := h.rooms[c.SessionID]
 	if !ok {
-		return
+		return nil
 	}
 	if _, ok := room[c]; !ok {
-		return
+		return nil
 	}
-	delete(room, c)
-	if len(room) == 0 {
-		delete(h.rooms, c.SessionID)
-	}
+	c.removed.Store(true)
 	if c.expiry != nil {
 		c.expiry.Stop()
 	}
 	c.cancel()
+	c.writeMu.Lock()
 	c.closeCode = closeCode
-	close(c.closed)
+	close(c.stop)
 	close(c.send)
+	c.writeMu.Unlock()
+	delete(room, c)
+	if len(room) == 0 {
+		delete(h.rooms, c.SessionID)
+	}
 	h.schedulePresence(c.SessionID)
+	return c.writerDone
 }
 
 // Attach registers the websocket and starts its reader/writer goroutines.
@@ -275,7 +321,7 @@ func (h *Hub) AttachAuthenticated(ws *websocket.Conn, sessionID, userID string, 
 		UserID: userID, SessionID: sessionID, ws: ws,
 		send: make(chan []byte, sendBuffer), hub: h, tokenID: auth.TokenID,
 		expiresAt: auth.ExpiresAt, closeCode: websocket.CloseNormalClosure,
-		closed: make(chan struct{}), ctx: ctx, cancel: cancel,
+		ctx: ctx, cancel: cancel, stop: make(chan struct{}), writerDone: make(chan struct{}),
 	}
 	accepted := make(chan bool)
 	if !h.submit(registerEvent{conn: c, initial: initial, accepted: accepted}) {
@@ -334,28 +380,56 @@ func (h *Hub) detach(c *Conn) {
 func (h *Hub) writer(c *Conn) {
 	ticker := time.NewTicker(pingInterval)
 	defer ticker.Stop()
+	defer close(c.writerDone)
+	defer c.ws.Close()
 	for {
 		select {
+		case <-c.stop:
+			h.writeClose(c)
+			return
+		default:
+		}
+		select {
+		case <-c.stop:
+			h.writeClose(c)
+			return
 		case msg, ok := <-c.send:
 			if !ok {
-				c.ws.SetWriteDeadline(time.Now().Add(writeDeadline))
-				c.ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(c.closeCode, ""))
-				c.ws.Close()
+				h.writeClose(c)
 				return
 			}
+			c.writeMu.Lock()
+			if c.removed.Load() {
+				c.writeMu.Unlock()
+				continue
+			}
 			c.ws.SetWriteDeadline(time.Now().Add(writeDeadline))
-			if err := c.ws.WriteMessage(websocket.TextMessage, msg); err != nil {
+			err := c.ws.WriteMessage(websocket.TextMessage, msg)
+			c.writeMu.Unlock()
+			if err != nil {
 				h.detach(c)
 				return
 			}
 		case <-ticker.C:
+			c.writeMu.Lock()
+			if c.removed.Load() {
+				c.writeMu.Unlock()
+				continue
+			}
 			c.ws.SetWriteDeadline(time.Now().Add(writeDeadline))
-			if err := c.ws.WriteMessage(websocket.PingMessage, nil); err != nil {
+			err := c.ws.WriteMessage(websocket.PingMessage, nil)
+			c.writeMu.Unlock()
+			if err != nil {
 				h.detach(c)
 				return
 			}
 		}
 	}
+}
+
+func (h *Hub) writeClose(c *Conn) {
+	c.ws.SetWriteDeadline(time.Now().Add(writeDeadline))
+	c.ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(c.closeCode, ""))
 }
 
 func (h *Hub) reader(c *Conn) {
@@ -396,14 +470,14 @@ func (h *Hub) Connected(sessionID string) []string {
 }
 
 // DisconnectToken synchronously removes all connections authenticated by the
-// token identifier. Future attaches for the same identifier are also refused.
+// token identifier.
 func (h *Hub) DisconnectToken(tokenID string) {
 	if tokenID == "" {
 		return
 	}
-	done := make(chan struct{})
+	done := make(chan []<-chan struct{}, 1)
 	if h.submit(disconnectTokenEvent{tokenID: tokenID, done: done}) {
-		<-done
+		waitForWriters(<-done)
 	}
 }
 
@@ -411,11 +485,22 @@ func (h *Hub) DisconnectToken(tokenID string) {
 // Calls racing with it either complete before shutdown or safely become no-ops.
 func (h *Hub) Shutdown() {
 	h.shutdownOnce.Do(func() {
-		done := make(chan struct{})
+		done := make(chan []<-chan struct{}, 1)
 		if h.submit(shutdownEvent{done: done}) {
-			<-done
+			waitForWriters(<-done)
 		}
 	})
+}
+
+// Done is closed when the owner loop stops accepting work.
+func (h *Hub) Done() <-chan struct{} {
+	return h.done
+}
+
+func waitForWriters(writers []<-chan struct{}) {
+	for _, done := range writers {
+		<-done
+	}
 }
 
 func (h *Hub) schedulePresence(sessionID string) {

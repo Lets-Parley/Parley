@@ -5,8 +5,10 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -141,11 +143,110 @@ func TestDisconnectTokenClosesOnlyMatchingConnections(t *testing.T) {
 	}
 }
 
-func TestExpiredTokenClosesConnectionWithPolicyViolation(t *testing.T) {
+func TestDisconnectDropsQueuedFramesAndWaitsForWriterClose(t *testing.T) {
 	h := New()
 	t.Cleanup(h.Shutdown)
+	ws := attachAuthenticatedTestConn(t, h, "room", SessionAuth{TokenID: "revoked-with-queue"})
+	defer ws.Close()
+
+	var conn *Conn
+	for c := range h.rooms["room"] {
+		conn = c
+	}
+	if conn == nil {
+		t.Fatal("attached connection not found")
+	}
+
+	conn.writeMu.Lock()
+	h.Broadcast("room", []byte("in-flight"))
+	deadline := time.Now().Add(time.Second)
+	for len(conn.send) != 0 && time.Now().Before(deadline) {
+		runtime.Gosched()
+	}
+	if len(conn.send) != 0 {
+		conn.writeMu.Unlock()
+		t.Fatal("writer did not take the in-flight frame")
+	}
+	h.Broadcast("room", []byte("queued"))
+
+	disconnected := make(chan struct{})
+	go func() {
+		h.DisconnectToken("revoked-with-queue")
+		close(disconnected)
+	}()
+	for !conn.removed.Load() && time.Now().Before(deadline) {
+		runtime.Gosched()
+	}
+	if !conn.removed.Load() {
+		conn.writeMu.Unlock()
+		t.Fatal("disconnect did not begin removal")
+	}
+	conn.writeMu.Unlock()
+
+	select {
+	case <-disconnected:
+	case <-time.After(time.Second):
+		t.Fatal("DisconnectToken returned before writer shutdown completed")
+	}
+	select {
+	case <-conn.writerDone:
+	default:
+		t.Fatal("DisconnectToken returned before writer completion")
+	}
+
+	ws.SetReadDeadline(time.Now().Add(time.Second))
+	if _, msg, err := ws.ReadMessage(); err == nil {
+		t.Fatalf("application frame %q was written after revocation", msg)
+	} else if closeErr, ok := err.(*websocket.CloseError); !ok || closeErr.Code != websocket.ClosePolicyViolation {
+		t.Fatalf("revoked token close = %v, want policy violation", err)
+	}
+}
+
+func TestAttachAfterDisconnectUsesDatabaseAuthority(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	validated := make(chan struct{})
+	h.ValidateSession = func(context.Context, string) (time.Time, error) {
+		select {
+		case <-validated:
+		default:
+			close(validated)
+		}
+		return time.Time{}, errors.New("revoked in shared store")
+	}
+	h.DisconnectToken("already-revoked")
+
 	ws := attachAuthenticatedTestConn(t, h, "room", SessionAuth{
-		TokenID: "expiring", ExpiresAt: time.Now().Add(20 * time.Millisecond),
+		TokenID: "already-revoked", ExpiresAt: time.Now().Add(time.Hour),
+	})
+	defer ws.Close()
+
+	select {
+	case <-validated:
+	case <-time.After(time.Second):
+		t.Fatal("post-disconnect attach relied on a local tombstone instead of shared-store validation")
+	}
+	ws.SetReadDeadline(time.Now().Add(time.Second))
+	if _, _, err := ws.ReadMessage(); err == nil {
+		t.Fatal("database-revoked token websocket remained open")
+	} else if closeErr, ok := err.(*websocket.CloseError); !ok || closeErr.Code != websocket.ClosePolicyViolation {
+		t.Fatalf("database-revoked token close = %v, want policy violation", err)
+	}
+}
+
+func TestExpiredTokenClosesAfterDatabaseRejectsIt(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	soon := time.Now().Add(20 * time.Millisecond)
+	var calls atomic.Int32
+	h.ValidateSession = func(context.Context, string) (time.Time, error) {
+		if calls.Add(1) == 1 {
+			return soon, nil
+		}
+		return time.Time{}, errors.New("expired")
+	}
+	ws := attachAuthenticatedTestConn(t, h, "room", SessionAuth{
+		TokenID: "expiring", ExpiresAt: soon,
 	})
 	defer ws.Close()
 
@@ -157,11 +258,88 @@ func TestExpiredTokenClosesConnectionWithPolicyViolation(t *testing.T) {
 	}
 }
 
+func TestStaleSuccessfulValidationDoesNotEvictRefreshedToken(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	soon := time.Now().Add(40 * time.Millisecond)
+	refreshed := make(chan struct{})
+	var calls atomic.Int32
+	h.ValidateSession = func(context.Context, string) (time.Time, error) {
+		switch calls.Add(1) {
+		case 1, 2:
+			return soon, nil
+		default:
+			select {
+			case <-refreshed:
+			default:
+				close(refreshed)
+			}
+			return time.Now().Add(time.Hour), nil
+		}
+	}
+	ws := attachAuthenticatedTestConn(t, h, "room", SessionAuth{
+		TokenID: "refreshed", ExpiresAt: soon,
+	})
+	defer ws.Close()
+
+	select {
+	case <-refreshed:
+	case <-time.After(time.Second):
+		t.Fatal("hub did not recheck a successful validation whose observed expiry became stale")
+	}
+	h.Broadcast("room", []byte("still-valid"))
+	ws.SetReadDeadline(time.Now().Add(time.Second))
+	_, got, err := ws.ReadMessage()
+	if err != nil {
+		t.Fatalf("refreshed token websocket closed: %v", err)
+	}
+	if string(got) != "still-valid" {
+		t.Fatalf("broadcast after refresh = %q, want still-valid", got)
+	}
+}
+
+func TestLocallyExpiredTokenWaitsForDatabaseValidation(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	validated := make(chan struct{})
+	h.ValidateSession = func(context.Context, string) (time.Time, error) {
+		select {
+		case <-validated:
+		default:
+			close(validated)
+		}
+		return time.Now().Add(time.Hour), nil
+	}
+	ws := attachAuthenticatedTestConn(t, h, "room", SessionAuth{
+		TokenID: "locally-stale", ExpiresAt: time.Now().Add(-time.Second),
+	})
+	defer ws.Close()
+
+	select {
+	case <-validated:
+	case <-time.After(time.Second):
+		t.Fatal("locally expired token was not checked against the database")
+	}
+	h.Broadcast("room", []byte("database-valid"))
+	ws.SetReadDeadline(time.Now().Add(time.Second))
+	_, got, err := ws.ReadMessage()
+	if err != nil {
+		t.Fatalf("database-valid websocket closed from local expiry: %v", err)
+	}
+	if string(got) != "database-valid" {
+		t.Fatalf("broadcast after database validation = %q, want database-valid", got)
+	}
+}
+
 func TestSessionRevalidationClosesDatabaseRevokedToken(t *testing.T) {
 	h := New()
 	t.Cleanup(h.Shutdown)
 	h.RevalidationInterval = 20 * time.Millisecond
+	var calls atomic.Int32
 	h.ValidateSession = func(context.Context, string) (time.Time, error) {
+		if calls.Add(1) == 1 {
+			return time.Now().Add(time.Hour), nil
+		}
 		return time.Time{}, errors.New("no session for token")
 	}
 	ws := attachAuthenticatedTestConn(t, h, "room", SessionAuth{
