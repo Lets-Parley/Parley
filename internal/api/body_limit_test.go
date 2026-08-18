@@ -37,3 +37,30 @@ func TestAPIRequestBodyLimitRejectsOversizedTrailingDocument(t *testing.T) {
 		t.Fatalf("oversized trailing document = %d, want 413", rec.Code)
 	}
 }
+
+func TestAPIRequestBodyLimitRejectsOversizedGet(t *testing.T) {
+	handler := Router(nil, Options{})
+	t.Cleanup(handler.Shutdown)
+	req := httptest.NewRequest(http.MethodGet, "/api/auth", strings.NewReader(strings.Repeat("x", httprequest.MaxJSONBody+1)))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized GET = %d, want 413", rec.Code)
+	}
+}
+
+func TestAPIRequestBodyLimitPreservesBodylessGet(t *testing.T) {
+	handler := Router(nil, Options{})
+	t.Cleanup(handler.Shutdown)
+	req := httptest.NewRequest(http.MethodGet, "/api/auth", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bodyless GET = %d, want 200", rec.Code)
+	}
+}

@@ -254,10 +254,6 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 
 func limitAPIRequestBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			next.ServeHTTP(w, r)
-			return
-		}
 		bounded := http.MaxBytesReader(w, r.Body, httprequest.MaxJSONBody)
 		body, err := io.ReadAll(bounded)
 		bounded.Close()
