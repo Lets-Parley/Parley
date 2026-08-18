@@ -404,13 +404,13 @@ adding a new kind means one new package and one `Register` call.
 
 ## Roadmap
 
-Nothing here is promised, and the order will change.
+Nothing is promised, and the order will change. [ROADMAP.md](ROADMAP.md) has the
+long version: foundations first, then the rest of the ceremonies a delivery team
+runs, then a whiteboard to run them on.
 
-- Knock-to-join: request access from the door, let the facilitator wave you in.
-- Linking an existing anonymous account to a federated one, so an instance can
-  turn sign-in on without leaving its history behind.
-- Per-user and per-team access to a space, so a rotated room code isn't the only
-  lever. The room code is deliberately a first step, not the destination.
+Nearest up: knock-to-join, linking an anonymous account to a federated one, and
+per-user access to a space — the room code is deliberately a first step, not the
+destination.
 
 ## Contributing
 
