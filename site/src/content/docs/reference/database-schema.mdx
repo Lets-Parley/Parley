@@ -18,8 +18,8 @@ there is no second driver and no plan for one.
   { name: "0002_identity", value: "users, session_tokens", note: "" },
   { name: "0003_spaces", value: "spaces, members", note: "" },
   { name: "0004_sessions", value: "sessions", note: "" },
-  { name: "0005_poker", value: "stories, votes", note: "" },
-  { name: "0006_standup", value: "standup_entries", note: "Also adds sessions.current_speaker_id" },
+  { name: "0005_poker", value: "stories, votes", note: "Also adds sessions.current_story_id" },
+  { name: "0006_standup", value: "standup_entries", note: "Also adds sessions.current_speaker_id and speaker_started_at" },
   { name: "0007_story_ref", value: "stories.ref", note: "Ticket reference, ≤40 chars" },
   { name: "0008_space_passcode", value: "spaces.passcode", note: "Empty string means an open space" },
   { name: "0009_federated_identity", value: "users.issuer, users.subject", note: "Behind a partial unique index" },
@@ -59,7 +59,7 @@ anonymous row can share the empty pair while federated identities stay unique.
 
 | Column | Type | Notes |
 |---|---|---|
-| `token_hash` | text | SHA-256 of the bearer token. The token is never stored |
+| `token_hash` | bytea | SHA-256 of the bearer token, as raw bytes — it is the primary key. The token itself is never stored |
 | `user_id` | uuid | Cascades on user delete |
 | `created_at`, `last_used_at` | timestamptz | `last_used_at` drives the 90-day idle window |
 
@@ -109,6 +109,9 @@ handlers. If you write to Parley's database directly, the constraints still hold
 :::caution[Deleting a user is not a clean cascade]
 `members`, `session_tokens`, `votes` and `standup_entries` all cascade. But
 `sessions.facilitator_id` and `sessions.current_speaker_id` do **not**, so
-deleting a user who has ever facilitated or spoken in a session fails on a
-foreign-key violation. Deal with those sessions first.
+deleting a user who facilitates any session — or is its *current* speaker — fails
+on a foreign-key violation. Deal with those sessions first.
+
+`current_speaker_id` only ever holds the speaker of the moment and is cleared
+when a standup finishes, so merely having spoken does not block a delete.
 :::

@@ -61,7 +61,7 @@ Full detail: [Data and privacy](/security/data-and-privacy/).
 <Capability rows={[
   { name: "Vote secrecy before reveal", status: "built", detail: "Enforced in the serializer, so unrevealed votes are absent from API responses, WebSocket frames and CSV exports alike." },
   { name: "Resource existence not disclosed", status: "built", detail: "Non-members receive 404 rather than 403 for sessions, including on the WebSocket upgrade." },
-  { name: "Cross-site request defence", status: "built", detail: "SameSite=Lax, an Origin and Sec-Fetch-Site check rejecting cross-site non-GET, and a JSON content-type requirement. No CSRF token; these three cover the class." },
+  { name: "Cross-site request defence", status: "built", detail: "SameSite=Lax, an Origin and Sec-Fetch-Site check rejecting cross-site non-GET, and a JSON content-type requirement, in place of a CSRF token. Note a request with no Origin header, and a sibling subdomain (which browsers label same-site), are not caught by the header check — see the <a href='/security/threat-model/'>threat model</a>." },
   { name: "Session token handling", status: "built", detail: "32 random bytes, SHA-256 at rest, HttpOnly cookie, Secure when BASE_URL is https." },
   { name: "OIDC correctness", status: "built", detail: "Authorization code + PKCE (S256); signature, audience, expiry and nonce verified; state and nonce compared in constant time." },
   { name: "Brute-force protection on room codes", status: "built", detail: "8 attempts per 60s per address per space, with a confusable-free alphabet and constant-time comparison." },

@@ -106,6 +106,7 @@ that non-browser clients can connect.
 
 ## Anything else
 
-`/api` routes that do not match return JSON errors; everything else falls through
-to the single-page app, so an unknown path returns the frontend and a 200, not a
-404.
+An unmatched path under `/api/` returns a **plain-text** `404 page not found`,
+not JSON — worth knowing if your client parses every response body as JSON.
+Everything else falls through to the single-page app, so an unknown path outside
+`/api/` returns the frontend with a 200 rather than a 404.

@@ -51,8 +51,9 @@ willing to leave behind, or wait for account linking.
 ## Names
 
 Taken from the provider's claims — `name`, then `preferred_username`, then the
-local part of `email` — and refreshed on every sign-in, so a rename upstream
-follows the person onto the roster.
+local part of `email`, then the subject, and finally the literal "Someone" if a
+provider supplies none of them. Refreshed on every sign-in, so a rename upstream
+follows the person onto the roster. Trimmed to 64 characters.
 
 ## Signing out
 

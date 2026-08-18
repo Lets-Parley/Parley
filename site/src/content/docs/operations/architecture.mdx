@@ -62,8 +62,9 @@ sentence naming the cause before exiting non-zero.
    security, allowed WebSocket origin, port, auth mode, proxy trust. This line is
    the fastest way to confirm what an instance actually thinks its configuration
    is.
-3. Connect to Postgres, retrying up to six times with doubling backoff — roughly
-   a minute in total — so starting alongside a database container works.
+3. Connect to Postgres — up to six attempts, with doubling backoff between them
+   and a 5-second timeout on each, so roughly a minute before it gives up. This
+   is what makes starting alongside a database container work.
 4. Take the boot lock. If another instance holds it, exit.
 5. Run migrations.
 6. Serve.

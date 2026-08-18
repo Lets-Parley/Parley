@@ -23,9 +23,9 @@ The boot log echoes what the process actually resolved — read it to confirm.
 
 <EnvVar name="DATABASE_URL" required fatal>
 The Postgres connection string, e.g.
-`postgres://parley:secret@db:5432/parley`. The only variable with no default.
-Parley retries the connection six times with doubling backoff at startup, so
-racing a database container is fine.
+`postgres://parley:secret@db:5432/parley`. Always required, in both auth modes.
+Parley makes up to six connection attempts at startup with doubling backoff
+between them, so racing a database container is fine.
 </EnvVar>
 
 <EnvVar name="BASE_URL" default="http://localhost:8080" fatal derives="Cookie Secure flag · WebSocket and cross-site origin check · OIDC redirect URI">

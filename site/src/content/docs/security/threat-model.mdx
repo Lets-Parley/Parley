@@ -54,6 +54,14 @@ that rejects cross-site non-GET requests with 403, and a requirement that any
 non-GET request carrying a body declares `application/json` — which blocks the
 classic cross-site form post.
 
+Two edges of that check are worth naming rather than glossing. A request with
+**no** `Origin` header is not rejected by the origin comparison, and
+`Sec-Fetch-Site` is only refused on the literal value `cross-site`, so a
+**sibling subdomain** — which browsers label `same-site` — is not blocked by
+that header. `SameSite=Lax` and the JSON content-type requirement are what carry
+those cases. If you host untrusted content on a sibling subdomain of your Parley
+instance, do not rely on this layer alone.
+
 **Someone forging a cookie.** Session tokens are 32 bytes of cryptographic
 randomness, stored as a SHA-256 hash. The user id is public — it is broadcast to
 every participant — so the cookie deliberately does not contain it.

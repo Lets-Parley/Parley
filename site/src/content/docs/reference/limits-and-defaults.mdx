@@ -30,7 +30,7 @@ unless the page says so.
 
 <SpecTable rows={[
   { name: "JSON request body", value: "64 KiB", note: "Most endpoints" },
-  { name: "Optional-body endpoints", value: "4 KiB", note: "The room-code join path" },
+  { name: "Optional-body endpoints", value: "4 KiB", note: "Room-code join and passcode rotate" },
   { name: "WebSocket frame read", value: "4096 bytes", note: "" },
 ]} />
 
@@ -44,7 +44,7 @@ unless the page says so.
   { name: "-healthcheck request", value: "3s", note: "" },
   { name: "OIDC discovery", value: "15s", note: "Lazy and cached after the first success" },
   { name: "Database connect", value: "5s", note: "Per attempt" },
-  { name: "Startup retries", value: "6", note: "Doubling backoff from 1s, roughly a minute total" },
+  { name: "Startup attempts", value: "6", note: "Five doubling backoffs from 1s, plus a 5s timeout each — about a minute" },
 ]} />
 
 ## WebSocket
