@@ -40,10 +40,11 @@ Frontend work, with hot reload against a running backend:
 cd web && npm run dev            # Vite on :5173, proxies /api and /ws to :8080
 ```
 
-`web/embed.go` declares `//go:embed all:dist` and `web/dist/` is gitignored
-(only `.gitkeep` is tracked). **Skipping the npm build makes Go compilation
-fail**, and a stale `dist` compiles fine while silently serving an old UI. When
-in doubt, rebuild it.
+`web/embed.go` declares `//go:embed all:dist` and nothing under `web/dist/` is
+tracked — a fresh clone has no `dist` directory at all. **Skipping the npm build
+makes Go compilation fail** (`pattern all:dist: no matching files found`), and a
+stale `dist` compiles fine while silently serving an old UI. When in doubt,
+rebuild it.
 
 `DATABASE_URL` has no default and is fatal if missing. Everything else is
 optional: `PORT`, `BASE_URL`, `LOG_LEVEL`, `TRUST_PROXY_HEADERS`, `AUTH_MODE`,
@@ -112,17 +113,23 @@ migration and embedding mistakes that unit tests miss.
 5. **`TRUST_PROXY_HEADERS=true` without a real proxy in front is a
    vulnerability** — clients can forge `X-Forwarded-For` and defeat the room-code
    throttle. Default it to false.
-6. **`/healthz` must never touch the database; `/readyz` does.** A database blip
+6. **Middleware is scoped to `/api`, not global.** `rejectCrossSite` and
+   `requireJSONBody` are registered inside `r.Route("/api", ...)`
+   (`internal/api/router.go`). A new top-level route gets neither — `/auth` sits
+   outside on purpose because identity-provider redirects are browser
+   navigations, and it carries its own CSRF defence in the sign-in cookie's
+   state value. If you add a route group, decide its CSRF story explicitly.
+7. **`/healthz` must never touch the database; `/readyz` does.** A database blip
    restarting the process would drop every live WebSocket. Preserve the split.
-7. **OIDC discovery happens on first sign-in, not at boot**, deliberately, so a
+8. **OIDC discovery happens on first sign-in, not at boot**, deliberately, so a
    broken identity provider cannot stop the server from starting. Not a bug.
-8. Docker (not podman), distroless nonroot final image, container healthcheck is
+9. Docker (not podman), distroless nonroot final image, container healthcheck is
    the binary itself (`/parley -healthcheck`). Postgres is pinned to
    `16-alpine` on purpose — an unplanned major upgrade breaks the data directory.
-9. Docs pages carry a `VerifiedStamp` recording the version and source file they
-   were transcribed from. Changing a default, limit, or security property means
-   updating the `site/` page **and** its stamp in the same PR.
-10. Dependabot watches only `site/`. Go modules and `web/` dependencies are
+10. Docs pages carry a `VerifiedStamp` recording the version and source file they
+    were transcribed from. Changing a default, limit, or security property means
+    updating the `site/` page **and** its stamp in the same PR.
+11. Dependabot watches only `site/`. Go modules and `web/` dependencies are
     bumped by hand, with tests.
 
 ## Scope
