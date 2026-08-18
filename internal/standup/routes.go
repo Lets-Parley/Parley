@@ -101,24 +101,40 @@ func (h *Handler) putEntry(w http.ResponseWriter, r *http.Request, rc reqCtx) {
 	h.done(w, r, rc.sess.ID)
 }
 
-// start snapshots the round-robin roster: connected non-spectator members, in
-// roster order. Carry-forward: each person's "yesterday" is prefilled with the
-// "today" they wrote in this space's most recent previous standup.
+// start (re)snapshots the round-robin roster and puts the session at the top
+// of it. Carry-forward: each person's "yesterday" is prefilled with the "today"
+// they wrote in this space's most recent previous standup.
 //
-// New rows are numbered after the highest position already in the session
-// rather than from 1. Rows can exist before start runs — somebody filled their
-// update in early, or start is being run again now that a latecomer has
-// connected — and those keep their position through the "do nothing" below.
-// Numbering from 1 would hand a newcomer a slot one of them already holds, and
-// because advance walks to the next position after the current one, the loser
-// of that tie is silently dropped from the round.
+// Rows can already exist when this runs — somebody filled their update in
+// early, or start is being run again now that a latecomer has connected — so
+// the whole session is renumbered here rather than only the new rows. Ordering
+// is the roster's, and it has to be recomputed over every entry: numbering only
+// the new rows would either collide with the positions already taken or, if
+// offset past them, leave whoever typed first sitting ahead of the roster
+// order. Everything runs under a lock on the session row, so two starts racing
+// each other cannot interleave and hand two people the same slot.
 func (h *Handler) start(w http.ResponseWriter, r *http.Request, rc reqCtx) {
 	connected := h.hub.Connected(rc.sess.ID)
 	if len(connected) == 0 {
 		http.Error(w, `{"error":"nobody is connected yet — open the session first"}`, http.StatusConflict)
 		return
 	}
-	_, err := h.pool.Exec(r.Context(), `
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		http.Error(w, `{"error":"could not start the standup"}`, http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	if _, err := tx.Exec(r.Context(), "select 1 from sessions where id = $1 for update", rc.sess.ID); err != nil {
+		http.Error(w, `{"error":"could not start the standup"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// Everyone connected who is not spectating joins the round. The position
+	// here is a placeholder: the renumber below assigns the real one.
+	if _, err := tx.Exec(r.Context(), `
 		insert into standup_entries (session_id, user_id, yesterday, position)
 		select $1, m.user_id,
 		       coalesce((
@@ -127,20 +143,51 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request, rc reqCtx) {
 		           where prev.user_id = m.user_id and ps.space_id = $2 and ps.id <> $1
 		           order by ps.created_at desc limit 1
 		       ), ''),
-		       (select coalesce(max(position), 0) from standup_entries where session_id = $1)
-		           + row_number() over (order by u.name)
+		       0
 		from members m join users u on u.id = m.user_id
 		where m.space_id = $2 and not m.spectator and m.user_id::text = any($3)
 		on conflict (session_id, user_id) do nothing`,
-		rc.sess.ID, rc.sess.SpaceID, connected)
-	if err != nil {
+		rc.sess.ID, rc.sess.SpaceID, connected); err != nil {
 		http.Error(w, `{"error":"could not start the standup"}`, http.StatusInternalServerError)
 		return
 	}
-	h.pool.Exec(r.Context(), `
+
+	// Renumber the session into roster order. Spectators sort last so they
+	// never hold a slot in front of somebody who speaks; the speaker queries
+	// skip them regardless. Only position is touched, so anything already
+	// written survives.
+	if _, err := tx.Exec(r.Context(), `
+		update standup_entries e set position = r.rn
+		from (
+		    select e2.user_id,
+		           row_number() over (order by m.spectator, u.name, e2.user_id) as rn
+		    from standup_entries e2
+		    join users u on u.id = e2.user_id
+		    join members m on m.space_id = $2 and m.user_id = e2.user_id
+		    where e2.session_id = $1
+		) r
+		where e.session_id = $1 and e.user_id = r.user_id`,
+		rc.sess.ID, rc.sess.SpaceID); err != nil {
+		http.Error(w, `{"error":"could not start the standup"}`, http.StatusInternalServerError)
+		return
+	}
+
+	if _, err := tx.Exec(r.Context(), `
 		update sessions set phase = 'speaking', version = version + 1, speaker_started_at = now(),
-		current_speaker_id = (select user_id from standup_entries where session_id = $1 order by position limit 1)
-		where id = $1`, rc.sess.ID)
+		current_speaker_id = (
+		    select e.user_id from standup_entries e
+		    join members m on m.space_id = $2 and m.user_id = e.user_id
+		    where e.session_id = $1 and not m.spectator
+		    order by e.position limit 1)
+		where id = $1`, rc.sess.ID, rc.sess.SpaceID); err != nil {
+		http.Error(w, `{"error":"could not start the standup"}`, http.StatusInternalServerError)
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, `{"error":"could not start the standup"}`, http.StatusInternalServerError)
+		return
+	}
+
 	h.broadcast(r.Context(), rc.sess.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -157,11 +204,12 @@ func (h *Handler) advance(w http.ResponseWriter, r *http.Request, rc reqCtx, mar
 		update sessions set version = version + 1, speaker_started_at = now(),
 		current_speaker_id = (
 		    select e.user_id from standup_entries e
-		    where e.session_id = $1 and e.position > coalesce((
+		    join members m on m.space_id = $2 and m.user_id = e.user_id
+		    where e.session_id = $1 and not m.spectator and e.position > coalesce((
 		        select position from standup_entries
 		        where session_id = $1 and user_id = sessions.current_speaker_id), 0)
 		    order by e.position limit 1)
-		where id = $1 and phase = 'speaking'`, rc.sess.ID)
+		where id = $1 and phase = 'speaking'`, rc.sess.ID, rc.sess.SpaceID)
 	if tag.RowsAffected() == 0 {
 		http.Error(w, `{"error":"the standup has not started"}`, http.StatusConflict)
 		return

@@ -3,7 +3,6 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
-	"sort"
 	"strings"
 	"testing"
 
@@ -89,6 +88,29 @@ func speakingOrder(t *testing.T, srv *httptest.Server, id string, fac *http.Cook
 	return nil
 }
 
+// assertRosterOrder fails unless the round is exactly the given users in the
+// given order — both the stored positions and the turns actually taken.
+func assertRosterOrder(t *testing.T, srv *httptest.Server, id string, fac *http.Cookie, want ...string) {
+	t.Helper()
+	pos := positions(t, srv, id, fac)
+	assertDistinctPositions(t, pos)
+	for i := 1; i < len(want); i++ {
+		if pos[want[i-1]] >= pos[want[i]] {
+			t.Errorf("position %v for user %d is not before %v for user %d",
+				pos[want[i-1]], i-1, pos[want[i]], i)
+		}
+	}
+	got := speakingOrder(t, srv, id, fac)
+	if len(got) != len(want) {
+		t.Fatalf("speaking order = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("speaking order = %v, want %v", got, want)
+		}
+	}
+}
+
 func closeAll(conns ...[]*websocket.Conn) func() {
 	return func() {
 		for _, group := range conns {
@@ -111,25 +133,15 @@ func TestStandupStartOrdersByName(t *testing.T) {
 	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/start", "", cookies[0]); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("start: %d", resp.StatusCode)
 	}
-	pos := positions(t, srv, id, cookies[0])
-	assertDistinctPositions(t, pos)
-
 	zara, dana, marcus := ids[0], ids[1], ids[2]
-	if !(pos[dana] < pos[marcus] && pos[marcus] < pos[zara]) {
-		t.Fatalf("positions are not in name order: Dana=%v Marcus=%v Zara=%v",
-			pos[dana], pos[marcus], pos[zara])
-	}
-	if got := speakingOrder(t, srv, id, cookies[0]); len(got) != 3 ||
-		got[0] != dana || got[1] != marcus || got[2] != zara {
-		t.Fatalf("speaking order = %v, want Dana, Marcus, Zara", got)
-	}
+	assertRosterOrder(t, srv, id, cookies[0], dana, marcus, zara)
 }
 
-// TestStandupLateJoinerGetsItsOwnSlot covers restarting a standup after
-// somebody else connects. The second start recomputes row_number over the
-// larger connected set while the already-present rows keep their original
-// positions, so a naive numbering hands the newcomer a slot somebody already
-// holds — and the loser of that tie never speaks.
+// TestStandupLateJoinerGetsItsOwnSlot covers restarting a standup once somebody
+// else has connected. The newcomer has to be folded into the roster order
+// without landing on a slot an existing entry already holds — a tie drops one
+// of the pair from the round, because advance walks to the next position after
+// the current one.
 func TestStandupLateJoinerGetsItsOwnSlot(t *testing.T) {
 	srv := testServer(t)
 	cookies, ids, id := standupSpace(t, srv, "Late Space", "Amy Stone", "Zoe Vance", "Bob Ito")
@@ -141,53 +153,33 @@ func TestStandupLateJoinerGetsItsOwnSlot(t *testing.T) {
 	}
 	before := positions(t, srv, id, cookies[0])
 	assertDistinctPositions(t, before)
+	if before[amy] >= before[zoe] {
+		t.Fatalf("first start is not in name order: Amy=%v Zoe=%v", before[amy], before[zoe])
+	}
 
-	// Bob sorts between Amy and Zoe, so a restart renumbers him onto Zoe's slot.
+	// Bob sorts between Amy and Zoe, so he belongs in the middle of the round
+	// rather than appended to the end of it.
 	late := connectAll(t, srv, id, cookies[2])
 	defer closeAll(first, late)()
 	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/start", "", cookies[0]); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("second start: %d", resp.StatusCode)
 	}
-
-	after := positions(t, srv, id, cookies[0])
-	if len(after) != 3 {
-		t.Fatalf("entries after the restart: %d, want 3", len(after))
+	if got := len(positions(t, srv, id, cookies[0])); got != 3 {
+		t.Fatalf("entries after the restart: %d, want 3", got)
 	}
-	assertDistinctPositions(t, after)
-	// The people already in the round keep the slot they were given: a restart
-	// must not reshuffle anybody who has possibly already spoken.
-	for _, u := range []string{amy, zoe} {
-		if after[u] != before[u] {
-			t.Errorf("position for %s moved from %v to %v on restart", u, before[u], after[u])
-		}
-	}
-	if after[bob] <= after[zoe] {
-		t.Errorf("the late joiner landed at %v, want a slot after the existing %v", after[bob], after[zoe])
-	}
-
-	order := speakingOrder(t, srv, id, cookies[0])
-	if len(order) != 3 {
-		t.Fatalf("speaking order = %v, want all three to get a turn", order)
-	}
-	sorted := append([]string{}, order...)
-	sort.Strings(sorted)
-	want := []string{amy, zoe, bob}
-	sort.Strings(want)
-	for i := range want {
-		if sorted[i] != want[i] {
-			t.Fatalf("speaking order = %v, want everyone exactly once", order)
-		}
-	}
+	assertRosterOrder(t, srv, id, cookies[0], amy, bob, zoe)
 }
 
 // TestStandupStartAfterAnEarlyEntry covers the other way a position is taken
-// before start runs: writing an update early inserts the row at max+1, and
-// start must number the rest around it rather than on top of it.
+// before start runs: writing an update early inserts the row at max+1, which
+// must not leave the early writer sitting in front of the roster order.
 func TestStandupStartAfterAnEarlyEntry(t *testing.T) {
 	srv := testServer(t)
 	cookies, ids, id := standupSpace(t, srv, "Early Space", "Amy Stone", "Zoe Vance", "Bob Ito")
+	amy, zoe, bob := ids[0], ids[1], ids[2]
 
-	// Zoe fills her update in before the facilitator starts.
+	// Zoe fills her update in before the facilitator starts. She sorts last,
+	// and typing first must not change that.
 	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+id+"/standup",
 		`{"yesterday":"","today":"finish the migration","blockers":""}`, cookies[1]); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("early entry: %d", resp.StatusCode)
@@ -199,20 +191,46 @@ func TestStandupStartAfterAnEarlyEntry(t *testing.T) {
 		t.Fatalf("start: %d", resp.StatusCode)
 	}
 
-	pos := positions(t, srv, id, cookies[0])
-	if len(pos) != 3 {
-		t.Fatalf("entries: %d, want 3", len(pos))
-	}
-	assertDistinctPositions(t, pos)
-	if order := speakingOrder(t, srv, id, cookies[0]); len(order) != 3 {
-		t.Fatalf("speaking order = %v, want all three to get a turn", order)
-	}
-	// The early update survives the start that follows it.
+	// The early update survives the renumbering that start performs.
 	_, env := doJSON(t, srv, "GET", "/api/sessions/"+id, "", cookies[1])
 	for _, e := range standupState(env)["entries"].([]any) {
 		entry := e.(map[string]any)
-		if entry["userId"] == ids[1] && entry["today"] != "finish the migration" {
+		if entry["userId"] == zoe && entry["today"] != "finish the migration" {
 			t.Fatalf("the early entry was overwritten by start: %v", entry)
 		}
 	}
+	assertRosterOrder(t, srv, id, cookies[0], amy, bob, zoe)
+}
+
+// TestStandupSpectatorNeverSpeaks covers a spectator who wrote an update
+// anyway. Spectators are excluded from the round: they must not take a slot,
+// and above all must not be handed the first turn because their row was
+// created before anybody else's.
+func TestStandupSpectatorNeverSpeaks(t *testing.T) {
+	srv := testServer(t)
+	// The spectator sorts first by name, so a renumbering that ignores the
+	// spectator flag would put her at the head of the round.
+	cookies, ids, id := standupSpace(t, srv, "Spectator Space", "Bea Stone", "Ada Nowak", "Cal Ito")
+	bea, ada, cal := ids[0], ids[1], ids[2]
+
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/spectator", `{"on":true}`, cookies[1]); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("spectator toggle: %d", resp.StatusCode)
+	}
+	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+id+"/standup",
+		`{"today":"just watching"}`, cookies[1]); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("spectator entry: %d", resp.StatusCode)
+	}
+
+	conns := connectAll(t, srv, id, cookies[0], cookies[1], cookies[2])
+	defer closeAll(conns)()
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/start", "", cookies[0]); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("start: %d", resp.StatusCode)
+	}
+
+	pos := positions(t, srv, id, cookies[0])
+	assertDistinctPositions(t, pos)
+	if pos[ada] < pos[bea] || pos[ada] < pos[cal] {
+		t.Errorf("the spectator holds position %v, ahead of Bea=%v or Cal=%v", pos[ada], pos[bea], pos[cal])
+	}
+	assertRosterOrder(t, srv, id, cookies[0], bea, cal)
 }
