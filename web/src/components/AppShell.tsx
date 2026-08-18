@@ -7,12 +7,16 @@ import { Avatar } from "./Avatar";
 import { ConnectionBanner } from "./ConnectionBanner";
 import { MemberCard } from "./MemberCard";
 import { useAuthMode } from "./NameGate";
+import logoUrl from "../assets/logo.svg";
 
 export function Logo({ size = 14 }: { size?: number }) {
   return (
-    <span
-      className="inline-block shrink-0 rotate-[8deg] rounded-[4px] bg-accent shadow-rest"
-      style={{ width: size, height: size }}
+    <img
+      src={logoUrl}
+      width={size}
+      height={size}
+      className="inline-block shrink-0 rounded-[4px] shadow-rest"
+      alt=""
       aria-hidden
     />
   );
