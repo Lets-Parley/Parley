@@ -5,10 +5,16 @@ const { rows = [] } = Astro.props;
 // `method` is lowercased into a class name, so an unknown verb renders an
 // unstyled chip rather than failing. The set is the verbs `.m-*` below has
 // colours for — adding one here means adding a rule there.
+//
+// Normalise once and render from the same value that was validated: checking
+// a trimmed copy while rendering the raw one is how `" get "` passes and then
+// emits `class="m- get "`, matching no rule.
 const KNOWN = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "WS"]);
-const bad = rows.filter(
-  (r) => typeof r.method !== "string" || !KNOWN.has(r.method.trim().toUpperCase())
-);
+const routes = rows.map((r) => ({
+  ...r,
+  method: typeof r.method === "string" ? r.method.trim().toUpperCase() : r.method,
+}));
+const bad = routes.filter((r) => !KNOWN.has(r.method));
 if (bad.length) {
   throw new Error(
     `RouteTable: 'method' must be one of ${[...KNOWN].join(", ")} — bad rows: ` +
@@ -22,7 +28,7 @@ if (bad.length) {
       <tr><th>Method</th><th>Path</th><th>Who</th><th>Purpose</th></tr>
     </thead>
     <tbody>
-      {rows.map((r) => (
+      {routes.map((r) => (
         <tr>
           <td><span class={`m m-${r.method.toLowerCase()}`}>{r.method}</span></td>
           <td class="path"><code>{r.path}</code></td>

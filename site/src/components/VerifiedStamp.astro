@@ -6,7 +6,7 @@
 // The version is NOT a prop. It was hardcoded on 22 pages, which meant a
 // release had 22 chances to leave one behind saying something untrue.
 import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, resolve, sep } from "node:path";
 import { VERIFIED_VERSION } from "../verified.ts";
 
 const { source } = Astro.props;
@@ -18,9 +18,18 @@ let root = process.cwd();
 while (!existsSync(resolve(root, "go.mod")) && dirname(root) !== root) {
   root = dirname(root);
 }
-const files = (Array.isArray(source) ? source : source ? [source] : [])
-  .map((f) => (typeof f === "string" ? f.trim() : ""))
-  .filter(Boolean);
+// Blank entries are not filtered away: dropping one silently renders a stamp
+// citing fewer files than the author wrote, which is the same missing-evidence
+// problem one level down.
+const files = (Array.isArray(source) ? source : source === undefined ? [] : [source])
+  .map((f) => (typeof f === "string" ? f.trim() : f));
+const blank = files.filter((f) => typeof f !== "string" || f === "");
+if (blank.length) {
+  throw new Error(
+    `VerifiedStamp: ${blank.length} \`source\` entr${blank.length > 1 ? "ies are" : "y is"} ` +
+      `blank or not a string — name a file or drop the entry.`
+  );
+}
 
 // A stamp with no file is a claim with nothing to check, which is worse than
 // no stamp at all — it borrows the credibility without offering the evidence.
@@ -33,6 +42,15 @@ if (files.length === 0) {
 // And a stamp pointing at a path that no longer exists reads exactly as
 // confident as one that does. Paths are repo-root-relative; some are
 // directories, which existsSync covers too.
+// resolve() lets an absolute or `../` path escape the repo entirely and still
+// exist on the build machine, so the stamp would vouch for a file no reader
+// can open. Repo-relative only.
+const outside = files.filter((f) => !resolve(root, f).startsWith(resolve(root) + sep));
+if (outside.length) {
+  throw new Error(
+    `VerifiedStamp: source must be repo-relative: ${outside.join(", ")}`
+  );
+}
 const missing = files.filter((f) => !existsSync(resolve(root, f)));
 if (missing.length) {
   throw new Error(
