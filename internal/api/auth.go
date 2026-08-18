@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/oauth2"
 
-	"github.com/jacorbello/parley/internal/store"
+	"github.com/lets-parley/parley/internal/store"
 )
 
 // Auth modes. An instance is either anonymous or federated; there is no third

@@ -4,7 +4,7 @@ import (
 	"encoding/csv"
 	"net/http"
 
-	"github.com/jacorbello/parley/internal/session"
+	"github.com/lets-parley/parley/internal/session"
 )
 
 func (a *app) handleExportCSV(w http.ResponseWriter, r *http.Request) {

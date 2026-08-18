@@ -1,4 +1,4 @@
-module github.com/jacorbello/parley
+module github.com/lets-parley/parley
 
 go 1.26.3
 

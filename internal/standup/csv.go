@@ -3,7 +3,7 @@ package standup
 import (
 	"fmt"
 
-	"github.com/jacorbello/parley/internal/session"
+	"github.com/lets-parley/parley/internal/session"
 )
 
 func init() {

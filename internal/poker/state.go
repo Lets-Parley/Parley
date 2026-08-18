@@ -6,8 +6,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/jacorbello/parley/internal/session"
-	"github.com/jacorbello/parley/internal/store"
+	"github.com/lets-parley/parley/internal/session"
+	"github.com/lets-parley/parley/internal/store"
 )
 
 type WireVote struct {

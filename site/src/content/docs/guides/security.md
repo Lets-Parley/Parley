@@ -51,5 +51,5 @@ misses real guessers or punishes innocent ones. See
 
 ## Reporting something
 
-Open a [security advisory](https://github.com/jacorbello/parley/security/advisories/new)
+Open a [security advisory](https://github.com/lets-parley/parley/security/advisories/new)
 rather than a public issue.

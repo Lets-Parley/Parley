@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/jacorbello/parley/internal/store"
+	"github.com/lets-parley/parley/internal/store"
 )
 
 type meResponse struct {

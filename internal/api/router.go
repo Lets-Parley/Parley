@@ -10,12 +10,12 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/jacorbello/parley/internal/auth"
-	"github.com/jacorbello/parley/internal/hub"
-	"github.com/jacorbello/parley/internal/poker"
-	"github.com/jacorbello/parley/internal/standup"
-	"github.com/jacorbello/parley/internal/store"
-	"github.com/jacorbello/parley/web"
+	"github.com/lets-parley/parley/internal/auth"
+	"github.com/lets-parley/parley/internal/hub"
+	"github.com/lets-parley/parley/internal/poker"
+	"github.com/lets-parley/parley/internal/standup"
+	"github.com/lets-parley/parley/internal/store"
+	"github.com/lets-parley/parley/web"
 )
 
 type app struct {

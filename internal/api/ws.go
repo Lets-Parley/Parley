@@ -7,8 +7,8 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/jacorbello/parley/internal/session"
-	"github.com/jacorbello/parley/internal/store"
+	"github.com/lets-parley/parley/internal/session"
+	"github.com/lets-parley/parley/internal/store"
 )
 
 // handleWS authorizes and upgrades /ws?session=:id. Membership is enforced here

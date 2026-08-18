@@ -10,8 +10,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/jacorbello/parley/internal/session"
-	"github.com/jacorbello/parley/internal/store"
+	"github.com/lets-parley/parley/internal/session"
+	"github.com/lets-parley/parley/internal/store"
 )
 
 // broadcastState rebuilds the envelope and pushes it to every connection in the

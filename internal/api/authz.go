@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/jacorbello/parley/internal/store"
+	"github.com/lets-parley/parley/internal/store"
 )
 
 type sessionKey struct{}

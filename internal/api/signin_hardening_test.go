@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/jacorbello/parley/internal/auth"
+	"github.com/lets-parley/parley/internal/auth"
 )
 
 // A browser reads a backslash as a slash, so "/\evil.example" is every bit as

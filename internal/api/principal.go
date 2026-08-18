@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/jacorbello/parley/internal/principal"
-	"github.com/jacorbello/parley/internal/store"
+	"github.com/lets-parley/parley/internal/principal"
+	"github.com/lets-parley/parley/internal/store"
 )
 
 const sessionCookie = "parley_session"
