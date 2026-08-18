@@ -181,7 +181,7 @@ func TestTransferFacilitatorRequiresMembership(t *testing.T) {
 	sess, members := newSession(t, pool, "Dana Whitfield", "Ben Alvarez")
 	outsider, _ := newUser(t, pool, "Nina Kowalski")
 
-	if err := sessions.TransferFacilitator(ctx, sess.ID, outsider.ID); err != ErrNotEligible {
+	if err := sessions.TransferFacilitator(ctx, sess.ID, members[0].ID, outsider.ID); err != ErrNotEligible {
 		t.Fatalf("transfer to a non-member: got %v, want ErrNotEligible", err)
 	}
 	unchanged, err := sessions.ByID(ctx, sess.ID)
@@ -192,7 +192,7 @@ func TestTransferFacilitatorRequiresMembership(t *testing.T) {
 		t.Fatalf("facilitator changed to %s on a rejected transfer", unchanged.FacilitatorID)
 	}
 
-	if err := sessions.TransferFacilitator(ctx, sess.ID, members[1].ID); err != nil {
+	if err := sessions.TransferFacilitator(ctx, sess.ID, members[0].ID, members[1].ID); err != nil {
 		t.Fatalf("transfer to a member: %v", err)
 	}
 	got, err := sessions.ByID(ctx, sess.ID)
@@ -216,11 +216,11 @@ func TestSetEndedAndBumpVersion(t *testing.T) {
 	sessions := &Sessions{Pool: pool}
 	ctx := context.Background()
 
-	sess, _ := newSession(t, pool, "Dana Whitfield")
+	sess, members := newSession(t, pool, "Dana Whitfield")
 	if sess.EndedAt != nil {
 		t.Fatal("a new session is already ended")
 	}
-	if err := sessions.SetEnded(ctx, sess.ID, true); err != nil {
+	if err := sessions.SetEnded(ctx, sess.ID, members[0].ID, true); err != nil {
 		t.Fatal(err)
 	}
 	ended, err := sessions.ByID(ctx, sess.ID)
@@ -232,7 +232,7 @@ func TestSetEndedAndBumpVersion(t *testing.T) {
 	}
 
 	// Reopening clears it again — the UI offers this after an accidental end.
-	if err := sessions.SetEnded(ctx, sess.ID, false); err != nil {
+	if err := sessions.SetEnded(ctx, sess.ID, members[0].ID, false); err != nil {
 		t.Fatal(err)
 	}
 	reopened, err := sessions.ByID(ctx, sess.ID)

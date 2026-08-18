@@ -2,7 +2,10 @@ package standup
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/store"
@@ -21,9 +24,19 @@ func actions() map[string]session.Action {
 }
 
 func done(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
-	(&store.Sessions{Pool: ac.Pool}).BumpVersion(r.Context(), ac.Session.ID)
 	ac.Broadcast(r.Context(), ac.Session.ID)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func writeMutationError(w http.ResponseWriter, err error, fallback string) {
+	switch {
+	case errors.Is(err, store.ErrNotFacilitator):
+		http.Error(w, `{"error":"only the facilitator can do that"}`, http.StatusForbidden)
+	case errors.Is(err, store.ErrSessionEnded):
+		http.Error(w, `{"error":"this session has ended"}`, http.StatusConflict)
+	default:
+		http.Error(w, `{"error":"`+fallback+`"}`, http.StatusInternalServerError)
+	}
 }
 
 func putEntry(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
@@ -40,16 +53,23 @@ func putEntry(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		http.Error(w, `{"error":"each field can be at most 2000 characters"}`, http.StatusBadRequest)
 		return
 	}
-	_, err := ac.Pool.Exec(r.Context(), `
-		insert into standup_entries (session_id, user_id, yesterday, today, blockers, position)
-		values ($1, $2, $3, $4, $5,
-		        (select coalesce(max(position), 0) + 1 from standup_entries where session_id = $1))
-		on conflict (session_id, user_id) do update
-		set yesterday = excluded.yesterday, today = excluded.today,
-		    blockers = excluded.blockers, updated_at = now()`,
-		ac.Session.ID, ac.UserID, body.Yesterday, body.Today, body.Blockers)
+	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, false,
+		func(tx pgx.Tx, sess store.Session) error {
+			if _, err := tx.Exec(r.Context(), `
+				insert into standup_entries (session_id, user_id, yesterday, today, blockers, position)
+				values ($1, $2, $3, $4, $5,
+				        (select coalesce(max(position), 0) + 1 from standup_entries where session_id = $1))
+				on conflict (session_id, user_id) do update
+				set yesterday = excluded.yesterday, today = excluded.today,
+				    blockers = excluded.blockers, updated_at = now()`,
+				sess.ID, ac.UserID, body.Yesterday, body.Today, body.Blockers); err != nil {
+				return err
+			}
+			_, err := tx.Exec(r.Context(), "update sessions set version = version + 1 where id = $1", sess.ID)
+			return err
+		})
 	if err != nil {
-		http.Error(w, `{"error":"could not save your update"}`, http.StatusInternalServerError)
+		writeMutationError(w, err, "could not save your update")
 		return
 	}
 	done(w, r, ac)
@@ -74,21 +94,11 @@ func start(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		return
 	}
 
-	tx, err := ac.Pool.Begin(r.Context())
-	if err != nil {
-		http.Error(w, `{"error":"could not start the standup"}`, http.StatusInternalServerError)
-		return
-	}
-	defer tx.Rollback(r.Context())
-
-	if _, err := tx.Exec(r.Context(), "select 1 from sessions where id = $1 for update", ac.Session.ID); err != nil {
-		http.Error(w, `{"error":"could not start the standup"}`, http.StatusInternalServerError)
-		return
-	}
-
-	// Everyone connected who is not spectating joins the round. The position
-	// here is a placeholder: the renumber below assigns the real one.
-	if _, err := tx.Exec(r.Context(), `
+	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
+		func(tx pgx.Tx, sess store.Session) error {
+			// Everyone connected who is not spectating joins the round. The position
+			// here is a placeholder: the renumber below assigns the real one.
+			if _, err := tx.Exec(r.Context(), `
 		insert into standup_entries (session_id, user_id, yesterday, position)
 		select $1, m.user_id,
 		       coalesce((
@@ -101,16 +111,15 @@ func start(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		from members m join users u on u.id = m.user_id
 		where m.space_id = $2 and not m.spectator and m.user_id::text = any($3)
 		on conflict (session_id, user_id) do nothing`,
-		ac.Session.ID, ac.Session.SpaceID, connected); err != nil {
-		http.Error(w, `{"error":"could not start the standup"}`, http.StatusInternalServerError)
-		return
-	}
+				sess.ID, sess.SpaceID, connected); err != nil {
+				return err
+			}
 
-	// Renumber the session into roster order. Spectators sort last so they
-	// never hold a slot in front of somebody who speaks; the speaker queries
-	// skip them regardless. Only position is touched, so anything already
-	// written survives.
-	if _, err := tx.Exec(r.Context(), `
+			// Renumber the session into roster order. Spectators sort last so they
+			// never hold a slot in front of somebody who speaks; the speaker queries
+			// skip them regardless. Only position is touched, so anything already
+			// written survives.
+			if _, err := tx.Exec(r.Context(), `
 		update standup_entries e set position = r.rn
 		from (
 		    select e2.user_id,
@@ -121,40 +130,42 @@ func start(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		    where e2.session_id = $1
 		) r
 		where e.session_id = $1 and e.user_id = r.user_id`,
-		ac.Session.ID, ac.Session.SpaceID); err != nil {
-		http.Error(w, `{"error":"could not start the standup"}`, http.StatusInternalServerError)
-		return
-	}
+				sess.ID, sess.SpaceID); err != nil {
+				return err
+			}
 
-	if _, err := tx.Exec(r.Context(), `
+			_, err := tx.Exec(r.Context(), `
 		update sessions set phase = 'speaking', version = version + 1, speaker_started_at = now(),
 		current_speaker_id = (
 		    select e.user_id from standup_entries e
 		    join members m on m.space_id = $2 and m.user_id = e.user_id
 		    where e.session_id = $1 and not m.spectator
 		    order by e.position limit 1)
-		where id = $1`, ac.Session.ID, ac.Session.SpaceID); err != nil {
-		http.Error(w, `{"error":"could not start the standup"}`, http.StatusInternalServerError)
+		where id = $1`, sess.ID, sess.SpaceID)
+			return err
+		})
+	if err != nil {
+		writeMutationError(w, err, "could not start the standup")
 		return
 	}
-	if err := tx.Commit(r.Context()); err != nil {
-		http.Error(w, `{"error":"could not start the standup"}`, http.StatusInternalServerError)
-		return
-	}
-
-	ac.Broadcast(r.Context(), ac.Session.ID)
-	w.WriteHeader(http.StatusNoContent)
+	done(w, r, ac)
 }
 
+var errNotStarted = errors.New("standup not started")
+
 func advance(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, markSkipped bool) {
-	if markSkipped {
-		ac.Pool.Exec(r.Context(), `
+	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
+		func(tx pgx.Tx, sess store.Session) error {
+			if markSkipped {
+				if _, err := tx.Exec(r.Context(), `
 			update standup_entries set skipped = true
 			where session_id = $1 and user_id = (select current_speaker_id from sessions where id = $1)`,
-			ac.Session.ID)
-	}
-	// Next entry after the current speaker's position; none left → done.
-	tag, _ := ac.Pool.Exec(r.Context(), `
+					sess.ID); err != nil {
+					return err
+				}
+			}
+			// Next entry after the current speaker's position; none left → done.
+			tag, err := tx.Exec(r.Context(), `
 		update sessions set version = version + 1, speaker_started_at = now(),
 		current_speaker_id = (
 		    select e.user_id from standup_entries e
@@ -163,16 +174,27 @@ func advance(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, markS
 		        select position from standup_entries
 		        where session_id = $1 and user_id = sessions.current_speaker_id), 0)
 		    order by e.position limit 1)
-		where id = $1 and phase = 'speaking'`, ac.Session.ID, ac.Session.SpaceID)
-	if tag.RowsAffected() == 0 {
+		where id = $1 and phase = 'speaking'`, sess.ID, sess.SpaceID)
+			if err != nil {
+				return err
+			}
+			if tag.RowsAffected() == 0 {
+				return errNotStarted
+			}
+			_, err = tx.Exec(r.Context(), `
+		update sessions set phase = 'done', speaker_started_at = null
+		where id = $1 and current_speaker_id is null`, sess.ID)
+			return err
+		})
+	if errors.Is(err, errNotStarted) {
 		http.Error(w, `{"error":"the standup has not started"}`, http.StatusConflict)
 		return
 	}
-	ac.Pool.Exec(r.Context(), `
-		update sessions set phase = 'done', speaker_started_at = null
-		where id = $1 and current_speaker_id is null`, ac.Session.ID)
-	ac.Broadcast(r.Context(), ac.Session.ID)
-	w.WriteHeader(http.StatusNoContent)
+	if err != nil {
+		writeMutationError(w, err, "could not advance the standup")
+		return
+	}
+	done(w, r, ac)
 }
 
 func next(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {

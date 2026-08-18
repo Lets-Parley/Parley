@@ -92,6 +92,37 @@ func TestVoteGuards(t *testing.T) {
 	}
 }
 
+func TestStoryManagementRequiresFacilitator(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Story Authority Space")
+	story := addStory(t, srv, id, "Managed story", fac)
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{name: "create", method: http.MethodPost, path: "/api/sessions/" + id + "/stories", body: `{"title":"Unauthorized story"}`},
+		{name: "edit", method: http.MethodPatch, path: "/api/stories/" + story, body: `{"title":"Unauthorized edit"}`},
+		{name: "reorder", method: http.MethodPatch, path: "/api/stories/" + story, body: `{"position":99}`},
+		{name: "select", method: http.MethodPost, path: "/api/sessions/" + id + "/select", body: `{"storyId":"` + story + `"}`},
+		{name: "delete", method: http.MethodDelete, path: "/api/stories/" + story},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, _ := doJSON(t, srv, tt.method, tt.path, tt.body, member)
+			if resp.StatusCode != http.StatusForbidden {
+				t.Fatalf("status = %d, want 403", resp.StatusCode)
+			}
+		})
+	}
+
+	if resp, _ := doJSON(t, srv, http.MethodDelete, "/api/stories/"+story, "", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("facilitator delete: %d", resp.StatusCode)
+	}
+}
+
 func TestRedactionBeforeReveal(t *testing.T) {
 	srv := testServer(t)
 	fac, member, id := setupSession(t, srv, "Redact Space")
@@ -226,6 +257,50 @@ func TestAutoRevealOnlyOnVoteEvents(t *testing.T) {
 	}
 	if !values["8"] || values["5"] {
 		t.Fatalf("overwrite did not replace the value: %v", values)
+	}
+}
+
+func TestAutoRevealRequiresExactConnectedVoterSet(t *testing.T) {
+	srv := testServer(t)
+	fac, connectedVoter, id := setupSession(t, srv, "Exact Auto Space")
+	staleVoter := signup(t, srv, "Stale Voter")
+	_, space := doJSON(t, srv, "GET", "/api/spaces/exact-auto-space", "", connectedVoter)
+	code, _ := space["passcode"].(string)
+	if resp := joinSpace(t, srv, "exact-auto-space", staleVoter, code); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("join stale voter: %d", resp.StatusCode)
+	}
+	story := addStory(t, srv, id, "Exact voters", fac)
+	selectStory(t, srv, id, story, fac)
+
+	wsFac, _, err := dialWS(t, srv, id, fac, testOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wsStale, _, err := dialWS(t, srv, id, staleVoter, testOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * time.Second)
+	if resp := vote(t, srv, story, "3", staleVoter); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("stale voter seed: %d", resp.StatusCode)
+	}
+	wsFac.Close()
+	wsStale.Close()
+	time.Sleep(2500 * time.Millisecond)
+
+	wsConnected, _, err := dialWS(t, srv, id, connectedVoter, testOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wsConnected.Close()
+	time.Sleep(2 * time.Second)
+	if resp := vote(t, srv, story, "5", connectedVoter); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("connected voter: %d", resp.StatusCode)
+	}
+
+	_, env := doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	if env["revealed"] == true {
+		t.Fatal("stale vote from a disconnected user triggered auto-reveal")
 	}
 }
 

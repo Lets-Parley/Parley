@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/lets-parley/parley/internal/store"
 )
@@ -95,20 +96,26 @@ func (a *app) handleGetSession(w http.ResponseWriter, r *http.Request) {
 // sits outside the rejectEnded group — the no-write-on-an-ended-session
 // invariant is kept here instead, by skipping the write.
 func (a *app) handleCloseSession(w http.ResponseWriter, r *http.Request) {
+	p, _ := PrincipalFrom(r.Context())
 	sess := sessionFrom(r.Context())
-	if sess.EndedAt == nil {
-		if err := a.sessions.SetEnded(r.Context(), sess.ID, true); err != nil {
-			http.Error(w, `{"error":"could not close session"}`, http.StatusInternalServerError)
-			return
-		}
-		a.broadcastState(r.Context(), sess.ID)
+	if err := a.sessions.SetEnded(r.Context(), sess.ID, p.UserID, true); errors.Is(err, store.ErrNotFacilitator) {
+		http.Error(w, `{"error":"only the facilitator can do that"}`, http.StatusForbidden)
+		return
+	} else if err != nil {
+		http.Error(w, `{"error":"could not close session"}`, http.StatusInternalServerError)
+		return
 	}
+	a.broadcastState(r.Context(), sess.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *app) handleReopenSession(w http.ResponseWriter, r *http.Request) {
+	p, _ := PrincipalFrom(r.Context())
 	sess := sessionFrom(r.Context())
-	if err := a.sessions.SetEnded(r.Context(), sess.ID, false); err != nil {
+	if err := a.sessions.SetEnded(r.Context(), sess.ID, p.UserID, false); errors.Is(err, store.ErrNotFacilitator) {
+		http.Error(w, `{"error":"only the facilitator can do that"}`, http.StatusForbidden)
+		return
+	} else if err != nil {
 		http.Error(w, `{"error":"could not reopen session"}`, http.StatusInternalServerError)
 		return
 	}
@@ -117,6 +124,7 @@ func (a *app) handleReopenSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleTransferFacilitator(w http.ResponseWriter, r *http.Request) {
+	p, _ := PrincipalFrom(r.Context())
 	sess := sessionFrom(r.Context())
 	var body struct {
 		UserID string `json:"userId"`
@@ -125,14 +133,11 @@ func (a *app) handleTransferFacilitator(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, `{"error":"userId is required"}`, http.StatusBadRequest)
 		return
 	}
-	// Transferring to the current holder changes nothing: skip the write so no
-	// version bump and no broadcast wake every connected client for nothing.
-	if body.UserID == sess.FacilitatorID {
-		w.WriteHeader(http.StatusNoContent)
+	err := a.sessions.TransferFacilitator(r.Context(), sess.ID, p.UserID, body.UserID)
+	if errors.Is(err, store.ErrNotFacilitator) {
+		http.Error(w, `{"error":"only the facilitator can do that"}`, http.StatusForbidden)
 		return
 	}
-
-	err := a.sessions.TransferFacilitator(r.Context(), sess.ID, body.UserID)
 	if errors.Is(err, store.ErrNotEligible) {
 		http.Error(w, `{"error":"that person is not a member of this space"}`, http.StatusBadRequest)
 		return
@@ -176,13 +181,24 @@ func (a *app) handleSetSpectator(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
 		return
 	}
-	if _, err := a.pool.Exec(r.Context(),
-		"update members set spectator = $3 where space_id = $1 and user_id = $2",
-		sess.SpaceID, p.UserID, body.On); err != nil {
+	err := a.sessions.WithActiveSession(r.Context(), sess.ID, p.UserID, false,
+		func(tx pgx.Tx, locked store.Session) error {
+			if _, err := tx.Exec(r.Context(),
+				"update members set spectator = $3 where space_id = $1 and user_id = $2",
+				locked.SpaceID, p.UserID, body.On); err != nil {
+				return err
+			}
+			_, err := tx.Exec(r.Context(), "update sessions set version = version + 1 where id = $1", locked.ID)
+			return err
+		})
+	if errors.Is(err, store.ErrSessionEnded) {
+		http.Error(w, `{"error":"this session has ended"}`, http.StatusConflict)
+		return
+	}
+	if err != nil {
 		http.Error(w, `{"error":"could not update spectator mode"}`, http.StatusInternalServerError)
 		return
 	}
-	a.sessions.BumpVersion(r.Context(), sess.ID)
 	a.broadcastState(r.Context(), sess.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
