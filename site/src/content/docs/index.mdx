@@ -20,8 +20,8 @@ import { CardGrid, Card, LinkCard, Tabs, TabItem } from "@astrojs/starlight/comp
 
 ## Most tools want an account. Parley wants a link.
 
-Plan a sprint or run standup — same link. You don't have to be the infra
-person on your team to host it:
+Same link for planning poker and standup. Two commands and a `.env` file, no
+platform team required:
 
 <Tabs>
   <TabItem label="Compose">
@@ -49,9 +49,9 @@ person on your team to host it:
   </TabItem>
 </Tabs>
 
-There is nothing else to install and nothing to keep in sync: the frontend
-ships inside the binary, so there is no second service and no Node runtime in
-production, and migrations run themselves at boot.
+The frontend ships inside the binary, so there is no second service, no Node
+runtime in production, and no way for the two halves to end up at different
+versions. Migrations run themselves at boot.
 
 ## What's in it
 
@@ -85,20 +85,24 @@ production, and migrations run themselves at boot.
 - **No roles beyond member and facilitator.** Any member can rotate the room
   code or open the space. Keep membership deliberate, or put an SSO proxy in
   front of it.
+- **No metrics, tracing, SBOM or image signing.** Structured JSON logs to
+  stdout are all it emits; build from a tagged commit yourself if you need
+  provenance.
 - **Turning on OIDC signs everyone out.** Anonymous accounts are not linked to
   federated ones. Switch on an instance whose history you are willing to leave
   behind.
 
-Those and the rest are on one page, each with its workaround, because the gaps
+All of them are on one page, each with its workaround, because the gaps
 are the reason to believe the rest.
 
 [Known limitations →](/known-limitations/)
 
-## Running it
+## In production
 
 - A Postgres blip does not restart the container and drop every socket in the
   room — the health check never touches the database
-- The container runs as non-root with no shell and nothing in it but the binary
+- The container is distroless and non-root, no shell, one static binary —
+  amd64 and arm64
 - CSV exports cannot run formulas in your spreadsheet, and never contain a vote
   you were not allowed to see
 
