@@ -1,9 +1,9 @@
 ---
 title: Parley
-description: Self-hosted planning poker and daily standups. One Go binary and a Postgres database. No accounts, no seat count — just a link your team follows.
+description: Self-hosted planning poker and daily standups. No accounts, no seat count — just a link your team follows. One Go binary and a Postgres database.
 template: splash
 hero:
-  tagline: One Go binary and a Postgres database. No accounts, no seat count, no credit card — just a link your team follows.
+  tagline: No accounts, no seat count, no credit card — just a link your team follows. One Go binary and a Postgres database.
   image:
     alt: A revealed planning poker round in Parley
     file: ../../assets/poker.png
@@ -19,6 +19,9 @@ hero:
 import { CardGrid, Card, LinkCard, Tabs, TabItem } from "@astrojs/starlight/components";
 
 ## Most tools want an account. Parley wants a link.
+
+Plan a sprint or run standup — same link. You don't have to be the infra
+person on your team to host it:
 
 <Tabs>
   <TabItem label="Compose">
@@ -46,9 +49,9 @@ import { CardGrid, Card, LinkCard, Tabs, TabItem } from "@astrojs/starlight/comp
   </TabItem>
 </Tabs>
 
-The frontend is compiled into the binary, so there is no second service, no Node
-runtime in production, and no way for the two halves to end up at different
-versions. Migrations run themselves at boot.
+There is nothing else to install and nothing to keep in sync: the frontend
+ships inside the binary, so there is no second service and no Node runtime in
+production, and migrations run themselves at boot.
 
 ## What's in it
 
@@ -76,33 +79,28 @@ versions. Migrations run themselves at boot.
 
 ## What Parley doesn't do
 
-- **One replica, and it enforces that.** A second instance cannot take the
-  Postgres advisory lock and exits rather than serving a divergent board. Size
-  it vertically; deploy when nobody is mid-session.
-- **No metrics, tracing, request IDs or access log.** Structured JSON logs to
-  stdout are all it emits. Blackbox-probe `/readyz` and take request metrics
-  from your reverse proxy.
+- **One replica, and it enforces that.** A second instance refuses to start
+  rather than serve a divergent board. Size it vertically; deploy when nobody
+  is mid-session.
 - **No roles beyond member and facilitator.** Any member can rotate the room
   code or open the space. Keep membership deliberate, or put an SSO proxy in
   front of it.
-- **No SBOM, image signing or provenance.** Build from a tagged commit in your
-  own pipeline, or pin by digest and scan the published image yourself.
 - **Turning on OIDC signs everyone out.** Anonymous accounts are not linked to
   federated ones. Switch on an instance whose history you are willing to leave
   behind.
 
-All of them are on one page, each with its workaround, because the gaps are the
-reason to believe the rest.
+Those and the rest are on one page, each with its workaround, because the gaps
+are the reason to believe the rest.
 
 [Known limitations →](/known-limitations/)
 
-## In production
+## Running it
 
-- `/healthz` never touches the database, so a Postgres blip does not restart the
-  container and drop every socket in the room
-- `distroless/static`, non-root, no shell, `CGO_ENABLED=0`, amd64 and arm64
-- CSV exports escape spreadsheet formulas, and never contain a vote you were not
-  allowed to see
+- A Postgres blip does not restart the container and drop every socket in the
+  room — the health check never touches the database
+- The container runs as non-root with no shell and nothing in it but the binary
+- CSV exports cannot run formulas in your spreadsheet, and never contain a vote
+  you were not allowed to see
 
 <CardGrid>
   <LinkCard
