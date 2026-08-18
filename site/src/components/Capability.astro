@@ -29,10 +29,14 @@ if (unknown.length) {
   );
 }
 
-// Trimmed, because a whitespace-only detail is truthy and would sail through as
-// a mitigation while rendering an empty cell.
+// Must be a non-empty string. A whitespace-only detail is truthy and would
+// render an empty cell; anything non-string stringifies to something non-empty
+// — an object arrives as "[object Object]" — and would pass a looser check
+// while delivering garbage as the mitigation.
 const missing = rows.filter(
-  (r) => r.status === "not-built" && String(r.detail ?? "").trim() === ""
+  (r) =>
+    r.status === "not-built" &&
+    (typeof r.detail !== "string" || r.detail.trim() === "")
 );
 if (missing.length) {
   throw new Error(
