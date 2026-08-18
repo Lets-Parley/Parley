@@ -17,7 +17,6 @@
 @import "@fontsource/jetbrains-mono/500.css";
 @import "@fontsource/jetbrains-mono/700.css";
 
-/* Dark is the default here, as it is in Starlight. */
 :root {
   --sl-color-accent-low: #1c3247;
   --sl-color-accent: #5fa8d3;
@@ -83,8 +82,8 @@
   --sl-hue-red: 6;
   --sl-hue-purple: 203;
 
-  /* These were both #ffffff, so a card sat at 1.08:1 against the page and the
-     hover lift raised something the eye never read as raised. */
+  /* Both were #ffffff, so a card sat at 1.08:1 against the page and the hover
+     lift raised something the eye never read as raised. */
   --parley-surface: #fdfdfb;
   --parley-surface-hi: #ffffff;
   --parley-line: #948e83;  /* 3.1:1 against the page; was 1.61:1 */

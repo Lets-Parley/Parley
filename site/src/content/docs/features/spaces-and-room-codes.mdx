@@ -5,6 +5,9 @@ description: A memorable link, a six-character code, and a roster that shows who
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
+import Screenshot from "../../../components/Screenshot.astro";
+import spaceLight from "../../../assets/space-room-code-light.png";
+import spaceDark from "../../../assets/space-room-code-dark.png";
 
 <VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "web/src/pages/SpacePage.tsx"]} />
 
@@ -41,6 +44,13 @@ they are sitting at a table, which one. Clicking through takes you to them.
 
 Presence comes from the WebSocket hub rather than from a "last seen" timestamp,
 so it reflects an actual open connection.
+
+<Screenshot
+  light={spaceLight}
+  dark={spaceDark}
+  alt="A space page for Platform Team: a sidebar listing its sessions and its six members with presence dots, a list of recent sessions in the middle, and a panel at the foot showing the space passcode TEAM49 with Copy, New code and Make open buttons."
+  caption="One page: who is here, what has been run, and the code to read out — with the controls to rotate it or open the space entirely."
+/>
 
 ## Session history
 
