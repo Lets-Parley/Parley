@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -66,6 +67,39 @@ func equal(a, b []string) bool {
 	return true
 }
 
+// waitForConnCount polls until the room holds want connections. Connected
+// dedups by user, so it cannot see a second tab for someone already present.
+func waitForConnCount(t *testing.T, h *Hub, sessionID string, want int) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	var got int
+	for time.Now().Before(deadline) {
+		h.mu.Lock()
+		got = len(h.rooms[sessionID])
+		h.mu.Unlock()
+		if got == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("connections in %s = %d, want %d", sessionID, got, want)
+}
+
+// connFor returns the hub-side connection for a user, so a test can close one
+// deliberately from underneath a broadcast.
+func connFor(t *testing.T, h *Hub, sessionID, userID string) *Conn {
+	t.Helper()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for c := range h.rooms[sessionID] {
+		if c.UserID == userID {
+			return c
+		}
+	}
+	t.Fatalf("no connection for %s in %s", userID, sessionID)
+	return nil
+}
+
 func readOne(t *testing.T, c *websocket.Conn) string {
 	t.Helper()
 	c.SetReadDeadline(time.Now().Add(3 * time.Second))
@@ -93,6 +127,9 @@ func TestConnectedTracksAttachAndDetach(t *testing.T) {
 	waitForConnected(t, h, "room", "amy", "ben")
 
 	amy.Close()
+	// Wait for the detach to land before asserting, or the assertion passes on
+	// the state from before the close.
+	waitForConnCount(t, h, "room", 2)
 	// Amy's other tab is still open, so she stays present.
 	waitForConnected(t, h, "room", "amy", "ben")
 }
@@ -125,7 +162,9 @@ func TestBroadcastReachesEveryConnection(t *testing.T) {
 	dial := testHub(t, h)
 
 	clients := []*websocket.Conn{dial("room", "amy"), dial("room", "ben"), dial("room", "amy")}
-	waitForConnected(t, h, "room", "amy", "ben")
+	// Three connections, two users: wait on the connection count, or amy's
+	// second tab can still be arriving when the broadcast goes out.
+	waitForConnCount(t, h, "room", 3)
 
 	h.Broadcast("room", []byte("hello"))
 	for i, c := range clients {
@@ -159,21 +198,25 @@ func TestAttachSendsTheInitialFrame(t *testing.T) {
 
 func TestOnFacilitatorSeenFiresOnAttach(t *testing.T) {
 	h := New()
-	var mu sync.Mutex
-	var seen [][2]string
+	// Attach registers the connection before it fires the callback, so room
+	// membership is not something to synchronize the assertion on.
+	seen := make(chan [2]string, 4)
 	h.OnFacilitatorSeen = func(sessionID, userID string) {
-		mu.Lock()
-		defer mu.Unlock()
-		seen = append(seen, [2]string{sessionID, userID})
+		seen <- [2]string{sessionID, userID}
 	}
 	dial := testHub(t, h)
 	dial("room", "amy")
-	waitForConnected(t, h, "room", "amy")
 
-	mu.Lock()
-	defer mu.Unlock()
-	if len(seen) != 1 || seen[0] != [2]string{"room", "amy"} {
-		t.Fatalf("OnFacilitatorSeen calls = %v, want one for room/amy", seen)
+	select {
+	case got := <-seen:
+		if got != [2]string{"room", "amy"} {
+			t.Fatalf("OnFacilitatorSeen called with %v, want room/amy", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("OnFacilitatorSeen never fired for room/amy")
+	}
+	if extra := len(seen); extra != 0 {
+		t.Fatalf("OnFacilitatorSeen fired %d extra times on one attach", extra)
 	}
 }
 
@@ -194,8 +237,10 @@ func TestPresenceChangeIsDebouncedPerSession(t *testing.T) {
 		dial("busy", "user")
 	}
 	dial("quiet", "amy")
-	waitForConnected(t, h, "busy", "user")
-	waitForConnected(t, h, "quiet", "amy")
+	// All five must be attached before the debounce window is allowed to
+	// expire, otherwise a slow attach lands after it and fires a second time.
+	waitForConnCount(t, h, "busy", 5)
+	waitForConnCount(t, h, "quiet", 1)
 
 	time.Sleep(presenceDebounce + 500*time.Millisecond)
 	mu.Lock()
@@ -238,6 +283,35 @@ func TestSendDropsAConnectionWithAFullBuffer(t *testing.T) {
 	}
 	if _, open := <-c.send; open {
 		t.Fatal("the send channel is still open after overflowing the buffer")
+	}
+}
+
+// The crash cost more than the process: Broadcast sends inline as it walks the
+// room, so the panic aborted the loop and silently stranded every connection
+// after the dead one — a half-delivered room even where the panic was
+// recovered.
+func TestBroadcastReachesLiveConnectionsWhenOneIsClosed(t *testing.T) {
+	h := New()
+	dial := testHub(t, h)
+
+	// Map iteration order is random, so run several rounds: the closed
+	// connection lands ahead of a live one in all but the rarest sequence.
+	for round := 0; round < 5; round++ {
+		session := fmt.Sprintf("room-%d", round)
+		var live []*websocket.Conn
+		for i := 0; i < 5; i++ {
+			live = append(live, dial(session, fmt.Sprintf("live-%d", i)))
+		}
+		dial(session, "dead")
+		waitForConnCount(t, h, session, 6)
+		connFor(t, h, session, "dead").Close()
+
+		h.Broadcast(session, []byte("frame"))
+		for i, c := range live {
+			if got := readOne(t, c); got != "frame" {
+				t.Fatalf("round %d: live connection %d got %q, want frame", round, i, got)
+			}
+		}
 	}
 }
 
