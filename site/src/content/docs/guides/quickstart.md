@@ -6,7 +6,7 @@ description: Get Parley running on your machine, then on a server your team can 
 ## On your own machine
 
 ```sh
-git clone https://github.com/jacorbello/parley && cd parley
+git clone https://github.com/lets-parley/parley && cd parley
 cp .env.example .env        # set POSTGRES_PASSWORD to anything
 docker compose up -d
 ```
@@ -31,13 +31,13 @@ flag. If it doesn't match how people actually reach the server, boards sit at
 ## From a prebuilt image
 
 Tagged releases publish a multi-arch image (amd64 and arm64) to
-`ghcr.io/jacorbello/parley`. Bring your own Postgres:
+`ghcr.io/lets-parley/parley`. Bring your own Postgres:
 
 ```sh
 docker run -d --name parley -p 8080:8080 \
   -e DATABASE_URL='postgres://parley:secret@db:5432/parley' \
   -e BASE_URL='https://parley.example.com' \
-  ghcr.io/jacorbello/parley:latest
+  ghcr.io/lets-parley/parley:latest
 ```
 
 ## What you get

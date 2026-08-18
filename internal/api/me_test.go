@@ -12,7 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/jacorbello/parley/internal/db"
+	"github.com/lets-parley/parley/internal/db"
 )
 
 // testPool hands back an empty, migrated database. Every caller starts from a

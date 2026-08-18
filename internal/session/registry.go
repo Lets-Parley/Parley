@@ -13,8 +13,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/jacorbello/parley/internal/hub"
-	"github.com/jacorbello/parley/internal/store"
+	"github.com/lets-parley/parley/internal/hub"
+	"github.com/lets-parley/parley/internal/store"
 )
 
 // StateFunc builds the kind-specific payload for the wire envelope. It must

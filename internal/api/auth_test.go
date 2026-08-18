@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jacorbello/parley/internal/auth"
+	"github.com/lets-parley/parley/internal/auth"
 )
 
 // fakeIdP is just enough of an OpenID provider to sign in against: discovery,

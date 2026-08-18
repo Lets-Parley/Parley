@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jacorbello/parley/internal/store"
+	"github.com/lets-parley/parley/internal/store"
 )
 
 func createSpace(t *testing.T, srv *httptest.Server, name string, cookie *http.Cookie) (*http.Response, map[string]any) {

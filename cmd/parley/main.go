@@ -14,9 +14,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jacorbello/parley/internal/api"
-	"github.com/jacorbello/parley/internal/auth"
-	"github.com/jacorbello/parley/internal/db"
+	"github.com/lets-parley/parley/internal/api"
+	"github.com/lets-parley/parley/internal/auth"
+	"github.com/lets-parley/parley/internal/db"
 )
 
 type config struct {

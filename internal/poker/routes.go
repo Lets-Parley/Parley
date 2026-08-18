@@ -11,9 +11,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/jacorbello/parley/internal/hub"
-	"github.com/jacorbello/parley/internal/principal"
-	"github.com/jacorbello/parley/internal/store"
+	"github.com/lets-parley/parley/internal/hub"
+	"github.com/lets-parley/parley/internal/principal"
+	"github.com/lets-parley/parley/internal/store"
 )
 
 type Handler struct {

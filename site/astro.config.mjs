@@ -10,10 +10,10 @@ export default defineConfig({
       description:
         "Planning poker and daily standups for your team, at your table. Self-hosted, open source.",
       social: [
-        { icon: "github", label: "GitHub", href: "https://github.com/jacorbello/parley" },
+        { icon: "github", label: "GitHub", href: "https://github.com/lets-parley/parley" },
       ],
       editLink: {
-        baseUrl: "https://github.com/jacorbello/parley/edit/main/site/",
+        baseUrl: "https://github.com/lets-parley/parley/edit/main/site/",
       },
       customCss: ["./src/styles/parley.css"],
       sidebar: [

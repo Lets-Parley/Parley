@@ -3,10 +3,10 @@
 **Planning poker and daily standups for your team, at your table.** Self-hosted,
 open source, no accounts, no fuss.
 
-[![ci](https://github.com/jacorbello/parley/actions/workflows/ci.yml/badge.svg)](https://github.com/jacorbello/parley/actions/workflows/ci.yml)
+[![ci](https://github.com/lets-parley/parley/actions/workflows/ci.yml/badge.svg)](https://github.com/lets-parley/parley/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
-[![container](https://img.shields.io/badge/ghcr.io-parley-2496ED?logo=docker&logoColor=white)](https://github.com/jacorbello/parley/pkgs/container/parley)
+[![container](https://img.shields.io/badge/ghcr.io-parley-2496ED?logo=docker&logoColor=white)](https://github.com/lets-parley/parley/pkgs/container/parley)
 
 **[www.letsparley.io](https://www.letsparley.io)** — docs, screenshots, and the
 quickstart.
@@ -114,11 +114,11 @@ sit at.
 ### On your own machine
 
 Two files, no checkout. Tagged releases publish a multi-arch image (amd64 and
-arm64) to `ghcr.io/jacorbello/parley`, and the compose file pulls it.
+arm64) to `ghcr.io/lets-parley/parley`, and the compose file pulls it.
 
 ```sh
 mkdir parley && cd parley
-base=https://raw.githubusercontent.com/jacorbello/parley/main
+base=https://raw.githubusercontent.com/lets-parley/parley/main
 curl -fsSLo docker-compose.yml $base/docker-compose.yml
 curl -fsSLo .env $base/.env.example   # set POSTGRES_PASSWORD to anything
 docker compose up -d
@@ -152,7 +152,7 @@ Skip compose entirely and point the image at your own database:
 docker run -d --name parley -p 8080:8080 \
   -e DATABASE_URL='postgres://parley:secret@db:5432/parley' \
   -e BASE_URL='https://parley.example.com' \
-  ghcr.io/jacorbello/parley:latest
+  ghcr.io/lets-parley/parley:latest
 ```
 
 ## Configuration
@@ -321,7 +321,7 @@ disclosed to non-members; facilitator-only actions (reveal, reset, closing a
 session) are server-checked.
 
 Found something? Open a
-[security advisory](https://github.com/jacorbello/parley/security/advisories/new)
+[security advisory](https://github.com/lets-parley/parley/security/advisories/new)
 rather than a public issue.
 
 ## Backups
