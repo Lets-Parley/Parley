@@ -13,48 +13,90 @@ type testConfig struct {
 	Seconds int    `json:"seconds"`
 }
 
-// registerTestKind registers a throwaway kind and restores whatever was there
-// before, so the registry is the same after the test as it was going in.
-//
-// The registry is an unsynchronized package-level map written at init time, so
-// nothing in this file may call t.Parallel().
-func registerTestKind(t *testing.T, kind string) {
+// testKind returns a throwaway kind. Every test builds its own Registry, so
+// nothing here touches state another test can see.
+func testKind() Kind {
+	return Kind{
+		Name:      "kindtest",
+		NewConfig: func() any { return &testConfig{} },
+	}
+}
+
+// registryWith builds a Registry holding the given kinds, failing the test if
+// any of them is rejected.
+func registryWith(t *testing.T, kinds ...Kind) *Registry {
 	t.Helper()
-	prev, existed := registry[kind]
-	Register(kind, nil, func() any { return &testConfig{} })
-	t.Cleanup(func() {
-		if existed {
-			registry[kind] = prev
-			return
+	r := NewRegistry()
+	for _, k := range kinds {
+		if err := r.Register(k); err != nil {
+			t.Fatalf("Register(%q): %v", k.Name, err)
 		}
-		delete(registry, kind)
-	})
+	}
+	return r
 }
 
 func TestKnown(t *testing.T) {
-	registerTestKind(t, "kindtest")
-	if !Known("kindtest") {
+	r := registryWith(t, testKind())
+	if !r.Known("kindtest") {
 		t.Fatal("Known reports a registered kind as unknown")
 	}
 	for _, kind := range []string{"", "KINDTEST", "nope"} {
-		if Known(kind) {
+		if r.Known(kind) {
 			t.Errorf("Known(%q) = true, want false", kind)
 		}
 	}
 }
 
+func TestRegisterRejectsDuplicates(t *testing.T) {
+	// Two packages claiming the same kind is a wiring mistake. Silently
+	// overwriting turns it into a phantom config at runtime, so it has to be
+	// an error at registration time instead.
+	r := registryWith(t, testKind())
+	if err := r.Register(testKind()); err == nil {
+		t.Fatal("Register accepted a duplicate kind")
+	}
+	if _, err := r.ParseConfig("kindtest", []byte(`{"deck":"fibonacci"}`)); err != nil {
+		t.Fatalf("the first registration no longer parses its own config: %v", err)
+	}
+}
+
+func TestRegisterRejectsAnEmptyName(t *testing.T) {
+	k := testKind()
+	k.Name = ""
+	if err := NewRegistry().Register(k); err == nil {
+		t.Fatal("Register accepted a kind with no name")
+	}
+}
+
+func TestUnregister(t *testing.T) {
+	r := registryWith(t, testKind())
+	if err := r.Unregister("kindtest"); err != nil {
+		t.Fatalf("Unregister: %v", err)
+	}
+	if r.Known("kindtest") {
+		t.Fatal("the kind is still known after Unregister")
+	}
+	if err := r.Unregister("kindtest"); err == nil {
+		t.Fatal("Unregister accepted a kind that is not registered")
+	}
+	// The name is free again once removed.
+	if err := r.Register(testKind()); err != nil {
+		t.Fatalf("re-registering an unregistered kind: %v", err)
+	}
+}
+
 func TestParseConfigRejectsUnknownKind(t *testing.T) {
-	if _, err := ParseConfig("no-such-kind", []byte(`{}`)); err == nil {
+	if _, err := NewRegistry().ParseConfig("no-such-kind", []byte(`{}`)); err == nil {
 		t.Fatal("ParseConfig accepted an unregistered kind")
 	}
 }
 
 func TestParseConfigFillsDefaultsForEmptyInput(t *testing.T) {
-	registerTestKind(t, "kindtest")
+	r := registryWith(t, testKind())
 	// A session created without a config body must still store a valid
 	// document, not a null the state builders would have to guard against.
 	for _, raw := range [][]byte{nil, {}, []byte(`{}`)} {
-		out, err := ParseConfig("kindtest", raw)
+		out, err := r.ParseConfig("kindtest", raw)
 		if err != nil {
 			t.Fatalf("ParseConfig(%q): %v", raw, err)
 		}
@@ -69,7 +111,7 @@ func TestParseConfigFillsDefaultsForEmptyInput(t *testing.T) {
 }
 
 func TestParseConfigRejectsBadDocuments(t *testing.T) {
-	registerTestKind(t, "kindtest")
+	r := registryWith(t, testKind())
 	for name, raw := range map[string]string{
 		"unknown field":  `{"deck":"fib","sneaky":true}`,
 		"wrong type":     `{"seconds":"ninety"}`,
@@ -77,17 +119,17 @@ func TestParseConfigRejectsBadDocuments(t *testing.T) {
 		"malformed json": `{"deck":`,
 		"bare string":    `"fib"`,
 	} {
-		if out, err := ParseConfig("kindtest", []byte(raw)); err == nil {
+		if out, err := r.ParseConfig("kindtest", []byte(raw)); err == nil {
 			t.Errorf("%s: ParseConfig(%s) returned %s, want an error", name, raw, out)
 		}
 	}
 }
 
 func TestParseConfigNormalizesOutput(t *testing.T) {
-	registerTestKind(t, "kindtest")
+	r := registryWith(t, testKind())
 	// Whatever the client sent, what gets stored is a re-marshalled struct:
 	// key order is the struct's and nothing outside it survives.
-	out, err := ParseConfig("kindtest", []byte(`{"seconds": 90, "deck":  "fibonacci"}`))
+	out, err := r.ParseConfig("kindtest", []byte(`{"seconds": 90, "deck":  "fibonacci"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +139,7 @@ func TestParseConfigNormalizesOutput(t *testing.T) {
 }
 
 func TestParseConfigRejectsTrailingDocuments(t *testing.T) {
-	registerTestKind(t, "kindtest")
+	r := registryWith(t, testKind())
 	// The decoder reads one value. A second document appended to the body must
 	// be an error rather than a silent truncation, so the dropped half can
 	// never smuggle a field past the first document's validation.
@@ -106,26 +148,33 @@ func TestParseConfigRejectsTrailingDocuments(t *testing.T) {
 		`{"deck":"fibonacci"} garbage`,
 		`{"deck":"fibonacci"}{}`,
 	} {
-		if out, err := ParseConfig("kindtest", []byte(raw)); err == nil {
+		if out, err := r.ParseConfig("kindtest", []byte(raw)); err == nil {
 			t.Errorf("ParseConfig(%s) = %s, want an error", raw, out)
 		}
 	}
 }
 
-func TestRegisterOverwritesAKind(t *testing.T) {
-	registerTestKind(t, "kindtest")
-	// Two packages registering the same kind is a build-time mistake; the last
-	// one wins rather than silently keeping the first, so a duplicate shows up
-	// as the wrong config rather than a phantom.
-	Register("kindtest", nil, func() any {
-		return &struct {
-			Other string `json:"other"`
-		}{}
-	})
-	if _, err := ParseConfig("kindtest", []byte(`{"deck":"fibonacci"}`)); err == nil {
-		t.Fatal("the re-registered kind still accepts the old config's fields")
+func TestCSVRows(t *testing.T) {
+	k := testKind()
+	k.CSV = func(env Envelope) ([][]string, error) {
+		return [][]string{{env.ID}}, nil
 	}
-	if _, err := ParseConfig("kindtest", []byte(`{"other":"x"}`)); err != nil {
-		t.Fatalf("the re-registered kind rejects its own config: %v", err)
+	r := registryWith(t, k)
+
+	rows, err := r.CSVRows(Envelope{ID: "s1", Kind: "kindtest"})
+	if err != nil {
+		t.Fatalf("CSVRows: %v", err)
+	}
+	if len(rows) != 1 || rows[0][0] != "s1" {
+		t.Fatalf("CSVRows = %v, want [[s1]]", rows)
+	}
+	if _, err := r.CSVRows(Envelope{Kind: "nope"}); err == nil {
+		t.Error("CSVRows accepted an unregistered kind")
+	}
+	// A kind may register without an exporter; asking for its rows is an
+	// error, not a nil-function panic.
+	noCSV := registryWith(t, testKind())
+	if _, err := noCSV.CSVRows(Envelope{Kind: "kindtest"}); err == nil {
+		t.Error("CSVRows accepted a kind with no exporter")
 	}
 }

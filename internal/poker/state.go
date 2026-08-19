@@ -34,8 +34,14 @@ type State struct {
 	Stories        []WireStory `json:"stories"`
 }
 
-func init() {
-	session.Register("poker", buildState, func() any { return &Config{} })
+// Kind describes the poker session kind for the core registry.
+func Kind() session.Kind {
+	return session.Kind{
+		Name:      "poker",
+		State:     buildState,
+		NewConfig: func() any { return &Config{} },
+		CSV:       exportCSV,
+	}
 }
 
 // buildState produces client-safe state only: before reveal, vote VALUES never

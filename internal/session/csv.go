@@ -10,18 +10,12 @@ import (
 // from the export too.
 type CSVFunc func(env Envelope) ([][]string, error)
 
-var csvFuncs = map[string]CSVFunc{}
-
-func RegisterCSV(kind string, fn CSVFunc) {
-	csvFuncs[kind] = fn
-}
-
-func CSVRows(env Envelope) ([][]string, error) {
-	fn, ok := csvFuncs[env.Kind]
-	if !ok {
+func (r *Registry) CSVRows(env Envelope) ([][]string, error) {
+	k, ok := r.kinds[env.Kind]
+	if !ok || k.CSV == nil {
 		return nil, fmt.Errorf("no export for session kind %q", env.Kind)
 	}
-	return fn(env)
+	return k.CSV(env)
 }
 
 // SanitizeCell neutralizes spreadsheet formula injection: a cell starting with

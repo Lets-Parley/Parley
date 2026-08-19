@@ -6,10 +6,6 @@ import (
 	"github.com/lets-parley/parley/internal/session"
 )
 
-func init() {
-	session.RegisterCSV("standup", exportCSV)
-}
-
 func exportCSV(env session.Envelope) ([][]string, error) {
 	st, ok := env.State.(State)
 	if !ok {

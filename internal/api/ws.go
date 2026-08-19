@@ -7,7 +7,6 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/store"
 )
 
@@ -47,7 +46,7 @@ func (a *app) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	env, err := session.BuildEnvelope(r.Context(), a.pool, a.hub, a.sessions, sess.ID)
+	env, err := a.kinds.BuildEnvelope(r.Context(), a.pool, a.hub, a.sessions, sess.ID)
 	var initial []byte
 	if err == nil {
 		initial, _ = json.Marshal(env)

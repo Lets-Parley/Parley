@@ -10,14 +10,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/store"
 )
 
 // broadcastState rebuilds the envelope and pushes it to every connection in the
 // room. Handlers call it after any mutation.
 func (a *app) broadcastState(ctx context.Context, sessionID string) {
-	env, err := session.BuildEnvelope(ctx, a.pool, a.hub, a.sessions, sessionID)
+	env, err := a.kinds.BuildEnvelope(ctx, a.pool, a.hub, a.sessions, sessionID)
 	if err != nil {
 		slog.Error("could not build session state for broadcast", "session", sessionID, "error", err)
 		return
@@ -62,11 +61,11 @@ func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"title must be 1-200 characters"}`, http.StatusBadRequest)
 		return
 	}
-	if !session.Known(body.Kind) {
+	if !a.kinds.Known(body.Kind) {
 		http.Error(w, `{"error":"kind must be poker or standup"}`, http.StatusBadRequest)
 		return
 	}
-	config, err := session.ParseConfig(body.Kind, body.Config)
+	config, err := a.kinds.ParseConfig(body.Kind, body.Config)
 	if err != nil {
 		http.Error(w, `{"error":"invalid config for this session kind"}`, http.StatusBadRequest)
 		return
@@ -82,7 +81,7 @@ func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r.Context())
-	env, err := session.BuildEnvelope(r.Context(), a.pool, a.hub, a.sessions, sess.ID)
+	env, err := a.kinds.BuildEnvelope(r.Context(), a.pool, a.hub, a.sessions, sess.ID)
 	if err != nil {
 		http.Error(w, `{"error":"could not load session"}`, http.StatusInternalServerError)
 		return
