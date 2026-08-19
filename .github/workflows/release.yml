@@ -34,6 +34,12 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          # The registry serves 0.2.3, not v0.2.3: metadata-action strips the
+          # leading v. Stamping GITHUB_REF_NAME would make the running app
+          # report a version matching no image anyone can pull, so reuse the
+          # action's own stripped version — it is by definition the tag served.
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 

@@ -19,6 +19,10 @@ import (
 	"github.com/lets-parley/parley/internal/db"
 )
 
+// version is stamped at build time with -ldflags "-X main.version=…". An
+// unstamped developer build honestly reports "dev".
+var version = "dev"
+
 type config struct {
 	DatabaseURL string
 	Port        string
@@ -110,7 +114,13 @@ func envOr(key, fallback string) string {
 
 func main() {
 	healthcheck := flag.Bool("healthcheck", false, "probe the running server's /readyz and exit 0 if ready")
+	showVersion := flag.Bool("version", false, "print the build version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version)
+		return
+	}
 
 	if *healthcheck {
 		os.Exit(runHealthcheck())
@@ -127,6 +137,7 @@ func main() {
 
 	secureCookies := cfg.BaseURL.Scheme == "https"
 	log.Info("boot settings",
+		"version", version,
 		"base_url", cfg.BaseURL.String(),
 		"cookie_secure", secureCookies,
 		"allowed_ws_origin", cfg.BaseURL.Scheme+"://"+cfg.BaseURL.Host,
@@ -170,6 +181,7 @@ func main() {
 		AllowedOrigin:     cfg.BaseURL.Scheme + "://" + cfg.BaseURL.Host,
 		AuthMode:          cfg.AuthMode,
 		TrustProxyHeaders: cfg.TrustProxy,
+		Version:           version,
 	}
 	if cfg.AuthMode == api.ModeOIDC {
 		// Discovery happens on the first sign-in rather than here: an identity
