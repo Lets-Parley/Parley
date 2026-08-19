@@ -18,7 +18,15 @@ export default defineConfig({
       name: "parley-version",
       hooks: {
         "astro:config:setup": ({ config }) => {
-          config.markdown.processor.options.mdastPlugins.push(mdastVersion());
+          const plugins = config.markdown.processor?.options?.mdastPlugins;
+          if (!Array.isArray(plugins)) {
+            throw new Error(
+              "parley-version: the markdown processor has no mdastPlugins. " +
+                "This needs Astro's default satteri() processor; unified() " +
+                "takes remarkPlugins instead.",
+            );
+          }
+          plugins.push(mdastVersion());
         },
       },
     },
