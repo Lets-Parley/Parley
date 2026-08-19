@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lets-parley/parley/internal/dbtest"
+	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/store"
 )
 
@@ -730,5 +731,52 @@ func TestSessionCreationRejectsARetiredKind(t *testing.T) {
 	// A kind that was never retired still works.
 	if resp, _ := createSession(t, srv, slug, "poker", "Sprint 1", ada); resp.StatusCode != http.StatusCreated {
 		t.Fatalf("creating a session of a live kind: got %d", resp.StatusCode)
+	}
+}
+
+// The unknown-kind message has to stay true for whatever set of kinds is
+// registered, so it is derived from the registry rather than hardcoded. This
+// one needs no database: it exercises the message, not the handler.
+func TestUnknownKindMessageNamesEveryRegisteredKind(t *testing.T) {
+	kinds := session.NewRegistry()
+	for _, name := range []string{"poker", "standup", "retro"} {
+		if err := kinds.Register(session.Kind{Name: name}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	msg := unknownKindMessage(kinds)
+	if !strings.Contains(msg, "retro") {
+		t.Fatalf("unknown-kind message %q does not name the third registered kind", msg)
+	}
+	if msg != strings.ToLower(msg) {
+		t.Fatalf("unknown-kind message %q is not lowercase", msg)
+	}
+}
+
+// A kind registered in Go but never seeded into session_kinds trips the
+// foreign key at the insert. That is the contributor mistake the add-a-kind
+// checklist exists to catch, so it has to read as a 4xx naming the missing
+// row rather than a generic 500.
+func TestSessionCreationReportsAMissingSeedRow(t *testing.T) {
+	pool := testPool(t)
+	srv := httptest.NewServer(Router(pool, Options{AllowedOrigin: testOrigin}))
+	t.Cleanup(srv.Close)
+
+	ada := signup(t, srv, "Ada")
+	_, sp := createSpace(t, srv, "Unseeded Space", ada)
+	slug := sp["slug"].(string)
+
+	// standup stays registered in Go; only its seed row goes away.
+	if _, err := pool.Exec(context.Background(),
+		"delete from session_kinds where kind = 'standup'"); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, body := createSession(t, srv, slug, "standup", "Unseeded", ada)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("creating a session of an unseeded kind: got %d, want 400 (%v)", resp.StatusCode, body)
+	}
+	if msg, _ := body["error"].(string); !strings.Contains(msg, "session_kinds") {
+		t.Fatalf("error %q does not name the missing session_kinds row", msg)
 	}
 }
