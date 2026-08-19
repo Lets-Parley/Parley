@@ -204,11 +204,13 @@ jobs:
           grep -q 'readOnlyRootFilesystem: true' /tmp/parley-chart.yaml
 
       # Every conditional template at once, so a broken branch cannot hide
-      # behind being disabled by default.
+      # behind being disabled by default. replicaCount=2 is part of that: the
+      # PodDisruptionBudget is deliberately not rendered at the default of 1.
       - name: renders with every feature enabled
         run: |
           helm template parley deploy/charts/parley \
             --set database.existingSecret=parley \
+            --set replicaCount=2 \
             --set ingress.enabled=true \
             --set 'ingress.tls[0].hosts[0]=parley.example.com' \
             --set 'ingress.tls[0].secretName=parley-tls' \
