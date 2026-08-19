@@ -89,11 +89,11 @@ side=$(git -C "$test_repo" rev-parse HEAD)
 git -C "$test_repo" checkout -q -
 git -C "$test_repo" merge -q --no-ff --no-verify -m "Merge branch 'side' into trunk" "$side"
 merge=$(git -C "$test_repo" rev-parse HEAD)
-if [ "$(git -C "$test_repo" rev-list --count --merges "$divider..$merge")" -ne 1 ]; then
+if [ "$(git -C "$test_repo" rev-list --count --merges "$fake_bot..$merge")" -ne 1 ]; then
   echo "expected the merge commit to have been created" >&2
   exit 1
 fi
-(cd "$test_repo" && "$checker" "$divider" "$merge")
+(cd "$test_repo" && "$checker" "$fake_bot" "$merge")
 
 if (cd "$test_repo" && "$checker" not-a-revision "$signed") >"$test_repo/revision.out" 2>&1; then
   echo "invalid revision range unexpectedly passed" >&2
