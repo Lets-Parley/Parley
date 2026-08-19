@@ -13,28 +13,28 @@ For implementation status, see the GitHub Project:
 
 Work in progress or expected in the current development cycle.
 
-Nothing is in progress right now. The next thing to start is under **Next**.
+### A room everyone can actually use
+
+A live room updates itself constantly, and until recently none of those updates
+announced themselves. A screen-reader user could not tell that a reveal had
+happened, who had voted, or whose turn it was in the rotation — and the "voted"
+signal was carried by colour alone. That is not a degraded experience, it is an
+excluded one.
+
+Every seat state and the revealed result now carry a text equivalent, the
+standup rail says whose turn it is out loud, the member card sits on the native
+`<dialog>` so focus behaves without a hand-rolled trap, and a contrast audit
+lifted three light-theme tokens over the threshold. What is left is a keyboard
+sweep of every control in a room and three token pairs the contrast table still
+does not cover.
+
+- Status: In progress
+- Target: v0.3.0
+- Tracking: [#47](https://github.com/lets-parley/parley/issues/47)
 
 ## Next
 
 Accepted work, likely to be picked up after current priorities.
-
-### A room everyone can actually use
-
-A live room updates itself constantly, and right now none of those updates
-announce themselves. A screen-reader user cannot tell that a reveal has
-happened, who has voted, or whose turn it is in the rotation — and the "voted"
-signal is carried by colour alone. That is not a degraded experience, it is an
-excluded one.
-
-Announced state changes, vote indicators that survive without colour, full
-keyboard operation of the table, and a focus trap that behaves. Every component
-here already ships with a test beside it, so the work is to make accessibility
-one more thing those tests assert rather than a one-off audit that decays.
-
-- Status: Backlog
-- Target: v0.3.0
-- Tracking: [#47](https://github.com/lets-parley/parley/issues/47)
 
 ### An extensible core
 
