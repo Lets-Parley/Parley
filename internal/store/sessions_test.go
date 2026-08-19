@@ -2,9 +2,11 @@ package store
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -253,5 +255,69 @@ func TestSetEndedAndBumpVersion(t *testing.T) {
 	}
 	if bumped.Version != reopened.Version+1 {
 		t.Fatalf("version = %d, want %d", bumped.Version, reopened.Version+1)
+	}
+}
+
+func TestSessionOfARetiredKindStillLoads(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	kind := "retro-" + randSuffix(t)
+	if _, err := pool.Exec(ctx,
+		"insert into session_kinds (kind, provider, display) values ($1, 'test', 'Retro')", kind); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		// Sessions of this kind must go first: the foreign key is RESTRICT,
+		// so the kind row can't be removed while one still references it.
+		if _, err := pool.Exec(cleanupCtx, "delete from sessions where kind = $1", kind); err != nil {
+			t.Errorf("cleaning up sessions of kind %q: %v", kind, err)
+			return
+		}
+		if _, err := pool.Exec(cleanupCtx, "delete from session_kinds where kind = $1", kind); err != nil {
+			t.Errorf("cleaning up session_kinds row: %v", err)
+		}
+	})
+
+	sp := newSpace(t, pool)
+	u, _ := newUser(t, pool, "Priya Raman")
+	sessions := &Sessions{Pool: pool}
+	sess, err := sessions.Create(ctx, sp.ID, kind, "Retro", []byte(`{}`), u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A kind with sessions is retired in place. Hard-deleting it must be
+	// refused, or the history it belongs to loses its reference.
+	_, err = pool.Exec(ctx, "delete from session_kinds where kind = $1", kind)
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23503" {
+		t.Fatalf("deleting a kind that has sessions: got %v, want a foreign_key_violation (23503)", err)
+	}
+	if _, err := pool.Exec(ctx,
+		"update session_kinds set retired_at = now() where kind = $1", kind); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := sessions.ByID(ctx, sess.ID)
+	if err != nil {
+		t.Fatalf("loading a session of a retired kind: %v", err)
+	}
+	if got.Kind != kind {
+		t.Fatalf("kind = %q, want %q", got.Kind, kind)
+	}
+}
+
+func TestSessionRejectsAnUnknownKind(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	sp := newSpace(t, pool)
+	u, _ := newUser(t, pool, "Ben Alvarez")
+	_, err := (&Sessions{Pool: pool}).Create(ctx, sp.ID, "no-such-kind", "Nope", []byte(`{}`), u.ID)
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23503" {
+		t.Fatalf("creating a session of an unregistered kind: got %v, want a foreign_key_violation (23503)", err)
 	}
 }
