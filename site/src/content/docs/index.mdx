@@ -3,17 +3,20 @@ title: Parley
 description: Self-hosted planning poker and daily standups. No accounts, no seat count — just a link your team follows. One Go binary and a Postgres database.
 template: splash
 hero:
-  tagline: No accounts, no seat count, no credit card — just a link your team follows. One Go binary and a Postgres database.
+  title: Self-hosted planning poker your team joins with a link
+  tagline: >-
+    Sprint estimation and standup for engineering teams. One Go binary and a
+    Postgres database — no accounts, no seat count, no credit card.
   image:
     alt: A revealed planning poker round in Parley
     light: ../../assets/poker.png
     dark: ../../assets/poker-dark.png
   actions:
-    - text: Get it running
+    - text: Deploy in two commands
       link: /quickstart/
       icon: right-arrow
-    - text: Read the threat model
-      link: /security/threat-model/
+    - text: View on GitHub
+      link: https://github.com/lets-parley/parley
       variant: minimal
 ---
 
@@ -29,26 +32,6 @@ import spaceLight from "../../assets/space-room-code-light.png";
 import spaceDark from "../../assets/space-room-code-dark.png";
 import storyLight from "../../assets/story-queue-light.png";
 import storyDark from "../../assets/story-queue-dark.png";
-
-## What a round looks like
-
-Everyone votes at once, and nobody sees a number until the round opens. Your
-teammates don't install anything and don't sign up for anything — they open the
-link and type a name.
-
-<Screenshot
-  light={hiddenLight}
-  dark={hiddenDark}
-  alt="Four face-down cards at the table and two empty seats, with the line '4 of 6 voted' underneath and the viewer's own 5 raised in their hand."
-  caption="Mid-round: the count reads 4 of 6, and the only value anyone can see is the one in their own hand."
-/>
-
-<Screenshot
-  light={tshirtLight}
-  dark={tshirtDark}
-  alt="A revealed T-shirt round showing a large M under the word MODE, the line 'range S–L · 6 votes · ordinal deck, no average', and counts of S times one, M times four, L times one."
-  caption="Revealed. A T-shirt round reports mode and range, because averaging sizes gives you a number nobody can act on."
-/>
 
 ## Most tools want an account. Parley wants a link.
 
@@ -108,6 +91,26 @@ platform team required:
 The frontend ships inside the binary, so there is no second service, no Node
 runtime in production, and no way for the two halves to end up at different
 versions. Migrations run themselves at boot.
+
+## What a round looks like
+
+Everyone votes at once, and nobody sees a number until the round opens. Your
+teammates don't install anything and don't sign up for anything — they open the
+link and type a name.
+
+<Screenshot
+  light={hiddenLight}
+  dark={hiddenDark}
+  alt="Four face-down cards at the table and two empty seats, with the line '4 of 6 voted' underneath and the viewer's own 5 raised in their hand."
+  caption="Mid-round: the count reads 4 of 6, and the only value anyone can see is the one in their own hand."
+/>
+
+<Screenshot
+  light={tshirtLight}
+  dark={tshirtDark}
+  alt="A revealed T-shirt round showing a large M under the word MODE, the line 'range S–L · 6 votes · ordinal deck, no average', and counts of S times one, M times four, L times one."
+  caption="Revealed. A T-shirt round reports mode and range, because averaging sizes gives you a number nobody can act on."
+/>
 
 ## What's in it
 
@@ -184,6 +187,11 @@ are the reason to believe the rest.
     title="Security"
     href="/security/"
     description="Threat model, authentication, authorization, data and privacy, and a single-page review pack."
+  />
+  <LinkCard
+    title="Threat model"
+    href="/security/threat-model/"
+    description="What Parley assumes about its attacker, what it defends, and what it deliberately leaves to the network in front of it."
   />
 </CardGrid>
 
