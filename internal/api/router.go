@@ -172,10 +172,11 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 			r.Use(a.requireSessionMember)
 			r.Get("/", a.handleGetSession)
 			r.Get("/export.csv", a.handleExportCSV)
-			// The one action dispatcher. Kind actions are resolved against
-			// this session's own kind, so two kinds can name an action the
-			// same thing without sharing a namespace to collide in.
-			r.Post("/actions/{action}", a.handleAction)
+			// The one action dispatcher, mounted for every method so the
+			// dispatcher itself decides 404-vs-405. Kind actions are resolved
+			// against this session's own kind, so two kinds can name an action
+			// the same thing without sharing a namespace to collide in.
+			r.HandleFunc("/actions/{action}", a.handleAction)
 			for _, al := range legacyAliases {
 				r.MethodFunc(al.method, al.path, a.aliasAction(al.action))
 			}

@@ -28,7 +28,12 @@ type ActionFunc func(w http.ResponseWriter, r *http.Request, ac ActionCtx)
 
 // Action is one entry in a kind's dispatch table.
 type Action struct {
-	Do ActionFunc
+	// Verb is the HTTP method this action answers, and the only one it
+	// answers. Most actions are transitions and take POST; an upsert of the
+	// caller's own row takes PUT and a partial edit takes PATCH, because the
+	// verb is the only place a client can read that idempotency from.
+	Verb string
+	Do   ActionFunc
 	// FacilitatorOnly restricts the action to the session's facilitator.
 	FacilitatorOnly bool
 }
@@ -42,7 +47,7 @@ func (r *Registry) Action(kind, name string) (Action, bool) {
 		return Action{}, false
 	}
 	a, ok := k.Actions[name]
-	if !ok || a.Do == nil {
+	if !ok || a.Do == nil || a.Verb == "" {
 		return Action{}, false
 	}
 	return a, true

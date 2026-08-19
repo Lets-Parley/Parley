@@ -18,12 +18,12 @@ import (
 // called, so none of them re-check authorization.
 func actions() map[string]session.Action {
 	return map[string]session.Action{
-		"stories": {Do: addStory},
-		"select":  {Do: selectStory, FacilitatorOnly: true},
-		"reveal":  {Do: reveal, FacilitatorOnly: true},
-		"reset":   {Do: reset, FacilitatorOnly: true},
-		"story":   {Do: patchStory},
-		"vote":    {Do: vote},
+		"stories": {Verb: http.MethodPost, Do: addStory},
+		"select":  {Verb: http.MethodPost, Do: selectStory, FacilitatorOnly: true},
+		"reveal":  {Verb: http.MethodPost, Do: reveal, FacilitatorOnly: true},
+		"reset":   {Verb: http.MethodPost, Do: reset, FacilitatorOnly: true},
+		"story":   {Verb: http.MethodPatch, Do: patchStory},
+		"vote":    {Verb: http.MethodPost, Do: vote},
 	}
 }
 
