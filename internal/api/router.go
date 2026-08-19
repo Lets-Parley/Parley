@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync/atomic"
 	"strings"
@@ -27,9 +28,11 @@ type app struct {
 	users    *store.Users
 	spaces   *store.Spaces
 	sessions *store.Sessions
+	presence *store.Presence
 	hub      *hub.Hub
 	// kinds is the session-kind registry, built once at wiring time.
 	kinds *session.Registry
+
 
 	secureCookies bool
 	allowedOrigin string
@@ -84,6 +87,14 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 		users:         &store.Users{Pool: pool},
 		spaces:        &store.Spaces{Pool: pool},
 		sessions:      &store.Sessions{Pool: pool},
+		presence: &store.Presence{
+			Pool:      pool,
+			ReplicaID: replicaID(),
+			// Twice the pong deadline. A client is pinged every 25s and has 50s
+			// to answer, so anything shorter would drop people who are merely
+			// slow to reply — the opposite of what presence is for.
+			Window: 2 * hub.PongDeadline,
+		},
 		hub:           hub.New(),
 		kinds:         kinds,
 		secureCookies: opts.SecureCookies,
@@ -105,14 +116,27 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 	// tests use that. Nothing below here may assume otherwise.
 	if pool != nil {
 		go a.listen(listenCtx)
+		go a.sweepPresence(listenCtx)
 	}
 
 	a.hub.OnPresenceChange = func(sessionID string) {
 		a.broadcastState(context.Background(), sessionID)
 	}
 	a.hub.OnFacilitatorSeen = func(sessionID, userID string) {
-		a.sessions.TouchFacilitatorSeen(context.Background(), sessionID, userID)
+		ctx := context.Background()
+		a.sessions.TouchFacilitatorSeen(ctx, sessionID, userID)
+		// Fires on connect and on every pong, which is exactly the heartbeat
+		// presence needs — no second timer required.
+		if err := a.presence.Seen(ctx, sessionID, userID); err != nil {
+			slog.Error("could not record presence", "session", sessionID, "user", userID, "error", err)
+		}
 	}
+	a.hub.OnDisconnect = func(sessionID, userID string) {
+		if err := a.presence.Gone(context.Background(), sessionID, userID); err != nil {
+			slog.Error("could not clear presence", "session", sessionID, "user", userID, "error", err)
+		}
+	}
+
 
 	r := chi.NewRouter()
 	// RealIP rewrites RemoteAddr from X-Forwarded-For, which the caller writes.
@@ -192,7 +216,7 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 		// Deprecated, one release only: the story-scoped poker routes carry
 		// the story in the path instead of the body, so they cannot go
 		// through the dispatcher and keep their own copy of the ladder.
-		poker.New(a.pool, a.hub, a.broadcastState).MountLegacyStories(r)
+		poker.New(a.pool, a.hub, a.presence, a.broadcastState).MountLegacyStories(r)
 
 		// requireSessionMember answers 404 for anonymous callers too, so these
 		// routes sit outside RequireUser: a session's existence is never

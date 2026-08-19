@@ -7,11 +7,16 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// PongDeadline is how long a connection may go without answering a ping before
+// it is considered gone. Exported because presence freshness is derived from
+// it: a row has to outlive a client that is merely slow to answer.
+const PongDeadline = 50 * time.Second
+
 const (
 	sendBuffer       = 16
 	writeDeadline    = 5 * time.Second
 	pingInterval     = 25 * time.Second
-	pongDeadline     = 50 * time.Second
+	pongDeadline     = PongDeadline
 	presenceDebounce = 1500 * time.Millisecond
 )
 
@@ -67,6 +72,9 @@ type Hub struct {
 	OnPresenceChange func(sessionID string)
 	// OnFacilitatorSeen fires on connect and each pong so liveness reaches the DB.
 	OnFacilitatorSeen func(sessionID, userID string)
+	// OnDisconnect fires once a user has no connections left on this hub, so a
+	// room stops showing them without waiting for their presence row to age out.
+	OnDisconnect func(sessionID, userID string)
 
 	timersMu sync.Mutex
 	timers   map[string]*time.Timer
@@ -107,15 +115,27 @@ func (h *Hub) Attach(ws *websocket.Conn, sessionID, userID string, initial []byt
 
 func (h *Hub) detach(c *Conn) {
 	h.mu.Lock()
+	last := true
 	if room, ok := h.rooms[c.SessionID]; ok {
 		delete(room, c)
 		if len(room) == 0 {
 			delete(h.rooms, c.SessionID)
 		}
+		// The same person may hold more than one socket here (two tabs). Only
+		// the last one leaving means they have actually gone.
+		for other := range room {
+			if other.UserID == c.UserID {
+				last = false
+				break
+			}
+		}
 	}
 	h.mu.Unlock()
 	c.Close()
 	c.ws.Close()
+	if last && h.OnDisconnect != nil {
+		h.OnDisconnect(c.SessionID, c.UserID)
+	}
 	h.schedulePresence(c.SessionID)
 }
 
@@ -192,7 +212,15 @@ func (h *Hub) Sessions() []string {
 	return out
 }
 
-// Connected returns the distinct user ids with a live connection to the session.
+// Connected returns the distinct user ids with a live connection to the session
+// ON THIS REPLICA.
+//
+// Not for answering "who is in this room" — that is store.Presence, which sees
+// every replica. This one exists for the hub's own tests, which need to check
+// the per-user bookkeeping that detach relies on to decide whether a
+// disconnecting connection was somebody's last. Wiring it back into a handler
+// reintroduces the split-room bug: half the table seeing a different set of
+// faces than the other half.
 func (h *Hub) Connected(sessionID string) []string {
 	h.mu.Lock()
 	defer h.mu.Unlock()

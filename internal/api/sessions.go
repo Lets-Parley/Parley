@@ -25,7 +25,7 @@ func (a *app) broadcastState(ctx context.Context, sessionID string) {
 // notification listener calls, and a replica that re-notified on every message
 // it received would keep the whole cluster talking forever.
 func (a *app) broadcastLocal(ctx context.Context, sessionID string) {
-	env, err := a.kinds.BuildEnvelope(ctx, a.pool, a.hub, a.sessions, sessionID)
+	env, err := a.kinds.BuildEnvelope(ctx, a.pool, a.presence, a.sessions, sessionID)
 	if err != nil {
 		slog.Error("could not build session state for broadcast", "session", sessionID, "error", err)
 		return
@@ -99,7 +99,7 @@ func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r.Context())
-	env, err := a.kinds.BuildEnvelope(r.Context(), a.pool, a.hub, a.sessions, sess.ID)
+	env, err := a.kinds.BuildEnvelope(r.Context(), a.pool, a.presence, a.sessions, sess.ID)
 	if err != nil {
 		http.Error(w, `{"error":"could not load session"}`, http.StatusInternalServerError)
 		return

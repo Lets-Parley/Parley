@@ -2,13 +2,13 @@ package poker
 
 import (
 	"context"
+	"log/slog"
 	"encoding/json"
 	"net/http"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/lets-parley/parley/internal/hub"
 	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/store"
 )
@@ -240,14 +240,25 @@ func castVote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, stor
 		return
 	}
 
-	maybeAutoReveal(r.Context(), ac.Pool, ac.Hub, ac.Session, storyID)
+	maybeAutoReveal(r.Context(), ac.Pool, ac.Presence, ac.Session, storyID)
 	done(w, r, ac)
 }
 
 // maybeAutoReveal fires only here, on a vote landing — never from presence
 // changes, so a disconnect can shrink the denominator but can't reveal.
-func maybeAutoReveal(ctx context.Context, pool *pgxpool.Pool, h *hub.Hub, sess store.Session, storyID string) {
-	connected := h.Connected(sess.ID)
+//
+// The connected set comes from the presence store, which sees every replica.
+// Counting only the clients attached here shrinks the denominator, and a
+// shrunken denominator opens the round while the rest of the table still has
+// votes to cast — the one thing hidden votes must never do.
+func maybeAutoReveal(ctx context.Context, pool *pgxpool.Pool, presence *store.Presence, sess store.Session, storyID string) {
+	connected, err := presence.InSession(ctx, sess.ID)
+	if err != nil {
+		// Fail towards not revealing, but say so: a presence query that keeps
+		// failing means rounds silently stop opening on their own.
+		slog.Error("could not read presence for auto-reveal", "session", sess.ID, "error", err)
+		return
+	}
 	if len(connected) == 0 {
 		return
 	}
