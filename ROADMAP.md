@@ -24,11 +24,12 @@ excluded one.
 Every seat state and the revealed result now carry a text equivalent, the
 standup rail says whose turn it is out loud, the member card sits on the native
 `<dialog>` so focus behaves without a hand-rolled trap, and a contrast audit
-lifted three light-theme tokens over the threshold. What is left is a keyboard
-sweep of every control in a room, and two places where a group opacity wrapper
-drops otherwise-legible text below the contrast threshold.
+lifted three light-theme tokens over the threshold. Every control in a room has
+since been walked with the keyboard, and the two places where a group opacity
+wrapper dropped otherwise-legible text below the contrast threshold now clear
+AA in both themes.
 
-- Status: In progress
+- Status: Complete, shipping in v0.3.0
 - Target: v0.3.0
 - Tracking: [#47](https://github.com/lets-parley/parley/issues/47)
 
