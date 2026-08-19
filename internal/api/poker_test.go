@@ -13,7 +13,7 @@ import (
 
 func addStory(t *testing.T, srv *httptest.Server, sessionID, title string, c *http.Cookie) string {
 	t.Helper()
-	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+sessionID+"/stories",
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+sessionID+"/actions/stories",
 		`{"title":"`+title+`"}`, c); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("add story: %d", resp.StatusCode)
 	}
@@ -24,15 +24,25 @@ func addStory(t *testing.T, srv *httptest.Server, sessionID, title string, c *ht
 
 func selectStory(t *testing.T, srv *httptest.Server, sessionID, storyID string, c *http.Cookie) {
 	t.Helper()
-	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+sessionID+"/select",
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+sessionID+"/actions/select",
 		`{"storyId":"`+storyID+`"}`, c); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("select story: %d", resp.StatusCode)
 	}
 }
 
-func vote(t *testing.T, srv *httptest.Server, storyID, value string, c *http.Cookie) *http.Response {
+func vote(t *testing.T, srv *httptest.Server, sessionID, storyID, value string, c *http.Cookie) *http.Response {
 	t.Helper()
-	resp, _ := doJSON(t, srv, "POST", "/api/stories/"+storyID+"/vote", `{"value":"`+value+`"}`, c)
+	resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+sessionID+"/actions/vote",
+		`{"storyId":"`+storyID+`","value":"`+value+`"}`, c)
+	return resp
+}
+
+// patchStory edits a story through the dispatcher: the session binds the edit
+// in the path and the story it edits travels in the body.
+func patchStory(t *testing.T, srv *httptest.Server, sessionID, storyID, fields string, c *http.Cookie) *http.Response {
+	t.Helper()
+	resp, _ := doJSON(t, srv, "PATCH", "/api/sessions/"+sessionID+"/actions/story",
+		`{"storyId":"`+storyID+`",`+fields+`}`, c)
 	return resp
 }
 
@@ -54,40 +64,40 @@ func TestVoteGuards(t *testing.T) {
 	selectStory(t, srv, id, story, fac)
 
 	// Value not in deck.
-	if resp := vote(t, srv, story, "99", member); resp.StatusCode != http.StatusConflict {
+	if resp := vote(t, srv, id, story, "99", member); resp.StatusCode != http.StatusConflict {
 		t.Fatalf("bad value: %d", resp.StatusCode)
 	}
 	// Voting on a non-current story.
-	if resp := vote(t, srv, other, "5", member); resp.StatusCode != http.StatusConflict {
+	if resp := vote(t, srv, id, other, "5", member); resp.StatusCode != http.StatusConflict {
 		t.Fatalf("non-current story: %d", resp.StatusCode)
 	}
 	// Spectator cannot vote.
 	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/spectator", `{"on":true}`, member); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("spectator toggle: %d", resp.StatusCode)
 	}
-	if resp := vote(t, srv, story, "5", member); resp.StatusCode != http.StatusConflict {
+	if resp := vote(t, srv, id, story, "5", member); resp.StatusCode != http.StatusConflict {
 		t.Fatalf("spectator vote: %d", resp.StatusCode)
 	}
 	doJSON(t, srv, "POST", "/api/sessions/"+id+"/spectator", `{"on":false}`, member)
 
 	// Valid vote, then reveal, then voting is closed.
-	if resp := vote(t, srv, story, "5", member); resp.StatusCode != http.StatusNoContent {
+	if resp := vote(t, srv, id, story, "5", member); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("valid vote: %d", resp.StatusCode)
 	}
-	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/reveal", "", fac); resp.StatusCode != http.StatusNoContent {
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/reveal", "", fac); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("reveal: %d", resp.StatusCode)
 	}
-	if resp := vote(t, srv, story, "8", member); resp.StatusCode != http.StatusConflict {
+	if resp := vote(t, srv, id, story, "8", member); resp.StatusCode != http.StatusConflict {
 		t.Fatalf("post-reveal vote: %d", resp.StatusCode)
 	}
 
 	// Reveal/reset are facilitator-only.
-	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/reset", "", member); resp.StatusCode != http.StatusForbidden {
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/reset", "", member); resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("member reset: %d", resp.StatusCode)
 	}
 	// Non-member sees nothing.
 	outsider := signup(t, srv, "Out")
-	if resp := vote(t, srv, story, "5", outsider); resp.StatusCode != http.StatusNotFound {
+	if resp := vote(t, srv, id, story, "5", outsider); resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("outsider vote: %d", resp.StatusCode)
 	}
 }
@@ -103,10 +113,10 @@ func TestStoryManagementRequiresFacilitator(t *testing.T) {
 		path   string
 		body   string
 	}{
-		{name: "create", method: http.MethodPost, path: "/api/sessions/" + id + "/stories", body: `{"title":"Unauthorized story"}`},
-		{name: "edit", method: http.MethodPatch, path: "/api/stories/" + story, body: `{"title":"Unauthorized edit"}`},
-		{name: "reorder", method: http.MethodPatch, path: "/api/stories/" + story, body: `{"position":99}`},
-		{name: "select", method: http.MethodPost, path: "/api/sessions/" + id + "/select", body: `{"storyId":"` + story + `"}`},
+		{name: "create", method: http.MethodPost, path: "/api/sessions/" + id + "/actions/stories", body: `{"title":"Unauthorized story"}`},
+		{name: "edit", method: http.MethodPatch, path: "/api/sessions/" + id + "/actions/story", body: `{"storyId":"` + story + `","title":"Unauthorized edit"}`},
+		{name: "reorder", method: http.MethodPatch, path: "/api/sessions/" + id + "/actions/story", body: `{"storyId":"` + story + `","position":99}`},
+		{name: "select", method: http.MethodPost, path: "/api/sessions/" + id + "/actions/select", body: `{"storyId":"` + story + `"}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -140,7 +150,7 @@ func TestRedactionBeforeReveal(t *testing.T) {
 	}
 	time.Sleep(1800 * time.Millisecond) // presence settle: both count in the denominator
 
-	if resp := vote(t, srv, story, "13", member); resp.StatusCode != http.StatusNoContent {
+	if resp := vote(t, srv, id, story, "13", member); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("vote: %d", resp.StatusCode)
 	}
 
@@ -181,7 +191,7 @@ func TestRedactionBeforeReveal(t *testing.T) {
 	}
 
 	// After reveal, values and stats appear.
-	doJSON(t, srv, "POST", "/api/sessions/"+id+"/reveal", "", fac)
+	doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/reveal", "", fac)
 	_, env = doJSON(t, srv, "GET", "/api/sessions/"+id, "", member)
 	st = currentStory(env, story)
 	if _, has := st["votes"]; !has {
@@ -216,8 +226,8 @@ func TestAutoRevealOnlyOnVoteEvents(t *testing.T) {
 	}
 	time.Sleep(2 * time.Second) // let presence settle
 
-	vote(t, srv, story, "3", fac)
-	vote(t, srv, story, "5", m1)
+	vote(t, srv, id, story, "3", fac)
+	vote(t, srv, id, story, "5", m1)
 	_, env := doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
 	if env["revealed"] == true {
 		t.Fatal("revealed with 2 of 3 votes")
@@ -232,7 +242,7 @@ func TestAutoRevealOnlyOnVoteEvents(t *testing.T) {
 	}
 
 	// The next vote event (an overwrite counts) satisfies votes >= connected.
-	if resp := vote(t, srv, story, "8", m1); resp.StatusCode != http.StatusNoContent {
+	if resp := vote(t, srv, id, story, "8", m1); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("re-vote: %d", resp.StatusCode)
 	}
 	_, env = doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
@@ -276,7 +286,7 @@ func TestAutoRevealRequiresExactConnectedVoterSet(t *testing.T) {
 		t.Fatal(err)
 	}
 	time.Sleep(2 * time.Second)
-	if resp := vote(t, srv, story, "3", staleVoter); resp.StatusCode != http.StatusNoContent {
+	if resp := vote(t, srv, id, story, "3", staleVoter); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("stale voter seed: %d", resp.StatusCode)
 	}
 	wsFac.Close()
@@ -289,7 +299,7 @@ func TestAutoRevealRequiresExactConnectedVoterSet(t *testing.T) {
 	}
 	defer wsConnected.Close()
 	time.Sleep(2 * time.Second)
-	if resp := vote(t, srv, story, "5", connectedVoter); resp.StatusCode != http.StatusNoContent {
+	if resp := vote(t, srv, id, story, "5", connectedVoter); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("connected voter: %d", resp.StatusCode)
 	}
 
@@ -304,10 +314,10 @@ func TestResetClearsVotes(t *testing.T) {
 	fac, member, id := setupSession(t, srv, "Reset Space")
 	story := addStory(t, srv, id, "Reset story", fac)
 	selectStory(t, srv, id, story, fac)
-	vote(t, srv, story, "5", member)
-	doJSON(t, srv, "POST", "/api/sessions/"+id+"/reveal", "", fac)
+	vote(t, srv, id, story, "5", member)
+	doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/reveal", "", fac)
 
-	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/reset", "", fac); resp.StatusCode != http.StatusNoContent {
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/reset", "", fac); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("reset: %d", resp.StatusCode)
 	}
 	_, env := doJSON(t, srv, "GET", "/api/sessions/"+id, "", member)
@@ -319,7 +329,7 @@ func TestResetClearsVotes(t *testing.T) {
 		t.Fatal("reset left votes behind")
 	}
 	// Re-vote works.
-	if resp := vote(t, srv, story, "8", member); resp.StatusCode != http.StatusNoContent {
+	if resp := vote(t, srv, id, story, "8", member); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("re-vote after reset: %d", resp.StatusCode)
 	}
 }
@@ -329,7 +339,7 @@ func TestEstimateSave(t *testing.T) {
 	fac, _, id := setupSession(t, srv, "Estimate Space")
 	story := addStory(t, srv, id, "Estimated story", fac)
 
-	if resp, _ := doJSON(t, srv, "PATCH", "/api/stories/"+story, `{"estimate":"5"}`, fac); resp.StatusCode != http.StatusNoContent {
+	if resp := patchStory(t, srv, id, story, `"estimate":"5"`, fac); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("estimate save: %d", resp.StatusCode)
 	}
 	_, env := doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
@@ -358,13 +368,13 @@ func TestDeckConfigRespected(t *testing.T) {
 
 	story := addStory(t, srv, id, "Shirt story", ada)
 	selectStory(t, srv, id, story, ada)
-	if r := vote(t, srv, story, "5", ada); r.StatusCode != http.StatusConflict {
+	if r := vote(t, srv, id, story, "5", ada); r.StatusCode != http.StatusConflict {
 		t.Fatalf("numeric vote on tshirt deck: %d", r.StatusCode)
 	}
-	if r := vote(t, srv, story, "M", ada); r.StatusCode != http.StatusNoContent {
+	if r := vote(t, srv, id, story, "M", ada); r.StatusCode != http.StatusNoContent {
 		t.Fatalf("tshirt vote: %d", r.StatusCode)
 	}
-	doJSON(t, srv, "POST", "/api/sessions/"+id+"/reveal", "", ada)
+	doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/reveal", "", ada)
 	_, env := doJSON(t, srv, "GET", "/api/sessions/"+id, "", ada)
 	res := currentStory(env, story)["results"].(map[string]any)
 	if _, has := res["average"]; has {
@@ -389,7 +399,7 @@ func TestStoryTicketRef(t *testing.T) {
 	srv := testServer(t)
 	fac, _, id := setupSession(t, srv, "Ref Space")
 
-	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/stories",
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/stories",
 		`{"title":"Rate limiting","ref":"PAR-142"}`, fac); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("add ticket story: %d", resp.StatusCode)
 	}
@@ -405,7 +415,7 @@ func TestStoryTicketRef(t *testing.T) {
 	}
 
 	// Attaching a ticket to an ad-hoc round afterwards.
-	if resp, _ := doJSON(t, srv, "PATCH", "/api/stories/"+adHoc, `{"ref":"PAR-9"}`, fac); resp.StatusCode != http.StatusNoContent {
+	if resp := patchStory(t, srv, id, adHoc, `"ref":"PAR-9"`, fac); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("patch ref: %d", resp.StatusCode)
 	}
 	_, env = doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
@@ -413,8 +423,8 @@ func TestStoryTicketRef(t *testing.T) {
 		t.Fatalf("patched ref: %v", got)
 	}
 
-	if resp, _ := doJSON(t, srv, "PATCH", "/api/stories/"+adHoc,
-		`{"ref":"`+strings.Repeat("x", 41)+`"}`, fac); resp.StatusCode != http.StatusBadRequest {
+	if resp := patchStory(t, srv, id, adHoc,
+		`"ref":"`+strings.Repeat("x", 41)+`"`, fac); resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("over-long ref: %d", resp.StatusCode)
 	}
 }
@@ -428,13 +438,13 @@ func TestEstimateMustBeACardFromTheDeck(t *testing.T) {
 	story := addStory(t, srv, id, "Guarded story", fac)
 
 	for _, bad := range []string{"—", "☕", "coffee", "?", "XL", "1000"} {
-		resp, _ := doJSON(t, srv, "PATCH", "/api/stories/"+story, `{"estimate":"`+bad+`"}`, fac)
+		resp := patchStory(t, srv, id, story, `"estimate":"`+bad+`"`, fac)
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("estimate %q was accepted with %d, want 400", bad, resp.StatusCode)
 		}
 	}
 	// A real card from the session's deck still saves.
-	if resp, _ := doJSON(t, srv, "PATCH", "/api/stories/"+story, `{"estimate":"8"}`, fac); resp.StatusCode != http.StatusNoContent {
+	if resp := patchStory(t, srv, id, story, `"estimate":"8"`, fac); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("a legitimate estimate was refused: %d", resp.StatusCode)
 	}
 }
@@ -446,10 +456,10 @@ func TestClearingAnEstimateUnsetsTheStatus(t *testing.T) {
 	fac, _, id := setupSession(t, srv, "Estimate Clear Space")
 	story := addStory(t, srv, id, "Cleared story", fac)
 
-	if resp, _ := doJSON(t, srv, "PATCH", "/api/stories/"+story, `{"estimate":"5"}`, fac); resp.StatusCode != http.StatusNoContent {
+	if resp := patchStory(t, srv, id, story, `"estimate":"5"`, fac); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("estimate save: %d", resp.StatusCode)
 	}
-	if resp, _ := doJSON(t, srv, "PATCH", "/api/stories/"+story, `{"estimate":""}`, fac); resp.StatusCode != http.StatusNoContent {
+	if resp := patchStory(t, srv, id, story, `"estimate":""`, fac); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("estimate clear: %d", resp.StatusCode)
 	}
 	_, env := doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)

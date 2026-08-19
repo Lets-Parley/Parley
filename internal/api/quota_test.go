@@ -128,7 +128,7 @@ func TestStoryQuotaIsAtomicInsideActiveSessionTransaction(t *testing.T) {
 	}
 	sessionID := session["id"].(string)
 	statuses := concurrentStatuses(t, 8, func(i int) (int, error) {
-		return requestStatus(srv, http.MethodPost, "/api/sessions/"+sessionID+"/stories", fmt.Sprintf(`{"title":"Story %d"}`, i), creator)
+		return requestStatus(srv, http.MethodPost, "/api/sessions/"+sessionID+"/actions/stories", fmt.Sprintf(`{"title":"Story %d"}`, i), creator)
 	})
 	requireStatuses(t, statuses, http.StatusNoContent, http.StatusConflict, 1)
 

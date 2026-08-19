@@ -291,7 +291,7 @@ func TestAutoRevealCountsVotersOnEveryReplica(t *testing.T) {
 	selectStory(t, srvA, id, storyID, fac)
 
 	// Only the facilitator votes. The member, on the other replica, has not.
-	vote(t, srvA, storyID, "5", fac)
+	vote(t, srvA, id, storyID, "5", fac)
 
 	// Give auto-reveal every chance to fire wrongly before asserting it did not.
 	time.Sleep(1500 * time.Millisecond)

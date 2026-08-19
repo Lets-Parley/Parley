@@ -154,24 +154,6 @@ action against a closed session is **409**; reopen it first.
   { method: "POST", path: "/api/sessions/{id}/actions/skip", auth: "facilitator", purpose: "Mark the current speaker skipped and advance." },
 ]} />
 
-### Deprecated aliases
-
-The pre-dispatcher paths still work and behave identically. They are removed one
-release after v0.3.0 — move to the dispatcher now.
-
-<RouteTable rows={[
-  { method: "POST", path: "/api/sessions/{id}/stories", auth: "member", purpose: "→ actions/stories" },
-  { method: "POST", path: "/api/sessions/{id}/select", auth: "facilitator", purpose: "→ actions/select" },
-  { method: "POST", path: "/api/sessions/{id}/reveal", auth: "facilitator", purpose: "→ actions/reveal" },
-  { method: "POST", path: "/api/sessions/{id}/reset", auth: "facilitator", purpose: "→ actions/reset" },
-  { method: "PATCH", path: "/api/stories/{id}", auth: "member", purpose: "→ actions/story" },
-  { method: "POST", path: "/api/stories/{id}/vote", auth: "member", purpose: "→ actions/vote" },
-  { method: "PUT", path: "/api/sessions/{id}/standup", auth: "member", purpose: "→ actions/standup" },
-  { method: "POST", path: "/api/sessions/{id}/start", auth: "facilitator", purpose: "→ actions/start" },
-  { method: "POST", path: "/api/sessions/{id}/next", auth: "facilitator", purpose: "→ actions/next" },
-  { method: "POST", path: "/api/sessions/{id}/skip", auth: "facilitator", purpose: "→ actions/skip" },
-]} />
-
 ## WebSocket
 
 <RouteTable rows={[

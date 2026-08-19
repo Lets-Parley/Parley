@@ -51,9 +51,7 @@ func (a *app) requireSessionMember(next http.Handler) http.Handler {
 //
 // Kind actions do not use this middleware — the dispatcher in dispatch.go
 // applies the same guard itself, after resolving the action, so that an
-// unknown action is a 404 rather than a 409. The remaining copy is
-// poker.withStory, which serves the deprecated /stories/{id} aliases and goes
-// with them.
+// unknown action is a 404 rather than a 409.
 func rejectEnded(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if sessionFrom(r.Context()).EndedAt != nil {

@@ -13,60 +13,21 @@ func reopenSession(t *testing.T, srv *httptest.Server, id string, fac *http.Cook
 	}
 }
 
-// TestEndedSessionRejectsPokerActionsOnLegacyPaths is a characterization test:
-// it pins the 409-on-a-closed-session behaviour that today lives inside each
-// kind's own route wrapper, so a refactor that collapses those wrappers onto
-// the shared member middleware cannot quietly drop it.
-func TestEndedSessionRejectsPokerActionsOnLegacyPaths(t *testing.T) {
+// TestEndedSessionRejectsStandupActionsOnDispatcher states the 409-on-a-closed
+// session property for the standup kind; the poker half is stated below.
+func TestEndedSessionRejectsStandupActionsOnDispatcher(t *testing.T) {
 	srv := testServer(t)
-	fac, member, id := setupSession(t, srv, "Ended Poker Legacy")
-	story := addStory(t, srv, id, "Login page", fac)
-	// Select the story before closing the session. With no current story,
-	// castVote rejects with 409 "voting is not open on this story" whatever the
-	// session's state, so the vote case below would pass for a reason that has
-	// nothing to do with the ended-session guard this test exists to pin.
-	selectStory(t, srv, id, story, fac)
+	fac, member, _, id, _ := standupSetup(t, srv, "Ended Standup Dispatch")
 	closeSession(t, srv, id, fac)
 
 	cases := []struct {
 		method, path, body string
 		cookie             *http.Cookie
 	}{
-		{"POST", "/api/sessions/" + id + "/stories", `{"title":"Nope"}`, fac},
-		{"POST", "/api/sessions/" + id + "/select", `{"storyId":"` + story + `"}`, fac},
-		{"POST", "/api/sessions/" + id + "/reveal", "", fac},
-		{"POST", "/api/sessions/" + id + "/reset", "", fac},
-		{"POST", "/api/sessions/" + id + "/spectator", `{"on":true}`, member},
-		{"PATCH", "/api/stories/" + story, `{"title":"Renamed"}`, fac},
-		{"POST", "/api/stories/" + story + "/vote", `{"value":"5"}`, member},
-	}
-	for _, c := range cases {
-		resp, _ := doJSON(t, srv, c.method, c.path, c.body, c.cookie)
-		if resp.StatusCode != http.StatusConflict {
-			t.Errorf("%s %s on an ended session: got %d, want 409", c.method, c.path, resp.StatusCode)
-		}
-	}
-
-	// Reopening still works, and the actions come back with it.
-	reopenSession(t, srv, id, fac)
-	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/stories", `{"title":"After reopen"}`, fac); resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("add story after reopen: %d", resp.StatusCode)
-	}
-}
-
-func TestEndedSessionRejectsStandupActionsOnLegacyPaths(t *testing.T) {
-	srv := testServer(t)
-	fac, member, _, id, _ := standupSetup(t, srv, "Ended Standup Legacy")
-	closeSession(t, srv, id, fac)
-
-	cases := []struct {
-		method, path, body string
-		cookie             *http.Cookie
-	}{
-		{"PUT", "/api/sessions/" + id + "/standup", `{"today":"stuff"}`, member},
-		{"POST", "/api/sessions/" + id + "/start", "", fac},
-		{"POST", "/api/sessions/" + id + "/next", "", fac},
-		{"POST", "/api/sessions/" + id + "/skip", "", fac},
+		{"PUT", "/api/sessions/" + id + "/actions/standup", `{"today":"stuff"}`, member},
+		{"POST", "/api/sessions/" + id + "/actions/start", "", fac},
+		{"POST", "/api/sessions/" + id + "/actions/next", "", fac},
+		{"POST", "/api/sessions/" + id + "/actions/skip", "", fac},
 	}
 	for _, c := range cases {
 		resp, _ := doJSON(t, srv, c.method, c.path, c.body, c.cookie)
@@ -76,13 +37,14 @@ func TestEndedSessionRejectsStandupActionsOnLegacyPaths(t *testing.T) {
 	}
 
 	reopenSession(t, srv, id, fac)
-	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+id+"/standup", `{"today":"stuff"}`, member); resp.StatusCode != http.StatusNoContent {
+	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+id+"/actions/standup", `{"today":"stuff"}`, member); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("standup entry after reopen: %d", resp.StatusCode)
 	}
 }
 
-// TestEndedSessionRejectsActionsOnDispatcher is the same property stated
-// against the dispatcher path.
+// TestEndedSessionRejectsActionsOnDispatcher states the same property for the
+// poker kind, plus the spectator seat, which reaches the guard through the
+// rejectEnded middleware rather than the dispatcher.
 func TestEndedSessionRejectsActionsOnDispatcher(t *testing.T) {
 	srv := testServer(t)
 	fac, member, id := setupSession(t, srv, "Ended Poker Dispatch")
@@ -105,6 +67,11 @@ func TestEndedSessionRejectsActionsOnDispatcher(t *testing.T) {
 		if resp.StatusCode != http.StatusConflict {
 			t.Errorf("%s actions/%s on an ended session: got %d, want 409", c.verb, c.action, resp.StatusCode)
 		}
+	}
+	// The spectator seat is not a kind action — it carries its own rejectEnded
+	// middleware — so its 409 is pinned here alongside the dispatcher's.
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/spectator", `{"on":true}`, member); resp.StatusCode != http.StatusConflict {
+		t.Errorf("spectator on an ended session: got %d, want 409", resp.StatusCode)
 	}
 
 	reopenSession(t, srv, id, fac)
@@ -304,10 +271,5 @@ func TestStandupEntryIsAPut(t *testing.T) {
 	}
 	if got := resp.Header.Get("Allow"); got != "PUT" {
 		t.Errorf("POST actions/standup: Allow = %q, want %q", got, "PUT")
-	}
-
-	// The deprecated PUT /sessions/{id}/standup alias keeps working.
-	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+id+"/standup", body, m1); resp.StatusCode != http.StatusNoContent {
-		t.Errorf("legacy PUT /standup: got %d, want 204", resp.StatusCode)
 	}
 }
