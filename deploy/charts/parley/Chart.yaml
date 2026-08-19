@@ -15,7 +15,15 @@ keywords:
   - self-hosted
 
 # version is the chart's own version; appVersion is the Parley release it
-# defaults to deploying. The release workflow rewrites both from the git tag,
-# so a chart pulled from the registry always points at a real published image.
+# defaults to deploying. The release workflow rewrites both lines from the git
+# tag (it anchors on `^version: ` and `^appVersion: `), so a chart pulled from
+# the registry always points at a real published image.
+#
+# Both are 0.0.0 in the repository on purpose. A checked-in appVersion is only
+# ever read when someone installs from a clone, and a stale one there is worse
+# than useless: it renders a current chart around an older image — an HA chart
+# wrapped around a pre-HA binary, which looks correct and then dies at
+# replicaCount 2. 0.0.0 resolves to no published tag, so that install fails
+# loudly instead. Installing from a clone means passing --set image.tag=0.4.0.
 version: 0.0.0
-appVersion: "0.2.3"
+appVersion: "0.0.0"

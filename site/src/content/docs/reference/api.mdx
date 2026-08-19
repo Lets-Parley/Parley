@@ -24,14 +24,14 @@ apply a smaller 4 KiB decoder cap.
 
 <RouteTable rows={[
   { method: "GET", path: "/healthz", auth: "public", purpose: "Liveness. Always 200, never touches the database." },
-  { method: "GET", path: "/readyz", auth: "public", purpose: "Readiness. Pings Postgres with a 3s timeout; 503 if unreachable." },
+  { method: "GET", path: "/readyz", auth: "public", purpose: "Readiness. Pings Postgres with a 3s timeout, then checks this replica's notify listener; 503 if the database is unreachable or the listener is down." },
   { method: "GET", path: "/version", auth: "public", purpose: "The build this instance is running. Always 200, never touches the database." },
 ]} />
 
 `/version` answers with the build string and nothing else:
 
 ```json
-{ "version": "0.2.3" }
+{ "version": "0.4.0" }
 ```
 
 A build that was not stamped at link time reports `"dev"` rather than a blank,

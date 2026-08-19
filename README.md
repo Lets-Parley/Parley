@@ -106,7 +106,7 @@ sit at.
   (Explicit hand-off exists in the API but has no button yet.)
 - **Light, dark, and system themes.**
 - **Boring to operate.** `/healthz` that never touches the database, `/readyz`
-  that does, structured JSON logs, migrations applied at boot, and a refusal to
+  that checks both Postgres and this replica's cross-replica listener, structured JSON logs, migrations applied at boot, and a refusal to
   start rather than run against a database a newer version has already migrated.
 
 ## More screenshots
@@ -166,11 +166,12 @@ Skip compose entirely and point the image at your own database:
 docker run -d --name parley -p 8080:8080 \
   -e DATABASE_URL='postgres://parley:secret@db:5432/parley' \
   -e BASE_URL='https://parley.example.com' \
-  ghcr.io/lets-parley/parley:0.2.3
+  ghcr.io/lets-parley/parley:0.4.0
 ```
 
-Pin a version rather than `latest` — run 0.2.2 or later, as every earlier
-release can be crashed remotely by a disconnecting client.
+Pin a version rather than `latest` — 0.4.0 is the current release. 0.2.2 is the
+security floor: every earlier release can be crashed remotely by a disconnecting
+client.
 
 ## Configuration
 
@@ -245,13 +246,28 @@ Enable it only after replacing the example topology with your proxy CIDRs.
 
 ## Kubernetes
 
-There is a Helm chart:
+Parley ships no Postgres here, so four things must be true before you install,
+each of them otherwise a `CrashLoopBackOff` with a `FATAL:` log line:
+
+- **PostgreSQL 13 or newer.** The first migration runs
+  `create extension if not exists pgcrypto`, which is only a *trusted* extension
+  from 13 onward.
+- **The database and the role already exist**, and the role in `DATABASE_URL`
+  owns the database. Parley creates its schema, not the database and not the role.
+- **`?sslmode=require`** on the URL if your Postgres requires TLS. Without it the
+  handshake is refused and you get a minute of retries, then a restart.
+- **The secret holds one key** — default `database-url` — whose value is the
+  whole connection URI. A secret split into `username`/`password`/`host` keys
+  gives `CreateContainerConfigError`. The OIDC secret is the same shape, under
+  `oidc-client-secret`.
+
+Then:
 
 ```sh
 kubectl create secret generic parley \
-  --from-literal=database-url='postgres://parley:secret@host:5432/parley'
+  --from-literal=database-url='postgres://parley:secret@host:5432/parley?sslmode=require'
 
-helm install parley oci://ghcr.io/lets-parley/charts/parley --version 0.2.3 \
+helm install parley oci://ghcr.io/lets-parley/charts/parley --version 0.4.0 \
   --set database.existingSecret=parley \
   --set baseURL=https://parley.example.com
 ```
@@ -263,7 +279,9 @@ It refuses to render rather than hand you a deployment that cannot work: a
 moving image tag, a fractional replica count, a missing database secret, OIDC
 without a client secret, or ingress TLS under an `http://` base URL all fail at
 `helm template` time with a message saying why. `helm test` then checks the
-Service actually routes to a pod that reached Postgres.
+Service actually routes to a pod that is ready — which means it reached Postgres
+*and* is holding the `LISTEN` it hears other replicas on. It fails if either is
+down.
 
 `deploy/k8s/deployment.yaml` (in this repo — clone it, or fetch that one file)
 is the same thing as a plain manifest, for people who do not run Helm. Two things in it are
@@ -277,7 +295,7 @@ operator, then give the Deployment its connection string and pin an image tag:
 
 ```sh
 kubectl create secret generic parley \
-  --from-literal=database-url='postgres://parley:secret@host:5432/parley'
+  --from-literal=database-url='postgres://parley:secret@host:5432/parley?sslmode=require'
 kubectl apply -f deploy/k8s/deployment.yaml
 ```
 
@@ -285,11 +303,14 @@ Parley runs on more than one replica: WebSocket fanout goes through Postgres
 `LISTEN`/`NOTIFY`, presence and the room-code throttle are rows in Postgres, and
 pods that boot together serialize their migrations behind an advisory lock. The
 chart defaults to one replica, so an upgrade never doubles a running install's
-pods behind your back; `--set replicaCount=2` opts in. Above one replica it also
-renders a PodDisruptionBudget and a topology spread constraint — a budget in
-front of a single pod would deadlock the drain it was meant to survive. Each replica opens up to 10 pooled Postgres
-connections plus one for the fanout listener, so size `max_connections` for
-`replicas × 11`.
+pods behind your back; `--set replicaCount=2` opts in. This needs **chart 0.4.0
+or newer** — every chart up to and including 0.3.0 refuses `replicaCount > 1` at
+render time, so pass `--version 0.4.0` when you scale up. Above one replica the
+chart also renders a PodDisruptionBudget and a topology spread constraint — a
+budget in front of a single pod would deadlock the drain it was meant to
+survive. Each replica opens up to 10 pooled Postgres connections plus one for
+the fanout listener, so size `max_connections` for `replicas × 11` (12 per pod
+briefly at boot, while it holds the migration lock on its own connection).
 
 One thing to expect during a rollout: the new pod migrates the database before
 the old pods are gone, so the old version briefly serves against a newer schema.
@@ -401,6 +422,18 @@ is no down path. Then bump the tag in `docker-compose.yml` and `docker compose
 pull && docker compose up -d`. Migrations run automatically at boot. Rolling *back* an image is only safe if the newer
 version didn't add migrations — if it did, Parley refuses to start with a
 message telling you so; restore from backup instead.
+
+**On Kubernetes:** re-run the install as an upgrade, pinning the new chart
+version and keeping the values you set the first time, then confirm the pods
+actually rolled rather than assuming they did:
+
+```sh
+helm upgrade parley oci://ghcr.io/lets-parley/charts/parley --version 0.4.0 \
+  --reuse-values
+kubectl rollout status deploy/parley
+helm test parley
+curl -s https://parley.example.com/version
+```
 
 **Postgres:** the compose file pins `postgres:16-alpine` on purpose. Major
 Postgres upgrades (16 → 17) are not automatic: `pg_dump` with the old

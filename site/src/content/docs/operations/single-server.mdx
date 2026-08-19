@@ -78,6 +78,8 @@ the one thing it cannot recover, are on
 
 Run through the [hardening checklist](/security/hardening-checklist/) — it is
 short, and it is written for exactly this deployment. Upgrades are
-[migrations that run themselves at boot](/operations/upgrading/), with a few
-seconds of downtime while the new process takes over, so deploy when nobody is
-mid-session.
+[migrations that run themselves at boot](/operations/upgrading/). On this
+single-container Compose setup that means a few seconds of downtime while the
+new process takes over, so deploy when nobody is mid-session. (On Kubernetes it
+does not: the chart rolls, and above one replica the rollout is seamless — see
+[Kubernetes](/operations/kubernetes/#rollouts).)

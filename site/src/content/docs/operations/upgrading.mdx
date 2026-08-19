@@ -8,6 +8,11 @@ description: Moving Parley forward, and why rolling back is not always safe.
 Pull the new tag and `docker compose up -d`. Migrations run automatically at
 boot.
 
+On Kubernetes it is `helm upgrade` with the new `--version` and
+`--reuse-values` — the procedure, and the checks that prove the pods actually
+rolled, are on
+[Kubernetes](/operations/kubernetes/#upgrading-an-existing-install).
+
 Rolling *back* an image is only safe if the newer version didn't add
 migrations. If it did, Parley refuses to start and says so, rather than running
 against a schema it doesn't understand. Restore from a

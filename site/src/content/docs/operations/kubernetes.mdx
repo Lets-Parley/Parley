@@ -3,28 +3,102 @@ title: Kubernetes
 description: The Helm chart, the guards it enforces, and a plain manifest for people who do not run Helm.
 ---
 
-## Install the Helm chart
+## Before you install: the database
 
-The chart is published to the same registry as the image. Create the database
-secret, then install:
+Parley ships no Postgres for Kubernetes, and the chart will not create one. Have
+these four things true before you run `helm install`. Each one is a
+`CrashLoopBackOff` rather than a subtle misbehaviour — Parley logs a line
+starting `FATAL:` and exits, so `kubectl logs` has the answer:
+
+- **PostgreSQL 13 or newer.** The first migration runs
+  `create extension if not exists pgcrypto`. `pgcrypto` only became a *trusted*
+  extension in PostgreSQL 13, so on 12 and below — or anywhere the role in
+  `DATABASE_URL` is not the database owner — that statement needs superuser and
+  migration `0001` fails: `FATAL: database migration failed`.
+- **The database and the role already exist.** Parley creates its *schema*, not
+  the database and not the role. Create both yourself, and make the role in
+  `DATABASE_URL` the **owner** of the database.
+- **`sslmode`, if your Postgres requires TLS.** Managed Postgres usually does,
+  and the driver does not assume it. Append `?sslmode=require` (or `verify-full`
+  with a CA) to the URI. Without it the connection is refused at handshake and
+  Parley retries six times with doubling backoff — about a minute of
+  `postgres not reachable yet, retrying` — before
+  `FATAL: could not connect to Postgres` and a restart.
+- **A quick sanity check** from anywhere that can reach the database:
+
+  ```sh
+  psql 'postgres://parley:secret@host:5432/parley?sslmode=require' \
+    -c 'create extension if not exists pgcrypto' -c 'select version()'
+  ```
+
+  If that succeeds, Parley will migrate.
+
+### The secrets Parley reads, exactly
+
+Both secrets hold **one key whose value is the whole string**. This is the most
+common way a first install fails: a secret built out of `username` / `password` /
+`host` keys leaves the pod in `CreateContainerConfigError`, because the key the
+container asks for is not there.
+
+| Secret | Value name | Key | Contents |
+|---|---|---|---|
+| Database | `database.existingSecret` | `database.secretKey`, default `database-url` | The entire connection URI |
+| OIDC | `auth.oidc.existingSecret` | `auth.oidc.secretKey`, default `oidc-client-secret` | The client secret, on its own |
 
 ```sh
 kubectl create secret generic parley \
-  --from-literal=database-url='postgres://parley:secret@host:5432/parley'
+  --from-literal=database-url='postgres://parley:secret@host:5432/parley?sslmode=require'
 
-helm install parley oci://ghcr.io/lets-parley/charts/parley --version 0.2.3 \
+# only with auth.mode=oidc
+kubectl create secret generic parley-oidc \
+  --from-literal=oidc-client-secret='...'
+```
+
+## Install the Helm chart
+
+The chart is published to the same registry as the image. With the secret above
+in place:
+
+```sh
+helm install parley oci://ghcr.io/lets-parley/charts/parley --version 0.4.0 \
   --set database.existingSecret=parley \
   --set baseURL=https://parley.example.com
 ```
 
-`helm test parley` then checks the Service actually routes to a pod that
-reached Postgres.
+`helm test parley` then checks the Service actually routes to a *ready* pod.
+`/readyz` covers two things, so the test does too: the pod reached Postgres, and
+it is holding the Postgres `LISTEN` it hears other replicas on. It fails if
+either is down.
+
+### Upgrading an existing install
+
+Re-run `helm upgrade` with the new chart version and keep the values you set
+last time:
+
+```sh
+helm upgrade parley oci://ghcr.io/lets-parley/charts/parley --version 0.4.0 \
+  --reuse-values
+
+kubectl rollout status deploy/parley
+helm test parley
+curl -s https://parley.example.com/version
+```
+
+`--reuse-values` carries `baseURL`, `database.existingSecret` and everything else
+forward; add `--set` for anything you want to change in the same step. Pin
+`--version` on an upgrade for exactly the reason you pin it on install. `/version`
+is the check that the rollout actually replaced the pods, rather than the
+assumption that it did.
+
+Migrations run themselves as the new pod boots, before the old pods are gone —
+see [the window](#one-thing-to-know-about-the-window). Roll forward: rolling back
+onto an image older than the migrations that have run is refused, by design.
 
 ### Pin `--version`
 
 Without it Helm resolves to whatever the registry currently calls newest, so the
 command above means something different after every release. The chart version
-tracks the app version: `0.2.3` installs `ghcr.io/lets-parley/parley:0.2.3`.
+tracks the app version: `0.4.0` installs `ghcr.io/lets-parley/parley:0.4.0`.
 There is no `v` prefix on either — a `v`-prefixed tag has never been published.
 
 ### The values that matter
@@ -49,6 +123,39 @@ set:
 Every value is commented in
 [`deploy/charts/parley/values.yaml`](https://github.com/lets-parley/parley/blob/main/deploy/charts/parley/values.yaml),
 which is the source of truth.
+
+### TLS is entirely the ingress's job
+
+Parley speaks plain HTTP on 8080 and has no certificate handling of any kind.
+Terminating TLS is the ingress controller's job; `ingress.tls` is passed through
+verbatim to the Ingress `spec.tls`, so it takes whatever your controller expects.
+
+With cert-manager, that is a ClusterIssuer annotation plus a secret name for it
+to fill in:
+
+```yaml
+baseURL: https://parley.example.com
+
+ingress:
+  enabled: true
+  className: nginx
+  host: parley.example.com
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Keep these — Parley pings every 25s and a shorter read timeout cuts
+    # live boards mid-round.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "75s"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "75s"
+  tls:
+    - hosts: [parley.example.com]
+      secretName: parley-tls
+```
+
+Setting `annotations` in your own values replaces the chart's defaults rather
+than merging with them, which is why the two timeout annotations are repeated
+above. `baseURL` must be the `https://` address to match — the chart refuses to
+render `ingress.tls` under an `http://` base URL, because the session cookie's
+`Secure` flag comes from `baseURL` and nothing else.
 
 ### It refuses to render a deployment that cannot work
 
@@ -83,22 +190,25 @@ load-bearing rather than stylistic.
 **`strategy: RollingUpdate`** with `maxSurge: 1` and `maxUnavailable: 0`, so a
 rollout never drops below the replica count. Like the chart it ships with
 `replicas: 1`; raise it when you want rollout headroom and a survivable node
-failure. Every
-replica opens up to 10 pooled Postgres connections plus one for the fanout
-listener, so size `max_connections` for `replicas × 11`. The plain manifest has
-no PodDisruptionBudget and no anti-affinity — the chart adds both.
+failure. Every replica opens up to 10 pooled Postgres connections plus one for
+the fanout listener, so size `max_connections` for `replicas × 11` — 12 per pod
+briefly at boot, while it holds the migration lock on its own connection. The
+plain manifest has no PodDisruptionBudget and no anti-affinity; the chart adds
+both.
 
 **The liveness probe hits `/healthz`**, which never touches the database,
 because a DB blip must not restart the pod and drop every WebSocket.
 
 ### Bring your own Postgres
 
-Parley ships no database for Kubernetes. Use a managed one or an operator, then
-give the Deployment its connection string and pin an image tag:
+Parley ships no database for Kubernetes. The
+[prerequisites above](#before-you-install-the-database) apply identically here —
+PostgreSQL 13 or newer, a database and owning role you created, `sslmode` if TLS
+is required, and one secret key holding the whole URI:
 
 ```sh
 kubectl create secret generic parley \
-  --from-literal=database-url='postgres://parley:secret@host:5432/parley'
+  --from-literal=database-url='postgres://parley:secret@host:5432/parley?sslmode=require'
 kubectl apply -f deploy/k8s/deployment.yaml
 ```
 
