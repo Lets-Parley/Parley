@@ -17,6 +17,7 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
+	"golang.org/x/sync/singleflight"
 )
 
 type Config struct {
@@ -46,6 +47,12 @@ type Provider struct {
 	mu       sync.Mutex
 	oauth    *oauth2.Config
 	verifier *oidc.IDTokenVerifier
+
+	// Concurrent sign-ins collapse onto a single discovery attempt, so a
+	// provider that hangs costs one timeout in total rather than one each.
+	flight singleflight.Group
+	// Overridden only by tests, which cannot wait 15s to watch a hang.
+	discoveryTimeout time.Duration
 }
 
 func New(cfg Config) *Provider { return &Provider{cfg: cfg} }
@@ -56,29 +63,39 @@ func (p *Provider) Issuer() string { return p.cfg.Issuer }
 // success. Callers hit this on every request; it is cheap once warm.
 func (p *Provider) discover(ctx context.Context) error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.oauth != nil {
+	warm := p.oauth != nil
+	p.mu.Unlock()
+	if warm {
 		return nil
 	}
-	// Bounded: this runs while the lock is held, and http.DefaultClient has no
-	// timeout of its own, so a provider that accepts connections and then goes
-	// quiet would otherwise queue every sign-in behind it indefinitely.
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	prov, err := oidc.NewProvider(ctx, p.cfg.Issuer)
-	if err != nil {
-		return fmt.Errorf("could not reach the identity provider at %s: %w", p.cfg.Issuer, err)
+	timeout := p.discoveryTimeout
+	if timeout == 0 {
+		timeout = 15 * time.Second
 	}
-	scopes := append([]string{oidc.ScopeOpenID}, p.cfg.Scopes...)
-	p.oauth = &oauth2.Config{
-		ClientID:     p.cfg.ClientID,
-		ClientSecret: p.cfg.ClientSecret,
-		RedirectURL:  p.cfg.RedirectURL,
-		Endpoint:     prov.Endpoint(),
-		Scopes:       scopes,
-	}
-	p.verifier = prov.Verifier(&oidc.Config{ClientID: p.cfg.ClientID})
-	return nil
+	_, err, _ := p.flight.Do("discover", func() (any, error) {
+		// Detached from the caller: whoever happens to win the race must not be
+		// able to fail everyone else's sign-in by closing their browser tab.
+		// http.DefaultClient has no timeout of its own, so the bound is ours.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+		defer cancel()
+		prov, err := oidc.NewProvider(ctx, p.cfg.Issuer)
+		if err != nil {
+			return nil, fmt.Errorf("could not reach the identity provider at %s: %w", p.cfg.Issuer, err)
+		}
+		scopes := append([]string{oidc.ScopeOpenID}, p.cfg.Scopes...)
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		p.oauth = &oauth2.Config{
+			ClientID:     p.cfg.ClientID,
+			ClientSecret: p.cfg.ClientSecret,
+			RedirectURL:  p.cfg.RedirectURL,
+			Endpoint:     prov.Endpoint(),
+			Scopes:       scopes,
+		}
+		p.verifier = prov.Verifier(&oidc.Config{ClientID: p.cfg.ClientID})
+		return nil, nil
+	})
+	return err
 }
 
 // AuthCodeURL builds the redirect that starts a sign-in. The caller keeps state,

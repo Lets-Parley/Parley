@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestDisplayNamePrefersFriendliestClaim(t *testing.T) {
@@ -140,5 +142,71 @@ func TestDiscoverDoesNotCacheAFailedLookup(t *testing.T) {
 	}
 	if atomic.LoadInt32(&hits) == before {
 		t.Fatal("discover() did not actually re-contact the provider after a failed lookup — the failure may have been cached")
+	}
+}
+
+func TestDiscoverDoesNotSerializeConcurrentCallers(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		<-r.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
+
+	p := providerFor(t, srv.URL)
+	p.discoveryTimeout = 200 * time.Millisecond
+
+	const waiters = 5
+	start := time.Now()
+	var wg sync.WaitGroup
+	for range waiters {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := p.discover(context.Background()); err == nil {
+				t.Error("a hanging identity provider was treated as reachable")
+			}
+		}()
+	}
+	wg.Wait()
+	// Serialized, this would take waiters × the timeout; collapsed onto one
+	// attempt it takes roughly one window.
+	if elapsed := time.Since(start); elapsed > 2*p.discoveryTimeout {
+		t.Fatalf("%d waiters took %v, want roughly one %v window", waiters, elapsed, p.discoveryTimeout)
+	}
+	// The wall-clock bound above would also hold if every caller raced the
+	// network independently (each racing attempt still times out within one
+	// window); only the hit count proves the callers actually collapsed onto
+	// a single singleflight attempt.
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Fatalf("identity provider was hit %d times for %d concurrent callers, want 1 (singleflight should collapse them)", got, waiters)
+	}
+}
+
+func TestDiscoverSurvivesTheFirstCallerGivingUp(t *testing.T) {
+	idp := newFakeIdP(t)
+	release := make(chan struct{})
+	requestReceived := make(chan struct{})
+	gate := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(requestReceived)
+		<-release
+		idp.Config.Handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(gate.Close)
+	idp.Server.URL = gate.URL
+
+	p := providerFor(t, gate.URL)
+	impatient, cancel := context.WithCancel(context.Background())
+
+	done := make(chan error, 1)
+	go func() { done <- p.discover(impatient) }()
+	// Let the first caller actually reach the network before it walks away,
+	// rather than guessing at a wall-clock margin.
+	<-requestReceived
+	cancel()
+	close(release)
+
+	if err := <-done; err != nil {
+		t.Fatalf("discovery was cancelled by the caller that started it: %v", err)
 	}
 }
