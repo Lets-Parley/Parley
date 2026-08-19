@@ -66,7 +66,13 @@ follows the person onto the roster. Trimmed to 64 characters.
 Ends the Parley session only. It does not sign anyone out of the identity
 provider, which matters on a shared machine. Logout deletes the shared-store
 token and synchronously closes every WebSocket authenticated by that token with
-policy code `1008` before the request completes.
+policy code `1008` before the request completes. Across a multi-replica
+deployment the disconnect is immediate on every replica, not only the one that
+served the request: after the token row is deleted, the replica publishes the
+revocation to its peers over the same Postgres `LISTEN`/`NOTIFY` channel set the
+rest of the live updates use, and each peer closes its own sockets for that
+token. The periodic revalidation below is the fallback if that notification is
+lost — for example while a replica's listener is reconnecting.
 
 ## Room codes still apply
 
@@ -134,10 +140,12 @@ lifetime, and also has a timer for the known expiry. A check may take up to 30
 seconds before it fails closed. A deleted or expired token closes the connection
 with WebSocket policy code `1008`. Shared-store checks mean revocation works even
 when the database change was made outside this process; allow up to 60 seconds
-from an external deletion for the next check and its timeout to complete.
+from an external deletion for the next check and its timeout to complete. A
+logout performed through Parley itself does not wait for that: it is fanned out
+to every replica immediately, and the periodic check is only the backstop.
 
 <SpecTable rows={[
-  { name: "Sign out", value: "supported", note: "Deletes the token, synchronously closes its WebSockets, and clears the cookie" },
+  { name: "Sign out", value: "supported", note: "Deletes the token, closes its WebSockets on every replica, and clears the cookie" },
   { name: "Rename", value: "rotates the token", note: "In one transaction" },
   { name: "Sign out everywhere UI", value: "not supported", note: "Delete the user's rows from session_tokens in SQL; shared-store detection and removal can take nearly 60s, then transport closure follows" },
   { name: "Administrative revocation UI", value: "not supported", note: "There is no admin surface; shared-store detection and removal can take nearly 60s" },

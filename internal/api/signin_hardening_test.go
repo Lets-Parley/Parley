@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -93,7 +94,8 @@ func TestFlowCookieIsClearedByTheCallback(t *testing.T) {
 // that arrives together see the same "still allowed", so a guesser gets one
 // free attempt per parallel connection.
 func TestThrottleHoldsUnderConcurrency(t *testing.T) {
-	l := newAttemptLimiter()
+	l := newAttemptLimiter(testPool(t))
+	ctx := context.Background()
 
 	var mu sync.Mutex
 	through := 0
@@ -102,7 +104,7 @@ func TestThrottleHoldsUnderConcurrency(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if l.take("addr|space") {
+			if l.take(ctx, "addr|space") {
 				mu.Lock()
 				through++
 				mu.Unlock()
@@ -119,14 +121,15 @@ func TestThrottleHoldsUnderConcurrency(t *testing.T) {
 // A correct code costs nothing, so a whole team can file in through one office
 // address without the stragglers being refused.
 func TestCorrectCodeRefundsItsGuess(t *testing.T) {
-	l := newAttemptLimiter()
+	l := newAttemptLimiter(testPool(t))
+	ctx := context.Background()
 	for range passcodeAttemptLimit * 3 {
-		if !l.take("addr|space") {
+		if !l.take(ctx, "addr|space") {
 			t.Fatal("a correct code should never exhaust the budget")
 		}
-		l.refund("addr|space")
+		l.refund(ctx, "addr|space")
 	}
-	if l.blockedFor("addr|space") {
+	if l.blockedFor(ctx, "addr|space") {
 		t.Error("refunded guesses still counted against the budget")
 	}
 }

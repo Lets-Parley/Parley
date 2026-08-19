@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -43,30 +44,75 @@ func TestNewPasscodeShape(t *testing.T) {
 	}
 }
 
+// backdateAttempts moves a client's window_start into the past, which is how a
+// test ages a window now that the limiter reads its clock from Postgres rather
+// than from the process. It is the same thing the passage of time would do.
+func backdateAttempts(t *testing.T, l *attemptLimiter, key string, by time.Duration) {
+	t.Helper()
+	tag, err := l.pool.Exec(context.Background(), `
+		update passcode_attempts
+		set window_start = window_start - make_interval(secs => $2)
+		where client_digest = $1`, attemptDigest(key), by.Seconds())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag.RowsAffected() != 1 {
+		t.Fatalf("back-dating %q touched %d rows, want 1", key, tag.RowsAffected())
+	}
+}
+
 func TestAttemptLimiterWindow(t *testing.T) {
-	now := time.Unix(0, 0)
-	l := newAttemptLimiter()
-	l.now = func() time.Time { return now }
+	ctx := context.Background()
+	l := newAttemptLimiter(testPool(t))
 
 	for i := range passcodeAttemptLimit {
-		if !l.take("addr|space") {
+		if !l.take(ctx, "addr|space") {
 			t.Fatalf("attempt %d should be allowed", i+1)
 		}
 	}
-	if l.take("addr|space") {
+	if l.take(ctx, "addr|space") {
 		t.Fatal("the attempt past the limit should be refused")
 	}
+	if !l.blockedFor(ctx, "addr|space") {
+		t.Fatal("a spent budget should read as blocked")
+	}
 	// A different caller is unaffected by someone else's guessing.
-	if !l.take("other|space") {
+	if !l.take(ctx, "other|space") {
 		t.Fatal("a different key should have its own budget")
 	}
-	// The window slides.
-	now = now.Add(passcodeAttemptWindow + time.Second)
-	if !l.take("addr|space") {
+	if l.blockedFor(ctx, "other|space") {
+		t.Fatal("one caller's guessing blocked another")
+	}
+
+	// The window slides: age both callers past it and the spent budget refills.
+	aged := passcodeAttemptWindow + time.Second
+	backdateAttempts(t, l, "addr|space", aged)
+	backdateAttempts(t, l, "other|space", aged)
+	if !l.take(ctx, "addr|space") {
 		t.Fatal("the budget should refill after the window")
 	}
-	if len(l.hits) > 2 {
-		t.Fatalf("expired keys were not swept: %d", len(l.hits))
+	if l.blockedFor(ctx, "addr|space") {
+		t.Fatal("attempts from before the window still counted")
+	}
+	// An expired window starts over rather than resuming: the refilled budget
+	// is the whole budget, not one guess borrowed from the old one.
+	for i := 1; i < passcodeAttemptLimit; i++ {
+		if !l.take(ctx, "addr|space") {
+			t.Fatalf("attempt %d of the refilled window should be allowed", i+1)
+		}
+	}
+	if l.take(ctx, "addr|space") {
+		t.Fatal("the refilled window handed out more than the limit")
+	}
+
+	// Expired rows are swept rather than kept forever: only the key that came
+	// back inside the window survives the charges above.
+	var rows int
+	if err := l.pool.QueryRow(ctx, "select count(*) from passcode_attempts").Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 1 {
+		t.Fatalf("expired rows were not swept: %d rows remain", rows)
 	}
 }
 
