@@ -436,6 +436,12 @@ func TestTransferToSelfIsANoOp(t *testing.T) {
 	fac, _, id := setupSession(t, srv, "Self Transfer Space")
 	_, fay := doJSON(t, srv, "GET", "/api/me", "", fac)
 
+	_, before := doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	beforeVersion, ok := before["version"].(float64)
+	if !ok {
+		t.Fatalf("session envelope missing version: %v", before)
+	}
+
 	resp, body := doJSON(t, srv, "POST", "/api/sessions/"+id+"/facilitator",
 		`{"userId":"`+fay["id"].(string)+`"}`, fac)
 	if resp.StatusCode != http.StatusNoContent {
@@ -445,6 +451,13 @@ func TestTransferToSelfIsANoOp(t *testing.T) {
 	_, env := doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
 	if env["facilitatorId"] != fay["id"] {
 		t.Fatalf("self transfer dropped the role: facilitatorId = %v, want %v", env["facilitatorId"], fay["id"])
+	}
+	afterVersion, ok := env["version"].(float64)
+	if !ok {
+		t.Fatalf("session envelope missing version: %v", env)
+	}
+	if afterVersion <= beforeVersion {
+		t.Fatalf("self transfer did not perform a real write: version = %v, want > %v", afterVersion, beforeVersion)
 	}
 }
 
@@ -507,17 +520,14 @@ func TestTransferBroadcastsNewFacilitator(t *testing.T) {
 		t.Fatalf("transfer: got %d", resp.StatusCode)
 	}
 
-	// Presence frames interleave with the mutation, so read until one names
-	// the new facilitator or the deadline expires.
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		env, ok := readEnvelope(t, ws, time.Until(deadline))
-		if !ok {
-			break
-		}
-		if env["facilitatorId"] == mel["id"] {
-			return
-		}
+	// The handler's own broadcast must be the very next frame delivered:
+	// once the POST has returned, nothing else should still be in flight
+	// within this tight window unless the handler broadcast it itself.
+	env, ok := readEnvelope(t, ws, 500*time.Millisecond)
+	if !ok {
+		t.Fatal("no broadcast immediately following the transfer response")
 	}
-	t.Fatal("no broadcast naming the new facilitator")
+	if env["facilitatorId"] != mel["id"] {
+		t.Fatalf("broadcast after transfer named facilitatorId = %v, want %v", env["facilitatorId"], mel["id"])
+	}
 }
