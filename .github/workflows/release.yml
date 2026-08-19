@@ -83,10 +83,26 @@ jobs:
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: printf '%s\n' "$DIGEST" > /tmp/image-digest.txt
+      # syft cannot scan the published artifact directly: it is an OCI image
+      # index (two platforms, plus provenance and SBOM attestation manifests),
+      # and syft resolves an oci-archive as exactly one image. This second
+      # export re-uses the layers the build above already produced and strips
+      # the attestations, so the archive holds a single amd64 image. It is
+      # scanned and discarded; the published artifact is still the index.
+      - name: Export a single-platform image for SBOM generation
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          tags: ${{ needs.validate.outputs.image }}:${{ needs.validate.outputs.version }}
+          outputs: type=oci,dest=/tmp/parley-sbom-image.tar
+          provenance: false
+          sbom: false
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
-          image: oci-archive:/tmp/parley-image.tar
+          image: oci-archive:/tmp/parley-sbom-image.tar
           format: spdx-json
           output-file: /tmp/parley-${{ needs.validate.outputs.tag }}.spdx.json
           upload-artifact: false
