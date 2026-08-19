@@ -79,6 +79,8 @@ jobs:
           outputs: type=oci,dest=/tmp/parley-image.tar
           provenance: mode=max
           sbom: true
+          build-args: |
+            VERSION=${{ needs.validate.outputs.version }}
       - name: Record expected digest
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
@@ -99,6 +101,8 @@ jobs:
           outputs: type=oci,dest=/tmp/parley-sbom-image.tar
           provenance: false
           sbom: false
+          build-args: |
+            VERSION=${{ needs.validate.outputs.version }}
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
