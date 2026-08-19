@@ -229,8 +229,16 @@ jobs:
             --set database.existingSecret=x --set image.tag=latest 2>/dev/null
       # Parley is multi-replica now, so this must RENDER. It used to be a
       # negative test; if it ever fails again the boot lock has come back.
-      - name: renders a second replica
+      #
+      # The default stays 1 either way: upgrading the chart must not silently
+      # double an existing install's pods and database connections. HA is
+      # opt-in, and that is what the second render below is.
+      - name: defaults to one replica and renders a second on request
         run: |
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x > /tmp/one-default.yaml
+          grep -q 'replicas: 1' /tmp/one-default.yaml \
+            || { echo "the chart no longer defaults to one replica"; exit 1; }
           helm template parley deploy/charts/parley \
             --set database.existingSecret=x --set replicaCount=2 > /tmp/two.yaml
           grep -q 'replicas: 2' /tmp/two.yaml
@@ -354,7 +362,16 @@ jobs:
                       'readOnlyRootFilesystem: true' 'failureThreshold: 12' \
                       'path: /healthz' 'path: /readyz' 'cpu: 50m' 'memory: 64Mi'; do
             grep -q "$want" /tmp/def.yaml || { echo "chart lost: $want"; exit 1; }
+            # Both files, or this checks nothing: the whole point is drift
+            # between the chart and the hand-written manifest, and greping only
+            # the chart's own output could never catch the manifest changing.
+            grep -q "$want" deploy/k8s/deployment.yaml \
+              || { echo "manifest lost: $want"; exit 1; }
           done
+          # replicas is deliberately *not* on that list: the chart defaults to 1
+          # and the manifest is a standalone example, so they are allowed to
+          # differ. Everything above is a security or stay-up setting where they
+          # are not.
 
   # main's ruleset requires exactly one check from this workflow. Adding a job
   # above means adding it to `needs` here, and nothing else.
