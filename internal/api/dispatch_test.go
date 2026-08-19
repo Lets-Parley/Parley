@@ -251,9 +251,11 @@ func TestDispatcherRoutesOnTheActionsVerb(t *testing.T) {
 	story := addStory(t, srv, id, "Verb story", fac)
 	selectStory(t, srv, id, story, fac)
 
-	// PATCH is the story edit's declared verb.
+	// PATCH is the story edit's declared verb. Driven as the facilitator: story
+	// edits are facilitator-only, and this test is about verb routing, not
+	// about who may edit.
 	if resp, _ := doJSON(t, srv, "PATCH", "/api/sessions/"+id+"/actions/story",
-		`{"storyId":"`+story+`","title":"Renamed"}`, member); resp.StatusCode != http.StatusNoContent {
+		`{"storyId":"`+story+`","title":"Renamed"}`, fac); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("PATCH actions/story: got %d, want 204", resp.StatusCode)
 	}
 

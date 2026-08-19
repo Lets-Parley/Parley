@@ -373,7 +373,8 @@ func maybeAutoReveal(ctx context.Context, tx pgx.Tx, connected []string, sess st
 			select user_id from votes where story_id = $3
 		)
 		select exists (select 1 from eligible)
-		and not exists (select user_id from eligible except select user_id from voters)`,
+		and not exists (select user_id from eligible except select user_id from voters)
+		and not exists (select user_id from voters except select user_id from eligible)`,
 		sess.SpaceID, connected, storyID).Scan(&exact)
 	if err != nil || !exact {
 		return err
