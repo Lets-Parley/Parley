@@ -430,3 +430,94 @@ func TestSessionKindValidation(t *testing.T) {
 		t.Fatalf("unknown config field: got %d, want 400", resp.StatusCode)
 	}
 }
+
+func TestTransferToSelfIsANoOp(t *testing.T) {
+	srv := testServer(t)
+	fac, _, id := setupSession(t, srv, "Self Transfer Space")
+	_, fay := doJSON(t, srv, "GET", "/api/me", "", fac)
+
+	resp, body := doJSON(t, srv, "POST", "/api/sessions/"+id+"/facilitator",
+		`{"userId":"`+fay["id"].(string)+`"}`, fac)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("transfer to self: got %d %v, want 204", resp.StatusCode, body)
+	}
+
+	_, env := doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	if env["facilitatorId"] != fay["id"] {
+		t.Fatalf("self transfer dropped the role: facilitatorId = %v, want %v", env["facilitatorId"], fay["id"])
+	}
+}
+
+func TestTransferToNonMemberIsRejected(t *testing.T) {
+	srv := testServer(t)
+	fac, _, id := setupSession(t, srv, "Stranger Space")
+
+	// A user who belongs to some other space entirely.
+	stranger := signup(t, srv, "Stan")
+	createSpace(t, srv, "Somewhere Else", stranger)
+	_, stan := doJSON(t, srv, "GET", "/api/me", "", stranger)
+
+	resp, body := doJSON(t, srv, "POST", "/api/sessions/"+id+"/facilitator",
+		`{"userId":"`+stan["id"].(string)+`"}`, fac)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("transfer to non-member: got %d, want 400", resp.StatusCode)
+	}
+	if body["error"] != "that person is not a member of this space" {
+		t.Fatalf("transfer to non-member error = %v", body["error"])
+	}
+
+	_, fay := doJSON(t, srv, "GET", "/api/me", "", fac)
+	_, env := doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	if env["facilitatorId"] != fay["id"] {
+		t.Fatalf("rejected transfer still moved the role: %v", env["facilitatorId"])
+	}
+}
+
+func TestTransferRequiresUserId(t *testing.T) {
+	srv := testServer(t)
+	fac, _, id := setupSession(t, srv, "Missing Id Space")
+
+	for _, body := range []string{`{}`, `{"userId":""}`} {
+		resp, out := doJSON(t, srv, "POST", "/api/sessions/"+id+"/facilitator", body, fac)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("transfer with %s: got %d, want 400", body, resp.StatusCode)
+		}
+		if out["error"] != "userId is required" {
+			t.Fatalf("transfer with %s: error = %v", body, out["error"])
+		}
+	}
+}
+
+func TestTransferBroadcastsNewFacilitator(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Transfer Broadcast Space")
+	_, mel := doJSON(t, srv, "GET", "/api/me", "", member)
+
+	ws, _, err := dialWS(t, srv, id, fac, testOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ws.Close() })
+	if _, ok := readEnvelope(t, ws, 3*time.Second); !ok {
+		t.Fatal("no initial frame")
+	}
+
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/facilitator",
+		`{"userId":"`+mel["id"].(string)+`"}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("transfer: got %d", resp.StatusCode)
+	}
+
+	// Presence frames interleave with the mutation, so read until one names
+	// the new facilitator or the deadline expires.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		env, ok := readEnvelope(t, ws, time.Until(deadline))
+		if !ok {
+			break
+		}
+		if env["facilitatorId"] == mel["id"] {
+			return
+		}
+	}
+	t.Fatal("no broadcast naming the new facilitator")
+}
