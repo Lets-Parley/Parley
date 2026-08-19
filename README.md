@@ -396,8 +396,11 @@ an existing volume.
 - **You set a name but every refresh forgets you.** `BASE_URL` is `https` but
   you're browsing over plain `http`, so the browser drops the Secure cookie.
   Serve over HTTPS or set an `http` BASE_URL.
-- **`/readyz` fails but `/healthz` is fine.** The app is up, Postgres isn't.
-  Check the `db` container and `DATABASE_URL`.
+- **`/readyz` fails but `/healthz` is fine.** Usually the app is up and Postgres
+  isn't — check the `db` container and `DATABASE_URL`. If Postgres is healthy,
+  the other cause is that this instance lost its listener for cross-instance
+  session changes; it reconnects on its own, and the log line naming the
+  reconnect says so.
 - **"That passcode doesn't match this space".** Codes are six characters and
   case-insensitive; spaces and hyphens are ignored. After eight wrong tries
   from one address, wait a minute before trying again.
