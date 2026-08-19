@@ -213,3 +213,12 @@ jobs:
                       'path: /healthz' 'path: /readyz' 'cpu: 50m' 'memory: 64Mi'; do
             grep -q "$want" /tmp/def.yaml || { echo "chart lost: $want"; exit 1; }
           done
+
+  # main's ruleset requires exactly one check from this workflow. Adding a job
+  # above means adding it to `needs` here, and nothing else.
+  required:
+    needs: [test, chart, first-run]
+    if: always()
+    uses: ./.github/workflows/gate.yml
+    with:
+      results: ${{ toJSON(needs) }}
