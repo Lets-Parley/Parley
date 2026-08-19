@@ -26,6 +26,23 @@ The app is up, Postgres isn't. Check the database container and `DATABASE_URL`.
 This split is deliberate: liveness never touches the database, so a blip can't
 restart the process and drop every open session.
 
+### Which version is this instance running?
+
+Ask it. `/version` is unauthenticated and does not touch the database, so it
+answers even while Postgres is down:
+
+```console
+$ curl -s https://parley.example.com/version
+{"version":"0.2.3"}
+```
+
+The same string is on the container's command line — `parley -version` — and in
+the startup log line. `dev` means the binary was built without a version stamp,
+which is what a local `go build` produces; a released image reports the tag it
+was built from, with no `v` prefix. Use this after an upgrade to confirm the
+rollout actually replaced the pods, rather than trusting that it did. See the
+[HTTP API reference](/reference/api/#health).
+
 ### "That passcode doesn't match this space"
 
 Codes are six characters and case-insensitive; spaces and hyphens are ignored.

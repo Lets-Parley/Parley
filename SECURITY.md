@@ -54,6 +54,12 @@ code they shipped with.
 
 Upgrade to v0.2.2.
 
+To confirm an upgrade actually took effect, ask the running instance which build
+it is on: `curl -s https://your-parley/version` answers `{"version":"0.2.3"}`.
+The endpoint is unauthenticated and does not touch the database on purpose, so
+it answers even when the instance is otherwise unhealthy. Details:
+<https://www.letsparley.io/operations/runbook/#which-version-is-this-instance-running>.
+
 ## Security model, in one paragraph
 
 Parley's access control is a shared room code per space, not identity. Anyone
