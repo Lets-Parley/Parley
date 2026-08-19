@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api, type Me, type Person, type SessionSummary } from "../lib/api";
 import type { ConnectionStatus } from "../lib/socket";
@@ -19,6 +20,36 @@ export function Logo({ size = 14 }: { size?: number }) {
       alt=""
       aria-hidden
     />
+  );
+}
+
+const RELEASES = "https://github.com/lets-parley/parley/releases";
+
+/**
+ * What this build calls itself. Asked once — a version cannot change without a
+ * page load — and deliberately silent on failure: an old server without the
+ * endpoint, or a blip, should cost the room nothing.
+ */
+export function BuildStamp() {
+  const { data } = useQuery({
+    queryKey: ["version"],
+    queryFn: () => api<{ version: string }>("GET", "/version"),
+    staleTime: Infinity,
+    retry: false,
+  });
+  if (!data?.version) return null;
+  // An unstamped build has no tag to link to, so it gets the releases index.
+  const href = data.version === "dev" ? RELEASES : `${RELEASES}/tag/${data.version}`;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      aria-label={`Parley ${data.version} release notes`}
+      rel="noreferrer"
+      className="mt-auto font-mono text-[10px] text-ink-faint hover:text-ink-soft"
+    >
+      Parley {data.version}
+    </a>
   );
 }
 
@@ -259,6 +290,7 @@ export function AppShell({
                 </ul>
               </section>
             )}
+            <BuildStamp />
           </nav>
         )}
 

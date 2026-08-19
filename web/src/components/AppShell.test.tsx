@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { AppShell, ConnectionDot, Logo } from "./AppShell";
+import { AppShell, BuildStamp, ConnectionDot, Logo } from "./AppShell";
 import { makePerson, renderApp } from "../test/render";
 import type { Me } from "../lib/api";
 
@@ -163,5 +163,49 @@ describe("AppShell", () => {
     await userEvent.click(toggle);
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
     expect(screen.getByRole("button", { name: "Switch to light theme" })).toBeTruthy();
+  });
+});
+
+/** Answers both mount probes: the auth mode and the build's version. */
+function stubShell(version: string | "fail") {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = String(input);
+    if (url === "/version") {
+      if (version === "fail") throw new Error("offline");
+      return { status: 200, ok: true, text: async () => JSON.stringify({ version }) } as Response;
+    }
+    return {
+      status: 200,
+      ok: true,
+      text: async () => JSON.stringify({ mode: "open" }),
+    } as Response;
+  });
+}
+
+describe("the build stamp", () => {
+  it("links a released build to its release notes", async () => {
+    stubShell("0.3.0");
+    renderShell();
+    const link = await screen.findByRole("link", { name: "Parley 0.3.0 release notes" });
+    expect(link.getAttribute("href")).toBe(
+      "https://github.com/lets-parley/parley/releases/tag/0.3.0",
+    );
+  });
+
+  it("says dev for an unstamped build, and points at the releases page", async () => {
+    stubShell("dev");
+    renderShell();
+    const link = await screen.findByRole("link", { name: "Parley dev release notes" });
+    expect(link.getAttribute("href")).toBe("https://github.com/lets-parley/parley/releases");
+  });
+
+  // Asserted on the rendered output rather than on the absence of a link: a
+  // guard that failed open with an error message renders no link either, so
+  // querying for one passes on exactly the regression this test exists to catch.
+  it("renders nothing at all when the version cannot be fetched", async () => {
+    stubShell("fail");
+    const { container, queryClient } = renderApp(<BuildStamp />);
+    await waitFor(() => expect(queryClient.getQueryState(["version"])?.status).toBe("error"));
+    expect(container.innerHTML).toBe("");
   });
 });
