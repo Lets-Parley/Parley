@@ -190,7 +190,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	// Forwarded addresses affect both open-mode identity creation and room-code
 	// throttles, so they are accepted only across an explicitly trusted chain.
 	if opts.TrustProxyHeaders {
-		r.Use(trustedProxyHeaders(opts.TrustedProxyCIDRs))
+		r.Use(trustedProxyHeaders(opts.TrustedProxyCIDRs, slog.Default()))
 	}
 	r.Use(middleware.Recoverer)
 	r.Use(securityHeaders)
