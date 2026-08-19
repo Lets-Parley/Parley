@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { Fragment, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type SessionSummary, type SpaceView } from "../lib/api";
@@ -13,15 +13,10 @@ import {
   labelClass,
 } from "../components/Modal";
 import { useToast } from "../lib/ui";
+import { KINDS, defaultConfig } from "../lib/kinds";
 
-const DECKS = [
-  { id: "fibonacci", name: "Fibonacci", sample: ["0", "1", "2", "3", "5"] },
-  { id: "modified-fibonacci", name: "Modified Fib", sample: ["½", "1", "2", "3", "5"] },
-  { id: "tshirt", name: "T-shirt", sample: ["XS", "S", "M", "L", "XL"] },
-  { id: "powers-of-2", name: "Powers of 2", sample: ["1", "2", "4", "8", "16"] },
-];
-
-type Kind = "All" | "Poker" | "Standup";
+// "" is the All tab; every other value is a registered kind's wire id.
+const KIND_TABS = [{ id: "", label: "All" }, ...KINDS];
 type Sort = "Recent" | "Active first" | "A\u2013Z";
 
 function relativeDate(iso: string): string {
@@ -42,7 +37,7 @@ export function SpacePage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
-  const [kind, setKind] = useState<Kind>("All");
+  const [kind, setKind] = useState("");
   const [sort, setSort] = useState<Sort>("Recent");
   // Held across the name prompt so a joiner types the code exactly once.
   const [pending, setPending] = useState("");
@@ -117,13 +112,15 @@ export function SpacePage() {
   const all = sp.sessions ?? [];
   const q = query.trim().toLowerCase();
   const filtered = all
-    .filter((s) => (kind === "All" || s.kind === kind.toLowerCase()) && (!q || s.title.toLowerCase().includes(q)))
+    // Kinds compare by exact wire id — a namespaced id like "acme.retro" has
+    // no label to lowercase, and "pokerful" is not "poker".
+    .filter((s) => (!kind || s.kind === kind) && (!q || s.title.toLowerCase().includes(q)))
     .sort((a, b) => {
       if (sort === "A\u2013Z") return a.title.localeCompare(b.title);
       if (sort === "Active first") return Number(!!a.endedAt) - Number(!!b.endedAt);
       return 0; // "Recent" — the server already returns newest first.
     });
-  const filtersOn = !!q || kind !== "All" || sort !== "Recent";
+  const filtersOn = !!q || !!kind || sort !== "Recent";
 
   return (
     <AppShell
@@ -157,17 +154,17 @@ export function SpacePage() {
               />
             </label>
             <div className="flex gap-0.5 rounded-full bg-felt-deep p-[3px]">
-              {(["All", "Poker", "Standup"] as const).map((k) => (
+              {KIND_TABS.map((k) => (
                 <button
-                  key={k}
-                  onClick={() => setKind(k)}
-                  aria-pressed={kind === k}
+                  key={k.id}
+                  onClick={() => setKind(k.id)}
+                  aria-pressed={kind === k.id}
                   className={
                     "rounded-full px-3 py-1.5 text-xs font-bold " +
-                    (kind === k ? "bg-surface text-ink shadow-rest" : "text-ink-soft")
+                    (kind === k.id ? "bg-surface text-ink shadow-rest" : "text-ink-soft")
                   }
                 >
-                  {k}
+                  {k.label}
                 </button>
               ))}
             </div>
@@ -182,7 +179,7 @@ export function SpacePage() {
               <button
                 onClick={() => {
                   setQuery("");
-                  setKind("All");
+                  setKind("");
                   setSort("Recent");
                 }}
                 className="px-1 py-2 text-xs font-bold text-accent"
@@ -201,7 +198,7 @@ export function SpacePage() {
         ) : filtered.length === 0 ? (
           <p className="px-2 py-9 text-center text-sm text-ink-soft">
             Nothing matches {q ? `\u201c${query}\u201d` : "these filters"}
-            {kind === "All" ? "" : ` in ${kind.toLowerCase()} sessions`}.
+            {kind ? ` in ${kind} sessions` : ""}.
           </p>
         ) : (
           <ul className="flex flex-col gap-2.5">
@@ -408,17 +405,17 @@ function NewSessionModal({
   onError: (msg: string) => void;
 }) {
   const navigate = useNavigate();
-  const [kind, setKind] = useState<"poker" | "standup">("poker");
+  const [kind, setKind] = useState(KINDS[0]);
   const [title, setTitle] = useState("");
-  const [deck, setDeck] = useState("fibonacci");
+  const [config, setConfig] = useState(() => defaultConfig(KINDS[0]));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     try {
       const sess = await api<SessionSummary>("POST", `/api/spaces/${slug}/sessions`, {
-        kind,
+        kind: kind.id,
         title: title.trim(),
-        config: kind === "poker" ? { deck } : {},
+        config,
       });
       navigate(`/session/${sess.id}`);
     } catch (err) {
@@ -432,19 +429,22 @@ function NewSessionModal({
       <form onSubmit={submit}>
         <span className={labelClass}>Kind</span>
         <div className="flex gap-2">
-          {(["poker", "standup"] as const).map((k) => (
+          {KINDS.map((k) => (
             <button
-              key={k}
+              key={k.id}
               type="button"
-              onClick={() => setKind(k)}
+              onClick={() => {
+                setKind(k);
+                setConfig(defaultConfig(k));
+              }}
               className={
                 "flex-1 rounded-chip px-3.5 py-2.5 text-sm capitalize " +
-                (kind === k
+                (kind.id === k.id
                   ? "border-2 border-accent bg-accent-soft font-bold"
                   : "border border-line font-semibold text-ink-soft hover:bg-felt-deep")
               }
             >
-              {k}
+              {k.id}
             </button>
           ))}
         </div>
@@ -462,18 +462,18 @@ function NewSessionModal({
           autoFocus
         />
 
-        {kind === "poker" && (
-          <>
-            <span className={labelClass}>Deck</span>
+        {(kind.fields ?? []).map((f) => (
+          <Fragment key={f.key}>
+            <span className={labelClass}>{f.label}</span>
             <div className="grid grid-cols-2 gap-2">
-              {DECKS.map((d) => (
+              {f.options.map((d) => (
                 <button
                   key={d.id}
                   type="button"
-                  onClick={() => setDeck(d.id)}
+                  onClick={() => setConfig({ ...config, [f.key]: d.id })}
                   className={
                     "rounded-chip px-3.5 py-3 text-left " +
-                    (deck === d.id
+                    (config[f.key] === d.id
                       ? "border-2 border-accent bg-accent-soft"
                       : "border border-line hover:bg-felt-deep")
                   }
@@ -492,8 +492,8 @@ function NewSessionModal({
                 </button>
               ))}
             </div>
-          </>
-        )}
+          </Fragment>
+        ))}
 
         <div className="mt-6 flex justify-end gap-2.5">
           <button type="button" className={buttonQuiet} onClick={onClose}>

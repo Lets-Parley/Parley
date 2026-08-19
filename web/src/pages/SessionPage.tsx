@@ -4,8 +4,7 @@ import { api, type SpaceView } from "../lib/api";
 import { useSession } from "../lib/useSession";
 import { useMe, NameGate } from "../components/NameGate";
 import { AppShell } from "../components/AppShell";
-import { PokerRoom } from "./PokerRoom";
-import { StandupRoom } from "./StandupRoom";
+import { getKind } from "../lib/kinds";
 
 export function SessionPage() {
   const { id = "" } = useParams();
@@ -42,6 +41,7 @@ export function SessionPage() {
   }
 
   const env = session.data;
+  const Room = getKind(env.kind)?.Room;
 
   return (
     <AppShell
@@ -56,10 +56,8 @@ export function SessionPage() {
       activeSessionId={env.id}
       sidebarDefault={false}
     >
-      {env.kind === "poker" ? (
-        <PokerRoom env={env} me={me.data} />
-      ) : env.kind === "standup" ? (
-        <StandupRoom env={env} me={me.data} status={session.status} />
+      {Room ? (
+        <Room env={env} me={me.data} status={session.status} />
       ) : (
         // Falling through to a room here would point one kind's controls at
         // another kind's state, so an unknown kind gets no room at all.
