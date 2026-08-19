@@ -57,7 +57,7 @@ integers and are validated at boot.
   { name: "Write deadline", value: "5s", note: "Per frame" },
   { name: "Send buffer", value: "16 frames", note: "Full means the connection is dropped, not the room blocked" },
   { name: "Presence debounce", value: "1.5s", note: "" },
-  { name: "Session revalidation interval", value: "≤30s", note: "Shared-store revocation and expiry; does not refresh activity" },
+  { name: "Session revalidation interval", value: "≤30s", note: "Shared-store revocation and expiry; does not refresh activity. Logout is fanned out to every replica immediately, so this is the fallback rather than the mechanism" },
   { name: "Session validation timeout", value: "≤30s", note: "Failure closes with policy code 1008" },
 ]} />
 

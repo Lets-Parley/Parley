@@ -92,7 +92,7 @@ payload rather than hidden by the frontend.
   { name: "Presence debounce", value: "1.5s", note: "Roster churn is coalesced" },
   { name: "Max frame read", value: "4096 bytes", note: "Clients send almost nothing; mutations go over HTTP" },
   { name: "Session revalidation", value: "at most every 30s", note: "Checks revocation and expiry in Postgres without extending idle lifetime" },
-  { name: "Authentication failure close", value: "1008", note: "WebSocket policy violation; logout disconnects synchronously" },
+  { name: "Authentication failure close", value: "1008", note: "WebSocket policy violation; logout disconnects synchronously here and is fanned out to the other replicas over NOTIFY" },
 ]} />
 
 The send-buffer rule is the important one. One laptop on bad hotel wifi must

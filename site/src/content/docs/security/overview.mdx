@@ -51,8 +51,10 @@ misses real guessers or punishes innocent ones. See
   progression — are checked server-side, not hidden in the UI. Ordinary members
   may still vote and edit their own standup entry.
 - Active WebSockets revalidate their shared-store token at least every 30
-  seconds; revocation or expiry closes them with policy code `1008`, and logout
-  disconnects synchronously.
+  seconds; revocation or expiry closes them with policy code `1008`. Logout is
+  immediate rather than waiting for that interval — the replica serving it
+  disconnects synchronously and publishes the revocation to every other replica,
+  which do the same on receipt. The periodic check is the fallback.
 - CSV cells beginning with `=` are escaped, so an export cannot run formulas in
   a spreadsheet.
 

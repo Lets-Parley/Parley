@@ -99,7 +99,7 @@ connections plus the fanout listener's own.
   { name: "WriteTimeout", value: "30s", note: "HTTP response write deadline" },
   { name: "IdleTimeout", value: "120s", note: "Keep-alive idle deadline" },
   { name: "Shutdown grace", value: "10s", note: "WebSockets close first; in-flight HTTP receives the grace period" },
-  { name: "Session revalidation", value: "30s", note: "Every live WebSocket re-checks its token against the database on this interval. Not configurable: it is the ceiling on how long a revoked session keeps its socket, and it costs one pooled query per connection per interval" },
+  { name: "Session revalidation", value: "30s", note: "Every live WebSocket re-checks its token against the database on this interval. Not configurable: it costs one pooled query per connection per interval. A logout through Parley is fanned out to every replica immediately, so this is the ceiling only for a revocation this process never hears about — a token deleted directly in SQL, or a notification missed while a replica's listener was reconnecting" },
 ]} />
 
 The HTTP timeouts protect ordinary requests. After a successful WebSocket
