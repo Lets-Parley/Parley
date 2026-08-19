@@ -44,16 +44,41 @@ if (cd "$test_repo" && "$checker" "$malformed" "$body_signoff") >"$test_repo/bod
 fi
 grep -q "${body_signoff%????????????????????????????????}" "$test_repo/body-signoff.out"
 
-git -C "$test_repo" commit --allow-empty -q -m "chore(deps): bump something" \
+# A sign-off below a --- divider belongs to a pasted patch, not to this commit.
+git -C "$test_repo" commit --allow-empty -q -m "fix: backport an upstream patch" \
+  -m "---
+diff --git a/x b/x
++foo
+
+Signed-off-by: Upstream Person <upstream@example.com>"
+pasted=$(git -C "$test_repo" rev-parse HEAD)
+if (cd "$test_repo" && "$checker" "$body_signoff" "$pasted") >"$test_repo/pasted.out" 2>&1; then
+  echo "signoff inside a pasted patch unexpectedly passed" >&2
+  exit 1
+fi
+grep -q "${pasted%????????????????????????????????}" "$test_repo/pasted.out"
+
+# Bot accounts cannot make the DCO's first-person attestation, so they are skipped.
+git -C "$test_repo" -c user.name="dependabot[bot]" \
+  -c user.email="49699333+dependabot[bot]@users.noreply.github.com" \
+  commit --allow-empty -q -m "chore(deps): bump node in the container-images group" \
   -m "---
 updated-dependencies:
 - dependency-name: node
   dependency-type: direct:production
-...
+..."
+bot=$(git -C "$test_repo" rev-parse HEAD)
+(cd "$test_repo" && "$checker" "$pasted" "$bot")
 
-Signed-off-by: dependabot[bot] <support@github.com>"
-divider=$(git -C "$test_repo" rev-parse HEAD)
-(cd "$test_repo" && "$checker" "$body_signoff" "$divider")
+# A human cannot borrow the exemption by naming themselves after a bot.
+git -C "$test_repo" -c user.name="totally[bot]" -c user.email="totally[bot]@example.com" \
+  commit --allow-empty -q -m "feat: impersonate a bot"
+fake_bot=$(git -C "$test_repo" rev-parse HEAD)
+if (cd "$test_repo" && "$checker" "$bot" "$fake_bot") >"$test_repo/fake-bot.out" 2>&1; then
+  echo "non-GitHub bot address unexpectedly skipped the check" >&2
+  exit 1
+fi
+grep -q "${fake_bot%????????????????????????????????}" "$test_repo/fake-bot.out"
 
 # An unsigned merge commit must pass: GitHub's "Update branch" button makes one
 # with no trailer, and it carries no authored code to attest to. The commits it
