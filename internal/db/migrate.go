@@ -9,9 +9,19 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// migrationLockID is the advisory lock every replica takes before migrating,
+// so simultaneous boots serialize instead of racing each other's DDL.
+//
+// It must never collide with any other advisory lock this process takes: a
+// blocking pg_advisory_lock on an id the same process already holds elsewhere
+// would deadlock every pod against itself, on every boot, forever.
+const migrationLockID int64 = 0x7061726c65796d
 
 //go:embed migrations/*.sql
 var migrationFS embed.FS
@@ -55,15 +65,66 @@ func loadMigrations(fsys fs.FS) ([]migration, error) {
 	return migrations, nil
 }
 
-// Migrate applies every migration in fsys that the database has not yet seen.
+// Migrate applies every migration in fsys that the database has not yet seen,
+// holding an advisory lock so that replicas booting at the same moment
+// serialize: the first one migrates and the rest wait, then find nothing to do.
+//
 // Migrations are forward-only: there is no down path, so back up the database
 // before upgrading.
 func Migrate(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger, fsys fs.FS) error {
+	// Loading is pure and cheap, so a malformed migration set is rejected
+	// before anyone waits on a lock for it.
 	migrations, err := loadMigrations(fsys)
 	if err != nil {
 		return err
 	}
+	return withMigrationLock(ctx, pool, func() error {
+		return migrate(ctx, pool, log, migrations, fsys)
+	})
+}
 
+// withMigrationLock runs fn while holding a session-scoped advisory lock.
+//
+// The lock is session-scoped rather than transaction-scoped because each
+// migration commits in its own transaction: a pg_advisory_xact_lock would be
+// released by the first commit and let a second replica in halfway through.
+//
+// The connection is dialled outside the pool, for the same reason the session
+// listener is: a pooled connection parked in a blocking pg_advisory_lock is a
+// connection pool.Close() waits forever to get back, and it would also spend
+// one of the pool's ten connections for the duration.
+//
+// Release is guaranteed on every path by the deferred Close: ending the session
+// drops every advisory lock it holds, so even a failed explicit unlock, a
+// panic, or a cancelled context cannot leak the lock and wedge future boots.
+func withMigrationLock(ctx context.Context, pool *pgxpool.Pool, fn func() error) error {
+	conn, err := pgx.ConnectConfig(ctx, pool.Config().ConnConfig.Copy())
+	if err != nil {
+		return fmt.Errorf("connecting to take the migration lock: %w", err)
+	}
+	defer func() {
+		// Not ctx: by the time this runs ctx may be cancelled, and a cancelled
+		// context closes nothing — which would leave the backend, and the lock
+		// with it, behind on the server.
+		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := conn.Exec(closeCtx, "select pg_advisory_unlock($1)", migrationLockID); err != nil {
+			slog.Warn("could not release the migration lock explicitly; closing the connection instead", "error", err)
+		}
+		if err := conn.Close(closeCtx); err != nil {
+			slog.Warn("could not close the migration lock connection", "error", err)
+		}
+	}()
+
+	// Blocking, not try: a replica that loses the race must wait for the
+	// migration to finish, not fail its boot.
+	if _, err := conn.Exec(ctx, "select pg_advisory_lock($1)", migrationLockID); err != nil {
+		return fmt.Errorf("taking the migration lock: %w", err)
+	}
+	return fn()
+}
+
+func migrate(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger, migrations []migration, fsys fs.FS) error {
 	if _, err := pool.Exec(ctx,
 		"create table if not exists migrations (version int primary key, name text not null, applied_at timestamptz not null default now())",
 	); err != nil {
