@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -80,6 +81,54 @@ describe("Modal", () => {
     view.unmount();
     expect(document.activeElement).toBe(opener);
     opener.remove();
+  });
+
+  it("returns focus to the opener even when its effect is mounted twice", () => {
+    // React remounts every effect in StrictMode — mount, unmount, mount —
+    // without tearing the dialog's DOM node down. Two things that only a real
+    // <dialog> does make that sequence bite, so both are modelled here: a
+    // second showModal() on an open dialog throws InvalidStateError, and
+    // showModal() pulls focus inside the dialog and makes the rest of the page
+    // inert. Between them, a naive effect records the close button as the
+    // "opener" and restores focus to a node that is about to be removed. The
+    // real browser walk is in the PR that added this; the assertion here pins
+    // the effect's idempotency, which needs no layout.
+    const showModal = vi
+      .spyOn(HTMLDialogElement.prototype, "showModal")
+      .mockImplementation(function (this: HTMLDialogElement) {
+        if (this.open) throw new Error("InvalidStateError: dialog is already open");
+        this.open = true;
+        this.querySelector("button")?.focus();
+      });
+    // Inertness: while a modal dialog is open, focus() outside it does nothing.
+    const realFocus = HTMLElement.prototype.focus;
+    const focus = vi
+      .spyOn(HTMLElement.prototype, "focus")
+      .mockImplementation(function (this: HTMLElement) {
+        const dialog = document.querySelector("dialog");
+        if (dialog?.open && !dialog.contains(this)) return;
+        realFocus.call(this);
+      });
+    const opener = document.createElement("button");
+    document.body.append(opener);
+    opener.focus();
+    try {
+      const view = render(
+        <StrictMode>
+          <Modal title="Reset the round" onClose={() => {}}>
+            body
+          </Modal>
+        </StrictMode>,
+      );
+      expect(showModal).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).not.toBe(opener);
+      view.unmount();
+      expect(document.activeElement).toBe(opener);
+    } finally {
+      showModal.mockRestore();
+      focus.mockRestore();
+      opener.remove();
+    }
   });
 
   it("caps its width to the viewport so a wide modal cannot overflow a phone", () => {
