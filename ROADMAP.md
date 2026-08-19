@@ -115,6 +115,16 @@ Depends on [#8](https://github.com/lets-parley/parley/issues/8).
 - Status: Backlog
 - Tracking: [#9](https://github.com/lets-parley/parley/issues/9)
 
+### Customizable avatars
+
+Pick an icon and an accessory for your seat — a nautical crew and a dev-culture
+pack — instead of the initials every roster shows today. In a poker table of
+nine, two people who share initials are two near-identical chips; the icon is
+what tells them apart.
+
+- Status: Backlog
+- Tracking: [#38](https://github.com/lets-parley/parley/issues/38)
+
 ### A parking lot with an owner and a clock
 
 "Let's take that offline" is the most-spoken and least-honoured sentence in any
