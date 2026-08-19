@@ -25,6 +25,12 @@ if grep -F 'oci-archive:/release/parley-image.tar "docker://$IMAGE:$VERSION"' "$
   exit 1
 fi
 
+# Both image builds must stamp the version into the binary: a build-arg
+# mismatch would diverge the Go layer cache key, so the SBOM would describe a
+# differently-built binary than the one published.
+build_arg_count=$(grep -Fc 'VERSION=${{ needs.validate.outputs.version }}' "$workflow")
+test "$build_arg_count" -eq 2
+
 compare_line=$(line_number 'test "$actual" = "$expected"')
 tag_check_line=$(line_number 'test "$current_commit" = "$VALIDATED_COMMIT"')
 promotion_line=$(line_number '--tag "$IMAGE:$VERSION"')

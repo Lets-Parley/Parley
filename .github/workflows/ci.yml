@@ -128,7 +128,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build image
-        run: docker build --pull --tag parley:ci .
+        run: docker build --pull --build-arg VERSION=ci-test --tag parley:ci .
       - name: Smoke test first run
         run: |
           set -eu
@@ -149,6 +149,15 @@ jobs:
           done
           curl -fsS http://127.0.0.1:8080/readyz
           curl -fsS http://127.0.0.1:8080/ | grep -qi '<div id="root">'
+          # The released image must report the version it was built from. A
+          # missing --build-arg leaves the Dockerfile default ("dev") in the
+          # binary, which is exactly how a published release shipped unstamped.
+          reported=$(curl -fsS http://127.0.0.1:8080/version | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+          if [ "$reported" != "ci-test" ]; then
+            echo "expected /version to report ci-test, got: ${reported:-<unparsable>}" >&2
+            curl -fsS http://127.0.0.1:8080/version >&2 || true
+            exit 1
+          fi
       - name: Export image
         run: docker save parley:ci | gzip > parley-ci.tar.gz
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
