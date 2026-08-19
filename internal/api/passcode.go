@@ -73,7 +73,14 @@ const (
 
 type attemptLimiter struct {
 	pool *pgxpool.Pool
-	now  func() time.Time
+	// now is the process clock, and deliberately nothing below reads it. Every
+	// timestamp these statements compare is taken from Postgres, so replicas
+	// whose clocks have drifted apart still agree on when a window ends: one
+	// running fast cannot write a window_start in the future for the others to
+	// honour, and cannot sweep away rows whose window has not elapsed. The seam
+	// stays so a test can hand a limiter a deliberately wrong clock and prove
+	// the shared budget does not move with it.
+	now func() time.Time
 }
 
 func newAttemptLimiter(pool *pgxpool.Pool) *attemptLimiter {
@@ -100,21 +107,20 @@ func attemptDigest(key string) []byte {
 // already includes the other replica's charge. The budget is spent up front,
 // and a correct code gets it back.
 func (l *attemptLimiter) take(ctx context.Context, key string) bool {
-	now := l.now()
-	cutoff := now.Add(-passcodeAttemptWindow)
+	window := passcodeAttemptWindow.Seconds()
 
 	var attempts int
 	err := l.pool.QueryRow(ctx, `
 		insert into passcode_attempts (client_digest, attempts, window_start)
-		values ($1, 1, $4)
+		values ($1, 1, now())
 		on conflict (client_digest) do update
-		set attempts = case when passcode_attempts.window_start <= $3 then 1
+		set attempts = case when passcode_attempts.window_start <= now() - make_interval(secs => $3) then 1
 		                    else passcode_attempts.attempts + 1 end,
-		    window_start = case when passcode_attempts.window_start <= $3 then $4
+		    window_start = case when passcode_attempts.window_start <= now() - make_interval(secs => $3) then now()
 		                        else passcode_attempts.window_start end
-		where passcode_attempts.attempts < $2 or passcode_attempts.window_start <= $3
+		where passcode_attempts.attempts < $2 or passcode_attempts.window_start <= now() - make_interval(secs => $3)
 		returning attempts`,
-		attemptDigest(key), passcodeAttemptLimit, cutoff, now).Scan(&attempts)
+		attemptDigest(key), passcodeAttemptLimit, window).Scan(&attempts)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false
 	}
@@ -125,9 +131,13 @@ func (l *attemptLimiter) take(ctx context.Context, key string) bool {
 	}
 
 	// Opportunistic sweep: without it the table keeps a row per address that
-	// ever knocked. It runs after the charge so a slow delete never delays the
-	// decision the caller is waiting on.
-	l.pool.Exec(ctx, "delete from passcode_attempts where window_start <= $1", cutoff)
+	// ever knocked, including the addresses that never come back, so it has to
+	// stay unkeyed to be a garbage collector at all. That is only safe because
+	// the cutoff is server time: every replica computes the same one, and it
+	// can only remove a row the statement above would have reset anyway. It
+	// runs after the charge so a slow delete never delays the decision the
+	// caller is waiting on.
+	l.pool.Exec(ctx, "delete from passcode_attempts where window_start <= now() - make_interval(secs => $1)", window)
 	return true
 }
 
@@ -136,8 +146,9 @@ func (l *attemptLimiter) take(ctx context.Context, key string) bool {
 func (l *attemptLimiter) refund(ctx context.Context, key string) {
 	l.pool.Exec(ctx, `
 		update passcode_attempts set attempts = attempts - 1
-		where client_digest = $1 and window_start > $2 and attempts > 0`,
-		attemptDigest(key), l.now().Add(-passcodeAttemptWindow))
+		where client_digest = $1 and attempts > 0
+		  and window_start > now() - make_interval(secs => $2)`,
+		attemptDigest(key), passcodeAttemptWindow.Seconds())
 }
 
 // blockedFor reports whether the budget is spent, without touching it.
@@ -145,10 +156,16 @@ func (l *attemptLimiter) blockedFor(ctx context.Context, key string) bool {
 	var attempts int
 	err := l.pool.QueryRow(ctx, `
 		select attempts from passcode_attempts
-		where client_digest = $1 and window_start > $2`,
-		attemptDigest(key), l.now().Add(-passcodeAttemptWindow)).Scan(&attempts)
-	if err != nil {
+		where client_digest = $1 and window_start > now() - make_interval(secs => $2)`,
+		attemptDigest(key), passcodeAttemptWindow.Seconds()).Scan(&attempts)
+	// No row is the honest answer that this client has nothing counted against
+	// it. Any other failure means the budget could not be read, and reporting
+	// an unreadable budget as available would announce a spent one as free.
+	if errors.Is(err, pgx.ErrNoRows) {
 		return false
+	}
+	if err != nil {
+		return true
 	}
 	return attempts >= passcodeAttemptLimit
 }

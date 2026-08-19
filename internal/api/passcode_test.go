@@ -44,11 +44,26 @@ func TestNewPasscodeShape(t *testing.T) {
 	}
 }
 
+// backdateAttempts moves a client's window_start into the past, which is how a
+// test ages a window now that the limiter reads its clock from Postgres rather
+// than from the process. It is the same thing the passage of time would do.
+func backdateAttempts(t *testing.T, l *attemptLimiter, key string, by time.Duration) {
+	t.Helper()
+	tag, err := l.pool.Exec(context.Background(), `
+		update passcode_attempts
+		set window_start = window_start - make_interval(secs => $2)
+		where client_digest = $1`, attemptDigest(key), by.Seconds())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag.RowsAffected() != 1 {
+		t.Fatalf("back-dating %q touched %d rows, want 1", key, tag.RowsAffected())
+	}
+}
+
 func TestAttemptLimiterWindow(t *testing.T) {
 	ctx := context.Background()
-	now := time.Unix(1, 0).UTC()
 	l := newAttemptLimiter(testPool(t))
-	l.now = func() time.Time { return now }
 
 	for i := range passcodeAttemptLimit {
 		if !l.take(ctx, "addr|space") {
@@ -68,16 +83,30 @@ func TestAttemptLimiterWindow(t *testing.T) {
 	if l.blockedFor(ctx, "other|space") {
 		t.Fatal("one caller's guessing blocked another")
 	}
-	// The window slides.
-	now = now.Add(passcodeAttemptWindow + time.Second)
+
+	// The window slides: age both callers past it and the spent budget refills.
+	aged := passcodeAttemptWindow + time.Second
+	backdateAttempts(t, l, "addr|space", aged)
+	backdateAttempts(t, l, "other|space", aged)
 	if !l.take(ctx, "addr|space") {
 		t.Fatal("the budget should refill after the window")
 	}
 	if l.blockedFor(ctx, "addr|space") {
 		t.Fatal("attempts from before the window still counted")
 	}
-	// Expired rows are swept rather than kept forever: only the two keys still
-	// inside the window survive the charge above.
+	// An expired window starts over rather than resuming: the refilled budget
+	// is the whole budget, not one guess borrowed from the old one.
+	for i := 1; i < passcodeAttemptLimit; i++ {
+		if !l.take(ctx, "addr|space") {
+			t.Fatalf("attempt %d of the refilled window should be allowed", i+1)
+		}
+	}
+	if l.take(ctx, "addr|space") {
+		t.Fatal("the refilled window handed out more than the limit")
+	}
+
+	// Expired rows are swept rather than kept forever: only the key that came
+	// back inside the window survives the charges above.
 	var rows int
 	if err := l.pool.QueryRow(ctx, "select count(*) from passcode_attempts").Scan(&rows); err != nil {
 		t.Fatal(err)
