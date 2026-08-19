@@ -77,6 +77,21 @@ anonymous row can share the empty pair while federated identities stay unique.
 `(space_id, user_id)` composite primary key, plus `spectator` and `last_seen_at`.
 Both foreign keys cascade.
 
+### session_kinds
+
+| Column | Type | Notes |
+|---|---|---|
+| `kind` | text | Primary key, 1–64 characters. `sessions.kind` references it `on delete restrict` |
+| `provider` | text | `core` for the kinds Parley ships |
+| `display` | text | Human-readable name |
+| `retired_at` | timestamptz | Null means the kind is offerable |
+
+A kind is retired in place by setting `retired_at`, never deleted — the
+restricting foreign key means a row with sessions cannot be removed, and
+existing sessions of a retired kind keep loading and running as before.
+Retiring only closes the door on *new* sessions: session creation rejects a
+kind whose `retired_at` is set, with `400 that session kind has been retired`.
+
 ### sessions
 
 | Column | Type | Notes |

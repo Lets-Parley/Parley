@@ -55,6 +55,19 @@ func (s *Sessions) Create(ctx context.Context, spaceID, kind, title string, conf
 		spaceID, kind, title, config, facilitatorID))
 }
 
+// KindRetired reports whether the kind's row carries a retired_at. A retired
+// kind keeps its row — the foreign key is RESTRICT and existing sessions still
+// have to resolve — so nothing stops a new session using it but this check.
+func (s *Sessions) KindRetired(ctx context.Context, kind string) (bool, error) {
+	var retired bool
+	err := s.Pool.QueryRow(ctx,
+		"select retired_at is not null from session_kinds where kind = $1", kind).Scan(&retired)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return retired, err
+}
+
 func (s *Sessions) ByID(ctx context.Context, id string) (Session, error) {
 	return scanSession(s.Pool.QueryRow(ctx, "select "+sessionCols+" from sessions where id = $1", id))
 }
