@@ -132,42 +132,123 @@
 .diagram { overflow-x: auto; margin: 1.5rem 0; }
 .diagram svg { width: 100%; min-width: 680px; display: block; }
 
-.hero img {
+/* Starlight's splash hero is laid out for a logo, not a product screenshot:
+   ~106px of padding on both blocks at 1440x900, a 7fr/4fr grid, and a 25rem
+   cap on the image. That renders a 380px shot beside a column that stops at
+   50ch, so most of the fold is empty. Starlight's rules sit in
+   @layer starlight.core, so these unlayered ones win without !important. */
+.hero {
+  padding-block: 4.5rem 5rem;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: 4%;
+}
+
+.hero > img {
+  width: 100%;
+  max-width: none;
+  /* Without this the image's 1280px intrinsic width becomes the grid track's
+     min-content floor and blows the whole hero out to full width. */
+  min-width: 0;
+  border: 1px solid var(--parley-line);
   border-radius: var(--parley-radius-card);
   box-shadow: var(--parley-shadow-lift);
 }
 
-/* The cookie banner. The site sets no cookies, so this is a joke rather than
-   consent UI: one inline script and a localStorage flag, no consent library. */
-#parley-cookies {
-  position: fixed;
-  inset: auto 1rem 1rem;
-  z-index: 100;
-  margin: 0 auto;
-  max-width: 34rem;
+/* Stock scales toward 6.5rem, which suits the one-word title it replaced; a
+   nine-word headline at that size wraps to four lines and pushes the buttons
+   off the fold. The grid column is the width constraint, so the stock 50ch cap
+   comes off and only the tagline keeps a measure. */
+.hero h1 {
+  font-size: clamp(2rem, 1rem + 2.4vw, 3.25rem);
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+}
+
+.hero .copy > * {
+  max-width: none;
+}
+
+.hero .tagline {
+  max-width: 46ch;
+}
+
+.hero-eyebrow {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--parley-go);
+}
+
+/* License, version and stars: the only proof above the fold that this is a
+   real, maintained, open-source project. The star count is absent when the
+   build could not reach GitHub, so this has to read correctly without it. */
+.hero-trust {
   display: flex;
-  gap: 1rem;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--parley-line);
-  border-radius: var(--parley-radius-card, 0.5rem);
-  background: var(--sl-color-bg-nav, var(--sl-color-bg));
-  box-shadow: 0 18px 40px -18px rgb(18 32 47 / 0.45);
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  margin: 0;
   font-size: var(--sl-text-sm);
+  color: var(--parley-muted);
 }
 
-#parley-cookies button {
-  flex: none;
-  cursor: pointer;
-  padding: 0.4rem 0.9rem;
-  border: 1px solid var(--parley-line);
-  border-radius: 0.4rem;
-  background: var(--sl-color-bg);
+.hero-trust > * + *::before {
+  content: "\00b7";
+  margin-inline-end: 1rem;
+}
+
+.hero-trust a {
   color: inherit;
-  font: inherit;
 }
 
-#parley-cookies button:hover {
-  background: var(--sl-color-gray-6, var(--sl-color-bg-sidebar));
+@media (max-width: 50rem) {
+  .hero {
+    padding-block: 3rem 3.5rem;
+  }
+
+  /* Stock DOM order puts the screenshot first, so on a phone the fold is
+     600px of unreadable UI before the page says what it is. */
+  .hero > img {
+    order: 2;
+  }
+
+  .hero .copy > *,
+  .hero .tagline {
+    max-width: none;
+  }
+}
+
+/* Everything below is scoped to [data-has-hero], the attribute Starlight puts
+   on <html> for a splash page. These are landing-page pacing rules: unscoped,
+   they land on the reference pages too, where a 2.75rem heading and an 8rem
+   gap before each of ten sections turns a lookup table into a scroll. */
+
+/* Starlight wraps each heading in its own .sl-heading-wrapper, so every h2 is
+   :first-of-type within its parent and a separate first-heading rule would be
+   dead code. One value for all of them. */
+[data-has-hero] .sl-markdown-content h2 {
+  font-size: clamp(2rem, 1.5rem + 1vw, 2.75rem);
+  margin-top: 4rem;
+}
+
+/* The two full-width shots under "What a round looks like" otherwise stack
+   24px apart and read as one wall of near-identical UI. The feature pages run
+   screenshots at their own rhythm and are left alone. */
+[data-has-hero] .sl-markdown-content figure + figure {
+  margin-top: 6rem;
+}
+
+[data-has-hero] .sl-markdown-content figcaption {
+  font-size: 0.9375rem;
+  color: var(--parley-muted);
+}
+
+/* Three cards in Starlight's auto-fill grid leave an empty fourth cell at
+   desktop widths. Pin it to three and let the cards share a row height. */
+@media (min-width: 75rem) {
+  [data-has-hero] .sl-markdown-content .card-grid {
+    grid-template-columns: repeat(3, 1fr);
+    align-items: stretch;
+  }
 }
