@@ -125,6 +125,13 @@ func (a *app) handleTransferFacilitator(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, `{"error":"userId is required"}`, http.StatusBadRequest)
 		return
 	}
+	// Transferring to the current holder changes nothing: skip the write so no
+	// version bump and no broadcast wake every connected client for nothing.
+	if body.UserID == sess.FacilitatorID {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
 	err := a.sessions.TransferFacilitator(r.Context(), sess.ID, body.UserID)
 	if errors.Is(err, store.ErrNotEligible) {
 		http.Error(w, `{"error":"that person is not a member of this space"}`, http.StatusBadRequest)
