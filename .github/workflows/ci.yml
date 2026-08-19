@@ -119,6 +119,8 @@ jobs:
         run: scripts/check-dco.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
       - name: Test DCO checker
         run: scripts/tests/check-dco-test.sh
+      - name: Test release workflow policy
+        run: scripts/tests/release-workflow-test.sh
 
   docker:
     name: docker build and smoke

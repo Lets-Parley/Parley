@@ -50,9 +50,10 @@ The image declares its own `HEALTHCHECK`, which runs `parley -healthcheck`
 against `/readyz` over loopback every 15 seconds.
 
 Pin a version rather than tracking `latest` if you want reproducible deploys.
-Each GitHub Release includes digest-qualified Compose and Kubernetes manifests,
-an SPDX SBOM, and verifiable provenance for the published digest; see
-[Supply chain](/security/supply-chain/).
+Beginning with the first release produced by the hardened workflow, release
+assets include digest-qualified Compose and Kubernetes manifests, an SPDX SBOM,
+and verifiable provenance for the published digest. Releases v0.1.0 through
+v0.2.1 were not backfilled; see [Supply chain](/security/supply-chain/).
 
 ## The bare binary
 

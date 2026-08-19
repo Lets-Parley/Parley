@@ -33,7 +33,8 @@ member can change or remove that code. The interesting protections are around
 *vote secrecy* (strong, and structural) and *not disclosing what exists to
 strangers* (also strong). The gaps are concentrated in operations and governance:
 no roles, no audit log, no retention or erasure tooling, and no metrics. The
-release pipeline publishes an SPDX SBOM and verifiable digest-bound provenance.
+hardened release pipeline publishes an SPDX SBOM and verifiable digest-bound
+provenance for releases it produces; v0.1.0 through v0.2.1 were not backfilled.
 
 If your requirement is "a team of engineers estimates stories without a
 third-party SaaS", it fits well. If your requirement is "attributable,
@@ -73,7 +74,7 @@ Full detail: [Data and privacy](/security/data-and-privacy/).
   { name: "Retention and erasure", status: "not-built", detail: "Nothing expires or deletes. Write your own SQL against the documented schema; note that deleting a user who facilitated a session is blocked by a foreign key." },
   { name: "Rate limiting beyond room codes", status: "not-built", detail: "Apply it at your ingress." },
   { name: "Metrics and tracing", status: "not-built", detail: "JSON logs only. Blackbox-probe /readyz and take request metrics from your proxy." },
-  { name: "SBOM and provenance", status: "built", detail: "Published releases include an SPDX SBOM, maximum build provenance, and a GitHub attestation bound to the final GHCR digest." },
+  { name: "SBOM and provenance", status: "built", detail: "Releases produced by the hardened workflow include an SPDX SBOM, maximum build provenance, and a GitHub attestation bound to the final GHCR digest. Releases v0.1.0 through v0.2.1 were not backfilled." },
   { name: "Encryption at rest", status: "not-built", detail: "Use an encrypted volume or your database provider's encryption." },
 ]} />
 

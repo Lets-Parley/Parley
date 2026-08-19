@@ -9,12 +9,15 @@ Releases are on
 GitHub Releases with exact `vMAJOR.MINOR.PATCH` tags, and are anonymously
 pullable.
 
-Tagging `vX.Y.Z` publishes `X.Y.Z` and `X.Y`, and moves `latest` for non
-pre-release tags.
+Publishing a GitHub Release for `vX.Y.Z` publishes `X.Y.Z` and `X.Y`, and moves
+`latest`. Creating or moving a tag without publishing a Release does not run
+the publication workflow.
 
-Every current release includes an SPDX JSON SBOM plus Compose and Kubernetes
-manifests pinned to the published image digest. Verify the digest's provenance
-before deployment:
+Beginning with the first release produced by the hardened workflow, each
+release includes an SPDX JSON SBOM plus Compose and Kubernetes manifests pinned
+to the published image digest. Releases v0.1.0 through v0.2.1 were not
+backfilled with these artifacts or attestations. Verify a hardened release's
+digest before deployment:
 
 ```sh
 gh attestation verify \

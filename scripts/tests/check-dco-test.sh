@@ -33,4 +33,21 @@ if (cd "$test_repo" && "$checker" "$signed" "$malformed") >"$test_repo/malformed
 fi
 grep -q "${malformed%????????????????????????????????}" "$test_repo/malformed.out"
 
+git -C "$test_repo" commit --allow-empty -q -m "fix: body signoff" \
+  -m "Signed-off-by: Test Contributor <contributor@example.com>
+
+ordinary body text"
+body_signoff=$(git -C "$test_repo" rev-parse HEAD)
+if (cd "$test_repo" && "$checker" "$malformed" "$body_signoff") >"$test_repo/body-signoff.out" 2>&1; then
+  echo "signoff outside the final trailer block unexpectedly passed" >&2
+  exit 1
+fi
+grep -q "${body_signoff%????????????????????????????????}" "$test_repo/body-signoff.out"
+
+if (cd "$test_repo" && "$checker" not-a-revision "$signed") >"$test_repo/revision.out" 2>&1; then
+  echo "invalid revision range unexpectedly passed" >&2
+  exit 1
+fi
+grep -q "cannot resolve revision range" "$test_repo/revision.out"
+
 echo "DCO checks passed"

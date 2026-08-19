@@ -120,8 +120,9 @@ sit at.
 
 ### On your own machine
 
-Two files, no checkout. Tagged releases publish a multi-arch image (amd64 and
-arm64) to `ghcr.io/lets-parley/parley`, and the compose file pulls it.
+Two files, no checkout. Publishing an exact semantic-version GitHub Release
+builds a multi-arch image (amd64 and arm64) at
+`ghcr.io/lets-parley/parley`, and the compose file pulls it.
 
 ```sh
 mkdir parley && cd parley

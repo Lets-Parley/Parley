@@ -48,10 +48,12 @@ protected `release` environment's publisher can write to GHCR. It publishes the
 existing OCI artifact, checks that the registry digest matches the build digest,
 then creates a GitHub build-provenance attestation for that final digest.
 
-Each GitHub Release also receives the SPDX SBOM and digest-qualified Compose and
-Kubernetes manifests generated from the published digest. The readable manifests
-in the repository retain a version tag; use the release assets when an immutable
-deployment input is required.
+Beginning with the first release produced by this hardened workflow, each
+GitHub Release receives the SPDX SBOM and digest-qualified Compose and
+Kubernetes manifests generated from the published digest. Releases v0.1.0
+through v0.2.1 were not backfilled with these artifacts or attestations. The
+readable manifests in the repository retain a version tag; use the release
+assets when an immutable deployment input is required.
 
 ## Verify an image
 
@@ -73,7 +75,7 @@ a mutable tag.
 <Capability rows={[
   { name: "Locked dependency sets", status: "built", detail: "Go checksums and npm lockfiles are reviewed in pull requests and updated weekly." },
   { name: "Minimal runtime image", status: "built", detail: "Digest-pinned, non-root distroless static image with no shell or package manager." },
-  { name: "SPDX SBOM", status: "built", detail: "Attached to every published GitHub Release and generated from the immutable release build artifact." },
+  { name: "SPDX SBOM", status: "built", detail: "Generated from the immutable build artifact and attached to releases produced by the hardened workflow." },
   { name: "Build provenance", status: "built", detail: "Maximum BuildKit provenance plus a GitHub artifact attestation bound to the final GHCR digest." },
   { name: "Vulnerability scanning", status: "built", detail: "govulncheck, CodeQL, dependency review, npm audits, and container scanning run in CI." },
 ]} />
