@@ -41,10 +41,14 @@ so almost all of it is held to 4.5:1.
 | Hand | SPECTATE button | `--color-ink-soft` | `--color-felt-deep` | 10px mono | 4.5:1 | 5.08 | 8.71 |
 | Hand | SPECTATING · REJOIN | `--color-ink-soft` | `--color-accent-soft` | 10px mono | 4.5:1 | 5.58 | 6.02 |
 | Hand | spectating rail copy | `--color-ink-faint` | `--color-felt-deep` | 14px | 4.5:1 | 4.75 | 6.12 |
+| Hand | card face | `--color-ink` | `--color-surface` | 21.6–35.2px mono | 4.5:1 | 15.25 | 13.20 |
+| Hand | card face, picked | `--color-ink` | `--color-accent-soft` | 21.6–35.2px mono | 4.5:1 | 12.72 | 10.64 |
 | StoryQueue | QUEUE heading | `--color-ink-faint` | `--color-surface` | 10px mono | 4.5:1 | 6.25 | 5.25 |
 | StoryQueue | Add / Clear links | `--color-accent` | `--color-surface` | 12px bold | 4.5:1 | 8.20 | 6.24 |
 | StoryQueue | empty-queue copy | `--color-ink-faint` | `--color-surface` | 13px | 4.5:1 | 6.25 | 5.25 |
 | StoryQueue | reorder arrows | `--color-ink-faint` | `--color-surface` | 9px | 4.5:1 | 6.25 | 5.25 |
+| StoryQueue | ad-hoc story label | `--color-brass` | `--color-surface` | 10px mono | 4.5:1 | 6.49 | 7.87 |
+| StoryQueue | "· current" marker | `--color-accent` | `--color-felt-deep` | 10px mono | 4.5:1 | 6.23 | 7.28 |
 | StoryQueue | story-ref chip | `--color-ink` | `--color-surface` | 12.8px mono | 4.5:1 | 15.25 | 13.20 |
 | StoryQueue | queue action chip | `--color-ink-soft` | `--color-surface` | 12px bold | 4.5:1 | 6.69 | 7.47 |
 | ResultsPanel | hero label | `--color-ink-faint` | `--color-felt-deep` | 11px mono | 4.5:1 | 4.75 | 6.12 |
@@ -56,12 +60,25 @@ so almost all of it is held to 4.5:1.
 | ResultsPanel | histogram count, mode | `--color-brass` | `--color-felt-deep` | 11px semibold | 4.5:1 | 4.93 | 9.19 |
 | ResultsPanel | histogram count, other | `--color-ink-faint` | `--color-felt-deep` | 11px semibold | 4.5:1 | 4.75 | 6.12 |
 | StandupRoom | participant link | `--color-ink-soft` | `--color-surface` | 14px bold | 4.5:1 | 6.69 | 7.47 |
+| StandupRoom | current speaker chip | `--color-ink` | `--color-accent-soft` | 14px bold | 4.5:1 | 12.72 | 10.64 |
+| StandupRoom | turn timer, warning | `--color-brass` | `--color-surface` | 30px mono | 3:1 | 6.49 | 7.87 |
 | StandupRoom | field label | `--color-ink-faint` | `--color-surface` | 12px bold | 4.5:1 | 6.25 | 5.25 |
 | StandupRoom | empty-field em dash | `--color-ink-faint` | `--color-surface` | 16px | 4.5:1 | 6.25 | 5.25 |
 | StandupRoom | form field label | `--color-ink-soft` | `--color-surface` | 12px bold | 4.5:1 | 6.69 | 7.47 |
 | StandupRoom | save state | `--color-ink-faint` | `--color-surface` | 12px | 4.5:1 | 6.25 | 5.25 |
 | StandupRoom | save error | `--color-stop` | `--color-surface` | 12px bold | 4.5:1 | 5.68 | 5.01 |
 | StandupRoom | notes well body | `--color-ink` | `--color-felt-deep` | 14px mono | 4.5:1 | 11.58 | 15.40 |
+
+The row that stays on `--color-felt-deep` — the story the room is on — reuses
+combinations already listed here: `--color-ink-faint`, `--color-brass` and
+`--color-ink` on `--color-felt-deep` all appear above at their measured values.
+
+One pair is knowingly left off the table. A skipped or absent speaker in the
+`StandupRoom` order rail is drawn in `--color-ink` on `--color-felt` inside an
+`opacity-40` wrapper, which composites to 2.38 in light and 3.31 in dark — the
+same multiply-through that cost the spectator group below. It is struck through
+and paired with a dimmed avatar rather than being the only copy of anything, but
+it has not been measured against a threshold and decided on yet.
 
 ## What the first pass found
 
