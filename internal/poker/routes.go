@@ -49,6 +49,7 @@ var (
 	errNotCurrentStory   = errors.New("story not current")
 	errSpectator         = errors.New("spectator")
 	errInvalidVote       = errors.New("invalid vote")
+	errStoryUnidentified = errors.New("story has neither ref nor title")
 )
 
 func writeMutationError(w http.ResponseWriter, err error, fallback string) {
@@ -89,12 +90,12 @@ func addStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	}
 	title := strings.TrimSpace(body.Title)
 	ref := strings.TrimSpace(body.Ref)
-	if title == "" || len(title) > 200 || len(body.Notes) > 2000 {
-		http.Error(w, `{"error":"title must be 1-200 characters, notes at most 2000"}`, http.StatusBadRequest)
+	if msg := storyIdentityError(title, ref); msg != "" {
+		http.Error(w, `{"error":"`+msg+`"}`, http.StatusBadRequest)
 		return
 	}
-	if len(ref) > 40 {
-		http.Error(w, `{"error":"a ticket reference can be at most 40 characters"}`, http.StatusBadRequest)
+	if len(body.Notes) > 2000 {
+		http.Error(w, `{"error":"notes can be at most 2000 characters"}`, http.StatusBadRequest)
 		return
 	}
 	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
@@ -148,8 +149,8 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 	var title *string
 	if body.Title != nil {
 		t := strings.TrimSpace(*body.Title)
-		if t == "" || len(t) > 200 {
-			http.Error(w, `{"error":"title must be 1-200 characters"}`, http.StatusBadRequest)
+		if len(t) > 200 {
+			http.Error(w, `{"error":"title can be at most 200 characters"}`, http.StatusBadRequest)
 			return
 		}
 		title = &t
@@ -216,9 +217,24 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 					}
 				}
 			}
+			// A story is addressable by its ref or its title; an edit must not
+			// leave it with neither.
+			var identified bool
+			if err := tx.QueryRow(r.Context(),
+				"select coalesce(title, '') <> '' or coalesce(ref, '') <> '' from stories where id = $1",
+				storyID).Scan(&identified); err != nil {
+				return err
+			}
+			if !identified {
+				return errStoryUnidentified
+			}
 			_, err := tx.Exec(r.Context(), "update sessions set version = version + 1 where id = $1", sess.ID)
 			return err
 		})
+	if errors.Is(err, errStoryUnidentified) {
+		http.Error(w, `{"error":"a ticket needs a reference or a title"}`, http.StatusBadRequest)
+		return
+	}
 	if errors.Is(err, errInvalidEstimate) {
 		http.Error(w, `{"error":"an estimate has to be a card from this session's deck"}`, http.StatusBadRequest)
 		return
@@ -410,4 +426,19 @@ func reset(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		return
 	}
 	committed(w, r, ac)
+}
+
+// storyIdentityError reports why a story's ref/title pair is unusable, or "".
+// Either field identifies the story on its own, so only a pair that is blank
+// on both sides is rejected.
+func storyIdentityError(title, ref string) string {
+	switch {
+	case title == "" && ref == "":
+		return "a ticket needs a reference or a title"
+	case len(title) > 200:
+		return "a title can be at most 200 characters"
+	case len(ref) > 40:
+		return "a ticket reference can be at most 40 characters"
+	}
+	return ""
 }
