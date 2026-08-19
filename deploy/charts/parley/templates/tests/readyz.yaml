@@ -1,6 +1,7 @@
 # `helm test` proves the Service routes to a pod that is ready — which for
-# Parley means it reached Postgres and finished migrations, since /readyz pings
-# the database (/healthz deliberately does not).
+# Parley means it reached Postgres, finished migrations, and is holding the
+# Postgres LISTEN it hears other replicas on: /readyz checks both, and fails if
+# either is down (/healthz deliberately checks neither).
 apiVersion: v1
 kind: Pod
 metadata:

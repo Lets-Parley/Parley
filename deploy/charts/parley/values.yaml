@@ -28,12 +28,18 @@ image:
 #
 #     --set replicaCount=2
 #
+# This needs chart 0.4.0 or newer. Every published chart up to and including
+# 0.3.0 fails at render time on replicaCount > 1, and the binaries they deploy
+# take a boot-time advisory lock that makes the second pod exit.
+#
 # At 2 or more you also get a PodDisruptionBudget and the rollout is seamless;
 # at 1 there is a brief reconnect while the pod is replaced. Set 0 to take
 # Parley down for a maintenance window.
 #
 # Every replica opens its own pool of up to 10 Postgres connections plus one
-# for the fanout listener, so size max_connections for replicaCount * 11.
+# for the fanout listener, so size max_connections for replicaCount * 11 — 12
+# per pod briefly at boot, while it holds the migration lock on a connection of
+# its own.
 replicaCount: 1
 
 # maxUnavailable: 0 keeps full capacity through a rollout; maxSurge: 1 replaces
@@ -132,6 +138,22 @@ ingress:
   host: parley.example.com
   path: /
   pathType: Prefix
+  # Parley speaks plain HTTP and has no certificate handling at all — TLS is
+  # entirely the ingress controller's job. This list is passed through verbatim
+  # to the Ingress spec.tls. With cert-manager, add the issuer annotation above
+  # and name the secret for it to fill in:
+  #
+  #   annotations:
+  #     cert-manager.io/cluster-issuer: letsencrypt-prod
+  #     nginx.ingress.kubernetes.io/proxy-read-timeout: "75s"
+  #     nginx.ingress.kubernetes.io/proxy-send-timeout: "75s"
+  #   tls:
+  #     - hosts: [parley.example.com]
+  #       secretName: parley-tls
+  #
+  # Overriding annotations replaces this file's defaults rather than merging, so
+  # carry the two timeout annotations across. baseURL must be the https:// form
+  # whenever tls is set; the chart refuses to render otherwise.
   tls: []
 
 # The first four are what the "restricted" Pod Security Standard checks: it

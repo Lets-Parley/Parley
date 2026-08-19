@@ -103,7 +103,7 @@ up is dropped and told to reconnect.
 
 <SpecTable rows={[
   { name: "GET /healthz", value: "always 200", note: "Liveness. Never touches the database" },
-  { name: "GET /readyz", value: "200 or 503", note: "Readiness. Pings Postgres with a 3s timeout" },
+  { name: "GET /readyz", value: "200 or 503", note: "Readiness. Pings Postgres with a 3s timeout, then checks this replica's Postgres LISTEN is up — 503 with 'not listening for session changes' if it is not" },
 ]} />
 
 :::caution[Do not point a liveness probe at /readyz]

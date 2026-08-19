@@ -20,7 +20,8 @@ spec:
   # PodDisruptionBudget when you do. The Helm chart does both for you.
   #
   # Every replica opens up to 10 pooled Postgres connections plus one for the
-  # fanout listener, so size max_connections for replicas * 11.
+  # fanout listener, so size max_connections for replicas * 11 — 12 per pod
+  # briefly at boot, while it holds the migration lock on its own connection.
   replicas: 1
   strategy:
     type: RollingUpdate
@@ -52,7 +53,7 @@ spec:
         - name: parley
           # A published tag, not :latest. Rolling back onto an older image after
           # a migration ran makes Parley refuse to start (by design).
-          image: ghcr.io/lets-parley/parley:0.2.3
+          image: ghcr.io/lets-parley/parley:0.4.0
           ports:
             - containerPort: 8080
           env:

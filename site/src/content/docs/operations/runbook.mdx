@@ -20,6 +20,39 @@ nginx, confirm the Upgrade and Connection headers from the
 `BASE_URL` is `https` while you're browsing over plain `http`, so the browser
 drops the Secure cookie. Serve over HTTPS, or set an `http` `BASE_URL`.
 
+### A pod is Running but never Ready (`0/1`)
+
+The container is up, so this is `/readyz` saying no. Ask it which of the two
+things it checks is failing — the body is the answer:
+
+```sh
+kubectl port-forward pod/<the-pod> 8080:8080 &
+curl -s localhost:8080/readyz
+```
+
+(The image is distroless — no shell and no `curl` inside it — so port-forward
+rather than `kubectl exec`. `kubectl describe pod` quotes the same body on the
+failing probe event.)
+
+- **`database unreachable`** — Postgres is not answering this pod within 3
+  seconds. Check the database, the `NetworkPolicy` or security group between
+  them, and that `DATABASE_URL` carries `?sslmode=require` if your Postgres
+  demands TLS.
+- **`not listening for session changes`** — Postgres is fine, but *this replica*
+  has lost the `LISTEN` it hears other replicas on. It reconnects with backoff
+  on its own and logs each attempt, so a pod that clears on its own after a
+  database blip is expected; one that never clears is a connection the database
+  is refusing (`max_connections`, a pooler that does not pass `LISTEN` through —
+  PgBouncer in transaction mode does not).
+
+Readiness covers the listener deliberately: a replica that cannot hear the others
+still serves requests and still holds its WebSockets, it just never learns that
+anything changed elsewhere — invisible from outside unless the probe says so.
+
+A pod that is *not* Running is a different question: `CrashLoopBackOff` with a
+`FATAL:` log line is a database prerequisite, and
+[Kubernetes](/operations/kubernetes/#before-you-install-the-database) lists them.
+
 ### `/readyz` fails but `/healthz` is fine
 
 Usually the app is up and Postgres isn't. Check the database container and
@@ -40,7 +73,7 @@ answers even while Postgres is down:
 
 ```console
 $ curl -s https://parley.example.com/version
-{"version":"0.2.3"}
+{"version":"0.4.0"}
 ```
 
 The same string is on the container's command line — `parley -version` — and in
