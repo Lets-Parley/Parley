@@ -59,6 +59,15 @@ func New(cfg Config) *Provider { return &Provider{cfg: cfg} }
 
 func (p *Provider) Issuer() string { return p.cfg.Issuer }
 
+// discoveryWindow is how long a discovery attempt may run. Tests shorten it;
+// production leaves it unset and gets 15s.
+func (p *Provider) discoveryWindow() time.Duration {
+	if p.discoveryTimeout == 0 {
+		return 15 * time.Second
+	}
+	return p.discoveryTimeout
+}
+
 // discover resolves the provider's endpoints, caching them after the first
 // success. Callers hit this on every request; it is cheap once warm.
 func (p *Provider) discover(ctx context.Context) error {
@@ -68,10 +77,7 @@ func (p *Provider) discover(ctx context.Context) error {
 	if warm {
 		return nil
 	}
-	timeout := p.discoveryTimeout
-	if timeout == 0 {
-		timeout = 15 * time.Second
-	}
+	timeout := p.discoveryWindow()
 	_, err, _ := p.flight.Do("discover", func() (any, error) {
 		// Detached from the caller: whoever happens to win the race must not be
 		// able to fail everyone else's sign-in by closing their browser tab.
