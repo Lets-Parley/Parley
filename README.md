@@ -159,8 +159,11 @@ Skip compose entirely and point the image at your own database:
 docker run -d --name parley -p 8080:8080 \
   -e DATABASE_URL='postgres://parley:secret@db:5432/parley' \
   -e BASE_URL='https://parley.example.com' \
-  ghcr.io/lets-parley/parley:latest
+  ghcr.io/lets-parley/parley:0.2.2
 ```
+
+Pin a version rather than `latest` — run 0.2.2 or later, as every earlier
+release can be crashed remotely by a disconnecting client.
 
 ## Configuration
 
