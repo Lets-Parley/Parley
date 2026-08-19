@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { Table, faceOf } from "./Table";
 import { makePerson } from "../test/render";
 
@@ -32,6 +32,14 @@ function renderTable(over: Partial<Parameters<typeof Table>[0]> = {}) {
       {...over}
     />,
   );
+}
+
+/** Scopes queries to the seat container holding the given first name. */
+function seat(firstName: string) {
+  const nameNode = screen.getByText(firstName);
+  const container = nameNode.parentElement;
+  if (!container) throw new Error(`could not find seat container for "${firstName}"`);
+  return within(container);
 }
 
 describe("Table", () => {
@@ -110,14 +118,17 @@ describe("Table", () => {
     expect(screen.queryByText("spectators")).toBeNull();
   });
 
-  it("gives every seat state a text equivalent on the card", () => {
+  it("gives every seat state a text equivalent on the card, tied to the right seat", () => {
     renderTable({ online: new Set(["dana", "marcus"]), votedUserIds: ["dana"] });
-    expect(screen.getAllByRole("img", { name: "voted" })).toHaveLength(1);
-    expect(screen.getAllByRole("img", { name: "no card yet" })).toHaveLength(1);
-    expect(screen.getAllByRole("img", { name: "away" })).toHaveLength(1);
+    // dana: seated + online + voted -> back ("voted")
+    // marcus: seated + online + not voted -> empty ("no card yet")
+    // priya: seated + offline -> away ("away")
+    expect(seat("Dana").getByRole("img", { name: "voted" })).toBeTruthy();
+    expect(seat("Marcus").getByRole("img", { name: "no card yet" })).toBeTruthy();
+    expect(seat("Priya").getByRole("img", { name: "away" })).toBeTruthy();
   });
 
-  it("puts every revealed value into the seat's accessible name", () => {
+  it("puts every revealed value into the seat's accessible name, tied to the right seat", () => {
     renderTable({
       revealed: true,
       votes: new Map([
@@ -125,9 +136,9 @@ describe("Table", () => {
         ["marcus", "coffee"],
       ]),
     });
-    expect(screen.getByRole("img", { name: "voted 5" })).toBeTruthy();
-    expect(screen.getByRole("img", { name: "voted coffee" })).toBeTruthy();
-    expect(screen.getByRole("img", { name: "no card" })).toBeTruthy();
+    expect(seat("Dana").getByRole("img", { name: "voted 5" })).toBeTruthy();
+    expect(seat("Marcus").getByRole("img", { name: "voted coffee" })).toBeTruthy();
+    expect(seat("Priya").getByRole("img", { name: "no card" })).toBeTruthy();
   });
 
   it("announces the tally without repeating a person's name per seat", () => {
