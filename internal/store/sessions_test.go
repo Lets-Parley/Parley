@@ -255,3 +255,51 @@ func TestSetEndedAndBumpVersion(t *testing.T) {
 		t.Fatalf("version = %d, want %d", bumped.Version, reopened.Version+1)
 	}
 }
+
+func TestSessionOfARetiredKindStillLoads(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	kind := "retro-" + randSuffix(t)
+	if _, err := pool.Exec(ctx,
+		"insert into session_kinds (kind, provider, display) values ($1, 'test', 'Retro')", kind); err != nil {
+		t.Fatal(err)
+	}
+
+	sp := newSpace(t, pool)
+	u, _ := newUser(t, pool, "Priya Raman")
+	sessions := &Sessions{Pool: pool}
+	sess, err := sessions.Create(ctx, sp.ID, kind, "Retro", []byte(`{}`), u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A kind with sessions is retired in place. Hard-deleting it must be
+	// refused, or the history it belongs to loses its reference.
+	if _, err := pool.Exec(ctx, "delete from session_kinds where kind = $1", kind); err == nil {
+		t.Fatal("deleting a kind that has sessions succeeded, want a foreign key violation")
+	}
+	if _, err := pool.Exec(ctx,
+		"update session_kinds set retired_at = now() where kind = $1", kind); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := sessions.ByID(ctx, sess.ID)
+	if err != nil {
+		t.Fatalf("loading a session of a retired kind: %v", err)
+	}
+	if got.Kind != kind {
+		t.Fatalf("kind = %q, want %q", got.Kind, kind)
+	}
+}
+
+func TestSessionRejectsAnUnknownKind(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	sp := newSpace(t, pool)
+	u, _ := newUser(t, pool, "Ben Alvarez")
+	if _, err := (&Sessions{Pool: pool}).Create(ctx, sp.ID, "no-such-kind", "Nope", []byte(`{}`), u.ID); err == nil {
+		t.Fatal("created a session of an unregistered kind, want a foreign key violation")
+	}
+}
