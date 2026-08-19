@@ -102,6 +102,24 @@ describe("SpacePage passcode panel", () => {
     expect(screen.getByText("Invite copied — link and passcode")).toBeTruthy();
   });
 
+  it("says so instead of claiming success when the clipboard refuses", async () => {
+    view = protectedSpace;
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      value: {
+        writeText: vi.fn(async () => {
+          throw new Error("denied");
+        }),
+      },
+      configurable: true,
+    });
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
+
+    expect(await screen.findByText("Could not copy — copy it by hand.")).toBeTruthy();
+    expect(screen.queryByText("Invite copied — link and passcode")).toBe(null);
+  });
+
   it("copies just the code from the secondary action", async () => {
     view = protectedSpace;
     const writeText = clipboard();

@@ -345,6 +345,17 @@ function PasscodePanel({
   const say = useToast();
   const [busy, setBusy] = useState(false);
 
+  // Clipboard writes reject on an insecure origin or a denied permission, and a
+  // success toast over a failed copy sends people off to paste nothing.
+  async function copy(text: string, done: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      say(done);
+    } catch {
+      onError("Could not copy — copy it by hand.");
+    }
+  }
+
   async function set(open: boolean) {
     setBusy(true);
     try {
@@ -376,8 +387,10 @@ function PasscodePanel({
         className={buttonQuiet}
         onClick={() => {
           const link = `${window.location.origin}/s/${slug}`;
-          navigator.clipboard?.writeText(passcode ? `${link} — passcode ${passcode}` : link);
-          say(passcode ? "Invite copied — link and passcode" : "Invite link copied");
+          copy(
+            passcode ? `${link} — passcode ${passcode}` : link,
+            passcode ? "Invite copied — link and passcode" : "Invite link copied",
+          );
         }}
       >
         Copy invite
@@ -385,10 +398,7 @@ function PasscodePanel({
       {passcode && (
         <button
           className={buttonQuiet}
-          onClick={() => {
-            navigator.clipboard?.writeText(passcode);
-            say("Passcode copied");
-          }}
+          onClick={() => copy(passcode, "Passcode copied")}
         >
           Copy code
         </button>
