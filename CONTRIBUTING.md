@@ -36,6 +36,13 @@ go test -p 1 -race ./...
 `-p 1` is load-bearing: packages share one test database and will collide if
 they migrate it concurrently.
 
+Database-backed tests **fail** when `TEST_DATABASE_URL` is unset — most of the
+suite needs Postgres, and a green run that quietly tested nothing is worse than
+a red one. If you genuinely have no database to hand, set
+`PARLEY_SKIP_DB_TESTS=1`; the run then skips those tests and prints a warning
+naming every package it silenced. CI asserts the variable is unset and fails on
+any skipped test, so the opt-out cannot creep back in.
+
 ## What a good pull request looks like
 
 - **One thing.** A focused diff gets reviewed; a mixed one waits.

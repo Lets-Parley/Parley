@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +12,8 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/lets-parley/parley/internal/dbtest"
 )
 
 const testOrigin = "http://example.test"
@@ -106,7 +107,7 @@ func setupSession(t *testing.T, srv *httptest.Server, spaceName string) (facilit
 
 func testDBPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	pool, err := pgxpool.New(context.Background(), os.Getenv("TEST_DATABASE_URL"))
+	pool, err := pgxpool.New(context.Background(), dbtest.DSN(t))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -59,6 +59,12 @@ go test -p 1 -race ./...        # this is what CI runs
 cd web && npm run lint          # oxlint — CI does NOT run this, so you must
 ```
 
+Without `TEST_DATABASE_URL` the database-backed tests **fail**; they do not
+skip. `PARLEY_SKIP_DB_TESTS=1` is the only opt-out, it prints a warning naming
+the packages it silenced, and CI rejects both the variable and any skipped
+test. Do not reintroduce a silent skip — roughly two thirds of the suite is
+database-backed, so a skip is a green run that verified nothing.
+
 - **`-p 1` is mandatory.** Every package shares one test database and migrates
   it; parallel packages race and fail confusingly.
 - **Without `TEST_DATABASE_URL` the integration tests silently skip**

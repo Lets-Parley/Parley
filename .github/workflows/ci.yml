@@ -31,9 +31,29 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go vet ./...
-      - run: go test -p 1 -race ./...
+      # The opt-out downgrades a missing database from a failure to a skip. CI
+      # must never run with it set, whatever a Dockerfile or env block does.
+      - name: database-test opt-out must be unset
+        run: |
+          if [ -n "${PARLEY_SKIP_DB_TESTS:-}" ]; then
+            echo "PARLEY_SKIP_DB_TESTS is set; CI must run the database tests" >&2
+            exit 1
+          fi
+      - run: |
+          set -o pipefail
+          go test -json -p 1 -race ./... | tee test-output.json | jq -j 'select(.Action=="output") | .Output'
         env:
           TEST_DATABASE_URL: postgres://test:test@127.0.0.1:5432/test
+      # A skipped test is a test that did not run. Green must mean everything ran.
+      - name: no test may skip
+        if: always()
+        run: |
+          skipped=$(jq -r 'select(.Action=="skip" and .Test != null) | .Package + "." + .Test' test-output.json)
+          if [ -n "$skipped" ]; then
+            echo "these tests skipped instead of running:" >&2
+            echo "$skipped" >&2
+            exit 1
+          fi
 
   # The literal first-run path: the image boots against an EMPTY database and
   # serves a usable page.
