@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { AppShell, ConnectionDot, Logo } from "./AppShell";
+import { AppShell, BuildStamp, ConnectionDot, Logo } from "./AppShell";
 import { makePerson, renderApp } from "../test/render";
 import type { Me } from "../lib/api";
 
@@ -199,10 +199,13 @@ describe("the build stamp", () => {
     expect(link.getAttribute("href")).toBe("https://github.com/lets-parley/parley/releases");
   });
 
+  // Asserted on the rendered output rather than on the absence of a link: a
+  // guard that failed open with an error message renders no link either, so
+  // querying for one passes on exactly the regression this test exists to catch.
   it("renders nothing at all when the version cannot be fetched", async () => {
     stubShell("fail");
-    const { queryClient } = renderShell();
+    const { container, queryClient } = renderApp(<BuildStamp />);
     await waitFor(() => expect(queryClient.getQueryState(["version"])?.status).toBe("error"));
-    expect(screen.queryByRole("link", { name: /release notes/ })).toBeNull();
+    expect(container.innerHTML).toBe("");
   });
 });
