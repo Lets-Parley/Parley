@@ -25,8 +25,8 @@ Every seat state and the revealed result now carry a text equivalent, the
 standup rail says whose turn it is out loud, the member card sits on the native
 `<dialog>` so focus behaves without a hand-rolled trap, and a contrast audit
 lifted three light-theme tokens over the threshold. What is left is a keyboard
-sweep of every control in a room and three token pairs the contrast table still
-does not cover.
+sweep of every control in a room, and two places where a group opacity wrapper
+drops otherwise-legible text below the contrast threshold.
 
 - Status: In progress
 - Target: v0.3.0
