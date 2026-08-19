@@ -19,15 +19,15 @@ jobs:
           --health-cmd "pg_isready -U test" --health-interval 5s
           --health-timeout 3s --health-retries 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
       - run: npm ci && npm run build
         working-directory: web
       - run: npm test
         working-directory: web
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
       - run: go vet ./...
@@ -74,7 +74,7 @@ jobs:
   first-run:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: docker build -t parley:smoke .
       - run: |
           docker network create smoke
@@ -100,8 +100,7 @@ jobs:
   chart:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: helm lint deploy/charts/parley --set database.existingSecret=parley
 
       # Every conditional template at once, so a broken branch cannot hide
