@@ -16,6 +16,7 @@ away.
 ```sh
 # frontend
 cd web && npm ci && npm run dev
+cd web && npm test              # Vitest; npm run test:watch while working
 
 # backend
 export DATABASE_URL=postgres://parley:dev@localhost:5432/parley

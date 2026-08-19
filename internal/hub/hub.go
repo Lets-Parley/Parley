@@ -20,23 +20,43 @@ type Conn struct {
 	SessionID string
 	ws        *websocket.Conn
 	send      chan []byte
-	closeOnce sync.Once
+
+	// mu guards closed, and is held across the send below so a frame can never
+	// reach the channel after it is closed. Broadcast snapshots the room under
+	// the hub's mutex and writes outside it, so a connection can be closed
+	// underneath an in-flight frame; without this the send panics, and because
+	// the presence debounce broadcasts from a timer goroutine, that panic
+	// takes the process down rather than one request.
+	mu     sync.Mutex
+	closed bool
 }
 
 // Send queues a frame; a full buffer means the reader is wedged, so the
-// connection is dropped rather than blocking the room.
+// connection is dropped rather than blocking the room. A frame arriving for an
+// already-closed connection is discarded.
 func (c *Conn) Send(msg []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return
+	}
 	select {
 	case c.send <- msg:
 	default:
-		c.Close()
+		c.closed = true
+		close(c.send)
 	}
 }
 
+// Close is idempotent and safe to call while a Send is in flight.
 func (c *Conn) Close() {
-	c.closeOnce.Do(func() {
-		close(c.send)
-	})
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return
+	}
+	c.closed = true
+	close(c.send)
 }
 
 type Hub struct {

@@ -54,6 +54,12 @@ func ParseConfig(kind string, raw []byte) ([]byte, error) {
 	if err := dec.Decode(cfg); err != nil {
 		return nil, err
 	}
+	// The decoder stops after one value. Refuse anything following it rather
+	// than silently dropping it: a caller outside the API handler has no outer
+	// decode to reject the trailing half for them.
+	if dec.More() {
+		return nil, fmt.Errorf("trailing data after the %s config document", kind)
+	}
 	return json.Marshal(cfg)
 }
 

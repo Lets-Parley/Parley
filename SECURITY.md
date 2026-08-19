@@ -20,22 +20,39 @@ Only the latest release is supported. There are no backported security fixes.
 
 | Version | Supported |
 |---|---|
-| 0.2.x | Yes |
-| 0.1.0 | **No — has a known vulnerability, see below** |
+| 0.2.2 | Yes |
+| 0.2.0, 0.2.1 | **No — have a known vulnerability, see below** |
+| 0.1.0 | **No — has known vulnerabilities, see below** |
 
 ## Known vulnerable versions
+
+**v0.1.0, v0.2.0, v0.2.1 — a disconnect during a broadcast could kill the
+server.** Every release before v0.2.2 could be crashed remotely by an ordinary
+client disconnecting at the wrong moment. Closing a browser tab while the room
+was broadcasting could send a frame on an already-closed channel, and the
+resulting panic ran in a timer goroutine with nothing above it to recover —
+so the process exited, taking down every room on the instance, not just the
+one the client was in. No authentication was required beyond whatever it takes
+to join a space, and no unusual client behaviour: a normal tab close at an
+unlucky moment was enough.
+
+Fixed in v0.2.2. Denial of service only — no data disclosure, no write access,
+and unrevealed votes were never exposed by it. Upgrade to v0.2.2; there is no
+configuration-level mitigation, though an instance behind a proxy that restarts
+it automatically will recover on its own.
 
 **v0.1.0 — room-code throttle bypass.** When Parley was reachable directly
 rather than through a trusted proxy, the per-address limit on wrong room-code
 guesses could be evaded, making a six-character code brute-forceable. Fixed in
 v0.2.0 by making proxy-header trust opt-in via `TRUST_PROXY_HEADERS`.
 
-The v0.1.0 tag and container image were **deliberately not moved** onto fixed
-code. Retagging would silently change what that version means for anyone who had
-already pulled it, and would break digest verification. A clearly-labelled bad
-version is safer than a mutated one.
+No vulnerable tag or container image is ever **moved** onto fixed code.
+Retagging would silently change what a version means for anyone who had already
+pulled it, and would break digest verification. A clearly-labelled bad version
+is safer than a mutated one, so v0.1.0, v0.2.0 and v0.2.1 all still point at the
+code they shipped with.
 
-Upgrade to v0.2.0 or later.
+Upgrade to v0.2.2.
 
 ## Security model, in one paragraph
 
