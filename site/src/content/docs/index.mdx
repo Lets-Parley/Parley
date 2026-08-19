@@ -3,17 +3,20 @@ title: Parley
 description: Self-hosted planning poker and daily standups. No accounts, no seat count — just a link your team follows. One Go binary and a Postgres database.
 template: splash
 hero:
-  tagline: No accounts, no seat count, no credit card — just a link your team follows. One Go binary and a Postgres database.
+  title: Self-hosted planning poker your team joins with a link
+  tagline: >-
+    Sprint estimation and standup for engineering teams. One Go binary and a
+    Postgres database — no accounts, no seat count, no credit card.
   image:
     alt: A revealed planning poker round in Parley
     light: ../../assets/poker.png
     dark: ../../assets/poker-dark.png
   actions:
-    - text: Get it running
+    - text: Deploy in two commands
       link: /quickstart/
       icon: right-arrow
-    - text: Read the threat model
-      link: /security/threat-model/
+    - text: View on GitHub
+      link: https://github.com/lets-parley/parley
       variant: minimal
 ---
 
@@ -29,6 +32,65 @@ import spaceLight from "../../assets/space-room-code-light.png";
 import spaceDark from "../../assets/space-room-code-dark.png";
 import storyLight from "../../assets/story-queue-light.png";
 import storyDark from "../../assets/story-queue-dark.png";
+
+## Most tools want an account. Parley wants a link.
+
+Same link for planning poker and standup. Two commands and a `.env` file, no
+platform team required:
+
+<Tabs>
+  <TabItem label="Helm">
+    ```sh
+    kubectl create secret generic parley \
+      --from-literal=database-url='postgres://parley:secret@host:5432/parley'
+
+    helm install parley oci://ghcr.io/lets-parley/charts/parley --version 0.2.3 \
+      --set database.existingSecret=parley \
+      --set baseURL=https://parley.example.com
+    ```
+    Pin `--version`. The chart refuses to render a release that cannot work —
+    a moving image tag, a fractional replica count, a missing database secret.
+    [The chart →](/operations/kubernetes/)
+  </TabItem>
+  <TabItem label="Compose">
+    ```sh
+    git clone https://github.com/lets-parley/parley && cd parley
+    cp .env.example .env        # set POSTGRES_PASSWORD to anything
+    docker compose up -d
+    ```
+    That is the whole install, and it is on `:8080`. Compose binds to localhost
+    until you say otherwise.
+  </TabItem>
+  <TabItem label="One server">
+    Compose, a domain, and a reverse proxy in front — one box your whole team
+    points at, no cluster. Parley is one process and a database, so this is the
+    shape it is built for, and a small cloud instance carries a team of a few
+    dozen. [One server →](/operations/single-server/)
+  </TabItem>
+  <TabItem label="Prebuilt image">
+    ```sh
+    docker run -d --name parley -p 8080:8080 \
+      -e DATABASE_URL='postgres://parley:secret@db:5432/parley' \
+      -e BASE_URL='https://parley.example.com' \
+      ghcr.io/lets-parley/parley:0.2.3
+    ```
+    Multi-arch, amd64 and arm64. Bring your own Postgres. Run v0.2.2 or later:
+    every earlier release can be crashed remotely by a disconnecting client, and
+    v0.1.0 additionally has a room-code throttle bypass. None were retagged onto
+    fixed code.
+  </TabItem>
+  <TabItem label="Kubernetes">
+    The Helm chart above, or the plain manifests in `deploy/k8s/` — a Deployment,
+    a Service, a PodDisruptionBudget, and a commented Ingress carrying the
+    read-timeout annotations WebSockets need. One replica by default; scale up
+    with `--set replicaCount=2`.
+    [Deploying to Kubernetes →](/operations/kubernetes/)
+  </TabItem>
+</Tabs>
+
+The frontend ships inside the binary, so there is no second service, no Node
+runtime in production, and no way for the two halves to end up at different
+versions. Migrations run themselves at boot.
 
 ## What a round looks like
 
@@ -49,64 +111,6 @@ link and type a name.
   alt="A revealed T-shirt round showing a large M under the word MODE, the line 'range S–L · 6 votes · ordinal deck, no average', and counts of S times one, M times four, L times one."
   caption="Revealed. A T-shirt round reports mode and range, because averaging sizes gives you a number nobody can act on."
 />
-
-## Most tools want an account. Parley wants a link.
-
-Same link for planning poker and standup. Two commands and a `.env` file, no
-platform team required:
-
-<Tabs>
-  <TabItem label="Helm">
-    ```sh
-    kubectl create secret generic parley \
-      --from-literal=database-url='postgres://parley:secret@host:5432/parley'
-
-    helm install parley oci://ghcr.io/lets-parley/charts/parley --version 0.2.3 \
-      --set database.existingSecret=parley \
-      --set baseURL=https://parley.example.com
-    ```
-    Pin `--version`. The chart refuses to render a release that cannot work —
-    a moving image tag, a second replica, a missing database secret.
-    [The chart →](/operations/kubernetes/)
-  </TabItem>
-  <TabItem label="Compose">
-    ```sh
-    git clone https://github.com/lets-parley/parley && cd parley
-    cp .env.example .env        # set POSTGRES_PASSWORD to anything
-    docker compose up -d
-    ```
-    That is the whole install, and it is on `:8080`. Compose binds to localhost
-    until you say otherwise.
-  </TabItem>
-  <TabItem label="One server">
-    Compose, a domain, and a reverse proxy in front — one box your whole team
-    points at, no cluster. Parley runs as a single replica by design, so this is
-    the shape it is built for, and a small cloud instance carries a team of a
-    few dozen. [One server →](/operations/single-server/)
-  </TabItem>
-  <TabItem label="Prebuilt image">
-    ```sh
-    docker run -d --name parley -p 8080:8080 \
-      -e DATABASE_URL='postgres://parley:secret@db:5432/parley' \
-      -e BASE_URL='https://parley.example.com' \
-      ghcr.io/lets-parley/parley:0.2.3
-    ```
-    Multi-arch, amd64 and arm64. Bring your own Postgres. Run v0.2.2 or later:
-    every earlier release can be crashed remotely by a disconnecting client, and
-    v0.1.0 additionally has a room-code throttle bypass. None were retagged onto
-    fixed code.
-  </TabItem>
-  <TabItem label="Kubernetes">
-    The Helm chart above, or the plain manifests in `deploy/k8s/` — a Deployment
-    pinned to one replica, a Service, and a commented Ingress carrying the
-    read-timeout annotations WebSockets need.
-    [Deploying to Kubernetes →](/operations/kubernetes/)
-  </TabItem>
-</Tabs>
-
-The frontend ships inside the binary, so there is no second service, no Node
-runtime in production, and no way for the two halves to end up at different
-versions. Migrations run themselves at boot.
 
 ## What's in it
 
@@ -147,15 +151,12 @@ versions. Migrations run themselves at boot.
 
 ## What Parley doesn't do
 
-- **One replica, and it enforces that.** A second instance refuses to start
-  rather than serve a divergent board. Size it vertically; deploy when nobody
-  is mid-session.
+- **No metrics, tracing, access log, SBOM or image signing.** JSON logs to
+  stdout are all it emits; probe `/readyz` and take request metrics from your
+  reverse proxy, and build from a tagged commit yourself if you need provenance.
 - **No roles beyond member and facilitator.** Any member can rotate the room
   code or open the space. Keep membership deliberate, or put an SSO proxy in
   front of it.
-- **No metrics, tracing, SBOM or image signing.** Structured JSON logs to
-  stdout are all it emits; build from a tagged commit yourself if you need
-  provenance.
 - **Turning on OIDC signs everyone out.** Anonymous accounts are not linked to
   federated ones. Switch on an instance whose history you are willing to leave
   behind.
@@ -184,6 +185,11 @@ are the reason to believe the rest.
     title="Security"
     href="/security/"
     description="Threat model, authentication, authorization, data and privacy, and a single-page review pack."
+  />
+  <LinkCard
+    title="Threat model"
+    href="/security/threat-model/"
+    description="What Parley assumes about its attacker, what it defends, and what it deliberately leaves to the network in front of it."
   />
 </CardGrid>
 

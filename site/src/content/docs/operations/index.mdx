@@ -9,19 +9,20 @@ Parley is one Go binary with the frontend compiled into it, plus a Postgres
 database. There is no second service, no Node runtime in production, no cache to
 warm and no queue to drain.
 
-That buys a very small operational surface, and it costs one significant
-constraint: **Parley runs as a single replica, and it enforces that itself**. If
-you read one page here before deploying, read
+That buys a very small operational surface. Parley runs happily on one replica
+or several — fanout, presence and the room-code throttle all go through
+Postgres — so the shape of the deployment is your call. If you read one page
+here before deploying, read
 [Scaling and limits](/operations/scaling-and-limits/).
 
 <SectionIndex items={[
   { title: "Architecture", href: "/operations/architecture/", blurb: "What the process is, how a request and a WebSocket flow through it, and what the health endpoints really check." },
   { title: "Deployment", href: "/operations/deployment/", blurb: "Docker Compose, a bare binary, and the settings that matter in both." },
   { title: "One server", href: "/operations/single-server/", blurb: "Compose, a domain and a reverse proxy — the whole team on one box, without a cluster." },
-  { title: "Kubernetes", href: "/operations/kubernetes/", blurb: "The shipped manifest, what it deliberately leaves out, and the deploy downtime to expect." },
+  { title: "Kubernetes", href: "/operations/kubernetes/", blurb: "The chart and the plain manifest, the guards that fail at render time, and what a rollout does." },
   { title: "Reverse proxy", href: "/operations/reverse-proxy/", blurb: "Caddy and nginx, including the WebSocket timeout that catches everyone." },
   { title: "Observability", href: "/operations/observability/", blurb: "What Parley emits, what it does not, and where to get the rest." },
-  { title: "Scaling and limits", href: "/operations/scaling-and-limits/", blurb: "The single-replica constraint, the connection pool, and every timeout." },
+  { title: "Scaling and limits", href: "/operations/scaling-and-limits/", blurb: "What extra replicas buy you, the connection pool, and every timeout." },
   { title: "Backups and recovery", href: "/operations/backups-and-recovery/", blurb: "pg_dump, restore, and what recovery actually costs you." },
   { title: "Upgrading", href: "/operations/upgrading/", blurb: "Migrations, why rolling back is unsafe, and upgrading Postgres itself." },
   { title: "Runbook", href: "/operations/runbook/", blurb: "Symptom in, cause and fix out." },

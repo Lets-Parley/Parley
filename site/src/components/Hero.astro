@@ -1,0 +1,190 @@
+---
+/* Starlight's own Hero, plus two things the stock one has no slot for: an
+   eyebrow above the headline and a row of trust signals under the buttons.
+   Starlight's own scoped <style> is carried over verbatim — it holds the base
+   grid the hero needs to exist at all. Parley's overrides live unlayered in
+   src/styles/parley.css and win over it, because these rules sit inside
+   @layer starlight.core.
+
+   The star count is fetched once at build time. A failed fetch — offline, rate
+   limited, GitHub down — must never fail the build, so the row simply renders
+   without the count. */
+import { Image } from "astro:assets";
+import DraftContentNotice from "virtual:starlight/components/DraftContentNotice";
+import { LinkButton } from "@astrojs/starlight/components";
+import { VERIFIED_VERSION } from "../verified";
+
+// Starlight's own value; it is not re-exported from a public entry point.
+const PAGE_TITLE_ID = "_top";
+
+const { data } = Astro.locals.starlightRoute.entry;
+const { title = data.title, tagline, image, actions = [] } = data.hero || {};
+
+let stars: number | null = null;
+try {
+  const res = await fetch("https://api.github.com/repos/lets-parley/parley", {
+    headers: { accept: "application/vnd.github+json" },
+    // A connection that opens and then never answers would not reject, so the
+    // catch below would never fire and the build would hang instead of
+    // falling back. The timeout is what makes the fallback reachable.
+    signal: AbortSignal.timeout(3000),
+  });
+  if (res.ok) {
+    const count = (await res.json()).stargazers_count;
+    // Zero is worse than silence here: an explicit "0 stars" argues against
+    // the project, so the chip is dropped rather than rendered empty.
+    if (typeof count === "number" && count > 0) stars = count;
+  }
+} catch {
+  // Left null on purpose: the trust row drops the count rather than the build.
+}
+
+const imageAttrs = {
+  loading: "eager" as const,
+  decoding: "async" as const,
+  width: 1280,
+  height: 760,
+  alt: image?.alt || "",
+};
+
+let darkImage: ImageMetadata | undefined;
+let lightImage: ImageMetadata | undefined;
+let rawHtml: string | undefined;
+if (image) {
+  if ("file" in image) {
+    darkImage = image.file;
+  } else if ("dark" in image) {
+    darkImage = image.dark;
+    lightImage = image.light;
+  } else {
+    rawHtml = image.html;
+  }
+}
+---
+
+<div class="hero">
+  {
+    darkImage && (
+      <Image
+        src={darkImage}
+        {...imageAttrs}
+        class:list={{ "light:sl-hidden": Boolean(lightImage) }}
+      />
+    )
+  }
+  {lightImage && <Image src={lightImage} {...imageAttrs} class="dark:sl-hidden" />}
+  {rawHtml && <div class="hero-html sl-flex" set:html={rawHtml} />}
+  <div class="sl-flex stack">
+    <div class="sl-flex copy">
+      <p class="hero-eyebrow">Open source · Self-hosted</p>
+      <h1 id={PAGE_TITLE_ID} data-page-title set:html={title} />
+      {data.draft && <DraftContentNotice />}
+      {tagline && <div class="tagline" set:html={tagline} />}
+    </div>
+    {
+      actions.length > 0 && (
+        <div class="sl-flex actions">
+          {actions.map(
+            ({ attrs: { class: className, ...attrs } = {}, icon, link: href, text, variant }) => (
+              <LinkButton {href} {variant} icon={icon?.name} class:list={[className]} {...attrs}>
+                {text}
+                {icon?.html && <Fragment set:html={icon.html} />}
+              </LinkButton>
+            )
+          )}
+        </div>
+      )
+    }
+    <p class="hero-trust">
+      <span>MIT licensed</span>
+      <span>{VERIFIED_VERSION}</span>
+      {
+        stars !== null && (
+          <a href="https://github.com/lets-parley/parley">
+            ★ {stars.toLocaleString("en-US")} on GitHub
+          </a>
+        )
+      }
+    </p>
+  </div>
+</div>
+
+<style>
+	@layer starlight.core {
+		.hero {
+			display: grid;
+			grid-template-columns: 100%;
+			align-items: center;
+			gap: 1rem;
+			padding-bottom: 1rem;
+		}
+
+		.hero > img,
+		.hero > .hero-html {
+			object-fit: contain;
+			width: min(70%, 20rem);
+			height: auto;
+			margin-inline: auto;
+		}
+
+		.stack {
+			flex-direction: column;
+			gap: clamp(1.5rem, calc(1.5rem + 1vw), 2rem);
+			text-align: center;
+		}
+
+		.copy {
+			flex-direction: column;
+			gap: 1rem;
+			align-items: center;
+		}
+
+		.copy > * {
+			max-width: 50ch;
+		}
+
+		h1 {
+			font-size: clamp(var(--sl-text-3xl), calc(0.25rem + 5vw), var(--sl-text-6xl));
+			line-height: var(--sl-line-height-headings);
+			font-weight: 600;
+			color: var(--sl-color-white);
+		}
+
+		.tagline {
+			font-size: clamp(var(--sl-text-base), calc(0.0625rem + 2vw), var(--sl-text-xl));
+			color: var(--sl-color-gray-2);
+		}
+
+		.actions {
+			gap: 1rem 2rem;
+			flex-wrap: wrap;
+			justify-content: center;
+		}
+
+		@media (min-width: 50rem) {
+			.hero {
+				grid-template-columns: 7fr 4fr;
+				gap: 3%;
+				padding-block: clamp(2.5rem, calc(1rem + 10vmin), 10rem);
+			}
+
+			.hero > img,
+			.hero > .hero-html {
+				order: 2;
+				width: min(100%, 25rem);
+			}
+
+			.stack {
+				text-align: start;
+			}
+
+			.copy {
+				align-items: flex-start;
+			}
+
+			.actions {
+				justify-content: flex-start;
+			}
+		}
+	}
+</style>
