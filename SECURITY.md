@@ -25,11 +25,13 @@ not be.
 
 ## Supported versions
 
-Only the latest release is supported. There are no backported security fixes.
+Only the latest patch release in the current minor series is supported. Older
+patch and minor releases do not receive backported security fixes.
 
 | Version | Supported |
 |---|---|
-| 0.2.2, 0.2.3 | Yes |
+| 0.2.3 | Yes |
+| 0.2.2 | No — superseded by the latest patch |
 | 0.2.0, 0.2.1 | **No — have a known vulnerability, see below** |
 | 0.1.0 | **No — has known vulnerabilities, see below** |
 

@@ -21,14 +21,20 @@ You need Go (the version in `go.mod`), Node 24, and a Postgres you can throw
 away.
 
 ```sh
-# frontend
-cd web && npm ci && npm run dev
-cd web && npm test              # Vitest; npm run test:watch while working
+# build the frontend assets embedded by Go
+cd web
+npm ci
+npm test
+npm run build
+cd ..
 
 # backend
 export DATABASE_URL=postgres://parley:dev@localhost:5432/parley
 go run ./cmd/parley
 ```
+
+For frontend development, run `npm run dev` from `web/` after installing its
+dependencies; Vite proxies `/api` and `/ws` to the backend on port 8080.
 
 Full setup, including the layout of the repository, is at
 <https://www.letsparley.io/project/contributing/>.

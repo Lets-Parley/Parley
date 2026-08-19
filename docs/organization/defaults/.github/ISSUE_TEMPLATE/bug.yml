@@ -6,7 +6,7 @@ labels:
 body:
   - type: markdown
     attributes:
-      value: Do not include secrets, credentials, personal data, or vulnerability details. Use the private security link on the issue chooser for suspected vulnerabilities.
+      value: Do not include secrets, credentials, personal data, or vulnerability details. Follow the organization security policy linked from the issue chooser for suspected vulnerabilities.
   - type: input
     id: version
     attributes:

@@ -69,7 +69,7 @@ Full detail: [Data and privacy](/security/data-and-privacy/).
   { name: "Cross-site request defence", status: "built", detail: "SameSite=Lax, an Origin and Sec-Fetch-Site check rejecting cross-site non-GET, and a JSON content-type requirement, in place of a CSRF token. Note a request with no Origin header, and a sibling subdomain (which browsers label same-site), are not caught by the header check — see the <a href='/security/threat-model/'>threat model</a>." },
   { name: "Session token handling", status: "built", detail: "32 random bytes, SHA-256 at rest, HttpOnly cookie, Secure when BASE_URL is https." },
   { name: "OIDC correctness", status: "built", detail: "Authorization code + PKCE (S256); signature, audience, expiry and nonce verified; state and nonce compared in constant time." },
-  { name: "Long-lived session revocation", status: "built", detail: "WebSockets check shared-store revocation and expiry at least every 30 seconds and close with policy code 1008; logout disconnects synchronously." },
+  { name: "Long-lived session revocation", status: "built", detail: "WebSockets start a shared-store check every 30 seconds, allow a 30-second timeout, and close with policy code 1008 on failure; logout disconnects synchronously." },
   { name: "Brute-force protection on room codes", status: "built", detail: "8 attempts per 60s per address per space, with a confusable-free alphabet and constant-time comparison." },
   { name: "CSV formula-injection escaping", status: "built", detail: "Cells starting = + - @ tab or CR are quote-prefixed." },
   { name: "Container hardening", status: "built", detail: "distroless static non-root; the k8s manifest adds drop ALL, no privilege escalation, seccomp RuntimeDefault, read-only root filesystem." },
@@ -102,8 +102,9 @@ network; public deployments need an additional access and abuse-control layer.
   in front of the whole instance. `AUTH_MODE=oidc` identifies people, but does
   not gate space access.
 - *Can we revoke one person's access?* There is no UI. Delete that person's rows
-  from `session_tokens`; HTTP access stops immediately and their WebSockets
-  close within 30 seconds. Rotate the room code to prevent a new membership.
+  from `session_tokens`; HTTP access stops immediately. Allow up to 60 seconds
+  for their WebSockets to start a check, time out, and close. Rotate the room
+  code to prevent a new membership.
 - *Can we prove who estimated what?* In `oidc` mode, yes, from the database. There
   is no report and no audit trail; the data is there to query.
 - *What happens on a breach of the database?* Everything is disclosed, including

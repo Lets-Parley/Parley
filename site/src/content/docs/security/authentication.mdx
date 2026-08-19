@@ -129,17 +129,18 @@ them signed in, because it does not.
 ## Revocation and long-lived connections
 
 WebSockets do not trust only the state captured at upgrade time. Each connection
-checks the token in Postgres at least every 30 seconds without extending its idle
-lifetime, and also has a timer for the known expiry. A deleted or expired token
-closes the connection with WebSocket policy code `1008`. Shared-store checks
-mean revocation works even when the database change was made outside this
-process; the maximum normal detection interval is 30 seconds.
+starts a token check in Postgres every 30 seconds without extending its idle
+lifetime, and also has a timer for the known expiry. A check may take up to 30
+seconds before it fails closed. A deleted or expired token closes the connection
+with WebSocket policy code `1008`. Shared-store checks mean revocation works even
+when the database change was made outside this process; allow up to 60 seconds
+from an external deletion for the next check and its timeout to complete.
 
 <SpecTable rows={[
   { name: "Sign out", value: "supported", note: "Deletes the token, synchronously closes its WebSockets, and clears the cookie" },
   { name: "Rename", value: "rotates the token", note: "In one transaction" },
-  { name: "Sign out everywhere UI", value: "not supported", note: "Delete the user's rows from session_tokens in SQL; sockets close within 30s" },
-  { name: "Administrative revocation UI", value: "not supported", note: "There is no admin surface; shared-store deletion is enforced within 30s" },
+  { name: "Sign out everywhere UI", value: "not supported", note: "Delete the user's rows from session_tokens in SQL; allow up to 60s for sockets to close" },
+  { name: "Administrative revocation UI", value: "not supported", note: "There is no admin surface; allow up to 60s for shared-store enforcement" },
   { name: "Expired token cleanup", value: "never runs", note: "Rows stop resolving but are not swept" },
 ]} />
 

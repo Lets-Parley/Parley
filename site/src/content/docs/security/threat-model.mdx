@@ -90,8 +90,10 @@ trusted-network-only.
 **Anyone who has your session cookie.** There is no binding to an address or a
 device and no UI to list or administratively revoke sessions. Deleting a token
 from the shared store is authoritative: HTTP requests stop resolving it and
-WebSockets close with policy code `1008` within 30 seconds. Logout performs the
-same revocation and disconnect synchronously for its own token.
+WebSockets start a shared-store check every 30 seconds, allow that check a
+30-second timeout, and then close with policy code `1008` on failure. Allow up to
+60 seconds for an external deletion to be enforced. Logout performs the same
+revocation and disconnect synchronously for its own token.
 
 ## Risks accepted on purpose
 
