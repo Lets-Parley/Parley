@@ -41,6 +41,12 @@ Publication starts only from a published GitHub Release whose tag is exactly
 `vMAJOR.MINOR.PATCH`. The workflow refuses a pre-release or a tag whose commit
 is not reachable from `main`.
 
+`v0.4.0` was tagged but never published: a broken SBOM step in the release
+workflow (fixed after) failed the publish before any artifact reached the
+registry. No image, chart, or attestation for `v0.4.0` exists anywhere.
+`v0.4.1` carries the same changes and is the current release; the gap in the
+version sequence is expected, not a sign of a retagged or tampered release.
+
 The multi-architecture image is built for `linux/amd64` and `linux/arm64` in a
 job with no registry write permission. That job creates an immutable OCI
 artifact with maximum BuildKit provenance and BuildKit SBOM attestations, and
