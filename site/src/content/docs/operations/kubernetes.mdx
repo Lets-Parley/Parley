@@ -30,7 +30,8 @@ starting `FATAL:` and exits, so `kubectl logs` has the answer:
   `PGPASSWORD` in the environment rather than putting it on the command line):
 
   ```sh
-  PGPASSWORD=secret psql 'postgres://parley@host:5432/parley?sslmode=require' \
+  read -rs PGPASSWORD && export PGPASSWORD
+  psql 'postgres://parley@host:5432/parley?sslmode=require' \
     -c "select has_database_privilege('parley', 'parley', 'CREATE')" \
     -c 'select version()'
   ```
