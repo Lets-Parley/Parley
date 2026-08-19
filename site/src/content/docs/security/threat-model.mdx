@@ -92,8 +92,10 @@ device and no UI to list or administratively revoke sessions. Deleting a token
 from the shared store is authoritative: HTTP requests stop resolving it and
 WebSockets start a shared-store check every 30 seconds, allow that check a
 30-second timeout, and then close with policy code `1008` on failure. Allow up to
-60 seconds for an external deletion to be enforced. Logout performs the same
-revocation and disconnect synchronously for its own token.
+60 seconds for an external deletion to be enforced. Logout does not wait for
+that check: it deletes the token, disconnects its own sockets synchronously, and
+publishes the revocation to the other replicas, which close theirs on receipt.
+The 30-second check remains the fallback for a notification lost in transit.
 
 ## Risks accepted on purpose
 

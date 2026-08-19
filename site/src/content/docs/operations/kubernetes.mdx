@@ -61,10 +61,12 @@ them:
   already run makes Parley refuse to start.
 - **A tag that is not a valid image tag at all**, including one shaped to break
   out of the quoted string it lands in inside the pod spec.
-- **A second replica.** `replicaCount` must be a whole number, and anything
-  above 1 is rejected: the realtime hub is in-process and a second pod refuses
-  to start on a Postgres advisory lock. `0` still renders — scaling to zero is
-  how you take Parley down for a migration window.
+- **A fractional replica count.** `replicaCount` must be a whole number:
+  `1.5` would otherwise reach the API server as `replicas: 1.5` and be rejected
+  there with no useful message. More than one replica is supported; the default
+  is 1, so upgrading the chart never silently doubles an install's pods. `0`
+  still renders — scaling to zero is how you take Parley down for a maintenance
+  window.
 - **A missing `database.existingSecret`.**
 - **OIDC without a client secret.**
 - **Ingress TLS under an `http://` base URL.**
@@ -78,8 +80,13 @@ would only ever be a credential for something with a foothold to find.
 `deploy/k8s/deployment.yaml` is a starting point. Two things in it are
 load-bearing rather than stylistic.
 
-**`replicas: 1` + `strategy: Recreate`.** The realtime hub is in-process, and a
-second replica refuses to start via a Postgres advisory lock.
+**`strategy: RollingUpdate`** with `maxSurge: 1` and `maxUnavailable: 0`, so a
+rollout never drops below the replica count. Like the chart it ships with
+`replicas: 1`; raise it when you want rollout headroom and a survivable node
+failure. Every
+replica opens up to 10 pooled Postgres connections plus one for the fanout
+listener, so size `max_connections` for `replicas × 11`. The plain manifest has
+no PodDisruptionBudget and no anti-affinity — the chart adds both.
 
 **The liveness probe hits `/healthz`**, which never touches the database,
 because a DB blip must not restart the pod and drop every WebSocket.
@@ -95,15 +102,27 @@ kubectl create secret generic parley \
 kubectl apply -f deploy/k8s/deployment.yaml
 ```
 
-## Expect a few seconds of downtime on deploy
+## Rollouts
 
-One replica and `Recreate` means a rolling update is a gap, covered by the
-client's reconnect banner. If a new pod logs `advisory lock ... already held`,
-the old one hasn't exited yet; it starts on the next retry.
+With more than one replica the rollout is seamless. At `replicaCount: 1` there
+is a reconnect as the pod is replaced, covered by the client's banner.
 
-There is deliberately **no PodDisruptionBudget**. The only one that would
-protect a single replica (`maxUnavailable: 0`) deadlocks the drain it was meant
-to survive.
+The chart renders a **PodDisruptionBudget** with `minAvailable: 1`, but only
+above one replica: a budget in front of a single pod blocks every voluntary
+eviction and hangs the `kubectl drain` it was meant to survive. It also sets a
+**topology spread constraint** on `kubernetes.io/hostname` so replicas do not
+all land on one node. That one is `ScheduleAnyway`, so a single-node cluster
+still schedules instead of leaving pods Pending — tighten it to
+`DoNotSchedule` once you have nodes to spare.
+
+### One thing to know about the window
+
+The new pod runs migrations before the old pods are gone, so during a rollout
+the old version is serving against a newer schema. Parley's migrations are
+additive and the old pods keep working; an old pod that restarts in that window
+starts normally and is replaced moments later. Roll forward — rolling *back*
+onto an image older than the migrations that have run is still refused, by
+design.
 
 ## The manifest leaves proxy trust disabled
 
