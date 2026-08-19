@@ -11,6 +11,19 @@ tag, and are anonymously pullable.
 Tagging `vX.Y.Z` publishes `X.Y.Z` and `X.Y`, and moves `latest` for non
 pre-release tags.
 
+## v0.2.2
+
+**Security release. Upgrade from any earlier version.**
+
+- **A client disconnecting during a broadcast could kill the server.** Every
+  release before this one could be crashed remotely by an ordinary participant
+  closing a tab at the wrong moment, taking down every room on the instance
+  rather than only theirs. Denial of service only — no data disclosure, and
+  unrevealed votes were never affected. See
+  [Known vulnerable versions](/security/supply-chain/#known-vulnerable-versions)
+- The first tests for `internal/hub`, including a race-detector test covering
+  concurrent close and broadcast
+
 ## v0.2.1
 
 Parley moved to the `lets-parley` organisation. The module path is
@@ -41,7 +54,8 @@ would silently change what that version means for anyone who had already pulled
 it and would break digest verification — a clearly-labelled bad version is safer
 than a mutated one.
 
-Upgrade to v0.2.0 or later.
+Upgrade to v0.2.2. v0.2.0 and v0.2.1 fix this bypass but are themselves
+affected by the broadcast crash.
 :::
 
 There is no GitHub Release object for v0.1.0, only a tag and an image — it was

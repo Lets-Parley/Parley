@@ -76,11 +76,12 @@ platform team required:
     docker run -d --name parley -p 8080:8080 \
       -e DATABASE_URL='postgres://parley:secret@db:5432/parley' \
       -e BASE_URL='https://parley.example.com' \
-      ghcr.io/lets-parley/parley:v0.2.0
+      ghcr.io/lets-parley/parley:0.2.2
     ```
-    Multi-arch, amd64 and arm64. Bring your own Postgres. Run v0.2.0 or later:
-    v0.1.0 has a room-code throttle bypass and was deliberately never retagged
-    onto fixed code.
+    Multi-arch, amd64 and arm64. Bring your own Postgres. Run v0.2.2 or later:
+    every earlier release can be crashed remotely by a disconnecting client, and
+    v0.1.0 additionally has a room-code throttle bypass. None were retagged onto
+    fixed code.
   </TabItem>
   <TabItem label="Kubernetes">
     Manifests live in `deploy/k8s/` — a Deployment pinned to one replica, a

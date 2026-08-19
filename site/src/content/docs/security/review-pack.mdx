@@ -102,5 +102,6 @@ now.
   every room code. Session tokens are hashed, so they are not directly reusable.
 - *Is there a disclosure process?* Yes —
   [GitHub security advisories](https://github.com/lets-parley/parley/security/advisories/new).
-  Note that **v0.1.0 has a known throttle bypass** and was deliberately not
-  retagged; use v0.2.0 or later.
+  Note that **every release before v0.2.2 can be crashed remotely by a
+  disconnecting client**, and **v0.1.0 additionally has a throttle bypass**.
+  None were retagged; use v0.2.2 or later.
