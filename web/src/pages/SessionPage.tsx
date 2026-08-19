@@ -59,7 +59,7 @@ export function SessionPage() {
       {env.kind === "poker" ? (
         <PokerRoom env={env} me={me.data} />
       ) : (
-        <StandupRoom env={env} me={me.data} />
+        <StandupRoom env={env} me={me.data} status={session.status} />
       )}
     </AppShell>
   );

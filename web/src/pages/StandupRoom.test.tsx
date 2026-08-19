@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
-import { Timer } from "./StandupRoom";
+import { StandupRoom, Timer } from "./StandupRoom";
+import { makePerson, renderApp } from "../test/render";
+import type { Envelope, Me } from "../lib/api";
+import type { StandupEntry } from "./StandupRoom";
 
 const START = "2026-08-18T10:00:00.000Z";
 
@@ -91,5 +94,111 @@ describe("StandupRoom Timer", () => {
     const { unmount } = render(<Timer startedAt={START} seconds={90} serverTime={START} />);
     unmount();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+const me: Me = { id: "marcus", name: "Marcus Okonjo", avatarHue: 40 };
+
+function entry(over: Partial<StandupEntry> = {}): StandupEntry {
+  return { userId: "dana", yesterday: "", today: "", blockers: "", position: 1, skipped: false, ...over };
+}
+
+function standupState(currentSpeakerId: string | null = "dana"): Envelope["state"] {
+  return {
+    entries: [
+      entry({ userId: "dana", position: 1 }),
+      entry({ userId: "marcus", position: 2 }),
+      entry({ userId: "priya", position: 3, skipped: true }),
+    ],
+    currentSpeakerId,
+    speakerStartedAt: START,
+    secondsPerPerson: 90,
+  } as unknown as Envelope["state"];
+}
+
+/** Dana speaks first, Marcus second, Priya was skipped. */
+function envelope(over: Partial<Envelope> = {}): Envelope {
+  return {
+    id: "sess-1",
+    kind: "standup",
+    title: "Daily",
+    phase: "speaking",
+    revealed: false,
+    version: 1,
+    facilitatorId: "dana",
+    facilitatorConnected: true,
+    endedAt: null,
+    presence: ["marcus"],
+    spaceSlug: "platform-team",
+    participants: [
+      makePerson({ userId: "dana", name: "Dana Whitfield" }),
+      makePerson({ userId: "marcus", name: "Marcus Okonjo" }),
+      makePerson({ userId: "priya", name: "Priya Raman" }),
+    ],
+    serverTime: "2026-08-18T10:00:00.000Z",
+    state: standupState(),
+    ...over,
+  };
+}
+
+const announcer = () => screen.getByRole("status");
+const seat = (name: string) =>
+  screen.getAllByRole("listitem").find((li) => li.textContent?.includes(name))!;
+
+describe("StandupRoom turn accessibility", () => {
+  it("marks the current speaker with aria-current and a text equivalent", () => {
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    const dana = seat("Dana Whitfield");
+    expect(dana.getAttribute("aria-current")).toBe("true");
+    expect(dana.textContent).toMatch(/speaking now/i);
+    expect(seat("Marcus Okonjo").getAttribute("aria-current")).toBe(null);
+  });
+
+  it("says skipped in text, not only in opacity and a line-through", () => {
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    expect(seat("Priya Raman").textContent).toMatch(/skipped or absent/i);
+    expect(seat("Marcus Okonjo").textContent).not.toMatch(/skipped/i);
+  });
+
+  it("keeps the countdown out of the announcement and out of the a11y tree", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(START));
+    try {
+      renderApp(<StandupRoom env={envelope()} me={me} />);
+      const before = announcer().textContent;
+      expect(before).not.toMatch(/\d+:\d{2}/);
+      expect(screen.getByText(/^\d+:\d{2}$/).closest("[aria-hidden='true']")).not.toBe(null);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(announcer().textContent).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("announces a turn change exactly once, naming only the new speaker", () => {
+    const { rerender } = renderApp(<StandupRoom env={envelope()} me={me} />);
+    expect(announcer().textContent).toBe("Dana Whitfield is speaking now.");
+    rerender(
+      <StandupRoom
+        env={envelope({ state: standupState("marcus") })}
+        me={me}
+      />,
+    );
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(announcer().textContent).toBe("Marcus Okonjo is speaking now.");
+  });
+
+  it("announces the end of the session", () => {
+    renderApp(
+      <StandupRoom env={envelope({ phase: "done", state: standupState(null) })} me={me} />,
+    );
+    expect(announcer().textContent).toMatch(/wrapped up|complete|over/i);
+  });
+
+  it("stays silent while the connection is not live, so it doesn't queue behind the banner", () => {
+    renderApp(<StandupRoom env={envelope()} me={me} status="stale" />);
+    expect(announcer().textContent).toBe("");
   });
 });

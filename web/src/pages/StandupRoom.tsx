@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Envelope, type Me } from "../lib/api";
+import type { ConnectionStatus } from "../lib/socket";
 import { Avatar } from "../components/Avatar";
 import { buttonPrimary, buttonQuiet, inputClass } from "../components/Modal";
 
-type StandupEntry = {
+export type StandupEntry = {
   userId: string;
   yesterday: string;
   today: string;
@@ -75,13 +76,26 @@ export function Timer({ startedAt, seconds, serverTime }: { startedAt: string; s
   const shown = Math.max(0, remaining);
   const tone = remaining <= 0 ? "text-stop" : remaining <= seconds * 0.25 ? "text-brass" : "text-ink-soft";
   return (
-    <span className={`font-mono text-3xl font-medium tabular-nums ${tone}`}>
-      {Math.floor(shown / 60)}:{String(shown % 60).padStart(2, "0")}
+    // The digits change twice a second, so they stay out of the accessibility
+    // tree entirely; the static label carries the only fact worth speaking.
+    <span>
+      <span className="sr-only">{`Each turn is ${seconds} seconds. A countdown is shown on screen.`}</span>
+      <span aria-hidden="true" className={`font-mono text-3xl font-medium tabular-nums ${tone}`}>
+        {Math.floor(shown / 60)}:{String(shown % 60).padStart(2, "0")}
+      </span>
     </span>
   );
 }
 
-export function StandupRoom({ env, me }: { env: Envelope; me: Me }) {
+export function StandupRoom({
+  env,
+  me,
+  status = "live",
+}: {
+  env: Envelope;
+  me: Me;
+  status?: ConnectionStatus;
+}) {
   const st = env.state as unknown as StandupState;
   const isFacilitator = env.facilitatorId === me.id;
   const { draft, update, saveState } = useOwnEntryDraft(env, me.id);
@@ -91,6 +105,19 @@ export function StandupRoom({ env, me }: { env: Envelope; me: Me }) {
   const speaking = env.phase === "speaking";
   const done = env.phase === "done";
   const current = st.currentSpeakerId ? st.entries.find((e) => e.userId === st.currentSpeakerId) : undefined;
+
+  // One polite line for the whole room. It never carries the countdown, so it
+  // speaks on a turn change rather than on every 500ms tick, and it stays empty
+  // while the connection is off — ConnectionBanner and the toasts are already
+  // polite regions, and a third would queue serially behind them.
+  const announcement =
+    status !== "live"
+      ? ""
+      : done
+        ? "The standup has wrapped up."
+        : speaking && current
+          ? `${people.get(current.userId)?.name ?? "Someone"} is speaking now.`
+          : "";
 
   async function run(fn: () => Promise<unknown>) {
     try {
@@ -131,6 +158,7 @@ export function StandupRoom({ env, me }: { env: Envelope; me: Me }) {
             return (
               <li
                 key={e.userId}
+                aria-current={isCurrent ? "true" : undefined}
                 className={
                   "flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3 transition " +
                   (isCurrent ? "bg-accent-soft shadow-lift" : e.skipped ? "opacity-40" : "bg-surface shadow-rest")
@@ -138,6 +166,9 @@ export function StandupRoom({ env, me }: { env: Envelope; me: Me }) {
               >
                 {p && <Avatar name={p.name} hue={p.avatarHue} size="sm" />}
                 <span className={"text-sm font-bold" + (e.skipped ? " line-through" : "")}>{p?.name}</span>
+                {(isCurrent || e.skipped) && (
+                  <span className="sr-only">{isCurrent ? " — speaking now" : " — skipped or absent"}</span>
+                )}
               </li>
             );
           })}
@@ -213,6 +244,10 @@ export function StandupRoom({ env, me }: { env: Envelope; me: Me }) {
           )}
         </section>
       )}
+
+      <p role="status" aria-live="polite" className="sr-only">
+        {announcement}
+      </p>
 
       {error && <p role="alert" className="font-bold text-stop">{error}</p>}
     </div>
