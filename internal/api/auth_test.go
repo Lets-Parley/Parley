@@ -116,6 +116,7 @@ func oidcServer(t *testing.T, idp *fakeIdP) *httptest.Server {
 	pool := testPool(t)
 	srv := httptest.NewServer(Router(pool, Options{
 		AllowedOrigin: "http://example.test",
+		Context:       testContext(t),
 		AuthMode:      ModeOIDC,
 		OIDC: auth.New(auth.Config{
 			Issuer:       idp.URL,

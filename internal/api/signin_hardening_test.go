@@ -139,13 +139,14 @@ func TestAnonymousSessionsStopWorkingInOIDCMode(t *testing.T) {
 	pool := testPool(t)
 
 	// An instance that started out open, with someone signed in the old way.
-	open := httptest.NewServer(Router(pool, Options{AllowedOrigin: "http://example.test"}))
+	open := httptest.NewServer(Router(pool, Options{AllowedOrigin: "http://example.test", Context: testContext(t)}))
 	defer open.Close()
 	anon := signup(t, open, "Anonymous Ann")
 
 	// The same database, now running behind an identity provider.
 	federated := httptest.NewServer(Router(pool, Options{
 		AllowedOrigin: "http://example.test",
+		Context:       testContext(t),
 		AuthMode:      ModeOIDC,
 		OIDC: auth.New(auth.Config{
 			Issuer: idp.URL, ClientID: "parley-test", ClientSecret: "shh",

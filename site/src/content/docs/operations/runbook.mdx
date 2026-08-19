@@ -22,9 +22,16 @@ drops the Secure cookie. Serve over HTTPS, or set an `http` `BASE_URL`.
 
 ### `/readyz` fails but `/healthz` is fine
 
-The app is up, Postgres isn't. Check the database container and `DATABASE_URL`.
-This split is deliberate: liveness never touches the database, so a blip can't
-restart the process and drop every open session.
+Usually the app is up and Postgres isn't. Check the database container and
+`DATABASE_URL`. This split is deliberate: liveness never touches the database,
+so a blip can't restart the process and drop every open session.
+
+If Postgres is healthy, the other cause is that this instance lost the Postgres
+`LISTEN` it uses to hear about session changes made by other instances. It
+reconnects with backoff on its own, and logs each attempt. Readiness covers it
+because an instance that cannot hear the others still serves requests and still
+holds its WebSockets — it simply never learns that anything changed elsewhere,
+which is invisible from outside unless the probe says so.
 
 ### Which version is this instance running?
 

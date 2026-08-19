@@ -17,6 +17,9 @@ import (
 type ActionCtx struct {
 	Pool *pgxpool.Pool
 	Hub  *hub.Hub
+	// Presence answers "who is in this room" across every replica. Actions must
+	// use it rather than Hub, which only sees the clients attached here.
+	Presence *store.Presence
 	// Broadcast pushes a fresh envelope to everyone watching the session.
 	Broadcast func(ctx context.Context, sessionID string)
 	Session   store.Session

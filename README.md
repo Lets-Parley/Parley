@@ -174,6 +174,7 @@ release can be crashed remotely by a disconnecting client.
 | `PORT` | no | `8080` | Listen port |
 | `LOG_LEVEL` | no | `info` | `debug` / `info` / `warn` / `error` |
 | `TRUST_PROXY_HEADERS` | no | `false` | Read the client address from `X-Forwarded-For`. Required behind a proxy, unsafe without one — see below |
+| `POD_NAME` | no | random per process | Names this instance on the rows recording who is in a room, so a row that outlives the process it came from can be traced back to it. On Kubernetes the chart fills it from the pod name; nothing else needs to set it |
 | `AUTH_MODE` | no | `open` | `open` for no accounts, `oidc` to sign in through an identity provider |
 | `OIDC_ISSUER` | with `oidc` | — | Issuer base URL, the one serving `/.well-known/openid-configuration` |
 | `OIDC_CLIENT_ID` | with `oidc` | — | Client ID registered with the provider |
@@ -396,8 +397,11 @@ an existing volume.
 - **You set a name but every refresh forgets you.** `BASE_URL` is `https` but
   you're browsing over plain `http`, so the browser drops the Secure cookie.
   Serve over HTTPS or set an `http` BASE_URL.
-- **`/readyz` fails but `/healthz` is fine.** The app is up, Postgres isn't.
-  Check the `db` container and `DATABASE_URL`.
+- **`/readyz` fails but `/healthz` is fine.** Usually the app is up and Postgres
+  isn't — check the `db` container and `DATABASE_URL`. If Postgres is healthy,
+  the other cause is that this instance lost its listener for cross-instance
+  session changes; it reconnects on its own, and the log line naming the
+  reconnect says so.
 - **"That passcode doesn't match this space".** Codes are six characters and
   case-insensitive; spaces and hyphens are ignored. After eight wrong tries
   from one address, wait a minute before trying again.
