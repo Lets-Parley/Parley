@@ -36,6 +36,24 @@ go test -p 1 -race ./...
 `-p 1` is load-bearing: packages share one test database and will collide if
 they migrate it concurrently.
 
+Database-backed tests **fail** when `TEST_DATABASE_URL` is unset — most of the
+suite needs Postgres, and a green run that quietly tested nothing is worse than
+a red one. If you genuinely have no database to hand, set
+`PARLEY_SKIP_DB_TESTS=1`; the run then skips those tests and prints a warning
+naming every package it silenced. CI asserts the variable is unset and fails on
+any skipped test, so the opt-out cannot creep back in.
+
+The variable is parsed strictly. `1`, `true`, `yes`, `y` and `on` opt out;
+`0`, `false`, `no`, `n` and `off` do not; anything else is a hard test failure,
+because a typo must never be read as consent to silence most of the suite.
+
+One honest caveat about that warning: `go test` discards everything a *passing*
+package printed, on stdout and stderr alike. The banner therefore reaches you
+via `/dev/tty` when you have a terminal, and via stderr under `go test -v` or
+`go test -json` (what CI runs). A plain non-verbose `go test ./...` piped into a
+file with no terminal attached will show neither — if you script the suite,
+script it with `-json` or `-v`.
+
 ## What a good pull request looks like
 
 - **One thing.** A focused diff gets reviewed; a mixed one waits.

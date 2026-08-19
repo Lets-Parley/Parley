@@ -10,6 +10,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/lets-parley/parley/internal/dbtest"
+
 	"github.com/lets-parley/parley/internal/db"
 	"github.com/lets-parley/parley/internal/store"
 )
@@ -35,10 +37,7 @@ func TestSecondsOrDefault(t *testing.T) {
 // Every caller starts from a dropped schema so tests never inherit rows.
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
+	dsn := dbtest.DSN(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatal(err)

@@ -9,14 +9,13 @@ import (
 	"testing/fstest"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/lets-parley/parley/internal/dbtest"
 )
 
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
+	dsn := dbtest.DSN(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatal(err)
