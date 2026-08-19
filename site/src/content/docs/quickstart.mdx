@@ -48,10 +48,10 @@ Publishing an exact semantic-version GitHub Release builds a multi-arch image
 docker run -d --name parley -p 8080:8080 \
   -e DATABASE_URL='postgres://parley:secret@db:5432/parley' \
   -e BASE_URL='https://parley.example.com' \
-  ghcr.io/lets-parley/parley:0.4.0
+  ghcr.io/lets-parley/parley:0.4.1
 ```
 
-Pin a version rather than `latest`. 0.4.0 is the current release, and 0.2.2 is
+Pin a version rather than `latest`. 0.4.1 is the current release, and 0.2.2 is
 the security floor: every earlier release can be crashed remotely by a
 disconnecting client, and v0.1.0 additionally has a room-code throttle bypass.
 

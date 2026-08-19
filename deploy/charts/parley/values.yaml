@@ -28,7 +28,7 @@ image:
 #
 #     --set replicaCount=2
 #
-# This needs chart 0.4.0 or newer. Every published chart up to and including
+# This needs chart 0.4.1 or newer. Every published chart up to and including
 # 0.3.0 fails at render time on replicaCount > 1, and the binaries they deploy
 # take a boot-time advisory lock that makes the second pod exit.
 #
