@@ -18,7 +18,7 @@ accepted and actionable.
 ## Scale and availability
 
 <Capability rows={[
-  { name: "Multiple replicas", status: "not-built", detail: "Enforced at boot: a second instance exits. The WebSocket hub and the throttle are in-process. Run one replica, vertically sized. Multi-replica realtime is on the roadmap and is the thing blocking a hosted Parley." },
+  { name: "Multiple replicas", status: "not-built", detail: "Enforced at boot: a second instance exits. The WebSocket hub is in-process (the room-code throttle is not: it counts in Postgres). Run one replica, vertically sized. Multi-replica realtime is on the roadmap and is the thing blocking a hosted Parley." },
   { name: "Zero-downtime deploys", status: "not-built", detail: "A consequence of the above — the manifest uses <code>Recreate</code>, so expect a few seconds where boards are stale and clients reconnect. Deploy outside a ceremony." },
   { name: "Connection migration during deploy", status: "not-built", detail: "Shutdown closes WebSockets before the HTTP grace period; clients reconnect after the single replacement starts. There is no handoff to another replica." },
   { name: "Published performance numbers", status: "not-built", detail: "There is no benchmark, and inventing one would be dishonest. Watch Postgres first — that is where the pressure lands." },

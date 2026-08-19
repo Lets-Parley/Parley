@@ -6,7 +6,7 @@ description: The single-replica constraint, the connection pool, and every timeo
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "internal/api/router.go", "internal/db/db.go", "internal/hub/hub.go"]} />
+<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "internal/api/router.go", "internal/api/passcode.go", "internal/db/db.go", "internal/hub/hub.go"]} />
 
 ## Parley runs as exactly one replica
 
@@ -19,8 +19,9 @@ logs that another instance holds it and exits non-zero.
 
 The reason is the WebSocket hub. It lives in process memory, so two replicas
 would each hold half the room: your vote would reach the three people who landed
-on the same pod as you and nobody else. The room-code attempt throttle is
-in-memory for the same reason — split across two replicas, the limit doubles.
+on the same pod as you and nobody else. The room-code attempt throttle no longer
+depends on that: its counter lives in Postgres, so the eight-guess budget is
+shared however many processes are serving.
 
 Rather than let that fail quietly and confusingly at runtime, Parley refuses at
 boot.
