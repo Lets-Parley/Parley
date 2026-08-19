@@ -35,16 +35,18 @@ nothing else — no router surgery, no constraint change, no frontend ternaries.
 
 1. **Write the package and register it.** Give it a `Kind()` constructor
    returning a `session.Kind` — its `Name`, a `State` function returning only
-   client-safe data, `NewConfig`, an optional `CSV`, and its `Actions` dispatch
-   table. Add it to the slice in `internal/api/router.go`:
+   client-safe data (it's broadcast to every participant, so nothing one
+   participant shouldn't see may be included), `NewConfig`, an optional `CSV`,
+   and its `Actions` dispatch table. Add it to the slice in
+   `internal/api/router.go`:
 
    ```go
    for _, k := range []session.Kind{poker.Kind(), standup.Kind(), retro.Kind()} {
    ```
 
    Actions are resolved against the session's own kind, so two kinds may name an
-   action the same thing. Any action that must not run on a closed session
-   checks that itself — the ended-session guard is not in shared middleware.
+   action the same thing. The shared dispatcher already rejects any write on an
+   ended session with a 409, so an action does not need to check that itself.
 
 2. **Seed the kind row.** Migrations are append-only, so add a new numbered file
    in `internal/db/migrations/` rather than editing one that shipped:
