@@ -1,0 +1,37 @@
+name: Feature request
+description: Propose actionable work ready for project tracking
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: Use Discussions first when the problem or design is still open-ended. Issues track accepted, actionable work.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Who has the problem, and what are they unable to do today?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe observable success.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Include workarounds or a link to the design Discussion.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched the roadmap, existing Issues, and Discussions.
+          required: true
+        - label: This request is concrete enough to become actionable work.
+          required: true

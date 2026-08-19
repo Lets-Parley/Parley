@@ -1,6 +1,13 @@
 # Contributing
 
-Bug reports, questions and pull requests are all welcome.
+Bug reports, design discussions, and pull requests are welcome. Participation is
+governed by the [Code of Conduct](CODE_OF_CONDUCT.md) and
+[GOVERNANCE.md](GOVERNANCE.md).
+
+Use [GitHub Discussions](https://github.com/lets-parley/parley/discussions) for
+questions, support, and ideas that still need design. Use Issues for accepted,
+actionable work. See [SUPPORT.md](SUPPORT.md) for routing and do not disclose a
+suspected vulnerability publicly.
 
 ## Before you start on something large
 
@@ -85,7 +92,8 @@ git commit -s
 ```
 
 The sign-off records that you have the right to submit the change under the
-project license. CI checks every commit in a pull request.
+project's MIT license. CI checks every commit in a pull request; signing the
+pull-request description is not a substitute for signing each commit.
 
 ## Reporting a vulnerability
 

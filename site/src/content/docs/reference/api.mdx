@@ -6,7 +6,7 @@ description: Every route, who may call it, and what it does.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import RouteTable from "../../../components/RouteTable.astro";
 
-<VerifiedStamp source={["internal/api/router.go", "internal/api/dispatch.go", "internal/poker/routes.go", "internal/standup/routes.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/standup/routes.go"]} />
 
 There is no API token scheme. Everything authenticates with the `parley_session`
 cookie, so the API is usable from a script only by reusing a browser session's
@@ -15,6 +15,10 @@ cookie.
 Requests under `/api` that carry a body must send `Content-Type: application/json`,
 and non-GET requests are rejected with 403 if their `Origin` does not match
 `BASE_URL` or `Sec-Fetch-Site` says `cross-site`.
+
+Every `/api` request body is capped at 64 KiB before route dispatch, including a
+body sent to an endpoint that does not consume one. Some optional-body routes
+apply a smaller 4 KiB decoder cap.
 
 ## Health
 
@@ -60,7 +64,7 @@ reject them. Their own protection is the `state` value in the sign-in cookie.
   { method: "GET", path: "/api/auth", auth: "public", purpose: "Report which auth mode this instance runs — open or oidc. The frontend uses it to pick a sign-in path." },
   { method: "GET", path: "/api/me", auth: "session", purpose: "Current identity: id, name, avatar hue." },
   { method: "POST", path: "/api/me", auth: "public", purpose: "Create or rename an anonymous identity. Refused with 403 in oidc mode." },
-  { method: "DELETE", path: "/api/me", auth: "session", purpose: "Sign out. Deletes the token row and clears the cookie." },
+  { method: "DELETE", path: "/api/me", auth: "session", purpose: "Sign out. Deletes the token, synchronously closes its WebSockets with code 1008, and clears the cookie." },
 ]} />
 
 ## Spaces
@@ -115,12 +119,13 @@ session is **409**; reopen it first.
 ### Planning poker
 
 <RouteTable rows={[
-  { method: "POST", path: "/api/sessions/{id}/actions/stories", auth: "member", purpose: "Add a story. title ≤200, notes ≤2000, ref ≤40." },
-  { method: "POST", path: "/api/sessions/{id}/actions/story", auth: "member", purpose: "Edit {storyId}: title, notes, ref, position or estimate. An estimate is validated against the session's deck; empty clears it." },
+  { method: "POST", path: "/api/sessions/{id}/actions/stories", auth: "facilitator", purpose: "Add a story. title ≤200, notes ≤2000, ref ≤40." },
+  { method: "POST", path: "/api/sessions/{id}/actions/story", auth: "facilitator", purpose: "Edit {storyId}: title, notes, ref, position or estimate. An estimate is validated against the session's deck; empty clears it." },
   { method: "POST", path: "/api/sessions/{id}/actions/vote", auth: "member", purpose: "Cast or change your vote on {storyId}. Refused for spectators. Triggers the auto-reveal check." },
   { method: "POST", path: "/api/sessions/{id}/actions/select", auth: "facilitator", purpose: "Put a story on the table and clear the reveal." },
   { method: "POST", path: "/api/sessions/{id}/actions/reveal", auth: "facilitator", purpose: "Open the round." },
   { method: "POST", path: "/api/sessions/{id}/actions/reset", auth: "facilitator", purpose: "Clear votes on the current story." },
+  { method: "POST", path: "/api/sessions/{id}/spectator", auth: "member", purpose: "Toggle your own spectator seat with {on}." },
 ]} />
 
 ### Daily standup
@@ -164,6 +169,11 @@ the payload rather than hidden by the client.
 
 The `Origin` header must match `BASE_URL`. An **empty** `Origin` is allowed, so
 that non-browser clients can connect.
+
+The authenticated token is checked in the shared store at least every 30
+seconds without refreshing its idle lifetime. Revocation, expiry, or validation
+failure closes the socket with WebSocket policy code `1008`; logout disconnects
+the token's sockets synchronously.
 
 ## Anything else
 

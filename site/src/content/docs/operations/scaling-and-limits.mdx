@@ -6,7 +6,7 @@ description: The single-replica constraint, the connection pool, and every timeo
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp source={["cmd/parley/main.go", "internal/db/db.go", "internal/hub/hub.go"]} />
+<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "internal/api/router.go", "internal/db/db.go", "internal/hub/hub.go"]} />
 
 ## Parley runs as exactly one replica
 
@@ -60,26 +60,28 @@ against several instances, or wondering why a pool that says 10 saturates at 9.
 ## Server timeouts
 
 <SpecTable rows={[
-  { name: "ReadHeaderTimeout", value: "10s", note: "The only HTTP timeout set" },
-  { name: "ReadTimeout", value: "none", note: "Deliberate — a WebSocket is a long-lived read" },
-  { name: "WriteTimeout", value: "none", note: "Deliberate, same reason" },
-  { name: "IdleTimeout", value: "none", note: "Deliberate, same reason" },
-  { name: "Shutdown grace", value: "10s", note: "In-flight HTTP requests; hijacked sockets are not drained" },
+  { name: "ReadHeaderTimeout", value: "10s", note: "Time allowed for request headers" },
+  { name: "ReadTimeout", value: "30s", note: "HTTP request read deadline" },
+  { name: "WriteTimeout", value: "30s", note: "HTTP response write deadline" },
+  { name: "IdleTimeout", value: "120s", note: "Keep-alive idle deadline" },
+  { name: "Shutdown grace", value: "10s", note: "WebSockets close first; in-flight HTTP receives the grace period" },
 ]} />
 
-Because the process sets no read or write timeout, **your reverse proxy is the
-thing that will time out a WebSocket**. Parley pings every 25 seconds, which
-resets an idle timer, so any proxy read timeout comfortably above that is safe —
-75 seconds is the value used in the [reverse proxy](/operations/reverse-proxy/)
-examples. A proxy defaulting to 60 seconds or less will cut sockets.
+The HTTP timeouts protect ordinary requests. After a successful WebSocket
+upgrade the hijacked connection uses its own ping, pong, frame-write, and token
+validation deadlines; your reverse proxy still controls its upstream idle
+timeout. Parley pings every 25 seconds, so the 75-second timeout in the
+[reverse proxy](/operations/reverse-proxy/) examples is safe.
 
 ## Request and payload limits
 
 <SpecTable rows={[
-  { name: "JSON request body", value: "64 KiB", note: "Most endpoints" },
+  { name: "API request body", value: "64 KiB", note: "Global cap on every /api request, including bodies an endpoint does not consume" },
   { name: "Optional-body endpoints", value: "4 KiB", note: "The room-code join and passcode-rotate paths" },
   { name: "WebSocket frame read", value: "4096 bytes", note: "Clients send almost nothing over the socket" },
   { name: "Room-code attempts", value: "8 per 60s", note: "Per client address, per space" },
+  { name: "Open identities", value: "10/address/hour; 500/instance/hour", note: "Configurable backstop for open mode" },
+  { name: "Persistent resources", value: "50 spaces/identity; 500 sessions/space; 500 stories/session", note: "Configurable hard caps" },
 ]} />
 
 Everything else — field lengths, token lifetimes, the facilitator grace period —

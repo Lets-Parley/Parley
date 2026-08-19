@@ -43,10 +43,16 @@ is not reachable from `main`.
 
 The multi-architecture image is built for `linux/amd64` and `linux/arm64` in a
 job with no registry write permission. That job creates an immutable OCI
-artifact with maximum BuildKit provenance and an SPDX JSON SBOM. Only the
-protected `release` environment's publisher can write to GHCR. It publishes the
-existing OCI artifact, checks that the registry digest matches the build digest,
-then creates a GitHub build-provenance attestation for that final digest.
+artifact with maximum BuildKit provenance and an SPDX JSON SBOM. A separate
+publisher job, scoped to the named `release` environment, writes the artifact to
+a run-specific staging tag, verifies that registry digest against the build
+digest, re-checks that the release tag still resolves to the validated commit,
+and only then assigns the final version, minor, and `latest` tags. It creates a
+GitHub build-provenance attestation for that final digest.
+
+The workflow file shows the environment boundary and permissions; it does not
+prove that external environment reviewers or other GitHub protection settings
+are enabled. Those settings require separate API readback.
 
 Beginning with the first release produced by this hardened workflow, each
 GitHub Release receives the SPDX SBOM and digest-qualified Compose and
@@ -95,5 +101,7 @@ digest still receives what they pulled. Do not deploy any of them.
 
 There was no separate advisory for the v0.1.0 throttle bypass: the repository
 had no known installs at the time, and the release notes carry the warning.
-Report anything new through a
-[security advisory](https://github.com/lets-parley/parley/security/advisories/new).
+Report anything new through
+[private vulnerability reporting](https://github.com/lets-parley/parley/security/advisories/new)
+when available, or email
+[security@letsparley.io](mailto:security@letsparley.io).

@@ -6,10 +6,11 @@ description: Field lengths, body caps, timeouts, pool sizes and lifetimes, in on
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp source={["internal/db/migrations", "internal/hub/hub.go", "internal/db/db.go", "internal/api/passcode.go", "cmd/parley/main.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/db/migrations", "internal/hub/hub.go", "internal/db/db.go", "internal/api/passcode.go", "internal/api/router.go", "cmd/parley/main.go"]} />
 
 Everything numeric, transcribed from source. None of these is configurable
-unless the page says so.
+unless the page says so. The environment variables named below accept positive
+integers and are validated at boot.
 
 ## Field lengths
 
@@ -29,7 +30,7 @@ unless the page says so.
 ## Request limits
 
 <SpecTable rows={[
-  { name: "JSON request body", value: "64 KiB", note: "Most endpoints" },
+  { name: "API request body", value: "64 KiB", note: "Global cap on every /api request" },
   { name: "Optional-body endpoints", value: "4 KiB", note: "Room-code join and passcode rotate" },
   { name: "WebSocket frame read", value: "4096 bytes", note: "" },
 ]} />
@@ -37,9 +38,10 @@ unless the page says so.
 ## Timeouts
 
 <SpecTable rows={[
-  { name: "ReadHeaderTimeout", value: "10s", note: "The only HTTP server timeout set" },
-  { name: "ReadTimeout / WriteTimeout / IdleTimeout", value: "unset", note: "Deliberate — WebSockets are long-lived" },
-  { name: "Shutdown grace", value: "10s", note: "HTTP only; hijacked sockets are not drained" },
+  { name: "ReadHeaderTimeout", value: "10s", note: "HTTP request headers" },
+  { name: "ReadTimeout / WriteTimeout", value: "30s / 30s", note: "Ordinary HTTP request and response deadlines" },
+  { name: "IdleTimeout", value: "120s", note: "HTTP keep-alive idle deadline" },
+  { name: "Shutdown grace", value: "10s", note: "WebSockets close first; in-flight HTTP receives the grace period" },
   { name: "/readyz database ping", value: "3s", note: "" },
   { name: "-healthcheck request", value: "3s", note: "" },
   { name: "OIDC discovery", value: "15s", note: "Lazy and cached after the first success" },
@@ -55,6 +57,8 @@ unless the page says so.
   { name: "Write deadline", value: "5s", note: "Per frame" },
   { name: "Send buffer", value: "16 frames", note: "Full means the connection is dropped, not the room blocked" },
   { name: "Presence debounce", value: "1.5s", note: "" },
+  { name: "Session revalidation interval", value: "≤30s", note: "Shared-store revocation and expiry; does not refresh activity" },
+  { name: "Session validation timeout", value: "≤30s", note: "Failure closes with policy code 1008" },
 ]} />
 
 ## Database pool
@@ -80,6 +84,11 @@ unless the page says so.
 
 <SpecTable rows={[
   { name: "Room-code attempts", value: "8 per 60s", note: "Per client address, per space; sliding window" },
+  { name: "Open identity creation", value: "10/address/hour", note: "IDENTITY_IP_HOURLY_LIMIT" },
+  { name: "Open identity creation, instance", value: "500/hour", note: "IDENTITY_GLOBAL_HOURLY_LIMIT" },
+  { name: "Spaces per identity", value: "50", note: "SPACE_LIMIT_PER_IDENTITY" },
+  { name: "Sessions per space", value: "500", note: "SESSION_LIMIT_PER_SPACE" },
+  { name: "Stories per session", value: "500", note: "STORY_LIMIT_PER_SESSION" },
   { name: "Room-code alphabet", value: "25 characters", note: "Confusable letters removed; ~244M combinations" },
   { name: "Facilitator claim grace", value: "60s", note: "Server-measured; claim is one conditional UPDATE" },
   { name: "Standup seconds per person", value: "90", note: "A session-config value, but no UI sets it" },

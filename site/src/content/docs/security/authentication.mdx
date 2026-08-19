@@ -6,7 +6,7 @@ description: Anonymous and OpenID Connect sign-in, cookies, tokens, and how long
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp source={["internal/auth/oidc.go", "internal/api/auth.go", "internal/api/principal.go", "internal/store/users.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/auth/oidc.go", "internal/api/auth.go", "internal/api/principal.go", "internal/api/me.go", "internal/store/users.go", "internal/hub/hub.go"]} />
 
 Parley runs in one of two modes, set by `AUTH_MODE` and fixed at boot.
 
@@ -15,6 +15,11 @@ Parley runs in one of two modes, set by `AUTH_MODE` and fixed at boot.
 The default, and the original. No accounts: people type a name, get an avatar,
 and take a seat. Nothing to administer, nothing to provision. A stranger with
 the link and the room code is a participant.
+
+Use open mode only on a trusted network. A public deployment needs a passcode or
+an external SSO/authentication proxy in front of the whole instance, plus
+request and connection abuse controls at the ingress. The built-in creation
+limits are a backstop, not a public-internet authentication boundary.
 
 ## oidc
 
@@ -44,8 +49,9 @@ optional and therefore pointless.
 **Everyone is signed out.** Sessions created while the instance was open stop
 being accepted the moment it starts in `oidc` mode. Accounts and rooms stay in
 the database, untouched and unmigrated, but the people behind them come back as
-new federated accounts. Plan the switch for an instance whose history you're
-willing to leave behind, or wait for account linking.
+new federated accounts. There is no account linking: earlier votes and entries
+remain attributed to the old display records. Federated users can rejoin an
+existing space with its room code.
 :::
 
 ## Names
@@ -58,7 +64,9 @@ follows the person onto the roster. Trimmed to 64 characters.
 ## Signing out
 
 Ends the Parley session only. It does not sign anyone out of the identity
-provider, which matters on a shared machine.
+provider, which matters on a shared machine. Logout deletes the shared-store
+token and synchronously closes every WebSocket authenticated by that token with
+policy code `1008` before the request completes.
 
 ## Room codes still apply
 
@@ -118,13 +126,20 @@ expires even though the token behind it is perfectly healthy. They sign in again
 and carry on; nothing is lost. But do not tell your users that activity keeps
 them signed in, because it does not.
 
-## Revocation
+## Revocation and long-lived connections
+
+WebSockets do not trust only the state captured at upgrade time. Each connection
+checks the token in Postgres at least every 30 seconds without extending its idle
+lifetime, and also has a timer for the known expiry. A deleted or expired token
+closes the connection with WebSocket policy code `1008`. Shared-store checks
+mean revocation works even when the database change was made outside this
+process; the maximum normal detection interval is 30 seconds.
 
 <SpecTable rows={[
-  { name: "Sign out", value: "supported", note: "Deletes the token row and clears the cookie" },
+  { name: "Sign out", value: "supported", note: "Deletes the token, synchronously closes its WebSockets, and clears the cookie" },
   { name: "Rename", value: "rotates the token", note: "In one transaction" },
-  { name: "Sign out everywhere", value: "not supported", note: "Delete the user's rows from session_tokens in SQL" },
-  { name: "Administrative revocation", value: "not supported", note: "Same — there is no admin surface at all" },
+  { name: "Sign out everywhere UI", value: "not supported", note: "Delete the user's rows from session_tokens in SQL; sockets close within 30s" },
+  { name: "Administrative revocation UI", value: "not supported", note: "There is no admin surface; shared-store deletion is enforced within 30s" },
   { name: "Expired token cleanup", value: "never runs", note: "Rows stop resolving but are not swept" },
 ]} />
 

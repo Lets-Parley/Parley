@@ -21,19 +21,23 @@ configure.
 
 - **Deployment**: single container, single replica, enforced.
 - **Data**: everything is in your Postgres.
-- **Identity**: none by default; optionally any OpenID Connect provider.
+- **Identity**: none by default on a trusted network; optionally any OpenID
+  Connect provider, or an external authentication proxy for public access.
 - **Access control**: a six-character room code per space.
 
 ## The one-paragraph summary
 
 Parley is designed for a team that trusts each other and an operator who does
-not want an account system. Its access model is a shared room code, not
-identity — anyone holding a code has full participation in that space, and any
-member can change or remove that code. The interesting protections are around
+not want an account system. Its space boundary is a shared room code, not
+identity — anyone holding a code has participation in that space, and any
+member can change or remove that code. Inside a session, story mutations and
+meeting controls are facilitator-only; ordinary members retain voting and their
+own standup entries. The interesting protections are around
 *vote secrecy* (strong, and structural) and *not disclosing what exists to
 strangers* (also strong). The gaps are concentrated in operations and governance:
-no roles, no audit log, no retention or erasure tooling, and no metrics. The
-hardened release pipeline publishes an SPDX SBOM and verifiable digest-bound
+no space owner or administrator roles, no audit log, no retention or erasure
+tooling, and no metrics. The hardened release pipeline publishes an SPDX SBOM
+and verifiable digest-bound
 provenance for releases it produces; v0.1.0 through v0.2.1 were not backfilled.
 
 If your requirement is "a team of engineers estimates stories without a
@@ -65,14 +69,15 @@ Full detail: [Data and privacy](/security/data-and-privacy/).
   { name: "Cross-site request defence", status: "built", detail: "SameSite=Lax, an Origin and Sec-Fetch-Site check rejecting cross-site non-GET, and a JSON content-type requirement, in place of a CSRF token. Note a request with no Origin header, and a sibling subdomain (which browsers label same-site), are not caught by the header check — see the <a href='/security/threat-model/'>threat model</a>." },
   { name: "Session token handling", status: "built", detail: "32 random bytes, SHA-256 at rest, HttpOnly cookie, Secure when BASE_URL is https." },
   { name: "OIDC correctness", status: "built", detail: "Authorization code + PKCE (S256); signature, audience, expiry and nonce verified; state and nonce compared in constant time." },
+  { name: "Long-lived session revocation", status: "built", detail: "WebSockets check shared-store revocation and expiry at least every 30 seconds and close with policy code 1008; logout disconnects synchronously." },
   { name: "Brute-force protection on room codes", status: "built", detail: "8 attempts per 60s per address per space, with a confusable-free alphabet and constant-time comparison." },
   { name: "CSV formula-injection escaping", status: "built", detail: "Cells starting = + - @ tab or CR are quote-prefixed." },
   { name: "Container hardening", status: "built", detail: "distroless static non-root; the k8s manifest adds drop ALL, no privilege escalation, seccomp RuntimeDefault, read-only root filesystem." },
   { name: "Transport security", status: "not-built", detail: "Parley never terminates TLS and does not send HSTS. Terminate at a proxy and add HSTS there." },
-  { name: "Role-based access control", status: "not-built", detail: "None. Any member can do anything in a space, including rotating or removing its room code. Keep membership small, or gate the instance behind an SSO proxy." },
+  { name: "Space owner and administrator roles", status: "not-built", detail: "Any member may rotate or remove the room code. Story mutations and session controls are facilitator-only. Keep membership small, or gate the instance behind an SSO proxy." },
   { name: "Audit logging", status: "not-built", detail: "None. Rows carry user_id and timestamps; reconstruct from Postgres if needed." },
-  { name: "Retention and erasure", status: "not-built", detail: "Nothing expires or deletes. Write your own SQL against the documented schema; note that deleting a user who facilitated a session is blocked by a foreign key." },
-  { name: "Rate limiting beyond room codes", status: "not-built", detail: "Apply it at your ingress." },
+  { name: "Retention and erasure", status: "not-built", detail: "Application records are not automatically deleted. Token authorization expires, but its row remains. Write erasure SQL against the documented schema; deleting a user who facilitated a session is blocked by a foreign key." },
+  { name: "General ingress rate limiting", status: "not-built", detail: "Identity creation and room-code guesses are throttled, and resources have configurable caps. Apply request and WebSocket limits at your ingress too." },
   { name: "Metrics and tracing", status: "not-built", detail: "JSON logs only. Blackbox-probe /readyz and take request metrics from your proxy." },
   { name: "SBOM and provenance", status: "built", detail: "Releases produced by the hardened workflow include an SPDX SBOM, maximum build provenance, and a GitHub attestation bound to the final GHCR digest. Releases v0.1.0 through v0.2.1 were not backfilled." },
   { name: "Encryption at rest", status: "not-built", detail: "Use an encrypted volume or your database provider's encryption." },
@@ -85,24 +90,28 @@ passed to a colleague. Hashing it would mean no member could look it up again.
 The consequence is that a database dump discloses every space's code — which is
 why a code is treated as a door, not as an identity.
 
-**Membership is the trust boundary.** There is no finer grain, by design and for
-now.
+**Membership is the space trust boundary.** Facilitator checks narrow story and
+session control, but members may still change or remove the space's room code.
 
-**Anonymous participation is the default.** It is the product.
+**Anonymous participation is the default.** It is the product on a trusted
+network; public deployments need an additional access and abuse-control layer.
 
 ## Questions a reviewer usually asks next
 
 - *Can we require SSO before anyone reaches a room?* Only by putting an SSO proxy
   in front of the whole instance. `AUTH_MODE=oidc` identifies people, but does
   not gate space access.
-- *Can we revoke one person's access?* Not individually. Rotate the room code, or
-  delete rows from `session_tokens` to sign everyone out.
+- *Can we revoke one person's access?* There is no UI. Delete that person's rows
+  from `session_tokens`; HTTP access stops immediately and their WebSockets
+  close within 30 seconds. Rotate the room code to prevent a new membership.
 - *Can we prove who estimated what?* In `oidc` mode, yes, from the database. There
   is no report and no audit trail; the data is there to query.
 - *What happens on a breach of the database?* Everything is disclosed, including
   every room code. Session tokens are hashed, so they are not directly reusable.
-- *Is there a disclosure process?* Yes —
-  [GitHub security advisories](https://github.com/lets-parley/parley/security/advisories/new).
+- *Is there a disclosure process?* Yes — use
+  [GitHub private vulnerability reporting](https://github.com/lets-parley/parley/security/advisories/new)
+  when available, or email
+  [security@letsparley.io](mailto:security@letsparley.io).
   Note that **every release before v0.2.2 can be crashed remotely by a
   disconnecting client**, and **v0.1.0 additionally has a throttle bypass**.
   None were retagged; use v0.2.2 or later.

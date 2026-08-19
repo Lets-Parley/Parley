@@ -50,8 +50,9 @@ sit at.
 
 ### Planning poker
 
-- **Story queue.** Add work as a ticket (with a reference like `PLAT-412`) or as
-  an ad-hoc line item, with optional notes. Reorder with the arrows.
+- **Story queue.** The facilitator adds work as a ticket (with a reference like
+  `PLAT-412`) or as an ad-hoc line item, with optional notes, and controls its
+  order and selection. Ordinary members retain their own votes.
 - **Four decks:** Fibonacci, modified Fibonacci, T-shirt sizes, and powers of
   two. Every deck carries `?` and a coffee card.
 - **Hidden votes.** Nobody sees a value until the round opens, which happens
@@ -94,7 +95,8 @@ sit at.
 - **No accounts, or your accounts.** A name and a cookie by default; point
   `AUTH_MODE=oidc` at any OpenID Connect provider and people sign in with the
   identity they already have.
-- **Live for everyone.** WebSocket-backed, with a reconnect banner that tells the
+- **Live for everyone.** WebSocket-backed, with shared-store session
+  revalidation at least every 30 seconds and a reconnect banner that tells the
   truth about the connection instead of silently going stale.
 - **CSV export** for any session: estimates, votes per person, standup entries.
   Cells that start with `=` are escaped, so an export can't run formulas in a
@@ -151,6 +153,10 @@ Two changes, made together:
 `BASE_URL` drives the WebSocket origin check and the session cookie's Secure
 flag; if it doesn't match how people actually reach the server, boards will
 sit at "reconnecting" or logins won't stick (see Troubleshooting).
+
+`AUTH_MODE=open` is for a trusted network. A public deployment needs a space
+passcode or an external SSO/authentication proxy plus request and connection
+abuse controls at the ingress.
 
 ### Against a Postgres you already run
 
@@ -316,10 +322,8 @@ Two things worth knowing before you switch a running instance:
   sign-in on would change nothing for anyone already holding a cookie. Their
   accounts and rooms stay in the database, untouched and unmigrated, but the
   people behind them come back as new federated accounts. There is no account
-  linking yet, so **a space created before the switch is stranded**: its owner
-  is an anonymous row nobody can sign in as again, and the space cannot be
-  administered even though its data is still there. Switch on a fresh instance,
-  or accept that the existing spaces are read-only history.
+  linking yet, so old votes and entries remain attributed to the old display
+  records. Federated users can rejoin an existing space with its room code.
 
 Names come from the provider's claims — `name`, then `preferred_username`, then
 the local part of `email` — and refresh on every sign-in, so a rename upstream
@@ -329,12 +333,11 @@ does not sign anyone out of the identity provider.
 ## Security model
 
 In `open` mode Parley has **no user accounts**. A space is guarded by a shared
-room code, not by identity: anyone holding the code can join, and joining grants
-full participation — seeing the roster, voting, and writing standup entries.
-Joins are broadcast to the room, so lurking is visible. Run Parley on your
-internal network, behind an identity provider (see above), or behind an SSO
-proxy (oauth2-proxy, Authelia, Cloudflare Access; the reverse proxy snippet
-above is where it slots in).
+room code, not by identity: anyone holding the code can join, see the roster,
+vote, and write their own standup entry. Joins are broadcast to the room, so
+lurking is visible. Open mode is trusted-network-only. A public deployment
+needs a passcode or an external SSO/authentication proxy in front of the whole
+instance, plus ingress abuse controls.
 
 Room codes work the same either way. Identity says who you are; the code says
 which room you may enter. Signing in does not by itself get anyone into a
@@ -352,12 +355,16 @@ one) or open the space entirely.
 
 What Parley does enforce: acting in a space requires having joined it; a
 protected space refuses joins without the code; session existence is never
-disclosed to non-members; facilitator-only actions (reveal, reset, closing a
-session) are server-checked.
+disclosed to non-members; story creation, editing, reordering, selection and
+deletion plus session controls are facilitator-only and server-checked; active
+WebSockets close with policy code 1008 when their shared-store token is revoked
+or expires.
 
-Found something? Open a
-[security advisory](https://github.com/lets-parley/parley/security/advisories/new)
-rather than a public issue.
+Found something? Use
+[private vulnerability reporting](https://github.com/lets-parley/parley/security/advisories/new)
+when available, or email
+[security@letsparley.io](mailto:security@letsparley.io), rather than opening a
+public issue.
 
 ## Backups
 
@@ -448,12 +455,19 @@ poker and standup are code someone adds rather than surgery on the core.
 
 ## Contributing
 
-Issues and pull requests are welcome. A few things that make review quick:
+Questions and early designs belong in
+[Discussions](https://github.com/lets-parley/parley/discussions); Issues track
+accepted, actionable work. Pull requests are welcome. See
+[CONTRIBUTING.md](CONTRIBUTING.md), [GOVERNANCE.md](GOVERNANCE.md), and the
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+A few things that make review quick:
 
 - Open an issue before a large change, so nobody builds the wrong thing twice.
 - `go test -p 1 ./...`, `npm test` and `npm run lint` pass.
 - A behaviour change comes with a test that fails without it.
 - Migrations are additive and numbered; never edit one that has shipped.
+- Every commit carries a DCO sign-off created with `git commit -s`.
 
 ## License
 

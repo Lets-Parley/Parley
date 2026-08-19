@@ -6,14 +6,16 @@ description: What a room code protects, what it does not, and what a database du
 ## No accounts, by default
 
 In `open` mode a space is guarded by a shared room code, not by identity.
-Anyone holding the code can join, and joining grants full participation: seeing
-the roster, voting, writing standup entries. Joins are broadcast to the room, so
-lurking is visible.
+Anyone holding the code can join, see the roster, vote, write their own standup
+entry, and change the room code. Story mutations and meeting controls are
+facilitator-only. Joins are broadcast to the room, so lurking is visible.
 
-Run Parley on your internal network, behind [an identity
-provider](/security/authentication/), or behind an SSO proxy — oauth2-proxy, Authelia,
-Cloudflare Access. The [reverse proxy](/operations/reverse-proxy/) config is where
-that slots in.
+Open mode is trusted-network-only. For public reachability, keep spaces
+passcode-protected or require an external SSO/authentication proxy before Parley,
+and add request and connection abuse controls at the ingress. Built-in OIDC
+identifies participants but does not by itself restrict who reaches the instance
+or which space they may join. The [reverse proxy](/operations/reverse-proxy/)
+guide shows where those controls sit.
 
 ## Room codes
 
@@ -44,12 +46,19 @@ misses real guessers or punishes innocent ones. See
 - A protected space refuses joins without the code.
 - A session's existence is never disclosed to non-members — the reply to a
   stranger is the same 404 either way.
-- Facilitator-only actions (reveal, reset, closing a session) are checked
-  server-side, not hidden in the UI.
+- Facilitator-only actions — including story creation, editing, reordering,
+  selection and deletion, plus reveal, reset, estimate saving and session
+  progression — are checked server-side, not hidden in the UI. Ordinary members
+  may still vote and edit their own standup entry.
+- Active WebSockets revalidate their shared-store token at least every 30
+  seconds; revocation or expiry closes them with policy code `1008`, and logout
+  disconnects synchronously.
 - CSV cells beginning with `=` are escaped, so an export cannot run formulas in
   a spreadsheet.
 
 ## Reporting something
 
-Open a [security advisory](https://github.com/lets-parley/parley/security/advisories/new)
-rather than a public issue.
+Use [GitHub private vulnerability reporting](https://github.com/lets-parley/parley/security/advisories/new)
+when available, or email
+[security@letsparley.io](mailto:security@letsparley.io). Do not use a public
+Issue or Discussion.

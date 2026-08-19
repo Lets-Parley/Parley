@@ -25,6 +25,7 @@ location / {
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
     proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
     proxy_read_timeout 75s;
     proxy_send_timeout 75s;
 }
@@ -35,12 +36,23 @@ location / {
 ```sh
 BASE_URL=https://parley.example.com
 TRUST_PROXY_HEADERS=true
+TRUSTED_PROXY_CIDRS=127.0.0.1/32
 ```
 
 `BASE_URL` must match the address in the browser's bar exactly — scheme, host
 and port — or the WebSocket origin check rejects every connection.
 
-`TRUST_PROXY_HEADERS=true` lets the room-code throttle count real clients
-instead of seeing every request as coming from the proxy. Only set it once
-something in front is actually setting the header. See
+`TRUST_PROXY_HEADERS=true` lets the room-code and identity-creation throttles
+count real clients instead of seeing every request as coming from the proxy.
+It requires `TRUSTED_PROXY_CIDRS`: use `127.0.0.1/32` only for a same-host proxy,
+or the actual Ingress/load-balancer networks for another topology. List every
+trusted hop and never a client-reachable network. Parley ignores forwarded
+headers from an untrusted immediate peer. See
 [Configuration](/reference/configuration/).
+
+## Public deployments
+
+TLS and correct proxy addresses are necessary but are not access control.
+`AUTH_MODE=open` is trusted-network-only. Before exposing Parley publicly,
+require a space passcode or put an external SSO/authentication proxy in front,
+and configure request, connection, and bandwidth limits at this layer.

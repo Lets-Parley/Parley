@@ -6,7 +6,7 @@ description: Assets, trust boundaries, who is in scope, and the risks accepted o
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["internal/api/authz.go", "internal/api/passcode.go", "internal/api/security.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/authz.go", "internal/api/passcode.go", "internal/api/security.go", "internal/api/me.go", "internal/hub/hub.go", "internal/poker/routes.go"]} />
 
 Parley is a self-hosted tool a team joins by following a link. This page states
 what it protects, from whom, and what it deliberately does not.
@@ -28,9 +28,9 @@ what it protects, from whom, and what it deliberately does not.
 2. **The proxy to the process.** Parley trusts `X-Forwarded-For` only when
    `TRUST_PROXY_HEADERS` says to. Getting this wrong breaks the throttle in one
    direction or the other — see [Deployment](/operations/deployment/).
-3. **A member to the space.** Once someone is a member, they are trusted to
-   participate fully. This boundary is the coarsest one in the product and the
-   most important to understand.
+3. **A member to the space.** Space membership grants read and participation
+   access. Session control and poker story mutations cross a second boundary:
+   only the facilitator may perform them.
 4. **The process to Postgres.** Full trust. The database credential is
    effectively root over all Parley data.
 
@@ -71,36 +71,47 @@ beginning `=`, `+`, `-`, `@`, tab or carriage return is quote-prefixed.
 
 ## Who is out of scope
 
-**A member of the space.** Any member can vote, edit stories, read everything,
-rotate the room code, or open the space entirely. There is no owner, no admin
-and no roles. **Membership is the trust boundary**, so treat handing out a room
-code as handing out full participation.
+**A member of the space.** Any member can read the space, vote, write their own
+standup entry, rotate the room code, or open the space entirely. There is no
+space owner or administrator role. Story creation, editing, reordering,
+selection, and deletion are facilitator-only. **Membership is still the space
+trust boundary**, so treat handing out a room code as handing out participation
+and room-code control.
 
 **An operator, or anyone with database access.** Both can read everything,
 including every space's room code.
 
-**Denial of service.** Only room-code guessing is rate limited. Space creation,
-session creation, WebSocket connections and API calls are not. Parley assumes it
-is on a trusted network or behind something that does rate limiting.
+**Denial of service.** Parley rate-limits room-code guessing and open-mode
+identity creation, and caps spaces per identity, sessions per space, and stories
+per session. It does not provide a general request or WebSocket connection rate
+limiter. A public deployment needs ingress abuse controls; open mode itself is
+trusted-network-only.
 
 **Anyone who has your session cookie.** There is no binding to an address or a
-device, no way to list sessions, and no way for anyone to revoke someone else's.
+device and no UI to list or administratively revoke sessions. Deleting a token
+from the shared store is authoritative: HTTP requests stop resolving it and
+WebSockets close with policy code `1008` within 30 seconds. Logout performs the
+same revocation and disconnect synchronously for its own token.
 
 ## Risks accepted on purpose
 
 <Capability rows={[
   { name: "Room codes stored readable", status: "out-of-scope", detail: "A code exists to be read off the page and passed on, like a Meet code. Hashing it means no member can ever look it up again. A database dump therefore discloses every code — stated plainly, and the reason a code is a door and not an identity." },
   { name: "Any member can rotate or open a space", status: "out-of-scope", detail: "There is no role model to check against. Membership roles are on the <a href='/project/roadmap/'>roadmap</a>; until then, membership is trust." },
-  { name: "Anonymous participation by default", status: "out-of-scope", detail: "It is the product: a link and a name, no account. Turn on <a href='/security/authentication/'>OIDC</a> if you need identity." },
+  { name: "Anonymous participation by default", status: "out-of-scope", detail: "It is the product for a trusted network: a link and a name, no account. Public deployments need a passcode or external SSO/auth proxy plus ingress abuse controls." },
   { name: "The sign-in flow cookie is unsigned", status: "out-of-scope", detail: "It is base64 JSON, not a signature. It only ever carries values that are re-validated on use — the redirect target is re-sanitised after the round trip, and state and nonce are compared in constant time against the identity provider's response." },
-  { name: "No rate limiting outside room codes", status: "not-built", detail: "Rate limit at your reverse proxy or ingress, which is where you already do it for everything else." },
+  { name: "No general ingress rate limiter", status: "not-built", detail: "Room-code guesses, open-mode identity creation, and resource counts are bounded. Rate-limit requests and connections at your reverse proxy or ingress too." },
   { name: "No audit log", status: "not-built", detail: "Rows carry <code>user_id</code> and timestamps; query Postgres directly if you need to reconstruct who did what." },
 ]} />
 
 ## Reporting a vulnerability
 
-Open a [security advisory](https://github.com/lets-parley/parley/security/advisories/new),
-not a public issue.
+Use [GitHub private vulnerability reporting](https://github.com/lets-parley/parley/security/advisories/new)
+when its report form is available, or email
+[security@letsparley.io](mailto:security@letsparley.io). Do not open a public
+Issue or Discussion. The response targets are acknowledgement within five
+business days, initial triage within ten business days, and coordinated
+disclosure within 90 calendar days.
 
 Two pieces of history worth knowing. **Every release before v0.2.2 could be
 crashed remotely** by a client disconnecting during a broadcast, which panicked

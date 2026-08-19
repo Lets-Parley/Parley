@@ -35,6 +35,10 @@ Two changes, made together:
 flag. If it doesn't match how people actually reach the server, boards sit at
 "reconnecting" or logins won't stick. See [Troubleshooting](/operations/runbook/).
 
+Open mode is trusted-network-only. If this address is public, require a space
+passcode or an external SSO/authentication proxy and add ingress limits for
+requests and connections before sharing it.
+
 ## From a prebuilt image
 
 Publishing an exact semantic-version GitHub Release builds a multi-arch image

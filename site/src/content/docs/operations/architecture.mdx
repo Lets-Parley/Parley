@@ -6,7 +6,7 @@ description: What the process is, how requests and WebSockets flow through it, a
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp source={["cmd/parley/main.go", "internal/api/router.go", "internal/hub/hub.go"]} />
+<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "internal/api/router.go", "internal/hub/hub.go"]} />
 
 Parley is one process and one database.
 
@@ -58,8 +58,9 @@ The process is deliberately fail-fast, and every fatal path prints a plain
 sentence naming the cause before exiting non-zero.
 
 1. Read configuration. A missing `DATABASE_URL`, an unparseable `BASE_URL`, an
-   unknown `LOG_LEVEL` or `AUTH_MODE`, or a non-boolean `TRUST_PROXY_HEADERS`
-   each stop the process here.
+   unknown `LOG_LEVEL` or `AUTH_MODE`, proxy trust without a valid
+   `TRUSTED_PROXY_CIDRS` allowlist, or a non-positive resource-limit value each
+   stop the process here.
 2. Start the JSON logger and print the **boot settings line** — base URL, cookie
    security, allowed WebSocket origin, port, auth mode, proxy trust. This line is
    the fastest way to confirm what an instance actually thinks its configuration
@@ -88,6 +89,8 @@ payload rather than hidden by the frontend.
   { name: "Send buffer", value: "16 frames", note: "Full buffer means a wedged reader — that connection is dropped rather than blocking the room" },
   { name: "Presence debounce", value: "1.5s", note: "Roster churn is coalesced" },
   { name: "Max frame read", value: "4096 bytes", note: "Clients send almost nothing; mutations go over HTTP" },
+  { name: "Session revalidation", value: "at most every 30s", note: "Checks revocation and expiry in Postgres without extending idle lifetime" },
+  { name: "Authentication failure close", value: "1008", note: "WebSocket policy violation; logout disconnects synchronously" },
 ]} />
 
 The send-buffer rule is the important one. One laptop on bad hotel wifi must
@@ -114,10 +117,8 @@ The container image's own `HEALTHCHECK` runs `parley -healthcheck`, which fetche
 
 ## Shutdown
 
-On `SIGINT` or `SIGTERM` the server stops accepting new connections and is given
-10 seconds to finish in-flight requests.
-
-Hijacked WebSocket connections are **not** closed by that shutdown — they end
-when the process does. In practice clients see the socket drop and reconnect,
-which is what the reconnect banner in the UI is for. The Kubernetes manifest
-allows 30 seconds of termination grace to cover it.
+On `SIGINT` or `SIGTERM` the hub synchronously closes its WebSockets, then the
+server stops accepting new connections and is given 10 seconds to finish
+in-flight HTTP requests. Clients see the socket drop and reconnect, which is
+what the reconnect banner in the UI is for. The Kubernetes manifest allows 30
+seconds of termination grace to cover the sequence.
