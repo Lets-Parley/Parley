@@ -73,12 +73,23 @@ describe("MemberCard", () => {
     expect(screen.queryByRole("button", { name: /^Go to/ })).toBeNull();
   });
 
-  it("closes on the backdrop but not on the card itself", async () => {
+  it("is a native dialog named after the member", () => {
+    renderApp(<MemberCard member={makePerson({ name: "Dana Whitfield" })} isYou={false} onClose={() => {}} />);
+    const dialog = screen.getByRole("dialog", { name: "Dana Whitfield" });
+    expect(dialog.tagName).toBe("DIALOG");
+  });
+
+  it("renders the member's name exactly once", () => {
+    renderApp(<MemberCard member={makePerson({ name: "Dana Whitfield" })} isYou={false} onClose={() => {}} />);
+    expect(screen.getAllByText("Dana Whitfield")).toHaveLength(1);
+  });
+
+  // Backdrop-click-to-close is deliberately gone with the hand-rolled backdrop:
+  // a native <dialog> does not offer it. Escape and the ✕ are the dismissals.
+  it("closes from the ✕", async () => {
     const onClose = vi.fn();
     renderApp(<MemberCard member={makePerson()} isYou={false} onClose={onClose} />);
-    await userEvent.click(screen.getByRole("dialog"));
-    expect(onClose).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole("presentation"));
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(onClose).toHaveBeenCalledOnce();
   });
 });

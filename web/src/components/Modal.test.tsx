@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Modal } from "./Modal";
 
 describe("Modal", () => {
@@ -29,6 +30,43 @@ describe("Modal", () => {
   it("survives having no close handler", () => {
     render(<Modal title="Reset the round">body</Modal>);
     expect(() => (screen.getByRole("dialog") as HTMLDialogElement).close()).not.toThrow();
+  });
+
+  it("takes its accessible name from its title", () => {
+    render(<Modal title="Reset the round">body</Modal>);
+    expect(screen.getByRole("dialog", { name: "Reset the round" })).toBeTruthy();
+  });
+
+  it("offers a close affordance when it is dismissable", async () => {
+    const onClose = vi.fn();
+    render(
+      <Modal title="Reset the round" onClose={onClose}>
+        body
+      </Modal>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("offers no close affordance when it cannot be dismissed", () => {
+    render(<Modal title="What should we call you?">body</Modal>);
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+  });
+
+  it("returns focus to whatever opened it when it goes away", () => {
+    // Verified in a real browser: unmounting the <dialog> drops focus to
+    // <body> rather than restoring it, so the Modal restores it itself.
+    const opener = document.createElement("button");
+    document.body.append(opener);
+    opener.focus();
+    const view = render(<Modal title="Reset the round" onClose={() => {}}>body</Modal>);
+    // The stub's showModal does not move focus, so move it by hand — otherwise
+    // the opener never loses focus and the assertion below tests nothing.
+    (screen.getByRole("button", { name: "Close" }) as HTMLButtonElement).focus();
+    expect(document.activeElement).not.toBe(opener);
+    view.unmount();
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
   });
 
   it("caps its width to the viewport so a wide modal cannot overflow a phone", () => {

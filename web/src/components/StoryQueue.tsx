@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { api, type Story } from "../lib/api";
 import { buttonPrimary, buttonQuiet, inputClass, Modal } from "./Modal";
 import { faceOf } from "./Table";
@@ -19,6 +19,7 @@ export function StoryQueue({
   onError: (msg: string) => void;
 }) {
   const [composing, setComposing] = useState(false);
+  const headingId = useId();
 
   async function run(fn: () => Promise<unknown>) {
     try {
@@ -39,9 +40,9 @@ export function StoryQueue({
   }
 
   return (
-    <aside className="flex w-full flex-col gap-2 rounded-panel border border-line bg-surface p-3.5 shadow-rest lg:w-[300px] lg:shrink-0">
+    <aside aria-labelledby={headingId} className="flex w-full flex-col gap-2 rounded-panel border border-line bg-surface p-3.5 shadow-rest lg:w-[300px] lg:shrink-0">
       <div className="flex items-center justify-between px-1.5 pb-1">
-        <h2 className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+        <h2 id={headingId} className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
           Story queue · {stories.length}
         </h2>
         {isFacilitator && (
@@ -112,7 +113,8 @@ export function StoryQueue({
 
             {s.estimate ? (
               <span
-                title="Agreed estimate"
+                role="img"
+                aria-label={`Agreed estimate ${faceOf(s.estimate)}`}
                 className="flex h-[33px] w-6 shrink-0 items-center justify-center rounded-[5px] border border-brass bg-surface font-mono text-[0.8rem] shadow-rest"
               >
                 {faceOf(s.estimate)}
@@ -121,6 +123,7 @@ export function StoryQueue({
               isFacilitator &&
               s.id !== currentStoryId && (
                 <button
+                  aria-label={`Deal ${s.title}`}
                   className="shrink-0 rounded-full border border-line px-2.5 py-1 text-xs font-bold text-ink-soft hover:bg-felt-deep"
                   onClick={() => run(() => api("POST", `/api/sessions/${sessionId}/select`, { storyId: s.id }))}
                 >

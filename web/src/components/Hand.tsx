@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useId, type CSSProperties } from "react";
 import { faceOf } from "./Table";
 
 // Your hand sits in a felt well at the bottom of the table. On a phone it
@@ -23,15 +23,16 @@ export function Hand({
   onToggleSpectate: () => void;
 }) {
   const mid = (values.length - 1) / 2;
+  const headingId = useId();
 
   return (
-    <section className="mx-auto w-full max-w-[780px] rounded-panel bg-felt-deep px-4 pb-6 pt-4 shadow-well sm:px-6">
+    <section aria-labelledby={headingId} className="mx-auto w-full max-w-[780px] rounded-panel bg-felt-deep px-4 pb-6 pt-4 shadow-well sm:px-6">
       <div className="mb-3.5 flex items-center justify-between gap-3">
-        <h2 className="font-mono text-[11px] tracking-[0.06em] text-ink-faint">
+        <h2 id={headingId} className="font-mono text-[11px] tracking-[0.06em] text-ink-faint">
           YOUR HAND · <span className="capitalize">{deckName}</span>
         </h2>
         <div className="flex items-center gap-3">
-          <span className="font-mono text-[10px] sm:hidden" style={{ color: selected ? "var(--color-go)" : "var(--color-ink-faint)" }}>
+          <span className="font-mono text-[10px] sr-only sm:not-sr-only" style={{ color: selected ? "var(--color-go)" : "var(--color-ink-faint)" }}>
             {selected ? `picked ${faceOf(selected)}` : "pick a card"}
           </span>
           {canSpectate && (
