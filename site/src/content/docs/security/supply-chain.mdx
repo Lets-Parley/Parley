@@ -55,10 +55,10 @@ difference matters:
 <Capability rows={[
   { name: "Reproducible dependency set", status: "built", detail: "<code>go.mod</code> and <code>go.sum</code> pin and checksum every module; <code>package-lock.json</code> does the same for the frontend." },
   { name: "Minimal runtime image", status: "built", detail: "distroless static, non-root, no shell." },
-  { name: "SBOM", status: "not-built", detail: "None is published. Generate your own: <code>syft ghcr.io/lets-parley/parley:0.2.1</code> — a static Go binary yields a good one." },
+  { name: "SBOM", status: "not-built", detail: "None is published. Generate your own: <code>syft ghcr.io/lets-parley/parley:0.2.2</code> — a static Go binary yields a good one." },
   { name: "Image signing", status: "not-built", detail: "Images are not cosign-signed, so you cannot verify provenance cryptographically. Pin by digest instead of tag: <code>ghcr.io/lets-parley/parley@sha256:…</code>, which is immutable even though it is unsigned." },
   { name: "Build provenance / SLSA attestation", status: "not-built", detail: "None. If your policy requires attested artifacts, build from source — the Dockerfile is the whole build and takes a few minutes." },
-  { name: "Vulnerability scanning in CI", status: "not-built", detail: "No govulncheck, CodeQL, gosec, Trivy or Grype runs. Scan the published image yourself: <code>trivy image ghcr.io/lets-parley/parley:0.2.1</code>, and <code>govulncheck ./...</code> against a source checkout." },
+  { name: "Vulnerability scanning in CI", status: "not-built", detail: "No govulncheck, CodeQL, gosec, Trivy or Grype runs. Scan the published image yourself: <code>trivy image ghcr.io/lets-parley/parley:0.2.2</code>, and <code>govulncheck ./...</code> against a source checkout." },
   { name: "Automated updates for Go and frontend dependencies", status: "not-built", detail: "Dependabot is configured for <code>site/</code> npm packages only. Go modules and <code>web/</code> are updated manually and can lag. Watch releases, and scan before you upgrade." },
   { name: "Actions pinned by digest", status: "not-built", detail: "Workflows use major tags (<code>@v4</code>, <code>@v5</code>) rather than commit SHAs, so a compromised action tag would affect a build. Fork and pin if your threat model includes that." },
 ]} />
