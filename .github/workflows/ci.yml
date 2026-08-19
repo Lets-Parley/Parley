@@ -212,7 +212,8 @@ jobs:
             --set ingress.enabled=true \
             --set 'ingress.tls[0].hosts[0]=parley.example.com' \
             --set 'ingress.tls[0].secretName=parley-tls' \
-            --set trustProxyHeaders=true > /tmp/all.yaml
+            --set trustProxyHeaders=true \
+            --set trustedProxyCIDRs=10.0.0.0/8 > /tmp/all.yaml
           for kind in Deployment Service ServiceAccount Ingress; do
             grep -q "^kind: $kind$" /tmp/all.yaml || { echo "missing $kind"; exit 1; }
           done
@@ -277,6 +278,16 @@ jobs:
           # pod-level field is the one that wins, so one hit is not enough.
           test "$(grep -c 'automountServiceAccountToken: false' /tmp/sa.yaml)" = 2
 
+      - name: refuses proxy trust with no CIDR allowlist
+        run: |
+          # The app refuses to start this way, so the chart must refuse to
+          # render it: otherwise the failure mode is a CrashLoopBackOff after
+          # a successful upgrade.
+          ! helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set trustProxyHeaders=true 2>/dev/null
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set trustProxyHeaders=true \
+            --set trustedProxyCIDRs=10.0.0.0/8 >/dev/null
       - name: refuses ingress TLS with an http baseURL
         run: |
           ! helm template parley deploy/charts/parley \
