@@ -38,13 +38,13 @@ What Parley expects on the other end:
 
 - **PostgreSQL 13 or newer.** The first migration runs
   `create extension if not exists pgcrypto`, and `pgcrypto` is only a *trusted*
-  extension from 13 onward. Below that — or where this role does not own the
-  database — creating it needs superuser and boot ends at
-  `FATAL: database migration failed`.
+  extension from 13 onward — any role holding `CREATE` on the database can
+  install it there. Below PostgreSQL 13, installing it needs superuser, and
+  boot ends at `FATAL: database migration failed`.
 - **The database and the role must already exist.** Parley creates its schema,
-  never the database or the role, and the role named here should **own** the
-  database. There is no bootstrap step and no `CREATE DATABASE` anywhere in
-  Parley.
+  never the database or the role, and the role named here needs `CREATE` on
+  the database (`GRANT CREATE ON DATABASE parley TO parley;`) — not ownership.
+  There is no bootstrap step and no `CREATE DATABASE` anywhere in Parley.
 
 On Kubernetes this whole string is the value of **one** secret key — default
 `database-url`, set by `database.secretKey`. A secret split into `username` /

@@ -251,9 +251,11 @@ each of them otherwise a `CrashLoopBackOff` with a `FATAL:` log line:
 
 - **PostgreSQL 13 or newer.** The first migration runs
   `create extension if not exists pgcrypto`, which is only a *trusted* extension
-  from 13 onward.
+  from 13 onward — any role with `CREATE` on the database can install it there,
+  no ownership or superuser needed.
 - **The database and the role already exist**, and the role in `DATABASE_URL`
-  owns the database. Parley creates its schema, not the database and not the role.
+  has `CREATE` on the database (`GRANT CREATE ON DATABASE parley TO parley;`).
+  Parley creates its schema, not the database and not the role.
 - **`?sslmode=require`** on the URL if your Postgres requires TLS. Without it the
   handshake is refused and you get a minute of retries, then a restart.
 - **The secret holds one key** — default `database-url` — whose value is the

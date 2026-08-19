@@ -11,27 +11,32 @@ these four things true before you run `helm install`. Each one is a
 starting `FATAL:` and exits, so `kubectl logs` has the answer:
 
 - **PostgreSQL 13 or newer.** The first migration runs
-  `create extension if not exists pgcrypto`. `pgcrypto` only became a *trusted*
-  extension in PostgreSQL 13, so on 12 and below — or anywhere the role in
-  `DATABASE_URL` is not the database owner — that statement needs superuser and
-  migration `0001` fails: `FATAL: database migration failed`.
+  `create extension if not exists pgcrypto`. `pgcrypto` became a *trusted*
+  extension in PostgreSQL 13, so any role with `CREATE` on the target database
+  can install it there — no ownership and no superuser required. On 12 and
+  below, installing it still needs superuser, and migration `0001` fails:
+  `FATAL: database migration failed`.
 - **The database and the role already exist.** Parley creates its *schema*, not
-  the database and not the role. Create both yourself, and make the role in
-  `DATABASE_URL` the **owner** of the database.
+  the database and not the role. Create both yourself, and grant the role in
+  `DATABASE_URL` **`CREATE` on the database**, e.g.
+  `GRANT CREATE ON DATABASE parley TO parley;`. Ownership is not required.
 - **`sslmode`, if your Postgres requires TLS.** Managed Postgres usually does,
   and the driver does not assume it. Append `?sslmode=require` (or `verify-full`
   with a CA) to the URI. Without it the connection is refused at handshake and
   Parley retries six times with doubling backoff — about a minute of
   `postgres not reachable yet, retrying` — before
   `FATAL: could not connect to Postgres` and a restart.
-- **A quick sanity check** from anywhere that can reach the database:
+- **A quick sanity check** from anywhere that can reach the database (set
+  `PGPASSWORD` in the environment rather than putting it on the command line):
 
   ```sh
-  psql 'postgres://parley:secret@host:5432/parley?sslmode=require' \
-    -c 'create extension if not exists pgcrypto' -c 'select version()'
+  PGPASSWORD=secret psql 'postgres://parley@host:5432/parley?sslmode=require' \
+    -c "select has_database_privilege('parley', 'parley', 'CREATE')" \
+    -c 'select version()'
   ```
 
-  If that succeeds, Parley will migrate.
+  A `t` result confirms the role can install `pgcrypto`. If that succeeds,
+  Parley will migrate.
 
 ### The secrets Parley reads, exactly
 

@@ -84,8 +84,10 @@ controls. Depending on your data, also consider:
 ## 5. Lock down the database
 
 The `DATABASE_URL` credential is effectively root over all Parley data. Give it
-its own role, its own database, and no superuser rights. Parley needs no
-extensions beyond `pgcrypto`, which migration `0001` creates.
+its own role, its own database, and no superuser rights or database ownership.
+Parley needs no extensions beyond `pgcrypto`, which migration `0001` creates;
+on PostgreSQL 13+ that only requires `CREATE` on the database (`GRANT CREATE ON
+DATABASE parley TO parley;`), not ownership or superuser.
 
 Consider setting a `statement_timeout` on the role — Parley sets none.
 
