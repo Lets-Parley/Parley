@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type SpaceView } from "../lib/api";
 import { useMe, useAuthMode, NameGate } from "../components/NameGate";
@@ -19,15 +19,28 @@ export function Landing() {
   const [needName, setNeedName] = useState(false);
   const [error, setError] = useState("");
 
-  async function doCreate() {
-    try {
-      const sp = await api<SpaceView>("POST", "/api/spaces", { name });
-      sessionStorage.removeItem(pendingSpaceKey);
-      navigate(`/s/${sp.slug}`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not create the space.");
-    }
-  }
+  const doCreate = useCallback(
+    async (spaceName: string) => {
+      try {
+        const sp = await api<SpaceView>("POST", "/api/spaces", { name: spaceName });
+        sessionStorage.removeItem(pendingSpaceKey);
+        navigate(`/s/${sp.slug}`);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not create the space.");
+      }
+    },
+    [navigate],
+  );
+
+  // Signing in is a full page navigation, so the submit that triggered it never
+  // ran. Coming back with a name still pending finishes that create instead of
+  // asking for the same click a second time.
+  const resumed = useRef(false);
+  useEffect(() => {
+    if (resumed.current || !me.data || !sessionStorage.getItem(pendingSpaceKey)) return;
+    resumed.current = true;
+    doCreate(name);
+  }, [me.data, name, doCreate]);
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -36,7 +49,7 @@ export function Landing() {
       setNeedName(true);
       return;
     }
-    doCreate();
+    doCreate(name);
   }
 
   return (
@@ -74,7 +87,7 @@ export function Landing() {
         <NameGate
           onDone={() => {
             setNeedName(false);
-            doCreate();
+            doCreate(name);
           }}
         />
       )}
