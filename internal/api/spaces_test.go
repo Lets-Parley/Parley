@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -172,4 +173,55 @@ func TestJoinReturnsPayloadTooLargeForOversizedJSON(t *testing.T) {
 	if rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversized JSON status = %d, want 413", rec.Code)
 	}
+}
+
+// The create dialog offers whatever kinds the space view lists, so a kind
+// retired in place has to be missing from that list — the DB row survives for
+// the sake of existing sessions, and only this filter stops it being offered
+// again.
+func TestSpaceViewOmitsRetiredKinds(t *testing.T) {
+	pool := testPool(t)
+	srv := httptest.NewServer(Router(pool, Options{AllowedOrigin: testOrigin}))
+	t.Cleanup(srv.Close)
+
+	ada := signup(t, srv, "Ada")
+	_, sp := createSpace(t, srv, "Kinds Space", ada)
+	slug := sp["slug"].(string)
+
+	_, body := getSpace(t, srv, slug, ada)
+	if got := kindList(t, body); !slices.Contains(got, "standup") || !slices.Contains(got, "poker") {
+		t.Fatalf("space view kinds = %v, want both built-in kinds before retirement", got)
+	}
+
+	retireKind(t, pool, "standup")
+
+	_, body = getSpace(t, srv, slug, ada)
+	got := kindList(t, body)
+	if slices.Contains(got, "standup") {
+		t.Fatalf("space view kinds = %v, still offers the retired kind", got)
+	}
+	// The unretired kind is still offered: a filter that dropped everything
+	// would pass the assertion above for the wrong reason.
+	if !slices.Contains(got, "poker") {
+		t.Fatalf("space view kinds = %v, want the live kind still offered", got)
+	}
+}
+
+// kindList reads the space view's offerable-kind list, failing the test if it
+// is missing or not a list of strings.
+func kindList(t *testing.T, body map[string]any) []string {
+	t.Helper()
+	raw, ok := body["kinds"].([]any)
+	if !ok {
+		t.Fatalf("space view has no kinds list: %v", body)
+	}
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		s, ok := v.(string)
+		if !ok {
+			t.Fatalf("space view kinds contains a non-string: %v", raw)
+		}
+		out = append(out, s)
+	}
+	return out
 }

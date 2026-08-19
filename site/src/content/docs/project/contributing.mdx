@@ -63,7 +63,8 @@ nothing else — no router surgery, no constraint change, no frontend ternaries.
 
    `sessions.kind` is a foreign key `on delete restrict`, so a kind that has
    sessions can never be deleted. Withdraw one by setting `retired_at` instead:
-   new sessions are refused, existing ones keep working.
+   new sessions are refused, the create dialog stops offering it, and existing
+   ones keep working.
 
 3. **Add the frontend entry.** Append a `KindDef` to `KINDS` in
    `web/src/lib/kinds.ts` — `id` matching the `kind` column, `label`, the `Room`

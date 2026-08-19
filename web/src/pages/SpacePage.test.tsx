@@ -24,7 +24,7 @@ const space = {
     { id: "s3", kind: "acme.retro", title: "Retro of record", createdAt: "2026-08-18T08:00:00.000Z", endedAt: null },
     { id: "s4", kind: "pokerful", title: "Pokerful planning", createdAt: "2026-08-18T07:00:00.000Z", endedAt: null },
   ],
-} as unknown as SpaceView;
+} as unknown as SpaceView & { kinds?: string[] };
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -67,5 +67,38 @@ describe("SpacePage kind filter", () => {
     // allowlist would drop it silently rather than leaking it here.
     expect(list().queryByText("Retro of record")).toBe(null);
     expect(list().queryByText("Pokerful planning")).toBe(null);
+  });
+});
+
+describe("SpacePage create dialog", () => {
+  it("offers only the kinds the space view lists, so a retired one cannot be picked", async () => {
+    // The server omits a retired kind from the space view; the dialog must
+    // offer what the server listed rather than every kind it can render.
+    space.kinds = ["poker"];
+    try {
+      renderApp(<SpacePage />, { route: "/s/platform-team" });
+      await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+      const dialog = within(screen.getByRole("dialog"));
+      expect(dialog.getByRole("button", { name: "poker" })).toBeTruthy();
+      // The tab strip still names Standup — that filters existing sessions —
+      // so this assertion has to be scoped to the dialog, and it fails for a
+      // dialog that simply rendered every built-in kind.
+      expect(dialog.queryByRole("button", { name: "standup" })).toBe(null);
+    } finally {
+      delete space.kinds;
+    }
+  });
+
+  it("offers every kind when the space view lists them all", async () => {
+    space.kinds = ["poker", "standup"];
+    try {
+      renderApp(<SpacePage />, { route: "/s/platform-team" });
+      await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+      const dialog = within(screen.getByRole("dialog"));
+      expect(dialog.getByRole("button", { name: "poker" })).toBeTruthy();
+      expect(dialog.getByRole("button", { name: "standup" })).toBeTruthy();
+    } finally {
+      delete space.kinds;
+    }
   });
 });

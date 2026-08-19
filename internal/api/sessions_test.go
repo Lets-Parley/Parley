@@ -719,14 +719,16 @@ func TestSessionCreationRejectsARetiredKind(t *testing.T) {
 	_, sp := createSpace(t, srv, "Retired Space", ada)
 	slug := sp["slug"].(string)
 
-	if _, err := pool.Exec(context.Background(),
-		"update session_kinds set retired_at = now() where kind = 'standup'"); err != nil {
-		t.Fatal(err)
-	}
+	retireKind(t, pool, "standup")
 
 	resp, body := createSession(t, srv, slug, "standup", "Nope", ada)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("creating a session of a retired kind: got %d, want 400 (%v)", resp.StatusCode, body)
+	}
+	// The specific refusal, not merely a 400: every other rejection on this
+	// path (unknown kind, missing seed row, bad config) also answers 400.
+	if msg, _ := body["error"].(string); msg != "that session kind has been retired" {
+		t.Fatalf("refusal message = %q, want the retired-kind message", msg)
 	}
 	// A kind that was never retired still works.
 	if resp, _ := createSession(t, srv, slug, "poker", "Sprint 1", ada); resp.StatusCode != http.StatusCreated {
@@ -807,4 +809,21 @@ func TestSessionCreationReportsAMissingSeedRow(t *testing.T) {
 	if msg, _ := body["error"].(string); !strings.Contains(msg, "session_kinds") {
 		t.Fatalf("error %q does not name the missing session_kinds row", msg)
 	}
+}
+
+// retireKind sets retired_at on a seeded kind and restores it when the test
+// ends. The test database is shared by every test in the package, so a kind
+// left retired would silently change what later tests are allowed to create.
+func retireKind(t *testing.T, pool *pgxpool.Pool, kind string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(),
+		"update session_kinds set retired_at = now() where kind = $1", kind); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(),
+			"update session_kinds set retired_at = null where kind = $1", kind); err != nil {
+			t.Errorf("restoring the retired kind: %v", err)
+		}
+	})
 }
