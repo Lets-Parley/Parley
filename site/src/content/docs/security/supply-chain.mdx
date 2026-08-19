@@ -44,7 +44,7 @@ is not reachable from `main`.
 `v0.4.0` was tagged but never published: a broken SBOM step in the release
 workflow (fixed after) failed the publish before any artifact reached the
 registry. No image, chart, or attestation for `v0.4.0` exists anywhere.
-`v0.4.1` carries the same changes and is the current release; the gap in the
+`v%VERSION%` carries the same changes and is the current release; the gap in the
 version sequence is expected, not a sign of a retagged or tampered release.
 
 The multi-architecture image is built for `linux/amd64` and `linux/arm64` in a
@@ -101,7 +101,7 @@ during a broadcast could panic the server on a goroutine nothing recovers,
 taking down every room on the instance rather than only that client's. Denial of
 service only — no data disclosure, and unrevealed votes were never affected.
 Fixed in v0.2.2, which is the security floor. Deploy the current release,
-v0.4.1.
+v%VERSION%.
 
 **v0.1.0** additionally contains a room-code throttle bypass, fixed in v0.2.0.
 

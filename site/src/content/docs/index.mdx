@@ -44,7 +44,7 @@ platform team required:
     kubectl create secret generic parley \
       --from-literal=database-url='postgres://parley:secret@host:5432/parley'
 
-    helm install parley oci://ghcr.io/lets-parley/charts/parley --version 0.4.1 \
+    helm install parley oci://ghcr.io/lets-parley/charts/parley --version %VERSION% \
       --set database.existingSecret=parley \
       --set baseURL=https://parley.example.com
     ```
@@ -72,9 +72,9 @@ platform team required:
     docker run -d --name parley -p 8080:8080 \
       -e DATABASE_URL='postgres://parley:secret@db:5432/parley' \
       -e BASE_URL='https://parley.example.com' \
-      ghcr.io/lets-parley/parley:0.4.1
+      ghcr.io/lets-parley/parley:%VERSION%
     ```
-    Multi-arch, amd64 and arm64. Bring your own Postgres. v0.4.1 is the current
+    Multi-arch, amd64 and arm64. Bring your own Postgres. v%VERSION% is the current
     release, and v0.2.2 is the security floor: every earlier release can be
     crashed remotely by a disconnecting client, and v0.1.0 additionally has a
     room-code throttle bypass. None were retagged onto fixed code.

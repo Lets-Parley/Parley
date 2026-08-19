@@ -35,7 +35,7 @@ running install's pods — or the database connections that come with them. Ask
 for more when you want rollout headroom and a survivable node failure:
 
 ```sh
-helm upgrade parley oci://ghcr.io/lets-parley/charts/parley --version 0.4.1 \
+helm upgrade parley oci://ghcr.io/lets-parley/charts/parley --version %VERSION% \
   --reuse-values --set replicaCount=2
 ```
 
