@@ -48,7 +48,21 @@ jobs:
       - name: no test may skip
         if: always()
         run: |
-          skipped=$(jq -r 'select(.Action=="skip" and .Test != null) | .Package + "." + .Test' test-output.json)
+          if [ ! -f test-output.json ]; then
+            echo "test-output.json was never written: the test step above died before" >&2
+            echo "producing any output. Read that step's log for the real failure." >&2
+            exit 1
+          fi
+          # A package with no test files also reports Action=="skip", with no
+          # .Test — exempt exactly those, so a whole package skipping for any
+          # other reason is still caught.
+          skipped=$(jq -rs '
+            [.[] | select(.Action=="output" and .Test == null and (.Output | test("no test files"))) | .Package] as $empty
+            | .[]
+            | select(.Action=="skip")
+            | select(.Test != null or (.Package as $p | $empty | index($p) | not))
+            | .Package + (if .Test then "." + .Test else " (whole package)" end)
+          ' test-output.json)
           if [ -n "$skipped" ]; then
             echo "these tests skipped instead of running:" >&2
             echo "$skipped" >&2

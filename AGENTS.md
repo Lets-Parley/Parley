@@ -60,17 +60,18 @@ cd web && npm run lint          # oxlint — CI does NOT run this, so you must
 ```
 
 Without `TEST_DATABASE_URL` the database-backed tests **fail**; they do not
-skip. `PARLEY_SKIP_DB_TESTS=1` is the only opt-out, it prints a warning naming
-the packages it silenced, and CI rejects both the variable and any skipped
-test. Do not reintroduce a silent skip — roughly two thirds of the suite is
+skip. `PARLEY_SKIP_DB_TESTS=1` is the only opt-out — it is parsed strictly, so
+`PARLEY_SKIP_DB_TESTS=0` runs the tests and an unrecognised value is a hard
+failure — it prints a warning naming the packages it silenced (visible in a
+terminal, or under `-v`/`-json`; see CONTRIBUTING.md), and CI rejects both the
+variable and any skipped test. Do not reintroduce a silent skip — roughly two thirds of the suite is
 database-backed, so a skip is a green run that verified nothing.
 
 - **`-p 1` is mandatory.** Every package shares one test database and migrates
   it; parallel packages race and fail confusingly.
-- **Without `TEST_DATABASE_URL` the integration tests silently skip**
-  (`internal/api/me_test.go`, `internal/db/migrate_test.go` call `t.Skip`). A
-  green `go test ./...` can mean almost nothing ran. Never report a passing test
-  run without saying whether the database was set.
+- **Never report a passing test run without saying whether the database was
+  set.** Without `TEST_DATABASE_URL` the database-backed tests fail rather than
+  skip, so a green run is meaningful — but only if the opt-out was not used.
 - Behavioural changes need a test, and the test must have been *seen to fail*
   before the fix.
 - Style: stdlib `testing`, no assertion library, `httptest.Server` against a
