@@ -13,10 +13,10 @@ import (
 // are called, so none of them re-check authorization.
 func actions() map[string]session.Action {
 	return map[string]session.Action{
-		"standup": {Do: putEntry},
-		"start":   {Do: start, FacilitatorOnly: true},
-		"next":    {Do: next, FacilitatorOnly: true},
-		"skip":    {Do: skip, FacilitatorOnly: true},
+		"standup": {Verb: http.MethodPut, Do: putEntry},
+		"start":   {Verb: http.MethodPost, Do: start, FacilitatorOnly: true},
+		"next":    {Verb: http.MethodPost, Do: next, FacilitatorOnly: true},
+		"skip":    {Verb: http.MethodPost, Do: skip, FacilitatorOnly: true},
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -58,6 +59,15 @@ func (r *Registry) Register(k Kind) error {
 	}
 	if _, ok := r.kinds[k.Name]; ok {
 		return fmt.Errorf("registering session kind %q: already registered", k.Name)
+	}
+	// The cross-site guard exempts GET, on the assumption that a GET changes
+	// nothing. Every action is a write, so an action answering GET would be a
+	// write with no CSRF protection at all. Refuse it at wiring time — a
+	// third-party kind is registered the same way and gets the same refusal.
+	for name, a := range k.Actions {
+		if a.Verb == http.MethodGet || a.Verb == http.MethodHead {
+			return fmt.Errorf("registering session kind %q: action %q answers %s, but actions are writes and the cross-site guard exempts %s", k.Name, name, a.Verb, a.Verb)
+		}
 	}
 	r.kinds[k.Name] = k
 	return nil
