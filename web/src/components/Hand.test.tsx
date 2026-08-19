@@ -61,6 +61,14 @@ describe("Hand", () => {
     expect(screen.getByRole("button", { name: "3" }).getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("keeps a disabled card face readable while it still reads as disabled", () => {
+    renderHand({ disabled: true });
+    const card = screen.getByRole("button", { name: "5" });
+    // opacity-45 composited the face down to 2.77:1 in the light theme.
+    expect(card.className).toMatch(/\bopacity-70\b/);
+    expect(card.className).toMatch(/cursor-not-allowed/);
+  });
+
   it("refuses picks while disabled", async () => {
     const { onPick } = renderHand({ disabled: true });
     const card = screen.getByRole("button", { name: "5" }) as HTMLButtonElement;

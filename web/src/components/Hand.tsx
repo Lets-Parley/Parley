@@ -69,7 +69,9 @@ export function Hand({
                   (isSel
                     ? "border-2 border-accent bg-accent-soft shadow-lift"
                     : "border-line hover:shadow-lift") +
-                  (disabled ? " cursor-not-allowed opacity-45" : "")
+                  // opacity-45 composited the face down to 2.77:1 in the light theme;
+                  // 70% still reads as spent without falling under AA.
+                  (disabled ? " cursor-not-allowed opacity-70" : "")
                 }
                 style={
                   {

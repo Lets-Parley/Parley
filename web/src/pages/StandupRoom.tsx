@@ -161,11 +161,16 @@ export function StandupRoom({
                 aria-current={isCurrent ? "true" : undefined}
                 className={
                   "flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3 transition " +
-                  (isCurrent ? "bg-accent-soft shadow-lift" : e.skipped ? "opacity-40" : "bg-surface shadow-rest")
+                  (isCurrent ? "bg-accent-soft shadow-lift" : e.skipped ? "" : "bg-surface shadow-rest")
                 }
               >
-                {p && <Avatar name={p.name} hue={p.avatarHue} size="sm" />}
-                <span className={"text-sm font-bold" + (e.skipped ? " line-through" : "")}>{p?.name}</span>
+                {p && <Avatar name={p.name} hue={p.avatarHue} size="sm" dim={e.skipped} />}
+                {/* A group opacity wrapper would multiply through the name and
+                    leave it at 2.38:1 on the felt. The dimming rides on the
+                    avatar and a faint-but-legible ink instead. */}
+                <span className={"text-sm font-bold" + (e.skipped ? " text-ink-faint line-through" : "")}>
+                  {p?.name}
+                </span>
                 {(isCurrent || e.skipped) && (
                   <span className="sr-only">{isCurrent ? " — speaking now" : " — skipped or absent"}</span>
                 )}
