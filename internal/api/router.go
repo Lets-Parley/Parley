@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync/atomic"
 	"strings"
 	"time"
 
@@ -38,6 +39,11 @@ type app struct {
 	oidc     *auth.Provider
 	// passcodeAttempts throttles room-code guessing at the join door.
 	passcodeAttempts *attemptLimiter
+	// instanceID names this replica so it can ignore the echo of its own
+	// notifications; listenerUp is what /readyz reads to decide whether this
+	// replica can still hear the others.
+	instanceID string
+	listenerUp atomic.Bool
 }
 
 type Options struct {
@@ -53,6 +59,9 @@ type Options struct {
 	// friends. Turn it on only when a proxy in front overwrites those headers;
 	// exposed directly, it hands every caller a free choice of address.
 	TrustProxyHeaders bool
+	// Context bounds the cross-replica notification listener. Leave it nil
+	// outside of tests: the listener then lives as long as the process.
+	Context context.Context
 }
 
 func Router(pool *pgxpool.Pool, opts Options) http.Handler {
@@ -83,10 +92,17 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 		version:       cmp.Or(opts.Version, "dev"),
 
 		passcodeAttempts: newAttemptLimiter(),
+		instanceID:       newInstanceID(),
 	}
 	if mode == ModeOIDC {
 		a.oidc = opts.OIDC
 	}
+	listenCtx := opts.Context
+	if listenCtx == nil {
+		listenCtx = context.Background()
+	}
+	go a.listen(listenCtx)
+
 	a.hub.OnPresenceChange = func(sessionID string) {
 		a.broadcastState(context.Background(), sessionID)
 	}
@@ -126,6 +142,15 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 		if err := pool.Ping(ctx); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			w.Write([]byte("database unreachable"))
+			return
+		}
+		// A replica that cannot hear the others still answers requests and
+		// still holds its WebSockets — it just never learns that anyone else
+		// changed anything. Ready has to mean "in the room", not "process
+		// alive", or a dead listener stays invisible behind a green probe.
+		if !a.listenerHealthy() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte("not listening for session changes"))
 			return
 		}
 		w.WriteHeader(http.StatusOK)
