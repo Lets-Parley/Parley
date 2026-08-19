@@ -346,3 +346,30 @@ func TestBroadcastSurvivesConcurrentDisconnects(t *testing.T) {
 
 	waitForConnected(t, h, "room")
 }
+
+func TestSessionsListsEveryRoomHeld(t *testing.T) {
+	h := New()
+	if got := h.Sessions(); len(got) != 0 {
+		t.Fatalf("a new hub holds no rooms, got %v", got)
+	}
+
+	dial := testHub(t, h)
+	c1 := dial("room-1", "u1")
+	defer c1.Close()
+	c2 := dial("room-2", "u2")
+	defer c2.Close()
+	waitForConnCount(t, h, "room-1", 1)
+	waitForConnCount(t, h, "room-2", 1)
+
+	got := h.Sessions()
+	sort.Strings(got)
+	if !equal(got, []string{"room-1", "room-2"}) {
+		t.Fatalf("Sessions() = %v, want both rooms — the notification listener resyncs from this, so a room missing here is a room that never catches up after a reconnect", got)
+	}
+
+	c1.Close()
+	waitForConnCount(t, h, "room-1", 0)
+	if got := h.Sessions(); !equal(got, []string{"room-2"}) {
+		t.Fatalf("Sessions() = %v after the last connection to room-1 closed, want only room-2", got)
+	}
+}

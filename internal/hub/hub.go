@@ -180,6 +180,18 @@ func (h *Hub) Broadcast(sessionID string, msg []byte) {
 	}
 }
 
+// Sessions returns the ids of every room this hub currently holds a connection
+// for. The notification listener uses it to resync after a reconnect.
+func (h *Hub) Sessions() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := make([]string, 0, len(h.rooms))
+	for id := range h.rooms {
+		out = append(out, id)
+	}
+	return out
+}
+
 // Connected returns the distinct user ids with a live connection to the session.
 func (h *Hub) Connected(sessionID string) []string {
 	h.mu.Lock()

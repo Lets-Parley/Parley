@@ -39,9 +39,21 @@ func testPool(t *testing.T) *pgxpool.Pool {
 
 func testServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewServer(Router(testPool(t), Options{AllowedOrigin: "http://example.test"}))
+	srv := httptest.NewServer(Router(testPool(t), Options{
+		AllowedOrigin: "http://example.test",
+		Context:       testContext(t),
+	}))
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+// testContext bounds background work (the cross-replica notification listener)
+// to the life of the test, so it does not outlive the pool it borrows from.
+func testContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	return ctx
 }
 
 func postMe(t *testing.T, srv *httptest.Server, name string, cookie *http.Cookie) (*http.Response, map[string]any) {
