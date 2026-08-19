@@ -18,14 +18,24 @@ export function Modal({
   width?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
   const titleId = useId();
   useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
-    ref.current?.showModal();
+    const active = document.activeElement as HTMLElement | null;
+    // Whoever had focus before the dialog took it. Never a control inside the
+    // dialog: React remounts this effect without tearing the dialog down, and
+    // by then focus already sits on the close button — recording that would
+    // hand focus to a node that is about to be removed.
+    if (!opener.current && active && !ref.current?.contains(active)) {
+      opener.current = active;
+    }
+    // Only if it is not already open: a real <dialog> throws InvalidStateError
+    // on a second showModal(), and the throw would abandon the cleanup below.
+    if (ref.current && !ref.current.open) ref.current.showModal();
     // Unmounting the dialog drops focus to <body> instead of restoring it,
     // so hand it back to whatever opened the modal.
     return () => {
-      if (opener?.isConnected) opener.focus();
+      if (opener.current?.isConnected) opener.current.focus();
     };
   }, []);
   return (
