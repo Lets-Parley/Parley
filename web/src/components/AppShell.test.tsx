@@ -165,3 +165,44 @@ describe("AppShell", () => {
     expect(screen.getByRole("button", { name: "Switch to light theme" })).toBeTruthy();
   });
 });
+
+/** Answers both mount probes: the auth mode and the build's version. */
+function stubShell(version: string | "fail") {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = String(input);
+    if (url === "/version") {
+      if (version === "fail") throw new Error("offline");
+      return { status: 200, ok: true, text: async () => JSON.stringify({ version }) } as Response;
+    }
+    return {
+      status: 200,
+      ok: true,
+      text: async () => JSON.stringify({ mode: "open" }),
+    } as Response;
+  });
+}
+
+describe("the build stamp", () => {
+  it("links a released build to its release notes", async () => {
+    stubShell("0.3.0");
+    renderShell();
+    const link = await screen.findByRole("link", { name: "Parley 0.3.0 release notes" });
+    expect(link.getAttribute("href")).toBe(
+      "https://github.com/lets-parley/parley/releases/tag/0.3.0",
+    );
+  });
+
+  it("says dev for an unstamped build, and points at the releases page", async () => {
+    stubShell("dev");
+    renderShell();
+    const link = await screen.findByRole("link", { name: "Parley dev release notes" });
+    expect(link.getAttribute("href")).toBe("https://github.com/lets-parley/parley/releases");
+  });
+
+  it("renders nothing at all when the version cannot be fetched", async () => {
+    stubShell("fail");
+    const { queryClient } = renderShell();
+    await waitFor(() => expect(queryClient.getQueryState(["version"])?.status).toBe("error"));
+    expect(screen.queryByRole("link", { name: /release notes/ })).toBeNull();
+  });
+});
