@@ -78,18 +78,16 @@ produce a Deployment pointing at a secret named "".
 {{- end -}}
 
 {{/*
-Parley's realtime hub is in-process, enforced by a Postgres advisory lock at
-boot: a second replica refuses to start. Rendering one would produce a
-Deployment that can never become healthy, so fail at render instead.
+replicaCount must be a whole number. Parley runs on more than one replica —
+fanout, presence and the passcode throttle all go through Postgres, and
+migrations serialize behind an advisory lock — so a second pod is supported.
+A *fractional* count is not: it would reach the API server as `replicas: 1.5`
+and be rejected there, with no useful message.
 */}}
 {{- define "parley.checkReplicas" -}}
-{{- /* Check the raw value first. Sprig's `int` truncates, so 1.5 would pass a
-       `gt (int .) 1` test and then render `replicas: 1.5` for the API server to
-       reject — the chart should be what rejects it, with a message. */ -}}
+{{- /* Check the raw value, not `int` of it: Sprig's `int` truncates, so 1.5
+       would pass a numeric test and then render `replicas: 1.5`. */ -}}
 {{- if not (regexMatch "^[0-9]+$" (toString .Values.replicaCount)) -}}
 {{- fail (printf "replicaCount must be a whole number, got %v" .Values.replicaCount) -}}
-{{- end -}}
-{{- if gt (int .Values.replicaCount) 1 -}}
-{{- fail (printf "replicaCount is %d, but Parley is currently single-replica: the realtime hub is in-process and a second pod refuses to start (Postgres advisory lock at boot). Multi-replica support is tracked at https://github.com/lets-parley/parley — until it lands, replicaCount must be 1." (int .Values.replicaCount)) -}}
 {{- end -}}
 {{- end -}}

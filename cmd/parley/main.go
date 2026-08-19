@@ -204,11 +204,8 @@ func main() {
 	}
 	defer pool.Close()
 
-	if err := db.AcquireBootLock(ctx, pool); err != nil {
-		log.Error("FATAL: another parley instance holds the hub lock; this build is single-replica only — scale to one replica or stop the other instance", "error", err)
-		os.Exit(1)
-	}
-
+	// Safe to run on every replica at once: Migrate serializes behind an
+	// advisory lock, so simultaneous boots wait rather than race.
 	if err := db.Migrate(ctx, pool, log, db.MigrationsFS); err != nil {
 		log.Error("FATAL: database migration failed", "error", err)
 		os.Exit(1)

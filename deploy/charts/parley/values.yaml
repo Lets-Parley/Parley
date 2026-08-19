@@ -17,10 +17,58 @@ image:
   pullPolicy: IfNotPresent
   pullSecrets: []
 
-# LOAD-BEARING while Parley's realtime hub is in-process: a second replica
-# refuses to start, so the chart refuses to render one. Multi-replica support
-# lands with the cross-replica fanout work; until then this must stay 1.
+# Parley supports more than one replica. WebSocket fanout goes through Postgres
+# LISTEN/NOTIFY, presence and the passcode throttle live in the database, and
+# migrations serialize behind an advisory lock, so pods that boot together are
+# safe.
+#
+# The default stays 1 so that upgrading the chart never silently doubles a
+# running install's pod count — and its database connections with it. Opt into
+# HA explicitly:
+#
+#     --set replicaCount=2
+#
+# At 2 or more you also get a PodDisruptionBudget and the rollout is seamless;
+# at 1 there is a brief reconnect while the pod is replaced. Set 0 to take
+# Parley down for a maintenance window.
+#
+# Every replica opens its own pool of up to 10 Postgres connections plus one
+# for the fanout listener, so size max_connections for replicaCount * 11.
 replicaCount: 1
+
+# maxUnavailable: 0 keeps full capacity through a rollout; maxSurge: 1 replaces
+# one pod at a time so the database never sees a whole extra deployment's worth
+# of connections at once.
+#
+# Known and accepted: during the rollout the surviving old pods are running
+# against a schema the new pod has already migrated forward. Parley's migrations
+# are additive, so the old pods keep working; an old pod that *restarts*
+# mid-rollout starts fine too, because it only refuses a database ahead of it by
+# a migration it does not know, which resolves the moment the rollout replaces
+# it. Roll forward rather than back.
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+# Keeps a voluntary disruption — a node drain, a cluster upgrade — from taking
+# every replica at once. Rendered only when replicaCount is above 1: a budget in
+# front of a single pod blocks every eviction and hangs `kubectl drain` forever.
+# Set maxUnavailable instead of minAvailable if you prefer; it wins when set.
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+  maxUnavailable: ""
+
+# Two replicas on one node is one node failure away from no replicas — this
+# only bites once you scale above one. The selector is filled in by the chart. ScheduleAnyway rather than DoNotSchedule
+# so a single-node or two-node cluster still schedules instead of leaving pods
+# Pending; tighten it to DoNotSchedule once you have nodes to spare.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
 
 database:
   # Parley ships no Postgres — bring a managed database or an operator. Create
@@ -127,8 +175,9 @@ probes:
   readiness:
     periodSeconds: 5
 
-# The old pod holds its database connections until it exits. http.Server.Shutdown
-# does not close hijacked WebSocket connections, so give termination real room.
+# The old pod holds its database connections and its presence rows until it
+# exits. http.Server.Shutdown does not close hijacked WebSocket connections, so
+# give termination real room.
 terminationGracePeriodSeconds: 30
 
 serviceAccount:

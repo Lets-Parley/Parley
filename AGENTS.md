@@ -14,10 +14,10 @@ Module `github.com/lets-parley/parley`, Go 1.26.3, chi + pgx + gorilla/websocket
 
 | Path | Contents |
 | --- | --- |
-| `cmd/parley/` | config from env, boot, single-replica lock, graceful shutdown |
+| `cmd/parley/` | config from env, boot, graceful shutdown |
 | `internal/api/` | chi router, identity, spaces, sessions, room codes, authz, export, WebSocket |
 | `internal/auth/` | OpenID Connect relying party |
-| `internal/db/` | pool, boot lock, `migrations/*.sql` (embedded, run at boot) |
+| `internal/db/` | pool, `migrations/*.sql` (embedded, run at boot behind an advisory lock) |
 | `internal/hub/` | WebSocket fan-out and presence |
 | `internal/poker/`, `internal/standup/` | the two session kinds |
 | `internal/session/` | kind registry and the wire envelope |
@@ -123,9 +123,12 @@ migration and embedding mistakes that unit tests miss.
    migration — the running database has already applied it. The binary refuses
    to start if the database is ahead of it (`internal/db/migrate.go`).
 2. **`web/dist/**` is build output.** Never hand-edit it.
-3. **Single replica only.** `db.AcquireBootLock` takes a Postgres advisory lock
-   and a second instance exits fatally. Do not raise `replicas` in
-   `deploy/k8s/deployment.yaml`.
+3. **Parley runs on more than one replica.** Fanout, presence and the passcode
+   throttle all go through Postgres, and `db.Migrate` serializes simultaneous
+   boots behind an advisory lock (`migrationLockID`). The WebSocket hub is
+   still in-process, but that is per pod and no longer authoritative for
+   anything. If you ever add another advisory lock, give it its own id:
+   a blocking lock on an id the process already holds deadlocks every boot.
 4. **`BASE_URL` is security config.** It drives the WebSocket origin check and
    whether the session cookie is `Secure`. Claiming `https` while serving plain
    HTTP makes sign-in appear to work but never persist.

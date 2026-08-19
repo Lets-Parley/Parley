@@ -18,9 +18,9 @@ accepted and actionable.
 ## Scale and availability
 
 <Capability rows={[
-  { name: "Multiple replicas", status: "not-built", detail: "Enforced at boot: a second instance exits. The WebSocket hub is in-process (the room-code throttle is not: it counts in Postgres). Run one replica, vertically sized. Multi-replica realtime is on the roadmap and is the thing blocking a hosted Parley." },
-  { name: "Zero-downtime deploys", status: "not-built", detail: "A consequence of the above — the manifest uses <code>Recreate</code>, so expect a few seconds where boards are stale and clients reconnect. Deploy outside a ceremony." },
-  { name: "Connection migration during deploy", status: "not-built", detail: "Shutdown closes WebSockets before the HTTP grace period; clients reconnect after the single replacement starts. There is no handoff to another replica." },
+  { name: "Multiple replicas", status: "built", detail: "Fanout runs over Postgres <code>LISTEN</code>/<code>NOTIFY</code>, presence and the room-code throttle are rows in Postgres, and simultaneous boots serialize their migrations behind an advisory lock. The socket hub is still per pod, but nothing depends on one pod seeing every socket. Not yet exercised on a real multi-node cluster." },
+  { name: "Zero-downtime deploys", status: "built", detail: "The chart rolls with <code>maxSurge: 1</code> / <code>maxUnavailable: 0</code> above one replica. During the rollout old pods serve against the newer schema the new pod migrated to; migrations are additive, so that is fine, and it resolves as the rollout replaces them. At <code>replicaCount: 1</code> there is still a reconnect." },
+  { name: "Connection migration during deploy", status: "not-built", detail: "Shutdown closes a pod's WebSockets rather than handing them over; clients reconnect and land on a surviving replica. The reconnect is visible, the state is not lost." },
   { name: "Published performance numbers", status: "not-built", detail: "There is no benchmark, and inventing one would be dishonest. Watch Postgres first — that is where the pressure lands." },
 ]} />
 
@@ -77,7 +77,7 @@ accepted and actionable.
 
 <Capability rows={[
   { name: "Telemetry or analytics", status: "out-of-scope", detail: "Parley phones nobody, and that will not change." },
-  { name: "A hosted multi-tenant SaaS in this codebase", status: "out-of-scope", detail: "The single-replica design and the room-code model are shaped for self-hosting." },
+  { name: "A hosted multi-tenant SaaS in this codebase", status: "out-of-scope", detail: "The room-code model and the space-per-team shape are built for self-hosting." },
   { name: "Non-Postgres databases", status: "out-of-scope", detail: "Postgres only, deliberately — one driver, one dialect, one set of behaviours to reason about." },
   { name: "In-app video or chat", status: "out-of-scope", detail: "Use the call you are already on." },
 ]} />
