@@ -152,6 +152,13 @@ jobs:
           # The released image must report the version it was built from. A
           # missing --build-arg leaves the Dockerfile default ("dev") in the
           # binary, which is exactly how a published release shipped unstamped.
+          #
+          # Coverage note: this build uses plain `docker build`, so it proves
+          # the Dockerfile's ARG->ldflag contract and the /version endpoint.
+          # It does NOT exercise docker/build-push-action's own build-args
+          # passthrough (buildx, multi-platform, OCI export) used by the
+          # release workflow -- see the buildx-arg-passthrough job below for
+          # that.
           reported=$(curl -fsS http://127.0.0.1:8080/version | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
           if [ "$reported" != "ci-test" ]; then
             echo "expected /version to report ci-test, got: ${reported:-<unparsable>}" >&2
@@ -166,6 +173,39 @@ jobs:
           path: parley-ci.tar.gz
           retention-days: 1
           if-no-files-found: error
+
+  buildx-arg-passthrough:
+    name: build-push-action arg passthrough
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The docker job above proves the Dockerfile's ARG->ldflag contract via
+      # plain `docker build`. The release workflow never calls `docker build`
+      # directly -- it goes through docker/build-push-action (buildx,
+      # multi-platform, OCI export), and that action's own build-args
+      # passthrough was exactly what broke in the incident this PR fixes.
+      # Nothing exercised it until a tag was cut. This job closes that gap
+      # cheaply: single-platform, loaded straight into the local daemon, and
+      # checked with the binary's own `-version` flag so it needs no
+      # database or running server.
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Build via build-push-action with the release build-arg
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          load: true
+          push: false
+          tags: parley:buildx-arg-check
+          build-args: |
+            VERSION=buildx-arg-check
+      - name: Assert the build-arg reached the binary
+        run: |
+          set -eu
+          reported=$(docker run --rm parley:buildx-arg-check -version)
+          if [ "$reported" != "buildx-arg-check" ]; then
+            echo "expected -version to report buildx-arg-check, got: ${reported:-<empty>}" >&2
+            exit 1
+          fi
 
   container-scan:
     name: container scan
