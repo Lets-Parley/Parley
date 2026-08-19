@@ -236,12 +236,18 @@ export function AppShell({
                         }
                       >
                         <span
+                          aria-hidden="true"
                           className={
-                            "h-[22px] w-4 shrink-0 rounded-[4px] border border-line " +
+                            "flex h-[22px] w-4 shrink-0 items-center justify-center rounded-[4px] border border-line font-mono text-[10px] font-bold text-ink-soft " +
                             (getKind(s.kind)?.swatch ?? UNKNOWN_SWATCH)
                           }
-                        />
+                        >
+                          {s.kind.charAt(0).toUpperCase()}
+                        </span>
                         <span className="truncate text-[13px] font-semibold">{s.title}</span>
+                        {/* Colour and initial are a glance cue only; the kind
+                            itself has to reach a screen reader by name. */}
+                        <span className="sr-only">{getKind(s.kind)?.label ?? s.kind}</span>
                         {s.endedAt && (
                           <span className="ml-auto shrink-0 font-mono text-[9px] text-ink-faint">ended</span>
                         )}

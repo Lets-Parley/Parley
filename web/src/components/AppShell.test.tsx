@@ -235,3 +235,37 @@ describe("sidebar kind swatches", () => {
     expect(unknown).not.toContain("bg-card-back");
   });
 });
+
+describe("sidebar kind labels", () => {
+  const sessions = [
+    { id: "s1", kind: "poker", title: "Sprint 12", createdAt: "", endedAt: null },
+    { id: "s2", kind: "standup", title: "Daily", createdAt: "", endedAt: null },
+    { id: "s3", kind: "acme.retro", title: "Retro", createdAt: "", endedAt: null },
+  ];
+
+  function linkFor(title: string) {
+    return screen.getByRole("link", { name: new RegExp(title) });
+  }
+
+  // Colour alone is not a distinction: the row must name its kind to a screen
+  // reader, and carry a glyph a sighted reader can tell apart at a glance.
+  it("names the kind in the accessible name and marks the row with its initial", () => {
+    stubAuthMode("open");
+    renderShell({ sessions });
+    expect(linkFor("Sprint 12").textContent).toContain("Poker");
+    expect(linkFor("Daily").textContent).toContain("Standup");
+    const swatch = linkFor("Sprint 12").querySelector("span")!;
+    expect(swatch.getAttribute("aria-hidden")).toBe("true");
+    expect(swatch.textContent).toBe("P");
+    expect(linkFor("Daily").querySelector("span")!.textContent).toBe("S");
+  });
+
+  // An unregistered kind has no label to look up, so the wire id stands in
+  // rather than the row going silent.
+  it("falls back to the wire id for an unknown kind", () => {
+    stubAuthMode("open");
+    renderShell({ sessions });
+    expect(linkFor("Retro").textContent).toContain("acme.retro");
+    expect(linkFor("Retro").querySelector("span")!.textContent).toBe("A");
+  });
+});
