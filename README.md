@@ -429,8 +429,11 @@ running packages in parallel makes them fight over the schema.
 | `internal/db/migrations` | numbered SQL, applied at boot |
 | `web` | Vite + React frontend, embedded into the binary |
 
-Session kinds are self-contained packages registered in `internal/session`, so
-adding a new kind means one new package and one `Register` call.
+Session kinds are self-contained packages registered into a `session.Registry`
+in `internal/api/router.go`. Adding one takes three steps — the package, a
+migration seeding its `session_kinds` row, and an entry in
+`web/src/lib/kinds.ts` — written up in
+[Adding a session kind](https://www.letsparley.io/project/contributing/#adding-a-session-kind).
 
 ## Roadmap
 

@@ -106,7 +106,11 @@ migration and embedding mistakes that unit tests miss.
 - Session kinds are registered into a `session.Registry` in `api.Router`, each
   built by its package's `Kind()` constructor (`poker.Kind()`, `standup.Kind()`).
   Kind configs decode with `DisallowUnknownFields`, and a `StateFunc` must return
-  only redacted, client-safe data — it is broadcast to every participant.
+  only redacted, client-safe data — it is broadcast to every participant. The
+  full three-step checklist for adding a kind — register it, seed its
+  `session_kinds` row in a new migration, add its `KindDef` to
+  `web/src/lib/kinds.ts` — is in
+  `site/src/content/docs/project/contributing.mdx`.
 - Frontend: TypeScript strict via project references, oxlint
   (`web/.oxlintrc.json`), PascalCase components in `web/src/components/`, pages
   in `web/src/pages/`, helpers in `web/src/lib/`, design tokens in

@@ -28,8 +28,41 @@ running packages in parallel makes them fight over the schema.
 | `web` | Vite + React frontend, embedded into the binary |
 | `site` | this documentation site |
 
-Session kinds are self-contained packages registered in `internal/session`, so
-adding a new kind means one new package and one `Register` call.
+Session kinds are self-contained packages. Adding one touches three places and
+nothing else — no router surgery, no constraint change, no frontend ternaries.
+
+## Adding a session kind
+
+1. **Write the package and register it.** Give it a `Kind()` constructor
+   returning a `session.Kind` — its `Name`, a `State` function returning only
+   client-safe data, `NewConfig`, an optional `CSV`, and its `Actions` dispatch
+   table. Add it to the slice in `internal/api/router.go`:
+
+   ```go
+   for _, k := range []session.Kind{poker.Kind(), standup.Kind(), retro.Kind()} {
+   ```
+
+   Actions are resolved against the session's own kind, so two kinds may name an
+   action the same thing. Any action that must not run on a closed session
+   checks that itself — the ended-session guard is not in shared middleware.
+
+2. **Seed the kind row.** Migrations are append-only, so add a new numbered file
+   in `internal/db/migrations/` rather than editing one that shipped:
+
+   ```sql
+   -- 0011_retro_kind.sql
+   insert into session_kinds (kind, provider, display)
+   values ('retro', 'core', 'Retrospective');
+   ```
+
+   `sessions.kind` is a foreign key `on delete restrict`, so a kind that has
+   sessions can never be deleted. Withdraw one by setting `retired_at` instead:
+   new sessions are refused, existing ones keep working.
+
+3. **Add the frontend entry.** Append a `KindDef` to `KINDS` in
+   `web/src/lib/kinds.ts` — `id` matching the `kind` column, `label`, the `Room`
+   component, a `swatch` Tailwind background class for the sidebar, and
+   `fields` if the create dialog should offer config options.
 
 ## Contributing
 
