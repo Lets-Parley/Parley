@@ -53,6 +53,13 @@ spec:
             # proxy hop. Startup refuses true without that allowlist.
             - name: TRUST_PROXY_HEADERS
               value: "false"
+            # Stamped on this pod's presence rows, so a row that outlives its
+            # pod can be traced back to it. Optional: without it Parley uses a
+            # random per-process id.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           # The first four are what the "restricted" Pod Security Standard
           # checks: it reads the manifest, never the image, so the distroless
           # nonroot USER does not satisfy runAsNonRoot on its own.

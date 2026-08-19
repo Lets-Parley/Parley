@@ -9,11 +9,16 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// PongDeadline is how long a connection may go without answering a ping before
+// it is considered gone. Exported because presence freshness is derived from
+// it: a row has to outlive a client that is merely slow to answer.
+const PongDeadline = 50 * time.Second
+
 const (
 	sendBuffer       = 16
 	writeDeadline    = 5 * time.Second
 	pingInterval     = 25 * time.Second
-	pongDeadline     = 50 * time.Second
+	pongDeadline     = PongDeadline
 	presenceDebounce = 1500 * time.Millisecond
 	maxRevalidate    = 30 * time.Second
 	maxValidation    = 30 * time.Second
@@ -72,6 +77,10 @@ type Hub struct {
 	RevalidationInterval time.Duration
 	ValidationTimeout    time.Duration
 
+	// OnDisconnect fires once a user has no connections left on this hub, so a
+	// room stops showing them without waiting for their presence row to age out.
+	OnDisconnect func(sessionID, userID string)
+
 	timersMu sync.Mutex
 	timers   map[string]*time.Timer
 }
@@ -96,6 +105,10 @@ type broadcastEvent struct {
 type connectedEvent struct {
 	sessionID string
 	result    chan []string
+}
+
+type sessionsEvent struct {
+	result chan []string
 }
 
 type shutdownEvent struct {
@@ -166,6 +179,12 @@ func (h *Hub) run() {
 					seen[c.UserID] = struct{}{}
 					out = append(out, c.UserID)
 				}
+			}
+			e.result <- out
+		case sessionsEvent:
+			out := make([]string, 0, len(h.rooms))
+			for id := range h.rooms {
+				out = append(out, id)
 			}
 			e.result <- out
 		case shutdownEvent:
@@ -319,6 +338,21 @@ func (h *Hub) remove(c *Conn, closeCode int) <-chan struct{} {
 	delete(room, c)
 	if len(room) == 0 {
 		delete(h.rooms, c.SessionID)
+	}
+	// The same person may hold more than one socket here (two tabs). Only the
+	// last one leaving means they have actually gone. OnDisconnect writes to the
+	// database, so it must not run on the event loop goroutine.
+	if h.OnDisconnect != nil {
+		last := true
+		for other := range room {
+			if other.UserID == c.UserID {
+				last = false
+				break
+			}
+		}
+		if last {
+			go h.OnDisconnect(c.SessionID, c.UserID)
+		}
 	}
 	h.schedulePresence(c.SessionID)
 	return c.writerDone
@@ -519,7 +553,25 @@ func (h *Hub) Broadcast(sessionID string, msg []byte) {
 	}
 }
 
-// Connected returns the distinct user ids with a live connection to the session.
+// Sessions returns the ids of every room this hub currently holds a connection
+// for. The notification listener uses it to resync after a reconnect.
+func (h *Hub) Sessions() []string {
+	result := make(chan []string, 1)
+	if !h.submit(sessionsEvent{result: result}) {
+		return nil
+	}
+	return <-result
+}
+
+// Connected returns the distinct user ids with a live connection to the session
+// ON THIS REPLICA.
+//
+// Not for answering "who is in this room" — that is store.Presence, which sees
+// every replica. This one exists for the hub's own tests, which need to check
+// the per-user bookkeeping that detach relies on to decide whether a
+// disconnecting connection was somebody's last. Wiring it back into a handler
+// reintroduces the split-room bug: half the table seeing a different set of
+// faces than the other half.
 func (h *Hub) Connected(sessionID string) []string {
 	result := make(chan []string)
 	if !h.submit(connectedEvent{sessionID: sessionID, result: result}) {

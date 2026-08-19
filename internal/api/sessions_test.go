@@ -706,3 +706,29 @@ func TestTransferBroadcastsNewFacilitator(t *testing.T) {
 		t.Fatalf("broadcast after transfer named facilitatorId = %v, want %v", env["facilitatorId"], mel["id"])
 	}
 }
+
+// A kind retired in place is still a registered kind and still a valid foreign
+// key, so nothing but an explicit check stops a new session from using it.
+func TestSessionCreationRejectsARetiredKind(t *testing.T) {
+	pool := testPool(t)
+	srv := httptest.NewServer(Router(pool, Options{AllowedOrigin: testOrigin}))
+	t.Cleanup(srv.Close)
+
+	ada := signup(t, srv, "Ada")
+	_, sp := createSpace(t, srv, "Retired Space", ada)
+	slug := sp["slug"].(string)
+
+	if _, err := pool.Exec(context.Background(),
+		"update session_kinds set retired_at = now() where kind = 'standup'"); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, body := createSession(t, srv, slug, "standup", "Nope", ada)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("creating a session of a retired kind: got %d, want 400 (%v)", resp.StatusCode, body)
+	}
+	// A kind that was never retired still works.
+	if resp, _ := createSession(t, srv, slug, "poker", "Sprint 1", ada); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("creating a session of a live kind: got %d", resp.StatusCode)
+	}
+}

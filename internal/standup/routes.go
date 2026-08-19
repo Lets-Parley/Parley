@@ -16,10 +16,10 @@ import (
 // are called, so none of them re-check authorization.
 func actions() map[string]session.Action {
 	return map[string]session.Action{
-		"standup": {Do: putEntry},
-		"start":   {Do: start, FacilitatorOnly: true},
-		"next":    {Do: next, FacilitatorOnly: true},
-		"skip":    {Do: skip, FacilitatorOnly: true},
+		"standup": {Verb: http.MethodPut, Do: putEntry},
+		"start":   {Verb: http.MethodPost, Do: start, FacilitatorOnly: true},
+		"next":    {Verb: http.MethodPost, Do: next, FacilitatorOnly: true},
+		"skip":    {Verb: http.MethodPost, Do: skip, FacilitatorOnly: true},
 	}
 }
 
@@ -88,13 +88,19 @@ func putEntry(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 // order. Everything runs under a lock on the session row, so two starts racing
 // each other cannot interleave and hand two people the same slot.
 func start(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
-	connected := ac.Hub.Connected(ac.Session.ID)
+	// Across every replica: with a per-pod view, a standup whose participants
+	// happen to be on another pod refuses to start at all.
+	connected, err := ac.Presence.InSession(r.Context(), ac.Session.ID)
+	if err != nil {
+		http.Error(w, `{"error":"could not read who is connected"}`, http.StatusInternalServerError)
+		return
+	}
 	if len(connected) == 0 {
 		http.Error(w, `{"error":"nobody is connected yet — open the session first"}`, http.StatusConflict)
 		return
 	}
 
-	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
+	err = (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
 		func(tx pgx.Tx, sess store.Session) error {
 			// Everyone connected who is not spectating joins the round. The position
 			// here is a placeholder: the renumber below assigns the real one.

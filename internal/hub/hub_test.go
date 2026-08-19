@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -644,5 +645,39 @@ func TestSessionRevalidationClosesDatabaseRevokedToken(t *testing.T) {
 		t.Fatal("database-revoked token websocket remained open")
 	} else if closeErr, ok := err.(*websocket.CloseError); !ok || closeErr.Code != websocket.ClosePolicyViolation {
 		t.Fatalf("database-revoked token close = %v, want policy violation", err)
+	}
+}
+
+func TestSessionsListsEveryRoomHeld(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	if got := h.Sessions(); len(got) != 0 {
+		t.Fatalf("a new hub holds no rooms, got %v", got)
+	}
+
+	c1 := attachTestConn(t, h, "room-1")
+	defer c1.Close()
+	c2 := attachTestConn(t, h, "room-2")
+	defer c2.Close()
+
+	got := h.Sessions()
+	sort.Strings(got)
+	if len(got) != 2 || got[0] != "room-1" || got[1] != "room-2" {
+		t.Fatalf("Sessions() = %v, want both rooms — the notification listener resyncs from this, so a room missing here is a room that never catches up after a reconnect", got)
+	}
+
+	c1.Close()
+	// Sessions() runs on the owner loop, so it observes the unregister once the
+	// server side has processed the peer going away.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		got = h.Sessions()
+		if len(got) == 1 && got[0] == "room-2" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("Sessions() = %v after the last connection to room-1 closed, want only room-2", got)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

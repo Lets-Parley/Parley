@@ -6,9 +6,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -30,6 +32,7 @@ type app struct {
 	users    *store.Users
 	spaces   *store.Spaces
 	sessions *store.Sessions
+	presence *store.Presence
 	hub      *hub.Hub
 	// kinds is the session-kind registry, built once at wiring time.
 	kinds *session.Registry
@@ -43,6 +46,11 @@ type app struct {
 	// passcodeAttempts throttles room-code guessing at the join door.
 	passcodeAttempts *attemptLimiter
 	limits           Limits
+	// instanceID names this replica so it can ignore the echo of its own
+	// notifications; listenerUp is what /readyz reads to decide whether this
+	// replica can still hear the others.
+	instanceID string
+	listenerUp atomic.Bool
 }
 
 type Options struct {
@@ -59,6 +67,10 @@ type Options struct {
 	TrustProxyHeaders bool
 	TrustedProxyCIDRs []netip.Prefix
 	Limits            Limits
+
+	// Context bounds the cross-replica notification listener. Leave it nil
+	// outside of tests: the listener then lives as long as the process.
+	Context context.Context
 
 	sessionRevalidationInterval time.Duration
 }
@@ -115,10 +127,18 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		mode = ModeOpen
 	}
 	a := &app{
-		pool:          pool,
-		users:         &store.Users{Pool: pool},
-		spaces:        &store.Spaces{Pool: pool},
-		sessions:      &store.Sessions{Pool: pool},
+		pool:     pool,
+		users:    &store.Users{Pool: pool},
+		spaces:   &store.Spaces{Pool: pool},
+		sessions: &store.Sessions{Pool: pool},
+		presence: &store.Presence{
+			Pool:      pool,
+			ReplicaID: replicaID(),
+			// Twice the pong deadline. A client is pinged every 25s and has 50s
+			// to answer, so anything shorter would drop people who are merely
+			// slow to reply — the opposite of what presence is for.
+			Window: 2 * hub.PongDeadline,
+		},
 		hub:           hub.New(),
 		kinds:         kinds,
 		secureCookies: opts.SecureCookies,
@@ -128,19 +148,42 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 
 		passcodeAttempts: newAttemptLimiter(),
 		limits:           opts.Limits.withDefaults(),
+		instanceID:       newInstanceID(),
 	}
 	if mode == ModeOIDC {
 		a.oidc = opts.OIDC
 	}
+	listenCtx := opts.Context
+	if listenCtx == nil {
+		listenCtx = context.Background()
+	}
+	// Router tolerates a nil pool — /version answers without a database, and
+	// tests use that. Nothing below here may assume otherwise.
+	if pool != nil {
+		go a.listen(listenCtx)
+		go a.sweepPresence(listenCtx)
+	}
+
 	a.hub.OnPresenceChange = func(sessionID string) {
 		a.broadcastState(context.Background(), sessionID)
 	}
 	a.hub.OnFacilitatorSeen = func(sessionID, userID string) {
-		a.sessions.TouchFacilitatorSeen(context.Background(), sessionID, userID)
+		ctx := context.Background()
+		a.sessions.TouchFacilitatorSeen(ctx, sessionID, userID)
+		// Fires on connect and on every pong, which is exactly the heartbeat
+		// presence needs — no second timer required.
+		if err := a.presence.Seen(ctx, sessionID, userID); err != nil {
+			slog.Error("could not record presence", "session", sessionID, "user", userID, "error", err)
+		}
 	}
 	a.hub.RevalidationInterval = opts.sessionRevalidationInterval
 	a.hub.ValidateSession = func(ctx context.Context, tokenID string) (time.Time, error) {
 		return a.users.TokenExpiry(ctx, []byte(tokenID))
+	}
+	a.hub.OnDisconnect = func(sessionID, userID string) {
+		if err := a.presence.Gone(context.Background(), sessionID, userID); err != nil {
+			slog.Error("could not clear presence", "session", sessionID, "user", userID, "error", err)
+		}
 	}
 
 	r := chi.NewRouter()
@@ -172,6 +215,15 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		if err := pool.Ping(ctx); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			w.Write([]byte("database unreachable"))
+			return
+		}
+		// A replica that cannot hear the others still answers requests and
+		// still holds its WebSockets — it just never learns that anyone else
+		// changed anything. Ready has to mean "in the room", not "process
+		// alive", or a dead listener stays invisible behind a green probe.
+		if !a.listenerHealthy() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte("not listening for session changes"))
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -210,7 +262,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		// Deprecated, one release only: the story-scoped poker routes carry
 		// the story in the path instead of the body, so they cannot go
 		// through the dispatcher and keep their own copy of the ladder.
-		poker.New(a.pool, a.hub, a.broadcastState).MountLegacyStories(r)
+		poker.New(a.pool, a.hub, a.presence, a.broadcastState).MountLegacyStories(r)
 
 		// requireSessionMember answers 404 for anonymous callers too, so these
 		// routes sit outside RequireUser: a session's existence is never
@@ -219,10 +271,11 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			r.Use(a.requireSessionMember)
 			r.Get("/", a.handleGetSession)
 			r.Get("/export.csv", a.handleExportCSV)
-			// The one action dispatcher. Kind actions are resolved against
-			// this session's own kind, so two kinds can name an action the
-			// same thing without sharing a namespace to collide in.
-			r.Post("/actions/{action}", a.handleAction)
+			// The one action dispatcher, mounted for every method so the
+			// dispatcher itself decides 404-vs-405. Kind actions are resolved
+			// against this session's own kind, so two kinds can name an action
+			// the same thing without sharing a namespace to collide in.
+			r.HandleFunc("/actions/{action}", a.handleAction)
 			for _, al := range legacyAliases {
 				r.MethodFunc(al.method, al.path, a.aliasAction(al.action))
 			}

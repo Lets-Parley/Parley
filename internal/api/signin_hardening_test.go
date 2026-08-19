@@ -145,6 +145,7 @@ func TestAnonymousSessionsStopWorkingInOIDCMode(t *testing.T) {
 	// The same database, now running behind an identity provider.
 	federated := testServerWith(t, pool, Options{
 		AllowedOrigin: "http://example.test",
+		Context:       testContext(t),
 		AuthMode:      ModeOIDC,
 		OIDC: auth.New(auth.Config{
 			Issuer: idp.URL, ClientID: "parley-test", ClientSecret: "shh",

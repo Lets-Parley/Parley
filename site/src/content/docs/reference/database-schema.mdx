@@ -8,7 +8,7 @@ import SpecTable from "../../../components/SpecTable.astro";
 
 <VerifiedStamp source={["internal/db/migrations", "internal/db/migrate.go"]} />
 
-Nine migrations, embedded in the binary and applied at boot. Postgres only —
+Ten migrations, embedded in the binary and applied at boot. Postgres only —
 there is no second driver and no plan for one.
 
 ## Migrations
@@ -23,6 +23,7 @@ there is no second driver and no plan for one.
   { name: "0007_story_ref", value: "stories.ref", note: "Ticket reference, ≤40 chars" },
   { name: "0008_space_passcode", value: "spaces.passcode", note: "Empty string means an open space" },
   { name: "0009_federated_identity", value: "users.issuer, users.subject", note: "Behind a partial unique index" },
+  { name: "0010_session_kinds", value: "session_kinds", note: "Replaces the sessions.kind check constraint with a foreign key" },
 ]} />
 
 ### How the runner behaves
@@ -77,11 +78,26 @@ anonymous row can share the empty pair while federated identities stay unique.
 `(space_id, user_id)` composite primary key, plus `spectator` and `last_seen_at`.
 Both foreign keys cascade.
 
+### session_kinds
+
+| Column | Type | Notes |
+|---|---|---|
+| `kind` | text | Primary key, 1–64 characters. `sessions.kind` references it `on delete restrict` |
+| `provider` | text | `core` for the kinds Parley ships |
+| `display` | text | Human-readable name |
+| `retired_at` | timestamptz | Null means the kind is offerable |
+
+A kind is retired in place by setting `retired_at`, never deleted — the
+restricting foreign key means a row with sessions cannot be removed, and
+existing sessions of a retired kind keep loading and running as before.
+Retiring only closes the door on *new* sessions: session creation rejects a
+kind whose `retired_at` is set, with `400 that session kind has been retired`.
+
 ### sessions
 
 | Column | Type | Notes |
 |---|---|---|
-| `kind` | text | `check (kind in ('poker','standup'))` — this constraint is why adding a ceremony currently needs a migration |
+| `kind` | text | Foreign key to `session_kinds.kind`, `on delete restrict`. Adding a ceremony is a new row, not a schema change — see [Adding a session kind](/project/contributing/#adding-a-session-kind) |
 | `title` | text | 1–200 characters |
 | `config` | jsonb | Write-once, decoded into a typed struct |
 | `phase`, `revealed`, `version` | | `version` increments on mutation |

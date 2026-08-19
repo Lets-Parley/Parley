@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, api } from "./api";
+import { ApiError, action, api } from "./api";
 
 function reply(status: number, body?: string, ok?: boolean) {
   return {
@@ -96,5 +96,29 @@ describe("api", () => {
     expect(e).toBeInstanceOf(Error);
     expect(e.message).toBe("gone");
     expect(e.status).toBe(404);
+  });
+});
+
+describe("action", () => {
+  it("sends each action with the verb the server routes it on", async () => {
+    const f = fetchMock().mockResolvedValue(reply(204, "", true));
+    const cases: [string, string][] = [
+      ["reveal", "POST"],
+      ["stories", "POST"],
+      ["select", "POST"],
+      ["reset", "POST"],
+      ["vote", "POST"],
+      ["start", "POST"],
+      ["next", "POST"],
+      ["skip", "POST"],
+      ["story", "PATCH"],
+      ["standup", "PUT"],
+    ];
+    for (const [name, method] of cases) {
+      f.mockClear();
+      await action("s1", name, {});
+      expect(f.mock.calls[0][0]).toBe(`/api/sessions/s1/actions/${name}`);
+      expect(f.mock.calls[0][1]!.method).toBe(method);
+    }
   });
 });

@@ -60,7 +60,7 @@ func (a *app) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	env, err := a.kinds.BuildEnvelope(r.Context(), a.pool, a.hub, a.sessions, sess.ID)
+	env, err := a.kinds.BuildEnvelope(r.Context(), a.pool, a.presence, a.sessions, sess.ID)
 	var initial []byte
 	if err == nil {
 		initial, _ = json.Marshal(env)

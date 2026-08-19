@@ -29,13 +29,22 @@ var legacyAliases = []legacyAlias{
 	{"POST", "/skip", "skip"},
 }
 
-// handleAction is the one dispatcher: POST /sessions/{id}/actions/{action}.
+// handleAction is the one dispatcher: /sessions/{id}/actions/{action}, routed
+// on the verb each action declares.
 //
-// The verb is POST and only POST. Every action is a state transition on the
-// session rather than a replacement of a resource at that URL, so a single
-// verb is the honest shape; the one route that disagreed, PUT
-// /sessions/{id}/standup, is an upsert of the caller's own entry and becomes
-// POST .../actions/standup. The old PUT stays live as an alias for a release.
+// The case for POST-only is real and worth stating: every action is a state
+// transition on the session rather than a replacement of a resource at that
+// URL, so one verb is a defensible shape and spares clients a table. The
+// counter, and the reason this routes on (verb, action) instead: an upsert of
+// the caller's own standup entry is exactly what PUT is for, and a partial
+// story edit exactly what PATCH is for. Collapsing both onto POST loses the
+// idempotency signal a client can act on — a retried PUT is safe to send and a
+// retried POST is not — and no amount of documentation puts that back.
+//
+// The action name is a URL parameter, so chi cannot know which names are real
+// and its own 405 would fire for every unknown name too. The lookup below owns
+// the distinction instead: an unknown name is a 404 whatever the verb, and a
+// real action reached with the wrong verb is a 405 naming the verb that works.
 func (a *app) handleAction(w http.ResponseWriter, r *http.Request) {
 	a.dispatch(w, r, chi.URLParam(r, "action"))
 }
@@ -57,6 +66,11 @@ func (a *app) dispatch(w http.ResponseWriter, r *http.Request, name string) {
 		http.Error(w, `{"error":"no such action"}`, http.StatusNotFound)
 		return
 	}
+	if r.Method != act.Verb {
+		w.Header().Set("Allow", act.Verb)
+		http.Error(w, `{"error":"that action does not answer this method"}`, http.StatusMethodNotAllowed)
+		return
+	}
 	p, _ := PrincipalFrom(r.Context())
 	if act.FacilitatorOnly && sess.FacilitatorID != p.UserID {
 		http.Error(w, `{"error":"only the facilitator can do that"}`, http.StatusForbidden)
@@ -72,6 +86,7 @@ func (a *app) dispatch(w http.ResponseWriter, r *http.Request, name string) {
 		return
 	}
 	act.Do(w, r, session.ActionCtx{
+		Presence:   a.presence,
 		Pool:       a.pool,
 		Hub:        a.hub,
 		Broadcast:  a.broadcastState,

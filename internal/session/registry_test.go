@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"net/http"
 	"testing"
 )
 
@@ -176,5 +177,21 @@ func TestCSVRows(t *testing.T) {
 	noCSV := registryWith(t, testKind())
 	if _, err := noCSV.CSVRows(Envelope{Kind: "kindtest"}); err == nil {
 		t.Error("CSVRows accepted a kind with no exporter")
+	}
+}
+
+func TestRegisterRefusesAnActionThatAnswersGET(t *testing.T) {
+	r := NewRegistry()
+	err := r.Register(Kind{
+		Name: "peek",
+		Actions: map[string]Action{
+			"read": {Verb: http.MethodGet, Do: func(http.ResponseWriter, *http.Request, ActionCtx) {}},
+		},
+	})
+	if err == nil {
+		t.Fatal("registering a GET action succeeded; it would be a write with no cross-site protection")
+	}
+	if r.Known("peek") {
+		t.Fatal("the kind was registered anyway")
 	}
 }

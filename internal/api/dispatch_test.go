@@ -90,20 +90,20 @@ func TestEndedSessionRejectsActionsOnDispatcher(t *testing.T) {
 	closeSession(t, srv, id, fac)
 
 	cases := []struct {
-		action, body string
-		cookie       *http.Cookie
+		verb, action, body string
+		cookie             *http.Cookie
 	}{
-		{"stories", `{"title":"Nope"}`, fac},
-		{"select", `{"storyId":"` + story + `"}`, fac},
-		{"reveal", "", fac},
-		{"reset", "", fac},
-		{"story", `{"storyId":"` + story + `","title":"Renamed"}`, fac},
-		{"vote", `{"storyId":"` + story + `","value":"5"}`, member},
+		{"POST", "stories", `{"title":"Nope"}`, fac},
+		{"POST", "select", `{"storyId":"` + story + `"}`, fac},
+		{"POST", "reveal", "", fac},
+		{"POST", "reset", "", fac},
+		{"PATCH", "story", `{"storyId":"` + story + `","title":"Renamed"}`, fac},
+		{"POST", "vote", `{"storyId":"` + story + `","value":"5"}`, member},
 	}
 	for _, c := range cases {
-		resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/"+c.action, c.body, c.cookie)
+		resp, _ := doJSON(t, srv, c.verb, "/api/sessions/"+id+"/actions/"+c.action, c.body, c.cookie)
 		if resp.StatusCode != http.StatusConflict {
-			t.Errorf("POST actions/%s on an ended session: got %d, want 409", c.action, resp.StatusCode)
+			t.Errorf("%s actions/%s on an ended session: got %d, want 409", c.verb, c.action, resp.StatusCode)
 		}
 	}
 
@@ -134,11 +134,11 @@ func TestStoryActionsRejectAForeignSession(t *testing.T) {
 	story := addStory(t, srv, idA, "Belongs to A", fac)
 	selectStory(t, srv, idA, story, fac)
 
-	for _, c := range []struct{ action, body string }{
-		{"story", `{"storyId":"` + story + `","title":"Renamed"}`},
-		{"vote", `{"storyId":"` + story + `","value":"5"}`},
+	for _, c := range []struct{ verb, action, body string }{
+		{"PATCH", "story", `{"storyId":"` + story + `","title":"Renamed"}`},
+		{"POST", "vote", `{"storyId":"` + story + `","value":"5"}`},
 	} {
-		resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+idB+"/actions/"+c.action, c.body, member)
+		resp, _ := doJSON(t, srv, c.verb, "/api/sessions/"+idB+"/actions/"+c.action, c.body, member)
 		if resp.StatusCode != http.StatusNotFound {
 			t.Errorf("actions/%s with a story from another session: got %d, want 404", c.action, resp.StatusCode)
 		}
@@ -211,7 +211,7 @@ func TestDispatcherStillEnforcesMembershipAndFacilitator(t *testing.T) {
 }
 
 // TestStandupDispatcherActions covers the standup kind end to end on the
-// dispatcher, including the entry write that used to be a PUT.
+// dispatcher, including the PUT that writes the caller's entry.
 func TestStandupDispatcherActions(t *testing.T) {
 	srv := testServer(t)
 	fac, m1, m2, id, _ := standupSetup(t, srv, "Standup Dispatch Space")
@@ -222,7 +222,7 @@ func TestStandupDispatcherActions(t *testing.T) {
 		}
 	}()
 
-	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/standup",
+	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+id+"/actions/standup",
 		`{"yesterday":"a","today":"b","blockers":"c"}`, m1); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("standup entry: %d", resp.StatusCode)
 	}
@@ -237,5 +237,75 @@ func TestStandupDispatcherActions(t *testing.T) {
 	}
 	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/skip", "", fac); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("skip: %d", resp.StatusCode)
+	}
+}
+
+// TestDispatcherRoutesOnTheActionsVerb pins the verb-per-action shape: an
+// action is reachable only through the verb it declares, and a real action
+// reached with the wrong verb is a 405 carrying Allow — not a 404, which would
+// say the action does not exist when it plainly does. The 404 is reserved for
+// a name this kind has no action for, whatever the verb.
+func TestDispatcherRoutesOnTheActionsVerb(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Verb Dispatch Space")
+	story := addStory(t, srv, id, "Verb story", fac)
+	selectStory(t, srv, id, story, fac)
+
+	// PATCH is the story edit's declared verb.
+	if resp, _ := doJSON(t, srv, "PATCH", "/api/sessions/"+id+"/actions/story",
+		`{"storyId":"`+story+`","title":"Renamed"}`, member); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("PATCH actions/story: got %d, want 204", resp.StatusCode)
+	}
+
+	// The same action under any other verb is a 405, and says which verb works.
+	for _, method := range []string{"POST", "PUT", "DELETE"} {
+		resp, _ := doJSON(t, srv, method, "/api/sessions/"+id+"/actions/story",
+			`{"storyId":"`+story+`","title":"Renamed again"}`, member)
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("%s actions/story: got %d, want 405", method, resp.StatusCode)
+		}
+		if got := resp.Header.Get("Allow"); got != "PATCH" {
+			t.Errorf("%s actions/story: Allow = %q, want %q", method, got, "PATCH")
+		}
+	}
+
+	// A name this kind has no action for stays a 404 under every verb, so the
+	// 405 above is the verb check and not a blanket method filter.
+	for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
+		for _, action := range []string{"standup", "nonsense"} {
+			resp, _ := doJSON(t, srv, method, "/api/sessions/"+id+"/actions/"+action, "{}", fac)
+			if resp.StatusCode != http.StatusNotFound {
+				t.Errorf("%s actions/%s on a poker session: got %d, want 404", method, action, resp.StatusCode)
+			}
+		}
+	}
+}
+
+// TestStandupEntryIsAPut pins PUT as the canonical standup entry route: the
+// entry write is an upsert of the caller's own row, and PUT is what carries
+// that idempotency signal to a client.
+func TestStandupEntryIsAPut(t *testing.T) {
+	srv := testServer(t)
+	_, m1, _, id, _ := standupSetup(t, srv, "Standup Verb Space")
+
+	body := `{"yesterday":"a","today":"b","blockers":"c"}`
+	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+id+"/actions/standup", body, m1); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("PUT actions/standup: got %d, want 204", resp.StatusCode)
+	}
+	// Repeating it is the same upsert, not a second entry.
+	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+id+"/actions/standup", body, m1); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("repeat PUT actions/standup: got %d, want 204", resp.StatusCode)
+	}
+	resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/standup", body, m1)
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("POST actions/standup: got %d, want 405", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Allow"); got != "PUT" {
+		t.Errorf("POST actions/standup: Allow = %q, want %q", got, "PUT")
+	}
+
+	// The deprecated PUT /sessions/{id}/standup alias keeps working.
+	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+id+"/standup", body, m1); resp.StatusCode != http.StatusNoContent {
+		t.Errorf("legacy PUT /standup: got %d, want 204", resp.StatusCode)
 	}
 }

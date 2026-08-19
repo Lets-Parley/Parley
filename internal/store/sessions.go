@@ -76,6 +76,19 @@ func (s *Sessions) Create(ctx context.Context, spaceID, kind, title string, conf
 	return sess, tx.Commit(ctx)
 }
 
+// KindRetired reports whether the kind's row carries a retired_at. A retired
+// kind keeps its row — the foreign key is RESTRICT and existing sessions still
+// have to resolve — so nothing stops a new session using it but this check.
+func (s *Sessions) KindRetired(ctx context.Context, kind string) (bool, error) {
+	var retired bool
+	err := s.Pool.QueryRow(ctx,
+		"select retired_at is not null from session_kinds where kind = $1", kind).Scan(&retired)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return retired, err
+}
+
 func (s *Sessions) ByID(ctx context.Context, id string) (Session, error) {
 	return scanSession(s.Pool.QueryRow(ctx, "select "+sessionCols+" from sessions where id = $1", id))
 }
@@ -151,11 +164,15 @@ func (s *Sessions) WithActiveSession(ctx context.Context, id, actorID string, fa
 
 func (s *Sessions) SetEnded(ctx context.Context, id, actorID string, ended bool) error {
 	return s.withLockedSession(ctx, id, actorID, false, func(tx pgx.Tx, _ Session) error {
+		// The ended_at predicate is what makes this idempotent: a retried or
+		// double-clicked DELETE must not move the recorded end time forward,
+		// bump the version, or broadcast a second time. Under the row lock, so
+		// two concurrent closes cannot both see it as open.
 		var q string
 		if ended {
-			q = "update sessions set ended_at = now(), version = version + 1 where id = $1"
+			q = "update sessions set ended_at = now(), version = version + 1 where id = $1 and ended_at is null"
 		} else {
-			q = "update sessions set ended_at = null, version = version + 1 where id = $1"
+			q = "update sessions set ended_at = null, version = version + 1 where id = $1 and ended_at is not null"
 		}
 		_, err := tx.Exec(ctx, q, id)
 		return err

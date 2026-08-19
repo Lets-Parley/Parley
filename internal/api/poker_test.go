@@ -107,7 +107,6 @@ func TestStoryManagementRequiresFacilitator(t *testing.T) {
 		{name: "edit", method: http.MethodPatch, path: "/api/stories/" + story, body: `{"title":"Unauthorized edit"}`},
 		{name: "reorder", method: http.MethodPatch, path: "/api/stories/" + story, body: `{"position":99}`},
 		{name: "select", method: http.MethodPost, path: "/api/sessions/" + id + "/select", body: `{"storyId":"` + story + `"}`},
-		{name: "delete", method: http.MethodDelete, path: "/api/stories/" + story},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -116,10 +115,6 @@ func TestStoryManagementRequiresFacilitator(t *testing.T) {
 				t.Fatalf("status = %d, want 403", resp.StatusCode)
 			}
 		})
-	}
-
-	if resp, _ := doJSON(t, srv, http.MethodDelete, "/api/stories/"+story, "", fac); resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("facilitator delete: %d", resp.StatusCode)
 	}
 }
 

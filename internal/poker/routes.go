@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -11,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lets-parley/parley/internal/httprequest"
-	"github.com/lets-parley/parley/internal/hub"
 	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/store"
 )
@@ -20,12 +20,12 @@ import (
 // session state inside the transaction that performs each write.
 func actions() map[string]session.Action {
 	return map[string]session.Action{
-		"stories": {Do: addStory, FacilitatorOnly: true},
-		"select":  {Do: selectStory, FacilitatorOnly: true},
-		"reveal":  {Do: reveal, FacilitatorOnly: true},
-		"reset":   {Do: reset, FacilitatorOnly: true},
-		"story":   {Do: patchStory},
-		"vote":    {Do: vote},
+		"stories": {Verb: http.MethodPost, Do: addStory, FacilitatorOnly: true},
+		"select":  {Verb: http.MethodPost, Do: selectStory, FacilitatorOnly: true},
+		"reveal":  {Verb: http.MethodPost, Do: reveal, FacilitatorOnly: true},
+		"reset":   {Verb: http.MethodPost, Do: reset, FacilitatorOnly: true},
+		"story":   {Verb: http.MethodPatch, Do: patchStory},
+		"vote":    {Verb: http.MethodPost, Do: vote},
 	}
 }
 
@@ -284,7 +284,17 @@ func vote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 }
 
 func castVote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, storyID, value string) {
-	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, false,
+	// Read before the transaction opens: presence is a separate query, and
+	// holding the session row lock across it serialises every other write.
+	connected, err := ac.Presence.InSession(r.Context(), ac.Session.ID)
+	if err != nil {
+		// Fail towards not revealing, but say so: a presence query that keeps
+		// failing means rounds silently stop opening on their own.
+		slog.Error("could not read presence for auto-reveal", "session", ac.Session.ID, "error", err)
+		connected = nil
+	}
+
+	err = (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, false,
 		func(tx pgx.Tx, sess store.Session) error {
 			if sess.Revealed {
 				return errVotesRevealed
@@ -318,7 +328,7 @@ func castVote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, stor
 				storyID, ac.UserID, value); err != nil {
 				return err
 			}
-			if err := maybeAutoReveal(r.Context(), tx, ac.Hub, sess, storyID); err != nil {
+			if err := maybeAutoReveal(r.Context(), tx, connected, sess, storyID); err != nil {
 				return err
 			}
 			_, err := tx.Exec(r.Context(), "update sessions set version = version + 1 where id = $1", sess.ID)
@@ -338,12 +348,19 @@ func castVote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, stor
 	default:
 		committed(w, r, ac)
 	}
+
 }
 
 // maybeAutoReveal fires only here, on a vote landing — never from presence
 // changes, so a disconnect can shrink the denominator but can't reveal.
-func maybeAutoReveal(ctx context.Context, tx pgx.Tx, h *hub.Hub, sess store.Session, storyID string) error {
-	connected := h.Connected(sess.ID)
+//
+// The connected set comes from the presence store, which sees every replica.
+// Counting only the clients attached here shrinks the denominator, and a
+// shrunken denominator opens the round while the rest of the table still has
+// votes to cast — the one thing hidden votes must never do. It is read by the
+// caller before the transaction opens: reading it here would hold the session
+// row lock across another query for no reason.
+func maybeAutoReveal(ctx context.Context, tx pgx.Tx, connected []string, sess store.Session, storyID string) error {
 	if len(connected) == 0 {
 		return nil
 	}
@@ -356,8 +373,7 @@ func maybeAutoReveal(ctx context.Context, tx pgx.Tx, h *hub.Hub, sess store.Sess
 			select user_id from votes where story_id = $3
 		)
 		select exists (select 1 from eligible)
-		and not exists (select user_id from eligible except select user_id from voters)
-		and not exists (select user_id from voters except select user_id from eligible)`,
+		and not exists (select user_id from eligible except select user_id from voters)`,
 		sess.SpaceID, connected, storyID).Scan(&exact)
 	if err != nil || !exact {
 		return err

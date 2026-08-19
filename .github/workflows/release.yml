@@ -8,7 +8,6 @@ permissions:
   contents: read
 
 env:
-  IMAGE: ghcr.io/${{ github.repository }}
   SKOPEO_IMAGE: quay.io/skopeo/stable:v1.22.2@sha256:8870d39b1f18e6421da42aa13e562ce61cc58f230d238f4a905efe959ff8f491
 
 jobs:
@@ -19,6 +18,7 @@ jobs:
       version: ${{ steps.release.outputs.version }}
       major_minor: ${{ steps.release.outputs.major_minor }}
       release_commit: ${{ steps.release.outputs.release_commit }}
+      image: ${{ steps.image.outputs.image }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -43,6 +43,19 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "major_minor=$major_minor" >> "$GITHUB_OUTPUT"
           echo "release_commit=$release_commit" >> "$GITHUB_OUTPUT"
+      # OCI references are lowercase-only, and this org is spelled Lets-Parley.
+      # Actions expressions have no lower(), and docker/metadata-action — which
+      # used to launder the casing — is no longer in this workflow, so every
+      # reference below is built from this one asserted value.
+      - name: Compute the image reference
+        id: image
+        env:
+          RAW_REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          image=ghcr.io/$(printf '%s' "$RAW_REPO" | tr '[:upper:]' '[:lower:]')
+          printf '%s\n' "$image" | grep -Eq '^ghcr\.io/[a-z0-9]+([._-][a-z0-9]+)*/[a-z0-9]+([._-][a-z0-9]+)*$'
+          echo "image=$image" >> "$GITHUB_OUTPUT"
 
   build:
     needs: validate
@@ -62,7 +75,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: false
-          tags: ${{ env.IMAGE }}:${{ needs.validate.outputs.version }}
+          tags: ${{ needs.validate.outputs.image }}:${{ needs.validate.outputs.version }}
           outputs: type=oci,dest=/tmp/parley-image.tar
           provenance: mode=max
           sbom: true
@@ -120,6 +133,7 @@ jobs:
           VERSION: ${{ needs.validate.outputs.version }}
           MAJOR_MINOR: ${{ needs.validate.outputs.major_minor }}
           VALIDATED_COMMIT: ${{ needs.validate.outputs.release_commit }}
+          IMAGE: ${{ needs.validate.outputs.image }}
           STAGING_TAG: staging-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -eu
@@ -146,7 +160,7 @@ jobs:
       - name: Attest published digest
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-name: ${{ env.IMAGE }}
+          subject-name: ${{ needs.validate.outputs.image }}
           subject-digest: ${{ steps.publish.outputs.digest }}
           push-to-registry: true
 

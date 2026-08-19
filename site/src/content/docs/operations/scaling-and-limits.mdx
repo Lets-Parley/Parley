@@ -65,6 +65,7 @@ against several instances, or wondering why a pool that says 10 saturates at 9.
   { name: "WriteTimeout", value: "30s", note: "HTTP response write deadline" },
   { name: "IdleTimeout", value: "120s", note: "Keep-alive idle deadline" },
   { name: "Shutdown grace", value: "10s", note: "WebSockets close first; in-flight HTTP receives the grace period" },
+  { name: "Session revalidation", value: "30s", note: "Every live WebSocket re-checks its token against the database on this interval. Not configurable: it is the ceiling on how long a revoked session keeps its socket, and it costs one pooled query per connection per interval" },
 ]} />
 
 The HTTP timeouts protect ordinary requests. After a successful WebSocket

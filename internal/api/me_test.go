@@ -49,6 +49,10 @@ func testServer(t *testing.T) *httptest.Server {
 
 func testServerWith(t *testing.T, pool *pgxpool.Pool, opts Options) *httptest.Server {
 	t.Helper()
+	// The notification listener has to be bounded or it outlives the test.
+	if opts.Context == nil {
+		opts.Context = testContext(t)
+	}
 	handler := Router(pool, opts)
 	srv := httptest.NewServer(handler)
 	t.Cleanup(func() {
@@ -56,6 +60,15 @@ func testServerWith(t *testing.T, pool *pgxpool.Pool, opts Options) *httptest.Se
 		srv.Close()
 	})
 	return srv
+}
+
+// testContext bounds background work (the cross-replica notification listener)
+// to the life of the test, so it does not outlive the pool it borrows from.
+func testContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	return ctx
 }
 
 func postMe(t *testing.T, srv *httptest.Server, name string, cookie *http.Cookie) (*http.Response, map[string]any) {

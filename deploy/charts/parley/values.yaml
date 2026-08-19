@@ -61,6 +61,13 @@ auth:
 # bypass and all. With an ELB or CDN in front, check that before enabling.
 trustProxyHeaders: false
 
+# Every CIDR that can be an immediate or forwarded proxy hop, comma-separated.
+# Required whenever trustProxyHeaders is true: the app refuses to start on a
+# trusted-proxy setting with no allowlist, because "trust the header from
+# anyone" is exactly the bypass the setting exists to prevent. The chart fails
+# the render rather than letting that reach a CrashLoopBackOff.
+trustedProxyCIDRs: ""
+
 logLevel: info
 
 service:

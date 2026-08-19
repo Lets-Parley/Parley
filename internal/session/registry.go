@@ -9,11 +9,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/lets-parley/parley/internal/hub"
 	"github.com/lets-parley/parley/internal/store"
 )
 
@@ -59,6 +59,15 @@ func (r *Registry) Register(k Kind) error {
 	}
 	if _, ok := r.kinds[k.Name]; ok {
 		return fmt.Errorf("registering session kind %q: already registered", k.Name)
+	}
+	// The cross-site guard exempts GET, on the assumption that a GET changes
+	// nothing. Every action is a write, so an action answering GET would be a
+	// write with no CSRF protection at all. Refuse it at wiring time — a
+	// third-party kind is registered the same way and gets the same refusal.
+	for name, a := range k.Actions {
+		if a.Verb == http.MethodGet || a.Verb == http.MethodHead {
+			return fmt.Errorf("registering session kind %q: action %q answers %s, but actions are writes and the cross-site guard exempts %s", k.Name, name, a.Verb, a.Verb)
+		}
 	}
 	r.kinds[k.Name] = k
 	return nil
@@ -156,7 +165,14 @@ func roster(ctx context.Context, pool *pgxpool.Pool, spaceID string) (string, []
 	return slug, people, rows.Err()
 }
 
-func (r *Registry) BuildEnvelope(ctx context.Context, pool *pgxpool.Pool, h *hub.Hub, sessions *store.Sessions, id string) (Envelope, error) {
+// BuildEnvelope assembles the wire state for a session.
+//
+// Presence comes from the database, not from a hub. That is the whole point:
+// any replica must be able to answer "who is in this room" with the same list,
+// including people whose sockets are held by a different pod. There is
+// deliberately no in-process fallback — a second path here is a path that tests
+// exercise and production does not.
+func (r *Registry) BuildEnvelope(ctx context.Context, pool *pgxpool.Pool, presence *store.Presence, sessions *store.Sessions, id string) (Envelope, error) {
 	sess, err := sessions.ByID(ctx, id)
 	if err != nil {
 		return Envelope{}, err
@@ -174,9 +190,12 @@ func (r *Registry) BuildEnvelope(ctx context.Context, pool *pgxpool.Pool, h *hub
 		return Envelope{}, err
 	}
 
-	presence := h.Connected(id)
+	connected, err := presence.InSession(ctx, id)
+	if err != nil {
+		return Envelope{}, err
+	}
 	facConnected := false
-	for _, uid := range presence {
+	for _, uid := range connected {
 		if uid == sess.FacilitatorID {
 			facConnected = true
 			break
@@ -192,7 +211,7 @@ func (r *Registry) BuildEnvelope(ctx context.Context, pool *pgxpool.Pool, h *hub
 		FacilitatorID:        sess.FacilitatorID,
 		FacilitatorConnected: facConnected,
 		EndedAt:              sess.EndedAt,
-		Presence:             presence,
+		Presence:             connected,
 		SpaceSlug:            slug,
 		Participants:         people,
 		ServerTime:           time.Now().UTC(),

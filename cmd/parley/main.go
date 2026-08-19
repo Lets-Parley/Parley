@@ -215,6 +215,9 @@ func main() {
 	}
 
 	opts := api.Options{
+		// The signal context, so SIGTERM stops the cross-replica listener
+		// along with everything else rather than leaving it dialling.
+		Context:           ctx,
 		SecureCookies:     secureCookies,
 		AllowedOrigin:     cfg.BaseURL.Scheme + "://" + cfg.BaseURL.Host,
 		AuthMode:          cfg.AuthMode,

@@ -98,14 +98,31 @@ existence is never disclosed.
 Everything a session kind does goes through one dispatcher:
 
 ```
-POST /api/sessions/{id}/actions/{action}
+<VERB> /api/sessions/{id}/actions/{action}
 ```
 
-`POST` is the only verb it accepts. Each action is a state transition on the
-session, not a replacement of a resource at its URL, so one verb is the honest
-shape — the old `PUT /api/sessions/{id}/standup` is now
-`POST /api/sessions/{id}/actions/standup`, and the story edit that was a `PATCH`
-is `POST /api/sessions/{id}/actions/story` carrying `{storyId}` in the body.
+**Each action declares its own verb, and the dispatcher routes on the pair.**
+Most actions are transitions on the session and take `POST`. Two are not: a
+standup entry is an upsert of the caller's own row, so it is
+`PUT /api/sessions/{id}/actions/standup`, and a story edit is a partial update,
+so it is `PATCH /api/sessions/{id}/actions/story` carrying `{storyId}` in the
+body. The verb is listed against every action in the tables below.
+
+The case for collapsing all of them onto `POST` is a fair one — every action is
+a state transition on the session rather than a replacement of a resource at
+that URL, and one verb spares clients this table. It was weighed and not taken:
+an upsert is exactly what `PUT` is for, and folding it into `POST` throws away
+the idempotency signal a client acts on, since a retried `PUT` is safe to send
+and a retried `POST` is not.
+
+A **real** action reached with the wrong verb is **405**, with `Allow` naming
+the verb that works. A name this kind has no action for is **404** under every
+verb — the dispatcher decides both itself, because the action name is a path
+parameter and the router cannot know which names are real.
+
+No action may declare `GET` or `HEAD`; registering a kind that does is refused
+at startup. Every action is a write, and the cross-site guard exempts `GET` on
+the promise that a `GET` changes nothing.
 
 The action name is resolved against **this session's own kind**, so an action
 belonging to another kind is a 404 rather than a route two kinds share. The
@@ -120,7 +137,7 @@ action against a closed session is **409**; reopen it first.
 
 <RouteTable rows={[
   { method: "POST", path: "/api/sessions/{id}/actions/stories", auth: "facilitator", purpose: "Add a story. title ≤200, notes ≤2000, ref ≤40." },
-  { method: "POST", path: "/api/sessions/{id}/actions/story", auth: "facilitator", purpose: "Edit {storyId}: title, notes, ref, position or estimate. An estimate is validated against the session's deck; empty clears it." },
+  { method: "PATCH", path: "/api/sessions/{id}/actions/story", auth: "member", purpose: "Edit {storyId}: title, notes, ref, position or estimate. An estimate is validated against the session's deck; empty clears it." },
   { method: "POST", path: "/api/sessions/{id}/actions/vote", auth: "member", purpose: "Cast or change your vote on {storyId}. Refused for spectators. Triggers the auto-reveal check." },
   { method: "POST", path: "/api/sessions/{id}/actions/select", auth: "facilitator", purpose: "Put a story on the table and clear the reveal." },
   { method: "POST", path: "/api/sessions/{id}/actions/reveal", auth: "facilitator", purpose: "Open the round." },
@@ -131,7 +148,7 @@ action against a closed session is **409**; reopen it first.
 ### Daily standup
 
 <RouteTable rows={[
-  { method: "POST", path: "/api/sessions/{id}/actions/standup", auth: "member", purpose: "Upsert your own yesterday / today / blockers. Each ≤2000 characters." },
+  { method: "PUT", path: "/api/sessions/{id}/actions/standup", auth: "member", purpose: "Upsert your own yesterday / today / blockers. Each ≤2000 characters." },
   { method: "POST", path: "/api/sessions/{id}/actions/start", auth: "facilitator", purpose: "Snapshot the roster into a speaking order and prefill yesterday from the last standup." },
   { method: "POST", path: "/api/sessions/{id}/actions/next", auth: "facilitator", purpose: "Advance to the next speaker." },
   { method: "POST", path: "/api/sessions/{id}/actions/skip", auth: "facilitator", purpose: "Mark the current speaker skipped and advance." },
