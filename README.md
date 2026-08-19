@@ -260,17 +260,17 @@ Pin `--version`. Without it Helm resolves to whatever the registry currently
 calls newest, so the same command gives you a different Parley next month.
 
 It refuses to render rather than hand you a deployment that cannot work: a
-moving image tag, a second replica, a missing database secret, OIDC without a
-client secret, or ingress TLS under an `http://` base URL all fail at
+moving image tag, a fractional replica count, a missing database secret, OIDC
+without a client secret, or ingress TLS under an `http://` base URL all fail at
 `helm template` time with a message saying why. `helm test` then checks the
 Service actually routes to a pod that reached Postgres.
 
 `deploy/k8s/deployment.yaml` (in this repo — clone it, or fetch that one file)
 is the same thing as a plain manifest, for people who do not run Helm. Two things in it are
-load-bearing rather than stylistic. `replicas: 1` + `strategy: Recreate`: the
-realtime hub is in-process, and a second replica refuses to start via a Postgres
-advisory lock. And the liveness probe hits `/healthz`, which never touches the
-database, because a DB blip must not restart the pod and drop every WebSocket.
+load-bearing rather than stylistic. `strategy: RollingUpdate` with
+`maxUnavailable: 0`, so a rollout never drops below the replica count. And the
+liveness probe hits `/healthz`, which never touches the database, because a DB
+blip must not restart the pod and drop every WebSocket.
 
 Parley ships no Postgres for Kubernetes. Bring a managed database or an
 operator, then give the Deployment its connection string and pin an image tag:
@@ -281,12 +281,22 @@ kubectl create secret generic parley \
 kubectl apply -f deploy/k8s/deployment.yaml
 ```
 
-A deploy or a node drain is a few seconds of downtime — one replica, `Recreate`,
-and the client's reconnect banner covering the gap. If a new pod logs
-`advisory lock ... already held`, the old one hasn't exited yet; it will start on
-the next retry. There is deliberately **no PodDisruptionBudget**: the only one
-that would protect a single replica (`maxUnavailable: 0`) deadlocks the drain it
-was meant to survive.
+Parley runs on more than one replica: WebSocket fanout goes through Postgres
+`LISTEN`/`NOTIFY`, presence and the room-code throttle are rows in Postgres, and
+pods that boot together serialize their migrations behind an advisory lock. The
+chart defaults to one replica, so an upgrade never doubles a running install's
+pods behind your back; `--set replicaCount=2` opts in. Above one replica it also
+renders a PodDisruptionBudget and a topology spread constraint — a budget in
+front of a single pod would deadlock the drain it was meant to survive. Each replica opens up to 10 pooled Postgres
+connections plus one for the fanout listener, so size `max_connections` for
+`replicas × 11`.
+
+One thing to expect during a rollout: the new pod migrates the database before
+the old pods are gone, so the old version briefly serves against a newer schema.
+Migrations are additive, so it keeps working, and an old pod that restarts in
+that window comes back normally and is replaced moments later. Roll forward —
+rolling back onto an image older than the migrations that have run is refused,
+by design.
 
 ## Sign-in
 
@@ -436,7 +446,7 @@ running packages in parallel makes them fight over the schema.
 
 | Path | What lives there |
 |---|---|
-| `cmd/parley` | main — config, boot, single-replica lock |
+| `cmd/parley` | main — config, boot, graceful shutdown |
 | `internal/api` | HTTP router, identity, spaces, sessions, room codes |
 | `internal/poker`, `internal/standup` | the session kinds |
 | `internal/session` | the registry the kinds plug into, plus CSV |

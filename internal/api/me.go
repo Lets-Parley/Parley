@@ -105,7 +105,16 @@ func (a *app) handleDeleteMe(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, `{"error":"could not end session"}`, http.StatusInternalServerError)
 				return
 			}
+			// Local first and directly, so revocation on this replica never
+			// depends on a database round trip completing.
 			a.hub.DisconnectToken(string(hash))
+			// Then the other replicas, which hold their own sockets for this
+			// token and their own hubs to close them with. Published only after
+			// the row is gone: a replica acting on this can then never
+			// revalidate the token back into existence. Best-effort — the
+			// logout has already succeeded in the database, and revalidate is
+			// the backstop if the notification is lost.
+			a.notifyRevoke(r.Context(), hash)
 		}
 	}
 	clearSessionCookie(w, a.secureCookies)

@@ -19,22 +19,6 @@ export default defineConfig({
         { tag: "meta", attrs: { property: "og:image:alt", content: "Parley — planning poker and daily standups, self-hosted" } },
         { tag: "meta", attrs: { name: "twitter:card", content: "summary_large_image" } },
         { tag: "meta", attrs: { name: "twitter:image", content: "https://www.letsparley.io/og.png" } },
-        {
-          tag: "script",
-          content: `(() => {
-  if (localStorage.getItem("parley-cookies") === "eaten") return;
-  addEventListener("DOMContentLoaded", () => {
-    const el = document.createElement("div");
-    el.id = "parley-cookies";
-    el.innerHTML = '<p>We only use cookies for eating. This site stores nothing, tracks nothing, and shares crumbs with no one.</p>';
-    const ok = document.createElement("button");
-    ok.textContent = "Delicious";
-    ok.onclick = () => { localStorage.setItem("parley-cookies", "eaten"); el.remove(); };
-    el.append(ok);
-    document.body.append(el);
-  });
-})();`,
-        },
       ],
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/lets-parley/parley" },
@@ -42,6 +26,7 @@ export default defineConfig({
       editLink: {
         baseUrl: "https://github.com/lets-parley/parley/edit/main/site/",
       },
+      components: { Hero: "./src/components/Hero.astro" },
       customCss: ["./src/styles/parley.css"],
       // These pages run long and reference-heavy; the right-hand TOC is the
       // real navigation on them, so it needs H3.

@@ -146,7 +146,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		authMode:      mode,
 		version:       cmp.Or(opts.Version, "dev"),
 
-		passcodeAttempts: newAttemptLimiter(),
+		passcodeAttempts: newAttemptLimiter(pool),
 		limits:           opts.Limits.withDefaults(),
 		instanceID:       newInstanceID(),
 	}

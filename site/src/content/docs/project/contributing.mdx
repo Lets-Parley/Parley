@@ -17,7 +17,7 @@ running packages in parallel makes them fight over the schema.
 
 | Path | What lives there |
 |---|---|
-| `cmd/parley` | main — config, boot, single-replica lock |
+| `cmd/parley` | main — config, boot, graceful shutdown |
 | `internal/api` | HTTP router, identity, spaces, sessions, room codes |
 | `internal/auth` | OpenID Connect relying party |
 | `internal/poker`, `internal/standup` | the session kinds |

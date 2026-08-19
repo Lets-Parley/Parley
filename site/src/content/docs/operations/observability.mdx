@@ -50,8 +50,8 @@ request paths, user names, or session content.
 
 ## Is that enough?
 
-For this shape of service, mostly yes. Parley is a single replica with no
-background workers, no queues and no scheduled jobs. The two questions that
+For this shape of service, mostly yes. Parley has no background workers, no
+queues and no scheduled jobs. The two questions that
 matter operationally are *is the process up* and *can it reach Postgres*, and
 both are answered by probing `/readyz` from outside.
 

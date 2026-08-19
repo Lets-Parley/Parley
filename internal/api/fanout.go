@@ -17,6 +17,26 @@ import (
 // payload cap is never in play.
 const notifyChannel = "parley_session"
 
+// revokeChannel carries session-token revocations between replicas. Ending a
+// session deletes the token row on the replica that served the request, but the
+// WebSockets it authenticated are held wherever their clients happened to land,
+// and each replica's hub can only close its own. Without this, a logout leaves
+// an authenticated socket live on every other replica until that connection's
+// revalidate poll catches up.
+//
+// A channel of its own rather than a typed prefix on notifyChannel: that
+// payload is parsed as "<instance> <session id>", so anything else sent down it
+// is silently misread as a session id — including by an older replica still
+// running mid-rolling-update, which would never learn to expect a prefix.
+//
+// The payload is the token *hash*, never the token itself. The hash is what the
+// hub keys connections on, and it is useless as a credential. Note that a
+// pg_notify payload is visible to anything able to LISTEN on this database —
+// that is not a new exposure, since the same principal can already select the
+// same hash out of the tokens table, but it is worth stating here rather than
+// discovering later. The raw token (the cookie value) must never go on the wire.
+const revokeChannel = "parley_revoke"
+
 // listenerBackoffMax caps the reconnect delay. A replica that cannot listen is
 // a replica whose clients silently stop receiving other people's votes, so it
 // retries hard rather than politely.
@@ -43,6 +63,27 @@ func (a *app) notify(ctx context.Context, sessionID string) {
 	if err != nil {
 		slog.Error("could not notify other replicas of a session change",
 			"session", sessionID, "error", err)
+	}
+}
+
+// notifyRevoke tells the other replicas to drop every WebSocket authenticated
+// by this token.
+//
+// Best-effort, exactly like notify: by the time this runs the token row is
+// already deleted and the user's logout has succeeded, so a failure here must
+// not turn a successful logout into a 500. The cost of a lost notification is
+// bounded — a remote socket stays up until its next revalidate poll (at most
+// hub's maxRevalidate, 30s), which is the documented fallback. The same applies
+// to a notification sent while a replica's listener is reconnecting: Postgres
+// does not queue for a session that is not listening, so it is simply missed,
+// and revalidate is what closes the gap. A durable queue would buy at most
+// those few seconds and cost a lot more than it is worth.
+func (a *app) notifyRevoke(ctx context.Context, tokenHash []byte) {
+	// Hex, not the raw bytes: a notification payload is text, and a hash is not.
+	payload := a.instanceID + " " + hex.EncodeToString(tokenHash)
+	if _, err := a.pool.Exec(ctx, "select pg_notify($1, $2)", revokeChannel, payload); err != nil {
+		// No token material in the log line; the failure itself is the news.
+		slog.Error("could not notify other replicas of a session revocation", "error", err)
 	}
 }
 
@@ -97,8 +138,12 @@ func (a *app) listenOnce(ctx context.Context) error {
 		}
 	}()
 
-	if _, err := conn.Exec(ctx, "listen "+notifyChannel); err != nil {
-		return err
+	// Both channels on the one dedicated connection: a second parked connection
+	// would double the idle backends for no gain.
+	for _, channel := range []string{notifyChannel, revokeChannel} {
+		if _, err := conn.Exec(ctx, "listen "+channel); err != nil {
+			return err
+		}
 	}
 	a.listenerUp.Store(true)
 	// Cleared here as well as in listen's error branch, because a clean
@@ -117,18 +162,28 @@ func (a *app) listenOnce(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		from, sessionID, ok := strings.Cut(n.Payload, " ")
+		from, rest, ok := strings.Cut(n.Payload, " ")
 		if !ok {
-			slog.Warn("ignoring malformed session notification", "payload", n.Payload)
+			slog.Warn("ignoring malformed notification", "channel", n.Channel)
 			continue
 		}
-		// This replica already pushed the frame to its own clients when it
-		// handled the mutation. Sending it again on the echo would double every
-		// update for everyone connected here.
+		// This replica already did the work locally when it handled the
+		// request. Acting on the echo would double every update for everyone
+		// connected here, and re-run a disconnect that is already done.
 		if from == a.instanceID {
 			continue
 		}
-		a.broadcastLocal(ctx, sessionID)
+		switch n.Channel {
+		case notifyChannel:
+			a.broadcastLocal(ctx, rest)
+		case revokeChannel:
+			tokenHash, err := hex.DecodeString(rest)
+			if err != nil {
+				slog.Warn("ignoring malformed revocation notification", "error", err)
+				continue
+			}
+			a.hub.DisconnectToken(string(tokenHash))
+		}
 	}
 }
 
