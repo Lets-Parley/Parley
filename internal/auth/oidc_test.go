@@ -145,19 +145,15 @@ func TestDiscoverDoesNotCacheAFailedLookup(t *testing.T) {
 	}
 }
 
-// hangingIdP is an identity provider that accepts the connection and then says
-// nothing, which is the failure mode that used to queue every sign-in.
-func hangingIdP(t *testing.T) string {
-	t.Helper()
+func TestDiscoverDoesNotSerializeConcurrentCallers(t *testing.T) {
+	var hits int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
 		<-r.Context().Done()
 	}))
 	t.Cleanup(srv.Close)
-	return srv.URL
-}
 
-func TestDiscoverDoesNotSerializeConcurrentCallers(t *testing.T) {
-	p := providerFor(t, hangingIdP(t))
+	p := providerFor(t, srv.URL)
 	p.discoveryTimeout = 200 * time.Millisecond
 
 	const waiters = 5
@@ -178,12 +174,21 @@ func TestDiscoverDoesNotSerializeConcurrentCallers(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 2*p.discoveryTimeout {
 		t.Fatalf("%d waiters took %v, want roughly one %v window", waiters, elapsed, p.discoveryTimeout)
 	}
+	// The wall-clock bound above would also hold if every caller raced the
+	// network independently (each racing attempt still times out within one
+	// window); only the hit count proves the callers actually collapsed onto
+	// a single singleflight attempt.
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Fatalf("identity provider was hit %d times for %d concurrent callers, want 1 (singleflight should collapse them)", got, waiters)
+	}
 }
 
 func TestDiscoverSurvivesTheFirstCallerGivingUp(t *testing.T) {
 	idp := newFakeIdP(t)
 	release := make(chan struct{})
+	requestReceived := make(chan struct{})
 	gate := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(requestReceived)
 		<-release
 		idp.Config.Handler.ServeHTTP(w, r)
 	}))
@@ -195,8 +200,9 @@ func TestDiscoverSurvivesTheFirstCallerGivingUp(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() { done <- p.discover(impatient) }()
-	// Let the first caller reach the network before it walks away.
-	time.Sleep(50 * time.Millisecond)
+	// Let the first caller actually reach the network before it walks away,
+	// rather than guessing at a wall-clock margin.
+	<-requestReceived
 	cancel()
 	close(release)
 
