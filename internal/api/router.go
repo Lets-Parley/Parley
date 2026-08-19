@@ -146,12 +146,17 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 			r.Group(func(r chi.Router) {
 				r.Use(rejectEnded)
 				r.Use(requireFacilitator)
-				r.Delete("/", a.handleCloseSession)
 				r.Post("/facilitator", a.handleTransferFacilitator)
 			})
-			// Reopen is the one write that only makes sense on an ended
-			// session, so it sits outside the rejectEnded group.
-			r.With(requireFacilitator).Post("/reopen", a.handleReopenSession)
+			// Close and reopen sit outside the rejectEnded group. Reopen is
+			// the one write that only makes sense on an ended session, and
+			// close stays idempotent — a second DELETE is a no-op 204, which
+			// the handler enforces itself.
+			r.Group(func(r chi.Router) {
+				r.Use(requireFacilitator)
+				r.Delete("/", a.handleCloseSession)
+				r.Post("/reopen", a.handleReopenSession)
+			})
 		})
 	})
 

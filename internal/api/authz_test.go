@@ -90,3 +90,22 @@ func TestEndedSessionStillReadable(t *testing.T) {
 		t.Fatal("reopen did not clear endedAt")
 	}
 }
+
+// TestClosingAnAlreadyClosedSessionIsIdempotent pins close as a no-op on a
+// session that has already ended: a retried or double-clicked DELETE must not
+// show the facilitator an error for an action that already succeeded.
+func TestClosingAnAlreadyClosedSessionIsIdempotent(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Idempotent Close Space")
+	closeSession(t, srv, id, fac)
+
+	resp, body := doJSON(t, srv, "DELETE", "/api/sessions/"+id, "", fac)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("second close: got %d, want 204 (idempotent); body=%v", resp.StatusCode, body)
+	}
+
+	_, env := doJSON(t, srv, "GET", "/api/sessions/"+id, "", member)
+	if env["endedAt"] == nil {
+		t.Fatal("second close: session is no longer ended")
+	}
+}
