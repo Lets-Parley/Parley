@@ -436,6 +436,15 @@ func TestTransferToSelfIsANoOp(t *testing.T) {
 	fac, _, id := setupSession(t, srv, "Self Transfer Space")
 	_, fay := doJSON(t, srv, "GET", "/api/me", "", fac)
 
+	ws, _, err := dialWS(t, srv, id, fac, testOrigin)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer ws.Close()
+	if _, ok := readEnvelope(t, ws, 5*time.Second); !ok {
+		t.Fatal("no initial state frame")
+	}
+
 	_, before := doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
 	beforeVersion, ok := before["version"].(float64)
 	if !ok {
@@ -456,8 +465,11 @@ func TestTransferToSelfIsANoOp(t *testing.T) {
 	if !ok {
 		t.Fatalf("session envelope missing version: %v", env)
 	}
-	if afterVersion <= beforeVersion {
-		t.Fatalf("self transfer did not perform a real write: version = %v, want > %v", afterVersion, beforeVersion)
+	if afterVersion != beforeVersion {
+		t.Fatalf("self transfer wrote to the session: version = %v, want %v", afterVersion, beforeVersion)
+	}
+	if frame, ok := readEnvelope(t, ws, time.Second); ok {
+		t.Fatalf("self transfer broadcast a state frame: %v", frame)
 	}
 }
 
