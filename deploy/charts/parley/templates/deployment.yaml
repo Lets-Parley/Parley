@@ -1,0 +1,112 @@
+{{- include "parley.checkReplicas" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "parley.fullname" . }}
+  labels:
+    {{- include "parley.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  # Recreate, not RollingUpdate: the old pod holds the boot advisory lock until
+  # it exits, and a new pod that starts too early dies with "advisory lock
+  # already held". That means a few seconds of downtime per deploy — the
+  # client's reconnect banner makes that a non-event.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "parley.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "parley.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}{{ toYaml . | nindent 8 }}{{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "parley.serviceAccountName" . }}
+      # Also set here, not just on the ServiceAccount: when both are present the
+      # pod-level field wins, so leaving it off would let the token back in.
+      automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # http.Server.Shutdown does not close hijacked WebSocket connections, and
+      # the boot advisory lock is only freed when the process exits, so give
+      # termination real room.
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      containers:
+        - name: parley
+          image: "{{ .Values.image.repository }}:{{ include "parley.imageTag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "parley.databaseSecret" . }}
+                  key: {{ .Values.database.secretKey }}
+            - name: BASE_URL
+              value: {{ .Values.baseURL | quote }}
+            - name: TRUST_PROXY_HEADERS
+              value: {{ .Values.trustProxyHeaders | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            - name: AUTH_MODE
+              value: {{ .Values.auth.mode | quote }}
+            {{- if eq .Values.auth.mode "oidc" }}
+            - name: OIDC_ISSUER
+              value: {{ required "auth.oidc.issuer is required when auth.mode is oidc" .Values.auth.oidc.issuer | quote }}
+            - name: OIDC_CLIENT_ID
+              value: {{ required "auth.oidc.clientID is required when auth.mode is oidc" .Values.auth.oidc.clientID | quote }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "auth.oidc.existingSecret is required when auth.mode is oidc — never set a client secret in values" .Values.auth.oidc.existingSecret }}
+                  key: {{ .Values.auth.oidc.secretKey }}
+            {{- end }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          # Nothing answers on 8080 until migrations finish, so liveness must not
+          # start counting until the startup probe has passed.
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+          # Never touches the database: a DB blip must not restart the process
+          # and drop every WebSocket in the room.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

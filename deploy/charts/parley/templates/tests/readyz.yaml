@@ -1,0 +1,39 @@
+# `helm test` proves the Service routes to a pod that is ready — which for
+# Parley means it reached Postgres and finished migrations, since /readyz pings
+# the database (/healthz deliberately does not).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "parley.fullname" . }}-test-readyz
+  labels:
+    {{- include "parley.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: readyz
+      image: curlimages/curl:8.11.1
+      securityContext:
+        runAsNonRoot: true
+        # Explicit uid, not just runAsNonRoot: the kubelet verifies this from
+        # the manifest and refuses to start a container whose image declares a
+        # *named* user it cannot resolve to a number. curlimages/curl ships
+        # USER curl_user, so without this the test pod never runs and `helm
+        # test` fails with CreateContainerConfigError instead of testing
+        # anything. 100 is curl_user's uid.
+        runAsUser: 100
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault
+      args:
+        - --fail
+        - --silent
+        - --show-error
+        - --max-time
+        - "10"
+        - http://{{ include "parley.fullname" . }}:{{ .Values.service.port }}/readyz

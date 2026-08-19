@@ -230,8 +230,25 @@ publishes the port straight to clients.
 
 ## Kubernetes
 
+There is a Helm chart:
+
+```sh
+kubectl create secret generic parley \
+  --from-literal=database-url='postgres://parley:secret@host:5432/parley'
+
+helm install parley oci://ghcr.io/lets-parley/charts/parley \
+  --set database.existingSecret=parley \
+  --set baseURL=https://parley.example.com
+```
+
+It refuses to render rather than hand you a deployment that cannot work: a
+moving image tag, a second replica, a missing database secret, OIDC without a
+client secret, or ingress TLS under an `http://` base URL all fail at
+`helm template` time with a message saying why. `helm test` then checks the
+Service actually routes to a pod that reached Postgres.
+
 `deploy/k8s/deployment.yaml` (in this repo — clone it, or fetch that one file)
-is a starting point. Two things in it are
+is the same thing as a plain manifest, for people who do not run Helm. Two things in it are
 load-bearing rather than stylistic. `replicas: 1` + `strategy: Recreate`: the
 realtime hub is in-process, and a second replica refuses to start via a Postgres
 advisory lock. And the liveness probe hits `/healthz`, which never touches the
