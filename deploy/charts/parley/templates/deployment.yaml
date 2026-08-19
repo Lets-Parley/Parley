@@ -1,3 +1,6 @@
+{{- if and .Values.trustProxyHeaders (not .Values.trustedProxyCIDRs) }}
+{{- fail "trustProxyHeaders is true but trustedProxyCIDRs is empty. Parley refuses to start that way: trusting X-Forwarded-For from any source is the throttle bypass the setting exists to prevent. Set trustedProxyCIDRs to every Ingress/load-balancer CIDR that can be a proxy hop." }}
+{{- end }}
 {{- include "parley.checkReplicas" . -}}
 apiVersion: apps/v1
 kind: Deployment
@@ -59,6 +62,10 @@ spec:
               value: {{ .Values.baseURL | quote }}
             - name: TRUST_PROXY_HEADERS
               value: {{ .Values.trustProxyHeaders | quote }}
+            {{- if .Values.trustProxyHeaders }}
+            - name: TRUSTED_PROXY_CIDRS
+              value: {{ .Values.trustedProxyCIDRs | quote }}
+            {{- end }}
             - name: LOG_LEVEL
               value: {{ .Values.logLevel | quote }}
             # Stamped on this pod's presence rows. Not required — Parley falls

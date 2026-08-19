@@ -9,7 +9,9 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 
+	"github.com/lets-parley/parley/internal/httprequest"
 	"github.com/lets-parley/parley/internal/store"
 )
 
@@ -61,8 +63,8 @@ func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		Title  string          `json:"title"`
 		Config json.RawMessage `json:"config"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil {
-		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
 		return
 	}
 	title := strings.TrimSpace(body.Title)
@@ -89,7 +91,11 @@ func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess, err := a.sessions.Create(r.Context(), sp.ID, body.Kind, title, config, p.UserID)
+	sess, err := a.sessions.Create(r.Context(), sp.ID, body.Kind, title, config, p.UserID, a.limits.SessionsPerSpace)
+	if errors.Is(err, store.ErrQuotaExceeded) {
+		http.Error(w, `{"error":"session limit reached for this space"}`, http.StatusConflict)
+		return
+	}
 	if err != nil {
 		http.Error(w, `{"error":"could not create session"}`, http.StatusInternalServerError)
 		return
@@ -111,22 +117,29 @@ func (a *app) handleGetSession(w http.ResponseWriter, r *http.Request) {
 // no-op 204 rather than a conflict, so a retried or double-clicked DELETE
 // never reports an error for work that already landed. That is why this route
 // sits outside the rejectEnded group — the no-write-on-an-ended-session
-// invariant is kept here instead, by skipping the write.
+// invariant is kept in the store instead: the update carries an `ended_at is
+// null` predicate, so the second DELETE matches no row and changes nothing.
 func (a *app) handleCloseSession(w http.ResponseWriter, r *http.Request) {
+	p, _ := PrincipalFrom(r.Context())
 	sess := sessionFrom(r.Context())
-	if sess.EndedAt == nil {
-		if err := a.sessions.SetEnded(r.Context(), sess.ID, true); err != nil {
-			http.Error(w, `{"error":"could not close session"}`, http.StatusInternalServerError)
-			return
-		}
-		a.broadcastState(r.Context(), sess.ID)
+	if err := a.sessions.SetEnded(r.Context(), sess.ID, p.UserID, true); errors.Is(err, store.ErrNotFacilitator) {
+		http.Error(w, `{"error":"only the facilitator can do that"}`, http.StatusForbidden)
+		return
+	} else if err != nil {
+		http.Error(w, `{"error":"could not close session"}`, http.StatusInternalServerError)
+		return
 	}
+	a.broadcastState(r.Context(), sess.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *app) handleReopenSession(w http.ResponseWriter, r *http.Request) {
+	p, _ := PrincipalFrom(r.Context())
 	sess := sessionFrom(r.Context())
-	if err := a.sessions.SetEnded(r.Context(), sess.ID, false); err != nil {
+	if err := a.sessions.SetEnded(r.Context(), sess.ID, p.UserID, false); errors.Is(err, store.ErrNotFacilitator) {
+		http.Error(w, `{"error":"only the facilitator can do that"}`, http.StatusForbidden)
+		return
+	} else if err != nil {
 		http.Error(w, `{"error":"could not reopen session"}`, http.StatusInternalServerError)
 		return
 	}
@@ -135,22 +148,28 @@ func (a *app) handleReopenSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleTransferFacilitator(w http.ResponseWriter, r *http.Request) {
+	p, _ := PrincipalFrom(r.Context())
 	sess := sessionFrom(r.Context())
 	var body struct {
 		UserID string `json:"userId"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil || body.UserID == "" {
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"userId is required"}`)
+		return
+	}
+	if body.UserID == "" {
 		http.Error(w, `{"error":"userId is required"}`, http.StatusBadRequest)
 		return
 	}
-	// Transferring to the current holder changes nothing: skip the write so no
-	// version bump and no broadcast wake every connected client for nothing.
 	if body.UserID == sess.FacilitatorID {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-
-	err := a.sessions.TransferFacilitator(r.Context(), sess.ID, body.UserID)
+	err := a.sessions.TransferFacilitator(r.Context(), sess.ID, p.UserID, body.UserID)
+	if errors.Is(err, store.ErrNotFacilitator) {
+		http.Error(w, `{"error":"only the facilitator can do that"}`, http.StatusForbidden)
+		return
+	}
 	if errors.Is(err, store.ErrNotEligible) {
 		http.Error(w, `{"error":"that person is not a member of this space"}`, http.StatusBadRequest)
 		return
@@ -190,17 +209,28 @@ func (a *app) handleSetSpectator(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		On bool `json:"on"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil {
-		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
 		return
 	}
-	if _, err := a.pool.Exec(r.Context(),
-		"update members set spectator = $3 where space_id = $1 and user_id = $2",
-		sess.SpaceID, p.UserID, body.On); err != nil {
+	err := a.sessions.WithActiveSession(r.Context(), sess.ID, p.UserID, false,
+		func(tx pgx.Tx, locked store.Session) error {
+			if _, err := tx.Exec(r.Context(),
+				"update members set spectator = $3 where space_id = $1 and user_id = $2",
+				locked.SpaceID, p.UserID, body.On); err != nil {
+				return err
+			}
+			_, err := tx.Exec(r.Context(), "update sessions set version = version + 1 where id = $1", locked.ID)
+			return err
+		})
+	if errors.Is(err, store.ErrSessionEnded) {
+		http.Error(w, `{"error":"this session has ended"}`, http.StatusConflict)
+		return
+	}
+	if err != nil {
 		http.Error(w, `{"error":"could not update spectator mode"}`, http.StatusInternalServerError)
 		return
 	}
-	a.sessions.BumpVersion(r.Context(), sess.ID)
 	a.broadcastState(r.Context(), sess.ID)
 	w.WriteHeader(http.StatusNoContent)
 }

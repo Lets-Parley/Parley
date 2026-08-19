@@ -105,9 +105,10 @@ There is deliberately **no PodDisruptionBudget**. The only one that would
 protect a single replica (`maxUnavailable: 0`) deadlocks the drain it was meant
 to survive.
 
-## The chart and the manifest set TRUST_PROXY_HEADERS
+## The manifest leaves proxy trust disabled
 
-`deploy/k8s/deployment.yaml` sets it; in the chart it is `trustProxyHeaders`,
-off by default. An Ingress terminates the connection, so without it every visitor arrives
-wearing the controller's address and the room-code throttle treats the whole
-internet as one client. See [Configuration](/reference/configuration/).
+The safe default is `TRUST_PROXY_HEADERS=false`. After installing an Ingress,
+set it to `true` and add `TRUSTED_PROXY_CIDRS` for every Ingress/load-balancer
+network Parley can see as a trusted hop. Startup refuses proxy trust without the
+allowlist. Do not allowlist client networks. See
+[Configuration](/reference/configuration/).

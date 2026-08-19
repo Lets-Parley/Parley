@@ -50,8 +50,9 @@ sit at.
 
 ### Planning poker
 
-- **Story queue.** Add work as a ticket (with a reference like `PLAT-412`) or as
-  an ad-hoc line item, with optional notes. Reorder with the arrows.
+- **Story queue.** The facilitator adds work as a ticket (with a reference like
+  `PLAT-412`) or as an ad-hoc line item, with optional notes, and controls its
+  order and selection. Ordinary members retain their own votes.
 - **Four decks:** Fibonacci, modified Fibonacci, T-shirt sizes, and powers of
   two. Every deck carries `?` and a coffee card.
 - **Hidden votes.** Nobody sees a value until the round opens, which happens
@@ -94,7 +95,8 @@ sit at.
 - **No accounts, or your accounts.** A name and a cookie by default; point
   `AUTH_MODE=oidc` at any OpenID Connect provider and people sign in with the
   identity they already have.
-- **Live for everyone.** WebSocket-backed, with a reconnect banner that tells the
+- **Live for everyone.** WebSocket-backed, with shared-store session
+  revalidation at least every 30 seconds and a reconnect banner that tells the
   truth about the connection instead of silently going stale.
 - **CSV export** for any session: estimates, votes per person, standup entries.
   Cells that start with `=` are escaped, so an export can't run formulas in a
@@ -120,8 +122,9 @@ sit at.
 
 ### On your own machine
 
-Two files, no checkout. Tagged releases publish a multi-arch image (amd64 and
-arm64) to `ghcr.io/lets-parley/parley`, and the compose file pulls it.
+Two files, no checkout. Publishing an exact semantic-version GitHub Release
+builds a multi-arch image (amd64 and arm64) at
+`ghcr.io/lets-parley/parley`, and the compose file pulls it.
 
 ```sh
 mkdir parley && cd parley
@@ -151,6 +154,10 @@ Two changes, made together:
 flag; if it doesn't match how people actually reach the server, boards will
 sit at "reconnecting" or logins won't stick (see Troubleshooting).
 
+`AUTH_MODE=open` is for a trusted network. A public deployment needs a space
+passcode or an external SSO/authentication proxy plus request and connection
+abuse controls at the ingress.
+
 ### Against a Postgres you already run
 
 Skip compose entirely and point the image at your own database:
@@ -173,8 +180,14 @@ release can be crashed remotely by a disconnecting client.
 | `BASE_URL` | no | `http://localhost:8080` | The address users reach Parley at. Drives cookie `Secure` and the WebSocket origin check. |
 | `PORT` | no | `8080` | Listen port |
 | `LOG_LEVEL` | no | `info` | `debug` / `info` / `warn` / `error` |
-| `TRUST_PROXY_HEADERS` | no | `false` | Read the client address from `X-Forwarded-For`. Required behind a proxy, unsafe without one — see below |
+| `TRUST_PROXY_HEADERS` | no | `false` | Trust canonical `X-Forwarded-For` only from allowlisted proxy hops — see below |
+| `TRUSTED_PROXY_CIDRS` | with proxy trust | — | Comma-separated CIDRs for every trusted immediate/intermediate proxy hop |
 | `POD_NAME` | no | random per process | Names this instance on the rows recording who is in a room, so a row that outlives the process it came from can be traced back to it. On Kubernetes the chart fills it from the pod name; nothing else needs to set it |
+| `IDENTITY_IP_HOURLY_LIMIT` | no | `10` | Open-mode identity creations per verified client address per hour |
+| `IDENTITY_GLOBAL_HOURLY_LIMIT` | no | `500` | Open-mode identity creations across the instance per hour |
+| `SPACE_LIMIT_PER_IDENTITY` | no | `50` | Spaces an identity may create |
+| `SESSION_LIMIT_PER_SPACE` | no | `500` | Sessions a space may contain |
+| `STORY_LIMIT_PER_SESSION` | no | `500` | Stories a planning-poker session may contain |
 | `AUTH_MODE` | no | `open` | `open` for no accounts, `oidc` to sign in through an identity provider |
 | `OIDC_ISSUER` | with `oidc` | — | Issuer base URL, the one serving `/.well-known/openid-configuration` |
 | `OIDC_CLIENT_ID` | with `oidc` | — | Client ID registered with the provider |
@@ -204,33 +217,31 @@ location / {
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
     proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
     proxy_read_timeout 75s;
     proxy_send_timeout 75s;
 }
 ```
 
-Set `BASE_URL=https://parley.example.com` to match, and set
-`TRUST_PROXY_HEADERS=true` so the room-code throttle counts real clients rather
-than seeing every request as coming from the proxy.
+Set `BASE_URL=https://parley.example.com` to match. If the proxy is the only
+path to Parley, set both `TRUST_PROXY_HEADERS=true` and
+`TRUSTED_PROXY_CIDRS=127.0.0.1/32` for the same-host examples above. Use the
+actual proxy network instead when it connects from another address.
 
 Get this one the right way round, because it is wrong in both directions:
 
-- **Directly reachable, set to `true`** — `X-Forwarded-For` is written by
-  whoever sends the request, so a script hands itself a fresh address per guess
-  and walks straight through the room-code throttle.
+- **Directly reachable, trust enabled** — only peers in `TRUSTED_PROXY_CIDRS`
+  can supply an address. Do not include client-reachable networks in that list.
 - **Behind a proxy, left `false`** — every visitor arrives wearing the proxy's
   address, so the throttle counts them all as one client and eight wrong
   guesses lock the whole internet out of that space for a minute.
-- **Behind a proxy that _appends_ rather than overwrites** — Parley reads the
-  leftmost `X-Forwarded-For` entry, which in that case is still the caller's
-  own. nginx and Caddy overwrite by default; ingress-nginx with
-  `use-forwarded-headers`, or anything sitting behind an ELB or CDN, appends,
-  and `true` is then no safer than exposing the port directly. Check which
-  yours does before trusting the header.
+- **Several proxy hops** — list every hop CIDR. Parley walks
+  `X-Forwarded-For` right-to-left through trusted hops and selects the first
+  untrusted address. Malformed chains and headers from untrusted immediate
+  peers are ignored; `X-Real-IP` and `True-Client-IP` are never used.
 
-`deploy/k8s/deployment.yaml` sets it to `true` because an Ingress always
-terminates the connection. `docker-compose.yml` leaves it `false` because it
-publishes the port straight to clients.
+Both `deploy/k8s/deployment.yaml` and `docker-compose.yml` default it to `false`.
+Enable it only after replacing the example topology with your proxy CIDRs.
 
 ## Kubernetes
 
@@ -312,10 +323,8 @@ Two things worth knowing before you switch a running instance:
   sign-in on would change nothing for anyone already holding a cookie. Their
   accounts and rooms stay in the database, untouched and unmigrated, but the
   people behind them come back as new federated accounts. There is no account
-  linking yet, so **a space created before the switch is stranded**: its owner
-  is an anonymous row nobody can sign in as again, and the space cannot be
-  administered even though its data is still there. Switch on a fresh instance,
-  or accept that the existing spaces are read-only history.
+  linking yet, so old votes and entries remain attributed to the old display
+  records. Federated users can rejoin an existing space with its room code.
 
 Names come from the provider's claims — `name`, then `preferred_username`, then
 the local part of `email` — and refresh on every sign-in, so a rename upstream
@@ -325,12 +334,11 @@ does not sign anyone out of the identity provider.
 ## Security model
 
 In `open` mode Parley has **no user accounts**. A space is guarded by a shared
-room code, not by identity: anyone holding the code can join, and joining grants
-full participation — seeing the roster, voting, and writing standup entries.
-Joins are broadcast to the room, so lurking is visible. Run Parley on your
-internal network, behind an identity provider (see above), or behind an SSO
-proxy (oauth2-proxy, Authelia, Cloudflare Access; the reverse proxy snippet
-above is where it slots in).
+room code, not by identity: anyone holding the code can join, see the roster,
+vote, and write their own standup entry. Joins are broadcast to the room, so
+lurking is visible. Open mode is trusted-network-only. A public deployment
+needs a passcode or an external SSO/authentication proxy in front of the whole
+instance, plus ingress abuse controls.
 
 Room codes work the same either way. Identity says who you are; the code says
 which room you may enter. Signing in does not by itself get anyone into a
@@ -348,12 +356,16 @@ one) or open the space entirely.
 
 What Parley does enforce: acting in a space requires having joined it; a
 protected space refuses joins without the code; session existence is never
-disclosed to non-members; facilitator-only actions (reveal, reset, closing a
-session) are server-checked.
+disclosed to non-members; story creation, editing, reordering, selection and
+deletion plus session controls are facilitator-only and server-checked; active
+WebSockets close with policy code 1008 when their shared-store token is revoked
+or expires.
 
-Found something? Open a
-[security advisory](https://github.com/lets-parley/parley/security/advisories/new)
-rather than a public issue.
+Found something? Use
+[private vulnerability reporting](https://github.com/lets-parley/parley/security/advisories/new)
+when available, or email
+[security@letsparley.io](mailto:security@letsparley.io), rather than opening a
+public issue.
 
 ## Backups
 
@@ -450,12 +462,19 @@ poker and standup are code someone adds rather than surgery on the core.
 
 ## Contributing
 
-Issues and pull requests are welcome. A few things that make review quick:
+Questions and early designs belong in
+[Discussions](https://github.com/lets-parley/parley/discussions); Issues track
+accepted, actionable work. Pull requests are welcome. See
+[CONTRIBUTING.md](CONTRIBUTING.md), [GOVERNANCE.md](GOVERNANCE.md), and the
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+A few things that make review quick:
 
 - Open an issue before a large change, so nobody builds the wrong thing twice.
 - `go test -p 1 ./...`, `npm test` and `npm run lint` pass.
 - A behaviour change comes with a test that fails without it.
 - Migrations are additive and numbered; never edit one that has shipped.
+- Every commit carries a DCO sign-off created with `git commit -s`.
 
 ## License
 

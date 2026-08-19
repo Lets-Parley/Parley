@@ -9,10 +9,15 @@ services:
       BASE_URL: ${BASE_URL:-http://localhost:8080}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       # Leave false while the port is published straight to clients. Set it to
-      # true only once a reverse proxy in front sets X-Forwarded-For itself,
-      # otherwise a caller writes their own address and the room-code throttle
-      # never fires. See README "Reverse proxy".
+      # true only once TRUSTED_PROXY_CIDRS lists the proxy hops Parley sees.
+      # Otherwise forwarded headers are ignored. See README "Reverse proxy".
       TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
+      IDENTITY_IP_HOURLY_LIMIT: ${IDENTITY_IP_HOURLY_LIMIT:-10}
+      IDENTITY_GLOBAL_HOURLY_LIMIT: ${IDENTITY_GLOBAL_HOURLY_LIMIT:-500}
+      SPACE_LIMIT_PER_IDENTITY: ${SPACE_LIMIT_PER_IDENTITY:-50}
+      SESSION_LIMIT_PER_SPACE: ${SESSION_LIMIT_PER_SPACE:-500}
+      STORY_LIMIT_PER_SESSION: ${STORY_LIMIT_PER_SESSION:-500}
     ports:
       # Bound to localhost by default. To reach it from other machines, change to
       # "0.0.0.0:8080:8080" AND set BASE_URL to the address teammates will use.

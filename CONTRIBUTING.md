@@ -1,6 +1,13 @@
 # Contributing
 
-Bug reports, questions and pull requests are all welcome.
+Bug reports, design discussions, and pull requests are welcome. Participation is
+governed by the [Code of Conduct](CODE_OF_CONDUCT.md) and
+[GOVERNANCE.md](GOVERNANCE.md).
+
+Use [GitHub Discussions](https://github.com/lets-parley/parley/discussions) for
+questions, support, and ideas that still need design. Use Issues for accepted,
+actionable work. See [SUPPORT.md](SUPPORT.md) for routing and do not disclose a
+suspected vulnerability publicly.
 
 ## Before you start on something large
 
@@ -14,14 +21,20 @@ You need Go (the version in `go.mod`), Node 24, and a Postgres you can throw
 away.
 
 ```sh
-# frontend
-cd web && npm ci && npm run dev
-cd web && npm test              # Vitest; npm run test:watch while working
+# build the frontend assets embedded by Go
+cd web
+npm ci
+npm test
+npm run build
+cd ..
 
 # backend
 export DATABASE_URL=postgres://parley:dev@localhost:5432/parley
 go run ./cmd/parley
 ```
+
+For frontend development, run `npm run dev` from `web/` after installing its
+dependencies; Vite proxies `/api` and `/ws` to the backend on port 8080.
 
 Full setup, including the layout of the repository, is at
 <https://www.letsparley.io/project/contributing/>.
@@ -77,6 +90,16 @@ Match the surrounding code. `go vet` must pass, `gofmt` is assumed, and the
 frontend has `oxlint` configured.
 
 Commit messages are lowercase, imperative, and say what changed and why.
+Every commit must carry the Developer Certificate of Origin trailer. Configure
+your Git identity, then create signed-off commits with:
+
+```sh
+git commit -s
+```
+
+The sign-off records that you have the right to submit the change under the
+project's MIT license. CI checks every commit in a pull request; signing the
+pull-request description is not a substitute for signing each commit.
 
 ## Reporting a vulnerability
 

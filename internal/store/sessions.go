@@ -10,8 +10,10 @@ import (
 )
 
 var (
-	ErrNoSession   = errors.New("no such session")
-	ErrNotEligible = errors.New("not eligible")
+	ErrNoSession      = errors.New("no such session")
+	ErrNotEligible    = errors.New("not eligible")
+	ErrNotFacilitator = errors.New("not facilitator")
+	ErrSessionEnded   = errors.New("session ended")
 )
 
 // FacilitatorGrace is how long a facilitator must be unseen before any member
@@ -49,10 +51,29 @@ func scanSession(row pgx.Row) (Session, error) {
 	return s, err
 }
 
-func (s *Sessions) Create(ctx context.Context, spaceID, kind, title string, config []byte, facilitatorID string) (Session, error) {
-	return scanSession(s.Pool.QueryRow(ctx,
+func (s *Sessions) Create(ctx context.Context, spaceID, kind, title string, config []byte, facilitatorID string, limit int) (Session, error) {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return Session{}, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, "select id from spaces where id = $1 for update", spaceID); err != nil {
+		return Session{}, err
+	}
+	var count int
+	if err := tx.QueryRow(ctx, "select count(*) from sessions where space_id = $1", spaceID).Scan(&count); err != nil {
+		return Session{}, err
+	}
+	if count >= limit {
+		return Session{}, ErrQuotaExceeded
+	}
+	sess, err := scanSession(tx.QueryRow(ctx,
 		"insert into sessions (space_id, kind, title, config, facilitator_id) values ($1, $2, $3, $4, $5) returning "+sessionCols,
 		spaceID, kind, title, config, facilitatorID))
+	if err != nil {
+		return Session{}, err
+	}
+	return sess, tx.Commit(ctx)
 }
 
 // KindRetired reports whether the kind's row carries a retired_at. A retired
@@ -90,30 +111,93 @@ func (s *Sessions) ListBySpace(ctx context.Context, spaceID string) ([]Session, 
 	return out, rows.Err()
 }
 
-func (s *Sessions) SetEnded(ctx context.Context, id string, ended bool) error {
-	var q string
-	if ended {
-		q = "update sessions set ended_at = now(), version = version + 1 where id = $1"
-	} else {
-		q = "update sessions set ended_at = null, version = version + 1 where id = $1"
-	}
-	_, err := s.Pool.Exec(ctx, q, id)
-	return err
-}
-
-func (s *Sessions) TransferFacilitator(ctx context.Context, id, toUserID string) error {
-	tag, err := s.Pool.Exec(ctx, `
-		update sessions set facilitator_id = $2, facilitator_seen_at = now(), version = version + 1
-		where id = $1 and exists (
-			select 1 from members m where m.space_id = sessions.space_id and m.user_id = $2
-		)`, id, toUserID)
+func (s *Sessions) withLockedSession(ctx context.Context, id, actorID string, activeOnly bool, fn func(pgx.Tx, Session) error) error {
+	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotEligible
+	defer tx.Rollback(ctx)
+
+	sess, err := scanSession(tx.QueryRow(ctx,
+		"select "+sessionCols+" from sessions where id = $1 for update", id))
+	if err != nil {
+		return err
 	}
-	return nil
+	if sess.FacilitatorID != actorID {
+		return ErrNotFacilitator
+	}
+	if activeOnly && sess.EndedAt != nil {
+		return ErrSessionEnded
+	}
+	if err := fn(tx, sess); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// WithActiveSession locks the session row, revalidates current facilitator
+// authority when required, and commits fn in the same transaction. Authority
+// is checked before closure so callers can distinguish 403 from 409.
+func (s *Sessions) WithActiveSession(ctx context.Context, id, actorID string, facilitatorOnly bool, fn func(pgx.Tx, Session) error) error {
+	if facilitatorOnly {
+		return s.withLockedSession(ctx, id, actorID, true, fn)
+	}
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	sess, err := scanSession(tx.QueryRow(ctx,
+		"select "+sessionCols+" from sessions where id = $1 for update", id))
+	if err != nil {
+		return err
+	}
+	if sess.EndedAt != nil {
+		return ErrSessionEnded
+	}
+	if err := fn(tx, sess); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Sessions) SetEnded(ctx context.Context, id, actorID string, ended bool) error {
+	return s.withLockedSession(ctx, id, actorID, false, func(tx pgx.Tx, _ Session) error {
+		// The ended_at predicate is what makes this idempotent: a retried or
+		// double-clicked DELETE must not move the recorded end time forward,
+		// bump the version, or broadcast a second time. Under the row lock, so
+		// two concurrent closes cannot both see it as open.
+		var q string
+		if ended {
+			q = "update sessions set ended_at = now(), version = version + 1 where id = $1 and ended_at is null"
+		} else {
+			q = "update sessions set ended_at = null, version = version + 1 where id = $1 and ended_at is not null"
+		}
+		_, err := tx.Exec(ctx, q, id)
+		return err
+	})
+}
+
+func (s *Sessions) TransferFacilitator(ctx context.Context, id, actorID, toUserID string) error {
+	return s.withLockedSession(ctx, id, actorID, false, func(tx pgx.Tx, sess Session) error {
+		if toUserID == sess.FacilitatorID {
+			return nil
+		}
+		var member bool
+		if err := tx.QueryRow(ctx,
+			"select exists (select 1 from members where space_id = $1 and user_id = $2)",
+			sess.SpaceID, toUserID).Scan(&member); err != nil {
+			return err
+		}
+		if !member {
+			return ErrNotEligible
+		}
+		_, err := tx.Exec(ctx, `
+			update sessions set facilitator_id = $2, facilitator_seen_at = now(), version = version + 1
+			where id = $1`, id, toUserID)
+		return err
+	})
 }
 
 // ClaimFacilitator succeeds only when the current facilitator has not been seen

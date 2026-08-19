@@ -1,78 +1,90 @@
 ---
 title: Supply chain
-description: Dependencies, how the image is built, and what the release pipeline does not yet do.
+description: Dependency controls, CI security gates, and verifiable release provenance.
 ---
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["go.mod", "Dockerfile", ".github/workflows/ci.yml", ".github/workflows/release.yml"]} />
+<VerifiedStamp version="unreleased" source={["go.mod", "Dockerfile", ".github/workflows/ci.yml", ".github/workflows/codeql.yml", ".github/workflows/release.yml", ".github/dependabot.yml"]} />
 
-This page is the one most likely to matter to a reviewer, so it is written
-without softening.
+## Dependencies and builds
 
-## Dependencies
+Go modules and both npm applications use checked-in lock or checksum files.
+Dependabot checks Go modules, web and documentation npm packages, GitHub
+Actions, and Docker images every week and groups each ecosystem's updates.
 
-Parley has **five direct Go dependencies**:
+The Docker build uses digest-pinned Node, Go, and distroless base images. It
+copies dependency manifests before source and copies only the source directories
+needed by each stage. The runtime remains a static Go binary in the non-root
+distroless image, with no shell or package manager.
 
-| Module | What for |
-|---|---|
-| `github.com/coreos/go-oidc/v3` | OpenID Connect token verification |
-| `golang.org/x/oauth2` | Authorization code flow and PKCE |
-| `github.com/go-chi/chi/v5` | HTTP routing |
-| `github.com/gorilla/websocket` | WebSockets |
-| `github.com/jackc/pgx/v5` | Postgres driver and pool |
+## Pull-request gates
 
-Six further indirect modules come with those. There is no web framework, no ORM,
-no dependency-injection container and no logging library — logging is the
-standard library's `log/slog`.
+The stable `required / gate` status is emitted for every pull request, including
+documentation-only changes. It requires:
 
-The frontend is React and Vite, built at image-build time and compiled into the
-binary. **No frontend dependency is served to a browser at runtime**, and there
-is no CDN: the CSP is `default-src 'self'` and everything is same-origin.
+- Go formatting, vet, race-enabled tests against Postgres, and `govulncheck`
+- web lint, build, and dependency audit
+- documentation build and dependency audit
+- dependency review and Developer Certificate of Origin sign-offs
+- a container build, empty-database smoke test, and vulnerability scan
 
-## How the image is built
+CodeQL analyzes Go and TypeScript in a separate workflow. Workflow permissions
+default to read-only. Pages publishing, security result upload, package
+publishing, and identity-token use are granted only to the jobs that need them.
+Every action reference is pinned to a reviewed commit.
 
-Three stages: Node builds the frontend, Go cross-compiles a static binary with
-`CGO_ENABLED=0`, and the result is copied into
-`gcr.io/distroless/static-debian12:nonroot`.
+## Release provenance
 
-That final image has no shell, no package manager and no libc. Its attack
-surface is one static binary running as a non-root user. Published for
-`linux/amd64` and `linux/arm64` on every `v*` tag.
+Publication starts only from a published GitHub Release whose tag is exactly
+`vMAJOR.MINOR.PATCH`. The workflow refuses a pre-release or a tag whose commit
+is not reachable from `main`.
 
-## What CI actually checks
+The multi-architecture image is built for `linux/amd64` and `linux/arm64` in a
+job with no registry write permission. That job creates an immutable OCI
+artifact with maximum BuildKit provenance and an SPDX JSON SBOM. A separate
+publisher job, scoped to the named `release` environment, writes the artifact to
+a run-specific staging tag, verifies that registry digest against the build
+digest, re-checks that the release tag still resolves to the validated commit,
+and only then assigns the final version, minor, and `latest` tags. It creates a
+GitHub build-provenance attestation for that final digest.
 
-`go vet`, the full test suite under `-race` against a real Postgres, a frontend
-build, and a first-run smoke test that boots the image against an empty database
-and asserts it serves a page.
+The workflow file shows the environment boundary and permissions; it does not
+prove that external environment reviewers or other GitHub protection settings
+are enabled. Those settings require separate API readback.
 
-That is a real correctness gate. It is **not** a security gate, and the
-difference matters:
+Beginning with the first release produced by this hardened workflow, each
+GitHub Release receives the SPDX SBOM and digest-qualified Compose and
+Kubernetes manifests generated from the published digest. Releases v0.1.0
+through v0.2.1 were not backfilled with these artifacts or attestations. The
+readable manifests in the repository retain a version tag; use the release
+assets when an immutable deployment input is required.
 
-## Gaps, stated plainly
+## Verify an image
+
+Copy the digest from the release or registry, authenticate the GitHub CLI to
+GHCR, and verify that exact artifact:
+
+```sh
+digest=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+gh attestation verify \
+  "oci://ghcr.io/lets-parley/parley@$digest" \
+  --repo lets-parley/parley \
+  --signer-workflow lets-parley/parley/.github/workflows/release.yml
+```
+
+Verification checks the digest, repository identity, workflow identity, signed
+provenance, and transparency-log evidence. Pull and deploy the same digest, not
+a mutable tag.
 
 <Capability rows={[
-  { name: "Reproducible dependency set", status: "built", detail: "<code>go.mod</code> and <code>go.sum</code> pin and checksum every module; <code>package-lock.json</code> does the same for the frontend." },
-  { name: "Minimal runtime image", status: "built", detail: "distroless static, non-root, no shell." },
-  { name: "SBOM", status: "not-built", detail: "None is published. Generate your own: <code>syft ghcr.io/lets-parley/parley:0.2.3</code> — a static Go binary yields a good one." },
-  { name: "Image signing", status: "not-built", detail: "Images are not cosign-signed, so you cannot verify provenance cryptographically. Pin by digest instead of tag: <code>ghcr.io/lets-parley/parley@sha256:…</code>, which is immutable even though it is unsigned." },
-  { name: "Build provenance / SLSA attestation", status: "not-built", detail: "None. If your policy requires attested artifacts, build from source — the Dockerfile is the whole build and takes a few minutes." },
-  { name: "Vulnerability scanning in CI", status: "not-built", detail: "No govulncheck, CodeQL, gosec, Trivy or Grype runs. Scan the published image yourself: <code>trivy image ghcr.io/lets-parley/parley:0.2.3</code>, and <code>govulncheck ./...</code> against a source checkout." },
-  { name: "Automated updates for Go and frontend dependencies", status: "not-built", detail: "Dependabot is configured for <code>site/</code> npm packages only. Go modules and <code>web/</code> are updated manually and can lag. Watch releases, and scan before you upgrade." },
-  { name: "Actions pinned by digest", status: "not-built", detail: "Workflows use major tags (<code>@v4</code>, <code>@v5</code>) rather than commit SHAs, so a compromised action tag would affect a build. Fork and pin if your threat model includes that." },
+  { name: "Locked dependency sets", status: "built", detail: "Go checksums and npm lockfiles are reviewed in pull requests and updated weekly." },
+  { name: "Minimal runtime image", status: "built", detail: "Digest-pinned, non-root distroless static image with no shell or package manager." },
+  { name: "SPDX SBOM", status: "built", detail: "Generated from the immutable build artifact and attached to releases produced by the hardened workflow." },
+  { name: "Build provenance", status: "built", detail: "Maximum BuildKit provenance plus a GitHub artifact attestation bound to the final GHCR digest." },
+  { name: "Vulnerability scanning", status: "built", detail: "govulncheck, CodeQL, dependency review, npm audits, and container scanning run in CI." },
 ]} />
-
-## What to do about it
-
-If you are evaluating Parley for somewhere that cares about supply chain, the
-honest recommendation is: **build the image yourself from a tagged commit**. The
-build is a single Dockerfile with no private steps, it takes minutes, and it puts
-the provenance question entirely in your own pipeline where you already have the
-signing and attestation you need.
-
-If you use the published image, pin the digest and scan it. Do not rely on
-`latest`.
 
 ## Known vulnerable versions
 
@@ -89,5 +101,7 @@ digest still receives what they pulled. Do not deploy any of them.
 
 There was no separate advisory for the v0.1.0 throttle bypass: the repository
 had no known installs at the time, and the release notes carry the warning.
-Report anything new through a
-[security advisory](https://github.com/lets-parley/parley/security/advisories/new).
+Report anything new through
+[private vulnerability reporting](https://github.com/lets-parley/parley/security/advisories/new)
+when available, or email
+[security@letsparley.io](mailto:security@letsparley.io).

@@ -2,9 +2,12 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
+	"github.com/lets-parley/parley/internal/httprequest"
 	"github.com/lets-parley/parley/internal/store"
 )
 
@@ -51,8 +54,8 @@ func (a *app) handlePostMe(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil {
-		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
 		return
 	}
 	name := strings.TrimSpace(body.Name)
@@ -80,7 +83,13 @@ func (a *app) handlePostMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, err := a.users.Create(r.Context(), name, hash)
+	u, err := a.users.CreateOpen(r.Context(), name, hash, clientKey(r), a.limits.IdentityIPHourly, a.limits.IdentityGlobalHourly)
+	var limited *store.IdentityRateLimitError
+	if errors.As(err, &limited) {
+		w.Header().Set("Retry-After", strconv.Itoa(limited.RetryAfter))
+		http.Error(w, `{"error":"too many identities created — try again after the current hour"}`, http.StatusTooManyRequests)
+		return
+	}
 	if err != nil {
 		http.Error(w, `{"error":"could not create user"}`, http.StatusInternalServerError)
 		return
@@ -92,7 +101,11 @@ func (a *app) handlePostMe(w http.ResponseWriter, r *http.Request) {
 func (a *app) handleDeleteMe(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil {
 		if hash, err := store.HashToken(c.Value); err == nil {
-			a.users.DeleteToken(r.Context(), hash)
+			if err := a.users.DeleteToken(r.Context(), hash); err != nil {
+				http.Error(w, `{"error":"could not end session"}`, http.StatusInternalServerError)
+				return
+			}
+			a.hub.DisconnectToken(string(hash))
 		}
 	}
 	clearSessionCookie(w, a.secureCookies)

@@ -1,13 +1,16 @@
 package api
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
-	"sync/atomic"
+	"net/netip"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -15,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lets-parley/parley/internal/auth"
+	"github.com/lets-parley/parley/internal/httprequest"
 	"github.com/lets-parley/parley/internal/hub"
 	"github.com/lets-parley/parley/internal/poker"
 	"github.com/lets-parley/parley/internal/session"
@@ -33,7 +37,6 @@ type app struct {
 	// kinds is the session-kind registry, built once at wiring time.
 	kinds *session.Registry
 
-
 	secureCookies bool
 	allowedOrigin string
 	// authMode is ModeOpen or ModeOIDC; oidc is non-nil only in the latter.
@@ -42,6 +45,7 @@ type app struct {
 	oidc     *auth.Provider
 	// passcodeAttempts throttles room-code guessing at the join door.
 	passcodeAttempts *attemptLimiter
+	limits           Limits
 	// instanceID names this replica so it can ignore the echo of its own
 	// notifications; listenerUp is what /readyz reads to decide whether this
 	// replica can still hear the others.
@@ -58,16 +62,57 @@ type Options struct {
 	OIDC *auth.Provider
 	// Version is the build's version string; "dev" when left unset.
 	Version string
-	// TrustProxyHeaders reads the client address from X-Forwarded-For and
-	// friends. Turn it on only when a proxy in front overwrites those headers;
-	// exposed directly, it hands every caller a free choice of address.
+	// TrustProxyHeaders reads X-Forwarded-For only from hops in
+	// TrustedProxyCIDRs. Other forwarding headers are always ignored.
 	TrustProxyHeaders bool
+	TrustedProxyCIDRs []netip.Prefix
+	Limits            Limits
+
 	// Context bounds the cross-replica notification listener. Leave it nil
 	// outside of tests: the listener then lives as long as the process.
 	Context context.Context
+
+	sessionRevalidationInterval time.Duration
 }
 
-func Router(pool *pgxpool.Pool, opts Options) http.Handler {
+type Limits struct {
+	IdentityIPHourly     int
+	IdentityGlobalHourly int
+	SpacesPerIdentity    int
+	SessionsPerSpace     int
+	StoriesPerSession    int
+}
+
+func (l Limits) withDefaults() Limits {
+	if l.IdentityIPHourly == 0 {
+		l.IdentityIPHourly = 10
+	}
+	if l.IdentityGlobalHourly == 0 {
+		l.IdentityGlobalHourly = 500
+	}
+	if l.SpacesPerIdentity == 0 {
+		l.SpacesPerIdentity = 50
+	}
+	if l.SessionsPerSpace == 0 {
+		l.SessionsPerSpace = 500
+	}
+	if l.StoriesPerSession == 0 {
+		l.StoriesPerSession = 500
+	}
+	return l
+}
+
+// Handler owns both the HTTP router and the lifecycle of its WebSocket hub.
+type Handler struct {
+	http.Handler
+	hub *hub.Hub
+}
+
+func (h *Handler) Shutdown() {
+	h.hub.Shutdown()
+}
+
+func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	// A duplicate kind is a wiring mistake in this very function, so it can
 	// only be a programming error — fail the process rather than serve a
 	// registry that is missing a kind.
@@ -77,16 +122,15 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 			panic(fmt.Sprintf("wiring session kinds: %v", err))
 		}
 	}
-
 	mode := opts.AuthMode
 	if mode == "" {
 		mode = ModeOpen
 	}
 	a := &app{
-		pool:          pool,
-		users:         &store.Users{Pool: pool},
-		spaces:        &store.Spaces{Pool: pool},
-		sessions:      &store.Sessions{Pool: pool},
+		pool:     pool,
+		users:    &store.Users{Pool: pool},
+		spaces:   &store.Spaces{Pool: pool},
+		sessions: &store.Sessions{Pool: pool},
 		presence: &store.Presence{
 			Pool:      pool,
 			ReplicaID: replicaID(),
@@ -103,6 +147,7 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 		version:       cmp.Or(opts.Version, "dev"),
 
 		passcodeAttempts: newAttemptLimiter(),
+		limits:           opts.Limits.withDefaults(),
 		instanceID:       newInstanceID(),
 	}
 	if mode == ModeOIDC {
@@ -131,21 +176,21 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 			slog.Error("could not record presence", "session", sessionID, "user", userID, "error", err)
 		}
 	}
+	a.hub.RevalidationInterval = opts.sessionRevalidationInterval
+	a.hub.ValidateSession = func(ctx context.Context, tokenID string) (time.Time, error) {
+		return a.users.TokenExpiry(ctx, []byte(tokenID))
+	}
 	a.hub.OnDisconnect = func(sessionID, userID string) {
 		if err := a.presence.Gone(context.Background(), sessionID, userID); err != nil {
 			slog.Error("could not clear presence", "session", sessionID, "user", userID, "error", err)
 		}
 	}
 
-
 	r := chi.NewRouter()
-	// RealIP rewrites RemoteAddr from X-Forwarded-For, which the caller writes.
-	// That is correct behind a proxy that overwrites the header, and a hole
-	// anywhere else: the room-code throttle is keyed on the client address, so
-	// trusting a header the guesser controls would let a script reset its own
-	// limit on every request. Off unless the operator says otherwise.
+	// Forwarded addresses affect both open-mode identity creation and room-code
+	// throttles, so they are accepted only across an explicitly trusted chain.
 	if opts.TrustProxyHeaders {
-		r.Use(middleware.RealIP)
+		r.Use(trustedProxyHeaders(opts.TrustedProxyCIDRs))
 	}
 	r.Use(middleware.Recoverer)
 	r.Use(securityHeaders)
@@ -197,6 +242,7 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Use(rejectCrossSite(a.allowedOrigin))
 		r.Use(requireJSONBody)
+		r.Use(limitAPIRequestBody)
 		r.Use(resolvePrincipal(a.users, mode == ModeOIDC))
 
 		r.Get("/auth", a.handleAuthConfig)
@@ -256,7 +302,21 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 
 	r.NotFound(web.SPAHandler())
 
-	return r
+	return &Handler{Handler: r, hub: a.hub}
+}
+
+func limitAPIRequestBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bounded := http.MaxBytesReader(w, r.Body, httprequest.MaxJSONBody)
+		body, err := io.ReadAll(bounded)
+		bounded.Close()
+		if err != nil {
+			httprequest.WriteDecodeError(w, err, `{"error":"could not read request body"}`)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		next.ServeHTTP(w, r)
+	})
 }
 
 // requireJSONBody rejects non-GET requests whose body is not declared JSON,

@@ -4,7 +4,7 @@ description: Building Parley, running its tests, and where things live.
 ---
 
 ```sh
-cd web && npm install && npm run build && cd ..   # embedded assets
+cd web && npm ci && npm run build && cd ..        # embedded assets
 go test -p 1 ./...                                # unit tests
 TEST_DATABASE_URL=postgres://... go test -p 1 ./...  # + integration tests
 cd web && npm run dev                             # Vite dev server, proxies /api and /ws to :8080
@@ -68,9 +68,16 @@ nothing else — no router surgery, no constraint change, no frontend ternaries.
 
 ## Contributing
 
-Issues and pull requests are welcome. A few things that make review quick:
+Use [Discussions](https://github.com/lets-parley/parley/discussions) for support
+and designs that are not yet settled. Issues track accepted, actionable work.
+The repository's `CONTRIBUTING.md`, `GOVERNANCE.md`, `SUPPORT.md`, and
+`CODE_OF_CONDUCT.md` contain the full community policy.
+
+A few things that make review quick:
 
 - Open an issue before a large change, so nobody builds the wrong thing twice.
 - `go test -p 1 ./...` and `npm run lint` pass.
 - A behaviour change comes with a test that fails without it.
 - Migrations are additive and numbered; never edit one that has shipped.
+- Every commit includes a Developer Certificate of Origin sign-off. Use
+  `git commit -s`; CI checks each pull-request commit.

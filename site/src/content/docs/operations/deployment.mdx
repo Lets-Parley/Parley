@@ -6,7 +6,7 @@ description: Docker Compose, a bare binary, and the settings that matter in both
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["docker-compose.yml", "Dockerfile", "cmd/parley/main.go"]} />
+<VerifiedStamp version="unreleased" source={["docker-compose.yml", "Dockerfile", ".github/workflows/release.yml", "cmd/parley/main.go"]} />
 
 Three supported shapes: Compose, [Kubernetes](/operations/kubernetes/), or the
 binary on its own. All three are the same process with the same configuration —
@@ -31,7 +31,8 @@ Three of its defaults are deliberate and worth knowing before you change them:
   [reverse proxy](/operations/reverse-proxy/) in front over changing this to
   `0.0.0.0`.
 - **`TRUST_PROXY_HEADERS` defaults to false**, which is correct for the default
-  loopback binding and wrong the moment you put a proxy in front. See below.
+  loopback binding. Enable it behind a proxy only with an explicit
+  `TRUSTED_PROXY_CIDRS` allowlist. See below.
 - **Postgres is pinned to a major version.** An unpinned `postgres:` tag that
   crosses a major release leaves the data directory unreadable. See
   [Upgrading](/operations/upgrading/).
@@ -39,7 +40,7 @@ Three of its defaults are deliberate and worth knowing before you change them:
 ## The image
 
 `ghcr.io/lets-parley/parley`, multi-arch for `linux/amd64` and `linux/arm64`,
-published on every `v*` tag and anonymously pullable.
+published from exact semantic-version GitHub Releases and anonymously pullable.
 
 It is built in three stages and the final one is
 `gcr.io/distroless/static-debian12:nonroot` — no shell, no package manager, no
@@ -49,9 +50,11 @@ libc to patch, running as a non-root user. The Go binary is static
 The image declares its own `HEALTHCHECK`, which runs `parley -healthcheck`
 against `/readyz` over loopback every 15 seconds.
 
-Pin a version rather than tracking `latest` if you want reproducible deploys;
-pin the digest if you want to be certain, since Parley does not yet sign or
-attest its images — see [Supply chain](/security/supply-chain/).
+Pin a version rather than tracking `latest` if you want reproducible deploys.
+Beginning with the first release produced by the hardened workflow, release
+assets include digest-qualified Compose and Kubernetes manifests, an SPDX SBOM,
+and verifiable provenance for the published digest. Releases v0.1.0 through
+v0.2.1 were not backfilled; see [Supply chain](/security/supply-chain/).
 
 ## The bare binary
 
@@ -69,15 +72,26 @@ loopback, you need a firewall rule or a proxy — Parley cannot be told to bind
 
 This setting is wrong in both directions and both failures are real.
 
-- **Directly reachable, set to `true`** — a caller sets their own
-  `X-Forwarded-For`, so the room-code throttle keys on an address they control
-  and never fires. Codes become brute-forceable.
+- **A client-reachable network is trusted** — a caller can supply a forged
+  `X-Forwarded-For`, defeating address-based identity and room-code controls.
 - **Behind a proxy, set to `false`** — every request appears to come from the
   proxy, so the whole internet shares one throttle bucket. Eight wrong guesses
   by anyone locks everyone out of that space.
 
 Set it to `true` if and only if a proxy you control sets `X-Forwarded-For`
-itself. The Kubernetes manifest sets it; Compose deliberately does not.
+itself. `TRUSTED_PROXY_CIDRS` is then required and must list every immediate and
+intermediate proxy hop, never client networks. Parley walks the chain
+right-to-left, ignores malformed headers and headers from untrusted immediate
+peers, and uses the first untrusted address. Both shipped manifests default
+proxy trust to `false`.
+
+## Public exposure
+
+`AUTH_MODE=open` is for a trusted network. A public deployment needs a space
+passcode or an external SSO/authentication proxy, plus ingress controls for
+request rate, concurrent connections, and bandwidth. Built-in quotas and
+identity-creation throttles limit persistent growth but do not make anonymous
+public access an authentication boundary.
 
 ## Before you expose it
 
@@ -87,6 +101,7 @@ itself. The Kubernetes manifest sets it; Compose deliberately does not.
   { name: "Database backups", status: "not-built", detail: "Nothing in Parley backs itself up. Set up <a href='/operations/backups-and-recovery/'>pg_dump</a> before you have data worth keeping." },
   { name: "Resource limits", status: "not-built", detail: "The k8s manifest sets requests but no limits, on purpose. Add them once you have measured your own usage." },
   { name: "Horizontal scaling", status: "out-of-scope", detail: "One replica, enforced at boot. See <a href='/operations/scaling-and-limits/'>Scaling and limits</a>." },
+  { name: "Public access control", status: "not-built", detail: "Open mode is trusted-network-only. Public instances need a passcode or external SSO/auth proxy plus ingress abuse controls." },
 ]} />
 
 Then walk the [hardening checklist](/security/hardening-checklist/).

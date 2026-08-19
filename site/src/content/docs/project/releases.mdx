@@ -5,11 +5,30 @@ description: Version history, and which versions you should not run.
 
 Releases are on
 [GitHub](https://github.com/lets-parley/parley/releases). Images publish to
-`ghcr.io/lets-parley/parley` for `linux/amd64` and `linux/arm64` on every `v*`
-tag, and are anonymously pullable.
+`ghcr.io/lets-parley/parley` for `linux/amd64` and `linux/arm64` from published
+GitHub Releases with exact `vMAJOR.MINOR.PATCH` tags, and are anonymously
+pullable.
 
-Tagging `vX.Y.Z` publishes `X.Y.Z` and `X.Y`, and moves `latest` for non
-pre-release tags.
+Publishing a GitHub Release for `vX.Y.Z` publishes `X.Y.Z` and `X.Y`, and moves
+`latest`. Creating or moving a tag without publishing a Release does not run
+the publication workflow.
+
+Beginning with the first release produced by the hardened workflow, each
+release includes an SPDX JSON SBOM plus Compose and Kubernetes manifests pinned
+to the published image digest. Releases v0.1.0 through v0.2.1 were not
+backfilled with these artifacts or attestations. Verify a hardened release's
+digest before deployment:
+
+The build job has no registry write permission. A separate publisher copies the
+immutable build to a run-specific staging tag, verifies its digest and the
+release tag's commit, and assigns final tags only after both checks pass.
+
+```sh
+gh attestation verify \
+  "oci://ghcr.io/lets-parley/parley@sha256:YOUR_RELEASE_DIGEST" \
+  --repo lets-parley/parley \
+  --signer-workflow lets-parley/parley/.github/workflows/release.yml
+```
 
 ## v0.2.3
 

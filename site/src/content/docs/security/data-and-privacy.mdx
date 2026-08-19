@@ -52,7 +52,7 @@ process makes one call per sign-in, not three.
 ## Retention and erasure
 
 <Capability rows={[
-  { name: "Retention policy", status: "not-built", detail: "Nothing expires and nothing is deleted. Data lives until you remove it from Postgres yourself." },
+  { name: "Retention policy", status: "not-built", detail: "Application records are not automatically deleted. Session authorization expires after 90 idle days, but its database row remains until you prune it." },
   { name: "Account deletion", status: "not-built", detail: "There is no endpoint. <code>DELETE /api/me</code> ends a session, it does not delete the account. Deleting a <code>users</code> row must be done in SQL, and see the caveat below — it is not a clean cascade." },
   { name: "Per-space export or erasure", status: "not-built", detail: "Export sessions to <a href='/features/exports/'>CSV</a> individually; erase with SQL against the documented <a href='/reference/database-schema/'>schema</a>." },
   { name: "Expired token cleanup", status: "not-built", detail: "Tokens stop resolving after 90 idle days but rows are never swept, so <code>session_tokens</code> grows without bound. It is small — one row per sign-in — but if you run Parley for years, prune it on a schedule." },

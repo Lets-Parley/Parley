@@ -27,7 +27,7 @@ func newSession(t *testing.T, pool *pgxpool.Pool, names ...string) (Session, []U
 		}
 		members = append(members, u)
 	}
-	sess, err := (&Sessions{Pool: pool}).Create(ctx, sp.ID, "poker", "Sprint 12", []byte(`{}`), members[0].ID)
+	sess, err := (&Sessions{Pool: pool}).Create(ctx, sp.ID, "poker", "Sprint 12", []byte(`{}`), members[0].ID, 500)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestTransferFacilitatorRequiresMembership(t *testing.T) {
 	sess, members := newSession(t, pool, "Dana Whitfield", "Ben Alvarez")
 	outsider, _ := newUser(t, pool, "Nina Kowalski")
 
-	if err := sessions.TransferFacilitator(ctx, sess.ID, outsider.ID); err != ErrNotEligible {
+	if err := sessions.TransferFacilitator(ctx, sess.ID, members[0].ID, outsider.ID); err != ErrNotEligible {
 		t.Fatalf("transfer to a non-member: got %v, want ErrNotEligible", err)
 	}
 	unchanged, err := sessions.ByID(ctx, sess.ID)
@@ -192,7 +192,7 @@ func TestTransferFacilitatorRequiresMembership(t *testing.T) {
 		t.Fatalf("facilitator changed to %s on a rejected transfer", unchanged.FacilitatorID)
 	}
 
-	if err := sessions.TransferFacilitator(ctx, sess.ID, members[1].ID); err != nil {
+	if err := sessions.TransferFacilitator(ctx, sess.ID, members[0].ID, members[1].ID); err != nil {
 		t.Fatalf("transfer to a member: %v", err)
 	}
 	got, err := sessions.ByID(ctx, sess.ID)
@@ -216,11 +216,11 @@ func TestSetEndedAndBumpVersion(t *testing.T) {
 	sessions := &Sessions{Pool: pool}
 	ctx := context.Background()
 
-	sess, _ := newSession(t, pool, "Dana Whitfield")
+	sess, members := newSession(t, pool, "Dana Whitfield")
 	if sess.EndedAt != nil {
 		t.Fatal("a new session is already ended")
 	}
-	if err := sessions.SetEnded(ctx, sess.ID, true); err != nil {
+	if err := sessions.SetEnded(ctx, sess.ID, members[0].ID, true); err != nil {
 		t.Fatal(err)
 	}
 	ended, err := sessions.ByID(ctx, sess.ID)
@@ -232,7 +232,7 @@ func TestSetEndedAndBumpVersion(t *testing.T) {
 	}
 
 	// Reopening clears it again — the UI offers this after an accidental end.
-	if err := sessions.SetEnded(ctx, sess.ID, false); err != nil {
+	if err := sessions.SetEnded(ctx, sess.ID, members[0].ID, false); err != nil {
 		t.Fatal(err)
 	}
 	reopened, err := sessions.ByID(ctx, sess.ID)
@@ -283,7 +283,7 @@ func TestSessionOfARetiredKindStillLoads(t *testing.T) {
 	sp := newSpace(t, pool)
 	u, _ := newUser(t, pool, "Priya Raman")
 	sessions := &Sessions{Pool: pool}
-	sess, err := sessions.Create(ctx, sp.ID, kind, "Retro", []byte(`{}`), u.ID)
+	sess, err := sessions.Create(ctx, sp.ID, kind, "Retro", []byte(`{}`), u.ID, 500)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +315,7 @@ func TestSessionRejectsAnUnknownKind(t *testing.T) {
 
 	sp := newSpace(t, pool)
 	u, _ := newUser(t, pool, "Ben Alvarez")
-	_, err := (&Sessions{Pool: pool}).Create(ctx, sp.ID, "no-such-kind", "Nope", []byte(`{}`), u.ID)
+	_, err := (&Sessions{Pool: pool}).Create(ctx, sp.ID, "no-such-kind", "Nope", []byte(`{}`), u.ID, 500)
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) || pgErr.Code != "23503" {
 		t.Fatalf("creating a session of an unregistered kind: got %v, want a foreign_key_violation (23503)", err)

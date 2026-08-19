@@ -57,7 +57,10 @@ func TestPasscodeThrottleSurvivesForgedForwardedFor(t *testing.T) {
 // A team behind one office address is a single client to this limiter, so
 // counting the people who typed the code correctly locks out the stragglers.
 func TestSuccessfulJoinsDoNotConsumeTheGuessBudget(t *testing.T) {
-	srv := testServer(t)
+	srv := testServerWith(t, testPool(t), Options{
+		AllowedOrigin: "http://example.test",
+		Limits:        Limits{IdentityIPHourly: passcodeAttemptLimit + 10},
+	})
 	owner := signup(t, srv, "Owner")
 	_, sp := createSpace(t, srv, "Platform Team", owner)
 	slug, code := sp["slug"].(string), sp["passcode"].(string)

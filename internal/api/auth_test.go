@@ -114,7 +114,7 @@ func (f *fakeIdP) signIDToken(t *testing.T) string {
 func oidcServer(t *testing.T, idp *fakeIdP) *httptest.Server {
 	t.Helper()
 	pool := testPool(t)
-	srv := httptest.NewServer(Router(pool, Options{
+	return testServerWith(t, pool, Options{
 		AllowedOrigin: "http://example.test",
 		Context:       testContext(t),
 		AuthMode:      ModeOIDC,
@@ -124,9 +124,7 @@ func oidcServer(t *testing.T, idp *fakeIdP) *httptest.Server {
 			ClientSecret: "shh",
 			RedirectURL:  "http://example.test/auth/callback",
 		}),
-	}))
-	t.Cleanup(srv.Close)
-	return srv
+	})
 }
 
 // noRedirect keeps the test client from following the sign-in hops, so each
@@ -367,4 +365,3 @@ func TestAuthConfigReportsMode(t *testing.T) {
 		})
 	}
 }
-

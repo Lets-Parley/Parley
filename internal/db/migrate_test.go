@@ -98,3 +98,9 @@ func TestLoadMigrationsUsesFilenamePrefix(t *testing.T) {
 		}
 	}
 }
+
+func TestShippedMigrationVersionsAreUnique(t *testing.T) {
+	if _, err := loadMigrations(MigrationsFS); err != nil {
+		t.Fatal(err)
+	}
+}

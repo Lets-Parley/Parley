@@ -7,6 +7,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/lets-parley/parley/internal/hub"
 	"github.com/lets-parley/parley/internal/store"
 )
 
@@ -16,6 +17,19 @@ import (
 func (a *app) handleWS(w http.ResponseWriter, r *http.Request) {
 	p, ok := PrincipalFrom(r.Context())
 	if !ok {
+		http.Error(w, "no such session", http.StatusNotFound)
+		return
+	}
+	tokenSession, err := a.users.ResolveToken(r.Context(), []byte(p.TokenID))
+	if errors.Is(err, store.ErrNoUser) {
+		http.Error(w, "no such session", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "could not validate session", http.StatusInternalServerError)
+		return
+	}
+	if tokenSession.User.ID != p.UserID {
 		http.Error(w, "no such session", http.StatusNotFound)
 		return
 	}
@@ -51,5 +65,7 @@ func (a *app) handleWS(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		initial, _ = json.Marshal(env)
 	}
-	a.hub.Attach(ws, sess.ID, p.UserID, initial)
+	a.hub.AttachAuthenticated(ws, sess.ID, p.UserID, initial, hub.SessionAuth{
+		TokenID: string(p.TokenID), ExpiresAt: tokenSession.ExpiresAt,
+	})
 }

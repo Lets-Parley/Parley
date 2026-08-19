@@ -1,20 +1,28 @@
-# The docs site is a public web page built from npm packages, and Astro's
-# security fixes land in minor releases — Astro 5 shipped an unpatched XSS in
-# `define:vars` that was only resolved by moving to 7. Updates arrive here as
-# pull requests rather than being noticed the next time somebody happens to run
-# `npm audit` by hand.
-#
-# Go modules and web/ are not covered: they are updated deliberately, alongside
-# the tests that prove the upgrade.
 version: 2
 updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go-dependencies:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    groups:
+      web-dependencies:
+        patterns: ["*"]
+
   - package-ecosystem: npm
     directory: /site
     schedule:
       interval: weekly
     groups:
-      astro:
-        patterns: ["astro", "@astrojs/*"]
+      site-dependencies:
+        patterns: ["*"]
 
   # A SHA pin never floats, so a security fix in an action would otherwise sit
   # unnoticed forever. Dependabot rewrites the pin and the tag comment together.
@@ -22,3 +30,14 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      container-images:
+        patterns: ["*"]

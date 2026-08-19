@@ -42,8 +42,16 @@ func newUser(t *testing.T, pool *pgxpool.Pool, name string) (User, string) {
 	return u, plain
 }
 
-// newSpace creates a space with a slug unique to the calling test.
+// newSpace creates a space with a slug unique to the calling test. Spaces.Create
+// enrols the creator, so the space comes back with one member already on the
+// roster; newSpaceWithCreator is for tests that need to name them.
 func newSpace(t *testing.T, pool *pgxpool.Pool) Space {
+	t.Helper()
+	sp, _ := newSpaceWithCreator(t, pool)
+	return sp
+}
+
+func newSpaceWithCreator(t *testing.T, pool *pgxpool.Pool) (Space, User) {
 	t.Helper()
 	// The slug column caps at 64 characters, so the readable prefix is bounded
 	// to leave room for the suffix: a long test name must not fail as an
@@ -53,11 +61,12 @@ func newSpace(t *testing.T, pool *pgxpool.Pool) Space {
 		prefix = strings.Trim(prefix[:40], "-")
 	}
 	slug := prefix + "-" + randSuffix(t)
-	sp, err := (&Spaces{Pool: pool}).Create(context.Background(), t.Name(), slug, "")
+	creator, _ := newUser(t, pool, "Creator "+randSuffix(t))
+	sp, err := (&Spaces{Pool: pool}).Create(context.Background(), t.Name(), slug, "", creator.ID, 50)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return sp
+	return sp, creator
 }
 
 // randSuffix keeps slugs unique across reruns against the same database.
@@ -256,7 +265,8 @@ func TestSpaceCreateRejectsDuplicateSlug(t *testing.T) {
 	ctx := context.Background()
 
 	sp := newSpace(t, pool)
-	if _, err := spaces.Create(ctx, "Other name", sp.Slug, ""); err != ErrSlugTaken {
+	creator, _ := newUser(t, pool, "Duplicate Slug Creator")
+	if _, err := spaces.Create(ctx, "Other name", sp.Slug, "", creator.ID, 50); err != ErrSlugTaken {
 		t.Fatalf("duplicate slug: got %v, want ErrSlugTaken", err)
 	}
 	if _, err := spaces.BySlug(ctx, "no-such-space-"+randSuffix(t)); err != ErrNoSpace {
@@ -269,9 +279,12 @@ func TestJoinIsIdempotent(t *testing.T) {
 	spaces := &Spaces{Pool: pool}
 	ctx := context.Background()
 
-	sp := newSpace(t, pool)
+	sp, creator := newSpaceWithCreator(t, pool)
 	u, _ := newUser(t, pool, "Nina Kowalski")
 
+	if ok, err := spaces.IsMember(ctx, sp.ID, creator.ID); err != nil || !ok {
+		t.Fatalf("IsMember(creator) = %v, %v; want true, nil — Create enrols the creator", ok, err)
+	}
 	if ok, err := spaces.IsMember(ctx, sp.ID, u.ID); err != nil || ok {
 		t.Fatalf("IsMember before join = %v, %v; want false, nil", ok, err)
 	}
@@ -287,8 +300,9 @@ func TestJoinIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(roster) != 1 {
-		t.Fatalf("roster has %d entries after three joins, want 1", len(roster))
+	// The creator plus the one joiner: three joins must still add exactly one.
+	if len(roster) != 2 {
+		t.Fatalf("roster has %d entries after three joins, want 2 (creator + joiner)", len(roster))
 	}
 }
 
@@ -297,7 +311,7 @@ func TestRosterIsOrderedByName(t *testing.T) {
 	spaces := &Spaces{Pool: pool}
 	ctx := context.Background()
 
-	sp := newSpace(t, pool)
+	sp, creator := newSpaceWithCreator(t, pool)
 	// Joined out of order on purpose: the roster is what the standup speaking
 	// order is built from, so the sort must come from the query, not insertion.
 	for _, name := range []string{"Tomas Herrera", "Ben Alvarez", "Priya Raman"} {
@@ -314,7 +328,9 @@ func TestRosterIsOrderedByName(t *testing.T) {
 	for _, m := range roster {
 		got = append(got, m.Name)
 	}
-	want := []string{"Ben Alvarez", "Priya Raman", "Tomas Herrera"}
+	// The creator is enrolled by Create and named "Creator <suffix>", so it
+	// sorts between Ben and Priya wherever the suffix lands.
+	want := []string{"Ben Alvarez", creator.Name, "Priya Raman", "Tomas Herrera"}
 	if len(got) != len(want) {
 		t.Fatalf("roster = %v, want %v", got, want)
 	}

@@ -14,7 +14,7 @@ import hiddenDark from "../../../assets/hidden-votes-dark.png";
 import tshirtLight from "../../../assets/tshirt-results-light.png";
 import tshirtDark from "../../../assets/tshirt-results-dark.png";
 
-<VerifiedStamp source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go"]} />
 
 A poker session is a queue of work and a table of people. The facilitator puts
 one item on the table, everybody votes face-down, and the round opens either when
@@ -26,6 +26,10 @@ Work goes in as either a **ticket** — with a reference like `PLAT-412` — or 
 **ad-hoc** line item, which is what you want when someone says "and what about
 the migration script?" mid-session. Both take optional notes, and both can be
 reordered with the arrows.
+
+The facilitator owns the queue: only they may create, edit, reorder, select, or
+delete a story. Ordinary members still cast and change their own votes. These
+permissions are enforced by the API as well as by the controls shown in the UI.
 
 The reference is real data rather than decoration: it travels through the API and
 the WebSocket state and comes out in the [CSV export](/features/exports/) as its

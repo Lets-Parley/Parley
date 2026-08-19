@@ -11,9 +11,8 @@ import (
 )
 
 // ActionCtx is what the core hands an action handler. Session and UserID are
-// already resolved and authorized: the caller is a member of the session's
-// space, the session is not ended, and — for a FacilitatorOnly action — the
-// caller is its facilitator. A handler never re-checks any of that.
+// already resolved and authorized. Mutation handlers still revalidate mutable
+// session state inside their transaction before writing.
 type ActionCtx struct {
 	Pool *pgxpool.Pool
 	Hub  *hub.Hub
@@ -21,9 +20,10 @@ type ActionCtx struct {
 	// use it rather than Hub, which only sees the clients attached here.
 	Presence *store.Presence
 	// Broadcast pushes a fresh envelope to everyone watching the session.
-	Broadcast func(ctx context.Context, sessionID string)
-	Session   store.Session
-	UserID    string
+	Broadcast  func(ctx context.Context, sessionID string)
+	Session    store.Session
+	UserID     string
+	StoryLimit int
 }
 
 // ActionFunc handles one action. It owns the response body and status.

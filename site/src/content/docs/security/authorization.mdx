@@ -6,7 +6,7 @@ description: Membership, facilitator rights, and what the server checks on every
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["internal/api/authz.go", "internal/api/principal.go", "internal/store/sessions.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/authz.go", "internal/api/principal.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/store/sessions.go"]} />
 
 Parley has two authorization concepts and no more: **you are a member of the
 space**, and **you are the facilitator of this session**.
@@ -26,13 +26,15 @@ nothing else — no roster, no session list, no room code.
 
 ## Facilitator
 
-The facilitator is one member per session, recorded on the session row. Only they
-can reveal a round, reset it, close the session, reopen it, or hand the role to
-someone else.
+The facilitator is one member per session, recorded on the session row. Only
+they can create, edit, reorder, select, or delete poker stories; reveal or reset
+a round; save an estimate; start or advance a standup; close or reopen the
+session; or hand the role to someone else.
 
-Every one of those is enforced server-side. The poker and standup handlers
-re-check on each request rather than relying on the middleware chain having done
-it, so a route added in the wrong place fails closed.
+Every one of those is enforced server-side. Ordinary members retain the active
+participation that belongs to them: a non-spectator may cast their own poker
+vote, and a standup participant may edit their own entry. They cannot mutate the
+story queue or control session progression.
 
 ### Claiming an abandoned session
 

@@ -30,9 +30,12 @@ func resolvePrincipal(users *store.Users, federatedOnly bool) func(http.Handler)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if c, err := r.Cookie(sessionCookie); err == nil {
 				if hash, err := store.HashToken(c.Value); err == nil {
-					if u, err := users.ByToken(r.Context(), hash); err == nil {
-						if !federatedOnly || u.Issuer != "" {
-							r = r.WithContext(principal.With(r.Context(), Principal{UserID: u.ID, Display: u.Name}))
+					if sess, err := users.ResolveToken(r.Context(), hash); err == nil {
+						if !federatedOnly || sess.User.Issuer != "" {
+							r = r.WithContext(principal.With(r.Context(), Principal{
+								UserID: sess.User.ID, Display: sess.User.Name,
+								TokenID: string(hash), TokenExpiresAt: sess.ExpiresAt,
+							}))
 						}
 					}
 				}

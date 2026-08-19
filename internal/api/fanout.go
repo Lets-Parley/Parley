@@ -162,4 +162,3 @@ func (a *app) resyncLocalSessions(ctx context.Context) {
 func (a *app) listenerHealthy() bool {
 	return a.listenerUp.Load()
 }
-

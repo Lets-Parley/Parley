@@ -1,0 +1,39 @@
+name: Bug report
+description: Report a reproducible problem
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Do not include secrets, credentials, personal data, or vulnerability details. Follow the organization security policy linked from the issue chooser for suspected vulnerabilities.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Give an exact release or commit.
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Give the smallest repeatable sequence.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing Issues and Discussions.
+          required: true
+        - label: This report does not disclose a security vulnerability.
+          required: true

@@ -3,10 +3,13 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,6 +18,8 @@ import (
 	"github.com/lets-parley/parley/internal/dbtest"
 
 	"github.com/lets-parley/parley/internal/db"
+	"github.com/lets-parley/parley/internal/hub"
+	"github.com/lets-parley/parley/internal/store"
 )
 
 // testPool hands back an empty, migrated database. Every caller starts from a
@@ -39,11 +44,21 @@ func testPool(t *testing.T) *pgxpool.Pool {
 
 func testServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewServer(Router(testPool(t), Options{
-		AllowedOrigin: "http://example.test",
-		Context:       testContext(t),
-	}))
-	t.Cleanup(srv.Close)
+	return testServerWith(t, testPool(t), Options{AllowedOrigin: "http://example.test"})
+}
+
+func testServerWith(t *testing.T, pool *pgxpool.Pool, opts Options) *httptest.Server {
+	t.Helper()
+	// The notification listener has to be bounded or it outlives the test.
+	if opts.Context == nil {
+		opts.Context = testContext(t)
+	}
+	handler := Router(pool, opts)
+	srv := httptest.NewServer(handler)
+	t.Cleanup(func() {
+		handler.Shutdown()
+		srv.Close()
+	})
 	return srv
 }
 
@@ -71,6 +86,21 @@ func postMe(t *testing.T, srv *httptest.Server, name string, cookie *http.Cookie
 	json.NewDecoder(resp.Body).Decode(&body)
 	resp.Body.Close()
 	return resp, body
+}
+
+func postMeFrom(t *testing.T, srv *httptest.Server, name, forwardedFor string) *http.Response {
+	t.Helper()
+	req, _ := http.NewRequest("POST", srv.URL+"/api/me", strings.NewReader(`{"name":"`+name+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	if forwardedFor != "" {
+		req.Header.Set("X-Forwarded-For", forwardedFor)
+	}
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	return resp
 }
 
 func sessionCookieOf(t *testing.T, resp *http.Response) *http.Cookie {
@@ -179,6 +209,32 @@ func TestLogoutInvalidatesToken(t *testing.T) {
 	}
 }
 
+func TestLogoutReportsTokenDeletionFailure(t *testing.T) {
+	pool, err := pgxpool.New(context.Background(), "postgres://unused:unused@127.0.0.1/unused")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Close()
+
+	a := &app{users: &store.Users{Pool: pool}, hub: hub.New()}
+	t.Cleanup(a.hub.Shutdown)
+	plain, _ := store.NewToken()
+	req := httptest.NewRequest(http.MethodDelete, "/api/me", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: plain})
+	rec := httptest.NewRecorder()
+
+	a.handleDeleteMe(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("logout after token deletion failure = %d, want 500", rec.Code)
+	}
+	for _, cookie := range rec.Result().Cookies() {
+		if cookie.Name == sessionCookie && cookie.MaxAge < 0 {
+			t.Fatal("logout cleared the browser cookie after database revocation failed")
+		}
+	}
+}
+
 func TestNameValidation(t *testing.T) {
 	srv := testServer(t)
 
@@ -202,5 +258,85 @@ func TestNonJSONBodyRejected(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusUnsupportedMediaType {
 		t.Fatalf("form post: got %d, want 415", resp.StatusCode)
+	}
+}
+
+func TestOversizedJSONBodyReturnsPayloadTooLarge(t *testing.T) {
+	a := &app{authMode: ModeOpen}
+	req := httptest.NewRequest(http.MethodPost, "/api/me", strings.NewReader(`{"name":"`+strings.Repeat("x", 64<<10)+`"}`))
+	rec := httptest.NewRecorder()
+
+	a.handlePostMe(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized JSON status = %d, want 413", rec.Code)
+	}
+}
+
+func TestOpenIdentityCreationEnforcesPerClientHourlyLimit(t *testing.T) {
+	srv := testServerWith(t, testPool(t), Options{
+		AllowedOrigin: "http://example.test",
+		Limits:        Limits{IdentityIPHourly: 2, IdentityGlobalHourly: 20},
+	})
+	for i := 0; i < 2; i++ {
+		if resp := postMeFrom(t, srv, "Allowed", ""); resp.StatusCode != http.StatusCreated {
+			t.Fatalf("creation %d = %d, want 201", i+1, resp.StatusCode)
+		}
+	}
+	resp := postMeFrom(t, srv, "Blocked", "")
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("exhausted client limit = %d, want 429", resp.StatusCode)
+	}
+	retryAfter, err := strconv.Atoi(resp.Header.Get("Retry-After"))
+	if err != nil || retryAfter < 1 || retryAfter > 3600 {
+		t.Fatalf("Retry-After = %q, want seconds until the hourly reset", resp.Header.Get("Retry-After"))
+	}
+}
+
+func TestOpenIdentityCreationEnforcesGlobalHourlyLimit(t *testing.T) {
+	srv := testServerWith(t, testPool(t), Options{
+		AllowedOrigin:     "http://example.test",
+		TrustProxyHeaders: true,
+		TrustedProxyCIDRs: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")},
+		Limits:            Limits{IdentityIPHourly: 20, IdentityGlobalHourly: 2},
+	})
+	for i, addr := range []string{"198.51.100.1", "198.51.100.2"} {
+		if resp := postMeFrom(t, srv, "Allowed", addr); resp.StatusCode != http.StatusCreated {
+			t.Fatalf("creation %d = %d, want 201", i+1, resp.StatusCode)
+		}
+	}
+	if resp := postMeFrom(t, srv, "Blocked", "198.51.100.3"); resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("exhausted global limit = %d, want 429", resp.StatusCode)
+	}
+}
+
+func TestConcurrentOpenIdentityCreationCannotExceedClientLimit(t *testing.T) {
+	pool := testPool(t)
+	srv := testServerWith(t, pool, Options{
+		AllowedOrigin: "http://example.test",
+		Limits:        Limits{IdentityIPHourly: 3, IdentityGlobalHourly: 20},
+	})
+
+	const attempts = 12
+	statuses := concurrentStatuses(t, attempts, func(i int) (int, error) {
+		return requestStatus(srv, http.MethodPost, "/api/me", fmt.Sprintf(`{"name":"Person %d"}`, i), nil)
+	})
+	created := 0
+	for _, status := range statuses {
+		if status == http.StatusCreated {
+			created++
+		} else if status != http.StatusTooManyRequests {
+			t.Fatalf("concurrent creation status = %d, want 201 or 429", status)
+		}
+	}
+	if created != 3 {
+		t.Fatalf("created %d identities, want exactly 3", created)
+	}
+	var stored int
+	if err := pool.QueryRow(context.Background(), "select count(*) from users").Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored != 3 {
+		t.Fatalf("stored %d identities, want exactly 3", stored)
 	}
 }

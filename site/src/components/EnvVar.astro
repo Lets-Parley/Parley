@@ -2,7 +2,8 @@
 // One environment variable with the five things an operator needs.
 // `fatal` means the process refuses to start on a bad value — worth its own
 // row because most of Parley's config is fail-fast.
-const { name, default: def, required = false, fatal = false, derives } = Astro.props;
+const { name, default: def, required = false, fatal = false, badValue, derives } = Astro.props;
+const requiredText = typeof required === "string" ? required : required ? "Yes" : "No";
 ---
 <div class="env">
   <h3 id={name}><code>{name}</code></h3>
@@ -10,9 +11,9 @@ const { name, default: def, required = false, fatal = false, derives } = Astro.p
     <dt>Default</dt>
     <dd>{def ? <code>{def}</code> : <em>none</em>}</dd>
     <dt>Required</dt>
-    <dd>{required ? <strong>Yes</strong> : "No"}</dd>
+    <dd>{required ? <strong>{requiredText}</strong> : "No"}</dd>
     <dt>Bad value</dt>
-    <dd>{fatal ? "Refuses to start, with a named reason on stderr" : "Ignored"}</dd>
+    <dd>{badValue ?? (fatal ? "Refuses to start, with a named reason on stderr" : "Ignored")}</dd>
     {derives && <><dt>Derives</dt><dd>{derives}</dd></>}
   </dl>
   <div class="env-body"><slot /></div>

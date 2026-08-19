@@ -6,7 +6,7 @@ description: The ordered list of things to get right before you expose Parley to
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp source={["internal/api/security.go", "cmd/parley/main.go", "deploy/k8s/deployment.yaml"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/security.go", "internal/api/me.go", "internal/poker/routes.go", "cmd/parley/main.go", "deploy/k8s/deployment.yaml", ".github/workflows/release.yml"]} />
 
 In order. The first three are the ones that actually bite.
 
@@ -30,7 +30,10 @@ Confirm it from the boot log rather than from your intent:
 
 ## 2. Set TRUST_PROXY_HEADERS to match your topology
 
-`true` if and only if a proxy you control sets `X-Forwarded-For` itself.
+`true` if and only if a proxy you control sets `X-Forwarded-For` itself. When it
+is true, `TRUSTED_PROXY_CIDRS` is required and must contain only the immediate
+and intermediate proxy hops Parley should trust. It must not contain a
+client-reachable network.
 
 Wrong in one direction the room-code throttle never fires; wrong in the other the
 whole internet shares one throttle bucket and eight bad guesses lock everyone
@@ -67,7 +70,9 @@ A room code gates a space; it is not identity, it is stored readable, and any
 member can rotate it or remove it. See the [threat
 model](/security/threat-model/).
 
-If that is not enough for your data, do one of:
+Open mode is trusted-network-only. If the instance is publicly reachable, use a
+space passcode or an external SSO/authentication proxy and add ingress abuse
+controls. Depending on your data, also consider:
 
 - Keep the instance on an internal network only.
 - Turn on [OIDC](/security/authentication/) so participants are at least
@@ -95,9 +100,11 @@ If you write your own manifest, carry all five across.
 
 ## 7. Rate limit at the edge
 
-Only room-code guessing is throttled inside Parley. Space creation, session
-creation, API calls and WebSocket connections are not. Add limits at your
-ingress if the instance is reachable from anywhere untrusted.
+Parley throttles room-code guesses and open-mode identity creation. It also caps
+spaces per identity, sessions per space, and stories per session. These controls
+bound persistent growth but do not rate-limit general API calls or WebSocket
+connections. Add request, connection, and bandwidth limits at the ingress if
+the instance is reachable from anywhere untrusted.
 
 ## 8. Back it up before it matters
 
@@ -106,14 +113,18 @@ Nothing in Parley backs itself up.
 
 ## 9. Pin what you deploy
 
-Parley does not sign or attest its images yet. Pin a digest rather than `latest`,
-and scan it yourself — [Supply chain](/security/supply-chain/) has the commands.
+For releases produced by the hardened workflow, pin the published digest rather
+than `latest`, use the digest-qualified release manifest, and verify its
+attestation — [Supply chain](/security/supply-chain/) has the command. The
+workflow builds without registry write access, verifies the staged registry
+digest before assigning final tags, and attaches artifacts only after a
+successful hardened release. Releases v0.1.0 through v0.2.1 were not backfilled.
 
 ## What you cannot harden
 
 - **There is no bind-address setting.** The process listens on all interfaces;
   only `PORT` is configurable. Use a firewall, a container port binding, or a
   proxy.
-- **There is no admin account, and no roles.** Any member of a space can do
-  anything within it.
+- **There is no admin account or space-owner role.** Any member may change the
+  room code, but story mutations and session controls are facilitator-only.
 - **There is no audit log.**
