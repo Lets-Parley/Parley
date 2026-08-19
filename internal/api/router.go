@@ -3,6 +3,7 @@ package api
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -14,17 +15,21 @@ import (
 	"github.com/lets-parley/parley/internal/auth"
 	"github.com/lets-parley/parley/internal/hub"
 	"github.com/lets-parley/parley/internal/poker"
+	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/standup"
 	"github.com/lets-parley/parley/internal/store"
 	"github.com/lets-parley/parley/web"
 )
 
 type app struct {
-	pool          *pgxpool.Pool
-	users         *store.Users
-	spaces        *store.Spaces
-	sessions      *store.Sessions
-	hub           *hub.Hub
+	pool     *pgxpool.Pool
+	users    *store.Users
+	spaces   *store.Spaces
+	sessions *store.Sessions
+	hub      *hub.Hub
+	// kinds is the session-kind registry, built once at wiring time.
+	kinds *session.Registry
+
 	secureCookies bool
 	allowedOrigin string
 	// authMode is ModeOpen or ModeOIDC; oidc is non-nil only in the latter.
@@ -51,6 +56,16 @@ type Options struct {
 }
 
 func Router(pool *pgxpool.Pool, opts Options) http.Handler {
+	// A duplicate kind is a wiring mistake in this very function, so it can
+	// only be a programming error — fail the process rather than serve a
+	// registry that is missing a kind.
+	kinds := session.NewRegistry()
+	for _, k := range []session.Kind{poker.Kind(), standup.Kind()} {
+		if err := kinds.Register(k); err != nil {
+			panic(fmt.Sprintf("wiring session kinds: %v", err))
+		}
+	}
+
 	mode := opts.AuthMode
 	if mode == "" {
 		mode = ModeOpen
@@ -61,6 +76,7 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 		spaces:        &store.Spaces{Pool: pool},
 		sessions:      &store.Sessions{Pool: pool},
 		hub:           hub.New(),
+		kinds:         kinds,
 		secureCookies: opts.SecureCookies,
 		allowedOrigin: opts.AllowedOrigin,
 		authMode:      mode,

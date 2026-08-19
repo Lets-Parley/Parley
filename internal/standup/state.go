@@ -38,8 +38,14 @@ type State struct {
 	SecondsPerPerson int         `json:"secondsPerPerson"`
 }
 
-func init() {
-	session.Register("standup", buildState, func() any { return &Config{} })
+// Kind describes the standup session kind for the core registry.
+func Kind() session.Kind {
+	return session.Kind{
+		Name:      "standup",
+		State:     buildState,
+		NewConfig: func() any { return &Config{} },
+		CSV:       exportCSV,
+	}
 }
 
 func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (any, error) {
