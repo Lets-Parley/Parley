@@ -1,0 +1,12 @@
+---
+/* Starlight has no config for top navigation links, and on the splash page the
+   sidebar is hidden — so without this the header offers no route into the docs
+   at all. SiteTitle is the seam for it: overriding Header instead would mean
+   re-owning search, social icons and the theme select on every upgrade.
+
+   Styling lives unlayered in src/styles/parley.css, same as the Hero. */
+import Default from "@astrojs/starlight/components/SiteTitle.astro";
+---
+
+<Default><slot /></Default>
+<a class="parley-nav-link" href="/quickstart/">Docs</a>
