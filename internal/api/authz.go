@@ -44,6 +44,28 @@ func (a *app) requireSessionMember(next http.Handler) http.Handler {
 	})
 }
 
+// rejectEnded runs inside requireSessionMember and turns away writes to a
+// closed session. It is its own middleware rather than part of
+// requireSessionMember because reading, exporting and reopening an ended
+// session are all legitimate — reopen exists for nothing else.
+//
+// ponytail: this is the third copy of the same session authorization ladder —
+// poker.withSession (internal/poker/routes.go) and standup.withSession
+// (internal/standup/routes.go) each carry their own member/facilitator/ended
+// checks, and the status and wording here are copied from poker to keep the
+// three in step. The upgrade path is to lift one shared middleware chain into
+// a package all three mount, and delete the copies; that is a routing refactor
+// and does not belong in a behaviour fix.
+func rejectEnded(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if sessionFrom(r.Context()).EndedAt != nil {
+			http.Error(w, `{"error":"this session has ended"}`, http.StatusConflict)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // requireFacilitator runs inside requireSessionMember.
 func requireFacilitator(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
