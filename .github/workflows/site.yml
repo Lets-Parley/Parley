@@ -6,6 +6,12 @@ on:
     paths: ["site/**", ".github/workflows/site.yml"]
   pull_request:
     paths: ["site/**", ".github/workflows/site.yml"]
+  # The landing page's star count is read from the GitHub API at build time, so
+  # it only moves when the site is rebuilt. Nothing about a star triggers a
+  # build, so without this the number is frozen at whatever the last site
+  # change happened to see. 06:00 UTC keeps it at most a day stale.
+  schedule:
+    - cron: "0 6 * * *"
   workflow_dispatch:
 
 permissions:
