@@ -102,8 +102,9 @@ network; public deployments need an additional access and abuse-control layer.
   in front of the whole instance. `AUTH_MODE=oidc` identifies people, but does
   not gate space access.
 - *Can we revoke one person's access?* There is no UI. Delete that person's rows
-  from `session_tokens`; HTTP access stops immediately. Allow up to 60 seconds
-  for their WebSockets to start a check, time out, and close. Rotate the room
+  from `session_tokens`; HTTP access stops immediately. WebSocket shared-store
+  detection and removal can take nearly 60 seconds; transport closure then
+  follows subject to the active-write and close-frame deadlines. Rotate the room
   code to prevent a new membership.
 - *Can we prove who estimated what?* In `oidc` mode, yes, from the database. There
   is no report and no audit trail; the data is there to query.

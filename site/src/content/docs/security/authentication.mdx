@@ -139,8 +139,8 @@ from an external deletion for the next check and its timeout to complete.
 <SpecTable rows={[
   { name: "Sign out", value: "supported", note: "Deletes the token, synchronously closes its WebSockets, and clears the cookie" },
   { name: "Rename", value: "rotates the token", note: "In one transaction" },
-  { name: "Sign out everywhere UI", value: "not supported", note: "Delete the user's rows from session_tokens in SQL; allow up to 60s for sockets to close" },
-  { name: "Administrative revocation UI", value: "not supported", note: "There is no admin surface; allow up to 60s for shared-store enforcement" },
+  { name: "Sign out everywhere UI", value: "not supported", note: "Delete the user's rows from session_tokens in SQL; shared-store detection and removal can take nearly 60s, then transport closure follows" },
+  { name: "Administrative revocation UI", value: "not supported", note: "There is no admin surface; shared-store detection and removal can take nearly 60s" },
   { name: "Expired token cleanup", value: "never runs", note: "Rows stop resolving but are not swept" },
 ]} />
 
