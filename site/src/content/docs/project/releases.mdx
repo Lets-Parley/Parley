@@ -11,6 +11,19 @@ tag, and are anonymously pullable.
 Tagging `vX.Y.Z` publishes `X.Y.Z` and `X.Y`, and moves `latest` for non
 pre-release tags.
 
+## v0.2.3
+
+A packaging release. **No code changes** — v0.2.2 remains the release that fixed
+the broadcast crash, and running it is equally safe.
+
+- **The Helm chart is published for the first time.** The job that publishes it
+  landed after v0.2.2 was tagged, so `helm install` from the registry could not
+  reach a fixed chart until now
+- The compose file, Kubernetes manifest and chart `appVersion` name a current
+  image, and the install commands in the README and on this site name a tag the
+  registry actually serves — the previous `v`-prefixed examples were never
+  pullable
+
 ## v0.2.2
 
 **Security release. Upgrade from any earlier version.**
