@@ -160,7 +160,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := db.Migrate(ctx, pool, log); err != nil {
+	if err := db.Migrate(ctx, pool, log, db.MigrationsFS); err != nil {
 		log.Error("FATAL: database migration failed", "error", err)
 		os.Exit(1)
 	}

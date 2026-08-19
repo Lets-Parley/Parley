@@ -373,9 +373,9 @@ docker compose up -d
 
 ## Upgrading
 
-**Parley:** bump the tag in `docker-compose.yml`, then `docker compose pull &&
-docker compose up -d`. Migrations run
-automatically at boot. Rolling *back* an image is only safe if the newer
+**Parley:** back up the database first — migrations are forward-only and there
+is no down path. Then bump the tag in `docker-compose.yml` and `docker compose
+pull && docker compose up -d`. Migrations run automatically at boot. Rolling *back* an image is only safe if the newer
 version didn't add migrations — if it did, Parley refuses to start with a
 message telling you so; restore from backup instead.
 
