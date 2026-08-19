@@ -108,7 +108,7 @@ export default defineConfig({
         {
           label: "Project",
           collapsed: true,
-          items: ["project/roadmap", "project/releases", "project/contributing"],
+          items: ["project/roadmap", "project/releases", "project/contributing", "project/contrast"],
         },
       ],
     }),

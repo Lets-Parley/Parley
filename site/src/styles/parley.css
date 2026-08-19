@@ -87,9 +87,9 @@
   --parley-surface: #fdfdfb;
   --parley-surface-hi: #ffffff;
   --parley-line: #948e83;  /* 3.1:1 against the page; was 1.61:1 */
-  --parley-muted: #556472;
-  --parley-brass: #7a5a12;
-  --parley-go: #2a7060;
+  --parley-muted: #4f5d6a;
+  --parley-brass: #725411;
+  --parley-go: #266454;
   --parley-stop: #b33326;
 
   --parley-shadow-rest: 0 1px 2px rgb(18 32 47 / 0.1), 0 2px 8px rgb(18 32 47 / 0.08);

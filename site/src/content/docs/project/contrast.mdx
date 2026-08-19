@@ -1,0 +1,98 @@
+---
+title: Colour contrast
+description: Measured contrast ratios for the text on the room surfaces, in both themes.
+---
+
+The room leans on 9–11px mono micro-copy for real information — the vote tally,
+the spectator list, seat labels, the histogram counts. This page records what
+those combinations actually measure, so the palette can be changed on numbers
+rather than on impression.
+
+Nothing in the test suite can produce these figures. `web/vite.config.ts` sets
+`test.css: false`, so no stylesheet loads under jsdom, and axe-core's
+`color-contrast` rule disables itself without a layout engine — it reports zero
+violations against any palette, including a deliberately unreadable one. The
+ratios below are computed by hand from the token values in `web/src/tokens.css`
+using the WCAG 2.x relative-luminance formula, with `color-mix(in oklab, …)`
+resolved through OKLab.
+
+Scope is the four room surfaces plus the standup room: `Table`, `Hand`,
+`StoryQueue`, `ResultsPanel`, `StandupRoom`. The space page, app shell and
+landing page have not been audited.
+
+## Ratios
+
+Threshold is WCAG AA: 4.5:1 for normal text, 3:1 where the text is genuinely
+large (18.66px bold or 24px regular and up). Almost all of this copy is small,
+so almost all of it is held to 4.5:1.
+
+| Surface | Text | Foreground | Background | Size / weight | Threshold | Light | Dark |
+|---|---|---|---|---|---|---|---|
+| Table | seat "zzz" card label | `--color-ink-faint` | `--color-felt` | 11px mono | 4.5:1 | 5.47 | 5.78 |
+| Table | seat first name | `--color-ink-soft` | `--color-felt` | 12px bold | 4.5:1 | 5.85 | 8.22 |
+| Table | "· you" suffix | `--color-ink-faint` | `--color-felt` | 12px | 4.5:1 | 5.47 | 5.78 |
+| Table | SPECTATORS heading | `--color-ink-faint` | `--color-felt` | 9px mono | 4.5:1 | 5.47 | 5.78 |
+| Table | spectator name | `--color-ink-soft` | `--color-felt` | 12px semibold | 4.5:1 | 5.85 | 8.22 |
+| Table | vote tally | `--color-ink-faint` | `--color-felt` | 11px mono | 4.5:1 | 5.47 | 5.78 |
+| Table | revealed card face | `--color-ink` | `--color-surface` | 24px mono | 3:1 | 15.25 | 13.20 |
+| Hand | "YOUR HAND · deck" | `--color-ink-faint` | `--color-felt-deep` | 11px mono | 4.5:1 | 4.75 | 6.12 |
+| Hand | "pick a card" | `--color-ink-faint` | `--color-felt-deep` | 10px mono | 4.5:1 | 4.75 | 6.12 |
+| Hand | "picked N" | `--color-go` | `--color-felt-deep` | 10px mono | 4.5:1 | 4.86 | 8.60 |
+| Hand | SPECTATE button | `--color-ink-soft` | `--color-felt-deep` | 10px mono | 4.5:1 | 5.08 | 8.71 |
+| Hand | SPECTATING · REJOIN | `--color-ink-soft` | `--color-accent-soft` | 10px mono | 4.5:1 | 5.58 | 6.02 |
+| Hand | spectating rail copy | `--color-ink-faint` | `--color-felt-deep` | 14px | 4.5:1 | 4.75 | 6.12 |
+| StoryQueue | QUEUE heading | `--color-ink-faint` | `--color-surface` | 10px mono | 4.5:1 | 6.25 | 5.25 |
+| StoryQueue | Add / Clear links | `--color-accent` | `--color-surface` | 12px bold | 4.5:1 | 8.20 | 6.24 |
+| StoryQueue | empty-queue copy | `--color-ink-faint` | `--color-surface` | 13px | 4.5:1 | 6.25 | 5.25 |
+| StoryQueue | reorder arrows | `--color-ink-faint` | `--color-surface` | 9px | 4.5:1 | 6.25 | 5.25 |
+| StoryQueue | story-ref chip | `--color-ink` | `--color-surface` | 12.8px mono | 4.5:1 | 15.25 | 13.20 |
+| StoryQueue | queue action chip | `--color-ink-soft` | `--color-surface` | 12px bold | 4.5:1 | 6.69 | 7.47 |
+| ResultsPanel | hero label | `--color-ink-faint` | `--color-felt-deep` | 11px mono | 4.5:1 | 4.75 | 6.12 |
+| ResultsPanel | hero number | `--color-ink` | `--color-felt-deep` | 104px mono | 3:1 | 11.58 | 15.40 |
+| ResultsPanel | hero sub-line | `--color-ink-soft` | `--color-felt-deep` | 13px semibold | 4.5:1 | 5.08 | 8.71 |
+| ResultsPanel | consensus pill | `--color-go` | go 14% on `--color-surface` | 13px bold | 4.5:1 | 5.17 | 5.85 |
+| ResultsPanel | histogram card face | `--color-ink` | `--color-surface` | 18px mono | 4.5:1 | 15.25 | 13.20 |
+| ResultsPanel | histogram mode card | `--color-ink` | brass 14% on `--color-surface` | 18px mono | 4.5:1 | 12.31 | 10.35 |
+| ResultsPanel | histogram count, mode | `--color-brass` | `--color-felt-deep` | 11px semibold | 4.5:1 | 4.93 | 9.19 |
+| ResultsPanel | histogram count, other | `--color-ink-faint` | `--color-felt-deep` | 11px semibold | 4.5:1 | 4.75 | 6.12 |
+| StandupRoom | participant link | `--color-ink-soft` | `--color-surface` | 14px bold | 4.5:1 | 6.69 | 7.47 |
+| StandupRoom | field label | `--color-ink-faint` | `--color-surface` | 12px bold | 4.5:1 | 6.25 | 5.25 |
+| StandupRoom | empty-field em dash | `--color-ink-faint` | `--color-surface` | 16px | 4.5:1 | 6.25 | 5.25 |
+| StandupRoom | form field label | `--color-ink-soft` | `--color-surface` | 12px bold | 4.5:1 | 6.69 | 7.47 |
+| StandupRoom | save state | `--color-ink-faint` | `--color-surface` | 12px | 4.5:1 | 6.25 | 5.25 |
+| StandupRoom | save error | `--color-stop` | `--color-surface` | 12px bold | 4.5:1 | 5.68 | 5.01 |
+| StandupRoom | notes well body | `--color-ink` | `--color-felt-deep` | 14px mono | 4.5:1 | 11.58 | 15.40 |
+
+## What the first pass found
+
+Eight pairs missed AA. All of them in the light theme; the night watch was
+already clear throughout.
+
+| Pair | Was | Now |
+|---|---|---|
+| `ink-faint` on `felt-deep` — hand heading, hero label, histogram counts, rail copy | 4.27 | 4.75 |
+| `go` on `felt-deep` — "picked N" | 4.11 | 4.86 |
+| `go` on the consensus pill | 4.43 | 5.17 |
+| `brass` on `felt-deep` — "most picked" count | 4.47 | 4.93 |
+| `ink-faint` on `felt`, inside the spectator group | 2.80 | 5.47 |
+| `ink-soft` on `felt`, inside the spectator group | 3.11 | 5.85 |
+
+The cause of the first four is one thing: `--color-felt-deep` is the darkest
+light-theme ground, and three foregrounds that clear 4.5:1 on `--color-surface`
+fall a little short of it. Lightening the well was the wrong direction — it
+exists to read as recessed against `--color-felt` — so the three foregrounds
+were darkened instead, by the smallest step that clears the threshold with a
+little headroom:
+
+- `--color-ink-faint` `#556472` → `#4F5D6A`
+- `--color-brass` `#7A5A12` → `#725411`
+- `--color-go` `#2A7060` → `#266454`
+
+Only the light definitions moved; the dark values are unchanged, because
+nothing in the dark theme failed. The marketing site carries the same three
+values independently in `site/src/styles/parley.css` and was moved with them.
+
+The last two were not a palette problem. The spectator column in `Table` sat
+inside an `opacity-70` wrapper, which multiplies through to the text and cost
+roughly 1.7:1 no matter what the tokens say. The rule and the smaller avatars
+already set spectators apart, so the group opacity was dropped.
