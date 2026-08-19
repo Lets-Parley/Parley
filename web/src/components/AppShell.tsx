@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api, type Me, type Person, type SessionSummary } from "../lib/api";
-import { getKind, UNKNOWN_SWATCH } from "../lib/kinds";
+import { getKind, kindLabel, UNKNOWN_SWATCH } from "../lib/kinds";
 import type { ConnectionStatus } from "../lib/socket";
 import { useTheme } from "../lib/ui";
 import { Avatar } from "./Avatar";
@@ -230,6 +230,10 @@ export function AppShell({
                     <li key={s.id}>
                       <Link
                         to={`/session/${s.id}`}
+                        /* Spelt out so the kind reaches the accessible name
+                           separated from the title, rather than run together
+                           with it as concatenated text would be. */
+                        aria-label={`${kindLabel(s.kind)} · ${s.title}${s.endedAt ? " · ended" : ""}`}
                         className={
                           "flex items-center gap-2 rounded-chip px-2.5 py-1.5 hover:bg-felt-deep " +
                           (s.id === activeSessionId ? "bg-felt-deep" : "")
@@ -238,18 +242,20 @@ export function AppShell({
                         <span
                           aria-hidden="true"
                           className={
-                            "flex h-[22px] w-4 shrink-0 items-center justify-center rounded-[4px] border border-line font-mono text-[10px] font-bold text-ink-soft " +
+                            "h-[22px] w-1.5 shrink-0 rounded-[3px] border border-line " +
                             (getKind(s.kind)?.swatch ?? UNKNOWN_SWATCH)
                           }
-                        >
-                          {s.kind.charAt(0).toUpperCase()}
-                        </span>
+                        />
                         <span className="truncate text-[13px] font-semibold">{s.title}</span>
-                        {/* Colour and initial are a glance cue only; the kind
-                            itself has to reach a screen reader by name. */}
-                        <span className="sr-only">{getKind(s.kind)?.label ?? s.kind}</span>
+                        {/* The same kind chip the space page uses, so the two
+                            views name a kind the same way. Its own text keeps
+                            reading against the row's hover/active ground even
+                            though its fill is close to it. */}
+                        <span className="ml-auto shrink-0 rounded-full border border-line bg-surface-hi px-1.5 py-0.5 font-mono text-[10px] tracking-[0.06em] text-ink-soft">
+                          {kindLabel(s.kind)}
+                        </span>
                         {s.endedAt && (
-                          <span className="ml-auto shrink-0 font-mono text-[9px] text-ink-faint">ended</span>
+                          <span className="shrink-0 font-mono text-[9px] text-ink-faint">ended</span>
                         )}
                       </Link>
                     </li>

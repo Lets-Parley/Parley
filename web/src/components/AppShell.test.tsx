@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AppShell, BuildStamp, ConnectionDot, Logo } from "./AppShell";
 import { makePerson, renderApp } from "../test/render";
@@ -220,7 +220,7 @@ describe("sidebar kind swatches", () => {
 
   /** The swatch is the first span inside the session link. */
   function swatchFor(title: string) {
-    const link = screen.getByRole("link", { name: new RegExp(title) });
+    const link = screen.getByRole("link", { name: new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) });
     return link.querySelector("span")!.className;
   }
 
@@ -241,23 +241,37 @@ describe("sidebar kind labels", () => {
     { id: "s1", kind: "poker", title: "Sprint 12", createdAt: "", endedAt: null },
     { id: "s2", kind: "standup", title: "Daily", createdAt: "", endedAt: null },
     { id: "s3", kind: "acme.retro", title: "Retro", createdAt: "", endedAt: null },
+    { id: "s4", kind: "poker", title: "Sprint 11", createdAt: "", endedAt: "2024-01-01" },
   ];
 
-  function linkFor(title: string) {
-    return screen.getByRole("link", { name: new RegExp(title) });
+  /** The chip is an element of its own, so assert on it — not on the row's text. */
+  function chipIn(accessibleName: string, label: string) {
+    return within(screen.getByRole("link", { name: accessibleName })).getByText(label);
   }
 
-  // Colour alone is not a distinction: the row must name its kind to a screen
-  // reader, and carry a glyph a sighted reader can tell apart at a glance.
-  it("names the kind in the accessible name and marks the row with its initial", () => {
+  // Colour alone is not a distinction: the row carries a visible chip naming
+  // its kind, in the same vocabulary the space page already uses.
+  it("marks each row with a visible chip naming its kind", () => {
     stubAuthMode("open");
     renderShell({ sessions });
-    expect(linkFor("Sprint 12").textContent).toContain("Poker");
-    expect(linkFor("Daily").textContent).toContain("Standup");
-    const swatch = linkFor("Sprint 12").querySelector("span")!;
-    expect(swatch.getAttribute("aria-hidden")).toBe("true");
-    expect(swatch.textContent).toBe("P");
-    expect(linkFor("Daily").querySelector("span")!.textContent).toBe("S");
+    expect(chipIn("Poker · Sprint 12", "Poker").className).not.toContain("sr-only");
+    expect(chipIn("Standup · Daily", "Standup")).toBeDefined();
+  });
+
+  // The kind has to reach the accessible name cleanly — separated from the
+  // title, not run together with it.
+  it("names the kind in the accessible name, separated from the title", () => {
+    stubAuthMode("open");
+    renderShell({ sessions });
+    expect(screen.getByRole("link", { name: "Poker · Sprint 12" })).toBeDefined();
+    expect(screen.getByRole("link", { name: "Standup · Daily" })).toBeDefined();
+  });
+
+  // An ended session still says so once the row names itself explicitly.
+  it("keeps the ended marker in the accessible name", () => {
+    stubAuthMode("open");
+    renderShell({ sessions });
+    expect(screen.getByRole("link", { name: "Poker · Sprint 11 · ended" })).toBeDefined();
   });
 
   // An unregistered kind has no label to look up, so the wire id stands in
@@ -265,7 +279,6 @@ describe("sidebar kind labels", () => {
   it("falls back to the wire id for an unknown kind", () => {
     stubAuthMode("open");
     renderShell({ sessions });
-    expect(linkFor("Retro").textContent).toContain("acme.retro");
-    expect(linkFor("Retro").querySelector("span")!.textContent).toBe("A");
+    expect(chipIn("acme.retro · Retro", "acme.retro")).toBeDefined();
   });
 });
