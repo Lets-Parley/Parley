@@ -21,6 +21,11 @@ func TestEndedSessionRejectsPokerActionsOnLegacyPaths(t *testing.T) {
 	srv := testServer(t)
 	fac, member, id := setupSession(t, srv, "Ended Poker Legacy")
 	story := addStory(t, srv, id, "Login page", fac)
+	// Select the story before closing the session. With no current story,
+	// castVote rejects with 409 "voting is not open on this story" whatever the
+	// session's state, so the vote case below would pass for a reason that has
+	// nothing to do with the ended-session guard this test exists to pin.
+	selectStory(t, srv, id, story, fac)
 	closeSession(t, srv, id, fac)
 
 	cases := []struct {
@@ -155,6 +160,31 @@ func TestDispatcherRejectsForeignAndUnknownActions(t *testing.T) {
 		resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/"+action, "{}", fac)
 		if resp.StatusCode != http.StatusNotFound {
 			t.Errorf("poker session, actions/%s: got %d, want 404", action, resp.StatusCode)
+		}
+	}
+}
+
+// TestEndedSessionKeeps404ForUnknownActions pins the deliberate ordering in
+// dispatch: the action lookup runs before the ended-session check, so an action
+// that does not exist for the kind stays a 404 even once the session is ended.
+// Hoisting the ended check ahead of the lookup would turn every unroutable
+// action name on an ended session into a 409, leaking "this session has ended"
+// as the answer to a question about an action that never existed.
+func TestEndedSessionKeeps404ForUnknownActions(t *testing.T) {
+	srv := testServer(t)
+	fac, _, id := setupSession(t, srv, "Ended Unknown Action Space")
+	closeSession(t, srv, id, fac)
+
+	// A real poker action on the same ended session is a 409, so the 404s below
+	// are the ordering and not a dead route.
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/reveal", "", fac); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("known action on an ended session: got %d, want 409", resp.StatusCode)
+	}
+	// "start" belongs to standup, "nonsense" to no kind at all.
+	for _, action := range []string{"start", "next", "skip", "standup", "nonsense"} {
+		resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/"+action, "{}", fac)
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("unknown action %q on an ended session: got %d, want 404", action, resp.StatusCode)
 		}
 	}
 }
