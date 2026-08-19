@@ -122,8 +122,7 @@ func addStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	committed(w, r, ac)
 }
 
-// patchBody is shared with the legacy PATCH /stories/{id} alias, which takes
-// the story from the path and ignores StoryID.
+// patchBody is the story edit's body; the story it edits travels in StoryID.
 type patchBody struct {
 	StoryID  string   `json:"storyId"`
 	Title    *string  `json:"title"`
@@ -265,7 +264,7 @@ func selectStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	committed(w, r, ac)
 }
 
-// voteBody is shared with the legacy POST /stories/{id}/vote alias.
+// voteBody is the vote's body; the story it votes on travels in StoryID.
 type voteBody struct {
 	StoryID string `json:"storyId"`
 	Value   string `json:"value"`

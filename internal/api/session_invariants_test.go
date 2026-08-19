@@ -76,7 +76,7 @@ func TestFormerFacilitatorCannotFinishDelayedStoryMutation(t *testing.T) {
 	if _, err := tx.Exec(context.Background(), "select id from sessions where id = $1 for update", id); err != nil {
 		t.Fatal(err)
 	}
-	result := delayedJSONRequest(srv, http.MethodPost, "/api/sessions/"+id+"/stories", `{"title":"Delayed story"}`, fac)
+	result := delayedJSONRequest(srv, http.MethodPost, "/api/sessions/"+id+"/actions/stories", `{"title":"Delayed story"}`, fac)
 	waitForBlockedMutation(t, pool, result)
 	if _, err := tx.Exec(context.Background(), "update sessions set facilitator_id = $2 where id = $1", id, memberBody["id"]); err != nil {
 		t.Fatal(err)
@@ -115,7 +115,7 @@ func TestPokerMutationsCannotFinishAfterDelayedClosure(t *testing.T) {
 		{
 			name:   "story",
 			method: http.MethodPost,
-			path:   "/api/sessions/" + id + "/stories",
+			path:   "/api/sessions/" + id + "/actions/stories",
 			body:   `{"title":"Too late"}`,
 			cookie: fac,
 			assertNone: func(t *testing.T) {
@@ -131,8 +131,8 @@ func TestPokerMutationsCannotFinishAfterDelayedClosure(t *testing.T) {
 		{
 			name:   "vote",
 			method: http.MethodPost,
-			path:   "/api/stories/" + story + "/vote",
-			body:   `{"value":"5"}`,
+			path:   "/api/sessions/" + id + "/actions/vote",
+			body:   `{"storyId":"` + story + `","value":"5"}`,
 			cookie: member,
 			assertNone: func(t *testing.T) {
 				var count int
@@ -188,7 +188,7 @@ func TestStandupEntryCannotFinishAfterDelayedClosure(t *testing.T) {
 	if _, err := tx.Exec(context.Background(), "select id from sessions where id = $1 for update", id); err != nil {
 		t.Fatal(err)
 	}
-	result := delayedJSONRequest(srv, http.MethodPut, "/api/sessions/"+id+"/standup", `{"today":"Too late"}`, member)
+	result := delayedJSONRequest(srv, http.MethodPut, "/api/sessions/"+id+"/actions/standup", `{"today":"Too late"}`, member)
 	waitForBlockedMutation(t, pool, result)
 	if _, err := tx.Exec(context.Background(), "update sessions set ended_at = now() where id = $1", id); err != nil {
 		t.Fatal(err)

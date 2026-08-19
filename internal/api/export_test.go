@@ -28,7 +28,7 @@ func TestCSVExport(t *testing.T) {
 	fac, member, id := setupSession(t, srv, "Export Space")
 	story := addStory(t, srv, id, "=HYPERLINK evil story", fac)
 	selectStory(t, srv, id, story, fac)
-	vote(t, srv, story, "5", member)
+	vote(t, srv, id, story, "5", member)
 
 	// Non-members get nothing.
 	outsider := signup(t, srv, "Out")
@@ -52,7 +52,7 @@ func TestCSVExport(t *testing.T) {
 	}
 
 	// Post-reveal: values present.
-	doJSON(t, srv, "POST", "/api/sessions/"+id+"/reveal", "", fac)
+	doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/reveal", "", fac)
 	_, body = fetchCSV(t, srv, id, member)
 	if !strings.Contains(body, "Mel: 5") {
 		t.Fatalf("revealed export missing vote detail:\n%s", body)
@@ -62,7 +62,7 @@ func TestCSVExport(t *testing.T) {
 func TestStandupCSVExport(t *testing.T) {
 	srv := testServer(t)
 	fac, m1, _, id, _ := standupSetup(t, srv, "Export Standup")
-	doJSON(t, srv, "PUT", "/api/sessions/"+id+"/standup",
+	doJSON(t, srv, "PUT", "/api/sessions/"+id+"/actions/standup",
 		`{"yesterday":"+plus formula","today":"tests","blockers":"none"}`, m1)
 
 	_, body := fetchCSV(t, srv, id, fac)

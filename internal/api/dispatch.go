@@ -8,27 +8,6 @@ import (
 	"github.com/lets-parley/parley/internal/session"
 )
 
-// legacyAlias is one pre-dispatcher path kept alive for a release. Each maps
-// onto exactly one action of one kind, so a poker session answering /start or
-// a standup session answering /reveal is now a 404 instead of whichever kind
-// happened to mount the path first.
-//
-// Delete this table — and the routes it wires — one release after v0.3.0.
-type legacyAlias struct {
-	method, path, action string
-}
-
-var legacyAliases = []legacyAlias{
-	{"POST", "/stories", "stories"},
-	{"POST", "/select", "select"},
-	{"POST", "/reveal", "reveal"},
-	{"POST", "/reset", "reset"},
-	{"PUT", "/standup", "standup"},
-	{"POST", "/start", "start"},
-	{"POST", "/next", "next"},
-	{"POST", "/skip", "skip"},
-}
-
 // handleAction is the one dispatcher: /sessions/{id}/actions/{action}, routed
 // on the verb each action declares.
 //
@@ -47,13 +26,6 @@ var legacyAliases = []legacyAlias{
 // real action reached with the wrong verb is a 405 naming the verb that works.
 func (a *app) handleAction(w http.ResponseWriter, r *http.Request) {
 	a.dispatch(w, r, chi.URLParam(r, "action"))
-}
-
-// aliasAction serves one legacy path by dispatching a fixed action name.
-func (a *app) aliasAction(action string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		a.dispatch(w, r, action)
-	}
 }
 
 // dispatch runs the shared authorization ladder and hands off to the kind.

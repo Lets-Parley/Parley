@@ -64,10 +64,10 @@ func TestStandupRoundRobinWithSkip(t *testing.T) {
 		}
 	}()
 
-	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/start", "", m1); resp.StatusCode != http.StatusForbidden {
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/start", "", m1); resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("non-facilitator start: %d", resp.StatusCode)
 	}
-	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/start", "", fac); resp.StatusCode != http.StatusNoContent {
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/start", "", fac); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("start: %d", resp.StatusCode)
 	}
 
@@ -83,7 +83,7 @@ func TestStandupRoundRobinWithSkip(t *testing.T) {
 	first := st["currentSpeakerId"].(string)
 
 	// Skip the second speaker, advance through the rest, then done.
-	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/next", "", fac); resp.StatusCode != http.StatusNoContent {
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/next", "", fac); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("next: %d", resp.StatusCode)
 	}
 	_, env = doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
@@ -91,7 +91,7 @@ func TestStandupRoundRobinWithSkip(t *testing.T) {
 	if second == first {
 		t.Fatal("next did not advance")
 	}
-	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/skip", "", fac); resp.StatusCode != http.StatusNoContent {
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/skip", "", fac); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("skip: %d", resp.StatusCode)
 	}
 	_, env = doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
@@ -110,7 +110,7 @@ func TestStandupRoundRobinWithSkip(t *testing.T) {
 		t.Fatalf("skipped entries: %d", skippedCount)
 	}
 
-	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/next", "", fac); resp.StatusCode != http.StatusNoContent {
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/next", "", fac); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("final next: %d", resp.StatusCode)
 	}
 	_, env = doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
@@ -124,11 +124,11 @@ func TestStandupEntryUpsert(t *testing.T) {
 	fac, m1, _, id, _ := standupSetup(t, srv, "Entry Space")
 	_ = fac
 
-	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+id+"/standup",
+	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+id+"/actions/standup",
 		`{"yesterday":"shipped auth","today":"tests","blockers":"none"}`, m1); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("put entry: %d", resp.StatusCode)
 	}
-	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+id+"/standup",
+	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+id+"/actions/standup",
 		`{"yesterday":"shipped auth","today":"tests + review","blockers":""}`, m1); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("second put: %d", resp.StatusCode)
 	}
@@ -143,13 +143,13 @@ func TestStandupEntryUpsert(t *testing.T) {
 	}
 
 	long := strings.Repeat("x", 2001)
-	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+id+"/standup",
+	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+id+"/actions/standup",
 		`{"yesterday":"`+long+`"}`, m1); resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("2001-char field: %d", resp.StatusCode)
 	}
 
 	outsider := signup(t, srv, "Out")
-	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+id+"/standup", `{"today":"x"}`, outsider); resp.StatusCode != http.StatusNotFound {
+	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+id+"/actions/standup", `{"today":"x"}`, outsider); resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("outsider put: %d", resp.StatusCode)
 	}
 }
@@ -159,7 +159,7 @@ func TestStandupCarryForward(t *testing.T) {
 	fac, m1, _, firstID, slug := standupSetup(t, srv, "Carry Space")
 
 	// Yesterday's standup: Ben wrote a "today".
-	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+firstID+"/standup",
+	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+firstID+"/actions/standup",
 		`{"yesterday":"","today":"finish the migration","blockers":""}`, m1); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("seed entry: %d", resp.StatusCode)
 	}
@@ -183,7 +183,7 @@ func TestStandupCarryForward(t *testing.T) {
 			c.Close()
 		}
 	}()
-	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+secondID+"/start", "", fac); resp.StatusCode != http.StatusNoContent {
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+secondID+"/actions/start", "", fac); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("start: %d", resp.StatusCode)
 	}
 

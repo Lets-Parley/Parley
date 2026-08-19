@@ -80,7 +80,7 @@ func speakingOrder(t *testing.T, srv *httptest.Server, id string, fac *http.Cook
 			return order
 		}
 		order = append(order, speaker.(string))
-		if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/next", "", fac); resp.StatusCode != http.StatusNoContent {
+		if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/next", "", fac); resp.StatusCode != http.StatusNoContent {
 			t.Fatalf("next: %d", resp.StatusCode)
 		}
 	}
@@ -130,7 +130,7 @@ func TestStandupStartOrdersByName(t *testing.T) {
 	conns := connectAll(t, srv, id, cookies[2], cookies[0], cookies[1])
 	defer closeAll(conns)()
 
-	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/start", "", cookies[0]); resp.StatusCode != http.StatusNoContent {
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/start", "", cookies[0]); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("start: %d", resp.StatusCode)
 	}
 	zara, dana, marcus := ids[0], ids[1], ids[2]
@@ -148,7 +148,7 @@ func TestStandupLateJoinerGetsItsOwnSlot(t *testing.T) {
 	amy, zoe, bob := ids[0], ids[1], ids[2]
 
 	first := connectAll(t, srv, id, cookies[0], cookies[1])
-	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/start", "", cookies[0]); resp.StatusCode != http.StatusNoContent {
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/start", "", cookies[0]); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("first start: %d", resp.StatusCode)
 	}
 	before := positions(t, srv, id, cookies[0])
@@ -161,7 +161,7 @@ func TestStandupLateJoinerGetsItsOwnSlot(t *testing.T) {
 	// rather than appended to the end of it.
 	late := connectAll(t, srv, id, cookies[2])
 	defer closeAll(first, late)()
-	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/start", "", cookies[0]); resp.StatusCode != http.StatusNoContent {
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/start", "", cookies[0]); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("second start: %d", resp.StatusCode)
 	}
 	if got := len(positions(t, srv, id, cookies[0])); got != 3 {
@@ -180,14 +180,14 @@ func TestStandupStartAfterAnEarlyEntry(t *testing.T) {
 
 	// Zoe fills her update in before the facilitator starts. She sorts last,
 	// and typing first must not change that.
-	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+id+"/standup",
+	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+id+"/actions/standup",
 		`{"yesterday":"","today":"finish the migration","blockers":""}`, cookies[1]); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("early entry: %d", resp.StatusCode)
 	}
 
 	conns := connectAll(t, srv, id, cookies[0], cookies[1], cookies[2])
 	defer closeAll(conns)()
-	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/start", "", cookies[0]); resp.StatusCode != http.StatusNoContent {
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/start", "", cookies[0]); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("start: %d", resp.StatusCode)
 	}
 
@@ -216,14 +216,14 @@ func TestStandupSpectatorNeverSpeaks(t *testing.T) {
 	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/spectator", `{"on":true}`, cookies[1]); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("spectator toggle: %d", resp.StatusCode)
 	}
-	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+id+"/standup",
+	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+id+"/actions/standup",
 		`{"today":"just watching"}`, cookies[1]); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("spectator entry: %d", resp.StatusCode)
 	}
 
 	conns := connectAll(t, srv, id, cookies[0], cookies[1], cookies[2])
 	defer closeAll(conns)()
-	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/start", "", cookies[0]); resp.StatusCode != http.StatusNoContent {
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/start", "", cookies[0]); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("start: %d", resp.StatusCode)
 	}
 

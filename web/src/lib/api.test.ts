@@ -55,7 +55,7 @@ describe("api", () => {
 
   it("treats an empty 200 body as no data rather than a parse failure", async () => {
     fetchMock().mockResolvedValue(reply(200, ""));
-    await expect(api("POST", "/api/sessions/1/reveal")).resolves.toBeUndefined();
+    await expect(api("POST", "/api/sessions/1/actions/reveal")).resolves.toBeUndefined();
   });
 
   it("raises the server's own message, carrying the status", async () => {
