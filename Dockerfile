@@ -12,7 +12,9 @@ RUN go mod download
 COPY . .
 COPY --from=webbuild /src/web/dist ./web/dist
 ARG TARGETOS TARGETARCH
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /parley ./cmd/parley
+ARG VERSION=dev
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -ldflags "-X main.version=$VERSION" -o /parley ./cmd/parley
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=gobuild /parley /parley

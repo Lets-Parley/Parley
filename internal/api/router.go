@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"net/http"
 	"strings"
@@ -28,6 +29,7 @@ type app struct {
 	allowedOrigin string
 	// authMode is ModeOpen or ModeOIDC; oidc is non-nil only in the latter.
 	authMode string
+	version  string
 	oidc     *auth.Provider
 	// passcodeAttempts throttles room-code guessing at the join door.
 	passcodeAttempts *attemptLimiter
@@ -40,6 +42,8 @@ type Options struct {
 	AuthMode string
 	// OIDC must be set when AuthMode is ModeOIDC and is ignored otherwise.
 	OIDC *auth.Provider
+	// Version is the build's version string; "dev" when left unset.
+	Version string
 	// TrustProxyHeaders reads the client address from X-Forwarded-For and
 	// friends. Turn it on only when a proxy in front overwrites those headers;
 	// exposed directly, it hands every caller a free choice of address.
@@ -60,6 +64,7 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 		secureCookies: opts.SecureCookies,
 		allowedOrigin: opts.AllowedOrigin,
 		authMode:      mode,
+		version:       cmp.Or(opts.Version, "dev"),
 
 		passcodeAttempts: newAttemptLimiter(),
 	}
@@ -90,6 +95,13 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
+	})
+
+	// Same reasoning, plus one more: "am I running the patched build?" has to be
+	// answerable before Postgres is up, so this touches neither the database
+	// nor the session.
+	r.Get("/version", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"version": a.version})
 	})
 
 	r.Get("/readyz", func(w http.ResponseWriter, req *http.Request) {
