@@ -372,6 +372,16 @@ function PasscodePanel({
           </p>
         )}
       </div>
+      <button
+        className={buttonQuiet}
+        onClick={() => {
+          const link = `${window.location.origin}/s/${slug}`;
+          navigator.clipboard?.writeText(passcode ? `${link} — passcode ${passcode}` : link);
+          say(passcode ? "Invite copied — link and passcode" : "Invite link copied");
+        }}
+      >
+        Copy invite
+      </button>
       {passcode && (
         <button
           className={buttonQuiet}
@@ -380,7 +390,7 @@ function PasscodePanel({
             say("Passcode copied");
           }}
         >
-          Copy
+          Copy code
         </button>
       )}
       <button className={buttonQuiet} disabled={busy} onClick={() => set(false)}>
