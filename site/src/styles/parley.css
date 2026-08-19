@@ -252,3 +252,29 @@
     align-items: stretch;
   }
 }
+
+/* The lone header nav item, from src/components/SiteTitle.astro. Hidden below
+   Starlight's md breakpoint: there the hamburger already opens the full
+   sidebar, so this would be a second link to the same place. */
+.parley-nav-link {
+  display: none;
+  color: var(--sl-color-text);
+  text-decoration: none;
+  font-size: var(--sl-text-sm);
+  white-space: nowrap;
+}
+
+.parley-nav-link:hover,
+.parley-nav-link:focus-visible {
+  color: var(--sl-color-text-accent);
+}
+
+@media (min-width: 50rem) {
+  .parley-nav-link {
+    display: inline-block;
+    margin-inline-start: 1.5rem;
+    /* .title-wrapper clips its overflow, so without this the link is the part
+       that gets cut when the header is tight. Let the title truncate instead. */
+    flex-shrink: 0;
+  }
+}

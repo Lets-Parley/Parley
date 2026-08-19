@@ -26,7 +26,10 @@ export default defineConfig({
       editLink: {
         baseUrl: "https://github.com/lets-parley/parley/edit/main/site/",
       },
-      components: { Hero: "./src/components/Hero.astro" },
+      components: {
+        Hero: "./src/components/Hero.astro",
+        SiteTitle: "./src/components/SiteTitle.astro",
+      },
       customCss: ["./src/styles/parley.css"],
       // These pages run long and reference-heavy; the right-hand TOC is the
       // real navigation on them, so it needs H3.
