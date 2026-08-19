@@ -239,10 +239,13 @@ There is a Helm chart:
 kubectl create secret generic parley \
   --from-literal=database-url='postgres://parley:secret@host:5432/parley'
 
-helm install parley oci://ghcr.io/lets-parley/charts/parley \
+helm install parley oci://ghcr.io/lets-parley/charts/parley --version 0.2.3 \
   --set database.existingSecret=parley \
   --set baseURL=https://parley.example.com
 ```
+
+Pin `--version`. Without it Helm resolves to whatever the registry currently
+calls newest, so the same command gives you a different Parley next month.
 
 It refuses to render rather than hand you a deployment that cannot work: a
 moving image tag, a second replica, a missing database secret, OIDC without a
