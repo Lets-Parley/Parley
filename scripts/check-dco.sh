@@ -10,7 +10,10 @@ base=$1
 head=$2
 failed=0
 
-if ! commits=$(git rev-list --reverse "$base..$head"); then
+# Merge commits are skipped: they introduce no authored code of their own, and
+# GitHub's "Update branch" button produces one with no trailer at all, which
+# would otherwise fail the check on a branch whose every real commit is signed.
+if ! commits=$(git rev-list --reverse --no-merges "$base..$head"); then
   echo "cannot resolve revision range $base..$head" >&2
   exit 2
 fi
