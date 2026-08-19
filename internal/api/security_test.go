@@ -90,6 +90,25 @@ func TestCrossSiteGuardAllowsSameSiteFetch(t *testing.T) {
 	}
 }
 
+func TestCrossSiteGuardRejectsMismatchedOrigin(t *testing.T) {
+	srv := testServer(t)
+
+	req, err := http.NewRequest("POST", srv.URL+"/api/me", strings.NewReader(`{"name":"Ada"}`))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://evil.example.com")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("mismatched Origin: got %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+}
+
 func TestRequireJSONBodyRejectsWrongContentType(t *testing.T) {
 	srv := testServer(t)
 
