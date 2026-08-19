@@ -43,7 +43,9 @@ is not reachable from `main`.
 
 The multi-architecture image is built for `linux/amd64` and `linux/arm64` in a
 job with no registry write permission. That job creates an immutable OCI
-artifact with maximum BuildKit provenance and an SPDX JSON SBOM. A separate
+artifact with maximum BuildKit provenance and BuildKit SBOM attestations, and
+exports the `linux/amd64` image a second time to generate the standalone SPDX
+JSON SBOM attached to the release. A separate
 publisher job, scoped to the named `release` environment, writes the artifact to
 a run-specific staging tag, verifies that registry digest against the build
 digest, re-checks that the release tag still resolves to the validated commit,
@@ -81,7 +83,7 @@ a mutable tag.
 <Capability rows={[
   { name: "Locked dependency sets", status: "built", detail: "Go checksums and npm lockfiles are reviewed in pull requests and updated weekly." },
   { name: "Minimal runtime image", status: "built", detail: "Digest-pinned, non-root distroless static image with no shell or package manager." },
-  { name: "SPDX SBOM", status: "built", detail: "Generated from the immutable build artifact and attached to releases produced by the hardened workflow." },
+  { name: "SPDX SBOM", status: "built", detail: "Generated from the linux/amd64 image of the release build and attached to releases produced by the hardened workflow. Per-platform SBOM attestations are also attached to the published image by BuildKit." },
   { name: "Build provenance", status: "built", detail: "Maximum BuildKit provenance plus a GitHub artifact attestation bound to the final GHCR digest." },
   { name: "Vulnerability scanning", status: "built", detail: "govulncheck, CodeQL, dependency review, npm audits, and container scanning run in CI." },
 ]} />
