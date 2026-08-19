@@ -1,62 +1,79 @@
 ---
 title: Scaling and limits
-description: The single-replica constraint, the connection pool, and every timeout that matters.
+description: What running more than one replica does and does not buy you, the connection pool, and every timeout that matters.
 ---
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "internal/api/router.go", "internal/api/passcode.go", "internal/db/db.go", "internal/hub/hub.go"]} />
+<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "internal/api/router.go", "internal/api/passcode.go", "internal/db/db.go", "internal/db/migrate.go", "internal/hub/hub.go"]} />
 
-## Parley runs as exactly one replica
+## Parley runs on more than one replica
 
-This is not a recommendation. It is enforced, and a second instance will refuse
-to start.
+It used to refuse. An advisory lock at boot made the second instance exit,
+because the things that had to be shared across a room were held in one
+process's memory. They are not any more:
 
-At boot, the process takes a Postgres session-scoped advisory lock
-(`pg_try_advisory_lock`, key `0x7061726c6579`). If it cannot get the lock, it
-logs that another instance holds it and exits non-zero.
+- **WebSocket fanout** goes through Postgres `LISTEN`/`NOTIFY`, so a mutation on
+  one pod reaches every connection in that room on every pod.
+- **Presence** — who is in a session — is rows in Postgres, not a per-process
+  view.
+- **The room-code attempt throttle** counts in Postgres, so the eight-guess
+  budget is shared however many processes are serving.
 
-The reason is the WebSocket hub. It lives in process memory, so two replicas
-would each hold half the room: your vote would reach the three people who landed
-on the same pod as you and nobody else. The room-code attempt throttle no longer
-depends on that: its counter lives in Postgres, so the eight-guess budget is
-shared however many processes are serving.
+The WebSocket hub itself is still in process memory, but it is now only the set
+of sockets *this pod* is holding. Nothing depends on one pod seeing all of them.
 
-Rather than let that fail quietly and confusingly at runtime, Parley refuses at
-boot.
+The advisory lock that used to enforce one instance is gone, and with it both
+the pooled connection it held for the life of the process and the split-brain
+hazard it opened around a database failover.
 
-### What it costs
+### Migrations when several pods boot together
 
-Deployments have a gap. The Kubernetes manifest uses `strategy: Recreate`
-precisely because a rolling update would start a second pod that then exits on
-the lock. So a deploy stops the old process and starts a new one, and for a few
-seconds the board is stale and clients show their reconnect banner. That is the
-honest price of an in-process hub, and it is why the manifest ships that way.
+Every pod runs migrations at startup. `Migrate` takes a blocking
+`pg_advisory_lock` on its own dedicated connection before touching the schema,
+so simultaneous boots serialize: the first pod migrates, the rest wait and then
+find nothing to do. The lock is released when migration finishes, on the success
+path and on every error path — the connection is closed in a defer, and ending
+the session drops the lock regardless.
 
-### The failover hazard
+That id is deliberately its own constant, distinct from every other advisory
+lock Parley takes. A blocking lock on an id the same process already holds would
+deadlock every pod against itself, on every boot.
 
-The lock is held by a connection, not by a row. If Postgres fails over, is
-restored from a dump, or drops the connection, **the lock is gone** while the
-original process may still be running and serving.
+### What a rolling update looks like
 
-A new instance started at that moment will take the lock and boot happily,
-alongside a zombie. That is exactly the split-brain the lock exists to prevent.
-After any database failover or restore, confirm only one Parley process is
-running before you rely on it.
+The chart uses `RollingUpdate` with `maxSurge: 1` and `maxUnavailable: 0`, so
+capacity is never below the replica count and the database sees at most one
+extra pod's worth of connections.
+
+**One known and accepted behaviour:** the new pod migrates the database before
+the old pods are gone, so for the length of the rollout the old version is
+running against a newer schema. Parley's migrations are additive, so the old
+pods keep serving. If an old pod *restarts* in that window it comes back
+normally — the version check only refuses a database ahead of a binary by a
+migration that binary does not know, and it is replaced by the new version
+moments later anyway. Roll forward rather than back; rolling back onto an image
+older than the migrations that have run is still refused, by design.
+
+### Sizing the database
+
+Each replica opens its own pool of up to 10 connections, plus one dialled
+outside the pool for the fanout listener. Size Postgres `max_connections` for
+`replicas × 11`, not for 10.
 
 ## Connection pool
 
 <SpecTable rows={[
   { name: "Max connections", value: "10", note: "Fixed, not configurable" },
-  { name: "Usable for requests", value: "9", note: "The boot lock permanently holds one and never releases it" },
+  { name: "Usable for requests", value: "10", note: "Per replica. The fanout listener and the migration lock dial their own connections outside the pool" },
   { name: "Connect timeout", value: "5s", note: "" },
   { name: "Startup retries", value: "6", note: "Doubling backoff, roughly a minute total" },
   { name: "Statement timeout", value: "none", note: "pgx defaults; set one on the database role if you want one" },
 ]} />
 
-The nine-not-ten point matters if you are sizing Postgres `max_connections`
-against several instances, or wondering why a pool that says 10 saturates at 9.
+Sizing Postgres `max_connections` means counting `replicas × 11`: ten pooled
+connections plus the fanout listener's own.
 
 ## Server timeouts
 
@@ -89,15 +106,15 @@ timeout. Parley pings every 25 seconds, so the 75-second timeout in the
 Everything else — field lengths, token lifetimes, the facilitator grace period —
 is in [Limits and defaults](/reference/limits-and-defaults/).
 
-## How far does one replica go?
+## How far does it go?
 
-There is no published benchmark, and inventing one here would be dishonest.
-What can be said from the design: state is in Postgres, broadcasts are
-whole-session payloads sent to every connection in a room, and the hub holds one
-goroutine pair per connection.
+There is no published benchmark, and inventing one here would be dishonest, nor
+has any of this been exercised on a real multi-node cluster. What can be said
+from the design: state is in Postgres, broadcasts are whole-session payloads
+sent to every connection in a room, and the hub holds one goroutine pair per
+connection.
 
 The scaling pressure is therefore **rooms × people × mutation rate**, and the
-first thing to watch is the database, not the Go process. For a team, or several
-teams, on modest hardware, this is not a concern. For an organisation-wide
-deployment, multi-replica realtime is on the
-[roadmap](/project/roadmap/) and is the thing that has to land first.
+first thing to watch is the database, not the Go process — adding replicas adds
+connections and fanout traffic to the same Postgres. For a team, or several
+teams, on modest hardware, none of this is a concern.

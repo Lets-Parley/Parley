@@ -4,9 +4,10 @@ description: Compose, a domain and a reverse proxy — the whole team on one box
 ---
 
 Most teams running Parley need exactly this: one machine, one domain name, and
-everyone's laptop pointed at it. Parley
-[runs as a single replica by design](/operations/scaling-and-limits/), so one
-box is not a compromise — it is the shape the software is built for.
+everyone's laptop pointed at it. Parley is one process and a database, so one box is not a compromise — it is
+the shape the software is built for. It [also runs on several
+replicas](/operations/scaling-and-limits/) if you have a cluster, but nothing
+here needs one.
 
 This page stitches together three others. If you want the detail behind any
 step, follow the link rather than reading it twice here.

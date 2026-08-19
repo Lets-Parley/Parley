@@ -16,7 +16,7 @@ to deploy, no Node runtime in production, and no way for the frontend and backen
 to be at different versions.
 
 <div class="diagram">
-<svg viewBox="0 0 720 200" role="img" aria-label="A browser connects over HTTPS and WebSocket to a reverse proxy, which forwards to the single Parley process; the process holds an in-memory hub and talks to Postgres." style="height:auto;color:currentColor">
+<svg viewBox="0 0 720 200" role="img" aria-label="A browser connects over HTTPS and WebSocket to a reverse proxy, which forwards to a Parley process; the process holds the sockets it is serving and talks to Postgres, which carries all state and the cross-replica fanout." style="height:auto;color:currentColor">
   <g fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.85">
     <rect x="8" y="60" width="120" height="60" rx="10" />
     <rect x="196" y="60" width="120" height="60" rx="10" />
@@ -38,8 +38,8 @@ to be at different versions.
     <text x="256" y="86">Reverse proxy</text>
     <text x="256" y="104" font-size="11" opacity="0.7">TLS, timeouts</text>
     <text x="474" y="48">parley</text>
-    <text x="474" y="66" font-size="11" opacity="0.7">one replica, SPA embedded</text>
-    <text x="474" y="115" font-size="11">in-memory hub</text>
+    <text x="474" y="66" font-size="11" opacity="0.7">any replica, SPA embedded</text>
+    <text x="474" y="115" font-size="11">per-pod socket hub</text>
     <text x="474" y="131" font-size="11" opacity="0.7">rooms, presence</text>
     <text x="666" y="86">Postgres</text>
     <text x="666" y="104" font-size="11" opacity="0.7">all state</text>
@@ -47,10 +47,12 @@ to be at different versions.
 </svg>
 </div>
 
-All durable state is in Postgres. The only thing held in the process is the
-WebSocket hub — the set of open connections per session — and the room-code
-attempt throttle. Both are rebuilt naturally on restart, and both are the reason
-Parley runs as a [single replica](/operations/scaling-and-limits/).
+All durable state is in Postgres — including presence and the room-code attempt
+throttle. The only thing held in the process is the WebSocket hub: the set of
+sockets *this* instance is holding. Fanout between instances goes through
+Postgres `LISTEN`/`NOTIFY`, so nothing depends on one process seeing every
+connection, and Parley runs on [as many replicas as you
+like](/operations/scaling-and-limits/).
 
 ## Boot sequence
 
@@ -68,9 +70,9 @@ sentence naming the cause before exiting non-zero.
 3. Connect to Postgres — up to six attempts, with doubling backoff between them
    and a 5-second timeout on each, so roughly a minute before it gives up. This
    is what makes starting alongside a database container work.
-4. Take the boot lock. If another instance holds it, exit.
-5. Run migrations.
-6. Serve.
+4. Run migrations, behind a blocking advisory lock so replicas booting at the
+   same moment serialize rather than racing each other's DDL.
+5. Serve.
 
 ## Requests and WebSockets
 

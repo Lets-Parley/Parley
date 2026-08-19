@@ -80,9 +80,9 @@ platform team required:
   </TabItem>
   <TabItem label="One server">
     Compose, a domain, and a reverse proxy in front — one box your whole team
-    points at, no cluster. Parley runs as a single replica by design, so this is
-    the shape it is built for, and a small cloud instance carries a team of a
-    few dozen. [One server →](/operations/single-server/)
+    points at, no cluster. Parley is one process and a database, so this is the
+    shape it is built for, and a small cloud instance carries a team of a few
+    dozen. [One server →](/operations/single-server/)
   </TabItem>
   <TabItem label="Prebuilt image">
     ```sh
@@ -97,9 +97,9 @@ platform team required:
     fixed code.
   </TabItem>
   <TabItem label="Kubernetes">
-    The Helm chart above, or the plain manifests in `deploy/k8s/` — a Deployment
-    pinned to one replica, a Service, and a commented Ingress carrying the
-    read-timeout annotations WebSockets need.
+    The Helm chart above, or the plain manifests in `deploy/k8s/` — a Deployment,
+    a Service, a PodDisruptionBudget, and a commented Ingress carrying the
+    read-timeout annotations WebSockets need. Two replicas by default.
     [Deploying to Kubernetes →](/operations/kubernetes/)
   </TabItem>
 </Tabs>
@@ -147,9 +147,8 @@ versions. Migrations run themselves at boot.
 
 ## What Parley doesn't do
 
-- **One replica, and it enforces that.** A second instance refuses to start
-  rather than serve a divergent board. Size it vertically; deploy when nobody
-  is mid-session.
+- **No metrics, tracing or access log.** JSON logs to stdout are all it emits;
+  probe `/readyz` and take request metrics from your reverse proxy.
 - **No roles beyond member and facilitator.** Any member can rotate the room
   code or open the space. Keep membership deliberate, or put an SSO proxy in
   front of it.

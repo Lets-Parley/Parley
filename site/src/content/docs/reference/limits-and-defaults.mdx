@@ -65,7 +65,7 @@ integers and are validated at boot.
 
 <SpecTable rows={[
   { name: "MaxConns", value: "10", note: "Not configurable" },
-  { name: "Usable for requests", value: "9", note: "The boot lock holds one permanently" },
+  { name: "Usable for requests", value: "10", note: "Per replica. The fanout listener and the migration lock dial outside the pool, so size max_connections for replicas x 11" },
   { name: "MinConns / lifetimes", value: "pgx defaults", note: "Not set by Parley" },
   { name: "Statement timeout", value: "none", note: "Set it on the database role if you want one" },
 ]} />
