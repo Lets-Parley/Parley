@@ -32,7 +32,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	if err := db.Migrate(context.Background(), pool, log); err != nil {
+	if err := db.Migrate(context.Background(), pool, log, db.MigrationsFS); err != nil {
 		t.Fatal(err)
 	}
 	return pool

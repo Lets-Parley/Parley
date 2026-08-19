@@ -43,7 +43,9 @@ they migrate it concurrently.
   and watch the test fail before you keep it. A regression test that has never
   failed is decoration.
 - **Migrations are forward-only and additive.** They are numbered, embedded, and
-  run one per transaction. Never edit a migration that has shipped.
+  run one per transaction. Never edit a migration that has shipped. The
+  filename prefix is the version, so it must be purely numeric
+  (`0010_thing.sql`); a name like `0010a_thing.sql` is rejected at startup.
 - **Documentation changes with the behaviour.** If you change a limit, a default
   or a security property, update `site/` in the same pull request. The
   documentation states what the code does, and pages carry the version they were

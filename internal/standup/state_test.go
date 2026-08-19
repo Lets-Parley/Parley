@@ -47,7 +47,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	if _, err := pool.Exec(context.Background(), "drop schema public cascade; create schema public"); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Migrate(context.Background(), pool, slog.New(slog.NewTextHandler(os.Stderr, nil))); err != nil {
+	if err := db.Migrate(context.Background(), pool, slog.New(slog.NewTextHandler(os.Stderr, nil)), db.MigrationsFS); err != nil {
 		t.Fatal(err)
 	}
 	return pool
