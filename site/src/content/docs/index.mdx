@@ -49,7 +49,7 @@ platform team required:
       --set baseURL=https://parley.example.com
     ```
     Pin `--version`. The chart refuses to render a release that cannot work —
-    a moving image tag, a second replica, a missing database secret.
+    a moving image tag, a fractional replica count, a missing database secret.
     [The chart →](/operations/kubernetes/)
   </TabItem>
   <TabItem label="Compose">
@@ -151,14 +151,12 @@ link and type a name.
 
 ## What Parley doesn't do
 
-- **No metrics, tracing or access log.** JSON logs to stdout are all it emits;
-  probe `/readyz` and take request metrics from your reverse proxy.
+- **No metrics, tracing, access log, SBOM or image signing.** JSON logs to
+  stdout are all it emits; probe `/readyz` and take request metrics from your
+  reverse proxy, and build from a tagged commit yourself if you need provenance.
 - **No roles beyond member and facilitator.** Any member can rotate the room
   code or open the space. Keep membership deliberate, or put an SSO proxy in
   front of it.
-- **No metrics, tracing, SBOM or image signing.** Structured JSON logs to
-  stdout are all it emits; build from a tagged commit yourself if you need
-  provenance.
 - **Turning on OIDC signs everyone out.** Anonymous accounts are not linked to
   federated ones. Switch on an instance whose history you are willing to leave
   behind.
