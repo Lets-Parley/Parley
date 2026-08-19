@@ -115,6 +115,22 @@ describe("ResultsPanel", () => {
       />,
     );
     expect(screen.getByText("3 ×1")).toBeTruthy();
-    expect(screen.getByText("☕ ×2")).toBeTruthy();
+    expect(screen.getByText("☕ ×2 · most picked")).toBeTruthy();
+  });
+
+  it("marks the mode with text, not brass alone", () => {
+    render(
+      <ResultsPanel
+        results={results({
+          histogram: [
+            { value: "3", count: 1 },
+            { value: "8", count: 2 },
+          ],
+          median: 8,
+        })}
+      />,
+    );
+    expect(screen.getByText("8 ×2 · most picked")).toBeTruthy();
+    expect(screen.queryByText("3 ×1 · most picked")).toBeNull();
   });
 });

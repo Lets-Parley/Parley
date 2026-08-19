@@ -110,6 +110,32 @@ describe("Table", () => {
     expect(screen.queryByText("spectators")).toBeNull();
   });
 
+  it("gives every seat state a text equivalent on the card", () => {
+    renderTable({ online: new Set(["dana", "marcus"]), votedUserIds: ["dana"] });
+    expect(screen.getAllByRole("img", { name: "voted" })).toHaveLength(1);
+    expect(screen.getAllByRole("img", { name: "no card yet" })).toHaveLength(1);
+    expect(screen.getAllByRole("img", { name: "away" })).toHaveLength(1);
+  });
+
+  it("puts every revealed value into the seat's accessible name", () => {
+    renderTable({
+      revealed: true,
+      votes: new Map([
+        ["dana", "5"],
+        ["marcus", "coffee"],
+      ]),
+    });
+    expect(screen.getByRole("img", { name: "voted 5" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "voted coffee" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "no card" })).toBeTruthy();
+  });
+
+  it("announces the tally without repeating a person's name per seat", () => {
+    renderTable();
+    expect(screen.getByRole("status").textContent).toBe("0 of 3 voted");
+    expect(screen.getAllByRole("img", { name: "Dana Whitfield" })).toHaveLength(1);
+  });
+
   it("reports 0 of 0 for an empty table rather than crashing", () => {
     renderTable({ seated: [], online: new Set() });
     expect(screen.getByText("0 of 0 voted")).toBeTruthy();
