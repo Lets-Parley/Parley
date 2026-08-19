@@ -106,12 +106,20 @@ export type Envelope = {
 };
 
 /**
- * Every kind-specific write goes through one server route: POST
- * /api/sessions/{id}/actions/{name}. One verb, because each of these is a
- * state transition on the session rather than a replacement of a resource at
- * that URL. Core routes a kind does not own — close, reopen, spectator,
- * facilitator, the CSV export — are not actions and keep their own paths.
+ * The verb each action answers on. Most actions are transitions on the session
+ * and take POST; the two that are not say so — a standup entry is an upsert of
+ * the caller's own row (PUT) and a story edit is a partial update (PATCH). The
+ * server routes on (verb, action) and answers 405 for the wrong one, so this
+ * table has to match internal/session's registry.
+ */
+const actionVerbs: Record<string, string> = { standup: "PUT", story: "PATCH" };
+
+/**
+ * Every kind-specific write goes through one server route:
+ * /api/sessions/{id}/actions/{name}, sent with the verb that action declares.
+ * Core routes a kind does not own — close, reopen, spectator, facilitator, the
+ * CSV export — are not actions and keep their own paths.
  */
 export function action<T = unknown>(sessionId: string, name: string, body?: unknown): Promise<T> {
-  return api<T>("POST", `/api/sessions/${sessionId}/actions/${name}`, body);
+  return api<T>(actionVerbs[name] ?? "POST", `/api/sessions/${sessionId}/actions/${name}`, body);
 }
