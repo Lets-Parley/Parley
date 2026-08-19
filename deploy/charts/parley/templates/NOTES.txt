@@ -50,7 +50,7 @@ Three things worth knowing:
             oci://ghcr.io/lets-parley/charts/parley --version {{ .Chart.Version }} \
             --reuse-values --set replicaCount=2
 
-    More than one replica needs chart 0.4.0 or newer; every chart up to and
+    More than one replica needs chart 0.4.1 or newer; every chart up to and
     including 0.3.0 refuses replicaCount > 1 at render time. At 2 or more you
     also get a PodDisruptionBudget. Every replica opens up to 10 Postgres
     connections plus one for the fanout listener, so size max_connections for
