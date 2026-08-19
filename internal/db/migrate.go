@@ -23,6 +23,12 @@ import (
 // would deadlock every pod against itself, on every boot, forever.
 const migrationLockID int64 = 0x7061726c65796d
 
+// migrationLockAppName labels the dedicated lock connection in
+// pg_stat_activity, so an operator looking at a hung boot can tell the
+// migration backend apart from the pool's, and so a test can prove the
+// connection is closed rather than leaked.
+const migrationLockAppName = "parley-migrate"
+
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
@@ -98,14 +104,20 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger, fsys fs.
 // drops every advisory lock it holds, so even a failed explicit unlock, a
 // panic, or a cancelled context cannot leak the lock and wedge future boots.
 func withMigrationLock(ctx context.Context, pool *pgxpool.Pool, fn func() error) error {
-	conn, err := pgx.ConnectConfig(ctx, pool.Config().ConnConfig.Copy())
+	cfg := pool.Config().ConnConfig.Copy()
+	if cfg.RuntimeParams == nil {
+		cfg.RuntimeParams = map[string]string{}
+	}
+	cfg.RuntimeParams["application_name"] = migrationLockAppName
+	conn, err := pgx.ConnectConfig(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("connecting to take the migration lock: %w", err)
 	}
 	defer func() {
-		// Not ctx: by the time this runs ctx may be cancelled, and a cancelled
-		// context closes nothing — which would leave the backend, and the lock
-		// with it, behind on the server.
+		// Not ctx: by the time this runs ctx may be cancelled, and a query on
+		// a cancelled context never reaches the server, so the explicit unlock
+		// below would fail on every interrupted boot and leave the release to
+		// the socket close alone.
 		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if _, err := conn.Exec(closeCtx, "select pg_advisory_unlock($1)", migrationLockID); err != nil {

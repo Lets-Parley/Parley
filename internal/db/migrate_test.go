@@ -267,3 +267,153 @@ func TestBootSequenceCompletes(t *testing.T) {
 		t.Fatal("the migration lock is still held after boot")
 	}
 }
+
+// migrationLockBackends counts the backends the migration lock connection
+// opens. Scoped to this database AND this user on purpose: pg_stat_activity is
+// cluster-wide, so an unscoped count would tally other databases' sessions and
+// pass — or flake — for reasons that have nothing to do with Parley. The
+// application_name is set explicitly by withMigrationLock, because pgx leaves
+// it empty by default and a filter on an empty name matches everything.
+func migrationLockBackends(t *testing.T, pool *pgxpool.Pool) int {
+	t.Helper()
+	var n int
+	if err := pool.QueryRow(context.Background(),
+		`select count(*) from pg_stat_activity
+		  where application_name = $1
+		    and datname = current_database()
+		    and usename = current_user
+		    and pid <> pg_backend_pid()`, migrationLockAppName).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// TestMigrateClosesTheLockConnection pins the deferred Close in
+// withMigrationLock. The explicit pg_advisory_unlock already keeps the lock
+// free, so lock-freedom assertions pass even when the dedicated connection is
+// never closed: without this test, deleting the Close leaks one backend per
+// call and nothing notices.
+//
+// In production Migrate runs once per boot, so the leak would be one
+// connection per pod start — this is a coverage guarantee, not an outage fix.
+func TestMigrateClosesTheLockConnection(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	// The sanity check that keeps this test from passing vacuously: the filter
+	// must be able to see the backend while it exists.
+	seen := 0
+	if err := withMigrationLock(ctx, pool, func() error {
+		seen = migrationLockBackends(t, pool)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if seen < 1 {
+		t.Fatal("saw no migration-lock backend while the lock was held: the filter cannot see what it is meant to count")
+	}
+
+	for i := 0; i < 3; i++ {
+		if err := Migrate(ctx, pool, log, MigrationsFS); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Close is asynchronous from the server's point of view, so give the
+	// backends a moment to go away before declaring them leaked.
+	var left int
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		left = migrationLockBackends(t, pool)
+		if left == 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if left != 0 {
+		t.Fatalf("%d migration-lock connections outlived Migrate: the dedicated connection is leaking, one per call", left)
+	}
+}
+
+// TestMigrationLockSurvivesACancelledContext pins the closeCtx in the deferred
+// release. That context is derived from context.Background() rather than the
+// caller's ctx because the explicit pg_advisory_unlock is a query, and a query
+// on a cancelled context never reaches the server. Closing the socket would
+// still end the session and drop the lock with it, so the swap is invisible to
+// a lock-freedom assertion — it shows up only as the unlock silently failing
+// on every cancelled boot, which is why this test watches for that warning.
+func TestMigrationLockSurvivesACancelledContext(t *testing.T) {
+	pool := testPool(t)
+
+	var buf strings.Builder
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Cancel after the lock is taken but before the work returns, which is what
+	// a pod killed mid-migration looks like.
+	err := withMigrationLock(ctx, pool, func() error {
+		cancel()
+		return ctx.Err()
+	})
+	if err == nil {
+		t.Fatal("expected the cancelled work to return an error")
+	}
+	if logged := buf.String(); strings.Contains(logged, "could not release the migration lock explicitly") {
+		t.Fatalf("the explicit unlock failed under a cancelled context: the release path is using the caller's context, not one derived from Background\n%s", logged)
+	}
+
+	// And the lock really is free — asked from a different session, because
+	// advisory locks are re-entrant within the session that holds them, so
+	// asking the holder proves nothing.
+	free := false
+	deadline := time.Now().Add(10 * time.Second)
+	for !free && time.Now().Before(deadline) {
+		if free = tryMigrationLock(t, pool); !free {
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	if !free {
+		t.Fatal("the migration lock is still held after a cancelled context")
+	}
+	if left := migrationLockBackends(t, pool); left != 0 {
+		t.Fatalf("%d migration-lock connections survived a cancelled context", left)
+	}
+}
+
+// TestMigrationLockIDIsNotTheRetiredBootLockID is this epic's documented
+// landmine, and today only a code comment guards it.
+//
+// 0x7061726c6579 was AcquireBootLock's id, held for the whole process
+// lifetime. Migrate now takes a *blocking* pg_advisory_lock; on an id the
+// process already holds elsewhere, that deadlocks every pod against itself, on
+// every boot, forever. The value must never be reused for any lock this
+// process takes while running.
+func TestMigrationLockIDIsNotTheRetiredBootLockID(t *testing.T) {
+	const retiredBootLockID int64 = 0x7061726c6579
+	if migrationLockID == retiredBootLockID {
+		t.Fatalf("migrationLockID is the retired boot lock id %#x; a blocking lock on it deadlocks every boot", retiredBootLockID)
+	}
+}
+
+// TestLoadMigrationsRejectsDuplicateVersions: two files claiming the same
+// version is a numbering collision from two branches merging. Only one of them
+// would ever be applied, and the other would be silently skipped forever, so
+// this has to be a loud boot refusal rather than a coin flip.
+func TestLoadMigrationsRejectsDuplicateVersions(t *testing.T) {
+	fsys := fstest.MapFS{
+		"migrations/0001_a.sql": {Data: []byte("a")},
+		"migrations/0001_b.sql": {Data: []byte("b")},
+	}
+	_, err := loadMigrations(fsys)
+	if err == nil {
+		t.Fatal("expected two migrations sharing version 1 to be rejected")
+	}
+	if !strings.Contains(err.Error(), "share version 1") {
+		t.Fatalf("expected the error to name the collision, got: %v", err)
+	}
+}
