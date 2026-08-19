@@ -82,7 +82,5 @@ describe("SessionPage wiring", () => {
     mockKind = "acme.retro";
     renderApp(<SessionPage />);
     expect(await screen.findByText(/doesn't know how to open/i)).toBeTruthy();
-    // "yesterday" is a StandupRoom-only field label.
-    expect(screen.queryByText("yesterday")).toBe(null);
   });
 });

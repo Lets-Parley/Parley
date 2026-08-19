@@ -8,8 +8,10 @@ import { SpacePage } from "./SpacePage";
 const me: Me = { id: "marcus", name: "Marcus Okonjo", avatarHue: 40 };
 
 // A kind id with a dot in it is the shape a namespaced plugin kind takes, and
-// it is the one that breaks any filter that splits or pattern-matches on the
-// id instead of comparing it whole.
+// it is the one that breaks any filter that omits it from its allowlist
+// entirely. "pokerful" is the shape that catches a *different* failure mode:
+// a filter that matches loosely (substring/prefix) on the id instead of
+// comparing it for exact equality.
 const space = {
   slug: "platform-team",
   name: "Platform Team",
@@ -20,6 +22,7 @@ const space = {
     { id: "s1", kind: "poker", title: "Sprint 12 grooming", createdAt: "2026-08-18T10:00:00.000Z", endedAt: null },
     { id: "s2", kind: "standup", title: "Daily", createdAt: "2026-08-18T09:00:00.000Z", endedAt: null },
     { id: "s3", kind: "acme.retro", title: "Retro of record", createdAt: "2026-08-18T08:00:00.000Z", endedAt: null },
+    { id: "s4", kind: "pokerful", title: "Pokerful planning", createdAt: "2026-08-18T07:00:00.000Z", endedAt: null },
   ],
 } as unknown as SpaceView;
 
@@ -52,12 +55,17 @@ describe("SpacePage kind filter", () => {
     expect(list().getByText("Sprint 12 grooming")).toBeTruthy();
     expect(list().queryByText("Daily")).toBe(null);
     expect(list().queryByText("Retro of record")).toBe(null);
+    // "pokerful" is not "poker": a filter that matched loosely (e.g. via
+    // includes/startsWith) on the id instead of comparing it exactly would
+    // leak it in here.
+    expect(list().queryByText("Pokerful planning")).toBe(null);
 
     await userEvent.click(screen.getByRole("button", { name: "Standup" }));
     expect(list().getByText("Daily")).toBeTruthy();
     expect(list().queryByText("Sprint 12 grooming")).toBe(null);
-    // The dotted kind is not a standup: a filter that matched loosely on the
-    // id would leak it in here.
+    // The dotted kind is not a standup: a filter missing it from its
+    // allowlist would drop it silently rather than leaking it here.
     expect(list().queryByText("Retro of record")).toBe(null);
+    expect(list().queryByText("Pokerful planning")).toBe(null);
   });
 });
