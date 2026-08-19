@@ -100,7 +100,7 @@ public access an authentication boundary.
   { name: "BASE_URL matching reality", status: "built", detail: "It drives the WebSocket origin check, the cookie Secure flag and the OIDC redirect. Getting it wrong is the most common deployment failure." },
   { name: "Database backups", status: "not-built", detail: "Nothing in Parley backs itself up. Set up <a href='/operations/backups-and-recovery/'>pg_dump</a> before you have data worth keeping." },
   { name: "Resource limits", status: "not-built", detail: "The k8s manifest sets requests but no limits, on purpose. Add them once you have measured your own usage." },
-  { name: "Horizontal scaling", status: "built", detail: "Fanout, presence and the room-code throttle all go through Postgres, and simultaneous boots serialize their migrations, so replicas can be added. Size <code>max_connections</code> for <code>replicas &times; 11</code>. See <a href='/operations/scaling-and-limits/'>Scaling and limits</a>." },
+  { name: "Horizontal scaling", status: "built", detail: "Fanout, presence and the room-code throttle all go through Postgres, and simultaneous boots serialize their migrations, so replicas can be added. Size <code>max_connections</code> for <code>replicas &times; 11</code> — 12 per pod briefly at boot, while it holds the migration lock on its own connection. See <a href='/operations/scaling-and-limits/'>Scaling and limits</a>." },
   { name: "Public access control", status: "not-built", detail: "Open mode is trusted-network-only. Public instances need a passcode or external SSO/auth proxy plus ingress abuse controls." },
 ]} />
 

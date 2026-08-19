@@ -42,7 +42,7 @@ integers and are validated at boot.
   { name: "ReadTimeout / WriteTimeout", value: "30s / 30s", note: "Ordinary HTTP request and response deadlines" },
   { name: "IdleTimeout", value: "120s", note: "HTTP keep-alive idle deadline" },
   { name: "Shutdown grace", value: "10s", note: "WebSockets close first; in-flight HTTP receives the grace period" },
-  { name: "/readyz database ping", value: "3s", note: "" },
+  { name: "/readyz database ping", value: "3s", note: "Readiness also fails, with no timeout of its own, when this replica's notify listener is down" },
   { name: "-healthcheck request", value: "3s", note: "" },
   { name: "OIDC discovery", value: "15s", note: "Lazy and cached after the first success" },
   { name: "Database connect", value: "5s", note: "Per attempt" },
@@ -65,7 +65,7 @@ integers and are validated at boot.
 
 <SpecTable rows={[
   { name: "MaxConns", value: "10", note: "Not configurable" },
-  { name: "Usable for requests", value: "10", note: "Per replica. The fanout listener and the migration lock dial outside the pool, so size max_connections for replicas x 11" },
+  { name: "Usable for requests", value: "10", note: "Per replica. The fanout listener and the migration lock each dial outside the pool, so size max_connections for replicas x 11 — 12 per pod briefly at boot, while the migration lock is held" },
   { name: "MinConns / lifetimes", value: "pgx defaults", note: "Not set by Parley" },
   { name: "Statement timeout", value: "none", note: "Set it on the database role if you want one" },
 ]} />

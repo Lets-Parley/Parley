@@ -25,7 +25,31 @@ The boot log echoes what the process actually resolved — read it to confirm.
 The Postgres connection string, e.g.
 `postgres://parley:secret@db:5432/parley`. Always required, in both auth modes.
 Parley makes up to six connection attempts at startup with doubling backoff
-between them, so racing a database container is fine.
+between them — roughly a minute — and then exits with
+`FATAL: could not connect to Postgres`, so racing a database container is fine
+but an unreachable one is a CrashLoopBackOff.
+
+**Add `?sslmode=require` if your Postgres requires TLS.** Managed Postgres
+usually does, and the driver does not assume it. Without it the handshake is
+refused, and the visible symptom is a minute of retries and a restart rather than
+anything mentioning TLS. Use `verify-full` with a CA where you can.
+
+What Parley expects on the other end:
+
+- **PostgreSQL 13 or newer.** The first migration runs
+  `create extension if not exists pgcrypto`, and `pgcrypto` is only a *trusted*
+  extension from 13 onward — any role holding `CREATE` on the database can
+  install it there. Below PostgreSQL 13, installing it needs superuser, and
+  boot ends at `FATAL: database migration failed`.
+- **The database and the role must already exist.** Parley creates its schema,
+  never the database or the role, and the role named here needs `CREATE` on
+  the database (`GRANT CREATE ON DATABASE parley TO parley;`) — not ownership.
+  There is no bootstrap step and no `CREATE DATABASE` anywhere in Parley.
+
+On Kubernetes this whole string is the value of **one** secret key — default
+`database-url`, set by `database.secretKey`. A secret split into `username` /
+`password` / `host` keys leaves the pod in `CreateContainerConfigError`. See
+[Kubernetes](/operations/kubernetes/#the-secrets-parley-reads-exactly).
 </EnvVar>
 
 <EnvVar name="BASE_URL" default="http://localhost:8080" fatal derives="Cookie Secure flag · WebSocket and cross-site origin check · OIDC redirect URI">

@@ -44,7 +44,7 @@ platform team required:
     kubectl create secret generic parley \
       --from-literal=database-url='postgres://parley:secret@host:5432/parley'
 
-    helm install parley oci://ghcr.io/lets-parley/charts/parley --version 0.2.3 \
+    helm install parley oci://ghcr.io/lets-parley/charts/parley --version 0.4.0 \
       --set database.existingSecret=parley \
       --set baseURL=https://parley.example.com
     ```
@@ -72,18 +72,19 @@ platform team required:
     docker run -d --name parley -p 8080:8080 \
       -e DATABASE_URL='postgres://parley:secret@db:5432/parley' \
       -e BASE_URL='https://parley.example.com' \
-      ghcr.io/lets-parley/parley:0.2.3
+      ghcr.io/lets-parley/parley:0.4.0
     ```
-    Multi-arch, amd64 and arm64. Bring your own Postgres. Run v0.2.2 or later:
-    every earlier release can be crashed remotely by a disconnecting client, and
-    v0.1.0 additionally has a room-code throttle bypass. None were retagged onto
-    fixed code.
+    Multi-arch, amd64 and arm64. Bring your own Postgres. v0.4.0 is the current
+    release, and v0.2.2 is the security floor: every earlier release can be
+    crashed remotely by a disconnecting client, and v0.1.0 additionally has a
+    room-code throttle bypass. None were retagged onto fixed code.
   </TabItem>
   <TabItem label="Kubernetes">
     The Helm chart above, or the plain manifests in `deploy/k8s/` — a Deployment,
-    a Service, a PodDisruptionBudget, and a commented Ingress carrying the
-    read-timeout annotations WebSockets need. One replica by default; scale up
-    with `--set replicaCount=2`.
+    a Service, and a commented Ingress carrying the read-timeout annotations
+    WebSockets need. (No PodDisruptionBudget there; the chart adds one.) One
+    replica by default; scale up with `--set replicaCount=2` on chart 0.4.0 or
+    newer — earlier charts refuse more than one replica at render time.
     [Deploying to Kubernetes →](/operations/kubernetes/)
   </TabItem>
 </Tabs>

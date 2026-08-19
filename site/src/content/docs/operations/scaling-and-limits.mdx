@@ -35,9 +35,16 @@ running install's pods — or the database connections that come with them. Ask
 for more when you want rollout headroom and a survivable node failure:
 
 ```sh
-helm upgrade parley oci://ghcr.io/lets-parley/charts/parley \
+helm upgrade parley oci://ghcr.io/lets-parley/charts/parley --version 0.4.0 \
   --reuse-values --set replicaCount=2
 ```
+
+**Multi-replica needs chart 0.4.0 or newer.** Every published chart up to and
+including 0.3.0 fails at `helm template` time with "Parley is currently
+single-replica" if `replicaCount` is above 1, and the binaries they deploy hold
+a boot-time advisory lock that makes the second pod exit. Pin `--version` here
+for the same reason you pin it on install: without it Helm takes whatever the
+registry currently calls newest.
 
 At two or more the chart also renders a PodDisruptionBudget; below that it does
 not, because a budget in front of a single pod blocks every voluntary eviction
@@ -78,18 +85,24 @@ Each replica opens its own pool of up to 10 connections, plus one dialled
 outside the pool for the fanout listener. Size Postgres `max_connections` for
 `replicas × 11`, not for 10.
 
+A booting pod peaks at **12**: the migration lock dials a connection of its own,
+outside the pool and separate from the listener's, and holds it only until
+migrations finish. Short-lived, but a cluster whose pods all restart at once
+will briefly want `replicas × 12`.
+
 ## Connection pool
 
 <SpecTable rows={[
   { name: "Max connections", value: "10", note: "Fixed, not configurable" },
-  { name: "Usable for requests", value: "10", note: "Per replica. The fanout listener and the migration lock dial their own connections outside the pool" },
+  { name: "Usable for requests", value: "10", note: "Per replica. The fanout listener and the migration lock each dial their own connection outside the pool: 11 per replica steady-state, 12 briefly at boot" },
   { name: "Connect timeout", value: "5s", note: "" },
   { name: "Startup retries", value: "6", note: "Doubling backoff, roughly a minute total" },
   { name: "Statement timeout", value: "none", note: "pgx defaults; set one on the database role if you want one" },
 ]} />
 
 Sizing Postgres `max_connections` means counting `replicas × 11`: ten pooled
-connections plus the fanout listener's own.
+connections plus the fanout listener's own — and `replicas × 12` for the window
+at boot in which the migration lock holds a connection too.
 
 ## Server timeouts
 
