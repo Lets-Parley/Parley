@@ -5,11 +5,23 @@ description: Version history, and which versions you should not run.
 
 Releases are on
 [GitHub](https://github.com/lets-parley/parley/releases). Images publish to
-`ghcr.io/lets-parley/parley` for `linux/amd64` and `linux/arm64` on every `v*`
-tag, and are anonymously pullable.
+`ghcr.io/lets-parley/parley` for `linux/amd64` and `linux/arm64` from published
+GitHub Releases with exact `vMAJOR.MINOR.PATCH` tags, and are anonymously
+pullable.
 
 Tagging `vX.Y.Z` publishes `X.Y.Z` and `X.Y`, and moves `latest` for non
 pre-release tags.
+
+Every current release includes an SPDX JSON SBOM plus Compose and Kubernetes
+manifests pinned to the published image digest. Verify the digest's provenance
+before deployment:
+
+```sh
+gh attestation verify \
+  "oci://ghcr.io/lets-parley/parley@sha256:YOUR_RELEASE_DIGEST" \
+  --repo lets-parley/parley \
+  --signer-workflow lets-parley/parley/.github/workflows/release.yml
+```
 
 ## v0.2.3
 

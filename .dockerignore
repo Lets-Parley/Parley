@@ -1,10 +1,41 @@
-# Keeps the build context to source. web/dist and web/node_modules matter for
-# more than speed: the Dockerfile runs `npm ci` and then copies web/ over it, so
-# a host node_modules would overwrite the freshly installed one — and on an
-# arm64 cross-build that means host-arch native binaries in the image.
 .git
+.git/**
 .github
-web/node_modules
-web/dist
+.superpowers
+**/.superpowers
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+**/.aws
+**/.ssh
+**/credentials*
+**/secrets*
+**/id_rsa*
+**/id_ed25519*
+**/*.key
+**/*.pem
+**/*.p12
+**/*.pfx
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+**/*.dump
+**/*.backup
+**/*.bak
+**/backups
+**/backups/**
+**/node_modules
+**/node_modules/**
+**/dist
+**/dist/**
+**/build
+**/build/**
+**/coverage
+**/coverage/**
+site
 docs
+scripts
 **/*.md

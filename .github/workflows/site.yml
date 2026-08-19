@@ -3,55 +3,49 @@ name: site
 on:
   push:
     branches: [main]
-    # The app's own build is untouched by a docs edit and vice versa, so
-    # neither workflow runs for the other's changes.
     paths: ["site/**", ".github/workflows/site.yml"]
-  # Build on pull requests too, so a broken page, a sidebar slug pointing at
-  # nothing, or a Capability row missing its mitigation fails review instead of
-  # failing the deploy after merge. ci.yml never touches site/, so without this
-  # a docs-only PR goes green without anything having built the docs.
   pull_request:
     paths: ["site/**", ".github/workflows/site.yml"]
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
-# A second push while a deploy is in flight should wait, not race it. Deploys
-# in progress are allowed to finish so a half-published site never goes live.
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: site
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: site/package-lock.json
       - run: npm ci
       - run: npm run build
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site/dist
 
   deploy:
     needs: build
-    # Pull requests build but never publish.
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

@@ -6,7 +6,7 @@ description: Docker Compose, a bare binary, and the settings that matter in both
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["docker-compose.yml", "Dockerfile", "cmd/parley/main.go"]} />
+<VerifiedStamp version="unreleased" source={["docker-compose.yml", "Dockerfile", ".github/workflows/release.yml", "cmd/parley/main.go"]} />
 
 Three supported shapes: Compose, [Kubernetes](/operations/kubernetes/), or the
 binary on its own. All three are the same process with the same configuration —
@@ -39,7 +39,7 @@ Three of its defaults are deliberate and worth knowing before you change them:
 ## The image
 
 `ghcr.io/lets-parley/parley`, multi-arch for `linux/amd64` and `linux/arm64`,
-published on every `v*` tag and anonymously pullable.
+published from exact semantic-version GitHub Releases and anonymously pullable.
 
 It is built in three stages and the final one is
 `gcr.io/distroless/static-debian12:nonroot` — no shell, no package manager, no
@@ -49,9 +49,10 @@ libc to patch, running as a non-root user. The Go binary is static
 The image declares its own `HEALTHCHECK`, which runs `parley -healthcheck`
 against `/readyz` over loopback every 15 seconds.
 
-Pin a version rather than tracking `latest` if you want reproducible deploys;
-pin the digest if you want to be certain, since Parley does not yet sign or
-attest its images — see [Supply chain](/security/supply-chain/).
+Pin a version rather than tracking `latest` if you want reproducible deploys.
+Each GitHub Release includes digest-qualified Compose and Kubernetes manifests,
+an SPDX SBOM, and verifiable provenance for the published digest; see
+[Supply chain](/security/supply-chain/).
 
 ## The bare binary
 

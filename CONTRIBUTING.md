@@ -77,6 +77,15 @@ Match the surrounding code. `go vet` must pass, `gofmt` is assumed, and the
 frontend has `oxlint` configured.
 
 Commit messages are lowercase, imperative, and say what changed and why.
+Every commit must carry the Developer Certificate of Origin trailer. Configure
+your Git identity, then create signed-off commits with:
+
+```sh
+git commit -s
+```
+
+The sign-off records that you have the right to submit the change under the
+project license. CI checks every commit in a pull request.
 
 ## Reporting a vulnerability
 

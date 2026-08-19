@@ -6,7 +6,7 @@ description: One page for a security reviewer — summary, data inventory, contr
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["internal/api", "internal/auth", "internal/db/migrations"]} />
+<VerifiedStamp version="unreleased" source={["internal/api", "internal/auth", "internal/db/migrations", ".github/workflows/ci.yml", ".github/workflows/release.yml"]} />
 
 For anyone signing off on Parley for a team or an organisation. Everything here
 is also on the individual pages; this is the version you can read in one sitting
@@ -32,8 +32,8 @@ identity — anyone holding a code has full participation in that space, and any
 member can change or remove that code. The interesting protections are around
 *vote secrecy* (strong, and structural) and *not disclosing what exists to
 strangers* (also strong). The gaps are concentrated in operations and governance:
-no roles, no audit log, no retention or erasure tooling, no metrics, and a
-release pipeline with no signing or SBOM.
+no roles, no audit log, no retention or erasure tooling, and no metrics. The
+release pipeline publishes an SPDX SBOM and verifiable digest-bound provenance.
 
 If your requirement is "a team of engineers estimates stories without a
 third-party SaaS", it fits well. If your requirement is "attributable,
@@ -73,7 +73,7 @@ Full detail: [Data and privacy](/security/data-and-privacy/).
   { name: "Retention and erasure", status: "not-built", detail: "Nothing expires or deletes. Write your own SQL against the documented schema; note that deleting a user who facilitated a session is blocked by a foreign key." },
   { name: "Rate limiting beyond room codes", status: "not-built", detail: "Apply it at your ingress." },
   { name: "Metrics and tracing", status: "not-built", detail: "JSON logs only. Blackbox-probe /readyz and take request metrics from your proxy." },
-  { name: "SBOM, signing, provenance", status: "not-built", detail: "None published. Build the image yourself from a tagged commit, or pin by digest and scan with syft and trivy." },
+  { name: "SBOM and provenance", status: "built", detail: "Published releases include an SPDX SBOM, maximum build provenance, and a GitHub attestation bound to the final GHCR digest." },
   { name: "Encryption at rest", status: "not-built", detail: "Use an encrypted volume or your database provider's encryption." },
 ]} />
 

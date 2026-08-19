@@ -6,7 +6,7 @@ description: The ordered list of things to get right before you expose Parley to
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp source={["internal/api/security.go", "cmd/parley/main.go", "deploy/k8s/deployment.yaml"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/security.go", "cmd/parley/main.go", "deploy/k8s/deployment.yaml", ".github/workflows/release.yml"]} />
 
 In order. The first three are the ones that actually bite.
 
@@ -106,8 +106,9 @@ Nothing in Parley backs itself up.
 
 ## 9. Pin what you deploy
 
-Parley does not sign or attest its images yet. Pin a digest rather than `latest`,
-and scan it yourself — [Supply chain](/security/supply-chain/) has the commands.
+Pin the published digest rather than `latest`, use the digest-qualified release
+manifest, and verify its attestation — [Supply chain](/security/supply-chain/)
+has the command.
 
 ## What you cannot harden
 

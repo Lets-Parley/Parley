@@ -6,7 +6,7 @@ description: Everything Parley does not do, in one place, with the workaround wh
 import VerifiedStamp from "../../components/VerifiedStamp.astro";
 import Capability from "../../components/Capability.astro";
 
-<VerifiedStamp source={["internal/db/db.go", "cmd/parley/main.go", "ROADMAP.md"]} />
+<VerifiedStamp version="unreleased" source={["internal/db/db.go", "cmd/parley/main.go", "ROADMAP.md", ".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/dependabot.yml"]} />
 
 Every gap in the product, collected, so that the rest of this documentation is
 worth believing. Read it before you deploy, not after.
@@ -49,9 +49,9 @@ If something here matters more to you than something on the
 ## Security posture
 
 <Capability rows={[
-  { name: "SBOM, image signing, provenance", status: "not-built", detail: "None published. Build from a tagged commit in your own pipeline, or pin by digest and scan with syft and trivy. See <a href='/security/supply-chain/'>Supply chain</a>." },
-  { name: "Vulnerability scanning in CI", status: "not-built", detail: "No govulncheck, CodeQL or Trivy runs. Scan the image and the source yourself." },
-  { name: "Automated updates for Go dependencies", status: "not-built", detail: "Dependabot covers the docs site\u0027s npm packages only. The Go modules and the frontend are updated by hand, so they can lag. Watch releases." },
+  { name: "SBOM and provenance", status: "built", detail: "Releases include an SPDX SBOM, digest-qualified deployment manifests, maximum build provenance, and a GitHub attestation for the final GHCR digest. See <a href='/security/supply-chain/'>Supply chain</a>." },
+  { name: "Vulnerability scanning in CI", status: "built", detail: "govulncheck, CodeQL, dependency review, npm audit, and container scanning gate changes." },
+  { name: "Automated dependency updates", status: "built", detail: "Dependabot checks Go, web, site, Actions, and Docker dependencies weekly." },
   { name: "HSTS and several modern headers", status: "not-built", detail: "Parley sets CSP, nosniff, X-Frame-Options and Referrer-Policy. Add HSTS, Permissions-Policy and the COOP/COEP/CORP family at your proxy." },
   { name: "Rate limiting beyond room codes", status: "not-built", detail: "Space creation, session creation, API calls and WebSocket connections are unlimited. Rate limit at the ingress." },
   { name: "Encryption at rest", status: "not-built", detail: "Use an encrypted volume or your provider's encryption." },
