@@ -23,18 +23,31 @@ func secondInstance(t *testing.T) *httptest.Server {
 	return srv
 }
 
-// letPresenceSettle waits out the debounced presence broadcast without reading.
+// consumePresenceFrames reads the frames a fresh connection always produces —
+// the initial state, then the one debounced presence broadcast that attaching
+// schedules — and proves they arrived BEFORE any mutation.
 //
-// Attaching a connection schedules a presence broadcast, and that broadcast
-// rebuilds the envelope from the database — so a test that mutates before it
-// fires sees the new state arrive on any instance, fanout or not, and passes
-// for a reason unrelated to what it claims to test. The frame it produces stays
-// buffered in the socket for the reader below to skip.
+// Waiting this out with a sleep does not work, and the failure is silent rather
+// than flaky. BuildEnvelope re-reads the whole session row, so a presence frame
+// that lands after a mutation carries the mutation too, and the test then passes
+// with fanout entirely disabled. A sleep only has to lose the race once — on a
+// loaded runner, or if presenceDebounce is ever raised — for that to come back.
 //
-// This sleeps rather than draining because a gorilla read timeout is permanent:
-// draining until quiet would leave the connection unusable for the assertion.
-func letPresenceSettle() {
-	time.Sleep(2 * time.Second) // presenceDebounce is 1.5s
+// So this reads rather than waits: each frame must show endedAt == nil, which
+// can only be true before the session is closed. If a frame is missing the read
+// blocks until its deadline and the test fails loudly instead of passing for
+// the wrong reason.
+func consumePresenceFrames(t *testing.T, ws *websocket.Conn) {
+	t.Helper()
+	for i, what := range []string{"initial state", "presence broadcast"} {
+		env, ok := readEnvelope(t, ws, 10*time.Second)
+		if !ok {
+			t.Fatalf("never received the %s frame (frame %d)", what, i+1)
+		}
+		if env["endedAt"] != nil {
+			t.Fatalf("the %s frame already reflects the mutation; the test cannot tell fanout from a late presence broadcast", what)
+		}
+	}
 }
 
 // awaitEnded reads frames until one shows the session closed, and reports how
@@ -77,7 +90,7 @@ func TestFanoutReachesAClientOnAnotherReplica(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer wsB.Close()
-	letPresenceSettle()
+	consumePresenceFrames(t, wsB)
 
 	// The facilitator mutates through A.
 	if resp, _ := doJSON(t, srvA, "DELETE", "/api/sessions/"+id, "", fac); resp.StatusCode != http.StatusNoContent {
@@ -102,7 +115,7 @@ func TestFanoutDoesNotDuplicateOnTheOriginatingReplica(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer wsA.Close()
-	letPresenceSettle()
+	consumePresenceFrames(t, wsA)
 
 	if resp, _ := doJSON(t, srvA, "DELETE", "/api/sessions/"+id, "", fac); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("close: %d", resp.StatusCode)
@@ -133,11 +146,23 @@ func TestListenerRecoversAfterItsConnectionIsKilled(t *testing.T) {
 
 	// Kill every LISTEN backend. This is what a failover looks like from the
 	// application's side.
+	// Scoped to this database AND this user on purpose. pg_stat_activity is
+	// cluster-wide, so an unscoped kill reaches backends belonging to every
+	// other database on the server — someone running this suite against a
+	// shared Postgres would take out an unrelated application's listeners.
 	if _, err := pool.Exec(context.Background(),
 		`select pg_terminate_backend(pid) from pg_stat_activity
-		 where query like 'listen %' and pid <> pg_backend_pid()`); err != nil {
+		 where query like 'listen %'
+		   and datname = current_database()
+		   and usename = current_user
+		   and pid <> pg_backend_pid()`); err != nil {
 		t.Fatal(err)
 	}
+
+	// /readyz has to go unhealthy while the listener is down. This is the whole
+	// reason the probe was touched, and without asserting it the health check
+	// could be hardcoded to "ready" and every test here would still pass.
+	waitReady(t, srvB, false, 10*time.Second)
 
 	// It must come back without anyone restarting the process...
 	waitReady(t, srvB, true, 30*time.Second)
@@ -148,7 +173,7 @@ func TestListenerRecoversAfterItsConnectionIsKilled(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer wsB.Close()
-	letPresenceSettle()
+	consumePresenceFrames(t, wsB)
 
 	if resp, _ := doJSON(t, srvA, "DELETE", "/api/sessions/"+id, "", fac); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("close on A: %d", resp.StatusCode)

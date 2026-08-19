@@ -90,14 +90,27 @@ func (a *app) listenOnce(ctx context.Context) error {
 		// closing, and a cancelled context closes nothing.
 		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		conn.Close(closeCtx)
+		if err := conn.Close(closeCtx); err != nil {
+			// Worth seeing: a run of these during listener churn means backends
+			// are being left behind on the server.
+			slog.Warn("could not close the session notification connection", "error", err)
+		}
 	}()
 
 	if _, err := conn.Exec(ctx, "listen "+notifyChannel); err != nil {
 		return err
 	}
 	a.listenerUp.Store(true)
+	// Cleared here as well as in listen's error branch, because a clean
+	// shutdown cancels the context and returns without taking that branch —
+	// leaving the replica claiming to be listening after it has stopped.
 	defer a.listenerUp.Store(false)
+
+	// Postgres does not queue notifications for a session that is not listening,
+	// so everything sent while this replica was reconnecting is simply gone. Pull
+	// the current state for every room still held here, or those clients sit on
+	// stale state until somebody happens to touch the same session again.
+	a.resyncLocalSessions(ctx)
 
 	for {
 		n, err := conn.WaitForNotification(ctx)
@@ -119,6 +132,15 @@ func (a *app) listenOnce(ctx context.Context) error {
 	}
 }
 
+// resyncLocalSessions rebuilds and pushes state for every room this replica
+// holds, without notifying anyone else — the other replicas did not miss
+// anything, this one did.
+func (a *app) resyncLocalSessions(ctx context.Context) {
+	for _, sessionID := range a.hub.Sessions() {
+		a.broadcastLocal(ctx, sessionID)
+	}
+}
+
 // listenerHealthy reports whether this replica is currently subscribed.
 //
 // /readyz consults it, which matters more than it looks: the pool can be
@@ -126,6 +148,17 @@ func (a *app) listenOnce(ctx context.Context) error {
 // serves requests and holds WebSockets but never learns about anything
 // happening on another pod. Without this the failure is invisible — the pod
 // stays Ready, `helm test` passes, and rooms silently split.
+//
+// Reported the moment it drops, with no grace period of its own: the probe
+// already supplies one (a readiness failureThreshold of 3 at 5s apart is ~15s),
+// and a transient drop is back inside a second or two on the first backoff. A
+// second timer here would only make a real outage take longer to show up.
+//
+// Note this also gates the container HEALTHCHECK, which calls /readyz. A
+// replica that cannot listen for longer than the probe tolerates leaves the
+// Service — correct when there are peers to be out of step with, and a
+// deliberate trade at one replica, where the pool being fine while the listener
+// is not means something is genuinely wrong with the database connection.
 func (a *app) listenerHealthy() bool {
 	return a.listenerUp.Load()
 }

@@ -101,7 +101,11 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 	if listenCtx == nil {
 		listenCtx = context.Background()
 	}
-	go a.listen(listenCtx)
+	// Router tolerates a nil pool — /version answers without a database, and
+	// tests use that. Nothing below here may assume otherwise.
+	if pool != nil {
+		go a.listen(listenCtx)
+	}
 
 	a.hub.OnPresenceChange = func(sessionID string) {
 		a.broadcastState(context.Background(), sessionID)
