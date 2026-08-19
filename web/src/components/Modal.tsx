@@ -1,5 +1,11 @@
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useId, useRef } from "react";
 
+/**
+ * A native <dialog>: focus trapping, Escape-to-close and inertness of the rest
+ * of the page all come from the platform. Backdrop-click-to-close is
+ * deliberately not re-implemented — <dialog> does not offer it, and Escape plus
+ * the ✕ are two dismissals already.
+ */
 export function Modal({
   title,
   children,
@@ -12,18 +18,37 @@ export function Modal({
   width?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
     ref.current?.showModal();
+    // Unmounting the dialog drops focus to <body> instead of restoring it,
+    // so hand it back to whatever opened the modal.
+    return () => {
+      if (opener?.isConnected) opener.focus();
+    };
   }, []);
   return (
     <dialog
       ref={ref}
       onClose={onClose}
       onCancel={onClose}
-      className="m-auto rounded-panel border border-line bg-surface p-6 text-ink shadow-lift backdrop:bg-card-back/40 backdrop:backdrop-blur-[4px]"
+      aria-labelledby={titleId}
+      className="relative m-auto rounded-panel border border-line bg-surface p-6 text-ink shadow-lift backdrop:bg-card-back/40 backdrop:backdrop-blur-[4px]"
       style={{ width: `min(92vw, ${width})`, animation: "modal-drop 280ms var(--ease-settle)" }}
     >
-      <h2 className="mb-1 text-[19px] font-extrabold tracking-tight">{title}</h2>
+      <h2 id={titleId} className="mb-1 text-[19px] font-extrabold tracking-tight">
+        {title}
+      </h2>
+      {onClose && (
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          className="absolute right-3.5 top-3 text-[13px] text-ink-faint hover:text-ink"
+        >
+          ✕
+        </button>
+      )}
       {children}
     </dialog>
   );

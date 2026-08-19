@@ -36,6 +36,20 @@ describe("Hand", () => {
     expect(onPick).toHaveBeenCalledWith("5");
   });
 
+  it("labels the hand region with its own heading", () => {
+    renderHand();
+    expect(screen.getByRole("region", { name: /YOUR HAND/ })).toBeTruthy();
+  });
+
+  it("keeps the picked-card confirmation available at every breakpoint", () => {
+    renderHand({ selected: "5" });
+    const confirmation = screen.getByText("picked 5");
+    // sm:hidden would strip it from the accessibility tree on desktop, where
+    // it is the only textual confirmation of your own vote.
+    expect(confirmation.className.includes("sm:hidden")).toBe(false);
+    expect(confirmation.className.includes("sr-only")).toBe(true);
+  });
+
   it("marks the picked card as pressed", () => {
     renderHand({ selected: "3" });
     expect(screen.getByRole("button", { name: "3" }).getAttribute("aria-pressed")).toBe("true");
