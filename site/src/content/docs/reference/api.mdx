@@ -112,9 +112,9 @@ belonging to another kind is a 404 rather than a route two kinds share. The
 `{id}` in the path is the binding for everything the action touches: a `storyId`
 in the body that belongs to a different session answers 404.
 
-Membership, the facilitator check and the ended-session guard all run once, in
-the dispatcher, before the kind sees the request. Any action against a closed
-session is **409**; reopen it first.
+Membership is resolved before dispatch. Mutable facilitator and ended-session
+state is revalidated inside the transaction that performs each write. Any
+action against a closed session is **409**; reopen it first.
 
 ### Planning poker
 

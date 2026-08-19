@@ -142,6 +142,10 @@ func (a *app) handleTransferFacilitator(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, `{"error":"userId is required"}`, http.StatusBadRequest)
 		return
 	}
+	if body.UserID == sess.FacilitatorID {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	err := a.sessions.TransferFacilitator(r.Context(), sess.ID, p.UserID, body.UserID)
 	if errors.Is(err, store.ErrNotFacilitator) {
 		http.Error(w, `{"error":"only the facilitator can do that"}`, http.StatusForbidden)

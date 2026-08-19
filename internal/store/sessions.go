@@ -164,6 +164,9 @@ func (s *Sessions) SetEnded(ctx context.Context, id, actorID string, ended bool)
 
 func (s *Sessions) TransferFacilitator(ctx context.Context, id, actorID, toUserID string) error {
 	return s.withLockedSession(ctx, id, actorID, false, func(tx pgx.Tx, sess Session) error {
+		if toUserID == sess.FacilitatorID {
+			return nil
+		}
 		var member bool
 		if err := tx.QueryRow(ctx,
 			"select exists (select 1 from members where space_id = $1 and user_id = $2)",

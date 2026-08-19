@@ -16,16 +16,15 @@ import (
 	"github.com/lets-parley/parley/internal/store"
 )
 
-// actions is poker's dispatch table. Membership, the facilitator check and the
-// ended-session guard all run in the core dispatcher before any of these are
-// called, so none of them re-check authorization.
+// actions is poker's dispatch table. Handlers revalidate mutable authority and
+// session state inside the transaction that performs each write.
 func actions() map[string]session.Action {
 	return map[string]session.Action{
 		"stories": {Do: addStory, FacilitatorOnly: true},
 		"select":  {Do: selectStory, FacilitatorOnly: true},
 		"reveal":  {Do: reveal, FacilitatorOnly: true},
 		"reset":   {Do: reset, FacilitatorOnly: true},
-		"story":   {Do: patchStory, FacilitatorOnly: true},
+		"story":   {Do: patchStory},
 		"vote":    {Do: vote},
 	}
 }
