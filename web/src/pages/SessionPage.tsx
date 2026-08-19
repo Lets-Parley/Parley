@@ -58,8 +58,15 @@ export function SessionPage() {
     >
       {env.kind === "poker" ? (
         <PokerRoom env={env} me={me.data} />
-      ) : (
+      ) : env.kind === "standup" ? (
         <StandupRoom env={env} me={me.data} status={session.status} />
+      ) : (
+        // Falling through to a room here would point one kind's controls at
+        // another kind's state, so an unknown kind gets no room at all.
+        <p className="p-8 text-center text-ink-soft text-pretty">
+          This Parley doesn't know how to open a “{env.kind}” session. It may
+          need a newer version.
+        </p>
       )}
     </AppShell>
   );

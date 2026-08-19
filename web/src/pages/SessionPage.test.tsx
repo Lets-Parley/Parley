@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import { renderApp } from "../test/render";
 import type { Envelope, Me } from "../lib/api";
@@ -44,15 +44,22 @@ vi.mock("../lib/api", async () => {
   };
 });
 
+// The kind under test is swapped per-case; the mock reads it at render time.
+let mockKind = "standup";
+
 vi.mock("../lib/useSession", () => ({
   useSession: () => ({
-    data: envelope,
+    data: { ...envelope, kind: mockKind },
     isLoading: false,
     isError: false,
     status: "stale",
     refetch: () => {},
   }),
 }));
+
+beforeEach(() => {
+  mockKind = "standup";
+});
 
 describe("SessionPage wiring", () => {
   it("passes the live connection status through to the room, so a stale link stays silent", async () => {
@@ -66,5 +73,14 @@ describe("SessionPage wiring", () => {
       screen.getAllByRole("status").find((el) => el.tagName === "P")!;
     await waitFor(() => expect(announcer()).toBeTruthy());
     expect(announcer().textContent).toBe("");
+  });
+
+  // The kind fan-out used to be a ternary whose else-branch was standup, so a
+  // session of any unrecognised kind silently rendered the standup room —
+  // wrong controls, wrong actions, against real session state.
+  it("renders no room at all for a kind it does not know", async () => {
+    mockKind = "acme.retro";
+    renderApp(<SessionPage />);
+    expect(await screen.findByText(/doesn't know how to open/i)).toBeTruthy();
   });
 });
