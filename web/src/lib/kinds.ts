@@ -51,14 +51,14 @@ export const KINDS: KindDef[] = [
   { id: "standup", label: "Standup", Room: StandupRoom, swatch: "bg-felt-deep" },
 ];
 
+/** The swatch for an unknown kind: visible, but nobody else's colour. */
+export const UNKNOWN_SWATCH = "bg-line";
+
 /**
  * Exact-id lookup. A near-miss id ("pokerful") and a namespaced one
  * ("acme.retro") are both simply unknown — callers render an unavailable
  * state rather than falling through to some other kind's room.
  */
-/** The swatch for an unknown kind: visible, but nobody else's colour. */
-export const UNKNOWN_SWATCH = "bg-line";
-
 export function getKind(id: string): KindDef | undefined {
   return KINDS.find((k) => k.id === id);
 }

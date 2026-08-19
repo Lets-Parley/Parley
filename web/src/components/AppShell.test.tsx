@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { AppShell, BuildStamp, ConnectionDot, Logo } from "./AppShell";
 import { makePerson, renderApp } from "../test/render";
 import type { Me } from "../lib/api";
+import { UNKNOWN_SWATCH } from "../lib/kinds";
 
 const me: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 200 };
 
@@ -229,6 +230,7 @@ describe("sidebar kind swatches", () => {
     expect(swatchFor("Sprint 12")).toContain("bg-card-back");
     expect(swatchFor("Daily")).toContain("bg-felt-deep");
     const unknown = swatchFor("Retro");
+    expect(unknown).toContain(UNKNOWN_SWATCH);
     expect(unknown).not.toContain("bg-felt-deep");
     expect(unknown).not.toContain("bg-card-back");
   });
