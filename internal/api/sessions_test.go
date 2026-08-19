@@ -734,9 +734,34 @@ func TestSessionCreationRejectsARetiredKind(t *testing.T) {
 	}
 }
 
+// Creating a session with a kind the server has never registered has to name
+// the kinds that are actually available, not just the built-ins, so the
+// handler's wiring of unknownKindMessage is exercised here rather than only
+// the helper in isolation.
+func TestSessionCreationRejectsAnUnknownKindWithTheRegisteredList(t *testing.T) {
+	pool := testPool(t)
+	srv := httptest.NewServer(Router(pool, Options{AllowedOrigin: testOrigin}))
+	t.Cleanup(srv.Close)
+
+	ada := signup(t, srv, "Ada")
+	_, sp := createSpace(t, srv, "Space", ada)
+	slug := sp["slug"].(string)
+
+	resp, body := createSession(t, srv, slug, "bogus-kind", "Title", ada)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("creating a session of an unknown kind: got %d, want 400 (%v)", resp.StatusCode, body)
+	}
+	msg, _ := body["error"].(string)
+	if msg != "kind must be one of poker, standup" {
+		t.Fatalf("error %q does not name exactly the registered kinds", msg)
+	}
+}
+
 // The unknown-kind message has to stay true for whatever set of kinds is
 // registered, so it is derived from the registry rather than hardcoded. This
-// one needs no database: it exercises the message, not the handler.
+// one needs no database: it exercises the message, not the handler. The exact
+// (sorted) comparison also pins the ordering, so removing the registry's sort
+// fails this test rather than only being caught by chance.
 func TestUnknownKindMessageNamesEveryRegisteredKind(t *testing.T) {
 	kinds := session.NewRegistry()
 	for _, name := range []string{"poker", "standup", "retro"} {
@@ -745,6 +770,9 @@ func TestUnknownKindMessageNamesEveryRegisteredKind(t *testing.T) {
 		}
 	}
 	msg := unknownKindMessage(kinds)
+	if msg != "kind must be one of poker, retro, standup" {
+		t.Fatalf("unknown-kind message %q is not in sorted order", msg)
+	}
 	if !strings.Contains(msg, "retro") {
 		t.Fatalf("unknown-kind message %q does not name the third registered kind", msg)
 	}
