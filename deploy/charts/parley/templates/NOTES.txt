@@ -40,10 +40,15 @@ Check it came up:
 
 Two things that will bite you later:
 
-  * Upgrades take a few seconds of downtime. Parley's realtime hub is
-    in-process, so the chart uses Recreate: the old pod must exit and release
-    its boot advisory lock before the new one starts. Clients reconnect on
-    their own.
+  * Upgrades roll, they do not stop. With more than one replica the rollout is
+    seamless; with replicaCount 1 there is a reconnect as the pod is replaced,
+    which the client's banner handles.
+
+    During a rollout the new pod migrates the database before the old pods are
+    gone, so the old pods run briefly against a newer schema. Parley's
+    migrations are additive and that is fine. If an old pod restarts in that
+    window it comes back normally, and is replaced by the new version moments
+    later. Roll forward, not back.
 
   * Do not roll back onto an image older than the migrations that have already
     run. Parley will refuse to start rather than corrupt the schema. Restore

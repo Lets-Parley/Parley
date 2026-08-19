@@ -12,13 +12,19 @@ metadata:
   labels:
     app: parley
 spec:
-  # LOAD-BEARING: Parley's realtime hub is in-process, enforced by a Postgres
-  # advisory lock at boot. A second replica will refuse to start. Recreate
-  # (not RollingUpdate) means a few seconds of downtime per deploy — the
-  # client's reconnect banner makes that a non-event.
-  replicas: 1
+  # Parley runs on more than one replica: fanout, presence and the passcode
+  # throttle all go through Postgres, and migrations serialize behind an
+  # advisory lock so pods that boot together are safe. Raise this and add a
+  # PodDisruptionBudget — the Helm chart does both for you.
+  #
+  # Every replica opens up to 10 pooled Postgres connections plus one for the
+  # fanout listener, so size max_connections for replicas * 11.
+  replicas: 2
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: parley
@@ -27,11 +33,18 @@ spec:
       labels:
         app: parley
     spec:
-      # The old pod holds the boot advisory lock until it exits, and Recreate
-      # waits for that. http.Server.Shutdown does not close hijacked WebSocket
-      # connections, so give termination real room — a new pod that starts too
-      # early dies with "advisory lock ... already held".
+      # http.Server.Shutdown does not close hijacked WebSocket connections, so
+      # give termination real room: the old pod holds its presence rows and its
+      # database connections until the process exits.
       terminationGracePeriodSeconds: 30
+      # Two replicas on one node is one node failure away from none.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: parley
       containers:
         - name: parley
           # A published tag, not :latest. Rolling back onto an older image after

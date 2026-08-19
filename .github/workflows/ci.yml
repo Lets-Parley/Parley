@@ -214,7 +214,7 @@ jobs:
             --set 'ingress.tls[0].secretName=parley-tls' \
             --set trustProxyHeaders=true \
             --set trustedProxyCIDRs=10.0.0.0/8 > /tmp/all.yaml
-          for kind in Deployment Service ServiceAccount Ingress; do
+          for kind in Deployment Service ServiceAccount Ingress PodDisruptionBudget; do
             grep -q "^kind: $kind$" /tmp/all.yaml || { echo "missing $kind"; exit 1; }
           done
 
@@ -227,10 +227,14 @@ jobs:
         run: |
           ! helm template parley deploy/charts/parley \
             --set database.existingSecret=x --set image.tag=latest 2>/dev/null
-      - name: refuses a second replica
+      # Parley is multi-replica now, so this must RENDER. It used to be a
+      # negative test; if it ever fails again the boot lock has come back.
+      - name: renders a second replica
         run: |
-          ! helm template parley deploy/charts/parley \
-            --set database.existingSecret=x --set replicaCount=2 2>/dev/null
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set replicaCount=2 > /tmp/two.yaml
+          grep -q 'replicas: 2' /tmp/two.yaml
+          grep -q '^kind: PodDisruptionBudget$' /tmp/two.yaml
       - name: refuses oidc without a client secret
         run: |
           ! helm template parley deploy/charts/parley \
@@ -270,6 +274,33 @@ jobs:
           # database migration window, so it must still render.
           helm template parley deploy/charts/parley \
             --set database.existingSecret=x --set replicaCount=0 >/dev/null
+
+      # A PodDisruptionBudget in front of a single pod blocks every voluntary
+      # eviction and hangs `kubectl drain` forever, so it must not render below
+      # two replicas — including at zero, where there is nothing to protect.
+      - name: writes no disruption budget for a single replica
+        run: |
+          for n in 0 1; do
+            helm template parley deploy/charts/parley \
+              --set database.existingSecret=x --set replicaCount=$n > /tmp/one.yaml
+            ! grep -q 'kind: PodDisruptionBudget' /tmp/one.yaml \
+              || { echo "rendered a PDB at replicaCount=$n"; exit 1; }
+          done
+
+      # A rollout that takes capacity away, or replicas that all land on one
+      # node, are the two ways multi-replica quietly fails to buy anything.
+      - name: rolls without losing capacity and spreads across nodes
+        run: |
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x > /tmp/ha.yaml
+          grep -q 'type: RollingUpdate' /tmp/ha.yaml
+          grep -q 'maxSurge: 1' /tmp/ha.yaml
+          grep -q 'maxUnavailable: 0' /tmp/ha.yaml
+          grep -q 'topologyKey: kubernetes.io/hostname' /tmp/ha.yaml
+          # The spread constraint needs the selector the chart fills in; a
+          # constraint with no labelSelector silently matches nothing.
+          grep -q 'labelSelector' /tmp/ha.yaml
+          ! grep -q 'type: Recreate' /tmp/ha.yaml
       - name: mounts no service account token
         run: |
           helm template parley deploy/charts/parley \
@@ -318,7 +349,7 @@ jobs:
         run: |
           helm template parley deploy/charts/parley \
             --set database.existingSecret=parley --set image.tag=0.2.1 > /tmp/def.yaml
-          for want in 'type: Recreate' 'terminationGracePeriodSeconds: 30' \
+          for want in 'type: RollingUpdate' 'terminationGracePeriodSeconds: 30' \
                       'runAsNonRoot: true' 'allowPrivilegeEscalation: false' \
                       'readOnlyRootFilesystem: true' 'failureThreshold: 12' \
                       'path: /healthz' 'path: /readyz' 'cpu: 50m' 'memory: 64Mi'; do

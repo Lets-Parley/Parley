@@ -10,12 +10,12 @@ metadata:
     {{- include "parley.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
-  # Recreate, not RollingUpdate: the old pod holds the boot advisory lock until
-  # it exits, and a new pod that starts too early dies with "advisory lock
-  # already held". That means a few seconds of downtime per deploy — the
-  # client's reconnect banner makes that a non-event.
+  # RollingUpdate: nothing in Parley is single-instance any more, so a new pod
+  # can come up beside the old one. maxUnavailable 0 keeps capacity through the
+  # rollout; maxSurge 1 replaces one pod at a time so the database sees at most
+  # one extra replica's worth of connections.
   strategy:
-    type: Recreate
+    {{- toYaml .Values.strategy | nindent 4 }}
   selector:
     matchLabels:
       {{- include "parley.selectorLabels" . | nindent 6 }}
@@ -41,9 +41,9 @@ spec:
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      # http.Server.Shutdown does not close hijacked WebSocket connections, and
-      # the boot advisory lock is only freed when the process exits, so give
-      # termination real room.
+      # http.Server.Shutdown does not close hijacked WebSocket connections, so
+      # give termination real room: the pod's presence rows and database
+      # connections are only let go when the process exits.
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       containers:
         - name: parley
@@ -123,4 +123,16 @@ spec:
       {{- with .Values.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      # Spread replicas across nodes: two pods on one node is one node failure
+      # away from being no pods. ScheduleAnyway by default, so a single-node
+      # cluster still schedules rather than leaving pods Pending forever.
+      topologySpreadConstraints:
+        {{- range . }}
+        - {{ toYaml . | nindent 10 | trim }}
+          labelSelector:
+            matchLabels:
+              {{- include "parley.selectorLabels" $ | nindent 14 }}
+        {{- end }}
       {{- end }}
