@@ -66,7 +66,7 @@ The chart is published to the same registry as the image. With the secret above
 in place:
 
 ```sh
-helm install parley oci://ghcr.io/lets-parley/charts/parley --version 0.4.1 \
+helm install parley oci://ghcr.io/lets-parley/charts/parley --version %VERSION% \
   --set database.existingSecret=parley \
   --set baseURL=https://parley.example.com
 ```
@@ -82,7 +82,7 @@ Re-run `helm upgrade` with the new chart version and keep the values you set
 last time:
 
 ```sh
-helm upgrade parley oci://ghcr.io/lets-parley/charts/parley --version 0.4.1 \
+helm upgrade parley oci://ghcr.io/lets-parley/charts/parley --version %VERSION% \
   --reuse-values
 
 kubectl rollout status deploy/parley
@@ -104,7 +104,7 @@ onto an image older than the migrations that have run is refused, by design.
 
 Without it Helm resolves to whatever the registry currently calls newest, so the
 command above means something different after every release. The chart version
-tracks the app version: `0.4.1` installs `ghcr.io/lets-parley/parley:0.4.1`.
+tracks the app version: `%VERSION%` installs `ghcr.io/lets-parley/parley:%VERSION%`.
 There is no `v` prefix on either — a `v`-prefixed tag has never been published.
 
 ### The values that matter

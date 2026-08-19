@@ -57,6 +57,10 @@ nothing else — no router surgery, no constraint change, no frontend ternaries.
    values ('retro', 'core', 'Retrospective');
    ```
 
+   Skip this step and the kind still registers, but creating a session of it
+   fails the foreign key and the API answers 400 with "that session kind is
+   missing its session_kinds row".
+
    `sessions.kind` is a foreign key `on delete restrict`, so a kind that has
    sessions can never be deleted. Withdraw one by setting `retired_at` instead:
    new sessions are refused, existing ones keep working.

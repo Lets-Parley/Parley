@@ -76,6 +76,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: false
           tags: ${{ needs.validate.outputs.image }}:${{ needs.validate.outputs.version }}
+          build-args: |
+            VERSION=${{ needs.validate.outputs.version }}
           outputs: type=oci,dest=/tmp/parley-image.tar
           provenance: mode=max
           sbom: true
@@ -96,6 +98,8 @@ jobs:
           platforms: linux/amd64
           push: false
           tags: ${{ needs.validate.outputs.image }}:${{ needs.validate.outputs.version }}
+          build-args: |
+            VERSION=${{ needs.validate.outputs.version }}
           outputs: type=oci,dest=/tmp/parley-sbom-image.tar
           provenance: false
           sbom: false
