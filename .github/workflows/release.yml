@@ -58,11 +58,20 @@ jobs:
       # reaches the network. Lowercase it here, then assert the result really is
       # a valid ref rather than trusting the tr.
       - name: publish
+        # The GitHub expressions go through env rather than straight into the
+        # script body: interpolating them inline is the Actions script-injection
+        # sink, and it costs nothing to not do it.
+        env:
+          RAW_OWNER: ${{ github.repository_owner }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
-          echo "$OWNER" | grep -qE '^[a-z0-9._-]+$' || {
+          OWNER=$(echo "$RAW_OWNER" | tr '[:upper:]' '[:lower:]')
+          # Actual OCI path-component grammar: starts alphanumeric, separators
+          # only between alphanumerics. A looser regex would accept "." or "-x"
+          # and lean on GitHub's username rules to save us.
+          echo "$OWNER" | grep -qE '^[a-z0-9]+([._-][a-z0-9]+)*$' || {
             echo "computed owner '$OWNER' is not a valid OCI path component"; exit 1; }
-          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
-            --username ${{ github.actor }} --password-stdin
+          echo "$REGISTRY_TOKEN" | helm registry login ghcr.io \
+            --username "$GITHUB_ACTOR" --password-stdin
           helm package deploy/charts/parley --destination /tmp
           helm push /tmp/parley-*.tgz "oci://ghcr.io/${OWNER}/charts"

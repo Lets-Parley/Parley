@@ -113,6 +113,21 @@ jobs:
             --set database.existingSecret=x --set image.tag=Main 2>/dev/null
           ! helm template parley deploy/charts/parley \
             --set database.existingSecret=x --set-string 'image.tag=latest ' 2>/dev/null
+      # The tag lands inside a double-quoted YAML string in the pod spec, so a
+      # tag carrying a quote and a newline could close that string and append
+      # its own container fields.
+      - name: refuses a tag that would inject into the pod spec
+        run: |
+          printf 'image:\n  tag: |-\n    1.0"\n            command: ["cat","/etc/shadow"]\n            x: "y\n' > /tmp/inject.yaml
+          ! helm template parley deploy/charts/parley \
+            --set database.existingSecret=x -f /tmp/inject.yaml 2>/dev/null
+          # And the tags people actually use must keep working.
+          for t in 0.2.1 v0.2.1 0.2.1-rc1 main-abc1234 sha-abc123 latest-stable; do
+            helm template parley deploy/charts/parley \
+              --set database.existingSecret=x --set-string "image.tag=$t" >/dev/null \
+              || { echo "falsely rejected legitimate tag: $t"; exit 1; }
+          done
+
       - name: refuses a fractional replica count but allows zero
         run: |
           ! helm template parley deploy/charts/parley \
@@ -135,6 +150,23 @@ jobs:
             --set database.existingSecret=x --set ingress.enabled=true \
             --set 'ingress.tls[0].secretName=t' \
             --set baseURL=http://parley.example.com 2>/dev/null
+
+      # The release job pushes to an OCI ref built from the repo owner, which is
+      # spelled Lets-Parley — mixed case is an invalid reference and the push
+      # fails before it reaches the network. That job only runs on a tag, so the
+      # lowercasing logic is exercised here instead of being discovered at
+      # release time.
+      - name: computes a valid lowercase OCI owner
+        run: |
+          norm() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
+          valid() { echo "$1" | grep -qE '^[a-z0-9]+([._-][a-z0-9]+)*$'; }
+          test "$(norm Lets-Parley)" = lets-parley
+          valid "$(norm Lets-Parley)"
+          # The grammar check must reject what OCI actually rejects, rather than
+          # leaning on GitHub's username rules to keep bad input away.
+          for bad in "." "-x" "x-" "a/b" "A" ""; do
+            ! valid "$bad" || { echo "accepted invalid owner: '$bad'"; exit 1; }
+          done
 
       # The chart and the hand-written manifest must not drift apart on the
       # settings that are load-bearing for security and for staying up.

@@ -54,6 +54,13 @@ protects the database.
 {{- end -}}
 {{- /* Compare normalized: `has` is an exact match, so LATEST and "latest "
        would otherwise walk straight through a guard that exists to stop them. */ -}}
+{{- /* A tag is interpolated into a double-quoted YAML string in the pod spec,
+       so an unvalidated one containing a quote and a newline can close the
+       string and inject its own container fields. Allowlist the shape a real
+       tag has, the same way replicaCount is checked below. */ -}}
+{{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" ($tag | toString)) -}}
+{{- fail (printf "image.tag %q is not a valid image tag: expected up to 128 characters of letters, digits, dot, dash or underscore, starting alphanumeric." $tag) -}}
+{{- end -}}
 {{- $moving := $tag | toString | lower | trim -}}
 {{- if has $moving (list "latest" "main" "master" "dev" "edge" "nightly") -}}
 {{- fail (printf "image.tag %q is a moving tag. Pin a published version instead, e.g. --set image.tag=%s. Rolling back onto an image older than the migrations that have already run makes Parley refuse to start." $tag .Chart.AppVersion) -}}
