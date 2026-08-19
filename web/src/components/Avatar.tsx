@@ -35,6 +35,7 @@ export function Avatar({ name, hue, size = "md", facilitator, spectator, dim }: 
         opacity: spectator || dim ? 0.55 : 1,
       }}
       title={name}
+      role="img"
       aria-label={name}
     >
       {initialsOf(name)}
@@ -47,6 +48,7 @@ export function Avatar({ name, hue, size = "md", facilitator, spectator, dim }: 
             boxShadow: "0 0 0 2px var(--color-surface)",
           }}
           title="Facilitator"
+          role="img"
           aria-label="facilitator"
         />
       )}

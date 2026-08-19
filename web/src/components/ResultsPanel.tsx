@@ -88,7 +88,8 @@ export function ResultsPanel({ results }: { results: Results }) {
           const isMode = row.count === max;
           return (
             <div key={row.value} className="flex shrink-0 flex-col items-center gap-2">
-              <div className="flex flex-col-reverse">
+              {/* The stack is the text label drawn as cards; one voice is enough. */}
+              <div className="flex flex-col-reverse" aria-hidden="true">
                 {Array.from({ length: row.count }, (_, j) => (
                   <span
                     key={j}
@@ -110,6 +111,7 @@ export function ResultsPanel({ results }: { results: Results }) {
                 style={{ color: isMode ? "var(--color-brass)" : "var(--color-ink-faint)" }}
               >
                 {faceOf(row.value)} ×{row.count}
+                {isMode && " · most picked"}
               </div>
             </div>
           );

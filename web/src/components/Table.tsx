@@ -21,10 +21,24 @@ function SeatCard({
   consensus: boolean;
 }) {
   const rot = ROTATIONS[index % ROTATIONS.length];
+  // The card's own text equivalent. The seat's name lives on the Avatar, so
+  // this says only what the card says — never the person's name a second time.
+  const label =
+    state === "back"
+      ? "voted"
+      : state === "face"
+        ? value
+          ? `voted ${value}`
+          : "no card"
+        : state === "away"
+          ? "away"
+          : "no card yet";
 
   if (state === "back") {
     return (
       <span
+        role="img"
+        aria-label={label}
         className="flex h-[70px] w-[50px] items-center justify-center rounded-chip bg-card-back shadow-rest"
         style={{ transform: `rotate(${rot}deg)`, animation: "modal-drop 250ms var(--ease-spring)" }}
       >
@@ -37,6 +51,8 @@ function SeatCard({
     const hop = consensus ? `, card-hop 450ms var(--ease-spring) ${620 + index * 40}ms` : "";
     return (
       <span
+        role="img"
+        aria-label={label}
         className="flex h-[70px] w-[50px] items-center justify-center rounded-chip border border-line bg-surface font-mono text-2xl shadow-rest"
         style={{ animation: flip + hop }}
       >
@@ -46,12 +62,22 @@ function SeatCard({
   }
   if (state === "away") {
     return (
-      <span className="flex h-[70px] w-[50px] items-center justify-center rounded-chip border-2 border-dashed border-line font-mono text-[11px] text-ink-faint">
+      <span
+        role="img"
+        aria-label={label}
+        className="flex h-[70px] w-[50px] items-center justify-center rounded-chip border-2 border-dashed border-line font-mono text-[11px] text-ink-faint"
+      >
         zzz
       </span>
     );
   }
-  return <span className="h-[70px] w-[50px] rounded-chip border-2 border-dashed border-line" />;
+  return (
+    <span
+      role="img"
+      aria-label={label}
+      className="h-[70px] w-[50px] rounded-chip border-2 border-dashed border-line"
+    />
+  );
 }
 
 export function Table({
@@ -129,7 +155,7 @@ export function Table({
         )}
       </div>
 
-      <p className="mt-1.5 text-center font-mono text-[11px] text-ink-faint">
+      <p role="status" className="mt-1.5 text-center font-mono text-[11px] text-ink-faint">
         {revealed
           ? `${votedCount} ${votedCount === 1 ? "vote" : "votes"} on the table`
           : `${votedCount} of ${canVote} voted`}

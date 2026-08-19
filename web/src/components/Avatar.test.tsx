@@ -41,12 +41,12 @@ describe("initialsOf", () => {
 describe("Avatar", () => {
   it("labels itself with the name so the chip is not a mystery to a screen reader", () => {
     render(<Avatar name="Dana Whitfield" hue={200} />);
-    expect(screen.getByLabelText("Dana Whitfield").textContent).toBe("DW");
+    expect(screen.getByRole("img", { name: "Dana Whitfield" }).textContent).toBe("DW");
   });
 
   it("marks the facilitator", () => {
     render(<Avatar name="Dana Whitfield" hue={200} facilitator />);
-    expect(screen.getByLabelText("facilitator")).toBeTruthy();
+    expect(screen.getByRole("img", { name: "facilitator" })).toBeTruthy();
   });
 
   it("does not mark an ordinary seat", () => {
