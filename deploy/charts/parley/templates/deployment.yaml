@@ -31,6 +31,9 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "parley.serviceAccountName" . }}
+      # Also set here, not just on the ServiceAccount: when both are present the
+      # pod-level field wins, so leaving it off would let the token back in.
+      automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
       {{- with .Values.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}

@@ -128,6 +128,12 @@ serviceAccount:
   create: true
   name: ""
   annotations: {}
+  # Parley talks to Postgres and nothing else — it makes no Kubernetes API
+  # calls at all. Mounting a service account token would hand every pod a
+  # credential it never uses, which is the first thing anything with a foothold
+  # in the container goes looking for. Set on both the ServiceAccount and the
+  # pod spec below, because the pod-level field is the one that wins.
+  automount: false
 
 podAnnotations: {}
 podLabels: {}

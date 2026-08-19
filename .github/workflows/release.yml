@@ -52,9 +52,17 @@ jobs:
           sed -i "s/^version: .*/version: ${VERSION}/" deploy/charts/parley/Chart.yaml
           sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" deploy/charts/parley/Chart.yaml
           helm lint deploy/charts/parley --set database.existingSecret=parley
+      # OCI references are lowercase-only, and this org is spelled Lets-Parley.
+      # The image job gets away with the raw owner because docker/metadata-action
+      # lowercases it; helm push does not, and fails the ref parse before it ever
+      # reaches the network. Lowercase it here, then assert the result really is
+      # a valid ref rather than trusting the tr.
       - name: publish
         run: |
+          OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
+          echo "$OWNER" | grep -qE '^[a-z0-9._-]+$' || {
+            echo "computed owner '$OWNER' is not a valid OCI path component"; exit 1; }
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
             --username ${{ github.actor }} --password-stdin
           helm package deploy/charts/parley --destination /tmp
-          helm push /tmp/parley-*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+          helm push /tmp/parley-*.tgz "oci://ghcr.io/${OWNER}/charts"

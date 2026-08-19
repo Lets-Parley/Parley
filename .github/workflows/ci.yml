@@ -103,6 +103,32 @@ jobs:
             --set database.existingSecret=x --set auth.mode=oidc \
             --set auth.oidc.issuer=https://idp.example.com \
             --set auth.oidc.clientID=parley 2>/dev/null
+      # A guard that only catches the exact string it was written against is not
+      # a guard. These are the shapes that walked through the first version.
+      - name: refuses a moving tag whatever the casing or padding
+        run: |
+          ! helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set image.tag=LATEST 2>/dev/null
+          ! helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set image.tag=Main 2>/dev/null
+          ! helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set-string 'image.tag=latest ' 2>/dev/null
+      - name: refuses a fractional replica count but allows zero
+        run: |
+          ! helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set replicaCount=1.5 2>/dev/null
+          # Scaling to zero is a legitimate way to take Parley down for a
+          # database migration window, so it must still render.
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set replicaCount=0 >/dev/null
+      - name: mounts no service account token
+        run: |
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x > /tmp/sa.yaml
+          # Twice: once on the ServiceAccount, once on the pod spec. The
+          # pod-level field is the one that wins, so one hit is not enough.
+          test "$(grep -c 'automountServiceAccountToken: false' /tmp/sa.yaml)" = 2
+
       - name: refuses ingress TLS with an http baseURL
         run: |
           ! helm template parley deploy/charts/parley \

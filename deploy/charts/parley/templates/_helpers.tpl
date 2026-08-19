@@ -52,7 +52,10 @@ protects the database.
 {{- if not $tag -}}
 {{- fail "image.tag is empty and the chart has no appVersion — pin a published Parley version, e.g. --set image.tag=0.2.1" -}}
 {{- end -}}
-{{- if has $tag (list "latest" "main" "master" "dev" "edge" "nightly") -}}
+{{- /* Compare normalized: `has` is an exact match, so LATEST and "latest "
+       would otherwise walk straight through a guard that exists to stop them. */ -}}
+{{- $moving := $tag | toString | lower | trim -}}
+{{- if has $moving (list "latest" "main" "master" "dev" "edge" "nightly") -}}
 {{- fail (printf "image.tag %q is a moving tag. Pin a published version instead, e.g. --set image.tag=%s. Rolling back onto an image older than the migrations that have already run makes Parley refuse to start." $tag .Chart.AppVersion) -}}
 {{- end -}}
 {{- $tag -}}
@@ -73,6 +76,12 @@ boot: a second replica refuses to start. Rendering one would produce a
 Deployment that can never become healthy, so fail at render instead.
 */}}
 {{- define "parley.checkReplicas" -}}
+{{- /* Check the raw value first. Sprig's `int` truncates, so 1.5 would pass a
+       `gt (int .) 1` test and then render `replicas: 1.5` for the API server to
+       reject — the chart should be what rejects it, with a message. */ -}}
+{{- if not (regexMatch "^[0-9]+$" (toString .Values.replicaCount)) -}}
+{{- fail (printf "replicaCount must be a whole number, got %v" .Values.replicaCount) -}}
+{{- end -}}
 {{- if gt (int .Values.replicaCount) 1 -}}
 {{- fail (printf "replicaCount is %d, but Parley is currently single-replica: the realtime hub is in-process and a second pod refuses to start (Postgres advisory lock at boot). Multi-replica support is tracked at https://github.com/lets-parley/parley — until it lands, replicaCount must be 1." (int .Values.replicaCount)) -}}
 {{- end -}}
