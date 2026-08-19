@@ -89,13 +89,20 @@ func (a *app) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, env)
 }
 
+// handleCloseSession is idempotent: closing an already-closed session is a
+// no-op 204 rather than a conflict, so a retried or double-clicked DELETE
+// never reports an error for work that already landed. That is why this route
+// sits outside the rejectEnded group — the no-write-on-an-ended-session
+// invariant is kept here instead, by skipping the write.
 func (a *app) handleCloseSession(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r.Context())
-	if err := a.sessions.SetEnded(r.Context(), sess.ID, true); err != nil {
-		http.Error(w, `{"error":"could not close session"}`, http.StatusInternalServerError)
-		return
+	if sess.EndedAt == nil {
+		if err := a.sessions.SetEnded(r.Context(), sess.ID, true); err != nil {
+			http.Error(w, `{"error":"could not close session"}`, http.StatusInternalServerError)
+			return
+		}
+		a.broadcastState(r.Context(), sess.ID)
 	}
-	a.broadcastState(r.Context(), sess.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
