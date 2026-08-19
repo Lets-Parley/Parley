@@ -10,6 +10,19 @@ describe("Modal", () => {
     expect((dialog as HTMLDialogElement).open).toBe(true);
   });
 
+  it("opens itself with showModal, not show", () => {
+    // The distinction is invisible to every other assertion here — the jsdom
+    // stub renders show() and showModal() identically — but only showModal()
+    // makes the rest of the page inert and traps focus.
+    const showModal = vi.spyOn(HTMLDialogElement.prototype, "showModal");
+    try {
+      render(<Modal title="Reset the round">body</Modal>);
+      expect(showModal).toHaveBeenCalled();
+    } finally {
+      showModal.mockRestore();
+    }
+  });
+
   it("shows its title and children", () => {
     render(<Modal title="Reset the round">Are you sure?</Modal>);
     expect(screen.getByRole("heading", { name: "Reset the round" })).toBeTruthy();
