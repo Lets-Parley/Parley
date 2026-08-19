@@ -56,6 +56,19 @@ Same link for planning poker and standup. Two commands and a `.env` file, no
 platform team required:
 
 <Tabs>
+  <TabItem label="Helm">
+    ```sh
+    kubectl create secret generic parley \
+      --from-literal=database-url='postgres://parley:secret@host:5432/parley'
+
+    helm install parley oci://ghcr.io/lets-parley/charts/parley --version 0.2.3 \
+      --set database.existingSecret=parley \
+      --set baseURL=https://parley.example.com
+    ```
+    Pin `--version`. The chart refuses to render a release that cannot work —
+    a moving image tag, a second replica, a missing database secret.
+    [The chart →](/operations/kubernetes/)
+  </TabItem>
   <TabItem label="Compose">
     ```sh
     git clone https://github.com/lets-parley/parley && cd parley
@@ -84,9 +97,10 @@ platform team required:
     fixed code.
   </TabItem>
   <TabItem label="Kubernetes">
-    Manifests live in `deploy/k8s/` — a Deployment pinned to one replica, a
-    Service, and a commented Ingress carrying the read-timeout annotations
-    WebSockets need. [Deploying to Kubernetes →](/operations/kubernetes/)
+    The Helm chart above, or the plain manifests in `deploy/k8s/` — a Deployment
+    pinned to one replica, a Service, and a commented Ingress carrying the
+    read-timeout annotations WebSockets need.
+    [Deploying to Kubernetes →](/operations/kubernetes/)
   </TabItem>
 </Tabs>
 
