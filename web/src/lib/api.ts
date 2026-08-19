@@ -104,3 +104,14 @@ export type Envelope = {
   serverTime: string;
   state: PokerState;
 };
+
+/**
+ * Every kind-specific write goes through one server route: POST
+ * /api/sessions/{id}/actions/{name}. One verb, because each of these is a
+ * state transition on the session rather than a replacement of a resource at
+ * that URL. Core routes a kind does not own — close, reopen, spectator,
+ * facilitator, the CSV export — are not actions and keep their own paths.
+ */
+export function action<T = unknown>(sessionId: string, name: string, body?: unknown): Promise<T> {
+  return api<T>("POST", `/api/sessions/${sessionId}/actions/${name}`, body);
+}

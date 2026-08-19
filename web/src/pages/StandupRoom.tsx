@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type Envelope, type Me } from "../lib/api";
+import { action, type Envelope, type Me } from "../lib/api";
 import type { ConnectionStatus } from "../lib/socket";
 import { Avatar } from "../components/Avatar";
 import { buttonPrimary, buttonQuiet, inputClass } from "../components/Modal";
@@ -46,7 +46,7 @@ function useOwnEntryDraft(env: Envelope, meId: string) {
     clearTimeout(timer.current);
     timer.current = window.setTimeout(async () => {
       try {
-        await api("PUT", `/api/sessions/${env.id}/standup`, next);
+        await action(env.id, "standup", next);
         setSaveState("saved");
       } catch {
         setSaveState("error");
@@ -187,7 +187,7 @@ export function StandupRoom({
           </p>
           <EntryForm draft={draft} update={update} saveState={saveState} />
           {isFacilitator && (
-            <button className={buttonPrimary + " self-start"} onClick={() => run(() => api("POST", `/api/sessions/${env.id}/start`))}>
+            <button className={buttonPrimary + " self-start"} onClick={() => run(() => action(env.id, "start"))}>
               Start the round
             </button>
           )}
@@ -216,10 +216,10 @@ export function StandupRoom({
           )}
           {isFacilitator && (
             <div className="flex gap-2">
-              <button className={buttonPrimary} onClick={() => run(() => api("POST", `/api/sessions/${env.id}/next`))}>
+              <button className={buttonPrimary} onClick={() => run(() => action(env.id, "next"))}>
                 Next
               </button>
-              <button className={buttonQuiet} onClick={() => run(() => api("POST", `/api/sessions/${env.id}/skip`))}>
+              <button className={buttonQuiet} onClick={() => run(() => action(env.id, "skip"))}>
                 Skip / absent
               </button>
             </div>

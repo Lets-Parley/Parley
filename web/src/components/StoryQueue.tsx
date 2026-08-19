@@ -1,5 +1,5 @@
 import { useId, useState, type FormEvent } from "react";
-import { api, type Story } from "../lib/api";
+import { action, type Story } from "../lib/api";
 import { buttonPrimary, buttonQuiet, inputClass, Modal } from "./Modal";
 import { faceOf } from "./Table";
 
@@ -36,7 +36,7 @@ export function StoryQueue({
     const neighbour = stories[idx + dir * 2];
     // Insert between the swap target and its neighbour — positions never renumber.
     const pos = neighbour ? (swap.position + neighbour.position) / 2 : swap.position + dir;
-    run(() => api("PATCH", `/api/stories/${story.id}`, { position: pos }));
+    run(() => action(sessionId, "story", { storyId: story.id, position: pos }));
   }
 
   return (
@@ -125,7 +125,7 @@ export function StoryQueue({
                 <button
                   aria-label={`Deal ${s.title}`}
                   className="shrink-0 rounded-full border border-line px-2.5 py-1 text-xs font-bold text-ink-soft hover:bg-felt-deep"
-                  onClick={() => run(() => api("POST", `/api/sessions/${sessionId}/select`, { storyId: s.id }))}
+                  onClick={() => run(() => action(sessionId, "select", { storyId: s.id }))}
                 >
                   Deal
                 </button>
@@ -139,7 +139,7 @@ export function StoryQueue({
         <StoryComposer
           onClose={() => setComposing(false)}
           onSubmit={async (title, notes, ref) => {
-            await run(() => api("POST", `/api/sessions/${sessionId}/stories`, { title, notes, ref }));
+            await run(() => action(sessionId, "stories", { title, notes, ref }));
             setComposing(false);
           }}
         />

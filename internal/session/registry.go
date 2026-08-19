@@ -34,6 +34,9 @@ type Kind struct {
 	NewConfig func() any
 	// CSV renders the export rows. A kind without one has no export.
 	CSV CSVFunc
+	// Actions is the kind's dispatch table, keyed by the {action} segment of
+	// POST /sessions/{id}/actions/{action}.
+	Actions map[string]Action
 }
 
 // Registry holds the session kinds a server knows about. Build one at wiring

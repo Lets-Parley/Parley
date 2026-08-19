@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { api, type Envelope, type Me, type Person, type Story } from "../lib/api";
+import { action, api, type Envelope, type Me, type Person, type Story } from "../lib/api";
 import { GRACE_SECONDS, claimState } from "../lib/derive";
 import { useCountdown, useToast } from "../lib/ui";
 import { Avatar } from "../components/Avatar";
@@ -43,7 +43,7 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
     if (!current || env.revealed || ended) return;
     const prev = selected;
     setSelected(value); // Optimistic: the card lifts before the round-trip.
-    if (!(await run(() => api("POST", `/api/stories/${current.id}/vote`, { value })))) {
+    if (!(await run(() => action(env.id, "vote", { storyId: current.id, value })))) {
       setSelected(prev);
     }
   }
@@ -92,7 +92,7 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
                 <button
                   className={buttonPrimary}
                   disabled={!current || (current.votedUserIds.length === 0)}
-                  onClick={() => run(() => api("POST", `/api/sessions/${env.id}/reveal`))}
+                  onClick={() => run(() => action(env.id, "reveal"))}
                 >
                   Reveal
                 </button>
@@ -105,7 +105,7 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
                     className="rounded-full bg-go px-4 py-2.5 text-sm font-bold text-accent-ink shadow-rest transition hover:shadow-lift"
                     onClick={async () => {
                       const value = heroOf(results).save!;
-                      if (await run(() => api("PATCH", `/api/stories/${current!.id}`, { estimate: value }))) {
+                      if (await run(() => action(env.id, "story", { storyId: current!.id, estimate: value }))) {
                         say(`Estimate ${value} saved to ${current!.ref || "the ad-hoc round"}`);
                       }
                     }}
@@ -313,7 +313,7 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
   // table so the room can point something the tracker has never heard of.
   async function quickRound() {
     const before = new Set(st.stories.map((s) => s.id));
-    if (!(await run(() => api("POST", `/api/sessions/${env.id}/stories`, { title: "Ad-hoc round" })))) return;
+    if (!(await run(() => action(env.id, "stories", { title: "Ad-hoc round" })))) return;
     // Outside run(), a failure here rejected unhandled and the button just
     // looked broken — while the story had in fact already been created.
     let added;
@@ -328,13 +328,13 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
       setError("The round was added but could not be found to deal — pick it from the queue.");
       return;
     }
-    if (await run(() => api("POST", `/api/sessions/${env.id}/select`, { storyId: added.id }))) {
+    if (await run(() => action(env.id, "select", { storyId: added.id }))) {
       say("Ad-hoc round on the table — no ticket needed");
     }
   }
 
   async function reset() {
-    if (await run(() => api("POST", `/api/sessions/${env.id}/reset`))) {
+    if (await run(() => action(env.id, "reset"))) {
       setSelected(null);
       say("Votes cleared — same story, fresh round");
     }

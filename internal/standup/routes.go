@@ -1,78 +1,32 @@
 package standup
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/lets-parley/parley/internal/hub"
-	"github.com/lets-parley/parley/internal/principal"
+	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/store"
 )
 
-type Handler struct {
-	pool      *pgxpool.Pool
-	hub       *hub.Hub
-	sessions  *store.Sessions
-	broadcast func(ctx context.Context, sessionID string)
-}
-
-func New(pool *pgxpool.Pool, h *hub.Hub, broadcast func(ctx context.Context, sessionID string)) *Handler {
-	return &Handler{pool: pool, hub: h, sessions: &store.Sessions{Pool: pool}, broadcast: broadcast}
-}
-
-func (h *Handler) Mount(r chi.Router) {
-	r.Put("/sessions/{id}/standup", h.withSession(h.putEntry, false))
-	r.Post("/sessions/{id}/start", h.withSession(h.start, true))
-	r.Post("/sessions/{id}/next", h.withSession(h.next, true))
-	r.Post("/sessions/{id}/skip", h.withSession(h.skip, true))
-}
-
-type reqCtx struct {
-	principal principal.Principal
-	sess      store.Session
-}
-
-func (h *Handler) withSession(fn func(http.ResponseWriter, *http.Request, reqCtx), facilitatorOnly bool) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		p, ok := principal.From(r.Context())
-		if !ok {
-			http.Error(w, `{"error":"no such session"}`, http.StatusNotFound)
-			return
-		}
-		sess, err := h.sessions.ByID(r.Context(), chi.URLParam(r, "id"))
-		if err != nil {
-			http.Error(w, `{"error":"no such session"}`, http.StatusNotFound)
-			return
-		}
-		spaces := &store.Spaces{Pool: h.pool}
-		member, err := spaces.IsMember(r.Context(), sess.SpaceID, p.UserID)
-		if err != nil || !member {
-			http.Error(w, `{"error":"no such session"}`, http.StatusNotFound)
-			return
-		}
-		if facilitatorOnly && sess.FacilitatorID != p.UserID {
-			http.Error(w, `{"error":"only the facilitator can do that"}`, http.StatusForbidden)
-			return
-		}
-		if sess.EndedAt != nil {
-			http.Error(w, `{"error":"this session has ended"}`, http.StatusConflict)
-			return
-		}
-		fn(w, r, reqCtx{principal: p, sess: sess})
+// actions is standup's dispatch table. Membership, the facilitator check and
+// the ended-session guard all run in the core dispatcher before any of these
+// are called, so none of them re-check authorization.
+func actions() map[string]session.Action {
+	return map[string]session.Action{
+		"standup": {Do: putEntry},
+		"start":   {Do: start, FacilitatorOnly: true},
+		"next":    {Do: next, FacilitatorOnly: true},
+		"skip":    {Do: skip, FacilitatorOnly: true},
 	}
 }
 
-func (h *Handler) done(w http.ResponseWriter, r *http.Request, sessionID string) {
-	h.sessions.BumpVersion(r.Context(), sessionID)
-	h.broadcast(r.Context(), sessionID)
+func done(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+	(&store.Sessions{Pool: ac.Pool}).BumpVersion(r.Context(), ac.Session.ID)
+	ac.Broadcast(r.Context(), ac.Session.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) putEntry(w http.ResponseWriter, r *http.Request, rc reqCtx) {
+func putEntry(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	var body struct {
 		Yesterday string `json:"yesterday"`
 		Today     string `json:"today"`
@@ -86,19 +40,19 @@ func (h *Handler) putEntry(w http.ResponseWriter, r *http.Request, rc reqCtx) {
 		http.Error(w, `{"error":"each field can be at most 2000 characters"}`, http.StatusBadRequest)
 		return
 	}
-	_, err := h.pool.Exec(r.Context(), `
+	_, err := ac.Pool.Exec(r.Context(), `
 		insert into standup_entries (session_id, user_id, yesterday, today, blockers, position)
 		values ($1, $2, $3, $4, $5,
 		        (select coalesce(max(position), 0) + 1 from standup_entries where session_id = $1))
 		on conflict (session_id, user_id) do update
 		set yesterday = excluded.yesterday, today = excluded.today,
 		    blockers = excluded.blockers, updated_at = now()`,
-		rc.sess.ID, rc.principal.UserID, body.Yesterday, body.Today, body.Blockers)
+		ac.Session.ID, ac.UserID, body.Yesterday, body.Today, body.Blockers)
 	if err != nil {
 		http.Error(w, `{"error":"could not save your update"}`, http.StatusInternalServerError)
 		return
 	}
-	h.done(w, r, rc.sess.ID)
+	done(w, r, ac)
 }
 
 // start (re)snapshots the round-robin roster and puts the session at the top
@@ -113,21 +67,21 @@ func (h *Handler) putEntry(w http.ResponseWriter, r *http.Request, rc reqCtx) {
 // offset past them, leave whoever typed first sitting ahead of the roster
 // order. Everything runs under a lock on the session row, so two starts racing
 // each other cannot interleave and hand two people the same slot.
-func (h *Handler) start(w http.ResponseWriter, r *http.Request, rc reqCtx) {
-	connected := h.hub.Connected(rc.sess.ID)
+func start(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+	connected := ac.Hub.Connected(ac.Session.ID)
 	if len(connected) == 0 {
 		http.Error(w, `{"error":"nobody is connected yet — open the session first"}`, http.StatusConflict)
 		return
 	}
 
-	tx, err := h.pool.Begin(r.Context())
+	tx, err := ac.Pool.Begin(r.Context())
 	if err != nil {
 		http.Error(w, `{"error":"could not start the standup"}`, http.StatusInternalServerError)
 		return
 	}
 	defer tx.Rollback(r.Context())
 
-	if _, err := tx.Exec(r.Context(), "select 1 from sessions where id = $1 for update", rc.sess.ID); err != nil {
+	if _, err := tx.Exec(r.Context(), "select 1 from sessions where id = $1 for update", ac.Session.ID); err != nil {
 		http.Error(w, `{"error":"could not start the standup"}`, http.StatusInternalServerError)
 		return
 	}
@@ -147,7 +101,7 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request, rc reqCtx) {
 		from members m join users u on u.id = m.user_id
 		where m.space_id = $2 and not m.spectator and m.user_id::text = any($3)
 		on conflict (session_id, user_id) do nothing`,
-		rc.sess.ID, rc.sess.SpaceID, connected); err != nil {
+		ac.Session.ID, ac.Session.SpaceID, connected); err != nil {
 		http.Error(w, `{"error":"could not start the standup"}`, http.StatusInternalServerError)
 		return
 	}
@@ -167,7 +121,7 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request, rc reqCtx) {
 		    where e2.session_id = $1
 		) r
 		where e.session_id = $1 and e.user_id = r.user_id`,
-		rc.sess.ID, rc.sess.SpaceID); err != nil {
+		ac.Session.ID, ac.Session.SpaceID); err != nil {
 		http.Error(w, `{"error":"could not start the standup"}`, http.StatusInternalServerError)
 		return
 	}
@@ -179,7 +133,7 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request, rc reqCtx) {
 		    join members m on m.space_id = $2 and m.user_id = e.user_id
 		    where e.session_id = $1 and not m.spectator
 		    order by e.position limit 1)
-		where id = $1`, rc.sess.ID, rc.sess.SpaceID); err != nil {
+		where id = $1`, ac.Session.ID, ac.Session.SpaceID); err != nil {
 		http.Error(w, `{"error":"could not start the standup"}`, http.StatusInternalServerError)
 		return
 	}
@@ -188,19 +142,19 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request, rc reqCtx) {
 		return
 	}
 
-	h.broadcast(r.Context(), rc.sess.ID)
+	ac.Broadcast(r.Context(), ac.Session.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) advance(w http.ResponseWriter, r *http.Request, rc reqCtx, markSkipped bool) {
+func advance(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, markSkipped bool) {
 	if markSkipped {
-		h.pool.Exec(r.Context(), `
+		ac.Pool.Exec(r.Context(), `
 			update standup_entries set skipped = true
 			where session_id = $1 and user_id = (select current_speaker_id from sessions where id = $1)`,
-			rc.sess.ID)
+			ac.Session.ID)
 	}
 	// Next entry after the current speaker's position; none left → done.
-	tag, _ := h.pool.Exec(r.Context(), `
+	tag, _ := ac.Pool.Exec(r.Context(), `
 		update sessions set version = version + 1, speaker_started_at = now(),
 		current_speaker_id = (
 		    select e.user_id from standup_entries e
@@ -209,22 +163,22 @@ func (h *Handler) advance(w http.ResponseWriter, r *http.Request, rc reqCtx, mar
 		        select position from standup_entries
 		        where session_id = $1 and user_id = sessions.current_speaker_id), 0)
 		    order by e.position limit 1)
-		where id = $1 and phase = 'speaking'`, rc.sess.ID, rc.sess.SpaceID)
+		where id = $1 and phase = 'speaking'`, ac.Session.ID, ac.Session.SpaceID)
 	if tag.RowsAffected() == 0 {
 		http.Error(w, `{"error":"the standup has not started"}`, http.StatusConflict)
 		return
 	}
-	h.pool.Exec(r.Context(), `
+	ac.Pool.Exec(r.Context(), `
 		update sessions set phase = 'done', speaker_started_at = null
-		where id = $1 and current_speaker_id is null`, rc.sess.ID)
-	h.broadcast(r.Context(), rc.sess.ID)
+		where id = $1 and current_speaker_id is null`, ac.Session.ID)
+	ac.Broadcast(r.Context(), ac.Session.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) next(w http.ResponseWriter, r *http.Request, rc reqCtx) {
-	h.advance(w, r, rc, false)
+func next(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+	advance(w, r, ac, false)
 }
 
-func (h *Handler) skip(w http.ResponseWriter, r *http.Request, rc reqCtx) {
-	h.advance(w, r, rc, true)
+func skip(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+	advance(w, r, ac, true)
 }

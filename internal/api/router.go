@@ -160,8 +160,10 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 			r.Post("/spaces/{slug}/sessions", a.handleCreateSession)
 		})
 
-		poker.New(a.pool, a.hub, a.broadcastState).Mount(r)
-		standup.New(a.pool, a.hub, a.broadcastState).Mount(r)
+		// Deprecated, one release only: the story-scoped poker routes carry
+		// the story in the path instead of the body, so they cannot go
+		// through the dispatcher and keep their own copy of the ladder.
+		poker.New(a.pool, a.hub, a.broadcastState).MountLegacyStories(r)
 
 		// requireSessionMember answers 404 for anonymous callers too, so these
 		// routes sit outside RequireUser: a session's existence is never
@@ -170,7 +172,15 @@ func Router(pool *pgxpool.Pool, opts Options) http.Handler {
 			r.Use(a.requireSessionMember)
 			r.Get("/", a.handleGetSession)
 			r.Get("/export.csv", a.handleExportCSV)
+			// The one action dispatcher. Kind actions are resolved against
+			// this session's own kind, so two kinds can name an action the
+			// same thing without sharing a namespace to collide in.
+			r.Post("/actions/{action}", a.handleAction)
+			for _, al := range legacyAliases {
+				r.MethodFunc(al.method, al.path, a.aliasAction(al.action))
+			}
 			r.With(rejectEnded).Post("/facilitator/claim", a.handleClaimFacilitator)
+			r.With(rejectEnded).Post("/spectator", a.handleSetSpectator)
 			r.Group(func(r chi.Router) {
 				r.Use(rejectEnded)
 				r.Use(requireFacilitator)
