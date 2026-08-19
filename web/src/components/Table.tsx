@@ -137,7 +137,10 @@ export function Table({
         {spectators.length > 0 && (
           <>
             <div className="mx-1 w-px self-stretch bg-line" />
-            <div className="flex flex-col gap-2 pt-1 opacity-70">
+            {/* No group opacity here: it multiplied through to the text and
+                dropped the heading to 2.8:1. The rule and the smaller avatars
+                set the spectators apart without dimming what they say. */}
+            <div className="flex flex-col gap-2 pt-1">
               <div className="font-mono text-[9px] uppercase tracking-[0.08em] text-ink-faint">
                 spectators
               </div>
