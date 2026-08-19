@@ -116,6 +116,10 @@ the verb that works. A name this kind has no action for is **404** under every
 verb — the dispatcher decides both itself, because the action name is a path
 parameter and the router cannot know which names are real.
 
+No action may declare `GET` or `HEAD`; registering a kind that does is refused
+at startup. Every action is a write, and the cross-site guard exempts `GET` on
+the promise that a `GET` changes nothing.
+
 The action name is resolved against **this session's own kind**, so an action
 belonging to another kind is a 404 rather than a route two kinds share. The
 `{id}` in the path is the binding for everything the action touches: a `storyId`
