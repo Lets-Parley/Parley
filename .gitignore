@@ -3,3 +3,4 @@ web/dist/*
 !web/dist/.gitkeep
 .env
 /parley
+site/pnpm-lock.yaml
