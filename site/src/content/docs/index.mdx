@@ -76,7 +76,7 @@ platform team required:
     docker run -d --name parley -p 8080:8080 \
       -e DATABASE_URL='postgres://parley:secret@db:5432/parley' \
       -e BASE_URL='https://parley.example.com' \
-      ghcr.io/lets-parley/parley:0.2.2
+      ghcr.io/lets-parley/parley:0.2.3
     ```
     Multi-arch, amd64 and arm64. Bring your own Postgres. Run v0.2.2 or later:
     every earlier release can be crashed remotely by a disconnecting client, and

@@ -20,7 +20,7 @@ Only the latest release is supported. There are no backported security fixes.
 
 | Version | Supported |
 |---|---|
-| 0.2.2 | Yes |
+| 0.2.2, 0.2.3 | Yes |
 | 0.2.0, 0.2.1 | **No — have a known vulnerability, see below** |
 | 0.1.0 | **No — has known vulnerabilities, see below** |
 
