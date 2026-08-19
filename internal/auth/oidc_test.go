@@ -113,7 +113,9 @@ func TestDiscoverDoesNotCacheAFailedLookup(t *testing.T) {
 	var broken atomic.Bool
 	broken.Store(true)
 
+	var hits int32
 	gate := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
 		if broken.Load() {
 			http.Error(w, "the identity provider is restarting", http.StatusInternalServerError)
 			return
@@ -131,8 +133,12 @@ func TestDiscoverDoesNotCacheAFailedLookup(t *testing.T) {
 		t.Fatal("a failing discovery was reported as a success")
 	}
 
+	before := atomic.LoadInt32(&hits)
 	broken.Store(false)
 	if err := p.discover(context.Background()); err != nil {
 		t.Fatalf("discovery did not retry after the provider recovered: %v", err)
+	}
+	if atomic.LoadInt32(&hits) == before {
+		t.Fatal("discover() did not actually re-contact the provider after a failed lookup — the failure may have been cached")
 	}
 }
