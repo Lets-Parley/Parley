@@ -44,6 +44,17 @@ if (cd "$test_repo" && "$checker" "$malformed" "$body_signoff") >"$test_repo/bod
 fi
 grep -q "${body_signoff%????????????????????????????????}" "$test_repo/body-signoff.out"
 
+git -C "$test_repo" commit --allow-empty -q -m "chore(deps): bump something" \
+  -m "---
+updated-dependencies:
+- dependency-name: node
+  dependency-type: direct:production
+...
+
+Signed-off-by: dependabot[bot] <support@github.com>"
+divider=$(git -C "$test_repo" rev-parse HEAD)
+(cd "$test_repo" && "$checker" "$body_signoff" "$divider")
+
 if (cd "$test_repo" && "$checker" not-a-revision "$signed") >"$test_repo/revision.out" 2>&1; then
   echo "invalid revision range unexpectedly passed" >&2
   exit 1

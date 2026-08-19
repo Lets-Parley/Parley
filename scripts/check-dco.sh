@@ -17,7 +17,7 @@ fi
 
 for commit in $commits; do
   message=$(git log -1 --format=%B "$commit")
-  trailers=$(printf '%s\n' "$message" | git interpret-trailers --parse)
+  trailers=$(printf '%s\n' "$message" | git interpret-trailers --parse --no-divider)
   if ! printf '%s\n' "$trailers" |
     grep -Eq '^Signed-off-by: .+ <[^<>[:space:]]+@[^<>[:space:]]+>$'; then
     echo "commit $(git rev-parse --short=12 "$commit") is missing a valid Signed-off-by trailer" >&2
