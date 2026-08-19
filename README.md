@@ -284,9 +284,10 @@ kubectl apply -f deploy/k8s/deployment.yaml
 Parley runs on more than one replica: WebSocket fanout goes through Postgres
 `LISTEN`/`NOTIFY`, presence and the room-code throttle are rows in Postgres, and
 pods that boot together serialize their migrations behind an advisory lock. The
-chart defaults to two, and adds a PodDisruptionBudget and a topology spread
-constraint above one replica — a budget in front of a single pod would deadlock
-the drain it was meant to survive. Each replica opens up to 10 pooled Postgres
+chart defaults to one replica, so an upgrade never doubles a running install's
+pods behind your back; `--set replicaCount=2` opts in. Above one replica it also
+renders a PodDisruptionBudget and a topology spread constraint — a budget in
+front of a single pod would deadlock the drain it was meant to survive. Each replica opens up to 10 pooled Postgres
 connections plus one for the fanout listener, so size `max_connections` for
 `replicas × 11`.
 

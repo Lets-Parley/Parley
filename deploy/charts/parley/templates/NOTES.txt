@@ -38,7 +38,19 @@ Check it came up:
     kubectl --namespace {{ .Release.Namespace }} rollout status deploy/{{ include "parley.fullname" . }}
     helm --namespace {{ .Release.Namespace }} test {{ .Release.Name }}
 
-Two things that will bite you later:
+Three things worth knowing:
+
+  * This installed {{ .Values.replicaCount }} replica{{ if ne (int .Values.replicaCount) 1 }}s{{ end }}. Parley supports more than one —
+    fanout, presence and the passcode throttle all go through Postgres, and
+    migrations serialize behind an advisory lock — but the default is 1 so an
+    upgrade never silently doubles your pods. Scale up when you want rollout
+    headroom and a survivable node failure:
+
+        helm --namespace {{ .Release.Namespace }} upgrade {{ .Release.Name }} <chart> --reuse-values --set replicaCount=2
+
+    At 2 or more you also get a PodDisruptionBudget. Every replica opens up to
+    10 Postgres connections plus one for the fanout listener, so size
+    max_connections for replicaCount * 11.
 
   * Upgrades roll, they do not stop. With more than one replica the rollout is
     seamless; with replicaCount 1 there is a reconnect as the pod is replaced,

@@ -28,6 +28,22 @@ The advisory lock that used to enforce one instance is gone, and with it both
 the pooled connection it held for the life of the process and the split-brain
 hazard it opened around a database failover.
 
+### Scaling up is opt-in
+
+The chart ships `replicaCount: 1`, so upgrading it never silently doubles a
+running install's pods — or the database connections that come with them. Ask
+for more when you want rollout headroom and a survivable node failure:
+
+```sh
+helm upgrade parley oci://ghcr.io/lets-parley/charts/parley \
+  --reuse-values --set replicaCount=2
+```
+
+At two or more the chart also renders a PodDisruptionBudget; below that it does
+not, because a budget in front of a single pod blocks every voluntary eviction
+and hangs the `kubectl drain` it was meant to survive. Size `max_connections`
+for the new count first — see [Sizing the database](#sizing-the-database).
+
 ### Migrations when several pods boot together
 
 Every pod runs migrations at startup. `Migrate` takes a blocking

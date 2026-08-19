@@ -99,7 +99,8 @@ platform team required:
   <TabItem label="Kubernetes">
     The Helm chart above, or the plain manifests in `deploy/k8s/` — a Deployment,
     a Service, a PodDisruptionBudget, and a commented Ingress carrying the
-    read-timeout annotations WebSockets need. Two replicas by default.
+    read-timeout annotations WebSockets need. One replica by default; scale up
+    with `--set replicaCount=2`.
     [Deploying to Kubernetes →](/operations/kubernetes/)
   </TabItem>
 </Tabs>

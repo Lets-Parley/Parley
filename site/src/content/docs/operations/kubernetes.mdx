@@ -63,9 +63,10 @@ them:
   out of the quoted string it lands in inside the pod spec.
 - **A fractional replica count.** `replicaCount` must be a whole number:
   `1.5` would otherwise reach the API server as `replicas: 1.5` and be rejected
-  there with no useful message. More than one replica is supported and is the
-  default. `0` still renders — scaling to zero is how you take Parley down for
-  a maintenance window.
+  there with no useful message. More than one replica is supported; the default
+  is 1, so upgrading the chart never silently doubles an install's pods. `0`
+  still renders — scaling to zero is how you take Parley down for a maintenance
+  window.
 - **A missing `database.existingSecret`.**
 - **OIDC without a client secret.**
 - **Ingress TLS under an `http://` base URL.**
@@ -79,8 +80,10 @@ would only ever be a credential for something with a foothold to find.
 `deploy/k8s/deployment.yaml` is a starting point. Two things in it are
 load-bearing rather than stylistic.
 
-**`replicas: 2` + `strategy: RollingUpdate`** with `maxSurge: 1` and
-`maxUnavailable: 0`, so a rollout never drops below the replica count. Every
+**`strategy: RollingUpdate`** with `maxSurge: 1` and `maxUnavailable: 0`, so a
+rollout never drops below the replica count. Like the chart it ships with
+`replicas: 1`; raise it when you want rollout headroom and a survivable node
+failure. Every
 replica opens up to 10 pooled Postgres connections plus one for the fanout
 listener, so size `max_connections` for `replicas × 11`. The plain manifest has
 no PodDisruptionBudget and no anti-affinity — the chart adds both.

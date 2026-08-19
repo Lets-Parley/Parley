@@ -17,16 +17,24 @@ image:
   pullPolicy: IfNotPresent
   pullSecrets: []
 
-# Parley runs on more than one replica. WebSocket fanout goes through Postgres
+# Parley supports more than one replica. WebSocket fanout goes through Postgres
 # LISTEN/NOTIFY, presence and the passcode throttle live in the database, and
 # migrations serialize behind an advisory lock, so pods that boot together are
-# safe. Two is the default because one replica has no rollout headroom and no
-# survivable node failure; drop it to 1 if you would rather not pay for the
-# second pod, or to 0 to take Parley down for a maintenance window.
+# safe.
+#
+# The default stays 1 so that upgrading the chart never silently doubles a
+# running install's pod count — and its database connections with it. Opt into
+# HA explicitly:
+#
+#     --set replicaCount=2
+#
+# At 2 or more you also get a PodDisruptionBudget and the rollout is seamless;
+# at 1 there is a brief reconnect while the pod is replaced. Set 0 to take
+# Parley down for a maintenance window.
 #
 # Every replica opens its own pool of up to 10 Postgres connections plus one
 # for the fanout listener, so size max_connections for replicaCount * 11.
-replicaCount: 2
+replicaCount: 1
 
 # maxUnavailable: 0 keeps full capacity through a rollout; maxSurge: 1 replaces
 # one pod at a time so the database never sees a whole extra deployment's worth
@@ -53,8 +61,8 @@ podDisruptionBudget:
   minAvailable: 1
   maxUnavailable: ""
 
-# Two replicas on one node is one node failure away from no replicas. The
-# selector is filled in by the chart. ScheduleAnyway rather than DoNotSchedule
+# Two replicas on one node is one node failure away from no replicas — this
+# only bites once you scale above one. The selector is filled in by the chart. ScheduleAnyway rather than DoNotSchedule
 # so a single-node or two-node cluster still schedules instead of leaving pods
 # Pending; tighten it to DoNotSchedule once you have nodes to spare.
 topologySpreadConstraints:

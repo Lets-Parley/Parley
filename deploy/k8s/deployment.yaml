@@ -12,14 +12,16 @@ metadata:
   labels:
     app: parley
 spec:
-  # Parley runs on more than one replica: fanout, presence and the passcode
+  # Parley supports more than one replica: fanout, presence and the passcode
   # throttle all go through Postgres, and migrations serialize behind an
-  # advisory lock so pods that boot together are safe. Raise this and add a
-  # PodDisruptionBudget — the Helm chart does both for you.
+  # advisory lock so pods that boot together are safe. One is the default here
+  # and in the chart, so nothing doubles your pod count behind your back — raise
+  # this for rollout headroom and a survivable node failure, and add a
+  # PodDisruptionBudget when you do. The Helm chart does both for you.
   #
   # Every replica opens up to 10 pooled Postgres connections plus one for the
   # fanout listener, so size max_connections for replicas * 11.
-  replicas: 2
+  replicas: 1
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -37,7 +39,8 @@ spec:
       # give termination real room: the old pod holds its presence rows and its
       # database connections until the process exits.
       terminationGracePeriodSeconds: 30
-      # Two replicas on one node is one node failure away from none.
+      # Ready for when you scale up: two replicas on one node is one node
+      # failure away from none.
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
