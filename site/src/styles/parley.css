@@ -273,6 +273,9 @@
   .parley-nav-link {
     display: inline-block;
     margin-inline-start: 1.5rem;
+    /* .title-wrapper sets no align-items, so the default stretch makes this
+       full-height and renders the text against the top of the header. */
+    align-self: center;
     /* .title-wrapper clips its overflow, so without this the link is the part
        that gets cut when the header is tight. Let the title truncate instead. */
     flex-shrink: 0;
