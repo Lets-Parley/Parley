@@ -14,7 +14,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/lets-parley/parley/internal/hub"
 	"github.com/lets-parley/parley/internal/store"
 )
 
@@ -166,7 +165,14 @@ func roster(ctx context.Context, pool *pgxpool.Pool, spaceID string) (string, []
 	return slug, people, rows.Err()
 }
 
-func (r *Registry) BuildEnvelope(ctx context.Context, pool *pgxpool.Pool, h *hub.Hub, sessions *store.Sessions, id string) (Envelope, error) {
+// BuildEnvelope assembles the wire state for a session.
+//
+// Presence comes from the database, not from a hub. That is the whole point:
+// any replica must be able to answer "who is in this room" with the same list,
+// including people whose sockets are held by a different pod. There is
+// deliberately no in-process fallback — a second path here is a path that tests
+// exercise and production does not.
+func (r *Registry) BuildEnvelope(ctx context.Context, pool *pgxpool.Pool, presence *store.Presence, sessions *store.Sessions, id string) (Envelope, error) {
 	sess, err := sessions.ByID(ctx, id)
 	if err != nil {
 		return Envelope{}, err
@@ -184,9 +190,12 @@ func (r *Registry) BuildEnvelope(ctx context.Context, pool *pgxpool.Pool, h *hub
 		return Envelope{}, err
 	}
 
-	presence := h.Connected(id)
+	connected, err := presence.InSession(ctx, id)
+	if err != nil {
+		return Envelope{}, err
+	}
 	facConnected := false
-	for _, uid := range presence {
+	for _, uid := range connected {
 		if uid == sess.FacilitatorID {
 			facConnected = true
 			break
@@ -202,7 +211,7 @@ func (r *Registry) BuildEnvelope(ctx context.Context, pool *pgxpool.Pool, h *hub
 		FacilitatorID:        sess.FacilitatorID,
 		FacilitatorConnected: facConnected,
 		EndedAt:              sess.EndedAt,
-		Presence:             presence,
+		Presence:             connected,
 		SpaceSlug:            slug,
 		Participants:         people,
 		ServerTime:           time.Now().UTC(),

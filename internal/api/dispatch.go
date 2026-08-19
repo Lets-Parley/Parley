@@ -86,6 +86,7 @@ func (a *app) dispatch(w http.ResponseWriter, r *http.Request, name string) {
 		return
 	}
 	act.Do(w, r, session.ActionCtx{
+		Presence:  a.presence,
 		Pool:      a.pool,
 		Hub:       a.hub,
 		Broadcast: a.broadcastState,

@@ -24,12 +24,13 @@ import (
 type Handler struct {
 	pool      *pgxpool.Pool
 	hub       *hub.Hub
+	presence  *store.Presence
 	sessions  *store.Sessions
 	broadcast func(ctx context.Context, sessionID string)
 }
 
-func New(pool *pgxpool.Pool, h *hub.Hub, broadcast func(ctx context.Context, sessionID string)) *Handler {
-	return &Handler{pool: pool, hub: h, sessions: &store.Sessions{Pool: pool}, broadcast: broadcast}
+func New(pool *pgxpool.Pool, h *hub.Hub, presence *store.Presence, broadcast func(ctx context.Context, sessionID string)) *Handler {
+	return &Handler{pool: pool, hub: h, presence: presence, sessions: &store.Sessions{Pool: pool}, broadcast: broadcast}
 }
 
 // MountLegacyStories attaches the deprecated story-scoped routes to an /api
@@ -83,6 +84,7 @@ func (h *Handler) withStory(fn func(http.ResponseWriter, *http.Request, session.
 			return
 		}
 		fn(w, r, session.ActionCtx{
+			Presence:  h.presence,
 			Pool:      h.pool,
 			Hub:       h.hub,
 			Broadcast: h.broadcast,

@@ -9,7 +9,7 @@ import (
 
 func (a *app) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r.Context())
-	env, err := a.kinds.BuildEnvelope(r.Context(), a.pool, a.hub, a.sessions, sess.ID)
+	env, err := a.kinds.BuildEnvelope(r.Context(), a.pool, a.presence, a.sessions, sess.ID)
 	if err != nil {
 		http.Error(w, `{"error":"could not load session"}`, http.StatusInternalServerError)
 		return

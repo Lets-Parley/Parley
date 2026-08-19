@@ -13,10 +13,19 @@ import (
 	"github.com/lets-parley/parley/internal/store"
 )
 
-// broadcastState rebuilds the envelope and pushes it to every connection in the
-// room. Handlers call it after any mutation.
+// broadcastState pushes the new state to this replica's clients and tells the
+// other replicas to do the same. Handlers call it after any mutation.
 func (a *app) broadcastState(ctx context.Context, sessionID string) {
-	env, err := a.kinds.BuildEnvelope(ctx, a.pool, a.hub, a.sessions, sessionID)
+	a.broadcastLocal(ctx, sessionID)
+	a.notify(ctx, sessionID)
+}
+
+// broadcastLocal rebuilds the envelope and pushes it to every connection held
+// by THIS replica. It deliberately does not notify: it is also what the
+// notification listener calls, and a replica that re-notified on every message
+// it received would keep the whole cluster talking forever.
+func (a *app) broadcastLocal(ctx context.Context, sessionID string) {
+	env, err := a.kinds.BuildEnvelope(ctx, a.pool, a.presence, a.sessions, sessionID)
 	if err != nil {
 		slog.Error("could not build session state for broadcast", "session", sessionID, "error", err)
 		return
@@ -65,6 +74,15 @@ func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"kind must be poker or standup"}`, http.StatusBadRequest)
 		return
 	}
+	retired, err := a.sessions.KindRetired(r.Context(), body.Kind)
+	if err != nil {
+		http.Error(w, `{"error":"could not check the session kind"}`, http.StatusInternalServerError)
+		return
+	}
+	if retired {
+		http.Error(w, `{"error":"that session kind has been retired"}`, http.StatusBadRequest)
+		return
+	}
 	config, err := a.kinds.ParseConfig(body.Kind, body.Config)
 	if err != nil {
 		http.Error(w, `{"error":"invalid config for this session kind"}`, http.StatusBadRequest)
@@ -81,7 +99,7 @@ func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r.Context())
-	env, err := a.kinds.BuildEnvelope(r.Context(), a.pool, a.hub, a.sessions, sess.ID)
+	env, err := a.kinds.BuildEnvelope(r.Context(), a.pool, a.presence, a.sessions, sess.ID)
 	if err != nil {
 		http.Error(w, `{"error":"could not load session"}`, http.StatusInternalServerError)
 		return
