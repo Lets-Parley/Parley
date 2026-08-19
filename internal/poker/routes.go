@@ -177,18 +177,32 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 	}
 	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
 		func(tx pgx.Tx, sess store.Session) error {
-			if title != nil {
-				if _, err := tx.Exec(r.Context(), "update stories set title = $2 where id = $1", storyID, *title); err != nil {
+			// Ref and title name the story between them, so an edit that
+			// touches either is read and written as one step: checked before
+			// anything is written, and applied by a single statement so the
+			// row never passes through a transiently nameless state.
+			if title != nil || ref != nil {
+				var haveTitle, haveRef string
+				if err := tx.QueryRow(r.Context(),
+					"select title, ref from stories where id = $1", storyID).Scan(&haveTitle, &haveRef); err != nil {
+					return err
+				}
+				if title != nil {
+					haveTitle = *title
+				}
+				if ref != nil {
+					haveRef = *ref
+				}
+				if haveTitle == "" && haveRef == "" {
+					return errStoryUnidentified
+				}
+				if _, err := tx.Exec(r.Context(),
+					"update stories set title = $2, ref = $3 where id = $1", storyID, haveTitle, haveRef); err != nil {
 					return err
 				}
 			}
 			if body.Notes != nil {
 				if _, err := tx.Exec(r.Context(), "update stories set notes = $2 where id = $1", storyID, *body.Notes); err != nil {
-					return err
-				}
-			}
-			if ref != nil {
-				if _, err := tx.Exec(r.Context(), "update stories set ref = $2 where id = $1", storyID, *ref); err != nil {
 					return err
 				}
 			}
@@ -216,17 +230,6 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 						return err
 					}
 				}
-			}
-			// A story is addressable by its ref or its title; an edit must not
-			// leave it with neither.
-			var identified bool
-			if err := tx.QueryRow(r.Context(),
-				"select coalesce(title, '') <> '' or coalesce(ref, '') <> '' from stories where id = $1",
-				storyID).Scan(&identified); err != nil {
-				return err
-			}
-			if !identified {
-				return errStoryUnidentified
 			}
 			_, err := tx.Exec(r.Context(), "update sessions set version = version + 1 where id = $1", sess.ID)
 			return err
@@ -430,8 +433,10 @@ func reset(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 
 // storyIdentityError reports why a story's ref/title pair is unusable, or "".
 // Either field identifies the story on its own, so only a pair that is blank
-// on both sides is rejected.
+// on both sides is rejected. It trims before judging, so whitespace is not
+// mistaken for a name however the caller got here.
 func storyIdentityError(title, ref string) string {
+	title, ref = strings.TrimSpace(title), strings.TrimSpace(ref)
 	switch {
 	case title == "" && ref == "":
 		return "a ticket needs a reference or a title"
