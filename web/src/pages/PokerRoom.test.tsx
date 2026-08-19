@@ -115,3 +115,13 @@ describe("PokerRoom facilitator claim", () => {
     expect(screen.queryByRole("button", { name: /^Claim/ })).toBeNull();
   });
 });
+
+describe("PokerRoom story on the table", () => {
+  it("names a ref-only story by its ticket reference", () => {
+    // A ticket may carry only a reference, and an empty <h1> is not a name.
+    const env = envelope();
+    env.state.stories[0].title = "";
+    renderApp(<PokerRoom env={env} me={me} />);
+    expect(screen.getByRole("heading", { level: 1, name: "PLAT-412" })).toBeTruthy();
+  });
+});

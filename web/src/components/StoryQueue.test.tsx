@@ -64,4 +64,23 @@ describe("StoryQueue", () => {
     await userEvent.type(screen.getByPlaceholderText(/Ticket, e.g./), "PAR-142");
     expect(submit.disabled).toBe(false);
   });
+
+  it("adds a ref-only ticket to the queue", async () => {
+    // The submit guard is behaviour, not an attribute: a ref with no title has
+    // to actually reach the server. Asserting on `disabled` alone leaves the
+    // guard free to be an && and nobody notices.
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    renderQueue();
+    await userEvent.click(screen.getByRole("button", { name: "+ Ticket" }));
+    await userEvent.type(screen.getByPlaceholderText(/Ticket, e.g./), "PAR-142");
+    await userEvent.click(screen.getByRole("button", { name: "Add to queue" }));
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [path, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe("/api/sessions/sess-1/actions/stories");
+    expect(JSON.parse(init.body as string)).toMatchObject({ ref: "PAR-142", title: "" });
+    fetchSpy.mockRestore();
+  });
 });
