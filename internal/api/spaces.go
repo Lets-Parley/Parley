@@ -100,14 +100,27 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
 				return
 			}
-			// Presence is read from the hub, not the database: a member is
-			// "at" a session only while a socket is actually open.
+			// A member is "at" a session only while a socket is actually
+			// open — on any replica, not just this one.
+			open := make([]string, 0, len(sessions))
+			for _, sess := range sessions {
+				if sess.EndedAt == nil {
+					open = append(open, sess.ID)
+				}
+			}
+			// One query for the whole space. Asking per session turned a page
+			// load into a round trip per open session.
+			here, err := a.presence.InSessions(r.Context(), open)
+			if err != nil {
+				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+				return
+			}
 			seats := map[string]*seatRef{}
 			for _, sess := range sessions {
 				if sess.EndedAt != nil {
 					continue
 				}
-				for _, uid := range a.hub.Connected(sess.ID) {
+				for _, uid := range here[sess.ID] {
 					if _, taken := seats[uid]; !taken {
 						seats[uid] = &seatRef{SessionID: sess.ID, Title: sess.Title}
 					}
