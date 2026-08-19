@@ -21,7 +21,27 @@ and non-GET requests are rejected with 403 if their `Origin` does not match
 <RouteTable rows={[
   { method: "GET", path: "/healthz", auth: "public", purpose: "Liveness. Always 200, never touches the database." },
   { method: "GET", path: "/readyz", auth: "public", purpose: "Readiness. Pings Postgres with a 3s timeout; 503 if unreachable." },
+  { method: "GET", path: "/version", auth: "public", purpose: "The build this instance is running. Always 200, never touches the database." },
 ]} />
+
+`/version` answers with the build string and nothing else:
+
+```json
+{ "version": "0.2.3" }
+```
+
+A build that was not stamped at link time reports `"dev"` rather than a blank,
+so the answer is always honest about what it does and does not know.
+
+Like `/healthz`, it is unauthenticated and never touches Postgres — deliberately,
+not by oversight. The question it exists to answer, "is this instance on the
+version I think it is?", has to be answerable while the database is down and
+before anyone can sign in. The trade-off is that the version is readable by
+anyone who can reach the port; that is accepted, because the tags are public
+anyway and an operator unable to confirm a patch landed is worse off than an
+attacker who can read a number. See
+[the runbook](/operations/runbook/#which-version-is-this-instance-running) for
+how to use it.
 
 ## Sign-in
 
