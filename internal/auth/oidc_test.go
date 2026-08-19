@@ -202,11 +202,27 @@ func TestDiscoverSurvivesTheFirstCallerGivingUp(t *testing.T) {
 	go func() { done <- p.discover(impatient) }()
 	// Let the first caller actually reach the network before it walks away,
 	// rather than guessing at a wall-clock margin.
-	<-requestReceived
+	select {
+	case <-requestReceived:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the first caller never reached the identity provider")
+	}
 	cancel()
 	close(release)
 
 	if err := <-done; err != nil {
 		t.Fatalf("discovery was cancelled by the caller that started it: %v", err)
+	}
+}
+
+func TestDiscoveryWindowDefaultsToFifteenSeconds(t *testing.T) {
+	p := &Provider{}
+	if got := p.discoveryWindow(); got != 15*time.Second {
+		t.Fatalf("an unset discoveryTimeout gave a %v window, want 15s — production would %s", got, "either expire immediately or never")
+	}
+
+	p.discoveryTimeout = 200 * time.Millisecond
+	if got := p.discoveryWindow(); got != 200*time.Millisecond {
+		t.Fatalf("an explicit discoveryTimeout gave a %v window, want 200ms", got)
 	}
 }
