@@ -151,7 +151,14 @@ migration and embedding mistakes that unit tests miss.
 10. Docs pages carry a `VerifiedStamp` recording the version and source file they
     were transcribed from. Changing a default, limit, or security property means
     updating the `site/` page **and** its stamp in the same PR.
-11. Dependabot watches only `site/`. Go modules and `web/` dependencies are
+11. **The docs site writes the current release down once**, in
+    `site/src/version.mjs`. Pages carry `%VERSION%` and an mdast plugin
+    substitutes it at build time, prose and code fences alike. A release means
+    editing that one line and merging it — that push under `site/**` is also
+    what redeploys the site, since `release.yml` never touches `site/`. Leave
+    minimum-version sentences ("chart 0.4.1 or newer") and historical
+    references literal; they are not the current version.
+12. Dependabot watches only `site/`. Go modules and `web/` dependencies are
     bumped by hand, with tests.
 
 ## Scope
