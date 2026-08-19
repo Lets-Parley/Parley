@@ -1,7 +1,79 @@
 ---
 title: Kubernetes
-description: A starting manifest, and the two things in it that are load-bearing.
+description: The Helm chart, the guards it enforces, and a plain manifest for people who do not run Helm.
 ---
+
+## Install the Helm chart
+
+The chart is published to the same registry as the image. Create the database
+secret, then install:
+
+```sh
+kubectl create secret generic parley \
+  --from-literal=database-url='postgres://parley:secret@host:5432/parley'
+
+helm install parley oci://ghcr.io/lets-parley/charts/parley --version 0.2.3 \
+  --set database.existingSecret=parley \
+  --set baseURL=https://parley.example.com
+```
+
+`helm test parley` then checks the Service actually routes to a pod that
+reached Postgres.
+
+### Pin `--version`
+
+Without it Helm resolves to whatever the registry currently calls newest, so the
+command above means something different after every release. The chart version
+tracks the app version: `0.2.3` installs `ghcr.io/lets-parley/parley:0.2.3`.
+There is no `v` prefix on either — a `v`-prefixed tag has never been published.
+
+### The values that matter
+
+Everything has a default except the database secret. The ones you will actually
+set:
+
+- **`database.existingSecret`** — the name of a secret holding the connection
+  string, under `database.secretKey` (default `database-url`). No default, and
+  no bundled Postgres.
+- **`baseURL`** — the address users type, exactly. Wrong, and the session cookie
+  is silently dropped.
+- **`image.tag`** — empty tracks the chart's `appVersion`, which always names a
+  published release. Pin it only to move off that.
+- **`ingress.enabled`**, `ingress.className`, `ingress.host`, `ingress.tls` —
+  off by default. The chart ships the `proxy-read-timeout` annotations
+  WebSockets need.
+- **`trustProxyHeaders`** — see [below](#the-chart-and-the-manifest-set-trust_proxy_headers).
+- **`auth.mode`** (`open` or `oidc`) and `auth.oidc.*`. The client secret is read
+  from a secret you create, never from values.
+
+Every value is commented in
+[`deploy/charts/parley/values.yaml`](https://github.com/lets-parley/parley/blob/main/deploy/charts/parley/values.yaml),
+which is the source of truth.
+
+### It refuses to render a deployment that cannot work
+
+Each of these fails at `helm template` time with a message saying why, rather
+than producing a release that never becomes healthy. CI asserts every one of
+them:
+
+- **A moving image tag** — `latest`, `LATEST`, `Main`, or one with trailing
+  whitespace. Rolling back onto an image older than the migrations that have
+  already run makes Parley refuse to start.
+- **A tag that is not a valid image tag at all**, including one shaped to break
+  out of the quoted string it lands in inside the pod spec.
+- **A second replica.** `replicaCount` must be a whole number, and anything
+  above 1 is rejected: the realtime hub is in-process and a second pod refuses
+  to start on a Postgres advisory lock. `0` still renders — scaling to zero is
+  how you take Parley down for a migration window.
+- **A missing `database.existingSecret`.**
+- **OIDC without a client secret.**
+- **Ingress TLS under an `http://` base URL.**
+
+The chart also sets `automountServiceAccountToken: false` on both the
+ServiceAccount and the pod: Parley makes no Kubernetes API calls, so the token
+would only ever be a credential for something with a foothold to find.
+
+## A plain manifest, if you do not run Helm
 
 `deploy/k8s/deployment.yaml` is a starting point. Two things in it are
 load-bearing rather than stylistic.
@@ -12,7 +84,7 @@ second replica refuses to start via a Postgres advisory lock.
 **The liveness probe hits `/healthz`**, which never touches the database,
 because a DB blip must not restart the pod and drop every WebSocket.
 
-## Bring your own Postgres
+### Bring your own Postgres
 
 Parley ships no database for Kubernetes. Use a managed one or an operator, then
 give the Deployment its connection string and pin an image tag:
@@ -33,8 +105,9 @@ There is deliberately **no PodDisruptionBudget**. The only one that would
 protect a single replica (`maxUnavailable: 0`) deadlocks the drain it was meant
 to survive.
 
-## The manifest sets TRUST_PROXY_HEADERS
+## The chart and the manifest set TRUST_PROXY_HEADERS
 
-An Ingress terminates the connection, so without it every visitor arrives
+`deploy/k8s/deployment.yaml` sets it; in the chart it is `trustProxyHeaders`,
+off by default. An Ingress terminates the connection, so without it every visitor arrives
 wearing the controller's address and the room-code throttle treats the whole
 internet as one client. See [Configuration](/reference/configuration/).
