@@ -209,3 +209,27 @@ describe("the build stamp", () => {
     expect(container.innerHTML).toBe("");
   });
 });
+
+describe("sidebar kind swatches", () => {
+  const sessions = [
+    { id: "s1", kind: "poker", title: "Sprint 12", createdAt: "", endedAt: null },
+    { id: "s2", kind: "standup", title: "Daily", createdAt: "", endedAt: null },
+    { id: "s3", kind: "acme.retro", title: "Retro", createdAt: "", endedAt: null },
+  ];
+
+  /** The swatch is the first span inside the session link. */
+  function swatchFor(title: string) {
+    const link = screen.getByRole("link", { name: new RegExp(title) });
+    return link.querySelector("span")!.className;
+  }
+
+  it("gives each known kind its registry swatch and an unknown kind neither", () => {
+    stubAuthMode("open");
+    renderShell({ sessions });
+    expect(swatchFor("Sprint 12")).toContain("bg-card-back");
+    expect(swatchFor("Daily")).toContain("bg-felt-deep");
+    const unknown = swatchFor("Retro");
+    expect(unknown).not.toContain("bg-felt-deep");
+    expect(unknown).not.toContain("bg-card-back");
+  });
+});
