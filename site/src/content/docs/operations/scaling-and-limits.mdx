@@ -35,11 +35,11 @@ running install's pods — or the database connections that come with them. Ask
 for more when you want rollout headroom and a survivable node failure:
 
 ```sh
-helm upgrade parley oci://ghcr.io/lets-parley/charts/parley --version 0.4.0 \
+helm upgrade parley oci://ghcr.io/lets-parley/charts/parley --version 0.4.1 \
   --reuse-values --set replicaCount=2
 ```
 
-**Multi-replica needs chart 0.4.0 or newer.** Every published chart up to and
+**Multi-replica needs chart 0.4.1 or newer.** Every published chart up to and
 including 0.3.0 fails at `helm template` time with "Parley is currently
 single-replica" if `replicaCount` is above 1, and the binaries they deploy hold
 a boot-time advisory lock that makes the second pod exit. Pin `--version` here
