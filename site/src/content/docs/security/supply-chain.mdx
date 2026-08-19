@@ -76,11 +76,18 @@ If you use the published image, pin the digest and scan it. Do not rely on
 
 ## Known vulnerable versions
 
-**v0.1.0** contains a room-code throttle bypass, fixed in v0.2.0. The tag and
-image were left in place rather than retagged, so that anyone who pulled that
-digest still receives what they pulled. Do not deploy it.
+**v0.1.0, v0.2.0 and v0.2.1** can be crashed remotely: a client disconnecting
+during a broadcast could panic the server on a goroutine nothing recovers,
+taking down every room on the instance rather than only that client's. Denial of
+service only — no data disclosure, and unrevealed votes were never affected.
+Fixed in v0.2.2, which is the only supported release.
 
-There is no separate security advisory for it: the repository had no known
-installs at the time, and the release notes carry the warning. Report anything
-new through a
+**v0.1.0** additionally contains a room-code throttle bypass, fixed in v0.2.0.
+
+No vulnerable tag or image was retagged onto fixed code, so anyone who pulled a
+digest still receives what they pulled. Do not deploy any of them.
+
+There was no separate advisory for the v0.1.0 throttle bypass: the repository
+had no known installs at the time, and the release notes carry the warning.
+Report anything new through a
 [security advisory](https://github.com/lets-parley/parley/security/advisories/new).

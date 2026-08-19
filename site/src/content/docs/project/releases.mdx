@@ -20,7 +20,7 @@ pre-release tags.
   closing a tab at the wrong moment, taking down every room on the instance
   rather than only theirs. Denial of service only — no data disclosure, and
   unrevealed votes were never affected. See
-  [Security](/security/) for the full record
+  [Known vulnerable versions](/security/supply-chain/#known-vulnerable-versions)
 - The first tests for `internal/hub`, including a race-detector test covering
   concurrent close and broadcast
 
@@ -54,7 +54,8 @@ would silently change what that version means for anyone who had already pulled
 it and would break digest verification — a clearly-labelled bad version is safer
 than a mutated one.
 
-Upgrade to v0.2.0 or later.
+Upgrade to v0.2.2 — v0.2.0 and v0.2.1 fix this bypass but carry the
+broadcast crash of their own.
 :::
 
 There is no GitHub Release object for v0.1.0, only a tag and an image — it was

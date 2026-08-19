@@ -102,8 +102,12 @@ device, no way to list sessions, and no way for anyone to revoke someone else's.
 Open a [security advisory](https://github.com/lets-parley/parley/security/advisories/new),
 not a public issue.
 
-One piece of history worth knowing: **v0.1.0 contains a room-code throttle that
-could be bypassed** when Parley was reachable directly. It was fixed in v0.2.0.
-The v0.1.0 tag and image were deliberately left in place rather than retagged, so
-that anyone who already pulled that digest still gets what they pulled. Do not
-run v0.1.0.
+Two pieces of history worth knowing. **Every release before v0.2.2 could be
+crashed remotely** by a client disconnecting during a broadcast, which panicked
+the server on a goroutine nothing recovers and took down every room on the
+instance. It was fixed in v0.2.2. Separately, **v0.1.0 contains a room-code
+throttle that could be bypassed** when Parley was reachable directly, fixed in
+v0.2.0.
+
+No vulnerable tag or image was retagged, so anyone who already pulled a digest
+still gets what they pulled. Run v0.2.2.
