@@ -68,8 +68,9 @@ func TestLoadMigrationsUsesFilenamePrefix(t *testing.T) {
 		"migrations/0010_c.sql":  {Data: []byte("c")},
 		"migrations/0003a_x.sql": nil,
 	}
-	if _, err := loadMigrations(fsys); err == nil {
-		t.Fatal("expected a non-numeric prefix to be rejected")
+	_, err := loadMigrations(fsys)
+	if err == nil || !strings.Contains(err.Error(), "non-numeric version prefix") {
+		t.Fatalf("expected a non-numeric prefix to be rejected, got: %v", err)
 	}
 
 	delete(fsys, "migrations/0003a_x.sql")
@@ -99,6 +100,27 @@ func TestLoadMigrationsUsesFilenamePrefix(t *testing.T) {
 		if after[i-1].version >= after[i].version {
 			t.Fatalf("migrations out of ascending order: %v", after)
 		}
+	}
+}
+
+// TestLoadMigrationsRejectsSignedPrefixes pins the strings.ContainsAny(prefix,
+// "+-") clause. strconv.Atoi accepts a sign, so "+0005" parses as 5 and would
+// silently claim version 5, against the purely-numeric rule in CONTRIBUTING.md.
+//
+// Each case stands alone in its own MapFS: with a real 0005_*.sql alongside it,
+// removing the clause still fails the load — but via the duplicate-version
+// guard, so the case would not kill the mutation it is here to kill. "-0005" is
+// a characterization case rather than a second pin: Atoi gives -5, which the
+// pre-existing version <= 0 check already rejects with the same message.
+func TestLoadMigrationsRejectsSignedPrefixes(t *testing.T) {
+	for _, name := range []string{"+0005_x.sql", "-0005_x.sql"} {
+		t.Run(name, func(t *testing.T) {
+			fsys := fstest.MapFS{"migrations/" + name: {Data: []byte("x")}}
+			_, err := loadMigrations(fsys)
+			if err == nil || !strings.Contains(err.Error(), "non-numeric version prefix") {
+				t.Fatalf("expected %s to be rejected as non-numeric, got: %v", name, err)
+			}
+		})
 	}
 }
 
