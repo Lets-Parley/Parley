@@ -161,3 +161,28 @@ func (a *app) handleClaimFacilitator(w http.ResponseWriter, r *http.Request) {
 	a.broadcastState(r.Context(), sess.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// handleSetSpectator toggles the caller's own spectator flag in the session's
+// space. Spectating is a property of a member, not of a kind — poker hides
+// their vote, standup leaves them out of the round — so it is a core route
+// rather than one kind's action.
+func (a *app) handleSetSpectator(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r.Context())
+	p, _ := PrincipalFrom(r.Context())
+	var body struct {
+		On bool `json:"on"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil {
+		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+		return
+	}
+	if _, err := a.pool.Exec(r.Context(),
+		"update members set spectator = $3 where space_id = $1 and user_id = $2",
+		sess.SpaceID, p.UserID, body.On); err != nil {
+		http.Error(w, `{"error":"could not update spectator mode"}`, http.StatusInternalServerError)
+		return
+	}
+	a.sessions.BumpVersion(r.Context(), sess.ID)
+	a.broadcastState(r.Context(), sess.ID)
+	w.WriteHeader(http.StatusNoContent)
+}

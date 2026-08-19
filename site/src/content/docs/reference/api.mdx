@@ -6,7 +6,7 @@ description: Every route, who may call it, and what it does.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import RouteTable from "../../../components/RouteTable.astro";
 
-<VerifiedStamp source={["internal/api/router.go", "internal/poker/routes.go", "internal/standup/routes.go"]} />
+<VerifiedStamp source={["internal/api/router.go", "internal/api/dispatch.go", "internal/poker/routes.go", "internal/standup/routes.go"]} />
 
 There is no API token scheme. Everything authenticates with the `parley_session`
 cookie, so the API is usable from a script only by reusing a browser session's
@@ -86,27 +86,68 @@ existence is never disclosed.
   { method: "POST", path: "/api/sessions/{id}/facilitator", auth: "facilitator", purpose: "Hand the role to {userId}. Distinct from the claim route above." },
   { method: "DELETE", path: "/api/sessions/{id}", auth: "facilitator", purpose: "Close the session." },
   { method: "POST", path: "/api/sessions/{id}/reopen", auth: "facilitator", purpose: "Reopen a closed session." },
+  { method: "POST", path: "/api/sessions/{id}/spectator", auth: "member", purpose: "Toggle your own spectator seat with {on}. A property of a member, not of a kind, so it is a core route rather than an action." },
 ]} />
 
-## Planning poker
+## Session actions
+
+Everything a session kind does goes through one dispatcher:
+
+```
+POST /api/sessions/{id}/actions/{action}
+```
+
+`POST` is the only verb it accepts. Each action is a state transition on the
+session, not a replacement of a resource at its URL, so one verb is the honest
+shape — the old `PUT /api/sessions/{id}/standup` is now
+`POST /api/sessions/{id}/actions/standup`, and the story edit that was a `PATCH`
+is `POST /api/sessions/{id}/actions/story` carrying `{storyId}` in the body.
+
+The action name is resolved against **this session's own kind**, so an action
+belonging to another kind is a 404 rather than a route two kinds share. The
+`{id}` in the path is the binding for everything the action touches: a `storyId`
+in the body that belongs to a different session answers 404.
+
+Membership, the facilitator check and the ended-session guard all run once, in
+the dispatcher, before the kind sees the request. Any action against a closed
+session is **409**; reopen it first.
+
+### Planning poker
 
 <RouteTable rows={[
-  { method: "POST", path: "/api/sessions/{id}/stories", auth: "member", purpose: "Add a story. title ≤200, notes ≤2000, ref ≤40." },
-  { method: "PATCH", path: "/api/stories/{id}", auth: "member", purpose: "Edit title, notes, ref, position or estimate. An estimate is validated against the session's deck; empty clears it." },
-  { method: "POST", path: "/api/stories/{id}/vote", auth: "member", purpose: "Cast or change your vote. Refused for spectators. Triggers the auto-reveal check." },
-  { method: "POST", path: "/api/sessions/{id}/select", auth: "facilitator", purpose: "Put a story on the table and clear the reveal." },
-  { method: "POST", path: "/api/sessions/{id}/reveal", auth: "facilitator", purpose: "Open the round." },
-  { method: "POST", path: "/api/sessions/{id}/reset", auth: "facilitator", purpose: "Clear votes on the current story." },
-  { method: "POST", path: "/api/sessions/{id}/spectator", auth: "member", purpose: "Toggle your own spectator seat with {on}." },
+  { method: "POST", path: "/api/sessions/{id}/actions/stories", auth: "member", purpose: "Add a story. title ≤200, notes ≤2000, ref ≤40." },
+  { method: "POST", path: "/api/sessions/{id}/actions/story", auth: "member", purpose: "Edit {storyId}: title, notes, ref, position or estimate. An estimate is validated against the session's deck; empty clears it." },
+  { method: "POST", path: "/api/sessions/{id}/actions/vote", auth: "member", purpose: "Cast or change your vote on {storyId}. Refused for spectators. Triggers the auto-reveal check." },
+  { method: "POST", path: "/api/sessions/{id}/actions/select", auth: "facilitator", purpose: "Put a story on the table and clear the reveal." },
+  { method: "POST", path: "/api/sessions/{id}/actions/reveal", auth: "facilitator", purpose: "Open the round." },
+  { method: "POST", path: "/api/sessions/{id}/actions/reset", auth: "facilitator", purpose: "Clear votes on the current story." },
 ]} />
 
-## Daily standup
+### Daily standup
 
 <RouteTable rows={[
-  { method: "PUT", path: "/api/sessions/{id}/standup", auth: "member", purpose: "Upsert your own yesterday / today / blockers. Each ≤2000 characters." },
-  { method: "POST", path: "/api/sessions/{id}/start", auth: "facilitator", purpose: "Snapshot the roster into a speaking order and prefill yesterday from the last standup." },
-  { method: "POST", path: "/api/sessions/{id}/next", auth: "facilitator", purpose: "Advance to the next speaker." },
-  { method: "POST", path: "/api/sessions/{id}/skip", auth: "facilitator", purpose: "Mark the current speaker skipped and advance." },
+  { method: "POST", path: "/api/sessions/{id}/actions/standup", auth: "member", purpose: "Upsert your own yesterday / today / blockers. Each ≤2000 characters." },
+  { method: "POST", path: "/api/sessions/{id}/actions/start", auth: "facilitator", purpose: "Snapshot the roster into a speaking order and prefill yesterday from the last standup." },
+  { method: "POST", path: "/api/sessions/{id}/actions/next", auth: "facilitator", purpose: "Advance to the next speaker." },
+  { method: "POST", path: "/api/sessions/{id}/actions/skip", auth: "facilitator", purpose: "Mark the current speaker skipped and advance." },
+]} />
+
+### Deprecated aliases
+
+The pre-dispatcher paths still work and behave identically. They are removed one
+release after v0.3.0 — move to the dispatcher now.
+
+<RouteTable rows={[
+  { method: "POST", path: "/api/sessions/{id}/stories", auth: "member", purpose: "→ actions/stories" },
+  { method: "POST", path: "/api/sessions/{id}/select", auth: "facilitator", purpose: "→ actions/select" },
+  { method: "POST", path: "/api/sessions/{id}/reveal", auth: "facilitator", purpose: "→ actions/reveal" },
+  { method: "POST", path: "/api/sessions/{id}/reset", auth: "facilitator", purpose: "→ actions/reset" },
+  { method: "PATCH", path: "/api/stories/{id}", auth: "member", purpose: "→ actions/story" },
+  { method: "POST", path: "/api/stories/{id}/vote", auth: "member", purpose: "→ actions/vote" },
+  { method: "PUT", path: "/api/sessions/{id}/standup", auth: "member", purpose: "→ actions/standup" },
+  { method: "POST", path: "/api/sessions/{id}/start", auth: "facilitator", purpose: "→ actions/start" },
+  { method: "POST", path: "/api/sessions/{id}/next", auth: "facilitator", purpose: "→ actions/next" },
+  { method: "POST", path: "/api/sessions/{id}/skip", auth: "facilitator", purpose: "→ actions/skip" },
 ]} />
 
 ## WebSocket

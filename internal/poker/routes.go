@@ -3,105 +3,27 @@ package poker
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lets-parley/parley/internal/hub"
-	"github.com/lets-parley/parley/internal/principal"
+	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/store"
 )
 
-type Handler struct {
-	pool      *pgxpool.Pool
-	hub       *hub.Hub
-	sessions  *store.Sessions
-	broadcast func(ctx context.Context, sessionID string)
-}
-
-func New(pool *pgxpool.Pool, h *hub.Hub, broadcast func(ctx context.Context, sessionID string)) *Handler {
-	return &Handler{pool: pool, hub: h, sessions: &store.Sessions{Pool: pool}, broadcast: broadcast}
-}
-
-// Mount attaches the poker routes to an /api router that already runs
-// resolvePrincipal. Authorization is re-checked here per request.
-func (h *Handler) Mount(r chi.Router) {
-	r.Post("/sessions/{id}/stories", h.withSession(h.addStory, false))
-	r.Post("/sessions/{id}/select", h.withSession(h.selectStory, true))
-	r.Post("/sessions/{id}/reveal", h.withSession(h.reveal, true))
-	r.Post("/sessions/{id}/reset", h.withSession(h.reset, true))
-	r.Post("/sessions/{id}/spectator", h.withSession(h.setSpectator, false))
-	r.Patch("/stories/{id}", h.withStory(h.patchStory))
-	r.Post("/stories/{id}/vote", h.withStory(h.vote))
-}
-
-type reqCtx struct {
-	principal principal.Principal
-	sess      store.Session
-	storyID   string
-}
-
-func (h *Handler) authorize(r *http.Request, sessionID string) (reqCtx, int) {
-	p, ok := principal.From(r.Context())
-	if !ok {
-		return reqCtx{}, http.StatusNotFound
-	}
-	sess, err := h.sessions.ByID(r.Context(), sessionID)
-	if err != nil {
-		return reqCtx{}, http.StatusNotFound
-	}
-	spaces := &store.Spaces{Pool: h.pool}
-	member, err := spaces.IsMember(r.Context(), sess.SpaceID, p.UserID)
-	if err != nil || !member {
-		return reqCtx{}, http.StatusNotFound
-	}
-	return reqCtx{principal: p, sess: sess}, 0
-}
-
-func (h *Handler) withSession(fn func(http.ResponseWriter, *http.Request, reqCtx), facilitatorOnly bool) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		rc, code := h.authorize(r, chi.URLParam(r, "id"))
-		if code != 0 {
-			http.Error(w, `{"error":"no such session"}`, code)
-			return
-		}
-		if facilitatorOnly && rc.sess.FacilitatorID != rc.principal.UserID {
-			http.Error(w, `{"error":"only the facilitator can do that"}`, http.StatusForbidden)
-			return
-		}
-		if rc.sess.EndedAt != nil {
-			http.Error(w, `{"error":"this session has ended"}`, http.StatusConflict)
-			return
-		}
-		fn(w, r, rc)
-	}
-}
-
-func (h *Handler) withStory(fn func(http.ResponseWriter, *http.Request, reqCtx)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		storyID := chi.URLParam(r, "id")
-		var sessionID string
-		err := h.pool.QueryRow(r.Context(),
-			"select session_id::text from stories where id = $1", storyID).Scan(&sessionID)
-		if errors.Is(err, pgx.ErrNoRows) || err != nil {
-			http.Error(w, `{"error":"no such story"}`, http.StatusNotFound)
-			return
-		}
-		rc, code := h.authorize(r, sessionID)
-		if code != 0 {
-			http.Error(w, `{"error":"no such story"}`, code)
-			return
-		}
-		if rc.sess.EndedAt != nil {
-			http.Error(w, `{"error":"this session has ended"}`, http.StatusConflict)
-			return
-		}
-		rc.storyID = storyID
-		fn(w, r, rc)
+// actions is poker's dispatch table. Membership, the facilitator check and the
+// ended-session guard all run in the core dispatcher before any of these are
+// called, so none of them re-check authorization.
+func actions() map[string]session.Action {
+	return map[string]session.Action{
+		"stories": {Do: addStory},
+		"select":  {Do: selectStory, FacilitatorOnly: true},
+		"reveal":  {Do: reveal, FacilitatorOnly: true},
+		"reset":   {Do: reset, FacilitatorOnly: true},
+		"story":   {Do: patchStory},
+		"vote":    {Do: vote},
 	}
 }
 
@@ -113,13 +35,27 @@ func decode(w http.ResponseWriter, r *http.Request, into any) bool {
 	return true
 }
 
-func (h *Handler) done(w http.ResponseWriter, r *http.Request, sessionID string) {
-	h.sessions.BumpVersion(r.Context(), sessionID)
-	h.broadcast(r.Context(), sessionID)
+func done(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+	(&store.Sessions{Pool: ac.Pool}).BumpVersion(r.Context(), ac.Session.ID)
+	ac.Broadcast(r.Context(), ac.Session.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) addStory(w http.ResponseWriter, r *http.Request, rc reqCtx) {
+// storyIn binds a story id from the request body to the session in the path.
+// A story belonging to another session is not addressable under this path at
+// all, so a mismatch reads the same as a story that does not exist. Without
+// this, a member of two sessions could reach into either one from the other's
+// URL and the path's authorization would say nothing about it.
+func storyIn(ctx context.Context, pool *pgxpool.Pool, sessionID, storyID string) bool {
+	var owner string
+	if err := pool.QueryRow(ctx,
+		"select session_id::text from stories where id = $1", storyID).Scan(&owner); err != nil {
+		return false
+	}
+	return owner == sessionID
+}
+
+func addStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	var body struct {
 		Title string `json:"title"`
 		Notes string `json:"notes"`
@@ -138,42 +74,55 @@ func (h *Handler) addStory(w http.ResponseWriter, r *http.Request, rc reqCtx) {
 		http.Error(w, `{"error":"a ticket reference can be at most 40 characters"}`, http.StatusBadRequest)
 		return
 	}
-	_, err := h.pool.Exec(r.Context(), `
+	_, err := ac.Pool.Exec(r.Context(), `
 		insert into stories (session_id, title, notes, ref, position)
 		values ($1, $2, $3, $4, (select coalesce(max(position), 0) + 1 from stories where session_id = $1))`,
-		rc.sess.ID, title, body.Notes, ref)
+		ac.Session.ID, title, body.Notes, ref)
 	if err != nil {
 		http.Error(w, `{"error":"could not add story"}`, http.StatusInternalServerError)
 		return
 	}
-	h.done(w, r, rc.sess.ID)
+	done(w, r, ac)
 }
 
-func (h *Handler) patchStory(w http.ResponseWriter, r *http.Request, rc reqCtx) {
-	var body struct {
-		Title    *string  `json:"title"`
-		Notes    *string  `json:"notes"`
-		Ref      *string  `json:"ref"`
-		Position *float64 `json:"position"`
-		Estimate *string  `json:"estimate"`
-	}
+// patchBody is shared with the legacy PATCH /stories/{id} alias, which takes
+// the story from the path and ignores StoryID.
+type patchBody struct {
+	StoryID  string   `json:"storyId"`
+	Title    *string  `json:"title"`
+	Notes    *string  `json:"notes"`
+	Ref      *string  `json:"ref"`
+	Position *float64 `json:"position"`
+	Estimate *string  `json:"estimate"`
+}
+
+func patchStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+	var body patchBody
 	if !decode(w, r, &body) {
 		return
 	}
+	if !storyIn(r.Context(), ac.Pool, ac.Session.ID, body.StoryID) {
+		http.Error(w, `{"error":"no such story"}`, http.StatusNotFound)
+		return
+	}
+	applyPatch(w, r, ac, body.StoryID, body)
+}
+
+func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, storyID string, body patchBody) {
 	if body.Title != nil {
 		t := strings.TrimSpace(*body.Title)
 		if t == "" || len(t) > 200 {
 			http.Error(w, `{"error":"title must be 1-200 characters"}`, http.StatusBadRequest)
 			return
 		}
-		h.pool.Exec(r.Context(), "update stories set title = $2 where id = $1", rc.storyID, t)
+		ac.Pool.Exec(r.Context(), "update stories set title = $2 where id = $1", storyID, t)
 	}
 	if body.Notes != nil {
 		if len(*body.Notes) > 2000 {
 			http.Error(w, `{"error":"notes can be at most 2000 characters"}`, http.StatusBadRequest)
 			return
 		}
-		h.pool.Exec(r.Context(), "update stories set notes = $2 where id = $1", rc.storyID, *body.Notes)
+		ac.Pool.Exec(r.Context(), "update stories set notes = $2 where id = $1", storyID, *body.Notes)
 	}
 	if body.Ref != nil {
 		ref := strings.TrimSpace(*body.Ref)
@@ -181,10 +130,10 @@ func (h *Handler) patchStory(w http.ResponseWriter, r *http.Request, rc reqCtx) 
 			http.Error(w, `{"error":"a ticket reference can be at most 40 characters"}`, http.StatusBadRequest)
 			return
 		}
-		h.pool.Exec(r.Context(), "update stories set ref = $2 where id = $1", rc.storyID, ref)
+		ac.Pool.Exec(r.Context(), "update stories set ref = $2 where id = $1", storyID, ref)
 	}
 	if body.Position != nil {
-		h.pool.Exec(r.Context(), "update stories set position = $2 where id = $1", rc.storyID, *body.Position)
+		ac.Pool.Exec(r.Context(), "update stories set position = $2 where id = $1", storyID, *body.Position)
 	}
 	if body.Estimate != nil {
 		// An estimate has to be a card from this session's deck. Without the
@@ -194,11 +143,11 @@ func (h *Handler) patchStory(w http.ResponseWriter, r *http.Request, rc reqCtx) 
 		est := strings.TrimSpace(*body.Estimate)
 		if est == "" {
 			// An empty estimate is a clear, not an estimate of nothing.
-			h.pool.Exec(r.Context(),
-				"update stories set estimate = null, status = 'pending' where id = $1", rc.storyID)
+			ac.Pool.Exec(r.Context(),
+				"update stories set estimate = null, status = 'pending' where id = $1", storyID)
 		} else {
 			var cfg Config
-			json.Unmarshal(rc.sess.Config, &cfg)
+			json.Unmarshal(ac.Session.Config, &cfg)
 			deck, ok := DeckByName(cfg.Deck)
 			if !ok {
 				deck, _ = DeckByName("fibonacci")
@@ -207,127 +156,127 @@ func (h *Handler) patchStory(w http.ResponseWriter, r *http.Request, rc reqCtx) 
 				http.Error(w, `{"error":"an estimate has to be a card from this session's deck"}`, http.StatusBadRequest)
 				return
 			}
-			h.pool.Exec(r.Context(),
-				"update stories set estimate = $2, status = 'estimated' where id = $1", rc.storyID, est)
+			ac.Pool.Exec(r.Context(),
+				"update stories set estimate = $2, status = 'estimated' where id = $1", storyID, est)
 		}
 	}
-	h.done(w, r, rc.sess.ID)
+	done(w, r, ac)
 }
 
-func (h *Handler) selectStory(w http.ResponseWriter, r *http.Request, rc reqCtx) {
+func selectStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	var body struct {
 		StoryID string `json:"storyId"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
-	tag, err := h.pool.Exec(r.Context(), `
+	tag, err := ac.Pool.Exec(r.Context(), `
 		update sessions set current_story_id = $2, revealed = false, version = version + 1
 		where id = $1 and exists (select 1 from stories where id = $2 and session_id = $1)`,
-		rc.sess.ID, body.StoryID)
+		ac.Session.ID, body.StoryID)
 	if err != nil || tag.RowsAffected() == 0 {
 		http.Error(w, `{"error":"that story is not in this session"}`, http.StatusBadRequest)
 		return
 	}
-	h.pool.Exec(r.Context(),
+	ac.Pool.Exec(r.Context(),
 		"update stories set status = 'voting' where id = $1 and status = 'pending'", body.StoryID)
-	h.broadcast(r.Context(), rc.sess.ID)
+	ac.Broadcast(r.Context(), ac.Session.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) vote(w http.ResponseWriter, r *http.Request, rc reqCtx) {
-	var body struct {
-		Value string `json:"value"`
-	}
+// voteBody is shared with the legacy POST /stories/{id}/vote alias.
+type voteBody struct {
+	StoryID string `json:"storyId"`
+	Value   string `json:"value"`
+}
+
+func vote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+	var body voteBody
 	if !decode(w, r, &body) {
 		return
 	}
-	if rc.sess.Revealed {
+	if !storyIn(r.Context(), ac.Pool, ac.Session.ID, body.StoryID) {
+		http.Error(w, `{"error":"no such story"}`, http.StatusNotFound)
+		return
+	}
+	castVote(w, r, ac, body.StoryID, body.Value)
+}
+
+func castVote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, storyID, value string) {
+	if ac.Session.Revealed {
 		http.Error(w, `{"error":"votes are revealed — wait for the next round"}`, http.StatusConflict)
 		return
 	}
 	var currentID string
-	h.pool.QueryRow(r.Context(),
-		"select coalesce(current_story_id::text,'') from sessions where id = $1", rc.sess.ID).Scan(&currentID)
-	if currentID != rc.storyID {
+	ac.Pool.QueryRow(r.Context(),
+		"select coalesce(current_story_id::text,'') from sessions where id = $1", ac.Session.ID).Scan(&currentID)
+	if currentID != storyID {
 		http.Error(w, `{"error":"voting is not open on this story"}`, http.StatusConflict)
 		return
 	}
 	var spectator bool
-	if err := h.pool.QueryRow(r.Context(),
+	if err := ac.Pool.QueryRow(r.Context(),
 		"select spectator from members where space_id = $1 and user_id = $2",
-		rc.sess.SpaceID, rc.principal.UserID).Scan(&spectator); err != nil || spectator {
+		ac.Session.SpaceID, ac.UserID).Scan(&spectator); err != nil || spectator {
 		http.Error(w, `{"error":"spectators cannot vote"}`, http.StatusConflict)
 		return
 	}
 	var cfg Config
-	json.Unmarshal(rc.sess.Config, &cfg)
+	json.Unmarshal(ac.Session.Config, &cfg)
 	deck, ok := DeckByName(cfg.Deck)
 	if !ok {
 		deck, _ = DeckByName("fibonacci")
 	}
-	if !deck.Has(body.Value) {
+	if !deck.Has(value) {
 		http.Error(w, `{"error":"that vote is not in this session's deck"}`, http.StatusConflict)
 		return
 	}
 
-	if _, err := h.pool.Exec(r.Context(), `
+	if _, err := ac.Pool.Exec(r.Context(), `
 		insert into votes (story_id, user_id, value) values ($1, $2, $3)
 		on conflict (story_id, user_id) do update set value = excluded.value`,
-		rc.storyID, rc.principal.UserID, body.Value); err != nil {
+		storyID, ac.UserID, value); err != nil {
 		http.Error(w, `{"error":"could not record vote"}`, http.StatusInternalServerError)
 		return
 	}
 
-	h.maybeAutoReveal(r.Context(), rc.sess, rc.storyID)
-	h.done(w, r, rc.sess.ID)
+	maybeAutoReveal(r.Context(), ac.Pool, ac.Hub, ac.Session, storyID)
+	done(w, r, ac)
 }
 
 // maybeAutoReveal fires only here, on a vote landing — never from presence
 // changes, so a disconnect can shrink the denominator but can't reveal.
-func (h *Handler) maybeAutoReveal(ctx context.Context, sess store.Session, storyID string) {
-	connected := h.hub.Connected(sess.ID)
+func maybeAutoReveal(ctx context.Context, pool *pgxpool.Pool, h *hub.Hub, sess store.Session, storyID string) {
+	connected := h.Connected(sess.ID)
 	if len(connected) == 0 {
 		return
 	}
 	var eligible int
-	if err := h.pool.QueryRow(ctx,
+	if err := pool.QueryRow(ctx,
 		"select count(*) from members where space_id = $1 and not spectator and user_id::text = any($2)",
 		sess.SpaceID, connected).Scan(&eligible); err != nil || eligible == 0 {
 		return
 	}
 	var voted int
-	if err := h.pool.QueryRow(ctx,
+	if err := pool.QueryRow(ctx,
 		"select count(*) from votes where story_id = $1", storyID).Scan(&voted); err != nil {
 		return
 	}
 	if voted >= eligible {
-		h.pool.Exec(ctx, "update sessions set revealed = true where id = $1 and not revealed", sess.ID)
+		pool.Exec(ctx, "update sessions set revealed = true where id = $1 and not revealed", sess.ID)
 	}
 }
 
-func (h *Handler) reveal(w http.ResponseWriter, r *http.Request, rc reqCtx) {
-	h.pool.Exec(r.Context(), "update sessions set revealed = true, version = version + 1 where id = $1", rc.sess.ID)
-	h.broadcast(r.Context(), rc.sess.ID)
+func reveal(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+	ac.Pool.Exec(r.Context(), "update sessions set revealed = true, version = version + 1 where id = $1", ac.Session.ID)
+	ac.Broadcast(r.Context(), ac.Session.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) reset(w http.ResponseWriter, r *http.Request, rc reqCtx) {
-	h.pool.Exec(r.Context(),
-		"delete from votes where story_id = (select current_story_id from sessions where id = $1)", rc.sess.ID)
-	h.pool.Exec(r.Context(), "update sessions set revealed = false, version = version + 1 where id = $1", rc.sess.ID)
-	h.broadcast(r.Context(), rc.sess.ID)
+func reset(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+	ac.Pool.Exec(r.Context(),
+		"delete from votes where story_id = (select current_story_id from sessions where id = $1)", ac.Session.ID)
+	ac.Pool.Exec(r.Context(), "update sessions set revealed = false, version = version + 1 where id = $1", ac.Session.ID)
+	ac.Broadcast(r.Context(), ac.Session.ID)
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (h *Handler) setSpectator(w http.ResponseWriter, r *http.Request, rc reqCtx) {
-	var body struct {
-		On bool `json:"on"`
-	}
-	if !decode(w, r, &body) {
-		return
-	}
-	h.pool.Exec(r.Context(), "update members set spectator = $3 where space_id = $1 and user_id = $2",
-		rc.sess.SpaceID, rc.principal.UserID, body.On)
-	h.done(w, r, rc.sess.ID)
 }

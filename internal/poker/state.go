@@ -41,6 +41,7 @@ func Kind() session.Kind {
 		State:     buildState,
 		NewConfig: func() any { return &Config{} },
 		CSV:       exportCSV,
+		Actions:   actions(),
 	}
 }
 
