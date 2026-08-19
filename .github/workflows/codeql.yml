@@ -1,0 +1,26 @@
+# Static analysis for both halves of the codebase in one job: the required
+# check is named `analyze`, and a language matrix would split it into
+# `analyze (go)` and `analyze (javascript-typescript)` instead.
+name: codeql
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Advisories land against code that has not changed, so a weekly run
+    # catches what a push-triggered scan never would.
+    - cron: "17 5 * * 1"
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: github/codeql-action/init@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4.32.2
+        with:
+          languages: go,javascript-typescript
+      - uses: github/codeql-action/autobuild@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4.32.2
+      - uses: github/codeql-action/analyze@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4.32.2

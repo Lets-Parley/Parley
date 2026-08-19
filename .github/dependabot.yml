@@ -15,3 +15,10 @@ updates:
     groups:
       astro:
         patterns: ["astro", "@astrojs/*"]
+
+  # A SHA pin never floats, so a security fix in an action would otherwise sit
+  # unnoticed forever. Dependabot rewrites the pin and the tag comment together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
