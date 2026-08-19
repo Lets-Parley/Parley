@@ -9,14 +9,24 @@ import (
 	"github.com/lets-parley/parley/internal/standup"
 )
 
-// The client picks an action's verb from a table it keeps itself, in
-// web/src/lib/api.ts, defaulting to POST for anything not listed. That default
-// is what makes drift silent: register a PUT action here, forget the client,
-// and it ships sending POST to a route that answers 405. Nothing else ties the
-// two files together, so this test is the tie.
+// One direction of one invariant: a non-POST action registered here has a
+// matching entry in the client's own verb table, web/src/lib/api.ts, which
+// defaults everything it does not list to POST. That default is what makes the
+// drift silent — register a PUT action, forget the client, and it ships POST to
+// a route that answers 405.
 //
-// Adding a non-POST action means adding it in BOTH places: the entry below and
-// the actionVerbs map in web/src/lib/api.ts.
+// This catches server-changed/client-forgotten only. The opposite direction —
+// api.ts edited while the registry stays put — is caught by "sends each action
+// with the verb the server routes it on" in web/src/lib/api.test.ts. Neither
+// test reads the other side's table, so both are needed and both are listed
+// here on purpose.
+//
+// It lives in package api rather than internal/session because poker and
+// standup import session; a test there that reached for their kinds would be an
+// import cycle.
+//
+// Adding a non-POST action means three edits: the registry, actionVerbs in
+// web/src/lib/api.ts, and clientVerbs below.
 func TestNonPostActionsAreMirroredInTheClientVerbTable(t *testing.T) {
 	clientVerbs := map[string]string{
 		"standup": http.MethodPut,
