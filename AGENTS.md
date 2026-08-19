@@ -96,9 +96,10 @@ migration and embedding mistakes that unit tests miss.
   message that tells the operator what to change.
 - Logging is `log/slog` JSON to stdout; config is read via `os.Getenv` and the
   local `envOr` helper, validated once in `loadConfig()`.
-- Session kinds self-register through `session.Register(...)`. Kind configs
-  decode with `DisallowUnknownFields`, and a `StateFunc` must return only
-  redacted, client-safe data — it is broadcast to every participant.
+- Session kinds are registered into a `session.Registry` in `api.Router`, each
+  built by its package's `Kind()` constructor (`poker.Kind()`, `standup.Kind()`).
+  Kind configs decode with `DisallowUnknownFields`, and a `StateFunc` must return
+  only redacted, client-safe data — it is broadcast to every participant.
 - Frontend: TypeScript strict via project references, oxlint
   (`web/.oxlintrc.json`), PascalCase components in `web/src/components/`, pages
   in `web/src/pages/`, helpers in `web/src/lib/`, design tokens in
