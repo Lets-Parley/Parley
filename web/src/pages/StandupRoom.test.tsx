@@ -160,6 +160,18 @@ describe("StandupRoom turn accessibility", () => {
     expect(seat("Marcus Okonjo").textContent).not.toMatch(/skipped/i);
   });
 
+  it("de-emphasises a skipped seat without dimming its text below AA", () => {
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    const priya = seat("Priya Raman");
+    // A group opacity wrapper multiplies through the name and drops it to
+    // 2.38:1 on the felt. The dimming lives on the avatar instead.
+    expect(priya.className).not.toMatch(/\bopacity-/);
+    const name = screen.getByText("Priya Raman");
+    expect(name.className).toMatch(/text-ink-faint/);
+    expect(name.className).toMatch(/line-through/);
+    expect(screen.getByText("Marcus Okonjo").className).not.toMatch(/text-ink-faint/);
+  });
+
   it("keeps the countdown out of the announcement and out of the a11y tree", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(START));
