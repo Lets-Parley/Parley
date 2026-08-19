@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { AppShell, BuildStamp, ConnectionDot, Logo } from "./AppShell";
 import { makePerson, renderApp } from "../test/render";
 import type { Me } from "../lib/api";
+import { UNKNOWN_SWATCH } from "../lib/kinds";
 
 const me: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 200 };
 
@@ -207,5 +208,30 @@ describe("the build stamp", () => {
     const { container, queryClient } = renderApp(<BuildStamp />);
     await waitFor(() => expect(queryClient.getQueryState(["version"])?.status).toBe("error"));
     expect(container.innerHTML).toBe("");
+  });
+});
+
+describe("sidebar kind swatches", () => {
+  const sessions = [
+    { id: "s1", kind: "poker", title: "Sprint 12", createdAt: "", endedAt: null },
+    { id: "s2", kind: "standup", title: "Daily", createdAt: "", endedAt: null },
+    { id: "s3", kind: "acme.retro", title: "Retro", createdAt: "", endedAt: null },
+  ];
+
+  /** The swatch is the first span inside the session link. */
+  function swatchFor(title: string) {
+    const link = screen.getByRole("link", { name: new RegExp(title) });
+    return link.querySelector("span")!.className;
+  }
+
+  it("gives each known kind its registry swatch and an unknown kind neither", () => {
+    stubAuthMode("open");
+    renderShell({ sessions });
+    expect(swatchFor("Sprint 12")).toContain("bg-card-back");
+    expect(swatchFor("Daily")).toContain("bg-felt-deep");
+    const unknown = swatchFor("Retro");
+    expect(unknown).toContain(UNKNOWN_SWATCH);
+    expect(unknown).not.toContain("bg-felt-deep");
+    expect(unknown).not.toContain("bg-card-back");
   });
 });

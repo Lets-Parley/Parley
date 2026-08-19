@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api, type Me, type Person, type SessionSummary } from "../lib/api";
+import { getKind, UNKNOWN_SWATCH } from "../lib/kinds";
 import type { ConnectionStatus } from "../lib/socket";
 import { useTheme } from "../lib/ui";
 import { Avatar } from "./Avatar";
@@ -237,7 +238,7 @@ export function AppShell({
                         <span
                           className={
                             "h-[22px] w-4 shrink-0 rounded-[4px] border border-line " +
-                            (s.kind === "poker" ? "bg-card-back" : "bg-felt-deep")
+                            (getKind(s.kind)?.swatch ?? UNKNOWN_SWATCH)
                           }
                         />
                         <span className="truncate text-[13px] font-semibold">{s.title}</span>
