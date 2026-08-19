@@ -1,14 +1,18 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lets-parley/parley/internal/httprequest"
 )
@@ -59,81 +63,94 @@ func passcodeMatches(want, got string) bool {
 // which a script would walk in an afternoon unthrottled. Attempts are counted
 // per client address so a wrong-code loop stalls long before it gets anywhere.
 //
-// The counter is in-memory, which holds while the binary asserts single-replica
-// at boot; it moves to Postgres or Redis if that ever changes.
+// The counter lives in Postgres, so every replica spends from the same budget:
+// a per-process counter would quietly hand out the limit N times over with N
+// replicas behind a load balancer.
 const (
 	passcodeAttemptLimit  = 8
 	passcodeAttemptWindow = time.Minute
 )
 
 type attemptLimiter struct {
-	mu   sync.Mutex
-	hits map[string][]time.Time
+	pool *pgxpool.Pool
 	now  func() time.Time
 }
 
-func newAttemptLimiter() *attemptLimiter {
-	return &attemptLimiter{hits: map[string][]time.Time{}, now: time.Now}
+func newAttemptLimiter(pool *pgxpool.Pool) *attemptLimiter {
+	return &attemptLimiter{pool: pool, now: time.Now}
+}
+
+// attemptDigest keeps the client address out of the table: the row is only ever
+// compared for equality, so a one-way digest of it does the whole job.
+func attemptDigest(key string) []byte {
+	sum := sha256.Sum256([]byte(key))
+	return sum[:]
 }
 
 // take reserves one guess, or reports that this client has none left.
 //
-// The check and the charge happen under one lock on purpose. Checking first and
-// charging later reads as "only wrong answers cost a guess", but it lets every
-// request that arrives at once see the same remaining budget, so a guesser gets
-// a free attempt for each connection they open in parallel. The budget is spent
-// up front instead, and a correct code gets it back.
-func (l *attemptLimiter) take(key string) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.sweepLocked()
-	if len(l.hits[key]) >= passcodeAttemptLimit {
+// The check and the charge happen in one statement on purpose. Checking first
+// and charging later reads as "only wrong answers cost a guess", but it lets
+// every request that arrives at once see the same remaining budget, so a
+// guesser gets a free attempt for each connection they open in parallel. A
+// transaction boundary is not enough either: under READ COMMITTED two replicas
+// both read the same under-limit count and both proceed. The upsert below is
+// the whole check: a conflicting writer blocks on the row lock, then re-reads
+// the committed row before its own WHERE is evaluated, so the count it sees
+// already includes the other replica's charge. The budget is spent up front,
+// and a correct code gets it back.
+func (l *attemptLimiter) take(ctx context.Context, key string) bool {
+	now := l.now()
+	cutoff := now.Add(-passcodeAttemptWindow)
+
+	var attempts int
+	err := l.pool.QueryRow(ctx, `
+		insert into passcode_attempts (client_digest, attempts, window_start)
+		values ($1, 1, $4)
+		on conflict (client_digest) do update
+		set attempts = case when passcode_attempts.window_start <= $3 then 1
+		                    else passcode_attempts.attempts + 1 end,
+		    window_start = case when passcode_attempts.window_start <= $3 then $4
+		                        else passcode_attempts.window_start end
+		where passcode_attempts.attempts < $2 or passcode_attempts.window_start <= $3
+		returning attempts`,
+		attemptDigest(key), passcodeAttemptLimit, cutoff, now).Scan(&attempts)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return false
 	}
-	l.hits[key] = append(l.hits[key], l.now())
+	if err != nil {
+		// A database that cannot count the guess cannot bound it either, so the
+		// door stays shut rather than opening unmetered.
+		return false
+	}
+
+	// Opportunistic sweep: without it the table keeps a row per address that
+	// ever knocked. It runs after the charge so a slow delete never delays the
+	// decision the caller is waiting on.
+	l.pool.Exec(ctx, "delete from passcode_attempts where window_start <= $1", cutoff)
 	return true
 }
 
 // refund hands back the guess a correct code reserved, so a whole team can file
 // in through one office address without the stragglers being locked out.
-func (l *attemptLimiter) refund(key string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if n := len(l.hits[key]); n > 0 {
-		if n == 1 {
-			delete(l.hits, key)
-		} else {
-			l.hits[key] = l.hits[key][:n-1]
-		}
-	}
+func (l *attemptLimiter) refund(ctx context.Context, key string) {
+	l.pool.Exec(ctx, `
+		update passcode_attempts set attempts = attempts - 1
+		where client_digest = $1 and window_start > $2 and attempts > 0`,
+		attemptDigest(key), l.now().Add(-passcodeAttemptWindow))
 }
 
 // blockedFor reports whether the budget is spent, without touching it.
-func (l *attemptLimiter) blockedFor(key string) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.sweepLocked()
-	return len(l.hits[key]) >= passcodeAttemptLimit
-}
-
-func (l *attemptLimiter) sweepLocked() {
-	cutoff := l.now().Add(-passcodeAttemptWindow)
-
-	// Opportunistic sweep: without it a long-lived process accumulates a key
-	// per address that ever knocked.
-	for k, times := range l.hits {
-		kept := times[:0]
-		for _, t := range times {
-			if t.After(cutoff) {
-				kept = append(kept, t)
-			}
-		}
-		if len(kept) == 0 {
-			delete(l.hits, k)
-		} else {
-			l.hits[k] = kept
-		}
+func (l *attemptLimiter) blockedFor(ctx context.Context, key string) bool {
+	var attempts int
+	err := l.pool.QueryRow(ctx, `
+		select attempts from passcode_attempts
+		where client_digest = $1 and window_start > $2`,
+		attemptDigest(key), l.now().Add(-passcodeAttemptWindow)).Scan(&attempts)
+	if err != nil {
+		return false
 	}
+	return attempts >= passcodeAttemptLimit
 }
 
 // clientKey identifies the caller for throttling. RemoteAddr is the peer that

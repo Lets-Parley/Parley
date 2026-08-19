@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -44,29 +45,45 @@ func TestNewPasscodeShape(t *testing.T) {
 }
 
 func TestAttemptLimiterWindow(t *testing.T) {
-	now := time.Unix(0, 0)
-	l := newAttemptLimiter()
+	ctx := context.Background()
+	now := time.Unix(1, 0).UTC()
+	l := newAttemptLimiter(testPool(t))
 	l.now = func() time.Time { return now }
 
 	for i := range passcodeAttemptLimit {
-		if !l.take("addr|space") {
+		if !l.take(ctx, "addr|space") {
 			t.Fatalf("attempt %d should be allowed", i+1)
 		}
 	}
-	if l.take("addr|space") {
+	if l.take(ctx, "addr|space") {
 		t.Fatal("the attempt past the limit should be refused")
 	}
+	if !l.blockedFor(ctx, "addr|space") {
+		t.Fatal("a spent budget should read as blocked")
+	}
 	// A different caller is unaffected by someone else's guessing.
-	if !l.take("other|space") {
+	if !l.take(ctx, "other|space") {
 		t.Fatal("a different key should have its own budget")
+	}
+	if l.blockedFor(ctx, "other|space") {
+		t.Fatal("one caller's guessing blocked another")
 	}
 	// The window slides.
 	now = now.Add(passcodeAttemptWindow + time.Second)
-	if !l.take("addr|space") {
+	if !l.take(ctx, "addr|space") {
 		t.Fatal("the budget should refill after the window")
 	}
-	if len(l.hits) > 2 {
-		t.Fatalf("expired keys were not swept: %d", len(l.hits))
+	if l.blockedFor(ctx, "addr|space") {
+		t.Fatal("attempts from before the window still counted")
+	}
+	// Expired rows are swept rather than kept forever: only the two keys still
+	// inside the window survive the charge above.
+	var rows int
+	if err := l.pool.QueryRow(ctx, "select count(*) from passcode_attempts").Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 1 {
+		t.Fatalf("expired rows were not swept: %d rows remain", rows)
 	}
 }
 
