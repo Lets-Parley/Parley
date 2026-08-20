@@ -29,6 +29,12 @@ are throttled per client address: eight attempts per minute, per space.
 Any member can mint a new code, which immediately retires the old one, or open
 the space entirely so anyone with the link can take a seat.
 
+**Copy invite** puts the whole thing on the clipboard — the space's link, built
+from the address you are already on, followed by the passcode — so it can be
+pasted into a chat in one go. **Copy code** takes just the six characters, for
+when you are reading it out or the link is already pinned somewhere. An open
+space has no code, so the invite is only the link.
+
 An open space is appropriate only on a trusted network. For public reachability,
 keep the passcode or put an external SSO/authentication proxy in front and add
 ingress abuse controls.
