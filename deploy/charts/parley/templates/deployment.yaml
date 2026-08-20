@@ -2,6 +2,20 @@
 {{- if and $trustProxyHeaders (not .Values.trustedProxyCIDRs) }}
 {{- fail "trustProxyHeaders is true but trustedProxyCIDRs is empty. Parley refuses to start that way: trusting X-Forwarded-For from any source is the throttle bypass the setting exists to prevent. Set trustedProxyCIDRs to every Ingress/load-balancer CIDR that can be a proxy hop." }}
 {{- end }}
+{{- /*
+  A default route in the allowlist trusts X-Forwarded-For from every address on
+  the internet, which is the same hole as an empty list wearing a value. Refused
+  specifically, and only these two: a /16 is a legitimate pod CIDR alongside the
+  NetworkPolicy, and refusing it would break the only Kubernetes configuration
+  that works. Parley refuses the same two at startup.
+*/ -}}
+{{- if $trustProxyHeaders }}
+{{- range (splitList "," (toString .Values.trustedProxyCIDRs)) }}
+{{- if has (trim .) (list "0.0.0.0/0" "::/0") }}
+{{- fail (printf "trustedProxyCIDRs contains %s, a default route. That trusts a forwarded client address from every host on the internet — the throttle bypass trustProxyHeaders exists to prevent — and Parley refuses to start on it. List only the proxy hops; on Kubernetes that is your pod CIDR, together with networkPolicy.enabled=true." (trim .)) }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- if eq .Values.auth.mode "oidc" }}
 {{- /*
   auth.oidc.publicClient can arrive as a Go bool (--set / values.yaml) or as a

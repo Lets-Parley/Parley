@@ -264,8 +264,9 @@ jobs:
             --set 'ingress.tls[0].hosts[0]=parley.example.com' \
             --set 'ingress.tls[0].secretName=parley-tls' \
             --set trustProxyHeaders=true \
-            --set trustedProxyCIDRs=10.0.0.0/8 > /tmp/all.yaml
-          for kind in Deployment Service ServiceAccount Ingress PodDisruptionBudget; do
+            --set trustedProxyCIDRs=10.42.0.0/16 \
+            --set networkPolicy.enabled=true > /tmp/all.yaml
+          for kind in Deployment Service ServiceAccount Ingress PodDisruptionBudget NetworkPolicy; do
             grep -q "^kind: $kind$" /tmp/all.yaml || { echo "missing $kind"; exit 1; }
           done
 
@@ -378,6 +379,20 @@ jobs:
             --set-string ingress.enabled=false > /tmp/ingress-string-false.yaml
           ! grep -q '^kind: Ingress$' /tmp/ingress-string-false.yaml \
             || { echo "string ingress.enabled=false still created an Ingress"; exit 1; }
+          # networkPolicy.enabled: "false" as a string must not create a
+          # NetworkPolicy. Getting this wrong is worse than the other four: a
+          # policy nobody asked for black-holes every request to the pod.
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x \
+            --set-string networkPolicy.enabled=false > /tmp/netpol-string-false.yaml
+          ! grep -q '^kind: NetworkPolicy$' /tmp/netpol-string-false.yaml \
+            || { echo "string networkPolicy.enabled=false still created a NetworkPolicy"; exit 1; }
+          # And "true" as a string must behave exactly like the bool.
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x \
+            --set-string networkPolicy.enabled=true > /tmp/netpol-string-true.yaml
+          grep -q '^kind: NetworkPolicy$' /tmp/netpol-string-true.yaml \
+            || { echo "string networkPolicy.enabled=true created no NetworkPolicy"; exit 1; }
           # serviceAccount.create: "false" as a string must not create one.
           helm template parley deploy/charts/parley \
             --set database.existingSecret=x \
@@ -470,6 +485,112 @@ jobs:
           helm template parley deploy/charts/parley \
             --set database.existingSecret=x --set trustProxyHeaders=true \
             --set trustedProxyCIDRs=10.0.0.0/8 >/dev/null
+
+      # On Kubernetes the ingress controller's pod IP is dynamic, so the only
+      # trustedProxyCIDRs that keeps working is the pod CIDR — a network every
+      # workload in the cluster can reach. The NetworkPolicy is what makes that
+      # safe, so it has to default-deny rather than merely allow-list, and it
+      # has to render only when asked for.
+      - name: default-denies ingress when the NetworkPolicy is enabled
+        run: |
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x \
+            --set networkPolicy.enabled=true > /tmp/netpol.yaml
+          grep -q '^kind: NetworkPolicy$' /tmp/netpol.yaml \
+            || { echo "networkPolicy.enabled=true rendered no NetworkPolicy"; exit 1; }
+          # policyTypes: [Ingress] on a selector that matches Parley's pods is
+          # what denies everything else. Without it the rule is decoration.
+          grep -q 'policyTypes:' /tmp/netpol.yaml \
+            || { echo "the NetworkPolicy declares no policyTypes, so it denies nothing"; exit 1; }
+          grep -A2 'policyTypes:' /tmp/netpol.yaml | grep -q -- '- Ingress' \
+            || { echo "the NetworkPolicy does not default-deny ingress"; exit 1; }
+          # An empty spec.podSelector would apply the policy to every pod in
+          # the namespace instead of Parley's, so look inside that block
+          # rather than at the file — the release labels appear in metadata
+          # too and would satisfy a whole-file grep on their own.
+          awk '/^  podSelector:/{f=1;next} f&&/^  [^ ]/{f=0} f' /tmp/netpol.yaml \
+            > /tmp/netpol-selector.txt
+          for label in 'app.kubernetes.io/name: parley' 'app.kubernetes.io/instance: parley'; do
+            grep -q "$label" /tmp/netpol-selector.txt \
+              || { echo "the NetworkPolicy's podSelector does not match Parley's pods on $label"; exit 1; }
+          done
+          # The one way back in: the controller's namespace AND its pod labels.
+          grep -q 'kubernetes.io/metadata.name: "ingress-nginx"' /tmp/netpol.yaml \
+            || { echo "the NetworkPolicy does not admit the controller namespace"; exit 1; }
+          grep -q 'app.kubernetes.io/name: ingress-nginx' /tmp/netpol.yaml \
+            || { echo "the NetworkPolicy does not select the controller's pods"; exit 1; }
+          # Both selectors must sit in ONE `from` element, which ANDs them. As
+          # two elements they are ORed, and the policy would admit every pod in
+          # the cluster carrying the controller's label — reopening the trap it
+          # exists to close.
+          test "$(grep -c -- '- namespaceSelector:' /tmp/netpol.yaml)" = 1 \
+            || { echo "expected exactly one peer in the from list"; exit 1; }
+          ! grep -q -- '- podSelector:' /tmp/netpol.yaml \
+            || { echo "namespaceSelector and podSelector are ORed, not ANDed"; exit 1; }
+      - name: writes no NetworkPolicy unless it is asked for
+        run: |
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x > /tmp/netpol-default.yaml
+          ! grep -q '^kind: NetworkPolicy$' /tmp/netpol-default.yaml \
+            || { echo "a NetworkPolicy rendered by default"; exit 1; }
+      # 0.0.0.0/0 is "trust the header from anyone" wearing a value, and passed
+      # the non-empty check silently. A /16 is NOT refused: alongside the
+      # NetworkPolicy it is the only configuration that works on Kubernetes, so
+      # a width check here would break every real install.
+      - name: refuses a default route but keeps the pod CIDR
+        run: |
+          # --set splits on commas, so multi-CIDR values go through
+          # --set-string with the separator escaped.
+          for bad in 0.0.0.0/0 ::/0 '10.0.0.0/8\,0.0.0.0/0' '0.0.0.0/0\,10.0.0.0/8'; do
+            ! helm template parley deploy/charts/parley \
+              --set database.existingSecret=x --set trustProxyHeaders=true \
+              --set-string "trustedProxyCIDRs=$bad" 2>/dev/null \
+              || { echo "rendered with a default route in trustedProxyCIDRs: $bad"; exit 1; }
+          done
+          # A /16 is the pod CIDR every Kubernetes install needs, so a
+          # prefix-width check here would break the only thing that works.
+          for ok in 10.42.0.0/16 10.244.0.0/16 '127.0.0.1/32\,10.0.0.0/8' 2001:db8::/32; do
+            helm template parley deploy/charts/parley \
+              --set database.existingSecret=x --set trustProxyHeaders=true \
+              --set-string "trustedProxyCIDRs=$ok" >/dev/null \
+              || { echo "falsely refused a legitimate allowlist: $ok"; exit 1; }
+          done
+      # The trap is silent by construction, so the install has to say so.
+      - name: warns when proxy trust is on and nothing filters ingress
+        run: |
+          # `helm template` does not emit NOTES.txt and `helm install
+          # --dry-run` needs a cluster, so render the real NOTES.txt through a
+          # throwaway copy of the chart that reads it as a file. Same template,
+          # same values — only the delivery is different.
+          rm -rf /tmp/notes-chart
+          cp -r deploy/charts/parley /tmp/notes-chart
+          mv /tmp/notes-chart/templates/NOTES.txt /tmp/notes-chart/notes-source.txt
+          printf '%s\n' \
+            'apiVersion: v1' \
+            'kind: ConfigMap' \
+            'metadata:' \
+            '  name: notes-probe' \
+            'data:' \
+            '  notes: |' \
+            '{{ tpl (.Files.Get "notes-source.txt") . | indent 4 }}' \
+            > /tmp/notes-chart/templates/notes-probe.yaml
+          notes() {
+            helm template parley /tmp/notes-chart \
+              --show-only templates/notes-probe.yaml \
+              --set database.existingSecret=x --set trustProxyHeaders=true \
+              --set trustedProxyCIDRs=10.42.0.0/16 "$@"
+          }
+          notes > /tmp/notes-warn.txt
+          grep -q 'any pod in the cluster can reach' /tmp/notes-warn.txt \
+            || { echo "no pod-CIDR warning when the NetworkPolicy is off"; exit 1; }
+          grep -q 'networkPolicy.enabled=true' /tmp/notes-warn.txt \
+            || { echo "the warning does not say how to close it"; exit 1; }
+          grep -q 'forwardedHeaders.trustedIPs' /tmp/notes-warn.txt \
+            || { echo "the warning does not mention the upstream hop"; exit 1; }
+          # Enabling the policy must silence it, or the warning is noise.
+          notes --set networkPolicy.enabled=true > /tmp/notes-quiet.txt
+          ! grep -q 'any pod in the cluster can reach' /tmp/notes-quiet.txt \
+            || { echo "warned even with the NetworkPolicy enabled"; exit 1; }
       - name: refuses ingress TLS with an http baseURL
         run: |
           ! helm template parley deploy/charts/parley \
