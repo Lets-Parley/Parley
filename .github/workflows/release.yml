@@ -346,6 +346,14 @@ jobs:
   publish-receipt:
     needs: [validate, publish, chart, release-assets]
     runs-on: ubuntu-24.04
+    # No registry credential, deliberately. The sbom jobs above split reading
+    # the registry from writing to the release precisely so no single job holds
+    # both, and this job writes to the release — so it reads anonymously
+    # instead. Parley's packages are public, which is checked rather than
+    # assumed: an anonymous ghcr.io token fetches the 0.4.4 manifest (HTTP 200)
+    # and `helm show chart` resolves the chart with no login. If they were ever
+    # made private this job fails and no receipt appears, which is the safe
+    # direction — a missing receipt says "check by hand", never "all published".
     permissions:
       contents: write
     steps:
@@ -358,10 +366,11 @@ jobs:
           set -eu
           owner=$(printf '%s' "$RAW_OWNER" | tr '[:upper:]' '[:lower:]')
           image="ghcr.io/${owner}/parley"
-          docker run --rm "$SKOPEO_IMAGE" inspect --raw \
-            "docker://${image}:${VERSION}" > /tmp/manifest.json
           # The tag must resolve to the digest that was validated and attested,
-          # not merely to something.
+          # not merely to something. For a multi-arch image this is the index
+          # digest, which is what the publish job outputs — confirmed against
+          # the published 0.4.4, where skopeo and the registry's
+          # docker-content-digest header agree on the same sha256.
           resolved=$(docker run --rm "$SKOPEO_IMAGE" inspect --format '{{.Digest}}' \
             "docker://${image}:${VERSION}")
           test "$resolved" = "$DIGEST" \
@@ -378,12 +387,26 @@ jobs:
           DIGEST: ${{ needs.publish.outputs.digest }}
         run: |
           set -eu
-          body=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
-          # Idempotent: a re-run must not stack receipts.
-          case "$body" in
-            *"<!-- parley-publish-receipt -->"*)
-              body=$(printf '%s' "$body" | sed '/<!-- parley-publish-receipt -->/,$d') ;;
-          esac
+          # `.body // ""` because a release created with no notes returns a JSON
+          # null, which --jq renders as the literal word "null" and would be
+          # prepended to the notes as text.
+          body=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq '.body // ""')
+          # Idempotent: a re-run replaces its own receipt rather than stacking
+          # another. The cut is made only at a line that is EXACTLY the marker,
+          # and only at the first such line, so a body that somehow carries two
+          # receipts is cleaned rather than half-cleaned. A substring match would delete
+          # everything after any prose that happens to quote the marker, and
+          # `gh release edit` replaces the body wholesale, so that loss would be
+          # permanent. Notes are the operator's, not this job's; the only text
+          # it may remove is the block it wrote itself.
+          marker='<!-- parley-publish-receipt -->'
+          body=$(printf '%s\n' "$body" | awk -v m="$marker" '
+            { lines[NR] = $0 }
+            $0 == m && !cut { cut = NR }
+            END {
+              last = cut ? cut - 1 : NR
+              for (i = 1; i <= last; i++) print lines[i]
+            }')
           {
             printf '%s\n\n' "$body"
             printf '<!-- parley-publish-receipt -->\n'
