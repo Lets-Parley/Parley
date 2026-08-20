@@ -115,16 +115,17 @@ emails and Parley goes on storing a name and nothing else. Belonging to an
 organization does not put you in its rooms — joining stays something you choose
 to do — but it does let you find the ones that want to be found.
 
-An organization admin gets custody without access. They can rename, reassign,
-archive, and clean up any space, including private ones, and remove someone who
-has left. They cannot read a vote, a standup entry, or a note, and they never
-appear in a room. Private means private from your colleagues; it has never meant
-private from whoever runs the server, and the documentation will say so plainly
-rather than let people assume otherwise.
+An organization admin gets custody without access. They can rename, archive,
+and clean up any space, including private ones, and hand a room whose owner has
+left to somebody still in it. They cannot read a vote, a standup entry, or a
+note, and they cannot put themselves in a room in order to. Private means
+private from your colleagues; it has never meant private from whoever runs the
+server, and the documentation will say so plainly rather than let people assume
+otherwise.
 
 - Status: Backlog
 - Target: v0.5.0
-- Tracking: [#203](https://github.com/Lets-Parley/Parley/issues/203)
+- Tracking: [#203](https://github.com/lets-parley/parley/issues/203)
 
 ## Later
 
