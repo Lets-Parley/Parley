@@ -3,6 +3,11 @@ import { action, type Story } from "../lib/api";
 import { buttonPrimary, buttonQuiet, inputClass, Modal } from "./Modal";
 import { faceOf } from "./Table";
 
+// A story may carry only a ref or only a title, so name it by whichever it has.
+function nameOf(s: Story) {
+  return s.title || s.ref || "ad hoc round";
+}
+
 export function StoryQueue({
   sessionId,
   stories,
@@ -80,7 +85,7 @@ export function StoryQueue({
             {isFacilitator && (
               <span className="flex shrink-0 flex-col gap-0.5">
                 <button
-                  aria-label={`Move ${s.title} up`}
+                  aria-label={`Move ${nameOf(s)} up`}
                   disabled={i === 0}
                   className="h-[14px] w-[18px] text-[9px] leading-none text-ink-faint hover:text-ink disabled:opacity-30"
                   onClick={() => move(s, -1)}
@@ -88,7 +93,7 @@ export function StoryQueue({
                   ▲
                 </button>
                 <button
-                  aria-label={`Move ${s.title} down`}
+                  aria-label={`Move ${nameOf(s)} down`}
                   disabled={i === stories.length - 1}
                   className="h-[14px] w-[18px] text-[9px] leading-none text-ink-faint hover:text-ink disabled:opacity-30"
                   onClick={() => move(s, 1)}
@@ -106,9 +111,11 @@ export function StoryQueue({
                 {s.ref || "ad hoc"}
                 {s.id === currentStoryId && <span className="text-accent"> · current</span>}
               </span>
-              <span className="block truncate text-[13px] font-semibold" title={s.title}>
-                {s.title}
-              </span>
+              {s.title && (
+                <span className="block truncate text-[13px] font-semibold" title={s.title}>
+                  {s.title}
+                </span>
+              )}
             </span>
 
             {s.estimate ? (
@@ -123,7 +130,7 @@ export function StoryQueue({
               isFacilitator &&
               s.id !== currentStoryId && (
                 <button
-                  aria-label={`Deal ${s.title}`}
+                  aria-label={`Deal ${nameOf(s)}`}
                   className="shrink-0 rounded-full border border-line px-2.5 py-1 text-xs font-bold text-ink-soft hover:bg-felt-deep"
                   onClick={() => run(() => action(sessionId, "select", { storyId: s.id }))}
                 >
@@ -161,7 +168,7 @@ function StoryComposer({
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (title.trim()) onSubmit(title.trim(), notes.trim(), ref.trim());
+    if (title.trim() || ref.trim()) onSubmit(title.trim(), notes.trim(), ref.trim());
   }
 
   return (
@@ -193,7 +200,7 @@ function StoryComposer({
           <button type="button" className={buttonQuiet} onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className={buttonPrimary} disabled={!title.trim()}>
+          <button type="submit" className={buttonPrimary} disabled={!title.trim() && !ref.trim()}>
             Add to queue
           </button>
         </div>

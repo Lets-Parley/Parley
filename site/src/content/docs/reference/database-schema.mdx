@@ -110,8 +110,10 @@ out.
 ### stories, votes
 
 `stories` carries `title` (≤200), `notes` (≤2000), `ref` (≤40), a fractional
-`position` for reordering, and `estimate`. `votes` is keyed
-`(story_id, user_id)` and cascades on both.
+`position` for reordering, and `estimate`. Either `title` or `ref` names a
+story, so both are allowed to be empty individually but a check constraint
+refuses a row where both are. `votes` is keyed `(story_id, user_id)` and
+cascades on both.
 
 ### standup_entries
 
