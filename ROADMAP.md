@@ -187,6 +187,8 @@ Ideas under consideration, not committed to.
 - Replaying how a board or a ceremony actually evolved
 - Signed single-purpose links — vote on this story, add your standup — that
   need no login at all
+- Spaces a creator can open to anyone, no sign-in required, on an instance
+  that otherwise requires an identity provider
 - Audit logging, retention policies, and SSO group-to-role mapping
 - White-label theming, for anyone hosting Parley on someone else's behalf
 
