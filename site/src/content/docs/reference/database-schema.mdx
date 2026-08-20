@@ -8,7 +8,7 @@ import SpecTable from "../../../components/SpecTable.astro";
 
 <VerifiedStamp source={["internal/db/migrations", "internal/db/migrate.go"]} />
 
-Fourteen migrations, embedded in the binary and applied at boot. Postgres only —
+Fifteen migrations, embedded in the binary and applied at boot. Postgres only —
 there is no second driver and no plan for one.
 
 ## Migrations
@@ -24,7 +24,7 @@ there is no second driver and no plan for one.
   { name: "0008_space_passcode", value: "spaces.passcode", note: "Empty string means an open space" },
   { name: "0009_federated_identity", value: "users.issuer, users.subject", note: "Behind a partial unique index" },
   { name: "0010_session_kinds", value: "session_kinds", note: "Replaces the sessions.kind check constraint with a foreign key" },
-  { name: "0015_member_roles", value: "members.role", note: "owner or member. Backfills the space creator — or, where none was recorded, the longest-standing member — as owner" },
+  { name: "0015_member_roles", value: "members.role", note: "owner or member. Backfills the space creator — or, where none was recorded, the most recently active member — as owner" },
 ]} />
 
 ### How the runner behaves

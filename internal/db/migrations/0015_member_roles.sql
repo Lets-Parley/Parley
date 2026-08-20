@@ -16,9 +16,11 @@ where s.id = m.space_id
 
 -- Backfill, pass two: a space with no recorded creator (or whose creator has
 -- since left) would otherwise come out of this migration ownerless, and an
--- ownerless space can never be managed by anyone again. The longest-standing
--- member takes it; user_id breaks a tie so the result does not depend on scan
--- order.
+-- ownerless space can never be managed by anyone again. The most recently
+-- active member takes it: `members` has no join date, and last_seen_at is
+-- refreshed on every re-join, so it records current activity rather than
+-- tenure — and the person actually running the room is the better custodian
+-- of it. user_id breaks a tie so the result does not depend on scan order.
 update members m
 set role = 'owner'
 where m.role <> 'owner'
@@ -30,7 +32,7 @@ where m.role <> 'owner'
       select e.last_seen_at, e.user_id
       from members e
       where e.space_id = m.space_id
-      order by e.last_seen_at, e.user_id
+      order by e.last_seen_at desc, e.user_id
       limit 1
   );
 

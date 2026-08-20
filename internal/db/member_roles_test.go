@@ -161,11 +161,16 @@ func TestMemberRolesBackfillOnUpgrade(t *testing.T) {
 	if got := role(owned, joiner); got != "member" {
 		t.Errorf("an existing joiner is %q, want member", got)
 	}
-	if got := role(orphaned, orphanA); got != "owner" {
-		t.Errorf("the earliest member of a creator-less space is %q, want owner", got)
+	// last_seen_at is refreshed on every re-join, so it records current
+	// activity, not tenure. The backfill hands a creator-less space to the
+	// most recently active member — orphanB, seen yesterday — rather than to
+	// orphanA, who has not been near it in ten days. Flipping the migration's
+	// ordering back to ascending fails here.
+	if got := role(orphaned, orphanB); got != "owner" {
+		t.Errorf("the most recently active member of a creator-less space is %q, want owner", got)
 	}
-	if got := role(orphaned, orphanB); got != "member" {
-		t.Errorf("a later member of a creator-less space is %q, want member", got)
+	if got := role(orphaned, orphanA); got != "member" {
+		t.Errorf("the least recently active member of a creator-less space is %q, want member", got)
 	}
 
 	// No space may come out of the upgrade with nobody able to manage it.
