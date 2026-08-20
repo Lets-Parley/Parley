@@ -66,6 +66,6 @@ func (a *app) handleWS(w http.ResponseWriter, r *http.Request) {
 		initial, _ = json.Marshal(env)
 	}
 	a.hub.AttachAuthenticated(ws, sess.ID, p.UserID, initial, hub.SessionAuth{
-		TokenID: string(p.TokenID), ExpiresAt: tokenSession.ExpiresAt,
+		TokenID: string(p.TokenID), SpaceID: sess.SpaceID, ExpiresAt: tokenSession.ExpiresAt,
 	})
 }

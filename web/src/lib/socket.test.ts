@@ -7,7 +7,7 @@ const sockets: FakeSocket[] = [];
 class FakeSocket {
   static OPEN = 1;
   onopen: (() => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((ev: { code: number }) => void) | null = null;
   onerror: (() => void) | null = null;
   onmessage: ((ev: { data: string }) => void) | null = null;
   closed = false;
@@ -23,8 +23,8 @@ class FakeSocket {
   open() {
     this.onopen?.();
   }
-  drop() {
-    this.onclose?.();
+  drop(code = 1006) {
+    this.onclose?.({ code });
   }
   send(data: string) {
     this.onmessage?.({ data });
@@ -171,6 +171,28 @@ describe("connectSession", () => {
     vi.advanceTimersByTime(60_000);
     expect(sockets).toHaveLength(1);
     expect(statuses).toEqual(["live"]);
+  });
+
+  it("stops reconnecting when the server closes with 1008 — retrying cannot help", () => {
+    const { statuses } = connect();
+    sockets[0].open();
+    sockets[0].drop(1008);
+    expect(statuses).toEqual(["live", "removed"]);
+    // No retry, and no delayed "stale" claim about a connection that is gone
+    // for a reason we can name.
+    vi.advanceTimersByTime(120_000);
+    expect(sockets).toHaveLength(1);
+    expect(statuses).toEqual(["live", "removed"]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("still reconnects on an ordinary close code", () => {
+    const { statuses } = connect();
+    sockets[0].open();
+    sockets[0].drop(1006);
+    expect(statuses).toEqual(["live", "reconnecting"]);
+    vi.advanceTimersByTime(500);
+    expect(sockets).toHaveLength(2);
   });
 
   it("leaves no timer behind after stop", () => {

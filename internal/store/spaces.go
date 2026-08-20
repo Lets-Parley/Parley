@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -15,6 +16,9 @@ var (
 	ErrSlugTaken     = errors.New("slug taken")
 	ErrNoSpace       = errors.New("no such space")
 	ErrQuotaExceeded = errors.New("resource quota exceeded")
+	ErrNotMember     = errors.New("not a member of this space")
+	ErrBadRole       = errors.New("unknown role")
+	ErrLastOwner     = errors.New("the last owner cannot be demoted or removed")
 	slugStrip        = regexp.MustCompile(`[^a-z0-9]+`)
 	slugTrim         = regexp.MustCompile(`^-+|-+$`)
 )
@@ -29,10 +33,20 @@ type Space struct {
 	Passcode string `json:"-"`
 }
 
+// Space roles. An owner may promote, demote and remove; a member may not.
+// The same two values are the members.role CHECK constraint.
+const (
+	RoleOwner  = "owner"
+	RoleMember = "member"
+)
+
 type Member struct {
 	UserID    string `json:"userId"`
 	Name      string `json:"name"`
 	Spectator bool   `json:"spectator"`
+	// Role is RoleOwner or RoleMember. It is safe to show every member: it
+	// says who can manage the room, which everyone in the room needs to know.
+	Role string `json:"role"`
 }
 
 type Spaces struct {
@@ -78,7 +92,7 @@ func (s *Spaces) Create(ctx context.Context, name, slug, passcode, creatorID str
 	if err != nil {
 		return Space{}, err
 	}
-	if _, err := tx.Exec(ctx, "insert into members (space_id, user_id) values ($1, $2)", sp.ID, creatorID); err != nil {
+	if _, err := tx.Exec(ctx, "insert into members (space_id, user_id, role) values ($1, $2, $3)", sp.ID, creatorID, RoleOwner); err != nil {
 		return Space{}, err
 	}
 	return sp, tx.Commit(ctx)
@@ -166,7 +180,7 @@ func (s *Spaces) ForUser(ctx context.Context, userID string) ([]Membership, erro
 
 func (s *Spaces) Roster(ctx context.Context, spaceID string) ([]Member, error) {
 	rows, err := s.Pool.Query(ctx, `
-		select m.user_id, u.name, m.spectator
+		select m.user_id, u.name, m.spectator, m.role
 		from members m join users u on u.id = m.user_id
 		where m.space_id = $1
 		order by u.name`, spaceID)
@@ -177,10 +191,110 @@ func (s *Spaces) Roster(ctx context.Context, spaceID string) ([]Member, error) {
 	members := []Member{}
 	for rows.Next() {
 		var m Member
-		if err := rows.Scan(&m.UserID, &m.Name, &m.Spectator); err != nil {
+		if err := rows.Scan(&m.UserID, &m.Name, &m.Spectator, &m.Role); err != nil {
 			return nil, err
 		}
 		members = append(members, m)
 	}
 	return members, rows.Err()
+}
+
+// RoleOf reports the caller's standing in a space. A non-member is
+// ErrNotMember rather than an empty role, so no caller can mistake "not here"
+// for "here without privileges".
+func (s *Spaces) RoleOf(ctx context.Context, spaceID, userID string) (string, error) {
+	var role string
+	err := s.Pool.QueryRow(ctx,
+		"select role from members where space_id = $1 and user_id = $2", spaceID, userID,
+	).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotMember
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading member role: %w", err)
+	}
+	return role, nil
+}
+
+// SetRole promotes or demotes a member. It refuses to demote the last owner:
+// a space with nobody who can manage it can never be recovered, and that is
+// true whether the demotion is aimed at someone else or at oneself.
+func (s *Spaces) SetRole(ctx context.Context, spaceID, userID, role string) error {
+	if role != RoleOwner && role != RoleMember {
+		return ErrBadRole
+	}
+	return s.mutateMembership(ctx, spaceID, userID, func(tx pgx.Tx, current string, owners int) error {
+		if current == RoleOwner && role != RoleOwner && owners < 2 {
+			return ErrLastOwner
+		}
+		if current == role {
+			return nil
+		}
+		_, err := tx.Exec(ctx, "update members set role = $3 where space_id = $1 and user_id = $2", spaceID, userID, role)
+		if err != nil {
+			return fmt.Errorf("updating member role: %w", err)
+		}
+		return nil
+	})
+}
+
+// RemoveMember revokes membership. Access is checked against this table on
+// every request, so the removal takes effect on the member's next one.
+func (s *Spaces) RemoveMember(ctx context.Context, spaceID, userID string) error {
+	return s.mutateMembership(ctx, spaceID, userID, func(tx pgx.Tx, current string, owners int) error {
+		if current == RoleOwner && owners < 2 {
+			return ErrLastOwner
+		}
+		_, err := tx.Exec(ctx, "delete from members where space_id = $1 and user_id = $2", spaceID, userID)
+		if err != nil {
+			return fmt.Errorf("removing member: %w", err)
+		}
+		return nil
+	})
+}
+
+// mutateMembership runs fn against a locked view of the space's membership,
+// handing it the target's current role and the space's owner count. The lock
+// is what makes the last-owner guard real: two owners demoting each other at
+// the same instant would otherwise each see the other and both succeed.
+func (s *Spaces) mutateMembership(ctx context.Context, spaceID, userID string, fn func(pgx.Tx, string, int) error) error {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("beginning membership change: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var current string
+	var owners int
+	// One locking pass over the space's rows: the count and the target's role
+	// are read from the same snapshot nobody else can move underneath us.
+	rows, err := tx.Query(ctx, "select user_id, role from members where space_id = $1 order by user_id for update", spaceID)
+	if err != nil {
+		return fmt.Errorf("locking space membership: %w", err)
+	}
+	found := false
+	for rows.Next() {
+		var id, role string
+		if err := rows.Scan(&id, &role); err != nil {
+			rows.Close()
+			return fmt.Errorf("reading space membership: %w", err)
+		}
+		if role == RoleOwner {
+			owners++
+		}
+		if id == userID {
+			current, found = role, true
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("reading space membership: %w", err)
+	}
+	if !found {
+		return ErrNotMember
+	}
+	if err := fn(tx, current, owners); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

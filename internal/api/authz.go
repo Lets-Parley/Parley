@@ -73,3 +73,45 @@ func requireFacilitator(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+type spaceKey struct{}
+
+func spaceFrom(ctx context.Context) store.Space {
+	return ctx.Value(spaceKey{}).(store.Space)
+}
+
+// requireSpaceOwner resolves {slug} to a space and requires the caller to own
+// it. A non-member gets 404 rather than 403: whether a space exists is not
+// disclosed to anyone outside it, which is the same rule the roster follows.
+func (a *app) requireSpaceOwner(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, ok := PrincipalFrom(r.Context())
+		if !ok {
+			http.Error(w, `{"error":"not signed in"}`, http.StatusUnauthorized)
+			return
+		}
+		sp, err := a.spaces.BySlug(r.Context(), chi.URLParam(r, "slug"))
+		if errors.Is(err, store.ErrNoSpace) {
+			http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+			return
+		}
+		role, err := a.spaces.RoleOf(r.Context(), sp.ID, p.UserID)
+		if errors.Is(err, store.ErrNotMember) {
+			http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+			return
+		}
+		if role != store.RoleOwner {
+			http.Error(w, `{"error":"only a space owner can manage members"}`, http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), spaceKey{}, sp)))
+	})
+}

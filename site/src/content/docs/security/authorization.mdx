@@ -6,10 +6,10 @@ description: Membership, facilitator rights, and what the server checks on every
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/authz.go", "internal/api/principal.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/store/sessions.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/authz.go", "internal/api/principal.go", "internal/store/spaces.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/store/sessions.go"]} />
 
-Parley has two authorization concepts and no more: **you are a member of the
-space**, and **you are the facilitator of this session**.
+Parley has three authorization concepts and no more: **you are a member of the
+space**, **you own the space**, and **you are the facilitator of this session**.
 
 ## Membership
 
@@ -23,6 +23,42 @@ membership is verified before the connection is upgraded.
 
 A non-member looking up a space gets its name and whether it is protected, and
 nothing else — no roster, no session list, no room code.
+
+## Space owner
+
+Every member carries a role on `members.role`: `owner` or `member`. The person
+who creates a space is seeded as its owner. Only an owner may promote another
+member to owner, demote an owner back to member, or remove a member from the
+space.
+
+Two guard rails are enforced in the database transaction, not in the UI:
+
+- **The last owner cannot be demoted or removed.** A space with no owner could
+  never be managed again, so both routes answer `409` instead. This holds
+  whether the demotion is aimed at someone else or at oneself — stepping down
+  is allowed, but only once somebody else has been promoted first.
+- **The owner count is read under a row lock**, so two owners demoting each
+  other at the same instant cannot both succeed.
+
+A member who is not an owner gets `403` from either route. Someone outside the
+space gets `404` — the same non-disclosure rule the roster follows.
+
+### Removal takes effect immediately
+
+Membership is read from the database on every request, so there is no cache to
+expire: the removed member's very next request sees the stranger view of the
+space and, if the space is protected, the passcode gate.
+
+A WebSocket that is already open is not a request, so it is closed explicitly.
+The removal disconnects the member's live sockets for that space on the process
+that served the removal, before it answers. On any *other* process holding a
+socket for them — a second replica behind a load balancer — the close lands at
+that connection's next revalidation tick instead, so the worst-case window
+there is one revalidation interval — capped at 30 seconds, and 30 seconds is
+the default. Reconnecting fails the membership check at the handshake.
+
+Removal is not a ban — they can knock again with a current room code, and come
+back as a plain member.
 
 ## Facilitator
 
@@ -64,9 +100,9 @@ toggle, not a permission an administrator grants.
 ## What there is not
 
 <Capability rows={[
-  { name: "Owner or admin roles", status: "not-built", detail: "Any member can rotate the room code or open the space. If that matters, keep membership small, or gate the whole instance behind an SSO proxy. Roles are on the <a href='/project/roadmap/'>roadmap</a>." },
+  { name: "Roles beyond owner and member", status: "not-built", detail: "Ownership covers membership management. Any member — owner or not — can still rotate the room code or open the space." },
   { name: "Per-user or per-team space access", status: "not-built", detail: "A room code is the only gate. Signing in with OIDC proves who you are but grants nothing by itself." },
-  { name: "Removing a member", status: "not-built", detail: "Rotate the room code, which retires the old one immediately. Existing members stay members." },
+  { name: "Removing a session participant", status: "not-built", detail: "A facilitator can hand the role to another member, but there is no eject-from-this-session-only control. Remove them from the space instead, or rotate the room code." },
   { name: "Deleting a space or session", status: "not-built", detail: "Sessions can be closed but not deleted. Delete rows in Postgres if you must — the <a href='/reference/database-schema/'>schema</a> is documented." },
   { name: "Read-only or guest access", status: "not-built", detail: "Spectator mode is the closest thing: no seat, no vote, but full read access." },
 ]} />

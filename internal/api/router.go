@@ -180,6 +180,9 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	a.hub.ValidateSession = func(ctx context.Context, tokenID string) (time.Time, error) {
 		return a.users.TokenExpiry(ctx, []byte(tokenID))
 	}
+	a.hub.ValidateMembership = func(ctx context.Context, spaceID, userID string) (bool, error) {
+		return a.spaces.IsMember(ctx, spaceID, userID)
+	}
 	a.hub.OnDisconnect = func(sessionID, userID string) {
 		if err := a.presence.Gone(context.Background(), sessionID, userID); err != nil {
 			slog.Error("could not clear presence", "session", sessionID, "user", userID, "error", err)
@@ -258,6 +261,14 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			r.Post("/spaces/{slug}/join", a.handleJoinSpace)
 			r.Post("/spaces/{slug}/passcode", a.handleSetPasscode)
 			r.Post("/spaces/{slug}/sessions", a.handleCreateSession)
+		})
+
+		// Membership management is owner-only, and the middleware answers 404
+		// to anyone outside the space rather than admitting it exists.
+		r.Route("/spaces/{slug}/members/{userId}", func(r chi.Router) {
+			r.Use(a.requireSpaceOwner)
+			r.Post("/role", a.handleSetMemberRole)
+			r.Delete("/", a.handleRemoveMember)
 		})
 
 		// requireSessionMember answers 404 for anonymous callers too, so these

@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -40,6 +41,7 @@ const (
 type Conn struct {
 	UserID       string
 	SessionID    string
+	SpaceID      string
 	ws           *websocket.Conn
 	send         chan []byte
 	hub          *Hub
@@ -73,7 +75,12 @@ type Hub struct {
 	// OnFacilitatorSeen fires on connect and each pong so liveness reaches the DB.
 	OnFacilitatorSeen func(sessionID, userID string)
 	// ValidateSession checks session validity through the shared store.
-	ValidateSession      func(ctx context.Context, tokenID string) (time.Time, error)
+	ValidateSession func(ctx context.Context, tokenID string) (time.Time, error)
+	// ValidateMembership re-checks that a connection's user still belongs to
+	// the space its session lives in. Removing a member disconnects them
+	// immediately on this process; this tick is what closes their sockets on
+	// every other one, so the worst case is one revalidation interval.
+	ValidateMembership   func(ctx context.Context, spaceID, userID string) (bool, error)
 	RevalidationInterval time.Duration
 	ValidationTimeout    time.Duration
 
@@ -120,6 +127,12 @@ type disconnectTokenEvent struct {
 	done    chan []<-chan struct{}
 }
 
+type disconnectMemberEvent struct {
+	spaceID string
+	userID  string
+	done    chan []<-chan struct{}
+}
+
 type revalidationEvent struct {
 	conn      *Conn
 	expiresAt time.Time
@@ -131,9 +144,25 @@ type expiryEvent struct {
 	expiresAt time.Time
 }
 
-// SessionAuth identifies the session token that authenticated a WebSocket.
+// initialStateEvent carries the room snapshot that a freshly registered
+// connection is owed, once its membership has been confirmed a second time —
+// after registration, so a removal that lands mid-handshake is seen.
+type initialStateEvent struct {
+	conn    *Conn
+	initial []byte
+	err     error
+}
+
+// ErrNotMember reports a connection whose owner has lost membership of the
+// space its session belongs to. It closes the socket the same way a revoked
+// token does.
+var ErrNotMember = errors.New("no longer a member of this space")
+
+// SessionAuth identifies the session token that authenticated a WebSocket and
+// the space whose membership keeps it alive.
 type SessionAuth struct {
 	TokenID   string
+	SpaceID   string
 	ExpiresAt time.Time
 }
 
@@ -220,6 +249,23 @@ func (h *Hub) run() {
 				}
 			}
 			e.done <- writers
+		case disconnectMemberEvent:
+			writers := []<-chan struct{}{}
+			for c := range h.pending {
+				if c.SpaceID == e.spaceID && c.UserID == e.userID {
+					writers = append(writers, h.rejectPending(c, websocket.ClosePolicyViolation))
+				}
+			}
+			for _, room := range h.rooms {
+				for c := range room {
+					if c.SpaceID == e.spaceID && c.UserID == e.userID {
+						if done := h.remove(c, websocket.ClosePolicyViolation); done != nil {
+							writers = append(writers, done)
+						}
+					}
+				}
+			}
+			e.done <- writers
 		case revalidationEvent:
 			if pending, ok := h.pending[e.conn]; ok {
 				if e.err != nil {
@@ -240,6 +286,15 @@ func (h *Hub) run() {
 			}
 			e.conn.expiresAt = e.expiresAt
 			h.armExpiry(e.conn)
+		case initialStateEvent:
+			if !h.registered(e.conn) {
+				continue
+			}
+			if e.err != nil {
+				h.remove(e.conn, websocket.ClosePolicyViolation)
+				continue
+			}
+			h.deliver(e.conn, e.initial)
 		case expiryEvent:
 			if h.registered(e.conn) && e.conn.expiresAt.Equal(e.expiresAt) {
 				if h.ValidateSession != nil {
@@ -259,7 +314,17 @@ func (h *Hub) register(e registerEvent) {
 	room[e.conn] = struct{}{}
 	h.armExpiry(e.conn)
 	if e.initial != nil {
-		h.deliver(e.conn, e.initial)
+		// The membership read that authorized the handshake happened before
+		// this connection existed, so a removal committed mid-upgrade would
+		// still have shipped a full room snapshot to someone who had just lost
+		// access. Re-check once the connection is registered — from here on the
+		// removal path can see it, and the snapshot is only released if the
+		// second read still says member.
+		if h.gatesInitialState(e.conn) {
+			go h.confirmMembership(e.conn, e.initial)
+		} else {
+			h.deliver(e.conn, e.initial)
+		}
 	}
 	e.accepted <- true
 }
@@ -369,7 +434,7 @@ func (h *Hub) Attach(ws *websocket.Conn, sessionID, userID string, initial []byt
 func (h *Hub) AttachAuthenticated(ws *websocket.Conn, sessionID, userID string, initial []byte, auth SessionAuth) {
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &Conn{
-		UserID: userID, SessionID: sessionID, ws: ws,
+		UserID: userID, SessionID: sessionID, SpaceID: auth.SpaceID, ws: ws,
 		send: make(chan []byte, sendBuffer), hub: h, tokenID: auth.TokenID,
 		expiresAt: auth.ExpiresAt,
 		ctx:       ctx, cancel: cancel, stop: make(chan struct{}), writerDone: make(chan struct{}),
@@ -421,10 +486,42 @@ func (h *Hub) validate(c *Conn) {
 	ctx, cancel := context.WithTimeout(c.ctx, h.validationTimeout())
 	defer cancel()
 	expiresAt, err := h.ValidateSession(ctx, c.tokenID)
+	// Membership is authorization, not authentication: a live token whose
+	// holder was removed from the space must lose the socket too.
+	if err == nil && h.ValidateMembership != nil && c.SpaceID != "" {
+		member, memberErr := h.ValidateMembership(ctx, c.SpaceID, c.UserID)
+		switch {
+		case memberErr != nil:
+			err = memberErr
+		case !member:
+			err = ErrNotMember
+		}
+	}
 	if c.ctx.Err() != nil {
 		return
 	}
 	h.submit(revalidationEvent{conn: c, expiresAt: expiresAt, err: err})
+}
+
+// gatesInitialState reports whether a connection's first state frame has to
+// wait on a post-registration membership check.
+func (h *Hub) gatesInitialState(c *Conn) bool {
+	return h.ValidateMembership != nil && c.SpaceID != ""
+}
+
+// confirmMembership re-reads membership for an already-registered connection
+// and releases (or refuses) its initial room snapshot.
+func (h *Hub) confirmMembership(c *Conn, initial []byte) {
+	ctx, cancel := context.WithTimeout(c.ctx, h.validationTimeout())
+	defer cancel()
+	member, err := h.ValidateMembership(ctx, c.SpaceID, c.UserID)
+	if err == nil && !member {
+		err = ErrNotMember
+	}
+	if c.ctx.Err() != nil {
+		return
+	}
+	h.submit(initialStateEvent{conn: c, initial: initial, err: err})
 }
 
 func (h *Hub) validationTimeout() time.Duration {
@@ -588,6 +685,19 @@ func (h *Hub) DisconnectToken(tokenID string) {
 	}
 	done := make(chan []<-chan struct{}, 1)
 	if h.submit(disconnectTokenEvent{tokenID: tokenID, done: done}) {
+		waitForWriters(<-done)
+	}
+}
+
+// DisconnectSpaceMember synchronously removes every connection this process
+// holds for a user in a space. Membership is authorization, so a removal has
+// to reach sockets that are already open, not just the next HTTP request.
+func (h *Hub) DisconnectSpaceMember(spaceID, userID string) {
+	if spaceID == "" || userID == "" {
+		return
+	}
+	done := make(chan []<-chan struct{}, 1)
+	if h.submit(disconnectMemberEvent{spaceID: spaceID, userID: userID, done: done}) {
 		waitForWriters(<-done)
 	}
 }
