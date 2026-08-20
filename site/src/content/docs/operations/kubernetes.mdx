@@ -128,7 +128,12 @@ set:
 - **`ingress.enabled`**, `ingress.className`, `ingress.host`, `ingress.tls` —
   off by default. The chart ships the `proxy-read-timeout` annotations
   WebSockets need.
-- **`trustProxyHeaders`** — see [below](#the-chart-and-the-manifest-set-trust_proxy_headers).
+- **`trustProxyHeaders`** and **`trustedProxyCIDRs`** — see
+  [below](#the-manifest-leaves-proxy-trust-disabled). On Kubernetes the second
+  one has a trap in it.
+- **`networkPolicy.enabled`** — off by default. Turn it on whenever proxy trust
+  is on; it is what makes a pod-CIDR `trustedProxyCIDRs` safe. See
+  [below](#the-pod-cidr-is-a-client-reachable-network).
 - **`auth.mode`** (`open` or `oidc`) and `auth.oidc.*`. With `oidc` you must set
   either `auth.oidc.existingSecret` (confidential client; the secret is read
   from a Secret you create, never from values) or `auth.oidc.publicClient=true`
@@ -257,5 +262,84 @@ design.
 The safe default is `TRUST_PROXY_HEADERS=false`. After installing an Ingress,
 set it to `true` and add `TRUSTED_PROXY_CIDRS` for every Ingress/load-balancer
 network Parley can see as a trusted hop. Startup refuses proxy trust without the
-allowlist. Do not allowlist client networks. See
+allowlist, and refuses `0.0.0.0/0` or `::/0` in it. See
 [Configuration](/reference/configuration/).
+
+A proxy that *appends* to `X-Forwarded-For` rather than overwriting it is fine:
+Parley walks the chain right-to-left to the first untrusted hop and never reads
+the leftmost value. What has to be right is the allowlist.
+
+### The pod CIDR is a client-reachable network
+
+Read this before turning proxy trust on in a cluster.
+
+The immediate peer Parley sees is the ingress controller's **pod** IP, and pod
+IPs are reassigned on every reschedule. Listing individual addresses breaks the
+next time the controller restarts, so in practice the only `trustedProxyCIDRs`
+that keeps working is the pod CIDR itself — `10.42.0.0/16` on k3s,
+`10.244.0.0/16` on kubeadm with flannel, whatever your CNI hands out.
+
+That network is reachable from every workload in the cluster. Any pod can
+connect straight to Parley's Service, send its own `X-Forwarded-For`, and pick
+whatever client address it likes — taking over another client's bucket in the
+room-code passcode throttle, or in the open-mode identity-creation quota. The
+setting meant to close that hole has quietly reopened it, and the guard that
+only checks the allowlist is non-empty will not say a word.
+
+So the pod CIDR is only safe alongside something that stops other pods reaching
+the Service. The chart ships a NetworkPolicy that default-denies ingress to
+Parley's pods and admits only the ingress controller:
+
+```sh
+helm upgrade parley oci://ghcr.io/lets-parley/charts/parley --reuse-values \
+    --set networkPolicy.enabled=true \
+    --set networkPolicy.ingressController.namespace=ingress-nginx \
+    --set networkPolicy.ingressController.podSelector."app\.kubernetes\.io/name"=ingress-nginx
+```
+
+It is **off by default**, deliberately. A NetworkPolicy in a cluster whose CNI
+does not enforce them silently does nothing — the wrong thing to be on by
+default, because it looks like protection. And a policy whose selectors do not
+match your controller black-holes every request, which is the wrong thing to
+happen during someone else's upgrade. Turn it on knowingly, then confirm the app
+is still reachable.
+
+With Traefik as shipped by k3s the controller lives elsewhere:
+
+```yaml
+networkPolicy:
+  enabled: true
+  ingressController:
+    namespace: kube-system
+    podSelector:
+      app.kubernetes.io/name: traefik
+```
+
+The namespace is matched on the `kubernetes.io/metadata.name` label, which the
+API server sets on every namespace from 1.21 onwards. Both selectors sit in one
+`from` element, so they are ANDed: pods with that label, *in* that namespace.
+
+#### What the NetworkPolicy does not cover
+
+- **`hostNetwork` pods.** They use the node's address rather than a pod IP, so
+  no `namespaceSelector` or `podSelector` matches them. If your ingress
+  controller runs with `hostNetwork: true`, this policy is not the right tool
+  and you need the node addresses allowed another way.
+- **Node IPs that fall inside a trusted CIDR.** Anything sourced from a node —
+  a kubelet probe, a hostNetwork workload — arrives from the node address. If
+  that address is inside `trustedProxyCIDRs`, its forwarded header is trusted no
+  matter what the policy says. Check that your node CIDR and pod CIDR do not
+  overlap.
+
+#### Narrow the ingress controller's own trust as well
+
+`trustedProxyCIDRs` closes the hole at Parley's boundary only. If your ingress
+controller accepts `X-Forwarded-For` from anyone and passes it on, the same
+forgery just moves one hop upstream and reaches Parley with the controller's
+blessing. Set:
+
+- **Traefik** — `entryPoints.web.forwardedHeaders.trustedIPs`, listing only the
+  load balancer or CDN in front of it.
+- **ingress-nginx** — `proxy-real-ip-cidr` in the ConfigMap, same list. Leave
+  `use-forwarded-headers` however you like; Parley reads the chain right-to-left
+  and an appended hop is not a problem.

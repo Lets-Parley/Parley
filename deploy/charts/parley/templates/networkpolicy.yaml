@@ -1,0 +1,54 @@
+{{- /*
+The counterpart to trustedProxyCIDRs on Kubernetes.
+
+The ingress controller's pod IP is reassigned on every reschedule, so the only
+workable trustedProxyCIDRs is the pod CIDR — and that network is reachable from
+every workload in the cluster. Without this policy, any pod can connect to
+Parley's Service directly, present its own X-Forwarded-For, and choose its
+client address, defeating the room-code throttle and the identity quota.
+
+A NetworkPolicy selecting these pods with policyTypes: [Ingress] default-denies
+all ingress to them; the single rule below is the only way back in. It is not
+an allow-list layered over an otherwise-open pod.
+
+Off by default: enforcement is the CNI's job and a cluster whose CNI ignores
+NetworkPolicies would get a false sense of safety, while a cluster whose
+controller does not match the selectors below would get a black hole.
+
+Uses parley.isTrue rather than raw truthiness: Go templates treat the string
+"false" as true, and this switch decides whether traffic is filtered at all.
+*/ -}}
+{{- if eq (include "parley.isTrue" .Values.networkPolicy.enabled) "true" }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "parley.fullname" . }}
+  labels:
+    {{- include "parley.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "parley.selectorLabels" . | nindent 6 }}
+  # Ingress alone. Parley makes outbound connections to Postgres, to the OIDC
+  # issuer and to DNS, and an egress policy written blind here would break all
+  # three.
+  policyTypes:
+    - Ingress
+  ingress:
+    # namespaceSelector and podSelector in one `from` element are ANDed: the
+    # peer must be a matching pod *in* that namespace. Two list elements would
+    # be an OR, and would admit every pod in the cluster carrying the label.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ required "networkPolicy.ingressController.namespace is required when networkPolicy.enabled is true — name the namespace your ingress controller runs in." .Values.networkPolicy.ingressController.namespace | quote }}
+          podSelector:
+            matchLabels:
+              {{- toYaml (required "networkPolicy.ingressController.podSelector is required when networkPolicy.enabled is true — an empty selector would admit every pod in that namespace." .Values.networkPolicy.ingressController.podSelector) | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: http
+    {{- with .Values.networkPolicy.extraIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

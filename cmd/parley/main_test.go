@@ -75,6 +75,34 @@ func TestLoadConfigRequiresValidCIDRsWhenProxyTrustEnabled(t *testing.T) {
 	}
 }
 
+// A default route in the allowlist is "trust the header from anyone" wearing a
+// value, which is the bypass the setting exists to close. Only the default
+// routes are refused: a wide prefix like a pod CIDR is the configuration that
+// works on Kubernetes alongside a NetworkPolicy, and must keep working.
+func TestLoadConfigRefusesADefaultRouteAsATrustedProxy(t *testing.T) {
+	for _, cidrs := range []string{"0.0.0.0/0", "::/0", "10.0.0.0/8,0.0.0.0/0", " 0.0.0.0/0 "} {
+		t.Run(cidrs, func(t *testing.T) {
+			baseConfigEnv(t)
+			t.Setenv("TRUST_PROXY_HEADERS", "true")
+			t.Setenv("TRUSTED_PROXY_CIDRS", cidrs)
+			if _, err := loadConfig(); err == nil {
+				t.Fatalf("default route %q was accepted as a trusted proxy", cidrs)
+			}
+		})
+	}
+
+	for _, cidrs := range []string{"10.42.0.0/16", "10.0.0.0/8", "2001:db8::/32", "127.0.0.1/32"} {
+		t.Run("accepts "+cidrs, func(t *testing.T) {
+			baseConfigEnv(t)
+			t.Setenv("TRUST_PROXY_HEADERS", "true")
+			t.Setenv("TRUSTED_PROXY_CIDRS", cidrs)
+			if _, err := loadConfig(); err != nil {
+				t.Fatalf("legitimate CIDR %q was refused: %v", cidrs, err)
+			}
+		})
+	}
+}
+
 func TestLoadConfigParsesTrustedProxyCIDRs(t *testing.T) {
 	baseConfigEnv(t)
 	t.Setenv("TRUST_PROXY_HEADERS", "true")

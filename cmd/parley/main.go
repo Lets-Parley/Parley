@@ -86,6 +86,16 @@ func loadConfig() (config, error) {
 			if err != nil {
 				return cfg, fmt.Errorf("TRUSTED_PROXY_CIDRS contains invalid CIDR %q", strings.TrimSpace(value))
 			}
+			// A default route — 0.0.0.0/0 or ::/0 — trusts a forwarded
+			// client address from every host that can reach the socket,
+			// which is the bypass TRUST_PROXY_HEADERS exists to prevent
+			// wearing a value. Refused specifically, and only this: a wide
+			// prefix like a /16 is a legitimate pod CIDR behind a
+			// NetworkPolicy, and refusing that would break the only
+			// configuration Kubernetes leaves you.
+			if prefix.Bits() == 0 {
+				return cfg, fmt.Errorf("TRUSTED_PROXY_CIDRS contains %q, a default route — that trusts X-Forwarded-For from every address, which is the throttle bypass TRUST_PROXY_HEADERS exists to prevent. List only the proxy hops", strings.TrimSpace(value))
+			}
 			cfg.TrustedProxyCIDRs = append(cfg.TrustedProxyCIDRs, prefix.Masked())
 		}
 	}
