@@ -287,9 +287,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.validate.outputs.tag }}
         run: |
+          # --repo, not a checkout: this job needs no source, and gh resolves
+          # the repository from git otherwise — which is why it failed on
+          # v0.4.2 with "fatal: not a git repository".
           gh release upload "$TAG" \
             "sbom/parley-$TAG.spdx.json" \
             "sbom/parley-$TAG-source.spdx.json" \
+            --repo "$GITHUB_REPOSITORY" \
             --clobber
 
   release-assets:
@@ -318,4 +322,5 @@ jobs:
           gh release upload "$TAG" \
             "release/parley-$TAG-compose.yml" \
             "release/parley-$TAG-kubernetes.yml" \
+            --repo "$GITHUB_REPOSITORY" \
             --clobber

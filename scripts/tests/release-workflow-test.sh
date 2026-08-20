@@ -97,4 +97,18 @@ promotion_line=$(line_number '--tag "$IMAGE:$VERSION"')
 test "$compare_line" -lt "$tag_check_line"
 test "$tag_check_line" -lt "$promotion_line"
 
+# `gh release upload` resolves the repository from git unless --repo is given,
+# and the sbom-assets job has no checkout — which is exactly how v0.4.2 shipped
+# with its SBOMs unattached ("fatal: not a git repository"). Every upload must
+# name the repository explicitly, whether or not its job happens to check out.
+upload_count=$(grep -Fc 'gh release upload' "$workflow")
+upload_with_repo=$(awk '
+  /gh release upload/ { in_upload=1; has_repo=0 }
+  in_upload && /--repo/ { has_repo=1 }
+  in_upload && /--clobber/ { if (has_repo) count++; in_upload=0 }
+  END { print count+0 }
+' "$workflow")
+test "$upload_count" -gt 0
+test "$upload_with_repo" -eq "$upload_count"
+
 echo "release workflow checks passed"
