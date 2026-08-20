@@ -85,39 +85,12 @@ jobs:
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: printf '%s\n' "$DIGEST" > /tmp/image-digest.txt
-      # syft cannot scan the published artifact directly: it is an OCI image
-      # index (two platforms, plus provenance and SBOM attestation manifests),
-      # and syft resolves an oci-archive as exactly one image. This second
-      # export re-uses the layers the build above already produced and strips
-      # the attestations, so the archive holds a single amd64 image. It is
-      # scanned and discarded; the published artifact is still the index.
-      - name: Export a single-platform image for SBOM generation
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          platforms: linux/amd64
-          push: false
-          tags: ${{ needs.validate.outputs.image }}:${{ needs.validate.outputs.version }}
-          build-args: |
-            VERSION=${{ needs.validate.outputs.version }}
-          outputs: type=oci,dest=/tmp/parley-sbom-image.tar
-          provenance: false
-          sbom: false
-      - name: Generate SPDX SBOM
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
-        with:
-          image: oci-archive:/tmp/parley-sbom-image.tar
-          format: spdx-json
-          output-file: /tmp/parley-${{ needs.validate.outputs.tag }}.spdx.json
-          upload-artifact: false
-          upload-release-assets: false
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-image-${{ needs.validate.outputs.tag }}
           path: |
             /tmp/parley-image.tar
             /tmp/image-digest.txt
-            /tmp/parley-${{ needs.validate.outputs.tag }}.spdx.json
           if-no-files-found: error
           retention-days: 7
 
@@ -213,6 +186,112 @@ jobs:
           helm package deploy/charts/parley --destination /tmp
           helm push /tmp/parley-*.tgz "oci://ghcr.io/${owner}/charts"
 
+  # SBOM generation is deliberately split across two jobs. This one reads the
+  # registry and holds no write scope; the attaching job below writes to the
+  # release and holds no registry credential. Keeping a registry credential and
+  # contents:write out of the same job preserves the separation the build and
+  # publish jobs already maintain.
+  sbom:
+    needs: [validate, publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.release_commit }}
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # The published artifact is an image index. Scanning it whole is what broke
+      # the v0.4.0 release, and scanning a locally rebuilt copy produces an SBOM
+      # that names bytes nobody can fetch. Resolve the platform manifest that was
+      # actually published and scan that, so the digest the SBOM records is the
+      # digest a consumer can pull.
+      - name: Resolve the published amd64 manifest
+        id: platform
+        env:
+          IMAGE: ${{ needs.validate.outputs.image }}
+          DIGEST: ${{ needs.publish.outputs.digest }}
+        run: |
+          set -eu
+          raw=$(docker run --rm \
+            --volume "$HOME/.docker/config.json:/auth.json:ro" \
+            "$SKOPEO_IMAGE" inspect --authfile /auth.json --raw \
+            "docker://$IMAGE@$DIGEST")
+          amd64=$(printf '%s' "$raw" | jq -r '.manifests[]
+            | select(.platform.architecture == "amd64" and .platform.os == "linux")
+            | .digest')
+          # An index carries attestation manifests beside the platform ones, so a
+          # looser selector can emit several digests; a multi-line value here
+          # would travel onward as a corrupt reference.
+          test "$(printf '%s' "$amd64" | grep -c .)" -eq 1
+          printf '%s\n' "$amd64" | grep -Eqx 'sha256:[0-9a-f]{64}'
+          echo "digest=$amd64" >> "$GITHUB_OUTPUT"
+      - name: Generate the image SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: ${{ needs.validate.outputs.image }}@${{ steps.platform.outputs.digest }}
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          format: spdx-json
+          output-file: /tmp/parley-${{ needs.validate.outputs.tag }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      # web/ is built with npm and embedded into the Go binary, so the image scan
+      # above cannot see a single frontend dependency. This source scan is the
+      # only place they are recorded. site/ is the docs site and never ships.
+      - name: Write the source scan config
+        env:
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -eu
+          printf 'exclude:\n  - ./site/**\nsource:\n  name: %s\n  version: %s\n' \
+            "github.com/${GITHUB_REPOSITORY}" "$TAG" > /tmp/syft-source.yaml
+      - name: Generate the source SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .
+          config: /tmp/syft-source.yaml
+          format: spdx-json
+          output-file: /tmp/parley-${{ needs.validate.outputs.tag }}-source.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-sbom-${{ needs.validate.outputs.tag }}
+          path: |
+            /tmp/parley-${{ needs.validate.outputs.tag }}.spdx.json
+            /tmp/parley-${{ needs.validate.outputs.tag }}-source.spdx.json
+          if-no-files-found: error
+          retention-days: 7
+
+  # Deliberately not a dependency of release-assets: a failed SBOM must not keep
+  # the deployment manifests off the release. That coupling is what left v0.4.0
+  # with no artifacts at all.
+  sbom-assets:
+    needs: [validate, sbom]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-sbom-${{ needs.validate.outputs.tag }}
+          path: sbom
+      - name: Attach the SBOMs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          gh release upload "$TAG" \
+            "sbom/parley-$TAG.spdx.json" \
+            "sbom/parley-$TAG-source.spdx.json" \
+            --clobber
+
   release-assets:
     needs: [validate, publish, chart]
     runs-on: ubuntu-24.04
@@ -239,5 +318,4 @@ jobs:
           gh release upload "$TAG" \
             "release/parley-$TAG-compose.yml" \
             "release/parley-$TAG-kubernetes.yml" \
-            "release/parley-$TAG.spdx.json" \
             --clobber

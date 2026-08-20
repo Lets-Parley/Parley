@@ -27,11 +27,35 @@ will arrive wearing the ingress controller's address, so the room-code throttle
 counts the whole internet as one client: eight wrong guesses lock everybody out
 of that space.
 
-Set trustProxyHeaders=true — but only if your proxy *overwrites*
-X-Forwarded-For. ingress-nginx does by default; with use-forwarded-headers it
-appends instead, and then trusting it lets a guesser reset their own limit on
-every request.
+Set trustProxyHeaders=true. A proxy that appends to X-Forwarded-For rather than
+overwriting it is fine — Parley walks the chain right-to-left to the first
+untrusted hop and never reads the leftmost value. What has to be right is
+trustedProxyCIDRs: every network you list can name any client address it likes.
 {{ end }}
+{{- end }}
+{{- if eq (include "parley.isTrue" .Values.trustProxyHeaders) "true" }}
+{{- if not (eq (include "parley.isTrue" .Values.networkPolicy.enabled) "true") }}
+
+WARNING: proxy trust is on and no NetworkPolicy was created. On Kubernetes the
+ingress controller's pod IP changes on every reschedule, so trustedProxyCIDRs
+has to be the pod CIDR — and that is a network any pod in the cluster can reach.
+Any workload here can open a connection straight to the Service — that is
+svc/{{ include "parley.fullname" . }} — present its own X-Forwarded-For, and take over another
+client's throttle bucket: the room-code passcode throttle and the open-mode
+identity-creation quota both key off that address.
+
+Close it:
+
+    helm --namespace {{ .Release.Namespace }} upgrade {{ .Release.Name }} ... --reuse-values \
+        --set networkPolicy.enabled=true \
+        --set networkPolicy.ingressController.namespace=ingress-nginx
+
+or restrict ingress to the pod another way. Then narrow your ingress
+controller's own forwarded-header trust — Traefik forwardedHeaders.trustedIPs,
+ingress-nginx proxy-real-ip-cidr — or the same forgery simply moves one hop
+upstream. A NetworkPolicy does not cover hostNetwork pods, or node IPs that fall
+inside a trusted CIDR.
+{{- end }}
 {{- end }}
 {{- if eq .Values.auth.mode "oidc" }}
 {{ if eq (include "parley.isTrue" .Values.auth.oidc.publicClient) "true" }}OIDC: public client — no client secret is sent. PKCE alone ties the

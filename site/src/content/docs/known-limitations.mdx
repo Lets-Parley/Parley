@@ -50,7 +50,7 @@ accepted and actionable.
 ## Security posture
 
 <Capability rows={[
-  { name: "SBOM and provenance", status: "built", detail: "Releases produced by the hardened workflow include an SPDX SBOM, digest-qualified deployment manifests, maximum build provenance, and a GitHub attestation for the final GHCR digest. Releases v0.1.0 through v0.2.1 were not backfilled. See <a href='/security/supply-chain/'>Supply chain</a>." },
+  { name: "SBOM and provenance", status: "built", detail: "Releases produced by the hardened workflow include an image SBOM and a source SBOM, digest-qualified deployment manifests, maximum build provenance, and a GitHub attestation for the final GHCR digest. The SBOMs themselves are unsigned assets; the attestations are the verifiable part. Releases v0.1.0 through v0.2.1 were not backfilled. See <a href='/security/supply-chain/'>Supply chain</a>." },
   { name: "Vulnerability scanning in CI", status: "built", detail: "govulncheck, CodeQL, dependency review, npm audit, and container scanning gate changes." },
   { name: "Automated dependency updates", status: "built", detail: "Dependabot checks Go, web, site, Actions, and Docker dependencies weekly." },
   { name: "HSTS and several modern headers", status: "not-built", detail: "Parley sets CSP, nosniff, X-Frame-Options and Referrer-Policy. Add HSTS, Permissions-Policy and the COOP/COEP/CORP family at your proxy." },
