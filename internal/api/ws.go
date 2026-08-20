@@ -15,12 +15,22 @@ import (
 // exactly as on REST; the browser's same-origin policy does not cover
 // WebSockets, so the Origin check is load-bearing.
 func (a *app) handleWS(w http.ResponseWriter, r *http.Request) {
+	// The upgrader checks Origin too, but only once the handler is ready to
+	// upgrade. Check it first: a WebSocket connect is a GET, and everything
+	// below it — the token touch included — must be out of reach of a
+	// cross-origin page.
+	if o := r.Header.Get("Origin"); o != "" && o != a.allowedOrigin {
+		http.Error(w, "no such session", http.StatusNotFound)
+		return
+	}
 	p, ok := PrincipalFrom(r.Context())
 	if !ok {
 		http.Error(w, "no such session", http.StatusNotFound)
 		return
 	}
-	tokenSession, err := a.users.ResolveToken(r.Context(), []byte(p.TokenID))
+	// Connecting is deliberate first-party use, so it renews the idle window
+	// even though the upgrade request is a GET.
+	tokenSession, err := a.users.ResolveToken(r.Context(), []byte(p.TokenID), true)
 	if errors.Is(err, store.ErrNoUser) {
 		http.Error(w, "no such session", http.StatusNotFound)
 		return

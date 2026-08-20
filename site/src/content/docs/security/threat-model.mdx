@@ -62,6 +62,17 @@ that header. `SameSite=Lax` and the JSON content-type requirement are what carry
 those cases. If you host untrusted content on a sibling subdomain of your Parley
 instance, do not rely on this layer alone.
 
+The check exempts `GET` deliberately: a cross-site page can send one but cannot
+read the answer, so the exemption only holds while a `GET` changes nothing.
+That is a rule the API keeps — no `GET` under `/api` writes to the database.
+Anything that records state, down to stamping when a member last opened a
+space, is a `POST`, so it passes through the check above. That includes the
+bookkeeping a request does on its own behalf: resolving the session cookie
+renews the 90-day idle window on a write, but a `GET` resolves it read-only,
+because otherwise one `<img src>` per visit would let a third-party page hold a
+victim's session open forever. Registering an action whose verb is `GET` is
+refused at startup rather than left to review.
+
 **Someone forging a cookie.** Session tokens are 32 bytes of cryptographic
 randomness, stored as a SHA-256 hash. The user id is public — it is broadcast to
 every participant — so the cookie deliberately does not contain it.

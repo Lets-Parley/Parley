@@ -1,9 +1,13 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestSecurityHeadersOnEveryResponse(t *testing.T) {
@@ -124,5 +128,86 @@ func TestRequireJSONBodyRejectsWrongContentType(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusUnsupportedMediaType {
 		t.Fatalf("text/plain body: got %d, want %d", resp.StatusCode, http.StatusUnsupportedMediaType)
+	}
+}
+
+// lastUsedAt reads the single session token's activity stamp straight out of
+// the table, so a test can prove a request did or did not write to it.
+func lastUsedAt(t *testing.T, pool *pgxpool.Pool) time.Time {
+	t.Helper()
+	var at time.Time
+	if err := pool.QueryRow(context.Background(),
+		"select last_used_at from session_tokens").Scan(&at); err != nil {
+		t.Fatal(err)
+	}
+	return at
+}
+
+// The cross-site guard exempts GET because a cross-site page can send one but
+// cannot read the answer — an exemption that only holds while a GET changes
+// nothing. Resolving the caller's session used to renew last_used_at on every
+// request, GETs included, which handed any third-party page one <img src> per
+// visit to keep a victim's idle window open forever and to write to
+// session_tokens without limit. A GET must resolve the principal and touch
+// nothing.
+func TestCrossSiteGetDoesNotRenewSession(t *testing.T) {
+	pool := testPool(t)
+	srv := testServerWith(t, pool, Options{AllowedOrigin: "http://example.test"})
+	ada := signup(t, srv, "Ada")
+	createSpace(t, srv, "Alpha Squad", ada)
+
+	// Back-date the stamp so any renewal is unmistakable rather than a
+	// sub-millisecond difference between two now() calls.
+	if _, err := pool.Exec(context.Background(),
+		"update session_tokens set last_used_at = now() - interval '1 hour'"); err != nil {
+		t.Fatal(err)
+	}
+	before := lastUsedAt(t, pool)
+
+	// Exactly what a third-party page's <img src> looks like on the wire.
+	req, _ := http.NewRequest("GET", srv.URL+"/api/spaces/alpha-squad", nil)
+	req.Header.Set("Origin", "https://evil.example")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	req.AddCookie(ada)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("cross-site GET: got %d, want the guard to still wave GETs through", resp.StatusCode)
+	}
+	if after := lastUsedAt(t, pool); !after.Equal(before) {
+		t.Fatalf("cross-site GET renewed the session: last_used_at %v -> %v", before, after)
+	}
+
+	// A same-site GET writes nothing either: the invariant is about the
+	// method, not about who sent it.
+	if resp, _ := getSpace(t, srv, "alpha-squad", ada); resp.StatusCode != http.StatusOK {
+		t.Fatalf("same-site GET: got %d", resp.StatusCode)
+	}
+	if after := lastUsedAt(t, pool); !after.Equal(before) {
+		t.Fatalf("same-site GET renewed the session: last_used_at %v -> %v", before, after)
+	}
+
+	// chi routes HEAD to the GET handlers, so it is held to the same rule.
+	req, _ = http.NewRequest("HEAD", srv.URL+"/api/spaces/alpha-squad", nil)
+	req.AddCookie(ada)
+	resp, err = srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if after := lastUsedAt(t, pool); !after.Equal(before) {
+		t.Fatalf("HEAD renewed the session: last_used_at %v -> %v", before, after)
+	}
+
+	// The control: real use still keeps a session alive, so withholding the
+	// touch on reads has not quietly broken idle-window renewal.
+	if resp := markSeen(t, srv, "alpha-squad", ada); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("mark seen: got %d", resp.StatusCode)
+	}
+	if after := lastUsedAt(t, pool); !after.After(before) {
+		t.Fatalf("a write did not renew the session: last_used_at %v -> %v", before, after)
 	}
 }

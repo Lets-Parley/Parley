@@ -105,14 +105,6 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 
 	if p, ok := PrincipalFrom(r.Context()); ok {
 		if member, err := a.spaces.IsMember(r.Context(), sp.ID, p.UserID); err == nil && member {
-			// Opening a space you already belong to is what "active" means;
-			// join only ever fires for someone who is not a member yet, so
-			// without this the landing list would order by join date.
-			// Best effort: a failed stamp is a slightly stale sort order, not
-			// a reason to refuse the page.
-			if err := a.spaces.MarkSeen(r.Context(), sp.ID, p.UserID); err != nil {
-				slog.Warn("could not stamp space visit", "space", sp.ID, "error", err)
-			}
 			roster, err := a.spaces.Roster(r.Context(), sp.ID)
 			if err != nil {
 				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
@@ -175,6 +167,35 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"slug": sp.Slug, "name": sp.Name, "protected": sp.Passcode != "",
 	})
+}
+
+// handleMarkSpaceSeen records that a member just opened a space, which is what
+// the landing page orders on. Join only ever fires for someone who is not a
+// member yet, so without this the list would order by join date.
+//
+// It is a POST because it writes: rejectCrossSite deliberately waves GETs
+// through on the grounds that they change nothing, so the space read must stay
+// read-only and the stamp has to arrive on a method the guard actually checks.
+// The update matches on the membership row, so it is a silent no-op for anyone
+// who is not a member — pinging it can never create or restore a membership.
+func (a *app) handleMarkSpaceSeen(w http.ResponseWriter, r *http.Request) {
+	p, _ := PrincipalFrom(r.Context())
+
+	sp, err := a.spaces.BySlug(r.Context(), chi.URLParam(r, "slug"))
+	if errors.Is(err, store.ErrNoSpace) {
+		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+		return
+	}
+	if err := a.spaces.MarkSeen(r.Context(), sp.ID, p.UserID); err != nil {
+		slog.Warn("could not stamp space visit", "space", sp.ID, "error", err)
+		http.Error(w, `{"error":"could not record the visit"}`, http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *app) handleJoinSpace(w http.ResponseWriter, r *http.Request) {

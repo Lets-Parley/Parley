@@ -122,7 +122,11 @@ Two different clocks, and they do not agree. This catches people out, so it is
 worth stating precisely:
 
 - **Server side**, a token expires after **90 days of inactivity**, and every
-  request pushes that window out. An active token never ages out.
+  write — plus every WebSocket connect — pushes that window out. A `GET` does
+  not: the cross-site guard waves `GET` through, so a refreshing `GET` would
+  let any third-party page hold a victim's session open forever. An active
+  token never ages out; reading, and only reading, for ninety days does not
+  count as activity.
 - **Browser side**, the cookie is written with a **fixed 90-day `Max-Age` from
   the moment it was issued**, and it is never rewritten on subsequent requests.
 

@@ -242,9 +242,24 @@ func TestListMySpacesRefusesAnonymous(t *testing.T) {
 	}
 }
 
+// markSeen pings the "I opened this space" endpoint the space page calls.
+func markSeen(t *testing.T, srv *httptest.Server, slug string, cookie *http.Cookie) *http.Response {
+	t.Helper()
+	req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/"+slug+"/seen", nil)
+	if cookie != nil {
+		req.AddCookie(cookie)
+	}
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	return resp
+}
+
 // Opening a space you already belong to is the activity signal the landing
-// page orders on. Join only ever fires for a stranger, so without a refresh on
-// the space GET this list would be "most recently joined" instead.
+// page orders on. Join only ever fires for a stranger, so the space page says
+// so explicitly with a POST — a GET must never write.
 func TestListMySpacesOrdersByLastOpenedNotByJoin(t *testing.T) {
 	srv := testServer(t)
 	ada := signup(t, srv, "Ada")
@@ -264,22 +279,86 @@ func TestListMySpacesOrdersByLastOpenedNotByJoin(t *testing.T) {
 	}
 
 	// She opens the space she already belongs to and never re-joins.
-	if resp, _ := getSpace(t, srv, "alpha-squad", ada); resp.StatusCode != http.StatusOK {
-		t.Fatalf("get space: got %d", resp.StatusCode)
+	if resp := markSeen(t, srv, "alpha-squad", ada); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("mark seen: got %d", resp.StatusCode)
 	}
 
 	_, opened := listMySpaces(t, srv, ada)
 	if len(opened) != 2 || opened[0]["slug"] != "alpha-squad" {
 		t.Fatalf("after opening: got %v, want alpha-squad first", opened)
 	}
+}
 
-	// A non-member reading the same space must not gain a membership row.
+// A GET is reachable cross-site with cookies attached — rejectCrossSite waves
+// it through precisely because a GET is meant to change nothing. Reading a
+// space must therefore leave the membership stamp exactly as it was.
+func TestGetSpaceDoesNotStampLastSeen(t *testing.T) {
+	srv := testServer(t)
+	ada := signup(t, srv, "Ada")
+	bob := signup(t, srv, "Bob")
+
+	createSpace(t, srv, "Alpha Squad", ada)
+	_, gamma := createSpace(t, srv, "Gamma Squad", bob)
+	if resp := joinSpace(t, srv, "gamma-squad", ada, gamma["passcode"].(string)); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("join: got %d", resp.StatusCode)
+	}
+
+	// Gamma is the most recently stamped membership. Reading Alpha — even
+	// repeatedly — must not move it ahead.
+	for range 3 {
+		if resp, _ := getSpace(t, srv, "alpha-squad", ada); resp.StatusCode != http.StatusOK {
+			t.Fatalf("get space: got %d", resp.StatusCode)
+		}
+	}
+
+	_, mine := listMySpaces(t, srv, ada)
+	if len(mine) != 2 || mine[0]["slug"] != "gamma-squad" {
+		t.Fatalf("GET rewrote last_seen_at: got %v, want gamma-squad still first", mine)
+	}
+}
+
+// The stamp is a members-only write, and a no-op for everyone else: a removed
+// member pinging it must not reappear in the room — and must not re-stamp the
+// rows of the members who are actually there.
+func TestMarkSeenNeverCreatesMembership(t *testing.T) {
+	srv := testServer(t)
+	ada := signup(t, srv, "Ada")
+	createSpace(t, srv, "Alpha Squad", ada)
+	createSpace(t, srv, "Beta Squad", ada)
+
+	// Beta is Ada's most recently touched membership, so her list order is a
+	// fingerprint of which of her rows last moved.
+	if resp := markSeen(t, srv, "beta-squad", ada); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("ada mark seen beta: got %d", resp.StatusCode)
+	}
+	if _, hers := listMySpaces(t, srv, ada); hers[0]["slug"] != "beta-squad" {
+		t.Fatalf("setup: got %v, want beta-squad first", hers)
+	}
+
 	stranger := signup(t, srv, "Cleo")
-	if resp, _ := getSpace(t, srv, "alpha-squad", stranger); resp.StatusCode != http.StatusOK {
-		t.Fatalf("stranger get: got %d", resp.StatusCode)
+	if resp := markSeen(t, srv, "alpha-squad", stranger); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("stranger mark seen: got %d", resp.StatusCode)
 	}
 	if _, theirs := listMySpaces(t, srv, stranger); len(theirs) != 0 {
 		t.Fatalf("stranger gained memberships: %v", theirs)
+	}
+	if _, view := getSpace(t, srv, "alpha-squad", ada); len(view["members"].([]any)) != 1 {
+		t.Fatalf("roster grew: %v", view["members"])
+	}
+	// The stamp is scoped to the caller's own row. Without the user_id filter
+	// the stranger's ping would have re-stamped Ada's alpha membership and
+	// shoved it to the top of her list.
+	if _, hers := listMySpaces(t, srv, ada); hers[0]["slug"] != "beta-squad" {
+		t.Fatalf("a non-member re-stamped someone else's row: got %v, want beta-squad still first", hers)
+	}
+
+	// Anonymous callers and unknown spaces get the same answers as every
+	// other member-scoped write.
+	if resp := markSeen(t, srv, "alpha-squad", nil); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("anonymous mark seen: got %d", resp.StatusCode)
+	}
+	if resp := markSeen(t, srv, "no-such-space", ada); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown space: got %d", resp.StatusCode)
 	}
 }
 
@@ -351,4 +430,52 @@ func kindList(t *testing.T, body map[string]any) []string {
 		out = append(out, s)
 	}
 	return out
+}
+
+// The stamp is a write, so unlike the space read it has to answer to the
+// cross-site guard. Both signals the guard reads must turn it away.
+func TestMarkSeenRefusesCrossSite(t *testing.T) {
+	srv := testServer(t)
+	ada := signup(t, srv, "Ada")
+	createSpace(t, srv, "Alpha Squad", ada)
+
+	for _, tc := range []struct{ name, header, value string }{
+		{"origin", "Origin", "https://evil.example"},
+		{"sec-fetch-site", "Sec-Fetch-Site", "cross-site"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/alpha-squad/seen", nil)
+			req.Header.Set(tc.header, tc.value)
+			req.AddCookie(ada)
+			resp, err := srv.Client().Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusForbidden {
+				t.Fatalf("%s: got %d, want %d", tc.header, resp.StatusCode, http.StatusForbidden)
+			}
+		})
+	}
+}
+
+// Removal has to stick. The stamp matches on an existing membership row, so a
+// member who was removed can ping it forever without letting themselves back
+// in — the write finds nothing and says so with the same 204 as a no-op.
+func TestMarkSeenDoesNotRestoreARemovedMember(t *testing.T) {
+	srv := testServer(t)
+	slug, owner, _, member, memberID := spaceWithTwo(t, srv)
+
+	if resp, body := removeMember(t, srv, slug, memberID, owner); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("remove: got %d %s", resp.StatusCode, body)
+	}
+	if resp := markSeen(t, srv, slug, member); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("removed member mark seen: got %d", resp.StatusCode)
+	}
+	if _, theirs := listMySpaces(t, srv, member); len(theirs) != 0 {
+		t.Fatalf("removed member came back: %v", theirs)
+	}
+	if _, view := getSpace(t, srv, slug, owner); len(view["members"].([]any)) != 1 {
+		t.Fatalf("roster grew back: %v", view["members"])
+	}
 }

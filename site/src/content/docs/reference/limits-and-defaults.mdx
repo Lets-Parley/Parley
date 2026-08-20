@@ -74,7 +74,7 @@ integers and are validated at boot.
 
 <SpecTable rows={[
   { name: "Session token", value: "32 random bytes", note: "SHA-256 at rest" },
-  { name: "Server-side token expiry", value: "90 days idle", note: "Refreshed on every use" },
+  { name: "Server-side token expiry", value: "90 days idle", note: "Refreshed by any write or WebSocket connect; a GET never refreshes it" },
   { name: "Session cookie Max-Age", value: "90 days", note: "Fixed from issue and never refreshed — the effective ceiling" },
   { name: "Sign-in flow cookie", value: "600s", note: "oidc mode only" },
   { name: "Expired token cleanup", value: "never", note: "Rows stop resolving but are not swept" },
