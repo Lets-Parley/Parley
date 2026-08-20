@@ -34,8 +34,12 @@ vi.mock("../lib/api", async () => {
         return signedIn ? me : null;
       }
       if (path === "/api/auth") return { mode: authMode };
-      if (path === "/api/spaces" && method === "GET") return mySpaces;
+      if (path === "/api/spaces" && method === "GET") {
+        if (listFails) throw new Error("Could not list your spaces.");
+        return mySpaces;
+      }
       if (path === "/api/spaces") {
+        if (holdCreate) await holdCreate;
         if (createFails) throw new Error("Could not create the space.");
         return createResult;
       }
@@ -47,6 +51,10 @@ vi.mock("../lib/api", async () => {
 let signedIn = true;
 let authMode: "open" | "oidc" = "oidc";
 let createFails = false;
+let listFails = false;
+// Set to a promise a test resolves by hand, to hold the create in flight long
+// enough to look at the button while it waits.
+let holdCreate: Promise<void> | null = null;
 let mySpaces: { slug: string; name: string; protected: boolean }[] = [];
 const createdSpace = {
   slug: "platform-team",
@@ -74,6 +82,8 @@ beforeEach(() => {
   signedIn = true;
   authMode = "oidc";
   createFails = false;
+  listFails = false;
+  holdCreate = null;
   createResult = createdSpace;
   mySpaces = [];
   sessionStorage.clear();
@@ -94,14 +104,23 @@ describe("Landing, signed in with spaces", () => {
 
     const list = await screen.findByRole("list", { name: /your spaces/i });
     const links = within(list).getAllByRole("link");
-    expect(links.map((a) => a.textContent)).toEqual([
-      "Platform Team",
-      "Design Guild",
-    ]);
+    expect(within(links[0]).getByText("Platform Team")).toBeTruthy();
+    expect(within(links[1]).getByText("Design Guild")).toBeTruthy();
     expect(links.map((a) => a.getAttribute("href"))).toEqual([
       "/s/platform-team",
       "/s/design-guild",
     ]);
+  });
+
+  // Whether a space wants a code is the difference between pasting the link and
+  // having to go and ask for six characters, so the row says which it is.
+  it("marks the spaces that will ask for a room code", async () => {
+    renderApp(<Landing />);
+
+    const list = await screen.findByRole("list", { name: /your spaces/i });
+    const links = within(list).getAllByRole("link");
+    expect(within(links[0]).queryByText(/room code/i)).not.toBeNull();
+    expect(within(links[1]).queryByText(/room code/i)).toBeNull();
   });
 
   it("keeps creating a space available alongside the list", async () => {
@@ -109,7 +128,7 @@ describe("Landing, signed in with spaces", () => {
 
     await screen.findByRole("list", { name: /your spaces/i });
     await userEvent.type(
-      screen.getByPlaceholderText(/Name your space/),
+      screen.getByPlaceholderText(/Platform Team/),
       "New Crew",
     );
     await userEvent.click(screen.getByRole("button", { name: /create a space/i }));
@@ -168,7 +187,7 @@ describe("Landing", () => {
     renderApp(<Landing />);
 
     const input = await screen.findByPlaceholderText<HTMLInputElement>(
-      /Name your space/,
+      /Platform Team/,
     );
     expect(input.value).toBe("Platform Team");
     await waitFor(() =>
@@ -202,11 +221,41 @@ describe("Landing", () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
+  // Escape is the reflex on any modal, and this one offered no other way out.
+  // Closing the dialog without telling Landing left needName true: the button
+  // that raised the gate became inert, and only a reload got the page back.
+  it("lets Escape dismiss the name gate and raises it again on the next press", async () => {
+    signedIn = false;
+
+    renderApp(<Landing />);
+
+    const field = await screen.findByPlaceholderText(/Platform Team/);
+    await userEvent.type(field, "Platform Team");
+    const open = screen.getByRole("button", { name: "Open a space" });
+    await userEvent.click(open);
+    const dialog = await screen.findByRole("dialog");
+
+    // Escape on a native <dialog> reaches the page as a cancel event; jsdom
+    // does not raise one from the keypress, so it is dispatched directly here.
+    // The point under test is what Landing does with it, not who sends it.
+    await act(async () => {
+      dialog.dispatchEvent(new Event("cancel", { bubbles: false, cancelable: true }));
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // Backing out of the gate abandons the create; nothing may be left behind
+    // to fire it later from the resume path.
+    expect(sessionStorage.getItem("parley:pending-space")).toBeNull();
+    expect(spaceCalls()).toHaveLength(0);
+
+    await userEvent.click(open);
+    await screen.findByRole("dialog");
+  });
+
   it("creates on submit for someone already signed in", async () => {
     renderApp(<Landing />);
 
     await userEvent.type(
-      await screen.findByPlaceholderText(/Name your space/),
+      await screen.findByPlaceholderText(/Platform Team/),
       "Platform Team",
     );
     await userEvent.click(screen.getByRole("button", { name: "Open a space" }));
@@ -277,13 +326,87 @@ describe("Landing", () => {
   // so the person in front of the screen can simply press the button again;
   // a success must not, because the create already happened and no late-waking
   // path may repeat it.
+  // Try again is the other half of the latch, made visible. It may only be
+  // offered while there is something to retry: once the POST has landed the
+  // space exists, the latch is shut for good, and the button would be an inert
+  // control sitting next to an error.
+  it("offers Try again after a failed create, and withdraws it once the space exists", async () => {
+    createFails = true;
+
+    renderApp(<Landing />);
+
+    await userEvent.type(
+      await screen.findByPlaceholderText(/Platform Team/),
+      "Platform Team",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Open a space" }));
+    await screen.findByText("Could not create the space.");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+
+    // The retry lands the POST, then stumbles on a body with no slug. The space
+    // is real from here on, so the retry must go away with it.
+    createFails = false;
+    createResult = undefined;
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await screen.findByText(/couldn't open it/i);
+    expect(spaceCalls()).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  it("says it is working, and refuses a second press, while the create is in flight", async () => {
+    let release!: () => void;
+    holdCreate = new Promise<void>((res) => {
+      release = res;
+    });
+
+    renderApp(<Landing />);
+
+    await userEvent.type(
+      await screen.findByPlaceholderText(/Platform Team/),
+      "Platform Team",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Open a space" }));
+
+    const waiting = await screen.findByRole("button", { name: "Opening…" });
+    expect((waiting as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      release();
+    });
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith("/s/platform-team"),
+    );
+    expect(spaceCalls()).toHaveLength(1);
+  });
+
+  // A list that could not be read is not a list with nothing in it. Rendering
+  // the failure as an empty roster tells someone with six spaces they have none.
+  it("says so when the space list cannot be read, and reads it again on request", async () => {
+    listFails = true;
+
+    renderApp(<Landing />);
+
+    await screen.findByText(/couldn't load your spaces/i);
+    expect(screen.queryByRole("list", { name: /your spaces/i })).toBeNull();
+
+    listFails = false;
+    mySpaces = [
+      { slug: "platform-team", name: "Platform Team", protected: false },
+    ];
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    const list = await screen.findByRole("list", { name: /your spaces/i });
+    expect(within(list).getByText("Platform Team")).toBeTruthy();
+  });
+
   it("lets a failed create be retried by hand", async () => {
     createFails = true;
 
     renderApp(<Landing />);
 
     await userEvent.type(
-      await screen.findByPlaceholderText(/Name your space/),
+      await screen.findByPlaceholderText(/Platform Team/),
       "Platform Team",
     );
     await userEvent.click(screen.getByRole("button", { name: "Open a space" }));
@@ -341,14 +464,17 @@ describe("Landing", () => {
     renderApp(<Landing />);
 
     await userEvent.type(
-      await screen.findByPlaceholderText(/Name your space/),
+      await screen.findByPlaceholderText(/Platform Team/),
       "Platform Team",
     );
     const open = screen.getByRole("button", { name: "Open a space" });
     await userEvent.click(open);
 
     // The space exists; only the navigate blew up, on a body with no slug.
-    await screen.findByText(/slug/);
+    // What the reader is told is that the space was made and is in their list —
+    // the exception names a field, which is for the console, not for them.
+    await screen.findByText(/couldn't open it/i);
+    expect(screen.queryByText(/slug/)).toBeNull();
     expect(spaceCalls()).toHaveLength(1);
     expect(navigate).not.toHaveBeenCalled();
 
@@ -365,7 +491,7 @@ describe("Landing", () => {
     renderApp(<Landing />);
 
     await userEvent.type(
-      await screen.findByPlaceholderText(/Name your space/),
+      await screen.findByPlaceholderText(/Platform Team/),
       "Platform Team",
     );
     const open = screen.getByRole("button", { name: "Open a space" });
@@ -401,7 +527,7 @@ describe("Landing, a pending create raced by both paths", () => {
   async function stashViaTheForm() {
     const view = renderApp(<Landing />);
     await userEvent.type(
-      await screen.findByPlaceholderText(/Name your space/),
+      await screen.findByPlaceholderText(/Platform Team/),
       "Platform Team",
     );
     await userEvent.click(screen.getByRole("button", { name: "Open a space" }));

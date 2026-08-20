@@ -101,6 +101,34 @@ type Props = {
   children: ReactNode;
 };
 
+/**
+ * The theme control, standing on its own so the landing page can mount it too.
+ * Three themes are a product commitment, and a visitor who has never opened a
+ * space still needs the switch.
+ *
+ * The palette says its own name. Encoding it in an inset shadow on a 12px dot
+ * asked everyone to read a state only its author knew.
+ */
+export function ThemeToggle() {
+  const { theme, isDark, cycle } = useTheme();
+  return (
+    <button
+      onClick={cycle}
+      aria-label={`Theme: ${theme}. Switch to ${NEXT_THEME_WORD[theme]}.`}
+      className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-felt-deep py-1 pl-1.5 pr-2.5 hover:bg-surface-hi"
+    >
+      <span
+        aria-hidden
+        className="h-3 w-3 shrink-0 rounded-full bg-ink-soft"
+        style={{ boxShadow: isDark ? "inset 3px -2px 0 0 var(--color-surface)" : "none" }}
+      />
+      <span className="hidden font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint sm:inline">
+        {theme}
+      </span>
+    </button>
+  );
+}
+
 export function AppShell({
   spaceSlug,
   spaceName,
@@ -123,7 +151,6 @@ export function AppShell({
   const [sideOpen, setSideOpen] = useState(() => sidebarDefault && wide);
   const [who, setWho] = useState<string | null>(null);
   const [rosterOpen, setRosterOpen] = useState(false);
-  const { theme, isDark, cycle } = useTheme();
   const mode = useAuthMode();
   // Only offered where it means something. In open mode the identity is just a
   // name in a cookie, and "sign out" would promise more than it does.
@@ -355,22 +382,7 @@ export function AppShell({
           </button>
         )}
 
-        {/* The palette says its own name. Encoding it in an inset shadow on a
-            12px dot asked everyone to read a state only its author knew. */}
-        <button
-          onClick={cycle}
-          aria-label={`Theme: ${theme}. Switch to ${NEXT_THEME_WORD[theme]}.`}
-          className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-felt-deep py-1 pl-1.5 pr-2.5 hover:bg-surface-hi"
-        >
-          <span
-            aria-hidden
-            className="h-3 w-3 shrink-0 rounded-full bg-ink-soft"
-            style={{ boxShadow: isDark ? "inset 3px -2px 0 0 var(--color-surface)" : "none" }}
-          />
-          <span className="hidden font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint sm:inline">
-            {theme}
-          </span>
-        </button>
+        <ThemeToggle />
       </header>
 
       {status && <ConnectionBanner status={status} onRetry={onRetry} />}
