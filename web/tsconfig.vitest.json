@@ -1,0 +1,17 @@
+{
+  // The tests, and only the tests, get Node's globals: cue.test.ts reads
+  // tokens.css off disk, because vitest stubs CSS imports and the test has to
+  // see the literal hex. Application code is typechecked by tsconfig.app.json,
+  // which excludes these files and grants no "node" types — so a stray
+  // `process` or `Buffer` in a component fails the build instead of shipping
+  // an undefined to the browser.
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.vitest.tsbuildinfo",
+    "types": ["vite/client", "node"]
+  },
+  // `exclude` is inherited through `extends`, and app's excludes are exactly
+  // this project's inputs — so it has to be cleared, not merged.
+  "exclude": [],
+  "include": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/test"]
+}

@@ -59,7 +59,17 @@ export function ResultsPanel({ results }: { results: Results }) {
   const max = Math.max(...results.histogram.map((r) => r.count), 1);
 
   return (
-    <section className="flex flex-wrap items-center justify-center gap-8 rounded-panel bg-felt-deep px-6 py-7 shadow-well sm:gap-10 sm:px-8">
+    // The ground follows the field to DAY so a bright table is not immediately
+    // followed by a dark well. --shadow-well was tuned against a darker ground,
+    // so the border does the "pressed" work now rather than a heavier shadow.
+    // The stacks keep --color-surface, a token independent of this ground:
+    // against DAY-white they would compute 1.08:1 and vanish. They are
+    // aria-hidden decoration — the value and count are in the label below —
+    // but decoration you cannot see is not decoration, it is a gap.
+    <section
+      className="flex flex-wrap items-center justify-center gap-8 rounded-panel border border-line px-6 py-7 shadow-well sm:gap-10 sm:px-8"
+      style={{ background: "var(--cue-day)" }}
+    >
       <div>
         <div className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">
           {hero.label}
