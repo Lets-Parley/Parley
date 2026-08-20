@@ -83,4 +83,13 @@ describe("StoryQueue", () => {
     expect(JSON.parse(init.body as string)).toMatchObject({ ref: "PAR-142", title: "" });
     fetchSpy.mockRestore();
   });
+
+  it("keeps brass off the agreed-estimate chip", () => {
+    // Brass means authority — the facilitator, and only the facilitator. An
+    // agreed estimate is `settled`, a decision at rest.
+    renderQueue();
+    const chip = screen.getByRole("img", { name: /Agreed estimate/ });
+    expect(chip.className).toContain("border-settled");
+    expect(chip.className).not.toContain("brass");
+  });
 });

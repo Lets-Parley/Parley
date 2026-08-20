@@ -57,7 +57,7 @@ export function BuildStamp() {
 
 export function ConnectionDot({ status }: { status: ConnectionStatus }) {
   const color =
-    status === "live" ? "bg-go" : status === "reconnecting" ? "bg-brass" : "bg-stop";
+    status === "live" ? "bg-go" : status === "reconnecting" ? "bg-accent" : "bg-stop";
   return (
     <span className="flex items-center gap-1.5 font-mono text-[11px] text-ink-soft">
       <span className={"h-2 w-2 rounded-full " + color} />
