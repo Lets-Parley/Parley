@@ -375,6 +375,15 @@ describe("StandupRoom ending the session", () => {
   afterEach(() => vi.useRealTimers());
 
   const endButton = () => screen.queryByRole("button", { name: /end session/i });
+  /** End session opens a confirm now; ending means going through it. */
+  async function endNow() {
+    await act(async () => {
+      endButton()!.click();
+    });
+    await act(async () => {
+      screen.getByRole("button", { name: "End standup" }).click();
+    });
+  }
 
   it("is not offered to anyone but the facilitator", () => {
     renderApp(<StandupRoom env={envelope()} me={me} />);
@@ -391,9 +400,7 @@ describe("StandupRoom ending the session", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
     renderApp(<StandupRoom env={envelope({ facilitatorId: "marcus" })} me={me} />);
-    await act(async () => {
-      endButton()!.click();
-    });
+    await endNow();
     expect(fetchSpy).toHaveBeenCalledWith(
       "/api/sessions/sess-1",
       expect.objectContaining({ method: "DELETE" }),
@@ -425,9 +432,7 @@ describe("StandupRoom ending the session", () => {
     const yesterday = screen.getAllByRole("textbox")[0];
     fireEvent.change(yesterday, { target: { value: "the very last thing I typed" } });
     // No timer advance: the point is that ending does not wait out the debounce.
-    await act(async () => {
-      endButton()!.click();
-    });
+    await endNow();
 
     const calls = fetchSpy.mock.calls;
     const saveAt = calls.findIndex(
@@ -463,8 +468,11 @@ describe("StandupRoom ending the session", () => {
     renderApp(<StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />);
 
     fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "held open" } });
-    const ended = act(async () => {
+    act(() => {
       endButton()!.click();
+    });
+    const ended = act(async () => {
+      screen.getByRole("button", { name: "End standup" }).click();
     });
     await act(async () => {});
     const deletes = () =>
@@ -493,9 +501,7 @@ describe("StandupRoom ending the session", () => {
     renderApp(<StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />);
 
     fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "never made it" } });
-    await act(async () => {
-      endButton()!.click();
-    });
+    await endNow();
 
     expect(
       fetchSpy.mock.calls.filter(([u, i]) => u === "/api/sessions/sess-1" && (i as RequestInit)?.method === "DELETE"),
@@ -519,18 +525,14 @@ describe("StandupRoom ending the session", () => {
     renderApp(<StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />);
 
     fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "first go" } });
-    await act(async () => {
-      endButton()!.click();
-    });
+    await endNow();
     expect(screen.getByRole("alert").textContent).toMatch(/still open/i);
     expect(endButton()).toBeTruthy();
     expect((endButton() as HTMLButtonElement).disabled).toBe(false);
 
     failNext = false;
     fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "second go" } });
-    await act(async () => {
-      endButton()!.click();
-    });
+    await endNow();
     expect(
       fetchSpy.mock.calls.filter(([u, i]) => u === "/api/sessions/sess-1" && (i as RequestInit)?.method === "DELETE"),
     ).toHaveLength(1);
@@ -549,9 +551,18 @@ describe("StandupRoom ending the session", () => {
     renderApp(<StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />);
 
     fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "one save" } });
-    // Both clicks land while the flush is still held.
-    endButton()!.click();
-    endButton()!.click();
+    // The second click used to land while the flush was still held. It cannot
+    // any more: confirming unmounts the modal and disables End session for the
+    // duration, so the race is closed structurally rather than only by the ref.
+    // The ref guard stays as defence for any caller that is not the modal.
+    act(() => {
+      endButton()!.click();
+    });
+    act(() => {
+      screen.getByRole("button", { name: "End standup" }).click();
+    });
+    expect(screen.queryByRole("button", { name: "End standup" })).toBeNull();
+    expect((endButton() as HTMLButtonElement).disabled).toBe(true);
     await act(async () => {
       release();
       await held;
@@ -589,8 +600,11 @@ describe("StandupRoom ending the session", () => {
     });
     const putsBeforeEnd = puts;
 
-    const ended = act(async () => {
+    act(() => {
       endButton()!.click();
+    });
+    const ended = act(async () => {
+      screen.getByRole("button", { name: "End standup" }).click();
     });
     await act(async () => {});
     const deletes = () =>
@@ -826,5 +840,50 @@ describe("StandupRoom Daybreak", () => {
     // The art is the daybreak horizon, not the poker card stack — a standup
     // has never had a deck in it.
     expect(screen.getByTestId("daybreak-art")).toBeTruthy();
+  });
+});
+
+describe("StandupRoom hardening", () => {
+  const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+
+  it("asks before ending the standup for everyone", async () => {
+    // It fired a DELETE from a bare 13px label in the chrome, a cursor-width
+    // from Export CSV, with nothing in between.
+    const del = vi.spyOn(globalThis, "fetch");
+    renderApp(<StandupRoom env={envelope()} me={dana} />);
+    screen.getByRole("button", { name: "End session" }).click();
+    expect(await screen.findByText("End this standup?")).toBeTruthy();
+    expect(del).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Keep going" }));
+    expect(del).not.toHaveBeenCalled();
+    del.mockRestore();
+  });
+
+  it("lets you fix your own update after your turn has passed", async () => {
+    // The form rendered only while it was your turn, so a blocker remembered
+    // during someone else's turn had nowhere to go — and the roundup at the
+    // end is built from exactly that field.
+    const env = envelope({ state: standupState("dana") });
+    renderApp(<StandupRoom env={env} me={me} />);
+    // Marcus is not speaking; his seat is not the one on show.
+    await userEvent.click(screen.getByRole("button", { name: "Edit your update" }));
+    expect(screen.getAllByRole("textbox").length).toBe(3);
+  });
+
+  it("does not offer the edit shortcut once the session has ended", () => {
+    const env = envelope({ phase: "done", state: standupState(null) });
+    renderApp(<StandupRoom env={env} me={me} />);
+    expect(screen.queryByRole("button", { name: "Edit your update" })).toBeNull();
+  });
+
+  it("says so when the clipboard refuses, instead of looking broken", async () => {
+    // navigator.clipboard is undefined on an insecure origin, which is exactly
+    // where a self-hoster on plain HTTP lives.
+    const env = envelope({ phase: "done", state: filledState(null) });
+    const write = vi.fn().mockRejectedValue(new Error("denied"));
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: write }, configurable: true });
+    renderApp(<StandupRoom env={env} me={me} />);
+    await userEvent.click(screen.getByRole("button", { name: "Copy blockers" }));
+    expect(await screen.findByText(/could not copy/i)).toBeTruthy();
   });
 });

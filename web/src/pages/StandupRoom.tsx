@@ -3,7 +3,7 @@ import { action, api, errorText, type Envelope, type Me } from "../lib/api";
 import type { ConnectionStatus } from "../lib/socket";
 import { useToast } from "../lib/ui";
 import { Avatar } from "../components/Avatar";
-import { buttonPrimary, buttonQuiet, inputClass } from "../components/Modal";
+import { Modal, buttonDanger, buttonPrimary, buttonQuiet, inputClass } from "../components/Modal";
 import { cueFor, cueVar } from "../lib/cue";
 import { EmptyTable } from "./PokerRoom";
 
@@ -160,6 +160,8 @@ export function StandupRoom({
   // the held seat again lets go and puts the panel back on the live speaker.
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const [confirmEnd, setConfirmEnd] = useState(false);
   const people = new Map(env.participants.map((p) => [p.userId, p]));
   const speaking = env.phase === "speaking";
   const done = env.phase === "done";
@@ -185,6 +187,11 @@ export function StandupRoom({
   // `done` plays the part `revealed` plays there, so the last turn still has a
   // step left to make.
   const cue = cueFor(Math.max(0, position - 1), speakers.length, done);
+  // Your own row stays writable for as long as the session accepts writes. It
+  // used to render only during your own turn, so a blocker remembered while
+  // someone else spoke had nowhere to go — and the roundup is built from that
+  // field. The server closes writes at end, which is what `done` tracks here.
+  const canEditOwn = !done && !env.endedAt;
   const nextLabel = done
     ? "Round complete"
     : nextUp
@@ -211,6 +218,34 @@ export function StandupRoom({
   // state alone lets the second one through.
   const endingRef = useRef(false);
   const [ending, setEnding] = useState(false);
+
+  // Ending is a two-step await, so a second click can land between the flush
+  // and the DELETE. The server ignores the duplicate, but nothing should fire a
+  // request it already has in flight. The ref is the guard and the state only
+  // dims the button: two clicks in the same tick both read stale state, so
+  // state alone lets the second one through.
+  async function endStandup() {
+    if (endingRef.current) return;
+    endingRef.current = true;
+    setEnding(true);
+    // Ending closes the session to writes, so the pending debounce goes out
+    // first or the facilitator's last sentence is lost. If that save fails the
+    // session stays open: ending cannot be undone from here, but retrying can,
+    // so the failure is surfaced instead of being closed over — and the button
+    // has to come back, or the retry it offers is not reachable.
+    try {
+      try {
+        await flush();
+      } catch {
+        throw new Error("Your last changes could not be saved, so the session is still open. Try again.");
+      }
+      await api("DELETE", `/api/sessions/${env.id}`);
+    } finally {
+      endingRef.current = false;
+      setEnding(false);
+    }
+    say("Session closed — members can still open the results");
+  }
 
   async function run(fn: () => Promise<unknown>) {
     try {
@@ -308,31 +343,7 @@ export function StandupRoom({
           <button
             className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop disabled:opacity-50"
             disabled={ending}
-            onClick={() =>
-              run(async () => {
-                if (endingRef.current) return;
-                endingRef.current = true;
-                setEnding(true);
-                // Ending closes the session to writes, so the pending debounce
-                // goes out first or the facilitator's last sentence is lost.
-                // If that save fails the session stays open: ending cannot be
-                // undone from here, but retrying can, so the failure is
-                // surfaced instead of being closed over — and the button has to
-                // come back, or the retry it offers is not reachable.
-                try {
-                  try {
-                    await flush();
-                  } catch {
-                    throw new Error("Your last changes could not be saved, so the session is still open. Try again.");
-                  }
-                  await api("DELETE", `/api/sessions/${env.id}`);
-                } finally {
-                  endingRef.current = false;
-                  setEnding(false);
-                }
-                say("Session closed — members can still open the results");
-              })
-            }
+            onClick={() => setConfirmEnd(true)}
           >
             End session
           </button>
@@ -420,7 +431,7 @@ export function StandupRoom({
             )}
             <h2 className="font-display text-2xl font-semibold">{people.get(shown.userId)?.name}</h2>
           </div>
-          {speaking && shown.userId === me.id ? (
+          {canEditOwn && shown.userId === me.id ? (
             <EntryForm draft={draft} update={update} saveState={saveState} />
           ) : (
             <div data-testid="entry-body" className="flex flex-col gap-3">
@@ -447,6 +458,14 @@ export function StandupRoom({
                 </dl>
               )}
             </div>
+          )}
+          {canEditOwn && shown.userId !== me.id && speakers.some((p) => p.userId === me.id) && (
+            <button
+              className={buttonQuiet + " self-start"}
+              onClick={() => setPickedId(me.id)}
+            >
+              Edit your update
+            </button>
           )}
           {speaking && current && isFacilitator && (
             // Pinned, because the card above it is as tall as whatever the
@@ -476,13 +495,26 @@ export function StandupRoom({
               <button
                 className={buttonPrimary + " self-start"}
                 onClick={async () => {
-                  await navigator.clipboard.writeText(blockersText);
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 2000);
+                  // Undefined on an insecure origin, and rejectable on a denied
+                  // permission — which is exactly where a self-hoster on plain
+                  // HTTP lives. It used to reject unhandled and just look broken.
+                  try {
+                    await navigator.clipboard.writeText(blockersText);
+                    setCopyFailed(false);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  } catch {
+                    setCopyFailed(true);
+                  }
                 }}
               >
                 {copied ? "Copied!" : "Copy blockers"}
               </button>
+              {copyFailed && (
+                <p role="alert" className="text-sm font-bold text-stop">
+                  Could not copy — select the text above and copy it yourself.
+                </p>
+              )}
             </>
           ) : (
             <EmptyTable
@@ -499,6 +531,30 @@ export function StandupRoom({
       </p>
 
       {error && <p role="alert" className="font-bold text-stop">{error}</p>}
+
+      {confirmEnd && (
+        <Modal title="End this standup?" onClose={() => setConfirmEnd(false)}>
+          <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+            This ends the round for everyone in the room right now. The updates stay in the
+            space and anyone can still open the results afterwards.
+          </p>
+          <div className="mt-5 flex justify-end gap-2.5">
+            <button className={buttonQuiet} onClick={() => setConfirmEnd(false)}>
+              Keep going
+            </button>
+            <button
+              className={buttonDanger}
+              disabled={ending}
+              onClick={() => {
+                setConfirmEnd(false);
+                void run(endStandup);
+              }}
+            >
+              End standup
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
