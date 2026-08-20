@@ -1,3 +1,22 @@
+{{- /*
+Coerce a values.yaml entry that is meant to be a boolean into "true" or
+"false" as text, so callers can test it with `eq (include "parley.isTrue" .) "true"`
+instead of Go template raw truthiness. Raw truthiness treats ANY non-empty
+string as true — including the string "false" — which is exactly what a
+tool that emits quoted YAML booleans (ArgoCD parameter overrides, Helmfile,
+CI templating with --set-string) produces. Only a real bool `true` or the
+exact string "true" counts as true; everything else, including a typo, is
+false — a typo must fail loudly via whatever guard consumes it, never
+silently flip a security-relevant switch on.
+*/ -}}
+{{- define "parley.isTrue" -}}
+{{- if or (and (kindIs "bool" .) .) (eq (toString .) "true") -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}
+
 {{- define "parley.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
@@ -28,7 +47,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{- define "parley.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create -}}
+{{- if eq (include "parley.isTrue" .Values.serviceAccount.create) "true" -}}
 {{- default (include "parley.fullname" .) .Values.serviceAccount.name -}}
 {{- else -}}
 {{- default "default" .Values.serviceAccount.name -}}

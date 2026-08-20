@@ -51,6 +51,12 @@ container asks for is not there.
 | Database | `database.existingSecret` | `database.secretKey`, default `database-url` | The entire connection URI |
 | OIDC | `auth.oidc.existingSecret` | `auth.oidc.secretKey`, default `oidc-client-secret` | The client secret, on its own |
 
+The OIDC secret is only for a confidential client. If your provider registered
+Parley as a **public** client — no secret at all, which Keycloak, Zitadel and
+Entra do by default for an app of this shape — set `auth.oidc.publicClient=true`
+instead and create no second secret. PKCE ties the authorization code to the
+browser that started the sign-in, so the flow is complete without one.
+
 ```sh
 kubectl create secret generic parley \
   --from-literal=database-url='postgres://parley:secret@host:5432/parley?sslmode=require'
@@ -123,8 +129,11 @@ set:
   off by default. The chart ships the `proxy-read-timeout` annotations
   WebSockets need.
 - **`trustProxyHeaders`** — see [below](#the-chart-and-the-manifest-set-trust_proxy_headers).
-- **`auth.mode`** (`open` or `oidc`) and `auth.oidc.*`. The client secret is read
-  from a secret you create, never from values.
+- **`auth.mode`** (`open` or `oidc`) and `auth.oidc.*`. With `oidc` you must set
+  either `auth.oidc.existingSecret` (confidential client; the secret is read
+  from a Secret you create, never from values) or `auth.oidc.publicClient=true`
+  (public client, no secret — PKCE carries the flow). Neither, or both, fails
+  the render.
 
 Every value is commented in
 [`deploy/charts/parley/values.yaml`](https://github.com/lets-parley/parley/blob/main/deploy/charts/parley/values.yaml),
@@ -181,7 +190,10 @@ them:
   still renders — scaling to zero is how you take Parley down for a maintenance
   window.
 - **A missing `database.existingSecret`.**
-- **OIDC without a client secret.**
+- **OIDC with neither `auth.oidc.existingSecret` nor `auth.oidc.publicClient`
+  set — or with both.** A public client is supported; an unstated one is not,
+  because a values merge that drops `existingSecret` would otherwise downgrade
+  a confidential client to a public one in silence.
 - **Ingress TLS under an `http://` base URL.**
 
 The chart also sets `automountServiceAccountToken: false` on both the

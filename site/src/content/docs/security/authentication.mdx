@@ -32,7 +32,7 @@ a change of configuration:
 AUTH_MODE=oidc
 OIDC_ISSUER=https://keycloak.example.com/realms/yourteam
 OIDC_CLIENT_ID=parley
-OIDC_CLIENT_SECRET=...
+OIDC_CLIENT_SECRET=...   # omit entirely for a public-client registration
 ```
 
 Register `<BASE_URL>/auth/callback` as the redirect URI with your provider, and
