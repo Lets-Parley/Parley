@@ -19,8 +19,6 @@ export type KindDef = {
   /** Human label for the filter tabs and the create dialog. */
   label: string;
   Room: ComponentType<RoomProps>;
-  /** Tailwind background class for the kind's sidebar swatch. */
-  swatch: string;
   fields?: FieldSpec[];
 };
 
@@ -34,7 +32,6 @@ export const KINDS: KindDef[] = [
     id: "poker",
     label: "Poker",
     Room: PokerRoom,
-    swatch: "bg-card-back",
     fields: [
       {
         key: "deck",
@@ -48,11 +45,8 @@ export const KINDS: KindDef[] = [
       },
     ],
   },
-  { id: "standup", label: "Standup", Room: StandupRoom, swatch: "bg-felt-deep" },
+  { id: "standup", label: "Standup", Room: StandupRoom },
 ];
-
-/** The swatch for an unknown kind: visible, but nobody else's colour. */
-export const UNKNOWN_SWATCH = "bg-line";
 
 /**
  * Exact-id lookup. A near-miss id ("pokerful") and a namespaced one

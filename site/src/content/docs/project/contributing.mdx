@@ -87,8 +87,10 @@ nothing else — no router surgery, no constraint change, no frontend ternaries.
 
 3. **Add the frontend entry.** Append a `KindDef` to `KINDS` in
    `web/src/lib/kinds.ts` — `id` matching the `kind` column, `label`, the `Room`
-   component, a `swatch` Tailwind background class for the sidebar, and
-   `fields` if the create dialog should offer config options.
+   component, and `fields` if the create dialog should offer config options.
+   Give the kind a glyph in `KindChip` too, or its chip stays text-only. The
+   glyph tests pick it up automatically and will hold it to the same legibility
+   floor as the existing ones.
 
 ## Contributing
 

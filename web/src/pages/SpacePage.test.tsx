@@ -74,6 +74,39 @@ describe("SpacePage kind filter", () => {
   });
 });
 
+describe("SpacePage session list", () => {
+  // The list row is one of the two places the chip is actually rendered.
+  // Nothing else in the row names the kind, so deleting the chip would
+  // otherwise leave the page saying nothing at all about what a session is.
+  it("names each session's kind on its row, with the glyph", async () => {
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    await screen.findAllByText("Sprint 12 grooming");
+    // The sidebar lists the same sessions, so scope to the main column.
+    const main = within(screen.getByRole("main"));
+
+    const row = main.getByText("Sprint 12 grooming").closest("a")!;
+    expect(within(row).getByText("Poker")).toBeTruthy();
+    expect(row.querySelector("svg")).toBeTruthy();
+
+    // An unknown kind still gets named — by its wire id — and still no glyph.
+    const dotted = main.getByText("Retro of record").closest("a")!;
+    expect(within(dotted).getByText("acme.retro")).toBeTruthy();
+    expect(dotted.querySelector("svg")).toBe(null);
+  });
+
+  // The empty state borrows the chip's label vocabulary as inline text: it
+  // has to say which filter came up empty, in the same words as the tab.
+  it("names the active kind filter when nothing matches", async () => {
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    await screen.findByText("Recent sessions");
+    await userEvent.click(screen.getByRole("button", { name: "Standup" }));
+    await userEvent.type(screen.getByLabelText("Search sessions"), "zzz");
+
+    const main = within(screen.getByRole("main"));
+    expect(main.getByText(/Nothing matches/).textContent).toContain("in Standup sessions");
+  });
+});
+
 describe("SpacePage create dialog", () => {
   it("offers only the kinds the space view lists, so a retired one cannot be picked", async () => {
     // The server omits a retired kind from the space view; the dialog must
@@ -83,11 +116,11 @@ describe("SpacePage create dialog", () => {
       renderApp(<SpacePage />, { route: "/s/platform-team" });
       await userEvent.click(await screen.findByRole("button", { name: "New session" }));
       const dialog = within(screen.getByRole("dialog"));
-      expect(dialog.getByRole("button", { name: "poker" })).toBeTruthy();
+      expect(dialog.getByRole("button", { name: "Poker" })).toBeTruthy();
       // The tab strip still names Standup — that filters existing sessions —
       // so this assertion has to be scoped to the dialog, and it fails for a
       // dialog that simply rendered every built-in kind.
-      expect(dialog.queryByRole("button", { name: "standup" })).toBe(null);
+      expect(dialog.queryByRole("button", { name: "Standup" })).toBe(null);
     } finally {
       delete space.kinds;
     }
@@ -99,8 +132,8 @@ describe("SpacePage create dialog", () => {
       renderApp(<SpacePage />, { route: "/s/platform-team" });
       await userEvent.click(await screen.findByRole("button", { name: "New session" }));
       const dialog = within(screen.getByRole("dialog"));
-      expect(dialog.getByRole("button", { name: "poker" })).toBeTruthy();
-      expect(dialog.getByRole("button", { name: "standup" })).toBeTruthy();
+      expect(dialog.getByRole("button", { name: "Poker" })).toBeTruthy();
+      expect(dialog.getByRole("button", { name: "Standup" })).toBeTruthy();
     } finally {
       delete space.kinds;
     }
@@ -113,8 +146,8 @@ describe("SpacePage create dialog", () => {
     renderApp(<SpacePage />, { route: "/s/platform-team" });
     await userEvent.click(await screen.findByRole("button", { name: "New session" }));
     const dialog = within(screen.getByRole("dialog"));
-    expect(dialog.getByRole("button", { name: "poker" })).toBeTruthy();
-    expect(dialog.getByRole("button", { name: "standup" })).toBeTruthy();
+    expect(dialog.getByRole("button", { name: "Poker" })).toBeTruthy();
+    expect(dialog.getByRole("button", { name: "Standup" })).toBeTruthy();
   });
 
   it("hides New session when the space offers no kinds", async () => {
