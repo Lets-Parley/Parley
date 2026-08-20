@@ -9,13 +9,20 @@ import Screenshot from "../../../components/Screenshot.astro";
 import spaceLight from "../../../assets/space-room-code-light.png";
 import spaceDark from "../../../assets/space-room-code-dark.png";
 
-<VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "web/src/pages/SpacePage.tsx"]} />
+<VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "web/src/pages/SpacePage.tsx", "web/src/pages/Landing.tsx"]} />
 
 A space is a team's room. It has a memorable URL — `/s/platform-team` — a roster,
 and a history of every session run in it.
 
 The URL is the point. It survives being pinned to a channel topic, and it is the
 same tomorrow, which is why Parley does not bury spaces behind a random slug.
+
+## Landing on your spaces
+
+Signed in, the front page lists the spaces you belong to, most recently active
+first, and each row opens that space. **Create a space** stays on the same page
+as a secondary action. Signed out, or in no spaces yet, the page is what it has
+always been: a single box asking you to name one.
 
 ## Room codes
 

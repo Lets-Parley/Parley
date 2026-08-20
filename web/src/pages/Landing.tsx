@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
-import { api, type SpaceView } from "../lib/api";
+import { Link, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { api, type Membership, type SpaceView } from "../lib/api";
 import { useMe, useAuthMode, NameGate } from "../components/NameGate";
 import { Logo } from "../components/AppShell";
 import { buttonPrimary, inputClass } from "../components/Modal";
@@ -44,6 +45,15 @@ export function Landing() {
   // outlive the round trip or the name typed here is gone on the way back.
   const [name, setName] = useState(() => readPending() ?? "");
   const [needName, setNeedName] = useState(false);
+  // Only ever asked for once there is someone to ask about: a signed-out
+  // visitor has no memberships and the route would only answer 401.
+  const mine = useQuery({
+    queryKey: ["my-spaces"],
+    queryFn: () => api<Membership[]>("GET", "/api/spaces"),
+    enabled: !!me.data,
+    retry: false,
+  });
+  const spaces = mine.data ?? [];
   const [error, setError] = useState("");
 
   const doCreate = useCallback(
@@ -92,6 +102,23 @@ export function Landing() {
           ? " Sign in with your usual account."
           : " Self-hosted, no accounts, no fuss."}
       </p>
+      {spaces.length > 0 && (
+        <ul
+          aria-label="Your spaces"
+          className="flex w-full max-w-md flex-col gap-2 rounded-panel border border-line bg-surface p-3 text-left shadow-rest"
+        >
+          {spaces.map((sp) => (
+            <li key={sp.slug}>
+              <Link
+                to={`/s/${sp.slug}`}
+                className="block rounded-panel px-3 py-2 font-bold hover:bg-felt"
+              >
+                {sp.name}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
       <form
         onSubmit={submit}
         className="flex w-full max-w-md flex-col gap-3 rounded-panel border border-line bg-surface p-5 shadow-rest sm:flex-row"
@@ -104,7 +131,7 @@ export function Landing() {
           maxLength={64}
         />
         <button type="submit" className={buttonPrimary + " shrink-0"} disabled={!name.trim()}>
-          Open a space
+          {spaces.length > 0 ? "Create a space" : "Open a space"}
         </button>
       </form>
       {error && <p className="font-bold text-stop">{error}</p>}

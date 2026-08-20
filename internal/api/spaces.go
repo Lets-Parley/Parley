@@ -75,6 +75,18 @@ func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleListMySpaces lists the spaces the caller belongs to, most recently
+// active first, so a signed-in visitor lands on their own tables.
+func (a *app) handleListMySpaces(w http.ResponseWriter, r *http.Request) {
+	p, _ := PrincipalFrom(r.Context())
+	spaces, err := a.spaces.ForUser(r.Context(), p.UserID)
+	if err != nil {
+		http.Error(w, `{"error":"could not load your spaces"}`, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, spaces)
+}
+
 // handleGetSpace returns name only to non-members; roster requires membership.
 func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 	sp, err := a.spaces.BySlug(r.Context(), chi.URLParam(r, "slug"))

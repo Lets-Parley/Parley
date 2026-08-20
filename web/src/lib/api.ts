@@ -53,6 +53,13 @@ export type SpaceView = {
   members?: Person[];
   sessions?: SessionSummary[];
 };
+/** One space the caller belongs to, as listed on the landing page. */
+export type Membership = {
+  slug: string;
+  name: string;
+  protected: boolean;
+  lastSeenAt: string;
+};
 export type SessionSummary = {
   id: string;
   kind: string;
