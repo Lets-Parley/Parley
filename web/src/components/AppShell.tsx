@@ -334,9 +334,15 @@ export function AppShell({
         {actions}
 
         {me && (
-          <span className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-felt-deep py-1 pl-1 pr-3">
+          /* On a phone the room's name outranks your own — you already know
+             who you are, and the chip still says it. */
+          <span className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-felt-deep py-1 pl-1 sm:pr-3">
             <Avatar name={me.name} hue={me.avatarHue} size="sm" decorative />
-            <span className="max-w-24 truncate text-[13px] font-bold">{me.name}</span>
+            {/* Always in the accessible name; visible only where there is room
+                for it beside the title. */}
+            <span className="sr-only max-w-24 truncate text-[13px] font-bold sm:not-sr-only lg:max-w-48">
+              {me.name}
+            </span>
           </span>
         )}
 
