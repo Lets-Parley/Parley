@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
 import type { Me, SpaceView } from "../lib/api";
 import { SpacePage } from "./SpacePage";
@@ -196,5 +197,47 @@ describe("SpacePage passcode panel", () => {
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/s/platform-team`);
     expect(screen.getByText("Invite link copied")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Copy code" })).toBe(null);
+  });
+});
+
+// The landing list is ordered by when you last opened a space, and the space
+// read is a plain GET that must not write. The page therefore says "I opened
+// this" out loud, and only when it is actually looking at a space it belongs
+// to.
+describe("SpacePage last-opened stamp", () => {
+  afterEach(() => {
+    view = space;
+  });
+
+  // Routed for real, so the stamp has to name the slug from the URL rather
+  // than an empty string.
+  const routed = (
+    <Routes>
+      <Route path="/s/:slug" element={<SpacePage />} />
+    </Routes>
+  );
+
+  it("posts the stamp once for a member", async () => {
+    const { api } = await import("../lib/api");
+    renderApp(routed, { route: "/s/platform-team" });
+    await screen.findAllByText("Sprint 12 grooming");
+
+    const stamps = vi
+      .mocked(api)
+      .mock.calls.filter(([, path]) => path === "/api/spaces/platform-team/seen");
+    expect(stamps.length).toBe(1);
+    expect(stamps[0][0]).toBe("POST");
+  });
+
+  it("does not stamp a space the visitor is not a member of", async () => {
+    const { api } = await import("../lib/api");
+    vi.mocked(api).mockClear();
+    view = { slug: "platform-team", name: "Platform Team", protected: true } as SpaceView;
+    renderApp(routed, { route: "/s/platform-team" });
+    await screen.findByText("Platform Team");
+
+    expect(
+      vi.mocked(api).mock.calls.some(([, path]) => path.endsWith("/seen")),
+    ).toBe(false);
   });
 });

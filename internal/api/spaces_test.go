@@ -242,9 +242,24 @@ func TestListMySpacesRefusesAnonymous(t *testing.T) {
 	}
 }
 
+// markSeen pings the "I opened this space" endpoint the space page calls.
+func markSeen(t *testing.T, srv *httptest.Server, slug string, cookie *http.Cookie) *http.Response {
+	t.Helper()
+	req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/"+slug+"/seen", nil)
+	if cookie != nil {
+		req.AddCookie(cookie)
+	}
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	return resp
+}
+
 // Opening a space you already belong to is the activity signal the landing
-// page orders on. Join only ever fires for a stranger, so without a refresh on
-// the space GET this list would be "most recently joined" instead.
+// page orders on. Join only ever fires for a stranger, so the space page says
+// so explicitly with a POST — a GET must never write.
 func TestListMySpacesOrdersByLastOpenedNotByJoin(t *testing.T) {
 	srv := testServer(t)
 	ada := signup(t, srv, "Ada")
@@ -264,22 +279,69 @@ func TestListMySpacesOrdersByLastOpenedNotByJoin(t *testing.T) {
 	}
 
 	// She opens the space she already belongs to and never re-joins.
-	if resp, _ := getSpace(t, srv, "alpha-squad", ada); resp.StatusCode != http.StatusOK {
-		t.Fatalf("get space: got %d", resp.StatusCode)
+	if resp := markSeen(t, srv, "alpha-squad", ada); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("mark seen: got %d", resp.StatusCode)
 	}
 
 	_, opened := listMySpaces(t, srv, ada)
 	if len(opened) != 2 || opened[0]["slug"] != "alpha-squad" {
 		t.Fatalf("after opening: got %v, want alpha-squad first", opened)
 	}
+}
 
-	// A non-member reading the same space must not gain a membership row.
+// A GET is reachable cross-site with cookies attached — rejectCrossSite waves
+// it through precisely because a GET is meant to change nothing. Reading a
+// space must therefore leave the membership stamp exactly as it was.
+func TestGetSpaceDoesNotStampLastSeen(t *testing.T) {
+	srv := testServer(t)
+	ada := signup(t, srv, "Ada")
+	bob := signup(t, srv, "Bob")
+
+	createSpace(t, srv, "Alpha Squad", ada)
+	_, gamma := createSpace(t, srv, "Gamma Squad", bob)
+	if resp := joinSpace(t, srv, "gamma-squad", ada, gamma["passcode"].(string)); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("join: got %d", resp.StatusCode)
+	}
+
+	// Gamma is the most recently stamped membership. Reading Alpha — even
+	// repeatedly — must not move it ahead.
+	for range 3 {
+		if resp, _ := getSpace(t, srv, "alpha-squad", ada); resp.StatusCode != http.StatusOK {
+			t.Fatalf("get space: got %d", resp.StatusCode)
+		}
+	}
+
+	_, mine := listMySpaces(t, srv, ada)
+	if len(mine) != 2 || mine[0]["slug"] != "gamma-squad" {
+		t.Fatalf("GET rewrote last_seen_at: got %v, want gamma-squad still first", mine)
+	}
+}
+
+// The stamp is a members-only write, and a no-op for everyone else: a removed
+// member pinging it must not reappear in the room.
+func TestMarkSeenNeverCreatesMembership(t *testing.T) {
+	srv := testServer(t)
+	ada := signup(t, srv, "Ada")
+	createSpace(t, srv, "Alpha Squad", ada)
+
 	stranger := signup(t, srv, "Cleo")
-	if resp, _ := getSpace(t, srv, "alpha-squad", stranger); resp.StatusCode != http.StatusOK {
-		t.Fatalf("stranger get: got %d", resp.StatusCode)
+	if resp := markSeen(t, srv, "alpha-squad", stranger); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("stranger mark seen: got %d", resp.StatusCode)
 	}
 	if _, theirs := listMySpaces(t, srv, stranger); len(theirs) != 0 {
 		t.Fatalf("stranger gained memberships: %v", theirs)
+	}
+	if _, view := getSpace(t, srv, "alpha-squad", ada); len(view["members"].([]any)) != 1 {
+		t.Fatalf("roster grew: %v", view["members"])
+	}
+
+	// Anonymous callers and unknown spaces get the same answers as every
+	// other member-scoped write.
+	if resp := markSeen(t, srv, "alpha-squad", nil); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("anonymous mark seen: got %d", resp.StatusCode)
+	}
+	if resp := markSeen(t, srv, "no-such-space", ada); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown space: got %d", resp.StatusCode)
 	}
 }
 
