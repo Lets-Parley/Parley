@@ -58,7 +58,13 @@ export function Landing() {
 
   // Both the resume effect and the gate can finish the same pending name, and
   // either can win the race. One shared latch makes the loser a no-op, so a
-  // name buys exactly one space; a failure releases it so a retry can go again.
+  // name buys exactly one space.
+  //
+  // The latch is deliberately one-way: only a failure releases it. A success
+  // navigates away, and a create that has already succeeded must not be able to
+  // fire again from a path that wakes up late — so a mounted Landing grants one
+  // space and one only, and a retry is available exactly when there is
+  // something to retry. Both halves of that contract are pinned by tests.
   const creating = useRef(false);
   const doCreate = useCallback(
     async (spaceName: string) => {

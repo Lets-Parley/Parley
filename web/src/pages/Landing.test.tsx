@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -262,11 +263,85 @@ describe("Landing", () => {
     expect(spaceCalls()).toHaveLength(0);
     await waitFor(() => expect(listCalls()).toHaveLength(1));
   });
+
+  // The two halves of the latch contract. A failure has to hand the name back
+  // so the person in front of the screen can simply press the button again;
+  // a success must not, because the create already happened and no late-waking
+  // path may repeat it.
+  it("lets a failed create be retried by hand", async () => {
+    createFails = true;
+
+    renderApp(<Landing />);
+
+    await userEvent.type(
+      await screen.findByPlaceholderText(/Name your space/),
+      "Platform Team",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Open a space" }));
+    await screen.findByText("Could not create the space.");
+    expect(spaceCalls()).toHaveLength(1);
+
+    createFails = false;
+    await userEvent.click(screen.getByRole("button", { name: "Open a space" }));
+
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith("/s/platform-team"),
+    );
+    expect(spaceCalls()).toHaveLength(2);
+  });
+
+  // Production mounts the app inside StrictMode, which runs every effect twice
+  // on mount. The shared test harness does not, so this one test renders the
+  // way main.tsx does to keep the resume effect honest under a double mount.
+  it("finishes a pending create exactly once under StrictMode", async () => {
+    stash("Platform Team");
+
+    renderApp(
+      <StrictMode>
+        <Landing />
+      </StrictMode>,
+    );
+
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith("/s/platform-team"),
+    );
+    await act(async () => {});
+    expect(spaceCalls()).toEqual([
+      ["POST", "/api/spaces", { name: "Platform Team" }],
+    ]);
+  });
+
+  it("creates one space per visit, however many times the button is pressed", async () => {
+    renderApp(<Landing />);
+
+    await userEvent.type(
+      await screen.findByPlaceholderText(/Name your space/),
+      "Platform Team",
+    );
+    const open = screen.getByRole("button", { name: "Open a space" });
+    await userEvent.click(open);
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith("/s/platform-team"),
+    );
+
+    // In the app the navigate above swaps the route and unmounts this screen.
+    // The test holds it mounted on purpose, to pin what happens if anything —
+    // a second press, a path waking late — reaches doCreate after a success.
+    await userEvent.click(open);
+    await act(async () => {});
+
+    expect(spaceCalls()).toEqual([
+      ["POST", "/api/spaces", { name: "Platform Team" }],
+    ]);
+  });
 });
 
-// The sign-in round trip and the name gate can each finish a pending create,
-// and either can win the race. Whichever does, the typed name must buy exactly
-// one space — a second POST leaves a stray space with its own membership row.
+// The sign-in round trip and the name gate can each finish a pending create.
+// Only the resume-first ordering is a genuine race: the gate hands over the
+// name synchronously, so when it goes first the effect finds nothing left to
+// do. When the resume effect wins, the gate is still on screen and about to
+// call through — and the typed name must still buy exactly one space, because
+// a second POST leaves a stray space with its own membership row.
 describe("Landing, a pending create raced by both paths", () => {
   beforeEach(() => {
     signedIn = false;
@@ -310,21 +385,5 @@ describe("Landing, a pending create raced by both paths", () => {
     expect(spaceCalls()).toEqual([
       ["POST", "/api/spaces", { name: "Platform Team" }],
     ]);
-  });
-
-  it("creates once when the gate finishes first", async () => {
-    await stashViaTheForm();
-
-    await finishTheGate();
-
-    await waitFor(() =>
-      expect(navigate).toHaveBeenCalledWith("/s/platform-team"),
-    );
-    // Let the resume effect see me.data settle behind the gate.
-    await act(async () => {});
-    expect(spaceCalls()).toEqual([
-      ["POST", "/api/spaces", { name: "Platform Team" }],
-    ]);
-    expect(sessionStorage.getItem(pendingKey)).toBeNull();
   });
 });
