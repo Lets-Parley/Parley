@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { render } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { KindChip } from "./KindChip";
+import { KINDS } from "../lib/kinds";
 
 /** The chip is the only element the component renders. */
 function chip(kind: string, size?: "sm" | "md") {
@@ -14,7 +15,8 @@ function chip(kind: string, size?: "sm" | "md") {
  * with fuse into one smudge, and a tag count cannot see that. So the tests
  * below sample each drawn element into points in viewBox space and assert
  * about the distances between them. Anything the sampler cannot read — a path
- * command other than the arcs used here — is a failure rather than a skip:
+ * command other than the arcs used here, or a `transform` that would move a
+ * shape out from under its own coordinates — is a failure rather than a skip:
  * a glyph the tests cannot measure is a glyph they cannot defend.
  */
 type Pt = [number, number];
@@ -50,9 +52,27 @@ function arc(p0: Pt, p1: Pt, r: number, laf: number, sweep: number): Pt[] {
 const ARC =
   /^M\s*(-?[\d.]+)[\s,]+(-?[\d.]+)\s*a\s*(-?[\d.]+)[\s,]+(-?[\d.]+)[\s,]+(-?[\d.]+)[\s,]+([01])[\s,]+([01])[\s,]+(-?[\d.]+)[\s,]+(-?[\d.]+)\s*$/;
 
+/*
+ * A `transform` on a shape — or on any <g> between it and the <svg> — moves
+ * the drawn stroke away from the coordinates the sampler reads, so every
+ * distance below would be measured against a picture that is not on screen.
+ * The glyphs use none, and should not start: refuse to measure rather than
+ * pass a glyph blind.
+ */
+function assertUntransformed(el: Element, svg: Element): void {
+  for (let node: Element | null = el; node && node !== svg; node = node.parentElement) {
+    if (node.hasAttribute("transform"))
+      throw new Error(`<${node.tagName}> carries a transform the sampler cannot resolve`);
+  }
+}
+
 function samples(el: Element): Pt[] {
   switch (el.tagName.toLowerCase()) {
     case "rect": {
+      // `rx` is ignored: the sampler traces the sharp corner the rounded one
+      // sits inside. That understates a corner's clearance from a neighbour
+      // and overstates the shape's extent, so both the gap floor and the
+      // in-box bound stay conservative — never falsely green.
       const [x, y, w, h] = ["x", "y", "width", "height"].map((a) => num(el, a));
       return Array.from({ length: N + 1 }, (_, i) => {
         const t = ((i / N) * 2 * (w + h)) % (2 * (w + h));
@@ -89,10 +109,11 @@ function samples(el: Element): Pt[] {
 
 function shapes(kind: string): { el: Element; pts: Pt[] }[] {
   const svg = chip(kind).querySelector("svg")!;
-  return [...svg.querySelectorAll("rect, circle, line, path, polyline, polygon, ellipse")].map((el) => ({
-    el,
-    pts: samples(el),
-  }));
+  if (svg.hasAttribute("transform")) throw new Error("<svg> carries a transform the sampler cannot resolve");
+  return [...svg.querySelectorAll("rect, circle, line, path, polyline, polygon, ellipse")].map((el) => {
+    assertUntransformed(el, svg);
+    return { el, pts: samples(el) };
+  });
 }
 
 function minDistance(a: Pt[], b: Pt[]): number {
@@ -107,9 +128,25 @@ function extent(pts: Pt[]) {
   return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
 }
 
-const KINDS_WITH_GLYPHS = ["poker", "standup"];
+/*
+ * Derived, never restated: every registered kind is rendered once and kept if
+ * it actually draws a glyph. A kind added to `KINDS` with an icon is covered
+ * by the geometry and colour tests below from the moment it exists — which is
+ * the step `contributing.mdx` tells a contributor to take.
+ */
+const KINDS_WITH_GLYPHS = KINDS.filter((k) => {
+  const has = chip(k.id).querySelector("svg") !== null;
+  cleanup();
+  return has;
+}).map((k) => k.id);
 
 describe("KindChip", () => {
+  // `it.each([])` reports a clean pass with the cases silently missing. If the
+  // derivation above ever finds nothing to measure, that is a failure.
+  it("finds at least one kind that draws a glyph", () => {
+    expect(KINDS_WITH_GLYPHS.length).toBeGreaterThan(0);
+  });
+
   // Strict equality, not toContain: a chip that still rendered the raw wire
   // id somewhere in its text would satisfy a substring assertion.
   it("names a known kind by its label, not its wire id", () => {
@@ -186,7 +223,7 @@ describe("KindChip", () => {
     expect(svg.getAttribute("fill")).toBe("none");
     expect(svg.getAttribute("stroke-width")).toBe(String(STROKE));
     for (const el of svg.querySelectorAll("*")) {
-      for (const attr of ["stroke", "fill", "stroke-width", "color", "style"]) {
+      for (const attr of ["stroke", "fill", "stroke-width", "color", "style", "class"]) {
         expect(el.getAttribute(attr), `<${el.tagName}> overrides ${attr} instead of inheriting it`).toBe(null);
       }
     }

@@ -1,6 +1,11 @@
 import { kindLabel } from "../lib/kinds";
 
-/** How a session kind names itself: an icon for flair, the label for meaning. */
+/*
+ * How a session kind names itself: an icon for flair, the label for meaning.
+ * `pads` is indexed by a `keyof typeof pads` union, so only "sm" and "md" can
+ * reach it — a stray "__proto__" would need an untyped caller, and there is
+ * no untyped call site.
+ */
 const pads = { sm: "gap-1 px-1.5 py-0.5", md: "gap-1.5 px-2.5 py-1" } as const;
 
 type Props = { kind: string; size?: keyof typeof pads };
