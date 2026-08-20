@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type Membership, type SpaceView } from "../lib/api";
+import { api, errorText, type Membership, type SpaceView } from "../lib/api";
 import { useMe, useAuthMode, NameGate } from "../components/NameGate";
 import { Logo } from "../components/AppShell";
 import { buttonPrimary, inputClass } from "../components/Modal";
@@ -76,7 +76,7 @@ export function Landing() {
         sp = await api<SpaceView>("POST", "/api/spaces", { name: spaceName });
       } catch (e) {
         creating.current = false;
-        setError(e instanceof Error ? e.message : "Could not create the space.");
+        setError(errorText(e));
         return;
       }
       // Past this line the space exists on the server. Anything that goes
@@ -89,7 +89,7 @@ export function Landing() {
         // shows up as a link rather than leaving the visitor on a dead page
         // with an error and an inert button.
         qc.invalidateQueries({ queryKey: ["my-spaces"] });
-        setError(e instanceof Error ? e.message : "Could not open the new space.");
+        setError(errorText(e));
       }
     },
     [navigate, qc],
