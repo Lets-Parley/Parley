@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Every check main's ruleset requires has to report on the queue's
+  # speculative commit too, or the queue waits on a check that will
+  # never arrive. codeql.yml carries the other required check and needs
+  # the same trigger.
+  merge_group:
 
 permissions:
   contents: read
@@ -101,11 +106,18 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # A queued batch merges a combination of PRs that no single PR's review
+      # ever saw, so this has to run on merge_group as well — and the action
+      # cannot infer the range from a merge_group event, hence the explicit
+      # refs. Skipping the step here would leave the job green and the gate
+      # satisfied while nothing was reviewed at all.
       - name: Review dependency changes
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: high
+          base-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          head-ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
 
   dco:
     name: dco
@@ -114,9 +126,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - name: Check pull request commits
-        if: github.event_name == 'pull_request'
-        run: scripts/check-dco.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+      - name: Check the commits being merged
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        run: scripts/check-dco.sh "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}" "${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}"
       - name: Test DCO checker
         run: scripts/tests/check-dco-test.sh
       - name: Test release workflow policy
