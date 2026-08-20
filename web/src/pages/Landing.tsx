@@ -56,12 +56,19 @@ export function Landing() {
   const spaces = mine.data ?? [];
   const [error, setError] = useState("");
 
+  // Both the resume effect and the gate can finish the same pending name, and
+  // either can win the race. One shared latch makes the loser a no-op, so a
+  // name buys exactly one space; a failure releases it so a retry can go again.
+  const creating = useRef(false);
   const doCreate = useCallback(
     async (spaceName: string) => {
+      if (creating.current) return;
+      creating.current = true;
       try {
         const sp = await api<SpaceView>("POST", "/api/spaces", { name: spaceName });
         navigate(`/s/${sp.slug}`);
       } catch (e) {
+        creating.current = false;
         setError(e instanceof Error ? e.message : "Could not create the space.");
       }
     },
@@ -71,12 +78,10 @@ export function Landing() {
   // Signing in is a full page navigation, so the submit that triggered it never
   // ran. Coming back with a name still pending finishes that create instead of
   // asking for the same click a second time.
-  const resumed = useRef(false);
   useEffect(() => {
-    if (resumed.current || !me.data) return;
+    if (creating.current || !me.data) return;
     const pending = takePending();
     if (pending === null) return;
-    resumed.current = true;
     doCreate(pending);
   }, [me.data, doCreate]);
 

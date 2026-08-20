@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderApp } from "../test/render";
 import { api, type Me } from "../lib/api";
@@ -22,8 +22,14 @@ vi.mock("../lib/api", async () => {
   return {
     ...actual,
     api: vi.fn(async (method: string, path: string) => {
-      if (path === "/api/me") return signedIn ? me : null;
-      if (path === "/api/auth") return { mode: "oidc" };
+      if (path === "/api/me") {
+        if (method === "POST") {
+          signedIn = true;
+          return me;
+        }
+        return signedIn ? me : null;
+      }
+      if (path === "/api/auth") return { mode: authMode };
       if (path === "/api/spaces" && method === "GET") return mySpaces;
       if (path === "/api/spaces") {
         if (createFails) throw new Error("Could not create the space.");
@@ -39,6 +45,7 @@ vi.mock("../lib/api", async () => {
 });
 
 let signedIn = true;
+let authMode: "open" | "oidc" = "oidc";
 let createFails = false;
 let mySpaces: { slug: string; name: string; protected: boolean }[] = [];
 
@@ -56,6 +63,7 @@ const listCalls = () =>
 
 beforeEach(() => {
   signedIn = true;
+  authMode = "oidc";
   createFails = false;
   mySpaces = [];
   sessionStorage.clear();
@@ -253,5 +261,70 @@ describe("Landing", () => {
     );
     expect(spaceCalls()).toHaveLength(0);
     await waitFor(() => expect(listCalls()).toHaveLength(1));
+  });
+});
+
+// The sign-in round trip and the name gate can each finish a pending create,
+// and either can win the race. Whichever does, the typed name must buy exactly
+// one space — a second POST leaves a stray space with its own membership row.
+describe("Landing, a pending create raced by both paths", () => {
+  beforeEach(() => {
+    signedIn = false;
+    authMode = "open";
+  });
+
+  async function stashViaTheForm() {
+    const view = renderApp(<Landing />);
+    await userEvent.type(
+      await screen.findByPlaceholderText(/Name your space/),
+      "Platform Team",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Open a space" }));
+    await screen.findByRole("heading", { name: /what should we call you/i });
+    expect(JSON.parse(sessionStorage.getItem(pendingKey) ?? "{}").name).toBe(
+      "Platform Team",
+    );
+    return view;
+  }
+
+  async function finishTheGate() {
+    await userEvent.type(screen.getByPlaceholderText("Your name"), "Marcus");
+    await userEvent.click(screen.getByRole("button", { name: /take a seat/i }));
+  }
+
+  it("creates once when the sign-in resolves before the gate is finished", async () => {
+    const { queryClient } = await stashViaTheForm();
+
+    // The resume effect wakes as soon as me.data lands, which can happen while
+    // the gate is still on screen.
+    await act(async () => {
+      queryClient.setQueryData(["me"], me);
+    });
+    await waitFor(() => expect(spaceCalls()).toHaveLength(1));
+
+    await finishTheGate();
+
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith("/s/platform-team"),
+    );
+    expect(spaceCalls()).toEqual([
+      ["POST", "/api/spaces", { name: "Platform Team" }],
+    ]);
+  });
+
+  it("creates once when the gate finishes first", async () => {
+    await stashViaTheForm();
+
+    await finishTheGate();
+
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith("/s/platform-team"),
+    );
+    // Let the resume effect see me.data settle behind the gate.
+    await act(async () => {});
+    expect(spaceCalls()).toEqual([
+      ["POST", "/api/spaces", { name: "Platform Team" }],
+    ]);
+    expect(sessionStorage.getItem(pendingKey)).toBeNull();
   });
 });
