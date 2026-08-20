@@ -134,9 +134,28 @@ function samples(el: Element): Pt[] {
   }
 }
 
+/*
+ * The only class the shipped glyphs put on the root. Anything beyond it — a
+ * `scale-[0.3] rotate-45`, or a `style` transform — displaces or resizes the
+ * whole picture without touching a single coordinate the sampler reads, so
+ * every distance below would again be measured against a picture that is not
+ * on screen. `assertUntransformed` stops one element short of catching that:
+ * `querySelectorAll("*")` is descendants only, and the bare `transform`
+ * attribute is not how Tailwind moves anything.
+ */
+const ROOT_CLASS = "shrink-0";
+
+function assertRootUndisplaced(svg: Element): void {
+  if (svg.hasAttribute("transform")) throw new Error("<svg> carries a transform the sampler cannot resolve");
+  if (svg.hasAttribute("style")) throw new Error("<svg> carries a style attribute the sampler cannot resolve");
+  const cls = (svg.getAttribute("class") ?? "").trim();
+  if (cls !== ROOT_CLASS)
+    throw new Error(`<svg> carries classes beyond "${ROOT_CLASS}" the sampler cannot resolve: ${cls}`);
+}
+
 function shapes(kind: string): { el: Element; pts: Pt[] }[] {
   const svg = chip(kind).querySelector("svg")!;
-  if (svg.hasAttribute("transform")) throw new Error("<svg> carries a transform the sampler cannot resolve");
+  assertRootUndisplaced(svg);
   return [...svg.querySelectorAll("rect, circle, line, path, polyline, polygon, ellipse")].map((el) => {
     assertUntransformed(el, svg);
     return { el, pts: samples(el) };
@@ -253,6 +272,10 @@ describe("KindChip", () => {
     expect(svg.getAttribute("stroke")).toBe("currentColor");
     expect(svg.getAttribute("fill")).toBe("none");
     expect(svg.getAttribute("stroke-width")).toBe(String(STROKE));
+    // The root is inside the guard too: a `style` or an extra utility class on
+    // it restyles or displaces every stroke at once.
+    expect(svg.getAttribute("style")).toBe(null);
+    expect(svg.getAttribute("class")).toBe(ROOT_CLASS);
     for (const el of svg.querySelectorAll("*")) {
       for (const attr of ["stroke", "fill", "stroke-width", "color", "style", "class"]) {
         expect(el.getAttribute(attr), `<${el.tagName}> overrides ${attr} instead of inheriting it`).toBe(null);
