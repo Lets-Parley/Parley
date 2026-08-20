@@ -1,11 +1,25 @@
-{{- if and .Values.trustProxyHeaders (not .Values.trustedProxyCIDRs) }}
+{{- $trustProxyHeaders := eq (include "parley.isTrue" .Values.trustProxyHeaders) "true" }}
+{{- if and $trustProxyHeaders (not .Values.trustedProxyCIDRs) }}
 {{- fail "trustProxyHeaders is true but trustedProxyCIDRs is empty. Parley refuses to start that way: trusting X-Forwarded-For from any source is the throttle bypass the setting exists to prevent. Set trustedProxyCIDRs to every Ingress/load-balancer CIDR that can be a proxy hop." }}
 {{- end }}
 {{- if eq .Values.auth.mode "oidc" }}
-{{- if and .Values.auth.oidc.publicClient .Values.auth.oidc.existingSecret }}
+{{- /*
+  auth.oidc.publicClient can arrive as a Go bool (--set / values.yaml) or as a
+  string (--set-string, ArgoCD parameter overrides, Helmfile, CI templating
+  that emits quoted YAML booleans). Go templates treat ANY non-empty string —
+  including the string "false" — as truthy, so raw truthiness on this value
+  would let `--set-string auth.oidc.publicClient=false` silently mean "true".
+  Coerce explicitly: only the boolean true or the exact string "true" counts
+  as public. Everything else (false, "false", "no", a typo like "True") falls
+  through as not-public, which lands on the "neither declared" refusal below
+  rather than silently becoming a secretless public client — a typo here must
+  fail loudly, never fail open.
+*/ -}}
+{{- $public := eq (include "parley.isTrue" .Values.auth.oidc.publicClient) "true" }}
+{{- if and $public .Values.auth.oidc.existingSecret }}
 {{- fail "auth.oidc.publicClient is true but auth.oidc.existingSecret is also set. Those are two different client registrations and the chart will not guess: a public client has no secret, a confidential one has nothing to gain from PKCE alone. Set exactly one." }}
 {{- end }}
-{{- if not (or .Values.auth.oidc.publicClient .Values.auth.oidc.existingSecret) }}
+{{- if not (or $public .Values.auth.oidc.existingSecret) }}
 {{- fail "auth.mode is oidc but neither auth.oidc.existingSecret nor auth.oidc.publicClient is set. Choose one: set auth.oidc.existingSecret to the name of a Secret holding the client secret (never put the secret in values), or set auth.oidc.publicClient=true if the provider registration is a public client — Parley uses PKCE, so that works with no secret at all. Leaving both unset is not a public client, it is an unanswered question, so the chart refuses rather than quietly dropping the secret from a confidential-client deployment." }}
 {{- end }}
 {{- end }}
@@ -70,7 +84,7 @@ spec:
               value: {{ .Values.baseURL | quote }}
             - name: TRUST_PROXY_HEADERS
               value: {{ .Values.trustProxyHeaders | quote }}
-            {{- if .Values.trustProxyHeaders }}
+            {{- if $trustProxyHeaders }}
             - name: TRUSTED_PROXY_CIDRS
               value: {{ .Values.trustedProxyCIDRs | quote }}
             {{- end }}

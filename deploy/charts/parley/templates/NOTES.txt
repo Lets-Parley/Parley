@@ -8,7 +8,7 @@ That address is baked in as BASE_URL. If it does not match what people type —
 wrong scheme, wrong host, a trailing difference — the session cookie is silently
 dropped and nobody can sign in.
 
-{{ if not .Values.ingress.enabled }}No Ingress was created. To try it now:
+{{ if not (eq (include "parley.isTrue" .Values.ingress.enabled) "true") }}No Ingress was created. To try it now:
 
     kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "parley.fullname" . }} 8080:{{ .Values.service.port }}
 
@@ -20,8 +20,8 @@ Parley pings every 25s. The chart sets a 75s proxy read/send timeout for
 ingress-nginx; if you use a different controller, raise its WebSocket idle
 timeout above 25s or live boards will be cut mid-round.
 {{ end }}
-{{- if not .Values.trustProxyHeaders }}
-{{ if .Values.ingress.enabled }}
+{{- if not (eq (include "parley.isTrue" .Values.trustProxyHeaders) "true") }}
+{{ if eq (include "parley.isTrue" .Values.ingress.enabled) "true" }}
 WARNING: trustProxyHeaders is false but you are behind an Ingress. Every visitor
 will arrive wearing the ingress controller's address, so the room-code throttle
 counts the whole internet as one client: eight wrong guesses lock everybody out
@@ -34,7 +34,7 @@ every request.
 {{ end }}
 {{- end }}
 {{- if eq .Values.auth.mode "oidc" }}
-{{ if .Values.auth.oidc.publicClient }}OIDC: public client — no client secret is sent. PKCE alone ties the
+{{ if eq (include "parley.isTrue" .Values.auth.oidc.publicClient) "true" }}OIDC: public client — no client secret is sent. PKCE alone ties the
 authorization code to the browser that started the sign-in. Make sure the
 registration for {{ .Values.auth.oidc.clientID }} at {{ .Values.auth.oidc.issuer }} really is a public client.
 {{ else }}OIDC: confidential client — OIDC_CLIENT_SECRET is read from secret

@@ -4,7 +4,7 @@ minAvailable: 1 in front of a single pod blocks every voluntary eviction, so a
 `kubectl drain` for a node upgrade hangs forever waiting for a pod that can
 never be moved. That is worse than having no budget at all.
 */ -}}
-{{- if and .Values.podDisruptionBudget.enabled (gt (int .Values.replicaCount) 1) }}
+{{- if and (eq (include "parley.isTrue" .Values.podDisruptionBudget.enabled) "true") (gt (int .Values.replicaCount) 1) }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:

@@ -116,6 +116,13 @@ auth:
     #     Zitadel and Entra register an app of this shape as public by default.
     #
     # Setting both is a contradiction and also fails the render.
+    #
+    # publicClient must be a real boolean (true/false), not a quoted string.
+    # ArgoCD parameter overrides, Helmfile, and CI templating pipelines
+    # commonly emit quoted booleans (e.g. "false") when values are passed
+    # through as --set-string or a string-typed parameter; the chart coerces
+    # those, but only the literal string "true" counts as true — a quoted
+    # "false", "no", or a typo is treated as not-public, not silently public.
     existingSecret: ""
     publicClient: false
     secretKey: oidc-client-secret
