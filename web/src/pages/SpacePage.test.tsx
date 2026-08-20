@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderApp } from "../test/render";
@@ -26,6 +26,9 @@ const space = {
   ],
 } as unknown as SpaceView & { kinds?: string[] };
 
+// The api mock reads this, so a test can swap in a different space view.
+let view: SpaceView = space;
+
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
   return {
@@ -33,7 +36,7 @@ vi.mock("../lib/api", async () => {
     api: vi.fn(async (_method: string, path: string) => {
       if (path === "/api/me") return me;
       if (path === "/api/auth") return { mode: "open" };
-      if (path.startsWith("/api/spaces/")) return space;
+      if (path.startsWith("/api/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }),
   };
@@ -122,5 +125,76 @@ describe("SpacePage create dialog", () => {
     } finally {
       delete space.kinds;
     }
+  });
+});
+
+describe("SpacePage passcode panel", () => {
+  const protectedSpace = { ...space, protected: true, passcode: "TEAM49" } as SpaceView;
+
+  function clipboard() {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    return writeText;
+  }
+
+  afterEach(() => {
+    view = space;
+  });
+
+  it("copies a full invite — link plus passcode — from the primary action", async () => {
+    view = protectedSpace;
+    const writeText = clipboard();
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
+
+    expect(writeText).toHaveBeenCalledWith(
+      `${window.location.origin}/s/platform-team — passcode TEAM49`,
+    );
+    expect(screen.getByText("Invite copied — link and passcode")).toBeTruthy();
+  });
+
+  it("says so instead of claiming success when the clipboard refuses", async () => {
+    view = protectedSpace;
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      value: {
+        writeText: vi.fn(async () => {
+          throw new Error("denied");
+        }),
+      },
+      configurable: true,
+    });
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
+
+    expect(await screen.findByText("Could not copy — copy it by hand.")).toBeTruthy();
+    expect(screen.queryByText("Invite copied — link and passcode")).toBe(null);
+  });
+
+  it("copies just the code from the secondary action", async () => {
+    view = protectedSpace;
+    const writeText = clipboard();
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Copy code" }));
+
+    expect(writeText).toHaveBeenCalledWith("TEAM49");
+    expect(screen.getByText("Passcode copied")).toBeTruthy();
+  });
+
+  it("copies the bare link when the space is open", async () => {
+    view = { ...space, protected: false, passcode: undefined } as SpaceView;
+    const writeText = clipboard();
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
+
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/s/platform-team`);
+    expect(screen.getByText("Invite link copied")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Copy code" })).toBe(null);
   });
 });

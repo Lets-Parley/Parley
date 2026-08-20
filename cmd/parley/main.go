@@ -174,15 +174,7 @@ func main() {
 	slog.SetDefault(log)
 
 	secureCookies := cfg.BaseURL.Scheme == "https"
-	log.Info("boot settings",
-		"version", version,
-		"base_url", cfg.BaseURL.String(),
-		"cookie_secure", secureCookies,
-		"allowed_ws_origin", cfg.BaseURL.Scheme+"://"+cfg.BaseURL.Host,
-		"port", cfg.Port,
-		"auth_mode", cfg.AuthMode,
-		"trust_proxy_headers", cfg.TrustProxy,
-	)
+	log.Info("boot settings", bootFields(cfg, secureCookies)...)
 	if cfg.AuthMode == api.ModeOIDC {
 		log.Info("sign-in via identity provider",
 			"issuer", cfg.OIDC.Issuer,
@@ -227,6 +219,12 @@ func main() {
 		// Discovery happens on the first sign-in rather than here: an identity
 		// provider that is down should not keep this server from starting.
 		opts.OIDC = auth.New(cfg.OIDC)
+		// A one-time, non-gating diagnostic. A wrong issuer otherwise passes
+		// every automated check and only surfaces when a person tries to sign
+		// in, because discovery is deferred and /readyz deliberately ignores
+		// it. This says so in the log without making the identity provider a
+		// dependency of starting up.
+		startIdentityProbe(ctx, log, opts.OIDC)
 	}
 
 	handler := api.Router(pool, opts)
@@ -247,6 +245,67 @@ func main() {
 		os.Exit(1)
 	}
 	log.Info("shut down cleanly")
+}
+
+// bootFields is the boot line an operator reads to confirm what this process
+// actually parsed, as opposed to what they meant to configure.
+func bootFields(cfg config, secureCookies bool) []any {
+	fields := []any{
+		"version", version,
+		"base_url", cfg.BaseURL.String(),
+		"cookie_secure", secureCookies,
+		"allowed_ws_origin", cfg.BaseURL.Scheme + "://" + cfg.BaseURL.Host,
+		"port", cfg.Port,
+		"auth_mode", cfg.AuthMode,
+		"trust_proxy_headers", cfg.TrustProxy,
+	}
+	// "trust_proxy_headers=true" alone does not tell an operator which hops
+	// were accepted, and a CIDR that failed to parse is exactly the mistake
+	// that makes the whole feature silently do nothing.
+	if cfg.TrustProxy {
+		cidrs := make([]string, len(cfg.TrustedProxyCIDRs))
+		for i, prefix := range cfg.TrustedProxyCIDRs {
+			cidrs[i] = prefix.String()
+		}
+		fields = append(fields, "trusted_proxy_cidrs", cidrs)
+	}
+	return fields
+}
+
+// identityProbeWindow bounds the boot probe. Discovery has its own 15s window;
+// this is the outer bound on the goroutine as a whole.
+const identityProbeWindow = 20 * time.Second
+
+// identityWarmer is the slice of *auth.Provider the probe needs, so the probe
+// can be tested without an identity provider.
+type identityWarmer interface {
+	Issuer() string
+	Warm(context.Context) error
+}
+
+// startIdentityProbe runs the probe in the background and returns immediately.
+// Awaiting it would delay ListenAndServe by up to the discovery window on every
+// boot with a slow identity provider, which is precisely the coupling deferred
+// discovery exists to prevent.
+func startIdentityProbe(ctx context.Context, log *slog.Logger, provider identityWarmer) {
+	go probeIdentityProvider(ctx, log, provider)
+}
+
+func probeIdentityProvider(ctx context.Context, log *slog.Logger, provider identityWarmer) {
+	ctx, cancel := context.WithTimeout(ctx, identityProbeWindow)
+	defer cancel()
+	if err := provider.Warm(ctx); err != nil {
+		log.Warn("identity provider is not reachable — sign-ins will fail until it recovers, but this does not stop the server and does not affect /readyz",
+			"issuer", provider.Issuer(),
+			"error", err,
+		)
+		return
+	}
+	// Scope the claim: discovery only proves the issuer answered. A wrong
+	// client ID or secret still fails later, at token exchange.
+	log.Info("identity provider is reachable — discovery succeeded; the client ID and secret are not checked until a sign-in reaches token exchange",
+		"issuer", provider.Issuer(),
+	)
 }
 
 func newHTTPServer(port string, handler http.Handler) *http.Server {
