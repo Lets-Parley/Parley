@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -92,10 +93,22 @@ func TestSpaceSessionCountsOnePersonOnce(t *testing.T) {
 		defer ws.Close()
 	}
 
-	// Positive control first: wait for presence to land at all, so the
-	// equality check below is testing de-duplication rather than timing.
-	eventually(t, 10*time.Second, "presence to land for the connected member", func() bool {
-		return hereIn(t, srvA, slug, id, fac) >= 1
+	// Positive control first, and it has to wait for BOTH replicas' rows, not
+	// just for presence to exist. Waiting on `here >= 1` would let the equality
+	// below fire before the second row lands — the count would read 1 because
+	// only one row was written yet, not because it de-duplicated, and a missing
+	// `distinct` would pass. Presence writes are debounced 1500ms, so the row
+	// count is the only honest signal that both replicas have reported.
+	pool := testDBPool(t)
+	eventually(t, 10*time.Second, "both replicas to record a presence row", func() bool {
+		// Only this one person is connected, so every row for the session is
+		// theirs — one per replica.
+		var rows int
+		if err := pool.QueryRow(context.Background(),
+			`select count(*) from session_presence where session_id::text = $1`, id).Scan(&rows); err != nil {
+			t.Fatal(err)
+		}
+		return rows == 2
 	})
 	if got := hereIn(t, srvA, slug, id, fac); got != 1 {
 		t.Fatalf("one person on two replicas: here = %d, want 1", got)
