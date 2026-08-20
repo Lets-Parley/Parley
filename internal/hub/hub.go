@@ -144,6 +144,15 @@ type expiryEvent struct {
 	expiresAt time.Time
 }
 
+// initialStateEvent carries the room snapshot that a freshly registered
+// connection is owed, once its membership has been confirmed a second time —
+// after registration, so a removal that lands mid-handshake is seen.
+type initialStateEvent struct {
+	conn    *Conn
+	initial []byte
+	err     error
+}
+
 // ErrNotMember reports a connection whose owner has lost membership of the
 // space its session belongs to. It closes the socket the same way a revoked
 // token does.
@@ -277,6 +286,15 @@ func (h *Hub) run() {
 			}
 			e.conn.expiresAt = e.expiresAt
 			h.armExpiry(e.conn)
+		case initialStateEvent:
+			if !h.registered(e.conn) {
+				continue
+			}
+			if e.err != nil {
+				h.remove(e.conn, websocket.ClosePolicyViolation)
+				continue
+			}
+			h.deliver(e.conn, e.initial)
 		case expiryEvent:
 			if h.registered(e.conn) && e.conn.expiresAt.Equal(e.expiresAt) {
 				if h.ValidateSession != nil {
@@ -296,7 +314,17 @@ func (h *Hub) register(e registerEvent) {
 	room[e.conn] = struct{}{}
 	h.armExpiry(e.conn)
 	if e.initial != nil {
-		h.deliver(e.conn, e.initial)
+		// The membership read that authorized the handshake happened before
+		// this connection existed, so a removal committed mid-upgrade would
+		// still have shipped a full room snapshot to someone who had just lost
+		// access. Re-check once the connection is registered — from here on the
+		// removal path can see it, and the snapshot is only released if the
+		// second read still says member.
+		if h.gatesInitialState(e.conn) {
+			go h.confirmMembership(e.conn, e.initial)
+		} else {
+			h.deliver(e.conn, e.initial)
+		}
 	}
 	e.accepted <- true
 }
@@ -473,6 +501,27 @@ func (h *Hub) validate(c *Conn) {
 		return
 	}
 	h.submit(revalidationEvent{conn: c, expiresAt: expiresAt, err: err})
+}
+
+// gatesInitialState reports whether a connection's first state frame has to
+// wait on a post-registration membership check.
+func (h *Hub) gatesInitialState(c *Conn) bool {
+	return h.ValidateMembership != nil && c.SpaceID != ""
+}
+
+// confirmMembership re-reads membership for an already-registered connection
+// and releases (or refuses) its initial room snapshot.
+func (h *Hub) confirmMembership(c *Conn, initial []byte) {
+	ctx, cancel := context.WithTimeout(c.ctx, h.validationTimeout())
+	defer cancel()
+	member, err := h.ValidateMembership(ctx, c.SpaceID, c.UserID)
+	if err == nil && !member {
+		err = ErrNotMember
+	}
+	if c.ctx.Err() != nil {
+		return
+	}
+	h.submit(initialStateEvent{conn: c, initial: initial, err: err})
 }
 
 func (h *Hub) validationTimeout() time.Duration {
