@@ -71,6 +71,13 @@ podDisruptionBudget:
 # only bites once you scale above one. The selector is filled in by the chart. ScheduleAnyway rather than DoNotSchedule
 # so a single-node or two-node cluster still schedules instead of leaving pods
 # Pending; tighten it to DoNotSchedule once you have nodes to spare.
+#
+# The chart also adds matchLabelKeys: [pod-template-hash] to every entry that
+# does not set its own, so the skew is computed within one revision. Without it
+# a rollout can satisfy the constraint by stacking the new pods on one node, and
+# ScheduleAnyway never re-evaluates, so the install stays collapsed. Check with
+# kubectl get pods -o wide after an upgrade — two replicas and a healthy PDB do
+# not tell you they are on different nodes.
 topologySpreadConstraints:
   - maxSkew: 1
     topologyKey: kubernetes.io/hostname

@@ -379,6 +379,33 @@ all land on one node. That one is `ScheduleAnyway`, so a single-node cluster
 still schedules instead of leaving pods Pending — tighten it to
 `DoNotSchedule` once you have nodes to spare.
 
+The constraint carries `matchLabelKeys: [pod-template-hash]`, which confines the
+skew calculation to one revision. It is there because of a failure seen on a
+real upgrade: without it, a rollout counts the outgoing pods as well, so with
+`maxSurge` the scheduler can satisfy the constraint by putting both *new* pods
+on one node. A soft constraint is never re-evaluated once the pods are running,
+so the install stays collapsed onto a single node afterwards — with two
+replicas, a satisfied PodDisruptionBudget, and one node failure between it and a
+total outage.
+
+It reduces the problem rather than removing it. The constraint is still
+`ScheduleAnyway`, which is a preference: the scheduler weighs it against
+resource pressure, affinity and everything else, and may still stack the pods if
+those outweigh it. `DoNotSchedule` is the guarantee, at the cost of leaving pods
+Pending forever on a cluster without the nodes to satisfy it.
+
+So after any upgrade of a multi-replica install, check where the pods actually
+are. This is the real safety net, not a formality:
+
+```sh
+kubectl --namespace parley get pods -o wide
+```
+
+Two different `NODE` values is the answer you want. If they have collapsed onto
+one node, deleting one pod reschedules it. On Kubernetes older than 1.27 the
+field is pruned by the API server without an error, so the check matters more
+there, not less.
+
 ### One thing to know about the window
 
 The new pod runs migrations before the old pods are gone, so during a rollout
@@ -427,6 +454,17 @@ helm upgrade parley oci://ghcr.io/lets-parley/charts/parley --reuse-values \
     --set networkPolicy.ingressController.namespace=ingress-nginx \
     --set networkPolicy.ingressController.podSelector."app\.kubernetes\.io/name"=ingress-nginx
 ```
+
+**If you are replacing a hand-rolled policy with this one, add it before you
+remove yours.** Two overlapping allow-policies are harmless — NetworkPolicies
+are additive, so the union of them is what applies. Zero policies is not
+harmless, and that is what you get for as long as the two halves of the swap are
+out of step. Under GitOps they are not applied together at all: removing your
+policy from Git and bumping the chart version are two different sources, and an
+operator who merged both in one PR measured **5 minutes 10 seconds** with no
+policy in the cluster, confirmed by a probe from another namespace that returned
+`200` during the window. Adopt the chart's policy first, confirm it is enforcing,
+then delete your own.
 
 It is **off by default**, deliberately. A NetworkPolicy in a cluster whose CNI
 does not enforce them silently does nothing — the wrong thing to be on by

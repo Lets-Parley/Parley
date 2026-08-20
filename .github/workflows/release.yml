@@ -327,3 +327,103 @@ jobs:
             "release/parley-$TAG-kubernetes.yml" \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
+
+  # An operator's first signal about a release is `gh release list` and the
+  # workflow badge, and those look identical whether the run failed before
+  # publishing anything, failed after publishing everything, or succeeded.
+  # Three of the last five releases were red for three different reasons with
+  # three different consequences, and telling them apart meant drilling into
+  # per-job conclusions and resolving the image digest by hand — twice, for an
+  # operator who upgraded twice.
+  #
+  # This job cannot gate the release's existence: the workflow triggers on
+  # `release: published`, so the release is already there before any job runs.
+  # What it can do is write down what is actually fetchable, which is the
+  # question an operator is really asking. It resolves the artifacts from the
+  # registry rather than trusting that the jobs which made them succeeded — a
+  # receipt that only repeats `needs` would confirm the workflow's opinion of
+  # itself, which is the failure mode being fixed.
+  publish-receipt:
+    needs: [validate, publish, chart, release-assets]
+    runs-on: ubuntu-24.04
+    # No registry credential, deliberately. The sbom jobs above split reading
+    # the registry from writing to the release precisely so no single job holds
+    # both, and this job writes to the release — so it reads anonymously
+    # instead. Parley's packages are public, which is checked rather than
+    # assumed: an anonymous ghcr.io token fetches the 0.4.4 manifest (HTTP 200)
+    # and `helm show chart` resolves the chart with no login. If they were ever
+    # made private this job fails and no receipt appears, which is the safe
+    # direction — a missing receipt says "check by hand", never "all published".
+    permissions:
+      contents: write
+    steps:
+      - name: Resolve the published artifacts
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          DIGEST: ${{ needs.publish.outputs.digest }}
+          RAW_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -eu
+          owner=$(printf '%s' "$RAW_OWNER" | tr '[:upper:]' '[:lower:]')
+          image="ghcr.io/${owner}/parley"
+          # The tag must resolve to the digest that was validated and attested,
+          # not merely to something. For a multi-arch image this is the index
+          # digest, which is what the publish job outputs — confirmed against
+          # the published 0.4.4, where skopeo and the registry's
+          # docker-content-digest header agree on the same sha256.
+          resolved=$(docker run --rm "$SKOPEO_IMAGE" inspect --format '{{.Digest}}' \
+            "docker://${image}:${VERSION}")
+          test "$resolved" = "$DIGEST" \
+            || { echo "tag $VERSION resolves to $resolved, not the published $DIGEST"; exit 1; }
+          helm show chart "oci://ghcr.io/${owner}/charts/parley" --version "$VERSION" \
+            > /tmp/chart.yaml
+          grep -q "^appVersion: \"\?${VERSION}\"\?$" /tmp/chart.yaml \
+            || { echo "chart $VERSION does not name appVersion $VERSION"; cat /tmp/chart.yaml; exit 1; }
+      - name: Record the receipt on the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.validate.outputs.tag }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          DIGEST: ${{ needs.publish.outputs.digest }}
+        run: |
+          set -eu
+          # `.body // ""` because a release created with no notes returns a JSON
+          # null, which --jq renders as the literal word "null" and would be
+          # prepended to the notes as text.
+          body=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq '.body // ""')
+          # Idempotent: a re-run replaces its own receipt rather than stacking
+          # another. The cut is made only at a line that is EXACTLY the marker,
+          # (ignoring indentation, trailing spaces and a CRLF line ending, so a
+          # receipt an operator's editor has reformatted is still replaced
+          # rather than stacked beneath a new one)
+          # and only at the first such line, so a body that somehow carries two
+          # receipts is cleaned rather than half-cleaned. A substring match would delete
+          # everything after any prose that happens to quote the marker, and
+          # `gh release edit` replaces the body wholesale, so that loss would be
+          # permanent. Notes are the operator's, not this job's; the only text
+          # it may remove is the block it wrote itself.
+          marker='<!-- parley-publish-receipt -->'
+          body=$(printf '%s\n' "$body" | awk -v m="$marker" '
+            {
+              lines[NR] = $0
+              probe = $0
+              sub(/\r$/, "", probe)
+              sub(/^[[:space:]]+/, "", probe)
+              sub(/[[:space:]]+$/, "", probe)
+            }
+            probe == m && !cut { cut = NR }
+            END {
+              last = cut ? cut - 1 : NR
+              for (i = 1; i <= last; i++) print lines[i]
+            }')
+          {
+            printf '%s\n\n' "$body"
+            printf '<!-- parley-publish-receipt -->\n'
+            printf '**Artifacts published and resolvable from the registry:**\n\n'
+            printf -- '- image `ghcr.io/%s/parley:%s` @ `%s`\n' \
+              "$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')" "$VERSION" "$DIGEST"
+            printf -- '- chart `oci://ghcr.io/%s/charts/parley` version `%s`\n\n' \
+              "$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')" "$VERSION"
+            printf 'Checked by resolving both from the registry, not by trusting the jobs that made them. If this block is absent from a release, do not deploy it without checking by hand — a red run means the artifacts may be missing, incomplete, or fine, and the badge alone does not say which.\n'
+          } > /tmp/body.md
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file /tmp/body.md
