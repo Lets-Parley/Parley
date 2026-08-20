@@ -15,6 +15,8 @@ import { LinkButton } from "@astrojs/starlight/components";
 import { VERIFIED_VERSION } from "../verified";
 
 // Starlight's own value; it is not re-exported from a public entry point.
+// scripts/check-skip-link.mjs runs on postbuild and fails the build if this
+// drifts from the id Starlight's SkipLink actually points at.
 const PAGE_TITLE_ID = "_top";
 
 // Below this the star chip is dropped rather than shown.
