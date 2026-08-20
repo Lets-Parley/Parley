@@ -152,9 +152,12 @@ link and type a name.
 
 ## What Parley doesn't do
 
-- **No metrics, tracing, access log, SBOM or image signing.** JSON logs to
-  stdout are all it emits; probe `/readyz` and take request metrics from your
-  reverse proxy, and build from a tagged commit yourself if you need provenance.
+- **No metrics, tracing or access log.** JSON logs to stdout are all it emits;
+  probe `/readyz` and take request metrics from your reverse proxy.
+  `LOG_LEVEL=debug` adds one line per request with the resolved client address
+  and forwarding chain, for diagnosing a proxy — it is not an access log and is
+  not retained. Releases *do* ship an SPDX SBOM and digest-bound build
+  provenance; see [Supply chain](/security/supply-chain/).
 - **No roles beyond member and facilitator.** Any member can rotate the room
   code or open the space. Keep membership deliberate, or put an SSO proxy in
   front of it.

@@ -226,3 +226,44 @@ func TestDiscoveryWindowDefaultsToFifteenSeconds(t *testing.T) {
 		t.Fatalf("an explicit discoveryTimeout gave a %v window, want 200ms", got)
 	}
 }
+
+// Warm is the boot probe's entry point. It has to reuse the same singleflight
+// discovery the sign-in path uses rather than opening a second one.
+func TestWarmDiscoversTheProvider(t *testing.T) {
+	idp := newFakeIdP(t)
+	p := providerFor(t, idp.URL)
+	if err := p.Warm(context.Background()); err != nil {
+		t.Fatalf("Warm: %v", err)
+	}
+	p.mu.Lock()
+	warm := p.oauth != nil
+	p.mu.Unlock()
+	if !warm {
+		t.Fatal("Warm returned nil but left the provider cold")
+	}
+}
+
+// The single most important property of the boot probe: a failed probe must
+// not be cached. If it were, a diagnostic aimed at a provider that was merely
+// slow to start would turn every later sign-in into the same stale failure.
+func TestAFailedWarmDoesNotPoisonALaterSignIn(t *testing.T) {
+	idp := newFakeIdP(t)
+	unreachable := providerFor(t, "http://127.0.0.1:1")
+	if err := unreachable.Warm(context.Background()); err == nil {
+		t.Fatal("Warm unexpectedly succeeded against a dead issuer")
+	}
+
+	p := providerFor(t, idp.URL)
+	if err := p.Warm(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// Same provider, a failure followed by a success on the shared cache.
+	p2 := providerFor(t, "http://127.0.0.1:1")
+	if err := p2.Warm(context.Background()); err == nil {
+		t.Fatal("Warm unexpectedly succeeded")
+	}
+	p2.cfg.Issuer = idp.URL
+	if err := p2.Warm(context.Background()); err != nil {
+		t.Fatalf("a failed probe poisoned the discovery cache: %v", err)
+	}
+}
