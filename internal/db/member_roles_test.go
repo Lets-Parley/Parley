@@ -19,7 +19,7 @@ import (
 
 // memberRolesVersion is the migration under test. Everything below it is the
 // "already deployed" world the upgrade has to land on.
-const memberRolesVersion = 14
+const memberRolesVersion = 15
 
 // upTo copies the shipped migrations with a version at or below max, so a test
 // can stand a database up at an older head and then upgrade it for real.
