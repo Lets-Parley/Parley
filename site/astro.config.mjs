@@ -76,6 +76,7 @@ export default defineConfig({
             "operations/deployment",
             "operations/single-server",
             "operations/kubernetes",
+            "operations/gitops",
             "operations/reverse-proxy",
             "operations/observability",
             "operations/scaling-and-limits",

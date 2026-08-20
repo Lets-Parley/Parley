@@ -11,7 +11,9 @@ boot.
 On Kubernetes it is `helm upgrade` with the new `--version` and
 `--reuse-values` — the procedure, and the checks that prove the pods actually
 rolled, are on
-[Kubernetes](/operations/kubernetes/#upgrading-an-existing-install).
+[Kubernetes](/operations/kubernetes/#upgrading-an-existing-install). Under
+ArgoCD or Flux there is no `--reuse-values` and no `helm test`; see
+[GitOps](/operations/gitops/).
 
 Rolling *back* an image is only safe if the newer version didn't add
 migrations. If it did, Parley refuses to start and says so, rather than running
@@ -20,8 +22,9 @@ against a schema it doesn't understand. Restore from a
 
 ## Postgres
 
-The compose file pins `postgres:16-alpine` on purpose. Major Postgres upgrades
-(16 → 17) are not automatic:
+Parley supports PostgreSQL 13 and newer, with no upper bound — the compose file
+pins `postgres:16-alpine` because a compose file has to pin something. Major
+Postgres upgrades (16 → 17) are not automatic:
 
 1. `pg_dump` with the old version
 2. start fresh with the new one

@@ -6,20 +6,40 @@ description: The Helm chart, the guards it enforces, and a plain manifest for pe
 ## Before you install: the database
 
 Parley ships no Postgres for Kubernetes, and the chart will not create one. Have
-these four things true before you run `helm install`. Each one is a
-`CrashLoopBackOff` rather than a subtle misbehaviour — Parley logs a line
-starting `FATAL:` and exits, so `kubectl logs` has the answer:
+these five things true before you run `helm install`. Four of them fail loudly
+rather than subtly — Parley logs a line starting `FATAL:` and exits, so
+`kubectl logs` has the answer. The exception is the shared-database one, which
+is why it is spelled out at length below.
 
-- **PostgreSQL 13 or newer.** The first migration runs
-  `create extension if not exists pgcrypto`. `pgcrypto` became a *trusted*
+- **PostgreSQL 13 or newer**, with no upper bound. 13 is the floor because the
+  first migration runs `create extension if not exists pgcrypto`. `pgcrypto` became a *trusted*
   extension in PostgreSQL 13, so any role with `CREATE` on the target database
   can install it there — no ownership and no superuser required. On 12 and
   below, installing it still needs superuser, and migration `0001` fails:
-  `FATAL: database migration failed`.
+  `FATAL: database migration failed`. There is no ceiling — 14, 15, 16 and 17
+  are all fine. The compose file pins `postgres:16-alpine` because a compose
+  file has to pin something, not because 16 is the supported version.
 - **The database and the role already exist.** Parley creates its *schema*, not
   the database and not the role. Create both yourself, and grant the role in
   `DATABASE_URL` **`CREATE` on the database**, e.g.
   `GRANT CREATE ON DATABASE parley TO parley;`. Ownership is not required.
+- **That database is Parley's alone.** Sharing a Postgres *server* with other
+  tenants is fine and normal. Sharing a *database* is not, for two reasons that
+  have nothing to do with table-name collisions:
+
+  Replicas talk to each other over `LISTEN`/`NOTIFY` on two fixed channel names,
+  `parley_session` and `parley_revoke`. `pg_notify` is scoped to a database, not
+  to a schema — so a second Parley installed into the same database receives the
+  first one's notifications, including session-token *hashes* on the revocation
+  channel. The hash is useless as a credential and the same principal could
+  already read it out of the tokens table, but "only this deployment hears it"
+  is a property of the database boundary and of nothing else.
+
+  Migrations serialize behind a PostgreSQL advisory lock, and **advisory locks
+  are cluster-wide, not per-database**. `Migrate` takes it blocking. An
+  unrelated tenant anywhere on the same server that happens to use the same lock
+  id will hold Parley at boot with no error, just a pod that never becomes
+  ready.
 - **`sslmode`, if your Postgres requires TLS.** Managed Postgres usually does,
   and the driver does not assume it. Append `?sslmode=require` (or `verify-full`
   with a CA) to the URI. Without it the connection is refused at handshake and
@@ -65,6 +85,41 @@ kubectl create secret generic parley \
 kubectl create secret generic parley-oidc \
   --from-literal=oidc-client-secret='...'
 ```
+
+#### External secret operators
+
+If the Secret comes from External Secrets, the Infisical operator, Vault Agent
+or similar, two behaviours are worth knowing before you debug the wrong thing.
+
+**`CreateContainerConfigError` is the normal first state, not a mistake.** The
+chart's `secretKeyRef` has no `optional: true` — a Parley that started without a
+database URL would only crash a moment later, less clearly. So while the
+operator is doing its first sync, the pod cannot be created and reports exactly
+the same error as a wrongly-shaped secret. It clears on its own, usually within
+a sync interval; kubelet retries without any help from you. Check which one you
+have before changing anything:
+
+```sh
+kubectl --namespace parley get secret parley -o jsonpath='{.data}' ; echo
+```
+
+Nothing at all means the sync has not landed yet. A secret with `username` /
+`password` / `host` keys means the shape is wrong — Parley wants one key holding
+the entire URI. Under ArgoCD, give the secret an earlier
+[sync wave](/operations/gitops/#sync-waves-and-the-secret-that-is-not-there-yet).
+
+**A rotated secret does not restart the pods.** Parley reads its configuration
+from environment variables once, at boot, and environment variables sourced from
+a Secret are resolved at container start — a later change to the Secret is not
+propagated to a running container by Kubernetes at all. When a rotation changes
+the database password or the OIDC client secret, roll the pods yourself:
+
+```sh
+kubectl --namespace parley rollout restart deploy/parley
+```
+
+Until then the old value stays live, which usually means the rotation looks
+successful right up to the next pod restart.
 
 ## Install the Helm chart
 
@@ -127,7 +182,9 @@ set:
   published release. Pin it only to move off that.
 - **`ingress.enabled`**, `ingress.className`, `ingress.host`, `ingress.tls` —
   off by default. The chart ships the `proxy-read-timeout` annotations
-  WebSockets need.
+  WebSockets need **for ingress-nginx**; every other controller ignores them and
+  needs its own setting. See
+  [below](#websocket-timeouts-are-per-controller).
 - **`trustProxyHeaders`** and **`trustedProxyCIDRs`** — see
   [below](#the-manifest-leaves-proxy-trust-disabled). On Kubernetes the second
   one has a trap in it.
@@ -143,6 +200,16 @@ set:
 Every value is commented in
 [`deploy/charts/parley/values.yaml`](https://github.com/lets-parley/parley/blob/main/deploy/charts/parley/values.yaml),
 which is the source of truth.
+
+**Booleans have to arrive as booleans.** `trustProxyHeaders`,
+`networkPolicy.enabled`, `ingress.enabled`, `serviceAccount.create`,
+`podDisruptionBudget.enabled` and `auth.oidc.publicClient` are all read through
+a helper that treats only the literal string `true` as true, because a Go
+template treats *any* non-empty string — including `"false"` — as truthy, and
+`--set-string`, ArgoCD parameter overrides and CI templating pipelines all emit
+strings. The coercion means `"false"` behaves correctly; it also means `"True"`,
+`"yes"` and a typo all read as false, without complaint. Pass real YAML
+booleans in a values file where you can.
 
 ### TLS is entirely the ingress's job
 
@@ -176,6 +243,48 @@ than merging with them, which is why the two timeout annotations are repeated
 above. `baseURL` must be the `https://` address to match — the chart refuses to
 render `ingress.tls` under an `http://` base URL, because the session cookie's
 `Secure` flag comes from `baseURL` and nothing else.
+
+### WebSocket timeouts are per-controller
+
+The two annotations above are `nginx.ingress.kubernetes.io/*`. **Only
+ingress-nginx reads them.** Any other controller silently ignores them and
+applies its own idle timeout, and if that timeout is shorter than Parley's 25s
+ping, live boards get cut mid-round — which presents as an unstable network
+rather than as a configuration problem.
+
+This matters more than it sounds, because **k3s ships Traefik as its default
+ingress controller**, so a homelab or edge cluster hits it without choosing it.
+
+**Traefik.** The relevant timeouts are `respondingTimeouts` on the entry point,
+which is *static* configuration on the Traefik installation itself, not an
+annotation on your Ingress. In the k3s Traefik HelmChartConfig:
+
+```yaml
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    ports:
+      websecure:
+        transport:
+          respondingTimeouts:
+            readTimeout: 0s
+            idleTimeout: 300s
+```
+
+`readTimeout: 0s` means no limit, which is what a long-lived WebSocket wants;
+`idleTimeout` only needs to exceed 25s, and Traefik's 180s default already does.
+Traefik proxies WebSocket upgrades without any extra configuration — the timeout
+is the only thing to get right.
+
+**Other controllers.** HAProxy uses the `haproxy.org/timeout-server` annotation;
+Contour and Envoy-based controllers take a per-route idle timeout; a cloud load
+balancer in front of any of them has its own idle timeout that also has to clear
+25s. Whatever yours is, the test is the same: open a board, leave it untouched
+for a few minutes, and see whether the client's reconnect banner appears.
 
 ### It refuses to render a deployment that cannot work
 
@@ -215,7 +324,12 @@ rollout never drops below the replica count. Like the chart it ships with
 `replicas: 1`; raise it when you want rollout headroom and a survivable node
 failure. Every replica opens up to 10 pooled Postgres connections plus one for
 the fanout listener, so size `max_connections` for `replicas × 11` — 12 per pod
-briefly at boot, while it holds the migration lock on its own connection. The
+briefly at boot, while it holds the migration lock on its own connection. On a
+Postgres shared with other tenants that is a budget you are spending, not a
+number you get to set: check what is left before scaling up. Exhaustion does not
+present as a clean startup error — the pod comes up and serves, and what fails
+is the fanout listener's reconnect, so votes stop crossing between replicas
+while each replica still looks healthy on its own. The
 plain manifest has no PodDisruptionBudget and no anti-affinity; the chart adds
 both.
 
