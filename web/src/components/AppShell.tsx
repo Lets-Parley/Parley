@@ -2,11 +2,12 @@ import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api, type Me, type Person, type SessionSummary } from "../lib/api";
-import { getKind, kindLabel, UNKNOWN_SWATCH } from "../lib/kinds";
+import { kindLabel } from "../lib/kinds";
 import type { ConnectionStatus } from "../lib/socket";
 import { useTheme } from "../lib/ui";
 import { Avatar } from "./Avatar";
 import { ConnectionBanner } from "./ConnectionBanner";
+import { KindChip } from "./KindChip";
 import { MemberCard } from "./MemberCard";
 import { useAuthMode } from "./NameGate";
 import logoUrl from "../assets/logo.svg";
@@ -239,20 +240,9 @@ export function AppShell({
                           (s.id === activeSessionId ? "bg-felt-deep" : "")
                         }
                       >
-                        <span
-                          aria-hidden="true"
-                          className={
-                            "h-[22px] w-1.5 shrink-0 rounded-[3px] border border-line " +
-                            (getKind(s.kind)?.swatch ?? UNKNOWN_SWATCH)
-                          }
-                        />
                         <span className="truncate text-[13px] font-semibold">{s.title}</span>
-                        {/* The same kind chip the space page uses, so the two
-                            views name a kind the same way. Its own text keeps
-                            reading against the row's hover/active ground even
-                            though its fill is close to it. */}
-                        <span className="ml-auto shrink-0 rounded-full border border-line bg-surface-hi px-1.5 py-0.5 font-mono text-[10px] tracking-[0.06em] text-ink-soft">
-                          {kindLabel(s.kind)}
+                        <span className="ml-auto">
+                          <KindChip kind={s.kind} size="sm" />
                         </span>
                         {s.endedAt && (
                           <span className="shrink-0 font-mono text-[9px] text-ink-faint">ended</span>

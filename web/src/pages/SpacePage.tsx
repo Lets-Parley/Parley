@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Person, type SessionSummary, type SpaceRole, type SpaceView } from "../lib/api";
 import { useMe, NameGate } from "../components/NameGate";
 import { AppShell, Logo } from "../components/AppShell";
+import { KindChip } from "../components/KindChip";
 import { EmptyTable } from "./PokerRoom";
 import {
   Modal,
@@ -13,7 +14,7 @@ import {
   labelClass,
 } from "../components/Modal";
 import { useToast } from "../lib/ui";
-import { KINDS, defaultConfig, type KindDef } from "../lib/kinds";
+import { KINDS, defaultConfig, kindLabel, type KindDef } from "../lib/kinds";
 
 // "" is the All tab; every other value is a registered kind's wire id.
 const KIND_TABS = [{ id: "", label: "All" }, ...KINDS];
@@ -213,7 +214,7 @@ export function SpacePage() {
         ) : filtered.length === 0 ? (
           <p className="px-2 py-9 text-center text-sm text-ink-soft">
             Nothing matches {q ? `\u201c${query}\u201d` : "these filters"}
-            {kind ? ` in ${kind} sessions` : ""}.
+            {kind ? ` in ${kindLabel(kind)} sessions` : ""}.
           </p>
         ) : (
           <ul className="flex flex-col gap-2.5">
@@ -223,9 +224,7 @@ export function SpacePage() {
                   to={`/session/${s.id}`}
                   className="flex items-center gap-3.5 rounded-card border border-line bg-surface px-5 py-4 shadow-rest transition hover:shadow-lift"
                 >
-                  <span className="shrink-0 rounded-full border border-line bg-felt-deep px-2.5 py-1 font-mono text-[10px] tracking-[0.06em] text-ink-soft">
-                    {s.kind}
-                  </span>
+                  <KindChip kind={s.kind} />
                   <span className="min-w-0">
                     <span className="block truncate text-[15px] font-bold">{s.title}</span>
                     <span className="mt-0.5 block text-xs text-ink-faint">
@@ -599,13 +598,13 @@ function NewSessionModal({
                 setConfig(defaultConfig(k));
               }}
               className={
-                "flex-1 rounded-chip px-3.5 py-2.5 text-sm capitalize " +
+                "flex-1 rounded-chip px-3.5 py-2.5 text-sm " +
                 (kind.id === k.id
                   ? "border-2 border-accent bg-accent-soft font-bold"
                   : "border border-line font-semibold text-ink-soft hover:bg-felt-deep")
               }
             >
-              {k.id}
+              {k.label}
             </button>
           ))}
         </div>
