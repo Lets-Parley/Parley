@@ -165,7 +165,7 @@ export function SpacePage() {
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search sessions"
                 aria-label="Search sessions"
-                className="w-full bg-transparent text-[13px] outline-none"
+                className="w-full bg-transparent text-[13px]"
               />
             </label>
             <div className="flex gap-0.5 rounded-full bg-felt-deep p-[3px]">
@@ -328,7 +328,7 @@ function Gate({
                 aria-label="Space passcode"
                 maxLength={12}
                 autoFocus
-                className="min-w-0 flex-1 rounded-chip border bg-surface-hi px-3.5 py-2.5 text-center font-mono text-sm tracking-[0.16em] uppercase outline-none"
+                className="min-w-0 flex-1 rounded-chip border bg-surface-hi px-3.5 py-2.5 text-center font-mono text-sm tracking-[0.16em] uppercase"
                 style={{ borderColor: error ? "var(--color-stop)" : "var(--color-line)" }}
               />
               <button

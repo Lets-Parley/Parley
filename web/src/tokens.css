@@ -139,6 +139,17 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* One focus ring for the whole app. :focus-visible so mouse clicks stay quiet;
+   the accent reads against every surface, including accent-soft fills. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+/* Fields already carry a border — hug it. */
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline-offset: 1px;
+}
+
 /* Vote counts and card values change in place; tabular figures stop them
    shimmering as digits swap. */
 .font-mono { font-variant-numeric: tabular-nums; }
