@@ -271,4 +271,107 @@ describe("PokerRoom errors", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     fetchSpy.mockRestore();
   });
+
+  it("routes a real queue-originated failure into the story queue landmark", async () => {
+    // A real failure driven through PokerRoom's routing, not a `fail` prop
+    // injected straight into StoryQueue — that would pass even if `where`
+    // were hardcoded to "room".
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify({ error: "Could not add the round." }), { status: 500 }));
+    const env = envelope({ facilitatorConnected: true });
+    renderApp(<PokerRoom env={env} me={dana} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "+ Ad hoc" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Could not add the round.");
+    const aside = screen.getByRole("complementary", { name: /Story queue/ });
+    expect(aside.contains(alert)).toBe(true);
+    fetchSpy.mockRestore();
+  });
+
+  it("does not offer Try again for a failed vote", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ error: "Could not record your vote." }), { status: 500 }),
+      );
+    renderApp(<PokerRoom env={envelope()} me={me} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "3" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Could not record your vote.");
+    expect(within(alert).queryByRole("button", { name: "Try again" })).toBeNull();
+    fetchSpy.mockRestore();
+  });
+
+  it("places the room's error row right after the header, before the table", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify({ error: "Nobody has voted yet." }), { status: 409 }));
+    const env = envelope({ facilitatorConnected: true });
+    env.state.stories[0].votedUserIds = ["marcus"];
+    renderApp(<PokerRoom env={env} me={dana} />);
+
+    screen.getByRole("button", { name: "Reveal" }).click();
+    const alert = await screen.findByRole("alert");
+    const header = alert.parentElement?.querySelector("header");
+    expect(header).toBeTruthy();
+    expect(header!.nextElementSibling).toBe(alert);
+    const table = screen.getByTestId("table-field");
+    expect(
+      alert.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    fetchSpy.mockRestore();
+  });
+
+  it("clears the failure banner when the round moves on to a new story", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify({ error: "Nobody has voted yet." }), { status: 409 }));
+    const env = envelope({ facilitatorConnected: true });
+    env.state.stories[0].votedUserIds = ["marcus"];
+    const { rerender } = renderApp(<PokerRoom env={env} me={dana} />);
+
+    screen.getByRole("button", { name: "Reveal" }).click();
+    await screen.findByRole("alert");
+
+    const next = envelope({ facilitatorConnected: true });
+    next.state.currentStoryId = "story-2";
+    next.state.stories = [
+      {
+        id: "story-2",
+        ref: "PLAT-413",
+        title: "Next story",
+        notes: "",
+        position: 2,
+        estimate: null,
+        status: "voting",
+        votedUserIds: [],
+      },
+    ];
+    rerender(<PokerRoom env={next} me={dana} />);
+    expect(screen.queryByRole("alert")).toBeNull();
+    fetchSpy.mockRestore();
+  });
+
+  it("re-runs the failed call when Try again is clicked", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify({ error: "Nobody has voted yet." }), { status: 409 }));
+    const env = envelope({ facilitatorConnected: true });
+    env.state.stories[0].votedUserIds = ["marcus"];
+    renderApp(<PokerRoom env={env} me={dana} />);
+
+    screen.getByRole("button", { name: "Reveal" }).click();
+    const alert = await screen.findByRole("alert");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const [firstPath] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    const [secondPath] = fetchSpy.mock.calls[1] as [string, RequestInit];
+    expect(secondPath).toBe(firstPath);
+    fetchSpy.mockRestore();
+  });
 });

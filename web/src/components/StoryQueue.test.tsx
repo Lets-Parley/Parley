@@ -114,4 +114,61 @@ describe("StoryQueue", () => {
     await userEvent.click(within(alert).getByRole("button", { name: "Dismiss error" }));
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
+
+  it("offers Try again for a real failed Deal, driven through StoryQueue's own run", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify({ error: "Could not deal that story." }), { status: 500 }));
+    let failArgs: [string, (() => Promise<unknown>) | undefined] | null = null;
+    renderApp(
+      <StoryQueue
+        sessionId="sess-1"
+        stories={stories}
+        currentStoryId={null}
+        isFacilitator
+        onQuickRound={vi.fn()}
+        fail={null}
+        onFail={(msg, retry) => {
+          failArgs = [msg, retry];
+        }}
+        onDismiss={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Deal Set up CI" }));
+    expect(failArgs).not.toBeNull();
+    const [msg, retry] = failArgs!;
+    expect(msg).toBe("Could not deal that story.");
+    expect(retry).toBeTypeOf("function");
+    fetchSpy.mockRestore();
+  });
+
+  it("does not offer Try again for a failed ticket creation, since retrying can duplicate it", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify({ error: "Could not add the ticket." }), { status: 500 }));
+    let failArgs: [string, (() => Promise<unknown>) | undefined] | null = null;
+    renderApp(
+      <StoryQueue
+        sessionId="sess-1"
+        stories={stories}
+        currentStoryId={null}
+        isFacilitator
+        onQuickRound={vi.fn()}
+        fail={null}
+        onFail={(msg, retry) => {
+          failArgs = [msg, retry];
+        }}
+        onDismiss={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "+ Ticket" }));
+    await userEvent.type(screen.getByPlaceholderText(/Ticket, e.g./), "PAR-142");
+    await userEvent.click(screen.getByRole("button", { name: "Add to queue" }));
+
+    expect(failArgs).not.toBeNull();
+    const [msg, retry] = failArgs!;
+    expect(msg).toBe("Could not add the ticket.");
+    expect(retry).toBeUndefined();
+    fetchSpy.mockRestore();
+  });
 });

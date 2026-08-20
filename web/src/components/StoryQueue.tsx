@@ -159,7 +159,10 @@ export function StoryQueue({
         <StoryComposer
           onClose={() => setComposing(false)}
           onSubmit={async (title, notes, ref) => {
-            await run(() => action(sessionId, "stories", { title, notes, ref }));
+            // Story creation is not idempotent: retrying after a lost response
+            // can create a duplicate ticket in the queue. Deal/move stay
+            // retryable; this call must not offer Try again.
+            await run(() => action(sessionId, "stories", { title, notes, ref }), false);
             setComposing(false);
           }}
         />
