@@ -14,8 +14,10 @@ Publishing a GitHub Release for `vX.Y.Z` publishes `X.Y.Z` and `X.Y`, and moves
 the publication workflow.
 
 Beginning with the first release produced by the hardened workflow, each
-release includes an SPDX JSON SBOM plus Compose and Kubernetes manifests pinned
-to the published image digest. Releases v0.1.0 through v0.2.1 were not
+release includes two SPDX JSON SBOMs — one scanned from the published
+`linux/amd64` image, one from the source tree covering the Go and `web/` npm
+dependencies — plus Compose and Kubernetes manifests pinned to the published
+image digest. Releases v0.1.0 through v0.2.1 were not
 backfilled with these artifacts or attestations. Verify a hardened release's
 digest before deployment:
 
