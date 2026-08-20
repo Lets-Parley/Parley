@@ -60,7 +60,7 @@ const ARC =
  * clearance from the front card is measured where it is actually tightest.
  */
 const CORNER =
-  /^M\s*(-?[\d.]+)[\s,]+(-?[\d.]+)\s*V\s*(-?[\d.]+)\s*A\s*(-?[\d.]+)[\s,]+(-?[\d.]+)[\s,]+(-?[\d.]+)[\s,]+([01])[\s,]+([01])[\s,]+(-?[\d.]+)[\s,]+(-?[\d.]+)\s*H\s*(-?[\d.]+)\s*$/;
+  /^M\s*(-?[\d.]+)[\s,]+(-?[\d.]+)\s*V\s*(-?[\d.]+)\s*A\s*([\d.]+)[\s,]+([\d.]+)[\s,]+(-?[\d.]+)[\s,]+([01])[\s,]+([01])[\s,]+(-?[\d.]+)[\s,]+(-?[\d.]+)\s*H\s*(-?[\d.]+)\s*$/;
 
 function line(p0: Pt, p1: Pt): Pt[] {
   return Array.from({ length: N + 1 }, (_, i) => [
@@ -120,7 +120,11 @@ function samples(el: Element): Pt[] {
       const c = CORNER.exec(d);
       if (c) {
         const n = c.slice(1).map(Number);
-        const [x, y, vy, r, , , laf, sweep, ax, ay, hx] = n;
+        const [x, y, vy, r, ry, rot, laf, sweep, ax, ay, hx] = n;
+        // The sampler draws a circular corner. An ellipse or a rotated arc
+        // would be measured against a curve that is not the one on screen.
+        if (ry !== r || rot !== 0)
+          throw new Error(`corner arc is not circular and unrotated: rx=${r} ry=${ry} rot=${rot}`);
         return [
           ...line([x, y], [x, vy]),
           ...arc([x, vy], [ax, ay], r, laf, sweep),
@@ -147,6 +151,16 @@ const ROOT_CLASS = "shrink-0";
 
 function assertRootUndisplaced(svg: Element): void {
   if (svg.hasAttribute("transform")) throw new Error("<svg> carries a transform the sampler cannot resolve");
+  // The sampler works in viewBox units. A root box that disagrees with the
+  // viewBox scales every measurement it takes, so a glyph shrunk to a speck
+  // would clear a gap floor it never really clears.
+  const box = (svg.getAttribute("viewBox") ?? "").trim().split(/[\s,]+/);
+  if (box.length !== 4 || box[0] !== "0" || box[1] !== "0")
+    throw new Error(`<svg> viewBox is not measurable from the origin: ${svg.getAttribute("viewBox")}`);
+  if (svg.getAttribute("width") !== box[2] || svg.getAttribute("height") !== box[3])
+    throw new Error(
+      `<svg> is drawn at ${svg.getAttribute("width")}x${svg.getAttribute("height")} but measured at ${box[2]}x${box[3]}`,
+    );
   if (svg.hasAttribute("style")) throw new Error("<svg> carries a style attribute the sampler cannot resolve");
   const cls = (svg.getAttribute("class") ?? "").trim();
   if (cls !== ROOT_CLASS)
@@ -209,9 +223,21 @@ describe("KindChip", () => {
     expect(svg.querySelectorAll("path").length).toBe(1);
     expect(svg.querySelectorAll("line").length).toBe(0);
     expect(svg.querySelectorAll("circle").length).toBe(0);
-    // A bar is what shipped first and what read as a sidebar. The corner is
-    // the whole point of the redraw, so name it: the path must turn.
-    expect(svg.querySelector("path")!.getAttribute("d")).toMatch(/A/);
+    // A bar is what shipped first and what read as a sidebar. The corner is the
+    // whole point of the redraw, so measure it rather than naming it: a bar with
+    // a token 0.1-unit hook satisfies /A/ and still reads as a sidebar. Both
+    // legs have to be long enough to see.
+    const d = svg.querySelector("path")!.getAttribute("d")!;
+    const c = CORNER.exec(d);
+    expect(c).toBeTruthy();
+    const [x, y, vy, , , , , , ax, ay, hx] = c!.slice(1).map(Number);
+    expect(Math.abs(vy - y)).toBeGreaterThanOrEqual(1.5);
+    expect(Math.abs(hx - ax)).toBeGreaterThanOrEqual(1.5);
+    // …and the corner has to sit above and right of the front card, or it is
+    // not the card behind: it is a bracket stuck on the side.
+    const front = svg.querySelector("rect")!;
+    expect(x).toBeGreaterThan(Number(front.getAttribute("x")) + Number(front.getAttribute("width")) - 1);
+    expect(Math.min(y, vy)).toBeLessThan(Number(front.getAttribute("y")));
   });
 
   it("draws standup as a person speaking", () => {
