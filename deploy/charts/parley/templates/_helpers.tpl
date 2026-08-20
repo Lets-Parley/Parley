@@ -69,7 +69,7 @@ protects the database.
 {{- define "parley.imageTag" -}}
 {{- $tag := default .Chart.AppVersion .Values.image.tag -}}
 {{- if not $tag -}}
-{{- fail "image.tag is empty and the chart has no appVersion — pin a published Parley version, e.g. --set image.tag=0.4.1" -}}
+{{- fail "image.tag is empty and the chart has no appVersion — pin a published Parley version, e.g. --set image.tag=0.4.2" -}}
 {{- end -}}
 {{- /* Compare normalized: `has` is an exact match, so LATEST and "latest "
        would otherwise walk straight through a guard that exists to stop them. */ -}}
