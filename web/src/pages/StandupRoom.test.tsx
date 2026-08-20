@@ -214,3 +214,109 @@ describe("StandupRoom turn accessibility", () => {
     expect(announcer().textContent).toBe("");
   });
 });
+
+/** Everyone has written something, so a re-read has something to show. */
+function filledState(currentSpeakerId: string | null = "dana"): Envelope["state"] {
+  return {
+    entries: [
+      entry({ userId: "dana", position: 1, yesterday: "dana yesterday", today: "dana today", blockers: "dana blocked" }),
+      entry({ userId: "marcus", position: 2, yesterday: "my yesterday", today: "my today", blockers: "" }),
+      entry({ userId: "priya", position: 3, skipped: true, yesterday: "priya yesterday", today: "priya today", blockers: "" }),
+    ],
+    currentSpeakerId,
+    speakerStartedAt: START,
+    secondsPerPerson: 90,
+  } as unknown as Envelope["state"];
+}
+
+const seatButton = (name: string) => screen.getByRole("button", { name });
+
+describe("StandupRoom re-reading entries", () => {
+  it("shows whoever you pick in the rail, not only the current speaker", () => {
+    renderApp(<StandupRoom env={envelope({ state: filledState("dana") })} me={me} />);
+    expect(screen.getByText("dana yesterday")).toBeTruthy();
+
+    act(() => seatButton("Priya Raman").click());
+    expect(screen.getByText("priya yesterday")).toBeTruthy();
+    expect(screen.getByText("priya today")).toBeTruthy();
+    expect(screen.queryByText("dana yesterday")).toBeNull();
+  });
+
+  it("keeps a chosen entry while the turn moves on underneath", () => {
+    const { rerender } = renderApp(
+      <StandupRoom env={envelope({ state: filledState("dana") })} me={me} />,
+    );
+    act(() => seatButton("Priya Raman").click());
+    rerender(<StandupRoom env={envelope({ state: filledState("marcus") })} me={me} />);
+    expect(screen.getByText("priya yesterday")).toBeTruthy();
+  });
+
+  it("keeps every entry reachable after the standup is done", () => {
+    renderApp(
+      <StandupRoom env={envelope({ phase: "done", state: filledState(null) })} me={me} />,
+    );
+    act(() => seatButton("Dana Whitfield").click());
+    expect(screen.getByText("dana yesterday")).toBeTruthy();
+    expect(screen.getByText("dana blocked")).toBeTruthy();
+  });
+
+  it("opens a skipped person's entry too, and still says they were skipped", () => {
+    renderApp(<StandupRoom env={envelope({ state: filledState("dana") })} me={me} />);
+    act(() => seatButton("Priya Raman").click());
+    expect(screen.getByText("priya today")).toBeTruthy();
+    expect(seat("Priya Raman").textContent).toMatch(/skipped or absent/i);
+  });
+
+  it("marks the picked seat in more than colour, and keeps aria-current on the row", () => {
+    renderApp(<StandupRoom env={envelope({ state: filledState("dana") })} me={me} />);
+    act(() => seatButton("Priya Raman").click());
+    expect(seatButton("Priya Raman").getAttribute("aria-pressed")).toBe("true");
+    expect(seatButton("Dana Whitfield").getAttribute("aria-pressed")).toBe("false");
+    // The current-speaker pin stays on the <li>, where the a11y tests read it.
+    expect(seat("Dana Whitfield").getAttribute("aria-current")).toBe("true");
+  });
+
+  it("leaves the edit form bound to the viewer when someone else is picked", () => {
+    renderApp(<StandupRoom env={envelope({ state: filledState("marcus") })} me={me} />);
+    const mine = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
+    expect(mine[0].value).toBe("my yesterday");
+
+    act(() => seatButton("Priya Raman").click());
+    // Priya's words are read-only prose — never loaded into the viewer's own
+    // autosaving draft, which would write them onto the viewer's row.
+    expect(screen.queryAllByRole("textbox")).toHaveLength(0);
+    expect(screen.getByText("priya yesterday")).toBeTruthy();
+
+    act(() => seatButton("Marcus Okonjo").click());
+    expect((screen.getAllByRole("textbox")[0] as HTMLTextAreaElement).value).toBe("my yesterday");
+  });
+});
+
+describe("StandupRoom ending the session", () => {
+  const endButton = () => screen.queryByRole("button", { name: /end session/i });
+
+  it("is not offered to anyone but the facilitator", () => {
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    expect(endButton()).toBeNull();
+  });
+
+  it("is offered to the facilitator", () => {
+    renderApp(<StandupRoom env={envelope({ facilitatorId: "marcus" })} me={me} />);
+    expect(endButton()).toBeTruthy();
+  });
+
+  it("deletes the session", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+    renderApp(<StandupRoom env={envelope({ facilitatorId: "marcus" })} me={me} />);
+    await act(async () => {
+      endButton()!.click();
+    });
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/sessions/sess-1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    fetchSpy.mockRestore();
+  });
+});
