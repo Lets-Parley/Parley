@@ -247,3 +247,18 @@ describe("PokerRoom hand placement", () => {
     expect(sticky.parentElement?.lastElementChild).toBe(sticky);
   });
 });
+
+describe("PokerRoom end session", () => {
+  const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+
+  it("asks before ending the session for everyone", async () => {
+    // It shipped as a bare text link one cursor-width from Export CSV, and
+    // one click killed the room live.
+    const del = vi.spyOn(globalThis, "fetch");
+    renderApp(<PokerRoom env={envelope({ facilitatorConnected: true })} me={dana} />);
+    screen.getByRole("button", { name: "End session" }).click();
+    expect(del).not.toHaveBeenCalled();
+    expect(await screen.findByText("End this session?")).toBeTruthy();
+    screen.getByRole("button", { name: "Keep playing" }).click();
+  });
+});

@@ -22,6 +22,7 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmEnd, setConfirmEnd] = useState(false);
 
   const online = new Set(env.presence);
   const seated: Person[] = env.participants.filter((p) => !p.spectator);
@@ -128,26 +129,29 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
               <button className={buttonQuiet} onClick={() => (env.revealed ? setConfirmReset(true) : reset())}>
                 Reset
               </button>
-              <button
-                className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop"
-                onClick={async () => {
-                  if (await run(() => api("DELETE", `/api/sessions/${env.id}`))) {
-                    say("Session closed — members can still open the results");
-                  }
-                }}
-              >
-                End session
-              </button>
               </>
             )}
 
-            <a
-              href={`/api/sessions/${env.id}/export.csv`}
-              download
-              className="px-2 text-[13px] font-semibold text-ink-faint hover:text-accent"
-            >
-              Export CSV
-            </a>
+            {/* Session-level actions, held off the round-action cluster by a
+                hairline: End session used to sit a cursor-width from Export CSV
+                at the same size and weight. */}
+            <span className="flex items-center gap-2 border-l border-line pl-3">
+              <a
+                href={`/api/sessions/${env.id}/export.csv`}
+                download
+                className="px-2 text-[13px] font-semibold text-ink-faint hover:text-accent"
+              >
+                Export CSV
+              </a>
+              {isFacilitator && !ended && (
+                <button
+                  className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop"
+                  onClick={() => setConfirmEnd(true)}
+                >
+                  End session
+                </button>
+              )}
+            </span>
           </div>
         </header>
 
@@ -305,6 +309,31 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
         onQuickRound={quickRound}
         onError={setError}
       />
+
+      {confirmEnd && (
+        <Modal title="End this session?" onClose={() => setConfirmEnd(false)}>
+          <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+            This ends the round for everyone at the table right now. The results stay in{" "}
+            the space and you can reopen the session afterwards.
+          </p>
+          <div className="mt-5 flex justify-end gap-2.5">
+            <button className={buttonQuiet} onClick={() => setConfirmEnd(false)}>
+              Keep playing
+            </button>
+            <button
+              className={buttonDanger}
+              onClick={async () => {
+                setConfirmEnd(false);
+                if (await run(() => api("DELETE", `/api/sessions/${env.id}`))) {
+                  say("Session closed — members can still open the results");
+                }
+              }}
+            >
+              End session
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {confirmReset && (
         <Modal title="Reset this round?" onClose={() => setConfirmReset(false)}>
