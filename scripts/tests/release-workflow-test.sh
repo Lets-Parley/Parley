@@ -13,8 +13,10 @@ line_number() {
 }
 
 grep -Fq 'release_commit: ${{ steps.release.outputs.release_commit }}' "$workflow"
+# build, publish, sbom, release-assets. Pinned as a count so a newly added job
+# that checks out anything other than the validated commit is caught.
 checkout_count=$(grep -Fc 'ref: ${{ needs.validate.outputs.release_commit }}' "$workflow")
-test "$checkout_count" -eq 3
+test "$checkout_count" -eq 4
 tag_resolution_count=$(grep -Fc 'git rev-parse "$TAG^{commit}"' "$workflow")
 test "$tag_resolution_count" -eq 2
 grep -Fq 'STAGING_TAG: staging-${{ github.run_id }}-${{ github.run_attempt }}' "$workflow"
@@ -25,9 +27,9 @@ if grep -F 'oci-archive:/release/parley-image.tar "docker://$IMAGE:$VERSION"' "$
   exit 1
 fi
 
-# Every docker/build-push-action step must stamp the version into the binary:
-# a build-arg mismatch would diverge the Go layer cache key, so the SBOM
-# would describe a differently-built binary than the one published. Count
+# Every docker/build-push-action step must stamp the version into the binary,
+# so a build-arg mismatch cannot diverge the Go layer cache key and publish a
+# differently-built binary than the one that was validated. Count
 # per-step rather than counting the two literal strings independently, so a
 # newly added build-push-action step with no build-arg is caught too, not
 # just edits to the two steps that exist today. A step boundary is a
@@ -45,6 +47,22 @@ build_push_with_version_count=$(awk '
 ' "$workflow")
 test "$build_push_step_count" -gt 0
 test "$build_push_with_version_count" -eq "$build_push_step_count"
+
+# The SBOM is scanned from the published image, never from a local archive: an
+# SBOM naming an artifact nobody can pull is what shipped with v0.4.1.
+grep -Fq 'image: ${{ needs.validate.outputs.image }}@${{ steps.platform.outputs.digest }}' "$workflow"
+if grep -F 'image: oci-archive:' "$workflow"; then
+  echo "SBOM is scanned from a local archive rather than the published image" >&2
+  exit 1
+fi
+
+# Attaching the deployment manifests must not depend on the SBOM succeeding.
+# That coupling is what left v0.4.0 with no release artifacts at all.
+release_assets_needs=$(awk '/^  release-assets:/ { found=1; next } found && /needs:/ { print; exit }' "$workflow")
+if printf '%s' "$release_assets_needs" | grep -Fq 'sbom'; then
+  echo "release-assets depends on the sbom job; an SBOM failure would drop the manifests" >&2
+  exit 1
+fi
 
 compare_line=$(line_number 'test "$actual" = "$expected"')
 tag_check_line=$(line_number 'test "$current_commit" = "$VALIDATED_COMMIT"')
