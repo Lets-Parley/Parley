@@ -235,4 +235,24 @@ describe("Table", () => {
       unmount();
     }
   });
+
+  it("carries the waiting count on the field, and says it only once", () => {
+    // It shipped at 11px under the field — unreadable from across the room
+    // it is projected into. Big on the field, spoken once by the live region.
+    renderTable({ votedUserIds: ["dana"], cueState: "first-light" });
+    const big = screen.getByTestId("waiting-count");
+    expect(big.textContent).toContain("1");
+    expect(big.textContent).toContain("3");
+    expect(big.className).toContain("text-[1.5rem]");
+    expect(big.className).toContain("tabular-nums");
+    expect(big.getAttribute("aria-hidden")).toBe("true");
+    // One live region, one voice: the count is spoken, not printed twice.
+    expect(screen.getByRole("status").textContent).toContain("1 of 3");
+  });
+
+  it("hands the field back to the seats once the votes are up", () => {
+    renderTable({ votedUserIds: ["dana"], revealed: true, cueState: "day" });
+    expect(screen.queryByTestId("waiting-count")).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain("1 vote on the table");
+  });
 });
