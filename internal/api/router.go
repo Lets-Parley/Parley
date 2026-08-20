@@ -253,6 +253,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		r.Get("/spaces/{slug}", a.handleGetSpace)
 		r.Group(func(r chi.Router) {
 			r.Use(RequireUser)
+			r.Get("/spaces", a.handleListMySpaces)
 			r.Post("/spaces", a.handleCreateSpace)
 			r.Post("/spaces/{slug}/join", a.handleJoinSpace)
 			r.Post("/spaces/{slug}/passcode", a.handleSetPasscode)

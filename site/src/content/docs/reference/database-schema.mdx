@@ -76,7 +76,9 @@ anonymous row can share the empty pair while federated identities stay unique.
 ### members
 
 `(space_id, user_id)` composite primary key, plus `spectator` and `last_seen_at`.
-Both foreign keys cascade.
+Both foreign keys cascade. `last_seen_at` is stamped on join and refreshed each
+time a member opens the space; it orders the landing page's space list and is
+never returned to the client.
 
 ### session_kinds
 
