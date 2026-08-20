@@ -128,6 +128,24 @@ export function Table({
           transition: "background-color var(--dur-flip) var(--ease-settle)",
         }}
       >
+        {!revealed && (
+          // The projected-screen question is "are we waiting on anyone?", and
+          // it used to be answered in 11px under the field. The numerals are
+          // tabular so the row does not shimmer as votes land. aria-hidden:
+          // the live region below is the single voice for this.
+          <p
+            data-testid="waiting-count"
+            aria-hidden="true"
+            className="mb-3 text-center font-mono text-[1.5rem] font-semibold tabular-nums text-ink-soft"
+          >
+            {votedCount}
+            <span className="text-ink-faint"> / {canVote}</span>
+            <span className="ml-2 align-middle text-[11px] uppercase tracking-[0.08em] text-ink-faint">
+              voted
+            </span>
+          </p>
+        )}
+
         {/* Ranks, not a scroller. A seat is 74px plus a 12px gap — 86px —
             measured in Chrome at 876a033, not calculated. 15 seats never fit
             one rank: 1280 wraps 10/5 into a 869px row, the widest measured
@@ -200,7 +218,13 @@ export function Table({
       {/* One live region for the whole table: the count and the cue read as a
           single string, because two status nodes talk over each other. */}
       <p role="status" className="mt-1.5 text-center font-mono text-[11px] text-ink-faint">
-        {cueState ? `${count} · ${cueLabel(cueState)}` : count}
+        {/* Pre-reveal the count is already on the field at 1.5rem, so it is
+            spoken here and drawn there — never printed twice. */}
+        <span className={revealed ? undefined : "sr-only"}>
+          {count}
+          {cueState ? " · " : ""}
+        </span>
+        {cueState && <span>{cueLabel(cueState)}</span>}
       </p>
     </div>
   );
