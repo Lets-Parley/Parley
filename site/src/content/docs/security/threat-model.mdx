@@ -30,7 +30,8 @@ what it protects, from whom, and what it deliberately does not.
    direction or the other — see [Deployment](/operations/deployment/).
 3. **A member to the space.** Space membership grants read and participation
    access. Session control and poker story mutations cross a second boundary:
-   only the facilitator may perform them.
+   only the facilitator may perform them. Managing who is in the space crosses a
+   third: only an owner may promote, demote, or remove a member.
 4. **The process to Postgres.** Full trust. The database credential is
    effectively root over all Parley data.
 
@@ -84,11 +85,11 @@ beginning `=`, `+`, `-`, `@`, tab or carriage return is quote-prefixed.
 
 **A member of the space.** Any member can read the space, vote, write their own
 standup entry, set their own standup readiness, rotate the room code, or open
-the space entirely. There is no
-space owner or administrator role. Story creation, editing, reordering,
-selection, and deletion are facilitator-only. **Membership is still the space
-trust boundary**, so treat handing out a room code as handing out participation
-and room-code control.
+the space entirely — none of which the owner role narrows. Managing membership
+is the one thing it does narrow: promoting, demoting, and removing a member are
+owner-only. Story creation, editing, reordering, selection, and deletion are
+facilitator-only. **Membership is still the space trust boundary**, so treat
+handing out a room code as handing out participation and room-code control.
 
 **An operator, or anyone with database access.** Both can read everything,
 including every space's room code.
@@ -113,7 +114,7 @@ The 30-second check remains the fallback for a notification lost in transit.
 
 <Capability rows={[
   { name: "Room codes stored readable", status: "out-of-scope", detail: "A code exists to be read off the page and passed on, like a Meet code. Hashing it means no member can ever look it up again. A database dump therefore discloses every code — stated plainly, and the reason a code is a door and not an identity." },
-  { name: "Any member can rotate or open a space", status: "out-of-scope", detail: "There is no role model to check against. Membership roles are on the <a href='/project/roadmap/'>roadmap</a>; until then, membership is trust." },
+  { name: "Any member can rotate or open a space", status: "out-of-scope", detail: "The passcode route checks membership, not role, on purpose: any member can already read the current code off the space page and hand it on, so gating rotation behind ownership would restrict tidying up a leak without restricting the leak. Membership roles do exist — see <a href='/security/authorization/'>Authorization</a> — but they gate membership management, not the code." },
   { name: "Anonymous participation by default", status: "out-of-scope", detail: "It is the product for a trusted network: a link and a name, no account. Public deployments need a passcode or external SSO/auth proxy plus ingress abuse controls." },
   { name: "The sign-in flow cookie is unsigned", status: "out-of-scope", detail: "It is base64 JSON, not a signature. It only ever carries values that are re-validated on use — the redirect target is re-sanitised after the round trip, and state and nonce are compared in constant time against the identity provider's response." },
   { name: "No general ingress rate limiter", status: "not-built", detail: "Room-code guesses, open-mode identity creation, and resource counts are bounded. Rate-limit requests and connections at your reverse proxy or ingress too. Budget for the client's own polling first: an open space page re-reads the space every 30 seconds — roughly 2 requests per minute per tab — so a limit tighter than that breaks the page rather than an attacker." },
