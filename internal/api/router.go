@@ -259,6 +259,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			r.Get("/spaces", a.handleListMySpaces)
 			r.Post("/spaces", a.handleCreateSpace)
 			r.Post("/spaces/{slug}/join", a.handleJoinSpace)
+			r.Post("/spaces/{slug}/seen", a.handleMarkSpaceSeen)
 			r.Post("/spaces/{slug}/passcode", a.handleSetPasscode)
 			r.Post("/spaces/{slug}/sessions", a.handleCreateSession)
 		})

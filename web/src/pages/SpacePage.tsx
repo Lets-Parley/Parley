@@ -1,4 +1,4 @@
-import { Fragment, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Person, type SessionSummary, type SpaceRole, type SpaceView } from "../lib/api";
@@ -48,6 +48,17 @@ export function SpacePage() {
     retry: false,
   });
 
+  // Opening a space you already belong to is what the landing list means by
+  // "recently active" — join only fires for someone who is not a member yet.
+  // The read above is a GET and must stay read-only, so the stamp goes out as
+  // its own POST. A failed stamp is a slightly stale sort order, nothing to
+  // interrupt anyone about.
+  const isMember = space.data?.members !== undefined;
+  useEffect(() => {
+    if (!isMember) return;
+    api("POST", `/api/spaces/${slug}/seen`).catch(() => {});
+  }, [slug, isMember]);
+
   async function doJoin(passcode?: string) {
     try {
       await api("POST", `/api/spaces/${slug}/join`, passcode ? { passcode } : {});
@@ -72,7 +83,6 @@ export function SpacePage() {
   }
 
   const sp = space.data;
-  const isMember = sp.members !== undefined;
 
   // Members-only spaces don't leak their contents — the gate says so plainly
   // and points at the one way in.

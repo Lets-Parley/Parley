@@ -170,24 +170,40 @@ func (s *Users) UpsertFederated(ctx context.Context, issuer, subject, name strin
 // ByToken resolves a token hash to its user, refusing idle-expired tokens and
 // touching last_used_at so active sessions never expire.
 func (s *Users) ByToken(ctx context.Context, tokenHash []byte) (User, error) {
-	sess, err := s.ResolveToken(ctx, tokenHash)
+	sess, err := s.ResolveToken(ctx, tokenHash, true)
 	return sess.User, err
 }
 
-// ResolveToken resolves and refreshes a valid token and returns the resulting
-// idle expiry so long-lived transports can enforce the same session lifetime.
-func (s *Users) ResolveToken(ctx context.Context, tokenHash []byte) (TokenSession, error) {
+const resolveTokenColumns = `user_id,
+	          (select name from users where id = user_id),
+	          (select issuer from users where id = user_id),
+	          last_used_at + $2::interval`
+
+// ResolveToken resolves a valid token and returns the resulting idle expiry so
+// long-lived transports can enforce the same session lifetime.
+//
+// touch says whether resolving counts as user activity and so renews the idle
+// window. It must be false for a request the CSRF guard waves through: that
+// guard exempts GET on the grounds that a GET changes nothing, so a touching
+// GET would hand any third-party page a way to renew a victim's idle window
+// forever with one <img src> per visit — and to drive unbounded writes against
+// session_tokens. A read-only resolve still refuses an already-expired token,
+// so nothing about expiry or revocation is relaxed; only the renewal is
+// withheld.
+func (s *Users) ResolveToken(ctx context.Context, tokenHash []byte, touch bool) (TokenSession, error) {
+	sql := `select ` + resolveTokenColumns + `
+		from session_tokens
+		where token_hash = $1 and last_used_at > now() - $2::interval`
+	if touch {
+		sql = `update session_tokens set last_used_at = now()
+		where token_hash = $1 and last_used_at > now() - $2::interval
+		returning ` + resolveTokenColumns
+	}
+
 	var u User
 	var expiresAt time.Time
-	err := s.Pool.QueryRow(ctx, `
-		update session_tokens set last_used_at = now()
-		where token_hash = $1 and last_used_at > now() - $2::interval
-		returning user_id,
-		          (select name from users where id = user_id),
-		          (select issuer from users where id = user_id),
-		          last_used_at + $2::interval`,
-		tokenHash, tokenIdleExpiry,
-	).Scan(&u.ID, &u.Name, &u.Issuer, &expiresAt)
+	err := s.Pool.QueryRow(ctx, sql, tokenHash, tokenIdleExpiry).
+		Scan(&u.ID, &u.Name, &u.Issuer, &expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return TokenSession{}, ErrNoUser
 	}

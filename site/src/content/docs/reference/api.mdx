@@ -71,9 +71,10 @@ reject them. Their own protection is the `state` value in the sign-in cookie.
 
 <RouteTable rows={[
   { method: "GET", path: "/api/spaces", auth: "user", purpose: "The caller's own memberships, most recently active first: slug, name, whether it is protected. Never the room code." },
-  { method: "GET", path: "/api/spaces/{slug}", auth: "public", purpose: "Members get roster, sessions, room code, and the kinds a new session may use, and their membership is stamped as recently active. Non-members get only the name and whether it is protected." },
+  { method: "GET", path: "/api/spaces/{slug}", auth: "public", purpose: "Members get roster, sessions, room code, and the kinds a new session may use. Non-members get only the name and whether it is protected. Read-only: it never writes." },
   { method: "POST", path: "/api/spaces", auth: "user", purpose: "Create a space. Protected by default." },
   { method: "POST", path: "/api/spaces/{slug}/join", auth: "user", purpose: "Join, sending {passcode} if the space is protected. Throttled at 8 attempts per 60s per address." },
+  { method: "POST", path: "/api/spaces/{slug}/seen", auth: "user", purpose: "Stamp the caller's membership as recently active, which is what orders the landing list. 204, and a silent no-op for a non-member — it never creates a membership." },
   { method: "POST", path: "/api/spaces/{slug}/passcode", auth: "member", purpose: "Mint a new code, or with {open:true} remove it. Any member may do this." },
   { method: "POST", path: "/api/spaces/{slug}/sessions", auth: "member", purpose: "Create a session: kind, title, config." },
   { method: "POST", path: "/api/spaces/{slug}/members/{userId}/role", auth: "owner", purpose: "Promote or demote: {role} is owner or member. 409 if it would leave the space with no owner." },
