@@ -1,0 +1,175 @@
+---
+title: GitOps (ArgoCD, Flux)
+description: What a declarative install does not show you, and the four things that behave differently when Helm is not the thing running the upgrade.
+---
+
+Parley installs cleanly from ArgoCD or Flux — the chart is an ordinary OCI Helm
+chart with no hooks that need a live Helm release. What changes is not the
+install. It is everything the chart tries to *tell* you during one, and three
+commands the rest of these docs assume you can run.
+
+## `helm template` prints no NOTES.txt
+
+This is the big one, and it is a property of Helm rather than of Parley.
+`helm install` renders `NOTES.txt` and prints it. `helm template` — which is
+what ArgoCD and Flux run under the hood — does not render it at all. Every
+warning the chart raises is therefore invisible to exactly the operators most
+likely to hit it.
+
+Two of those warnings exist **only** in `NOTES.txt`, so here they are as prose.
+
+### The WebSocket timeout annotations are ingress-nginx-only
+
+The chart ships `nginx.ingress.kubernetes.io/proxy-read-timeout: "75s"` and its
+`proxy-send-timeout` twin. Parley pings every 25s; a controller that closes idle
+connections sooner cuts live boards mid-round, and it looks like a flaky network
+rather than a timeout.
+
+Any other controller ignores those annotations completely. **k3s ships Traefik
+by default**, so this is the common case, not the exotic one. See
+[Kubernetes → WebSocket timeouts are per-controller](/operations/kubernetes/#websocket-timeouts-are-per-controller).
+
+### Proxy trust left off behind an Ingress makes the whole internet one client
+
+If `trustProxyHeaders` is `false` and an Ingress is enabled, every visitor
+arrives wearing the ingress controller's address. The room-code passcode
+throttle counts them as one client, so **eight wrong guesses lock everybody out
+of that space** — including the people who were typing the code correctly.
+
+Set `trustProxyHeaders: true` together with `trustedProxyCIDRs`, and read
+[the pod-CIDR trap](/operations/kubernetes/#the-pod-cidr-is-a-client-reachable-network)
+before you do: on Kubernetes the only CIDR that keeps working is one that every
+other pod in the cluster can also reach.
+
+## ArgoCD does not run `helm test`
+
+`helm test parley` appears in these docs as a normal step after install and
+after upgrade. It creates a Pod that curls the Service and checks it routes to a
+*ready* pod — Postgres reachable, and the `LISTEN` this replica hears the others
+on. ArgoCD never runs it; Flux runs it only with `test.enable` set on the
+`HelmRelease`.
+
+The equivalent, from anywhere with cluster access:
+
+```sh
+kubectl --namespace parley rollout status deploy/parley
+kubectl --namespace parley run parley-check --rm -it --restart=Never \
+  --image=curlimages/curl -- curl -sf http://parley/readyz
+```
+
+Or, if the Ingress is up, `curl -sf https://parley.example.com/readyz` and
+`curl -s https://parley.example.com/version` — the second is what proves the
+rollout actually replaced the pods rather than reporting that it tried.
+
+## `--reuse-values` has no declarative equivalent
+
+The upgrade instructions elsewhere in these docs lean on `helm upgrade
+--reuse-values`, which carries forward whatever you set last time. There is no
+such thing in GitOps, and that is the point of GitOps: the Application manifest
+*is* the complete set of values, every sync, with nothing inherited from the
+previous one.
+
+The practical consequence is that a value you once passed with `--set` and never
+wrote down does not survive the move to ArgoCD. Before migrating an existing
+install, capture what Helm currently holds:
+
+```sh
+helm --namespace parley get values parley > parley-values.yaml
+```
+
+and commit that file. Anything missing from it reverts to the chart default on
+the first sync — including `trustProxyHeaders`, `networkPolicy.enabled`, and
+`replicaCount`, all of which fail quietly rather than loudly.
+
+## Booleans must arrive as real booleans
+
+ArgoCD parameter overrides (`helm.parameters`) are string-typed. The chart
+coerces them, and only the literal string `true` counts as true — so `"false"`
+is correctly read as false, but a typo, a `"no"`, or a `"True"` is read as false
+too, silently.
+
+Six values are decided this way, and the first two are the ones that matter:
+
+| Value | What a mistyped "true" costs you |
+|---|---|
+| `trustProxyHeaders` | Every visitor shares one throttle bucket |
+| `networkPolicy.enabled` | The pod CIDR stays reachable from every workload |
+| `auth.oidc.publicClient` | The render fails — this one is caught, by design |
+| `ingress.enabled` | No Ingress is created |
+| `serviceAccount.create` | No ServiceAccount is created |
+| `podDisruptionBudget.enabled` | No PodDisruptionBudget above one replica |
+
+Prefer `helm.valuesObject` or a values file over `helm.parameters`, where YAML
+booleans stay booleans:
+
+```yaml
+helm:
+  valuesObject:
+    trustProxyHeaders: true
+    networkPolicy:
+      enabled: true
+```
+
+## A three-source Application
+
+Parley's chart is published to an OCI registry, which ArgoCD supports as a
+source with `chart:` rather than `path:`. Keeping values in your own Git
+repository — rather than inline in the Application — is what makes the values
+reviewable:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: parley
+  namespace: argocd
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: parley
+  sources:
+    - repoURL: ghcr.io/lets-parley/charts
+      chart: parley
+      targetRevision: "%VERSION%"
+      helm:
+        valueFiles:
+          - $values/clusters/homelab/parley-values.yaml
+    - repoURL: https://github.com/you/your-gitops-repo
+      targetRevision: main
+      ref: values
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+```
+
+`targetRevision` on an OCI chart is the chart version, and it is the pin: chart
+version tracks app version, there is no `v` prefix, and leaving it to float
+means the Application means something different after every Parley release.
+
+## Sync waves and the secret that is not there yet
+
+Parley reads `DATABASE_URL` from a Secret you create, and the container will not
+start until that Secret exists — the pod sits in
+`CreateContainerConfigError`, which is the *normal* first state when an external
+secret operator has not finished its first sync. See
+[Kubernetes → external secret operators](/operations/kubernetes/#external-secret-operators).
+
+If your secret is itself a synced resource, give it an earlier wave:
+
+```yaml
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+```
+
+The pod recovers on its own once the Secret appears; no manual step is needed,
+but ArgoCD will show the Application as Progressing until it does.
+
+## What still holds
+
+Everything else on [Kubernetes](/operations/kubernetes/) applies unchanged:
+migrations run at pod boot behind an advisory lock and serialize across
+replicas, the rollout window works the same way, and rolling *back* onto an
+image older than the migrations that have run is still refused by design. A
+GitOps revert of the `targetRevision` is a rollback like any other — restore the
+database first, or roll forward.

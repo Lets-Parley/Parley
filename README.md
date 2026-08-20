@@ -440,6 +440,11 @@ helm test parley
 curl -s https://parley.example.com/version
 ```
 
+Under ArgoCD or Flux, neither `--reuse-values` nor `helm test` exists, and
+`helm template` prints none of the chart's `NOTES.txt` warnings — the
+[GitOps notes](https://www.letsparley.io/operations/gitops/) cover what to do
+instead.
+
 **Postgres:** the compose file pins `postgres:16-alpine` on purpose. Major
 Postgres upgrades (16 → 17) are not automatic: `pg_dump` with the old
 version, start fresh with the new one, restore. Never just change the tag on

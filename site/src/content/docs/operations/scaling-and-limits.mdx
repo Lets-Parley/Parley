@@ -90,6 +90,12 @@ outside the pool and separate from the listener's, and holds it only until
 migrations finish. Short-lived, but a cluster whose pods all restart at once
 will briefly want `replicas × 12`.
 
+On a Postgres shared with other tenants, `max_connections` is a budget you draw
+from rather than one you set — find out what is actually spare before scaling
+up. Running out does not look like a failed start: the pod comes up and serves
+requests, and what breaks is the fanout listener's reconnect, so replicas stop
+hearing each other's votes while each one still reports itself healthy.
+
 ## Connection pool
 
 <SpecTable rows={[

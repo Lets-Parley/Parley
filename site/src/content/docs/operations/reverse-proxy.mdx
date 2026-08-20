@@ -1,6 +1,6 @@
 ---
 title: Reverse proxy
-description: HTTPS and WebSockets in front of Parley, with Caddy or nginx.
+description: HTTPS and WebSockets in front of Parley, with Caddy, nginx, or a chain of both.
 ---
 
 ## Caddy
@@ -49,6 +49,61 @@ or the actual Ingress/load-balancer networks for another topology. List every
 trusted hop and never a client-reachable network. Parley ignores forwarded
 headers from an untrusted immediate peer. See
 [Configuration](/reference/configuration/).
+
+## Two hops: nginx in front of an ingress controller
+
+A common self-hosted shape is TLS terminated by nginx on a separate host, which
+forwards to a Kubernetes ingress controller, which forwards to Parley. Every hop
+in that chain has to cooperate or the client address does not survive it.
+
+**The outermost proxy appends.** The nginx block above uses
+`X-Forwarded-For $remote_addr`, which *sets* the header. When nginx is the first
+hop that is the same thing, but the appending form is what you want in a chain:
+
+```nginx
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+```
+
+**The middle hop must be told to trust the outer one, or it throws the chain
+away.** This is the step that is easy to read as optional hardening and is not.
+Traefik does not forward an incoming `X-Forwarded-For` unless the peer that sent
+it is listed in `forwardedHeaders.trustedIPs` — an untrusted peer's forwarded
+headers are dropped and replaced. So omitting it does not merely widen trust; it
+truncates the chain, Parley sees only the controller, and the room-code throttle
+collapses to a single bucket for the whole internet. Set it:
+
+```yaml
+ports:
+  websecure:
+    forwardedHeaders:
+      trustedIPs:
+        - 203.0.113.10/32   # the nginx host, as Traefik actually sees it
+```
+
+ingress-nginx is the same idea under a different name: `proxy-real-ip-cidr` in
+its ConfigMap.
+
+**Find out what address that hop really is, empirically.** Do not assume it is
+the nginx host's public address. With k3s `servicelb` and the default
+`externalTrafficPolicy: Cluster`, traffic entering a node is SNAT'd before it
+reaches the controller, so Traefik may well see a *node* address instead. Which
+one it is depends on your load balancer, your service configuration and your
+CNI, and getting it wrong fails in the quiet direction — the trust list simply
+never matches. Read it off a request rather than deriving it:
+
+```sh
+kubectl --namespace kube-system logs deploy/traefik | tail
+```
+
+with the access log on, or set `LOG_LEVEL=debug` on Parley and read the
+`peer` and `forwarded_for` fields it logs at the trust decision. See
+[Observability](/operations/observability/).
+
+**Then set Parley's own list to the controller's network**, which on Kubernetes
+means the pod CIDR — and read
+[the trap that comes with it](/operations/kubernetes/#the-pod-cidr-is-a-client-reachable-network)
+before you do. Parley walks the chain right-to-left past every trusted hop, so
+with all three configured the address it resolves is the real client's.
 
 ## Public deployments
 
