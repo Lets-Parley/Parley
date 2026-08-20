@@ -172,15 +172,6 @@
   max-width: 46ch;
 }
 
-.hero-eyebrow {
-  margin: 0;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--parley-go);
-}
-
 /* License, version and stars: the only proof above the fold that this is a
    real, maintained, open-source project. The star count is absent when the
    build could not reach GitHub, so this has to read correctly without it. */
