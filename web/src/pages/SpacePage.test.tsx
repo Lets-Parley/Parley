@@ -83,11 +83,11 @@ describe("SpacePage create dialog", () => {
       renderApp(<SpacePage />, { route: "/s/platform-team" });
       await userEvent.click(await screen.findByRole("button", { name: "New session" }));
       const dialog = within(screen.getByRole("dialog"));
-      expect(dialog.getByRole("button", { name: "poker" })).toBeTruthy();
+      expect(dialog.getByRole("button", { name: "Poker" })).toBeTruthy();
       // The tab strip still names Standup — that filters existing sessions —
       // so this assertion has to be scoped to the dialog, and it fails for a
       // dialog that simply rendered every built-in kind.
-      expect(dialog.queryByRole("button", { name: "standup" })).toBe(null);
+      expect(dialog.queryByRole("button", { name: "Standup" })).toBe(null);
     } finally {
       delete space.kinds;
     }
@@ -99,8 +99,8 @@ describe("SpacePage create dialog", () => {
       renderApp(<SpacePage />, { route: "/s/platform-team" });
       await userEvent.click(await screen.findByRole("button", { name: "New session" }));
       const dialog = within(screen.getByRole("dialog"));
-      expect(dialog.getByRole("button", { name: "poker" })).toBeTruthy();
-      expect(dialog.getByRole("button", { name: "standup" })).toBeTruthy();
+      expect(dialog.getByRole("button", { name: "Poker" })).toBeTruthy();
+      expect(dialog.getByRole("button", { name: "Standup" })).toBeTruthy();
     } finally {
       delete space.kinds;
     }
@@ -113,8 +113,8 @@ describe("SpacePage create dialog", () => {
     renderApp(<SpacePage />, { route: "/s/platform-team" });
     await userEvent.click(await screen.findByRole("button", { name: "New session" }));
     const dialog = within(screen.getByRole("dialog"));
-    expect(dialog.getByRole("button", { name: "poker" })).toBeTruthy();
-    expect(dialog.getByRole("button", { name: "standup" })).toBeTruthy();
+    expect(dialog.getByRole("button", { name: "Poker" })).toBeTruthy();
+    expect(dialog.getByRole("button", { name: "Standup" })).toBeTruthy();
   });
 
   it("hides New session when the space offers no kinds", async () => {

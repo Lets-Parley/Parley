@@ -4,7 +4,6 @@ import userEvent from "@testing-library/user-event";
 import { AppShell, BuildStamp, ConnectionDot, Logo } from "./AppShell";
 import { makePerson, renderApp } from "../test/render";
 import type { Me } from "../lib/api";
-import { UNKNOWN_SWATCH } from "../lib/kinds";
 
 const me: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 200 };
 
@@ -211,31 +210,6 @@ describe("the build stamp", () => {
   });
 });
 
-describe("sidebar kind swatches", () => {
-  const sessions = [
-    { id: "s1", kind: "poker", title: "Sprint 12", createdAt: "", endedAt: null },
-    { id: "s2", kind: "standup", title: "Daily", createdAt: "", endedAt: null },
-    { id: "s3", kind: "acme.retro", title: "Retro", createdAt: "", endedAt: null },
-  ];
-
-  /** The swatch is the first span inside the session link. */
-  function swatchFor(title: string) {
-    const link = screen.getByRole("link", { name: new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) });
-    return link.querySelector("span")!.className;
-  }
-
-  it("gives each known kind its registry swatch and an unknown kind neither", () => {
-    stubAuthMode("open");
-    renderShell({ sessions });
-    expect(swatchFor("Sprint 12")).toContain("bg-card-back");
-    expect(swatchFor("Daily")).toContain("bg-felt-deep");
-    const unknown = swatchFor("Retro");
-    expect(unknown).toContain(UNKNOWN_SWATCH);
-    expect(unknown).not.toContain("bg-felt-deep");
-    expect(unknown).not.toContain("bg-card-back");
-  });
-});
-
 describe("sidebar kind labels", () => {
   const sessions = [
     { id: "s1", kind: "poker", title: "Sprint 12", createdAt: "", endedAt: null },
@@ -280,5 +254,16 @@ describe("sidebar kind labels", () => {
     stubAuthMode("open");
     renderShell({ sessions });
     expect(chipIn("acme.retro · Retro", "acme.retro")).toBeDefined();
+  });
+
+  // The chip carries a glyph for a kind that has one — and only text for one
+  // that does not, so an unknown kind never borrows another kind's icon.
+  it("draws a glyph for a known kind and none for an unknown one", () => {
+    stubAuthMode("open");
+    renderShell({ sessions });
+    const known = screen.getByRole("link", { name: "Poker · Sprint 12" });
+    expect(known.querySelector("svg")).not.toBe(null);
+    const unknown = screen.getByRole("link", { name: "acme.retro · Retro" });
+    expect(unknown.querySelector("svg")).toBe(null);
   });
 });
