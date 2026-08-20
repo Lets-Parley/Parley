@@ -222,11 +222,19 @@ describe("SpacePage last-opened stamp", () => {
     renderApp(routed, { route: "/s/platform-team" });
     await screen.findAllByText("Sprint 12 grooming");
 
-    const stamps = vi
-      .mocked(api)
-      .mock.calls.filter(([, path]) => path === "/api/spaces/platform-team/seen");
-    expect(stamps.length).toBe(1);
-    expect(stamps[0][0]).toBe("POST");
+    const stamps = () =>
+      vi.mocked(api).mock.calls.filter(([, path]) => path === "/api/spaces/platform-team/seen");
+    expect(stamps().length).toBe(1);
+    expect(stamps()[0][0]).toBe("POST");
+
+    // Opening a space is one visit however many times the page re-renders.
+    // Driving real re-renders is what makes "once" an assertion rather than
+    // an artefact of the harness rendering once and stopping: an effect with
+    // no dependency array would fire again on each of these.
+    await userEvent.click(screen.getByRole("button", { name: "Poker" }));
+    await userEvent.click(screen.getByRole("button", { name: "Standup" }));
+    await userEvent.click(screen.getByRole("button", { name: "All" }));
+    expect(stamps().length).toBe(1);
   });
 
   it("does not stamp a space the visitor is not a member of", async () => {

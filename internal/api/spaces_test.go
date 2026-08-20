@@ -318,11 +318,22 @@ func TestGetSpaceDoesNotStampLastSeen(t *testing.T) {
 }
 
 // The stamp is a members-only write, and a no-op for everyone else: a removed
-// member pinging it must not reappear in the room.
+// member pinging it must not reappear in the room — and must not re-stamp the
+// rows of the members who are actually there.
 func TestMarkSeenNeverCreatesMembership(t *testing.T) {
 	srv := testServer(t)
 	ada := signup(t, srv, "Ada")
 	createSpace(t, srv, "Alpha Squad", ada)
+	createSpace(t, srv, "Beta Squad", ada)
+
+	// Beta is Ada's most recently touched membership, so her list order is a
+	// fingerprint of which of her rows last moved.
+	if resp := markSeen(t, srv, "beta-squad", ada); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("ada mark seen beta: got %d", resp.StatusCode)
+	}
+	if _, hers := listMySpaces(t, srv, ada); hers[0]["slug"] != "beta-squad" {
+		t.Fatalf("setup: got %v, want beta-squad first", hers)
+	}
 
 	stranger := signup(t, srv, "Cleo")
 	if resp := markSeen(t, srv, "alpha-squad", stranger); resp.StatusCode != http.StatusNoContent {
@@ -333,6 +344,12 @@ func TestMarkSeenNeverCreatesMembership(t *testing.T) {
 	}
 	if _, view := getSpace(t, srv, "alpha-squad", ada); len(view["members"].([]any)) != 1 {
 		t.Fatalf("roster grew: %v", view["members"])
+	}
+	// The stamp is scoped to the caller's own row. Without the user_id filter
+	// the stranger's ping would have re-stamped Ada's alpha membership and
+	// shoved it to the top of her list.
+	if _, hers := listMySpaces(t, srv, ada); hers[0]["slug"] != "beta-squad" {
+		t.Fatalf("a non-member re-stamped someone else's row: got %v, want beta-squad still first", hers)
 	}
 
 	// Anonymous callers and unknown spaces get the same answers as every
@@ -413,4 +430,52 @@ func kindList(t *testing.T, body map[string]any) []string {
 		out = append(out, s)
 	}
 	return out
+}
+
+// The stamp is a write, so unlike the space read it has to answer to the
+// cross-site guard. Both signals the guard reads must turn it away.
+func TestMarkSeenRefusesCrossSite(t *testing.T) {
+	srv := testServer(t)
+	ada := signup(t, srv, "Ada")
+	createSpace(t, srv, "Alpha Squad", ada)
+
+	for _, tc := range []struct{ name, header, value string }{
+		{"origin", "Origin", "https://evil.example"},
+		{"sec-fetch-site", "Sec-Fetch-Site", "cross-site"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/alpha-squad/seen", nil)
+			req.Header.Set(tc.header, tc.value)
+			req.AddCookie(ada)
+			resp, err := srv.Client().Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusForbidden {
+				t.Fatalf("%s: got %d, want %d", tc.header, resp.StatusCode, http.StatusForbidden)
+			}
+		})
+	}
+}
+
+// Removal has to stick. The stamp matches on an existing membership row, so a
+// member who was removed can ping it forever without letting themselves back
+// in — the write finds nothing and says so with the same 204 as a no-op.
+func TestMarkSeenDoesNotRestoreARemovedMember(t *testing.T) {
+	srv := testServer(t)
+	slug, owner, _, member, memberID := spaceWithTwo(t, srv)
+
+	if resp, body := removeMember(t, srv, slug, memberID, owner); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("remove: got %d %s", resp.StatusCode, body)
+	}
+	if resp := markSeen(t, srv, slug, member); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("removed member mark seen: got %d", resp.StatusCode)
+	}
+	if _, theirs := listMySpaces(t, srv, member); len(theirs) != 0 {
+		t.Fatalf("removed member came back: %v", theirs)
+	}
+	if _, view := getSpace(t, srv, slug, owner); len(view["members"].([]any)) != 1 {
+		t.Fatalf("roster grew back: %v", view["members"])
+	}
 }
