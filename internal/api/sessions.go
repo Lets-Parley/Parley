@@ -10,8 +10,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/lets-parley/parley/internal/httprequest"
+	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/store"
 )
 
@@ -38,6 +40,12 @@ func (a *app) broadcastLocal(ctx context.Context, sessionID string) {
 		return
 	}
 	a.hub.Broadcast(sessionID, payload)
+}
+
+// unknownKindMessage names the kinds the server actually has registered, so
+// adding a kind cannot leave the message behind.
+func unknownKindMessage(kinds *session.Registry) string {
+	return "kind must be one of " + strings.Join(kinds.Names(), ", ")
 }
 
 func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +81,7 @@ func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !a.kinds.Known(body.Kind) {
-		http.Error(w, `{"error":"kind must be poker or standup"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"`+unknownKindMessage(a.kinds)+`"}`, http.StatusBadRequest)
 		return
 	}
 	retired, err := a.sessions.KindRetired(r.Context(), body.Kind)
@@ -94,6 +102,15 @@ func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	sess, err := a.sessions.Create(r.Context(), sp.ID, body.Kind, title, config, p.UserID, a.limits.SessionsPerSpace)
 	if errors.Is(err, store.ErrQuotaExceeded) {
 		http.Error(w, `{"error":"session limit reached for this space"}`, http.StatusConflict)
+		return
+	}
+	// A kind registered in Go but never seeded into session_kinds passes
+	// Known() and only fails here, on the foreign key. That is the one step of
+	// the add-a-kind checklist a contributor can skip, so name it rather than
+	// serving a generic 500.
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23503" && pgErr.ConstraintName == "sessions_kind_fkey" {
+		http.Error(w, `{"error":"that session kind is missing its session_kinds row"}`, http.StatusBadRequest)
 		return
 	}
 	if err != nil {

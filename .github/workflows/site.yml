@@ -38,6 +38,16 @@ jobs:
           cache-dependency-path: site/package-lock.json
       - run: npm ci
       - run: npm run build
+      # A broken substitution doesn't fail the build, it just ships the raw
+      # token. Match any %TOKEN%, not only %VERSION%: a placeholder misspelled
+      # in a page survives substitution, and a grep for the correct spelling
+      # would pass right over it.
+      - name: Fail on an unsubstituted placeholder
+        run: |
+          if grep -rlIE --include='*.html' '%[A-Z_]+%' dist; then
+            echo "::error::placeholder token leaked into the built site"
+            exit 1
+          fi
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site/dist

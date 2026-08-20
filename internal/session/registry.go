@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -80,6 +81,17 @@ func (r *Registry) Unregister(name string) error {
 	}
 	delete(r.kinds, name)
 	return nil
+}
+
+// Names returns the registered kind names, sorted. Callers use it to build
+// messages that stay true whatever set of kinds is registered.
+func (r *Registry) Names() []string {
+	names := make([]string, 0, len(r.kinds))
+	for name := range r.kinds {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func (r *Registry) Known(kind string) bool {
