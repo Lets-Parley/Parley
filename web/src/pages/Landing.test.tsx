@@ -40,7 +40,7 @@ vi.mock("../lib/api", async () => {
 
 let signedIn = true;
 let createFails = false;
-let mySpaces: { slug: string; name: string; protected: boolean; lastSeenAt: string }[] = [];
+let mySpaces: { slug: string; name: string; protected: boolean }[] = [];
 
 const pendingKey = "parley:pending-space";
 const stash = (name: string, at = Date.now()) =>
@@ -66,8 +66,8 @@ beforeEach(() => {
 describe("Landing, signed in with spaces", () => {
   beforeEach(() => {
     mySpaces = [
-      { slug: "platform-team", name: "Platform Team", protected: true, lastSeenAt: "2026-08-19T10:00:00Z" },
-      { slug: "design-guild", name: "Design Guild", protected: false, lastSeenAt: "2026-08-18T10:00:00Z" },
+      { slug: "platform-team", name: "Platform Team", protected: true },
+      { slug: "design-guild", name: "Design Guild", protected: false },
     ];
   });
 
@@ -123,7 +123,7 @@ describe("Landing", () => {
   it("shows no space list, and asks the server for none, while signed out", async () => {
     signedIn = false;
     mySpaces = [
-      { slug: "platform-team", name: "Platform Team", protected: true, lastSeenAt: "2026-08-19T10:00:00Z" },
+      { slug: "platform-team", name: "Platform Team", protected: true },
     ];
 
     renderApp(<Landing />);
@@ -177,6 +177,10 @@ describe("Landing", () => {
       ),
     );
     expect(spaceCalls()).toHaveLength(0);
+    // The list route is 401 for a signed-out visitor, so it must not be asked
+    // at all — and asserting it here keeps this test independent of the
+    // dedicated listing tests.
+    expect(listCalls()).toHaveLength(0);
     expect(navigate).not.toHaveBeenCalled();
   });
 
@@ -204,6 +208,7 @@ describe("Landing", () => {
       ),
     );
     expect(spaceCalls()).toHaveLength(0);
+    await waitFor(() => expect(listCalls()).toHaveLength(1));
     expect(navigate).not.toHaveBeenCalled();
   });
 
@@ -222,6 +227,7 @@ describe("Landing", () => {
       ),
     );
     expect(spaceCalls()).toHaveLength(0);
+    await waitFor(() => expect(listCalls()).toHaveLength(1));
     expect(navigate).not.toHaveBeenCalled();
     expect(sessionStorage.getItem(pendingKey)).toBeNull();
   });
@@ -246,5 +252,6 @@ describe("Landing", () => {
       ),
     );
     expect(spaceCalls()).toHaveLength(0);
+    await waitFor(() => expect(listCalls()).toHaveLength(1));
   });
 });

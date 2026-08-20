@@ -58,7 +58,6 @@ export type Membership = {
   slug: string;
   name: string;
   protected: boolean;
-  lastSeenAt: string;
 };
 export type SessionSummary = {
   id: string;

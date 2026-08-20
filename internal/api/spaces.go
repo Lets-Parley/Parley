@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -101,6 +102,14 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 
 	if p, ok := PrincipalFrom(r.Context()); ok {
 		if member, err := a.spaces.IsMember(r.Context(), sp.ID, p.UserID); err == nil && member {
+			// Opening a space you already belong to is what "active" means;
+			// join only ever fires for someone who is not a member yet, so
+			// without this the landing list would order by join date.
+			// Best effort: a failed stamp is a slightly stale sort order, not
+			// a reason to refuse the page.
+			if err := a.spaces.MarkSeen(r.Context(), sp.ID, p.UserID); err != nil {
+				slog.Warn("could not stamp space visit", "space", sp.ID, "error", err)
+			}
 			roster, err := a.spaces.Roster(r.Context(), sp.ID)
 			if err != nil {
 				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)

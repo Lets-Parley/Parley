@@ -240,3 +240,63 @@ func TestListMySpacesRefusesAnonymous(t *testing.T) {
 		t.Fatalf("anonymous list: got %d", resp.StatusCode)
 	}
 }
+
+// Opening a space you already belong to is the activity signal the landing
+// page orders on. Join only ever fires for a stranger, so without a refresh on
+// the space GET this list would be "most recently joined" instead.
+func TestListMySpacesOrdersByLastOpenedNotByJoin(t *testing.T) {
+	srv := testServer(t)
+	ada := signup(t, srv, "Ada")
+	bob := signup(t, srv, "Bob")
+
+	// Ada's own space, created first and therefore stamped oldest.
+	createSpace(t, srv, "Alpha Squad", ada)
+	// Then she joins Bob's, which stamps her membership more recently.
+	_, gamma := createSpace(t, srv, "Gamma Squad", bob)
+	if resp := joinSpace(t, srv, "gamma-squad", ada, gamma["passcode"].(string)); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("join: got %d", resp.StatusCode)
+	}
+
+	_, joined := listMySpaces(t, srv, ada)
+	if len(joined) != 2 || joined[0]["slug"] != "gamma-squad" {
+		t.Fatalf("before opening: got %v, want gamma-squad first", joined)
+	}
+
+	// She opens the space she already belongs to and never re-joins.
+	if resp, _ := getSpace(t, srv, "alpha-squad", ada); resp.StatusCode != http.StatusOK {
+		t.Fatalf("get space: got %d", resp.StatusCode)
+	}
+
+	_, opened := listMySpaces(t, srv, ada)
+	if len(opened) != 2 || opened[0]["slug"] != "alpha-squad" {
+		t.Fatalf("after opening: got %v, want alpha-squad first", opened)
+	}
+
+	// A non-member reading the same space must not gain a membership row.
+	stranger := signup(t, srv, "Cleo")
+	if resp, _ := getSpace(t, srv, "alpha-squad", stranger); resp.StatusCode != http.StatusOK {
+		t.Fatalf("stranger get: got %d", resp.StatusCode)
+	}
+	if _, theirs := listMySpaces(t, srv, stranger); len(theirs) != 0 {
+		t.Fatalf("stranger gained memberships: %v", theirs)
+	}
+}
+
+// The list is a list: it carries no room code and no internal ordering key.
+func TestListMySpacesCarriesOnlyTheListedFields(t *testing.T) {
+	srv := testServer(t)
+	ada := signup(t, srv, "Ada")
+	createSpace(t, srv, "Alpha Squad", ada)
+
+	_, mine := listMySpaces(t, srv, ada)
+	if len(mine) != 1 {
+		t.Fatalf("list: got %v", mine)
+	}
+	for key := range mine[0] {
+		switch key {
+		case "slug", "name", "protected":
+		default:
+			t.Fatalf("unexpected field %q in %v", key, mine[0])
+		}
+	}
+}
