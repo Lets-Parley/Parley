@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { StandupRoom, Timer } from "./StandupRoom";
 import { makePerson, renderApp } from "../test/render";
 import type { Envelope, Me } from "../lib/api";
@@ -290,6 +290,58 @@ describe("StandupRoom re-reading entries", () => {
     act(() => seatButton("Marcus Okonjo").click());
     expect((screen.getAllByRole("textbox")[0] as HTMLTextAreaElement).value).toBe("my yesterday");
   });
+
+  it("lets go of a held seat when you click it again, and follows the round once more", () => {
+    // The hold is otherwise a one-way door: without this, picking anybody stops
+    // the panel following the speaker for the rest of the session.
+    const { rerender } = renderApp(
+      <StandupRoom env={envelope({ state: filledState("dana") })} me={me} />,
+    );
+    act(() => seatButton("Priya Raman").click());
+    expect(screen.getByText("priya yesterday")).toBeTruthy();
+
+    act(() => seatButton("Priya Raman").click());
+    expect(seatButton("Priya Raman").getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByText("dana yesterday")).toBeTruthy();
+
+    // Released means released: the panel tracks the next turn again.
+    rerender(<StandupRoom env={envelope({ state: filledState("marcus") })} me={me} />);
+    expect(screen.getByText("my yesterday")).toBeTruthy();
+  });
+
+  it("keeps your own past entry read-only once the round is done", () => {
+    // During `speaking` your own row is the live edit form. After the round
+    // ends it must be prose — the form coming back would offer an edit the
+    // server has already closed off.
+    renderApp(
+      <StandupRoom env={envelope({ phase: "done", state: filledState(null) })} me={me} />,
+    );
+    act(() => seatButton("Marcus Okonjo").click());
+    expect(screen.queryAllByRole("textbox")).toHaveLength(0);
+    expect(screen.getByText("my yesterday")).toBeTruthy();
+  });
+
+  it("still shows the entry panel in the done phase", () => {
+    renderApp(
+      <StandupRoom env={envelope({ phase: "done", state: filledState(null) })} me={me} />,
+    );
+    act(() => seatButton("Priya Raman").click());
+    expect(screen.getByRole("heading", { name: "Priya Raman" })).toBeTruthy();
+    expect(screen.getByText("priya yesterday")).toBeTruthy();
+  });
+
+  it("does not leak Next and Skip into the done phase", () => {
+    // `done` still carries a currentSpeakerId in the wild if the round was
+    // ended mid-turn, so the facilitator controls need the phase guard too.
+    renderApp(
+      <StandupRoom
+        env={envelope({ phase: "done", facilitatorId: "marcus", state: filledState("dana") })}
+        me={me}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /^next$/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /skip/i })).toBeNull();
+  });
 });
 
 describe("StandupRoom ending the session", () => {
@@ -317,6 +369,50 @@ describe("StandupRoom ending the session", () => {
       "/api/sessions/sess-1",
       expect.objectContaining({ method: "DELETE" }),
     );
+    fetchSpy.mockRestore();
+  });
+
+  it("stops being offered once the session has already ended", () => {
+    renderApp(
+      <StandupRoom
+        env={envelope({ facilitatorId: "marcus", endedAt: "2026-08-18T10:30:00.000Z" })}
+        me={me}
+      />,
+    );
+    expect(endButton()).toBeNull();
+  });
+
+  it("sends the last keystrokes before closing the session", async () => {
+    // Autosave is debounced by 800ms, and the server refuses writes to an ended
+    // session. Ending without flushing first throws away whatever the
+    // facilitator typed in the final second, as an unretryable "Could not save".
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+    renderApp(
+      <StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />,
+    );
+
+    const yesterday = screen.getAllByRole("textbox")[0];
+    fireEvent.change(yesterday, { target: { value: "the very last thing I typed" } });
+    // No timer advance: the point is that ending does not wait out the debounce.
+    await act(async () => {
+      endButton()!.click();
+    });
+
+    const calls = fetchSpy.mock.calls;
+    const saveAt = calls.findIndex(
+      ([url, init]) =>
+        url === "/api/sessions/sess-1/actions/standup" &&
+        (init as RequestInit).method === "PUT" &&
+        String((init as RequestInit).body).includes("the very last thing I typed"),
+    );
+    const deleteAt = calls.findIndex(
+      ([url, init]) => url === "/api/sessions/sess-1" && (init as RequestInit).method === "DELETE",
+    );
+    expect(saveAt).toBeGreaterThanOrEqual(0);
+    expect(deleteAt).toBeGreaterThanOrEqual(0);
+    expect(saveAt).toBeLessThan(deleteAt);
     fetchSpy.mockRestore();
   });
 });

@@ -30,6 +30,9 @@ function useOwnEntryDraft(env: Envelope, meId: string) {
   const [draft, setDraft] = useState({ yesterday: "", today: "", blockers: "" });
   const seeded = useRef(false);
   const timer = useRef<number | undefined>(undefined);
+  // What has been typed but not yet sent. Kept in a ref rather than state so
+  // flush() can post the very last keystroke without waiting for a re-render.
+  const pending = useRef<{ yesterday: string; today: string; blockers: string } | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   useEffect(() => {
@@ -39,24 +42,38 @@ function useOwnEntryDraft(env: Envelope, meId: string) {
     }
   }, [server]);
 
+  async function send(next: { yesterday: string; today: string; blockers: string }) {
+    pending.current = null;
+    try {
+      await action(env.id, "standup", next);
+      setSaveState("saved");
+    } catch {
+      setSaveState("error");
+    }
+  }
+
   function update(field: keyof typeof draft, value: string) {
     const next = { ...draft, [field]: value };
     setDraft(next);
     seeded.current = true;
     setSaveState("saving");
+    pending.current = next;
     clearTimeout(timer.current);
-    timer.current = window.setTimeout(async () => {
-      try {
-        await action(env.id, "standup", next);
-        setSaveState("saved");
-      } catch {
-        setSaveState("error");
-      }
-    }, 800);
+    timer.current = window.setTimeout(() => void send(next), 800);
   }
+
+  // Send anything still sitting in the debounce, right now. Anything that ends
+  // the session has to await this first: the backend refuses writes to an ended
+  // session, so a late debounce would drop the last thing that was typed.
+  async function flush() {
+    clearTimeout(timer.current);
+    const next = pending.current;
+    if (next) await send(next);
+  }
+
   useEffect(() => () => clearTimeout(timer.current), []);
 
-  return { draft, update, saveState };
+  return { draft, update, saveState, flush };
 }
 
 export function Timer({ startedAt, seconds, serverTime }: { startedAt: string; seconds: number; serverTime: string }) {
@@ -100,12 +117,13 @@ export function StandupRoom({
   const st = env.state as unknown as StandupState;
   const say = useToast();
   const isFacilitator = env.facilitatorId === me.id;
-  const { draft, update, saveState } = useOwnEntryDraft(env, me.id);
+  const { draft, update, saveState, flush } = useOwnEntryDraft(env, me.id);
   const [error, setError] = useState("");
   // Which entry is on show. Read-only, and deliberately separate from the
   // viewer's own draft above: reusing that would autosave someone else's words
   // onto your row. Null means "follow the turn"; a pick holds against it, so a
-  // turn change never yanks a reader out of the update they opened.
+  // turn change never yanks a reader out of the update they opened. Clicking
+  // the held seat again lets go and puts the panel back on the live speaker.
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const people = new Map(env.participants.map((p) => [p.userId, p]));
@@ -161,6 +179,9 @@ export function StandupRoom({
             className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop"
             onClick={() =>
               run(async () => {
+                // Ending closes the session to writes, so the pending debounce
+                // goes out first or the facilitator's last sentence is lost.
+                await flush();
                 await api("DELETE", `/api/sessions/${env.id}`);
                 say("Session closed — members can still open the results");
               })
@@ -192,7 +213,7 @@ export function StandupRoom({
                 <button
                   type="button"
                   aria-pressed={isShown}
-                  onClick={() => setPickedId(e.userId)}
+                  onClick={() => setPickedId((id) => (id === e.userId ? null : e.userId))}
                   className={
                     "flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3 transition " +
                     (isShown ? "ring-2 ring-accent" : "")
@@ -212,7 +233,11 @@ export function StandupRoom({
                     className={
                       "text-sm font-bold" +
                       (e.skipped ? " text-ink-faint line-through" : "") +
-                      (isShown ? " underline underline-offset-4" : "")
+                      // Both cues can land on one seat. At small sizes an
+                      // offset-4 underline crowds the strike into a single
+                      // thick bar, so a struck seat gets the deeper offset and
+                      // the two lines stay readable as two different facts.
+                      (isShown ? (e.skipped ? " underline underline-offset-8" : " underline underline-offset-4") : "")
                     }
                   >
                     {p?.name}
