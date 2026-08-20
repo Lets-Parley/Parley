@@ -6,7 +6,7 @@ description: Every environment variable, its default, and whether a bad value st
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import EnvVar from "../../../components/EnvVar.astro";
 
-<VerifiedStamp version="unreleased" source="cmd/parley/main.go" />
+<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "internal/api/client_address.go"]} />
 
 Configuration is environment variables only. There is no config file and no
 command-line flag other than `-healthcheck`, which the container image uses for
@@ -101,8 +101,44 @@ allowlist of every immediate and intermediate proxy hop, such as
 `127.0.0.1/32,10.20.0.0/16`.
 
 Parley walks `X-Forwarded-For` right-to-left through those trusted hops and uses
-the first untrusted address. It ignores malformed chains and forwarded headers
-from an untrusted immediate peer. Never include a client-reachable network.
+the first untrusted address. It never reads the leftmost value, so a proxy that
+*appends* to the header rather than overwriting it is fine. It ignores malformed
+chains and forwarded headers from an untrusted immediate peer.
+
+`0.0.0.0/0` and `::/0` are refused at startup. No real topology has an
+all-of-the-internet proxy hop, and a default route here is "trust the header
+from anyone" wearing a value. Nothing else is refused on width — see below for
+why a `/16` has to keep working.
+
+**On Kubernetes, the only value that works is the pod CIDR — and it is
+client-reachable.** The immediate peer Parley sees is the ingress controller's
+*pod* IP, and pod IPs are reassigned on every reschedule, so listing individual
+addresses breaks on the controller's next restart. That leaves the pod CIDR
+(`10.42.0.0/16` on k3s, `10.244.0.0/16` on kubeadm with flannel, whatever your
+CNI hands out) — a network every workload in the cluster can reach. Any pod can
+open a connection straight to Parley's Service, present its own
+`X-Forwarded-For`, and choose its client address: that is the room-code passcode
+throttle and the open-mode identity-creation quota, both bypassed.
+
+So on Kubernetes this setting is only safe alongside something that stops other
+pods reaching the Service. The chart ships a NetworkPolicy for exactly that —
+`networkPolicy.enabled=true`, see
+[Kubernetes](/operations/kubernetes/#the-pod-cidr-is-a-client-reachable-network).
+A service-mesh authorization policy or a dedicated node pool does the same job.
+
+Two things a NetworkPolicy cannot cover, whatever you set:
+
+- **`hostNetwork` pods.** They use the node's address, not a pod IP, so a
+  `namespaceSelector` or `podSelector` never matches them.
+- **Node IPs inside a trusted CIDR.** Traffic sourced from a node arrives from
+  the node address; if that address falls inside `TRUSTED_PROXY_CIDRS`, its
+  forwarded header is trusted regardless of the policy.
+
+And `TRUSTED_PROXY_CIDRS` only closes the hole at Parley's boundary. Narrow your
+proxy's own forwarded-header trust as well — Traefik
+`entryPoints.*.forwardedHeaders.trustedIPs`, ingress-nginx
+`proxy-real-ip-cidr` — or a forged header is simply accepted one hop upstream
+and arrives with the proxy's blessing.
 </EnvVar>
 
 ## Abuse and resource limits
