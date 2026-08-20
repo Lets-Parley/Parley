@@ -1,10 +1,18 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+} from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errorText, type Membership, type SpaceView } from "../lib/api";
 import { useMe, useAuthMode, NameGate } from "../components/NameGate";
-import { Logo } from "../components/AppShell";
-import { buttonPrimary, inputClass } from "../components/Modal";
+import { Logo, ThemeToggle } from "../components/AppShell";
+import { buttonPrimary, buttonQuiet, inputClass, labelClass } from "../components/Modal";
 
 // Deliberately sessionStorage, not localStorage: an abandoned space name should
 // die with the tab rather than greet someone next week. The stamp narrows it
@@ -56,6 +64,16 @@ export function Landing() {
   const spaces = mine.data ?? [];
   const qc = useQueryClient();
   const [error, setError] = useState("");
+  // The create is a round trip to somebody's own server, which may be a
+  // Raspberry Pi. A control that stays live and silent through it reads as
+  // broken even though the latch below makes a second press harmless.
+  const [busy, setBusy] = useState(false);
+  // Only a create that never reached the server is worth pressing again. Once
+  // the space exists, the latch below is shut for good and a retry button would
+  // be an inert control sitting next to an error — the list link is the way on.
+  const [canRetry, setCanRetry] = useState(false);
+  const fieldId = useId();
+  const errorId = useId();
 
   // Both the resume effect and the gate can finish the same pending name, and
   // either can win the race. One shared latch makes the loser a no-op, so a
@@ -71,11 +89,16 @@ export function Landing() {
     async (spaceName: string) => {
       if (creating.current) return;
       creating.current = true;
+      setBusy(true);
+      setError("");
+      setCanRetry(false);
       let sp: SpaceView;
       try {
         sp = await api<SpaceView>("POST", "/api/spaces", { name: spaceName });
       } catch (e) {
         creating.current = false;
+        setBusy(false);
+        setCanRetry(true);
         setError(errorText(e));
         return;
       }
@@ -88,8 +111,16 @@ export function Landing() {
         // The space is real but we could not go there. Refresh the list so it
         // shows up as a link rather than leaving the visitor on a dead page
         // with an error and an inert button.
+        //
+        // Nothing past a successful POST is the server talking, so there is no
+        // authored message to pass on — only one of our own exceptions, whose
+        // text names a field rather than a problem. The reader gets the
+        // sentence that is true for them; the stack goes to the console for
+        // whoever runs the server.
+        console.error(e);
         qc.invalidateQueries({ queryKey: ["my-spaces"] });
-        setError(errorText(e));
+        setBusy(false);
+        setError("The space was created, but we couldn't open it. It's in your list below.");
       }
     },
     [navigate, qc],
@@ -108,26 +139,82 @@ export function Landing() {
   function submit(e: FormEvent) {
     e.preventDefault();
     if (!me.data) {
-      sessionStorage.setItem(pendingSpaceKey, JSON.stringify({ name, at: Date.now() }));
+      sessionStorage.setItem(
+        pendingSpaceKey,
+        JSON.stringify({ name: name.trim(), at: Date.now() }),
+      );
       setNeedName(true);
       return;
     }
-    doCreate(name);
+    doCreate(name.trim());
   }
+
+  const known = spaces.length > 0;
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-2xl flex-col items-center justify-center gap-7 p-6 text-center">
-      <div className="flex items-center gap-3">
-        <Logo size={26} />
-        <h1 className="text-4xl font-extrabold tracking-tight">Parley</h1>
+      {/* The page corner, not the column's — main is capped at 2xl, so an
+          absolute corner would strand this in dead space on a wide screen. */}
+      <div className="fixed right-4 top-4">
+        <ThemeToggle />
       </div>
-      <p className="max-w-md text-ink-soft text-pretty">
-        Planning poker and daily standups for your team, at your table.
-        {mode.data?.mode === "oidc"
-          ? " Sign in with your usual account."
-          : " Self-hosted, no accounts, no fuss."}
-      </p>
-      {spaces.length > 0 && (
+
+      {/* Three cards off the top of a deck. The hand is the product's signature
+          object, and this is the one screen with the room to hold one up —
+          reusing the real hand-card geometry rather than drawing new art. */}
+      {!known && (
+        <div aria-hidden className="flex items-end gap-1.5">
+          {["3", "5", "8"].map((v, i) => (
+            <span
+              key={v}
+              className="hand-card flex h-[90px] w-16 items-center justify-center rounded-card border border-line bg-surface font-mono text-[2.2rem] text-ink shadow-rest"
+              style={{ "--rot": `${((i - 1) * 6).toFixed(0)}deg` } as CSSProperties}
+            >
+              {v}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center gap-3">
+        <Logo size={known ? 20 : 26} />
+        <h1 className={(known ? "text-2xl" : "text-4xl") + " font-extrabold tracking-tight"}>
+          Parley
+        </h1>
+      </div>
+
+      {/* The pitch is for someone deciding. Someone with spaces already decided,
+          and their list should not sit below an advertisement for it. */}
+      {!known && (
+        <p className="max-w-md text-ink-soft text-pretty">
+          Planning poker and daily standups for your team, at your table. A space
+          is a room your team keeps — name one, share the link, start a round.
+          {mode.data?.mode === "oidc"
+            ? " Sign in with your usual account."
+            : " Self-hosted, no accounts, no fuss."}
+        </p>
+      )}
+
+      {mine.isLoading && (
+        <div
+          aria-hidden
+          className="flex w-full max-w-md flex-col gap-2 rounded-panel border border-line bg-surface p-3"
+        >
+          <span className="h-9 rounded-panel bg-felt-deep" />
+          <span className="h-9 w-2/3 rounded-panel bg-felt-deep" />
+        </div>
+      )}
+
+      {mine.isError && (
+        <p className="flex items-center gap-3 text-sm text-ink-soft">
+          Couldn't load your spaces.
+          <button type="button" className={buttonQuiet} onClick={() => mine.refetch()}>
+            Try again
+          </button>
+        </p>
+      )}
+
+      {known && (
         <ul
           aria-label="Your spaces"
           className="flex w-full max-w-md flex-col gap-2 rounded-panel border border-line bg-surface p-3 text-left shadow-rest"
@@ -136,38 +223,80 @@ export function Landing() {
             <li key={sp.slug}>
               <Link
                 to={`/s/${sp.slug}`}
-                className="block rounded-panel px-3 py-2 font-bold hover:bg-felt"
+                className="flex items-center justify-between gap-3 rounded-panel px-3 py-2 font-bold hover:bg-felt-deep"
               >
-                {sp.name}
+                <span className="min-w-0 truncate">{sp.name}</span>
+                {sp.protected && (
+                  <span className="shrink-0 font-mono text-[10px] font-normal uppercase tracking-[0.08em] text-ink-faint">
+                    Room code
+                  </span>
+                )}
               </Link>
             </li>
           ))}
         </ul>
       )}
+
       <form
         onSubmit={submit}
-        className="flex w-full max-w-md flex-col gap-3 rounded-panel border border-line bg-surface p-5 shadow-rest sm:flex-row"
+        className="flex w-full max-w-md flex-col gap-3 rounded-panel border border-line bg-surface p-5 text-left shadow-rest sm:flex-row sm:items-end"
       >
-        <input
-          className={inputClass}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Name your space, e.g. Platform Team"
-          maxLength={64}
-        />
-        <button type="submit" className={buttonPrimary + " shrink-0"} disabled={!name.trim()}>
-          {spaces.length > 0 ? "Create a space" : "Open a space"}
+        <div className="min-w-0 flex-1">
+          <label htmlFor={fieldId} className={labelClass + " mt-0"}>
+            {known ? "Another space" : "Name your space"}
+          </label>
+          <input
+            id={fieldId}
+            className={inputClass}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Platform Team"
+            maxLength={64}
+            aria-describedby={error ? errorId : undefined}
+          />
+        </div>
+        <button
+          type="submit"
+          className={buttonPrimary + " shrink-0"}
+          disabled={!name.trim() || busy}
+        >
+          {busy ? "Opening…" : known ? "Create a space" : "Open a space"}
         </button>
       </form>
-      {error && <p className="font-bold text-stop">{error}</p>}
-      <p className="text-sm text-ink-faint">
-        Got a link from a teammate? That link is your invite — just open it.
+
+      {error && (
+        <p id={errorId} role="alert" className="flex items-center gap-3 font-bold text-stop">
+          {error}
+          {canRetry && (
+            <button
+              type="button"
+              className={buttonQuiet + " font-bold"}
+              onClick={() => doCreate(name.trim())}
+              disabled={!name.trim() || busy}
+            >
+              Try again
+            </button>
+          )}
+        </p>
+      )}
+
+      <p className="max-w-md text-sm text-ink-faint text-pretty">
+        Got a link from a teammate? That link is your invite — just open it. A
+        room code alone won't do it; ask them for the link.
       </p>
+
       {needName && (
         <NameGate
+          because={name.trim() ? `Before we open ${name.trim()}:` : undefined}
+          // Escape and the ✕ both land here. Without it the dialog closes, the
+          // gate believes itself open, and the button that raised it goes dead.
+          onCancel={() => {
+            setNeedName(false);
+            sessionStorage.removeItem(pendingSpaceKey);
+          }}
           onDone={() => {
             setNeedName(false);
-            doCreate(takePending() ?? name);
+            doCreate(takePending() ?? name.trim());
           }}
         />
       )}
