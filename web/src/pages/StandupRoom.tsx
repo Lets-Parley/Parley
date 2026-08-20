@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { action, type Envelope, type Me } from "../lib/api";
+import { action, api, type Envelope, type Me } from "../lib/api";
 import type { ConnectionStatus } from "../lib/socket";
+import { useToast } from "../lib/ui";
 import { Avatar } from "../components/Avatar";
 import { buttonPrimary, buttonQuiet, inputClass } from "../components/Modal";
 
@@ -97,14 +98,22 @@ export function StandupRoom({
   status?: ConnectionStatus;
 }) {
   const st = env.state as unknown as StandupState;
+  const say = useToast();
   const isFacilitator = env.facilitatorId === me.id;
   const { draft, update, saveState } = useOwnEntryDraft(env, me.id);
   const [error, setError] = useState("");
+  // Which entry is on show. Read-only, and deliberately separate from the
+  // viewer's own draft above: reusing that would autosave someone else's words
+  // onto your row. Null means "follow the turn"; a pick holds against it, so a
+  // turn change never yanks a reader out of the update they opened.
+  const [pickedId, setPickedId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const people = new Map(env.participants.map((p) => [p.userId, p]));
   const speaking = env.phase === "speaking";
   const done = env.phase === "done";
   const current = st.currentSpeakerId ? st.entries.find((e) => e.userId === st.currentSpeakerId) : undefined;
+  const shownId = pickedId ?? st.currentSpeakerId;
+  const shown = shownId ? st.entries.find((e) => e.userId === shownId) : undefined;
 
   // One polite line for the whole room. It never carries the countdown, so it
   // speaks on a turn change rather than on every 500ms tick, and it stays empty
@@ -147,6 +156,19 @@ export function StandupRoom({
         {speaking && st.speakerStartedAt && (
           <Timer startedAt={st.speakerStartedAt} seconds={st.secondsPerPerson} serverTime={env.serverTime} />
         )}
+        {isFacilitator && !env.endedAt && (
+          <button
+            className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop"
+            onClick={() =>
+              run(async () => {
+                await api("DELETE", `/api/sessions/${env.id}`);
+                say("Session closed — members can still open the results");
+              })
+            }
+          >
+            End session
+          </button>
+        )}
       </header>
 
       {/* Speaking order rail. */}
@@ -155,22 +177,47 @@ export function StandupRoom({
           {st.entries.map((e) => {
             const p = people.get(e.userId);
             const isCurrent = e.userId === st.currentSpeakerId;
+            const isShown = e.userId === shownId;
             return (
               <li
                 key={e.userId}
                 aria-current={isCurrent ? "true" : undefined}
                 className={
-                  "flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3 transition " +
+                  "flex items-center gap-1.5 rounded-full transition " +
                   (isCurrent ? "bg-accent-soft shadow-lift" : e.skipped ? "" : "bg-surface shadow-rest")
                 }
               >
-                {p && <Avatar name={p.name} hue={p.avatarHue} size="sm" dim={e.skipped} />}
-                {/* A group opacity wrapper would multiply through the name and
-                    leave it at 2.38:1 on the felt. The dimming rides on the
-                    avatar and a faint-but-legible ink instead. */}
-                <span className={"text-sm font-bold" + (e.skipped ? " text-ink-faint line-through" : "")}>
-                  {p?.name}
-                </span>
+                {/* The button carries only the name, so the sr-only asides
+                    below stay out of its accessible name. */}
+                <button
+                  type="button"
+                  aria-pressed={isShown}
+                  onClick={() => setPickedId(e.userId)}
+                  className={
+                    "flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3 transition " +
+                    (isShown ? "ring-2 ring-accent" : "")
+                  }
+                >
+                  {/* The name sits in text beside it, so the chip is
+                      decorative here — otherwise it doubles the button's name. */}
+                  {p && (
+                    <span aria-hidden="true">
+                      <Avatar name={p.name} hue={p.avatarHue} size="sm" dim={e.skipped} />
+                    </span>
+                  )}
+                  {/* A group opacity wrapper would multiply through the name and
+                      leave it at 2.38:1 on the felt. The dimming rides on the
+                      avatar and a faint-but-legible ink instead. */}
+                  <span
+                    className={
+                      "text-sm font-bold" +
+                      (e.skipped ? " text-ink-faint line-through" : "") +
+                      (isShown ? " underline underline-offset-4" : "")
+                    }
+                  >
+                    {p?.name}
+                  </span>
+                </button>
                 {(isCurrent || e.skipped) && (
                   <span className="sr-only">{isCurrent ? " — speaking now" : " — skipped or absent"}</span>
                 )}
@@ -194,27 +241,27 @@ export function StandupRoom({
         </section>
       )}
 
-      {speaking && current && (
+      {(speaking || done) && shown && (
         <section className="flex flex-col gap-4 rounded-panel bg-surface p-6 shadow-rest">
           <div className="flex items-center gap-3">
-            {people.get(current.userId) && (
-              <Avatar name={people.get(current.userId)!.name} hue={people.get(current.userId)!.avatarHue} size="lg" />
+            {people.get(shown.userId) && (
+              <Avatar name={people.get(shown.userId)!.name} hue={people.get(shown.userId)!.avatarHue} size="lg" />
             )}
-            <h2 className="font-display text-2xl font-semibold">{people.get(current.userId)?.name}</h2>
+            <h2 className="font-display text-2xl font-semibold">{people.get(shown.userId)?.name}</h2>
           </div>
-          {current.userId === me.id ? (
+          {speaking && shown.userId === me.id ? (
             <EntryForm draft={draft} update={update} saveState={saveState} />
           ) : (
             <dl className="flex flex-col gap-3">
               {(["yesterday", "today", "blockers"] as const).map((f) => (
                 <div key={f}>
                   <dt className="text-xs font-bold uppercase tracking-wide text-ink-faint">{f}</dt>
-                  <dd className="whitespace-pre-wrap">{current[f] || <span className="text-ink-faint">—</span>}</dd>
+                  <dd className="whitespace-pre-wrap">{shown[f] || <span className="text-ink-faint">—</span>}</dd>
                 </div>
               ))}
             </dl>
           )}
-          {isFacilitator && (
+          {speaking && current && isFacilitator && (
             <div className="flex gap-2">
               <button className={buttonPrimary} onClick={() => run(() => action(env.id, "next"))}>
                 Next
