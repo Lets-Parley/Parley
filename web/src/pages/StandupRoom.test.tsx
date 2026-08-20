@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StandupRoom, Timer } from "./StandupRoom";
 import { makePerson, renderApp } from "../test/render";
@@ -154,6 +154,23 @@ function envelope(over: Partial<Envelope> = {}): Envelope {
   };
 }
 
+/** Dana ready, Marcus not — so the roster has exactly one name to print. */
+function readyState(): Envelope["state"] {
+  const st = standupState(null) as unknown as { entries: StandupEntry[] };
+  st.entries[0].ready = true;
+  return st as unknown as Envelope["state"];
+}
+function allReadyState(): Envelope["state"] {
+  const st = standupState(null) as unknown as { entries: StandupEntry[] };
+  for (const e of st.entries) e.ready = true;
+  return st as unknown as Envelope["state"];
+}
+function noSkipState(): Envelope["state"] {
+  const st = standupState(null) as unknown as { entries: StandupEntry[] };
+  for (const e of st.entries) e.skipped = false;
+  return st as unknown as Envelope["state"];
+}
+
 const announcer = () => screen.getByRole("status");
 const seat = (name: string) =>
   screen.getAllByRole("listitem").find((li) => li.textContent?.includes(name))!;
@@ -169,7 +186,7 @@ describe("StandupRoom turn accessibility", () => {
 
   it("says skipped in text, not only in opacity and a line-through", () => {
     renderApp(<StandupRoom env={envelope()} me={me} />);
-    expect(seat("Priya Raman").textContent).toMatch(/skipped or absent/i);
+    expect(seat("Priya Raman").textContent).toMatch(/turn skipped/i);
     expect(seat("Marcus Okonjo").textContent).not.toMatch(/skipped/i);
   });
 
@@ -277,7 +294,7 @@ describe("StandupRoom re-reading entries", () => {
     renderApp(<StandupRoom env={envelope({ state: filledState("dana") })} me={me} />);
     act(() => seatButton("Priya Raman").click());
     expect(screen.getByText("priya today")).toBeTruthy();
-    expect(seat("Priya Raman").textContent).toMatch(/skipped or absent/i);
+    expect(seat("Priya Raman").textContent).toMatch(/turn skipped/i);
   });
 
   it("drops the underline clear of the strike-through on a skipped seat", () => {
@@ -375,6 +392,15 @@ describe("StandupRoom ending the session", () => {
   afterEach(() => vi.useRealTimers());
 
   const endButton = () => screen.queryByRole("button", { name: /end session/i });
+  /** End session opens a confirm now; ending means going through it. */
+  async function endNow() {
+    await act(async () => {
+      endButton()!.click();
+    });
+    await act(async () => {
+      screen.getByRole("button", { name: "End standup" }).click();
+    });
+  }
 
   it("is not offered to anyone but the facilitator", () => {
     renderApp(<StandupRoom env={envelope()} me={me} />);
@@ -391,9 +417,7 @@ describe("StandupRoom ending the session", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
     renderApp(<StandupRoom env={envelope({ facilitatorId: "marcus" })} me={me} />);
-    await act(async () => {
-      endButton()!.click();
-    });
+    await endNow();
     expect(fetchSpy).toHaveBeenCalledWith(
       "/api/sessions/sess-1",
       expect.objectContaining({ method: "DELETE" }),
@@ -425,9 +449,7 @@ describe("StandupRoom ending the session", () => {
     const yesterday = screen.getAllByRole("textbox")[0];
     fireEvent.change(yesterday, { target: { value: "the very last thing I typed" } });
     // No timer advance: the point is that ending does not wait out the debounce.
-    await act(async () => {
-      endButton()!.click();
-    });
+    await endNow();
 
     const calls = fetchSpy.mock.calls;
     const saveAt = calls.findIndex(
@@ -463,8 +485,11 @@ describe("StandupRoom ending the session", () => {
     renderApp(<StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />);
 
     fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "held open" } });
-    const ended = act(async () => {
+    act(() => {
       endButton()!.click();
+    });
+    const ended = act(async () => {
+      screen.getByRole("button", { name: "End standup" }).click();
     });
     await act(async () => {});
     const deletes = () =>
@@ -493,9 +518,7 @@ describe("StandupRoom ending the session", () => {
     renderApp(<StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />);
 
     fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "never made it" } });
-    await act(async () => {
-      endButton()!.click();
-    });
+    await endNow();
 
     expect(
       fetchSpy.mock.calls.filter(([u, i]) => u === "/api/sessions/sess-1" && (i as RequestInit)?.method === "DELETE"),
@@ -519,18 +542,14 @@ describe("StandupRoom ending the session", () => {
     renderApp(<StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />);
 
     fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "first go" } });
-    await act(async () => {
-      endButton()!.click();
-    });
+    await endNow();
     expect(screen.getByRole("alert").textContent).toMatch(/still open/i);
     expect(endButton()).toBeTruthy();
     expect((endButton() as HTMLButtonElement).disabled).toBe(false);
 
     failNext = false;
     fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "second go" } });
-    await act(async () => {
-      endButton()!.click();
-    });
+    await endNow();
     expect(
       fetchSpy.mock.calls.filter(([u, i]) => u === "/api/sessions/sess-1" && (i as RequestInit)?.method === "DELETE"),
     ).toHaveLength(1);
@@ -549,9 +568,18 @@ describe("StandupRoom ending the session", () => {
     renderApp(<StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />);
 
     fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "one save" } });
-    // Both clicks land while the flush is still held.
-    endButton()!.click();
-    endButton()!.click();
+    // The second click used to land while the flush was still held. It cannot
+    // any more: confirming unmounts the modal and disables End session for the
+    // duration, so the race is closed structurally rather than only by the ref.
+    // The ref guard stays as defence for any caller that is not the modal.
+    act(() => {
+      endButton()!.click();
+    });
+    act(() => {
+      screen.getByRole("button", { name: "End standup" }).click();
+    });
+    expect(screen.queryByRole("button", { name: "End standup" })).toBeNull();
+    expect((endButton() as HTMLButtonElement).disabled).toBe(true);
     await act(async () => {
       release();
       await held;
@@ -589,8 +617,11 @@ describe("StandupRoom ending the session", () => {
     });
     const putsBeforeEnd = puts;
 
-    const ended = act(async () => {
+    act(() => {
       endButton()!.click();
+    });
+    const ended = act(async () => {
+      screen.getByRole("button", { name: "End standup" }).click();
     });
     await act(async () => {});
     const deletes = () =>
@@ -675,10 +706,15 @@ describe("StandupRoom readiness", () => {
         me={me}
       />,
     );
+    // The roster names who the room is waiting on rather than listing every
+    // speaker with one bit each. Readiness is still carried in words: the
+    // heading says what the names mean, and colour is never the only copy.
     const who = screen.getByTestId("ready-roster");
-    expect(who.textContent).toMatch(/Dana Whitfield/);
-    expect(who.textContent).toMatch(/ready/i);
-    expect(who.textContent).toMatch(/Marcus Okonjo|Priya Raman/);
+    expect(who.textContent).toMatch(/still writing/i);
+    expect(who.textContent).toMatch(/Marcus Okonjo/);
+    expect(who.textContent).toMatch(/Priya Raman/);
+    // Dana is ready, so the room is not waiting on her and she is not named.
+    expect(who.textContent).not.toMatch(/Dana Whitfield/);
   });
 
   it("counts the ready signals in the facilitator's button", () => {
@@ -777,5 +813,207 @@ describe("StandupRoom round composition", () => {
   it("does not put the round bar on the gathering screen", () => {
     renderApp(<StandupRoom env={envelope({ phase: "gathering" })} me={me} />);
     expect(screen.queryByTestId("round-progress")).toBeNull();
+  });
+});
+
+describe("StandupRoom Daybreak", () => {
+  it("carries the round's progress in the field, the way the poker table does", () => {
+    // Same metaphor, same accumulator, keyed to turns taken rather than votes
+    // cast: the room's morning gets lighter as the round goes round.
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    // Dana is first of three, so no turn is behind us yet.
+    expect(screen.getByTestId("round-bar").getAttribute("data-cue")).toBe("overcast");
+  });
+
+  it("reaches full day once the round is done", () => {
+    const env = envelope({ phase: "done", state: standupState(null) });
+    renderApp(<StandupRoom env={env} me={me} />);
+    expect(screen.getByTestId("round-bar").getAttribute("data-cue")).toBe("day");
+  });
+
+  it("numbers the seats so the order is read, not counted", () => {
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    // The rail is an <ol> that rendered no ordinals at all.
+    expect(seat("Marcus Okonjo").textContent).toMatch(/^2/);
+    expect(seat("Dana Whitfield").textContent).toMatch(/^1/);
+  });
+
+  it("tells a skipped seat apart from one that simply said nothing", () => {
+    // Both rendered an identical em dash, though the rail knew the difference.
+    const env = envelope({ state: standupState("priya") });
+    renderApp(<StandupRoom env={env} me={me} />);
+    const body = screen.getByTestId("entry-body");
+    expect(body.textContent).toMatch(/skipped|absent/i);
+    // An unwritten field said its nothing with a bare em dash, identical to
+    // what a skipped seat showed. It says which nothing it is now.
+    expect(body.querySelectorAll("dd").length).toBe(3);
+    for (const dd of body.querySelectorAll("dd")) {
+      expect(dd.textContent).toBe("Nothing written");
+    }
+    // And a skipped person's words are still readable — that is the point of
+    // being able to open their seat at all.
+    expect(body.querySelector("dl")).not.toBeNull();
+  });
+
+  it("says nothing was in the way with the round's own art, not a bare line", () => {
+    const env = envelope({ phase: "done", state: standupState(null) });
+    renderApp(<StandupRoom env={env} me={me} />);
+    expect(screen.getByText(/No blockers today/i)).toBeTruthy();
+    // The art is the daybreak horizon, not the poker card stack — a standup
+    // has never had a deck in it.
+    expect(screen.getByTestId("daybreak-art")).toBeTruthy();
+  });
+});
+
+describe("StandupRoom hardening", () => {
+  const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+
+  it("asks before ending the standup for everyone", async () => {
+    // It fired a DELETE from a bare 13px label in the chrome, a cursor-width
+    // from Export CSV, with nothing in between.
+    const del = vi.spyOn(globalThis, "fetch");
+    renderApp(<StandupRoom env={envelope()} me={dana} />);
+    screen.getByRole("button", { name: "End session" }).click();
+    expect(await screen.findByText("End this standup?")).toBeTruthy();
+    expect(del).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Keep going" }));
+    expect(del).not.toHaveBeenCalled();
+    del.mockRestore();
+  });
+
+  it("lets you fix your own update after your turn has passed", async () => {
+    // The form rendered only while it was your turn, so a blocker remembered
+    // during someone else's turn had nowhere to go — and the roundup at the
+    // end is built from exactly that field.
+    const env = envelope({ state: standupState("dana") });
+    renderApp(<StandupRoom env={env} me={me} />);
+    // Marcus is not speaking; his seat is not the one on show.
+    await userEvent.click(screen.getByRole("button", { name: "Edit your update" }));
+    expect(screen.getAllByRole("textbox").length).toBe(3);
+  });
+
+  it("does not offer the edit shortcut once the session has ended", () => {
+    const env = envelope({ phase: "done", state: standupState(null) });
+    renderApp(<StandupRoom env={env} me={me} />);
+    expect(screen.queryByRole("button", { name: "Edit your update" })).toBeNull();
+  });
+
+  it("says so when the clipboard refuses, instead of looking broken", async () => {
+    // navigator.clipboard is undefined on an insecure origin, which is exactly
+    // where a self-hoster on plain HTTP lives.
+    const env = envelope({ phase: "done", state: filledState(null) });
+    const write = vi.fn().mockRejectedValue(new Error("denied"));
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: write }, configurable: true });
+    renderApp(<StandupRoom env={env} me={me} />);
+    await userEvent.click(screen.getByRole("button", { name: "Copy blockers" }));
+    expect(await screen.findByText(/could not copy/i)).toBeTruthy();
+  });
+});
+
+describe("StandupRoom clarity", () => {
+  const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+
+  it("names what Skip acts on, since there is only one thing it can do", async () => {
+    // "Skip / absent" read as two actions over one boolean. internal/standup
+    // has a single facilitator-only `skip` and a single `skipped` column, so
+    // the second half of that label described a state that does not exist.
+    renderApp(<StandupRoom env={envelope()} me={dana} />);
+    expect(screen.queryByRole("button", { name: "Skip / absent" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Skip turn" })).toBeTruthy();
+  });
+
+  it("says the same thing about a skipped seat everywhere it says anything", () => {
+    renderApp(<StandupRoom env={envelope({ state: standupState("priya") })} me={me} />);
+    expect(seat("Ben Alvarez") ?? seat("Priya Raman")).toBeTruthy();
+    expect(screen.getByTestId("entry-body").textContent).toMatch(/turn skipped/i);
+    expect(screen.getByTestId("entry-body").textContent).not.toMatch(/absent/i);
+  });
+
+  it("shows how long a turn is, not only to a screen reader", () => {
+    // The Timer's sr-only text already said it. Nothing on screen did, and the
+    // length is a session setting with no UI to change it.
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    expect(screen.getByTestId("turn-length").textContent).toBe("90s each");
+  });
+
+  it("gives every field a prompt, not just blockers", () => {
+    renderApp(<StandupRoom env={envelope({ phase: "gathering" })} me={me} />);
+    for (const box of screen.getAllByRole("textbox")) {
+      expect((box as HTMLTextAreaElement).placeholder).not.toBe("");
+    }
+  });
+});
+
+describe("StandupRoom polish", () => {
+  const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+
+  it("reports a failed round action beside the control that raised it", async () => {
+    // One `error` string at the foot of the page received failures from ready,
+    // start, next, skip and end alike — the poker room fixed the same shape in
+    // #223 and this page kept it.
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify({ error: "Could not move to the next turn." }), { status: 500 }));
+    renderApp(<StandupRoom env={envelope()} me={dana} />);
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/Could not move to the next turn/);
+    expect(screen.getByTestId("facilitator-bar").parentElement!.contains(alert)).toBe(true);
+    fetchSpy.mockRestore();
+  });
+
+  it("offers Try again on a failed turn advance, and lets it be dismissed", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify({ error: "Could not move to the next turn." }), { status: 500 }));
+    renderApp(<StandupRoom env={envelope()} me={dana} />);
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByRole("button", { name: "Try again" })).toBeTruthy();
+    await userEvent.click(within(alert).getByRole("button", { name: "Dismiss error" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    fetchSpy.mockRestore();
+  });
+
+  it("names only who the room is still waiting on", async () => {
+    // Six speakers meant six rows carrying one bit each, five of which said
+    // the thing nobody is waiting to hear.
+    const env = envelope();
+    (env.state as unknown as { entries: StandupEntry[] }).entries[0].ready = true;
+    renderApp(<StandupRoom env={envelope({ phase: "gathering", state: readyState() })} me={me} />);
+    const roster = screen.getByTestId("ready-roster");
+    expect(roster.textContent).toMatch(/Marcus Okonjo/);
+    expect(roster.textContent).not.toMatch(/Dana Whitfield/);
+  });
+
+  it("says so plainly when the whole room is ready", () => {
+    renderApp(<StandupRoom env={envelope({ phase: "gathering", state: allReadyState() })} me={me} />);
+    expect(screen.getByTestId("ready-roster").textContent).toMatch(/everyone is ready/i);
+  });
+
+  it("recaps who never got a turn when the round is done", () => {
+    // The blockers roundup carried the round's other outcome and this one went
+    // unsaid, though the rail knew it all along.
+    const env = envelope({ phase: "done", state: standupState(null) });
+    renderApp(<StandupRoom env={env} me={me} />);
+    const recap = screen.getByTestId("skipped-recap");
+    expect(recap.textContent).toMatch(/Priya Raman/);
+    // It belongs to the round's summary, not loose on the page beside it.
+    expect(recap.closest("section")!.textContent).toMatch(/Blockers roundup/);
+  });
+
+  it("says nothing about skips when nobody was skipped", () => {
+    renderApp(<StandupRoom env={envelope({ phase: "done", state: noSkipState() })} me={me} />);
+    expect(screen.queryByTestId("skipped-recap")).toBeNull();
+  });
+
+  it("houses the gathering screen like every other state", () => {
+    // It floated on bare felt while the round bar and the speaker card both
+    // sat in panels.
+    renderApp(<StandupRoom env={envelope({ phase: "gathering" })} me={me} />);
+    const form = screen.getAllByRole("textbox")[0];
+    const panel = form.closest("section")!;
+    expect(panel.className).toContain("rounded-panel");
+    expect(panel.className).toContain("bg-surface");
   });
 });
