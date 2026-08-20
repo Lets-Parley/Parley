@@ -7,7 +7,12 @@
 // rather than silently showing the wrong one.
 import { Image } from "astro:assets";
 
-const { light, dark, alt, caption, width = 1280 } = Astro.props;
+// Every Screenshot on the site currently sits below the fold — the landing
+// page's above-the-fold image is Starlight's own frontmatter hero, which this
+// component never renders. The off-theme copy is fetched even though CSS hides
+// it, so both images default to lazy. `eager` stays as the escape hatch for a
+// shot that ever does land above the fold; it is deliberately unused today.
+const { light, dark, alt, caption, width = 1280, eager = false } = Astro.props;
 
 if (!light || !dark) {
   throw new Error(
@@ -18,8 +23,8 @@ if (!light || !dark) {
 if (!alt) throw new Error("Screenshot: 'alt' is required.");
 ---
 <figure class="shot">
-  <Image class="light" src={light} alt={alt} width={width} densities={[1, 2]} loading="eager" />
-  <Image class="dark" src={dark} alt={alt} width={width} densities={[1, 2]} loading="eager" />
+  <Image class="light" src={light} alt={alt} width={width} densities={[1, 2]} loading={eager ? "eager" : "lazy"} />
+  <Image class="dark" src={dark} alt={alt} width={width} densities={[1, 2]} loading={eager ? "eager" : "lazy"} />
   {caption && <figcaption>{caption}</figcaption>}
 </figure>
 
