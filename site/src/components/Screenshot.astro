@@ -7,9 +7,11 @@
 // rather than silently showing the wrong one.
 import { Image } from "astro:assets";
 
-// Screenshots are below the fold everywhere except the landing hero, and the
-// off-theme copy is fetched even though CSS hides it — so both images default
-// to lazy and only the one above-the-fold shot opts in with eager.
+// Every Screenshot on the site currently sits below the fold — the landing
+// page's above-the-fold image is Starlight's own frontmatter hero, which this
+// component never renders. The off-theme copy is fetched even though CSS hides
+// it, so both images default to lazy. `eager` stays as the escape hatch for a
+// shot that ever does land above the fold; it is deliberately unused today.
 const { light, dark, alt, caption, width = 1280, eager = false } = Astro.props;
 
 if (!light || !dark) {
