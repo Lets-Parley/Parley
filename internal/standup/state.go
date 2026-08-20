@@ -29,6 +29,7 @@ type WireEntry struct {
 	Blockers  string  `json:"blockers"`
 	Position  float64 `json:"position"`
 	Skipped   bool    `json:"skipped"`
+	Ready     bool    `json:"ready"`
 }
 
 type State struct {
@@ -66,7 +67,7 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	st.SpeakerStartedAt = started
 
 	rows, err := pool.Query(ctx, `
-		select user_id::text, yesterday, today, blockers, position, skipped
+		select user_id::text, yesterday, today, blockers, position, skipped, ready
 		from standup_entries where session_id = $1 order by position`, sess.ID)
 	if err != nil {
 		return nil, err
@@ -74,7 +75,7 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	defer rows.Close()
 	for rows.Next() {
 		var e WireEntry
-		if err := rows.Scan(&e.UserID, &e.Yesterday, &e.Today, &e.Blockers, &e.Position, &e.Skipped); err != nil {
+		if err := rows.Scan(&e.UserID, &e.Yesterday, &e.Today, &e.Blockers, &e.Position, &e.Skipped, &e.Ready); err != nil {
 			return nil, err
 		}
 		st.Entries = append(st.Entries, e)

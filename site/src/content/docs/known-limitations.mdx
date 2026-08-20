@@ -38,7 +38,7 @@ accepted and actionable.
 ## Access and identity
 
 <Capability rows={[
-  { name: "Space roles — owner, admin, read-only", status: "not-built", detail: "Any member can rotate the room code or open the space. Story mutations and session controls are facilitator-only; ordinary members retain voting and their own standup entries." },
+  { name: "Space roles — owner, admin, read-only", status: "not-built", detail: "Any member can rotate the room code or open the space. Story mutations and session controls are facilitator-only; ordinary members retain voting, their own standup entries, and their own standup readiness signal." },
   { name: "Per-user or per-team space access", status: "not-built", detail: "A room code gates a space; identity does not. Gate the whole instance with an SSO proxy if you need this today." },
   { name: "Removing a member", status: "not-built", detail: "Rotate the code — that retires the old one immediately. Existing members remain members." },
   { name: "Account linking when switching to OIDC", status: "not-built", detail: "Anonymous and federated identities are distinct. Existing history remains under the old display records; federated users rejoin spaces with their room codes." },

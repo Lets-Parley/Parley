@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { StandupRoom, Timer } from "./StandupRoom";
 import { makePerson, renderApp } from "../test/render";
 import type { Envelope, Me } from "../lib/api";
@@ -100,7 +101,7 @@ describe("StandupRoom Timer", () => {
 const me: Me = { id: "marcus", name: "Marcus Okonjo", avatarHue: 40 };
 
 function entry(over: Partial<StandupEntry> = {}): StandupEntry {
-  return { userId: "dana", yesterday: "", today: "", blockers: "", position: 1, skipped: false, ...over };
+  return { userId: "dana", yesterday: "", today: "", blockers: "", position: 1, skipped: false, ready: false, ...over };
 }
 
 function standupState(currentSpeakerId: string | null = "dana"): Envelope["state"] {
@@ -414,5 +415,114 @@ describe("StandupRoom ending the session", () => {
     expect(deleteAt).toBeGreaterThanOrEqual(0);
     expect(saveAt).toBeLessThan(deleteAt);
     fetchSpy.mockRestore();
+  });
+});
+
+/** A standup still gathering: nobody is speaking and the entry form is open. */
+function gathering(over: Partial<Envelope> = {}, entries?: Partial<StandupEntry>[]): Envelope {
+  const rows = entries ?? [
+    { userId: "dana", position: 1 },
+    { userId: "marcus", position: 2 },
+    { userId: "priya", position: 3 },
+  ];
+  return envelope({
+    phase: "",
+    state: {
+      entries: rows.map((r) => entry(r)),
+      currentSpeakerId: null,
+      speakerStartedAt: null,
+      secondsPerPerson: 90,
+    } as unknown as Envelope["state"],
+    ...over,
+  });
+}
+
+const startButton = () => screen.getByRole("button", { name: /start the round/i });
+
+function mockFetch() {
+  return vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    new Response(null, { status: 204 }),
+  );
+}
+
+describe("StandupRoom readiness", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("round-trips the ready toggle through the ready action", async () => {
+    const f = mockFetch();
+    renderApp(<StandupRoom env={gathering()} me={me} />);
+    await userEvent.click(screen.getByRole("button", { name: /i'm ready/i }));
+    expect(f).toHaveBeenCalledTimes(1);
+    const [path, init] = f.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe("/api/sessions/sess-1/actions/ready");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body as string)).toEqual({ ready: true });
+  });
+
+  it("sends ready:false to stand back down rather than a blind toggle", async () => {
+    const f = mockFetch();
+    renderApp(
+      <StandupRoom
+        env={gathering({}, [
+          { userId: "dana", position: 1 },
+          { userId: "marcus", position: 2, ready: true },
+          { userId: "priya", position: 3 },
+        ])}
+        me={me}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /ready/i }));
+    const [, init] = f.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ ready: false });
+  });
+
+  it("says who is ready in text, not colour alone", () => {
+    renderApp(
+      <StandupRoom
+        env={gathering({}, [
+          { userId: "dana", position: 1, ready: true },
+          { userId: "marcus", position: 2 },
+          { userId: "priya", position: 3 },
+        ])}
+        me={me}
+      />,
+    );
+    const who = screen.getByTestId("ready-roster");
+    expect(who.textContent).toMatch(/Dana Whitfield/);
+    expect(who.textContent).toMatch(/ready/i);
+    expect(who.textContent).toMatch(/Marcus Okonjo|Priya Raman/);
+  });
+
+  it("counts the ready signals in the facilitator's button", () => {
+    renderApp(
+      <StandupRoom
+        env={gathering({ facilitatorId: "marcus" }, [
+          { userId: "dana", position: 1, ready: true },
+          { userId: "marcus", position: 2, ready: true },
+          { userId: "priya", position: 3 },
+        ])}
+        me={me}
+      />,
+    );
+    expect(startButton().textContent).toMatch(/2 of 3 ready/);
+  });
+
+  it("still fires the start request with nobody ready — advisory, never a gate", async () => {
+    // Asserted on the REQUEST rather than toBeEnabled(): a button gated by
+    // aria-disabled, hidden, or an early return in onClick passes that check
+    // and still refuses to start the round.
+    const f = mockFetch();
+    renderApp(<StandupRoom env={gathering({ facilitatorId: "marcus" })} me={me} />);
+    expect(startButton().textContent).toMatch(/0 of 3 ready/);
+    await userEvent.click(startButton());
+    const call = f.mock.calls.find(([p]) => String(p).endsWith("/actions/start"));
+    expect(call).toBeDefined();
+    expect((call![1] as RequestInit).method).toBe("POST");
+  });
+
+  it("keeps readiness out of the round once it has started", () => {
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    expect(screen.queryByRole("button", { name: /i'm ready/i })).toBe(null);
+    expect(screen.queryByTestId("ready-roster")).toBe(null);
   });
 });
