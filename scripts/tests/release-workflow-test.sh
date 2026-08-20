@@ -13,8 +13,10 @@ line_number() {
 }
 
 grep -Fq 'release_commit: ${{ steps.release.outputs.release_commit }}' "$workflow"
-# build, publish, sbom, release-assets. Pinned as a count so a newly added job
-# that checks out anything other than the validated commit is caught.
+# build, publish, sbom, release-assets. This is a count, not a per-job policy: it
+# trips when a job stops pinning the validated commit, but a new job that checks
+# out some other ref leaves the count untouched. chart deliberately checks out
+# the tag, so a blanket per-job assertion would need an allow-list.
 checkout_count=$(grep -Fc 'ref: ${{ needs.validate.outputs.release_commit }}' "$workflow")
 test "$checkout_count" -eq 4
 tag_resolution_count=$(grep -Fc 'git rev-parse "$TAG^{commit}"' "$workflow")
@@ -58,11 +60,36 @@ fi
 
 # Attaching the deployment manifests must not depend on the SBOM succeeding.
 # That coupling is what left v0.4.0 with no release artifacts at all.
-release_assets_needs=$(awk '/^  release-assets:/ { found=1; next } found && /needs:/ { print; exit }' "$workflow")
+# Read the job's whole needs block. Matching only the physical `needs:` line
+# lets block-style YAML ("needs:" then "  - sbom") reintroduce the coupling
+# without tripping this.
+release_assets_needs=$(awk '
+  /^  release-assets:/ { in_job = 1; next }
+  in_job && /^  [a-zA-Z_-]+:/ { exit }
+  in_job && /^    needs:/ { in_needs = 1; print; next }
+  in_needs && /^      - / { print; next }
+  in_needs { in_needs = 0 }
+' "$workflow")
+test -n "$release_assets_needs"
 if printf '%s' "$release_assets_needs" | grep -Fq 'sbom'; then
   echo "release-assets depends on the sbom job; an SBOM failure would drop the manifests" >&2
   exit 1
 fi
+
+# The artifact the sbom job uploads must be exactly what sbom-assets downloads.
+# A typo in either passes every other check here and fails only at run time.
+artifact_name_in_job() {
+  awk -v job="$1" '
+    $0 == "  " job ":" { in_job = 1; next }
+    in_job && /^  [a-zA-Z_-]+:/ { exit }
+    in_job && /name: release-sbom-/ { sub(/^ *name: */, ""); print; exit }
+  ' "$workflow"
+}
+sbom_upload_name=$(artifact_name_in_job sbom)
+sbom_download_name=$(artifact_name_in_job sbom-assets)
+test -n "$sbom_upload_name"
+test -n "$sbom_download_name"
+test "$sbom_upload_name" = "$sbom_download_name"
 
 compare_line=$(line_number 'test "$actual" = "$expected"')
 tag_check_line=$(line_number 'test "$current_commit" = "$VALIDATED_COMMIT"')
