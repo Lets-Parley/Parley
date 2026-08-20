@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { PokerRoom } from "./PokerRoom";
 import { makePerson, renderApp } from "../test/render";
 import type { Envelope, Me } from "../lib/api";
@@ -245,5 +246,29 @@ describe("PokerRoom hand placement", () => {
     expect(sticky.className).toContain("bottom-0");
     // ponytail: sticky works only while Hand is the last child of the column.
     expect(sticky.parentElement?.lastElementChild).toBe(sticky);
+  });
+});
+
+describe("PokerRoom errors", () => {
+  const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+
+  it("reports a failed reveal beside the button that failed, with a retry", async () => {
+    // Every failure used to land in one line between the results panel and the
+    // hand — for a header action, a whole column away from the control.
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify({ error: "Nobody has voted yet." }), { status: 409 }));
+    const env = envelope({ facilitatorConnected: true });
+    env.state.stories[0].votedUserIds = ["marcus"];
+    renderApp(<PokerRoom env={env} me={dana} />);
+
+    screen.getByRole("button", { name: "Reveal" }).click();
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Nobody has voted yet.");
+    expect(within(alert).getByRole("button", { name: "Try again" })).toBeTruthy();
+
+    await userEvent.click(within(alert).getByRole("button", { name: "Dismiss error" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    fetchSpy.mockRestore();
   });
 });

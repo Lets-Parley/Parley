@@ -6,7 +6,7 @@ import { GRACE_SECONDS, claimState, voteTally } from "../lib/derive";
 import { useCountdown, useToast } from "../lib/ui";
 import { Avatar } from "../components/Avatar";
 import { Hand } from "../components/Hand";
-import { Modal, buttonDanger, buttonPrimary, buttonQuiet } from "../components/Modal";
+import { ErrorRow, Modal, buttonDanger, buttonPrimary, buttonQuiet, type Fail } from "../components/Modal";
 import { ResultsPanel, heroOf } from "../components/ResultsPanel";
 import { StoryQueue } from "../components/StoryQueue";
 import { Table } from "../components/Table";
@@ -20,7 +20,9 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
   const ended = env.endedAt !== null;
 
   const [selected, setSelected] = useState<string | null>(null);
-  const [error, setError] = useState("");
+  // Tagged with where it happened: an error belongs beside the control that
+  // raised it, not in one shared line in the middle of the page.
+  const [fail, setFail] = useState<(Fail & { where: "room" | "queue" }) | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
 
   const online = new Set(env.presence);
@@ -40,16 +42,24 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
   // moves neither of those and left the stale pick sitting on the table.
   useEffect(() => {
     setSelected(null);
-    setError("");
+    setFail(null);
   }, [epoch]);
 
-  async function run(fn: () => Promise<unknown>) {
+  async function run(
+    fn: () => Promise<unknown>,
+    opts: { where?: "room" | "queue"; retry?: boolean } = {},
+  ) {
     try {
-      setError("");
+      setFail(null);
       await fn();
       return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong.");
+      setFail({
+        where: opts.where ?? "room",
+        msg: e instanceof Error ? e.message : "Something went wrong.",
+        // Only offer a retry where re-running the call is harmless.
+        retry: opts.retry ? fn : undefined,
+      });
       return false;
     }
   }
@@ -103,7 +113,7 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
                 <button
                   className={buttonPrimary}
                   disabled={!current || (current.votedUserIds.length === 0)}
-                  onClick={() => run(() => action(env.id, "reveal"))}
+                  onClick={() => run(() => action(env.id, "reveal"), { retry: true })}
                 >
                   Reveal
                 </button>
@@ -150,6 +160,14 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
             </a>
           </div>
         </header>
+
+        {fail?.where === "room" && (
+          <ErrorRow
+            fail={fail}
+            onDismiss={() => setFail(null)}
+            onRetry={fail.retry && (() => run(fail.retry!, { retry: true }))}
+          />
+        )}
 
         {ended && (
           <div className="rounded-panel border border-line bg-surface px-8 py-6 text-center shadow-rest">
@@ -262,12 +280,6 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
 
         {results && <ResultsPanel results={results} />}
 
-        {error && (
-          <p role="alert" className="text-center text-sm font-bold text-stop">
-            {error}
-          </p>
-        )}
-
         {current && !ended && (
           // Sticky so voting never needs a scroll: on a phone 15 seats take
           // several ranks and the page becomes a scrolling document.
@@ -303,7 +315,9 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
         currentStoryId={st.currentStoryId}
         isFacilitator={isFacilitator && !ended}
         onQuickRound={quickRound}
-        onError={setError}
+        fail={fail?.where === "queue" ? fail : null}
+        onFail={(msg, retry) => setFail({ where: "queue", msg, retry })}
+        onDismiss={() => setFail(null)}
       />
 
       {confirmReset && (
@@ -336,7 +350,7 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
   // table so the room can point something the tracker has never heard of.
   async function quickRound() {
     const before = new Set(st.stories.map((s) => s.id));
-    if (!(await run(() => action(env.id, "stories", { title: "Ad-hoc round" })))) return;
+    if (!(await run(() => action(env.id, "stories", { title: "Ad-hoc round" }), { where: "queue" }))) return;
     // Outside run(), a failure here rejected unhandled and the button just
     // looked broken — while the story had in fact already been created.
     let added;
@@ -344,20 +358,26 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
       const fresh = await api<Envelope>("GET", `/api/sessions/${env.id}`);
       added = fresh.state.stories.find((s) => !before.has(s.id));
     } catch {
-      setError("The round was added but the table could not be refreshed — pick it from the queue.");
+      setFail({
+        where: "queue",
+        msg: "The round was added but the table could not be refreshed — pick it from the queue.",
+      });
       return;
     }
     if (!added) {
-      setError("The round was added but could not be found to deal — pick it from the queue.");
+      setFail({
+        where: "queue",
+        msg: "The round was added but could not be found to deal — pick it from the queue.",
+      });
       return;
     }
-    if (await run(() => action(env.id, "select", { storyId: added.id }))) {
+    if (await run(() => action(env.id, "select", { storyId: added.id }), { where: "queue", retry: true })) {
       say("Ad-hoc round on the table — no ticket needed");
     }
   }
 
   async function reset() {
-    if (await run(() => action(env.id, "reset"))) {
+    if (await run(() => action(env.id, "reset"), { retry: true })) {
       setSelected(null);
       say("Votes cleared — same story, fresh round");
     }
