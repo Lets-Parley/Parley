@@ -49,6 +49,7 @@ var (
 	errNotCurrentStory   = errors.New("story not current")
 	errSpectator         = errors.New("spectator")
 	errInvalidVote       = errors.New("invalid vote")
+	errStoryUnidentified = errors.New("story has neither ref nor title")
 )
 
 func writeMutationError(w http.ResponseWriter, err error, fallback string) {
@@ -89,12 +90,12 @@ func addStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	}
 	title := strings.TrimSpace(body.Title)
 	ref := strings.TrimSpace(body.Ref)
-	if title == "" || len(title) > 200 || len(body.Notes) > 2000 {
-		http.Error(w, `{"error":"title must be 1-200 characters, notes at most 2000"}`, http.StatusBadRequest)
+	if msg := storyIdentityError(title, ref); msg != "" {
+		http.Error(w, `{"error":"`+msg+`"}`, http.StatusBadRequest)
 		return
 	}
-	if len(ref) > 40 {
-		http.Error(w, `{"error":"a ticket reference can be at most 40 characters"}`, http.StatusBadRequest)
+	if len(body.Notes) > 2000 {
+		http.Error(w, `{"error":"notes can be at most 2000 characters"}`, http.StatusBadRequest)
 		return
 	}
 	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
@@ -148,8 +149,8 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 	var title *string
 	if body.Title != nil {
 		t := strings.TrimSpace(*body.Title)
-		if t == "" || len(t) > 200 {
-			http.Error(w, `{"error":"title must be 1-200 characters"}`, http.StatusBadRequest)
+		if len(t) > 200 {
+			http.Error(w, `{"error":"title can be at most 200 characters"}`, http.StatusBadRequest)
 			return
 		}
 		title = &t
@@ -176,18 +177,32 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 	}
 	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
 		func(tx pgx.Tx, sess store.Session) error {
-			if title != nil {
-				if _, err := tx.Exec(r.Context(), "update stories set title = $2 where id = $1", storyID, *title); err != nil {
+			// Ref and title name the story between them, so an edit that
+			// touches either is read and written as one step: checked before
+			// anything is written, and applied by a single statement so the
+			// row never passes through a transiently nameless state.
+			if title != nil || ref != nil {
+				var haveTitle, haveRef string
+				if err := tx.QueryRow(r.Context(),
+					"select title, ref from stories where id = $1", storyID).Scan(&haveTitle, &haveRef); err != nil {
+					return err
+				}
+				if title != nil {
+					haveTitle = *title
+				}
+				if ref != nil {
+					haveRef = *ref
+				}
+				if haveTitle == "" && haveRef == "" {
+					return errStoryUnidentified
+				}
+				if _, err := tx.Exec(r.Context(),
+					"update stories set title = $2, ref = $3 where id = $1", storyID, haveTitle, haveRef); err != nil {
 					return err
 				}
 			}
 			if body.Notes != nil {
 				if _, err := tx.Exec(r.Context(), "update stories set notes = $2 where id = $1", storyID, *body.Notes); err != nil {
-					return err
-				}
-			}
-			if ref != nil {
-				if _, err := tx.Exec(r.Context(), "update stories set ref = $2 where id = $1", storyID, *ref); err != nil {
 					return err
 				}
 			}
@@ -219,6 +234,10 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 			_, err := tx.Exec(r.Context(), "update sessions set version = version + 1 where id = $1", sess.ID)
 			return err
 		})
+	if errors.Is(err, errStoryUnidentified) {
+		http.Error(w, `{"error":"a ticket needs a reference or a title"}`, http.StatusBadRequest)
+		return
+	}
 	if errors.Is(err, errInvalidEstimate) {
 		http.Error(w, `{"error":"an estimate has to be a card from this session's deck"}`, http.StatusBadRequest)
 		return
@@ -410,4 +429,21 @@ func reset(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		return
 	}
 	committed(w, r, ac)
+}
+
+// storyIdentityError reports why a story's ref/title pair is unusable, or "".
+// Either field identifies the story on its own, so only a pair that is blank
+// on both sides is rejected. It trims before judging, so whitespace is not
+// mistaken for a name however the caller got here.
+func storyIdentityError(title, ref string) string {
+	title, ref = strings.TrimSpace(title), strings.TrimSpace(ref)
+	switch {
+	case title == "" && ref == "":
+		return "a ticket needs a reference or a title"
+	case len(title) > 200:
+		return "a title can be at most 200 characters"
+	case len(ref) > 40:
+		return "a ticket reference can be at most 40 characters"
+	}
+	return ""
 }
