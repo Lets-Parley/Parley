@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { StoryQueue } from "./StoryQueue";
 import { renderApp } from "../test/render";
 import type { Story } from "../lib/api";
@@ -39,5 +40,47 @@ describe("StoryQueue", () => {
   it("gives the agreed-estimate chip a real accessible name", () => {
     renderQueue();
     expect(screen.getByRole("img", { name: "Agreed estimate 5" })).toBeTruthy();
+  });
+
+  it("falls back to the ticket ref when a story has no title", () => {
+    renderApp(
+      <StoryQueue
+        sessionId="sess-1"
+        stories={[{ id: "s9", title: "", ref: "PAR-142", position: 1, estimate: null }] as unknown as Story[]}
+        currentStoryId={null}
+        isFacilitator
+        onQuickRound={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Deal PAR-142" })).toBeTruthy();
+  });
+
+  it("enables the composer submit when only the ticket ref is filled in", async () => {
+    renderQueue();
+    await userEvent.click(screen.getByRole("button", { name: "+ Ticket" }));
+    const submit = screen.getByRole("button", { name: "Add to queue" }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    await userEvent.type(screen.getByPlaceholderText(/Ticket, e.g./), "PAR-142");
+    expect(submit.disabled).toBe(false);
+  });
+
+  it("adds a ref-only ticket to the queue", async () => {
+    // The submit guard is behaviour, not an attribute: a ref with no title has
+    // to actually reach the server. Asserting on `disabled` alone leaves the
+    // guard free to be an && and nobody notices.
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    renderQueue();
+    await userEvent.click(screen.getByRole("button", { name: "+ Ticket" }));
+    await userEvent.type(screen.getByPlaceholderText(/Ticket, e.g./), "PAR-142");
+    await userEvent.click(screen.getByRole("button", { name: "Add to queue" }));
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [path, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe("/api/sessions/sess-1/actions/stories");
+    expect(JSON.parse(init.body as string)).toMatchObject({ ref: "PAR-142", title: "" });
+    fetchSpy.mockRestore();
   });
 });

@@ -91,7 +91,9 @@ A kind is retired in place by setting `retired_at`, never deleted — the
 restricting foreign key means a row with sessions cannot be removed, and
 existing sessions of a retired kind keep loading and running as before.
 Retiring only closes the door on *new* sessions: session creation rejects a
-kind whose `retired_at` is set, with `400 that session kind has been retired`.
+kind whose `retired_at` is set, with `400 that session kind has been retired`,
+and the space view's `kinds` list — what the create dialog offers — leaves it
+out.
 
 ### sessions
 
@@ -108,8 +110,10 @@ kind whose `retired_at` is set, with `400 that session kind has been retired`.
 ### stories, votes
 
 `stories` carries `title` (≤200), `notes` (≤2000), `ref` (≤40), a fractional
-`position` for reordering, and `estimate`. `votes` is keyed
-`(story_id, user_id)` and cascades on both.
+`position` for reordering, and `estimate`. Either `title` or `ref` names a
+story, so both are allowed to be empty individually but a check constraint
+refuses a row where both are. `votes` is keyed `(story_id, user_id)` and
+cascades on both.
 
 ### standup_entries
 
