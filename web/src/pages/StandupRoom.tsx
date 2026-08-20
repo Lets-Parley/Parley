@@ -3,7 +3,10 @@ import { action, api, errorText, type Envelope, type Me } from "../lib/api";
 import type { ConnectionStatus } from "../lib/socket";
 import { useToast } from "../lib/ui";
 import { Avatar } from "../components/Avatar";
-import { buttonPrimary, buttonQuiet, inputClass } from "../components/Modal";
+import { ErrorRow, Modal, buttonDanger, buttonPrimary, buttonQuiet, inputClass } from "../components/Modal";
+import type { Fail } from "../components/Modal";
+import { cueFor, cueVar } from "../lib/cue";
+import { EmptyTable } from "./PokerRoom";
 
 export type StandupEntry = {
   userId: string;
@@ -15,6 +18,9 @@ export type StandupEntry = {
   /** Advisory "I've finished writing" signal, shown only while gathering. */
   ready: boolean;
 };
+/** Which cluster of controls a failure came from, so it reports there. */
+type Where = "chrome" | "gathering" | "round";
+
 type StandupState = {
   entries: StandupEntry[];
   currentSpeakerId: string | null;
@@ -150,7 +156,10 @@ export function StandupRoom({
   const say = useToast();
   const isFacilitator = env.facilitatorId === me.id;
   const { draft, update, saveState, flush } = useOwnEntryDraft(env, me.id);
-  const [error, setError] = useState("");
+  // Where it failed, not just that it did. One string at the foot of the page
+  // took failures from ready, start, next, skip and end alike — the same shape
+  // the poker room shed in #223.
+  const [fail, setFail] = useState<(Fail & { where: Where }) | null>(null);
   // Which entry is on show. Read-only, and deliberately separate from the
   // viewer's own draft above: reusing that would autosave someone else's words
   // onto your row. Null means "follow the turn"; a pick holds against it, so a
@@ -158,6 +167,8 @@ export function StandupRoom({
   // the held seat again lets go and puts the panel back on the live speaker.
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const [confirmEnd, setConfirmEnd] = useState(false);
   const people = new Map(env.participants.map((p) => [p.userId, p]));
   const speaking = env.phase === "speaking";
   const done = env.phase === "done";
@@ -170,6 +181,7 @@ export function StandupRoom({
   const readyIds = new Set(st.entries.filter((e) => e.ready).map((e) => e.userId));
   const readyCount = speakers.filter((p) => readyIds.has(p.userId)).length;
   const iAmReady = readyIds.has(me.id);
+  const waitingOn = speakers.filter((p) => !readyIds.has(p.userId));
 
   // Where the round is, and who follows. Both were on screen only as a row of
   // wrapped chips you had to count, which is the wrong ask of a room that is
@@ -178,6 +190,16 @@ export function StandupRoom({
   const position = orderIndex < 0 ? st.entries.length : orderIndex + 1;
   // A skipped seat gets no turn, so it is not the answer to "who is next".
   const nextUp = st.entries.slice(orderIndex + 1).find((e) => !e.skipped);
+  // Daybreak, keyed to turns taken rather than votes cast: the same field the
+  // poker table lights, carrying the same fact — how far round the round is.
+  // `done` plays the part `revealed` plays there, so the last turn still has a
+  // step left to make.
+  const cue = cueFor(Math.max(0, position - 1), speakers.length, done);
+  // Your own row stays writable for as long as the session accepts writes. It
+  // used to render only during your own turn, so a blocker remembered while
+  // someone else spoke had nowhere to go — and the roundup is built from that
+  // field. The server closes writes at end, which is what `done` tracks here.
+  const canEditOwn = !done && !env.endedAt;
   const nextLabel = done
     ? "Round complete"
     : nextUp
@@ -205,14 +227,62 @@ export function StandupRoom({
   const endingRef = useRef(false);
   const [ending, setEnding] = useState(false);
 
-  async function run(fn: () => Promise<unknown>) {
+  // Ending is a two-step await, so a second click can land between the flush
+  // and the DELETE. The server ignores the duplicate, but nothing should fire a
+  // request it already has in flight. The ref is the guard and the state only
+  // dims the button: two clicks in the same tick both read stale state, so
+  // state alone lets the second one through.
+  async function endStandup() {
+    if (endingRef.current) return;
+    endingRef.current = true;
+    setEnding(true);
+    // Ending closes the session to writes, so the pending debounce goes out
+    // first or the facilitator's last sentence is lost. If that save fails the
+    // session stays open: ending cannot be undone from here, but retrying can,
+    // so the failure is surfaced instead of being closed over — and the button
+    // has to come back, or the retry it offers is not reachable.
     try {
-      setError("");
+      try {
+        await flush();
+      } catch {
+        throw new Error("Your last changes could not be saved, so the session is still open. Try again.");
+      }
+      await api("DELETE", `/api/sessions/${env.id}`);
+    } finally {
+      endingRef.current = false;
+      setEnding(false);
+    }
+    say("Session closed — members can still open the results");
+  }
+
+  async function run(
+    fn: () => Promise<unknown>,
+    { where = "round", retry = true }: { where?: Where; retry?: boolean } = {},
+  ) {
+    try {
+      setFail(null);
       await fn();
+      return true;
     } catch (e) {
-      setError(errorText(e));
+      // Ending is the one action a retry cannot simply repeat — it is offered
+      // by the confirm rather than by the row, and its message says so itself.
+      setFail({ where, msg: errorText(e), retry: retry ? () => run(fn, { where, retry }) : undefined });
+      return false;
     }
   }
+
+  const failRow = (where: Where) =>
+    fail?.where === where ? (
+      <ErrorRow
+        fail={fail}
+        onDismiss={() => setFail(null)}
+        onRetry={fail.retry ? () => void fail.retry!() : undefined}
+      />
+    ) : null;
+
+  const skippedNames = st.entries
+    .filter((e) => e.skipped)
+    .map((e) => people.get(e.userId)?.name ?? "Someone");
 
   const blockersText = st.entries
     .filter((e) => e.blockers.trim() && !e.skipped)
@@ -246,6 +316,11 @@ export function StandupRoom({
                 (isShown ? "ring-2 ring-accent" : "")
               }
             >
+              {/* The order was semantic only: an <ol> that drew no numbers, so
+                  "am I next" meant counting wrapped chips. */}
+              <span className="ml-1 font-mono text-[11px] tabular-nums text-ink-faint" aria-hidden="true">
+                {e.position}
+              </span>
               {/* The name sits in text beside it, so the chip is
                   decorative here — otherwise it doubles the button's name. */}
               {p && (
@@ -271,7 +346,7 @@ export function StandupRoom({
               </span>
             </button>
             {(isCurrent || e.skipped) && (
-              <span className="sr-only">{isCurrent ? " — speaking now" : " — skipped or absent"}</span>
+              <span className="sr-only">{isCurrent ? " — speaking now" : " — turn skipped"}</span>
             )}
           </li>
         );
@@ -296,44 +371,26 @@ export function StandupRoom({
           <button
             className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop disabled:opacity-50"
             disabled={ending}
-            onClick={() =>
-              run(async () => {
-                if (endingRef.current) return;
-                endingRef.current = true;
-                setEnding(true);
-                // Ending closes the session to writes, so the pending debounce
-                // goes out first or the facilitator's last sentence is lost.
-                // If that save fails the session stays open: ending cannot be
-                // undone from here, but retrying can, so the failure is
-                // surfaced instead of being closed over — and the button has to
-                // come back, or the retry it offers is not reachable.
-                try {
-                  try {
-                    await flush();
-                  } catch {
-                    throw new Error("Your last changes could not be saved, so the session is still open. Try again.");
-                  }
-                  await api("DELETE", `/api/sessions/${env.id}`);
-                } finally {
-                  endingRef.current = false;
-                  setEnding(false);
-                }
-                say("Session closed — members can still open the results");
-              })
-            }
+            onClick={() => setConfirmEnd(true)}
           >
             End session
           </button>
         )}
         </span>
       </header>
+      {failRow("chrome")}
 
       {/* The round bar: how far in we are, who follows, and how long is left —
           the three facts the room reads, at the scale it reads them from. */}
       {(speaking || done) && (
         <section
           data-testid="round-bar"
-          className="flex flex-col gap-4 rounded-panel border border-line bg-surface px-5 py-4 shadow-rest"
+          data-cue={cue}
+          className="flex flex-col gap-4 rounded-panel border border-line px-5 py-4 shadow-rest"
+          style={{
+            background: `var(${cueVar(cue)})`,
+            transition: "background-color var(--dur-flip) var(--ease-settle)",
+          }}
         >
           <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
           <div className="min-w-0">
@@ -351,6 +408,14 @@ export function StandupRoom({
             <p data-testid="next-speaker" className="mt-1 text-[13px] font-semibold text-ink-faint">
               {nextLabel}
             </p>
+            {/* The Timer said this to a screen reader and to nobody else. The
+                length is a session setting with no UI to change it, so stating
+                it is the only way the room learns what it is. */}
+            {speaking && (
+              <p data-testid="turn-length" className="mt-0.5 font-mono text-[11px] tracking-[0.04em] text-ink-faint">
+                {st.secondsPerPerson}s each
+              </p>
+            )}
           </div>
           {speaking && st.speakerStartedAt && (
             <Timer startedAt={st.speakerStartedAt} seconds={st.secondsPerPerson} serverTime={env.serverTime} />
@@ -362,33 +427,45 @@ export function StandupRoom({
 
 
       {!speaking && !done && (
-        <section className="flex flex-col gap-4">
+        <section className="flex flex-col gap-4 rounded-panel border border-line bg-surface px-5 py-5 shadow-rest">
           <p className="text-ink-soft">
             Jot down your update while everyone gathers. Your notes save automatically.
           </p>
           <EntryForm draft={draft} update={update} saveState={saveState} />
           <button
-            className={(iAmReady ? buttonPrimary : buttonQuiet) + " self-start"}
+            // Filled navy on both this and Start put two primaries on one
+            // screen and left the round's actual action competing with a
+            // toggle. The label already says which way it is set.
+            className={buttonQuiet + " self-start"}
             aria-pressed={iAmReady}
-            onClick={() => run(() => action(env.id, "ready", { ready: !iAmReady }))}
+            onClick={() => run(() => action(env.id, "ready", { ready: !iAmReady }), { where: "gathering" })}
           >
             {iAmReady ? "Ready — stand back down" : "I'm ready"}
           </button>
-          {/* Who has signalled, in words. A dot or a tint alone would leave the
-              only copy of this fact in colour. */}
-          <ul data-testid="ready-roster" className="flex flex-col gap-1 text-sm">
-            {speakers.map((p) => (
-              <li key={p.userId} className="flex items-center gap-2">
-                <Avatar name={p.name} hue={p.avatarHue} size="sm" />
-                <span className="font-bold">{p.name}</span>
-                <span className={readyIds.has(p.userId) ? "text-accent" : "text-ink-faint"}>
-                  {readyIds.has(p.userId) ? "ready" : "still writing"}
-                </span>
-              </li>
-            ))}
-          </ul>
+          {/* Who the room is waiting on, in words — a dot or a tint alone would
+              leave the only copy of this fact in colour. Only the people still
+              writing are named: the other rows carried one bit each and said
+              the thing nobody is waiting to hear. */}
+          <div data-testid="ready-roster" className="text-sm">
+            {waitingOn.length === 0 ? (
+              <p className="font-bold text-accent">Everyone is ready.</p>
+            ) : (
+              <>
+                <p className="text-ink-faint">Still writing</p>
+                <ul className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                  {waitingOn.map((p) => (
+                    <li key={p.userId} className="flex items-center gap-1.5">
+                      <Avatar name={p.name} hue={p.avatarHue} size="sm" />
+                      <span className="font-bold">{p.name}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+          {failRow("gathering")}
           {isFacilitator && (
-            <button className={buttonPrimary + " self-start"} onClick={() => run(() => action(env.id, "start"))}>
+            <button className={buttonPrimary + " self-start"} onClick={() => run(() => action(env.id, "start"), { where: "gathering" })}>
               {`Start the round · ${readyCount} of ${speakers.length} ready`}
             </button>
           )}
@@ -403,17 +480,41 @@ export function StandupRoom({
             )}
             <h2 className="font-display text-2xl font-semibold">{people.get(shown.userId)?.name}</h2>
           </div>
-          {speaking && shown.userId === me.id ? (
+          {canEditOwn && shown.userId === me.id ? (
             <EntryForm draft={draft} update={update} saveState={saveState} />
           ) : (
-            <dl className="flex flex-col gap-3">
-              {(["yesterday", "today", "blockers"] as const).map((f) => (
-                <div key={f}>
-                  <dt className="text-xs font-bold uppercase tracking-wide text-ink-faint">{f}</dt>
-                  <dd className="whitespace-pre-wrap">{shown[f] || <span className="text-ink-faint">—</span>}</dd>
-                </div>
-              ))}
-            </dl>
+            <div data-testid="entry-body" className="flex flex-col gap-3">
+              {/* An em dash per field said "nothing here" for a seat that was
+                  never asked. The rail knew the difference; the card did not.
+                  It sits above the fields rather than replacing them — a
+                  skipped person's written update is still worth reading, which
+                  is the whole point of being able to open their seat. */}
+              {shown.skipped && (
+                <p className="rounded-chip bg-felt-deep px-3 py-2 text-sm font-semibold text-ink-soft">
+                  Turn skipped.
+                </p>
+              )}
+              {(
+                <dl className="flex flex-col gap-3">
+                  {(["yesterday", "today", "blockers"] as const).map((f) => (
+                    <div key={f}>
+                      <dt className="text-xs font-bold uppercase tracking-wide text-ink-faint">{f}</dt>
+                      <dd className="whitespace-pre-wrap">
+                        {shown[f] || <span className="text-ink-faint">Nothing written</span>}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+            </div>
+          )}
+          {canEditOwn && shown.userId !== me.id && speakers.some((p) => p.userId === me.id) && (
+            <button
+              className={buttonQuiet + " self-start"}
+              onClick={() => setPickedId(me.id)}
+            >
+              Edit your update
+            </button>
           )}
           {speaking && current && isFacilitator && (
             // Pinned, because the card above it is as tall as whatever the
@@ -427,10 +528,11 @@ export function StandupRoom({
                 Next
               </button>
               <button className={buttonQuiet} onClick={() => run(() => action(env.id, "skip"))}>
-                Skip / absent
+                Skip turn
               </button>
             </div>
           )}
+          {failRow("round")}
         </section>
       )}
 
@@ -443,16 +545,44 @@ export function StandupRoom({
               <button
                 className={buttonPrimary + " self-start"}
                 onClick={async () => {
-                  await navigator.clipboard.writeText(blockersText);
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 2000);
+                  // Undefined on an insecure origin, and rejectable on a denied
+                  // permission — which is exactly where a self-hoster on plain
+                  // HTTP lives. It used to reject unhandled and just look broken.
+                  try {
+                    await navigator.clipboard.writeText(blockersText);
+                    setCopyFailed(false);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  } catch {
+                    setCopyFailed(true);
+                  }
                 }}
               >
                 {copied ? "Copied!" : "Copy blockers"}
               </button>
+              {copyFailed && (
+                <p role="alert" className="text-sm font-bold text-stop">
+                  Could not copy — select the text above and copy it yourself.
+                </p>
+              )}
             </>
           ) : (
-            <p className="text-ink-soft">No blockers today. Good round.</p>
+            <EmptyTable
+              art={<DaybreakArt />}
+              heading="No blockers today"
+              body="Nothing is in anyone's way. Good round."
+            />
+          )}
+          {skippedNames.length > 0 && (
+            // The panel is the round's outcome and this is one of them. It sat
+            // outside on bare felt, which made it read as a stray line rather
+            // than part of the summary.
+            <p
+              data-testid="skipped-recap"
+              className="border-t border-line pt-3 text-sm text-ink-soft"
+            >
+              <span className="font-bold">No turn taken:</span> {skippedNames.join(", ")}
+            </p>
           )}
         </section>
       )}
@@ -461,10 +591,41 @@ export function StandupRoom({
         {announcement}
       </p>
 
-      {error && <p role="alert" className="font-bold text-stop">{error}</p>}
+
+
+      {confirmEnd && (
+        <Modal title="End this standup?" onClose={() => setConfirmEnd(false)}>
+          <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+            This ends the round for everyone in the room right now. The updates stay in the
+            space and anyone can still open the results afterwards.
+          </p>
+          <div className="mt-5 flex justify-end gap-2.5">
+            <button className={buttonQuiet} onClick={() => setConfirmEnd(false)}>
+              Keep going
+            </button>
+            <button
+              className={buttonDanger}
+              disabled={ending}
+              onClick={() => {
+                setConfirmEnd(false);
+                void run(endStandup, { where: "chrome", retry: false });
+              }}
+            >
+              End standup
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
+
+/** One prompt per field. Two of the three used to sit there unlabelled. */
+const PROMPTS = {
+  yesterday: "What did you get done?",
+  today: "What are you picking up?",
+  blockers: "Anything in your way?",
+} as const;
 
 function EntryForm({
   draft,
@@ -485,7 +646,7 @@ function EntryForm({
             value={draft[f]}
             maxLength={2000}
             onChange={(e) => update(f, e.target.value)}
-            placeholder={f === "blockers" ? "Anything in your way?" : ""}
+            placeholder={PROMPTS[f]}
           />
         </label>
       ))}
@@ -494,6 +655,27 @@ function EntryForm({
         {saveState === "saved" && "Saved"}
         {saveState === "error" && <span className="font-bold text-stop">Could not save — check your connection</span>}
       </span>
+    </div>
+  );
+}
+
+/**
+ * Daybreak, drawn: a sun clearing the horizon. The poker empty state stacks
+ * cards because a poker round has a deck in it; a standup has never had one.
+ * What it has is the same morning the round bar lights.
+ */
+function DaybreakArt() {
+  return (
+    <div data-testid="daybreak-art" className="relative h-24 w-[120px]">
+      {/* The sky clips the disc at the horizon, so the sun rises through the
+          line rather than sitting on top of it. Filled, not outlined — an
+          unfilled disc on a surface-coloured panel is just an arc. */}
+      <span className="absolute inset-x-0 top-4 bottom-10 overflow-hidden">
+        <span className="absolute top-0 left-1/2 h-20 w-20 -translate-x-1/2 rounded-full border-2 border-pip bg-pip/25" />
+      </span>
+      <span className="absolute inset-x-0 bottom-10 h-px bg-line" />
+      <span className="absolute inset-x-6 bottom-6 h-px bg-line opacity-70" />
+      <span className="absolute inset-x-12 bottom-3 h-px bg-line opacity-50" />
     </div>
   );
 }
