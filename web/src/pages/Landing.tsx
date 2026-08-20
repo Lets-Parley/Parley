@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Membership, type SpaceView } from "../lib/api";
 import { useMe, useAuthMode, NameGate } from "../components/NameGate";
 import { Logo } from "../components/AppShell";
@@ -54,29 +54,54 @@ export function Landing() {
     retry: false,
   });
   const spaces = mine.data ?? [];
+  const qc = useQueryClient();
   const [error, setError] = useState("");
 
+  // Both the resume effect and the gate can finish the same pending name, and
+  // either can win the race. One shared latch makes the loser a no-op, so a
+  // name buys exactly one space.
+  //
+  // The latch is deliberately one-way: only a failure releases it. A success
+  // navigates away, and a create that has already succeeded must not be able to
+  // fire again from a path that wakes up late — so a mounted Landing grants one
+  // space and one only, and a retry is available exactly when there is
+  // something to retry. Both halves of that contract are pinned by tests.
+  const creating = useRef(false);
   const doCreate = useCallback(
     async (spaceName: string) => {
+      if (creating.current) return;
+      creating.current = true;
+      let sp: SpaceView;
       try {
-        const sp = await api<SpaceView>("POST", "/api/spaces", { name: spaceName });
+        sp = await api<SpaceView>("POST", "/api/spaces", { name: spaceName });
+      } catch (e) {
+        creating.current = false;
+        setError(e instanceof Error ? e.message : "Could not create the space.");
+        return;
+      }
+      // Past this line the space exists on the server. Anything that goes
+      // wrong from here is a problem with showing it, not with making it, so
+      // the latch stays shut: a second press must never buy a second space.
+      try {
         navigate(`/s/${sp.slug}`);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Could not create the space.");
+        // The space is real but we could not go there. Refresh the list so it
+        // shows up as a link rather than leaving the visitor on a dead page
+        // with an error and an inert button.
+        qc.invalidateQueries({ queryKey: ["my-spaces"] });
+        setError(e instanceof Error ? e.message : "Could not open the new space.");
       }
     },
-    [navigate],
+    [navigate, qc],
   );
 
   // Signing in is a full page navigation, so the submit that triggered it never
   // ran. Coming back with a name still pending finishes that create instead of
   // asking for the same click a second time.
-  const resumed = useRef(false);
   useEffect(() => {
-    if (resumed.current || !me.data) return;
+    if (!me.data) return;
     const pending = takePending();
     if (pending === null) return;
-    resumed.current = true;
     doCreate(pending);
   }, [me.data, doCreate]);
 
