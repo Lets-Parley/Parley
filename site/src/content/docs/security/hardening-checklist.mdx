@@ -129,4 +129,8 @@ successful hardened release. Releases v0.1.0 through v0.2.1 were not backfilled.
   proxy.
 - **There is no admin account or space-owner role.** Any member may change the
   room code, but story mutations and session controls are facilitator-only.
-- **There is no audit log.**
+- **There is no audit log.** `LOG_LEVEL=debug` turns on one diagnostic line
+  per request — the socket peer, the `X-Forwarded-For` chain and the resolved
+  client address, and nothing else; no cookie, token or header is ever logged.
+  It exists to prove proxy configuration, not to attribute actions: it carries
+  no user, is not retained, and is not queryable.

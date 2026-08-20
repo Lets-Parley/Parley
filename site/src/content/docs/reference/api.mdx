@@ -31,7 +31,7 @@ apply a smaller 4 KiB decoder cap.
 `/version` answers with the build string and nothing else:
 
 ```json
-{ "version": "0.4.1" }
+{ "version": "%VERSION%" }
 ```
 
 A build that was not stamped at link time reports `"dev"` rather than a blank,
@@ -70,7 +70,7 @@ reject them. Their own protection is the `state` value in the sign-in cookie.
 ## Spaces
 
 <RouteTable rows={[
-  { method: "GET", path: "/api/spaces/{slug}", auth: "public", purpose: "Members get roster, sessions and room code. Non-members get only the name and whether it is protected." },
+  { method: "GET", path: "/api/spaces/{slug}", auth: "public", purpose: "Members get roster, sessions, room code, and the kinds a new session may use. Non-members get only the name and whether it is protected." },
   { method: "POST", path: "/api/spaces", auth: "user", purpose: "Create a space. Protected by default." },
   { method: "POST", path: "/api/spaces/{slug}/join", auth: "user", purpose: "Join, sending {passcode} if the space is protected. Throttled at 8 attempts per 60s per address." },
   { method: "POST", path: "/api/spaces/{slug}/passcode", auth: "member", purpose: "Mint a new code, or with {open:true} remove it. Any member may do this." },

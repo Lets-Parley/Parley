@@ -34,6 +34,32 @@ curl -s localhost:8080/readyz
 rather than `kubectl exec`. `kubectl describe pod` quotes the same body on the
 failing probe event.)
 
+:::caution[Port-forward reaches the probes, not the app]
+`/healthz`, `/readyz` and `/version` need no session, so they answer over a
+port-forward. **The browser app will not work through one**, and this is not a
+bug to chase:
+
+- A production `BASE_URL` is `https`, which makes the session cookie `Secure`,
+  so the browser never sends it to `http://localhost:8080` — every API call
+  comes back unauthenticated.
+- The WebSocket fails before the origin check even runs: `/ws` reads the
+  principal first and answers `404` when there is none.
+
+To exercise a real session over a port-forward, drive it as a raw client with a
+session cookie copied from a real browser session and the deployment's own
+origin:
+
+```sh
+kubectl port-forward pod/<the-pod> 8080:8080 &
+websocat "ws://localhost:8080/ws?session=<session-id>" \
+  -H "Origin: https://parley.example.com" \
+  -H "Cookie: parley_session=<copied-from-the-browser>"
+```
+
+That confirms fanout end to end. Treat the cookie as a live credential:
+it is one.
+:::
+
 - **`database unreachable`** — Postgres is not answering this pod within 3
   seconds. Check the database, the `NetworkPolicy` or security group between
   them, and that `DATABASE_URL` carries `?sslmode=require` if your Postgres
@@ -73,7 +99,7 @@ answers even while Postgres is down:
 
 ```console
 $ curl -s https://parley.example.com/version
-{"version":"0.4.1"}
+{"version":"%VERSION%"}
 ```
 
 The same string is on the container's command line — `parley -version` — and in

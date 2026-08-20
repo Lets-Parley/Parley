@@ -13,7 +13,7 @@ import {
   labelClass,
 } from "../components/Modal";
 import { useToast } from "../lib/ui";
-import { KINDS, defaultConfig } from "../lib/kinds";
+import { KINDS, defaultConfig, type KindDef } from "../lib/kinds";
 
 // "" is the All tab; every other value is a registered kind's wire id.
 const KIND_TABS = [{ id: "", label: "All" }, ...KINDS];
@@ -121,6 +121,9 @@ export function SpacePage() {
       return 0; // "Recent" — the server already returns newest first.
     });
   const filtersOn = !!q || !!kind || sort !== "Recent";
+  // What a new session may be: the server omits any kind retired in place.
+  // An older server sends no list at all, and offers everything as before.
+  const offered = KINDS.filter((k) => sp.kinds?.includes(k.id) ?? true);
 
   return (
     <AppShell
@@ -136,9 +139,11 @@ export function SpacePage() {
       <div className="mx-auto max-w-[760px] px-6 py-9 sm:px-8">
         <div className="mb-5 flex items-center justify-between gap-4">
           <h1 className="text-[22px] font-extrabold tracking-tight">Recent sessions</h1>
-          <button className={buttonPrimary} onClick={() => setCreating(true)}>
-            New session
-          </button>
+          {offered.length > 0 && (
+            <button className={buttonPrimary} onClick={() => setCreating(true)}>
+              New session
+            </button>
+          )}
         </div>
 
         {all.length > 0 && (
@@ -245,7 +250,12 @@ export function SpacePage() {
       </div>
 
       {creating && (
-        <NewSessionModal slug={sp.slug} onClose={() => setCreating(false)} onError={setError} />
+        <NewSessionModal
+          slug={sp.slug}
+          kinds={offered}
+          onClose={() => setCreating(false)}
+          onError={setError}
+        />
       )}
     </AppShell>
   );
@@ -345,6 +355,17 @@ function PasscodePanel({
   const say = useToast();
   const [busy, setBusy] = useState(false);
 
+  // Clipboard writes reject on an insecure origin or a denied permission, and a
+  // success toast over a failed copy sends people off to paste nothing.
+  async function copy(text: string, done: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      say(done);
+    } catch {
+      onError("Could not copy — copy it by hand.");
+    }
+  }
+
   async function set(open: boolean) {
     setBusy(true);
     try {
@@ -372,15 +393,24 @@ function PasscodePanel({
           </p>
         )}
       </div>
+      <button
+        className={buttonQuiet}
+        onClick={() => {
+          const link = `${window.location.origin}/s/${slug}`;
+          copy(
+            passcode ? `${link} — passcode ${passcode}` : link,
+            passcode ? "Invite copied — link and passcode" : "Invite link copied",
+          );
+        }}
+      >
+        Copy invite
+      </button>
       {passcode && (
         <button
           className={buttonQuiet}
-          onClick={() => {
-            navigator.clipboard?.writeText(passcode);
-            say("Passcode copied");
-          }}
+          onClick={() => copy(passcode, "Passcode copied")}
         >
-          Copy
+          Copy code
         </button>
       )}
       <button className={buttonQuiet} disabled={busy} onClick={() => set(false)}>
@@ -397,17 +427,20 @@ function PasscodePanel({
 
 function NewSessionModal({
   slug,
+  kinds,
   onClose,
   onError,
 }: {
   slug: string;
+  /** The kinds this space may start, in registry order. Never empty. */
+  kinds: KindDef[];
   onClose: () => void;
   onError: (msg: string) => void;
 }) {
   const navigate = useNavigate();
-  const [kind, setKind] = useState(KINDS[0]);
+  const [kind, setKind] = useState(kinds[0]);
   const [title, setTitle] = useState("");
-  const [config, setConfig] = useState(() => defaultConfig(KINDS[0]));
+  const [config, setConfig] = useState(() => defaultConfig(kinds[0]));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -429,7 +462,7 @@ function NewSessionModal({
       <form onSubmit={submit}>
         <span className={labelClass}>Kind</span>
         <div className="flex gap-2">
-          {KINDS.map((k) => (
+          {kinds.map((k) => (
             <button
               key={k.id}
               type="button"

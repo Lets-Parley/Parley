@@ -35,7 +35,10 @@ meeting controls are facilitator-only; ordinary members retain voting and their
 own standup entries. The interesting protections are around
 *vote secrecy* (strong, and structural) and *not disclosing what exists to
 strangers* (also strong). The gaps are concentrated in operations and governance:
-no space owner or administrator roles, no audit log, no retention or erasure
+no space owner or administrator roles, no audit log (a `LOG_LEVEL=debug`
+opt-in logs the resolved client address and forwarding chain per request for
+proxy diagnosis; it is neither retained nor queryable as an audit trail), no
+retention or erasure
 tooling, and no metrics. The hardened release pipeline publishes an SPDX SBOM
 and verifiable digest-bound
 provenance for releases it produces; v0.1.0 through v0.2.1 were not backfilled.
@@ -116,4 +119,4 @@ network; public deployments need an additional access and abuse-control layer.
   [security@letsparley.io](mailto:security@letsparley.io).
   Note that **every release before v0.2.2 can be crashed remotely by a
   disconnecting client**, and **v0.1.0 additionally has a throttle bypass**.
-  None were retagged; v0.2.2 is the floor and v0.4.1 is the current release.
+  None were retagged; v0.2.2 is the floor and v%VERSION% is the current release.

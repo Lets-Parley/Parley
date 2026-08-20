@@ -17,6 +17,8 @@ checkout_count=$(grep -Fc 'ref: ${{ needs.validate.outputs.release_commit }}' "$
 test "$checkout_count" -eq 3
 tag_resolution_count=$(grep -Fc 'git rev-parse "$TAG^{commit}"' "$workflow")
 test "$tag_resolution_count" -eq 2
+version_arg_count=$(grep -Fc 'VERSION=${{ needs.validate.outputs.version }}' "$workflow")
+test "$version_arg_count" -eq 2
 grep -Fq 'STAGING_TAG: staging-${{ github.run_id }}-${{ github.run_attempt }}' "$workflow"
 grep -Fq -- '--preserve-digests --all' "$workflow"
 grep -Fq 'oci-archive:/release/parley-image.tar "docker://$IMAGE:$STAGING_TAG"' "$workflow"

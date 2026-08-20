@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderApp } from "../test/render";
@@ -24,7 +24,10 @@ const space = {
     { id: "s3", kind: "acme.retro", title: "Retro of record", createdAt: "2026-08-18T08:00:00.000Z", endedAt: null },
     { id: "s4", kind: "pokerful", title: "Pokerful planning", createdAt: "2026-08-18T07:00:00.000Z", endedAt: null },
   ],
-} as unknown as SpaceView;
+} as unknown as SpaceView & { kinds?: string[] };
+
+// The api mock reads this, so a test can swap in a different space view.
+let view: SpaceView = space;
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -33,7 +36,7 @@ vi.mock("../lib/api", async () => {
     api: vi.fn(async (_method: string, path: string) => {
       if (path === "/api/me") return me;
       if (path === "/api/auth") return { mode: "open" };
-      if (path.startsWith("/api/spaces/")) return space;
+      if (path.startsWith("/api/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }),
   };
@@ -67,5 +70,131 @@ describe("SpacePage kind filter", () => {
     // allowlist would drop it silently rather than leaking it here.
     expect(list().queryByText("Retro of record")).toBe(null);
     expect(list().queryByText("Pokerful planning")).toBe(null);
+  });
+});
+
+describe("SpacePage create dialog", () => {
+  it("offers only the kinds the space view lists, so a retired one cannot be picked", async () => {
+    // The server omits a retired kind from the space view; the dialog must
+    // offer what the server listed rather than every kind it can render.
+    space.kinds = ["poker"];
+    try {
+      renderApp(<SpacePage />, { route: "/s/platform-team" });
+      await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+      const dialog = within(screen.getByRole("dialog"));
+      expect(dialog.getByRole("button", { name: "poker" })).toBeTruthy();
+      // The tab strip still names Standup — that filters existing sessions —
+      // so this assertion has to be scoped to the dialog, and it fails for a
+      // dialog that simply rendered every built-in kind.
+      expect(dialog.queryByRole("button", { name: "standup" })).toBe(null);
+    } finally {
+      delete space.kinds;
+    }
+  });
+
+  it("offers every kind when the space view lists them all", async () => {
+    space.kinds = ["poker", "standup"];
+    try {
+      renderApp(<SpacePage />, { route: "/s/platform-team" });
+      await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+      const dialog = within(screen.getByRole("dialog"));
+      expect(dialog.getByRole("button", { name: "poker" })).toBeTruthy();
+      expect(dialog.getByRole("button", { name: "standup" })).toBeTruthy();
+    } finally {
+      delete space.kinds;
+    }
+  });
+
+  it("offers every kind when the server omits the kinds field (older server)", async () => {
+    // No `space.kinds` is set here: an older server sends no field at all,
+    // and the page must fall back to offering everything rather than
+    // treating the absence as an empty allowlist.
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByRole("button", { name: "poker" })).toBeTruthy();
+    expect(dialog.getByRole("button", { name: "standup" })).toBeTruthy();
+  });
+
+  it("hides New session when the space offers no kinds", async () => {
+    space.kinds = [];
+    try {
+      renderApp(<SpacePage />, { route: "/s/platform-team" });
+      await screen.findByText("Recent sessions");
+      expect(screen.queryByRole("button", { name: "New session" })).toBe(null);
+    } finally {
+      delete space.kinds;
+    }
+  });
+});
+
+describe("SpacePage passcode panel", () => {
+  const protectedSpace = { ...space, protected: true, passcode: "TEAM49" } as SpaceView;
+
+  function clipboard() {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    return writeText;
+  }
+
+  afterEach(() => {
+    view = space;
+  });
+
+  it("copies a full invite — link plus passcode — from the primary action", async () => {
+    view = protectedSpace;
+    const writeText = clipboard();
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
+
+    expect(writeText).toHaveBeenCalledWith(
+      `${window.location.origin}/s/platform-team — passcode TEAM49`,
+    );
+    expect(screen.getByText("Invite copied — link and passcode")).toBeTruthy();
+  });
+
+  it("says so instead of claiming success when the clipboard refuses", async () => {
+    view = protectedSpace;
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      value: {
+        writeText: vi.fn(async () => {
+          throw new Error("denied");
+        }),
+      },
+      configurable: true,
+    });
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
+
+    expect(await screen.findByText("Could not copy — copy it by hand.")).toBeTruthy();
+    expect(screen.queryByText("Invite copied — link and passcode")).toBe(null);
+  });
+
+  it("copies just the code from the secondary action", async () => {
+    view = protectedSpace;
+    const writeText = clipboard();
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Copy code" }));
+
+    expect(writeText).toHaveBeenCalledWith("TEAM49");
+    expect(screen.getByText("Passcode copied")).toBeTruthy();
+  });
+
+  it("copies the bare link when the space is open", async () => {
+    view = { ...space, protected: false, passcode: undefined } as SpaceView;
+    const writeText = clipboard();
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
+
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/s/platform-team`);
+    expect(screen.getByText("Invite link copied")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Copy code" })).toBe(null);
   });
 });
