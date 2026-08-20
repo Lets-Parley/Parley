@@ -48,9 +48,26 @@ function arc(p0: Pt, p1: Pt, r: number, laf: number, sweep: number): Pt[] {
   });
 }
 
-/** One `M x y a rx ry rot laf sweep dx dy` arc — the only path shape drawn. */
+/** One `M x y a rx ry rot laf sweep dx dy` arc — the speech arc's shape. */
 const ARC =
   /^M\s*(-?[\d.]+)[\s,]+(-?[\d.]+)\s*a\s*(-?[\d.]+)[\s,]+(-?[\d.]+)[\s,]+(-?[\d.]+)[\s,]+([01])[\s,]+([01])[\s,]+(-?[\d.]+)[\s,]+(-?[\d.]+)\s*$/;
+
+/*
+ * `M x y V vy A r r rot laf sweep ax ay H hx` — a vertical leg, a rounded
+ * corner, a horizontal leg: the top-right corner of the card behind the poker
+ * card. Kept as narrow as ARC on purpose. The sampler measures the corner's
+ * real curve rather than the sharp corner it sits inside, so the diagonal
+ * clearance from the front card is measured where it is actually tightest.
+ */
+const CORNER =
+  /^M\s*(-?[\d.]+)[\s,]+(-?[\d.]+)\s*V\s*(-?[\d.]+)\s*A\s*(-?[\d.]+)[\s,]+(-?[\d.]+)[\s,]+(-?[\d.]+)[\s,]+([01])[\s,]+([01])[\s,]+(-?[\d.]+)[\s,]+(-?[\d.]+)\s*H\s*(-?[\d.]+)\s*$/;
+
+function line(p0: Pt, p1: Pt): Pt[] {
+  return Array.from({ length: N + 1 }, (_, i) => [
+    p0[0] + ((p1[0] - p0[0]) * i) / N,
+    p0[1] + ((p1[1] - p0[1]) * i) / N,
+  ]);
+}
 
 /*
  * A `transform` on a shape — or on any <g> between it and the <svg> — moves
@@ -91,16 +108,26 @@ function samples(el: Element): Pt[] {
     }
     case "line": {
       const [x1, y1, x2, y2] = ["x1", "y1", "x2", "y2"].map((a) => num(el, a));
-      return Array.from({ length: N + 1 }, (_, i) => [
-        x1 + ((x2 - x1) * i) / N,
-        y1 + ((y2 - y1) * i) / N,
-      ]);
+      return line([x1, y1], [x2, y2]);
     }
     case "path": {
-      const m = ARC.exec(el.getAttribute("d") ?? "");
-      if (!m) throw new Error(`path is not a single arc the sampler can measure: ${el.getAttribute("d")}`);
-      const n = m.slice(1).map(Number);
-      return arc([n[0], n[1]], [n[0] + n[7], n[1] + n[8]], n[2], n[5], n[6]);
+      const d = el.getAttribute("d") ?? "";
+      const a = ARC.exec(d);
+      if (a) {
+        const n = a.slice(1).map(Number);
+        return arc([n[0], n[1]], [n[0] + n[7], n[1] + n[8]], n[2], n[5], n[6]);
+      }
+      const c = CORNER.exec(d);
+      if (c) {
+        const n = c.slice(1).map(Number);
+        const [x, y, vy, r, , , laf, sweep, ax, ay, hx] = n;
+        return [
+          ...line([x, y], [x, vy]),
+          ...arc([x, vy], [ax, ay], r, laf, sweep),
+          ...line([ax, ay], [hx, ay]),
+        ];
+      }
+      throw new Error(`path is not a shape the sampler can measure: ${d}`);
     }
     default:
       throw new Error(`unmeasurable element <${el.tagName}> in a glyph`);
@@ -157,11 +184,15 @@ describe("KindChip", () => {
   // The shape counts still matter — they are what keeps the poker glyph from
   // quietly becoming the standup one — but on their own they are satisfied by
   // any two marks at all, which is what the geometry tests below exist for.
-  it("draws poker as a card and the edge behind it", () => {
+  it("draws poker as a card and the corner of the one behind it", () => {
     const svg = chip("poker").querySelector("svg")!;
     expect(svg.querySelectorAll("rect").length).toBe(1);
-    expect(svg.querySelectorAll("line").length).toBe(1);
+    expect(svg.querySelectorAll("path").length).toBe(1);
+    expect(svg.querySelectorAll("line").length).toBe(0);
     expect(svg.querySelectorAll("circle").length).toBe(0);
+    // A bar is what shipped first and what read as a sidebar. The corner is
+    // the whole point of the redraw, so name it: the path must turn.
+    expect(svg.querySelector("path")!.getAttribute("d")).toMatch(/A/);
   });
 
   it("draws standup as a person speaking", () => {
