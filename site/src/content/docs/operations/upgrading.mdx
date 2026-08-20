@@ -16,9 +16,10 @@ ArgoCD or Flux there is no `--reuse-values` and no `helm test`; see
 [GitOps](/operations/gitops/).
 
 After upgrading a multi-replica install, confirm the replicas are still on
-different nodes — `kubectl get pods -o wide`. A rollout used to be able to
-collapse them onto one, and on Kubernetes older than 1.27 it still can; see
-[Rollouts](/operations/kubernetes/#rollouts).
+different nodes — `kubectl get pods -o wide`. The chart makes a rollout much
+less likely to collapse them onto one, but the constraint is a preference rather
+than a guarantee, and on Kubernetes older than 1.27 the mitigation is absent
+entirely; see [Rollouts](/operations/kubernetes/#rollouts).
 
 Rolling *back* an image is only safe if the newer version didn't add
 migrations. If it did, Parley refuses to start and says so, rather than running

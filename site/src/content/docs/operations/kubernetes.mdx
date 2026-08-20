@@ -388,8 +388,14 @@ so the install stays collapsed onto a single node afterwards — with two
 replicas, a satisfied PodDisruptionBudget, and one node failure between it and a
 total outage.
 
+It reduces the problem rather than removing it. The constraint is still
+`ScheduleAnyway`, which is a preference: the scheduler weighs it against
+resource pressure, affinity and everything else, and may still stack the pods if
+those outweigh it. `DoNotSchedule` is the guarantee, at the cost of leaving pods
+Pending forever on a cluster without the nodes to satisfy it.
+
 So after any upgrade of a multi-replica install, check where the pods actually
-are. This is a real check, not a formality:
+are. This is the real safety net, not a formality:
 
 ```sh
 kubectl --namespace parley get pods -o wide

@@ -319,8 +319,14 @@ jobs:
           for c in cons:
               assert c.get('matchLabelKeys') == ['pod-template-hash'], \
                   f"spread constraint is not scoped to one revision: {c}"
-              assert c.get('labelSelector', {}).get('matchLabels'), \
-                  f"spread constraint has no label selector: {c}"
+              # Not merely "a selector exists": a selector that matches none of
+              # this Deployment's own pods counts an empty set in every topology
+              # domain, so the constraint is satisfied everywhere and silently
+              # does nothing. It has to be the Deployment's own selector.
+              want = deploys[0]['spec']['selector']['matchLabels']
+              got = c.get('labelSelector', {}).get('matchLabels')
+              assert got == want, \
+                  f"spread constraint selector {got} is not the Deployment's {want}"
           EOF
           # An operator supplying their own matchLabelKeys must not get a
           # duplicate key: YAML keeps the last one and silently discards their
