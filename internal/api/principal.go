@@ -30,7 +30,16 @@ func resolvePrincipal(users *store.Users, federatedOnly bool) func(http.Handler)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if c, err := r.Cookie(sessionCookie); err == nil {
 				if hash, err := store.HashToken(c.Value); err == nil {
-					if sess, err := users.ResolveToken(r.Context(), hash); err == nil {
+					// A read resolves the principal without renewing the
+					// idle window. rejectCrossSite waves GETs through, so a
+					// touching GET would let any third-party page keep a
+					// victim's session alive indefinitely and write to
+					// session_tokens on every visit. HEAD is routed to the
+					// same handlers, so it is held to the same rule.
+					// Sessions still stay alive on real use: every write, and
+					// every WebSocket connect, touches the row.
+					touch := r.Method != http.MethodGet && r.Method != http.MethodHead
+					if sess, err := users.ResolveToken(r.Context(), hash, touch); err == nil {
 						if !federatedOnly || sess.User.Issuer != "" {
 							r = r.WithContext(principal.With(r.Context(), Principal{
 								UserID: sess.User.ID, Display: sess.User.Name,
