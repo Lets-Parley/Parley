@@ -35,11 +35,13 @@ is why it is spelled out at length below.
   already read it out of the tokens table, but "only this deployment hears it"
   is a property of the database boundary and of nothing else.
 
-  Migrations serialize behind a PostgreSQL advisory lock, and **advisory locks
-  are cluster-wide, not per-database**. `Migrate` takes it blocking. An
-  unrelated tenant anywhere on the same server that happens to use the same lock
-  id will hold Parley at boot with no error, just a pod that never becomes
-  ready.
+  Migrations serialize behind a PostgreSQL advisory lock, and advisory locks are
+  scoped **per-database** — so a tenant in a *different* database on the same
+  server cannot collide with Parley's lock id, and a server shared that way is
+  safe. Inside one database it is a live risk: `Migrate` takes the lock
+  *blocking*, so a second Parley — or any application reusing the same id — in
+  the same database holds the pod at boot with no error at all, just a pod that
+  never becomes ready.
 - **`sslmode`, if your Postgres requires TLS.** Managed Postgres usually does,
   and the driver does not assume it. Append `?sslmode=require` (or `verify-full`
   with a CA) to the URI. Without it the connection is refused at handshake and
@@ -100,10 +102,12 @@ a sync interval; kubelet retries without any help from you. Check which one you
 have before changing anything:
 
 ```sh
-kubectl --namespace parley get secret parley -o jsonpath='{.data}' ; echo
+kubectl --namespace parley describe secret parley
 ```
 
-Nothing at all means the sync has not landed yet. A secret with `username` /
+`describe` lists the key names and their byte counts without printing the
+values — enough to answer this question, and safe in a terminal someone else may
+scroll back through. Nothing at all means the sync has not landed yet. A secret with `username` /
 `password` / `host` keys means the shape is wrong — Parley wants one key holding
 the entire URI. Under ArgoCD, give the secret an earlier
 [sync wave](/operations/gitops/#sync-waves-and-the-secret-that-is-not-there-yet).
@@ -271,14 +275,26 @@ spec:
       websecure:
         transport:
           respondingTimeouts:
-            readTimeout: 0s
+            readTimeout: 300s
             idleTimeout: 300s
 ```
 
-`readTimeout: 0s` means no limit, which is what a long-lived WebSocket wants;
-`idleTimeout` only needs to exceed 25s, and Traefik's 180s default already does.
-Traefik proxies WebSocket upgrades without any extra configuration — the timeout
-is the only thing to get right.
+`idleTimeout` is the one that matters for Parley: it only needs to exceed the
+25s ping, and Traefik's 180s default already does. `readTimeout` bounds how long
+a single request may take to arrive, and `respondingTimeouts` is **static,
+per-entry-point configuration** — it applies to every route through
+`websecure`, not only to the WebSocket ones.
+
+That is why the example raises `readTimeout` rather than setting it to `0s`.
+Zero means no limit, which a long-lived connection is happy with, but it removes
+the bound for ordinary HTTP on that entry point too and hands a slow-drip client
+a connection it can hold open. Parley's own `ReadTimeout` does not cover you
+here — Traefik terminates the client connection first. If you want an unbounded
+read for WebSockets specifically, give the upgrade path its own entry point
+rather than relaxing the shared one.
+
+Traefik proxies WebSocket upgrades without any extra configuration — the
+timeouts are the only thing to get right.
 
 **Other controllers.** HAProxy uses the `haproxy.org/timeout-server` annotation;
 Contour and Envoy-based controllers take a per-route idle timeout; a cloud load
