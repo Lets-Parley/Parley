@@ -169,6 +169,14 @@ export function StandupRoom({
           ? `${people.get(current.userId)?.name ?? "Someone"} is speaking now.`
           : "";
 
+  // Ending is a two-step await, so a second click can land between the flush
+  // and the DELETE. The server ignores the duplicate, but nothing should fire a
+  // request it already has in flight. The ref is the guard and the state only
+  // dims the button: two clicks in the same tick both read stale state, so
+  // state alone lets the second one through.
+  const endingRef = useRef(false);
+  const [ending, setEnding] = useState(false);
+
   async function run(fn: () => Promise<unknown>) {
     try {
       setError("");
@@ -199,20 +207,30 @@ export function StandupRoom({
         )}
         {isFacilitator && !env.endedAt && (
           <button
-            className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop"
+            className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop disabled:opacity-50"
+            disabled={ending}
             onClick={() =>
               run(async () => {
+                if (endingRef.current) return;
+                endingRef.current = true;
+                setEnding(true);
                 // Ending closes the session to writes, so the pending debounce
                 // goes out first or the facilitator's last sentence is lost.
                 // If that save fails the session stays open: ending cannot be
                 // undone from here, but retrying can, so the failure is
-                // surfaced instead of being closed over.
+                // surfaced instead of being closed over — and the button has to
+                // come back, or the retry it offers is not reachable.
                 try {
-                  await flush();
-                } catch {
-                  throw new Error("Your last changes could not be saved, so the session is still open. Try again.");
+                  try {
+                    await flush();
+                  } catch {
+                    throw new Error("Your last changes could not be saved, so the session is still open. Try again.");
+                  }
+                  await api("DELETE", `/api/sessions/${env.id}`);
+                } finally {
+                  endingRef.current = false;
+                  setEnding(false);
                 }
-                await api("DELETE", `/api/sessions/${env.id}`);
                 say("Session closed — members can still open the results");
               })
             }

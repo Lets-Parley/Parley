@@ -493,6 +493,64 @@ describe("StandupRoom ending the session", () => {
     fetchSpy.mockRestore();
   });
 
+  it("offers End again after a failed save, so the retry it promises is reachable", async () => {
+    // The failure message tells the facilitator to try again. If the in-flight
+    // guard stayed set on that path, the button would be disabled forever and
+    // the advice would be a lie.
+    let failNext = true;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      if (String(url).endsWith("/actions/standup") && (init as RequestInit)?.method === "PUT" && failNext) {
+        throw new Error("network down");
+      }
+      return { status: 204, ok: true, text: async () => "" } as Response;
+    });
+    renderApp(<StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />);
+
+    fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "first go" } });
+    await act(async () => {
+      endButton()!.click();
+    });
+    expect(screen.getByRole("alert").textContent).toMatch(/still open/i);
+    expect(endButton()).toBeTruthy();
+    expect((endButton() as HTMLButtonElement).disabled).toBe(false);
+
+    failNext = false;
+    fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "second go" } });
+    await act(async () => {
+      endButton()!.click();
+    });
+    expect(
+      fetchSpy.mock.calls.filter(([u, i]) => u === "/api/sessions/sess-1" && (i as RequestInit)?.method === "DELETE"),
+    ).toHaveLength(1);
+    fetchSpy.mockRestore();
+  });
+
+  it("issues one DELETE however fast End is clicked twice", async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      if (String(url).endsWith("/actions/standup") && (init as RequestInit)?.method === "PUT") {
+        await held;
+      }
+      return { status: 204, ok: true, text: async () => "" } as Response;
+    });
+    renderApp(<StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />);
+
+    fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "one save" } });
+    // Both clicks land while the flush is still held.
+    endButton()!.click();
+    endButton()!.click();
+    await act(async () => {
+      release();
+      await held;
+    });
+
+    expect(
+      fetchSpy.mock.calls.filter(([u, i]) => u === "/api/sessions/sess-1" && (i as RequestInit)?.method === "DELETE"),
+    ).toHaveLength(1);
+    fetchSpy.mockRestore();
+  });
+
   it("flushes a save that is already in flight, not just a pending debounce", async () => {
     // send() clears the pending draft before it awaits, so a request already on
     // the wire is invisible to pending.current. Without the chain, End would
