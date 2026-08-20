@@ -109,13 +109,28 @@ export function Timer({ startedAt, seconds, serverTime }: { startedAt: string; s
   }, []);
   const remaining = Math.ceil(seconds - (Date.now() + offset.current - Date.parse(startedAt)) / 1000);
   const shown = Math.max(0, remaining);
-  const tone = remaining <= 0 ? "text-stop" : remaining <= seconds * 0.25 ? "text-brass" : "text-ink-soft";
+  // Brass marks the facilitator and nothing else (DESIGN.md, the One Brass
+  // Rule), so a turn running short escalates by weight and ink instead of
+  // borrowing authority's hue — which also reads further across a room than a
+  // hue shift does.
+  const tone =
+    remaining <= 0
+      ? "font-bold text-stop"
+      : remaining <= seconds * 0.25
+        ? "font-bold text-ink"
+        : "font-medium text-ink-soft";
   return (
     // The digits change twice a second, so they stay out of the accessibility
     // tree entirely; the static label carries the only fact worth speaking.
     <span>
       <span className="sr-only">{`Each turn is ${seconds} seconds. A countdown is shown on screen.`}</span>
-      <span aria-hidden="true" className={`font-mono text-3xl font-medium tabular-nums ${tone}`}>
+      {/* The one number six people read from across a projected room. It shipped
+          at text-3xl in the corner of the chrome; it is the round's hero now,
+          stepped down only where a phone has no width for it. */}
+      <span
+        aria-hidden="true"
+        className={`font-mono text-[2.75rem] leading-none tabular-nums sm:text-[length:var(--text-num-result)] ${tone}`}
+      >
         {Math.floor(shown / 60)}:{String(shown % 60).padStart(2, "0")}
       </span>
     </span>
@@ -156,6 +171,19 @@ export function StandupRoom({
   const readyCount = speakers.filter((p) => readyIds.has(p.userId)).length;
   const iAmReady = readyIds.has(me.id);
 
+  // Where the round is, and who follows. Both were on screen only as a row of
+  // wrapped chips you had to count, which is the wrong ask of a room that is
+  // half-listening and fully time-boxed.
+  const orderIndex = st.entries.findIndex((e) => e.userId === st.currentSpeakerId);
+  const position = orderIndex < 0 ? st.entries.length : orderIndex + 1;
+  // A skipped seat gets no turn, so it is not the answer to "who is next".
+  const nextUp = st.entries.slice(orderIndex + 1).find((e) => !e.skipped);
+  const nextLabel = done
+    ? "Round complete"
+    : nextUp
+      ? `Next: ${people.get(nextUp.userId)?.name ?? "Someone"}`
+      : "Last turn";
+
   // One polite line for the whole room. It never carries the countdown, so it
   // speaks on a turn change rather than on every 500ms tick, and it stays empty
   // while the connection is off — ConnectionBanner and the toasts are already
@@ -166,7 +194,7 @@ export function StandupRoom({
       : done
         ? "The standup has wrapped up."
         : speaking && current
-          ? `${people.get(current.userId)?.name ?? "Someone"} is speaking now.`
+          ? `${people.get(current.userId)?.name ?? "Someone"} is speaking now, ${position} of ${speakers.length}.`
           : "";
 
   // Ending is a two-step await, so a second click can land between the flush
@@ -197,6 +225,10 @@ export function StandupRoom({
         {/* The session's name lives in the shell header, where it stays
             legible across a room. Repeating it here spent a whole row. */}
         <span className="flex-1" />
+        {/* Session-level actions, held off the round by a hairline: End session
+            used to sit a cursor-width from Export CSV at the same size and
+            weight, and the countdown was wedged between them. */}
+        <span data-testid="session-actions" className="flex items-center gap-2 border-l border-line pl-3">
         <a
           href={`/api/sessions/${env.id}/export.csv`}
           download
@@ -204,9 +236,6 @@ export function StandupRoom({
         >
           Export CSV
         </a>
-        {speaking && st.speakerStartedAt && (
-          <Timer startedAt={st.speakerStartedAt} seconds={st.secondsPerPerson} serverTime={env.serverTime} />
-        )}
         {isFacilitator && !env.endedAt && (
           <button
             className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop disabled:opacity-50"
@@ -240,7 +269,34 @@ export function StandupRoom({
             End session
           </button>
         )}
+        </span>
       </header>
+
+      {/* The round bar: how far in we are, who follows, and how long is left —
+          the three facts the room reads, at the scale it reads them from. */}
+      {(speaking || done) && (
+        <section className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-panel border border-line bg-surface px-5 py-4 shadow-rest">
+          <div className="min-w-0">
+            <p
+              data-testid="round-progress"
+              aria-hidden="true"
+              className="font-mono text-[length:var(--text-num-table)] font-semibold tabular-nums text-ink-soft"
+            >
+              {position}
+              <span className="text-ink-faint"> / {speakers.length}</span>
+              <span className="ml-2 align-middle text-[11px] uppercase tracking-[0.08em] text-ink-faint">
+                {done ? "done" : "speaking"}
+              </span>
+            </p>
+            <p data-testid="next-speaker" className="mt-1 text-[13px] font-semibold text-ink-faint">
+              {nextLabel}
+            </p>
+          </div>
+          {speaking && st.speakerStartedAt && (
+            <Timer startedAt={st.speakerStartedAt} seconds={st.secondsPerPerson} serverTime={env.serverTime} />
+          )}
+        </section>
+      )}
 
       {/* Speaking order rail. */}
       {(speaking || done) && (
@@ -357,7 +413,13 @@ export function StandupRoom({
             </dl>
           )}
           {speaking && current && isFacilitator && (
-            <div className="flex gap-2">
+            // Pinned, because the card above it is as tall as whatever the
+            // speaker typed — so this moved between speakers, six times a
+            // meeting, with a room watching.
+            <div
+              data-testid="facilitator-bar"
+              className="sticky bottom-0 -mx-6 -mb-6 flex gap-2 rounded-b-panel bg-surface px-6 py-4"
+            >
               <button className={buttonPrimary} onClick={() => run(() => action(env.id, "next"))}>
                 Next
               </button>
