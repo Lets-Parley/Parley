@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { action, type Envelope, type Me } from "../lib/api";
+import { action, api, type Envelope, type Me } from "../lib/api";
 import type { ConnectionStatus } from "../lib/socket";
+import { useToast } from "../lib/ui";
 import { Avatar } from "../components/Avatar";
 import { buttonPrimary, buttonQuiet, inputClass } from "../components/Modal";
 
@@ -31,6 +32,14 @@ function useOwnEntryDraft(env: Envelope, meId: string) {
   const [draft, setDraft] = useState({ yesterday: "", today: "", blockers: "" });
   const seeded = useRef(false);
   const timer = useRef<number | undefined>(undefined);
+  // What has been typed but not yet sent. Kept in a ref rather than state so
+  // flush() can post the very last keystroke without waiting for a re-render.
+  const pending = useRef<{ yesterday: string; today: string; blockers: string } | null>(null);
+  // Every save is queued behind the previous one. Two overlapping PUTs have no
+  // ordering guarantee on the wire, so a slow older body could land last and
+  // undo the newer one; chaining also gives flush() something to await when a
+  // request is already out and pending.current is therefore empty.
+  const chain = useRef<Promise<unknown>>(Promise.resolve());
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   useEffect(() => {
@@ -40,24 +49,48 @@ function useOwnEntryDraft(env: Envelope, meId: string) {
     }
   }, [server]);
 
+  // Rejects when the save failed. Callers that only fire-and-forget swallow it;
+  // flush() deliberately does not, so ending the session can refuse to proceed.
+  function send(next: { yesterday: string; today: string; blockers: string }) {
+    pending.current = null;
+    const done = chain.current.catch(() => {}).then(async () => {
+      try {
+        await action(env.id, "standup", next);
+        setSaveState("saved");
+      } catch (e) {
+        setSaveState("error");
+        throw e;
+      }
+    });
+    chain.current = done;
+    return done;
+  }
+
   function update(field: keyof typeof draft, value: string) {
     const next = { ...draft, [field]: value };
     setDraft(next);
     seeded.current = true;
     setSaveState("saving");
+    pending.current = next;
     clearTimeout(timer.current);
-    timer.current = window.setTimeout(async () => {
-      try {
-        await action(env.id, "standup", next);
-        setSaveState("saved");
-      } catch {
-        setSaveState("error");
-      }
-    }, 800);
+    timer.current = window.setTimeout(() => void send(next).catch(() => {}), 800);
   }
+
+  // Send anything still sitting in the debounce, right now. Anything that ends
+  // the session has to await this first: the backend refuses writes to an ended
+  // session, so a late debounce would drop the last thing that was typed.
+  async function flush() {
+    clearTimeout(timer.current);
+    const next = pending.current;
+    // Nothing pending still leaves a request possibly in flight: send() clears
+    // pending.current before it awaits, so the chain is the only handle on it.
+    if (next) await send(next);
+    else await chain.current;
+  }
+
   useEffect(() => () => clearTimeout(timer.current), []);
 
-  return { draft, update, saveState };
+  return { draft, update, saveState, flush };
 }
 
 export function Timer({ startedAt, seconds, serverTime }: { startedAt: string; seconds: number; serverTime: string }) {
@@ -99,14 +132,23 @@ export function StandupRoom({
   status?: ConnectionStatus;
 }) {
   const st = env.state as unknown as StandupState;
+  const say = useToast();
   const isFacilitator = env.facilitatorId === me.id;
-  const { draft, update, saveState } = useOwnEntryDraft(env, me.id);
+  const { draft, update, saveState, flush } = useOwnEntryDraft(env, me.id);
   const [error, setError] = useState("");
+  // Which entry is on show. Read-only, and deliberately separate from the
+  // viewer's own draft above: reusing that would autosave someone else's words
+  // onto your row. Null means "follow the turn"; a pick holds against it, so a
+  // turn change never yanks a reader out of the update they opened. Clicking
+  // the held seat again lets go and puts the panel back on the live speaker.
+  const [pickedId, setPickedId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const people = new Map(env.participants.map((p) => [p.userId, p]));
   const speaking = env.phase === "speaking";
   const done = env.phase === "done";
   const current = st.currentSpeakerId ? st.entries.find((e) => e.userId === st.currentSpeakerId) : undefined;
+  const shownId = pickedId ?? st.currentSpeakerId;
+  const shown = shownId ? st.entries.find((e) => e.userId === shownId) : undefined;
   // Readiness is counted over the people who actually speak: a spectator has no
   // entry row and no turn, so counting them would make "3 of 4" unreachable.
   const speakers = env.participants.filter((p) => !p.spectator);
@@ -126,6 +168,14 @@ export function StandupRoom({
         : speaking && current
           ? `${people.get(current.userId)?.name ?? "Someone"} is speaking now.`
           : "";
+
+  // Ending is a two-step await, so a second click can land between the flush
+  // and the DELETE. The server ignores the duplicate, but nothing should fire a
+  // request it already has in flight. The ref is the guard and the state only
+  // dims the button: two clicks in the same tick both read stale state, so
+  // state alone lets the second one through.
+  const endingRef = useRef(false);
+  const [ending, setEnding] = useState(false);
 
   async function run(fn: () => Promise<unknown>) {
     try {
@@ -155,6 +205,39 @@ export function StandupRoom({
         {speaking && st.speakerStartedAt && (
           <Timer startedAt={st.speakerStartedAt} seconds={st.secondsPerPerson} serverTime={env.serverTime} />
         )}
+        {isFacilitator && !env.endedAt && (
+          <button
+            className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop disabled:opacity-50"
+            disabled={ending}
+            onClick={() =>
+              run(async () => {
+                if (endingRef.current) return;
+                endingRef.current = true;
+                setEnding(true);
+                // Ending closes the session to writes, so the pending debounce
+                // goes out first or the facilitator's last sentence is lost.
+                // If that save fails the session stays open: ending cannot be
+                // undone from here, but retrying can, so the failure is
+                // surfaced instead of being closed over — and the button has to
+                // come back, or the retry it offers is not reachable.
+                try {
+                  try {
+                    await flush();
+                  } catch {
+                    throw new Error("Your last changes could not be saved, so the session is still open. Try again.");
+                  }
+                  await api("DELETE", `/api/sessions/${env.id}`);
+                } finally {
+                  endingRef.current = false;
+                  setEnding(false);
+                }
+                say("Session closed — members can still open the results");
+              })
+            }
+          >
+            End session
+          </button>
+        )}
       </header>
 
       {/* Speaking order rail. */}
@@ -163,22 +246,51 @@ export function StandupRoom({
           {st.entries.map((e) => {
             const p = people.get(e.userId);
             const isCurrent = e.userId === st.currentSpeakerId;
+            const isShown = e.userId === shownId;
             return (
               <li
                 key={e.userId}
                 aria-current={isCurrent ? "true" : undefined}
                 className={
-                  "flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3 transition " +
+                  "flex items-center gap-1.5 rounded-full transition " +
                   (isCurrent ? "bg-accent-soft shadow-lift" : e.skipped ? "" : "bg-surface shadow-rest")
                 }
               >
-                {p && <Avatar name={p.name} hue={p.avatarHue} size="sm" dim={e.skipped} />}
-                {/* A group opacity wrapper would multiply through the name and
-                    leave it at 2.38:1 on the felt. The dimming rides on the
-                    avatar and a faint-but-legible ink instead. */}
-                <span className={"text-sm font-bold" + (e.skipped ? " text-ink-faint line-through" : "")}>
-                  {p?.name}
-                </span>
+                {/* The button carries only the name, so the sr-only asides
+                    below stay out of its accessible name. */}
+                <button
+                  type="button"
+                  aria-pressed={isShown}
+                  onClick={() => setPickedId((id) => (id === e.userId ? null : e.userId))}
+                  className={
+                    "flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3 transition " +
+                    (isShown ? "ring-2 ring-accent" : "")
+                  }
+                >
+                  {/* The name sits in text beside it, so the chip is
+                      decorative here — otherwise it doubles the button's name. */}
+                  {p && (
+                    <span aria-hidden="true">
+                      <Avatar name={p.name} hue={p.avatarHue} size="sm" dim={e.skipped} />
+                    </span>
+                  )}
+                  {/* A group opacity wrapper would multiply through the name and
+                      leave it at 2.38:1 on the felt. The dimming rides on the
+                      avatar and a faint-but-legible ink instead. */}
+                  <span
+                    className={
+                      "text-sm font-bold" +
+                      (e.skipped ? " text-ink-faint line-through" : "") +
+                      // Both cues can land on one seat. At small sizes an
+                      // offset-4 underline crowds the strike into a single
+                      // thick bar, so a struck seat gets the deeper offset and
+                      // the two lines stay readable as two different facts.
+                      (isShown ? (e.skipped ? " underline underline-offset-8" : " underline underline-offset-4") : "")
+                    }
+                  >
+                    {p?.name}
+                  </span>
+                </button>
                 {(isCurrent || e.skipped) && (
                   <span className="sr-only">{isCurrent ? " — speaking now" : " — skipped or absent"}</span>
                 )}
@@ -222,27 +334,27 @@ export function StandupRoom({
         </section>
       )}
 
-      {speaking && current && (
+      {(speaking || done) && shown && (
         <section className="flex flex-col gap-4 rounded-panel bg-surface p-6 shadow-rest">
           <div className="flex items-center gap-3">
-            {people.get(current.userId) && (
-              <Avatar name={people.get(current.userId)!.name} hue={people.get(current.userId)!.avatarHue} size="lg" />
+            {people.get(shown.userId) && (
+              <Avatar name={people.get(shown.userId)!.name} hue={people.get(shown.userId)!.avatarHue} size="lg" />
             )}
-            <h2 className="font-display text-2xl font-semibold">{people.get(current.userId)?.name}</h2>
+            <h2 className="font-display text-2xl font-semibold">{people.get(shown.userId)?.name}</h2>
           </div>
-          {current.userId === me.id ? (
+          {speaking && shown.userId === me.id ? (
             <EntryForm draft={draft} update={update} saveState={saveState} />
           ) : (
             <dl className="flex flex-col gap-3">
               {(["yesterday", "today", "blockers"] as const).map((f) => (
                 <div key={f}>
                   <dt className="text-xs font-bold uppercase tracking-wide text-ink-faint">{f}</dt>
-                  <dd className="whitespace-pre-wrap">{current[f] || <span className="text-ink-faint">—</span>}</dd>
+                  <dd className="whitespace-pre-wrap">{shown[f] || <span className="text-ink-faint">—</span>}</dd>
                 </div>
               ))}
             </dl>
           )}
-          {isFacilitator && (
+          {speaking && current && isFacilitator && (
             <div className="flex gap-2">
               <button className={buttonPrimary} onClick={() => run(() => action(env.id, "next"))}>
                 Next

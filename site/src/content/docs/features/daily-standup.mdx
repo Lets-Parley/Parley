@@ -73,12 +73,25 @@ strikes them through and moves on.
 There is a per-person countdown, driven off the server's clock rather than the
 browser's, so everyone in the room sees the same number.
 
+Clicking anyone in the rail opens their yesterday/today/blockers, so an update
+you missed is a click away rather than gone once the turn passes. The panel
+follows whoever is speaking until you pick somebody, and then stays put — a turn
+change will not pull you out of the update you are reading. **Click that person
+again to let go**, and the panel goes back to following whoever is speaking.
+Everyone stays clickable after the round finishes, skipped people included.
+
 <Screenshot
   light={roundLight}
   dark={roundDark}
   alt="A standup in progress: the countdown is running, the speaker rail lists six people with one struck through as absent and the current speaker highlighted, and that person's yesterday, today and blockers are shown below."
   caption="The rail carries the whole order at once — done, skipped, and up next — while the countdown runs for whoever is speaking."
 />
+
+## Ending the standup
+
+The facilitator has an **End session** control in the header. It closes the
+session the same way poker's does: the room stops being live, and the entries
+and the blockers roundup stay readable in the space afterwards.
 
 ## The blockers roundup
 
