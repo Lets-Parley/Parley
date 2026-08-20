@@ -180,6 +180,9 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	a.hub.ValidateSession = func(ctx context.Context, tokenID string) (time.Time, error) {
 		return a.users.TokenExpiry(ctx, []byte(tokenID))
 	}
+	a.hub.ValidateMembership = func(ctx context.Context, spaceID, userID string) (bool, error) {
+		return a.spaces.IsMember(ctx, spaceID, userID)
+	}
 	a.hub.OnDisconnect = func(sessionID, userID string) {
 		if err := a.presence.Gone(context.Background(), sessionID, userID); err != nil {
 			slog.Error("could not clear presence", "session", sessionID, "user", userID, "error", err)

@@ -279,11 +279,18 @@ func (a *app) handleSetMemberRole(w http.ResponseWriter, r *http.Request) {
 
 // handleRemoveMember revokes membership. Membership is checked against the
 // database on every request, so the next thing the removed member does puts
-// them back in front of the passcode gate — there is no cache to expire.
+// them back in front of the passcode gate — there is no cache to expire. A
+// WebSocket that is already open is not a request, though, so the removal
+// also closes their sockets: on this process immediately, on any other one at
+// the next revalidation tick.
 func (a *app) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 	sp := spaceFrom(r.Context())
 
-	err := a.spaces.RemoveMember(r.Context(), sp.ID, chi.URLParam(r, "userId"))
+	userID := chi.URLParam(r, "userId")
+	err := a.spaces.RemoveMember(r.Context(), sp.ID, userID)
+	if err == nil {
+		a.hub.DisconnectSpaceMember(sp.ID, userID)
+	}
 	switch {
 	case errors.Is(err, store.ErrNotMember):
 		http.Error(w, `{"error":"that person is not a member of this space"}`, http.StatusNotFound)

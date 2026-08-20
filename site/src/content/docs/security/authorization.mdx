@@ -47,8 +47,18 @@ space gets `404` — the same non-disclosure rule the roster follows.
 
 Membership is read from the database on every request, so there is no cache to
 expire: the removed member's very next request sees the stranger view of the
-space and, if the space is protected, the passcode gate. Removal is not a ban —
-they can knock again with a current room code, and come back as a plain member.
+space and, if the space is protected, the passcode gate.
+
+A WebSocket that is already open is not a request, so it is closed explicitly.
+The removal disconnects the member's live sockets for that space on the process
+that served the removal, before it answers. On any *other* process holding a
+socket for them — a second replica behind a load balancer — the close lands at
+that connection's next revalidation tick instead, so the worst-case window
+there is one revalidation interval — capped at 30 seconds, and 30 seconds is
+the default. Reconnecting fails the membership check at the handshake.
+
+Removal is not a ban — they can knock again with a current room code, and come
+back as a plain member.
 
 ## Facilitator
 

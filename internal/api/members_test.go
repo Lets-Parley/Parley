@@ -7,6 +7,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 // signupWithID returns both the session cookie and the user id behind it, which
@@ -269,5 +272,82 @@ func TestARemovedMemberCanRejoinWithTheRoomCode(t *testing.T) {
 	}
 	if got := rolesOf(t, srv, slug, owner)[memberID]; got != "member" {
 		t.Fatalf("role after rejoining = %q, want member", got)
+	}
+}
+
+// TestRemovingAMemberClosesTheirOpenWebSocket is the socket half of "removal
+// takes effect immediately". Membership is re-read on every HTTP request, but
+// a WebSocket that is already open never makes another one: without an
+// explicit disconnect the removed member keeps reading and writing live room
+// state indefinitely. Drop the DisconnectSpaceMember call in
+// handleRemoveMember and this test hangs on the read and fails.
+func TestRemovingAMemberClosesTheirOpenWebSocket(t *testing.T) {
+	srv := testServer(t)
+	slug, owner, _, member, memberID := spaceWithTwo(t, srv)
+
+	_, sess := createSession(t, srv, slug, "poker", "Live round", owner)
+	sessionID, _ := sess["id"].(string)
+	if sessionID == "" {
+		t.Fatalf("no session id: %v", sess)
+	}
+
+	ws, _, err := dialWS(t, srv, sessionID, member, "")
+	if err != nil {
+		t.Fatalf("member could not open a socket: %v", err)
+	}
+	defer ws.Close()
+	if _, ok := readEnvelope(t, ws, 2*time.Second); !ok {
+		t.Fatal("no initial envelope on the member's socket")
+	}
+
+	if resp, body := removeMember(t, srv, slug, memberID, owner); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("remove = %d %s, want 204", resp.StatusCode, body)
+	}
+
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, _, err := ws.ReadMessage(); err == nil {
+		t.Fatal("the removed member's websocket stayed open and kept receiving room state")
+	} else if closeErr, ok := err.(*websocket.CloseError); !ok || closeErr.Code != websocket.ClosePolicyViolation {
+		t.Fatalf("close on removal = %v, want policy violation", err)
+	}
+
+	// And the door stays shut: a reconnect fails the handshake's membership
+	// check the same way a stranger's would.
+	if reconnect, _, err := dialWS(t, srv, sessionID, member, ""); err == nil {
+		reconnect.Close()
+		t.Fatal("a removed member reconnected to the session socket")
+	}
+}
+
+// TestRemovingAMemberLeavesEveryoneElseConnected keeps the disconnect narrow:
+// it is scoped to one (space, user) pair, not a room-wide kick.
+func TestRemovingAMemberLeavesEveryoneElseConnected(t *testing.T) {
+	srv := testServer(t)
+	slug, owner, _, member, memberID := spaceWithTwo(t, srv)
+
+	_, sess := createSession(t, srv, slug, "poker", "Live round", owner)
+	sessionID, _ := sess["id"].(string)
+
+	ownerWS, _, err := dialWS(t, srv, sessionID, owner, "")
+	if err != nil {
+		t.Fatalf("owner could not open a socket: %v", err)
+	}
+	defer ownerWS.Close()
+	memberWS, _, err := dialWS(t, srv, sessionID, member, "")
+	if err != nil {
+		t.Fatalf("member could not open a socket: %v", err)
+	}
+	defer memberWS.Close()
+	readEnvelope(t, ownerWS, 2*time.Second)
+	readEnvelope(t, memberWS, 2*time.Second)
+
+	if resp, body := removeMember(t, srv, slug, memberID, owner); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("remove = %d %s, want 204", resp.StatusCode, body)
+	}
+
+	// The roster changed, so the owner's socket keeps working and keeps
+	// getting state.
+	if _, ok := readEnvelope(t, ownerWS, 2*time.Second); !ok {
+		t.Fatal("the owner's websocket was closed by removing somebody else")
 	}
 }

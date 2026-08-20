@@ -681,3 +681,96 @@ func TestSessionsListsEveryRoomHeld(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// attachMemberTestConn is attachAuthenticatedTestConn with a caller-chosen
+// user id, which membership-scoped disconnects need in order to tell two
+// connections in the same room apart.
+func attachMemberTestConn(t *testing.T, h *Hub, sessionID, userID string, auth SessionAuth) *websocket.Conn {
+	t.Helper()
+	attached := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		h.AttachAuthenticated(ws, sessionID, userID, nil, auth)
+		close(attached)
+	}))
+	t.Cleanup(srv.Close)
+
+	url := "ws" + strings.TrimPrefix(srv.URL, "http")
+	ws, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-attached:
+	case <-time.After(time.Second):
+		t.Fatal("server did not attach websocket")
+	}
+	return ws
+}
+
+func TestDisconnectSpaceMemberClosesOnlyThatMembersSockets(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	removed := attachMemberTestConn(t, h, "room", "bob", SessionAuth{TokenID: "bob-token", SpaceID: "space-1"})
+	defer removed.Close()
+	stays := attachMemberTestConn(t, h, "room", "ada", SessionAuth{TokenID: "ada-token", SpaceID: "space-1"})
+	defer stays.Close()
+	elsewhere := attachMemberTestConn(t, h, "other-room", "bob", SessionAuth{TokenID: "bob-token", SpaceID: "space-2"})
+	defer elsewhere.Close()
+
+	h.DisconnectSpaceMember("space-1", "bob")
+
+	removed.SetReadDeadline(time.Now().Add(time.Second))
+	if _, _, err := removed.ReadMessage(); err == nil {
+		t.Fatal("the removed member's websocket remained open")
+	} else if closeErr, ok := err.(*websocket.CloseError); !ok || closeErr.Code != websocket.ClosePolicyViolation {
+		t.Fatalf("removed member close = %v, want policy violation", err)
+	}
+
+	// The same person in a different space, and a different person in the
+	// same space, are both untouched.
+	h.Broadcast("room", []byte("still-connected"))
+	stays.SetReadDeadline(time.Now().Add(time.Second))
+	if _, got, err := stays.ReadMessage(); err != nil {
+		t.Fatalf("another member of the space was disconnected: %v", err)
+	} else if string(got) != "still-connected" {
+		t.Fatalf("broadcast to the remaining member = %q, want still-connected", got)
+	}
+	h.Broadcast("other-room", []byte("other-space"))
+	elsewhere.SetReadDeadline(time.Now().Add(time.Second))
+	if _, got, err := elsewhere.ReadMessage(); err != nil {
+		t.Fatalf("the same user was disconnected from an unrelated space: %v", err)
+	} else if string(got) != "other-space" {
+		t.Fatalf("broadcast to the unrelated space = %q, want other-space", got)
+	}
+}
+
+// TestSessionRevalidationClosesARemovedMember is the multi-process half:
+// DisconnectSpaceMember only reaches sockets held by the process that served
+// the removal, so every other replica has to notice at its next tick.
+func TestSessionRevalidationClosesARemovedMember(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	h.RevalidationInterval = 20 * time.Millisecond
+	h.ValidateSession = func(context.Context, string) (time.Time, error) {
+		return time.Now().Add(time.Hour), nil
+	}
+	var calls atomic.Int32
+	h.ValidateMembership = func(context.Context, string, string) (bool, error) {
+		return calls.Add(1) == 1, nil
+	}
+	ws := attachMemberTestConn(t, h, "room", "bob", SessionAuth{
+		TokenID: "live-token", SpaceID: "space-1", ExpiresAt: time.Now().Add(time.Hour),
+	})
+	defer ws.Close()
+
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, _, err := ws.ReadMessage(); err == nil {
+		t.Fatal("a member removed on another process kept their websocket")
+	} else if closeErr, ok := err.(*websocket.CloseError); !ok || closeErr.Code != websocket.ClosePolicyViolation {
+		t.Fatalf("revalidated-away member close = %v, want policy violation", err)
+	}
+}
