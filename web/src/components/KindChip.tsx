@@ -31,25 +31,10 @@ export function KindChip({ kind, size = "md" }: Props) {
 function KindIcon({ kind }: { kind: string }) {
   switch (kind) {
     case "poker":
-      // Two cards, the back one fanned out from behind the front.
-      return (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 14 14"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.25"
-          strokeLinejoin="round"
-          className="shrink-0"
-          aria-hidden
-        >
-          <rect x="1.6" y="3.1" width="5.2" height="8" rx="1.1" transform="rotate(-16 4.2 7.1)" />
-          <rect x="6.6" y="2.9" width="5.8" height="8.4" rx="1.2" />
-        </svg>
-      );
-    case "standup":
-      // A person, with two arcs for the speaking they stand up to do.
+      // One card face-on, with the edge of the card behind it showing. At 14px
+      // a second full outline would fuse with the first: every stroke here is
+      // at least 1.9 units of centreline from its neighbour, comfortably clear
+      // of the 1.25 it is drawn with.
       return (
         <svg
           width="14"
@@ -59,13 +44,34 @@ function KindIcon({ kind }: { kind: string }) {
           stroke="currentColor"
           strokeWidth="1.25"
           strokeLinecap="round"
+          strokeLinejoin="round"
           className="shrink-0"
           aria-hidden
         >
-          <circle cx="5" cy="4.25" r="2.05" />
-          <path d="M1.6 11.6a3.4 3.4 0 0 1 6.8 0" />
-          <path d="M10.2 5.4a1.6 1.6 0 0 1 0 3.2" />
-          <path d="M12 3.9a3.6 3.6 0 0 1 0 6.2" />
+          <rect x="2.6" y="3.2" width="6.2" height="7.6" rx="1.1" />
+          <line x1="10.8" y1="4.6" x2="10.8" y2="9.4" />
+        </svg>
+      );
+    case "standup":
+      // A person with one arc of speech coming off them. One arc, not two:
+      // two nested arcs small enough to fit beside the head merge into a
+      // smudge at 14px. Same 1.9-unit floor between neighbouring strokes.
+      return (
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 14 14"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.25"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="shrink-0"
+          aria-hidden
+        >
+          <circle cx="4.6" cy="4" r="1.9" />
+          <path d="M1.3 11.4a3.3 3.3 0 0 1 6.6 0" />
+          <path d="M10.19 4.4a3.4 3.4 0 0 1 0 5.2" />
         </svg>
       );
     default:
