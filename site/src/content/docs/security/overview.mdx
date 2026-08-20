@@ -43,6 +43,8 @@ misses real guessers or punishes innocent ones. See
 ## What the server does enforce
 
 - Acting in a space requires having joined it.
+- Promoting, demoting, and removing a member are owner-only, and a space can
+  never be left without an owner. See [Authorization](/security/authorization/).
 - A protected space refuses joins without the code.
 - A session's existence is never disclosed to non-members — the reply to a
   stranger is the same 404 either way.

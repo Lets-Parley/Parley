@@ -23,7 +23,8 @@ configure.
 - **Data**: everything is in your Postgres.
 - **Identity**: none by default on a trusted network; optionally any OpenID
   Connect provider, or an external authentication proxy for public access.
-- **Access control**: a six-character room code per space.
+- **Access control**: a six-character room code per space, plus an owner role
+  that gates membership management within it.
 
 ## The one-paragraph summary
 
@@ -35,7 +36,8 @@ meeting controls are facilitator-only; ordinary members retain voting, their own
 standup entries, and their own standup readiness signal. The interesting protections are around
 *vote secrecy* (strong, and structural) and *not disclosing what exists to
 strangers* (also strong). The gaps are concentrated in operations and governance:
-no space owner or administrator roles, no audit log (a `LOG_LEVEL=debug`
+no instance-wide administrator (the owner role is per space, and gates
+membership management only — not the room code), no audit log (a `LOG_LEVEL=debug`
 opt-in logs the resolved client address and forwarding chain per request for
 proxy diagnosis; it is neither retained nor queryable as an audit trail), no
 retention or erasure
@@ -45,8 +47,9 @@ provenance for releases it produces; v0.1.0 through v0.2.1 were not backfilled.
 
 If your requirement is "a team of engineers estimates stories without a
 third-party SaaS", it fits well. If your requirement is "attributable,
-auditable, role-based access to work-planning data", it does not fit yet without
-an SSO proxy in front and some SQL of your own.
+auditable access to work-planning data", it does not fit yet without an SSO
+proxy in front and some SQL of your own: the role model is two roles inside one
+space, not an access-control plane over the instance.
 
 ## Data inventory
 
@@ -78,7 +81,8 @@ Full detail: [Data and privacy](/security/data-and-privacy/).
   { name: "CSV formula-injection escaping", status: "built", detail: "Cells starting = + - @ tab or CR are quote-prefixed." },
   { name: "Container hardening", status: "built", detail: "distroless static non-root; the k8s manifest adds drop ALL, no privilege escalation, seccomp RuntimeDefault, read-only root filesystem." },
   { name: "Transport security", status: "not-built", detail: "Parley never terminates TLS and does not send HSTS. Terminate at a proxy and add HSTS there." },
-  { name: "Space owner and administrator roles", status: "not-built", detail: "Any member may rotate or remove the room code. Story mutations and session controls are facilitator-only. Keep membership small, or gate the instance behind an SSO proxy." },
+  { name: "Space owner role", status: "built", detail: "<code>members.role</code> is <code>owner</code> or <code>member</code>, constrained in the database since migration <code>0015</code>, and a space is never left without an owner. Only an owner may promote, demote, or remove a member; a member gets 403 and an outsider 404. It stops there: any member may still rotate or remove the room code, and story and session controls are facilitator-only rather than owner-only." },
+  { name: "Instance administrator", status: "not-built", detail: "Ownership is per space and confers nothing outside it. There is no operator account, no cross-space view, and no way to administer an instance other than SQL. Gate the instance behind an SSO proxy if that matters." },
   { name: "Audit logging", status: "not-built", detail: "None. Rows carry user_id and timestamps; reconstruct from Postgres if needed." },
   { name: "Retention and erasure", status: "not-built", detail: "Application records are not automatically deleted. Token authorization expires, but its row remains. Write erasure SQL against the documented schema; deleting a user who facilitated a session is blocked by a foreign key." },
   { name: "General ingress rate limiting", status: "not-built", detail: "Identity creation and room-code guesses are throttled, and resources have configurable caps. Apply request and WebSocket limits at your ingress too. Note the client itself is now a steady low-rate caller: an open space page re-reads the space every 30 seconds, about 2 requests per minute per tab, so size any limit above that." },
@@ -95,7 +99,8 @@ The consequence is that a database dump discloses every space's code — which i
 why a code is treated as a door, not as an identity.
 
 **Membership is the space trust boundary.** Facilitator checks narrow story and
-session control, but members may still change or remove the space's room code.
+session control, and owner checks narrow membership management, but any member
+may still change or remove the space's room code.
 
 **Anonymous participation is the default.** It is the product on a trusted
 network; public deployments need an additional access and abuse-control layer.
@@ -105,11 +110,17 @@ network; public deployments need an additional access and abuse-control layer.
 - *Can we require SSO before anyone reaches a room?* Only by putting an SSO proxy
   in front of the whole instance. `AUTH_MODE=oidc` identifies people, but does
   not gate space access.
-- *Can we revoke one person's access?* There is no UI. Delete that person's rows
-  from `session_tokens`; HTTP access stops immediately. WebSocket shared-store
-  detection and removal can take nearly 60 seconds; transport closure then
-  follows subject to the active-write and close-frame deadlines. Rotate the room
-  code to prevent a new membership.
+- *Can we revoke one person's access to a space?* Yes — an owner removes them
+  from the space's member list. Membership is re-read on every request, so their
+  next one sees the stranger view, and their live sockets for that space are
+  closed (immediately on the replica serving the removal, at the next
+  revalidation tick — 30 seconds by default — elsewhere). It is not a ban: they
+  can rejoin with a current room code, so rotate the code too.
+- *Can we sign one person out of the instance entirely?* There is no UI for
+  that. Delete that person's rows from `session_tokens`; HTTP access stops
+  immediately. WebSocket shared-store detection and removal can take nearly 60
+  seconds; transport closure then follows subject to the active-write and
+  close-frame deadlines.
 - *Can we prove who estimated what?* In `oidc` mode, yes, from the database. There
   is no report and no audit trail; the data is there to query.
 - *What happens on a breach of the database?* Everything is disclosed, including
