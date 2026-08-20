@@ -241,18 +241,31 @@ describe("Table", () => {
     // it is projected into. Big on the field, spoken once by the live region.
     renderTable({ votedUserIds: ["dana"], cueState: "first-light" });
     const big = screen.getByTestId("waiting-count");
-    expect(big.textContent).toContain("1");
-    expect(big.textContent).toContain("3");
+    // Pinned exact: votedCount and canVote sit on either side of the slash,
+    // so a swap between them would read as plausible if only substrings were
+    // checked.
+    expect(big.textContent).toBe("1 / 3voted");
     expect(big.className).toContain("text-[1.5rem]");
     expect(big.className).toContain("tabular-nums");
     expect(big.getAttribute("aria-hidden")).toBe("true");
     // One live region, one voice: the count is spoken, not printed twice.
     expect(screen.getByRole("status").textContent).toContain("1 of 3");
+    // Before reveal, the live-region span carrying the count must stay
+    // sr-only — it duplicates what is already big on the field.
+    const liveCountSpan = screen.getByRole("status").querySelector("span:first-child");
+    expect(liveCountSpan?.className).toContain("sr-only");
   });
 
   it("hands the field back to the seats once the votes are up", () => {
     renderTable({ votedUserIds: ["dana"], revealed: true, cueState: "day" });
     expect(screen.queryByTestId("waiting-count")).toBeNull();
+    // The seats stay put on reveal — this test's name promises exactly that.
+    expect(screen.getByTestId("seat-ranks").children.length).toBe(3);
+    // After reveal, the live-region span carrying the count must NOT be
+    // sr-only — sighted users need to see it now that the big field number
+    // is gone.
+    const liveCountSpan = screen.getByRole("status").querySelector("span:first-child");
+    expect(liveCountSpan?.className).not.toContain("sr-only");
     expect(screen.getByRole("status").textContent).toContain("1 vote on the table");
   });
 });
