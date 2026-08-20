@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import { PokerRoom } from "./PokerRoom";
 import { makePerson, renderApp } from "../test/render";
 import type { Envelope, Me } from "../lib/api";
@@ -257,8 +257,31 @@ describe("PokerRoom end session", () => {
     const del = vi.spyOn(globalThis, "fetch");
     renderApp(<PokerRoom env={envelope({ facilitatorConnected: true })} me={dana} />);
     screen.getByRole("button", { name: "End session" }).click();
-    expect(del).not.toHaveBeenCalled();
     expect(await screen.findByText("End this session?")).toBeTruthy();
+    expect(del).not.toHaveBeenCalled();
     screen.getByRole("button", { name: "Keep playing" }).click();
+    await waitFor(() =>
+      expect(screen.queryByText("End this session?")).toBeNull(),
+    );
+    expect(del).not.toHaveBeenCalled();
+  });
+
+  it("does not offer End session to a non-facilitator", () => {
+    renderApp(<PokerRoom env={envelope({ facilitatorConnected: true })} me={me} />);
+    expect(
+      screen.queryByRole("button", { name: "End session" }),
+    ).toBeNull();
+  });
+
+  it("does not offer End session once the session has ended", () => {
+    renderApp(
+      <PokerRoom
+        env={envelope({ endedAt: "2026-08-18T10:00:10.000Z" })}
+        me={dana}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "End session" }),
+    ).toBeNull();
   });
 });
