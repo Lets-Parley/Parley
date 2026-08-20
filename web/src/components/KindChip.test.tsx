@@ -230,7 +230,7 @@ describe("KindChip", () => {
     const d = svg.querySelector("path")!.getAttribute("d")!;
     const c = CORNER.exec(d);
     expect(c).toBeTruthy();
-    const [x, y, vy, , , , , , ax, ay, hx] = c!.slice(1).map(Number);
+    const [x, y, vy, , , , , , ax, , hx] = c!.slice(1).map(Number);
     expect(Math.abs(vy - y)).toBeGreaterThanOrEqual(1.5);
     expect(Math.abs(hx - ax)).toBeGreaterThanOrEqual(1.5);
     // …and the corner has to sit above and right of the front card, or it is
