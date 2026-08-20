@@ -3,7 +3,10 @@ package session
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // testConfig stands in for a real kind's config document. Registering a kind
@@ -193,5 +196,29 @@ func TestRegisterRefusesAnActionThatAnswersGET(t *testing.T) {
 	}
 	if r.Known("peek") {
 		t.Fatal("the kind was registered anyway")
+	}
+}
+
+// TestStateFuncTakesTheConcretePool pins a decision, not a mechanism.
+//
+// Issue #143 asked whether StateFunc should shed *pgxpool.Pool for a narrow
+// SessionReader interface. It should not, and the reasoning is written down in
+// the add-a-session-kind checklist in
+// site/src/content/docs/project/contributing.mdx. In short: every existing
+// state builder issues arbitrary SQL — poker joins stories to votes and
+// aggregates, standup reads sessions and standup_entries — so the interface
+// would have to expose Query and QueryRow, which still hands a kind author
+// pgx.Rows and pgx.Row. It would rename the dependency rather than remove it,
+// and faking it well enough to be worth trusting means reimplementing pgx.Rows.
+//
+// This test exists so that narrowing the signature is a deliberate act that
+// revisits the recorded reasoning, rather than a drive-by refactor.
+func TestStateFuncTakesTheConcretePool(t *testing.T) {
+	ft := reflect.TypeOf(StateFunc(nil))
+	if got, want := ft.NumIn(), 3; got != want {
+		t.Fatalf("StateFunc takes %d parameters, want %d", got, want)
+	}
+	if got, want := ft.In(1), reflect.TypeOf((*pgxpool.Pool)(nil)); got != want {
+		t.Fatalf("StateFunc's second parameter is %s, want %s — see the add-a-session-kind checklist before changing this", got, want)
 	}
 }

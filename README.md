@@ -279,8 +279,11 @@ calls newest, so the same command gives you a different Parley next month.
 
 It refuses to render rather than hand you a deployment that cannot work: a
 moving image tag, a fractional replica count, a missing database secret, OIDC
-without a client secret, or ingress TLS under an `http://` base URL all fail at
-`helm template` time with a message saying why. `helm test` then checks the
+with neither `auth.oidc.existingSecret` nor `auth.oidc.publicClient` chosen, or
+ingress TLS under an `http://` base URL all fail at `helm template` time with a
+message saying why. A public client is a supported registration — Parley uses
+PKCE — but which one you have has to be said out loud, so a values merge that
+drops the secret cannot quietly turn a confidential client into a public one. `helm test` then checks the
 Service actually routes to a pod that is ready — which means it reached Postgres
 *and* is holding the `LISTEN` it hears other replicas on. It fails if either is
 down.

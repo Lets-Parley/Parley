@@ -58,6 +58,12 @@ export type SpaceView = {
   /** The kinds a new session may use — retired kinds are omitted. Members only. */
   kinds?: string[];
 };
+/** One space the caller belongs to, as listed on the landing page. */
+export type Membership = {
+  slug: string;
+  name: string;
+  protected: boolean;
+};
 export type SessionSummary = {
   id: string;
   kind: string;

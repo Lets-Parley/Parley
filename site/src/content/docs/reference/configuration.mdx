@@ -156,6 +156,10 @@ Required when `AUTH_MODE=oidc`.
 <EnvVar name="OIDC_CLIENT_SECRET">
 Optional. Parley uses PKCE, so it works as a public client with no secret at all
 — which is the right choice if your provider offers it.
+
+The Helm chart supports both: set `auth.oidc.publicClient=true` for a public
+registration, or `auth.oidc.existingSecret` for a confidential one. It refuses
+to render if you set neither, or both.
 </EnvVar>
 
 <EnvVar name="OIDC_SCOPES" default="profile email">

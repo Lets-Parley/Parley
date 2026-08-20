@@ -128,7 +128,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build image
-        run: docker build --pull --tag parley:ci .
+        run: docker build --pull --build-arg VERSION=ci-test --tag parley:ci .
       - name: Smoke test first run
         run: |
           set -eu
@@ -149,6 +149,22 @@ jobs:
           done
           curl -fsS http://127.0.0.1:8080/readyz
           curl -fsS http://127.0.0.1:8080/ | grep -qi '<div id="root">'
+          # The released image must report the version it was built from. A
+          # missing --build-arg leaves the Dockerfile default ("dev") in the
+          # binary, which is exactly how a published release shipped unstamped.
+          #
+          # Coverage note: this build uses plain `docker build`, so it proves
+          # the Dockerfile's ARG->ldflag contract and the /version endpoint.
+          # It does NOT exercise docker/build-push-action's own build-args
+          # passthrough (buildx, multi-platform, OCI export) used by the
+          # release workflow -- see the buildx-arg-passthrough job below for
+          # that.
+          reported=$(curl -fsS http://127.0.0.1:8080/version | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+          if [ "$reported" != "ci-test" ]; then
+            echo "expected /version to report ci-test, got: ${reported:-<unparsable>}" >&2
+            curl -fsS http://127.0.0.1:8080/version >&2 || true
+            exit 1
+          fi
       - name: Export image
         run: docker save parley:ci | gzip > parley-ci.tar.gz
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -157,6 +173,39 @@ jobs:
           path: parley-ci.tar.gz
           retention-days: 1
           if-no-files-found: error
+
+  buildx-arg-passthrough:
+    name: build-push-action arg passthrough
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The docker job above proves the Dockerfile's ARG->ldflag contract via
+      # plain `docker build`. The release workflow never calls `docker build`
+      # directly -- it goes through docker/build-push-action (buildx,
+      # multi-platform, OCI export), and that action's own build-args
+      # passthrough was exactly what broke in the incident this PR fixes.
+      # Nothing exercised it until a tag was cut. This job closes that gap
+      # cheaply: single-platform, loaded straight into the local daemon, and
+      # checked with the binary's own `-version` flag so it needs no
+      # database or running server.
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Build via build-push-action with the release build-arg
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          load: true
+          push: false
+          tags: parley:buildx-arg-check
+          build-args: |
+            VERSION=buildx-arg-check
+      - name: Assert the build-arg reached the binary
+        run: |
+          set -eu
+          reported=$(docker run --rm parley:buildx-arg-check -version)
+          if [ "$reported" != "buildx-arg-check" ]; then
+            echo "expected -version to report buildx-arg-check, got: ${reported:-<empty>}" >&2
+            exit 1
+          fi
 
   container-scan:
     name: container scan
@@ -245,12 +294,104 @@ jobs:
             --set database.existingSecret=x --set replicaCount=2 > /tmp/two.yaml
           grep -q 'replicas: 2' /tmp/two.yaml
           grep -q '^kind: PodDisruptionBudget$' /tmp/two.yaml
-      - name: refuses oidc without a client secret
+      # A public (secretless, PKCE) client is a legitimate registration and the
+      # binary has always accepted one, so the chart must render it — but a
+      # deployment that ends up secretless because a values merge dropped
+      # existingSecret is a silent downgrade of a confidential client, so the
+      # choice has to be declared. All four corners, or the guard is untested.
+      - name: renders a public oidc client and refuses an undeclared one
         run: |
+          oidc() {
+            helm template parley deploy/charts/parley \
+              --set database.existingSecret=x --set auth.mode=oidc \
+              --set auth.oidc.issuer=https://idp.example.com \
+              --set auth.oidc.clientID=parley "$@"
+          }
+          # publicClient: renders, and sends no client secret at all.
+          oidc --set auth.oidc.publicClient=true > /tmp/oidc-public.yaml
+          grep -q 'OIDC_CLIENT_ID' /tmp/oidc-public.yaml \
+            || { echo "public client rendered no OIDC config"; exit 1; }
+          ! grep -q 'OIDC_CLIENT_SECRET' /tmp/oidc-public.yaml \
+            || { echo "public client still ships a client secret"; exit 1; }
+          # existingSecret: renders, and reads the secret from the Secret.
+          oidc --set auth.oidc.existingSecret=parley-oidc > /tmp/oidc-conf.yaml
+          grep -q 'OIDC_CLIENT_SECRET' /tmp/oidc-conf.yaml \
+            || { echo "confidential client lost its client secret"; exit 1; }
+          grep -q 'name: parley-oidc' /tmp/oidc-conf.yaml \
+            || { echo "secretKeyRef does not name the secret"; exit 1; }
+          grep -q 'key: oidc-client-secret' /tmp/oidc-conf.yaml \
+            || { echo "secretKeyRef does not name the key"; exit 1; }
+          # Neither: fails, and the message names both ways out.
+          oidc 2>/tmp/oidc-neither.err && { echo "rendered with no client mode chosen"; exit 1; }
+          grep -q 'auth.oidc.existingSecret' /tmp/oidc-neither.err \
+            || { echo "message does not mention existingSecret"; exit 1; }
+          grep -q 'auth.oidc.publicClient' /tmp/oidc-neither.err \
+            || { echo "message does not mention publicClient"; exit 1; }
+          # Both: a contradiction, so it fails rather than picking one.
+          ! oidc --set auth.oidc.publicClient=true \
+            --set auth.oidc.existingSecret=parley-oidc 2>/dev/null \
+            || { echo "rendered a public client that also has a secret"; exit 1; }
+      # Go templates treat ANY non-empty string as truthy — including the
+      # string "false" — so a raw `{{- if .Values.auth.oidc.publicClient }}`
+      # would let a string-typed "false" (ArgoCD parameter overrides,
+      # Helmfile, --set-string, quoted booleans from CI templating) silently
+      # mean "true": a confidential client declared publicClient=false in
+      # quotes would render with no OIDC_CLIENT_SECRET at all. The chart
+      # coerces the value instead of trusting raw truthiness, so this must
+      # still refuse. Every boolean-ish value in the chart gets the same
+      # string-typed check here — a string "false" must behave exactly like
+      # the bool false everywhere.
+      - name: treats a string-typed boolean the same as a real one
+        run: |
+          # auth.oidc.publicClient: "false" as a string is still "not
+          # declared public" and must hit the same refusal as leaving it
+          # unset — NOT silently render a secretless public client.
           ! helm template parley deploy/charts/parley \
             --set database.existingSecret=x --set auth.mode=oidc \
             --set auth.oidc.issuer=https://idp.example.com \
-            --set auth.oidc.clientID=parley 2>/dev/null
+            --set auth.oidc.clientID=parley \
+            --set-string auth.oidc.publicClient=false 2>/dev/null \
+            || { echo "string publicClient=false silently rendered"; exit 1; }
+          # auth.oidc.publicClient: "true" as a string must behave exactly
+          # like the bool true.
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set auth.mode=oidc \
+            --set auth.oidc.issuer=https://idp.example.com \
+            --set auth.oidc.clientID=parley \
+            --set-string auth.oidc.publicClient=true > /tmp/oidc-string-true.yaml
+          ! grep -q 'OIDC_CLIENT_SECRET' /tmp/oidc-string-true.yaml \
+            || { echo "string publicClient=true still ships a client secret"; exit 1; }
+          # trustProxyHeaders: "false" as a string must not trip the "true
+          # but no CIDRs" guard.
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x \
+            --set-string trustProxyHeaders=false >/dev/null \
+            || { echo "string trustProxyHeaders=false wrongly refused to render"; exit 1; }
+          # trustProxyHeaders: "true" as a string must still require CIDRs.
+          ! helm template parley deploy/charts/parley \
+            --set database.existingSecret=x \
+            --set-string trustProxyHeaders=true 2>/dev/null \
+            || { echo "string trustProxyHeaders=true rendered with no CIDR allowlist"; exit 1; }
+          # ingress.enabled: "false" as a string must not create an Ingress.
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x \
+            --set-string ingress.enabled=false > /tmp/ingress-string-false.yaml
+          ! grep -q '^kind: Ingress$' /tmp/ingress-string-false.yaml \
+            || { echo "string ingress.enabled=false still created an Ingress"; exit 1; }
+          # serviceAccount.create: "false" as a string must not create one.
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x \
+            --set-string serviceAccount.create=false > /tmp/sa-string-false.yaml
+          ! grep -q '^kind: ServiceAccount$' /tmp/sa-string-false.yaml \
+            || { echo "string serviceAccount.create=false still created a ServiceAccount"; exit 1; }
+          # podDisruptionBudget.enabled: "false" as a string must not create
+          # a PDB even with enough replicas to otherwise qualify.
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set replicaCount=2 \
+            --set-string podDisruptionBudget.enabled=false > /tmp/pdb-string-false.yaml
+          ! grep -q '^kind: PodDisruptionBudget$' /tmp/pdb-string-false.yaml \
+            || { echo "string podDisruptionBudget.enabled=false still created a PDB"; exit 1; }
+
       # A guard that only catches the exact string it was written against is not
       # a guard. These are the shapes that walked through the first version.
       - name: refuses a moving tag whatever the casing or padding
@@ -381,7 +522,7 @@ jobs:
   gate:
     name: required / gate
     if: always()
-    needs: [go, web, site, dependency-review, dco, docker, container-scan, chart]
+    needs: [go, web, site, dependency-review, dco, docker, container-scan, chart, buildx-arg-passthrough]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every check
@@ -393,4 +534,5 @@ jobs:
           test "${{ needs.dco.result }}" = success
           test "${{ needs.docker.result }}" = success
           test "${{ needs.container-scan.result }}" = success
+          test "${{ needs.buildx-arg-passthrough.result }}" = success
           test "${{ needs.chart.result }}" = success
