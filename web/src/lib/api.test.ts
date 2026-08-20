@@ -113,6 +113,7 @@ describe("action", () => {
       ["skip", "POST"],
       ["story", "PATCH"],
       ["standup", "PUT"],
+      ["ready", "PUT"],
     ];
     for (const [name, method] of cases) {
       f.mockClear();

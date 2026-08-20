@@ -17,9 +17,14 @@ import (
 func actions() map[string]session.Action {
 	return map[string]session.Action{
 		"standup": {Verb: http.MethodPut, Do: putEntry},
-		"start":   {Verb: http.MethodPost, Do: start, FacilitatorOnly: true},
-		"next":    {Verb: http.MethodPost, Do: next, FacilitatorOnly: true},
-		"skip":    {Verb: http.MethodPost, Do: skip, FacilitatorOnly: true},
+		// Readiness is a member signal, not a facilitator one: FacilitatorOnly
+		// here would leave nobody able to say they are ready. PUT because the
+		// body carries the state wanted rather than a toggle — a retried
+		// request lands on the same answer.
+		"ready": {Verb: http.MethodPut, Do: setReady},
+		"start": {Verb: http.MethodPost, Do: start, FacilitatorOnly: true},
+		"next":  {Verb: http.MethodPost, Do: next, FacilitatorOnly: true},
+		"skip":  {Verb: http.MethodPost, Do: skip, FacilitatorOnly: true},
 	}
 }
 
@@ -70,6 +75,94 @@ func putEntry(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		})
 	if err != nil {
 		writeMutationError(w, err, "could not save your update")
+		return
+	}
+	done(w, r, ac)
+}
+
+// roundStarted reports whether the speaking order is already fixed. A standup
+// sits at the empty phase until start() moves it to "speaking" and then "done".
+func roundStarted(phase string) bool {
+	return phase == "speaking" || phase == "done"
+}
+
+// ensureReadyEntryRow creates the caller's entry row so a readiness signal has
+// somewhere to live, and does nothing at all if one already exists.
+//
+// It deliberately does not reuse putEntry's upsert or start's roster insert.
+// putEntry serves spectators and every phase (a spectator's row is written and
+// then sorted out of the round by start); start writes the whole roster in one
+// set-based statement. This is the one place a row is created by a click that
+// carries no text, so it is the one place that has to answer all three of the
+// hazards on its own:
+//
+//   - position is not null with no default, so it is computed the way putEntry
+//     computes it;
+//   - start() prefills "yesterday" from this person's "today" in the space's
+//     previous standup with `on conflict do nothing`, so a row created here
+//     would silently swallow that carry-forward — it is carried forward here
+//     instead, by the same query start uses;
+//   - spectators are excluded, matching start, so one cannot gain a seat in the
+//     rail or a blank line in the CSV by clicking ready.
+//
+// Callers gate this on the gathering phase: position decides who holds the mic,
+// and a row inserted mid-round sorts after the current speaker, so advance()
+// would hand the turn to somebody who is not in the round.
+func ensureReadyEntryRow(r *http.Request, tx pgx.Tx, sess store.Session, userID string) error {
+	_, err := tx.Exec(r.Context(), `
+		insert into standup_entries (session_id, user_id, yesterday, position)
+		select $1, m.user_id,
+		       coalesce((
+		           select prev.today from standup_entries prev
+		           join sessions ps on ps.id = prev.session_id
+		           where prev.user_id = m.user_id and ps.space_id = $2 and ps.id <> $1
+		           order by ps.created_at desc limit 1
+		       ), ''),
+		       (select coalesce(max(position), 0) + 1 from standup_entries where session_id = $1)
+		from members m
+		where m.space_id = $2 and m.user_id = $3 and not m.spectator
+		on conflict (session_id, user_id) do nothing`,
+		sess.ID, sess.SpaceID, userID)
+	return err
+}
+
+// setReady records whether the caller has finished writing their update. It is
+// advisory: start() never reads it, and neither do the speaker queries or the
+// CSV.
+//
+// The update writes `ready` and nothing else. standup_entries is keyed
+// (session_id, user_id), so a conflict clause that also wrote yesterday/today/
+// blockers would wipe an autosaved update with no undo and broadcast the loss
+// to the room.
+func setReady(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+	var body struct {
+		Ready bool `json:"ready"`
+	}
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
+		return
+	}
+	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, false,
+		func(tx pgx.Tx, sess store.Session) error {
+			// Only while everyone is still gathering, and only for a signal
+			// somebody is actually raising: once the round is under way the
+			// signal is display-only, and an update that matches no row is the
+			// right no-op.
+			if body.Ready && !roundStarted(sess.Phase) {
+				if err := ensureReadyEntryRow(r, tx, sess, ac.UserID); err != nil {
+					return err
+				}
+			}
+			if _, err := tx.Exec(r.Context(),
+				"update standup_entries set ready = $3, updated_at = now() where session_id = $1 and user_id = $2",
+				sess.ID, ac.UserID, body.Ready); err != nil {
+				return err
+			}
+			_, err := tx.Exec(r.Context(), "update sessions set version = version + 1 where id = $1", sess.ID)
+			return err
+		})
+	if err != nil {
+		writeMutationError(w, err, "could not save your readiness")
 		return
 	}
 	done(w, r, ac)

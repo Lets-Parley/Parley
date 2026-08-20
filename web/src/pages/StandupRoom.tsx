@@ -11,6 +11,8 @@ export type StandupEntry = {
   blockers: string;
   position: number;
   skipped: boolean;
+  /** Advisory "I've finished writing" signal, shown only while gathering. */
+  ready: boolean;
 };
 type StandupState = {
   entries: StandupEntry[];
@@ -105,6 +107,12 @@ export function StandupRoom({
   const speaking = env.phase === "speaking";
   const done = env.phase === "done";
   const current = st.currentSpeakerId ? st.entries.find((e) => e.userId === st.currentSpeakerId) : undefined;
+  // Readiness is counted over the people who actually speak: a spectator has no
+  // entry row and no turn, so counting them would make "3 of 4" unreachable.
+  const speakers = env.participants.filter((p) => !p.spectator);
+  const readyIds = new Set(st.entries.filter((e) => e.ready).map((e) => e.userId));
+  const readyCount = speakers.filter((p) => readyIds.has(p.userId)).length;
+  const iAmReady = readyIds.has(me.id);
 
   // One polite line for the whole room. It never carries the countdown, so it
   // speaks on a turn change rather than on every 500ms tick, and it stays empty
@@ -186,9 +194,29 @@ export function StandupRoom({
             Jot down your update while everyone gathers. Your notes save automatically.
           </p>
           <EntryForm draft={draft} update={update} saveState={saveState} />
+          <button
+            className={(iAmReady ? buttonPrimary : buttonQuiet) + " self-start"}
+            aria-pressed={iAmReady}
+            onClick={() => run(() => action(env.id, "ready", { ready: !iAmReady }))}
+          >
+            {iAmReady ? "Ready — stand back down" : "I'm ready"}
+          </button>
+          {/* Who has signalled, in words. A dot or a tint alone would leave the
+              only copy of this fact in colour. */}
+          <ul data-testid="ready-roster" className="flex flex-col gap-1 text-sm">
+            {speakers.map((p) => (
+              <li key={p.userId} className="flex items-center gap-2">
+                <Avatar name={p.name} hue={p.avatarHue} size="sm" />
+                <span className="font-bold">{p.name}</span>
+                <span className={readyIds.has(p.userId) ? "text-accent" : "text-ink-faint"}>
+                  {readyIds.has(p.userId) ? "ready" : "still writing"}
+                </span>
+              </li>
+            ))}
+          </ul>
           {isFacilitator && (
             <button className={buttonPrimary + " self-start"} onClick={() => run(() => action(env.id, "start"))}>
-              Start the round
+              {`Start the round · ${readyCount} of ${speakers.length} ready`}
             </button>
           )}
         </section>
