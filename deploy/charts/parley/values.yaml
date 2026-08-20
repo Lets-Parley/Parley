@@ -165,9 +165,14 @@ trustProxyHeaders: false
 # same forgery just moves one hop upstream and arrives with the controller's
 # blessing.
 #
-# 0.0.0.0/0 and ::/0 are refused outright, both here and at startup: no real
-# topology has an all-of-the-internet proxy hop. A /16 is *not* refused —
-# alongside the NetworkPolicy it is the configuration that works.
+# 0.0.0.0/0 and ::/0 (and the ::0/0 / 0::0/0 spellings) are refused outright at
+# render time as a fast, common-case convenience — Helm has no IP parser, so
+# this is a literal-string match, not a real CIDR comparison. The Go binary is
+# the authoritative check: it parses every value and refuses ANY spelling of a
+# default route (including 0000:0000::/0 and friends), so a spelling the chart
+# doesn't recognize still fails, just later — at startup, as a
+# CrashLoopBackOff — rather than at `helm template` time. A /16 is *not*
+# refused — alongside the NetworkPolicy it is the configuration that works.
 trustedProxyCIDRs: ""
 
 # A NetworkPolicy that default-denies ingress to Parley's pods and lets only the
@@ -211,6 +216,12 @@ networkPolicy:
   # Appended verbatim to spec.ingress, for anything else that legitimately
   # reaches the pod — a Prometheus scraper, a second controller, a mesh sidecar.
   # Each entry is a full NetworkPolicyIngressRule.
+  #
+  # WARNING: an entry with no `from` key allows ingress from ANY source on the
+  # ports it lists — that is Kubernetes NetworkPolicy semantics, not a bug in
+  # this chart. `extraIngress: [{}]` (or any rule missing `from`) silently
+  # defeats the whole default-deny policy above. Always scope each entry with
+  # a `from` of namespaceSelector/podSelector/ipBlock peers.
   extraIngress: []
 
 logLevel: info
