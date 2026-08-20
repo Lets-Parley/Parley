@@ -6,7 +6,7 @@ description: The ordered list of things to get right before you expose Parley to
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/security.go", "internal/api/me.go", "internal/poker/routes.go", "cmd/parley/main.go", "deploy/k8s/deployment.yaml", ".github/workflows/release.yml"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/security.go", "internal/api/client_address.go", "internal/api/me.go", "internal/poker/routes.go", "cmd/parley/main.go", "deploy/k8s/deployment.yaml", "deploy/charts/parley/templates/networkpolicy.yaml", ".github/workflows/release.yml"]} />
 
 In order. The first three are the ones that actually bite.
 
@@ -33,11 +33,55 @@ Confirm it from the boot log rather than from your intent:
 `true` if and only if a proxy you control sets `X-Forwarded-For` itself. When it
 is true, `TRUSTED_PROXY_CIDRS` is required and must contain only the immediate
 and intermediate proxy hops Parley should trust. It must not contain a
-client-reachable network.
+client-reachable network. `0.0.0.0/0` and `::/0` are refused at startup.
 
 Wrong in one direction the room-code throttle never fires; wrong in the other the
 whole internet shares one throttle bucket and eight bad guesses lock everyone
 out. [Deployment](/operations/deployment/) has the detail.
+
+An appending proxy is not a problem: Parley walks the chain right-to-left to the
+first untrusted hop and never reads the leftmost value.
+
+### On Kubernetes: the workable CIDR is the pod CIDR, and it is client-reachable
+
+This is the one that bites in a cluster. The immediate peer Parley sees is the
+ingress controller's **pod** IP, and pod IPs are reassigned on every reschedule
+— so the only `TRUSTED_PROXY_CIDRS` that keeps working is the pod CIDR
+(`10.42.0.0/16`, `10.244.0.0/16`, whatever your CNI hands out). Every workload in
+the cluster can reach that network. Any pod can talk to Parley's Service
+directly, present its own `X-Forwarded-For`, and choose its client address,
+taking over another client's bucket in the passcode throttle or the open-mode
+identity-creation quota.
+
+"Never trust a client-reachable network" is true and useless here, because on
+Kubernetes there is no other choice. What you do instead is stop other pods
+reaching the Service:
+
+1. Enable the chart's NetworkPolicy — `networkPolicy.enabled=true`, with
+   `networkPolicy.ingressController.*` pointing at your controller. It
+   default-denies ingress to Parley's pods and admits only that controller. Off
+   by default because a CNI that ignores NetworkPolicies would make it look like
+   protection it is not. See
+   [Kubernetes](/operations/kubernetes/#the-pod-cidr-is-a-client-reachable-network).
+2. Or the equivalent: a service-mesh authorization policy, or a dedicated node
+   pool the Service is not routable from.
+
+Two gaps neither closes:
+
+- **`hostNetwork` pods** use the node's address, not a pod IP, so no
+  `namespaceSelector` or `podSelector` matches them.
+- **Node IPs that fall inside a trusted CIDR** are trusted regardless of the
+  policy — anything sourced from a node arrives from the node address. Check
+  your node and pod ranges do not overlap.
+
+### Narrow the proxy's own forwarded-header trust
+
+`TRUSTED_PROXY_CIDRS` closes the hole at Parley's boundary only. A proxy that
+accepts `X-Forwarded-For` from anyone and passes it on moves the same forgery one
+hop upstream, where it arrives with the proxy's blessing. Set Traefik's
+`entryPoints.*.forwardedHeaders.trustedIPs`, or ingress-nginx's
+`proxy-real-ip-cidr`, to just the load balancer or CDN in front of it. Both hops
+have to be narrowed; either one alone leaves the bypass open.
 
 ## 3. Add HSTS at the proxy
 
