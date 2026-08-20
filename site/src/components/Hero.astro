@@ -49,6 +49,9 @@ try {
 const imageAttrs = {
   loading: "eager" as const,
   decoding: "async" as const,
+  // The hero screenshots are ~200 KB as PNG and ~60 KB as WebP, and they are
+  // the largest thing on the landing page's critical path.
+  format: "webp" as const,
   width: 1280,
   height: 760,
   alt: image?.alt || "",
