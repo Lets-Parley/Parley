@@ -4,14 +4,23 @@
 {{- end }}
 {{- /*
   A default route in the allowlist trusts X-Forwarded-For from every address on
-  the internet, which is the same hole as an empty list wearing a value. Refused
-  specifically, and only these two: a /16 is a legitimate pod CIDR alongside the
-  NetworkPolicy, and refusing it would break the only Kubernetes configuration
-  that works. Parley refuses the same two at startup.
+  the internet, which is the same hole as an empty list wearing a value. A /16
+  is NOT refused: it is a legitimate pod CIDR alongside the NetworkPolicy, and
+  refusing it would break the only Kubernetes configuration that works.
+
+  Helm templates have no IP parser, so this is a literal-string match against
+  the common spellings of "everyone" — not a real CIDR comparison. It is a
+  fast, render-time convenience, not the authoritative check: the Go binary
+  parses every value with netip.ParsePrefix and refuses ANY prefix whose bits
+  are 0 (0000:0000::/0, 0::0/0, etc. included), so an operator who writes an
+  uncommon spelling of the default route will not be caught here, only at
+  startup — a CrashLoopBackOff instead of a `helm template` failure. Do not
+  add an IPv6 normalizer here to chase that; parse it once, in Go, at
+  startup, where it is already handled correctly.
 */ -}}
 {{- if $trustProxyHeaders }}
 {{- range (splitList "," (toString .Values.trustedProxyCIDRs)) }}
-{{- if has (trim .) (list "0.0.0.0/0" "::/0") }}
+{{- if has (trim .) (list "0.0.0.0/0" "::/0" "::0/0" "0::0/0") }}
 {{- fail (printf "trustedProxyCIDRs contains %s, a default route. That trusts a forwarded client address from every host on the internet — the throttle bypass trustProxyHeaders exists to prevent — and Parley refuses to start on it. List only the proxy hops; on Kubernetes that is your pod CIDR, together with networkPolicy.enabled=true." (trim .)) }}
 {{- end }}
 {{- end }}

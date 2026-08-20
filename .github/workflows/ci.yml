@@ -527,10 +527,28 @@ jobs:
             || { echo "expected exactly one peer in the from list"; exit 1; }
           ! grep -q -- '- podSelector:' /tmp/netpol.yaml \
             || { echo "namespaceSelector and podSelector are ORed, not ANDed"; exit 1; }
-      - name: writes no NetworkPolicy unless it is asked for
+      # extraIngress is an escape hatch: an entry with no `from` allows ingress
+      # from any source on the ports it lists, per plain Kubernetes
+      # NetworkPolicy semantics, not a chart bug. This pins that this is what
+      # extraIngress=[{}] actually renders, so a future change to how the
+      # chart merges it does not silently start scoping (or un-scoping) it.
+      - name: extraIngress with no "from" renders an unscoped rule
         run: |
           helm template parley deploy/charts/parley \
-            --set database.existingSecret=x > /tmp/netpol-default.yaml
+            --set database.existingSecret=x --set networkPolicy.enabled=true \
+            --set-json 'networkPolicy.extraIngress=[{}]' > /tmp/netpol-extra.yaml
+          awk '/^  ingress:/{f=1} f' /tmp/netpol-extra.yaml > /tmp/netpol-ingress-block.txt
+          test "$(grep -c -- '- from:' /tmp/netpol-ingress-block.txt)" = 1 \
+            || { echo "extraIngress=[{}] did not append as a from-less rule"; exit 1; }
+      - name: writes no NetworkPolicy unless it is asked for
+        run: |
+          # A render failure would also leave the NetworkPolicy grep empty —
+          # confirm the render actually succeeded first, or an unrelated
+          # break anywhere in the chart would pass this test for the wrong
+          # reason.
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x > /tmp/netpol-default.yaml \
+            || { echo "chart failed to render with no networkPolicy setting"; exit 1; }
           ! grep -q '^kind: NetworkPolicy$' /tmp/netpol-default.yaml \
             || { echo "a NetworkPolicy rendered by default"; exit 1; }
       # 0.0.0.0/0 is "trust the header from anyone" wearing a value, and passed
@@ -541,11 +559,19 @@ jobs:
         run: |
           # --set splits on commas, so multi-CIDR values go through
           # --set-string with the separator escaped.
-          for bad in 0.0.0.0/0 ::/0 '10.0.0.0/8\,0.0.0.0/0' '0.0.0.0/0\,10.0.0.0/8'; do
-            ! helm template parley deploy/charts/parley \
+          for bad in 0.0.0.0/0 ::/0 ::0/0 0::0/0 '10.0.0.0/8\,0.0.0.0/0' '0.0.0.0/0\,10.0.0.0/8'; do
+            # A bare non-zero exit also happens on ANY unrelated render
+            # failure (a `fail` somewhere else in the chart, a typo'd
+            # template), which would make this pass for the wrong reason.
+            # Capture stderr and check it is the default-route guard talking,
+            # not just that helm exited non-zero.
+            if helm template parley deploy/charts/parley \
               --set database.existingSecret=x --set trustProxyHeaders=true \
-              --set-string "trustedProxyCIDRs=$bad" 2>/dev/null \
-              || { echo "rendered with a default route in trustedProxyCIDRs: $bad"; exit 1; }
+              --set-string "trustedProxyCIDRs=$bad" >/dev/null 2>/tmp/netpol-bad.err; then
+              echo "rendered with a default route in trustedProxyCIDRs: $bad"; exit 1
+            fi
+            grep -q 'a default route' /tmp/netpol-bad.err \
+              || { echo "refused $bad for the wrong reason: $(cat /tmp/netpol-bad.err)"; exit 1; }
           done
           # A /16 is the pod CIDR every Kubernetes install needs, so a
           # prefix-width check here would break the only thing that works.
