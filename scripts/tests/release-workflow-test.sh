@@ -111,4 +111,32 @@ upload_with_repo=$(awk '
 test "$upload_count" -gt 0
 test "$upload_with_repo" -eq "$upload_count"
 
+# The publish receipt is the operator's answer to "did this release actually
+# ship anything", so it has to be evidence, not a restatement of the workflow's
+# own opinion. Two properties keep it honest: it resolves the image tag to the
+# digest that was validated, and it compares them. A receipt that only echoed
+# the version would be green on a release whose tag points somewhere else.
+grep -Fq 'publish-receipt:' "$workflow"
+grep -Fq 'test "$resolved" = "$DIGEST"' "$workflow"
+grep -Fq 'helm show chart' "$workflow"
+
+# Every gh release read/write outside a checkout needs --repo, for the same
+# reason the uploads do. `gh release edit` and `gh release view` were added
+# after that rule was written, so they are asserted by the same shape.
+for verb in view edit; do
+  cmd="gh release $verb"
+  cmd_count=$(grep -Fc "$cmd" "$workflow")
+  test "$cmd_count" -gt 0
+  cmd_with_repo=$(grep -F "$cmd" "$workflow" | grep -Fc -- '--repo "$GITHUB_REPOSITORY"')
+  test "$cmd_with_repo" -eq "$cmd_count"
+done
+
+# The receipt must be idempotent: a re-run strips the previous one before
+# writing a new one, or a second run stacks a second block and the release notes
+# grow a contradiction. That takes the marker in two places — the strip and the
+# emit — so assert the count, not mere presence. A presence check passes when
+# either half is deleted, which is the false green this guard exists to avoid.
+grep -Fq "sed '/<!-- parley-publish-receipt -->/,\$d'" "$workflow"
+grep -Fq "printf '<!-- parley-publish-receipt -->" "$workflow"
+
 echo "release workflow checks passed"
