@@ -1,6 +1,6 @@
 import { useId, useState, type FormEvent } from "react";
 import { action, errorText, type Story } from "../lib/api";
-import { buttonPrimary, buttonQuiet, inputClass, Modal } from "./Modal";
+import { ErrorRow, buttonPrimary, buttonQuiet, inputClass, Modal, type Fail } from "./Modal";
 import { faceOf } from "./Table";
 
 // A story may carry only a ref or only a title, so name it by whichever it has.
@@ -14,23 +14,28 @@ export function StoryQueue({
   currentStoryId,
   isFacilitator,
   onQuickRound,
-  onError,
+  fail,
+  onFail,
+  onDismiss,
 }: {
   sessionId: string;
   stories: Story[];
   currentStoryId: string | null;
   isFacilitator: boolean;
   onQuickRound: () => void;
-  onError: (msg: string) => void;
+  /** Owned by PokerRoom, rendered here: the aside's failures stay in the aside. */
+  fail: Fail | null;
+  onFail: (msg: string, retry?: () => Promise<unknown>) => void;
+  onDismiss: () => void;
 }) {
   const [composing, setComposing] = useState(false);
   const headingId = useId();
 
-  async function run(fn: () => Promise<unknown>) {
+  async function run(fn: () => Promise<unknown>, retryable = true) {
     try {
       await fn();
     } catch (e) {
-      onError(errorText(e));
+      onFail(errorText(e), retryable ? fn : undefined);
     }
   }
 
@@ -68,6 +73,14 @@ export function StoryQueue({
           </span>
         )}
       </div>
+
+      {fail && (
+        <ErrorRow
+          fail={fail}
+          onDismiss={onDismiss}
+          onRetry={fail.retry && (() => run(fail.retry!))}
+        />
+      )}
 
       {stories.length === 0 && (
         // A member has no add controls above, so "empty" alone is a dead end
@@ -111,8 +124,7 @@ export function StoryQueue({
 
             <span className="min-w-0 flex-1">
               <span
-                className="block font-mono text-[10px]"
-                style={{ color: s.ref ? "var(--color-ink-faint)" : "var(--color-brass)" }}
+                className={"block font-mono text-[10px] text-ink-faint" + (s.ref ? "" : " italic")}
               >
                 {s.ref || "ad hoc"}
                 {s.id === currentStoryId && <span className="text-accent"> · current</span>}
@@ -128,7 +140,7 @@ export function StoryQueue({
               <span
                 role="img"
                 aria-label={`Agreed estimate ${faceOf(s.estimate)}`}
-                className="flex h-[33px] w-6 shrink-0 items-center justify-center rounded-[5px] border border-brass bg-surface font-mono text-[0.8rem] shadow-rest"
+                className="flex h-[33px] w-6 shrink-0 items-center justify-center rounded-[5px] border border-settled bg-surface font-mono text-[0.8rem] text-settled shadow-rest"
               >
                 {faceOf(s.estimate)}
               </span>
@@ -152,7 +164,10 @@ export function StoryQueue({
         <StoryComposer
           onClose={() => setComposing(false)}
           onSubmit={async (title, notes, ref) => {
-            await run(() => action(sessionId, "stories", { title, notes, ref }));
+            // Story creation is not idempotent: retrying after a lost response
+            // can create a duplicate ticket in the queue. Deal/move stay
+            // retryable; this call must not offer Try again.
+            await run(() => action(sessionId, "stories", { title, notes, ref }), false);
             setComposing(false);
           }}
         />

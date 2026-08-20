@@ -20,10 +20,10 @@ export function ConnectionBanner({
       style={{
         background: stale
           ? "color-mix(in oklab, var(--color-stop) 14%, var(--color-surface))"
-          : "color-mix(in oklab, var(--color-brass) 18%, var(--color-surface))",
+          : "var(--color-accent-soft)",
       }}
     >
-      <span className={"h-2 w-2 shrink-0 rounded-full " + (stale ? "bg-stop" : "bg-brass")} />
+      <span className={"h-2 w-2 shrink-0 rounded-full " + (stale ? "bg-stop" : "bg-accent")} />
       {removed
         ? "You no longer have access to this space — an owner removed you. Ask them for an invite to rejoin."
         : stale

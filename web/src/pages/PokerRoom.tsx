@@ -6,10 +6,10 @@ import { GRACE_SECONDS, claimState, voteTally } from "../lib/derive";
 import { useCountdown, useToast } from "../lib/ui";
 import { Avatar } from "../components/Avatar";
 import { Hand } from "../components/Hand";
-import { Modal, buttonDanger, buttonPrimary, buttonQuiet } from "../components/Modal";
+import { ErrorRow, Modal, buttonDanger, buttonGo, buttonPrimary, buttonQuiet, type Fail } from "../components/Modal";
 import { ResultsPanel, heroOf } from "../components/ResultsPanel";
 import { StoryQueue } from "../components/StoryQueue";
-import { Table } from "../components/Table";
+import { Table, faceOf } from "../components/Table";
 
 export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
   const say = useToast();
@@ -20,7 +20,9 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
   const ended = env.endedAt !== null;
 
   const [selected, setSelected] = useState<string | null>(null);
-  const [error, setError] = useState("");
+  // Tagged with where it happened: an error belongs beside the control that
+  // raised it, not in one shared line in the middle of the page.
+  const [fail, setFail] = useState<(Fail & { where: "room" | "queue" }) | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
 
@@ -41,16 +43,24 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
   // moves neither of those and left the stale pick sitting on the table.
   useEffect(() => {
     setSelected(null);
-    setError("");
+    setFail(null);
   }, [epoch]);
 
-  async function run(fn: () => Promise<unknown>) {
+  async function run(
+    fn: () => Promise<unknown>,
+    opts: { where?: "room" | "queue"; retry?: boolean } = {},
+  ) {
     try {
-      setError("");
+      setFail(null);
       await fn();
       return true;
     } catch (e) {
-      setError(errorText(e));
+      setFail({
+        where: opts.where ?? "room",
+        msg: errorText(e),
+        // Only offer a retry where re-running the call is harmless.
+        retry: opts.retry ? fn : undefined,
+      });
       return false;
     }
   }
@@ -63,6 +73,9 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
       setSelected(prev);
     }
   }
+
+  // The next thing worth pointing at, in queue order — skipping what is done.
+  const nextUnestimated = st.stories.find((s) => s.id !== current?.id && !s.estimate);
 
   const { showClaim, graceLeft } = claimState(env, isFacilitator);
   const claimLeft = useCountdown(graceLeft);
@@ -77,8 +90,7 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
             <div className="min-w-0 flex-1 basis-[240px]">
               <div className="flex items-center gap-2">
                 <span
-                  className="font-mono text-[11px]"
-                  style={{ color: current.ref ? "var(--color-ink-faint)" : "var(--color-brass)" }}
+                  className={"font-mono text-[11px] text-ink-faint" + (current.ref ? "" : " italic")}
                 >
                   {current.ref || "ad hoc · no ticket"}
                 </span>
@@ -104,27 +116,50 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
                 <button
                   className={buttonPrimary}
                   disabled={!current || (current.votedUserIds.length === 0)}
-                  onClick={() => run(() => action(env.id, "reveal"))}
+                  onClick={() => run(() => action(env.id, "reveal"), { retry: true })}
                 >
                   Reveal
                 </button>
               ) : (
-                // Nothing to offer when the room only played "?" or coffee:
-                // there is no estimate in that round to write down.
-                results &&
-                heroOf(results).save && (
-                  <button
-                    className="rounded-full bg-go px-4 py-2.5 text-sm font-bold text-accent-ink shadow-rest transition hover:shadow-lift"
-                    onClick={async () => {
-                      const value = heroOf(results).save!;
-                      if (await run(() => action(env.id, "story", { storyId: current!.id, estimate: value }))) {
-                        say(`Estimate ${value} saved to ${current!.ref || "the ad-hoc round"}`);
-                      }
-                    }}
-                  >
-                    Save {heroOf(results).value} to story
-                  </button>
-                )
+                (current?.estimate ? (
+                  // The round is written down. The button used to stay put and
+                  // still say "Save", so the only evidence of the save expired
+                  // with the toast and a second click looked like the first.
+                  <>
+                    <span className="rounded-full border border-settled px-4 py-2 font-mono text-sm font-bold text-settled">
+                      Saved {faceOf(current.estimate)} to {current.ref || "the ad-hoc round"}
+                    </span>
+                    {nextUnestimated && (
+                      <button
+                        className={buttonPrimary}
+                        onClick={async () => {
+                          if (await run(() => action(env.id, "select", { storyId: nextUnestimated.id }))) {
+                            say(`${nextUnestimated.ref || nextUnestimated.title || "Next story"} is on the table`);
+                          }
+                        }}
+                      >
+                        Next story
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  // Nothing to offer when the room only played "?" or coffee:
+                  // there is no estimate in that round to write down.
+                  results &&
+                  heroOf(results).save && (
+                    <button
+                      className={buttonGo}
+                      onClick={async () => {
+                        const value = heroOf(results).save!;
+                        if (await run(() => action(env.id, "story", { storyId: current!.id, estimate: value }))) {
+                          say(`Estimate ${value} saved to ${current!.ref || "the ad-hoc round"}`);
+                        }
+                      }}
+                    >
+                      Save {heroOf(results).value} to story
+                    </button>
+                  )
+                ))
               )}
               <button className={buttonQuiet} onClick={() => (env.revealed ? setConfirmReset(true) : reset())}>
                 Reset
@@ -154,6 +189,14 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
             </span>
           </div>
         </header>
+
+        {fail?.where === "room" && (
+          <ErrorRow
+            fail={fail}
+            onDismiss={() => setFail(null)}
+            onRetry={fail.retry && (() => run(fail.retry!, { retry: true }))}
+          />
+        )}
 
         {ended && (
           <div className="rounded-panel border border-line bg-surface px-8 py-6 text-center shadow-rest">
@@ -266,12 +309,6 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
 
         {results && <ResultsPanel results={results} />}
 
-        {error && (
-          <p role="alert" className="text-center text-sm font-bold text-stop">
-            {error}
-          </p>
-        )}
-
         {current && !ended && (
           // Sticky so voting never needs a scroll: on a phone 15 seats take
           // several ranks and the page becomes a scrolling document.
@@ -307,7 +344,9 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
         currentStoryId={st.currentStoryId}
         isFacilitator={isFacilitator && !ended}
         onQuickRound={quickRound}
-        onError={setError}
+        fail={fail?.where === "queue" ? fail : null}
+        onFail={(msg, retry) => setFail({ where: "queue", msg, retry })}
+        onDismiss={() => setFail(null)}
       />
 
       {confirmEnd && (
@@ -365,7 +404,7 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
   // table so the room can point something the tracker has never heard of.
   async function quickRound() {
     const before = new Set(st.stories.map((s) => s.id));
-    if (!(await run(() => action(env.id, "stories", { title: "Ad-hoc round" })))) return;
+    if (!(await run(() => action(env.id, "stories", { title: "Ad-hoc round" }), { where: "queue" }))) return;
     // Outside run(), a failure here rejected unhandled and the button just
     // looked broken — while the story had in fact already been created.
     let added;
@@ -373,20 +412,26 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
       const fresh = await api<Envelope>("GET", `/api/sessions/${env.id}`);
       added = fresh.state.stories.find((s) => !before.has(s.id));
     } catch {
-      setError("The round was added but the table could not be refreshed — pick it from the queue.");
+      setFail({
+        where: "queue",
+        msg: "The round was added but the table could not be refreshed — pick it from the queue.",
+      });
       return;
     }
     if (!added) {
-      setError("The round was added but could not be found to deal — pick it from the queue.");
+      setFail({
+        where: "queue",
+        msg: "The round was added but could not be found to deal — pick it from the queue.",
+      });
       return;
     }
-    if (await run(() => action(env.id, "select", { storyId: added.id }))) {
+    if (await run(() => action(env.id, "select", { storyId: added.id }), { where: "queue", retry: true })) {
       say("Ad-hoc round on the table — no ticket needed");
     }
   }
 
   async function reset() {
-    if (await run(() => action(env.id, "reset"))) {
+    if (await run(() => action(env.id, "reset"), { retry: true })) {
       setSelected(null);
       say("Votes cleared — same story, fresh round");
     }

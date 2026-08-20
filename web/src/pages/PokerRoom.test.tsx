@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { PokerRoom } from "./PokerRoom";
 import { makePerson, renderApp } from "../test/render";
 import type { Envelope, Me } from "../lib/api";
@@ -245,6 +246,171 @@ describe("PokerRoom hand placement", () => {
     expect(sticky.className).toContain("bottom-0");
     // ponytail: sticky works only while Hand is the last child of the column.
     expect(sticky.parentElement?.lastElementChild).toBe(sticky);
+  });
+});
+
+describe("PokerRoom errors", () => {
+  const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+
+  it("reports a failed reveal beside the button that failed, with a retry", async () => {
+    // Every failure used to land in one line between the results panel and the
+    // hand — for a header action, a whole column away from the control.
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify({ error: "Nobody has voted yet." }), { status: 409 }));
+    const env = envelope({ facilitatorConnected: true });
+    env.state.stories[0].votedUserIds = ["marcus"];
+    renderApp(<PokerRoom env={env} me={dana} />);
+
+    screen.getByRole("button", { name: "Reveal" }).click();
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Nobody has voted yet.");
+    expect(within(alert).getByRole("button", { name: "Try again" })).toBeTruthy();
+
+    await userEvent.click(within(alert).getByRole("button", { name: "Dismiss error" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    fetchSpy.mockRestore();
+  });
+
+  it("routes a real queue-originated failure into the story queue landmark", async () => {
+    // A real failure driven through PokerRoom's routing, not a `fail` prop
+    // injected straight into StoryQueue — that would pass even if `where`
+    // were hardcoded to "room".
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify({ error: "Could not add the round." }), { status: 500 }));
+    const env = envelope({ facilitatorConnected: true });
+    renderApp(<PokerRoom env={env} me={dana} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "+ Ad hoc" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Could not add the round.");
+    const aside = screen.getByRole("complementary", { name: /Story queue/ });
+    expect(aside.contains(alert)).toBe(true);
+    fetchSpy.mockRestore();
+  });
+
+  it("does not offer Try again for a failed vote", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ error: "Could not record your vote." }), { status: 500 }),
+      );
+    renderApp(<PokerRoom env={envelope()} me={me} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "3" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Could not record your vote.");
+    expect(within(alert).queryByRole("button", { name: "Try again" })).toBeNull();
+    fetchSpy.mockRestore();
+  });
+
+  it("places the room's error row right after the header, before the table", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify({ error: "Nobody has voted yet." }), { status: 409 }));
+    const env = envelope({ facilitatorConnected: true });
+    env.state.stories[0].votedUserIds = ["marcus"];
+    renderApp(<PokerRoom env={env} me={dana} />);
+
+    screen.getByRole("button", { name: "Reveal" }).click();
+    const alert = await screen.findByRole("alert");
+    const header = alert.parentElement?.querySelector("header");
+    expect(header).toBeTruthy();
+    expect(header!.nextElementSibling).toBe(alert);
+    const table = screen.getByTestId("table-field");
+    expect(
+      alert.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    fetchSpy.mockRestore();
+  });
+
+  it("clears the failure banner when the round moves on to a new story", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify({ error: "Nobody has voted yet." }), { status: 409 }));
+    const env = envelope({ facilitatorConnected: true });
+    env.state.stories[0].votedUserIds = ["marcus"];
+    const { rerender } = renderApp(<PokerRoom env={env} me={dana} />);
+
+    screen.getByRole("button", { name: "Reveal" }).click();
+    await screen.findByRole("alert");
+
+    const next = envelope({ facilitatorConnected: true });
+    next.state.currentStoryId = "story-2";
+    next.state.stories = [
+      {
+        id: "story-2",
+        ref: "PLAT-413",
+        title: "Next story",
+        notes: "",
+        position: 2,
+        estimate: null,
+        status: "voting",
+        votedUserIds: [],
+      },
+    ];
+    rerender(<PokerRoom env={next} me={dana} />);
+    expect(screen.queryByRole("alert")).toBeNull();
+    fetchSpy.mockRestore();
+  });
+
+  it("re-runs the failed call when Try again is clicked", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify({ error: "Nobody has voted yet." }), { status: 409 }));
+    const env = envelope({ facilitatorConnected: true });
+    env.state.stories[0].votedUserIds = ["marcus"];
+    renderApp(<PokerRoom env={env} me={dana} />);
+
+    screen.getByRole("button", { name: "Reveal" }).click();
+    const alert = await screen.findByRole("alert");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const [firstPath] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    const [secondPath] = fetchSpy.mock.calls[1] as [string, RequestInit];
+    expect(secondPath).toBe(firstPath);
+    fetchSpy.mockRestore();
+  });
+});
+
+describe("PokerRoom saved estimate", () => {
+  const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+
+  function saved() {
+    const env = envelope({ facilitatorConnected: true, revealed: true });
+    env.state.stories[0].estimate = "5";
+    env.state.stories.push({
+      id: "story-2",
+      ref: "PLAT-413",
+      title: "Rotate the room codes",
+      notes: "",
+      position: 2,
+      estimate: null,
+      status: "pending",
+      votedUserIds: [],
+    });
+    return env;
+  }
+
+  it("settles the round instead of offering Save a second time", () => {
+    // The button used to read "Save 5 to story" after the save had landed.
+    renderApp(<PokerRoom env={saved()} me={dana} />);
+    expect(screen.queryByRole("button", { name: /^Save/ })).toBeNull();
+    expect(screen.getByText(/Saved 5 to PLAT-412/)).toBeTruthy();
+  });
+
+  it("points at the next unestimated story, and stays quiet once the queue is done", () => {
+    const { unmount } = renderApp(<PokerRoom env={saved()} me={dana} />);
+    expect(screen.getByRole("button", { name: "Next story" })).toBeTruthy();
+    unmount();
+
+    const done = saved();
+    done.state.stories[1].estimate = "3";
+    renderApp(<PokerRoom env={done} me={dana} />);
+    expect(screen.queryByRole("button", { name: "Next story" })).toBeNull();
   });
 });
 

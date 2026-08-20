@@ -77,3 +77,43 @@ export const inputClass =
   "w-full rounded-chip border border-line bg-surface-hi px-3.5 py-2.5 text-sm text-ink focus-visible:border-accent";
 export const labelClass =
   "mb-2 mt-4 block font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint";
+
+/** What failed, where it failed, and how to try it again. */
+export type Fail = { msg: string; retry?: () => Promise<unknown> };
+
+/**
+ * An error row that sits with the control that failed. One string in the middle
+ * of the page meant a failed "Deal" in the right-hand aside printed its reason
+ * in the left column, often below the fold.
+ */
+export function ErrorRow({
+  fail,
+  onDismiss,
+  onRetry,
+}: {
+  fail: Fail;
+  onDismiss: () => void;
+  onRetry?: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      className="flex items-center gap-2 rounded-chip px-3 py-2 text-[13px] font-bold text-stop"
+      style={{ background: "color-mix(in oklab, var(--color-stop) 12%, var(--color-surface))" }}
+    >
+      <span className="min-w-0 flex-1">{fail.msg}</span>
+      {fail.retry && onRetry && (
+        <button onClick={onRetry} className="shrink-0 font-bold underline hover:no-underline">
+          Try again
+        </button>
+      )}
+      <button
+        onClick={onDismiss}
+        aria-label="Dismiss error"
+        className="shrink-0 px-1 text-ink-faint hover:text-ink"
+      >
+        ✕
+      </button>
+    </div>
+  );
+}

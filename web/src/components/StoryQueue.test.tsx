@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StoryQueue } from "./StoryQueue";
 import { renderApp } from "../test/render";
@@ -19,7 +19,9 @@ function renderQueue() {
       currentStoryId={null}
       isFacilitator
       onQuickRound={vi.fn()}
-      onError={vi.fn()}
+      fail={null}
+      onFail={vi.fn()}
+      onDismiss={vi.fn()}
     />,
   );
 }
@@ -50,7 +52,9 @@ describe("StoryQueue", () => {
         currentStoryId={null}
         isFacilitator
         onQuickRound={vi.fn()}
-        onError={vi.fn()}
+        fail={null}
+        onFail={vi.fn()}
+        onDismiss={vi.fn()}
       />,
     );
     expect(screen.getByRole("button", { name: "Deal PAR-142" })).toBeTruthy();
@@ -82,5 +86,98 @@ describe("StoryQueue", () => {
     expect(path).toBe("/api/sessions/sess-1/actions/stories");
     expect(JSON.parse(init.body as string)).toMatchObject({ ref: "PAR-142", title: "" });
     fetchSpy.mockRestore();
+  });
+
+  it("keeps a failed queue action's reason inside the queue, dismissable", async () => {
+    // It used to be routed up to one shared line between the results panel and
+    // the hand — a different column from the button that failed.
+    const onDismiss = vi.fn();
+    const retry = vi.fn().mockResolvedValue(undefined);
+    renderApp(
+      <StoryQueue
+        sessionId="sess-1"
+        stories={stories}
+        currentStoryId={null}
+        isFacilitator
+        onQuickRound={vi.fn()}
+        fail={{ msg: "Could not deal that story.", retry }}
+        onFail={vi.fn()}
+        onDismiss={onDismiss}
+      />,
+    );
+    const alert = screen.getByRole("alert");
+    expect(within(alert).getByText("Could not deal that story.")).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: /Story queue/ }).contains(alert)).toBe(true);
+
+    await userEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+    expect(retry).toHaveBeenCalledTimes(1);
+    await userEvent.click(within(alert).getByRole("button", { name: "Dismiss error" }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers Try again for a real failed Deal, driven through StoryQueue's own run", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify({ error: "Could not deal that story." }), { status: 500 }));
+    let failArgs: [string, (() => Promise<unknown>) | undefined] | null = null;
+    renderApp(
+      <StoryQueue
+        sessionId="sess-1"
+        stories={stories}
+        currentStoryId={null}
+        isFacilitator
+        onQuickRound={vi.fn()}
+        fail={null}
+        onFail={(msg, retry) => {
+          failArgs = [msg, retry];
+        }}
+        onDismiss={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Deal Set up CI" }));
+    expect(failArgs).not.toBeNull();
+    const [msg, retry] = failArgs!;
+    expect(msg).toBe("Could not deal that story.");
+    expect(retry).toBeTypeOf("function");
+    fetchSpy.mockRestore();
+  });
+
+  it("does not offer Try again for a failed ticket creation, since retrying can duplicate it", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify({ error: "Could not add the ticket." }), { status: 500 }));
+    let failArgs: [string, (() => Promise<unknown>) | undefined] | null = null;
+    renderApp(
+      <StoryQueue
+        sessionId="sess-1"
+        stories={stories}
+        currentStoryId={null}
+        isFacilitator
+        onQuickRound={vi.fn()}
+        fail={null}
+        onFail={(msg, retry) => {
+          failArgs = [msg, retry];
+        }}
+        onDismiss={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "+ Ticket" }));
+    await userEvent.type(screen.getByPlaceholderText(/Ticket, e.g./), "PAR-142");
+    await userEvent.click(screen.getByRole("button", { name: "Add to queue" }));
+
+    expect(failArgs).not.toBeNull();
+    const [msg, retry] = failArgs!;
+    expect(msg).toBe("Could not add the ticket.");
+    expect(retry).toBeUndefined();
+    fetchSpy.mockRestore();
+  });
+
+  it("keeps brass off the agreed-estimate chip", () => {
+    // Brass means authority — the facilitator, and only the facilitator. An
+    // agreed estimate is `settled`, a decision at rest.
+    renderQueue();
+    const chip = screen.getByRole("img", { name: /Agreed estimate/ });
+    expect(chip.className).toContain("border-settled");
+    expect(chip.className).not.toContain("brass");
   });
 });

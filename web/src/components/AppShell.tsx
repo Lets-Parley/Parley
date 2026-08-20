@@ -70,7 +70,7 @@ const STATUS_WORD: Record<ConnectionStatus, string> = {
 
 export function ConnectionDot({ status }: { status: ConnectionStatus }) {
   const color =
-    status === "live" ? "bg-go" : status === "reconnecting" ? "bg-brass" : "bg-stop";
+    status === "live" ? "bg-go" : status === "reconnecting" ? "bg-accent" : "bg-stop";
   return (
     <span
       aria-live="polite"
