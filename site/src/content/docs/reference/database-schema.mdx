@@ -8,7 +8,7 @@ import SpecTable from "../../../components/SpecTable.astro";
 
 <VerifiedStamp source={["internal/db/migrations", "internal/db/migrate.go"]} />
 
-Ten migrations, embedded in the binary and applied at boot. Postgres only —
+Fourteen migrations, embedded in the binary and applied at boot. Postgres only —
 there is no second driver and no plan for one.
 
 ## Migrations
@@ -24,6 +24,7 @@ there is no second driver and no plan for one.
   { name: "0008_space_passcode", value: "spaces.passcode", note: "Empty string means an open space" },
   { name: "0009_federated_identity", value: "users.issuer, users.subject", note: "Behind a partial unique index" },
   { name: "0010_session_kinds", value: "session_kinds", note: "Replaces the sessions.kind check constraint with a foreign key" },
+  { name: "0014_member_roles", value: "members.role", note: "owner or member. Backfills the space creator — or, where none was recorded, the longest-standing member — as owner" },
 ]} />
 
 ### How the runner behaves
@@ -77,6 +78,18 @@ anonymous row can share the empty pair while federated identities stay unique.
 
 `(space_id, user_id)` composite primary key, plus `spectator` and `last_seen_at`.
 Both foreign keys cascade.
+
+| Column | Type | Notes |
+|---|---|---|
+| `role` | text | `owner` or `member`, enforced by a CHECK constraint. Defaults to `member` |
+
+`role` is the space's only permission bit. `0014_member_roles` adds it and
+backfills every existing space: the recorded `spaces.creator_id` becomes owner,
+and a space with no recorded creator hands ownership to its longest-standing
+member, so no upgraded space is left with nobody able to manage it.
+
+A partial index on `(space_id) where role = 'owner'` backs the last-owner
+guard, which counts owners under a row lock before any demotion or removal.
 
 ### session_kinds
 

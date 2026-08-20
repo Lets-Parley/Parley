@@ -1,7 +1,7 @@
 import { Fragment, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type SessionSummary, type SpaceView } from "../lib/api";
+import { api, type Person, type SessionSummary, type SpaceRole, type SpaceView } from "../lib/api";
 import { useMe, NameGate } from "../components/NameGate";
 import { AppShell, Logo } from "../components/AppShell";
 import { EmptyTable } from "./PokerRoom";
@@ -236,6 +236,14 @@ export function SpacePage() {
 
         {error && <p className="mt-4 text-center text-sm font-bold text-stop">{error}</p>}
 
+        <MembersPanel
+          slug={sp.slug}
+          members={sp.members ?? []}
+          meId={me.data?.id ?? ""}
+          onChanged={() => qc.invalidateQueries({ queryKey: ["space", slug] })}
+          onError={setError}
+        />
+
         <PasscodePanel
           slug={sp.slug}
           passcode={sp.passcode ?? ""}
@@ -327,6 +335,116 @@ function Gate({
         )}
       </div>
     </main>
+  );
+}
+
+/**
+ * Who is in the space and who runs it. Owners get the controls; everyone else
+ * sees the roles, because knowing who to ask is the point of showing them.
+ *
+ * Every rule here is enforced by the server as well — hiding a button is a
+ * courtesy, not the guard.
+ */
+function MembersPanel({
+  slug,
+  members,
+  meId,
+  onChanged,
+  onError,
+}: {
+  slug: string;
+  members: Person[];
+  meId: string;
+  onChanged: () => void;
+  onError: (msg: string) => void;
+}) {
+  const say = useToast();
+  const [busy, setBusy] = useState("");
+  const myRole = members.find((m) => m.userId === meId)?.role;
+  const canManage = myRole === "owner";
+  const owners = members.filter((m) => m.role === "owner").length;
+
+  async function run(userId: string, work: () => Promise<unknown>, done: string) {
+    setBusy(userId);
+    try {
+      await work();
+      onChanged();
+      say(done);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Could not update that member.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  function setRole(m: Person, role: SpaceRole) {
+    run(
+      m.userId,
+      () => api("POST", `/api/spaces/${slug}/members/${m.userId}/role`, { role }),
+      role === "owner" ? `${m.name} can now manage this space` : `${m.name} is a member again`,
+    );
+  }
+
+  function remove(m: Person) {
+    run(
+      m.userId,
+      () => api("DELETE", `/api/spaces/${slug}/members/${m.userId}`),
+      `${m.name} no longer has a seat here`,
+    );
+  }
+
+  if (members.length === 0) return null;
+
+  return (
+    <section className="mt-8 rounded-card border border-line bg-surface px-5 py-4">
+      <h2 className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">Members</h2>
+      <ul className="mt-2 flex flex-col divide-y divide-line">
+        {members.map((m) => {
+          const isOwner = m.role === "owner";
+          // The server refuses to strand a space without an owner; the UI says
+          // so up front instead of offering a button that always 409s.
+          const lastOwner = isOwner && owners < 2;
+          return (
+            <li key={m.userId} className="flex flex-wrap items-center gap-2 py-2">
+              <span className="min-w-0 flex-1 truncate text-[14px] font-semibold">
+                {m.name}
+                {m.userId === meId && <span className="ml-1.5 text-ink-faint">(you)</span>}
+              </span>
+              <span
+                className={
+                  "shrink-0 rounded-chip px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] " +
+                  (isOwner ? "bg-accent-soft text-ink" : "bg-felt-deep text-ink-faint")
+                }
+              >
+                {isOwner ? "Owner" : "Member"}
+              </span>
+              {canManage && (
+                <>
+                  <button
+                    className={buttonQuiet}
+                    disabled={busy === m.userId || lastOwner}
+                    title={lastOwner ? "Promote someone else first — a space needs an owner" : undefined}
+                    aria-label={(isOwner ? "Make member: " : "Make owner: ") + m.name}
+                    onClick={() => setRole(m, isOwner ? "member" : "owner")}
+                  >
+                    {isOwner ? "Make member" : "Make owner"}
+                  </button>
+                  <button
+                    className={buttonQuiet}
+                    disabled={busy === m.userId || lastOwner}
+                    title={lastOwner ? "Promote someone else first — a space needs an owner" : undefined}
+                    aria-label={"Remove: " + m.name}
+                    onClick={() => remove(m)}
+                  >
+                    Remove
+                  </button>
+                </>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 

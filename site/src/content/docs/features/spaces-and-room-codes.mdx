@@ -62,6 +62,23 @@ so it reflects an actual open connection.
   caption="One page: who is here, what has been run, and the code to read out — with the controls to rotate it or open the space entirely."
 />
 
+## Members and owners
+
+Under the session list, the **Members** panel names everyone in the space and
+their role — **Owner** or **Member**. The person who created the space is its
+first owner.
+
+An owner sees two controls beside each member: **Make owner** / **Make member**
+to change their standing, and **Remove** to take their seat away. Removal takes
+effect on that person's very next request: they drop straight back to the
+passcode gate. It is not a ban — a current room code lets them rejoin as a
+plain member.
+
+A space always needs somebody who can manage it, so the last remaining owner
+can be neither demoted nor removed; both controls are disabled and the server
+refuses the request outright. Stepping down yourself is fine once you have
+promoted somebody else first.
+
 ## Session history
 
 Every session ever run in the space, live or ended, is listed with a badge and a
@@ -71,9 +88,9 @@ cycle the sort between most recent, active first, and A–Z.
 ## What is not here
 
 <Capability rows={[
-  { name: "Per-user or per-team access", status: "not-built", detail: "Put an SSO proxy in front, or turn on <a href='/security/authentication/'>OIDC</a> and keep spaces open only on a trusted network. Membership roles are on the roadmap." },
+  { name: "Per-user or per-team access", status: "not-built", detail: "Put an SSO proxy in front, or turn on <a href='/security/authentication/'>OIDC</a> and keep spaces open only on a trusted network. Owners manage membership, but a room code is still the only door." },
   { name: "Filtering history by date", status: "not-built", detail: "Sort by most recent and scroll; search matches titles." },
   { name: "Renaming or deleting a space", status: "not-built", detail: "Create a new one. Nothing removes a space today, including via the API." },
-  { name: "Owners and admins", status: "not-built", detail: "There is no role model: any member can rotate the code or open the space. Treat membership as trust, and see the <a href='/security/threat-model/'>threat model</a>." },
+  { name: "Roles beyond owner and member", status: "not-built", detail: "Ownership governs membership only: any member, owner or not, can still rotate the code or open the space. Treat membership as trust, and see the <a href='/security/threat-model/'>threat model</a>." },
   { name: "Knock-to-join", status: "not-built", detail: "Share the code. Requesting entry from the door is on the roadmap." },
 ]} />

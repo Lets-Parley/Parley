@@ -75,6 +75,8 @@ reject them. Their own protection is the `state` value in the sign-in cookie.
   { method: "POST", path: "/api/spaces/{slug}/join", auth: "user", purpose: "Join, sending {passcode} if the space is protected. Throttled at 8 attempts per 60s per address." },
   { method: "POST", path: "/api/spaces/{slug}/passcode", auth: "member", purpose: "Mint a new code, or with {open:true} remove it. Any member may do this." },
   { method: "POST", path: "/api/spaces/{slug}/sessions", auth: "member", purpose: "Create a session: kind, title, config." },
+  { method: "POST", path: "/api/spaces/{slug}/members/{userId}/role", auth: "owner", purpose: "Promote or demote: {role} is owner or member. 409 if it would leave the space with no owner." },
+  { method: "DELETE", path: "/api/spaces/{slug}/members/{userId}", auth: "owner", purpose: "Remove a member. Access is revoked on their next request. 409 if they are the last owner." },
 ]} />
 
 ## Sessions

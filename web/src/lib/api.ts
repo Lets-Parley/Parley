@@ -41,8 +41,11 @@ export type Person = {
   name: string;
   avatarHue: number;
   spectator: boolean;
+  /** Space standing. Absent in session payloads, which do not carry roles. */
+  role?: SpaceRole;
   at?: SeatRef;
 };
+export type SpaceRole = "owner" | "member";
 export type SpaceView = {
   slug: string;
   name: string;

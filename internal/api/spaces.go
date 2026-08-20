@@ -12,11 +12,14 @@ import (
 )
 
 type memberView struct {
-	UserID    string   `json:"userId"`
-	Name      string   `json:"name"`
-	AvatarHue int      `json:"avatarHue"`
-	Spectator bool     `json:"spectator"`
-	At        *seatRef `json:"at,omitempty"`
+	UserID    string `json:"userId"`
+	Name      string `json:"name"`
+	AvatarHue int    `json:"avatarHue"`
+	Spectator bool   `json:"spectator"`
+	// Role says who can manage the room. Every member sees it — it is what
+	// tells them who to ask.
+	Role string   `json:"role"`
+	At   *seatRef `json:"at,omitempty"`
 }
 
 // seatRef says which live session in this space a member currently has open, so
@@ -127,7 +130,7 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 			}
 			views := make([]memberView, len(roster))
 			for i, m := range roster {
-				views[i] = memberView{UserID: m.UserID, Name: m.Name, AvatarHue: avatarHue(m.UserID), Spectator: m.Spectator, At: seats[m.UserID]}
+				views[i] = memberView{UserID: m.UserID, Name: m.Name, AvatarHue: avatarHue(m.UserID), Spectator: m.Spectator, Role: m.Role, At: seats[m.UserID]}
 			}
 			// Members can read the room code any time — passing it on is the
 			// whole point of it.
@@ -236,4 +239,51 @@ func (a *app) handleSetPasscode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"passcode": next, "protected": next != ""})
+}
+
+// handleSetMemberRole promotes or demotes a member. It runs behind
+// requireSpaceOwner, so the caller is already known to own this space.
+func (a *app) handleSetMemberRole(w http.ResponseWriter, r *http.Request) {
+	sp := spaceFrom(r.Context())
+
+	var body struct {
+		Role string `json:"role"`
+	}
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"role is required"}`)
+		return
+	}
+
+	err := a.spaces.SetRole(r.Context(), sp.ID, chi.URLParam(r, "userId"), body.Role)
+	switch {
+	case errors.Is(err, store.ErrBadRole):
+		http.Error(w, `{"error":"role must be owner or member"}`, http.StatusBadRequest)
+	case errors.Is(err, store.ErrNotMember):
+		http.Error(w, `{"error":"that person is not a member of this space"}`, http.StatusNotFound)
+	case errors.Is(err, store.ErrLastOwner):
+		http.Error(w, `{"error":"this space would be left with no owner — promote someone else first, then step down"}`, http.StatusConflict)
+	case err != nil:
+		http.Error(w, `{"error":"could not change that member's role"}`, http.StatusInternalServerError)
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// handleRemoveMember revokes membership. Membership is checked against the
+// database on every request, so the next thing the removed member does puts
+// them back in front of the passcode gate — there is no cache to expire.
+func (a *app) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
+	sp := spaceFrom(r.Context())
+
+	err := a.spaces.RemoveMember(r.Context(), sp.ID, chi.URLParam(r, "userId"))
+	switch {
+	case errors.Is(err, store.ErrNotMember):
+		http.Error(w, `{"error":"that person is not a member of this space"}`, http.StatusNotFound)
+	case errors.Is(err, store.ErrLastOwner):
+		http.Error(w, `{"error":"this space would be left with no owner — promote someone else first"}`, http.StatusConflict)
+	case err != nil:
+		http.Error(w, `{"error":"could not remove that member"}`, http.StatusInternalServerError)
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
 }

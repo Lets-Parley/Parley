@@ -259,6 +259,14 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			r.Post("/spaces/{slug}/sessions", a.handleCreateSession)
 		})
 
+		// Membership management is owner-only, and the middleware answers 404
+		// to anyone outside the space rather than admitting it exists.
+		r.Route("/spaces/{slug}/members/{userId}", func(r chi.Router) {
+			r.Use(a.requireSpaceOwner)
+			r.Post("/role", a.handleSetMemberRole)
+			r.Delete("/", a.handleRemoveMember)
+		})
+
 		// requireSessionMember answers 404 for anonymous callers too, so these
 		// routes sit outside RequireUser: a session's existence is never
 		// disclosed to anyone outside its space.
