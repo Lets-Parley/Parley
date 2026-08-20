@@ -15,6 +15,7 @@ var (
 	ErrNotEligible    = errors.New("not eligible")
 	ErrNotFacilitator = errors.New("not facilitator")
 	ErrSessionEnded   = errors.New("session ended")
+	ErrKindRetired    = errors.New("session kind retired")
 )
 
 // FacilitatorGrace is how long a facilitator must be unseen before any member
@@ -68,26 +69,24 @@ func (s *Sessions) Create(ctx context.Context, spaceID, kind, title string, conf
 	if count >= limit {
 		return Session{}, ErrQuotaExceeded
 	}
+	// The retired-kind guard rides along with the insert so the two see one
+	// snapshot: a kind retired between a separate check and this statement
+	// would otherwise still get a session. A kind with no session_kinds row at
+	// all satisfies the guard and is left to the foreign key, which names the
+	// missing row far better than a retired-kind refusal would.
 	sess, err := scanSession(tx.QueryRow(ctx,
-		"insert into sessions (space_id, kind, title, config, facilitator_id) values ($1, $2, $3, $4, $5) returning "+sessionCols,
+		"insert into sessions (space_id, kind, title, config, facilitator_id) "+
+			"select $1, $2, $3, $4, $5 "+
+			"where not exists (select 1 from session_kinds where kind = $2 and retired_at is not null) "+
+			"returning "+sessionCols,
 		spaceID, kind, title, config, facilitatorID))
+	if errors.Is(err, ErrNoSession) {
+		return Session{}, ErrKindRetired
+	}
 	if err != nil {
 		return Session{}, err
 	}
 	return sess, tx.Commit(ctx)
-}
-
-// KindRetired reports whether the kind's row carries a retired_at. A retired
-// kind keeps its row — the foreign key is RESTRICT and existing sessions still
-// have to resolve — so nothing stops a new session using it but this check.
-func (s *Sessions) KindRetired(ctx context.Context, kind string) (bool, error) {
-	var retired bool
-	err := s.Pool.QueryRow(ctx,
-		"select retired_at is not null from session_kinds where kind = $1", kind).Scan(&retired)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
-	return retired, err
 }
 
 // OfferableKinds lists the seeded kinds that have not been retired, in name

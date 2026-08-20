@@ -84,15 +84,6 @@ func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"`+unknownKindMessage(a.kinds)+`"}`, http.StatusBadRequest)
 		return
 	}
-	retired, err := a.sessions.KindRetired(r.Context(), body.Kind)
-	if err != nil {
-		http.Error(w, `{"error":"could not check the session kind"}`, http.StatusInternalServerError)
-		return
-	}
-	if retired {
-		http.Error(w, `{"error":"that session kind has been retired"}`, http.StatusBadRequest)
-		return
-	}
 	config, err := a.kinds.ParseConfig(body.Kind, body.Config)
 	if err != nil {
 		http.Error(w, `{"error":"invalid config for this session kind"}`, http.StatusBadRequest)
@@ -100,6 +91,10 @@ func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sess, err := a.sessions.Create(r.Context(), sp.ID, body.Kind, title, config, p.UserID, a.limits.SessionsPerSpace)
+	if errors.Is(err, store.ErrKindRetired) {
+		http.Error(w, `{"error":"that session kind has been retired"}`, http.StatusBadRequest)
+		return
+	}
 	if errors.Is(err, store.ErrQuotaExceeded) {
 		http.Error(w, `{"error":"session limit reached for this space"}`, http.StatusConflict)
 		return
