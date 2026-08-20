@@ -15,9 +15,20 @@ type Props = {
   spectator?: boolean;
   /** Offline — the seat is still theirs, the chip just goes quiet. */
   dim?: boolean;
+  /** Beside a label that already names this person. The chip is then
+      decoration, and announcing the name again makes a reader stutter. */
+  decorative?: boolean;
 };
 
-export function Avatar({ name, hue, size = "md", facilitator, spectator, dim }: Props) {
+export function Avatar({
+  name,
+  hue,
+  size = "md",
+  facilitator,
+  spectator,
+  dim,
+  decorative,
+}: Props) {
   const px = sizes[size];
   return (
     <span
@@ -32,11 +43,14 @@ export function Avatar({ name, hue, size = "md", facilitator, spectator, dim }: 
         background: `oklch(0.52 0.09 ${185 + (((hue % 360) + 360) % 360) / 360 * 105})`,
         color: "#F4F8FB",
         boxShadow: "0 0 0 2px var(--color-surface), 0 0 0 3px var(--color-line)",
-        opacity: spectator || dim ? 0.55 : 1,
+        // 0.7 is the floor: below it the initials composite under AA in the
+        // light theme, which is the one that fails first.
+        opacity: spectator || dim ? 0.7 : 1,
       }}
-      title={name}
-      role="img"
-      aria-label={name}
+      title={decorative ? undefined : name}
+      role={decorative ? undefined : "img"}
+      aria-hidden={decorative || undefined}
+      aria-label={decorative ? undefined : name}
     >
       {initialsOf(name)}
       {facilitator && (

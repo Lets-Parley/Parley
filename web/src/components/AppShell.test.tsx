@@ -78,7 +78,7 @@ describe("AppShell", () => {
     renderShell({ members: roster.slice(0, 2) });
     for (const m of roster.slice(0, 2)) {
       expect(screen.getByRole("button", { name: m.name }).querySelector("span")!.style.opacity).toBe(
-        "0.55",
+        "0.7",
       );
     }
   });
@@ -89,7 +89,7 @@ describe("AppShell", () => {
     const opacity = (name: string) =>
       screen.getByRole("button", { name }).querySelector("span")!.style.opacity;
     expect(opacity("Dana Whitfield")).toBe("1");
-    expect(opacity("Marcus Okonjo")).toBe("0.55");
+    expect(opacity("Marcus Okonjo")).toBe("0.7");
   });
 
   it("caps the avatar stack at five and counts the rest", () => {
@@ -163,6 +163,82 @@ describe("AppShell", () => {
     await userEvent.click(toggle);
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
     expect(screen.getByRole("button", { name: "Switch to light theme" })).toBeTruthy();
+  });
+});
+
+/** Renders as a phone: every min-width query answers no. */
+function asPhone() {
+  vi.stubGlobal("matchMedia", ((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia);
+}
+
+describe("the sidebar on a phone", () => {
+  it("opens the space nav as a sheet, because the rail has nowhere to go", async () => {
+    asPhone();
+    stubAuthMode("open");
+    renderShell({ members: roster.slice(0, 2), sessions: [] });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Toggle sidebar" }));
+    const sheet = screen.getByRole("dialog", { name: "Platform Team" });
+    expect(within(sheet).getByRole("heading", { name: /Members/ })).toBeTruthy();
+  });
+
+  it("keeps the sheet shut on arrival even where the rail would start open", () => {
+    asPhone();
+    stubAuthMode("open");
+    renderShell({ members: roster.slice(0, 2), sidebarDefault: true });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("renders the rail, not a sheet, once there is width for it", async () => {
+    stubAuthMode("open");
+    renderShell({ members: roster.slice(0, 2), sessions: [] });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("navigation", { name: "Space" })).toBeTruthy();
+  });
+});
+
+describe("getting to the table", () => {
+  it("offers a skip link that lands on the main region", async () => {
+    stubAuthMode("open");
+    const { container } = renderShell({ members: roster, sessions: [] });
+    const skip = screen.getByRole("link", { name: "Skip to the table" });
+    expect(skip.getAttribute("href")).toBe("#main");
+    const main = container.querySelector("main");
+    expect(main?.id).toBe("main");
+    // The skip link must be the very first focusable thing on the page,
+    // otherwise it saves nobody the traversal it exists to bypass.
+    await userEvent.tab();
+    expect(document.activeElement).toBe(skip);
+  });
+
+  it("announces a change of connection state to assistive tech", () => {
+    renderApp(<ConnectionDot status="reconnecting" />);
+    expect(screen.getByText("reconnecting").closest("[aria-live]")).toBeTruthy();
+  });
+
+  it("says online or offline in words, not only as a coloured dot", () => {
+    stubAuthMode("open");
+    renderShell({ members: roster.slice(0, 2), presence: ["dana"] });
+    const list = screen.getByRole("heading", { name: /Members/ }).parentElement!;
+    expect(within(list).getByRole("button", { name: /Dana Whitfield.*online/i })).toBeTruthy();
+    expect(within(list).getByRole("button", { name: /Marcus Okonjo.*offline/i })).toBeTruthy();
+  });
+
+  it("says a name once, not twice, where a label already carries it", () => {
+    stubAuthMode("open");
+    renderShell({ members: roster.slice(0, 1) });
+    // Where a visible label or an aria-label already names the person, the
+    // avatar beside it is decoration — announcing it makes a reader stutter.
+    expect(screen.queryAllByRole("img", { name: "Dana Whitfield" }).length).toBe(0);
   });
 });
 

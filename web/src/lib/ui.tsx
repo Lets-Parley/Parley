@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 
@@ -49,6 +50,31 @@ export function useTheme() {
       matchMedia("(prefers-color-scheme: dark)").matches);
 
   return { isDark, toggle: () => setTheme(isDark ? "light" : "dark") };
+}
+
+/* ----------------------------------------------------------------- media --- */
+
+/**
+ * Live answer to a media query. The shell needs this in JS, not only in CSS:
+ * a rail that is merely display:none still traps a focus ring, and a <dialog>
+ * that is merely display:none still holds the page inert.
+ */
+export function useMediaQuery(query: string): boolean {
+  const mql = useMemo(
+    () => (typeof matchMedia === "function" ? matchMedia(query) : null),
+    [query],
+  );
+  return useSyncExternalStore(
+    useCallback(
+      (notify: () => void) => {
+        mql?.addEventListener("change", notify);
+        return () => mql?.removeEventListener("change", notify);
+      },
+      [mql],
+    ),
+    () => mql?.matches ?? false,
+    () => false,
+  );
 }
 
 /* ---------------------------------------------------------------- toast --- */
