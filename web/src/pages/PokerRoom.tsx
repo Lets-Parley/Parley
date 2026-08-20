@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { action, api, type Envelope, type Me, type Person, type Story } from "../lib/api";
-import { GRACE_SECONDS, claimState } from "../lib/derive";
+import { cueFor, useCueAccumulator, useRoundEpoch } from "../lib/cue";
+import { GRACE_SECONDS, claimState, voteTally } from "../lib/derive";
 import { useCountdown, useToast } from "../lib/ui";
 import { Avatar } from "../components/Avatar";
 import { Hand } from "../components/Hand";
@@ -22,11 +23,25 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
   const [error, setError] = useState("");
   const [confirmReset, setConfirmReset] = useState(false);
 
+  const online = new Set(env.presence);
+  const seated: Person[] = env.participants.filter((p) => !p.spectator);
+  const spectators: Person[] = env.participants.filter((p) => p.spectator && online.has(p.userId));
+  const votes = new Map((current?.votes ?? []).map((v) => [v.userId, v.value]));
+  const results = env.revealed ? current?.results : undefined;
+  const tally = voteTally(seated, online, current?.votedUserIds ?? [], votes);
+
+  // The round boundary, found client-side. NOT env.version — the server bumps
+  // that on every vote too. See useRoundEpoch.
+  const epoch = useRoundEpoch(st.currentStoryId, env.revealed, tally.votedCount);
+  const cueState = useCueAccumulator(epoch, cueFor(tally.votedCount, tally.canVote, env.revealed));
+
   // A new story or a fresh round means a fresh hand — never carry a stale pick.
+  // Keyed on the epoch, not on [currentStoryId, revealed]: a pre-reveal Reset
+  // moves neither of those and left the stale pick sitting on the table.
   useEffect(() => {
     setSelected(null);
     setError("");
-  }, [st.currentStoryId, env.revealed]);
+  }, [epoch]);
 
   async function run(fn: () => Promise<unknown>) {
     try {
@@ -47,12 +62,6 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
       setSelected(prev);
     }
   }
-
-  const online = new Set(env.presence);
-  const seated: Person[] = env.participants.filter((p) => !p.spectator);
-  const spectators: Person[] = env.participants.filter((p) => p.spectator && online.has(p.userId));
-  const votes = new Map((current?.votes ?? []).map((v) => [v.userId, v.value]));
-  const results = env.revealed ? current?.results : undefined;
 
   const { showClaim, graceLeft } = claimState(env, isFacilitator);
   const claimLeft = useCountdown(graceLeft);
@@ -210,7 +219,7 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
           </div>
         )}
 
-        {current ? (
+        {current && !ended ? (
           <Table
             seated={seated}
             spectators={spectators}
@@ -221,8 +230,9 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
             consensus={results?.consensus ?? false}
             facilitatorId={env.facilitatorId}
             meId={me.id}
+            cueState={cueState}
           />
-        ) : (
+        ) : !ended ? (
           <EmptyTable
             heading={st.stories.length === 0 ? "Deal the first story" : "Nothing on the table"}
             body={
@@ -248,7 +258,7 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
               ) : undefined
             }
           />
-        )}
+        ) : null}
 
         {results && <ResultsPanel results={results} />}
 
@@ -259,20 +269,28 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
         )}
 
         {current && !ended && (
-          <Hand
-            values={st.deck.values}
-            deckName={st.deck.name}
-            selected={selected}
-            disabled={env.revealed}
-            spectating={self?.spectator ?? false}
-            canSpectate={!env.revealed}
-            onPick={(v) => (selected === v ? undefined : castVote(v))}
-            onToggleSpectate={() =>
-              run(() =>
-                api("POST", `/api/sessions/${env.id}/spectator`, { on: !(self?.spectator ?? false) }),
-              )
-            }
-          />
+          // Sticky so voting never needs a scroll: at 390px, 15 seats take four
+          // ranks and the page is a scrolling document.
+          // ponytail: this works only because Hand is the LAST child of a
+          // column taller than the viewport. Reorder StoryQueue or anything
+          // else below it and the stickiness dies silently, with no test to
+          // catch it — the upgrade path is a real bottom-sheet portal.
+          <div className="sticky bottom-0 z-10 bg-felt pt-2 pb-1">
+            <Hand
+              values={st.deck.values}
+              deckName={st.deck.name}
+              selected={selected}
+              disabled={env.revealed}
+              spectating={self?.spectator ?? false}
+              canSpectate={!env.revealed}
+              onPick={(v) => (selected === v ? undefined : castVote(v))}
+              onToggleSpectate={() =>
+                run(() =>
+                  api("POST", `/api/sessions/${env.id}/spectator`, { on: !(self?.spectator ?? false) }),
+                )
+              }
+            />
+          </div>
         )}
       </div>
 

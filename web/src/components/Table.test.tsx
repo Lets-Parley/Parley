@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import { Table, faceOf } from "./Table";
 import { makePerson } from "../test/render";
@@ -33,6 +33,8 @@ function renderTable(over: Partial<Parameters<typeof Table>[0]> = {}) {
     />,
   );
 }
+
+const field = () => screen.getByTestId("table-field");
 
 /** Scopes queries to the seat container holding the given first name. */
 function seat(firstName: string) {
@@ -150,5 +152,87 @@ describe("Table", () => {
   it("reports 0 of 0 for an empty table rather than crashing", () => {
     renderTable({ seated: [], online: new Set() });
     expect(screen.getByText("0 of 0 voted")).toBeTruthy();
+  });
+
+  // Criterion 7. One live region, or two voices talk over each other.
+  it("keeps the cue and the count in a single status element", () => {
+    renderTable({ votedUserIds: ["dana"], cueState: "first-light" });
+    const live = screen.getAllByRole("status");
+    expect(live).toHaveLength(1);
+    expect(live[0].textContent).toBe("1 of 3 voted · first light");
+  });
+
+  it("says nothing about the light when the light is cut", () => {
+    renderTable({ votedUserIds: ["dana"], cueState: null });
+    expect(screen.getByRole("status").textContent).toBe("1 of 3 voted");
+    expect(field().getAttribute("style")).not.toContain("--cue-");
+  });
+
+  // Criterion 8. A helper that finds something is not a helper that scopes.
+  it("scopes each seat to its own marks and nobody else's", () => {
+    renderTable({ online: new Set(["dana", "marcus"]), votedUserIds: ["dana"] });
+    expect(seat("Priya").getByRole("img", { name: "away" })).toBeTruthy();
+    expect(seat("Dana").queryByRole("img", { name: "away" })).toBeNull();
+    expect(seat("Marcus").queryByRole("img", { name: "away" })).toBeNull();
+    expect(seat("Dana").queryByRole("img", { name: "no card yet" })).toBeNull();
+  });
+
+  // Criterion 9. Sibling AFTER the ranks, not inline with a divider.
+  it("puts the spectator rail below the seat ranks", () => {
+    const nina = makePerson({ userId: "nina", name: "Nina Kowalski", spectator: true });
+    renderTable({ spectators: [nina] });
+    const ranks = screen.getByTestId("seat-ranks");
+    const rail = screen.getByTestId("spectator-rail");
+    // FOLLOWING, and not CONTAINED_BY: inline-with-a-divider would be inside.
+    const rel = ranks.compareDocumentPosition(rail);
+    expect(rel & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(rel & Node.DOCUMENT_POSITION_CONTAINED_BY).toBeFalsy();
+    expect(rail.parentElement).toBe(ranks.parentElement);
+  });
+
+  it("wraps seats into ranks instead of scrolling them sideways", () => {
+    // 15 seats need two ranks at every desktop width — 74px + a 12px gap is
+    // 86px a seat against a widest row of 884px. jsdom does not lay out, so
+    // this asserts the mechanism, not the wrap point.
+    const { container } = renderTable();
+    expect(screen.getByTestId("seat-ranks").className).toContain("flex-wrap");
+    expect(container.querySelector(".overflow-x-auto")).toBeNull();
+  });
+
+  // Criterion 3. The animating ground touches exactly one element, and every
+  // mark sits on a fixed-luminance token instead.
+  it("keeps every mark off the animating field", () => {
+    const { container } = renderTable({ votedUserIds: ["dana"], cueState: "daybreak" });
+    const cued = container.querySelectorAll('[style*="--cue-"]');
+    expect(cued).toHaveLength(1);
+    expect(cued[0]).toBe(field());
+    expect(seat("Dana").getByRole("img", { name: "voted" }).className).toContain("bg-card-back");
+    expect(container.querySelector('[class*="ring-"], [class*="bg-card-back"]')).toBeTruthy();
+  });
+
+  // Criterion 4. There is no JS interpolation to stop — the arc is a CSS
+  // transition, which tokens.css's reduced-motion rule already kills. What
+  // this proves is that nothing schedules frames behind its back.
+  it("lands straight on the target state under reduced motion", () => {
+    const raf = vi.spyOn(globalThis, "requestAnimationFrame");
+    vi.spyOn(window, "matchMedia").mockReturnValue({
+      matches: true,
+      media: "(prefers-reduced-motion: reduce)",
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    } as unknown as MediaQueryList);
+    renderTable({ votedUserIds: ["dana", "marcus"], cueState: "daybreak" });
+    expect(field().getAttribute("data-cue")).toBe("daybreak");
+    expect(field().getAttribute("style")).toContain("--cue-daybreak");
+    expect(raf).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it("names the field state for each step of the arc", () => {
+    for (const state of ["overcast", "first-light", "daybreak", "day"] as const) {
+      const { unmount } = renderTable({ cueState: state });
+      expect(field().getAttribute("style")).toContain(`var(--cue-${state})`);
+      unmount();
+    }
   });
 });

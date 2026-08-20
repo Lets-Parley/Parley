@@ -125,3 +125,108 @@ describe("PokerRoom story on the table", () => {
     expect(screen.getByRole("heading", { level: 1, name: "PLAT-412" })).toBeTruthy();
   });
 });
+
+/** A table of `n` seats, all online, with the first `voted` of them voted. */
+function bigEnv(seats: number, voted: number, online = seats, over: Partial<Envelope> = {}) {
+  const people = Array.from({ length: seats }, (_, i) =>
+    makePerson({ userId: `u${i}`, name: `Person${i} Surname` }),
+  );
+  const env = envelope({
+    participants: people,
+    presence: people.slice(0, online).map((p) => p.userId),
+    facilitatorId: "u0",
+    facilitatorConnected: true,
+    ...over,
+  });
+  env.state.stories[0].votedUserIds = people.slice(0, voted).map((p) => p.userId);
+  return env;
+}
+
+const cue = () => screen.getByTestId("table-field").getAttribute("data-cue");
+
+describe("PokerRoom daybreak cue", () => {
+  it("steps the field with the room, and only reaches day on the reveal", () => {
+    const { rerender } = renderApp(<PokerRoom env={bigEnv(5, 0)} me={me} />);
+    expect(cue()).toBe("overcast");
+    rerender(<PokerRoom env={bigEnv(5, 1)} me={me} />);
+    expect(cue()).toBe("first-light");
+    rerender(<PokerRoom env={bigEnv(5, 5)} me={me} />);
+    expect(cue()).toBe("daybreak");
+    rerender(<PokerRoom env={bigEnv(5, 5, 5, { revealed: true })} me={me} />);
+    expect(cue()).toBe("day");
+  });
+
+  // Criterion 5, at the layer that owns the accumulator. A Table-level test
+  // would only prove Table renders its prop.
+  it("does not step down when a silent seat reconnects", () => {
+    const { rerender } = renderApp(<PokerRoom env={bigEnv(3, 2, 2)} me={me} />);
+    expect(screen.getByRole("status").textContent).toContain("2 of 2");
+    expect(cue()).toBe("daybreak");
+    rerender(<PokerRoom env={bigEnv(3, 2, 3)} me={me} />);
+    expect(screen.getByRole("status").textContent).toContain("2 of 3");
+    expect(cue()).toBe("daybreak");
+  });
+
+  it("holds daybreak when reconnections drag the ratio back under a threshold", () => {
+    // 2 of 5 is r=0.40 — DAYBREAK. Two reconnections make it 2 of 7, r=0.29,
+    // which is FIRST LIGHT raw. The accumulator must not walk the light back.
+    const { rerender } = renderApp(<PokerRoom env={bigEnv(7, 2, 5)} me={me} />);
+    expect(cue()).toBe("daybreak");
+    rerender(<PokerRoom env={bigEnv(7, 2, 7)} me={me} />);
+    expect(screen.getByRole("status").textContent).toContain("2 of 7");
+    expect(cue()).toBe("daybreak");
+  });
+
+  // Criterion 6. env.version cannot express this: the server bumps it on every
+  // vote too, so the accumulator would reset mid-round. The signal is the vote
+  // count falling to zero, which only a reset can do.
+  it("returns to overcast on a reset that never revealed anything", () => {
+    const { rerender } = renderApp(<PokerRoom env={bigEnv(5, 3)} me={me} />);
+    expect(cue()).toBe("daybreak");
+    // Same story, revealed still false — the two things the old effect watched.
+    const after = bigEnv(5, 0);
+    expect(after.state.currentStoryId).toBe("story-1");
+    expect(after.revealed).toBe(false);
+    rerender(<PokerRoom env={after} me={me} />);
+    expect(cue()).toBe("overcast");
+  });
+
+  it("clears the picked card on a pre-reveal reset", () => {
+    const voted = bigEnv(5, 3);
+    voted.state.deck = { name: "fibonacci", values: ["1", "2", "3"], ordinal: false };
+    const { rerender } = renderApp(<PokerRoom env={voted} me={me} />);
+    const three = screen.getByRole("button", { name: "3" });
+    three.click();
+    const cleared = bigEnv(5, 0);
+    cleared.state.deck = voted.state.deck;
+    rerender(<PokerRoom env={cleared} me={me} />);
+    expect(screen.getByRole("button", { name: "3" }).getAttribute("aria-pressed")).toBe("false");
+  });
+});
+
+describe("PokerRoom ended session", () => {
+  it("takes the live table down with the hand", () => {
+    // <Hand> was gated on !ended and <Table> was not, so an ended session
+    // showed a live table underneath its own "this session has ended" card.
+    renderApp(
+      <PokerRoom env={envelope({ endedAt: "2026-08-18T10:00:10.000Z" })} me={me} />,
+    );
+    expect(screen.getByText("This session has ended")).toBeTruthy();
+    expect(screen.queryByTestId("table-field")).toBeNull();
+    expect(screen.queryByText(/YOUR HAND/)).toBeNull();
+  });
+});
+
+describe("PokerRoom hand placement", () => {
+  it("keeps the hand stuck to the bottom of the viewport", () => {
+    // At 390px a 15-seat table is four ranks tall; the page scrolls and the
+    // hand must not scroll away with it.
+    const { container } = renderApp(<PokerRoom env={envelope()} me={me} />);
+    const hand = container.querySelector("section.sticky, .sticky > section");
+    expect(hand).toBeTruthy();
+    const sticky = container.querySelector(".sticky") as HTMLElement;
+    expect(sticky.className).toContain("bottom-0");
+    // ponytail: sticky works only while Hand is the last child of the column.
+    expect(sticky.parentElement?.lastElementChild).toBe(sticky);
+  });
+});
