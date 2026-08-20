@@ -94,14 +94,23 @@ describe("Landing, signed in with spaces", () => {
 
     const list = await screen.findByRole("list", { name: /your spaces/i });
     const links = within(list).getAllByRole("link");
-    expect(links.map((a) => a.textContent)).toEqual([
-      "Platform Team",
-      "Design Guild",
-    ]);
+    expect(within(links[0]).getByText("Platform Team")).toBeTruthy();
+    expect(within(links[1]).getByText("Design Guild")).toBeTruthy();
     expect(links.map((a) => a.getAttribute("href"))).toEqual([
       "/s/platform-team",
       "/s/design-guild",
     ]);
+  });
+
+  // Whether a space wants a code is the difference between pasting the link and
+  // having to go and ask for six characters, so the row says which it is.
+  it("marks the spaces that will ask for a room code", async () => {
+    renderApp(<Landing />);
+
+    const list = await screen.findByRole("list", { name: /your spaces/i });
+    const links = within(list).getAllByRole("link");
+    expect(within(links[0]).queryByText(/room code/i)).not.toBeNull();
+    expect(within(links[1]).queryByText(/room code/i)).toBeNull();
   });
 
   it("keeps creating a space available alongside the list", async () => {
@@ -109,7 +118,7 @@ describe("Landing, signed in with spaces", () => {
 
     await screen.findByRole("list", { name: /your spaces/i });
     await userEvent.type(
-      screen.getByPlaceholderText(/Name your space/),
+      screen.getByPlaceholderText(/Platform Team/),
       "New Crew",
     );
     await userEvent.click(screen.getByRole("button", { name: /create a space/i }));
@@ -168,7 +177,7 @@ describe("Landing", () => {
     renderApp(<Landing />);
 
     const input = await screen.findByPlaceholderText<HTMLInputElement>(
-      /Name your space/,
+      /Platform Team/,
     );
     expect(input.value).toBe("Platform Team");
     await waitFor(() =>
@@ -202,11 +211,41 @@ describe("Landing", () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
+  // Escape is the reflex on any modal, and this one offered no other way out.
+  // Closing the dialog without telling Landing left needName true: the button
+  // that raised the gate became inert, and only a reload got the page back.
+  it("lets Escape dismiss the name gate and raises it again on the next press", async () => {
+    signedIn = false;
+
+    renderApp(<Landing />);
+
+    const field = await screen.findByPlaceholderText(/Platform Team/);
+    await userEvent.type(field, "Platform Team");
+    const open = screen.getByRole("button", { name: "Open a space" });
+    await userEvent.click(open);
+    const dialog = await screen.findByRole("dialog");
+
+    // Escape on a native <dialog> reaches the page as a cancel event; jsdom
+    // does not raise one from the keypress, so it is dispatched directly here.
+    // The point under test is what Landing does with it, not who sends it.
+    await act(async () => {
+      dialog.dispatchEvent(new Event("cancel", { bubbles: false, cancelable: true }));
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // Backing out of the gate abandons the create; nothing may be left behind
+    // to fire it later from the resume path.
+    expect(sessionStorage.getItem("parley:pending-space")).toBeNull();
+    expect(spaceCalls()).toHaveLength(0);
+
+    await userEvent.click(open);
+    await screen.findByRole("dialog");
+  });
+
   it("creates on submit for someone already signed in", async () => {
     renderApp(<Landing />);
 
     await userEvent.type(
-      await screen.findByPlaceholderText(/Name your space/),
+      await screen.findByPlaceholderText(/Platform Team/),
       "Platform Team",
     );
     await userEvent.click(screen.getByRole("button", { name: "Open a space" }));
@@ -283,7 +322,7 @@ describe("Landing", () => {
     renderApp(<Landing />);
 
     await userEvent.type(
-      await screen.findByPlaceholderText(/Name your space/),
+      await screen.findByPlaceholderText(/Platform Team/),
       "Platform Team",
     );
     await userEvent.click(screen.getByRole("button", { name: "Open a space" }));
@@ -341,14 +380,17 @@ describe("Landing", () => {
     renderApp(<Landing />);
 
     await userEvent.type(
-      await screen.findByPlaceholderText(/Name your space/),
+      await screen.findByPlaceholderText(/Platform Team/),
       "Platform Team",
     );
     const open = screen.getByRole("button", { name: "Open a space" });
     await userEvent.click(open);
 
     // The space exists; only the navigate blew up, on a body with no slug.
-    await screen.findByText(/slug/);
+    // What the reader is told is that the space was made and is in their list —
+    // the exception names a field, which is for the console, not for them.
+    await screen.findByText(/couldn't open it/i);
+    expect(screen.queryByText(/slug/)).toBeNull();
     expect(spaceCalls()).toHaveLength(1);
     expect(navigate).not.toHaveBeenCalled();
 
@@ -365,7 +407,7 @@ describe("Landing", () => {
     renderApp(<Landing />);
 
     await userEvent.type(
-      await screen.findByPlaceholderText(/Name your space/),
+      await screen.findByPlaceholderText(/Platform Team/),
       "Platform Team",
     );
     const open = screen.getByRole("button", { name: "Open a space" });
@@ -401,7 +443,7 @@ describe("Landing, a pending create raced by both paths", () => {
   async function stashViaTheForm() {
     const view = renderApp(<Landing />);
     await userEvent.type(
-      await screen.findByPlaceholderText(/Name your space/),
+      await screen.findByPlaceholderText(/Platform Team/),
       "Platform Team",
     );
     await userEvent.click(screen.getByRole("button", { name: "Open a space" }));
