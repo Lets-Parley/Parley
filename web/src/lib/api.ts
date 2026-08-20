@@ -52,6 +52,8 @@ export type SpaceView = {
   passcode?: string;
   members?: Person[];
   sessions?: SessionSummary[];
+  /** The kinds a new session may use — retired kinds are omitted. Members only. */
+  kinds?: string[];
 };
 export type SessionSummary = {
   id: string;
