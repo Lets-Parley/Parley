@@ -1,6 +1,9 @@
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
+import { ToastProvider } from "../lib/ui";
 import userEvent from "@testing-library/user-event";
 import { renderApp } from "../test/render";
 import { api, type Me } from "../lib/api";
@@ -34,11 +37,7 @@ vi.mock("../lib/api", async () => {
       if (path === "/api/spaces" && method === "GET") return mySpaces;
       if (path === "/api/spaces") {
         if (createFails) throw new Error("Could not create the space.");
-        return {
-          slug: "platform-team",
-          name: "Platform Team",
-          protected: false,
-        };
+        return createResult;
       }
       throw new Error(`unexpected api call: ${path}`);
     }),
@@ -49,6 +48,15 @@ let signedIn = true;
 let authMode: "open" | "oidc" = "oidc";
 let createFails = false;
 let mySpaces: { slug: string; name: string; protected: boolean }[] = [];
+const createdSpace = {
+  slug: "platform-team",
+  name: "Platform Team",
+  protected: false,
+};
+// What POST /api/spaces resolves with. Normally the new space; a test sets it
+// to undefined to stand in for a 2xx with an empty or unparseable body, which
+// lib/api resolves as undefined.
+let createResult: unknown = createdSpace;
 
 const pendingKey = "parley:pending-space";
 const stash = (name: string, at = Date.now()) =>
@@ -66,6 +74,7 @@ beforeEach(() => {
   signedIn = true;
   authMode = "oidc";
   createFails = false;
+  createResult = createdSpace;
   mySpaces = [];
   sessionStorage.clear();
   navigate.mockClear();
@@ -291,14 +300,26 @@ describe("Landing", () => {
   });
 
   // Production mounts the app inside StrictMode, which runs every effect twice
-  // on mount. The shared test harness does not, so this one test renders the
-  // way main.tsx does to keep the resume effect honest under a double mount.
+  // on mount. Two things are needed for that to reach the resume path at all,
+  // and the shared harness supplies neither: StrictMode has to be the root
+  // element handed to render (nested under a testing-library wrapper it does
+  // not re-invoke), and me has to be answered before the first render, or
+  // me.data only lands a tick later — long after the double mount is over.
+  // So this one test builds its own tree.
   it("finishes a pending create exactly once under StrictMode", async () => {
     stash("Platform Team");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    qc.setQueryData(["me"], me);
 
-    renderApp(
+    render(
       <StrictMode>
-        <Landing />
+        <QueryClientProvider client={qc}>
+          <MemoryRouter>
+            <ToastProvider>
+              <Landing />
+            </ToastProvider>
+          </MemoryRouter>
+        </QueryClientProvider>
       </StrictMode>,
     );
 
@@ -309,6 +330,31 @@ describe("Landing", () => {
     expect(spaceCalls()).toEqual([
       ["POST", "/api/spaces", { name: "Platform Team" }],
     ]);
+  });
+
+  // The POST landing is the point of no return. Everything after it — reading
+  // the body, changing route — is about showing the space, and a stumble there
+  // must not offer a button press that buys a second one.
+  it("does not re-run a create whose POST already succeeded", async () => {
+    createResult = undefined;
+
+    renderApp(<Landing />);
+
+    await userEvent.type(
+      await screen.findByPlaceholderText(/Name your space/),
+      "Platform Team",
+    );
+    const open = screen.getByRole("button", { name: "Open a space" });
+    await userEvent.click(open);
+
+    // The space exists; only the navigate blew up, on a body with no slug.
+    await screen.findByText(/slug/);
+    expect(spaceCalls()).toHaveLength(1);
+    expect(navigate).not.toHaveBeenCalled();
+
+    await userEvent.click(open);
+    await act(async () => {});
+    expect(spaceCalls()).toHaveLength(1);
   });
 
   it("creates one space per visit, however many times the button is pressed", async () => {
@@ -366,6 +412,40 @@ describe("Landing, a pending create raced by both paths", () => {
     await userEvent.type(screen.getByPlaceholderText("Your name"), "Marcus");
     await userEvent.click(screen.getByRole("button", { name: /take a seat/i }));
   }
+
+  // The gate's own create path. It is the only path on an open-mode server
+  // where nothing has resolved me yet, so if it stops creating, or stops
+  // taking the name from the pending slot, nobody notices until a stray space
+  // appears on the next mount.
+  it("creates the space itself when the gate finishes first", async () => {
+    await stashViaTheForm();
+
+    await finishTheGate();
+
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith("/s/platform-team"),
+    );
+    expect(spaceCalls()).toEqual([
+      ["POST", "/api/spaces", { name: "Platform Team" }],
+    ]);
+  });
+
+  it("creates from the pending name, and consumes it, when the gate finishes first", async () => {
+    await stashViaTheForm();
+    // The name that survived the round trip is the one that counts, not
+    // whatever the box happens to hold now.
+    stash("Pending Crew");
+
+    await finishTheGate();
+
+    await waitFor(() => expect(spaceCalls()).toHaveLength(1));
+    expect(spaceCalls()).toEqual([
+      ["POST", "/api/spaces", { name: "Pending Crew" }],
+    ]);
+    // Nothing left behind: a leftover key replays as a stray space on the
+    // next mount within the window.
+    expect(sessionStorage.getItem(pendingKey)).toBeNull();
+  });
 
   it("creates once when the sign-in resolves before the gate is finished", async () => {
     const { queryClient } = await stashViaTheForm();

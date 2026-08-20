@@ -70,12 +70,21 @@ export function Landing() {
     async (spaceName: string) => {
       if (creating.current) return;
       creating.current = true;
+      let sp: SpaceView;
       try {
-        const sp = await api<SpaceView>("POST", "/api/spaces", { name: spaceName });
-        navigate(`/s/${sp.slug}`);
+        sp = await api<SpaceView>("POST", "/api/spaces", { name: spaceName });
       } catch (e) {
         creating.current = false;
         setError(e instanceof Error ? e.message : "Could not create the space.");
+        return;
+      }
+      // Past this line the space exists on the server. Anything that goes
+      // wrong from here is a problem with showing it, not with making it, so
+      // the latch stays shut: a second press must never buy a second space.
+      try {
+        navigate(`/s/${sp.slug}`);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not open the new space.");
       }
     },
     [navigate],
@@ -85,7 +94,7 @@ export function Landing() {
   // ran. Coming back with a name still pending finishes that create instead of
   // asking for the same click a second time.
   useEffect(() => {
-    if (creating.current || !me.data) return;
+    if (!me.data) return;
     const pending = takePending();
     if (pending === null) return;
     doCreate(pending);
