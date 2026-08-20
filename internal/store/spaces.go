@@ -118,6 +118,52 @@ func (s *Spaces) IsMember(ctx context.Context, spaceID, userID string) (bool, er
 	return ok, err
 }
 
+// MarkSeen records that a member just opened a space, so the landing page can
+// order by real use rather than by when someone joined. Joining already stamps
+// the row; without this, a space you created a year ago and open daily would
+// sort below one you joined yesterday and never looked at again.
+//
+// One targeted update on the primary key, and only for a caller already known
+// to be a member — the space page is not polled, so this is one write per open.
+func (s *Spaces) MarkSeen(ctx context.Context, spaceID, userID string) error {
+	_, err := s.Pool.Exec(ctx,
+		"update members set last_seen_at = now() where space_id = $1 and user_id = $2",
+		spaceID, userID)
+	return err
+}
+
+// Membership is one space the caller belongs to, as the landing page lists
+// them. Deliberately no room code: this is a list, not a space someone opened.
+// last_seen_at orders the list server-side and is not part of the payload —
+// nothing on the page shows it.
+type Membership struct {
+	Slug      string `json:"slug"`
+	Name      string `json:"name"`
+	Protected bool   `json:"protected"`
+}
+
+// ForUser lists the caller's own spaces, most recently active first.
+func (s *Spaces) ForUser(ctx context.Context, userID string) ([]Membership, error) {
+	rows, err := s.Pool.Query(ctx, `
+		select sp.slug, sp.name, sp.passcode <> ''
+		from members m join spaces sp on sp.id = m.space_id
+		where m.user_id = $1
+		order by m.last_seen_at desc, sp.name`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	spaces := []Membership{}
+	for rows.Next() {
+		var sp Membership
+		if err := rows.Scan(&sp.Slug, &sp.Name, &sp.Protected); err != nil {
+			return nil, err
+		}
+		spaces = append(spaces, sp)
+	}
+	return spaces, rows.Err()
+}
+
 func (s *Spaces) Roster(ctx context.Context, spaceID string) ([]Member, error) {
 	rows, err := s.Pool.Query(ctx, `
 		select m.user_id, u.name, m.spectator

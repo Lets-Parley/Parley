@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -75,6 +76,18 @@ func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleListMySpaces lists the spaces the caller belongs to, most recently
+// active first, so a signed-in visitor lands on their own tables.
+func (a *app) handleListMySpaces(w http.ResponseWriter, r *http.Request) {
+	p, _ := PrincipalFrom(r.Context())
+	spaces, err := a.spaces.ForUser(r.Context(), p.UserID)
+	if err != nil {
+		http.Error(w, `{"error":"could not load your spaces"}`, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, spaces)
+}
+
 // handleGetSpace returns name only to non-members; roster requires membership.
 func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 	sp, err := a.spaces.BySlug(r.Context(), chi.URLParam(r, "slug"))
@@ -89,6 +102,14 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 
 	if p, ok := PrincipalFrom(r.Context()); ok {
 		if member, err := a.spaces.IsMember(r.Context(), sp.ID, p.UserID); err == nil && member {
+			// Opening a space you already belong to is what "active" means;
+			// join only ever fires for someone who is not a member yet, so
+			// without this the landing list would order by join date.
+			// Best effort: a failed stamp is a slightly stale sort order, not
+			// a reason to refuse the page.
+			if err := a.spaces.MarkSeen(r.Context(), sp.ID, p.UserID); err != nil {
+				slog.Warn("could not stamp space visit", "space", sp.ID, "error", err)
+			}
 			roster, err := a.spaces.Roster(r.Context(), sp.ID)
 			if err != nil {
 				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
