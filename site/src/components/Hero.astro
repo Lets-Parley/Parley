@@ -15,7 +15,12 @@ import { LinkButton } from "@astrojs/starlight/components";
 import { VERIFIED_VERSION } from "../verified";
 
 // Starlight's own value; it is not re-exported from a public entry point.
+// scripts/check-skip-link.mjs runs on postbuild and fails the build if this
+// drifts from the id Starlight's SkipLink actually points at.
 const PAGE_TITLE_ID = "_top";
+
+// Below this the star chip is dropped rather than shown.
+const STAR_FLOOR = 25;
 
 const { data } = Astro.locals.starlightRoute.entry;
 const { title = data.title, tagline, image, actions = [] } = data.hero || {};
@@ -31,9 +36,11 @@ try {
   });
   if (res.ok) {
     const count = (await res.json()).stargazers_count;
-    // Zero is worse than silence here: an explicit "0 stars" argues against
-    // the project, so the chip is dropped rather than rendered empty.
-    if (typeof count === "number" && count > 0) stars = count;
+    // A low count argues against the project more effectively than silence
+    // does, and zero is not the only number that does it. Below the floor the
+    // row still carries the licence and the verified version — the chip is the
+    // optional third signal, not a load-bearing one.
+    if (typeof count === "number" && count >= STAR_FLOOR) stars = count;
   }
 } catch {
   // Left null on purpose: the trust row drops the count rather than the build.
@@ -76,7 +83,6 @@ if (image) {
   {rawHtml && <div class="hero-html sl-flex" set:html={rawHtml} />}
   <div class="sl-flex stack">
     <div class="sl-flex copy">
-      <p class="hero-eyebrow">Open source · Self-hosted</p>
       <h1 id={PAGE_TITLE_ID} data-page-title set:html={title} />
       {data.draft && <DraftContentNotice />}
       {tagline && <div class="tagline" set:html={tagline} />}

@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
-    "preview": "astro preview"
+    "preview": "astro preview",
+    "postbuild": "node scripts/check-skip-link.mjs"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.41.7",
