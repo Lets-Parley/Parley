@@ -289,9 +289,10 @@ That is why the example raises `readTimeout` rather than setting it to `0s`.
 Zero means no limit, which a long-lived connection is happy with, but it removes
 the bound for ordinary HTTP on that entry point too and hands a slow-drip client
 a connection it can hold open. Parley's own `ReadTimeout` does not cover you
-here — Traefik terminates the client connection first. If you want an unbounded
-read for WebSockets specifically, give the upgrade path its own entry point
-rather than relaxing the shared one.
+here — Traefik terminates the client connection first. There is no per-router
+override for these timeouts, so the value you pick applies to the whole entry
+point: choose one generous enough for a long call and still bounded, rather
+than removing the bound.
 
 Traefik proxies WebSocket upgrades without any extra configuration — the
 timeouts are the only thing to get right.
