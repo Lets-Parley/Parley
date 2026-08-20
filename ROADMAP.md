@@ -99,6 +99,33 @@ Export lands first and on its own — it is half the work and most of the trust.
 - Status: Backlog
 - Target: v0.3.0
 
+### Somewhere for spaces to live
+
+A space belongs to the instance and to nobody else. Slugs are unique across the
+whole database, so two teams that both name a room "Platform Team" collide and
+the second one is told the name is taken by a space it cannot see. When the
+person who made a room leaves, nothing can be done with it: it cannot be
+renamed, reassigned, or cleaned up, because space owner is the highest thing
+there is. And a new starter cannot find their team's standup without somebody
+sending them a link and a passcode.
+
+Organizations put a level above spaces. Membership comes from the identity
+provider that already knows which team someone is on, so there are no invitation
+emails and Parley goes on storing a name and nothing else. Belonging to an
+organization does not put you in its rooms — joining stays something you choose
+to do — but it does let you find the ones that want to be found.
+
+An organization admin gets custody without access. They can rename, reassign,
+archive, and clean up any space, including private ones, and remove someone who
+has left. They cannot read a vote, a standup entry, or a note, and they never
+appear in a room. Private means private from your colleagues; it has never meant
+private from whoever runs the server, and the documentation will say so plainly
+rather than let people assume otherwise.
+
+- Status: Backlog
+- Target: v0.5.0
+- Tracking: [#203](https://github.com/Lets-Parley/Parley/issues/203)
+
 ## Later
 
 Accepted direction, not currently scheduled.
