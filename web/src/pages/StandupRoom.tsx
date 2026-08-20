@@ -219,16 +219,72 @@ export function StandupRoom({
     .map((e) => `${people.get(e.userId)?.name ?? "Someone"}: ${e.blockers.trim()}`)
     .join("\n");
 
+  // The rail is the round, so it is housed in the round bar rather than left
+  // loose between the chrome and the speaker card.
+  const rail = <ol className="flex flex-wrap items-center gap-2">
+      {st.entries.map((e) => {
+        const p = people.get(e.userId);
+        const isCurrent = e.userId === st.currentSpeakerId;
+        const isShown = e.userId === shownId;
+        return (
+          <li
+            key={e.userId}
+            aria-current={isCurrent ? "true" : undefined}
+            className={
+              "flex items-center gap-1.5 rounded-full transition " +
+              (isCurrent ? "bg-accent-soft shadow-lift" : e.skipped ? "" : "bg-surface shadow-rest")
+            }
+          >
+            {/* The button carries only the name, so the sr-only asides
+                below stay out of its accessible name. */}
+            <button
+              type="button"
+              aria-pressed={isShown}
+              onClick={() => setPickedId((id) => (id === e.userId ? null : e.userId))}
+              className={
+                "flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3 transition " +
+                (isShown ? "ring-2 ring-accent" : "")
+              }
+            >
+              {/* The name sits in text beside it, so the chip is
+                  decorative here — otherwise it doubles the button's name. */}
+              {p && (
+                <span aria-hidden="true">
+                  <Avatar name={p.name} hue={p.avatarHue} size="sm" dim={e.skipped} />
+                </span>
+              )}
+              {/* A group opacity wrapper would multiply through the name and
+                  leave it at 2.38:1 on the felt. The dimming rides on the
+                  avatar and a faint-but-legible ink instead. */}
+              <span
+                className={
+                  "text-sm font-bold" +
+                  (e.skipped ? " text-ink-faint line-through" : "") +
+                  // Both cues can land on one seat. At small sizes an
+                  // offset-4 underline crowds the strike into a single
+                  // thick bar, so a struck seat gets the deeper offset and
+                  // the two lines stay readable as two different facts.
+                  (isShown ? (e.skipped ? " underline underline-offset-8" : " underline underline-offset-4") : "")
+                }
+              >
+                {p?.name}
+              </span>
+            </button>
+            {(isCurrent || e.skipped) && (
+              <span className="sr-only">{isCurrent ? " — speaking now" : " — skipped or absent"}</span>
+            )}
+          </li>
+        );
+      })}
+    </ol>;
+
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6 p-5 sm:p-7">
-      <header className="flex flex-wrap items-center gap-3 rounded-panel border border-line bg-surface px-5 py-4 shadow-rest">
-        {/* The session's name lives in the shell header, where it stays
-            legible across a room. Repeating it here spent a whole row. */}
-        <span className="flex-1" />
-        {/* Session-level actions, held off the round by a hairline: End session
-            used to sit a cursor-width from Export CSV at the same size and
-            weight, and the countdown was wedged between them. */}
-        <span data-testid="session-actions" className="flex items-center gap-2 border-l border-line pl-3">
+      {/* Not a panel. The session's name lives in the shell header and the
+          countdown lives in the round bar, so a bordered, padded surface here
+          would be chrome around two tertiary links. */}
+      <header className="-mb-2 flex flex-wrap items-center justify-end gap-3">
+        <span data-testid="session-actions" className="flex items-center gap-2">
         <a
           href={`/api/sessions/${env.id}/export.csv`}
           download
@@ -275,7 +331,11 @@ export function StandupRoom({
       {/* The round bar: how far in we are, who follows, and how long is left —
           the three facts the room reads, at the scale it reads them from. */}
       {(speaking || done) && (
-        <section className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-panel border border-line bg-surface px-5 py-4 shadow-rest">
+        <section
+          data-testid="round-bar"
+          className="flex flex-col gap-4 rounded-panel border border-line bg-surface px-5 py-4 shadow-rest"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
           <div className="min-w-0">
             <p
               data-testid="round-progress"
@@ -295,68 +355,11 @@ export function StandupRoom({
           {speaking && st.speakerStartedAt && (
             <Timer startedAt={st.speakerStartedAt} seconds={st.secondsPerPerson} serverTime={env.serverTime} />
           )}
+          </div>
+          {rail}
         </section>
       )}
 
-      {/* Speaking order rail. */}
-      {(speaking || done) && (
-        <ol className="flex flex-wrap items-center gap-2">
-          {st.entries.map((e) => {
-            const p = people.get(e.userId);
-            const isCurrent = e.userId === st.currentSpeakerId;
-            const isShown = e.userId === shownId;
-            return (
-              <li
-                key={e.userId}
-                aria-current={isCurrent ? "true" : undefined}
-                className={
-                  "flex items-center gap-1.5 rounded-full transition " +
-                  (isCurrent ? "bg-accent-soft shadow-lift" : e.skipped ? "" : "bg-surface shadow-rest")
-                }
-              >
-                {/* The button carries only the name, so the sr-only asides
-                    below stay out of its accessible name. */}
-                <button
-                  type="button"
-                  aria-pressed={isShown}
-                  onClick={() => setPickedId((id) => (id === e.userId ? null : e.userId))}
-                  className={
-                    "flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3 transition " +
-                    (isShown ? "ring-2 ring-accent" : "")
-                  }
-                >
-                  {/* The name sits in text beside it, so the chip is
-                      decorative here — otherwise it doubles the button's name. */}
-                  {p && (
-                    <span aria-hidden="true">
-                      <Avatar name={p.name} hue={p.avatarHue} size="sm" dim={e.skipped} />
-                    </span>
-                  )}
-                  {/* A group opacity wrapper would multiply through the name and
-                      leave it at 2.38:1 on the felt. The dimming rides on the
-                      avatar and a faint-but-legible ink instead. */}
-                  <span
-                    className={
-                      "text-sm font-bold" +
-                      (e.skipped ? " text-ink-faint line-through" : "") +
-                      // Both cues can land on one seat. At small sizes an
-                      // offset-4 underline crowds the strike into a single
-                      // thick bar, so a struck seat gets the deeper offset and
-                      // the two lines stay readable as two different facts.
-                      (isShown ? (e.skipped ? " underline underline-offset-8" : " underline underline-offset-4") : "")
-                    }
-                  >
-                    {p?.name}
-                  </span>
-                </button>
-                {(isCurrent || e.skipped) && (
-                  <span className="sr-only">{isCurrent ? " — speaking now" : " — skipped or absent"}</span>
-                )}
-              </li>
-            );
-          })}
-        </ol>
-      )}
 
       {!speaking && !done && (
         <section className="flex flex-col gap-4">

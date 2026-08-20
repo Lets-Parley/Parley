@@ -750,15 +750,28 @@ describe("StandupRoom round composition", () => {
     expect(bar.contains(screen.getByRole("button", { name: "Next" }))).toBe(true);
   });
 
-  it("holds the session-level actions off the round with a rule", () => {
-    // Same fix as the poker room: End session used to sit a cursor-width from
-    // Export CSV at the same size and weight.
+  it("does not spend a whole panel on two tertiary links", () => {
+    // The title moved to the shell header in #225 and the countdown moved to
+    // the round bar, so the chrome panel was left bordered, padded and empty
+    // but for Export CSV and End session.
     const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
     renderApp(<StandupRoom env={envelope()} me={dana} />);
     const group = screen.getByTestId("session-actions");
-    expect(group.className).toContain("border-l");
     expect(group.contains(screen.getByRole("link", { name: "Export CSV" }))).toBe(true);
     expect(group.contains(screen.getByRole("button", { name: "End session" }))).toBe(true);
+    const chrome = group.closest("header")!;
+    expect(chrome.className).not.toContain("bg-surface");
+    expect(chrome.className).not.toContain("shadow-rest");
+    expect(chrome.className).not.toContain("border-line");
+  });
+
+  it("houses the speaking order inside the round bar, not between panels", () => {
+    // The rail is the round. Left loose between the chrome and the speaker
+    // card it read as an orphan strip with no housing.
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    const bar = screen.getByTestId("round-bar");
+    expect(bar.contains(screen.getByTestId("round-progress"))).toBe(true);
+    expect(bar.contains(seat("Dana Whitfield"))).toBe(true);
   });
 
   it("does not put the round bar on the gathering screen", () => {
