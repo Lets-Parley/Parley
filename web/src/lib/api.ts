@@ -6,17 +6,48 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * A request that never reached the server at all.
+ *
+ * It extends TypeError because that is what `fetch` itself rejects with, so a
+ * caller that discriminates on TypeError keeps working — but it is a distinct
+ * type, which is what lets errorText tell a dead connection apart from an
+ * ordinary TypeError thrown by our own code further up the call.
+ */
+export class NetworkError extends TypeError {}
+
+/**
+ * The user-facing text for anything `api()` throws.
+ *
+ * A transport failure carries the browser's own wording — "Failed to fetch" in
+ * Chrome, "Load failed" in Safari — which is neither actionable nor consistent,
+ * so it is replaced here rather than rendered. Everything else keeps its own
+ * message: the server writes those, and they are already written for a reader.
+ */
+export function errorText(e: unknown): string {
+  if (e instanceof ApiError) return e.message;
+  if (e instanceof NetworkError) return "Can't reach the server — check your connection and try again.";
+  return e instanceof Error && e.message ? e.message : "Something went wrong. Try again.";
+}
+
 export async function api<T = unknown>(
   method: string,
   path: string,
   body?: unknown,
 ): Promise<T> {
-  const resp = await fetch(path, {
-    method,
-    credentials: "same-origin",
-    headers: body !== undefined ? { "Content-Type": "application/json" } : {},
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  let resp: Response;
+  try {
+    resp = await fetch(path, {
+      method,
+      credentials: "same-origin",
+      headers: body !== undefined ? { "Content-Type": "application/json" } : {},
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch (e) {
+    // Offline, DNS failure, TLS refusal, the server simply gone. Retagged so
+    // the browser's own wording never reaches a screen.
+    throw new NetworkError(e instanceof Error ? e.message : "network failure");
+  }
   if (resp.status === 204) return undefined as T;
   const text = await resp.text();
   let data: unknown;

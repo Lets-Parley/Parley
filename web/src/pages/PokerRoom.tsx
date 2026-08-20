@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { action, api, type Envelope, type Me, type Person, type Story } from "../lib/api";
+import { action, api, errorText, type Envelope, type Me, type Person, type Story } from "../lib/api";
 import { cueFor, useCueAccumulator, useRoundEpoch } from "../lib/cue";
 import { GRACE_SECONDS, claimState, voteTally } from "../lib/derive";
 import { useCountdown, useToast } from "../lib/ui";
@@ -50,7 +50,7 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
       await fn();
       return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong.");
+      setError(errorText(e));
       return false;
     }
   }
