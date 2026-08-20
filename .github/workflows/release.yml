@@ -8,7 +8,10 @@ permissions:
   contents: read
 
 env:
-  SKOPEO_IMAGE: quay.io/skopeo/stable:v1.22.2@sha256:8870d39b1f18e6421da42aa13e562ce61cc58f230d238f4a905efe959ff8f491
+  # Pinned by digest, but the digest is not forever: upstream re-pushed v1.22.2
+  # under a new digest and garbage-collected the old one, which broke the v0.4.3
+  # release with "manifest unknown". Re-resolve the tag when that happens again.
+  SKOPEO_IMAGE: quay.io/skopeo/stable:v1.22.2@sha256:02053f3c795ecf32af60e58c2099935ae620a1a9b6186c1dbcf557b6a09fb1eb
 
 jobs:
   validate:
