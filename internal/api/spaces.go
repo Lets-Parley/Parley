@@ -31,6 +31,22 @@ type seatRef struct {
 	Title     string `json:"title"`
 }
 
+// sessionView is store.Session plus the presence the space page needs.
+// Presence is not a column, so it cannot live on the store struct; embedding
+// keeps the wire shape identical and adds one field.
+type sessionView struct {
+	store.Session
+	// Here is how many people have a socket open on this session right now.
+	// It is deliberately not filtered through the roster: InSessions matches
+	// on session_id and seen_at only and never joins members, whereas the
+	// seats below are projected through it. So a member removed a moment ago
+	// still counts here until their socket closes — immediately on the
+	// replica serving the removal, and within ~30s elsewhere via the
+	// membership revalidation tick. A headcount that is briefly one too high
+	// is a better trade than a second query on every space load.
+	Here int `json:"here"`
+}
+
 func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 	p, _ := PrincipalFrom(r.Context())
 
@@ -149,6 +165,13 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
 				return
 			}
+			// The count is the same map the seats came from — InSessions
+			// stays exactly one query for the whole page. `here` only ever
+			// has entries for open sessions, so an ended one reads 0.
+			sessionViews := make([]sessionView, len(sessions))
+			for i, sess := range sessions {
+				sessionViews[i] = sessionView{Session: sess, Here: len(here[sess.ID])}
+			}
 			views := make([]memberView, len(roster))
 			for i, m := range roster {
 				views[i] = memberView{UserID: m.UserID, Name: m.Name, AvatarHue: avatarHue(m.UserID), Spectator: m.Spectator, Role: m.Role, At: seats[m.UserID]}
@@ -156,7 +179,7 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 			// Members can read the room code any time — passing it on is the
 			// whole point of it.
 			writeJSON(w, http.StatusOK, map[string]any{
-				"slug": sp.Slug, "name": sp.Name, "members": views, "sessions": sessions, "kinds": kinds,
+				"slug": sp.Slug, "name": sp.Name, "members": views, "sessions": sessionViews, "kinds": kinds,
 				"passcode": sp.Passcode, "protected": sp.Passcode != "",
 			})
 			return
