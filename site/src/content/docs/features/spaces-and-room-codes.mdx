@@ -90,9 +90,26 @@ promoted somebody else first.
 
 ## Session history
 
-Every session ever run in the space, live or ended, is listed with a badge and a
-relative date. You can search the titles, filter by kind — poker or standup — and
-cycle the sort between most recent, active first, and A–Z.
+Every session ever run in the space is listed with a badge and a relative date.
+You can search the titles, filter by kind — poker or standup — and cycle the
+sort between most recent, active first, and A–Z.
+
+The badge says one of three things, and it counts people rather than reporting
+whether anyone remembered to close the session:
+
+- **`N here`**, with a green dot — that many people have a socket open on it
+  right now.
+- **`open`** — nobody is in it, but it has not been ended. Join it and it is
+  live again.
+- **`ended`** — somebody closed it. It is read-only history.
+
+The count comes from the same WebSocket presence the roster uses, so it means
+an actual open connection. Two things make it approximate by design: a
+presence record ages out roughly 100 seconds after the last heartbeat, and the
+page re-reads the space every 30 seconds. Somebody who closes their laptop can
+therefore linger in the count for up to about two minutes. That is the design,
+not a bug — it is the price of never asking a database for a "last seen"
+timestamp and calling it presence.
 
 ## What is not here
 

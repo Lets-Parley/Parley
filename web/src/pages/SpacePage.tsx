@@ -47,6 +47,9 @@ export function SpacePage() {
     queryKey: ["space", slug],
     queryFn: () => api<SpaceView>("GET", `/api/spaces/${slug}`),
     retry: false,
+    // Presence ages out after ~100s (2 × the socket pong deadline), so a page
+    // read once shows a headcount that is quietly wrong within two minutes.
+    refetchInterval: 30_000,
   });
 
   // Opening a space you already belong to is what the landing list means by
@@ -74,7 +77,11 @@ export function SpacePage() {
   if (space.isLoading) {
     return <p className="p-8 text-center text-ink-faint">Finding the table…</p>;
   }
-  if (space.isError || !space.data) {
+  // Only the *first* read failing means there is no table. With a poll
+  // running, a background refetch failure sets isError while the cached space
+  // is still perfectly good — showing the dead end there would replace a
+  // working page with an error on one flaky response.
+  if (!space.data) {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-8 text-center">
         <p className="font-display text-2xl">No table under that name</p>
@@ -232,15 +239,19 @@ export function SpacePage() {
                     </span>
                   </span>
                   <span className="flex-1" />
+                  {/* The text carries the whole meaning — the dot only
+                      decorates a count that is already spelled out. */}
                   {s.endedAt ? (
                     <span className="shrink-0 rounded-full bg-felt-deep px-2.5 py-1 font-mono text-[10px] text-ink-faint">
                       ended
                     </span>
-                  ) : (
+                  ) : s.here > 0 ? (
                     <span className="flex shrink-0 items-center gap-1.5 font-mono text-[10px] text-go">
-                      <span className="h-[7px] w-[7px] rounded-full bg-go" />
-                      live
+                      <span aria-hidden="true" className="h-[7px] w-[7px] rounded-full bg-go" />
+                      {`${s.here} here`}
                     </span>
+                  ) : (
+                    <span className="shrink-0 font-mono text-[10px] text-ink-faint">open</span>
                   )}
                 </Link>
               </li>

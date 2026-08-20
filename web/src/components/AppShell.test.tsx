@@ -212,10 +212,10 @@ describe("the build stamp", () => {
 
 describe("sidebar kind labels", () => {
   const sessions = [
-    { id: "s1", kind: "poker", title: "Sprint 12", createdAt: "", endedAt: null },
-    { id: "s2", kind: "standup", title: "Daily", createdAt: "", endedAt: null },
-    { id: "s3", kind: "acme.retro", title: "Retro", createdAt: "", endedAt: null },
-    { id: "s4", kind: "poker", title: "Sprint 11", createdAt: "", endedAt: "2024-01-01" },
+    { id: "s1", kind: "poker", title: "Sprint 12", createdAt: "", endedAt: null, here: 0 },
+    { id: "s2", kind: "standup", title: "Daily", createdAt: "", endedAt: null, here: 0 },
+    { id: "s3", kind: "acme.retro", title: "Retro", createdAt: "", endedAt: null, here: 0 },
+    { id: "s4", kind: "poker", title: "Sprint 11", createdAt: "", endedAt: "2024-01-01", here: 0 },
   ];
 
   /** The chip is an element of its own, so assert on it — not on the row's text. */
