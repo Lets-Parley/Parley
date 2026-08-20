@@ -122,7 +122,7 @@ describe("PokerRoom story on the table", () => {
     const env = envelope();
     env.state.stories[0].title = "";
     renderApp(<PokerRoom env={env} me={me} />);
-    expect(screen.getByRole("heading", { level: 1, name: "PLAT-412" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "PLAT-412" })).toBeTruthy();
   });
 });
 

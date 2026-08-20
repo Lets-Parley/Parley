@@ -39,13 +39,15 @@ describe("Logo and ConnectionDot", () => {
     expect(container.querySelector("[aria-hidden]")).toBeTruthy();
   });
 
-  it("names each connection state in words, not only in colour", () => {
+  it("names each connection state in words a room understands, not wire enums", () => {
     const { rerender } = renderApp(<ConnectionDot status="live" />);
     expect(screen.getByText("live")).toBeTruthy();
     rerender(<ConnectionDot status="reconnecting" />);
     expect(screen.getByText("reconnecting")).toBeTruthy();
     rerender(<ConnectionDot status="stale" />);
-    expect(screen.getByText("stale")).toBeTruthy();
+    expect(screen.getByText("offline")).toBeTruthy();
+    rerender(<ConnectionDot status="removed" />);
+    expect(screen.getByText("no access")).toBeTruthy();
   });
 });
 
@@ -54,7 +56,6 @@ describe("AppShell", () => {
     stubAuthMode("open");
     renderShell();
     expect(screen.getByText("Platform Team")).toBeTruthy();
-    expect(screen.getByText("/s/platform-team")).toBeTruthy();
     expect(screen.getByText("table")).toBeTruthy();
   });
 
@@ -67,7 +68,7 @@ describe("AppShell", () => {
   it("shows the dot and the banner when there is a socket to report on", () => {
     stubAuthMode("open");
     renderShell({ status: "stale" });
-    expect(screen.getByText("stale")).toBeTruthy();
+    expect(screen.getByText("offline")).toBeTruthy();
     expect(screen.getByRole("status").textContent).toContain("Connection lost");
   });
 
@@ -156,13 +157,21 @@ describe("AppShell", () => {
     ).toBe("false");
   });
 
-  it("labels the theme toggle by what it will do", async () => {
+  it("names the palette it is on, and can get back to system", async () => {
     stubAuthMode("open");
     renderShell();
-    const toggle = screen.getByRole("button", { name: "Switch to dark theme" });
-    await userEvent.click(toggle);
+    await userEvent.click(screen.getByRole("button", { name: "Theme: system. Switch to light." }));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    await userEvent.click(screen.getByRole("button", { name: "Theme: light. Switch to dark." }));
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
-    expect(screen.getByRole("button", { name: "Switch to light theme" })).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Theme: dark. Switch to system." }));
+    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
+  });
+
+  it("shows which palette is pinned, rather than hiding it in a shadow", () => {
+    stubAuthMode("open");
+    renderShell();
+    expect(screen.getByText("system")).toBeTruthy();
   });
 });
 
@@ -179,6 +188,64 @@ function asPhone() {
     dispatchEvent: () => false,
   })) as unknown as typeof window.matchMedia);
 }
+
+function manySessions(n: number) {
+  return Array.from({ length: n }, (_, i) => ({
+    id: `s${i}`,
+    kind: "poker",
+    title: `Round ${i}`,
+    createdAt: "2026-01-01T00:00:00Z",
+    endedAt: null,
+  }));
+}
+
+describe("what the sidebar admits it is hiding", () => {
+  it("offers the way to the rest when the list is cut", () => {
+    stubAuthMode("open");
+    renderShell({ sessions: manySessions(12) as never });
+    const more = screen.getByRole("link", { name: "All 12 sessions" });
+    expect(more.getAttribute("href")).toBe("/s/platform-team");
+  });
+
+  it("says nothing about more sessions when the list is whole", () => {
+    stubAuthMode("open");
+    renderShell({ sessions: manySessions(3) as never });
+    expect(screen.queryByRole("link", { name: /All \d+ sessions/ })).toBeNull();
+  });
+
+  it("makes the overflow badge open the roster it is counting", async () => {
+    stubAuthMode("open");
+    renderShell({ members: roster });
+    await userEvent.click(screen.getByRole("button", { name: "Show all 6 members" }));
+    expect(screen.getByRole("dialog", { name: "Members" })).toBeTruthy();
+  });
+});
+
+describe("what the header says the screen is", () => {
+  it("puts the room first when there is one, and the space under it", () => {
+    stubAuthMode("open");
+    renderShell({ title: "Checkout rewrite" });
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(heading.textContent).toBe("Checkout rewrite");
+    // The space is still one click away, just no longer the loudest thing.
+    expect(screen.getByRole("link", { name: "Platform Team" })).toBeTruthy();
+  });
+
+  it("falls back to the space where the page is the space itself", () => {
+    stubAuthMode("open");
+    renderShell();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Platform Team");
+  });
+
+  it("keeps the way home without spending the header on a wordmark", () => {
+    stubAuthMode("open");
+    renderShell({ title: "Checkout rewrite" });
+    expect(screen.getByRole("link", { name: "Parley home" })).toBeTruthy();
+    // The slug is in the address bar already; the header's tightest region
+    // does not repeat it.
+    expect(screen.queryByText("/s/platform-team")).toBeNull();
+  });
+});
 
 describe("the sidebar on a phone", () => {
   it("opens the space nav as a sheet, because the rail has nowhere to go", async () => {

@@ -26,6 +26,10 @@ export function Logo({ size = 14 }: { size?: number }) {
   );
 }
 
+const SIDEBAR_SESSIONS = 8;
+
+const NEXT_THEME_WORD = { system: "light", light: "dark", dark: "system" } as const;
+
 const RELEASES = "https://github.com/lets-parley/parley/releases";
 
 /**
@@ -56,6 +60,14 @@ export function BuildStamp() {
   );
 }
 
+// The wire calls these live/reconnecting/stale/removed. A room does not.
+const STATUS_WORD: Record<ConnectionStatus, string> = {
+  live: "live",
+  reconnecting: "reconnecting",
+  stale: "offline",
+  removed: "no access",
+};
+
 export function ConnectionDot({ status }: { status: ConnectionStatus }) {
   const color =
     status === "live" ? "bg-go" : status === "reconnecting" ? "bg-brass" : "bg-stop";
@@ -65,7 +77,7 @@ export function ConnectionDot({ status }: { status: ConnectionStatus }) {
       className="flex items-center gap-1.5 font-mono text-[11px] text-ink-soft"
     >
       <span className={"h-2 w-2 rounded-full " + color} />
-      {status}
+      {STATUS_WORD[status]}
     </span>
   );
 }
@@ -92,6 +104,7 @@ type Props = {
 export function AppShell({
   spaceSlug,
   spaceName,
+  title,
   me,
   status,
   onRetry,
@@ -109,7 +122,8 @@ export function AppShell({
   const wide = useMediaQuery("(min-width: 768px)");
   const [sideOpen, setSideOpen] = useState(() => sidebarDefault && wide);
   const [who, setWho] = useState<string | null>(null);
-  const { isDark, toggle } = useTheme();
+  const [rosterOpen, setRosterOpen] = useState(false);
+  const { theme, isDark, cycle } = useTheme();
   const mode = useAuthMode();
   // Only offered where it means something. In open mode the identity is just a
   // name in a cookie, and "sign out" would promise more than it does.
@@ -144,7 +158,7 @@ export function AppShell({
                 Sessions
               </h2>
               <ul className="flex flex-col gap-0.5">
-                {sessions.slice(0, 8).map((s) => (
+                {sessions.slice(0, SIDEBAR_SESSIONS).map((s) => (
                   <li key={s.id}>
                     <Link
                       to={`/session/${s.id}`}
@@ -169,6 +183,18 @@ export function AppShell({
                 ))}
                 {sessions.length === 0 && (
                   <li className="px-2.5 py-1.5 text-[13px] text-ink-faint">No sessions yet.</li>
+                )}
+                {sessions.length > SIDEBAR_SESSIONS && (
+                  /* Silent truncation reads as "that is all there is", and a
+                     facilitator hunting yesterday's round concludes it is gone. */
+                  <li>
+                    <Link
+                      to={`/s/${spaceSlug}`}
+                      className="block rounded-chip px-2.5 py-1.5 text-[13px] font-semibold text-accent hover:bg-felt-deep"
+                    >
+                      All {sessions.length} sessions
+                    </Link>
+                  </li>
                 )}
               </ul>
             </section>
@@ -247,19 +273,28 @@ export function AppShell({
           <span className="h-0.5 w-3.5 rounded-full bg-ink-soft" />
         </button>
 
-        <Link to="/" className="flex shrink-0 items-center gap-2">
-          <Logo />
-          <span className="text-lg font-extrabold tracking-tight">Parley</span>
+        {/* The room is the loudest thing in the header, because on a shared
+            screen the header's job is to say which round the room is in — not
+            whose software it is. The wordmark keeps the way home as a mark. */}
+        <Link to="/" aria-label="Parley home" className="flex shrink-0 items-center">
+          <Logo size={18} />
         </Link>
 
         <span className="hidden h-5 w-px bg-line sm:block" />
 
-        <Link to={`/s/${spaceSlug}`} className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-[15px] font-bold">{spaceName}</span>
-          <span className="hidden rounded-chip bg-felt-deep px-2 py-0.5 font-mono text-[11px] text-ink-faint md:inline">
-            /s/{spaceSlug}
-          </span>
-        </Link>
+        <span className="flex min-w-0 flex-col justify-center leading-tight">
+          <h1 className="truncate text-[17px] font-extrabold tracking-tight sm:text-[19px]">
+            {title ?? spaceName}
+          </h1>
+          {title && (
+            <Link
+              to={`/s/${spaceSlug}`}
+              className="truncate text-[12px] font-semibold text-ink-soft hover:text-ink"
+            >
+              {spaceName}
+            </Link>
+          )}
+        </span>
 
         <span className="flex-1" />
 
@@ -284,9 +319,14 @@ export function AppShell({
               </button>
             ))}
             {overflow > 0 && (
-              <span className="-ml-2 flex h-7 w-7 items-center justify-center rounded-full bg-felt-deep text-[10px] font-bold text-ink-soft ring-2 ring-surface">
+              /* A count that raises "who else?" has to be able to answer it. */
+              <button
+                onClick={() => setRosterOpen(true)}
+                aria-label={`Show all ${members?.length ?? 0} members`}
+                className="-ml-2 flex h-7 w-7 items-center justify-center rounded-full bg-felt-deep text-[10px] font-bold text-ink-soft ring-2 ring-surface hover:bg-surface-hi"
+              >
                 +{overflow}
-              </span>
+              </button>
             )}
           </span>
         )}
@@ -309,16 +349,21 @@ export function AppShell({
           </button>
         )}
 
+        {/* The palette says its own name. Encoding it in an inset shadow on a
+            12px dot asked everyone to read a state only its author knew. */}
         <button
-          onClick={toggle}
-          title={isDark ? "Switch to light" : "Switch to dark"}
-          aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-felt-deep hover:bg-surface-hi"
+          onClick={cycle}
+          aria-label={`Theme: ${theme}. Switch to ${NEXT_THEME_WORD[theme]}.`}
+          className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-felt-deep py-1 pl-1.5 pr-2.5 hover:bg-surface-hi"
         >
           <span
-            className="h-3 w-3 rounded-full bg-ink-soft"
+            aria-hidden
+            className="h-3 w-3 shrink-0 rounded-full bg-ink-soft"
             style={{ boxShadow: isDark ? "inset 3px -2px 0 0 var(--color-surface)" : "none" }}
           />
+          <span className="hidden font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint sm:inline">
+            {theme}
+          </span>
         </button>
       </header>
 
@@ -342,6 +387,28 @@ export function AppShell({
           <nav aria-label="Space" className="mt-4 flex flex-col gap-6">
             {navBody}
           </nav>
+        </Modal>
+      )}
+
+      {rosterOpen && (
+        <Modal title="Members" onClose={() => setRosterOpen(false)} width="20rem">
+          <ul className="mt-4 flex max-h-[60vh] flex-col gap-2 overflow-y-auto">
+            {(members ?? []).map((m) => (
+              <li key={m.userId} className="flex items-center gap-2.5">
+                <Avatar
+                  name={m.name}
+                  hue={m.avatarHue}
+                  size="sm"
+                  dim={!online.has(m.userId)}
+                  decorative
+                />
+                <span className="truncate text-[13px] font-semibold">{m.name}</span>
+                <span className="ml-auto shrink-0 font-mono text-[10px] text-ink-faint">
+                  {online.has(m.userId) ? "online" : "offline"}
+                </span>
+              </li>
+            ))}
+          </ul>
         </Modal>
       )}
 
