@@ -74,6 +74,6 @@ export const buttonDanger =
 export const buttonGo =
   "rounded-full bg-go px-4 py-2.5 text-sm font-bold text-accent-ink shadow-rest transition hover:shadow-lift";
 export const inputClass =
-  "w-full rounded-chip border border-line bg-surface-hi px-3.5 py-2.5 text-sm text-ink outline-none focus:border-accent";
+  "w-full rounded-chip border border-line bg-surface-hi px-3.5 py-2.5 text-sm text-ink focus-visible:border-accent";
 export const labelClass =
   "mb-2 mt-4 block font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint";
