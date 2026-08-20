@@ -43,8 +43,11 @@ export function Avatar({
         background: `oklch(0.52 0.09 ${185 + (((hue % 360) + 360) % 360) / 360 * 105})`,
         color: "#F4F8FB",
         boxShadow: "0 0 0 2px var(--color-surface), 0 0 0 3px var(--color-line)",
-        // 0.7 is the floor: below it the initials composite under AA in the
-        // light theme, which is the one that fails first.
+        // The initials are not held to 4.5:1 — every avatar carries the name
+        // as text, in aria-label and usually beside it, so the glyphs are a
+        // redundant mark. 0.7 is a legibility floor, not a compliance one:
+        // it measures 2.90:1 light / 3.73:1 dark at the worst hue in the arc,
+        // against 2.23 / 3.05 at the old 0.55. See the contrast doc.
         opacity: spectator || dim ? 0.7 : 1,
       }}
       title={decorative ? undefined : name}
