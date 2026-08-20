@@ -35,6 +35,11 @@ function useOwnEntryDraft(env: Envelope, meId: string) {
   // What has been typed but not yet sent. Kept in a ref rather than state so
   // flush() can post the very last keystroke without waiting for a re-render.
   const pending = useRef<{ yesterday: string; today: string; blockers: string } | null>(null);
+  // Every save is queued behind the previous one. Two overlapping PUTs have no
+  // ordering guarantee on the wire, so a slow older body could land last and
+  // undo the newer one; chaining also gives flush() something to await when a
+  // request is already out and pending.current is therefore empty.
+  const chain = useRef<Promise<unknown>>(Promise.resolve());
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   useEffect(() => {
@@ -44,14 +49,21 @@ function useOwnEntryDraft(env: Envelope, meId: string) {
     }
   }, [server]);
 
-  async function send(next: { yesterday: string; today: string; blockers: string }) {
+  // Rejects when the save failed. Callers that only fire-and-forget swallow it;
+  // flush() deliberately does not, so ending the session can refuse to proceed.
+  function send(next: { yesterday: string; today: string; blockers: string }) {
     pending.current = null;
-    try {
-      await action(env.id, "standup", next);
-      setSaveState("saved");
-    } catch {
-      setSaveState("error");
-    }
+    const done = chain.current.catch(() => {}).then(async () => {
+      try {
+        await action(env.id, "standup", next);
+        setSaveState("saved");
+      } catch (e) {
+        setSaveState("error");
+        throw e;
+      }
+    });
+    chain.current = done;
+    return done;
   }
 
   function update(field: keyof typeof draft, value: string) {
@@ -61,7 +73,7 @@ function useOwnEntryDraft(env: Envelope, meId: string) {
     setSaveState("saving");
     pending.current = next;
     clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => void send(next), 800);
+    timer.current = window.setTimeout(() => void send(next).catch(() => {}), 800);
   }
 
   // Send anything still sitting in the debounce, right now. Anything that ends
@@ -70,7 +82,10 @@ function useOwnEntryDraft(env: Envelope, meId: string) {
   async function flush() {
     clearTimeout(timer.current);
     const next = pending.current;
+    // Nothing pending still leaves a request possibly in flight: send() clears
+    // pending.current before it awaits, so the chain is the only handle on it.
     if (next) await send(next);
+    else await chain.current;
   }
 
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -189,7 +204,14 @@ export function StandupRoom({
               run(async () => {
                 // Ending closes the session to writes, so the pending debounce
                 // goes out first or the facilitator's last sentence is lost.
-                await flush();
+                // If that save fails the session stays open: ending cannot be
+                // undone from here, but retrying can, so the failure is
+                // surfaced instead of being closed over.
+                try {
+                  await flush();
+                } catch {
+                  throw new Error("Your last changes could not be saved, so the session is still open. Try again.");
+                }
                 await api("DELETE", `/api/sessions/${env.id}`);
                 say("Session closed — members can still open the results");
               })

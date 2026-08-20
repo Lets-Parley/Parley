@@ -268,6 +268,18 @@ describe("StandupRoom re-reading entries", () => {
     expect(seat("Priya Raman").textContent).toMatch(/skipped or absent/i);
   });
 
+  it("drops the underline clear of the strike-through on a skipped seat", () => {
+    // Underline and line-through land on the same seat when a skipped person is
+    // being read. At offset-4 the two merge into one thick bar, so the deeper
+    // offset is what keeps them readable as two separate facts.
+    renderApp(<StandupRoom env={envelope({ state: filledState("dana") })} me={me} />);
+    const nameOf = (n: string) => seatButton(n).querySelector("span.underline")!.className;
+    expect(nameOf("Dana Whitfield")).toContain("underline-offset-4");
+    act(() => seatButton("Priya Raman").click());
+    expect(nameOf("Priya Raman")).toContain("line-through");
+    expect(nameOf("Priya Raman")).toContain("underline-offset-8");
+  });
+
   it("marks the picked seat in more than colour, and keeps aria-current on the row", () => {
     renderApp(<StandupRoom env={envelope({ state: filledState("dana") })} me={me} />);
     act(() => seatButton("Priya Raman").click());
@@ -346,6 +358,10 @@ describe("StandupRoom re-reading entries", () => {
 });
 
 describe("StandupRoom ending the session", () => {
+  // A test that fakes timers and then fails would otherwise leave them faked
+  // for every test after it, so the reset is unconditional.
+  afterEach(() => vi.useRealTimers());
+
   const endButton = () => screen.queryByRole("button", { name: /end session/i });
 
   it("is not offered to anyone but the facilitator", () => {
@@ -414,6 +430,108 @@ describe("StandupRoom ending the session", () => {
     expect(saveAt).toBeGreaterThanOrEqual(0);
     expect(deleteAt).toBeGreaterThanOrEqual(0);
     expect(saveAt).toBeLessThan(deleteAt);
+    fetchSpy.mockRestore();
+  });
+
+  it("waits for the final save to land before issuing the DELETE", async () => {
+    // The PUT is held open, so ordering is observable rather than incidental:
+    // dropping the await on flush() lets the DELETE go out while the save is
+    // still in flight, which this asserts against directly.
+    let releasePut: () => void = () => {};
+    const held = new Promise<void>((r) => {
+      releasePut = r;
+    });
+    const ok = { status: 204, ok: true, text: async () => "" } as Response;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      if (String(url).endsWith("/actions/standup") && (init as RequestInit)?.method === "PUT") {
+        await held;
+      }
+      return ok;
+    });
+    renderApp(<StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />);
+
+    fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "held open" } });
+    const ended = act(async () => {
+      endButton()!.click();
+    });
+    await act(async () => {});
+    const deletes = () =>
+      fetchSpy.mock.calls.filter(([u, i]) => u === "/api/sessions/sess-1" && (i as RequestInit)?.method === "DELETE");
+    // Recorded, not asserted, until the act() scope is closed: throwing while
+    // the held promise is outstanding would leave act entered for every later test.
+    const whileHeld = deletes().length;
+
+    releasePut();
+    await ended;
+    expect(whileHeld).toBe(0);
+    expect(deletes()).toHaveLength(1);
+    fetchSpy.mockRestore();
+  });
+
+  it("keeps the session open when the final save fails", async () => {
+    // Ending is irreversible from the facilitator's side and retrying is not,
+    // so a failed last save must stop the DELETE rather than close over it.
+    // "Could not save" and "Session closed" must never both be true.
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      if (String(url).endsWith("/actions/standup") && (init as RequestInit)?.method === "PUT") {
+        throw new Error("network down");
+      }
+      return { status: 204, ok: true, text: async () => "" } as Response;
+    });
+    renderApp(<StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />);
+
+    fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "never made it" } });
+    await act(async () => {
+      endButton()!.click();
+    });
+
+    expect(
+      fetchSpy.mock.calls.filter(([u, i]) => u === "/api/sessions/sess-1" && (i as RequestInit)?.method === "DELETE"),
+    ).toHaveLength(0);
+    expect(screen.getByRole("alert").textContent).toMatch(/still open/i);
+    expect(screen.queryByText(/session closed/i)).toBeNull();
+    fetchSpy.mockRestore();
+  });
+
+  it("flushes a save that is already in flight, not just a pending debounce", async () => {
+    // send() clears the pending draft before it awaits, so a request already on
+    // the wire is invisible to pending.current. Without the chain, End would
+    // fire the DELETE past an unfinished PUT and lose that write.
+    vi.useFakeTimers();
+    let releaseFirst: () => void = () => {};
+    const held = new Promise<void>((r) => {
+      releaseFirst = r;
+    });
+    let puts = 0;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      if (String(url).endsWith("/actions/standup") && (init as RequestInit)?.method === "PUT") {
+        puts += 1;
+        if (puts === 1) await held;
+      }
+      return { status: 204, ok: true, text: async () => "" } as Response;
+    });
+    renderApp(<StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />);
+
+    fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "in flight" } });
+    // Let the debounce fire, so the PUT is out and nothing is left pending.
+    await act(async () => {
+      vi.advanceTimersByTime(900);
+    });
+    const putsBeforeEnd = puts;
+
+    const ended = act(async () => {
+      endButton()!.click();
+    });
+    await act(async () => {});
+    const deletes = () =>
+      fetchSpy.mock.calls.filter(([u, i]) => u === "/api/sessions/sess-1" && (i as RequestInit)?.method === "DELETE");
+    const whileHeld = deletes().length;
+
+    releaseFirst();
+    await ended;
+    expect(putsBeforeEnd).toBe(1);
+    expect(whileHeld).toBe(0);
+    expect(deletes()).toHaveLength(1);
     fetchSpy.mockRestore();
   });
 });
