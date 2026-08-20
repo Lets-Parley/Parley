@@ -169,7 +169,7 @@ describe("StandupRoom turn accessibility", () => {
 
   it("says skipped in text, not only in opacity and a line-through", () => {
     renderApp(<StandupRoom env={envelope()} me={me} />);
-    expect(seat("Priya Raman").textContent).toMatch(/skipped or absent/i);
+    expect(seat("Priya Raman").textContent).toMatch(/turn skipped/i);
     expect(seat("Marcus Okonjo").textContent).not.toMatch(/skipped/i);
   });
 
@@ -277,7 +277,7 @@ describe("StandupRoom re-reading entries", () => {
     renderApp(<StandupRoom env={envelope({ state: filledState("dana") })} me={me} />);
     act(() => seatButton("Priya Raman").click());
     expect(screen.getByText("priya today")).toBeTruthy();
-    expect(seat("Priya Raman").textContent).toMatch(/skipped or absent/i);
+    expect(seat("Priya Raman").textContent).toMatch(/turn skipped/i);
   });
 
   it("drops the underline clear of the strike-through on a skipped seat", () => {
@@ -885,5 +885,39 @@ describe("StandupRoom hardening", () => {
     renderApp(<StandupRoom env={env} me={me} />);
     await userEvent.click(screen.getByRole("button", { name: "Copy blockers" }));
     expect(await screen.findByText(/could not copy/i)).toBeTruthy();
+  });
+});
+
+describe("StandupRoom clarity", () => {
+  const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+
+  it("names what Skip acts on, since there is only one thing it can do", async () => {
+    // "Skip / absent" read as two actions over one boolean. internal/standup
+    // has a single facilitator-only `skip` and a single `skipped` column, so
+    // the second half of that label described a state that does not exist.
+    renderApp(<StandupRoom env={envelope()} me={dana} />);
+    expect(screen.queryByRole("button", { name: "Skip / absent" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Skip turn" })).toBeTruthy();
+  });
+
+  it("says the same thing about a skipped seat everywhere it says anything", () => {
+    renderApp(<StandupRoom env={envelope({ state: standupState("priya") })} me={me} />);
+    expect(seat("Ben Alvarez") ?? seat("Priya Raman")).toBeTruthy();
+    expect(screen.getByTestId("entry-body").textContent).toMatch(/turn skipped/i);
+    expect(screen.getByTestId("entry-body").textContent).not.toMatch(/absent/i);
+  });
+
+  it("shows how long a turn is, not only to a screen reader", () => {
+    // The Timer's sr-only text already said it. Nothing on screen did, and the
+    // length is a session setting with no UI to change it.
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    expect(screen.getByTestId("turn-length").textContent).toBe("90s each");
+  });
+
+  it("gives every field a prompt, not just blockers", () => {
+    renderApp(<StandupRoom env={envelope({ phase: "gathering" })} me={me} />);
+    for (const box of screen.getAllByRole("textbox")) {
+      expect((box as HTMLTextAreaElement).placeholder).not.toBe("");
+    }
   });
 });

@@ -318,7 +318,7 @@ export function StandupRoom({
               </span>
             </button>
             {(isCurrent || e.skipped) && (
-              <span className="sr-only">{isCurrent ? " — speaking now" : " — skipped or absent"}</span>
+              <span className="sr-only">{isCurrent ? " — speaking now" : " — turn skipped"}</span>
             )}
           </li>
         );
@@ -379,6 +379,14 @@ export function StandupRoom({
             <p data-testid="next-speaker" className="mt-1 text-[13px] font-semibold text-ink-faint">
               {nextLabel}
             </p>
+            {/* The Timer said this to a screen reader and to nobody else. The
+                length is a session setting with no UI to change it, so stating
+                it is the only way the room learns what it is. */}
+            {speaking && (
+              <p data-testid="turn-length" className="mt-0.5 font-mono text-[11px] tracking-[0.04em] text-ink-faint">
+                {st.secondsPerPerson}s each
+              </p>
+            )}
           </div>
           {speaking && st.speakerStartedAt && (
             <Timer startedAt={st.speakerStartedAt} seconds={st.secondsPerPerson} serverTime={env.serverTime} />
@@ -442,7 +450,7 @@ export function StandupRoom({
                   is the whole point of being able to open their seat. */}
               {shown.skipped && (
                 <p className="rounded-chip bg-felt-deep px-3 py-2 text-sm font-semibold text-ink-soft">
-                  Skipped or absent — no turn was taken.
+                  Turn skipped.
                 </p>
               )}
               {(
@@ -479,7 +487,7 @@ export function StandupRoom({
                 Next
               </button>
               <button className={buttonQuiet} onClick={() => run(() => action(env.id, "skip"))}>
-                Skip / absent
+                Skip turn
               </button>
             </div>
           )}
@@ -559,6 +567,13 @@ export function StandupRoom({
   );
 }
 
+/** One prompt per field. Two of the three used to sit there unlabelled. */
+const PROMPTS = {
+  yesterday: "What did you get done?",
+  today: "What are you picking up?",
+  blockers: "Anything in your way?",
+} as const;
+
 function EntryForm({
   draft,
   update,
@@ -578,7 +593,7 @@ function EntryForm({
             value={draft[f]}
             maxLength={2000}
             onChange={(e) => update(f, e.target.value)}
-            placeholder={f === "blockers" ? "Anything in your way?" : ""}
+            placeholder={PROMPTS[f]}
           />
         </label>
       ))}
