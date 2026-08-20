@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 
@@ -19,8 +20,9 @@ function readTheme(): Theme {
   return v === "light" || v === "dark" ? v : "system";
 }
 
-// The toggle is a three-state cycle, but the visible label only ever says which
-// palette you are looking at — "system" is a resolution rule, not a look.
+// Three states, and the control cycles through all of them: a two-state toggle
+// made "system" a door you could only walk out of once.
+const NEXT: Record<Theme, Theme> = { system: "light", light: "dark", dark: "system" };
 export function useTheme() {
   const [theme, setTheme] = useState<Theme>(() => {
     try {
@@ -48,7 +50,32 @@ export function useTheme() {
       typeof matchMedia === "function" &&
       matchMedia("(prefers-color-scheme: dark)").matches);
 
-  return { isDark, toggle: () => setTheme(isDark ? "light" : "dark") };
+  return { theme, isDark, cycle: () => setTheme(NEXT[theme]) };
+}
+
+/* ----------------------------------------------------------------- media --- */
+
+/**
+ * Live answer to a media query. The shell needs this in JS, not only in CSS:
+ * a rail that is merely display:none still traps a focus ring, and a <dialog>
+ * that is merely display:none still holds the page inert.
+ */
+export function useMediaQuery(query: string): boolean {
+  const mql = useMemo(
+    () => (typeof matchMedia === "function" ? matchMedia(query) : null),
+    [query],
+  );
+  return useSyncExternalStore(
+    useCallback(
+      (notify: () => void) => {
+        mql?.addEventListener("change", notify);
+        return () => mql?.removeEventListener("change", notify);
+      },
+      [mql],
+    ),
+    () => mql?.matches ?? false,
+    () => false,
+  );
 }
 
 /* ---------------------------------------------------------------- toast --- */

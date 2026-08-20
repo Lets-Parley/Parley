@@ -156,7 +156,7 @@ export function SpacePage() {
     >
       <div className="mx-auto max-w-[760px] px-6 py-9 sm:px-8">
         <div className="mb-5 flex items-center justify-between gap-4">
-          <h1 className="text-[22px] font-extrabold tracking-tight">Recent sessions</h1>
+          <h2 className="text-[22px] font-extrabold tracking-tight">Recent sessions</h2>
           {offered.length > 0 && (
             <button className={buttonPrimary} onClick={() => setCreating(true)}>
               New session

@@ -47,6 +47,7 @@ export function SessionPage() {
     <AppShell
       spaceSlug={env.spaceSlug}
       spaceName={space.data?.name ?? env.spaceSlug}
+      title={env.title}
       me={me.data}
       status={session.status}
       onRetry={() => qc.invalidateQueries({ queryKey: ["session", id] })}

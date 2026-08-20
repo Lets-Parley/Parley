@@ -6,10 +6,10 @@ import { GRACE_SECONDS, claimState, voteTally } from "../lib/derive";
 import { useCountdown, useToast } from "../lib/ui";
 import { Avatar } from "../components/Avatar";
 import { Hand } from "../components/Hand";
-import { ErrorRow, Modal, buttonDanger, buttonPrimary, buttonQuiet, type Fail } from "../components/Modal";
+import { ErrorRow, Modal, buttonDanger, buttonGo, buttonPrimary, buttonQuiet, type Fail } from "../components/Modal";
 import { ResultsPanel, heroOf } from "../components/ResultsPanel";
 import { StoryQueue } from "../components/StoryQueue";
-import { Table } from "../components/Table";
+import { Table, faceOf } from "../components/Table";
 
 export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
   const say = useToast();
@@ -74,6 +74,9 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
     }
   }
 
+  // The next thing worth pointing at, in queue order — skipping what is done.
+  const nextUnestimated = st.stories.find((s) => s.id !== current?.id && !s.estimate);
+
   const { showClaim, graceLeft } = claimState(env, isFacilitator);
   const claimLeft = useCountdown(graceLeft);
   const facilitator = env.participants.find((p) => p.userId === env.facilitatorId);
@@ -87,8 +90,7 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
             <div className="min-w-0 flex-1 basis-[240px]">
               <div className="flex items-center gap-2">
                 <span
-                  className="font-mono text-[11px]"
-                  style={{ color: current.ref ? "var(--color-ink-faint)" : "var(--color-brass)" }}
+                  className={"font-mono text-[11px] text-ink-faint" + (current.ref ? "" : " italic")}
                 >
                   {current.ref || "ad hoc · no ticket"}
                 </span>
@@ -96,9 +98,9 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
                   current
                 </span>
               </div>
-              <h1 className="mt-0.5 line-clamp-2 text-lg font-extrabold tracking-tight">
+              <h2 className="mt-0.5 line-clamp-2 text-lg font-extrabold tracking-tight">
                 {current.title || current.ref || "ad hoc round"}
-              </h1>
+              </h2>
               {current.notes && (
                 <p className="mt-0.5 text-xs text-ink-faint">{current.notes}</p>
               )}
@@ -119,22 +121,45 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
                   Reveal
                 </button>
               ) : (
-                // Nothing to offer when the room only played "?" or coffee:
-                // there is no estimate in that round to write down.
-                results &&
-                heroOf(results).save && (
-                  <button
-                    className="rounded-full bg-go px-4 py-2.5 text-sm font-bold text-accent-ink shadow-rest transition hover:shadow-lift"
-                    onClick={async () => {
-                      const value = heroOf(results).save!;
-                      if (await run(() => action(env.id, "story", { storyId: current!.id, estimate: value }))) {
-                        say(`Estimate ${value} saved to ${current!.ref || "the ad-hoc round"}`);
-                      }
-                    }}
-                  >
-                    Save {heroOf(results).value} to story
-                  </button>
-                )
+                (current?.estimate ? (
+                  // The round is written down. The button used to stay put and
+                  // still say "Save", so the only evidence of the save expired
+                  // with the toast and a second click looked like the first.
+                  <>
+                    <span className="rounded-full border border-settled px-4 py-2 font-mono text-sm font-bold text-settled">
+                      Saved {faceOf(current.estimate)} to {current.ref || "the ad-hoc round"}
+                    </span>
+                    {nextUnestimated && (
+                      <button
+                        className={buttonPrimary}
+                        onClick={async () => {
+                          if (await run(() => action(env.id, "select", { storyId: nextUnestimated.id }))) {
+                            say(`${nextUnestimated.ref || nextUnestimated.title || "Next story"} is on the table`);
+                          }
+                        }}
+                      >
+                        Next story
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  // Nothing to offer when the room only played "?" or coffee:
+                  // there is no estimate in that round to write down.
+                  results &&
+                  heroOf(results).save && (
+                    <button
+                      className={buttonGo}
+                      onClick={async () => {
+                        const value = heroOf(results).save!;
+                        if (await run(() => action(env.id, "story", { storyId: current!.id, estimate: value }))) {
+                          say(`Estimate ${value} saved to ${current!.ref || "the ad-hoc round"}`);
+                        }
+                      }}
+                    >
+                      Save {heroOf(results).value} to story
+                    </button>
+                  )
+                ))
               )}
               <button className={buttonQuiet} onClick={() => (env.revealed ? setConfirmReset(true) : reset())}>
                 Reset

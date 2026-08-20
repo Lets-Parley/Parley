@@ -20,15 +20,25 @@ export function ConnectionBanner({
       style={{
         background: stale
           ? "color-mix(in oklab, var(--color-stop) 14%, var(--color-surface))"
-          : "color-mix(in oklab, var(--color-brass) 18%, var(--color-surface))",
+          : "var(--color-accent-soft)",
       }}
     >
-      <span className={"h-2 w-2 shrink-0 rounded-full " + (stale ? "bg-stop" : "bg-brass")} />
+      <span className={"h-2 w-2 shrink-0 rounded-full " + (stale ? "bg-stop" : "bg-accent")} />
       {removed
         ? "You no longer have access to this space — an owner removed you. Ask them for an invite to rejoin."
         : stale
           ? "Connection lost — showing the table as it last stood. Votes may be out of date."
           : "Reconnecting — your vote is safe."}
+      {removed && (
+        /* A dead end needs a door. Everything else on this page belongs to a
+           space this person is no longer in. */
+        <a
+          href="/"
+          className="rounded-full border border-line bg-surface px-3 py-1 text-xs font-bold hover:bg-surface-hi"
+        >
+          Back to Parley
+        </a>
+      )}
       {stale && !removed && onRetry && (
         <button
           onClick={onRetry}

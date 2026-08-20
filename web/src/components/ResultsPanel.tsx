@@ -92,7 +92,7 @@ export function ResultsPanel({ results }: { results: Results }) {
         )}
       </div>
 
-      {/* One stack per distinct vote; the tallest stack wears brass. */}
+      {/* One stack per distinct vote; the tallest stack wears the settled tone. */}
       <div className="flex items-end gap-6 overflow-x-auto">
         {results.histogram.map((row) => {
           const isMode = row.count === max;
@@ -107,9 +107,9 @@ export function ResultsPanel({ results }: { results: Results }) {
                     style={{
                       marginBottom: j ? -46 : 0,
                       background: isMode
-                        ? "color-mix(in oklab, var(--color-brass) 14%, var(--color-surface))"
+                        ? "color-mix(in oklab, var(--color-settled) 14%, var(--color-surface))"
                         : "var(--color-surface)",
-                      borderColor: isMode ? "var(--color-brass)" : "var(--color-line)",
+                      borderColor: isMode ? "var(--color-settled)" : "var(--color-line)",
                     }}
                   >
                     {faceOf(row.value)}
@@ -118,7 +118,7 @@ export function ResultsPanel({ results }: { results: Results }) {
               </div>
               <div
                 className="font-mono text-[11px] font-semibold"
-                style={{ color: isMode ? "var(--color-brass)" : "var(--color-ink-faint)" }}
+                style={{ color: isMode ? "var(--color-settled)" : "var(--color-ink-faint)" }}
               >
                 {faceOf(row.value)} ×{row.count}
                 {isMode && " · most picked"}

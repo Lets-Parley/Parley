@@ -194,7 +194,9 @@ export function StandupRoom({
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6 p-5 sm:p-7">
       <header className="flex flex-wrap items-center gap-3 rounded-panel border border-line bg-surface px-5 py-4 shadow-rest">
-        <h1 className="min-w-0 flex-1 truncate text-lg font-extrabold tracking-tight">{env.title}</h1>
+        {/* The session's name lives in the shell header, where it stays
+            legible across a room. Repeating it here spent a whole row. */}
+        <span className="flex-1" />
         <a
           href={`/api/sessions/${env.id}/export.csv`}
           download
