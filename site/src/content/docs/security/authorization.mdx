@@ -69,8 +69,11 @@ session; or hand the role to someone else.
 
 Every one of those is enforced server-side. Ordinary members retain the active
 participation that belongs to them: a non-spectator may cast their own poker
-vote, and a standup participant may edit their own entry. They cannot mutate the
-story queue or control session progression.
+vote, a standup participant may edit their own entry, and a standup participant
+may set their own readiness signal. All three write only the caller's own row,
+keyed by the user id on the request rather than anything in the body. They
+cannot mutate the story queue or control session progression — readiness is
+advisory, and `start` does not read it.
 
 ### Claiming an abandoned session
 

@@ -25,6 +25,7 @@ there is no second driver and no plan for one.
   { name: "0009_federated_identity", value: "users.issuer, users.subject", note: "Behind a partial unique index" },
   { name: "0010_session_kinds", value: "session_kinds", note: "Replaces the sessions.kind check constraint with a foreign key" },
   { name: "0015_member_roles", value: "members.role", note: "owner or member. Backfills the space creator — or, where none was recorded, the most recently active member — as owner" },
+  { name: "0016_standup_ready", value: "standup_entries.ready", note: "Advisory gathering-phase signal. Constant default, so no backfill and no table rewrite" },
 ]} />
 
 ### How the runner behaves
@@ -134,7 +135,11 @@ cascades on both.
 ### standup_entries
 
 Keyed `(session_id, user_id)`, with `yesterday`, `today` and `blockers` each
-≤2000 characters, plus `skipped`.
+≤2000 characters, plus `skipped` and `ready`.
+
+`ready` is the advisory "I've finished writing" signal shown while everyone
+gathers. Nothing reads it but the screen: not the speaking order, not the skip
+logic, not the CSV export.
 
 ## Constraints are the validation layer
 

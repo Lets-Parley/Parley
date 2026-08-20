@@ -25,6 +25,7 @@ func TestEndedSessionRejectsStandupActionsOnDispatcher(t *testing.T) {
 		cookie             *http.Cookie
 	}{
 		{"PUT", "/api/sessions/" + id + "/actions/standup", `{"today":"stuff"}`, member},
+		{"PUT", "/api/sessions/" + id + "/actions/ready", `{"ready":true}`, member},
 		{"POST", "/api/sessions/" + id + "/actions/start", "", fac},
 		{"POST", "/api/sessions/" + id + "/actions/next", "", fac},
 		{"POST", "/api/sessions/" + id + "/actions/skip", "", fac},
@@ -123,7 +124,7 @@ func TestStoryActionsRejectAForeignSession(t *testing.T) {
 func TestDispatcherRejectsForeignAndUnknownActions(t *testing.T) {
 	srv := testServer(t)
 	fac, _, id := setupSession(t, srv, "Wrong Kind Space")
-	for _, action := range []string{"start", "next", "skip", "standup", "nonsense"} {
+	for _, action := range []string{"start", "next", "skip", "standup", "ready", "nonsense"} {
 		resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/"+action, "{}", fac)
 		if resp.StatusCode != http.StatusNotFound {
 			t.Errorf("poker session, actions/%s: got %d, want 404", action, resp.StatusCode)
@@ -148,7 +149,7 @@ func TestEndedSessionKeeps404ForUnknownActions(t *testing.T) {
 		t.Fatalf("known action on an ended session: got %d, want 409", resp.StatusCode)
 	}
 	// "start" belongs to standup, "nonsense" to no kind at all.
-	for _, action := range []string{"start", "next", "skip", "standup", "nonsense"} {
+	for _, action := range []string{"start", "next", "skip", "standup", "ready", "nonsense"} {
 		resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/"+action, "{}", fac)
 		if resp.StatusCode != http.StatusNotFound {
 			t.Errorf("unknown action %q on an ended session: got %d, want 404", action, resp.StatusCode)
@@ -241,7 +242,7 @@ func TestDispatcherRoutesOnTheActionsVerb(t *testing.T) {
 	// A name this kind has no action for stays a 404 under every verb, so the
 	// 405 above is the verb check and not a blanket method filter.
 	for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
-		for _, action := range []string{"standup", "nonsense"} {
+		for _, action := range []string{"standup", "ready", "nonsense"} {
 			resp, _ := doJSON(t, srv, method, "/api/sessions/"+id+"/actions/"+action, "{}", fac)
 			if resp.StatusCode != http.StatusNotFound {
 				t.Errorf("%s actions/%s on a poker session: got %d, want 404", method, action, resp.StatusCode)
