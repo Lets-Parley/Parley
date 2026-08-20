@@ -163,7 +163,10 @@ done
 # The strip must key on a whole-line match ($0 == m). A substring match deletes
 # everything after any prose that merely quotes the marker, and `gh release edit`
 # replaces the body wholesale, so that loss is permanent.
-grep -Fq '$0 == m && !cut { cut = NR }' "$workflow"
+grep -Fq 'probe == m && !cut { cut = NR }' "$workflow"
+# ...against a trimmed copy of the line, so a marker an editor reformatted is
+# still replaced rather than stacked beneath a new receipt.
+grep -Fq 'sub(/\r$/, "", probe)' "$workflow"
 if grep -Fq "sed '/<!-- parley-publish-receipt -->/,\$d'" "$workflow"; then
   echo "the receipt strip is a substring match again; it must match a whole line" >&2
   exit 1
