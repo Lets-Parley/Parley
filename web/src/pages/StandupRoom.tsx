@@ -109,13 +109,28 @@ export function Timer({ startedAt, seconds, serverTime }: { startedAt: string; s
   }, []);
   const remaining = Math.ceil(seconds - (Date.now() + offset.current - Date.parse(startedAt)) / 1000);
   const shown = Math.max(0, remaining);
-  const tone = remaining <= 0 ? "text-stop" : remaining <= seconds * 0.25 ? "text-brass" : "text-ink-soft";
+  // Brass marks the facilitator and nothing else (DESIGN.md, the One Brass
+  // Rule), so a turn running short escalates by weight and ink instead of
+  // borrowing authority's hue — which also reads further across a room than a
+  // hue shift does.
+  const tone =
+    remaining <= 0
+      ? "font-bold text-stop"
+      : remaining <= seconds * 0.25
+        ? "font-bold text-ink"
+        : "font-medium text-ink-soft";
   return (
     // The digits change twice a second, so they stay out of the accessibility
     // tree entirely; the static label carries the only fact worth speaking.
     <span>
       <span className="sr-only">{`Each turn is ${seconds} seconds. A countdown is shown on screen.`}</span>
-      <span aria-hidden="true" className={`font-mono text-3xl font-medium tabular-nums ${tone}`}>
+      {/* The one number six people read from across a projected room. It shipped
+          at text-3xl in the corner of the chrome; it is the round's hero now,
+          stepped down only where a phone has no width for it. */}
+      <span
+        aria-hidden="true"
+        className={`font-mono text-[2.75rem] leading-none tabular-nums sm:text-[length:var(--text-num-result)] ${tone}`}
+      >
         {Math.floor(shown / 60)}:{String(shown % 60).padStart(2, "0")}
       </span>
     </span>
@@ -156,6 +171,19 @@ export function StandupRoom({
   const readyCount = speakers.filter((p) => readyIds.has(p.userId)).length;
   const iAmReady = readyIds.has(me.id);
 
+  // Where the round is, and who follows. Both were on screen only as a row of
+  // wrapped chips you had to count, which is the wrong ask of a room that is
+  // half-listening and fully time-boxed.
+  const orderIndex = st.entries.findIndex((e) => e.userId === st.currentSpeakerId);
+  const position = orderIndex < 0 ? st.entries.length : orderIndex + 1;
+  // A skipped seat gets no turn, so it is not the answer to "who is next".
+  const nextUp = st.entries.slice(orderIndex + 1).find((e) => !e.skipped);
+  const nextLabel = done
+    ? "Round complete"
+    : nextUp
+      ? `Next: ${people.get(nextUp.userId)?.name ?? "Someone"}`
+      : "Last turn";
+
   // One polite line for the whole room. It never carries the countdown, so it
   // speaks on a turn change rather than on every 500ms tick, and it stays empty
   // while the connection is off — ConnectionBanner and the toasts are already
@@ -166,7 +194,7 @@ export function StandupRoom({
       : done
         ? "The standup has wrapped up."
         : speaking && current
-          ? `${people.get(current.userId)?.name ?? "Someone"} is speaking now.`
+          ? `${people.get(current.userId)?.name ?? "Someone"} is speaking now, ${position} of ${speakers.length}.`
           : "";
 
   // Ending is a two-step await, so a second click can land between the flush
@@ -191,12 +219,72 @@ export function StandupRoom({
     .map((e) => `${people.get(e.userId)?.name ?? "Someone"}: ${e.blockers.trim()}`)
     .join("\n");
 
+  // The rail is the round, so it is housed in the round bar rather than left
+  // loose between the chrome and the speaker card.
+  const rail = <ol className="flex flex-wrap items-center gap-2">
+      {st.entries.map((e) => {
+        const p = people.get(e.userId);
+        const isCurrent = e.userId === st.currentSpeakerId;
+        const isShown = e.userId === shownId;
+        return (
+          <li
+            key={e.userId}
+            aria-current={isCurrent ? "true" : undefined}
+            className={
+              "flex items-center gap-1.5 rounded-full transition " +
+              (isCurrent ? "bg-accent-soft shadow-lift" : e.skipped ? "" : "bg-surface shadow-rest")
+            }
+          >
+            {/* The button carries only the name, so the sr-only asides
+                below stay out of its accessible name. */}
+            <button
+              type="button"
+              aria-pressed={isShown}
+              onClick={() => setPickedId((id) => (id === e.userId ? null : e.userId))}
+              className={
+                "flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3 transition " +
+                (isShown ? "ring-2 ring-accent" : "")
+              }
+            >
+              {/* The name sits in text beside it, so the chip is
+                  decorative here — otherwise it doubles the button's name. */}
+              {p && (
+                <span aria-hidden="true">
+                  <Avatar name={p.name} hue={p.avatarHue} size="sm" dim={e.skipped} />
+                </span>
+              )}
+              {/* A group opacity wrapper would multiply through the name and
+                  leave it at 2.38:1 on the felt. The dimming rides on the
+                  avatar and a faint-but-legible ink instead. */}
+              <span
+                className={
+                  "text-sm font-bold" +
+                  (e.skipped ? " text-ink-faint line-through" : "") +
+                  // Both cues can land on one seat. At small sizes an
+                  // offset-4 underline crowds the strike into a single
+                  // thick bar, so a struck seat gets the deeper offset and
+                  // the two lines stay readable as two different facts.
+                  (isShown ? (e.skipped ? " underline underline-offset-8" : " underline underline-offset-4") : "")
+                }
+              >
+                {p?.name}
+              </span>
+            </button>
+            {(isCurrent || e.skipped) && (
+              <span className="sr-only">{isCurrent ? " — speaking now" : " — skipped or absent"}</span>
+            )}
+          </li>
+        );
+      })}
+    </ol>;
+
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6 p-5 sm:p-7">
-      <header className="flex flex-wrap items-center gap-3 rounded-panel border border-line bg-surface px-5 py-4 shadow-rest">
-        {/* The session's name lives in the shell header, where it stays
-            legible across a room. Repeating it here spent a whole row. */}
-        <span className="flex-1" />
+      {/* Not a panel. The session's name lives in the shell header and the
+          countdown lives in the round bar, so a bordered, padded surface here
+          would be chrome around two tertiary links. */}
+      <header className="-mb-2 flex flex-wrap items-center justify-end gap-3">
+        <span data-testid="session-actions" className="flex items-center gap-2">
         <a
           href={`/api/sessions/${env.id}/export.csv`}
           download
@@ -204,9 +292,6 @@ export function StandupRoom({
         >
           Export CSV
         </a>
-        {speaking && st.speakerStartedAt && (
-          <Timer startedAt={st.speakerStartedAt} seconds={st.secondsPerPerson} serverTime={env.serverTime} />
-        )}
         {isFacilitator && !env.endedAt && (
           <button
             className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop disabled:opacity-50"
@@ -240,67 +325,41 @@ export function StandupRoom({
             End session
           </button>
         )}
+        </span>
       </header>
 
-      {/* Speaking order rail. */}
+      {/* The round bar: how far in we are, who follows, and how long is left —
+          the three facts the room reads, at the scale it reads them from. */}
       {(speaking || done) && (
-        <ol className="flex flex-wrap items-center gap-2">
-          {st.entries.map((e) => {
-            const p = people.get(e.userId);
-            const isCurrent = e.userId === st.currentSpeakerId;
-            const isShown = e.userId === shownId;
-            return (
-              <li
-                key={e.userId}
-                aria-current={isCurrent ? "true" : undefined}
-                className={
-                  "flex items-center gap-1.5 rounded-full transition " +
-                  (isCurrent ? "bg-accent-soft shadow-lift" : e.skipped ? "" : "bg-surface shadow-rest")
-                }
-              >
-                {/* The button carries only the name, so the sr-only asides
-                    below stay out of its accessible name. */}
-                <button
-                  type="button"
-                  aria-pressed={isShown}
-                  onClick={() => setPickedId((id) => (id === e.userId ? null : e.userId))}
-                  className={
-                    "flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3 transition " +
-                    (isShown ? "ring-2 ring-accent" : "")
-                  }
-                >
-                  {/* The name sits in text beside it, so the chip is
-                      decorative here — otherwise it doubles the button's name. */}
-                  {p && (
-                    <span aria-hidden="true">
-                      <Avatar name={p.name} hue={p.avatarHue} size="sm" dim={e.skipped} />
-                    </span>
-                  )}
-                  {/* A group opacity wrapper would multiply through the name and
-                      leave it at 2.38:1 on the felt. The dimming rides on the
-                      avatar and a faint-but-legible ink instead. */}
-                  <span
-                    className={
-                      "text-sm font-bold" +
-                      (e.skipped ? " text-ink-faint line-through" : "") +
-                      // Both cues can land on one seat. At small sizes an
-                      // offset-4 underline crowds the strike into a single
-                      // thick bar, so a struck seat gets the deeper offset and
-                      // the two lines stay readable as two different facts.
-                      (isShown ? (e.skipped ? " underline underline-offset-8" : " underline underline-offset-4") : "")
-                    }
-                  >
-                    {p?.name}
-                  </span>
-                </button>
-                {(isCurrent || e.skipped) && (
-                  <span className="sr-only">{isCurrent ? " — speaking now" : " — skipped or absent"}</span>
-                )}
-              </li>
-            );
-          })}
-        </ol>
+        <section
+          data-testid="round-bar"
+          className="flex flex-col gap-4 rounded-panel border border-line bg-surface px-5 py-4 shadow-rest"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+          <div className="min-w-0">
+            <p
+              data-testid="round-progress"
+              aria-hidden="true"
+              className="font-mono text-[length:var(--text-num-table)] font-semibold tabular-nums text-ink-soft"
+            >
+              {position}
+              <span className="text-ink-faint"> / {speakers.length}</span>
+              <span className="ml-2 align-middle text-[11px] uppercase tracking-[0.08em] text-ink-faint">
+                {done ? "done" : "speaking"}
+              </span>
+            </p>
+            <p data-testid="next-speaker" className="mt-1 text-[13px] font-semibold text-ink-faint">
+              {nextLabel}
+            </p>
+          </div>
+          {speaking && st.speakerStartedAt && (
+            <Timer startedAt={st.speakerStartedAt} seconds={st.secondsPerPerson} serverTime={env.serverTime} />
+          )}
+          </div>
+          {rail}
+        </section>
       )}
+
 
       {!speaking && !done && (
         <section className="flex flex-col gap-4">
@@ -357,7 +416,13 @@ export function StandupRoom({
             </dl>
           )}
           {speaking && current && isFacilitator && (
-            <div className="flex gap-2">
+            // Pinned, because the card above it is as tall as whatever the
+            // speaker typed — so this moved between speakers, six times a
+            // meeting, with a room watching.
+            <div
+              data-testid="facilitator-bar"
+              className="sticky bottom-0 -mx-6 -mb-6 flex gap-2 rounded-b-panel bg-surface px-6 py-4"
+            >
               <button className={buttonPrimary} onClick={() => run(() => action(env.id, "next"))}>
                 Next
               </button>

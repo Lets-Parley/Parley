@@ -69,14 +69,26 @@ describe("StandupRoom Timer", () => {
     expect(el.className).toContain("text-stop");
   });
 
-  it("warns in brass inside the last quarter", () => {
+  it("warns inside the last quarter without wearing brass", () => {
+    // Brass means the facilitator and nothing else (DESIGN.md, the One Brass
+    // Rule). A turn running short is urgency, not authority, so the warning
+    // escalates by weight and ink rather than borrowing the facilitator's hue.
     render(
       <Timer startedAt={START} seconds={90} serverTime="2026-08-18T10:01:10.000Z" />,
     );
     const el = readClock();
     expect(el.textContent).toBe("0:20");
-    expect(el.className).toContain("text-brass");
+    expect(el.className).not.toContain("brass");
     expect(el.className).not.toContain("text-stop");
+    expect(el.className).toContain("text-ink");
+    expect(el.className).toContain("font-bold");
+  });
+
+  it("reads at the scale a projected room needs", () => {
+    // It shipped at text-3xl in the corner of the header, after an Export CSV
+    // link. This is the one number six people read from across a room.
+    render(<Timer startedAt={START} seconds={90} serverTime={START} />);
+    expect(readClock().className).toContain("var(--text-num-result)");
   });
 
   it("is calm for the bulk of the turn", () => {
@@ -192,7 +204,7 @@ describe("StandupRoom turn accessibility", () => {
 
   it("announces a turn change exactly once, naming only the new speaker", () => {
     const { rerender } = renderApp(<StandupRoom env={envelope()} me={me} />);
-    expect(announcer().textContent).toBe("Dana Whitfield is speaking now.");
+    expect(announcer().textContent).toBe("Dana Whitfield is speaking now, 1 of 3.");
     rerender(
       <StandupRoom
         env={envelope({ state: standupState("marcus") })}
@@ -200,7 +212,7 @@ describe("StandupRoom turn accessibility", () => {
       />,
     );
     expect(screen.getAllByRole("status")).toHaveLength(1);
-    expect(announcer().textContent).toBe("Marcus Okonjo is speaking now.");
+    expect(announcer().textContent).toBe("Marcus Okonjo is speaking now, 2 of 3.");
   });
 
   it("announces the end of the session", () => {
@@ -700,5 +712,70 @@ describe("StandupRoom readiness", () => {
     renderApp(<StandupRoom env={envelope()} me={me} />);
     expect(screen.queryByRole("button", { name: /i'm ready/i })).toBe(null);
     expect(screen.queryByTestId("ready-roster")).toBe(null);
+  });
+});
+
+describe("StandupRoom round composition", () => {
+  it("puts the round's position on screen, big, and says it once", () => {
+    // "How long do I have" and "am I next" are the two questions a standup
+    // asks. The second was answerable only by counting wrapped chips.
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    const progress = screen.getByTestId("round-progress");
+    expect(progress.textContent).toBe("1 / 3speaking");
+    expect(progress.className).toContain("tabular-nums");
+    // The live region is the single voice for this, as on the poker field.
+    expect(progress.getAttribute("aria-hidden")).toBe("true");
+    expect(announcer().textContent).toMatch(/1 of 3/);
+  });
+
+  it("names who is up next, skipping a seat that was marked absent", () => {
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    expect(screen.getByTestId("next-speaker").textContent).toBe("Next: Marcus Okonjo");
+  });
+
+  it("says it is the last turn rather than naming nobody", () => {
+    // Marcus is second of three and Priya is skipped, so nobody follows him.
+    const env = envelope({ state: standupState("marcus") });
+    renderApp(<StandupRoom env={env} me={me} />);
+    expect(screen.getByTestId("next-speaker").textContent).toBe("Last turn");
+  });
+
+  it("keeps the facilitator's Next where their hand left it", () => {
+    // Next and Skip sat at the bottom of a card whose height varies with how
+    // much the speaker typed, so the button moved between speakers.
+    const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+    renderApp(<StandupRoom env={envelope()} me={dana} />);
+    const bar = screen.getByTestId("facilitator-bar");
+    expect(bar.className).toContain("sticky");
+    expect(bar.contains(screen.getByRole("button", { name: "Next" }))).toBe(true);
+  });
+
+  it("does not spend a whole panel on two tertiary links", () => {
+    // The title moved to the shell header in #225 and the countdown moved to
+    // the round bar, so the chrome panel was left bordered, padded and empty
+    // but for Export CSV and End session.
+    const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+    renderApp(<StandupRoom env={envelope()} me={dana} />);
+    const group = screen.getByTestId("session-actions");
+    expect(group.contains(screen.getByRole("link", { name: "Export CSV" }))).toBe(true);
+    expect(group.contains(screen.getByRole("button", { name: "End session" }))).toBe(true);
+    const chrome = group.closest("header")!;
+    expect(chrome.className).not.toContain("bg-surface");
+    expect(chrome.className).not.toContain("shadow-rest");
+    expect(chrome.className).not.toContain("border-line");
+  });
+
+  it("houses the speaking order inside the round bar, not between panels", () => {
+    // The rail is the round. Left loose between the chrome and the speaker
+    // card it read as an orphan strip with no housing.
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    const bar = screen.getByTestId("round-bar");
+    expect(bar.contains(screen.getByTestId("round-progress"))).toBe(true);
+    expect(bar.contains(seat("Dana Whitfield"))).toBe(true);
+  });
+
+  it("does not put the round bar on the gathering screen", () => {
+    renderApp(<StandupRoom env={envelope({ phase: "gathering" })} me={me} />);
+    expect(screen.queryByTestId("round-progress")).toBeNull();
   });
 });
