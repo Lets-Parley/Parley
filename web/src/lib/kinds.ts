@@ -63,6 +63,11 @@ export function getKind(id: string): KindDef | undefined {
   return KINDS.find((k) => k.id === id);
 }
 
+/** What to call a kind in the UI: its label, or the bare wire id if unknown. */
+export function kindLabel(id: string): string {
+  return getKind(id)?.label ?? id;
+}
+
 /** The config a new session of this kind starts with: each field's default. */
 export function defaultConfig(kind: KindDef): Record<string, string> {
   return Object.fromEntries((kind.fields ?? []).map((f) => [f.key, f.options[0].id]));
