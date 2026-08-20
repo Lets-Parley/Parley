@@ -53,7 +53,7 @@ export function BuildStamp() {
       target="_blank"
       aria-label={`Parley ${data.version} release notes`}
       rel="noreferrer"
-      className="mt-auto font-mono text-[10px] text-ink-faint hover:text-ink-soft"
+      className="mt-auto border-t border-line pt-3 font-mono text-[11px] text-ink-soft hover:text-ink"
     >
       Parley {data.version}
     </a>
