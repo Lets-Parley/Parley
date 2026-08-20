@@ -355,6 +355,10 @@ describe("Landing", () => {
     await userEvent.click(open);
     await act(async () => {});
     expect(spaceCalls()).toHaveLength(1);
+
+    // The space is real, so it must not be stranded: the list refreshes and
+    // offers it as a link rather than leaving an error and an inert button.
+    await waitFor(() => expect(listCalls().length).toBeGreaterThan(1));
   });
 
   it("creates one space per visit, however many times the button is pressed", async () => {

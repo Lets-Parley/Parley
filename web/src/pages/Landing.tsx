@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Membership, type SpaceView } from "../lib/api";
 import { useMe, useAuthMode, NameGate } from "../components/NameGate";
 import { Logo } from "../components/AppShell";
@@ -54,6 +54,7 @@ export function Landing() {
     retry: false,
   });
   const spaces = mine.data ?? [];
+  const qc = useQueryClient();
   const [error, setError] = useState("");
 
   // Both the resume effect and the gate can finish the same pending name, and
@@ -84,10 +85,14 @@ export function Landing() {
       try {
         navigate(`/s/${sp.slug}`);
       } catch (e) {
+        // The space is real but we could not go there. Refresh the list so it
+        // shows up as a link rather than leaving the visitor on a dead page
+        // with an error and an inert button.
+        qc.invalidateQueries({ queryKey: ["my-spaces"] });
         setError(e instanceof Error ? e.message : "Could not open the new space.");
       }
     },
-    [navigate],
+    [navigate, qc],
   );
 
   // Signing in is a full page navigation, so the submit that triggered it never
