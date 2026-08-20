@@ -269,12 +269,15 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
         )}
 
         {current && !ended && (
-          // Sticky so voting never needs a scroll: at 390px, 15 seats take four
-          // ranks and the page is a scrolling document.
+          // Sticky so voting never needs a scroll: on a phone 15 seats take
+          // several ranks and the page becomes a scrolling document.
           // ponytail: this works only because Hand is the LAST child of a
           // column taller than the viewport. Reorder StoryQueue or anything
           // else below it and the stickiness dies silently, with no test to
           // catch it — the upgrade path is a real bottom-sheet portal.
+          // Observed firing, not theorised: below `lg` the aside stacks under
+          // the column, so near max scroll the hand unpins for the last stretch
+          // of document that sits outside its containing block.
           <div className="sticky bottom-0 z-10 bg-felt pt-2 pb-1">
             <Hand
               values={st.deck.values}

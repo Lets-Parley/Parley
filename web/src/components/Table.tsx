@@ -128,10 +128,17 @@ export function Table({
           transition: "background-color var(--dur-flip) var(--ease-settle)",
         }}
       >
-        {/* Ranks, not a scroller. 15 seats need two ranks at every desktop
-            width — 74px + a 12px gap is 86px a seat, and the widest row the
-            sidebar leaves is 884px. Centred: wrapped ranks that centre read as
-            a table, left-aligned they read as a roster. */}
+        {/* Ranks, not a scroller. A seat is 74px plus a 12px gap — 86px —
+            measured in Chrome at 876a033, not calculated. 15 seats never fit
+            one rank: 1280 wraps 10/5 into a 869px row, the widest measured
+            anywhere. 1024 is the odd one and takes THREE ranks (7/7/1),
+            because `lg` is where the StoryQueue aside joins the row while 768
+            still stacks it below — so 1024's row measures 613px, 68px
+            NARROWER than 768's 681px, and the count goes up as the viewport
+            does. On a phone it is 3-4 seats a rank depending on whether the
+            platform reserves space for a scrollbar; not measured on a real
+            mobile viewport. Centred: wrapped ranks that centre read as a
+            table, left-aligned they read as a roster. */}
         <div
           data-testid="seat-ranks"
           className="mx-auto flex flex-wrap items-start justify-center gap-3"
