@@ -2,7 +2,7 @@ FROM node:26-alpine@sha256:aadf416b2cdce311a8811ba3f0608a61b77dbf997500e2eafe781
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
-COPY web/index.html web/tsconfig.json web/tsconfig.app.json web/tsconfig.node.json web/vite.config.ts ./
+COPY web/index.html web/tsconfig.json web/tsconfig.app.json web/tsconfig.node.json web/tsconfig.vitest.json web/vite.config.ts ./
 COPY web/public ./public
 COPY web/src ./src
 RUN npm run build
