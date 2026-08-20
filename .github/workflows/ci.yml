@@ -303,6 +303,10 @@ jobs:
       # that loses it while another keeps it still fails.
       - name: every spread constraint is scoped to one revision
         run: |
+          # Explicit rather than relying on the runner's default `bash -e`: this
+          # step's assertions are non-final commands, so without it a failing
+          # check would be overwritten by the exit status of the next line.
+          set -eu
           helm template parley deploy/charts/parley \
             --set database.existingSecret=x --set replicaCount=2 > /tmp/spread.yaml
           python3 - <<'EOF'
@@ -319,7 +323,13 @@ jobs:
                   f"spread constraint has no label selector: {c}"
           EOF
           # An operator supplying their own matchLabelKeys must not get a
-          # duplicate key, which would make the manifest invalid.
+          # duplicate key: YAML keeps the last one and silently discards their
+          # choice. Anchored to the start of the key so the explanatory comment
+          # in the template — which contains the same word — is not counted, and
+          # tolerant of the `- ` list-item prefix toYaml emits when the operator's
+          # own key sorts first. A
+          # bare `grep -c matchLabelKeys` counts that comment and fails on a
+          # correct chart, which is how this guard first went red.
           helm template parley deploy/charts/parley \
             --set database.existingSecret=x --set replicaCount=2 \
             --set 'topologySpreadConstraints[0].maxSkew=1' \
@@ -327,8 +337,29 @@ jobs:
             --set 'topologySpreadConstraints[0].whenUnsatisfiable=DoNotSchedule' \
             --set 'topologySpreadConstraints[0].matchLabelKeys[0]=pod-template-hash' \
             > /tmp/spread-own.yaml
-          test "$(grep -c 'matchLabelKeys' /tmp/spread-own.yaml)" = 1 \
-            || { echo "matchLabelKeys was emitted twice"; exit 1; }
+          own_count=$(grep -Ec '^[[:space:]]*(- )?matchLabelKeys:' /tmp/spread-own.yaml)
+          test "$own_count" = 1 \
+            || { echo "expected exactly one matchLabelKeys key, found $own_count"; exit 1; }
+          # And an explicit opt-out is honoured rather than overwritten. This
+          # one needs a values file: `--set key=[]` assigns the two-character
+          # string "[]", not an empty list, so it would not exercise the case.
+          cat > /tmp/optout-values.yaml <<'YAML'
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: ScheduleAnyway
+              matchLabelKeys: []
+          YAML
+          sed -i 's/^          //' /tmp/optout-values.yaml
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set replicaCount=2 \
+            -f /tmp/optout-values.yaml \
+            > /tmp/spread-optout.yaml
+          optout_count=$(grep -Ec '^[[:space:]]*(- )?matchLabelKeys:' /tmp/spread-optout.yaml)
+          test "$optout_count" = 1 \
+            || { echo "explicit empty matchLabelKeys was overwritten, found $optout_count"; exit 1; }
+          grep -Eq '^[[:space:]]*(- )?matchLabelKeys: \[\]$' /tmp/spread-optout.yaml \
+            || { echo "an explicit empty matchLabelKeys did not survive"; exit 1; }
       # A public (secretless, PKCE) client is a legitimate registration and the
       # binary has always accepted one, so the chart must render it — but a
       # deployment that ends up secretless because a values merge dropped

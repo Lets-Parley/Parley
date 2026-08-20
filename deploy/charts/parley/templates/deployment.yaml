@@ -187,13 +187,19 @@ spec:
       # pod-template-hash is set by the Deployment controller. The field is beta
       # and on by default from Kubernetes 1.27; an older API server prunes it
       # silently, which leaves exactly today's behaviour rather than an error.
+      #
+      # hasKey rather than a truthiness test, so an operator who writes an
+      # explicit `matchLabelKeys: []` to opt out gets what they asked for. An
+      # empty list is falsy in a template, so testing the value would append the
+      # default beside it — two matchLabelKeys keys in one mapping, where the
+      # last one silently wins and the operator's choice disappears.
       topologySpreadConstraints:
         {{- range . }}
         - {{ toYaml . | nindent 10 | trim }}
           labelSelector:
             matchLabels:
               {{- include "parley.selectorLabels" $ | nindent 14 }}
-          {{- if not .matchLabelKeys }}
+          {{- if not (hasKey . "matchLabelKeys") }}
           matchLabelKeys:
             - pod-template-hash
           {{- end }}
