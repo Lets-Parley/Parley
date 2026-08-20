@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { action, api, type Envelope, type Me } from "../lib/api";
+import { action, api, errorText, type Envelope, type Me } from "../lib/api";
 import type { ConnectionStatus } from "../lib/socket";
 import { useToast } from "../lib/ui";
 import { Avatar } from "../components/Avatar";
@@ -182,7 +182,7 @@ export function StandupRoom({
       setError("");
       await fn();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong.");
+      setError(errorText(e));
     }
   }
 
