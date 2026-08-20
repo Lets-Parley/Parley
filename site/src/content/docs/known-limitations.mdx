@@ -27,7 +27,7 @@ accepted and actionable.
 ## Operations
 
 <Capability rows={[
-  { name: "Metrics, tracing, request IDs, access log", status: "not-built", detail: "JSON logs to stdout are all Parley emits. Blackbox-probe <code>/readyz</code>, and take request metrics and access logs from your reverse proxy. See <a href='/operations/observability/'>Observability</a>." },
+  { name: "Metrics, tracing, request IDs, access log", status: "not-built", detail: "JSON logs to stdout are all Parley emits. Blackbox-probe <code>/readyz</code>, and take request metrics and access logs from your reverse proxy. <code>LOG_LEVEL=debug</code> adds one per-request line naming the socket peer, the <code>X-Forwarded-For</code> chain and the resolved client address — a proxy-diagnosis aid, not an access log: it records no method, path, status or user, and is not retained. See <a href='/operations/observability/'>Observability</a>." },
   { name: "Backups", status: "not-built", detail: "Nothing backs itself up. Schedule <code>pg_dump</code>." },
   { name: "Data retention or cleanup", status: "not-built", detail: "Application records are never deleted automatically. Session authorization expires, but <code>session_tokens</code> rows are not swept; prune them yourself if the instance runs for years." },
   { name: "Down-migrations or rollback", status: "not-built", detail: "Migrations are forward-only and the binary refuses to start against a newer schema. Roll back by restoring a backup taken before the upgrade." },
