@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, action, api } from "./api";
+import { ApiError, NetworkError, action, api, errorText } from "./api";
 
 function reply(status: number, body?: string, ok?: boolean) {
   return {
@@ -86,9 +86,14 @@ describe("api", () => {
     expect(err.message).toBe("Something went wrong talking to the server.");
   });
 
-  it("lets a transport failure through as itself", async () => {
+  it("keeps a transport failure a TypeError, so callers discriminating on it still work", async () => {
     fetchMock().mockRejectedValue(new TypeError("Failed to fetch"));
     await expect(api("GET", "/api/me")).rejects.toBeInstanceOf(TypeError);
+  });
+
+  it("retags a transport failure as NetworkError", async () => {
+    fetchMock().mockRejectedValue(new TypeError("Failed to fetch"));
+    await expect(api("GET", "/api/me")).rejects.toBeInstanceOf(NetworkError);
   });
 
   it("is an Error, so existing catch blocks reading .message keep working", () => {
@@ -96,6 +101,50 @@ describe("api", () => {
     expect(e).toBeInstanceOf(Error);
     expect(e.message).toBe("gone");
     expect(e.status).toBe(404);
+  });
+});
+
+describe("errorText", () => {
+  // Why this helper exists: fetch rejects with the browser's own TypeError when
+  // the connection is dead, and every room renders .message straight to the
+  // screen. That text differs per browser and tells the user nothing to do.
+  it("never shows the browser's transport wording", async () => {
+    for (const raw of [
+      "Failed to fetch",
+      "Load failed",
+      "NetworkError when attempting to fetch resource.",
+    ]) {
+      fetchMock().mockRejectedValue(new TypeError(raw));
+      let thrown: unknown;
+      try {
+        await api("GET", "/api/me");
+      } catch (e) {
+        thrown = e;
+      }
+      const shown = errorText(thrown);
+      expect(shown).not.toBe(raw);
+      expect(shown).toBe("Can't reach the server — check your connection and try again.");
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("passes the server's own message through untouched", () => {
+    expect(errorText(new ApiError(403, "only the facilitator can do that"))).toBe(
+      "only the facilitator can do that",
+    );
+  });
+
+  // An ordinary TypeError from our own code — reading a field off a body that
+  // came back without it — is a real bug. Blaming the network would hide it.
+  it("does not blame the network for a plain TypeError from our own code", () => {
+    const own = new TypeError("Cannot read properties of undefined (reading 'slug')");
+    expect(errorText(own)).toBe(own.message);
+  });
+
+  it("falls back to actionable text for a non-Error throw", () => {
+    expect(errorText("boom")).toBe("Something went wrong. Try again.");
+    expect(errorText(undefined)).toBe("Something went wrong. Try again.");
+    expect(errorText(new Error(""))).toBe("Something went wrong. Try again.");
   });
 });
 

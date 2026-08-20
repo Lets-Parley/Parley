@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, ApiError, type Me } from "../lib/api";
+import { api, ApiError, errorText, type Me } from "../lib/api";
 import { Modal, buttonPrimary, inputClass } from "./Modal";
 
 /**
@@ -50,7 +50,7 @@ export function NameGate({ onDone }: { onDone: (me: Me) => void }) {
       qc.setQueryData(["me"], me);
       onDone(me);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save your name.");
+      setError(errorText(err));
     }
   }
 
