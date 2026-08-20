@@ -88,9 +88,9 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
                   current
                 </span>
               </div>
-              <h1 className="mt-0.5 line-clamp-2 text-lg font-extrabold tracking-tight">
+              <h2 className="mt-0.5 line-clamp-2 text-lg font-extrabold tracking-tight">
                 {current.title || current.ref || "ad hoc round"}
-              </h1>
+              </h2>
               {current.notes && (
                 <p className="mt-0.5 text-xs text-ink-faint">{current.notes}</p>
               )}

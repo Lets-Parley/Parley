@@ -38,4 +38,10 @@ describe("ConnectionBanner", () => {
     render(<ConnectionBanner status="stale" />);
     expect(screen.getByRole("status").getAttribute("aria-live")).toBe("polite");
   });
+
+  it("offers the one thing a removed member can still do", () => {
+    render(<ConnectionBanner status="removed" />);
+    const out = screen.getByRole("link", { name: "Back to Parley" });
+    expect(out.getAttribute("href")).toBe("/");
+  });
 });

@@ -31,15 +31,24 @@ describe("useTheme", () => {
     expect(root().hasAttribute("data-theme")).toBe(false);
   });
 
-  it("pins the opposite palette on toggle and persists it", () => {
+  it("cycles all three ways round, so system is reachable again", () => {
     const { result } = renderHook(() => useTheme());
-    act(() => result.current.toggle());
-    expect(root().getAttribute("data-theme")).toBe("dark");
-    expect(localStorage.getItem("parley:theme")).toBe("dark");
+    expect(result.current.theme).toBe("system");
 
-    act(() => result.current.toggle());
+    act(() => result.current.cycle());
+    expect(result.current.theme).toBe("light");
     expect(root().getAttribute("data-theme")).toBe("light");
     expect(localStorage.getItem("parley:theme")).toBe("light");
+
+    act(() => result.current.cycle());
+    expect(result.current.theme).toBe("dark");
+    expect(root().getAttribute("data-theme")).toBe("dark");
+
+    // The one the old two-state toggle could never get back to.
+    act(() => result.current.cycle());
+    expect(result.current.theme).toBe("system");
+    expect(root().hasAttribute("data-theme")).toBe(false);
+    expect(localStorage.getItem("parley:theme")).toBeNull();
   });
 
   it("still works when storage throws, as in private mode", () => {
@@ -51,8 +60,8 @@ describe("useTheme", () => {
     });
     const { result } = renderHook(() => useTheme());
     expect(result.current.isDark).toBe(false);
-    act(() => result.current.toggle());
-    expect(root().getAttribute("data-theme")).toBe("dark");
+    act(() => result.current.cycle());
+    expect(root().getAttribute("data-theme")).toBe("light");
   });
 });
 
