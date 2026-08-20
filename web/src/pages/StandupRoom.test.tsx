@@ -779,3 +779,52 @@ describe("StandupRoom round composition", () => {
     expect(screen.queryByTestId("round-progress")).toBeNull();
   });
 });
+
+describe("StandupRoom Daybreak", () => {
+  it("carries the round's progress in the field, the way the poker table does", () => {
+    // Same metaphor, same accumulator, keyed to turns taken rather than votes
+    // cast: the room's morning gets lighter as the round goes round.
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    // Dana is first of three, so no turn is behind us yet.
+    expect(screen.getByTestId("round-bar").getAttribute("data-cue")).toBe("overcast");
+  });
+
+  it("reaches full day once the round is done", () => {
+    const env = envelope({ phase: "done", state: standupState(null) });
+    renderApp(<StandupRoom env={env} me={me} />);
+    expect(screen.getByTestId("round-bar").getAttribute("data-cue")).toBe("day");
+  });
+
+  it("numbers the seats so the order is read, not counted", () => {
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    // The rail is an <ol> that rendered no ordinals at all.
+    expect(seat("Marcus Okonjo").textContent).toMatch(/^2/);
+    expect(seat("Dana Whitfield").textContent).toMatch(/^1/);
+  });
+
+  it("tells a skipped seat apart from one that simply said nothing", () => {
+    // Both rendered an identical em dash, though the rail knew the difference.
+    const env = envelope({ state: standupState("priya") });
+    renderApp(<StandupRoom env={env} me={me} />);
+    const body = screen.getByTestId("entry-body");
+    expect(body.textContent).toMatch(/skipped|absent/i);
+    // An unwritten field said its nothing with a bare em dash, identical to
+    // what a skipped seat showed. It says which nothing it is now.
+    expect(body.querySelectorAll("dd").length).toBe(3);
+    for (const dd of body.querySelectorAll("dd")) {
+      expect(dd.textContent).toBe("Nothing written");
+    }
+    // And a skipped person's words are still readable — that is the point of
+    // being able to open their seat at all.
+    expect(body.querySelector("dl")).not.toBeNull();
+  });
+
+  it("says nothing was in the way with the round's own art, not a bare line", () => {
+    const env = envelope({ phase: "done", state: standupState(null) });
+    renderApp(<StandupRoom env={env} me={me} />);
+    expect(screen.getByText(/No blockers today/i)).toBeTruthy();
+    // The art is the daybreak horizon, not the poker card stack — a standup
+    // has never had a deck in it.
+    expect(screen.getByTestId("daybreak-art")).toBeTruthy();
+  });
+});

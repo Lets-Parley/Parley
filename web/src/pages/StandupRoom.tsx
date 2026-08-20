@@ -4,6 +4,8 @@ import type { ConnectionStatus } from "../lib/socket";
 import { useToast } from "../lib/ui";
 import { Avatar } from "../components/Avatar";
 import { buttonPrimary, buttonQuiet, inputClass } from "../components/Modal";
+import { cueFor, cueVar } from "../lib/cue";
+import { EmptyTable } from "./PokerRoom";
 
 export type StandupEntry = {
   userId: string;
@@ -178,6 +180,11 @@ export function StandupRoom({
   const position = orderIndex < 0 ? st.entries.length : orderIndex + 1;
   // A skipped seat gets no turn, so it is not the answer to "who is next".
   const nextUp = st.entries.slice(orderIndex + 1).find((e) => !e.skipped);
+  // Daybreak, keyed to turns taken rather than votes cast: the same field the
+  // poker table lights, carrying the same fact — how far round the round is.
+  // `done` plays the part `revealed` plays there, so the last turn still has a
+  // step left to make.
+  const cue = cueFor(Math.max(0, position - 1), speakers.length, done);
   const nextLabel = done
     ? "Round complete"
     : nextUp
@@ -246,6 +253,11 @@ export function StandupRoom({
                 (isShown ? "ring-2 ring-accent" : "")
               }
             >
+              {/* The order was semantic only: an <ol> that drew no numbers, so
+                  "am I next" meant counting wrapped chips. */}
+              <span className="ml-1 font-mono text-[11px] tabular-nums text-ink-faint" aria-hidden="true">
+                {e.position}
+              </span>
               {/* The name sits in text beside it, so the chip is
                   decorative here — otherwise it doubles the button's name. */}
               {p && (
@@ -333,7 +345,12 @@ export function StandupRoom({
       {(speaking || done) && (
         <section
           data-testid="round-bar"
-          className="flex flex-col gap-4 rounded-panel border border-line bg-surface px-5 py-4 shadow-rest"
+          data-cue={cue}
+          className="flex flex-col gap-4 rounded-panel border border-line px-5 py-4 shadow-rest"
+          style={{
+            background: `var(${cueVar(cue)})`,
+            transition: "background-color var(--dur-flip) var(--ease-settle)",
+          }}
         >
           <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
           <div className="min-w-0">
@@ -406,14 +423,30 @@ export function StandupRoom({
           {speaking && shown.userId === me.id ? (
             <EntryForm draft={draft} update={update} saveState={saveState} />
           ) : (
-            <dl className="flex flex-col gap-3">
-              {(["yesterday", "today", "blockers"] as const).map((f) => (
-                <div key={f}>
-                  <dt className="text-xs font-bold uppercase tracking-wide text-ink-faint">{f}</dt>
-                  <dd className="whitespace-pre-wrap">{shown[f] || <span className="text-ink-faint">—</span>}</dd>
-                </div>
-              ))}
-            </dl>
+            <div data-testid="entry-body" className="flex flex-col gap-3">
+              {/* An em dash per field said "nothing here" for a seat that was
+                  never asked. The rail knew the difference; the card did not.
+                  It sits above the fields rather than replacing them — a
+                  skipped person's written update is still worth reading, which
+                  is the whole point of being able to open their seat. */}
+              {shown.skipped && (
+                <p className="rounded-chip bg-felt-deep px-3 py-2 text-sm font-semibold text-ink-soft">
+                  Skipped or absent — no turn was taken.
+                </p>
+              )}
+              {(
+                <dl className="flex flex-col gap-3">
+                  {(["yesterday", "today", "blockers"] as const).map((f) => (
+                    <div key={f}>
+                      <dt className="text-xs font-bold uppercase tracking-wide text-ink-faint">{f}</dt>
+                      <dd className="whitespace-pre-wrap">
+                        {shown[f] || <span className="text-ink-faint">Nothing written</span>}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+            </div>
           )}
           {speaking && current && isFacilitator && (
             // Pinned, because the card above it is as tall as whatever the
@@ -452,7 +485,11 @@ export function StandupRoom({
               </button>
             </>
           ) : (
-            <p className="text-ink-soft">No blockers today. Good round.</p>
+            <EmptyTable
+              art={<DaybreakArt />}
+              heading="No blockers today"
+              body="Nothing is in anyone's way. Good round."
+            />
           )}
         </section>
       )}
@@ -494,6 +531,27 @@ function EntryForm({
         {saveState === "saved" && "Saved"}
         {saveState === "error" && <span className="font-bold text-stop">Could not save — check your connection</span>}
       </span>
+    </div>
+  );
+}
+
+/**
+ * Daybreak, drawn: a sun clearing the horizon. The poker empty state stacks
+ * cards because a poker round has a deck in it; a standup has never had one.
+ * What it has is the same morning the round bar lights.
+ */
+function DaybreakArt() {
+  return (
+    <div data-testid="daybreak-art" className="relative h-24 w-[120px]">
+      {/* The sky clips the disc at the horizon, so the sun rises through the
+          line rather than sitting on top of it. Filled, not outlined — an
+          unfilled disc on a surface-coloured panel is just an arc. */}
+      <span className="absolute inset-x-0 top-4 bottom-10 overflow-hidden">
+        <span className="absolute top-0 left-1/2 h-20 w-20 -translate-x-1/2 rounded-full border-2 border-pip bg-pip/25" />
+      </span>
+      <span className="absolute inset-x-0 bottom-10 h-px bg-line" />
+      <span className="absolute inset-x-6 bottom-6 h-px bg-line opacity-70" />
+      <span className="absolute inset-x-12 bottom-3 h-px bg-line opacity-50" />
     </div>
   );
 }
