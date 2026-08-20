@@ -28,6 +28,7 @@
   --color-accent-ink:  #F4F8FB;
   --color-accent-soft: #D6E4EE;
   --color-brass:       #725411;
+  --color-settled:     #5B3A63;
   --color-go:          #266454;
   --color-stop:        #B33326;
   --color-card-back:   #1D3346;
@@ -78,6 +79,7 @@
     --color-accent-ink:  #08131F;
     --color-accent-soft: #1C3247;
     --color-brass:       #D9AE54;
+    --color-settled:     #C89BD1;
     --color-go:          #5FBFA6;
     --color-stop:        #E3695C;
     --color-card-back:   #0B1421;
@@ -105,6 +107,7 @@
   --color-accent-ink:  #08131F;
   --color-accent-soft: #1C3247;
   --color-brass:       #D9AE54;
+  --color-settled:     #C89BD1;
   --color-go:          #5FBFA6;
   --color-stop:        #E3695C;
   --color-card-back:   #0B1421;
@@ -132,6 +135,7 @@
   --color-accent-ink: var(--color-accent-ink);
   --color-accent-soft: var(--color-accent-soft);
   --color-brass: var(--color-brass);
+  --color-settled: var(--color-settled);
   --color-go: var(--color-go);
   --color-stop: var(--color-stop);
   --color-card-back: var(--color-card-back);

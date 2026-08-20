@@ -111,8 +111,7 @@ export function StoryQueue({
 
             <span className="min-w-0 flex-1">
               <span
-                className="block font-mono text-[10px]"
-                style={{ color: s.ref ? "var(--color-ink-faint)" : "var(--color-brass)" }}
+                className={"block font-mono text-[10px] text-ink-faint" + (s.ref ? "" : " italic")}
               >
                 {s.ref || "ad hoc"}
                 {s.id === currentStoryId && <span className="text-accent"> · current</span>}
@@ -128,7 +127,7 @@ export function StoryQueue({
               <span
                 role="img"
                 aria-label={`Agreed estimate ${faceOf(s.estimate)}`}
-                className="flex h-[33px] w-6 shrink-0 items-center justify-center rounded-[5px] border border-brass bg-surface font-mono text-[0.8rem] shadow-rest"
+                className="flex h-[33px] w-6 shrink-0 items-center justify-center rounded-[5px] border border-settled bg-surface font-mono text-[0.8rem] text-settled shadow-rest"
               >
                 {faceOf(s.estimate)}
               </span>

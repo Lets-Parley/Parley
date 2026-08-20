@@ -248,6 +248,44 @@ describe("PokerRoom hand placement", () => {
   });
 });
 
+describe("PokerRoom saved estimate", () => {
+  const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+
+  function saved() {
+    const env = envelope({ facilitatorConnected: true, revealed: true });
+    env.state.stories[0].estimate = "5";
+    env.state.stories.push({
+      id: "story-2",
+      ref: "PLAT-413",
+      title: "Rotate the room codes",
+      notes: "",
+      position: 2,
+      estimate: null,
+      status: "pending",
+      votedUserIds: [],
+    });
+    return env;
+  }
+
+  it("settles the round instead of offering Save a second time", () => {
+    // The button used to read "Save 5 to story" after the save had landed.
+    renderApp(<PokerRoom env={saved()} me={dana} />);
+    expect(screen.queryByRole("button", { name: /^Save/ })).toBeNull();
+    expect(screen.getByText(/Saved 5 to PLAT-412/)).toBeTruthy();
+  });
+
+  it("points at the next unestimated story, and stays quiet once the queue is done", () => {
+    const { unmount } = renderApp(<PokerRoom env={saved()} me={dana} />);
+    expect(screen.getByRole("button", { name: "Next story" })).toBeTruthy();
+    unmount();
+
+    const done = saved();
+    done.state.stories[1].estimate = "3";
+    renderApp(<PokerRoom env={done} me={dana} />);
+    expect(screen.queryByRole("button", { name: "Next story" })).toBeNull();
+  });
+});
+
 describe("PokerRoom end session", () => {
   const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
 
