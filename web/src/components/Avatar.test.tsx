@@ -64,9 +64,9 @@ describe("Avatar", () => {
 
   it("dims a spectator and an offline seat", () => {
     const { rerender } = render(<Avatar name="A B" hue={1} spectator />);
-    expect(screen.getByLabelText("A B").style.opacity).toBe("0.55");
+    expect(screen.getByLabelText("A B").style.opacity).toBe("0.7");
     rerender(<Avatar name="A B" hue={1} dim />);
-    expect(screen.getByLabelText("A B").style.opacity).toBe("0.55");
+    expect(screen.getByLabelText("A B").style.opacity).toBe("0.7");
     rerender(<Avatar name="A B" hue={1} />);
     expect(screen.getByLabelText("A B").style.opacity).toBe("1");
   });

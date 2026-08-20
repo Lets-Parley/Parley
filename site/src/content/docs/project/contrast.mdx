@@ -141,3 +141,33 @@ A sweep of the remaining `opacity-*` utilities found no third case. The rest sit
 on non-text marks — a card pip, an avatar — or on inactive controls, which WCAG
 exempts, or clear the threshold anyway: the wordmark on the passcode page runs
 `--color-ink` on `--color-felt` at `opacity-80`, which is 7.55 and 9.55.
+
+## What the utility sweep could not see
+
+That sweep read `opacity-*` classes, and `Avatar` does not use one — it sets
+`opacity` in an inline style, so the dimmed seat never appeared in the results.
+It is the third case, and it is the one place the earlier note about avatars
+being a non-text mark deserves the argument spelled out rather than assumed.
+
+The chip is `oklch(0.52 0.09 H)` for `H` across the 185°–290° arc, with
+`#F4F8FB` initials, dimmed when the seat is offline or spectating. Measured at
+the worst hue in the arc, composited over `--color-surface`:
+
+| Dim | Light | Dark |
+|---|---|---|
+| `0.55`, as shipped through 0.4.4 | 2.23 | 3.05 |
+| `0.7`, from this change | 2.90 | 3.73 |
+
+Neither clears 4.5:1, and no dim value would: the chip and its initials fade
+together, so the pair holds a near-constant ratio no matter how far it goes.
+Reaching AA would mean redesigning the dimmed state, not tuning it.
+
+The initials are not held to the threshold, because every avatar carries the
+name as text — in `aria-label` on the chip, and beside it in the roster, the
+member card and the sheet. The glyphs are a redundant mark on a labelled
+control, in the same class as the card pip. The floor moved to `0.7` for
+legibility rather than compliance, which is also the least dimming that still
+reads as "not here" against a live seat.
+
+The doc records it so the next sweep does not have to rediscover that an inline
+style is invisible to a grep for utilities.
