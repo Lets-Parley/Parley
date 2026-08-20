@@ -1,5 +1,5 @@
 import { useId, useState, type FormEvent } from "react";
-import { action, type Story } from "../lib/api";
+import { action, errorText, type Story } from "../lib/api";
 import { buttonPrimary, buttonQuiet, inputClass, Modal } from "./Modal";
 import { faceOf } from "./Table";
 
@@ -30,7 +30,7 @@ export function StoryQueue({
     try {
       await fn();
     } catch (e) {
-      onError(e instanceof Error ? e.message : "Something went wrong.");
+      onError(errorText(e));
     }
   }
 
@@ -70,7 +70,13 @@ export function StoryQueue({
       </div>
 
       {stories.length === 0 && (
-        <p className="px-2 py-3.5 text-center text-[13px] text-ink-faint">The queue is empty.</p>
+        // A member has no add controls above, so "empty" alone is a dead end
+        // for them — name who fills it instead.
+        <p className="px-2 py-3.5 text-center text-[13px] text-ink-faint text-pretty">
+          {isFacilitator
+            ? "Nothing queued. Add a ticket, or deal an ad-hoc round."
+            : "Nothing queued yet — the facilitator deals the next story."}
+        </p>
       )}
 
       <ul className="flex flex-col">
