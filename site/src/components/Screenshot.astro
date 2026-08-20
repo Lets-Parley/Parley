@@ -7,7 +7,10 @@
 // rather than silently showing the wrong one.
 import { Image } from "astro:assets";
 
-const { light, dark, alt, caption, width = 1280 } = Astro.props;
+// Screenshots are below the fold everywhere except the landing hero, and the
+// off-theme copy is fetched even though CSS hides it — so both images default
+// to lazy and only the one above-the-fold shot opts in with eager.
+const { light, dark, alt, caption, width = 1280, eager = false } = Astro.props;
 
 if (!light || !dark) {
   throw new Error(
@@ -18,8 +21,8 @@ if (!light || !dark) {
 if (!alt) throw new Error("Screenshot: 'alt' is required.");
 ---
 <figure class="shot">
-  <Image class="light" src={light} alt={alt} width={width} densities={[1, 2]} loading="eager" />
-  <Image class="dark" src={dark} alt={alt} width={width} densities={[1, 2]} loading="eager" />
+  <Image class="light" src={light} alt={alt} width={width} densities={[1, 2]} loading={eager ? "eager" : "lazy"} />
+  <Image class="dark" src={dark} alt={alt} width={width} densities={[1, 2]} loading={eager ? "eager" : "lazy"} />
   {caption && <figcaption>{caption}</figcaption>}
 </figure>
 
