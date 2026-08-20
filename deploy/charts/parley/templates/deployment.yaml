@@ -1,6 +1,14 @@
 {{- if and .Values.trustProxyHeaders (not .Values.trustedProxyCIDRs) }}
 {{- fail "trustProxyHeaders is true but trustedProxyCIDRs is empty. Parley refuses to start that way: trusting X-Forwarded-For from any source is the throttle bypass the setting exists to prevent. Set trustedProxyCIDRs to every Ingress/load-balancer CIDR that can be a proxy hop." }}
 {{- end }}
+{{- if eq .Values.auth.mode "oidc" }}
+{{- if and .Values.auth.oidc.publicClient .Values.auth.oidc.existingSecret }}
+{{- fail "auth.oidc.publicClient is true but auth.oidc.existingSecret is also set. Those are two different client registrations and the chart will not guess: a public client has no secret, a confidential one has nothing to gain from PKCE alone. Set exactly one." }}
+{{- end }}
+{{- if not (or .Values.auth.oidc.publicClient .Values.auth.oidc.existingSecret) }}
+{{- fail "auth.mode is oidc but neither auth.oidc.existingSecret nor auth.oidc.publicClient is set. Choose one: set auth.oidc.existingSecret to the name of a Secret holding the client secret (never put the secret in values), or set auth.oidc.publicClient=true if the provider registration is a public client — Parley uses PKCE, so that works with no secret at all. Leaving both unset is not a public client, it is an unanswered question, so the chart refuses rather than quietly dropping the secret from a confidential-client deployment." }}
+{{- end }}
+{{- end }}
 {{- include "parley.checkReplicas" . -}}
 apiVersion: apps/v1
 kind: Deployment
@@ -82,11 +90,13 @@ spec:
               value: {{ required "auth.oidc.issuer is required when auth.mode is oidc" .Values.auth.oidc.issuer | quote }}
             - name: OIDC_CLIENT_ID
               value: {{ required "auth.oidc.clientID is required when auth.mode is oidc" .Values.auth.oidc.clientID | quote }}
+            {{- if .Values.auth.oidc.existingSecret }}
             - name: OIDC_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ required "auth.oidc.existingSecret is required when auth.mode is oidc — never set a client secret in values" .Values.auth.oidc.existingSecret }}
+                  name: {{ .Values.auth.oidc.existingSecret }}
                   key: {{ .Values.auth.oidc.secretKey }}
+            {{- end }}
             {{- end }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}

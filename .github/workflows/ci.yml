@@ -294,12 +294,43 @@ jobs:
             --set database.existingSecret=x --set replicaCount=2 > /tmp/two.yaml
           grep -q 'replicas: 2' /tmp/two.yaml
           grep -q '^kind: PodDisruptionBudget$' /tmp/two.yaml
-      - name: refuses oidc without a client secret
+      # A public (secretless, PKCE) client is a legitimate registration and the
+      # binary has always accepted one, so the chart must render it — but a
+      # deployment that ends up secretless because a values merge dropped
+      # existingSecret is a silent downgrade of a confidential client, so the
+      # choice has to be declared. All four corners, or the guard is untested.
+      - name: renders a public oidc client and refuses an undeclared one
         run: |
-          ! helm template parley deploy/charts/parley \
-            --set database.existingSecret=x --set auth.mode=oidc \
-            --set auth.oidc.issuer=https://idp.example.com \
-            --set auth.oidc.clientID=parley 2>/dev/null
+          oidc() {
+            helm template parley deploy/charts/parley \
+              --set database.existingSecret=x --set auth.mode=oidc \
+              --set auth.oidc.issuer=https://idp.example.com \
+              --set auth.oidc.clientID=parley "$@"
+          }
+          # publicClient: renders, and sends no client secret at all.
+          oidc --set auth.oidc.publicClient=true > /tmp/oidc-public.yaml
+          grep -q 'OIDC_CLIENT_ID' /tmp/oidc-public.yaml \
+            || { echo "public client rendered no OIDC config"; exit 1; }
+          ! grep -q 'OIDC_CLIENT_SECRET' /tmp/oidc-public.yaml \
+            || { echo "public client still ships a client secret"; exit 1; }
+          # existingSecret: renders, and reads the secret from the Secret.
+          oidc --set auth.oidc.existingSecret=parley-oidc > /tmp/oidc-conf.yaml
+          grep -q 'OIDC_CLIENT_SECRET' /tmp/oidc-conf.yaml \
+            || { echo "confidential client lost its client secret"; exit 1; }
+          grep -q 'name: parley-oidc' /tmp/oidc-conf.yaml \
+            || { echo "secretKeyRef does not name the secret"; exit 1; }
+          grep -q 'key: oidc-client-secret' /tmp/oidc-conf.yaml \
+            || { echo "secretKeyRef does not name the key"; exit 1; }
+          # Neither: fails, and the message names both ways out.
+          oidc 2>/tmp/oidc-neither.err && { echo "rendered with no client mode chosen"; exit 1; }
+          grep -q 'auth.oidc.existingSecret' /tmp/oidc-neither.err \
+            || { echo "message does not mention existingSecret"; exit 1; }
+          grep -q 'auth.oidc.publicClient' /tmp/oidc-neither.err \
+            || { echo "message does not mention publicClient"; exit 1; }
+          # Both: a contradiction, so it fails rather than picking one.
+          ! oidc --set auth.oidc.publicClient=true \
+            --set auth.oidc.existingSecret=parley-oidc 2>/dev/null \
+            || { echo "rendered a public client that also has a secret"; exit 1; }
       # A guard that only catches the exact string it was written against is not
       # a guard. These are the shapes that walked through the first version.
       - name: refuses a moving tag whatever the casing or padding
