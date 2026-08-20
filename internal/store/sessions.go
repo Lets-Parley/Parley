@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -87,6 +88,27 @@ func (s *Sessions) KindRetired(ctx context.Context, kind string) (bool, error) {
 		return false, nil
 	}
 	return retired, err
+}
+
+// OfferableKinds lists the seeded kinds that have not been retired, in name
+// order. Retiring a kind keeps its row — existing sessions still resolve
+// through the foreign key — so this is what stops it being offered again.
+func (s *Sessions) OfferableKinds(ctx context.Context) ([]string, error) {
+	rows, err := s.Pool.Query(ctx,
+		"select kind from session_kinds where retired_at is null order by kind")
+	if err != nil {
+		return nil, fmt.Errorf("listing offerable session kinds: %w", err)
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var kind string
+		if err := rows.Scan(&kind); err != nil {
+			return nil, fmt.Errorf("scanning an offerable session kind: %w", err)
+		}
+		out = append(out, kind)
+	}
+	return out, rows.Err()
 }
 
 func (s *Sessions) ByID(ctx context.Context, id string) (Session, error) {

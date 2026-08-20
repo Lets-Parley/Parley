@@ -146,6 +146,14 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
+			// The create dialog offers exactly these: a kind retired in place
+			// keeps its row for the sessions that already use it, but must
+			// not be offered for a new one.
+			kinds, err := a.sessions.OfferableKinds(r.Context())
+			if err != nil {
+				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+				return
+			}
 			views := make([]memberView, len(roster))
 			for i, m := range roster {
 				views[i] = memberView{UserID: m.UserID, Name: m.Name, AvatarHue: avatarHue(m.UserID), Spectator: m.Spectator, At: seats[m.UserID]}
@@ -153,7 +161,7 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 			// Members can read the room code any time — passing it on is the
 			// whole point of it.
 			writeJSON(w, http.StatusOK, map[string]any{
-				"slug": sp.Slug, "name": sp.Name, "members": views, "sessions": sessions,
+				"slug": sp.Slug, "name": sp.Name, "members": views, "sessions": sessions, "kinds": kinds,
 				"passcode": sp.Passcode, "protected": sp.Passcode != "",
 			})
 			return

@@ -48,6 +48,25 @@ nothing else — no router surgery, no constraint change, no frontend ternaries.
    action the same thing. The shared dispatcher already rejects any write on an
    ended session with a 409, so an action does not need to check that itself.
 
+   `State` is handed the server's `*pgxpool.Pool` directly:
+
+   ```go
+   func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (any, error)
+   ```
+
+   That concrete pool is a deliberate choice, not an oversight. A narrower
+   `SessionReader` interface was considered so registry dispatch could be
+   tested without Postgres, and rejected: every state builder issues its own
+   arbitrary SQL — poker joins `stories` to `votes` and aggregates the voter
+   ids, standup reads `sessions` and `standup_entries` — so the interface would
+   have to expose `Query` and `QueryRow`, which still hand you `pgx.Rows` and
+   `pgx.Row`. It renames the dependency rather than removing it, while making a
+   convincing fake mean reimplementing `pgx.Rows`. `BuildEnvelope` needs the
+   pool for the roster regardless, so narrowing `State` alone would not have
+   bought a single database-free test. Write state-builder tests against a real
+   database; `internal/session` pins this signature so changing it is a
+   deliberate revisit of the trade-off rather than a drive-by refactor.
+
 2. **Seed the kind row.** Migrations are append-only, so add a new numbered file
    in `internal/db/migrations/` rather than editing one that shipped:
 
@@ -63,7 +82,8 @@ nothing else — no router surgery, no constraint change, no frontend ternaries.
 
    `sessions.kind` is a foreign key `on delete restrict`, so a kind that has
    sessions can never be deleted. Withdraw one by setting `retired_at` instead:
-   new sessions are refused, existing ones keep working.
+   new sessions are refused, the create dialog stops offering it, and existing
+   ones keep working.
 
 3. **Add the frontend entry.** Append a `KindDef` to `KINDS` in
    `web/src/lib/kinds.ts` — `id` matching the `kind` column, `label`, the `Room`

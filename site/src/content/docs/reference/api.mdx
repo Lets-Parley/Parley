@@ -71,7 +71,7 @@ reject them. Their own protection is the `state` value in the sign-in cookie.
 
 <RouteTable rows={[
   { method: "GET", path: "/api/spaces", auth: "user", purpose: "The caller's own memberships, most recently active first: slug, name, whether it is protected. Never the room code." },
-  { method: "GET", path: "/api/spaces/{slug}", auth: "public", purpose: "Members get roster, sessions and room code, and their membership is stamped as recently active. Non-members get only the name and whether it is protected." },
+  { method: "GET", path: "/api/spaces/{slug}", auth: "public", purpose: "Members get roster, sessions, room code, and the kinds a new session may use, and their membership is stamped as recently active. Non-members get only the name and whether it is protected." },
   { method: "POST", path: "/api/spaces", auth: "user", purpose: "Create a space. Protected by default." },
   { method: "POST", path: "/api/spaces/{slug}/join", auth: "user", purpose: "Join, sending {passcode} if the space is protected. Throttled at 8 attempts per 60s per address." },
   { method: "POST", path: "/api/spaces/{slug}/passcode", auth: "member", purpose: "Mint a new code, or with {open:true} remove it. Any member may do this." },
@@ -137,8 +137,8 @@ action against a closed session is **409**; reopen it first.
 ### Planning poker
 
 <RouteTable rows={[
-  { method: "POST", path: "/api/sessions/{id}/actions/stories", auth: "facilitator", purpose: "Add a story. title ≤200, notes ≤2000, ref ≤40." },
-  { method: "PATCH", path: "/api/sessions/{id}/actions/story", auth: "facilitator", purpose: "Edit {storyId}: title, notes, ref, position or estimate. An estimate is validated against the session's deck; empty clears it." },
+  { method: "POST", path: "/api/sessions/{id}/actions/stories", auth: "facilitator", purpose: "Add a story. Needs a ref or a title, either alone is enough; title ≤200, notes ≤2000, ref ≤40." },
+  { method: "PATCH", path: "/api/sessions/{id}/actions/story", auth: "facilitator", purpose: "Edit {storyId}: title, notes, ref, position or estimate. An edit that would leave a story with neither a ref nor a title is refused. An estimate is validated against the session's deck; empty clears it." },
   { method: "POST", path: "/api/sessions/{id}/actions/vote", auth: "member", purpose: "Cast or change your vote on {storyId}. Refused for spectators. Triggers the auto-reveal check." },
   { method: "POST", path: "/api/sessions/{id}/actions/select", auth: "facilitator", purpose: "Put a story on the table and clear the reveal." },
   { method: "POST", path: "/api/sessions/{id}/actions/reveal", auth: "facilitator", purpose: "Open the round." },

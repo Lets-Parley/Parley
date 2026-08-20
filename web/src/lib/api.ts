@@ -52,6 +52,8 @@ export type SpaceView = {
   passcode?: string;
   members?: Person[];
   sessions?: SessionSummary[];
+  /** The kinds a new session may use — retired kinds are omitted. Members only. */
+  kinds?: string[];
 };
 /** One space the caller belongs to, as listed on the landing page. */
 export type Membership = {
