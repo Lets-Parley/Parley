@@ -22,6 +22,7 @@ default mode there is no account, no email address and no password.
 | `session_tokens` | `token_hash` | SHA-256 of the bearer token. The token itself is never stored |
 | `session_tokens` | `user_id`, `created_at`, `last_used_at` | Which account, and when it was last seen |
 | `members` | `space_id`, `user_id`, `spectator`, `last_seen_at` | Which rooms you have joined |
+| `session_presence` | `session_id`, `user_id`, `replica_id`, `seen_at` | Which session you have a socket open on, and which replica is serving it. Written while you are connected, deleted when you disconnect, and swept once it ages past the presence window (~100s). It is what the space page counts to say "3 here" |
 
 **No email address is stored**, even when signing in through a provider that
 supplies one — an email is used only to derive a display name, and then
@@ -66,8 +67,8 @@ There is no tooling for it. In practice: `users` gives you the person's row,
 `members` the spaces they joined, and their content is reachable by `user_id`
 from `votes` and `standup_entries`.
 
-`members`, `session_tokens`, `votes` and `standup_entries` all cascade on delete,
-so removing the `users` row takes them with it.
+`members`, `session_tokens`, `session_presence`, `votes` and `standup_entries`
+all cascade on delete, so removing the `users` row takes them with it.
 
 :::caution[Deleting a user who has facilitated a session will fail]
 `sessions.facilitator_id` and `sessions.current_speaker_id` reference `users(id)`

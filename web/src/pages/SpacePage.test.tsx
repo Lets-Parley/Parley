@@ -3,6 +3,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
+import { api } from "../lib/api";
 import type { Me, SpaceView } from "../lib/api";
 import { SpacePage } from "./SpacePage";
 
@@ -19,16 +20,22 @@ const space = {
   member: true,
   protected: false,
   members: [],
+  // s4 is ended *and* carries a count. The server never sends that pair, and
+  // that is exactly why the fixture does: "ended" has to win on the row's own
+  // logic rather than on the server happening to zero the count.
   sessions: [
-    { id: "s1", kind: "poker", title: "Sprint 12 grooming", createdAt: "2026-08-18T10:00:00.000Z", endedAt: null },
-    { id: "s2", kind: "standup", title: "Daily", createdAt: "2026-08-18T09:00:00.000Z", endedAt: null },
-    { id: "s3", kind: "acme.retro", title: "Retro of record", createdAt: "2026-08-18T08:00:00.000Z", endedAt: null },
-    { id: "s4", kind: "pokerful", title: "Pokerful planning", createdAt: "2026-08-18T07:00:00.000Z", endedAt: null },
+    { id: "s1", kind: "poker", title: "Sprint 12 grooming", createdAt: "2026-08-18T10:00:00.000Z", endedAt: null, here: 3 },
+    { id: "s2", kind: "standup", title: "Daily", createdAt: "2026-08-18T09:00:00.000Z", endedAt: null, here: 0 },
+    { id: "s3", kind: "acme.retro", title: "Retro of record", createdAt: "2026-08-18T08:00:00.000Z", endedAt: null, here: 1 },
+    { id: "s4", kind: "pokerful", title: "Pokerful planning", createdAt: "2026-08-18T07:00:00.000Z", endedAt: "2026-08-18T11:00:00.000Z", here: 2 },
   ],
 } as unknown as SpaceView & { kinds?: string[] };
 
 // The api mock reads this, so a test can swap in a different space view.
 let view: SpaceView = space;
+// Flipped on to make the next space read fail, which is how a background
+// refetch failure is reproduced.
+let failSpace = false;
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -37,7 +44,10 @@ vi.mock("../lib/api", async () => {
     api: vi.fn(async (_method: string, path: string) => {
       if (path === "/api/me") return me;
       if (path === "/api/auth") return { mode: "open" };
-      if (path.startsWith("/api/spaces/")) return view;
+      if (path.startsWith("/api/spaces/")) {
+        if (failSpace) throw new Error("network");
+        return view;
+      }
       throw new Error(`unexpected api call: ${path}`);
     }),
   };
@@ -282,3 +292,90 @@ describe("SpacePage last-opened stamp", () => {
     ).toBe(false);
   });
 });
+
+describe("SpacePage session badge", () => {
+  afterEach(() => {
+    view = space;
+    failSpace = false;
+    vi.useRealTimers();
+  });
+
+  // The row is a bare <Link> with no aria-label, so its accessible name is
+  // the whole row read out — title, date, kind chip and badge concatenated.
+  // Matching it needs a regex; an exact string would never hit.
+  function row(title: string) {
+    // The sidebar lists the same sessions, so scope to the main column first.
+    const main = within(screen.getByRole("main"));
+    return within(main.getByRole("link", { name: new RegExp(title) }));
+  }
+
+  it("counts the people in each session rather than calling every open one live", async () => {
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    await screen.findByText("Recent sessions");
+
+    // A busy session says how many, and never the old word.
+    expect(row("Sprint 12 grooming").getByText("3 here")).toBeTruthy();
+    expect(row("Sprint 12 grooming").queryByText("live")).toBe(null);
+    // One person is still a count, not a special case.
+    expect(row("Retro of record").getByText("1 here")).toBeTruthy();
+    // An open session nobody is in is quiet — not green, not "live".
+    expect(row("Daily").getByText("open")).toBeTruthy();
+    expect(row("Daily").queryByText(/here/)).toBe(null);
+    // Ended beats any count.
+    expect(row("Pokerful planning").getByText("ended")).toBeTruthy();
+    expect(row("Pokerful planning").queryByText(/here/)).toBe(null);
+    expect(row("Pokerful planning").queryByText("2 here")).toBe(null);
+    expect(row("Pokerful planning").queryByText("open")).toBe(null);
+  });
+
+  it("re-reads the space on a timer, so the count does not freeze at page load", async () => {
+    // Call history survives between tests in this file, so the count has to
+    // start from a clean slate rather than from whatever ran before.
+    vi.mocked(api).mockClear();
+    vi.useFakeTimers();
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    // findBy* is off the table under fake timers — its polling runs on the
+    // clock the test is holding still. Advance instead, well short of the
+    // poll interval, to let the first read settle.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(spaceReads()).toBe(1);
+
+    // The interval is armed once the first read settles, so land just past
+    // 30s from there rather than exactly on the boundary.
+    await vi.advanceTimersByTimeAsync(30_100);
+    // Presence ages out after ~100s. A page that reads once shows a count
+    // that is wrong within two minutes and stays wrong.
+    expect(spaceReads()).toBe(2);
+  });
+
+  it("keeps the page up when a background refresh fails", async () => {
+    vi.useFakeTimers();
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(screen.getByText("Recent sessions")).toBeTruthy();
+
+    // One flaky response — a deploy, a proxy hiccup, a single 5xx. The cached
+    // space is still perfectly good, so the dead-end screen must not appear.
+    failSpace = true;
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(screen.queryByText("No table under that name")).toBe(null);
+    expect(screen.getByText("Recent sessions")).toBeTruthy();
+    expect(row("Sprint 12 grooming").getByText("3 here")).toBeTruthy();
+  });
+
+  it("still shows the dead end when the very first read fails", async () => {
+    failSpace = true;
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    expect(await screen.findByText("No table under that name")).toBeTruthy();
+  });
+});
+
+// spaceReads counts reads of the space itself. The "seen" POST rides the same
+// prefix and must not be mistaken for a refresh, and the page is rendered
+// without a Route here, so the slug in the path is empty.
+function spaceReads(): number {
+  return vi
+    .mocked(api)
+    .mock.calls.filter((c) => c[0] === "GET" && String(c[1]).startsWith("/api/spaces/")).length;
+}
