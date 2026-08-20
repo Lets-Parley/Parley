@@ -101,4 +101,26 @@ describe("SpacePage create dialog", () => {
       delete space.kinds;
     }
   });
+
+  it("offers every kind when the server omits the kinds field (older server)", async () => {
+    // No `space.kinds` is set here: an older server sends no field at all,
+    // and the page must fall back to offering everything rather than
+    // treating the absence as an empty allowlist.
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByRole("button", { name: "poker" })).toBeTruthy();
+    expect(dialog.getByRole("button", { name: "standup" })).toBeTruthy();
+  });
+
+  it("hides New session when the space offers no kinds", async () => {
+    space.kinds = [];
+    try {
+      renderApp(<SpacePage />, { route: "/s/platform-team" });
+      await screen.findByText("Recent sessions");
+      expect(screen.queryByRole("button", { name: "New session" })).toBe(null);
+    } finally {
+      delete space.kinds;
+    }
+  });
 });
