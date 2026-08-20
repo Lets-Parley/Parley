@@ -10,7 +10,8 @@ export function ConnectionBanner({
   onRetry?: () => void;
 }) {
   if (status === "live") return null;
-  const stale = status === "stale";
+  const removed = status === "removed";
+  const stale = status === "stale" || removed;
   return (
     <div
       role="status"
@@ -23,10 +24,12 @@ export function ConnectionBanner({
       }}
     >
       <span className={"h-2 w-2 shrink-0 rounded-full " + (stale ? "bg-stop" : "bg-brass")} />
-      {stale
-        ? "Connection lost — showing the table as it last stood. Votes may be out of date."
-        : "Reconnecting — your vote is safe."}
-      {stale && onRetry && (
+      {removed
+        ? "You no longer have access to this space — an owner removed you. Ask them for an invite to rejoin."
+        : stale
+          ? "Connection lost — showing the table as it last stood. Votes may be out of date."
+          : "Reconnecting — your vote is safe."}
+      {stale && !removed && onRetry && (
         <button
           onClick={onRetry}
           className="rounded-full border border-line bg-surface px-3 py-1 text-xs font-bold hover:bg-surface-hi"
