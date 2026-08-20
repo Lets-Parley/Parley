@@ -106,10 +106,12 @@ Everything a session kind does goes through one dispatcher:
 ```
 
 **Each action declares its own verb, and the dispatcher routes on the pair.**
-Most actions are transitions on the session and take `POST`. Two are not: a
+Most actions are transitions on the session and take `POST`. Three are not: a
 standup entry is an upsert of the caller's own row, so it is
-`PUT /api/sessions/{id}/actions/standup`, and a story edit is a partial update,
-so it is `PATCH /api/sessions/{id}/actions/story` carrying `{storyId}` in the
+`PUT /api/sessions/{id}/actions/standup`; a standup readiness signal is an
+upsert of the caller's own row too, so it is
+`PUT /api/sessions/{id}/actions/ready`; and a story edit is a partial update, so
+it is `PATCH /api/sessions/{id}/actions/story` carrying `{storyId}` in the
 body. The verb is listed against every action in the tables below.
 
 The case for collapsing all of them onto `POST` is a fair one — every action is
@@ -153,6 +155,7 @@ action against a closed session is **409**; reopen it first.
 
 <RouteTable rows={[
   { method: "PUT", path: "/api/sessions/{id}/actions/standup", auth: "member", purpose: "Upsert your own yesterday / today / blockers. Each ≤2000 characters." },
+  { method: "PUT", path: "/api/sessions/{id}/actions/ready", auth: "member", purpose: "Set your own readiness with {ready}. Advisory only — nothing gates on it, and it does not affect the speaking order or the export." },
   { method: "POST", path: "/api/sessions/{id}/actions/start", auth: "facilitator", purpose: "Snapshot the roster into a speaking order and prefill yesterday from the last standup." },
   { method: "POST", path: "/api/sessions/{id}/actions/next", auth: "facilitator", purpose: "Advance to the next speaker." },
   { method: "POST", path: "/api/sessions/{id}/actions/skip", auth: "facilitator", purpose: "Mark the current speaker skipped and advance." },

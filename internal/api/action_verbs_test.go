@@ -29,6 +29,7 @@ import (
 // web/src/lib/api.ts, and clientVerbs below.
 func TestNonPostActionsAreMirroredInTheClientVerbTable(t *testing.T) {
 	clientVerbs := map[string]string{
+		"ready":   http.MethodPut,
 		"standup": http.MethodPut,
 		"story":   http.MethodPatch,
 	}

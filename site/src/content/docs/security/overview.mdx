@@ -49,7 +49,8 @@ misses real guessers or punishes innocent ones. See
 - Facilitator-only actions — including story creation, editing, reordering,
   selection and deletion, plus reveal, reset, estimate saving and session
   progression — are checked server-side, not hidden in the UI. Ordinary members
-  may still vote and edit their own standup entry.
+  may still vote, edit their own standup entry, and set their own standup
+  readiness signal.
 - Active WebSockets revalidate their shared-store token at least every 30
   seconds; revocation or expiry closes them with policy code `1008`. Logout is
   immediate rather than waiting for that interval — the replica serving it
