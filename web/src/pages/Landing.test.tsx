@@ -34,8 +34,12 @@ vi.mock("../lib/api", async () => {
         return signedIn ? me : null;
       }
       if (path === "/api/auth") return { mode: authMode };
-      if (path === "/api/spaces" && method === "GET") return mySpaces;
+      if (path === "/api/spaces" && method === "GET") {
+        if (listFails) throw new Error("Could not list your spaces.");
+        return mySpaces;
+      }
       if (path === "/api/spaces") {
+        if (holdCreate) await holdCreate;
         if (createFails) throw new Error("Could not create the space.");
         return createResult;
       }
@@ -47,6 +51,10 @@ vi.mock("../lib/api", async () => {
 let signedIn = true;
 let authMode: "open" | "oidc" = "oidc";
 let createFails = false;
+let listFails = false;
+// Set to a promise a test resolves by hand, to hold the create in flight long
+// enough to look at the button while it waits.
+let holdCreate: Promise<void> | null = null;
 let mySpaces: { slug: string; name: string; protected: boolean }[] = [];
 const createdSpace = {
   slug: "platform-team",
@@ -74,6 +82,8 @@ beforeEach(() => {
   signedIn = true;
   authMode = "oidc";
   createFails = false;
+  listFails = false;
+  holdCreate = null;
   createResult = createdSpace;
   mySpaces = [];
   sessionStorage.clear();
@@ -316,6 +326,80 @@ describe("Landing", () => {
   // so the person in front of the screen can simply press the button again;
   // a success must not, because the create already happened and no late-waking
   // path may repeat it.
+  // Try again is the other half of the latch, made visible. It may only be
+  // offered while there is something to retry: once the POST has landed the
+  // space exists, the latch is shut for good, and the button would be an inert
+  // control sitting next to an error.
+  it("offers Try again after a failed create, and withdraws it once the space exists", async () => {
+    createFails = true;
+
+    renderApp(<Landing />);
+
+    await userEvent.type(
+      await screen.findByPlaceholderText(/Platform Team/),
+      "Platform Team",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Open a space" }));
+    await screen.findByText("Could not create the space.");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+
+    // The retry lands the POST, then stumbles on a body with no slug. The space
+    // is real from here on, so the retry must go away with it.
+    createFails = false;
+    createResult = undefined;
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await screen.findByText(/couldn't open it/i);
+    expect(spaceCalls()).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  it("says it is working, and refuses a second press, while the create is in flight", async () => {
+    let release!: () => void;
+    holdCreate = new Promise<void>((res) => {
+      release = res;
+    });
+
+    renderApp(<Landing />);
+
+    await userEvent.type(
+      await screen.findByPlaceholderText(/Platform Team/),
+      "Platform Team",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Open a space" }));
+
+    const waiting = await screen.findByRole("button", { name: "Opening…" });
+    expect((waiting as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      release();
+    });
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith("/s/platform-team"),
+    );
+    expect(spaceCalls()).toHaveLength(1);
+  });
+
+  // A list that could not be read is not a list with nothing in it. Rendering
+  // the failure as an empty roster tells someone with six spaces they have none.
+  it("says so when the space list cannot be read, and reads it again on request", async () => {
+    listFails = true;
+
+    renderApp(<Landing />);
+
+    await screen.findByText(/couldn't load your spaces/i);
+    expect(screen.queryByRole("list", { name: /your spaces/i })).toBeNull();
+
+    listFails = false;
+    mySpaces = [
+      { slug: "platform-team", name: "Platform Team", protected: false },
+    ];
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    const list = await screen.findByRole("list", { name: /your spaces/i });
+    expect(within(list).getByText("Platform Team")).toBeTruthy();
+  });
+
   it("lets a failed create be retried by hand", async () => {
     createFails = true;
 
