@@ -1,4 +1,9 @@
-export type ConnectionStatus = "live" | "reconnecting" | "stale";
+export type ConnectionStatus = "live" | "reconnecting" | "stale" | "removed";
+
+// The server closes with 1008 (policy violation) when the socket is no longer
+// allowed in the room — the usual cause being that you were removed from the
+// space. Retrying cannot fix that, so it is a terminal state, not a drop.
+const CLOSE_POLICY_VIOLATION = 1008;
 
 type Options = {
   sessionId: string;
@@ -38,8 +43,17 @@ export function connectSession({ sessionId, onState, onStatus }: Options): () =>
         // Ignore unparseable frames.
       }
     };
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       if (closed) return;
+      if (ev?.code === CLOSE_POLICY_VIOLATION) {
+        // Terminal: reconnecting would loop forever behind a banner that only
+        // ever said "stale", which is not what happened.
+        closed = true;
+        clearTimeout(retryTimer);
+        clearTimeout(staleTimer);
+        onStatus("removed");
+        return;
+      }
       onStatus("reconnecting");
       clearTimeout(staleTimer);
       staleTimer = window.setTimeout(() => onStatus("stale"), STALE_AFTER_MS);
