@@ -145,6 +145,18 @@ func TestStalePresenceRowsAreIgnoredAndSwept(t *testing.T) {
 		t.Fatal("a presence row older than the window still counted as present")
 	}
 
+	// The facilitator's own row lands asynchronously when the socket attaches.
+	// Sweeping before it arrives leaves nothing for the last assertion to find,
+	// so it reports the sweep as having deleted a row that was never there.
+	eventually(t, 5*time.Second, "the connected facilitator's presence row to land", func() bool {
+		var n int
+		if err := pool.QueryRow(context.Background(),
+			`select count(*) from session_presence where replica_id <> 'dead-replica'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n > 0
+	})
+
 	// The filter above keeps ghosts out of the room; the sweep is what stops the
 	// table growing forever. Driven directly rather than waiting on the ticker,
 	// so this asserts the query and not the clock.

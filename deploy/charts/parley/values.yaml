@@ -132,10 +132,12 @@ auth:
 # internet as one client: eight wrong guesses would lock everybody out of that
 # space.
 #
-# Only correct while the Ingress *overwrites* X-Forwarded-For. ingress-nginx
-# does by default, but with use-forwarded-headers it appends instead, and the
-# leftmost value — the one Parley reads — is the caller's own again, throttle
-# bypass and all. With an ELB or CDN in front, check that before enabling.
+# An appending proxy is fine. Parley walks X-Forwarded-For right-to-left and
+# takes the first address that is not in trustedProxyCIDRs; it never reads the
+# leftmost value. So ingress-nginx with use-forwarded-headers, an ELB, or a CDN
+# that appends its own hop all resolve to the real caller. What decides whether
+# this is safe is the trust list below, not the append: every network you list
+# is a network whose members can name any client address they like.
 trustProxyHeaders: false
 
 # Every CIDR that can be an immediate or forwarded proxy hop, comma-separated.
@@ -143,7 +145,84 @@ trustProxyHeaders: false
 # trusted-proxy setting with no allowlist, because "trust the header from
 # anyone" is exactly the bypass the setting exists to prevent. The chart fails
 # the render rather than letting that reach a CrashLoopBackOff.
+#
+# On Kubernetes, read this before you set it. The immediate peer Parley sees is
+# the ingress controller's *pod* IP, and pod IPs are reassigned on every
+# reschedule — so the only value that keeps working is the pod CIDR itself
+# (10.42.0.0/16 on k3s, 10.244.0.0/16 on kubeadm/flannel, whatever your CNI
+# hands out). That network is client-reachable from every workload in the
+# cluster: any pod can open a connection straight to Parley's Service, present
+# its own X-Forwarded-For, and pick whatever client address it likes — which is
+# the room-code throttle and the open-mode identity quota, bypassed.
+#
+# The pod CIDR is therefore only safe alongside something that stops other pods
+# reaching the Service. Set networkPolicy.enabled=true below, or an equivalent
+# (a service-mesh authorization policy, a dedicated node pool). The chart warns
+# in NOTES.txt when proxy trust is on and the NetworkPolicy is off.
+#
+# Narrow your ingress controller's own forwarded-header trust as well — Traefik
+# forwardedHeaders.trustedIPs, ingress-nginx proxy-real-ip-cidr. Otherwise the
+# same forgery just moves one hop upstream and arrives with the controller's
+# blessing.
+#
+# 0.0.0.0/0 and ::/0 (and the ::0/0 / 0::0/0 spellings) are refused outright at
+# render time as a fast, common-case convenience — Helm has no IP parser, so
+# this is a literal-string match, not a real CIDR comparison. The Go binary is
+# the authoritative check: it parses every value and refuses ANY spelling of a
+# default route (including 0000:0000::/0 and friends), so a spelling the chart
+# doesn't recognize still fails, just later — at startup, as a
+# CrashLoopBackOff — rather than at `helm template` time. A /16 is *not*
+# refused — alongside the NetworkPolicy it is the configuration that works.
 trustedProxyCIDRs: ""
+
+# A NetworkPolicy that default-denies ingress to Parley's pods and lets only the
+# ingress controller through. This is what makes a pod-CIDR trustedProxyCIDRs
+# safe; see the note above for why that value is the only one Kubernetes leaves
+# you.
+#
+# Off by default, and deliberately so. A NetworkPolicy in a cluster whose CNI
+# does not enforce them silently does nothing at all, and defaulting it on would
+# black-hole every request in a cluster where the controller does not match the
+# selectors below.
+#
+# What it cannot cover, whatever you set here:
+#
+#   * hostNetwork pods. They use the node's address, not a pod IP, so a
+#     namespaceSelector or podSelector never matches them.
+#   * Node IPs that fall inside a trusted CIDR. Traffic sourced from a node —
+#     kubelet probes, a hostNetwork ingress controller — arrives from the node
+#     address, and if that address is inside trustedProxyCIDRs its forwarded
+#     header is trusted no matter what this policy says.
+networkPolicy:
+  enabled: false
+  # Which pods may reach Parley. Both selectors must match the same peer, so
+  # this is "pods labelled X, in namespace Y" — not either alone.
+  #
+  # The defaults describe ingress-nginx in its own namespace. For Traefik as
+  # shipped with k3s:
+  #
+  #     networkPolicy:
+  #       ingressController:
+  #         namespace: kube-system
+  #         podSelector:
+  #           app.kubernetes.io/name: traefik
+  #
+  # The namespace is matched on the kubernetes.io/metadata.name label, which the
+  # API server sets on every namespace from 1.21 onwards.
+  ingressController:
+    namespace: ingress-nginx
+    podSelector:
+      app.kubernetes.io/name: ingress-nginx
+  # Appended verbatim to spec.ingress, for anything else that legitimately
+  # reaches the pod — a Prometheus scraper, a second controller, a mesh sidecar.
+  # Each entry is a full NetworkPolicyIngressRule.
+  #
+  # WARNING: an entry with no `from` key allows ingress from ANY source on the
+  # ports it lists — that is Kubernetes NetworkPolicy semantics, not a bug in
+  # this chart. `extraIngress: [{}]` (or any rule missing `from`) silently
+  # defeats the whole default-deny policy above. Always scope each entry with
+  # a `from` of namespaceSelector/podSelector/ipBlock peers.
+  extraIngress: []
 
 logLevel: info
 
