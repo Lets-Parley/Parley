@@ -191,6 +191,23 @@ describe("PokerRoom daybreak cue", () => {
     expect(cue()).toBe("overcast");
   });
 
+  // The reveal flag is load-bearing in the DOWNWARD direction only. Going up,
+  // the ratchet reaches DAY on rank alone and would look right even with the
+  // epoch never bumping; coming back down with the votes still standing, only
+  // the epoch reset can let the light fall.
+  it("falls back off day when a reveal is taken back with the votes still in", () => {
+    const { rerender } = renderApp(
+      <PokerRoom env={bigEnv(5, 1, 5, { revealed: true })} me={me} />,
+    );
+    expect(cue()).toBe("day");
+    const hidden = bigEnv(5, 1);
+    expect(hidden.state.currentStoryId).toBe("story-1");
+    expect(hidden.state.stories[0].votedUserIds.length).toBe(1);
+    rerender(<PokerRoom env={hidden} me={me} />);
+    expect(screen.getByRole("status").textContent).toContain("1 of 5");
+    expect(cue()).toBe("first-light");
+  });
+
   it("clears the picked card on a pre-reveal reset", () => {
     const voted = bigEnv(5, 3);
     voted.state.deck = { name: "fibonacci", values: ["1", "2", "3"], ordinal: false };

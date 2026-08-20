@@ -84,6 +84,13 @@ describe("cueFor", () => {
     expect(cueFor(2, 5, false)).toBe("daybreak");
   });
 
+  it("puts the 0.34 boundary itself on the daybreak side", () => {
+    // 17/50 is exactly the threshold, and nothing else in this file lands on
+    // it, so without these two the `<` could be `<=` and stay green.
+    expect(cueFor(17, 50, false)).toBe("daybreak");
+    expect(cueFor(16, 50, false)).toBe("first-light");
+  });
+
   it("holds a fully voted but unrevealed table at daybreak", () => {
     // The bug this replaces wrote DAYBREAK as `0.34 <= r < 1`, so r=1 with
     // revealed=false fell through every branch and matched nothing.

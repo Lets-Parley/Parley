@@ -4,9 +4,10 @@
     "target": "es2023",
     "lib": ["ES2023", "DOM"],
     "module": "esnext",
-    // "node" is here for the tests only: cue.test.ts reads tokens.css off disk,
-    // because vitest stubs CSS imports and the test has to see the literal hex.
-    "types": ["vite/client", "node"],
+    // No "node" here on purpose: this project is the application, and Node
+    // globals do not exist in the browser. The tests get them from
+    // tsconfig.vitest.json, which is where the disk read of tokens.css lives.
+    "types": ["vite/client"],
     "allowArbitraryExtensions": true,
     "skipLibCheck": true,
 
@@ -24,5 +25,6 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/test"]
 }
