@@ -91,6 +91,26 @@ func TestStoryIdentityOnPatch(t *testing.T) {
 	}
 }
 
+// Swapping a title for a ref goes the other way round: the title is cleared in
+// the same edit that supplies the ref. The row must never be written in the
+// nameless state in between, so the two fields are applied by one statement.
+func TestStoryIdentitySwapTitleForRef(t *testing.T) {
+	srv := testServer(t)
+	fac, _, id := setupSession(t, srv, "Identity Swap Space")
+	if resp := addStoryBody(t, srv, id, `{"title":"Rate limiting"}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("add: %d", resp.StatusCode)
+	}
+	story := lastStory(t, srv, id, fac)["id"].(string)
+
+	if resp := patchStory(t, srv, id, story, `"title":"","ref":"PAR-9"`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("swap the title for a ref: %d, want 204", resp.StatusCode)
+	}
+	got := currentStory(secondArg(doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)), story)
+	if got["title"] != "" || got["ref"] != "PAR-9" {
+		t.Fatalf("after the swap: %v", got)
+	}
+}
+
 // A ticket that carries neither ref nor title cannot be created any more, but
 // an unrelated edit to one must not be blocked by the identity check either.
 func TestUnrelatedPatchIsNotBlockedByIdentity(t *testing.T) {
