@@ -175,11 +175,27 @@ spec:
       # Spread replicas across nodes: two pods on one node is one node failure
       # away from being no pods. ScheduleAnyway by default, so a single-node
       # cluster still schedules rather than leaving pods Pending forever.
+      #
+      # matchLabelKeys scopes the skew calculation to one revision. Without it a
+      # rolling update counts the outgoing pods too, so with maxSurge the
+      # scheduler can satisfy the constraint by stacking both new pods on one
+      # node — and a soft constraint is never re-evaluated afterwards, so the
+      # install stays collapsed onto a single node until something evicts it.
+      # Two replicas and a satisfied PodDisruptionBudget make that look healthy.
+      # Observed on a live 0.4.1 -> 0.4.4 upgrade.
+      #
+      # pod-template-hash is set by the Deployment controller. The field is beta
+      # and on by default from Kubernetes 1.27; an older API server prunes it
+      # silently, which leaves exactly today's behaviour rather than an error.
       topologySpreadConstraints:
         {{- range . }}
         - {{ toYaml . | nindent 10 | trim }}
           labelSelector:
             matchLabels:
               {{- include "parley.selectorLabels" $ | nindent 14 }}
+          {{- if not .matchLabelKeys }}
+          matchLabelKeys:
+            - pod-template-hash
+          {{- end }}
         {{- end }}
       {{- end }}

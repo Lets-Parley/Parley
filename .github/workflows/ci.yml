@@ -295,6 +295,40 @@ jobs:
             --set database.existingSecret=x --set replicaCount=2 > /tmp/two.yaml
           grep -q 'replicas: 2' /tmp/two.yaml
           grep -q '^kind: PodDisruptionBudget$' /tmp/two.yaml
+      # A rollout that counts the outgoing pods can satisfy a soft spread
+      # constraint by stacking both new pods on one node, and ScheduleAnyway is
+      # never re-evaluated afterwards — so the install silently stays collapsed,
+      # with two replicas and a healthy PDB. matchLabelKeys confines the skew to
+      # one revision. Asserted per-entry rather than by a bare grep, so an entry
+      # that loses it while another keeps it still fails.
+      - name: every spread constraint is scoped to one revision
+        run: |
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set replicaCount=2 > /tmp/spread.yaml
+          python3 - <<'EOF'
+          import sys, yaml
+          docs = [d for d in yaml.safe_load_all(open('/tmp/spread.yaml')) if d]
+          deploys = [d for d in docs if d['kind'] == 'Deployment']
+          assert len(deploys) == 1, f"expected one Deployment, got {len(deploys)}"
+          cons = deploys[0]['spec']['template']['spec'].get('topologySpreadConstraints')
+          assert cons, "the chart no longer renders a topology spread constraint"
+          for c in cons:
+              assert c.get('matchLabelKeys') == ['pod-template-hash'], \
+                  f"spread constraint is not scoped to one revision: {c}"
+              assert c.get('labelSelector', {}).get('matchLabels'), \
+                  f"spread constraint has no label selector: {c}"
+          EOF
+          # An operator supplying their own matchLabelKeys must not get a
+          # duplicate key, which would make the manifest invalid.
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set replicaCount=2 \
+            --set 'topologySpreadConstraints[0].maxSkew=1' \
+            --set 'topologySpreadConstraints[0].topologyKey=kubernetes.io/hostname' \
+            --set 'topologySpreadConstraints[0].whenUnsatisfiable=DoNotSchedule' \
+            --set 'topologySpreadConstraints[0].matchLabelKeys[0]=pod-template-hash' \
+            > /tmp/spread-own.yaml
+          test "$(grep -c 'matchLabelKeys' /tmp/spread-own.yaml)" = 1 \
+            || { echo "matchLabelKeys was emitted twice"; exit 1; }
       # A public (secretless, PKCE) client is a legitimate registration and the
       # binary has always accepted one, so the chart must render it — but a
       # deployment that ends up secretless because a values merge dropped
