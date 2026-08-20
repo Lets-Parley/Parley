@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
+import { mdastVersion } from "./src/mdast-version.mjs";
 
 const description =
   "Planning poker and daily standups for your team, at your table. " +
@@ -9,6 +10,26 @@ const description =
 export default defineConfig({
   site: "https://www.letsparley.io",
   integrations: [
+    // Substitutes %VERSION% in page content. Pushed onto Astro's own markdown
+    // processor rather than constructing one: astro and starlight resolve
+    // different @astrojs/markdown-satteri copies, and a processor built from
+    // the wrong one fails Starlight's isSatteriProcessor check.
+    {
+      name: "parley-version",
+      hooks: {
+        "astro:config:setup": ({ config }) => {
+          const plugins = config.markdown.processor?.options?.mdastPlugins;
+          if (!Array.isArray(plugins)) {
+            throw new Error(
+              "parley-version: the markdown processor has no mdastPlugins. " +
+                "This needs Astro's default satteri() processor; unified() " +
+                "takes remarkPlugins instead.",
+            );
+          }
+          plugins.push(mdastVersion());
+        },
+      },
+    },
     starlight({
       title: "Parley",
       logo: { src: "./src/assets/logo.svg" },
