@@ -104,6 +104,21 @@ func (p *Provider) discover(ctx context.Context) error {
 	return err
 }
 
+// Warm resolves the provider's endpoints ahead of the first sign-in, so a boot
+// probe can report whether the issuer is reachable. It is the same discovery
+// the sign-in path runs, sharing the same singleflight and the same cache, so
+// a successful probe also saves the first person to sign in a round trip.
+//
+// A failure is not cached: discover only populates the cache on success, and
+// singleflight.Do memoizes nothing across calls. A probe against a provider
+// that is merely slow to start therefore costs a warning line and nothing
+// else — later sign-ins retry discovery from scratch.
+//
+// Success means the issuer answered its discovery document. It says nothing
+// about whether the client ID and secret are right; those are only tested at
+// token exchange.
+func (p *Provider) Warm(ctx context.Context) error { return p.discover(ctx) }
+
 // AuthCodeURL builds the redirect that starts a sign-in. The caller keeps state,
 // nonce and the PKCE verifier and must present them again at the callback.
 func (p *Provider) AuthCodeURL(ctx context.Context, state, nonce, pkceVerifier string) (string, error) {

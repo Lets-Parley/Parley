@@ -6,12 +6,16 @@ description: What Parley emits, what it does not, and where to get the rest.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["cmd/parley/main.go", "internal/api/router.go"]} />
+<VerifiedStamp source={["cmd/parley/main.go", "internal/api/router.go", "internal/api/client_address.go"]} />
 
 This is a short page, and honestly so.
 
 Parley writes **structured JSON logs to stdout** and emits nothing else. There is
-no metrics endpoint, no tracing, no request IDs, and no HTTP access log.
+no metrics endpoint, no tracing and no request IDs. There is no HTTP access log
+either — the one exception is an opt-in `LOG_LEVEL=debug` line that reports how
+each request's client address was resolved, described below. It is a proxy
+diagnostic, not an access log and not an audit trail: no method, path, status,
+user or credential appears in it, and nothing is retained or queryable.
 
 ## Logs
 
@@ -24,16 +28,60 @@ The single most useful line is emitted at boot:
 ```json
 {"time":"...","level":"INFO","msg":"boot settings","base_url":"https://parley.example.com",
  "cookie_secure":true,"allowed_ws_origin":"https://parley.example.com","port":"8080",
- "auth_mode":"oidc","trust_proxy_headers":true}
+ "auth_mode":"oidc","trust_proxy_headers":true,"trusted_proxy_cidrs":["10.42.0.0/16"]}
 ```
+
+`trusted_proxy_cidrs` appears only when `TRUST_PROXY_HEADERS=true`, and lists
+the CIDRs this process actually parsed — the check that the value you set was
+understood, rather than quietly reduced to an empty list.
+
+With `AUTH_MODE=oidc`, one more line follows shortly after boot, from a probe
+that runs in the background and never delays the listener:
+
+```json
+{"level":"INFO","msg":"identity provider is reachable — discovery succeeded; the client ID
+ and secret are not checked until a sign-in reaches token exchange",
+ "issuer":"https://idp.example.com/realms/parley"}
+```
+
+An unreachable or wrong issuer produces the same line at `WARN` with the error
+attached. Either way it is a diagnostic only: it does not gate startup and it
+does not affect `/readyz`, because an identity provider that is briefly down
+should fail sign-ins rather than stop a standup already in progress. Note the
+scope — discovery proves the issuer answers. A wrong client ID or secret still
+surfaces only at token exchange, when someone signs in.
+
+## Diagnosing a proxy with `LOG_LEVEL=debug`
+
+`LOG_LEVEL=debug` is otherwise quiet; its one substantial addition is a line per
+request from the client-address middleware:
+
+```json
+{"level":"DEBUG","msg":"client address resolved","peer":"10.42.0.9:41234",
+ "peer_trusted":true,"forwarded_for":["203.0.113.7","10.42.0.9"],"resolved":"203.0.113.7"}
+```
+
+- `peer` — the socket address the connection actually arrived from, before any
+  rewrite.
+- `peer_trusted` — whether that peer fell inside `TRUSTED_PROXY_CIDRS`. `false`
+  means the `X-Forwarded-For` header was ignored entirely, which is the usual
+  cause of "everyone shares one address" in the room-code throttle.
+- `forwarded_for` — the parsed chain, empty when the header was absent,
+  duplicated, empty or malformed.
+- `resolved` — the address the rest of Parley will use.
+
+Those four fields are the whole of it. Cookies, `Authorization`, session tokens
+and other headers are never logged, at any level. Turn it on, make one request,
+read the line, and turn it off again — it is per-request output, not something
+to leave on in production.
 
 Almost every "it deploys but does not work" report — cookies not sticking, the
 WebSocket refusing to connect, sign-in redirecting to the wrong host — is visible
 in that one line. Read it first, before reading anything else.
 
 Beyond boot and database errors, the application logs deliberately little: a
-handful of lines around the sign-in flow, and session errors. Parley does not log
-request paths, user names, or session content.
+handful of lines around the sign-in flow, and session errors. Parley never logs
+request paths, user names, or session content at any level.
 
 ## What is missing, and what to do instead
 
@@ -43,8 +91,8 @@ request paths, user names, or session content.
   { name: "Metrics endpoint", status: "not-built", detail: "There is no <code>/metrics</code>. Blackbox-probe <code>/readyz</code> for availability, and take request rate and latency from your reverse proxy, which already sees every request." },
   { name: "Distributed tracing", status: "not-built", detail: "Single process, single database — a trace would have two spans. Proxy access logs give you the same latency picture." },
   { name: "Request IDs", status: "not-built", detail: "Have your proxy inject and log one. Parley will not echo it, so correlate on timestamp and path at the proxy." },
-  { name: "HTTP access log", status: "not-built", detail: "<code>middleware.Logger</code> is not mounted. Use the proxy's access log — it is the same data, and you already ship it." },
-  { name: "Audit log", status: "not-built", detail: "None exists. If you need to know who did what, the database rows carry <code>user_id</code> and timestamps; query them directly." },
+  { name: "HTTP access log", status: "not-built", detail: "<code>middleware.Logger</code> is not mounted. Use the proxy's access log — it is the same data, and you already ship it. <code>LOG_LEVEL=debug</code> logs only how the client address was resolved: no method, path or status." },
+  { name: "Audit log", status: "not-built", detail: "None exists. If you need to know who did what, the database rows carry <code>user_id</code> and timestamps; query them directly. The <code>LOG_LEVEL=debug</code> client-address line is not one: it names no user, is not retained, and is not queryable." },
   { name: "Error reporting integration", status: "out-of-scope", detail: "Panics are recovered and logged; scrape them from stdout." },
 ]} />
 

@@ -33,7 +33,7 @@ func prefixes(values ...string) []netip.Prefix {
 }
 
 func TestTrustedProxyHeadersSelectsFirstUntrustedHop(t *testing.T) {
-	h := trustedProxyHeaders(prefixes("10.0.0.0/8", "2001:db8:ffff::/48"))(keyHandler())
+	h := trustedProxyHeaders(prefixes("10.0.0.0/8", "2001:db8:ffff::/48"), nil)(keyHandler())
 	got := clientKeyThrough(h, "10.0.0.8:443", map[string]string{
 		"X-Forwarded-For": "198.51.100.7, 2001:db8:ffff::4, 10.0.0.9",
 	})
@@ -43,7 +43,7 @@ func TestTrustedProxyHeadersSelectsFirstUntrustedHop(t *testing.T) {
 }
 
 func TestTrustedProxyHeadersRejectsUntrustedImmediatePeer(t *testing.T) {
-	h := trustedProxyHeaders(prefixes("10.0.0.0/8"))(keyHandler())
+	h := trustedProxyHeaders(prefixes("10.0.0.0/8"), nil)(keyHandler())
 	got := clientKeyThrough(h, "203.0.113.9:8443", map[string]string{"X-Forwarded-For": "198.51.100.7"})
 	if got != "203.0.113.9" {
 		t.Fatalf("client key = %q, want socket peer", got)
@@ -51,7 +51,7 @@ func TestTrustedProxyHeadersRejectsUntrustedImmediatePeer(t *testing.T) {
 }
 
 func TestTrustedProxyHeadersNormalizesAddressesAndPorts(t *testing.T) {
-	h := trustedProxyHeaders(prefixes("10.0.0.0/8"))(keyHandler())
+	h := trustedProxyHeaders(prefixes("10.0.0.0/8"), nil)(keyHandler())
 	got := clientKeyThrough(h, "[::ffff:10.0.0.8]:443", map[string]string{"X-Forwarded-For": "[2001:db8::7]:9443"})
 	if got != "2001:db8::7" {
 		t.Fatalf("client key = %q, want normalized IPv6", got)
@@ -59,7 +59,7 @@ func TestTrustedProxyHeadersNormalizesAddressesAndPorts(t *testing.T) {
 }
 
 func TestTrustedProxyHeadersNormalizesIPv4MappedCIDRs(t *testing.T) {
-	h := trustedProxyHeaders(prefixes("::ffff:10.0.0.0/104"))(keyHandler())
+	h := trustedProxyHeaders(prefixes("::ffff:10.0.0.0/104"), nil)(keyHandler())
 	got := clientKeyThrough(h, "10.1.2.3:443", map[string]string{"X-Forwarded-For": "198.51.100.7"})
 	if got != "198.51.100.7" {
 		t.Fatalf("client key = %q, want forwarded client through normalized mapped CIDR", got)
@@ -67,7 +67,7 @@ func TestTrustedProxyHeadersNormalizesIPv4MappedCIDRs(t *testing.T) {
 }
 
 func TestTrustedProxyHeadersNormalizesIPv6Zone(t *testing.T) {
-	h := trustedProxyHeaders(prefixes("fe80::/10"))(keyHandler())
+	h := trustedProxyHeaders(prefixes("fe80::/10"), nil)(keyHandler())
 	got := clientKeyThrough(h, "[fe80::1%eth0]:443", map[string]string{"X-Forwarded-For": "2001:db8::7"})
 	if got != "2001:db8::7" {
 		t.Fatalf("client key = %q, want forwarded client through zoned IPv6 proxy", got)
@@ -75,7 +75,7 @@ func TestTrustedProxyHeadersNormalizesIPv6Zone(t *testing.T) {
 }
 
 func TestTrustedProxyHeadersIgnoresMalformedChain(t *testing.T) {
-	h := trustedProxyHeaders(prefixes("10.0.0.0/8"))(keyHandler())
+	h := trustedProxyHeaders(prefixes("10.0.0.0/8"), nil)(keyHandler())
 	got := clientKeyThrough(h, "10.0.0.8:443", map[string]string{"X-Forwarded-For": "198.51.100.7, garbage"})
 	if got != "10.0.0.8" {
 		t.Fatalf("client key = %q, want socket peer", got)
@@ -83,7 +83,7 @@ func TestTrustedProxyHeadersIgnoresMalformedChain(t *testing.T) {
 }
 
 func TestTrustedProxyHeadersIgnoresAlternateHeaders(t *testing.T) {
-	h := trustedProxyHeaders(prefixes("10.0.0.0/8"))(keyHandler())
+	h := trustedProxyHeaders(prefixes("10.0.0.0/8"), nil)(keyHandler())
 	got := clientKeyThrough(h, "10.0.0.8:443", map[string]string{
 		"X-Real-IP":      "198.51.100.7",
 		"True-Client-IP": "192.0.2.4",
@@ -94,7 +94,7 @@ func TestTrustedProxyHeadersIgnoresAlternateHeaders(t *testing.T) {
 }
 
 func TestTrustedProxyHeadersRejectsDuplicateFieldLines(t *testing.T) {
-	h := trustedProxyHeaders(prefixes("10.0.0.0/8"))(keyHandler())
+	h := trustedProxyHeaders(prefixes("10.0.0.0/8"), nil)(keyHandler())
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "10.0.0.8:443"
 	req.Header.Add("X-Forwarded-For", "198.51.100.7")
