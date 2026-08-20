@@ -3,7 +3,8 @@ import { action, api, errorText, type Envelope, type Me } from "../lib/api";
 import type { ConnectionStatus } from "../lib/socket";
 import { useToast } from "../lib/ui";
 import { Avatar } from "../components/Avatar";
-import { Modal, buttonDanger, buttonPrimary, buttonQuiet, inputClass } from "../components/Modal";
+import { ErrorRow, Modal, buttonDanger, buttonPrimary, buttonQuiet, inputClass } from "../components/Modal";
+import type { Fail } from "../components/Modal";
 import { cueFor, cueVar } from "../lib/cue";
 import { EmptyTable } from "./PokerRoom";
 
@@ -17,6 +18,9 @@ export type StandupEntry = {
   /** Advisory "I've finished writing" signal, shown only while gathering. */
   ready: boolean;
 };
+/** Which cluster of controls a failure came from, so it reports there. */
+type Where = "chrome" | "gathering" | "round";
+
 type StandupState = {
   entries: StandupEntry[];
   currentSpeakerId: string | null;
@@ -152,7 +156,10 @@ export function StandupRoom({
   const say = useToast();
   const isFacilitator = env.facilitatorId === me.id;
   const { draft, update, saveState, flush } = useOwnEntryDraft(env, me.id);
-  const [error, setError] = useState("");
+  // Where it failed, not just that it did. One string at the foot of the page
+  // took failures from ready, start, next, skip and end alike — the same shape
+  // the poker room shed in #223.
+  const [fail, setFail] = useState<(Fail & { where: Where }) | null>(null);
   // Which entry is on show. Read-only, and deliberately separate from the
   // viewer's own draft above: reusing that would autosave someone else's words
   // onto your row. Null means "follow the turn"; a pick holds against it, so a
@@ -174,6 +181,7 @@ export function StandupRoom({
   const readyIds = new Set(st.entries.filter((e) => e.ready).map((e) => e.userId));
   const readyCount = speakers.filter((p) => readyIds.has(p.userId)).length;
   const iAmReady = readyIds.has(me.id);
+  const waitingOn = speakers.filter((p) => !readyIds.has(p.userId));
 
   // Where the round is, and who follows. Both were on screen only as a row of
   // wrapped chips you had to count, which is the wrong ask of a room that is
@@ -247,14 +255,34 @@ export function StandupRoom({
     say("Session closed — members can still open the results");
   }
 
-  async function run(fn: () => Promise<unknown>) {
+  async function run(
+    fn: () => Promise<unknown>,
+    { where = "round", retry = true }: { where?: Where; retry?: boolean } = {},
+  ) {
     try {
-      setError("");
+      setFail(null);
       await fn();
+      return true;
     } catch (e) {
-      setError(errorText(e));
+      // Ending is the one action a retry cannot simply repeat — it is offered
+      // by the confirm rather than by the row, and its message says so itself.
+      setFail({ where, msg: errorText(e), retry: retry ? () => run(fn, { where, retry }) : undefined });
+      return false;
     }
   }
+
+  const failRow = (where: Where) =>
+    fail?.where === where ? (
+      <ErrorRow
+        fail={fail}
+        onDismiss={() => setFail(null)}
+        onRetry={fail.retry ? () => void fail.retry!() : undefined}
+      />
+    ) : null;
+
+  const skippedNames = st.entries
+    .filter((e) => e.skipped)
+    .map((e) => people.get(e.userId)?.name ?? "Someone");
 
   const blockersText = st.entries
     .filter((e) => e.blockers.trim() && !e.skipped)
@@ -350,6 +378,7 @@ export function StandupRoom({
         )}
         </span>
       </header>
+      {failRow("chrome")}
 
       {/* The round bar: how far in we are, who follows, and how long is left —
           the three facts the room reads, at the scale it reads them from. */}
@@ -398,33 +427,45 @@ export function StandupRoom({
 
 
       {!speaking && !done && (
-        <section className="flex flex-col gap-4">
+        <section className="flex flex-col gap-4 rounded-panel border border-line bg-surface px-5 py-5 shadow-rest">
           <p className="text-ink-soft">
             Jot down your update while everyone gathers. Your notes save automatically.
           </p>
           <EntryForm draft={draft} update={update} saveState={saveState} />
           <button
-            className={(iAmReady ? buttonPrimary : buttonQuiet) + " self-start"}
+            // Filled navy on both this and Start put two primaries on one
+            // screen and left the round's actual action competing with a
+            // toggle. The label already says which way it is set.
+            className={buttonQuiet + " self-start"}
             aria-pressed={iAmReady}
-            onClick={() => run(() => action(env.id, "ready", { ready: !iAmReady }))}
+            onClick={() => run(() => action(env.id, "ready", { ready: !iAmReady }), { where: "gathering" })}
           >
             {iAmReady ? "Ready — stand back down" : "I'm ready"}
           </button>
-          {/* Who has signalled, in words. A dot or a tint alone would leave the
-              only copy of this fact in colour. */}
-          <ul data-testid="ready-roster" className="flex flex-col gap-1 text-sm">
-            {speakers.map((p) => (
-              <li key={p.userId} className="flex items-center gap-2">
-                <Avatar name={p.name} hue={p.avatarHue} size="sm" />
-                <span className="font-bold">{p.name}</span>
-                <span className={readyIds.has(p.userId) ? "text-accent" : "text-ink-faint"}>
-                  {readyIds.has(p.userId) ? "ready" : "still writing"}
-                </span>
-              </li>
-            ))}
-          </ul>
+          {/* Who the room is waiting on, in words — a dot or a tint alone would
+              leave the only copy of this fact in colour. Only the people still
+              writing are named: the other rows carried one bit each and said
+              the thing nobody is waiting to hear. */}
+          <div data-testid="ready-roster" className="text-sm">
+            {waitingOn.length === 0 ? (
+              <p className="font-bold text-accent">Everyone is ready.</p>
+            ) : (
+              <>
+                <p className="text-ink-faint">Still writing</p>
+                <ul className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                  {waitingOn.map((p) => (
+                    <li key={p.userId} className="flex items-center gap-1.5">
+                      <Avatar name={p.name} hue={p.avatarHue} size="sm" />
+                      <span className="font-bold">{p.name}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+          {failRow("gathering")}
           {isFacilitator && (
-            <button className={buttonPrimary + " self-start"} onClick={() => run(() => action(env.id, "start"))}>
+            <button className={buttonPrimary + " self-start"} onClick={() => run(() => action(env.id, "start"), { where: "gathering" })}>
               {`Start the round · ${readyCount} of ${speakers.length} ready`}
             </button>
           )}
@@ -491,6 +532,7 @@ export function StandupRoom({
               </button>
             </div>
           )}
+          {failRow("round")}
         </section>
       )}
 
@@ -531,6 +573,17 @@ export function StandupRoom({
               body="Nothing is in anyone's way. Good round."
             />
           )}
+          {skippedNames.length > 0 && (
+            // The panel is the round's outcome and this is one of them. It sat
+            // outside on bare felt, which made it read as a stray line rather
+            // than part of the summary.
+            <p
+              data-testid="skipped-recap"
+              className="border-t border-line pt-3 text-sm text-ink-soft"
+            >
+              <span className="font-bold">No turn taken:</span> {skippedNames.join(", ")}
+            </p>
+          )}
         </section>
       )}
 
@@ -538,7 +591,7 @@ export function StandupRoom({
         {announcement}
       </p>
 
-      {error && <p role="alert" className="font-bold text-stop">{error}</p>}
+
 
       {confirmEnd && (
         <Modal title="End this standup?" onClose={() => setConfirmEnd(false)}>
@@ -555,7 +608,7 @@ export function StandupRoom({
               disabled={ending}
               onClick={() => {
                 setConfirmEnd(false);
-                void run(endStandup);
+                void run(endStandup, { where: "chrome", retry: false });
               }}
             >
               End standup

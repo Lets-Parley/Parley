@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StandupRoom, Timer } from "./StandupRoom";
 import { makePerson, renderApp } from "../test/render";
@@ -152,6 +152,23 @@ function envelope(over: Partial<Envelope> = {}): Envelope {
     state: standupState(),
     ...over,
   };
+}
+
+/** Dana ready, Marcus not — so the roster has exactly one name to print. */
+function readyState(): Envelope["state"] {
+  const st = standupState(null) as unknown as { entries: StandupEntry[] };
+  st.entries[0].ready = true;
+  return st as unknown as Envelope["state"];
+}
+function allReadyState(): Envelope["state"] {
+  const st = standupState(null) as unknown as { entries: StandupEntry[] };
+  for (const e of st.entries) e.ready = true;
+  return st as unknown as Envelope["state"];
+}
+function noSkipState(): Envelope["state"] {
+  const st = standupState(null) as unknown as { entries: StandupEntry[] };
+  for (const e of st.entries) e.skipped = false;
+  return st as unknown as Envelope["state"];
 }
 
 const announcer = () => screen.getByRole("status");
@@ -689,10 +706,15 @@ describe("StandupRoom readiness", () => {
         me={me}
       />,
     );
+    // The roster names who the room is waiting on rather than listing every
+    // speaker with one bit each. Readiness is still carried in words: the
+    // heading says what the names mean, and colour is never the only copy.
     const who = screen.getByTestId("ready-roster");
-    expect(who.textContent).toMatch(/Dana Whitfield/);
-    expect(who.textContent).toMatch(/ready/i);
-    expect(who.textContent).toMatch(/Marcus Okonjo|Priya Raman/);
+    expect(who.textContent).toMatch(/still writing/i);
+    expect(who.textContent).toMatch(/Marcus Okonjo/);
+    expect(who.textContent).toMatch(/Priya Raman/);
+    // Dana is ready, so the room is not waiting on her and she is not named.
+    expect(who.textContent).not.toMatch(/Dana Whitfield/);
   });
 
   it("counts the ready signals in the facilitator's button", () => {
@@ -919,5 +941,79 @@ describe("StandupRoom clarity", () => {
     for (const box of screen.getAllByRole("textbox")) {
       expect((box as HTMLTextAreaElement).placeholder).not.toBe("");
     }
+  });
+});
+
+describe("StandupRoom polish", () => {
+  const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+
+  it("reports a failed round action beside the control that raised it", async () => {
+    // One `error` string at the foot of the page received failures from ready,
+    // start, next, skip and end alike — the poker room fixed the same shape in
+    // #223 and this page kept it.
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify({ error: "Could not move to the next turn." }), { status: 500 }));
+    renderApp(<StandupRoom env={envelope()} me={dana} />);
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/Could not move to the next turn/);
+    expect(screen.getByTestId("facilitator-bar").parentElement!.contains(alert)).toBe(true);
+    fetchSpy.mockRestore();
+  });
+
+  it("offers Try again on a failed turn advance, and lets it be dismissed", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify({ error: "Could not move to the next turn." }), { status: 500 }));
+    renderApp(<StandupRoom env={envelope()} me={dana} />);
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByRole("button", { name: "Try again" })).toBeTruthy();
+    await userEvent.click(within(alert).getByRole("button", { name: "Dismiss error" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    fetchSpy.mockRestore();
+  });
+
+  it("names only who the room is still waiting on", async () => {
+    // Six speakers meant six rows carrying one bit each, five of which said
+    // the thing nobody is waiting to hear.
+    const env = envelope();
+    (env.state as unknown as { entries: StandupEntry[] }).entries[0].ready = true;
+    renderApp(<StandupRoom env={envelope({ phase: "gathering", state: readyState() })} me={me} />);
+    const roster = screen.getByTestId("ready-roster");
+    expect(roster.textContent).toMatch(/Marcus Okonjo/);
+    expect(roster.textContent).not.toMatch(/Dana Whitfield/);
+  });
+
+  it("says so plainly when the whole room is ready", () => {
+    renderApp(<StandupRoom env={envelope({ phase: "gathering", state: allReadyState() })} me={me} />);
+    expect(screen.getByTestId("ready-roster").textContent).toMatch(/everyone is ready/i);
+  });
+
+  it("recaps who never got a turn when the round is done", () => {
+    // The blockers roundup carried the round's other outcome and this one went
+    // unsaid, though the rail knew it all along.
+    const env = envelope({ phase: "done", state: standupState(null) });
+    renderApp(<StandupRoom env={env} me={me} />);
+    const recap = screen.getByTestId("skipped-recap");
+    expect(recap.textContent).toMatch(/Priya Raman/);
+    // It belongs to the round's summary, not loose on the page beside it.
+    expect(recap.closest("section")!.textContent).toMatch(/Blockers roundup/);
+  });
+
+  it("says nothing about skips when nobody was skipped", () => {
+    renderApp(<StandupRoom env={envelope({ phase: "done", state: noSkipState() })} me={me} />);
+    expect(screen.queryByTestId("skipped-recap")).toBeNull();
+  });
+
+  it("houses the gathering screen like every other state", () => {
+    // It floated on bare felt while the round bar and the speaker card both
+    // sat in panels.
+    renderApp(<StandupRoom env={envelope({ phase: "gathering" })} me={me} />);
+    const form = screen.getAllByRole("textbox")[0];
+    const panel = form.closest("section")!;
+    expect(panel.className).toContain("rounded-panel");
+    expect(panel.className).toContain("bg-surface");
   });
 });
