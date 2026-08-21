@@ -325,7 +325,14 @@ export function StandupRoom({
                   decorative here — otherwise it doubles the button's name. */}
               {p && (
                 <span aria-hidden="true">
-                  <Avatar name={p.name} hue={p.avatarHue} icon={p.avatarIcon} size="sm" dim={e.skipped} />
+                  <Avatar
+                    name={p.name}
+                    hue={p.avatarHue}
+                    icon={p.avatarIcon}
+                    accessory={p.avatarAccessory}
+                    size="sm"
+                    dim={e.skipped}
+                  />
                 </span>
               )}
               {/* A group opacity wrapper would multiply through the name and
@@ -455,7 +462,13 @@ export function StandupRoom({
                 <ul className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                   {waitingOn.map((p) => (
                     <li key={p.userId} className="flex items-center gap-1.5">
-                      <Avatar name={p.name} hue={p.avatarHue} icon={p.avatarIcon} size="sm" />
+                      <Avatar
+                        name={p.name}
+                        hue={p.avatarHue}
+                        icon={p.avatarIcon}
+                        accessory={p.avatarAccessory}
+                        size="sm"
+                      />
                       <span className="font-bold">{p.name}</span>
                     </li>
                   ))}
@@ -480,6 +493,7 @@ export function StandupRoom({
                 name={people.get(shown.userId)!.name}
                 hue={people.get(shown.userId)!.avatarHue}
                 icon={people.get(shown.userId)!.avatarIcon}
+                accessory={people.get(shown.userId)!.avatarAccessory}
                 size="lg"
               />
             )}

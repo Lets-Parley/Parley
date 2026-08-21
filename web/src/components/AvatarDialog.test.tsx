@@ -74,3 +74,45 @@ describe("AvatarDialog", () => {
     expect(await screen.findByRole("status")).toHaveProperty("textContent", "nope");
   });
 });
+
+describe("AvatarDialog accessories", () => {
+  it("offers the accessories as a second native radio group with its own legend", () => {
+    mockFetch();
+    renderApp(<AvatarDialog me={me} onClose={() => {}} />);
+    expect(screen.getByRole("group", { name: "Add an accessory" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Captain's hat" })).toBeTruthy();
+    // "None" is the default, and is an option of its own rather than an absence.
+    expect((screen.getByRole("radio", { name: "None" }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("lets a chosen accessory be taken off again", async () => {
+    mockFetch();
+    renderApp(<AvatarDialog me={{ ...me, avatarAccessory: "captain" }} onClose={() => {}} />);
+    expect((screen.getByRole("radio", { name: "Captain's hat" }) as HTMLInputElement).checked).toBe(
+      true,
+    );
+    await userEvent.click(screen.getByRole("radio", { name: "None" }));
+    expect((screen.getByRole("radio", { name: "None" }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("sends the accessory along with the icon, in one write", async () => {
+    const fetchMock = mockFetch();
+    renderApp(<AvatarDialog me={me} onClose={() => {}} />);
+    await userEvent.click(screen.getByRole("radio", { name: "Anchor" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Eyepatch" }));
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ icon: "anchor", accessory: "eyepatch" });
+  });
+
+  it("writes when only the accessory changed", async () => {
+    const fetchMock = mockFetch();
+    renderApp(<AvatarDialog me={me} onClose={() => {}} />);
+    await userEvent.click(screen.getByRole("radio", { name: "Halo" }));
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ icon: "", accessory: "halo" });
+  });
+});

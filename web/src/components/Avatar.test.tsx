@@ -103,3 +103,69 @@ describe("Avatar icons", () => {
     expect(screen.getByRole("img", { name: "Dana Whitfield" }).textContent).toBe("DW");
   });
 });
+
+describe("Avatar accessories", () => {
+  it("overlays the chosen accessory from sm up", () => {
+    for (const size of ["sm", "md", "lg"] as const) {
+      const { container, unmount } = render(
+        <Avatar name="Dana Whitfield" hue={200} icon="anchor" accessory="captain" size={size} />,
+      );
+      expect(container.querySelector('[data-accessory="captain"]')).toBeTruthy();
+      unmount();
+    }
+  });
+
+  it("suppresses the accessory at xs, alongside the glyph", () => {
+    const { container } = render(
+      <Avatar name="Dana Whitfield" hue={200} icon="anchor" accessory="captain" size="xs" />,
+    );
+    expect(container.querySelector("[data-accessory]")).toBeNull();
+    expect(screen.getByRole("img", { name: "Dana Whitfield" }).textContent).toBe("DW");
+  });
+
+  it("renders no overlay for an id it does not know, and leaves the chip intact", () => {
+    const { container } = render(
+      <Avatar name="Dana Whitfield" hue={200} icon="anchor" accessory="sombrero" />,
+    );
+    expect(container.querySelector("[data-accessory]")).toBeNull();
+    expect(container.querySelector("svg")).toBeTruthy();
+    expect(screen.getAllByRole("img")).toHaveLength(1);
+  });
+
+  it("renders nothing extra when no accessory was chosen", () => {
+    const { container } = render(<Avatar name="Dana Whitfield" hue={200} icon="anchor" />);
+    expect(container.querySelector("[data-accessory]")).toBeNull();
+  });
+
+  it("keeps the overlay out of the bottom-right quadrant where the facilitator dot sits", () => {
+    const px = 38; // md
+    const { container } = render(
+      <Avatar name="Dana Whitfield" hue={200} accessory="captain" facilitator size="md" />,
+    );
+    const el = container.querySelector("[data-accessory]") as HTMLElement;
+    // Anchored to the top edge, and no taller than half the disc: the box can
+    // never reach the bottom half, which is where the dot lives.
+    expect(el.style.top).toBe("0px");
+    expect(el.style.bottom).toBe("");
+    expect(parseFloat(el.style.top) + parseFloat(el.style.height)).toBeLessThanOrEqual(px / 2);
+    // And the dot really is in that bottom-right corner.
+    const dot = screen.getByLabelText("facilitator") as HTMLElement;
+    expect(dot.className).toContain("-right-px");
+    expect(dot.className).toContain("-bottom-px");
+  });
+
+  it("adds no opacity of its own, so a dimmed chip dims the overlay with it", () => {
+    const { container } = render(
+      <Avatar name="Dana Whitfield" hue={200} accessory="captain" spectator />,
+    );
+    const el = container.querySelector("[data-accessory]") as HTMLElement;
+    expect(el.style.opacity).toBe("");
+    expect(screen.getByLabelText("Dana Whitfield").style.opacity).toBe("0.7");
+  });
+
+  it("hides the overlay from the accessibility tree", () => {
+    const { container } = render(<Avatar name="Dana Whitfield" hue={200} accessory="captain" />);
+    expect(container.querySelector("[data-accessory] svg")?.getAttribute("aria-hidden")).toBe("true");
+    expect(screen.getAllByRole("img")).toHaveLength(1);
+  });
+});
