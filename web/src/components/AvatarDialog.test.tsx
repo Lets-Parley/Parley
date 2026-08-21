@@ -176,19 +176,13 @@ describe("AvatarDialog dev pack", () => {
     expect(JSON.parse(init.body as string)).toEqual({ icon: "rubber-duck", accessory: "" });
   });
 
-  // AvatarDialog does not own the `me` query: it is handed `me` as a prop by
-  // its caller (AppShell) and has no fetch or refetch surface of its own.
-  // Driving a genuine write-then-reload round trip through the network
-  // belongs where the `me` query and the PATCH both live, i.e. at the
-  // AppShell level — building a mock query layer here would pin scaffolding
-  // this component doesn't have, not behavior it owns. What this test can
-  // honestly pin, in the half of the reload contract that IS this
-  // component's job, is that a dev-pack id coming back on `me.avatarIcon`
-  // renders selected rather than being treated as unknown and quietly
-  // falling back to "Initials". Paired with the write assertion above (same
-  // id round-trips through the PATCH body), that's the coverage available at
-  // this layer.
-  it("renders a dev mark id coming back from the me prop as selected, not as an unknown reset to Initials", () => {
+  // Half of the reload contract, and the half this component owns: a dev-pack
+  // id arriving on the `me` prop renders selected rather than being treated as
+  // unknown and quietly falling back to "Initials". AvatarDialog is handed
+  // `me` by AppShell and has no refetch surface, so the genuine
+  // write-then-reload round trip lives in AppShell.test.tsx, under
+  // "the avatar survives a reload".
+  it("renders a dev mark id handed in on the me prop as selected, not as an unknown reset to Initials", () => {
     mockFetch();
     renderApp(<AvatarDialog me={{ ...me, avatarIcon: "rubber-duck" }} onClose={() => {}} />);
     expect((screen.getByRole("radio", { name: "Rubber duck" }) as HTMLInputElement).checked).toBe(

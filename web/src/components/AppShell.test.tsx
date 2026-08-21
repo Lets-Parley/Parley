@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useQuery } from "@tanstack/react-query";
 import { AppShell, BuildStamp, ConnectionDot, Logo } from "./AppShell";
+import { Avatar } from "./Avatar";
 import { makePerson, renderApp } from "../test/render";
-import type { Me } from "../lib/api";
+import { api, type Me } from "../lib/api";
 
 const me: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 200 };
 
@@ -436,5 +438,93 @@ describe("the chip you wear", () => {
     expect(nameSpan).toBeTruthy();
     expect(nameSpan?.getAttribute("aria-hidden")).not.toBeNull();
     expect(nameSpan?.textContent).toBe("Dana Whitfield");
+  });
+});
+
+/**
+ * The write-then-reload round trip, driven where both halves live: the `me`
+ * query and the PATCH. AvatarDialog can only prove it sent the right body —
+ * nothing there fails if the value stops surviving a refetch. Here the stub
+ * server keeps the stored avatar, the picker's invalidation refetches `me`,
+ * and the chip is asserted on what came back.
+ */
+describe("the avatar survives a reload", () => {
+  /** A `me` query that a caller owns, exactly as the real pages do. */
+  function MeHost() {
+    const { data } = useQuery({ queryKey: ["me"], queryFn: () => api<Me>("GET", "/api/me") });
+    return (
+      <AppShell spaceSlug="platform-team" spaceName="Platform Team" me={data ?? null}>
+        <p>table</p>
+      </AppShell>
+    );
+  }
+
+  /** Stores what the PATCH writes and serves it back on the next GET /api/me. */
+  function stubServer(stored: { icon?: string; accessory?: string }) {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const path = String(input);
+      const json = (v: unknown) =>
+        ({ status: 200, ok: true, text: async () => JSON.stringify(v) }) as Response;
+      if (path === "/api/me/avatar") {
+        Object.assign(stored, JSON.parse(init!.body as string));
+        return json({ ok: true });
+      }
+      if (path === "/api/me") {
+        return json({ ...me, avatarIcon: stored.icon, avatarAccessory: stored.accessory });
+      }
+      return json({ mode: "open" });
+    });
+  }
+
+  /** What Avatar itself draws for an id — the glyph to hold the chip against. */
+  function glyphFor(icon: string) {
+    const { container, unmount } = renderApp(
+      <Avatar name={me.name} hue={me.avatarHue} icon={icon} size="sm" decorative />,
+    );
+    const markup = container.querySelector("svg")!.innerHTML;
+    unmount();
+    return markup;
+  }
+
+  async function wear(iconLabel: string, accessoryLabel: string) {
+    const stored: { icon?: string; accessory?: string } = {};
+    stubServer(stored);
+    renderApp(<MeHost />);
+    const chip = await screen.findByRole("button", {
+      name: "Dana Whitfield — choose your avatar",
+    });
+    await userEvent.click(chip);
+    await userEvent.click(await screen.findByRole("radio", { name: iconLabel }));
+    await userEvent.click(screen.getByRole("radio", { name: accessoryLabel }));
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    // React re-renders the chip in place, so this node is the one the refetch
+    // updates — held rather than re-queried, so a failure costs one poll, not
+    // a full accessibility-tree scan per retry.
+    return { stored, chip };
+  }
+
+  /** What the chip is currently wearing, in the terms the assertions use. */
+  function wornBy(chip: HTMLElement) {
+    return {
+      glyph: chip.querySelector("svg")?.innerHTML,
+      accessory: chip.querySelector("[data-accessory]")?.getAttribute("data-accessory"),
+    };
+  }
+
+  it("wears a crew mark and its accessory after the refetch", async () => {
+    const { stored, chip } = await wear("Anchor", "Captain's hat");
+    await waitFor(() => expect(stored).toEqual({ icon: "anchor", accessory: "captain" }));
+    const want = { glyph: glyphFor("anchor"), accessory: "captain" };
+    await waitFor(() => expect(wornBy(chip)).toEqual(want));
+  });
+
+  // The dev pack is the one whose reload coverage was narrowest, and its ids
+  // are the hyphenated ones — a client that mangled the id on the way back
+  // would render initials here, not a duck.
+  it("wears a dev-pack mark and its accessory after the refetch", async () => {
+    const { stored, chip } = await wear("Rubber duck", "Eyepatch");
+    await waitFor(() => expect(stored).toEqual({ icon: "rubber-duck", accessory: "eyepatch" }));
+    const want = { glyph: glyphFor("rubber-duck"), accessory: "eyepatch" };
+    await waitFor(() => expect(wornBy(chip)).toEqual(want));
   });
 });
