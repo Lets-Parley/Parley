@@ -124,3 +124,78 @@ describe("AvatarDialog accessories", () => {
     expect(JSON.parse(init.body as string)).toEqual({ icon: "", accessory: "halo" });
   });
 });
+
+describe("AvatarDialog dev pack", () => {
+  it("offers the dev pack under a heading of its own", () => {
+    mockFetch();
+    renderApp(<AvatarDialog me={me} onClose={() => {}} />);
+    // A separate group from the crew, so the two sheets are not one long grid.
+    expect(screen.getByRole("group", { name: "Or one from the dev pack" })).toBeTruthy();
+    for (const name of ["Rubber duck", "Coffee", "Terminal", "Pager"]) {
+      expect(screen.getByRole("radio", { name })).toBeTruthy();
+    }
+    // The crew group is still there, and still holds the crew.
+    expect(screen.getByRole("group", { name: "Choose your mark" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Parrot" })).toBeTruthy();
+  });
+
+  it("picks one mark across both sheets, not one from each", async () => {
+    mockFetch();
+    renderApp(<AvatarDialog me={me} onClose={() => {}} />);
+    await userEvent.click(screen.getByRole("radio", { name: "Anchor" }));
+    expect((screen.getByRole("radio", { name: "Anchor" }) as HTMLInputElement).checked).toBe(true);
+    await userEvent.click(screen.getByRole("radio", { name: "Terminal" }));
+    expect((screen.getByRole("radio", { name: "Terminal" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("radio", { name: "Anchor" }) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("shares one radio group name across both mark sheets", () => {
+    mockFetch();
+    renderApp(<AvatarDialog me={me} onClose={() => {}} />);
+    const names = new Set(
+      screen
+        .getAllByRole("radio")
+        .map((r) => (r as HTMLInputElement).name)
+        .filter((name) => name.startsWith("avatar-icon") && !name.includes("accessory")),
+    );
+    // Two fieldsets, one radio group: if the dev pack ever got its own `name`,
+    // the crew and the dev pack could each hold a checked radio at once, and
+    // "picks one mark across both sheets" above would stop being backed by
+    // the platform's own single-choice behavior.
+    expect(names.size).toBe(1);
+  });
+
+  it("writes a chosen dev mark with the id the dev pack renders", async () => {
+    const fetchMock = mockFetch();
+    renderApp(<AvatarDialog me={me} onClose={() => {}} />);
+    await userEvent.click(screen.getByRole("radio", { name: "Rubber duck" }));
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const [path, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(path).toBe("/api/me/avatar");
+    expect(JSON.parse(init.body as string)).toEqual({ icon: "rubber-duck", accessory: "" });
+  });
+
+  // AvatarDialog does not own the `me` query: it is handed `me` as a prop by
+  // its caller (AppShell) and has no fetch or refetch surface of its own.
+  // Driving a genuine write-then-reload round trip through the network
+  // belongs where the `me` query and the PATCH both live, i.e. at the
+  // AppShell level — building a mock query layer here would pin scaffolding
+  // this component doesn't have, not behavior it owns. What this test can
+  // honestly pin, in the half of the reload contract that IS this
+  // component's job, is that a dev-pack id coming back on `me.avatarIcon`
+  // renders selected rather than being treated as unknown and quietly
+  // falling back to "Initials". Paired with the write assertion above (same
+  // id round-trips through the PATCH body), that's the coverage available at
+  // this layer.
+  it("renders a dev mark id coming back from the me prop as selected, not as an unknown reset to Initials", () => {
+    mockFetch();
+    renderApp(<AvatarDialog me={{ ...me, avatarIcon: "rubber-duck" }} onClose={() => {}} />);
+    expect((screen.getByRole("radio", { name: "Rubber duck" }) as HTMLInputElement).checked).toBe(
+      true,
+    );
+    expect((screen.getByRole("radio", { name: "Initials" }) as HTMLInputElement).checked).toBe(
+      false,
+    );
+  });
+});

@@ -4,7 +4,7 @@ import { api, errorText, type Me } from "../lib/api";
 import { useToast } from "../lib/ui";
 import { Avatar } from "./Avatar";
 import { avatarAccessoryIds, avatarAccessoryLabels } from "./avatarAccessories";
-import { avatarIconIds, avatarIconLabels } from "./avatarIcons";
+import { avatarDevIconIds, avatarIconIds, avatarIconLabels } from "./avatarIcons";
 import { Modal } from "./Modal";
 
 /**
@@ -41,14 +41,15 @@ export function AvatarDialog({ me, onClose }: { me: Me; onClose: () => void }) {
     }
   }
 
-  return (
-    <Modal title="Your avatar" onClose={() => void save()} width="22rem">
-      <fieldset className="mt-4 border-0 p-0">
+  /** One sheet of marks. Two of them differ only by legend and id list. */
+  function sheet(legend: string, ids: string[], spacing: string) {
+    return (
+      <fieldset className={spacing + " border-0 p-0"}>
         <legend className="mb-3 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
-          Choose your mark
+          {legend}
         </legend>
         <div className="grid grid-cols-3 gap-2">
-          {["", ...avatarIconIds].map((id) => (
+          {ids.map((id) => (
             <label
               key={id}
               className={
@@ -77,6 +78,16 @@ export function AvatarDialog({ me, onClose }: { me: Me; onClose: () => void }) {
           ))}
         </div>
       </fieldset>
+    );
+  }
+
+  return (
+    <Modal title="Your avatar" onClose={() => void save()} width="22rem">
+      {sheet("Choose your mark", ["", ...avatarIconIds], "mt-4")}
+      {/* A second fieldset, not a second radio group: both sheets share the
+          `avatar-icon` name, so you still pick one mark in total and the arrow
+          keys walk the whole set. The legend is only what tells them apart. */}
+      {sheet("Or one from the dev pack", avatarDevIconIds, "mt-5")}
       <fieldset className="mt-5 border-0 p-0">
         <legend className="mb-3 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
           Add an accessory
