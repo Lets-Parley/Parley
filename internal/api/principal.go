@@ -44,6 +44,7 @@ func resolvePrincipal(users *store.Users, federatedOnly bool) func(http.Handler)
 							r = r.WithContext(principal.With(r.Context(), Principal{
 								UserID: sess.User.ID, Display: sess.User.Name,
 								TokenID: string(hash), TokenExpiresAt: sess.ExpiresAt,
+								AvatarIcon: sess.User.AvatarIcon, AvatarAccessory: sess.User.AvatarAccessory,
 							}))
 						}
 					}

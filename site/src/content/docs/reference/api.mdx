@@ -62,10 +62,41 @@ reject them. Their own protection is the `state` value in the sign-in cookie.
 
 <RouteTable rows={[
   { method: "GET", path: "/api/auth", auth: "public", purpose: "Report which auth mode this instance runs — open or oidc. The frontend uses it to pick a sign-in path." },
-  { method: "GET", path: "/api/me", auth: "session", purpose: "Current identity: id, name, avatar hue." },
+  { method: "GET", path: "/api/me", auth: "session", purpose: "Current identity: id, name, avatar hue, chosen avatar icon and accessory." },
   { method: "POST", path: "/api/me", auth: "public", purpose: "Create or rename an anonymous identity. Refused with 403 in oidc mode." },
+  { method: "PATCH", path: "/api/me/avatar", auth: "session", purpose: "Set the caller's chosen avatar. Permitted in both auth modes." },
   { method: "DELETE", path: "/api/me", auth: "session", purpose: "Sign out. Deletes the token, synchronously closes its WebSockets with code 1008, and clears the cookie." },
 ]} />
+
+### Choosing an avatar
+
+`PATCH /api/me/avatar` takes both ids and replaces the pair:
+
+```json
+{ "icon": "fox", "accessory": "scarf" }
+```
+
+It answers 200 with the same body as `GET /api/me`. An omitted or empty field
+clears that half of the choice, so `{}` removes the avatar entirely.
+
+`avatarHue` is unrelated and is not settable: it stays derived from the user id,
+and is always an integer on every surface that carries a person.
+
+The server never enumerates icon ids — it validates their shape only, so the
+picker can grow without a server release. Both ids must match
+`^[a-z0-9-]{1,32}$` when present.
+
+| Status | When |
+| --- | --- |
+| 400 | An id is present and does not match the pattern; nothing is written. |
+| 400 | The body is not valid JSON. |
+| 401 | No valid session cookie. Unlike `POST /api/me`, this never creates a user. |
+| 415 | The body is not declared `application/json`. |
+
+Unlike `POST /api/me`, this does not rotate the session token, and it is not
+refused under `AUTH_MODE=oidc`: the identity provider owns names, not avatars.
+Nothing is pushed to other participants — they see the change on their next
+session envelope.
 
 ## Spaces
 
