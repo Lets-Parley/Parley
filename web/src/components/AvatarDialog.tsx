@@ -4,31 +4,34 @@ import { api, errorText, type Me } from "../lib/api";
 import { useToast } from "../lib/ui";
 import { Avatar } from "./Avatar";
 import { avatarIconIds, avatarIconLabels } from "./avatarIcons";
-import { Modal } from "./Modal";
+import { buttonPrimary, buttonQuiet, ErrorRow, Modal } from "./Modal";
 
 /**
  * Pick the mark that goes on your chip.
  *
- * One native radio group, not a custom grid: roving tabindex, arrow keys and the
- * selected-state announcement all come from the platform, and the fieldset
- * legend names each group once.
+ * One native radio group, not a grid of aria-pressed buttons: roving tabindex,
+ * arrow keys, the single tab stop and the selected-state announcement all come
+ * from the platform, and the fieldset legend names the group once. A bounded
+ * single-select set is what a radio group is for.
  *
- * The write happens on close, so trying three icons before dismissing costs one
- * request. Nobody else is pushed the change — they see it on their next
- * envelope or reload — but the caller's own queries are invalidated, so every
- * chip on their own screen updates without a reload. A failure is a toast
- * rather than a row inside the dialog: by then the dialog is gone, and the
- * chip they can see is the evidence it did not take.
+ * The write is an explicit Save rather than a commit on close, so a failure has
+ * somewhere to be said while the picker is still on screen: the strip above the
+ * footer keeps the choice and offers one retry. Nobody else is pushed the
+ * change — they see it on their next envelope or reload — but the caller's own
+ * queries are invalidated, so every chip on their own screen updates without a
+ * reload.
  */
 export function AvatarDialog({ me, onClose }: { me: Me; onClose: () => void }) {
   const qc = useQueryClient();
   const say = useToast();
   const [picked, setPicked] = useState(me.avatarIcon ?? "");
+  /** What the server holds. Save is dimmed while `picked` still matches it. */
+  const [stored, setStored] = useState(me.avatarIcon ?? "");
+  const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
 
   async function save() {
-    onClose();
-    // Nothing chosen that was not already stored: no request, no broadcast.
-    if (picked === (me.avatarIcon ?? "")) return;
+    setSaving(true);
     try {
       await api("PATCH", "/api/me/avatar", { icon: picked });
       // Only three keys carry an avatar: me, the space roster and the session
@@ -38,13 +41,31 @@ export function AvatarDialog({ me, onClose }: { me: Me; onClose: () => void }) {
       await Promise.all(
         [["me"], ["space"], ["session"]].map((queryKey) => qc.invalidateQueries({ queryKey })),
       );
+      setStored(picked);
+      setFailed(null);
+      say("Avatar saved");
     } catch (e) {
-      say(errorText(e));
+      // Nothing is discarded and nothing is re-rendered: the choice stays
+      // picked, and the strip below carries the retry.
+      setFailed(errorText(e));
+    } finally {
+      setSaving(false);
     }
   }
 
   return (
-    <Modal title="Your avatar" onClose={() => void save()} width="26rem">
+    <Modal title="Your avatar" onClose={onClose} width="26rem">
+      <div className="mt-3 flex flex-col items-center gap-2">
+        <Avatar name={me.name} hue={me.avatarHue} icon={picked} size="md" />
+        <button
+          type="button"
+          className={buttonQuiet + " px-3 py-1 text-[12px]"}
+          onClick={() => setPicked(avatarIconIds[Math.floor(Math.random() * avatarIconIds.length)])}
+        >
+          Randomize
+        </button>
+      </div>
+
       <fieldset className="mt-4 border-0 p-0">
         <legend className="mb-3 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
           Choose your mark
@@ -54,10 +75,12 @@ export function AvatarDialog({ me, onClose }: { me: Me; onClose: () => void }) {
             <label
               key={id}
               className={
-                "flex cursor-pointer flex-col items-center gap-1.5 rounded-chip border p-2 text-center text-[11px] font-bold focus-within:outline focus-within:outline-2 focus-within:outline-accent " +
-                (picked === id
-                  ? "border-accent bg-felt-deep"
-                  : "border-line hover:bg-felt-deep")
+                "relative flex cursor-pointer flex-col items-center gap-1.5 rounded-chip border-2 p-2 text-center text-[11px] font-bold focus-within:outline focus-within:outline-2 focus-within:outline-accent " +
+                // Never colour alone: the selected card takes the accent
+                // border and the corner pip below.
+                (picked === id ? "border-accent bg-felt-deep" : "border-line hover:bg-felt-deep") +
+                // No portrait is a real choice, and a dashed card says so.
+                (id === "" ? " border-dashed" : "")
               }
             >
               <input
@@ -76,10 +99,38 @@ export function AvatarDialog({ me, onClose }: { me: Me; onClose: () => void }) {
                 decorative
               />
               <span>{id ? avatarIconLabels[id] : "Initials"}</span>
+              {picked === id && (
+                <span
+                  data-pip
+                  aria-hidden
+                  className="absolute right-1 top-1 h-2 w-2 rounded-full bg-accent"
+                />
+              )}
             </label>
           ))}
         </div>
       </fieldset>
+
+      {failed && (
+        <div className="mt-4">
+          <ErrorRow
+            fail={{ msg: failed, retry: save }}
+            onDismiss={() => setFailed(null)}
+            onRetry={() => void save()}
+          />
+        </div>
+      )}
+
+      <div className="mt-4 flex justify-end">
+        <button
+          type="button"
+          className={buttonPrimary}
+          disabled={saving || picked === stored}
+          onClick={() => void save()}
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
     </Modal>
   );
 }

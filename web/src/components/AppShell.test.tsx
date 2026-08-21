@@ -495,7 +495,7 @@ describe("the avatar survives a reload", () => {
     });
     await userEvent.click(chip);
     await userEvent.click(await screen.findByRole("radio", { name: iconLabel }));
-    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
     // React re-renders the chip in place, so this node is the one the refetch
     // updates — held rather than re-queried, so a failure costs one poll, not
     // a full accessibility-tree scan per retry.
