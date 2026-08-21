@@ -230,7 +230,6 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
                 name={facilitator.name}
                 hue={facilitator.avatarHue}
                 icon={facilitator.avatarIcon}
-                accessory={facilitator.avatarAccessory}
                 size="md"
               />
               <span className="absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full bg-brass ring-2 ring-surface" />

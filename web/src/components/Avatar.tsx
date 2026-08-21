@@ -1,4 +1,3 @@
-import { avatarAccessory } from "./avatarAccessories";
 import { avatarIcon } from "./avatarIcons";
 
 const sizes = { xs: 24, sm: 28, md: 38, lg: 46 } as const;
@@ -20,33 +19,32 @@ export function initialsOf(name: string): string {
  */
 function face(name: string, size: keyof typeof sizes, px: number, icon?: string) {
   // At 24px the facilitator dot leaves roughly 10px of clear area, which no
-  // detailed silhouette survives. Initials always win there.
+  // portrait survives. Initials always win there.
   if (size === "xs") return initialsOf(name);
-  const glyph = avatarIcon(icon);
+  const portrait = avatarIcon(icon);
   // Unset, or an id this build does not know — a newer client's choice
   // degrades to initials instead of to a blank chip.
-  if (!glyph) return initialsOf(name);
+  if (!portrait) return initialsOf(name);
+  // Filling the disc rather than sitting inside it: at 38px a portrait inset
+  // to 62% is mush. Rounded to the disc, because the art is a square.
   return (
-    <svg
-      viewBox="0 0 24 24"
-      width={Math.round(px * 0.62)}
-      height={Math.round(px * 0.62)}
-      fill="currentColor"
+    <img
+      src={portrait}
+      alt=""
       aria-hidden
-      focusable="false"
-    >
-      {glyph}
-    </svg>
+      width={px}
+      height={px}
+      draggable={false}
+      className="rounded-full"
+    />
   );
 }
 
 type Props = {
   name: string;
   hue: number;
-  /** The chosen icon id, opaque to the server. Unknown ids fall back to initials. */
+  /** The chosen portrait id, opaque to the server. Unknown ids fall back to initials. */
   icon?: string;
-  /** The chosen accessory id, opaque to the server. Unknown ids draw nothing. */
-  accessory?: string;
   size?: keyof typeof sizes;
   facilitator?: boolean;
   spectator?: boolean;
@@ -61,7 +59,6 @@ export function Avatar({
   name,
   hue,
   icon,
-  accessory,
   size = "md",
   facilitator,
   spectator,
@@ -69,8 +66,6 @@ export function Avatar({
   decorative,
 }: Props) {
   const px = sizes[size];
-  // Suppressed at xs alongside the glyph: 10px of clear area holds neither.
-  const worn = size === "xs" ? null : avatarAccessory(accessory);
   return (
     <span
       className="relative inline-flex select-none items-center justify-center rounded-full font-bold"
@@ -81,9 +76,10 @@ export function Avatar({
         // Identity hue folded into the maritime arc, verdigris through harbour
         // blue to indigo — distinguishable chips that still read as one signal
         // set, never a stray warm orange.
-        background: `oklch(0.52 0.09 ${185 + (((hue % 360) + 360) % 360) / 360 * 105})`,
+        background: `oklch(0.52 0.09 ${185 + ((((hue % 360) + 360) % 360) / 360) * 105})`,
         color: "#F4F8FB",
-        boxShadow: "0 0 0 2px var(--color-surface), 0 0 0 3px var(--color-line)",
+        boxShadow:
+          "0 0 0 2px var(--color-surface), 0 0 0 3px var(--color-line)",
         // The initials are not held to 4.5:1 — every avatar carries the name
         // as text, in aria-label and usually beside it, so the glyphs are a
         // redundant mark. 0.7 is a legibility floor, not a compliance one:
@@ -97,32 +93,6 @@ export function Avatar({
       aria-label={decorative ? undefined : name}
     >
       {face(name, size, px, icon)}
-      {worn && (
-        // Pinned to the top edge and never more than half the disc tall. The
-        // facilitator dot lives in the bottom-right corner, so confining the
-        // overlay to the top band is what keeps the two from ever meeting.
-        <span
-          className="pointer-events-none absolute"
-          style={{
-            top: 0,
-            left: px * 0.15,
-            width: px * 0.7,
-            height: px * 0.35,
-          }}
-          data-accessory={accessory}
-        >
-          <svg
-            viewBox="0 0 24 12"
-            width={px * 0.7}
-            height={px * 0.35}
-            fill="currentColor"
-            aria-hidden
-            focusable="false"
-          >
-            {worn}
-          </svg>
-        </span>
-      )}
       {facilitator && (
         <span
           className="absolute -right-px -bottom-px rounded-full bg-brass"

@@ -169,7 +169,7 @@ export function Table({
                 <Avatar
                   name={p.name}
                   hue={p.avatarHue}
-                  icon={p.avatarIcon} accessory={p.avatarAccessory}
+                  icon={p.avatarIcon}
                   size="lg"
                   facilitator={p.userId === facilitatorId}
                   dim={away}
@@ -209,7 +209,6 @@ export function Table({
                   name={p.name}
                   hue={p.avatarHue}
                   icon={p.avatarIcon}
-                  accessory={p.avatarAccessory}
                   size="sm"
                   spectator
                 />

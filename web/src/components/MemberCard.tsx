@@ -41,7 +41,6 @@ export function MemberCard({
           name={member.name}
           hue={member.avatarHue}
           icon={member.avatarIcon}
-          accessory={member.avatarAccessory}
           size="md"
         />
         <p className="font-mono text-[10px] text-ink-faint">{where}</p>

@@ -34,8 +34,8 @@ gh attestation verify \
 
 ## v0.5.1
 
-**Your chosen avatar resets to initials, and accessories are retired
-server-side.**
+**Your chosen avatar resets to initials, the marks are now voxel-art
+portraits, and accessories are retired.**
 
 - **Every avatar picked before this release stops rendering and falls back to
   your initials.** The old silhouettes were replaced wholesale, so the twelve
@@ -44,14 +44,18 @@ server-side.**
   longer known to any client. Nothing was lost and nothing needs migrating:
   open the profile dialog and pick again. Those twelve ids are retired
   permanently and are never reused for a new avatar
-- **Accessories are retired server-side.** `PATCH /api/me/avatar` no longer
-  stores `accessory` — the field is still accepted so an older client is not
+- **Thirty voxel-art portraits replace the eight maritime silhouettes and the
+  four-icon dev pack.** One sheet, one set of ids, and the art is committed
+  SVG — nothing is fetched from a third party at render time. The portrait
+  fills the chip rather than sitting inside it, so it stays legible at the
+  38px picker preview and the 46px seat. Sizes are unchanged
+- **Accessories are gone.** `PATCH /api/me/avatar` no longer stores
+  `accessory` — the field is still accepted so an older client is not
   rejected, but it is ignored — and `avatarAccessory` no longer appears in
-  `GET /api/me`, space members, or session participants. The
-  `avatar_accessory` column is left in place, unwritten and unread. The
-  picker's accessory control and the client-side overlay are still live in
-  this release's web client; they are retired in a follow-up release, at
-  which point the second axis is gone from every surface. See
+  `GET /api/me`, space members, or session participants. The picker's
+  accessory control and the chip overlay are removed too, so the second axis
+  is gone from every surface. The `avatar_accessory` column is left in place,
+  unwritten and unread, and a later migration drops it. See
   [Choosing an avatar](/reference/api/#choosing-an-avatar)
 
 ## v0.2.3

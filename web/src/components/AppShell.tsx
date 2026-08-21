@@ -246,7 +246,6 @@ export function AppShell({
                         name={m.name}
                         hue={m.avatarHue}
                         icon={m.avatarIcon}
-                  accessory={m.avatarAccessory}
                         size="sm"
                         dim={!online.has(m.userId)}
                         decorative
@@ -350,7 +349,6 @@ export function AppShell({
                   name={m.name}
                   hue={m.avatarHue}
                   icon={m.avatarIcon}
-                  accessory={m.avatarAccessory}
                   size="sm"
                   dim={!online.has(m.userId)}
                   decorative
@@ -386,7 +384,6 @@ export function AppShell({
               name={me.name}
               hue={me.avatarHue}
               icon={me.avatarIcon}
-              accessory={me.avatarAccessory}
               size="sm"
               decorative
             />
@@ -444,7 +441,6 @@ export function AppShell({
                   name={m.name}
                   hue={m.avatarHue}
                   icon={m.avatarIcon}
-                  accessory={m.avatarAccessory}
                   size="sm"
                   dim={!online.has(m.userId)}
                   decorative
