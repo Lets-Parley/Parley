@@ -87,10 +87,12 @@ picker can grow without a server release. The id must match
 `^[a-z0-9-]{1,32}$` when present.
 
 :::caution[Breaking change in v0.5.1]
-Accessories were removed. `PATCH /api/me/avatar` still accepts an `accessory`
-field so an older client is not rejected outright, but it is ignored and never
-stored, and `avatarAccessory` is gone from every response that used to carry it
-— `GET /api/me`, space members, and session participants.
+Accessories were removed from the server. `PATCH /api/me/avatar` still accepts
+an `accessory` field so an older client is not rejected outright, but it is
+ignored and never stored, and `avatarAccessory` is gone from every response
+that used to carry it — `GET /api/me`, space members, and session
+participants. The accessory picker and its overlay are still present in the
+current web client; they are retired in a follow-up release.
 :::
 
 | Status | When |

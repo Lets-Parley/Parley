@@ -34,7 +34,8 @@ gh attestation verify \
 
 ## v0.5.1
 
-**Your chosen avatar resets to initials, and accessories are gone.**
+**Your chosen avatar resets to initials, and accessories are retired
+server-side.**
 
 - **Every avatar picked before this release stops rendering and falls back to
   your initials.** The old silhouettes were replaced wholesale, so the twelve
@@ -43,13 +44,14 @@ gh attestation verify \
   longer known to any client. Nothing was lost and nothing needs migrating:
   open the profile dialog and pick again. Those twelve ids are retired
   permanently and are never reused for a new avatar
-- **Accessories have been removed.** The second axis is gone from the picker
-  and from every surface that drew it
-- **Breaking API change.** `PATCH /api/me/avatar` no longer stores `accessory`
-  — the field is still accepted so an older client is not rejected, but it is
-  ignored — and `avatarAccessory` no longer appears in `GET /api/me`, space
-  members, or session participants. The `avatar_accessory` column is left in
-  place, unwritten and unread, and a later release drops it. See
+- **Accessories are retired server-side.** `PATCH /api/me/avatar` no longer
+  stores `accessory` — the field is still accepted so an older client is not
+  rejected, but it is ignored — and `avatarAccessory` no longer appears in
+  `GET /api/me`, space members, or session participants. The
+  `avatar_accessory` column is left in place, unwritten and unread. The
+  picker's accessory control and the client-side overlay are still live in
+  this release's web client; they are retired in a follow-up release, at
+  which point the second axis is gone from every surface. See
   [Choosing an avatar](/reference/api/#choosing-an-avatar)
 
 ## v0.2.3
