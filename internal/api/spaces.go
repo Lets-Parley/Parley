@@ -19,10 +19,9 @@ type memberView struct {
 	Spectator bool   `json:"spectator"`
 	// Role says who can manage the room. Every member sees it — it is what
 	// tells them who to ask.
-	Role            string   `json:"role"`
-	AvatarIcon      string   `json:"avatarIcon"`
-	AvatarAccessory string   `json:"avatarAccessory"`
-	At              *seatRef `json:"at,omitempty"`
+	Role       string   `json:"role"`
+	AvatarIcon string   `json:"avatarIcon"`
+	At         *seatRef `json:"at,omitempty"`
 }
 
 // seatRef says which live session in this space a member currently has open, so
@@ -177,7 +176,7 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 			views := make([]memberView, len(roster))
 			for i, m := range roster {
 				views[i] = memberView{UserID: m.UserID, Name: m.Name, AvatarHue: avatarHue(m.UserID), Spectator: m.Spectator, Role: m.Role,
-					AvatarIcon: m.AvatarIcon, AvatarAccessory: m.AvatarAccessory, At: seats[m.UserID]}
+					AvatarIcon: m.AvatarIcon, At: seats[m.UserID]}
 			}
 			// Members can read the room code any time — passing it on is the
 			// whole point of it.

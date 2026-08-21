@@ -34,10 +34,9 @@ type User struct {
 	// Issuer is empty for an anonymous account and names the identity provider
 	// for a federated one.
 	Issuer string `json:"-"`
-	// AvatarIcon and AvatarAccessory are opaque client-side ids; empty means
-	// the person has not chosen one and the derived hue stands alone.
-	AvatarIcon      string `json:"avatarIcon"`
-	AvatarAccessory string `json:"avatarAccessory"`
+	// AvatarIcon is an opaque client-side id; empty means the person has not
+	// chosen one and the derived hue stands alone.
+	AvatarIcon string `json:"avatarIcon"`
 }
 
 type Users struct {
@@ -160,9 +159,9 @@ func (s *Users) UpsertFederated(ctx context.Context, issuer, subject, name strin
 		insert into users (name, issuer, subject) values ($1, $2, $3)
 		on conflict (issuer, subject) where issuer <> ''
 		do update set name = excluded.name
-		returning id, name, avatar_icon, avatar_accessory`,
+		returning id, name, avatar_icon`,
 		name, issuer, subject,
-	).Scan(&u.ID, &u.Name, &u.AvatarIcon, &u.AvatarAccessory); err != nil {
+	).Scan(&u.ID, &u.Name, &u.AvatarIcon); err != nil {
 		return User{}, err
 	}
 	if _, err := tx.Exec(ctx,
@@ -183,7 +182,6 @@ const resolveTokenColumns = `user_id,
 	          (select name from users where id = user_id),
 	          (select issuer from users where id = user_id),
 	          (select avatar_icon from users where id = user_id),
-	          (select avatar_accessory from users where id = user_id),
 	          last_used_at + $2::interval`
 
 // ResolveToken resolves a valid token and returns the resulting idle expiry so
@@ -210,7 +208,7 @@ func (s *Users) ResolveToken(ctx context.Context, tokenHash []byte, touch bool) 
 	var u User
 	var expiresAt time.Time
 	err := s.Pool.QueryRow(ctx, sql, tokenHash, tokenIdleExpiry).
-		Scan(&u.ID, &u.Name, &u.Issuer, &u.AvatarIcon, &u.AvatarAccessory, &expiresAt)
+		Scan(&u.ID, &u.Name, &u.Issuer, &u.AvatarIcon, &expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return TokenSession{}, ErrNoUser
 	}
@@ -245,9 +243,9 @@ func (s *Users) Rename(ctx context.Context, userID, name string, oldTokenHash, n
 
 	var u User
 	if err := tx.QueryRow(ctx,
-		"update users set name = $2 where id = $1 returning id, name, avatar_icon, avatar_accessory",
+		"update users set name = $2 where id = $1 returning id, name, avatar_icon",
 		userID, name,
-	).Scan(&u.ID, &u.Name, &u.AvatarIcon, &u.AvatarAccessory); err != nil {
+	).Scan(&u.ID, &u.Name, &u.AvatarIcon); err != nil {
 		return User{}, err
 	}
 	if _, err := tx.Exec(ctx,
@@ -261,15 +259,19 @@ func (s *Users) Rename(ctx context.Context, userID, name string, oldTokenHash, n
 	return u, tx.Commit(ctx)
 }
 
-// SetAvatar stores the chosen icon and accessory and reports whether the row
-// actually changed, so a caller can skip the work a no-op write would trigger.
-// The ids are validated at the API boundary; this only bounds their length,
-// which the column check enforces anyway.
-func (s *Users) SetAvatar(ctx context.Context, userID, icon, accessory string) (bool, error) {
+// SetAvatar stores the chosen icon and reports whether the row actually
+// changed, so a caller can skip the work a no-op write would trigger. The id
+// is validated at the API boundary; this only bounds its length, which the
+// column check enforces anyway.
+//
+// avatar_accessory is deliberately absent: accessories were removed with the
+// portrait tier, and the column is left in place, unwritten and unread, until
+// a migration drops it.
+func (s *Users) SetAvatar(ctx context.Context, userID, icon string) (bool, error) {
 	tag, err := s.Pool.Exec(ctx, `
-		update users set avatar_icon = $2, avatar_accessory = $3
-		where id = $1 and (avatar_icon, avatar_accessory) is distinct from ($2, $3)`,
-		userID, icon, accessory)
+		update users set avatar_icon = $2
+		where id = $1 and avatar_icon is distinct from $2`,
+		userID, icon)
 	if err != nil {
 		return false, fmt.Errorf("setting avatar: %w", err)
 	}

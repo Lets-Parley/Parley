@@ -17,14 +17,18 @@ type meResponse struct {
 	Name string `json:"name"`
 	// AvatarHue is always the derived integer, never null: clients do
 	// arithmetic on it.
-	AvatarHue       int    `json:"avatarHue"`
-	AvatarIcon      string `json:"avatarIcon"`
-	AvatarAccessory string `json:"avatarAccessory"`
+	AvatarHue  int    `json:"avatarHue"`
+	AvatarIcon string `json:"avatarIcon"`
 }
 
-// avatarID is the only thing the server knows about an icon or accessory id.
-// It deliberately does not enumerate them, so the picker can grow without a
+// avatarID is the only thing the server knows about an icon id. It
+// deliberately does not enumerate them, so the picker can grow without a
 // server release. The empty string is not an id — it clears the choice.
+//
+// The retired silhouette ids — parrot, kraken, anchor, lighthouse, wheel,
+// gull, buoy, crate, rubber-duck, coffee, terminal, pager — stay valid shapes
+// and are simply unknown to every client, which renders initials for them.
+// They must never be reused for a portrait.
 var avatarID = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
 
 func avatarHue(userID string) int { return store.AvatarHue(userID) }
@@ -32,7 +36,7 @@ func avatarHue(userID string) int { return store.AvatarHue(userID) }
 func toMeResponse(u store.User) meResponse {
 	return meResponse{
 		ID: u.ID, Name: u.Name, AvatarHue: avatarHue(u.ID),
-		AvatarIcon: u.AvatarIcon, AvatarAccessory: u.AvatarAccessory,
+		AvatarIcon: u.AvatarIcon,
 	}
 }
 
@@ -49,8 +53,7 @@ func (a *app) handleGetMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, toMeResponse(store.User{
-		ID: p.UserID, Name: p.Display,
-		AvatarIcon: p.AvatarIcon, AvatarAccessory: p.AvatarAccessory,
+		ID: p.UserID, Name: p.Display, AvatarIcon: p.AvatarIcon,
 	}))
 }
 
@@ -68,28 +71,27 @@ func (a *app) handlePatchMeAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// accessory is accepted and ignored: the field was removed with the
+	// portrait tier, and an older client still sending one should have its
+	// icon saved rather than be rejected.
 	var body struct {
-		Icon      string `json:"icon"`
-		Accessory string `json:"accessory"`
+		Icon string `json:"icon"`
 	}
 	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
 		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
 		return
 	}
-	for _, id := range []string{body.Icon, body.Accessory} {
-		if id != "" && !avatarID.MatchString(id) {
-			http.Error(w, `{"error":"icon and accessory must be lowercase letters, digits or hyphens, 1-32 characters"}`, http.StatusBadRequest)
-			return
-		}
+	if body.Icon != "" && !avatarID.MatchString(body.Icon) {
+		http.Error(w, `{"error":"icon must be lowercase letters, digits or hyphens, 1-32 characters"}`, http.StatusBadRequest)
+		return
 	}
 
-	if _, err := a.users.SetAvatar(r.Context(), p.UserID, body.Icon, body.Accessory); err != nil {
+	if _, err := a.users.SetAvatar(r.Context(), p.UserID, body.Icon); err != nil {
 		http.Error(w, `{"error":"could not save avatar"}`, http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, toMeResponse(store.User{
-		ID: p.UserID, Name: p.Display,
-		AvatarIcon: body.Icon, AvatarAccessory: body.Accessory,
+		ID: p.UserID, Name: p.Display, AvatarIcon: body.Icon,
 	}))
 }
 

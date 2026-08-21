@@ -32,6 +32,26 @@ gh attestation verify \
   --signer-workflow lets-parley/parley/.github/workflows/release.yml
 ```
 
+## v0.5.1
+
+**Your chosen avatar resets to initials, and accessories are gone.**
+
+- **Every avatar picked before this release stops rendering and falls back to
+  your initials.** The old silhouettes were replaced wholesale, so the twelve
+  retired ids — `parrot`, `kraken`, `anchor`, `lighthouse`, `wheel`, `gull`,
+  `buoy`, `crate`, `rubber-duck`, `coffee`, `terminal` and `pager` — are no
+  longer known to any client. Nothing was lost and nothing needs migrating:
+  open the profile dialog and pick again. Those twelve ids are retired
+  permanently and are never reused for a new avatar
+- **Accessories have been removed.** The second axis is gone from the picker
+  and from every surface that drew it
+- **Breaking API change.** `PATCH /api/me/avatar` no longer stores `accessory`
+  — the field is still accepted so an older client is not rejected, but it is
+  ignored — and `avatarAccessory` no longer appears in `GET /api/me`, space
+  members, or session participants. The `avatar_accessory` column is left in
+  place, unwritten and unread, and a later release drops it. See
+  [Choosing an avatar](/reference/api/#choosing-an-avatar)
+
 ## v0.2.3
 
 A packaging release. **No code changes** — v0.2.2 remains the release that fixed

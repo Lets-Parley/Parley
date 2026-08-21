@@ -26,7 +26,7 @@ there is no second driver and no plan for one.
   { name: "0010_session_kinds", value: "session_kinds", note: "Replaces the sessions.kind check constraint with a foreign key" },
   { name: "0015_member_roles", value: "members.role", note: "owner or member. Backfills the space creator — or, where none was recorded, the most recently active member — as owner" },
   { name: "0016_standup_ready", value: "standup_entries.ready", note: "Advisory gathering-phase signal. Constant default, so no backfill and no table rewrite" },
-  { name: "0017_avatar", value: "users.avatar_icon, users.avatar_accessory", note: "Chosen avatar. Constant empty default, so no backfill and no table rewrite" },
+  { name: "0017_avatar", value: "users.avatar_icon, users.avatar_accessory", note: "Chosen avatar. Constant empty default, so no backfill and no table rewrite. avatar_accessory is unwritten and unread since v0.5.1 and awaits a drop" },
 ]} />
 
 ### How the runner behaves
@@ -55,7 +55,7 @@ There are no down-migrations, no checksums, and no dry-run. See
 | `issuer` | text | ≤255. Empty for anonymous users |
 | `subject` | text | ≤255. Empty for anonymous users |
 | `avatar_icon` | text | ≤32. Opaque client-side id; empty means none chosen |
-| `avatar_accessory` | text | ≤32. Opaque client-side id; empty means none chosen |
+| `avatar_accessory` | text | Retired in v0.5.1. Never written and never read; a later migration drops it |
 | `created_at` | timestamptz | |
 
 `(issuer, subject)` carries a unique index **partial on `issuer <> ''`**, so every

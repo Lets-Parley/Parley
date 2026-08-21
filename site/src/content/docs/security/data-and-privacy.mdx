@@ -18,7 +18,8 @@ default mode there is no account, no email address and no password.
 | `users` | `id` | A generated UUID. Public — it is broadcast to everyone in a room |
 | `users` | `name` | Up to 64 characters. Self-chosen, or derived from an identity-provider claim |
 | `users` | `issuer`, `subject` | Only for federated sign-in: which provider vouched for you, and your opaque id there. Empty for anonymous users |
-| `users` | `avatar_icon`, `avatar_accessory` | The avatar you picked, as two short opaque ids (≤32 characters each). Empty until you choose one. Public — shown to everyone in a room. Removed with the account: they are columns on the `users` row, not a separate record |
+| `users` | `avatar_icon` | The avatar you picked, as one short opaque id (≤32 characters). Empty until you choose one. Public — shown to everyone in a room. Removed with the account: it is a column on the `users` row, not a separate record |
+| `users` | `avatar_accessory` | Retired in v0.5.1: no longer written or read, and dropped by a later migration |
 | `users` | `created_at` | Timestamp |
 | `session_tokens` | `token_hash` | SHA-256 of the bearer token. The token itself is never stored |
 | `session_tokens` | `user_id`, `created_at`, `last_used_at` | Which account, and when it was last seen |

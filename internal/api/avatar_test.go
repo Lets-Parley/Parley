@@ -25,12 +25,12 @@ func TestAvatarReachesEveryWireSurface(t *testing.T) {
 	resp, _ := postMe(t, srv, "Ada", nil)
 	cookie := sessionCookieOf(t, resp)
 
-	if resp, _ := patchAvatar(t, srv, `{"icon":"fox","accessory":"scarf"}`, cookie); resp.StatusCode != http.StatusOK {
+	if resp, _ := patchAvatar(t, srv, `{"icon":"fox"}`, cookie); resp.StatusCode != http.StatusOK {
 		t.Fatalf("patch avatar: got %d", resp.StatusCode)
 	}
 
 	_, me := getMe(t, srv, cookie)
-	if me["avatarIcon"] != "fox" || me["avatarAccessory"] != "scarf" {
+	if me["avatarIcon"] != "fox" {
 		t.Errorf("GET /api/me = %v", me)
 	}
 	if _, ok := me["avatarHue"].(float64); !ok {
@@ -42,7 +42,7 @@ func TestAvatarReachesEveryWireSurface(t *testing.T) {
 	_, space := getSpace(t, srv, slug, cookie)
 	members := space["members"].([]any)
 	first := members[0].(map[string]any)
-	if first["avatarIcon"] != "fox" || first["avatarAccessory"] != "scarf" {
+	if first["avatarIcon"] != "fox" {
 		t.Errorf("space member = %v", first)
 	}
 
@@ -50,7 +50,7 @@ func TestAvatarReachesEveryWireSurface(t *testing.T) {
 	_, env := doJSON(t, srv, "GET", "/api/sessions/"+sess["id"].(string), "", cookie)
 	people := env["participants"].([]any)
 	person := people[0].(map[string]any)
-	if person["avatarIcon"] != "fox" || person["avatarAccessory"] != "scarf" {
+	if person["avatarIcon"] != "fox" {
 		t.Errorf("participant = %v", person)
 	}
 	if _, ok := person["avatarHue"].(float64); !ok {
@@ -65,8 +65,8 @@ func TestAvatarDefaultsForAPreExistingUser(t *testing.T) {
 	srv := testServer(t)
 	resp, _ := postMe(t, srv, "Grace", nil)
 	_, me := getMe(t, srv, sessionCookieOf(t, resp))
-	if me["avatarIcon"] != "" || me["avatarAccessory"] != "" {
-		t.Errorf("fresh user = %v, want empty avatar ids", me)
+	if me["avatarIcon"] != "" {
+		t.Errorf("fresh user = %v, want an empty avatar id", me)
 	}
 	if hue, ok := me["avatarHue"].(float64); !ok || hue < 0 || hue > 359 {
 		t.Errorf("avatarHue = %#v, want a derived 0-359 integer", me["avatarHue"])
@@ -83,14 +83,13 @@ func TestAvatarRejectsMalformedIDs(t *testing.T) {
 		`{"icon":"fox_cub"}`,
 		`{"icon":"../etc"}`,
 		`{"icon":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`,
-		`{"accessory":"HAT"}`,
 	} {
 		if resp, _ := patchAvatar(t, srv, body, cookie); resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("patch %s: got %d, want 400", body, resp.StatusCode)
 		}
 	}
 	_, me := getMe(t, srv, cookie)
-	if me["avatarIcon"] != "" || me["avatarAccessory"] != "" {
+	if me["avatarIcon"] != "" {
 		t.Errorf("a rejected id was written: %v", me)
 	}
 }
@@ -115,13 +114,13 @@ func TestRenameKeepsTheAvatar(t *testing.T) {
 	srv := testServer(t)
 	resp, _ := postMe(t, srv, "Ada", nil)
 	cookie := sessionCookieOf(t, resp)
-	patchAvatar(t, srv, `{"icon":"fox","accessory":"scarf"}`, cookie)
+	patchAvatar(t, srv, `{"icon":"fox"}`, cookie)
 
 	renamed, body := postMe(t, srv, "Ada L", cookie)
 	if renamed.StatusCode != http.StatusOK {
 		t.Fatalf("rename: got %d", renamed.StatusCode)
 	}
-	if body["avatarIcon"] != "fox" || body["avatarAccessory"] != "scarf" {
+	if body["avatarIcon"] != "fox" {
 		t.Errorf("rename returned %v, want the existing avatar", body)
 	}
 }
@@ -153,7 +152,7 @@ func TestFederatedSignInLeavesTheAvatarAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := users.SetAvatar(ctx, u.ID, "fox", "scarf"); err != nil {
+	if _, err := users.SetAvatar(ctx, u.ID, "fox"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -162,10 +161,10 @@ func TestFederatedSignInLeavesTheAvatarAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.AvatarIcon != "fox" || again.AvatarAccessory != "scarf" {
-		t.Errorf("second sign-in returned %q/%q, want fox/scarf", again.AvatarIcon, again.AvatarAccessory)
+	if again.AvatarIcon != "fox" {
+		t.Errorf("second sign-in returned %q, want fox", again.AvatarIcon)
 	}
-	assertAvatarRow(t, pool, u.ID, "fox", "scarf")
+	assertAvatarRow(t, pool, u.ID, "fox")
 }
 
 func TestSetAvatarReportsWhetherAnythingChanged(t *testing.T) {
@@ -177,24 +176,24 @@ func TestSetAvatarReportsWhetherAnythingChanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if changed, err := users.SetAvatar(ctx, u.ID, "fox", ""); err != nil || !changed {
+	if changed, err := users.SetAvatar(ctx, u.ID, "fox"); err != nil || !changed {
 		t.Errorf("first write: changed=%v err=%v, want true/nil", changed, err)
 	}
-	if changed, err := users.SetAvatar(ctx, u.ID, "fox", ""); err != nil || changed {
+	if changed, err := users.SetAvatar(ctx, u.ID, "fox"); err != nil || changed {
 		t.Errorf("identical rewrite: changed=%v err=%v, want false/nil", changed, err)
 	}
 }
 
-func assertAvatarRow(t *testing.T, pool *pgxpool.Pool, userID, icon, accessory string) {
+func assertAvatarRow(t *testing.T, pool *pgxpool.Pool, userID, icon string) {
 	t.Helper()
-	var gotIcon, gotAccessory string
+	var gotIcon string
 	if err := pool.QueryRow(context.Background(),
-		"select avatar_icon, avatar_accessory from users where id = $1", userID,
-	).Scan(&gotIcon, &gotAccessory); err != nil {
+		"select avatar_icon from users where id = $1", userID,
+	).Scan(&gotIcon); err != nil {
 		t.Fatal(err)
 	}
-	if gotIcon != icon || gotAccessory != accessory {
-		t.Errorf("users row = %q/%q, want %q/%q", gotIcon, gotAccessory, icon, accessory)
+	if gotIcon != icon {
+		t.Errorf("users row avatar_icon = %q, want %q", gotIcon, icon)
 	}
 }
 
@@ -207,4 +206,37 @@ func signInOIDC(t *testing.T, srv *httptest.Server, idp *fakeIdP) *http.Cookie {
 	resp := callback(t, srv, flow, authURL.Query().Get("state"))
 	defer resp.Body.Close()
 	return sessionCookieOf(t, resp)
+}
+
+// TestAvatarAccessoryIsFrozen pins the breaking change that came with the
+// portrait tier: accessories are gone, so an "accessory" in the body is
+// accepted for compatibility with older clients and then ignored — nothing
+// reaches the retired column, and no surface reports one.
+func TestAvatarAccessoryIsFrozen(t *testing.T) {
+	pool := testPool(t)
+	srv := testServerWith(t, pool, Options{AllowedOrigin: "http://example.test"})
+
+	resp, _ := postMe(t, srv, "Ada", nil)
+	cookie := sessionCookieOf(t, resp)
+
+	if resp, patched := patchAvatar(t, srv, `{"icon":"fox","accessory":"scarf"}`, cookie); resp.StatusCode != http.StatusOK {
+		t.Fatalf("patch avatar: got %d", resp.StatusCode)
+	} else if _, ok := patched["avatarAccessory"]; ok {
+		t.Errorf("PATCH response still carries avatarAccessory: %v", patched)
+	}
+
+	if _, me := getMe(t, srv, cookie); me["avatarIcon"] != "fox" {
+		t.Errorf("GET /api/me = %v", me)
+	} else if _, ok := me["avatarAccessory"]; ok {
+		t.Errorf("GET /api/me still carries avatarAccessory: %v", me)
+	}
+
+	var stored string
+	if err := pool.QueryRow(context.Background(),
+		"select avatar_accessory from users where name = $1", "Ada").Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored != "" {
+		t.Errorf("avatar_accessory = %q, want the column left unwritten", stored)
+	}
 }

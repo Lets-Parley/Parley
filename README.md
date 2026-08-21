@@ -88,8 +88,8 @@ sit at.
   mint a new code, or open the space so the link alone is the invite.
 - **Roster with presence:** who's around, who's in a session, and a jump
   straight to the table they're sitting at.
-- **Customizable avatars.** Pick an icon and an accessory, and it follows you
-  through the roster, the table, and every standup.
+- **Customizable avatars.** Pick an avatar, and it follows you through the
+  roster, the table, and every standup.
 - **Session history**, searchable by title and filterable by kind, with a
   most-recent / active-first / A–Z sort.
 
