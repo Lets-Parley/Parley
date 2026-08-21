@@ -4,6 +4,9 @@ description: Get Parley running on your machine, then on a server your team can 
 ---
 
 import { Steps } from "@astrojs/starlight/components";
+import Screenshot from "../../components/Screenshot.astro";
+import pickerLight from "../../assets/avatar-picker-light.png";
+import pickerDark from "../../assets/avatar-picker-dark.png";
 
 ## On your own machine
 
@@ -70,6 +73,13 @@ preview, to be handed one. **Initials** goes back to where you started. You
 wear one mark in total. **Save** stays dim until you change something; press it
 and the mark follows you into every room. Closing the dialog without saving
 keeps what you had.
+
+<Screenshot
+  light={pickerLight}
+  dark={pickerDark}
+  alt="The avatar dialog over a space page: a preview and a Randomize button above a grid of thirty voxel-art portraits plus an Initials tile, with Mira selected — a heavier border and a corner pip — and Save active in the corner."
+  caption="Initials sits first in the grid, so going back to where you started is one click. Nothing is written until you press Save."
+/>
 
 The smallest chips, the ones inline in a line of text, always show initials: at
 24px there is no room for a portrait.

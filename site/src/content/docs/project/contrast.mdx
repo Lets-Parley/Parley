@@ -171,3 +171,17 @@ reads as "not here" against a live seat.
 
 The doc records it so the next sweep does not have to rediscover that an inline
 style is invisible to a grep for utilities.
+
+## What the portraits changed, in v0.5.1
+
+Nothing in the numbers above. The hue arc still exists and the `0.7` dim floor
+still applies, because both live on the chip rather than on what fills it: a
+picked portrait replaces the initials inside the same `oklch(0.52 0.09 H)` disc
+and inherits the same inline `opacity`, so the dimmed seat fades exactly as it
+did.
+
+Two smaller points hold with it. The `xs` chip — the 24px one inline in a line
+of text — always renders initials, so nothing in the arc analysis is bypassed
+there. And a portrait is `alt=""` and `aria-hidden`, which keeps the argument in
+the section above intact: the name is still carried as text next to every chip,
+so the mark is redundant either way.
