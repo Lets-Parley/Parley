@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -12,15 +13,27 @@ import (
 )
 
 type meResponse struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	AvatarHue int    `json:"avatarHue"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// AvatarHue is always the derived integer, never null: clients do
+	// arithmetic on it.
+	AvatarHue       int    `json:"avatarHue"`
+	AvatarIcon      string `json:"avatarIcon"`
+	AvatarAccessory string `json:"avatarAccessory"`
 }
+
+// avatarID is the only thing the server knows about an icon or accessory id.
+// It deliberately does not enumerate them, so the picker can grow without a
+// server release. The empty string is not an id — it clears the choice.
+var avatarID = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
 
 func avatarHue(userID string) int { return store.AvatarHue(userID) }
 
 func toMeResponse(u store.User) meResponse {
-	return meResponse{ID: u.ID, Name: u.Name, AvatarHue: avatarHue(u.ID)}
+	return meResponse{
+		ID: u.ID, Name: u.Name, AvatarHue: avatarHue(u.ID),
+		AvatarIcon: u.AvatarIcon, AvatarAccessory: u.AvatarAccessory,
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -35,7 +48,49 @@ func (a *app) handleGetMe(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"not signed in"}`, http.StatusUnauthorized)
 		return
 	}
-	writeJSON(w, http.StatusOK, toMeResponse(store.User{ID: p.UserID, Name: p.Display}))
+	writeJSON(w, http.StatusOK, toMeResponse(store.User{
+		ID: p.UserID, Name: p.Display,
+		AvatarIcon: p.AvatarIcon, AvatarAccessory: p.AvatarAccessory,
+	}))
+}
+
+// handlePatchMeAvatar writes the caller's chosen avatar.
+//
+// It is its own route rather than a wider POST /api/me because that handler
+// mints a new token on every call — an avatar write through it would rotate
+// the caller's session cookie and race their other tabs — refuses everything
+// with 403 under OIDC before it reads the body, and creates a user when there
+// is no principal instead of answering 401.
+func (a *app) handlePatchMeAvatar(w http.ResponseWriter, r *http.Request) {
+	p, ok := PrincipalFrom(r.Context())
+	if !ok {
+		http.Error(w, `{"error":"not signed in"}`, http.StatusUnauthorized)
+		return
+	}
+
+	var body struct {
+		Icon      string `json:"icon"`
+		Accessory string `json:"accessory"`
+	}
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
+		return
+	}
+	for _, id := range []string{body.Icon, body.Accessory} {
+		if id != "" && !avatarID.MatchString(id) {
+			http.Error(w, `{"error":"icon and accessory must be lowercase letters, digits or hyphens, 1-32 characters"}`, http.StatusBadRequest)
+			return
+		}
+	}
+
+	if _, err := a.users.SetAvatar(r.Context(), p.UserID, body.Icon, body.Accessory); err != nil {
+		http.Error(w, `{"error":"could not save avatar"}`, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, toMeResponse(store.User{
+		ID: p.UserID, Name: p.Display,
+		AvatarIcon: body.Icon, AvatarAccessory: body.Accessory,
+	}))
 }
 
 // handlePostMe creates an identity, or renames the existing one (rotating its

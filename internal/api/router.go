@@ -252,6 +252,10 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		r.Post("/me", a.handlePostMe)
 		r.Get("/me", a.handleGetMe)
 		r.Delete("/me", a.handleDeleteMe)
+		// Its own route, and permitted under both auth modes: choosing an
+		// avatar is not choosing a name, so the provider owning names in OIDC
+		// mode does not reach it. It answers 401 itself.
+		r.Patch("/me/avatar", a.handlePatchMeAvatar)
 
 		r.Get("/spaces/{slug}", a.handleGetSpace)
 		r.Group(func(r chi.Router) {

@@ -18,6 +18,7 @@ default mode there is no account, no email address and no password.
 | `users` | `id` | A generated UUID. Public — it is broadcast to everyone in a room |
 | `users` | `name` | Up to 64 characters. Self-chosen, or derived from an identity-provider claim |
 | `users` | `issuer`, `subject` | Only for federated sign-in: which provider vouched for you, and your opaque id there. Empty for anonymous users |
+| `users` | `avatar_icon`, `avatar_accessory` | The avatar you picked, as two short opaque ids (≤32 characters each). Empty until you choose one. Public — shown to everyone in a room. Removed with the account: they are columns on the `users` row, not a separate record |
 | `users` | `created_at` | Timestamp |
 | `session_tokens` | `token_hash` | SHA-256 of the bearer token. The token itself is never stored |
 | `session_tokens` | `user_id`, `created_at`, `last_used_at` | Which account, and when it was last seen |
@@ -26,8 +27,9 @@ default mode there is no account, no email address and no password.
 
 **No email address is stored**, even when signing in through a provider that
 supplies one — an email is used only to derive a display name, and then
-discarded. There is **no avatar URL** (avatars are generated from the name) and
-**no IP address column** anywhere.
+discarded. There is **no avatar URL and no uploaded image** — an avatar is a
+colour derived from your user id plus, optionally, two ids naming a shape you
+picked from the built-in set — and **no IP address column** anywhere.
 
 ## Content data
 

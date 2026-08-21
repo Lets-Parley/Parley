@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"hash/fnv"
 	"time"
 
@@ -33,6 +34,10 @@ type User struct {
 	// Issuer is empty for an anonymous account and names the identity provider
 	// for a federated one.
 	Issuer string `json:"-"`
+	// AvatarIcon and AvatarAccessory are opaque client-side ids; empty means
+	// the person has not chosen one and the derived hue stands alone.
+	AvatarIcon      string `json:"avatarIcon"`
+	AvatarAccessory string `json:"avatarAccessory"`
 }
 
 type Users struct {
@@ -155,9 +160,9 @@ func (s *Users) UpsertFederated(ctx context.Context, issuer, subject, name strin
 		insert into users (name, issuer, subject) values ($1, $2, $3)
 		on conflict (issuer, subject) where issuer <> ''
 		do update set name = excluded.name
-		returning id, name`,
+		returning id, name, avatar_icon, avatar_accessory`,
 		name, issuer, subject,
-	).Scan(&u.ID, &u.Name); err != nil {
+	).Scan(&u.ID, &u.Name, &u.AvatarIcon, &u.AvatarAccessory); err != nil {
 		return User{}, err
 	}
 	if _, err := tx.Exec(ctx,
@@ -177,6 +182,8 @@ func (s *Users) ByToken(ctx context.Context, tokenHash []byte) (User, error) {
 const resolveTokenColumns = `user_id,
 	          (select name from users where id = user_id),
 	          (select issuer from users where id = user_id),
+	          (select avatar_icon from users where id = user_id),
+	          (select avatar_accessory from users where id = user_id),
 	          last_used_at + $2::interval`
 
 // ResolveToken resolves a valid token and returns the resulting idle expiry so
@@ -203,7 +210,7 @@ func (s *Users) ResolveToken(ctx context.Context, tokenHash []byte, touch bool) 
 	var u User
 	var expiresAt time.Time
 	err := s.Pool.QueryRow(ctx, sql, tokenHash, tokenIdleExpiry).
-		Scan(&u.ID, &u.Name, &u.Issuer, &expiresAt)
+		Scan(&u.ID, &u.Name, &u.Issuer, &u.AvatarIcon, &u.AvatarAccessory, &expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return TokenSession{}, ErrNoUser
 	}
@@ -238,8 +245,9 @@ func (s *Users) Rename(ctx context.Context, userID, name string, oldTokenHash, n
 
 	var u User
 	if err := tx.QueryRow(ctx,
-		"update users set name = $2 where id = $1 returning id, name", userID, name,
-	).Scan(&u.ID, &u.Name); err != nil {
+		"update users set name = $2 where id = $1 returning id, name, avatar_icon, avatar_accessory",
+		userID, name,
+	).Scan(&u.ID, &u.Name, &u.AvatarIcon, &u.AvatarAccessory); err != nil {
 		return User{}, err
 	}
 	if _, err := tx.Exec(ctx,
@@ -251,6 +259,21 @@ func (s *Users) Rename(ctx context.Context, userID, name string, oldTokenHash, n
 		return User{}, err
 	}
 	return u, tx.Commit(ctx)
+}
+
+// SetAvatar stores the chosen icon and accessory and reports whether the row
+// actually changed, so a caller can skip the work a no-op write would trigger.
+// The ids are validated at the API boundary; this only bounds their length,
+// which the column check enforces anyway.
+func (s *Users) SetAvatar(ctx context.Context, userID, icon, accessory string) (bool, error) {
+	tag, err := s.Pool.Exec(ctx, `
+		update users set avatar_icon = $2, avatar_accessory = $3
+		where id = $1 and (avatar_icon, avatar_accessory) is distinct from ($2, $3)`,
+		userID, icon, accessory)
+	if err != nil {
+		return false, fmt.Errorf("setting avatar: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 func (s *Users) DeleteToken(ctx context.Context, tokenHash []byte) error {

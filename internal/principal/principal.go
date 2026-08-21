@@ -12,6 +12,10 @@ type Principal struct {
 	Display        string
 	TokenID        string
 	TokenExpiresAt time.Time
+	// The chosen avatar, carried from the row resolvePrincipal already reads
+	// so /api/me answers from the principal without a second query.
+	AvatarIcon      string
+	AvatarAccessory string
 }
 
 type ctxKey struct{}

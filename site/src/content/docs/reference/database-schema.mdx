@@ -26,6 +26,7 @@ there is no second driver and no plan for one.
   { name: "0010_session_kinds", value: "session_kinds", note: "Replaces the sessions.kind check constraint with a foreign key" },
   { name: "0015_member_roles", value: "members.role", note: "owner or member. Backfills the space creator — or, where none was recorded, the most recently active member — as owner" },
   { name: "0016_standup_ready", value: "standup_entries.ready", note: "Advisory gathering-phase signal. Constant default, so no backfill and no table rewrite" },
+  { name: "0017_avatar", value: "users.avatar_icon, users.avatar_accessory", note: "Chosen avatar. Constant empty default, so no backfill and no table rewrite" },
 ]} />
 
 ### How the runner behaves
@@ -53,6 +54,8 @@ There are no down-migrations, no checksums, and no dry-run. See
 | `name` | text | 1–64 characters, enforced by check constraint |
 | `issuer` | text | ≤255. Empty for anonymous users |
 | `subject` | text | ≤255. Empty for anonymous users |
+| `avatar_icon` | text | ≤32. Opaque client-side id; empty means none chosen |
+| `avatar_accessory` | text | ≤32. Opaque client-side id; empty means none chosen |
 | `created_at` | timestamptz | |
 
 `(issuer, subject)` carries a unique index **partial on `issuer <> ''`**, so every
