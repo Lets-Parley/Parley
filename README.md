@@ -69,8 +69,9 @@ sit at.
 ### Daily standup
 
 - **Round-robin order** with a 90-second-per-person timer, so the quiet people
-  get their turn and the talkative ones can see the clock. (The length is a
-  session setting the UI doesn't expose yet.)
+  get their turn and the talkative ones can see the clock. The room shows whose
+  turn it is and how long is left; the length is a session setting no UI edits
+  yet.
 - **Skip / absent** without losing anyone's place in the rotation.
 - **Yesterday writes itself.** Whatever you put in "today" last standup is
   waiting in "yesterday" at the next one.
@@ -101,9 +102,10 @@ sit at.
 - **CSV export** for any session: estimates, votes per person, standup entries.
   Cells that start with `=` are escaped, so an export can't run formulas in a
   spreadsheet.
-- **Facilitator takeover.** If the facilitator drops off, anyone at the table can
-  claim the role after a 60-second grace period, and the room is told who did.
-  (Explicit hand-off exists in the API but has no button yet.)
+- **Facilitator takeover.** If the facilitator drops off, anyone at the table
+  can claim the role after a 60-second grace period, and the room is told who
+  did. The button is in the poker room today; standup rooms have the endpoint
+  but no control yet, as does explicit hand-off to a named person.
 - **Light, dark, and system themes.**
 - **Boring to operate.** `/healthz` that never touches the database, `/readyz`
   that checks both Postgres and this replica's cross-replica listener, structured JSON logs, migrations applied at boot, and a refusal to
@@ -289,28 +291,25 @@ Service actually routes to a pod that is ready — which means it reached Postgr
 down.
 
 `deploy/k8s/deployment.yaml` (in this repo — clone it, or fetch that one file)
-is the same thing as a plain manifest, for people who do not run Helm. Two things in it are
-load-bearing rather than stylistic. `strategy: RollingUpdate` with
-`maxUnavailable: 0`, so a rollout never drops below the replica count. And the
-liveness probe hits `/healthz`, which never touches the database, because a DB
-blip must not restart the pod and drop every WebSocket.
-
-Parley ships no Postgres for Kubernetes. Bring a managed database or an
-operator, then give the Deployment its connection string and pin an image tag:
+is the same thing as a plain manifest, for people who do not run Helm. It reads
+the same `parley` secret, so create that first and then:
 
 ```sh
-kubectl create secret generic parley \
-  --from-literal=database-url='postgres://parley:secret@host:5432/parley?sslmode=require'
 kubectl apply -f deploy/k8s/deployment.yaml
 ```
+
+Two things in it are load-bearing rather than stylistic. `strategy:
+RollingUpdate` with `maxUnavailable: 0`, so a rollout never drops below the
+replica count. And the liveness probe hits `/healthz`, which never touches the
+database, because a DB blip must not restart the pod and drop every WebSocket.
 
 Parley runs on more than one replica: WebSocket fanout goes through Postgres
 `LISTEN`/`NOTIFY`, presence and the room-code throttle are rows in Postgres, and
 pods that boot together serialize their migrations behind an advisory lock. The
 chart defaults to one replica, so an upgrade never doubles a running install's
-pods behind your back; `--set replicaCount=2` opts in. This needs **chart 0.4.1
-or newer** — every chart up to and including 0.3.0 refuses `replicaCount > 1` at
-render time, so pass `--version 0.5.0` when you scale up. Above one replica the
+pods behind your back; `--set replicaCount=2` opts in. This needs **chart 0.4.1 or
+newer** — every published chart before it refuses `replicaCount > 1` at render
+time, so pass `--version 0.5.0` when you scale up. Above one replica the
 chart also renders a PodDisruptionBudget and a topology spread constraint — a
 budget in front of a single pod would deadlock the drain it was meant to
 survive. Each replica opens up to 10 pooled Postgres connections plus one for

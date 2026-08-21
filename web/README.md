@@ -1,32 +1,28 @@
-# React + TypeScript + Vite
+# Parley frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Vite + React + TypeScript. `npm run build` writes `dist/`, which `go:embed`
+compiles into the Parley binary — there is no second service in production, and
+a stale `dist/` means the binary serves a stale UI.
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```sh
+npm install
+npm run build     # required before `go build` / `go test ./...`
+npm run dev       # Vite dev server, proxies /api and /ws to :8080
+npm test          # Vitest
+npm run lint      # Oxlint
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+`npm run dev` needs the Go server running on `:8080` for anything past the
+landing page.
+
+## Layout
+
+| Path | What lives there |
+|---|---|
+| `src/pages` | one file per route — `PokerRoom`, `StandupRoom`, `SpacePage` |
+| `src/components` | shared UI: `AppShell`, `MemberCard`, timers |
+| `src/lib` | API client, WebSocket wiring, derived state (`derive.ts`), `kinds.ts` |
+
+Adding a session kind touches `src/lib/kinds.ts` and adds a page; the Go side
+and the migration are covered in
+[Adding a session kind](https://www.letsparley.io/project/contributing/#adding-a-session-kind).
