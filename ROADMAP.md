@@ -40,12 +40,11 @@ who share initials were two near-identical chips. Picking a mark fixed that: a
 nautical crew and a dev-culture pack, drawn as flat silhouettes so the disc keeps
 supplying the identity colour.
 
-The marks work at chip size and the mechanism is sound, but the drawings are not
-the standard the rest of the interface is held to. Rather than commissioning a
-set, a portrait tier adopts a professionally-drawn open-source one — CC0, no
-attribution — at the sizes where an illustration has room to read, while the
-silhouettes stay where they already work. The identity disc itself gets the
-separation it never had: a 105° arc is too narrow to tell nine people apart.
+The mechanism is sound but the drawings are not the standard the rest of the
+interface is held to. Rather than commissioning a set, the marks are replaced
+with a professionally-drawn open-source one — CC0, no attribution — pre-rendered
+and committed, so there is no new runtime dependency and a seat still stores one
+short id. One set of art at every size, chosen in the same dialog as today.
 
 - Status: Shipped in v0.5.0; follow-up work in v0.5.1
 - Target: v0.5.1
