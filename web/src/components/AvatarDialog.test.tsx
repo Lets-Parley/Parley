@@ -124,3 +124,50 @@ describe("AvatarDialog accessories", () => {
     expect(JSON.parse(init.body as string)).toEqual({ icon: "", accessory: "halo" });
   });
 });
+
+describe("AvatarDialog dev pack", () => {
+  it("offers the dev pack under a heading of its own", () => {
+    mockFetch();
+    renderApp(<AvatarDialog me={me} onClose={() => {}} />);
+    // A separate group from the crew, so the two sheets are not one long grid.
+    expect(screen.getByRole("group", { name: "Or one from the dev pack" })).toBeTruthy();
+    for (const name of ["Rubber duck", "Coffee", "Terminal", "Pager"]) {
+      expect(screen.getByRole("radio", { name })).toBeTruthy();
+    }
+    // The crew group is still there, and still holds the crew.
+    expect(screen.getByRole("group", { name: "Choose your mark" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Parrot" })).toBeTruthy();
+  });
+
+  it("picks one mark across both sheets, not one from each", async () => {
+    mockFetch();
+    renderApp(<AvatarDialog me={me} onClose={() => {}} />);
+    await userEvent.click(screen.getByRole("radio", { name: "Anchor" }));
+    expect((screen.getByRole("radio", { name: "Anchor" }) as HTMLInputElement).checked).toBe(true);
+    await userEvent.click(screen.getByRole("radio", { name: "Terminal" }));
+    expect((screen.getByRole("radio", { name: "Terminal" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("radio", { name: "Anchor" }) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("writes a chosen dev mark and reads it back on the next load", async () => {
+    const fetchMock = mockFetch();
+    const { unmount } = renderApp(<AvatarDialog me={me} onClose={() => {}} />);
+    await userEvent.click(screen.getByRole("radio", { name: "Rubber duck" }));
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const [path, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(path).toBe("/api/me/avatar");
+    expect(JSON.parse(init.body as string)).toEqual({ icon: "rubber-duck", accessory: "" });
+    unmount();
+
+    // What the server hands back on the next load is the same id, and it comes
+    // up selected rather than as an unknown that quietly resets to initials.
+    renderApp(<AvatarDialog me={{ ...me, avatarIcon: "rubber-duck" }} onClose={() => {}} />);
+    expect((screen.getByRole("radio", { name: "Rubber duck" }) as HTMLInputElement).checked).toBe(
+      true,
+    );
+    expect((screen.getByRole("radio", { name: "Initials" }) as HTMLInputElement).checked).toBe(
+      false,
+    );
+  });
+});

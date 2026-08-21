@@ -39,6 +39,53 @@ const paths: Record<string, ReactNode> = {
   ),
 };
 
+/**
+ * The dev pack: a second sheet for the people who would rather be a rubber
+ * duck than a parrot.
+ *
+ * A separate map rather than more entries in the one above, so the picker can
+ * offer the two sheets under their own headings without slicing a flat list at
+ * an index. It is a second static map and nothing more — avatar packs as a
+ * plugin point are #23's job, not this one's.
+ *
+ * The set is short on purpose. "Merge conflict" and "500" were drawn and cut:
+ * at the 17px the `sm` chip gives a glyph, the first reads as an ambiguous
+ * fork and the second as a grey smudge. A muddy silhouette is worse than an
+ * absent one.
+ */
+const devPaths: Record<string, ReactNode> = {
+  "rubber-duck": (
+    <g>
+      <circle cx="9" cy="6.8" r="4.8" />
+      <path d="M5.2 4.6.6 6.8l4.6 2.2z" />
+      <path d="M12 10.4c4.4 0 8 2.4 8 5.4s-3.6 5.6-8 5.6c-3.7 0-6.9-1.8-7.8-4.2H8c2.1 0 3.6-1.2 4-2.8z" />
+    </g>
+  ),
+  coffee: (
+    <g>
+      <path d="M4 7h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V7z" />
+      <path d="M17 9h1.5a2.5 2.5 0 0 1 0 5H17v-2h1.4a.5.5 0 0 0 0-1H17z" />
+      <rect x="2" y="19.4" width="17" height="2.2" rx="1.1" />
+    </g>
+  ),
+  // The prompt and the cursor are holes punched in the window, so the whole
+  // glyph stays one colour and still reads as a terminal at chip size.
+  terminal: (
+    <path
+      fillRule="evenodd"
+      d="M3 3h18a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm3.2 4.6L5 9.1l3.2 2.9L5 14.9l1.2 1.5 4.9-4.4-4.9-4.4zM12.8 16.4H18v-2.2h-5.2z"
+    />
+  ),
+  pager: (
+    <path
+      fillRule="evenodd"
+      d="M6.5 2h11a2.5 2.5 0 0 1 2.5 2.5v15a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2zM7.5 5h9v6h-9zm0 8.5H11v3H7.5zm5.5 0h3.5v3H13z"
+    />
+  ),
+};
+
+export const avatarDevIconIds = Object.keys(devPaths);
+
 export const avatarIconIds = Object.keys(paths);
 
 /** Human wording for the picker and for the chip's accessible name. */
@@ -51,6 +98,10 @@ export const avatarIconLabels: Record<string, string> = {
   gull: "Gull",
   buoy: "Buoy",
   crate: "Cargo crate",
+  "rubber-duck": "Rubber duck",
+  coffee: "Coffee",
+  terminal: "Terminal",
+  pager: "Pager",
 };
 
 /**
@@ -59,5 +110,11 @@ export const avatarIconLabels: Record<string, string> = {
  * degrades to initials rather than to a blank chip.
  */
 export function avatarIcon(id: string | undefined): ReactNode | null {
-  return id && Object.hasOwn(paths, id) ? paths[id] : null;
+  if (!id) return null;
+  // `hasOwn` before either index, or an id like `constructor` or `__proto__` —
+  // all of which pass the server's shape check — resolves to an inherited
+  // prototype value and lands in the tree as an invalid React child.
+  if (Object.hasOwn(paths, id)) return paths[id];
+  if (Object.hasOwn(devPaths, id)) return devPaths[id];
+  return null;
 }

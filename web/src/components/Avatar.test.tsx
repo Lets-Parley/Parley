@@ -188,3 +188,46 @@ describe("Avatar accessories", () => {
     expect(screen.getAllByRole("img")).toHaveLength(1);
   });
 });
+
+describe("Avatar dev icons", () => {
+  const dev = ["rubber-duck", "coffee", "terminal", "pager"];
+
+  it("draws every dev mark from sm up", () => {
+    for (const id of dev) {
+      for (const size of ["sm", "md", "lg"] as const) {
+        const { container, unmount } = render(
+          <Avatar name="Dana Whitfield" hue={200} icon={id} size={size} />,
+        );
+        expect(container.querySelector("svg")).toBeTruthy();
+        expect(screen.getByRole("img", { name: "Dana Whitfield" }).textContent).toBe("");
+        unmount();
+      }
+    }
+  });
+
+  it("falls back to initials at xs, same as the crew", () => {
+    for (const id of dev) {
+      const { container, unmount } = render(
+        <Avatar name="Dana Whitfield" hue={200} icon={id} size="xs" />,
+      );
+      expect(container.querySelector("svg")).toBeNull();
+      expect(screen.getByRole("img", { name: "Dana Whitfield" }).textContent).toBe("DW");
+      unmount();
+    }
+  });
+
+  it("still draws the crew unchanged now that a second sheet exists", () => {
+    for (const id of ["parrot", "kraken", "anchor", "lighthouse", "wheel", "gull", "buoy", "crate"]) {
+      const { container, unmount } = render(<Avatar name="Dana Whitfield" hue={200} icon={id} />);
+      expect(container.querySelector("svg")).toBeTruthy();
+      unmount();
+    }
+  });
+
+  it("wears an accessory over a dev mark just as it does over a crew one", () => {
+    const { container } = render(
+      <Avatar name="Dana Whitfield" hue={200} icon="rubber-duck" accessory="captain" />,
+    );
+    expect(container.querySelector('[data-accessory="captain"]')).toBeTruthy();
+  });
+});
