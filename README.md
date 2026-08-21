@@ -84,10 +84,12 @@ sit at.
 - **One memorable link per team.** `/s/platform-team`, and that's the URL you
   paste in chat.
 - **Protected by default.** New spaces get a six-character room code. People
-  enter the code, pick a name, get an avatar, and they're in. Any member can
+  enter the code, pick a name, and they're in. Any member can
   mint a new code, or open the space so the link alone is the invite.
 - **Roster with presence:** who's around, who's in a session, and a jump
   straight to the table they're sitting at.
+- **Customizable avatars.** Pick an icon and an accessory, and it follows you
+  through the roster, the table, and every standup.
 - **Session history**, searchable by title and filterable by kind, with a
   most-recent / active-first / A–Z sort.
 
@@ -328,7 +330,7 @@ by design.
 Parley runs in one of two modes, set by `AUTH_MODE` and fixed at boot.
 
 **`open`** is the default and the original: no accounts at all. People type a
-name, get an avatar, and take a seat. Nothing to administer, nothing to
+name and take a seat. Nothing to administer, nothing to
 provision, and a stranger with the link and the room code is a participant.
 
 **`oidc`** hands sign-in to your identity provider. There is no vendor-specific
