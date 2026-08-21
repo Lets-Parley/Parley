@@ -45,6 +45,9 @@ func TestAvatarReachesEveryWireSurface(t *testing.T) {
 	if first["avatarIcon"] != "fox" {
 		t.Errorf("space member = %v", first)
 	}
+	if _, ok := first["avatarAccessory"]; ok {
+		t.Errorf("space member still carries avatarAccessory: %v", first)
+	}
 
 	_, sess := createSession(t, srv, slug, "poker", "Sprint 1", cookie)
 	_, env := doJSON(t, srv, "GET", "/api/sessions/"+sess["id"].(string), "", cookie)
@@ -55,6 +58,9 @@ func TestAvatarReachesEveryWireSurface(t *testing.T) {
 	}
 	if _, ok := person["avatarHue"].(float64); !ok {
 		t.Errorf("participant avatarHue must be a number, got %#v", person["avatarHue"])
+	}
+	if _, ok := person["avatarAccessory"]; ok {
+		t.Errorf("participant still carries avatarAccessory: %v", person)
 	}
 }
 
