@@ -37,9 +37,9 @@ export function AvatarDialog({ me, onClose }: { me: Me; onClose: () => void }) {
       // envelope. An unfiltered invalidateQueries() would refetch every mounted
       // query in an active room instead, for a change nobody else can see yet.
       // The keys are prefixes — the dialog knows neither slug nor session id.
-      for (const key of [["me"], ["space"], ["session"]]) {
-        await qc.invalidateQueries({ queryKey: key });
-      }
+      await Promise.all(
+        [["me"], ["space"], ["session"]].map((queryKey) => qc.invalidateQueries({ queryKey })),
+      );
     } catch (e) {
       say(errorText(e));
     }
