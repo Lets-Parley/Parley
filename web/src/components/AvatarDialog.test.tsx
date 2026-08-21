@@ -101,7 +101,11 @@ describe("AvatarDialog accessories", () => {
     await userEvent.click(screen.getByRole("radio", { name: "Anchor" }));
     await userEvent.click(screen.getByRole("radio", { name: "Eyepatch" }));
     await userEvent.click(screen.getByRole("button", { name: "Close" }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    // Flush any pending async work (a second, sequential write included)
+    // before counting calls, so this cannot pass on the first of two writes.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(JSON.parse(init.body as string)).toEqual({ icon: "anchor", accessory: "eyepatch" });
   });
@@ -111,7 +115,11 @@ describe("AvatarDialog accessories", () => {
     renderApp(<AvatarDialog me={me} onClose={() => {}} />);
     await userEvent.click(screen.getByRole("radio", { name: "Halo" }));
     await userEvent.click(screen.getByRole("button", { name: "Close" }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    // Flush any pending async work (a second, sequential write included)
+    // before counting calls, so this cannot pass on the first of two writes.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(JSON.parse(init.body as string)).toEqual({ icon: "", accessory: "halo" });
   });
