@@ -128,6 +128,13 @@ describe("AvatarDialog selection affordance", () => {
     await userEvent.click(screen.getByRole("radio", { name: "Ada" }));
     expect(label.className).toContain("border-accent");
     expect(label.querySelector("[data-pip]")).not.toBeNull();
+
+    // The border is a selected-state marker, not a card-wide default: an
+    // unselected option must not carry it.
+    const other = (screen.getByRole("radio", { name: "Bo" }) as HTMLElement).closest(
+      "label",
+    ) as HTMLElement;
+    expect(other.className).not.toContain("border-accent");
   });
 
   it("leads the grid with a dashed None card, because no portrait is a real choice", () => {
@@ -198,6 +205,26 @@ describe("AvatarDialog saving", () => {
     await userEvent.click(screen.getByRole("radio", { name: "Bo" }));
     expect((screen.getByRole("radio", { name: "Bo" }) as HTMLInputElement).checked).toBe(true);
     release();
+  });
+
+  it("disables Save while a write is in flight, so a second click cannot double-submit", async () => {
+    let release = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    const fetchMock = vi.fn(async () => {
+      await held;
+      return new Response(JSON.stringify({ ...me }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp(<AvatarDialog me={me} onClose={() => {}} />);
+    await userEvent.click(screen.getByRole("radio", { name: "Ada" }));
+    await userEvent.click(save());
+    const savingButton = (await screen.findByRole("button", {
+      name: "Saving…",
+    })) as HTMLButtonElement;
+    expect(savingButton.disabled).toBe(true);
+    await userEvent.click(savingButton);
+    release();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   });
 
   it("discards nothing on failure, offers one retry, and clears the strip when it takes", async () => {
