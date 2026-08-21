@@ -33,9 +33,13 @@ export function AvatarDialog({ me, onClose }: { me: Me; onClose: () => void }) {
     if (picked === (me.avatarIcon ?? "") && worn === (me.avatarAccessory ?? "")) return;
     try {
       await api("PATCH", "/api/me/avatar", { icon: picked, accessory: worn });
-      // Every screen carries a person somewhere — me, the roster, the session
-      // envelope. Refetching the lot is one line and always right.
-      await qc.invalidateQueries();
+      // Only three keys carry an avatar: me, the space roster and the session
+      // envelope. An unfiltered invalidateQueries() would refetch every mounted
+      // query in an active room instead, for a change nobody else can see yet.
+      // The keys are prefixes — the dialog knows neither slug nor session id.
+      await Promise.all(
+        [["me"], ["space"], ["session"]].map((queryKey) => qc.invalidateQueries({ queryKey })),
+      );
     } catch (e) {
       say(errorText(e));
     }

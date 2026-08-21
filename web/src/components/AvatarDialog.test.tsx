@@ -199,3 +199,18 @@ describe("AvatarDialog dev pack", () => {
     );
   });
 });
+
+describe("AvatarDialog invalidation", () => {
+  it("invalidates only the keys that carry an avatar, not the whole cache", async () => {
+    mockFetch();
+    const { queryClient } = renderApp(<AvatarDialog me={me} onClose={() => {}} />);
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    await userEvent.click(screen.getByRole("radio", { name: "Anchor" }));
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    // An unfiltered invalidateQueries() refetches every mounted query in the
+    // room; only three keys carry an avatar.
+    const keys = spy.mock.calls.map(([f]) => (f as { queryKey?: unknown } | undefined)?.queryKey);
+    expect(keys).toEqual([["me"], ["space"], ["session"]]);
+  });
+});
