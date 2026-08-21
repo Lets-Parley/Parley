@@ -329,7 +329,6 @@ export function StandupRoom({
                     name={p.name}
                     hue={p.avatarHue}
                     icon={p.avatarIcon}
-                    accessory={p.avatarAccessory}
                     size="sm"
                     dim={e.skipped}
                   />
@@ -466,7 +465,6 @@ export function StandupRoom({
                         name={p.name}
                         hue={p.avatarHue}
                         icon={p.avatarIcon}
-                        accessory={p.avatarAccessory}
                         size="sm"
                       />
                       <span className="font-bold">{p.name}</span>
@@ -493,7 +491,6 @@ export function StandupRoom({
                 name={people.get(shown.userId)!.name}
                 hue={people.get(shown.userId)!.avatarHue}
                 icon={people.get(shown.userId)!.avatarIcon}
-                accessory={people.get(shown.userId)!.avatarAccessory}
                 size="lg"
               />
             )}

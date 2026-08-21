@@ -3,14 +3,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api, errorText, type Me } from "../lib/api";
 import { useToast } from "../lib/ui";
 import { Avatar } from "./Avatar";
-import { avatarAccessoryIds, avatarAccessoryLabels } from "./avatarAccessories";
-import { avatarDevIconIds, avatarIconIds, avatarIconLabels } from "./avatarIcons";
+import { avatarIconIds, avatarIconLabels } from "./avatarIcons";
 import { Modal } from "./Modal";
 
 /**
  * Pick the mark that goes on your chip.
  *
- * Two native radio groups, not a custom grid: roving tabindex, arrow keys and the
+ * One native radio group, not a custom grid: roving tabindex, arrow keys and the
  * selected-state announcement all come from the platform, and the fieldset
  * legend names each group once.
  *
@@ -25,14 +24,13 @@ export function AvatarDialog({ me, onClose }: { me: Me; onClose: () => void }) {
   const qc = useQueryClient();
   const say = useToast();
   const [picked, setPicked] = useState(me.avatarIcon ?? "");
-  const [worn, setWorn] = useState(me.avatarAccessory ?? "");
 
   async function save() {
     onClose();
     // Nothing chosen that was not already stored: no request, no broadcast.
-    if (picked === (me.avatarIcon ?? "") && worn === (me.avatarAccessory ?? "")) return;
+    if (picked === (me.avatarIcon ?? "")) return;
     try {
-      await api("PATCH", "/api/me/avatar", { icon: picked, accessory: worn });
+      await api("PATCH", "/api/me/avatar", { icon: picked });
       // Only three keys carry an avatar: me, the space roster and the session
       // envelope. An unfiltered invalidateQueries() would refetch every mounted
       // query in an active room instead, for a change nobody else can see yet.
@@ -45,20 +43,21 @@ export function AvatarDialog({ me, onClose }: { me: Me; onClose: () => void }) {
     }
   }
 
-  /** One sheet of marks. Two of them differ only by legend and id list. */
-  function sheet(legend: string, ids: string[], spacing: string) {
-    return (
-      <fieldset className={spacing + " border-0 p-0"}>
+  return (
+    <Modal title="Your avatar" onClose={() => void save()} width="26rem">
+      <fieldset className="mt-4 border-0 p-0">
         <legend className="mb-3 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
-          {legend}
+          Choose your mark
         </legend>
-        <div className="grid grid-cols-3 gap-2">
-          {ids.map((id) => (
+        <div className="grid grid-cols-5 gap-2">
+          {["", ...avatarIconIds].map((id) => (
             <label
               key={id}
               className={
                 "flex cursor-pointer flex-col items-center gap-1.5 rounded-chip border p-2 text-center text-[11px] font-bold focus-within:outline focus-within:outline-2 focus-within:outline-accent " +
-                (picked === id ? "border-accent bg-felt-deep" : "border-line hover:bg-felt-deep")
+                (picked === id
+                  ? "border-accent bg-felt-deep"
+                  : "border-line hover:bg-felt-deep")
               }
             >
               <input
@@ -73,55 +72,10 @@ export function AvatarDialog({ me, onClose }: { me: Me; onClose: () => void }) {
                 name={me.name}
                 hue={me.avatarHue}
                 icon={id}
-                accessory={worn}
                 size="md"
                 decorative
               />
               <span>{id ? avatarIconLabels[id] : "Initials"}</span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
-    );
-  }
-
-  return (
-    <Modal title="Your avatar" onClose={() => void save()} width="22rem">
-      {sheet("Choose your mark", ["", ...avatarIconIds], "mt-4")}
-      {/* A second fieldset, not a second radio group: both sheets share the
-          `avatar-icon` name, so you still pick one mark in total and the arrow
-          keys walk the whole set. The legend is only what tells them apart. */}
-      {sheet("Or one from the dev pack", avatarDevIconIds, "mt-5")}
-      <fieldset className="mt-5 border-0 p-0">
-        <legend className="mb-3 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
-          Add an accessory
-        </legend>
-        <div className="grid grid-cols-3 gap-2">
-          {["", ...avatarAccessoryIds].map((id) => (
-            <label
-              key={id}
-              className={
-                "flex cursor-pointer flex-col items-center gap-1.5 rounded-chip border p-2 text-center text-[11px] font-bold focus-within:outline focus-within:outline-2 focus-within:outline-accent " +
-                (worn === id ? "border-accent bg-felt-deep" : "border-line hover:bg-felt-deep")
-              }
-            >
-              <input
-                type="radio"
-                name="avatar-accessory"
-                value={id}
-                checked={worn === id}
-                onChange={() => setWorn(id)}
-                className="sr-only"
-              />
-              <Avatar
-                name={me.name}
-                hue={me.avatarHue}
-                icon={picked}
-                accessory={id}
-                size="md"
-                decorative
-              />
-              <span>{id ? avatarAccessoryLabels[id] : "None"}</span>
             </label>
           ))}
         </div>

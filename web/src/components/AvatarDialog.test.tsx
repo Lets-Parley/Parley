@@ -9,7 +9,7 @@ const me: Me = { id: "u1", name: "Dana Whitfield", avatarHue: 120, avatarIcon: "
 
 function mockFetch() {
   const fetchMock = vi.fn(async () =>
-    new Response(JSON.stringify({ ...me, avatarIcon: "anchor" }), {
+    new Response(JSON.stringify({ ...me, avatarIcon: "ada" }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     }),
@@ -22,21 +22,47 @@ beforeEach(() => vi.unstubAllGlobals());
 afterEach(() => vi.unstubAllGlobals());
 
 describe("AvatarDialog", () => {
-  it("offers the crew as one native radio group", () => {
+  it("offers the portrait sheet as one native radio group", () => {
     mockFetch();
     renderApp(<AvatarDialog me={me} onClose={() => {}} />);
     expect(screen.getByRole("group", { name: "Choose your mark" })).toBeTruthy();
-    expect(screen.getByRole("radio", { name: "Anchor" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Ada" })).toBeTruthy();
     // Unsetting is a choice of its own, not a missing option.
     expect((screen.getByRole("radio", { name: "Initials" }) as HTMLInputElement).checked).toBe(true);
+    // One group, one grid: the dev pack retired with the maritime set.
+    expect(screen.getAllByRole("group")).toHaveLength(1);
+    expect(screen.getAllByRole("radio")).toHaveLength(31);
+  });
+
+  // Half of the reload contract, and the half this component owns: a stored
+  // id arriving on the `me` prop renders selected rather than being treated
+  // as unknown and quietly falling back to "Initials". AvatarDialog is handed
+  // `me` by AppShell and has no refetch surface, so the genuine
+  // write-then-reload round trip lives in AppShell.test.tsx, under
+  // "the avatar survives a reload".
+  it("renders a stored portrait id handed in on the me prop as selected", () => {
+    mockFetch();
+    renderApp(<AvatarDialog me={{ ...me, avatarIcon: "zeke" }} onClose={() => {}} />);
+    expect((screen.getByRole("radio", { name: "Zeke" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("radio", { name: "Initials" }) as HTMLInputElement).checked).toBe(
+      false,
+    );
+  });
+
+  it("offers no retired id — the twelve old marks are gone, not hidden", () => {
+    mockFetch();
+    renderApp(<AvatarDialog me={me} onClose={() => {}} />);
+    for (const name of ["Parrot", "Kraken", "Anchor", "Rubber duck", "Coffee", "Terminal", "Pager"]) {
+      expect(screen.queryByRole("radio", { name })).toBeNull();
+    }
   });
 
   it("writes exactly once when the dialog is dismissed", async () => {
     const fetchMock = mockFetch();
     const onClose = vi.fn();
     renderApp(<AvatarDialog me={me} onClose={onClose} />);
-    await userEvent.click(screen.getByRole("radio", { name: "Anchor" }));
-    await userEvent.click(screen.getByRole("radio", { name: "Kraken" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Ada" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Bo" }));
     expect(fetchMock).not.toHaveBeenCalled();
 
     (screen.getByRole("dialog") as HTMLDialogElement).dispatchEvent(
@@ -50,7 +76,7 @@ describe("AvatarDialog", () => {
     const [path, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(path).toBe("/api/me/avatar");
     expect(init.method).toBe("PATCH");
-    expect(JSON.parse(init.body as string)).toEqual({ icon: "kraken", accessory: "" });
+    expect(JSON.parse(init.body as string)).toEqual({ icon: "bo" });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -69,128 +95,9 @@ describe("AvatarDialog", () => {
       vi.fn(async () => new Response(JSON.stringify({ error: "nope" }), { status: 500 })),
     );
     renderApp(<AvatarDialog me={me} onClose={() => {}} />);
-    await userEvent.click(screen.getByRole("radio", { name: "Anchor" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Ada" }));
     await userEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(await screen.findByRole("status")).toHaveProperty("textContent", "nope");
-  });
-});
-
-describe("AvatarDialog accessories", () => {
-  it("offers the accessories as a second native radio group with its own legend", () => {
-    mockFetch();
-    renderApp(<AvatarDialog me={me} onClose={() => {}} />);
-    expect(screen.getByRole("group", { name: "Add an accessory" })).toBeTruthy();
-    expect(screen.getByRole("radio", { name: "Captain's hat" })).toBeTruthy();
-    // "None" is the default, and is an option of its own rather than an absence.
-    expect((screen.getByRole("radio", { name: "None" }) as HTMLInputElement).checked).toBe(true);
-  });
-
-  it("lets a chosen accessory be taken off again", async () => {
-    mockFetch();
-    renderApp(<AvatarDialog me={{ ...me, avatarAccessory: "captain" }} onClose={() => {}} />);
-    expect((screen.getByRole("radio", { name: "Captain's hat" }) as HTMLInputElement).checked).toBe(
-      true,
-    );
-    await userEvent.click(screen.getByRole("radio", { name: "None" }));
-    expect((screen.getByRole("radio", { name: "None" }) as HTMLInputElement).checked).toBe(true);
-  });
-
-  it("sends the accessory along with the icon, in one write", async () => {
-    const fetchMock = mockFetch();
-    renderApp(<AvatarDialog me={me} onClose={() => {}} />);
-    await userEvent.click(screen.getByRole("radio", { name: "Anchor" }));
-    await userEvent.click(screen.getByRole("radio", { name: "Eyepatch" }));
-    await userEvent.click(screen.getByRole("button", { name: "Close" }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    // Flush any pending async work (a second, sequential write included)
-    // before counting calls, so this cannot pass on the first of two writes.
-    await new Promise((r) => setTimeout(r, 0));
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(JSON.parse(init.body as string)).toEqual({ icon: "anchor", accessory: "eyepatch" });
-  });
-
-  it("writes when only the accessory changed", async () => {
-    const fetchMock = mockFetch();
-    renderApp(<AvatarDialog me={me} onClose={() => {}} />);
-    await userEvent.click(screen.getByRole("radio", { name: "Halo" }));
-    await userEvent.click(screen.getByRole("button", { name: "Close" }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    // Flush any pending async work (a second, sequential write included)
-    // before counting calls, so this cannot pass on the first of two writes.
-    await new Promise((r) => setTimeout(r, 0));
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(JSON.parse(init.body as string)).toEqual({ icon: "", accessory: "halo" });
-  });
-});
-
-describe("AvatarDialog dev pack", () => {
-  it("offers the dev pack under a heading of its own", () => {
-    mockFetch();
-    renderApp(<AvatarDialog me={me} onClose={() => {}} />);
-    // A separate group from the crew, so the two sheets are not one long grid.
-    expect(screen.getByRole("group", { name: "Or one from the dev pack" })).toBeTruthy();
-    for (const name of ["Rubber duck", "Coffee", "Terminal", "Pager"]) {
-      expect(screen.getByRole("radio", { name })).toBeTruthy();
-    }
-    // The crew group is still there, and still holds the crew.
-    expect(screen.getByRole("group", { name: "Choose your mark" })).toBeTruthy();
-    expect(screen.getByRole("radio", { name: "Parrot" })).toBeTruthy();
-  });
-
-  it("picks one mark across both sheets, not one from each", async () => {
-    mockFetch();
-    renderApp(<AvatarDialog me={me} onClose={() => {}} />);
-    await userEvent.click(screen.getByRole("radio", { name: "Anchor" }));
-    expect((screen.getByRole("radio", { name: "Anchor" }) as HTMLInputElement).checked).toBe(true);
-    await userEvent.click(screen.getByRole("radio", { name: "Terminal" }));
-    expect((screen.getByRole("radio", { name: "Terminal" }) as HTMLInputElement).checked).toBe(true);
-    expect((screen.getByRole("radio", { name: "Anchor" }) as HTMLInputElement).checked).toBe(false);
-  });
-
-  it("shares one radio group name across both mark sheets", () => {
-    mockFetch();
-    renderApp(<AvatarDialog me={me} onClose={() => {}} />);
-    const names = new Set(
-      screen
-        .getAllByRole("radio")
-        .map((r) => (r as HTMLInputElement).name)
-        .filter((name) => name.startsWith("avatar-icon") && !name.includes("accessory")),
-    );
-    // Two fieldsets, one radio group: if the dev pack ever got its own `name`,
-    // the crew and the dev pack could each hold a checked radio at once, and
-    // "picks one mark across both sheets" above would stop being backed by
-    // the platform's own single-choice behavior.
-    expect(names.size).toBe(1);
-  });
-
-  it("writes a chosen dev mark with the id the dev pack renders", async () => {
-    const fetchMock = mockFetch();
-    renderApp(<AvatarDialog me={me} onClose={() => {}} />);
-    await userEvent.click(screen.getByRole("radio", { name: "Rubber duck" }));
-    await userEvent.click(screen.getByRole("button", { name: "Close" }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    const [path, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(path).toBe("/api/me/avatar");
-    expect(JSON.parse(init.body as string)).toEqual({ icon: "rubber-duck", accessory: "" });
-  });
-
-  // Half of the reload contract, and the half this component owns: a dev-pack
-  // id arriving on the `me` prop renders selected rather than being treated as
-  // unknown and quietly falling back to "Initials". AvatarDialog is handed
-  // `me` by AppShell and has no refetch surface, so the genuine
-  // write-then-reload round trip lives in AppShell.test.tsx, under
-  // "the avatar survives a reload".
-  it("renders a dev mark id handed in on the me prop as selected, not as an unknown reset to Initials", () => {
-    mockFetch();
-    renderApp(<AvatarDialog me={{ ...me, avatarIcon: "rubber-duck" }} onClose={() => {}} />);
-    expect((screen.getByRole("radio", { name: "Rubber duck" }) as HTMLInputElement).checked).toBe(
-      true,
-    );
-    expect((screen.getByRole("radio", { name: "Initials" }) as HTMLInputElement).checked).toBe(
-      false,
-    );
   });
 });
 
@@ -199,7 +106,7 @@ describe("AvatarDialog invalidation", () => {
     mockFetch();
     const { queryClient } = renderApp(<AvatarDialog me={me} onClose={() => {}} />);
     const spy = vi.spyOn(queryClient, "invalidateQueries");
-    await userEvent.click(screen.getByRole("radio", { name: "Anchor" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Ada" }));
     await userEvent.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(spy).toHaveBeenCalled());
     // An unfiltered invalidateQueries() refetches every mounted query in the

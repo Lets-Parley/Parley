@@ -72,162 +72,66 @@ describe("Avatar", () => {
   });
 });
 
-describe("Avatar icons", () => {
-  it("draws the chosen glyph instead of the initials", () => {
-    const { container } = render(<Avatar name="Dana Whitfield" hue={200} icon="anchor" />);
-    expect(container.querySelector("svg")).toBeTruthy();
+describe("Avatar portraits", () => {
+  it("draws the chosen portrait instead of the initials", () => {
+    const { container } = render(<Avatar name="Dana Whitfield" hue={200} icon="ada" />);
+    expect(container.querySelector("img")?.getAttribute("src")).toContain("ada");
     expect(screen.getByRole("img", { name: "Dana Whitfield" }).textContent).toBe("");
   });
 
-  it("keeps one accessible name — the glyph itself is hidden", () => {
-    const { container } = render(<Avatar name="Dana Whitfield" hue={200} icon="anchor" />);
-    expect(container.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+  it("fills the disc at every size that draws one, so nothing reads as mush", () => {
+    for (const [size, px] of [["sm", 28], ["md", 38], ["lg", 46]] as const) {
+      const { container, unmount } = render(
+        <Avatar name="Dana Whitfield" hue={200} icon="ada" size={size} />,
+      );
+      const img = container.querySelector("img")!;
+      expect(img.getAttribute("width")).toBe(String(px));
+      expect(img.getAttribute("height")).toBe(String(px));
+      unmount();
+    }
+  });
+
+  it("keeps one accessible name — the portrait itself is hidden", () => {
+    const { container } = render(<Avatar name="Dana Whitfield" hue={200} icon="ada" />);
+    const img = container.querySelector("img")!;
+    expect(img.getAttribute("aria-hidden")).toBe("true");
+    expect(img.getAttribute("alt")).toBe("");
     expect(screen.getAllByRole("img")).toHaveLength(1);
+  });
+
+  it("draws no portrait for a retired id — the twelve old marks are a visible reset", () => {
+    for (const id of ["parrot", "kraken", "anchor", "rubber-duck", "coffee", "terminal", "pager"]) {
+      const { container, unmount } = render(<Avatar name="Dana Whitfield" hue={200} icon={id} />);
+      expect(container.querySelector("img")).toBeNull();
+      expect(screen.getByRole("img", { name: "Dana Whitfield" }).textContent).toBe("DW");
+      unmount();
+    }
   });
 
   it("renders initials for an id it does not know rather than a blank chip", () => {
     const { container } = render(<Avatar name="Dana Whitfield" hue={200} icon="unicorn" />);
-    expect(container.querySelector("svg")).toBeNull();
+    expect(container.querySelector("img")).toBeNull();
     expect(screen.getByRole("img", { name: "Dana Whitfield" }).textContent).toBe("DW");
   });
 
-  it("renders initials at xs, where a silhouette has no clear area to live in", () => {
-    const { container } = render(<Avatar name="Dana Whitfield" hue={200} icon="anchor" size="xs" />);
-    expect(container.querySelector("svg")).toBeNull();
+  it("renders initials at xs, where a portrait has no clear area to live in", () => {
+    const { container } = render(<Avatar name="Dana Whitfield" hue={200} icon="ada" size="xs" />);
+    expect(container.querySelector("img")).toBeNull();
     expect(screen.getByRole("img", { name: "Dana Whitfield" }).textContent).toBe("DW");
   });
 
   it("renders initials when nothing was ever chosen", () => {
     const { container } = render(<Avatar name="Dana Whitfield" hue={200} icon="" />);
-    expect(container.querySelector("svg")).toBeNull();
+    expect(container.querySelector("img")).toBeNull();
     expect(screen.getByRole("img", { name: "Dana Whitfield" }).textContent).toBe("DW");
   });
 
   it("renders initials rather than an inherited prototype value for a hostile id", () => {
     for (const id of ["constructor", "hasownproperty", "tostring", "valueof", "__proto__"]) {
       const { container, unmount } = render(<Avatar name="Dana Whitfield" hue={200} icon={id} />);
-      expect(container.querySelector("svg")).toBeNull();
+      expect(container.querySelector("img")).toBeNull();
       expect(screen.getByRole("img", { name: "Dana Whitfield" }).textContent).toBe("DW");
       unmount();
     }
-  });
-});
-
-describe("Avatar accessories", () => {
-  it("overlays the chosen accessory from sm up", () => {
-    for (const size of ["sm", "md", "lg"] as const) {
-      const { container, unmount } = render(
-        <Avatar name="Dana Whitfield" hue={200} icon="anchor" accessory="captain" size={size} />,
-      );
-      expect(container.querySelector('[data-accessory="captain"]')).toBeTruthy();
-      unmount();
-    }
-  });
-
-  it("suppresses the accessory at xs, alongside the glyph", () => {
-    const { container } = render(
-      <Avatar name="Dana Whitfield" hue={200} icon="anchor" accessory="captain" size="xs" />,
-    );
-    expect(container.querySelector("[data-accessory]")).toBeNull();
-    expect(screen.getByRole("img", { name: "Dana Whitfield" }).textContent).toBe("DW");
-  });
-
-  it("renders no overlay for an id it does not know, and leaves the chip intact", () => {
-    const { container } = render(
-      <Avatar name="Dana Whitfield" hue={200} icon="anchor" accessory="sombrero" />,
-    );
-    expect(container.querySelector("[data-accessory]")).toBeNull();
-    expect(container.querySelector("svg")).toBeTruthy();
-    expect(screen.getAllByRole("img")).toHaveLength(1);
-  });
-
-  it("renders nothing extra when no accessory was chosen", () => {
-    const { container } = render(<Avatar name="Dana Whitfield" hue={200} icon="anchor" />);
-    expect(container.querySelector("[data-accessory]")).toBeNull();
-  });
-
-  it("draws no overlay for a hostile accessory id that names an inherited property", () => {
-    for (const id of ["constructor", "hasownproperty", "tostring", "valueof", "__proto__"]) {
-      const { container, unmount } = render(
-        <Avatar name="Dana Whitfield" hue={200} icon="anchor" accessory={id} />,
-      );
-      expect(container.querySelector("[data-accessory]")).toBeNull();
-      unmount();
-    }
-  });
-
-  it("keeps the overlay out of the bottom-right quadrant where the facilitator dot sits", () => {
-    const px = 38; // md
-    const { container } = render(
-      <Avatar name="Dana Whitfield" hue={200} accessory="captain" facilitator size="md" />,
-    );
-    const el = container.querySelector("[data-accessory]") as HTMLElement;
-    // Anchored to the top edge, and no taller than half the disc: the box can
-    // never reach the bottom half, which is where the dot lives.
-    expect(el.style.top).toBe("0px");
-    expect(el.style.bottom).toBe("");
-    expect(parseFloat(el.style.top) + parseFloat(el.style.height)).toBeLessThanOrEqual(px / 2);
-    // And the dot really is in that bottom-right corner.
-    const dot = screen.getByLabelText("facilitator") as HTMLElement;
-    expect(dot.className).toContain("-right-px");
-    expect(dot.className).toContain("-bottom-px");
-  });
-
-  it("adds no opacity of its own, so a dimmed chip dims the overlay with it", () => {
-    const { container } = render(
-      <Avatar name="Dana Whitfield" hue={200} accessory="captain" spectator />,
-    );
-    const el = container.querySelector("[data-accessory]") as HTMLElement;
-    expect(el.style.opacity).toBe("");
-    expect(screen.getByLabelText("Dana Whitfield").style.opacity).toBe("0.7");
-  });
-
-  it("hides the overlay from the accessibility tree", () => {
-    const { container } = render(<Avatar name="Dana Whitfield" hue={200} accessory="captain" />);
-    expect(container.querySelector("[data-accessory] svg")?.getAttribute("aria-hidden")).toBe("true");
-    expect(screen.getAllByRole("img")).toHaveLength(1);
-  });
-});
-
-describe("Avatar dev icons", () => {
-  const dev = ["rubber-duck", "coffee", "terminal", "pager"];
-
-  it("draws every dev mark from sm up", () => {
-    for (const id of dev) {
-      for (const size of ["sm", "md", "lg"] as const) {
-        const { container, unmount } = render(
-          <Avatar name="Dana Whitfield" hue={200} icon={id} size={size} />,
-        );
-        expect(container.querySelector("svg")).toBeTruthy();
-        expect(screen.getByRole("img", { name: "Dana Whitfield" }).textContent).toBe("");
-        unmount();
-      }
-    }
-  });
-
-  it("falls back to initials at xs, same as the crew", () => {
-    for (const id of dev) {
-      const { container, unmount } = render(
-        <Avatar name="Dana Whitfield" hue={200} icon={id} size="xs" />,
-      );
-      expect(container.querySelector("svg")).toBeNull();
-      expect(screen.getByRole("img", { name: "Dana Whitfield" }).textContent).toBe("DW");
-      unmount();
-    }
-  });
-
-  it("still draws the crew unchanged now that a second sheet exists", () => {
-    for (const id of ["parrot", "kraken", "anchor", "lighthouse", "wheel", "gull", "buoy", "crate"]) {
-      const { container, unmount } = render(<Avatar name="Dana Whitfield" hue={200} icon={id} />);
-      expect(container.querySelector("svg")).toBeTruthy();
-      unmount();
-    }
-  });
-
-  it("wears an accessory over a dev mark just as it does over a crew one", () => {
-    const { container } = render(
-      <Avatar name="Dana Whitfield" hue={200} icon="rubber-duck" accessory="captain" />,
-    );
-    expect(container.querySelector('[data-accessory="captain"]')).toBeTruthy();
   });
 });

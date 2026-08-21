@@ -1,0 +1,20 @@
+Parley
+Copyright the Parley contributors
+
+This product includes third-party material, listed below. Parley's own source
+is under the licence in LICENSE; the entries here are separate and keep their
+own terms.
+
+--------------------------------------------------------------------------
+
+Avatar portraits — web/src/assets/avatars/*.svg
+
+  "Voxel Art" (https://www.dicebear.com) by "DiceBear", licensed under
+  "CC0 1.0" (https://creativecommons.org/publicdomain/zero/1.0/).
+
+  Thirty portraits, generated once from the DiceBear "voxel-art" style and
+  committed as SVG. Nothing in Parley contacts api.dicebear.com at runtime.
+  See web/src/assets/avatars/README.md for the tool, version and seeds.
+
+  Of DiceBear's 55 styles, 14 are CC BY 4.0 and several others carry bespoke
+  terms; only CC0 1.0 styles may be committed here.
