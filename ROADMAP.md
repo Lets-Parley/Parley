@@ -33,6 +33,24 @@ AA in both themes.
 - Target: v0.3.0
 - Tracking: [#47](https://github.com/lets-parley/parley/issues/47)
 
+### An avatar you'd actually keep
+
+Every seat used to be initials on a hue derived from the user id, and two people
+who share initials were two near-identical chips. Picking a mark fixed that: a
+nautical crew and a dev-culture pack, drawn as flat silhouettes so the disc keeps
+supplying the identity colour.
+
+The marks work at chip size and the mechanism is sound, but the drawings are not
+the standard the rest of the interface is held to. Rather than commissioning a
+set, a portrait tier adopts a professionally-drawn open-source one — CC0, no
+attribution — at the sizes where an illustration has room to read, while the
+silhouettes stay where they already work. The identity disc itself gets the
+separation it never had: a 105° arc is too narrow to tell nine people apart.
+
+- Status: Shipped in v0.5.0; follow-up work in v0.5.1
+- Target: v0.5.1
+- Tracking: [#38](https://github.com/lets-parley/parley/issues/38), [#253](https://github.com/lets-parley/parley/issues/253)
+
 ## Next
 
 Accepted work, likely to be picked up after current priorities.
@@ -143,16 +161,6 @@ Depends on [#8](https://github.com/lets-parley/parley/issues/8).
 
 - Status: Backlog
 - Tracking: [#9](https://github.com/lets-parley/parley/issues/9)
-
-### Customizable avatars
-
-Pick an icon and an accessory for your seat — a nautical crew and a dev-culture
-pack — instead of the initials every roster shows today. In a poker table of
-nine, two people who share initials are two near-identical chips; the icon is
-what tells them apart.
-
-- Status: Backlog
-- Tracking: [#38](https://github.com/lets-parley/parley/issues/38)
 
 ### A parking lot with an owner and a clock
 
