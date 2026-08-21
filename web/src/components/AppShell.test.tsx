@@ -427,4 +427,14 @@ describe("the chip you wear", () => {
       expect(screen.getByRole("button", { name: "Dana Whitfield — choose your avatar" })).toBeTruthy(),
     );
   });
+
+  it("hides the duplicate visible name from the accessibility tree", async () => {
+    stubAuthMode("open");
+    renderShell();
+    const chip = screen.getByRole("button", { name: "Dana Whitfield — choose your avatar" });
+    const nameSpan = chip.querySelector("span.truncate");
+    expect(nameSpan).toBeTruthy();
+    expect(nameSpan?.getAttribute("aria-hidden")).not.toBeNull();
+    expect(nameSpan?.textContent).toBe("Dana Whitfield");
+  });
 });

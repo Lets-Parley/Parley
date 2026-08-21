@@ -42,7 +42,11 @@ describe("AvatarDialog", () => {
     (screen.getByRole("dialog") as HTMLDialogElement).dispatchEvent(
       new Event("cancel", { bubbles: false, cancelable: true }),
     );
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    // Flush any pending async work (a second, sequential write included)
+    // before counting calls, so this cannot pass on the first of two writes.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     const [path, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(path).toBe("/api/me/avatar");
     expect(init.method).toBe("PATCH");
