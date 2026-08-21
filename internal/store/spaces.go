@@ -49,8 +49,7 @@ type Member struct {
 	Role string `json:"role"`
 	// The chosen avatar, so a roster renders the same person the same way the
 	// session envelope does.
-	AvatarIcon      string `json:"avatarIcon"`
-	AvatarAccessory string `json:"avatarAccessory"`
+	AvatarIcon string `json:"avatarIcon"`
 }
 
 type Spaces struct {
@@ -184,7 +183,7 @@ func (s *Spaces) ForUser(ctx context.Context, userID string) ([]Membership, erro
 
 func (s *Spaces) Roster(ctx context.Context, spaceID string) ([]Member, error) {
 	rows, err := s.Pool.Query(ctx, `
-		select m.user_id, u.name, m.spectator, m.role, u.avatar_icon, u.avatar_accessory
+		select m.user_id, u.name, m.spectator, m.role, u.avatar_icon
 		from members m join users u on u.id = m.user_id
 		where m.space_id = $1
 		order by u.name`, spaceID)
@@ -195,7 +194,7 @@ func (s *Spaces) Roster(ctx context.Context, spaceID string) ([]Member, error) {
 	members := []Member{}
 	for rows.Next() {
 		var m Member
-		if err := rows.Scan(&m.UserID, &m.Name, &m.Spectator, &m.Role, &m.AvatarIcon, &m.AvatarAccessory); err != nil {
+		if err := rows.Scan(&m.UserID, &m.Name, &m.Spectator, &m.Role, &m.AvatarIcon); err != nil {
 			return nil, err
 		}
 		members = append(members, m)

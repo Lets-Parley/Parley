@@ -151,8 +151,7 @@ type Person struct {
 	AvatarHue int    `json:"avatarHue"`
 	Spectator bool   `json:"spectator"`
 	// The chosen avatar. Empty ids mean the client renders the hue alone.
-	AvatarIcon      string `json:"avatarIcon"`
-	AvatarAccessory string `json:"avatarAccessory"`
+	AvatarIcon string `json:"avatarIcon"`
 }
 
 func roster(ctx context.Context, pool *pgxpool.Pool, spaceID string) (string, []Person, error) {
@@ -161,7 +160,7 @@ func roster(ctx context.Context, pool *pgxpool.Pool, spaceID string) (string, []
 		return "", nil, err
 	}
 	rows, err := pool.Query(ctx, `
-		select m.user_id::text, u.name, m.spectator, u.avatar_icon, u.avatar_accessory
+		select m.user_id::text, u.name, m.spectator, u.avatar_icon
 		from members m join users u on u.id = m.user_id
 		where m.space_id = $1 order by u.name`, spaceID)
 	if err != nil {
@@ -171,7 +170,7 @@ func roster(ctx context.Context, pool *pgxpool.Pool, spaceID string) (string, []
 	people := []Person{}
 	for rows.Next() {
 		var p Person
-		if err := rows.Scan(&p.UserID, &p.Name, &p.Spectator, &p.AvatarIcon, &p.AvatarAccessory); err != nil {
+		if err := rows.Scan(&p.UserID, &p.Name, &p.Spectator, &p.AvatarIcon); err != nil {
 			return "", nil, err
 		}
 		p.AvatarHue = store.AvatarHue(p.UserID)
