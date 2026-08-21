@@ -64,8 +64,14 @@ export async function api<T = unknown>(
   return data as T;
 }
 
-/** avatarIcon is a client-side icon id, opaque to the server; empty means unset. */
-export type Me = { id: string; name: string; avatarHue: number; avatarIcon?: string };
+/** avatarIcon and avatarAccessory are client-side ids, opaque to the server; empty means unset. */
+export type Me = {
+  id: string;
+  name: string;
+  avatarHue: number;
+  avatarIcon?: string;
+  avatarAccessory?: string;
+};
 /** Where a member currently has a socket open, within this space only. */
 export type SeatRef = { sessionId: string; title: string };
 export type Person = {
@@ -74,6 +80,8 @@ export type Person = {
   avatarHue: number;
   /** Chosen icon id, opaque to the server. Empty or unknown renders initials. */
   avatarIcon?: string;
+  /** Chosen accessory id, opaque to the server. Empty or unknown draws nothing. */
+  avatarAccessory?: string;
   spectator: boolean;
   /** Space standing. Absent in session payloads, which do not carry roles. */
   role?: SpaceRole;

@@ -59,5 +59,5 @@ export const avatarIconLabels: Record<string, string> = {
  * degrades to initials rather than to a blank chip.
  */
 export function avatarIcon(id: string | undefined): ReactNode | null {
-  return (id && paths[id]) ?? null;
+  return id && Object.hasOwn(paths, id) ? paths[id] : null;
 }

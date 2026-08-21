@@ -1,3 +1,4 @@
+import { avatarAccessory } from "./avatarAccessories";
 import { avatarIcon } from "./avatarIcons";
 
 const sizes = { xs: 24, sm: 28, md: 38, lg: 46 } as const;
@@ -44,6 +45,8 @@ type Props = {
   hue: number;
   /** The chosen icon id, opaque to the server. Unknown ids fall back to initials. */
   icon?: string;
+  /** The chosen accessory id, opaque to the server. Unknown ids draw nothing. */
+  accessory?: string;
   size?: keyof typeof sizes;
   facilitator?: boolean;
   spectator?: boolean;
@@ -58,6 +61,7 @@ export function Avatar({
   name,
   hue,
   icon,
+  accessory,
   size = "md",
   facilitator,
   spectator,
@@ -65,6 +69,8 @@ export function Avatar({
   decorative,
 }: Props) {
   const px = sizes[size];
+  // Suppressed at xs alongside the glyph: 10px of clear area holds neither.
+  const worn = size === "xs" ? null : avatarAccessory(accessory);
   return (
     <span
       className="relative inline-flex select-none items-center justify-center rounded-full font-bold"
@@ -91,6 +97,32 @@ export function Avatar({
       aria-label={decorative ? undefined : name}
     >
       {face(name, size, px, icon)}
+      {worn && (
+        // Pinned to the top edge and never more than half the disc tall. The
+        // facilitator dot lives in the bottom-right corner, so confining the
+        // overlay to the top band is what keeps the two from ever meeting.
+        <span
+          className="pointer-events-none absolute"
+          style={{
+            top: 0,
+            left: px * 0.15,
+            width: px * 0.7,
+            height: px * 0.35,
+          }}
+          data-accessory={accessory}
+        >
+          <svg
+            viewBox="0 0 24 12"
+            width={px * 0.7}
+            height={px * 0.35}
+            fill="currentColor"
+            aria-hidden
+            focusable="false"
+          >
+            {worn}
+          </svg>
+        </span>
+      )}
       {facilitator && (
         <span
           className="absolute -right-px -bottom-px rounded-full bg-brass"

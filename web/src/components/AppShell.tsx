@@ -246,6 +246,7 @@ export function AppShell({
                         name={m.name}
                         hue={m.avatarHue}
                         icon={m.avatarIcon}
+                  accessory={m.avatarAccessory}
                         size="sm"
                         dim={!online.has(m.userId)}
                         decorative
@@ -349,6 +350,7 @@ export function AppShell({
                   name={m.name}
                   hue={m.avatarHue}
                   icon={m.avatarIcon}
+                  accessory={m.avatarAccessory}
                   size="sm"
                   dim={!online.has(m.userId)}
                   decorative
@@ -380,7 +382,14 @@ export function AppShell({
             aria-label={`${me.name} — choose your avatar`}
             className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-felt-deep py-1 pl-1 hover:bg-surface-hi sm:pr-3"
           >
-            <Avatar name={me.name} hue={me.avatarHue} icon={me.avatarIcon} size="sm" decorative />
+            <Avatar
+              name={me.name}
+              hue={me.avatarHue}
+              icon={me.avatarIcon}
+              accessory={me.avatarAccessory}
+              size="sm"
+              decorative
+            />
             {/* Visible only where there is room for it beside the title. */}
             <span
               aria-hidden
@@ -435,6 +444,7 @@ export function AppShell({
                   name={m.name}
                   hue={m.avatarHue}
                   icon={m.avatarIcon}
+                  accessory={m.avatarAccessory}
                   size="sm"
                   dim={!online.has(m.userId)}
                   decorative
