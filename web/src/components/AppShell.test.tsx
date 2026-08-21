@@ -410,3 +410,31 @@ describe("sidebar kind labels", () => {
     expect(unknown.querySelector("svg")).toBe(null);
   });
 });
+
+describe("the chip you wear", () => {
+  it("opens the avatar picker, and names you once while doing it", async () => {
+    stubAuthMode("open");
+    renderShell();
+    const chip = screen.getByRole("button", { name: "Dana Whitfield — choose your avatar" });
+    await userEvent.click(chip);
+    expect(await screen.findByRole("dialog", { name: "Your avatar" })).toBeTruthy();
+  });
+
+  it("is reachable under an identity provider, where the name gate returns early", async () => {
+    stubAuthMode("oidc");
+    renderShell();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Dana Whitfield — choose your avatar" })).toBeTruthy(),
+    );
+  });
+
+  it("hides the duplicate visible name from the accessibility tree", async () => {
+    stubAuthMode("open");
+    renderShell();
+    const chip = screen.getByRole("button", { name: "Dana Whitfield — choose your avatar" });
+    const nameSpan = chip.querySelector("span.truncate");
+    expect(nameSpan).toBeTruthy();
+    expect(nameSpan?.getAttribute("aria-hidden")).not.toBeNull();
+    expect(nameSpan?.textContent).toBe("Dana Whitfield");
+  });
+});

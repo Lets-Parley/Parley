@@ -42,7 +42,14 @@ export function Modal({
     <dialog
       ref={ref}
       onClose={onClose}
-      onCancel={onClose}
+      /* Escape fires cancel and then, once the dialog actually closes, close.
+         Reporting both handed the caller one dismissal twice — a duplicate
+         write under commit-on-close — so cancel only performs the close, and
+         the close event alone reports it. */
+      onCancel={(e) => {
+        e.preventDefault();
+        e.currentTarget.close();
+      }}
       aria-labelledby={titleId}
       className="relative m-auto rounded-panel border border-line bg-surface p-6 text-ink shadow-lift backdrop:bg-card-back/40 backdrop:backdrop-blur-[4px]"
       style={{ width: `min(92vw, ${width})`, animation: "modal-drop 280ms var(--ease-settle)" }}

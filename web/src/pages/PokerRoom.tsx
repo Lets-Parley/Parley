@@ -226,7 +226,7 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
             style={{ animation: "modal-drop 300ms var(--ease-settle)" }}
           >
             <span className="relative opacity-60">
-              <Avatar name={facilitator.name} hue={facilitator.avatarHue} size="md" />
+              <Avatar name={facilitator.name} hue={facilitator.avatarHue} icon={facilitator.avatarIcon} size="md" />
               <span className="absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full bg-brass ring-2 ring-surface" />
             </span>
             <div className="min-w-0 flex-1">

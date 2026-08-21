@@ -169,6 +169,7 @@ export function Table({
                 <Avatar
                   name={p.name}
                   hue={p.avatarHue}
+                  icon={p.avatarIcon}
                   size="lg"
                   facilitator={p.userId === facilitatorId}
                   dim={away}
@@ -204,7 +205,7 @@ export function Table({
             </div>
             {spectators.map((p) => (
               <div key={p.userId} className="flex items-center gap-2">
-                <Avatar name={p.name} hue={p.avatarHue} size="sm" spectator />
+                <Avatar name={p.name} hue={p.avatarHue} icon={p.avatarIcon} size="sm" spectator />
                 <span className="text-xs font-semibold text-ink-soft">
                   {p.name}
                   {p.userId === meId && " (you)"}

@@ -6,6 +6,7 @@ import { kindLabel } from "../lib/kinds";
 import type { ConnectionStatus } from "../lib/socket";
 import { useMediaQuery, useTheme } from "../lib/ui";
 import { Avatar } from "./Avatar";
+import { AvatarDialog } from "./AvatarDialog";
 import { ConnectionBanner } from "./ConnectionBanner";
 import { KindChip } from "./KindChip";
 import { MemberCard } from "./MemberCard";
@@ -151,6 +152,7 @@ export function AppShell({
   const [sideOpen, setSideOpen] = useState(() => sidebarDefault && wide);
   const [who, setWho] = useState<string | null>(null);
   const [rosterOpen, setRosterOpen] = useState(false);
+  const [avatarOpen, setAvatarOpen] = useState(false);
   const mode = useAuthMode();
   // Only offered where it means something. In open mode the identity is just a
   // name in a cookie, and "sign out" would promise more than it does.
@@ -243,6 +245,7 @@ export function AppShell({
                       <Avatar
                         name={m.name}
                         hue={m.avatarHue}
+                        icon={m.avatarIcon}
                         size="sm"
                         dim={!online.has(m.userId)}
                         decorative
@@ -342,7 +345,14 @@ export function AppShell({
                 style={{ marginLeft: i ? -8 : 0 }}
                 className="rounded-full ring-2 ring-surface"
               >
-                <Avatar name={m.name} hue={m.avatarHue} size="sm" dim={!online.has(m.userId)} decorative />
+                <Avatar
+                  name={m.name}
+                  hue={m.avatarHue}
+                  icon={m.avatarIcon}
+                  size="sm"
+                  dim={!online.has(m.userId)}
+                  decorative
+                />
               </button>
             ))}
             {overflow > 0 && (
@@ -363,14 +373,22 @@ export function AppShell({
         {me && (
           /* On a phone the room's name outranks your own — you already know
              who you are, and the chip still says it. */
-          <span className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-felt-deep py-1 pl-1 sm:pr-3">
-            <Avatar name={me.name} hue={me.avatarHue} size="sm" decorative />
-            {/* Always in the accessible name; visible only where there is room
-                for it beside the title. */}
-            <span className="sr-only max-w-24 truncate text-[13px] font-bold sm:not-sr-only lg:max-w-48">
+          <button
+            onClick={() => setAvatarOpen(true)}
+            /* One name, said once: the chip announces it here, so the Avatar
+               inside stays decorative and the visible span is not read again. */
+            aria-label={`${me.name} — choose your avatar`}
+            className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-felt-deep py-1 pl-1 hover:bg-surface-hi sm:pr-3"
+          >
+            <Avatar name={me.name} hue={me.avatarHue} icon={me.avatarIcon} size="sm" decorative />
+            {/* Visible only where there is room for it beside the title. */}
+            <span
+              aria-hidden
+              className="hidden max-w-24 truncate text-[13px] font-bold sm:inline lg:max-w-48"
+            >
               {me.name}
             </span>
-          </span>
+          </button>
         )}
 
         {me && signedIn && (
@@ -416,6 +434,7 @@ export function AppShell({
                 <Avatar
                   name={m.name}
                   hue={m.avatarHue}
+                  icon={m.avatarIcon}
                   size="sm"
                   dim={!online.has(m.userId)}
                   decorative
@@ -429,6 +448,8 @@ export function AppShell({
           </ul>
         </Modal>
       )}
+
+      {me && avatarOpen && <AvatarDialog me={me} onClose={() => setAvatarOpen(false)} />}
 
       {/* Looked up rather than asserted: a roster refresh can drop the member
           whose card is open, and a stale id must close the card, not crash. */}
