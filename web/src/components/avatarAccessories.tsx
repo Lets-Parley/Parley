@@ -52,5 +52,5 @@ export const avatarAccessoryLabels: Record<string, string> = {
  * missing hat rather than a broken chip.
  */
 export function avatarAccessory(id: string | undefined): ReactNode | null {
-  return (id && paths[id]) ?? null;
+  return id && Object.hasOwn(paths, id) ? paths[id] : null;
 }

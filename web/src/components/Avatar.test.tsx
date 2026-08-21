@@ -102,6 +102,15 @@ describe("Avatar icons", () => {
     expect(container.querySelector("svg")).toBeNull();
     expect(screen.getByRole("img", { name: "Dana Whitfield" }).textContent).toBe("DW");
   });
+
+  it("renders initials rather than an inherited prototype value for a hostile id", () => {
+    for (const id of ["constructor", "hasownproperty", "tostring", "valueof", "__proto__"]) {
+      const { container, unmount } = render(<Avatar name="Dana Whitfield" hue={200} icon={id} />);
+      expect(container.querySelector("svg")).toBeNull();
+      expect(screen.getByRole("img", { name: "Dana Whitfield" }).textContent).toBe("DW");
+      unmount();
+    }
+  });
 });
 
 describe("Avatar accessories", () => {
@@ -135,6 +144,16 @@ describe("Avatar accessories", () => {
   it("renders nothing extra when no accessory was chosen", () => {
     const { container } = render(<Avatar name="Dana Whitfield" hue={200} icon="anchor" />);
     expect(container.querySelector("[data-accessory]")).toBeNull();
+  });
+
+  it("draws no overlay for a hostile accessory id that names an inherited property", () => {
+    for (const id of ["constructor", "hasownproperty", "tostring", "valueof", "__proto__"]) {
+      const { container, unmount } = render(
+        <Avatar name="Dana Whitfield" hue={200} icon="anchor" accessory={id} />,
+      );
+      expect(container.querySelector("[data-accessory]")).toBeNull();
+      unmount();
+    }
   });
 
   it("keeps the overlay out of the bottom-right quadrant where the facilitator dot sits", () => {
