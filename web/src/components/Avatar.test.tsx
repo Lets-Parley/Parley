@@ -71,3 +71,35 @@ describe("Avatar", () => {
     expect(screen.getByLabelText("A B").style.opacity).toBe("1");
   });
 });
+
+describe("Avatar icons", () => {
+  it("draws the chosen glyph instead of the initials", () => {
+    const { container } = render(<Avatar name="Dana Whitfield" hue={200} icon="anchor" />);
+    expect(container.querySelector("svg")).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Dana Whitfield" }).textContent).toBe("");
+  });
+
+  it("keeps one accessible name — the glyph itself is hidden", () => {
+    const { container } = render(<Avatar name="Dana Whitfield" hue={200} icon="anchor" />);
+    expect(container.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    expect(screen.getAllByRole("img")).toHaveLength(1);
+  });
+
+  it("renders initials for an id it does not know rather than a blank chip", () => {
+    const { container } = render(<Avatar name="Dana Whitfield" hue={200} icon="unicorn" />);
+    expect(container.querySelector("svg")).toBeNull();
+    expect(screen.getByRole("img", { name: "Dana Whitfield" }).textContent).toBe("DW");
+  });
+
+  it("renders initials at xs, where a silhouette has no clear area to live in", () => {
+    const { container } = render(<Avatar name="Dana Whitfield" hue={200} icon="anchor" size="xs" />);
+    expect(container.querySelector("svg")).toBeNull();
+    expect(screen.getByRole("img", { name: "Dana Whitfield" }).textContent).toBe("DW");
+  });
+
+  it("renders initials when nothing was ever chosen", () => {
+    const { container } = render(<Avatar name="Dana Whitfield" hue={200} icon="" />);
+    expect(container.querySelector("svg")).toBeNull();
+    expect(screen.getByRole("img", { name: "Dana Whitfield" }).textContent).toBe("DW");
+  });
+});

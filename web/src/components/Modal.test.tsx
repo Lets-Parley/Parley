@@ -140,3 +140,18 @@ describe("Modal", () => {
     expect(screen.getByRole("dialog").style.width).toContain("92vw");
   });
 });
+
+describe("Modal dismissal", () => {
+  it("reports one dismissal, not two, when Escape cancels it", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal title="Your avatar" onClose={onClose}>
+        body
+      </Modal>,
+    );
+    const dialog = screen.getByRole("dialog") as HTMLDialogElement;
+    dialog.dispatchEvent(new Event("cancel", { bubbles: false, cancelable: true }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(dialog.open).toBe(false);
+  });
+});

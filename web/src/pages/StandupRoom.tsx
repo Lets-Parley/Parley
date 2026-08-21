@@ -325,7 +325,7 @@ export function StandupRoom({
                   decorative here — otherwise it doubles the button's name. */}
               {p && (
                 <span aria-hidden="true">
-                  <Avatar name={p.name} hue={p.avatarHue} size="sm" dim={e.skipped} />
+                  <Avatar name={p.name} hue={p.avatarHue} icon={p.avatarIcon} size="sm" dim={e.skipped} />
                 </span>
               )}
               {/* A group opacity wrapper would multiply through the name and
@@ -455,7 +455,7 @@ export function StandupRoom({
                 <ul className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                   {waitingOn.map((p) => (
                     <li key={p.userId} className="flex items-center gap-1.5">
-                      <Avatar name={p.name} hue={p.avatarHue} size="sm" />
+                      <Avatar name={p.name} hue={p.avatarHue} icon={p.avatarIcon} size="sm" />
                       <span className="font-bold">{p.name}</span>
                     </li>
                   ))}
@@ -476,7 +476,12 @@ export function StandupRoom({
         <section className="flex flex-col gap-4 rounded-panel bg-surface p-6 shadow-rest">
           <div className="flex items-center gap-3">
             {people.get(shown.userId) && (
-              <Avatar name={people.get(shown.userId)!.name} hue={people.get(shown.userId)!.avatarHue} size="lg" />
+              <Avatar
+                name={people.get(shown.userId)!.name}
+                hue={people.get(shown.userId)!.avatarHue}
+                icon={people.get(shown.userId)!.avatarIcon}
+                size="lg"
+              />
             )}
             <h2 className="font-display text-2xl font-semibold">{people.get(shown.userId)?.name}</h2>
           </div>

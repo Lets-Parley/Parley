@@ -37,7 +37,7 @@ export function MemberCard({
   return (
     <Modal title={member.name} onClose={onClose} width="300px">
       <div className="flex items-center gap-3">
-        <Avatar name={member.name} hue={member.avatarHue} size="md" />
+        <Avatar name={member.name} hue={member.avatarHue} icon={member.avatarIcon} size="md" />
         <p className="font-mono text-[10px] text-ink-faint">{where}</p>
       </div>
 

@@ -1,3 +1,5 @@
+import { avatarIcon } from "./avatarIcons";
+
 const sizes = { xs: 24, sm: 28, md: 38, lg: 46 } as const;
 
 export function initialsOf(name: string): string {
@@ -7,9 +9,41 @@ export function initialsOf(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+/**
+ * The mark inside the disc.
+ *
+ * Written as early returns so the "no avatar chosen" case — still every
+ * person on a fresh install — keeps its own branch and renders exactly the
+ * initials it always did, rather than falling out of a conditional woven
+ * through a restructured tree.
+ */
+function face(name: string, size: keyof typeof sizes, px: number, icon?: string) {
+  // At 24px the facilitator dot leaves roughly 10px of clear area, which no
+  // detailed silhouette survives. Initials always win there.
+  if (size === "xs") return initialsOf(name);
+  const glyph = avatarIcon(icon);
+  // Unset, or an id this build does not know — a newer client's choice
+  // degrades to initials instead of to a blank chip.
+  if (!glyph) return initialsOf(name);
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={Math.round(px * 0.62)}
+      height={Math.round(px * 0.62)}
+      fill="currentColor"
+      aria-hidden
+      focusable="false"
+    >
+      {glyph}
+    </svg>
+  );
+}
+
 type Props = {
   name: string;
   hue: number;
+  /** The chosen icon id, opaque to the server. Unknown ids fall back to initials. */
+  icon?: string;
   size?: keyof typeof sizes;
   facilitator?: boolean;
   spectator?: boolean;
@@ -23,6 +57,7 @@ type Props = {
 export function Avatar({
   name,
   hue,
+  icon,
   size = "md",
   facilitator,
   spectator,
@@ -55,7 +90,7 @@ export function Avatar({
       aria-hidden={decorative || undefined}
       aria-label={decorative ? undefined : name}
     >
-      {initialsOf(name)}
+      {face(name, size, px, icon)}
       {facilitator && (
         <span
           className="absolute -right-px -bottom-px rounded-full bg-brass"
