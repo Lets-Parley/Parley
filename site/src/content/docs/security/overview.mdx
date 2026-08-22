@@ -1,13 +1,13 @@
 ---
-title: What a room code protects
-description: What a room code protects, what it does not, and what a database dump discloses.
+title: What a passcode protects
+description: What a passcode protects, what it does not, and what a database dump discloses.
 ---
 
 ## No accounts, by default
 
-In `open` mode a space is guarded by a shared room code, not by identity.
+In `open` mode a space is guarded by a shared passcode, not by identity.
 Anyone holding the code can join, see the roster, vote, write their own standup
-entry, and change the room code. Story mutations and meeting controls are
+entry, and change the passcode. Story mutations and meeting controls are
 facilitator-only. Joins are broadcast to the room, so lurking is visible.
 
 Open mode is trusted-network-only. For public reachability, keep spaces
@@ -17,16 +17,25 @@ identifies participants but does not by itself restrict who reaches the instance
 or which space they may join. The [reverse proxy](/operations/reverse-proxy/)
 guide shows where those controls sit.
 
-## Room codes
+## Passcodes
 
 Six characters from a 25-character alphabet, and wrong guesses are throttled per
 client address.
 
-They are stored **readable** in the database on purpose. A room code is meant to
+They are stored **readable** in the database on purpose. A passcode is meant to
 be read off the space page by any member and passed on, the way a Meet or Zoom
 code is, so hashing it would only mean nobody could ever see it again.
 
-Treat a database dump as disclosing the room codes of every space — but not any
+**Copy invite** builds a link carrying the passcode in the URL fragment
+(`/s/team#c=V4KW7J`), so one click both opens the space and presents the code.
+A fragment is never sent to the server and never appears in a `Referer` header,
+which keeps it out of access logs, proxy history, and the analytics of any site
+clicked through to afterwards; the app wipes it from the address bar on arrival
+so it does not persist in history or a bookmark. None of that makes the link
+less sensitive than the passcode it contains — anywhere you would not paste the
+code, do not paste the link.
+
+Treat a database dump as disclosing the passcodes of every space — but not any
 member's identity. Session cookies are opaque random tokens stored hashed, so a
 backup contains no credentials that impersonate a person.
 

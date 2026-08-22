@@ -15,7 +15,7 @@ Module `github.com/lets-parley/parley`, Go 1.26.3, chi + pgx + gorilla/websocket
 | Path | Contents |
 | --- | --- |
 | `cmd/parley/` | config from env, boot, graceful shutdown |
-| `internal/api/` | chi router, identity, spaces, sessions, room codes, authz, export, WebSocket |
+| `internal/api/` | chi router, identity, spaces, sessions, passcodes, authz, export, WebSocket |
 | `internal/auth/` | OpenID Connect relying party |
 | `internal/db/` | pool, `migrations/*.sql` (embedded, run at boot behind an advisory lock) |
 | `internal/hub/` | WebSocket fan-out and presence |

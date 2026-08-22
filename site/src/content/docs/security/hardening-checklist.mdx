@@ -108,9 +108,9 @@ fallback for `object-src`, `script-src`, `connect-src` and `font-src`, so those
 are covered; `X-Frame-Options: DENY` covers framing. The one genuine loosening is
 `style-src 'unsafe-inline'`, which the frontend needs today.
 
-## 4. Decide what a room code is worth to you
+## 4. Decide what a passcode is worth to you
 
-A room code gates a space; it is not identity, it is stored readable, and any
+A passcode gates a space; it is not identity, it is stored readable, and any
 member can rotate it or remove it — the owner role does not narrow that. See the
 [threat model](/security/threat-model/).
 
@@ -123,7 +123,7 @@ controls. Depending on your data, also consider:
   attributable.
 - Put an SSO proxy — oauth2-proxy, Authelia, Cloudflare Access — in front of the
   whole instance, which is the only way today to require identity *before* the
-  room code.
+  passcode.
 
 ## 5. Lock down the database
 
@@ -175,7 +175,7 @@ successful hardened release. Releases v0.1.0 through v0.2.1 were not backfilled.
   Every member carries a role of `owner` or `member`, and only an owner may
   promote, demote, or remove a member — but ownership stops at the space
   boundary and covers nothing else. Any member may still change or remove the
-  room code; story mutations and session controls are facilitator-only, not
+  passcode; story mutations and session controls are facilitator-only, not
   owner-only. Nobody administers the instance: there is no operator account and
   no cross-space view, so an instance-wide action is a SQL statement. A member
   writes only their own rows: their poker vote, their standup entry, and their

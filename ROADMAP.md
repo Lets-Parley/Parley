@@ -243,7 +243,7 @@ Ideas under consideration, not committed to.
 - Planning poker: story queue, four decks, hidden votes, deck-aware statistics
 - Daily standup: round-robin with a per-person timer and carried-over updates
 - Spaces with memorable links, a roster, and session history
-- Room codes, with per-address throttling on wrong guesses
+- Passcodes, with per-address throttling on wrong guesses
 - CSV export
 - A documentation site at [letsparley.io](https://www.letsparley.io)
 

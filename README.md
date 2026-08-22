@@ -83,7 +83,7 @@ sit at.
 
 - **One memorable link per team.** `/s/platform-team`, and that's the URL you
   paste in chat.
-- **Protected by default.** New spaces get a six-character room code. People
+- **Protected by default.** New spaces get a six-character passcode. People
   enter the code, pick a name, and they're in. Any member can
   mint a new code, or open the space so the link alone is the invite.
 - **Roster with presence:** who's around, who's in a session, and a jump
@@ -118,7 +118,7 @@ sit at.
 | | |
 |---|---|
 | ![Standup in progress](docs/screenshot-standup.png) | ![The space page](docs/screenshot-space.png) |
-| A standup mid-rotation, timer running | Sessions, roster, and the room code |
+| A standup mid-rotation, timer running | Sessions, roster, and the passcode |
 
 ![The same round in dark mode](docs/screenshot-poker-dark.png)
 
@@ -331,7 +331,7 @@ Parley runs in one of two modes, set by `AUTH_MODE` and fixed at boot.
 
 **`open`** is the default and the original: no accounts at all. People type a
 name and take a seat. Nothing to administer, nothing to
-provision, and a stranger with the link and the room code is a participant.
+provision, and a stranger with the link and the passcode is a participant.
 
 **`oidc`** hands sign-in to your identity provider. There is no vendor-specific
 code in Parley — it is a plain OpenID Connect relying party that reads the
@@ -361,7 +361,7 @@ Two things worth knowing before you switch a running instance:
   accounts and rooms stay in the database, untouched and unmigrated, but the
   people behind them come back as new federated accounts. There is no account
   linking yet, so old votes and entries remain attributed to the old display
-  records. Federated users can rejoin an existing space with its room code.
+  records. Federated users can rejoin an existing space with its passcode.
 
 Names come from the provider's claims — `name`, then `preferred_username`, then
 the local part of `email` — and refresh on every sign-in, so a rename upstream
@@ -371,19 +371,19 @@ does not sign anyone out of the identity provider.
 ## Security model
 
 In `open` mode Parley has **no user accounts**. A space is guarded by a shared
-room code, not by identity: anyone holding the code can join, see the roster,
+passcode, not by identity: anyone holding the code can join, see the roster,
 vote, and write their own standup entry. Joins are broadcast to the room, so
 lurking is visible. Open mode is trusted-network-only. A public deployment
 needs a passcode or an external SSO/authentication proxy in front of the whole
 instance, plus ingress abuse controls.
 
-Room codes work the same either way. Identity says who you are; the code says
+Passcodes work the same either way. Identity says who you are; the code says
 which room you may enter. Signing in does not by itself get anyone into a
 space — per-user and per-team access to a space is still on the roadmap.
 
-Room codes are six characters from a 25-character alphabet, and wrong guesses
+Passcodes are six characters from a 25-character alphabet, and wrong guesses
 are throttled per client address. They are stored **readable** in the database
-on purpose: a room code is meant to be read off the space page by any member
+on purpose: a passcode is meant to be read off the space page by any member
 and passed on, the way a Meet or Zoom code is, so hashing it would only mean
 nobody could ever see it again. Treat a database dump as disclosing the room
 codes of every space — but not any member's identity. Session cookies remain
@@ -491,7 +491,7 @@ running packages in parallel makes them fight over the schema.
 | Path | What lives there |
 |---|---|
 | `cmd/parley` | main — config, boot, graceful shutdown |
-| `internal/api` | HTTP router, identity, spaces, sessions, room codes |
+| `internal/api` | HTTP router, identity, spaces, sessions, passcodes |
 | `internal/poker`, `internal/standup` | the session kinds |
 | `internal/session` | the registry the kinds plug into, plus CSV |
 | `internal/hub` | WebSocket fan-out and presence |

@@ -22,7 +22,7 @@ anyone who can guess an identifier. The same applies to the WebSocket, where
 membership is verified before the connection is upgraded.
 
 A non-member looking up a space gets its name and whether it is protected, and
-nothing else — no roster, no session list, no room code.
+nothing else — no roster, no session list, no passcode.
 
 ## Space owner
 
@@ -30,6 +30,19 @@ Every member carries a role on `members.role`: `owner` or `member`. The person
 who creates a space is seeded as its owner. Only an owner may promote another
 member to owner, demote an owner back to member, or remove a member from the
 space.
+
+An owner also owns the space itself: renaming it, deleting it, and renaming or
+deleting any session in it. All five routes go through the same
+`requireSpaceOwner` middleware, which resolves the slug, reads the caller's
+role, and answers `403` to a member and `404` to anyone outside the space.
+
+The room-level split is deliberate. **Closing** a session ends a meeting and is
+the facilitator's, because it is part of running one; the record survives and
+it can be reopened. **Deleting** a session discards it and is the owner's,
+because it is housekeeping on the space. The delete route is addressed through
+the space (`DELETE /api/spaces/{slug}/sessions/{id}`) and its SQL is scoped by
+`space_id` as well as by id, so owning one space can never reach a session in
+another even with its id in hand.
 
 Two guard rails are enforced in the database transaction, not in the UI:
 
@@ -57,7 +70,7 @@ that connection's next revalidation tick instead, so the worst-case window
 there is one revalidation interval — capped at 30 seconds, and 30 seconds is
 the default. Reconnecting fails the membership check at the handshake.
 
-Removal is not a ban — they can knock again with a current room code, and come
+Removal is not a ban — they can knock again with a current passcode, and come
 back as a plain member.
 
 ## Facilitator
@@ -103,9 +116,9 @@ toggle, not a permission an administrator grants.
 ## What there is not
 
 <Capability rows={[
-  { name: "Roles beyond owner and member", status: "not-built", detail: "Ownership covers membership management. Any member — owner or not — can still rotate the room code or open the space." },
-  { name: "Per-user or per-team space access", status: "not-built", detail: "A room code is the only gate. Signing in with OIDC proves who you are but grants nothing by itself." },
-  { name: "Removing a session participant", status: "not-built", detail: "A facilitator can hand the role to another member, but there is no eject-from-this-session-only control. Remove them from the space instead, or rotate the room code." },
-  { name: "Deleting a space or session", status: "not-built", detail: "Sessions can be closed but not deleted. Delete rows in Postgres if you must — the <a href='/reference/database-schema/'>schema</a> is documented." },
+  { name: "Roles beyond owner and member", status: "not-built", detail: "Ownership covers membership management and the space itself — renaming and deleting the space and its sessions. It does not cover the door: any member, owner or not, can still rotate the passcode or open the space." },
+  { name: "Per-user or per-team space access", status: "not-built", detail: "A passcode is the only gate. Signing in with OIDC proves who you are but grants nothing by itself." },
+  { name: "Removing a session participant", status: "not-built", detail: "A facilitator can hand the role to another member, but there is no eject-from-this-session-only control. Remove them from the space instead, or rotate the passcode." },
+  { name: "Undo, or an audit trail, for a deletion", status: "not-built", detail: "An owner can delete a space or a session, and it is gone — no soft delete, no archive, no record that it existed. Restore from a <a href='/operations/backups-and-recovery/'>backup</a> if you need one back." },
   { name: "Read-only or guest access", status: "not-built", detail: "Spectator mode is the closest thing: no seat, no vote, but full read access." },
 ]} />

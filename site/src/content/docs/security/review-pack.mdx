@@ -23,13 +23,13 @@ configure.
 - **Data**: everything is in your Postgres.
 - **Identity**: none by default on a trusted network; optionally any OpenID
   Connect provider, or an external authentication proxy for public access.
-- **Access control**: a six-character room code per space, plus an owner role
+- **Access control**: a six-character passcode per space, plus an owner role
   that gates membership management within it.
 
 ## The one-paragraph summary
 
 Parley is designed for a team that trusts each other and an operator who does
-not want an account system. Its space boundary is a shared room code, not
+not want an account system. Its space boundary is a shared passcode, not
 identity — anyone holding a code has participation in that space, and any
 member can change or remove that code. Inside a session, story mutations and
 meeting controls are facilitator-only; ordinary members retain voting, their own
@@ -37,7 +37,7 @@ standup entries, and their own standup readiness signal. The interesting protect
 *vote secrecy* (strong, and structural) and *not disclosing what exists to
 strangers* (also strong). The gaps are concentrated in operations and governance:
 no instance-wide administrator (the owner role is per space, and gates
-membership management only — not the room code), no audit log (a `LOG_LEVEL=debug`
+membership management only — not the passcode), no audit log (a `LOG_LEVEL=debug`
 opt-in logs the resolved client address and forwarding chain per request for
 proxy diagnosis; it is neither retained nor queryable as an audit trail), no
 retention or erasure
@@ -62,7 +62,7 @@ space, not an access-control plane over the instance.
 | Avatar image | **No** | Generated from the name |
 | Federated identity | Yes | Issuer + opaque subject, only in `oidc` mode |
 | Session tokens | Hashed | SHA-256; the token itself is never stored |
-| Room codes | **Plaintext** | Deliberate — see below |
+| Passcodes | **Plaintext** | Deliberate — see below |
 | Session content | Yes | Story titles, notes, votes, standup entries — free text |
 | Live presence | Yes, transiently | `session_presence` holds who has a socket open on which session, on which replica. Deleted on disconnect and swept after ~100s; cascades on user delete |
 
@@ -77,11 +77,11 @@ Full detail: [Data and privacy](/security/data-and-privacy/).
   { name: "Session token handling", status: "built", detail: "32 random bytes, SHA-256 at rest, HttpOnly cookie, Secure when BASE_URL is https." },
   { name: "OIDC correctness", status: "built", detail: "Authorization code + PKCE (S256); signature, audience, expiry and nonce verified; state and nonce compared in constant time." },
   { name: "Long-lived session revocation", status: "built", detail: "WebSockets start a shared-store check every 30 seconds, allow a 30-second timeout, and close with policy code 1008 on failure. Logout does not wait for that interval: it disconnects synchronously on the replica serving it and is fanned out over Postgres NOTIFY to every other replica, which close their sockets for the token on receipt. The periodic check is the fallback if a notification is lost." },
-  { name: "Brute-force protection on room codes", status: "built", detail: "8 attempts per 60s per address per space, with a confusable-free alphabet and constant-time comparison." },
+  { name: "Brute-force protection on passcodes", status: "built", detail: "8 attempts per 60s per address per space, with a confusable-free alphabet and constant-time comparison." },
   { name: "CSV formula-injection escaping", status: "built", detail: "Cells starting = + - @ tab or CR are quote-prefixed." },
   { name: "Container hardening", status: "built", detail: "distroless static non-root; the k8s manifest adds drop ALL, no privilege escalation, seccomp RuntimeDefault, read-only root filesystem." },
   { name: "Transport security", status: "not-built", detail: "Parley never terminates TLS and does not send HSTS. Terminate at a proxy and add HSTS there." },
-  { name: "Space owner role", status: "built", detail: "<code>members.role</code> is <code>owner</code> or <code>member</code>, constrained in the database since migration <code>0015</code>, and a space is never left without an owner. Only an owner may promote, demote, or remove a member; a member gets 403 and an outsider 404. It stops there: any member may still rotate or remove the room code, and story and session controls are facilitator-only rather than owner-only." },
+  { name: "Space owner role", status: "built", detail: "<code>members.role</code> is <code>owner</code> or <code>member</code>, constrained in the database since migration <code>0015</code>, and a space is never left without an owner. Only an owner may promote, demote, or remove a member, rename or delete the space, or rename or delete a session in it; a member gets 403 and an outsider 404. It stops short of the door: any member may still rotate or remove the passcode, and in-meeting controls — stories, reveals, closing a session — are facilitator-only rather than owner-only." },
   { name: "Instance administrator", status: "not-built", detail: "Ownership is per space and confers nothing outside it. There is no operator account, no cross-space view, and no way to administer an instance other than SQL. Gate the instance behind an SSO proxy if that matters." },
   { name: "Audit logging", status: "not-built", detail: "None. Rows carry user_id and timestamps; reconstruct from Postgres if needed." },
   { name: "Retention and erasure", status: "not-built", detail: "Application records are not automatically deleted. Token authorization expires, but its row remains. Write erasure SQL against the documented schema; deleting a user who facilitated a session is blocked by a foreign key." },
@@ -93,14 +93,14 @@ Full detail: [Data and privacy](/security/data-and-privacy/).
 
 ## Accepted risks
 
-**Room codes are stored in plaintext.** A code exists to be read off the page and
+**Passcodes are stored in plaintext.** A code exists to be read off the page and
 passed to a colleague. Hashing it would mean no member could look it up again.
 The consequence is that a database dump discloses every space's code — which is
 why a code is treated as a door, not as an identity.
 
 **Membership is the space trust boundary.** Facilitator checks narrow story and
 session control, and owner checks narrow membership management, but any member
-may still change or remove the space's room code.
+may still change or remove the space's passcode.
 
 **Anonymous participation is the default.** It is the product on a trusted
 network; public deployments need an additional access and abuse-control layer.
@@ -115,7 +115,7 @@ network; public deployments need an additional access and abuse-control layer.
   next one sees the stranger view, and their live sockets for that space are
   closed (immediately on the replica serving the removal, at the next
   revalidation tick — 30 seconds by default — elsewhere). It is not a ban: they
-  can rejoin with a current room code, so rotate the code too.
+  can rejoin with a current passcode, so rotate the code too.
 - *Can we sign one person out of the instance entirely?* There is no UI for
   that. Delete that person's rows from `session_tokens`; HTTP access stops
   immediately. WebSocket shared-store detection and removal can take nearly 60
@@ -124,7 +124,7 @@ network; public deployments need an additional access and abuse-control layer.
 - *Can we prove who estimated what?* In `oidc` mode, yes, from the database. There
   is no report and no audit trail; the data is there to query.
 - *What happens on a breach of the database?* Everything is disclosed, including
-  every room code. Session tokens are hashed, so they are not directly reusable.
+  every passcode. Session tokens are hashed, so they are not directly reusable.
 - *Is there a disclosure process?* Yes — use
   [GitHub private vulnerability reporting](https://github.com/lets-parley/parley/security/advisories/new)
   when available, or email

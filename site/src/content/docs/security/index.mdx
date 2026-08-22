@@ -6,7 +6,7 @@ description: Parley's security model, threat model, authentication, authorizatio
 import SectionIndex from "../../../components/SectionIndex.astro";
 
 Parley is a self-hosted tool that a team joins by following a link. That shapes
-everything below: the interesting questions are what a room code actually
+everything below: the interesting questions are what a passcode actually
 protects, what an operator is trusted to configure correctly, and what a database
 dump would disclose.
 
@@ -21,7 +21,7 @@ limitation, so you can read or print one document instead of eight.
 :::
 
 <SectionIndex items={[
-  { title: "Overview", href: "/security/overview/", blurb: "The security model in plain terms: what a room code is and is not." },
+  { title: "Overview", href: "/security/overview/", blurb: "The security model in plain terms: what a passcode is and is not." },
   { title: "Threat model", href: "/security/threat-model/", blurb: "Assets, trust boundaries, who is in scope, and the risks accepted on purpose." },
   { title: "Authentication", href: "/security/authentication/", blurb: "Anonymous and OpenID Connect, cookies, tokens, and session lifetime." },
   { title: "Authorization", href: "/security/authorization/", blurb: "Membership, facilitator rights, and what the server checks on every request." },
