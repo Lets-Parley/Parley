@@ -30,6 +30,15 @@ func (a *app) broadcastState(ctx context.Context, sessionID string) {
 // it received would keep the whole cluster talking forever.
 func (a *app) broadcastLocal(ctx context.Context, sessionID string) {
 	env, err := a.kinds.BuildEnvelope(ctx, a.pool, a.presence, a.sessions, sessionID)
+	// The room is gone — deleted outright, or cascaded away with its space.
+	// Every replica reaches this through the same notification, so this one
+	// branch closes the sockets cluster-wide. Nothing else would: unlike a
+	// removed member, a deleted room leaves no membership row whose absence
+	// the revalidation tick could notice.
+	if errors.Is(err, store.ErrNoSession) {
+		a.hub.DisconnectSession(sessionID)
+		return
+	}
 	if err != nil {
 		slog.Error("could not build session state for broadcast", "session", sessionID, "error", err)
 		return

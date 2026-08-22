@@ -903,3 +903,34 @@ func TestConfirmedMembershipStillDeliversRoomState(t *testing.T) {
 		t.Fatalf("initial frame = %q, want the room snapshot", msg)
 	}
 }
+
+// A deleted room has no membership row whose absence the revalidation tick
+// could notice, so DisconnectSession is the only thing that closes its
+// sockets — and it must close exactly its own.
+func TestDisconnectSessionClosesOnlyThatRoom(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	wsGone := attachAuthenticatedTestConn(t, h, "deleted", SessionAuth{TokenID: "a"})
+	defer wsGone.Close()
+	wsOther := attachAuthenticatedTestConn(t, h, "kept", SessionAuth{TokenID: "b"})
+	defer wsOther.Close()
+
+	h.DisconnectSession("deleted")
+
+	wsGone.SetReadDeadline(time.Now().Add(time.Second))
+	if _, _, err := wsGone.ReadMessage(); err == nil {
+		t.Fatal("the deleted room's websocket remained open")
+	} else if closeErr, ok := err.(*websocket.CloseError); !ok || closeErr.Code != websocket.CloseGoingAway {
+		t.Fatalf("close = %v, want going away", err)
+	}
+
+	h.Broadcast("kept", []byte("still-connected"))
+	wsOther.SetReadDeadline(time.Now().Add(time.Second))
+	_, got, err := wsOther.ReadMessage()
+	if err != nil {
+		t.Fatalf("an unrelated room's websocket closed: %v", err)
+	}
+	if string(got) != "still-connected" {
+		t.Fatalf("unrelated broadcast = %q, want still-connected", got)
+	}
+}

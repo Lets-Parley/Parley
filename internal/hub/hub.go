@@ -133,6 +133,11 @@ type disconnectMemberEvent struct {
 	done    chan []<-chan struct{}
 }
 
+type disconnectSessionEvent struct {
+	sessionID string
+	done      chan []<-chan struct{}
+}
+
 type revalidationEvent struct {
 	conn      *Conn
 	expiresAt time.Time
@@ -263,6 +268,19 @@ func (h *Hub) run() {
 							writers = append(writers, done)
 						}
 					}
+				}
+			}
+			e.done <- writers
+		case disconnectSessionEvent:
+			writers := []<-chan struct{}{}
+			for c := range h.pending {
+				if c.SessionID == e.sessionID {
+					writers = append(writers, h.rejectPending(c, websocket.CloseGoingAway))
+				}
+			}
+			for c := range h.rooms[e.sessionID] {
+				if done := h.remove(c, websocket.CloseGoingAway); done != nil {
+					writers = append(writers, done)
 				}
 			}
 			e.done <- writers
@@ -698,6 +716,23 @@ func (h *Hub) DisconnectSpaceMember(spaceID, userID string) {
 	}
 	done := make(chan []<-chan struct{}, 1)
 	if h.submit(disconnectMemberEvent{spaceID: spaceID, userID: userID, done: done}) {
+		waitForWriters(<-done)
+	}
+}
+
+// DisconnectSession synchronously removes every connection this process holds
+// for a room. It is how a deleted room is torn down: unlike a removed member,
+// there is no membership row whose absence the revalidation tick would notice,
+// so nothing else would ever close these sockets.
+//
+// The close code is GoingAway, not PolicyViolation: the room is gone, which is
+// not the same as the client having done something it was not allowed to.
+func (h *Hub) DisconnectSession(sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	done := make(chan []<-chan struct{}, 1)
+	if h.submit(disconnectSessionEvent{sessionID: sessionID, done: done}) {
 		waitForWriters(<-done)
 	}
 }

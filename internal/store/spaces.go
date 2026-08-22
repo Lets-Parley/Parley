@@ -301,3 +301,37 @@ func (s *Spaces) mutateMembership(ctx context.Context, spaceID, userID string, f
 	}
 	return tx.Commit(ctx)
 }
+
+// Rename changes the display name. The slug is deliberately left alone: it is
+// in every invite link anyone has already pasted into a chat, and a rename is
+// not a good enough reason to break those. So the URL keeps the original name
+// and the page shows the new one.
+func (s *Spaces) Rename(ctx context.Context, spaceID, name string) error {
+	tag, err := s.Pool.Exec(ctx, "update spaces set name = $2 where id = $1", spaceID, name)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNoSpace
+	}
+	return nil
+}
+
+// Delete removes a space and everything under it. Sessions, stories, standup
+// rows, presence and memberships all hang off it with `on delete cascade`, so
+// this one statement is the whole teardown — there is no order to get wrong
+// and no second pass that can be interrupted halfway.
+//
+// It is genuinely irreversible: there is no deleted_at to undo, because a
+// soft-deleted space still holds the slug and would have to be reasoned about
+// by every query that resolves one.
+func (s *Spaces) Delete(ctx context.Context, spaceID string) error {
+	tag, err := s.Pool.Exec(ctx, "delete from spaces where id = $1", spaceID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNoSpace
+	}
+	return nil
+}
