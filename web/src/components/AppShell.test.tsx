@@ -118,28 +118,18 @@ describe("AppShell", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("offers no sign-out in open mode, where the identity is just a name in a cookie", async () => {
-    stubAuthMode("open");
+  // Sign-out moved into the profile dialog, where the name lives too: the
+  // header button was hidden below sm, so on a phone there was no way to sign
+  // out at all. The mode-gated behaviour is asserted in ProfileDialog.test.
+  // The header no longer asks the server anything about auth at all, which is
+  // what makes the missing button a decision rather than a race with a probe.
+  it("keeps sign-out out of the header, and stops probing the auth mode for it", async () => {
+    const fetchMock = stubAuthMode("open");
     const { queryClient } = renderShell();
-    // Wait for the auth probe to actually land. Waiting for the button to be
-    // absent proves nothing — it is absent before the fetch resolves too.
-    await waitFor(() => expect(queryClient.getQueryData(["auth-mode"])).toEqual({ mode: "open" }));
+    await waitFor(() => expect(screen.getByText("table")).toBeTruthy());
     expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
-  });
-
-  it("offers sign-out once identities come from a provider", async () => {
-    stubAuthMode("oidc");
-    renderShell();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy());
-  });
-
-  it("offers nothing to sign out of when nobody is signed in", async () => {
-    stubAuthMode("oidc");
-    const { queryClient } = renderShell({ me: null });
-    // Same trap: assert the mode resolved to oidc first, so the missing button
-    // is a decision rather than a race with the fetch.
-    await waitFor(() => expect(queryClient.getQueryData(["auth-mode"])).toEqual({ mode: "oidc" }));
-    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+    expect(queryClient.getQueryState(["auth-mode"])).toBeUndefined();
+    expect(fetchMock.mock.calls.map(([path]) => path)).not.toContain("/api/auth");
   });
 
   it("toggles the sidebar and reports its state", async () => {
@@ -423,10 +413,10 @@ describe("sidebar kind labels", () => {
 });
 
 describe("the chip you wear", () => {
-  it("opens the avatar picker, and names you once while doing it", async () => {
+  it("opens the profile dialog, and names you once while doing it", async () => {
     stubAuthMode("open");
     renderShell();
-    const chip = screen.getByRole("button", { name: "Dana Whitfield — choose your avatar" });
+    const chip = screen.getByRole("button", { name: "Dana Whitfield — your profile" });
     await userEvent.click(chip);
     expect(await screen.findByRole("dialog", { name: "Create your avatar" })).toBeTruthy();
   });
@@ -435,14 +425,14 @@ describe("the chip you wear", () => {
     stubAuthMode("oidc");
     renderShell();
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Dana Whitfield — choose your avatar" })).toBeTruthy(),
+      expect(screen.getByRole("button", { name: "Dana Whitfield — your profile" })).toBeTruthy(),
     );
   });
 
   it("hides the duplicate visible name from the accessibility tree", async () => {
     stubAuthMode("open");
     renderShell();
-    const chip = screen.getByRole("button", { name: "Dana Whitfield — choose your avatar" });
+    const chip = screen.getByRole("button", { name: "Dana Whitfield — your profile" });
     const nameSpan = chip.querySelector("span.truncate");
     expect(nameSpan).toBeTruthy();
     expect(nameSpan?.getAttribute("aria-hidden")).not.toBeNull();
@@ -500,7 +490,7 @@ describe("the avatar survives a reload", () => {
     stubServer(stored);
     renderApp(<MeHost />);
     const chip = await screen.findByRole("button", {
-      name: "Dana Whitfield — choose your avatar",
+      name: "Dana Whitfield — your profile",
     });
     await userEvent.click(chip);
     await userEvent.click(await screen.findByRole("radio", { name: iconLabel }));
