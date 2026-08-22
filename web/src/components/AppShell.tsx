@@ -47,7 +47,9 @@ export function BuildStamp() {
   });
   if (!data?.version) return null;
   // An unstamped build has no tag to link to, so it gets the releases index.
-  const href = data.version === "dev" ? RELEASES : `${RELEASES}/tag/${data.version}`;
+  // Tags are `v`-prefixed; /version reports the bare number, so re-add it.
+  const href =
+    data.version === "dev" ? RELEASES : `${RELEASES}/tag/v${data.version.replace(/^v/, "")}`;
   return (
     <a
       href={href}

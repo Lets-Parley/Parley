@@ -333,7 +333,7 @@ describe("the build stamp", () => {
     renderShell();
     const link = await screen.findByRole("link", { name: "Parley 0.3.0 release notes" });
     expect(link.getAttribute("href")).toBe(
-      "https://github.com/lets-parley/parley/releases/tag/0.3.0",
+      "https://github.com/lets-parley/parley/releases/tag/v0.3.0",
     );
   });
 
