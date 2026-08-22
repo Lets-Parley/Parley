@@ -114,13 +114,13 @@ describe("Landing, signed in with spaces", () => {
 
   // Whether a space wants a code is the difference between pasting the link and
   // having to go and ask for six characters, so the row says which it is.
-  it("marks the spaces that will ask for a room code", async () => {
+  it("marks the spaces that will ask for a passcode", async () => {
     renderApp(<Landing />);
 
     const list = await screen.findByRole("list", { name: /your spaces/i });
     const links = within(list).getAllByRole("link");
-    expect(within(links[0]).queryByText(/room code/i)).not.toBeNull();
-    expect(within(links[1]).queryByText(/room code/i)).toBeNull();
+    expect(within(links[0]).queryByText(/passcode/i)).not.toBeNull();
+    expect(within(links[1]).queryByText(/passcode/i)).toBeNull();
   });
 
   it("keeps creating a space available alongside the list", async () => {

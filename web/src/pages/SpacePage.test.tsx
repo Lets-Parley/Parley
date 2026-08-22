@@ -188,7 +188,9 @@ describe("SpacePage passcode panel", () => {
     view = space;
   });
 
-  it("copies a full invite — link plus passcode — from the primary action", async () => {
+  // The passcode rides in the fragment so the link is the whole invite, and
+  // so it never reaches the server or a Referer header on the way in.
+  it("copies a one-click invite, with the passcode in the fragment", async () => {
     view = protectedSpace;
     const writeText = clipboard();
     renderApp(<SpacePage />, { route: "/s/platform-team" });
@@ -196,9 +198,9 @@ describe("SpacePage passcode panel", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
 
     expect(writeText).toHaveBeenCalledWith(
-      `${window.location.origin}/s/platform-team — passcode TEAM49`,
+      `${window.location.origin}/s/platform-team#c=TEAM49`,
     );
-    expect(screen.getByText("Invite copied — link and passcode")).toBeTruthy();
+    expect(screen.getByText("Invite link copied — it seats them in one click")).toBeTruthy();
   });
 
   it("says so instead of claiming success when the clipboard refuses", async () => {
@@ -216,15 +218,15 @@ describe("SpacePage passcode panel", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
 
     expect(await screen.findByText("Could not copy — copy it by hand.")).toBeTruthy();
-    expect(screen.queryByText("Invite copied — link and passcode")).toBe(null);
+    expect(screen.queryByText(/Invite link copied/)).toBe(null);
   });
 
-  it("copies just the code from the secondary action", async () => {
+  it("copies just the passcode from the secondary action", async () => {
     view = protectedSpace;
     const writeText = clipboard();
     renderApp(<SpacePage />, { route: "/s/platform-team" });
 
-    await userEvent.click(await screen.findByRole("button", { name: "Copy code" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Copy passcode" }));
 
     expect(writeText).toHaveBeenCalledWith("TEAM49");
     expect(screen.getByText("Passcode copied")).toBeTruthy();
@@ -238,8 +240,8 @@ describe("SpacePage passcode panel", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
 
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/s/platform-team`);
-    expect(screen.getByText("Invite link copied")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Copy code" })).toBe(null);
+    expect(screen.getByText("Invite link copied — it seats them in one click")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Copy passcode" })).toBe(null);
   });
 });
 
@@ -379,3 +381,147 @@ function spaceReads(): number {
     .mocked(api)
     .mock.calls.filter((c) => c[0] === "GET" && String(c[1]).startsWith("/api/spaces/")).length;
 }
+
+/**
+ * Renaming and deleting, from the space down to one room. The controls are a
+ * courtesy — the server enforces the same owner rule — so what is asserted
+ * here is that the right request goes out and that a member is not shown a
+ * button that would only earn them a 403.
+ */
+describe("SpacePage space and room admin", () => {
+  const owned = {
+    ...space,
+    members: [{ userId: "marcus", name: "Marcus Okonjo", avatarHue: 40, spectator: false, role: "owner" }],
+  } as unknown as SpaceView;
+  const asMember = {
+    ...space,
+    members: [{ userId: "marcus", name: "Marcus Okonjo", avatarHue: 40, spectator: false, role: "member" }],
+  } as unknown as SpaceView;
+
+  const calls = () => (api as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+
+  afterEach(() => {
+    view = space;
+  });
+
+  it("offers nothing to rename or delete to a plain member", async () => {
+    view = asMember;
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    await screen.findByText("Recent sessions");
+    expect(screen.queryByRole("button", { name: "Delete this space" })).toBe(null);
+    expect(screen.queryByRole("button", { name: "Manage Sprint 12 grooming" })).toBe(null);
+  });
+
+  it("renames the space and keeps the slug, saying so", async () => {
+    view = owned;
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    const field = await screen.findByRole("textbox", { name: "Space name" });
+    await userEvent.clear(field);
+    await userEvent.type(field, "Platform Guild");
+    await userEvent.click(screen.getByRole("button", { name: "Rename" }));
+
+    expect(calls()).toContainEqual([
+      "PATCH",
+      "/api/spaces/platform-team",
+      { name: "Platform Guild" },
+    ]);
+    expect(await screen.findByText("Renamed — the link /s/platform-team still works")).toBeTruthy();
+  });
+
+  // Nothing here is recoverable, so the name has to be typed back before the
+  // button will fire at all.
+  it("will not delete a space until its name is typed back", async () => {
+    view = owned;
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    await userEvent.click(await screen.findByRole("button", { name: "Delete this space" }));
+
+    const go = screen.getByRole("button", { name: "Delete this space" }) as HTMLButtonElement;
+    expect(go.disabled).toBe(true);
+
+    const confirm = screen.getByRole("textbox", { name: "Type Platform Team to confirm" });
+    await userEvent.type(confirm, "Platform Tea");
+    expect((screen.getByRole("button", { name: "Delete this space" }) as HTMLButtonElement).disabled).toBe(true);
+
+    await userEvent.type(confirm, "m");
+    await userEvent.click(screen.getByRole("button", { name: "Delete this space" }));
+    expect(calls()).toContainEqual(["DELETE", "/api/spaces/platform-team"]);
+  });
+
+  it("renames one room through its manage dialog", async () => {
+    view = owned;
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    await userEvent.click(await screen.findByRole("button", { name: "Manage Sprint 12 grooming" }));
+
+    const field = screen.getByRole("textbox", { name: "Session title" });
+    await userEvent.clear(field);
+    await userEvent.type(field, "Sprint 13 grooming");
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Rename" }));
+
+    expect(calls()).toContainEqual([
+      "PATCH",
+      "/api/spaces/platform-team/sessions/s1",
+      { title: "Sprint 13 grooming" },
+    ]);
+  });
+
+  it("deletes one room behind a second click, and says who it affects", async () => {
+    view = owned;
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    await userEvent.click(await screen.findByRole("button", { name: "Manage Sprint 12 grooming" }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete this session" }));
+    expect(screen.getByText(/for everyone. It cannot be undone/)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Delete for everyone" }));
+
+    expect(calls()).toContainEqual(["DELETE", "/api/spaces/platform-team/sessions/s1"]);
+  });
+});
+
+/**
+ * A copied invite carries the passcode in the URL fragment, so opening it is
+ * the whole join. The fragment is wiped from the address bar on the way in:
+ * it must not survive into a bookmark, the back button, or a screenshot.
+ */
+describe("SpacePage invite links", () => {
+  const locked = { slug: "platform-team", name: "Platform Team", protected: true } as SpaceView;
+  // Routed, because the join path comes from the URL parameter rather than
+  // from the space payload.
+  const routed = (
+    <Routes>
+      <Route path="/s/:slug" element={<SpacePage />} />
+    </Routes>
+  );
+
+  afterEach(() => {
+    view = space;
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("joins with the passcode from the fragment, then wipes it", async () => {
+    view = locked;
+    window.history.replaceState(null, "", "/s/platform-team#c=TEAM49");
+    renderApp(routed, { route: "/s/platform-team" });
+
+    await screen.findByText("Platform Team");
+    const joins = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.filter(
+      ([, path]) => path === "/api/spaces/platform-team/join",
+    );
+    expect(joins).toContainEqual(["POST", "/api/spaces/platform-team/join", { passcode: "TEAM49" }]);
+    expect(window.location.hash).toBe("");
+  });
+
+  it("leaves the gate up, and joins nothing, for a link with no code", async () => {
+    view = locked;
+    window.history.replaceState(null, "", "/s/platform-team");
+    // The mock accumulates across this file, so only the calls this render
+    // makes are counted.
+    const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    renderApp(routed, { route: "/s/platform-team" });
+
+    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    const joins = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      .slice(before)
+      .filter(([, path]) => path === "/api/spaces/platform-team/join");
+    expect(joins).toHaveLength(0);
+  });
+});

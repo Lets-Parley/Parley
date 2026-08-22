@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useId, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Person, type SessionSummary, type SpaceRole, type SpaceView } from "../lib/api";
@@ -19,6 +19,22 @@ import { KINDS, defaultConfig, kindLabel, type KindDef } from "../lib/kinds";
 // "" is the All tab; every other value is a registered kind's wire id.
 const KIND_TABS = [{ id: "", label: "All" }, ...KINDS];
 type Sort = "Recent" | "Active first" | "A\u2013Z";
+
+/**
+ * The passcode an invite link carried, taken from the URL fragment.
+ *
+ * A fragment, not a query string: the fragment is never sent to the server and
+ * never appears in a Referer header, so a one-click invite does not scatter the
+ * passcode through access logs and proxy history the way `?c=` would. It is
+ * read once and wiped from the address bar immediately, so it does not survive
+ * into a bookmark or a screenshot either.
+ */
+function takeInviteCode(): string {
+  const match = /(?:^|&)c=([^&]+)/.exec(window.location.hash.replace(/^#/, ""));
+  if (!match) return "";
+  window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  return decodeURIComponent(match[1]);
+}
 
 function relativeDate(iso: string): string {
   const d = new Date(iso);
@@ -42,6 +58,15 @@ export function SpacePage() {
   const [sort, setSort] = useState<Sort>("Recent");
   // Held across the name prompt so a joiner types the code exactly once.
   const [pending, setPending] = useState("");
+  // Read on the first render, before anything can navigate: an invite link
+  // carries its passcode in the fragment, and this is the only chance to see
+  // it. Empty for a link pasted without one, which is the ordinary case.
+  const [invited] = useState(takeInviteCode);
+  /** The room whose manage dialog is open, if any. */
+  const [managing, setManaging] = useState<SessionSummary | null>(null);
+  // One attempt only. A refused passcode must land on the gate with the error
+  // showing, not retry itself forever against a code that will never work.
+  const [autoJoined, setAutoJoined] = useState(false);
 
   const space = useQuery({
     queryKey: ["space", slug],
@@ -62,6 +87,32 @@ export function SpacePage() {
     if (!isMember) return;
     api("POST", `/api/spaces/${slug}/seen`).catch(() => {});
   }, [slug, isMember]);
+
+  // The one join path, whether the passcode was typed at the gate or carried
+  // in by an invite link. Identity comes first: a visitor with no name is sent
+  // through the gate, and the code is held so they only present it once.
+  function attemptJoin(passcode?: string) {
+    // Still loading is not the same as "has no identity": asking a member to
+    // pick a name again because their session hadn't arrived yet is worse than
+    // a moment's wait.
+    if (me.isLoading) return;
+    if (!me.data) {
+      setPending(passcode ?? "");
+      setNeedName(true);
+      return;
+    }
+    doJoin(passcode);
+  }
+
+  // An invite link seats you without a second step. It runs at most once — a
+  // refused code leaves the gate up with the error on it rather than looping.
+  useEffect(() => {
+    if (!invited || autoJoined || isMember || me.isLoading) return;
+    setAutoJoined(true);
+    // attemptJoin closes over this render's state; the guards above are what
+    // keep it to a single run, not the dependency list.
+    attemptJoin(invited);
+  }, [invited, autoJoined, isMember, me.isLoading]);
 
   async function doJoin(passcode?: string) {
     try {
@@ -102,18 +153,7 @@ export function SpacePage() {
           slug={sp.slug}
           locked={sp.protected}
           error={error}
-          onJoin={(passcode) => {
-            // Still loading is not the same as "has no identity": asking a
-            // member to pick a name again because their session hadn't
-            // arrived yet is worse than a moment's wait.
-            if (me.isLoading) return;
-            if (!me.data) {
-              setPending(passcode ?? "");
-              setNeedName(true);
-              return;
-            }
-            doJoin(passcode);
-          }}
+          onJoin={attemptJoin}
         />
         {needName && (
           <NameGate
@@ -142,6 +182,9 @@ export function SpacePage() {
   // What a new session may be: the server omits any kind retired in place.
   // An older server sends no list at all, and offers everything as before.
   const offered = KINDS.filter((k) => sp.kinds?.includes(k.id) ?? true);
+  // Hiding a control is a courtesy; the server enforces the same rule and
+  // answers 403 to a member who reaches the route another way.
+  const canManage = (sp.members ?? []).find((m) => m.userId === me.data?.id)?.role === "owner";
 
   return (
     <AppShell
@@ -226,10 +269,25 @@ export function SpacePage() {
         ) : (
           <ul className="flex flex-col gap-2.5">
             {filtered.map((s) => (
-              <li key={s.id}>
+              <li key={s.id} className="relative">
+                {/* The button is a sibling of the link, never inside it: a
+                    control nested in an anchor is neither reliably clickable
+                    nor announced as its own thing. */}
+                {canManage && (
+                  <button
+                    onClick={() => setManaging(s)}
+                    aria-label={`Manage ${s.title}`}
+                    className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-chip border border-line bg-surface px-2.5 py-1.5 text-[12px] font-bold text-ink-soft hover:bg-felt-deep"
+                  >
+                    Manage
+                  </button>
+                )}
                 <Link
                   to={`/session/${s.id}`}
-                  className="flex items-center gap-3.5 rounded-card border border-line bg-surface px-5 py-4 shadow-rest transition hover:shadow-lift"
+                  className={
+                    "flex items-center gap-3.5 rounded-card border border-line bg-surface px-5 py-4 shadow-rest transition hover:shadow-lift " +
+                    (canManage ? "pr-24" : "")
+                  }
                 >
                   <KindChip kind={s.kind} />
                   <span className="min-w-0">
@@ -269,6 +327,15 @@ export function SpacePage() {
           onError={setError}
         />
 
+        {canManage && (
+          <SpaceSettingsPanel
+            slug={sp.slug}
+            name={sp.name}
+            onChanged={() => qc.invalidateQueries({ queryKey: ["space", slug] })}
+            onError={setError}
+          />
+        )}
+
         <PasscodePanel
           slug={sp.slug}
           passcode={sp.passcode ?? ""}
@@ -276,6 +343,16 @@ export function SpacePage() {
           onError={setError}
         />
       </div>
+
+      {managing && (
+        <RoomManageModal
+          slug={sp.slug}
+          room={managing}
+          onClose={() => setManaging(null)}
+          onChanged={() => qc.invalidateQueries({ queryKey: ["space", slug] })}
+          onError={setError}
+        />
+      )}
 
       {creating && (
         <NewSessionModal
@@ -478,7 +555,7 @@ function MembersPanel({
   );
 }
 
-/** The room code, readable by members so they can pass it on. */
+/** The passcode, readable by members so they can pass it on. */
 function PasscodePanel({
   slug,
   passcode,
@@ -535,9 +612,13 @@ function PasscodePanel({
         className={buttonQuiet}
         onClick={() => {
           const link = `${window.location.origin}/s/${slug}`;
+          // The passcode rides in the fragment, so the link is the whole
+          // invite: one click seats them, with nothing to read off a second
+          // line and retype. A fragment never reaches the server or a Referer
+          // header, so it stays out of access logs — see takeInviteCode.
           copy(
-            passcode ? `${link} — passcode ${passcode}` : link,
-            passcode ? "Invite copied — link and passcode" : "Invite link copied",
+            passcode ? `${link}#c=${encodeURIComponent(passcode)}` : link,
+            "Invite link copied — it seats them in one click",
           );
         }}
       >
@@ -548,11 +629,11 @@ function PasscodePanel({
           className={buttonQuiet}
           onClick={() => copy(passcode, "Passcode copied")}
         >
-          Copy code
+          Copy passcode
         </button>
       )}
       <button className={buttonQuiet} disabled={busy} onClick={() => set(false)}>
-        {passcode ? "New code" : "Protect space"}
+        {passcode ? "New passcode" : "Protect space"}
       </button>
       {passcode && (
         <button className={buttonQuiet} disabled={busy} onClick={() => set(true)}>
@@ -560,6 +641,248 @@ function PasscodePanel({
         </button>
       )}
     </section>
+  );
+}
+
+/**
+ * Renaming and deleting the space itself. Owners only, and the last thing on
+ * the page: it is housekeeping, not something anyone came here to do.
+ *
+ * Deleting asks for the name to be typed back. The confirmation is not
+ * ceremony — nothing here is recoverable, and every session, story and vote in
+ * the space goes with it.
+ */
+function SpaceSettingsPanel({
+  slug,
+  name,
+  onChanged,
+  onError,
+}: {
+  slug: string;
+  name: string;
+  onChanged: () => void;
+  onError: (msg: string) => void;
+}) {
+  const navigate = useNavigate();
+  const say = useToast();
+  const [draft, setDraft] = useState(name);
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [typed, setTyped] = useState("");
+  const nameFieldId = useId();
+
+  const trimmed = draft.trim();
+
+  async function rename(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api("PATCH", `/api/spaces/${slug}`, { name: trimmed });
+      onChanged();
+      // The slug is in every invite already handed out, so it deliberately
+      // stays put — say so rather than leaving people hunting for a new link.
+      say(`Renamed — the link /s/${slug} still works`);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Could not rename this space.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function destroy() {
+    setBusy(true);
+    try {
+      await api("DELETE", `/api/spaces/${slug}`);
+      say(`${name} is gone`);
+      navigate("/");
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Could not delete this space.");
+      setBusy(false);
+      setConfirming(false);
+    }
+  }
+
+  return (
+    <section className="mt-8 rounded-card border border-line bg-surface px-5 py-4">
+      <h2 className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+        Space settings
+      </h2>
+
+      <form onSubmit={rename} className="mt-3 flex flex-wrap items-end gap-3">
+        <div className="min-w-[200px] flex-1">
+          <label htmlFor={nameFieldId} className={labelClass + " mt-0"}>
+            Space name
+          </label>
+          <input
+            id={nameFieldId}
+            className={inputClass}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            maxLength={64}
+          />
+        </div>
+        <button
+          type="submit"
+          className={buttonQuiet}
+          disabled={busy || !trimmed || trimmed === name}
+        >
+          Rename
+        </button>
+      </form>
+      <p className="mt-2 text-[12px] text-ink-faint text-pretty">
+        The address stays /s/{slug}, so invites already sent keep working.
+      </p>
+
+      <div className="my-4 h-px bg-line" />
+
+      {confirming ? (
+        <div>
+          <p className="text-[13px] text-ink-soft text-pretty">
+            This deletes {name} and every session, story and vote in it, for
+            everyone. It cannot be undone. Type <strong>{name}</strong> to
+            confirm.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <input
+              className={inputClass + " min-w-[200px] max-w-[280px] flex-1"}
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              aria-label={`Type ${name} to confirm`}
+              autoFocus
+            />
+            <button
+              className="rounded-chip bg-stop px-4 py-2 text-[13px] font-bold text-surface disabled:opacity-50"
+              disabled={busy || typed.trim() !== name}
+              onClick={() => void destroy()}
+            >
+              {busy ? "Deleting…" : "Delete this space"}
+            </button>
+            <button
+              className={buttonQuiet}
+              disabled={busy}
+              onClick={() => {
+                setConfirming(false);
+                setTyped("");
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button className={buttonQuiet} onClick={() => setConfirming(true)}>
+          Delete this space
+        </button>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Renaming and deleting one room. Owners only — closing a room is the
+ * facilitator's call because it ends a meeting, while deleting discards one.
+ */
+function RoomManageModal({
+  slug,
+  room,
+  onClose,
+  onChanged,
+  onError,
+}: {
+  slug: string;
+  room: SessionSummary;
+  onClose: () => void;
+  onChanged: () => void;
+  onError: (msg: string) => void;
+}) {
+  const say = useToast();
+  const [title, setTitle] = useState(room.title);
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const titleFieldId = useId();
+
+  const trimmed = title.trim();
+
+  async function rename(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api("PATCH", `/api/spaces/${slug}/sessions/${room.id}`, { title: trimmed });
+      onChanged();
+      say("Session renamed");
+      onClose();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Could not rename this session.");
+      setBusy(false);
+    }
+  }
+
+  async function destroy() {
+    setBusy(true);
+    try {
+      await api("DELETE", `/api/spaces/${slug}/sessions/${room.id}`);
+      onChanged();
+      say(`${room.title} is gone`);
+      onClose();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Could not delete this session.");
+      setBusy(false);
+      setConfirming(false);
+    }
+  }
+
+  return (
+    <Modal title={`Manage ${room.title}`} onClose={onClose} width="26rem">
+      <form onSubmit={rename} className="mt-2">
+        <label htmlFor={titleFieldId} className={labelClass + " mt-0"}>
+          Session title
+        </label>
+        <input
+          id={titleFieldId}
+          className={inputClass}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          maxLength={200}
+          autoFocus
+        />
+        <div className="mt-3 flex justify-end">
+          <button
+            type="submit"
+            className={buttonPrimary}
+            disabled={busy || !trimmed || trimmed === room.title}
+          >
+            Rename
+          </button>
+        </div>
+      </form>
+
+      <div className="my-4 h-px bg-line" />
+
+      {confirming ? (
+        <div>
+          <p className="text-[13px] text-ink-soft text-pretty">
+            This deletes {room.title} and everything estimated or said in it,
+            for everyone. It cannot be undone.
+          </p>
+          <div className="mt-3 flex justify-end gap-3">
+            <button className={buttonQuiet} disabled={busy} onClick={() => setConfirming(false)}>
+              Cancel
+            </button>
+            <button
+              className="rounded-chip bg-stop px-4 py-2 text-[13px] font-bold text-surface disabled:opacity-50"
+              disabled={busy}
+              onClick={() => void destroy()}
+            >
+              {busy ? "Deleting…" : "Delete for everyone"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button className={buttonQuiet} onClick={() => setConfirming(true)}>
+          Delete this session
+        </button>
+      )}
+    </Modal>
   );
 }
 
