@@ -598,6 +598,25 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     expect(window.location.hash).toBe("");
   });
 
+  // Open mode's gate is a modal — the component stays mounted, so there is
+  // nothing to park and no reason to put a passcode in storage at all.
+  it("parks nothing in open mode, where the gate never leaves the page", async () => {
+    view = locked;
+    vi.mocked(api).mockImplementation((async (_m: string, path: string) => {
+      if (path === "/api/me") return null;
+      if (path === "/api/auth") return { mode: "open" };
+      if (path.startsWith("/api/spaces/")) return view;
+      throw new Error(`unexpected api call: ${path}`);
+    }) as typeof defaultApi);
+    window.history.replaceState(null, "", "/s/platform-team#c=TEAM49");
+    renderApp(routed, { route: "/s/platform-team" });
+
+    await screen.findByText("Platform Team");
+    // Give the effect and the auth probe a chance to land before concluding.
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+    expect(sessionStorage.getItem("parley:pending-invite")).toBeNull();
+  });
+
   it("joins with the parked code on the way back, with no fragment left", async () => {
     view = locked;
     sessionStorage.setItem(

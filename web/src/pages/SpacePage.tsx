@@ -2,7 +2,7 @@ import { Fragment, useEffect, useId, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Person, type SessionSummary, type SpaceRole, type SpaceView } from "../lib/api";
-import { useMe, NameGate } from "../components/NameGate";
+import { useAuthMode, useMe, NameGate } from "../components/NameGate";
 import { AppShell, Logo } from "../components/AppShell";
 import { KindChip } from "../components/KindChip";
 import { EmptyTable } from "./PokerRoom";
@@ -55,9 +55,21 @@ function takeInviteCode(slug: string): string {
  * with the tab rather than seat someone next week, and the stamp narrows it
  * further to roughly one sign-in trip. Same shape as the pending space name on
  * the landing page, for the same reason.
+ *
+ * This does put a passcode in storage in the clear, which is what CodeQL's
+ * js/clear-text-storage-of-sensitive-data flags. It is written only when a
+ * provider sign-in is about to navigate the page away — never in open mode —
+ * it is scoped to one space, spent on the first read, expires in five minutes,
+ * and dies with the tab. A space passcode is a shared door code that is
+ * printed on the space page for every member to read and passed around in
+ * chat; it is not a per-person credential. Same-origin script that could read
+ * this could equally read it off the page.
  */
 const pendingInviteKey = "parley:pending-invite";
-const pendingInviteMaxAgeMs = 15 * 60 * 1000;
+// A sign-in round trip takes seconds. Five minutes is already generous, and
+// every minute past that is a plaintext passcode sitting in storage for no
+// reason.
+const pendingInviteMaxAgeMs = 5 * 60 * 1000;
 
 /** Reads the parked code and drops it: one attempt, so a refused passcode
  *  lands on the gate rather than being retried on every mount. */
@@ -110,6 +122,7 @@ export function SpacePage() {
   const { slug = "" } = useParams();
   const qc = useQueryClient();
   const me = useMe();
+  const authMode = useAuthMode();
   const say = useToast();
   const [needName, setNeedName] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -159,10 +172,13 @@ export function SpacePage() {
     if (me.isLoading) return;
     if (!me.data) {
       setPending(passcode ?? "");
-      // Held in component state for the open-mode gate, which is a modal and
-      // returns here intact, and parked in sessionStorage for the provider
-      // gate, which does not — it leaves the page entirely.
-      parkInvite(slug, passcode ?? "");
+      // Open mode's gate is a modal: this component stays mounted and the
+      // state above survives, so nothing is written anywhere. Only the
+      // provider gate leaves the page, and only that case pays the cost of
+      // putting the passcode in storage.
+      if (authMode.data?.mode === "oidc") {
+        parkInvite(slug, passcode ?? "");
+      }
       setNeedName(true);
       return;
     }
