@@ -24,7 +24,7 @@ profile is something you can edit, and an invite is one click rather than two
 things copied into a chat window.
 
 - Status: Merged, awaiting the next release
-- Tracking: [#274](https://github.com/lets-parley/parley/pull/274)
+- Landed in [#274](https://github.com/lets-parley/parley/pull/274)
 
 ## Next
 
@@ -297,6 +297,9 @@ Ideas under consideration, not committed to.
   docs recommend, and `trustedProxyCIDRs` refuses a default route
 - Reading a space no longer writes on every GET, and racing landing paths no
   longer create two spaces for the same visitor
+- v0.4.0 and v0.4.3 were tagged but never published — a failed SBOM step and a
+  stale skopeo digest respectively. Nothing shipped under either number; go from
+  v0.3.0 to v0.4.1, and from v0.4.2 to v0.4.4
 
 ### v0.3.0
 
@@ -307,6 +310,12 @@ Ideas under consideration, not committed to.
   member card sits on a native `<dialog>`, and the light theme clears WCAG AA
 - Session kinds became a table with a foreign key instead of a `CHECK`
   constraint, routed through a client-side registry
+
+### v0.2.1 – v0.2.3
+
+- A broadcast to a closed connection no longer takes the server down with it —
+  v0.2.2 is the release to be on if you are still on 0.2.1 or earlier
+- The Helm chart is published to the registry
 
 ### v0.2.0
 
