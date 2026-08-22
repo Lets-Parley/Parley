@@ -2,12 +2,10 @@
 
 ## Reporting a vulnerability
 
-Do not open a public Issue or Discussion. Use
-[GitHub private vulnerability reporting](https://github.com/lets-parley/parley/security/advisories/new)
-when the repository offers the report form, or email
-[security@letsparley.io](mailto:security@letsparley.io). Private vulnerability
-reporting is the intended project setting; this document does not claim that an
-external GitHub setting has already been enabled.
+Do not open a public Issue or Discussion. Use [GitHub private vulnerability
+reporting](https://github.com/lets-parley/parley/security/advisories/new)
+(enabled on this repository) or email
+[security@letsparley.io](mailto:security@letsparley.io).
 
 Include the affected version, deployment context, impact, reproduction steps,
 and any suggested mitigation. A proof of concept helps but is not required. Do
