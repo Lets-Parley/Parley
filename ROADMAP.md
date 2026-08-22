@@ -13,42 +13,18 @@ For implementation status, see the GitHub Project:
 
 Work in progress or expected in the current development cycle.
 
-### A room everyone can actually use
+### Spaces you can look after
 
-A live room updates itself constantly, and until recently none of those updates
-announced themselves. A screen-reader user could not tell that a reveal had
-happened, who had voted, or whose turn it was in the rotation — and the "voted"
-signal was carried by colour alone. That is not a degraded experience, it is an
-excluded one.
+A space used to be permanent the moment it existed: no rename, no delete, and a
+typo in the name was a typo forever. Joining a room meant passing someone a link
+and a passcode by hand, and a display name was set once at first sign-in.
 
-Every seat state and the revealed result now carry a text equivalent, the
-standup rail says whose turn it is out loud, the member card sits on the native
-`<dialog>` so focus behaves without a hand-rolled trap, and a contrast audit
-lifted three light-theme tokens over the threshold. Every control in a room has
-since been walked with the keyboard, and the two places where a group opacity
-wrapper dropped otherwise-legible text below the contrast threshold now clear
-AA in both themes.
+Spaces and rooms can be renamed and deleted by the people who own them, a
+profile is something you can edit, and an invite is one click rather than two
+things copied into a chat window.
 
-- Status: Complete, shipping in v0.3.0
-- Target: v0.3.0
-- Tracking: [#47](https://github.com/lets-parley/parley/issues/47)
-
-### An avatar you'd actually keep
-
-Every seat used to be initials on a hue derived from the user id, and two people
-who share initials were two near-identical chips. Picking a mark fixed that: a
-nautical crew and a dev-culture pack, drawn as flat silhouettes so the disc keeps
-supplying the identity colour.
-
-The mechanism is sound but the drawings are not the standard the rest of the
-interface is held to. Rather than commissioning a set, the marks are replaced
-with a professionally-drawn open-source one — CC0, no attribution — pre-rendered
-and committed, so there is no new runtime dependency and a seat still stores one
-short id. One set of art at every size, chosen in the same dialog as today.
-
-- Status: Shipped in v0.5.0; follow-up work in v0.5.1
-- Target: v0.5.1
-- Tracking: [#38](https://github.com/lets-parley/parley/issues/38), [#253](https://github.com/lets-parley/parley/issues/253)
+- Status: Merged, awaiting the next release
+- Landed in [#274](https://github.com/lets-parley/parley/pull/274)
 
 ## Next
 
@@ -87,7 +63,6 @@ person. No streaks, no percentages, nothing that turns a facilitation aid into a
 performance record.
 
 - Status: Backlog
-- Target: v0.3.0
 
 #### A meeting that ends
 
@@ -99,7 +74,6 @@ written from evidence rather than from memory.
 No tool that sells seats will ever ship this, which is reason enough.
 
 - Status: Backlog
-- Target: v0.3.0
 
 ### Signed links
 
@@ -124,7 +98,6 @@ story for the many people whose backup story is currently nothing at all.
 Export lands first and on its own — it is half the work and most of the trust.
 
 - Status: Backlog
-- Target: v0.3.0
 
 ### Somewhere for spaces to live
 
@@ -151,7 +124,6 @@ server, and the documentation will say so plainly rather than let people assume
 otherwise.
 
 - Status: Backlog
-- Target: v0.5.0
 - Tracking: [#203](https://github.com/lets-parley/parley/issues/203)
 
 ## Later
@@ -292,6 +264,58 @@ Ideas under consideration, not committed to.
 - White-label theming, for anyone hosting Parley on someone else's behalf
 
 ## Completed
+
+### v0.6.1
+
+- Thirty pre-rendered voxel-art portraits replace the maritime silhouettes at
+  every size — CC0, no runtime dependency, no motion. The old avatar ids retire
+  with them, so existing users pick again
+- A portrait picker built on a native radio group, so keyboard reach, focus ring
+  and announced selection come from the platform
+- A committed light/dark contact sheet and a `portraits.sha256` byte pin, so a
+  future lossy edit fails CI instead of shipping quietly
+- v0.6.0 was tagged before the release pipeline's skopeo digest fix and never
+  published; the same contents ship here
+
+### v0.5.0 — Daybreak
+
+- The poker round reads as a table someone sits down at, with a waiting count
+  the whole room can see and the agreed estimate in its own colour
+- The standup room is a room rather than a form with a timer in the corner: it
+  says where the round is, how long is left, and who is ready
+- Any standup entry can be re-read, and a standup can be ended
+- A space counts who is actually in a session instead of calling it live
+- Visible focus rings, errors reported beside the control that raised them
+
+### v0.4.1 – v0.4.4
+
+- Parley runs on more than one replica: presence, session fanout and the
+  passcode throttle all moved into Postgres
+- Hardened websocket sessions, network boundaries, and the release supply chain
+- A field report from the first self-hosted deployment, answered: the published
+  image stamps its real version, the chart accepts the public OIDC client the
+  docs recommend, and `trustedProxyCIDRs` refuses a default route
+- Reading a space no longer writes on every GET, and racing landing paths no
+  longer create two spaces for the same visitor
+- v0.4.0 and v0.4.3 were tagged but never published — a failed SBOM step and a
+  stale skopeo digest respectively. Nothing shipped under either number; go from
+  v0.3.0 to v0.4.1, and from v0.4.2 to v0.4.4
+
+### v0.3.0
+
+- `/version` on the instance, unauthenticated and independent of the database,
+  so a rollout can be checked while Postgres is down
+- A room everyone can actually use: every seat state and the revealed result
+  carry a text equivalent, the standup rail says whose turn it is out loud, the
+  member card sits on a native `<dialog>`, and the light theme clears WCAG AA
+- Session kinds became a table with a foreign key instead of a `CHECK`
+  constraint, routed through a client-side registry
+
+### v0.2.1 – v0.2.3
+
+- A broadcast to a closed connection no longer takes the server down with it —
+  v0.2.2 is the release to be on if you are still on 0.2.1 or earlier
+- The Helm chart is published to the registry
 
 ### v0.2.0
 

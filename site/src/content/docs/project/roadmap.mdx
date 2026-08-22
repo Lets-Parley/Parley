@@ -10,24 +10,51 @@ repository, which is the source of truth; the
 
 ## Now
 
-### A room everyone can actually use
+### Spaces you can look after
 
-A live room updates itself constantly, and until recently none of those updates
-announced themselves. A screen-reader user could not tell that a reveal had
-happened, who had voted, or whose turn it was in the rotation — and the "voted"
-signal was carried by colour alone.
+A space used to be permanent the moment it existed: no rename, no delete, and a
+typo in the name was a typo forever. Joining a room meant passing someone a link
+and a passcode by hand, and a display name was set once at first sign-in.
 
-Every seat state and the revealed result now carry a text equivalent, the
-standup rail says whose turn it is out loud, the member card sits on the native
-`<dialog>` so focus behaves without a hand-rolled trap, and a contrast audit
-lifted three light-theme tokens over the threshold. Every control in a room has
-since been walked with the keyboard, and the two places where a group opacity
-wrapper dropped otherwise-legible text below the contrast threshold now clear
-AA in both themes.
-
-Tracking: [#47](https://github.com/lets-parley/parley/issues/47) · target v0.3.0
+Spaces and rooms can be renamed and deleted by the people who own them, a
+profile is something you can edit, and an invite is one click rather than two
+things copied into a chat window. Merged, awaiting the next release.
 
 ## Next
+
+### Switchable poker
+
+A deck becomes something a team chooses and owns rather than a global constant
+baked into the server — carried across sessions, with votes that can stay open
+and observers who watch without voting.
+
+### Honest ceremonies
+
+Standup carries yesterday's promise into today and asks one question about it:
+still on this? An item answered "no" twice running is flagged as stuck — the
+item, not the person. And a session can be given a limit, publishing what it did
+not get to when the limit runs out.
+
+### Signed links
+
+A capability, not a login: one thing, for one room, expiring. Vote on a story or
+add a standup update without first becoming a user the instance has to remember.
+
+### Take the whole instance with you
+
+`parley export` writes every space, session, estimate, vote and standup entry to
+a single versioned archive, and `parley import` reconstitutes it elsewhere. Data
+ownership is a claim until it is a file you are holding.
+
+### Somewhere for spaces to live
+
+Organizations put a level above spaces, so two teams can both name a room
+"Platform Team" and a new starter can find their team's standup without being
+sent a link. An organization admin gets custody without access: they can rename,
+archive and reassign any space, including private ones, but cannot read a vote,
+a standup entry or a note.
+
+Tracking: [#203](https://github.com/lets-parley/parley/issues/203)
 
 ### An extensible core
 
@@ -42,7 +69,7 @@ gives the two existing kinds one shared authorization path instead of two
 reimplementations, and stops an unknown session kind from silently rendering the
 wrong room.
 
-Tracking: [#8](https://github.com/lets-parley/parley/issues/8) · target v0.3.0
+Tracking: [#8](https://github.com/lets-parley/parley/issues/8)
 
 ## Later
 
@@ -83,7 +110,6 @@ Ideas under consideration, not committed to:
   nothing leaves the instance
 - Two-way issue sync with Jira, Linear and GitHub
 - Replaying how a board or a ceremony actually evolved
-- Signed single-purpose links that need no login
 - Audit logging, retention policies, and SSO group-to-role mapping
 - White-label theming
 
