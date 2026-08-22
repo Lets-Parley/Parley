@@ -400,7 +400,7 @@ or expires.
 
 Found something? Use
 [private vulnerability reporting](https://github.com/lets-parley/parley/security/advisories/new)
-when available, or email
+or email
 [security@letsparley.io](mailto:security@letsparley.io), rather than opening a
 public issue.
 
