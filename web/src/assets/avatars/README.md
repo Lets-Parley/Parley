@@ -16,6 +16,12 @@ per person per render.
   disc shows through, and the `viewBox` is narrowed from `0 0 128 128` to
   `22 10 92 92` to crop the full-body figure down to a head-and-shoulders
   portrait that survives 38px.
+- **Minification** — a one-off `npx svgo --multipass` pass with
+  `removeViewBox` disabled, run over the finished set. It only drops
+  metadata, whitespace, default attributes and redundant precision, and
+  shortens the `<defs>` ids; every portrait renders pixel-for-pixel
+  identically. Re-run it by hand if a portrait is ever regenerated — SVGO is
+  not a dependency and not a build step.
 
 Ids are the wire format. The twelve retired ones — parrot, kraken, anchor,
 lighthouse, wheel, gull, buoy, crate, rubber-duck, coffee, terminal, pager —
