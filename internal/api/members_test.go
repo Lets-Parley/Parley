@@ -208,7 +208,7 @@ func TestRemovalRevokesAccessOnTheNextRequest(t *testing.T) {
 		t.Fatal("a removed member still reads the roster — removal did not revoke access")
 	}
 	if body["passcode"] != nil {
-		t.Fatal("a removed member still reads the room code")
+		t.Fatal("a removed member still reads the passcode")
 	}
 	if body["protected"] != true {
 		t.Fatalf("the space stopped looking protected to a removed member: %v", body)

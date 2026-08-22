@@ -29,11 +29,72 @@ type Sort = "Recent" | "Active first" | "A\u2013Z";
  * read once and wiped from the address bar immediately, so it does not survive
  * into a bookmark or a screenshot either.
  */
-function takeInviteCode(): string {
+function takeInviteCode(slug: string): string {
   const match = /(?:^|&)c=([^&]+)/.exec(window.location.hash.replace(/^#/, ""));
-  if (!match) return "";
+  if (!match) {
+    // Nothing in the fragment. It may still be parked from before a sign-in
+    // round trip, which is the only other place an invite code lives.
+    return takeParkedInvite(slug);
+  }
   window.history.replaceState(null, "", window.location.pathname + window.location.search);
   return decodeURIComponent(match[1]);
+}
+
+/**
+ * Where an invite passcode waits out a sign-in round trip.
+ *
+ * Under an identity provider, taking a seat is a full-page navigation to the
+ * provider and back. The fragment does not survive it — `next` is built from
+ * the path and query alone, deliberately, because putting the passcode in a
+ * query string is the exposure the fragment exists to avoid. Without somewhere
+ * to park it the code is simply lost, and worse than lost: the fragment has
+ * already been wiped, so the invite link the visitor clicked no longer carries
+ * it either and they are stranded at the passcode gate with nothing to type.
+ *
+ * sessionStorage, not localStorage, and stamped: an abandoned invite should die
+ * with the tab rather than seat someone next week, and the stamp narrows it
+ * further to roughly one sign-in trip. Same shape as the pending space name on
+ * the landing page, for the same reason.
+ */
+const pendingInviteKey = "parley:pending-invite";
+const pendingInviteMaxAgeMs = 15 * 60 * 1000;
+
+/** Reads the parked code and drops it: one attempt, so a refused passcode
+ *  lands on the gate rather than being retried on every mount. */
+function takeParkedInvite(slug: string): string {
+  let raw: string | null = null;
+  try {
+    raw = sessionStorage.getItem(pendingInviteKey);
+    sessionStorage.removeItem(pendingInviteKey);
+  } catch {
+    // Storage can be unavailable — a locked-down browser, or a test runner
+    // started with webstorage off. An invite that cannot be parked still
+    // works; it just asks for the passcode.
+    return "";
+  }
+  if (!raw) return "";
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return "";
+    const { code, at, slug: forSlug } = parsed as { code?: unknown; at?: unknown; slug?: unknown };
+    if (typeof code !== "string" || typeof at !== "number") return "";
+    // A passcode belongs to one space. Landing on a different one must not
+    // spend it there — it would be refused, and the real invite is gone.
+    if (forSlug !== slug) return "";
+    if (!Number.isFinite(at) || Date.now() - at > pendingInviteMaxAgeMs) return "";
+    return code;
+  } catch {
+    return "";
+  }
+}
+
+function parkInvite(slug: string, code: string): void {
+  if (!code) return;
+  try {
+    sessionStorage.setItem(pendingInviteKey, JSON.stringify({ code, slug, at: Date.now() }));
+  } catch {
+    // See takeParkedInvite: parking is a convenience, never a requirement.
+  }
 }
 
 function relativeDate(iso: string): string {
@@ -61,7 +122,7 @@ export function SpacePage() {
   // Read on the first render, before anything can navigate: an invite link
   // carries its passcode in the fragment, and this is the only chance to see
   // it. Empty for a link pasted without one, which is the ordinary case.
-  const [invited] = useState(takeInviteCode);
+  const [invited] = useState(() => takeInviteCode(slug));
   /** The room whose manage dialog is open, if any. */
   const [managing, setManaging] = useState<SessionSummary | null>(null);
   // One attempt only. A refused passcode must land on the gate with the error
@@ -98,6 +159,10 @@ export function SpacePage() {
     if (me.isLoading) return;
     if (!me.data) {
       setPending(passcode ?? "");
+      // Held in component state for the open-mode gate, which is a modal and
+      // returns here intact, and parked in sessionStorage for the provider
+      // gate, which does not — it leaves the page entirely.
+      parkInvite(slug, passcode ?? "");
       setNeedName(true);
       return;
     }

@@ -385,7 +385,7 @@ describe("PokerRoom saved estimate", () => {
     env.state.stories.push({
       id: "story-2",
       ref: "PLAT-413",
-      title: "Rotate the room codes",
+      title: "Rotate the passcodes",
       notes: "",
       position: 2,
       estimate: null,

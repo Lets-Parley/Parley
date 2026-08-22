@@ -7,7 +7,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for helping improve Parley. Do not include secrets, room codes, session cookies, personal data, or vulnerability details. Report security issues through the private link on the issue chooser.
+        Thanks for helping improve Parley. Do not include secrets, passcodes, session cookies, personal data, or vulnerability details. Report security issues through the private link on the issue chooser.
   - type: input
     id: version
     attributes:
@@ -49,7 +49,7 @@ body:
     id: logs
     attributes:
       label: Relevant logs or screenshots
-      description: Remove secrets, room codes, tokens, and personal information first.
+      description: Remove secrets, passcodes, tokens, and personal information first.
       render: shell
   - type: checkboxes
     id: checks

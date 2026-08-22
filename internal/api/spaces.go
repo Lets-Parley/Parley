@@ -53,7 +53,7 @@ func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 
 	var body struct {
 		Name string `json:"name"`
-		// Open opts out of the room code; the default is a protected space.
+		// Open opts out of the passcode; the default is a protected space.
 		Open bool `json:"open"`
 	}
 	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
@@ -178,7 +178,7 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 				views[i] = memberView{UserID: m.UserID, Name: m.Name, AvatarHue: avatarHue(m.UserID), Spectator: m.Spectator, Role: m.Role,
 					AvatarIcon: m.AvatarIcon, At: seats[m.UserID]}
 			}
-			// Members can read the room code any time — passing it on is the
+			// Members can read the passcode any time — passing it on is the
 			// whole point of it.
 			writeJSON(w, http.StatusOK, map[string]any{
 				"slug": sp.Slug, "name": sp.Name, "members": views, "sessions": sessionViews, "kinds": kinds,
@@ -273,7 +273,7 @@ func (a *app) handleJoinSpace(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleSetPasscode rotates the room code or opens the space. Any member can do
+// handleSetPasscode rotates the passcode or opens the space. Any member can do
 // it: they can already read the current code and hand it to anyone.
 func (a *app) handleSetPasscode(w http.ResponseWriter, r *http.Request) {
 	p, _ := PrincipalFrom(r.Context())

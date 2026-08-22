@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
@@ -495,6 +495,7 @@ describe("SpacePage invite links", () => {
   afterEach(() => {
     view = space;
     window.history.replaceState(null, "", "/");
+    sessionStorage.clear();
   });
 
   it("joins with the passcode from the fragment, then wipes it", async () => {
@@ -523,5 +524,135 @@ describe("SpacePage invite links", () => {
       .slice(before)
       .filter(([, path]) => path === "/api/spaces/platform-team/join");
     expect(joins).toHaveLength(0);
+  });
+});
+
+/**
+ * Under an identity provider, taking a seat is a full-page trip to the provider
+ * and back, and `next` is built from the path and query alone — the fragment
+ * does not survive it. Because the fragment has already been wiped by then, a
+ * lost code strands the visitor at the passcode gate with nothing left to type,
+ * so it is parked in sessionStorage for exactly one round trip.
+ */
+describe("SpacePage invite links across a sign-in round trip", () => {
+  const locked = { slug: "platform-team", name: "Platform Team", protected: true } as SpaceView;
+  const routed = (
+    <Routes>
+      <Route path="/s/:slug" element={<SpacePage />} />
+    </Routes>
+  );
+
+  // The module mock is shared by the whole file, so anything that swaps its
+  // implementation has to put the default back — a restoreAllMocks() here
+  // leaves `api` returning undefined for every later test in the file.
+  const defaultApi = vi.mocked(api).getMockImplementation()!;
+
+  afterEach(() => {
+    view = space;
+    window.history.replaceState(null, "", "/");
+    sessionStorage.clear();
+    vi.mocked(api).mockImplementation(defaultApi);
+    vi.restoreAllMocks();
+  });
+
+  it("parks the code when the visitor has no identity yet", async () => {
+    view = locked;
+    // No identity, and a provider: the gate that follows is a full-page
+    // navigation, which is the case the parking exists for.
+    vi.mocked(api).mockImplementation((async (_m: string, path: string) => {
+      if (path === "/api/me") return null;
+      if (path === "/api/auth") return { mode: "oidc" };
+      if (path.startsWith("/api/spaces/")) return view;
+      throw new Error(`unexpected api call: ${path}`);
+    }) as typeof defaultApi);
+    window.history.replaceState(null, "", "/s/platform-team#c=TEAM49");
+    renderApp(routed, { route: "/s/platform-team" });
+
+    await screen.findByText("Platform Team");
+    await waitFor(() => expect(sessionStorage.getItem("parley:pending-invite")).toBeTruthy());
+    const parked = JSON.parse(sessionStorage.getItem("parley:pending-invite")!);
+    expect(parked.code).toBe("TEAM49");
+    expect(parked.slug).toBe("platform-team");
+    // And it is out of the address bar already — the whole point of the wipe.
+    expect(window.location.hash).toBe("");
+  });
+
+  it("joins with the parked code on the way back, with no fragment left", async () => {
+    view = locked;
+    sessionStorage.setItem(
+      "parley:pending-invite",
+      JSON.stringify({ code: "TEAM49", slug: "platform-team", at: Date.now() }),
+    );
+    // Back from the provider: same path, no fragment, and now signed in.
+    window.history.replaceState(null, "", "/s/platform-team");
+    const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    renderApp(routed, { route: "/s/platform-team" });
+
+    await screen.findByText("Platform Team");
+    await waitFor(() =>
+      expect(
+        (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
+          .slice(before)
+          .filter(([, path]) => path === "/api/spaces/platform-team/join"),
+      ).toContainEqual(["POST", "/api/spaces/platform-team/join", { passcode: "TEAM49" }]),
+    );
+    // One attempt only: a refused passcode must land on the gate, not loop.
+    expect(sessionStorage.getItem("parley:pending-invite")).toBeNull();
+  });
+
+  it("will not spend a code parked for a different space", async () => {
+    view = locked;
+    sessionStorage.setItem(
+      "parley:pending-invite",
+      JSON.stringify({ code: "OTHER1", slug: "another-team", at: Date.now() }),
+    );
+    window.history.replaceState(null, "", "/s/platform-team");
+    const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    renderApp(routed, { route: "/s/platform-team" });
+
+    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    expect(
+      (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
+        .slice(before)
+        .filter(([, path]) => path === "/api/spaces/platform-team/join"),
+    ).toHaveLength(0);
+  });
+
+  it("ignores a code parked longer than a sign-in trip could take", async () => {
+    view = locked;
+    sessionStorage.setItem(
+      "parley:pending-invite",
+      JSON.stringify({
+        code: "TEAM49",
+        slug: "platform-team",
+        at: Date.now() - 16 * 60 * 1000,
+      }),
+    );
+    window.history.replaceState(null, "", "/s/platform-team");
+    const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    renderApp(routed, { route: "/s/platform-team" });
+
+    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    expect(
+      (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
+        .slice(before)
+        .filter(([, path]) => path === "/api/spaces/platform-team/join"),
+    ).toHaveLength(0);
+  });
+
+  // Storage can be unavailable — a locked-down browser, or a runner started
+  // with webstorage off. The invite must degrade to the gate, not crash.
+  it("still renders the gate when sessionStorage throws", async () => {
+    view = locked;
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    window.history.replaceState(null, "", "/s/platform-team");
+    renderApp(routed, { route: "/s/platform-team" });
+
+    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
   });
 });

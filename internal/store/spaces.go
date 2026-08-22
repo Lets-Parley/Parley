@@ -27,7 +27,7 @@ type Space struct {
 	ID   string `json:"id"`
 	Slug string `json:"slug"`
 	Name string `json:"name"`
-	// Passcode is the room code a non-member must present to join. Empty means
+	// Passcode is what a non-member must present to join. Empty means
 	// the space is open to anyone with the link. Never serialize this to a
 	// non-member: handlers pick what to expose.
 	Passcode string `json:"-"`
@@ -112,7 +112,7 @@ func (s *Spaces) BySlug(ctx context.Context, slug string) (Space, error) {
 	return sp, err
 }
 
-// SetPasscode replaces the room code, or clears it to open the space.
+// SetPasscode replaces the passcode, or clears it to open the space.
 func (s *Spaces) SetPasscode(ctx context.Context, spaceID, passcode string) error {
 	_, err := s.Pool.Exec(ctx, "update spaces set passcode = $2 where id = $1", spaceID, passcode)
 	return err
@@ -150,7 +150,7 @@ func (s *Spaces) MarkSeen(ctx context.Context, spaceID, userID string) error {
 }
 
 // Membership is one space the caller belongs to, as the landing page lists
-// them. Deliberately no room code: this is a list, not a space someone opened.
+// them. Deliberately no passcode: this is a list, not a space someone opened.
 // last_seen_at orders the list server-side and is not part of the payload —
 // nothing on the page shows it.
 type Membership struct {

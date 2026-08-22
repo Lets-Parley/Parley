@@ -73,10 +73,10 @@ it answers even when the instance is otherwise unhealthy. Details:
 
 ## Security model, in one paragraph
 
-Parley's access boundary is a shared room code per space. Any member can rotate
+Parley's access boundary is a shared passcode per space. Any member can rotate
 or remove that code; inside a session, the facilitator alone creates, edits,
 reorders, selects, and deletes stories and controls the meeting, while ordinary
-members may vote or write their own standup entry. Room codes are stored
+members may vote or write their own standup entry. Passcodes are stored
 readable on purpose, so a database dump discloses them. Vote secrecy before a
 reveal is enforced in the serializer, so unrevealed votes are absent from API
 responses, WebSocket frames and CSV exports alike. Active WebSockets revalidate
@@ -97,9 +97,9 @@ reporting a missing feature as a vulnerability.
 
 These are documented, deliberate, and not bugs:
 
-- **Room codes are readable in the database.** By design; a code is meant to be
+- **Passcodes are readable in the database.** By design; a code is meant to be
   read off the space page and passed on.
-- **Any member can rotate or remove a space's room code.** There are no space
+- **Any member can rotate or remove a space's passcode.** There are no space
   owner or administrator roles.
 - **Story-queue control is facilitator-only.** Ordinary members retain voting
   and their own standup entries.
