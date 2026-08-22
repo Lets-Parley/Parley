@@ -337,6 +337,15 @@ describe("the build stamp", () => {
     );
   });
 
+  it("does not double-prefix a version that already carries the v", async () => {
+    stubShell("v0.3.0");
+    renderShell();
+    const link = await screen.findByRole("link", { name: "Parley v0.3.0 release notes" });
+    expect(link.getAttribute("href")).toBe(
+      "https://github.com/lets-parley/parley/releases/tag/v0.3.0",
+    );
+  });
+
   it("says dev for an unstamped build, and points at the releases page", async () => {
     stubShell("dev");
     renderShell();
