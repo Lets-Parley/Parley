@@ -54,7 +54,12 @@ export function AvatarDialog({ me, onClose }: { me: Me; onClose: () => void }) {
   }
 
   return (
-    <Modal title="Your avatar" onClose={onClose} width="26rem">
+    <Modal
+      // Nothing stored yet means this is the first pass, not an edit of one.
+      title={stored ? "Edit avatar" : "Create your avatar"}
+      onClose={onClose}
+      width="26rem"
+    >
       <div className="mt-3 flex flex-col items-center gap-2">
         <Avatar name={me.name} hue={me.avatarHue} icon={picked} size="md" />
         <button
@@ -121,7 +126,10 @@ export function AvatarDialog({ me, onClose }: { me: Me; onClose: () => void }) {
         </div>
       )}
 
-      <div className="mt-4 flex justify-end">
+      <div className="mt-4 flex items-center justify-end gap-3">
+        {picked !== stored && (
+          <span className="text-[12px] text-ink-faint">Not saved yet</span>
+        )}
         <button
           type="button"
           className={buttonPrimary}

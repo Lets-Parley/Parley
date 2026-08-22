@@ -282,3 +282,29 @@ describe("AvatarDialog invalidation", () => {
     expect(keys).toEqual([["me"], ["space"], ["session"]]);
   });
 });
+
+describe("AvatarDialog copy", () => {
+  it("greets a first-time user with Create, and a returning one with Edit", () => {
+    mockFetch();
+    const { unmount } = renderApp(
+      <AvatarDialog me={{ ...me, avatarIcon: undefined }} onClose={() => {}} />,
+    );
+    expect(screen.getByRole("heading", { name: "Create your avatar" })).toBeTruthy();
+    unmount();
+
+    renderApp(<AvatarDialog me={{ ...me, avatarIcon: "zeke" }} onClose={() => {}} />);
+    expect(screen.getByRole("heading", { name: "Edit avatar" })).toBeTruthy();
+  });
+
+  it("says the selection is unsaved while it differs from what is stored", async () => {
+    mockFetch();
+    renderApp(<AvatarDialog me={me} onClose={() => {}} />);
+    expect(screen.queryByText("Not saved yet")).toBeNull();
+
+    await userEvent.click(screen.getByRole("radio", { name: "Ada" }));
+    expect(screen.getByText("Not saved yet")).toBeTruthy();
+
+    await userEvent.click(save());
+    await waitFor(() => expect(screen.queryByText("Not saved yet")).toBeNull());
+  });
+});

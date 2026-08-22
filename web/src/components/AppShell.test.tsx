@@ -419,7 +419,7 @@ describe("the chip you wear", () => {
     renderShell();
     const chip = screen.getByRole("button", { name: "Dana Whitfield — choose your avatar" });
     await userEvent.click(chip);
-    expect(await screen.findByRole("dialog", { name: "Your avatar" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Create your avatar" })).toBeTruthy();
   });
 
   it("is reachable under an identity provider, where the name gate returns early", async () => {
