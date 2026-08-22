@@ -54,29 +54,27 @@ short id. One set of art at every size, chosen in the same dialog as today.
 
 Accepted work, likely to be picked up after current priorities.
 
-### An extensible core
+### Switchable poker
 
-Adding a ceremony to Parley currently means touching the router, a database
-constraint, a registry populated at package initialisation, and a ternary in the
-frontend. This makes session kinds a real extension point, so a retrospective or
-a story map is code someone adds rather than surgery on the core.
+Parley already ships four decks, and they are enough to run most rooms. The
+problem is everything they cannot express: teams that want to carry their own
+deck and keep it stable across sessions; rooms where a vote can stay open so a
+distributed team estimates when they can; observers who watch the discussion but
+do not participate in the vote.
 
-Worth doing on its own merits: it also fixes a migration-versioning bug, gives
-the two existing kinds one shared authorization path instead of two
-reimplementations, and stops an unknown session kind from silently rendering the
-wrong room.
-
-It should also settle where storage sits. A session kind is currently handed a
-Postgres connection pool directly, which puts the database driver in the middle
-of the extension point this work exists to stabilise. Drawing that boundary now
-costs a little; drawing it after the interface is published costs a great deal
-more.
+Switchable poker is the first slice that makes planning poker feel like it was
+made for the way a team already works, rather than asking the team to work the
+way the tool expects. A deck becomes something you choose and own, not a global
+constant baked into the server.
 
 - Status: Backlog
-- Target: v0.3.0
-- Tracking: [#8](https://github.com/lets-parley/parley/issues/8)
 
-### Yesterday's promise
+### Honest ceremonies
+
+Two changes that make ceremonies tell the truth without turning facilitation
+into a scoreboard.
+
+#### Yesterday's promise
 
 Standup already carries what you said you would do today into tomorrow's
 "yesterday". It then asks nothing about it. A day's work is never falsified, so
@@ -91,7 +89,7 @@ performance record.
 - Status: Backlog
 - Target: v0.3.0
 
-### A meeting that ends
+#### A meeting that ends
 
 A session can be given a limit — a length, a number of stories — and when it
 runs out the room says so and publishes what it did not get to. The unfinished
@@ -102,6 +100,18 @@ No tool that sells seats will ever ship this, which is reason enough.
 
 - Status: Backlog
 - Target: v0.3.0
+
+### Signed links
+
+Some participation should be named but not account-bound. A person should be
+able to vote on this story, add their standup update, or leave one piece of
+context without first becoming a user the instance has to remember.
+
+A signed link is a capability, not a login: it does one thing, for one room, and
+expires. That makes it safer than "just make it public" and more honest than a
+shared passcode that quietly becomes a second identity system.
+
+- Status: Backlog
 
 ### Take the whole instance with you
 
@@ -148,6 +158,31 @@ otherwise.
 
 Accepted direction, not currently scheduled.
 
+### An extensible core
+
+Adding a ceremony to Parley currently means touching the router, a database
+constraint, a registry populated at package initialisation, and a ternary in the
+frontend. This makes session kinds a real extension point, so a retrospective or
+a story map is code someone adds rather than surgery on the core.
+
+Worth doing on its own merits: it also fixes a migration-versioning bug, gives
+the two existing kinds one shared authorization path instead of two
+reimplementations, and stops an unknown session kind from silently rendering the
+wrong room.
+
+It should also settle where storage sits. A session kind is currently handed a
+Postgres connection pool directly, which puts the database driver in the middle
+of the extension point this work exists to stabilise. Drawing that boundary now
+costs a little; drawing it after the interface is published costs a great deal
+more.
+
+This work is an unlock: it is the boundary that makes a plugin system and
+storage backends feasible without turning every feature into a cross-cutting
+rewrite.
+
+- Status: Backlog
+- Tracking: [#8](https://github.com/lets-parley/parley/issues/8)
+
 ### A plugin system
 
 Extend Parley without forking it — integrations, AI features, meeting notes,
@@ -175,6 +210,18 @@ Worth building after that work, not before.
 
 - Status: Backlog
 
+### Hosted / Cloud Parley
+
+Some teams want Parley, not Postgres. They are willing to pay for the tool, but
+not to operate it: upgrades, backups, and the responsibility that comes with
+being the person who owns the instance.
+
+Hosted Parley is accepted long-term direction, but it is not part of the first
+slices. A self-hosted tool should be excellent on its own terms before it grows
+an operational footprint that can drown out product work.
+
+- Status: Backlog
+
 ### Postgres becomes optional
 
 One binary and one file on disk, with Postgres an opt-in for teams that outgrow
@@ -196,6 +243,9 @@ The meetings a delivery team already runs, in the tool they already have open.
 
 Some of these will arrive as plugins rather than core features, which is rather
 the point of the two entries above.
+
+Several of the Exploring ideas below — issue sync, chat integrations, meeting
+recaps — are likely to become plugins once [#8](https://github.com/lets-parley/parley/issues/8) exists.
 
 - Status: Backlog
 
@@ -220,10 +270,12 @@ Ideas under consideration, not committed to.
   nothing leaves the instance
 - Two-way issue sync with Jira, Linear, and GitHub
 - Replaying how a board or a ceremony actually evolved
-- Signed single-purpose links — vote on this story, add your standup — that
-  need no login at all
 - Spaces a creator can open to anyone, no sign-in required, on an instance
   that otherwise requires an identity provider
+- Vote with the work — estimate from the ticket itself, not a copied title
+  (wants [#8](https://github.com/lets-parley/parley/issues/8))
+- Stance, not a number — confidence or risk alongside points
+- A room that dies with the meeting — the session ends when the calendar event does
 - Audit logging, retention policies, and SSO group-to-role mapping
 - White-label theming, for anyone hosting Parley on someone else's behalf
 
