@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { avatarIcon, avatarIconIds, avatarIconLabels } from "./avatarIcons";
 import { readFileSync, readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 describe("the portrait sheet", () => {
@@ -63,6 +64,37 @@ describe("the committed assets", () => {
     for (const file of files) {
       const svg = readFileSync(join(dir, file), "utf8");
       expect(svg).not.toMatch(/dicebear\.com|href="http|url\(\s*["']?https?:|<image|<script|<animate|<foreignObject/i);
+    }
+  });
+});
+
+/**
+ * The geometry pin. The audit above passes against a blank 1x1 placeholder —
+ * nothing in it looks at path data — so an SVGO regression or a botched
+ * re-export could replace real art with nothing and still ship green. A digest
+ * per file is the cheapest thing that cannot be fooled by that, and unlike a
+ * rendered snapshot it does not depend on a rasteriser or on CI's fonts.
+ *
+ * Regenerate after a deliberate art change, and re-shoot the contact sheet:
+ *   cd web/src/assets/avatars && sha256sum *.svg > portraits.sha256
+ */
+describe("the portrait geometry", () => {
+  const dir = "src/assets/avatars";
+  const manifest = readFileSync(join(dir, "portraits.sha256"), "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => line.split(/\s+/) as [string, string]);
+
+  it("pins every shipped portrait", () => {
+    expect(manifest.map(([, file]) => file).sort()).toEqual(
+      avatarIconIds.map((id) => `${id}.svg`).sort(),
+    );
+  });
+
+  it("matches the committed digest, byte for byte", () => {
+    for (const [digest, file] of manifest) {
+      const actual = createHash("sha256").update(readFileSync(join(dir, file))).digest("hex");
+      expect(`${file} ${actual}`).toBe(`${file} ${digest}`);
     }
   });
 });

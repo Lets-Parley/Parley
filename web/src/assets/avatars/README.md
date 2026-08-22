@@ -23,6 +23,21 @@ per person per render.
   identically. Re-run it by hand if a portrait is ever regenerated — SVGO is
   not a dependency and not a build step.
 
+## Changing a portrait
+
+Two things are pinned to the bytes of these files, and both have to be redone
+by hand:
+
+1. **The digest manifest.** `portraits.sha256` holds a sha256 per file and
+   `../../components/avatarIcons.test.tsx` checks it, so a lossy SVGO pass or a
+   botched re-export fails CI instead of shipping silently.
+   `cd web/src/assets/avatars && sha256sum *.svg > portraits.sha256`
+2. **The legibility contact sheet.** All thirty portraits at 46px and 38px, in
+   both themes, on `--color-surface`:
+   `cd web && npm install --no-save @resvg/resvg-js && node scripts/portrait-contact-sheet.mjs`
+   Then look at the result at 100% and update the verdict in
+   `site/src/content/docs/project/contrast.mdx`.
+
 Ids are the wire format. The twelve retired ones — parrot, kraken, anchor,
 lighthouse, wheel, gull, buoy, crate, rubber-duck, coffee, terminal, pager —
 must never be reused.
