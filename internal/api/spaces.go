@@ -409,10 +409,16 @@ func (a *app) handleRenameSpace(w http.ResponseWriter, r *http.Request) {
 //
 // The rooms are listed before the delete, not after, because afterwards there
 // is nothing left to list. Each one is then broadcast: the envelope build
-// fails with ErrNoSession on every replica that hears the notification, and
-// that is what closes the sockets — see broadcastLocal. Members' own sockets
-// also fall to the membership revalidation tick once their rows cascade away,
-// but that is the slow path and only covers people, not rooms.
+// fails with ErrNoSession on every replica that hears the notification, which
+// closes the sockets — see broadcastLocal.
+//
+// This loop is a latency optimization, not the mechanism. Deleting it does not
+// leave anyone stranded: the presence timer reaches the same ErrNoSession
+// branch on its next tick, and the membership revalidation tick closes them
+// within 30s regardless once the member rows cascade away. It is here so the
+// teardown is immediate rather than eventual, which is why removing it does
+// not fail TestDeletingClosesTheRoomSockets — that test pins the branch, and
+// pinning the loop as well would mean asserting on wall-clock timing.
 func (a *app) handleDeleteSpace(w http.ResponseWriter, r *http.Request) {
 	sp := spaceFrom(r.Context())
 

@@ -1,9 +1,14 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 // titlesOf reads the room list back through the API, so every assertion below
@@ -194,5 +199,84 @@ func TestRoomAdminCannotReachAnotherSpace(t *testing.T) {
 	}
 	if got := titlesOf(t, srv, theirSlug, stranger); len(got) != 1 || got[0] != "Their sprint" {
 		t.Fatalf("the other space's room was touched: %v", got)
+	}
+}
+
+func TestRenameRoomRejectsAnEmptyTitle(t *testing.T) {
+	srv := testServer(t)
+	owner := signup(t, srv, "Owner")
+	_, created := createSpace(t, srv, "Platform Team", owner)
+	slug, _ := created["slug"].(string)
+	_, sess := createSession(t, srv, slug, "poker", "Sprint 12", owner)
+	id, _ := sess["id"].(string)
+
+	resp, _ := doJSON(t, srv, "PATCH", "/api/spaces/"+slug+"/sessions/"+id, `{"title":"   "}`, owner)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("blank title: got %d, want 400", resp.StatusCode)
+	}
+	resp, _ = doJSON(t, srv, "PATCH", "/api/spaces/"+slug+"/sessions/"+id,
+		`{"title":"`+strings.Repeat("x", 201)+`"}`, owner)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("over-long title: got %d, want 400", resp.StatusCode)
+	}
+	if got := titlesOf(t, srv, slug, owner); len(got) != 1 || got[0] != "Sprint 12" {
+		t.Fatalf("the title changed under a refused rename: %v", got)
+	}
+}
+
+// The whole point of the ErrNoSession teardown branch is that a deleted room
+// does not leave people sitting in it. Asserting the 404 proves the cascade,
+// not the disconnect: with the broadcast loop deleted entirely, every
+// cascade assertion still passes. So this dials a real socket and requires it
+// to close.
+func TestDeletingClosesTheRoomSockets(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		path func(slug, id string) string
+	}{
+		{"the room itself", func(slug, id string) string { return "/api/spaces/" + slug + "/sessions/" + id }},
+		{"the whole space", func(slug, _ string) string { return "/api/spaces/" + slug }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := testServer(t)
+			owner := signup(t, srv, "Owner")
+			_, created := createSpace(t, srv, "Platform Team", owner)
+			slug, _ := created["slug"].(string)
+			_, sess := createSession(t, srv, slug, "poker", "Sprint 12", owner)
+			id, _ := sess["id"].(string)
+
+			ws, _, err := dialWS(t, srv, id, owner, testOrigin)
+			if err != nil {
+				t.Fatalf("dialing the room: %v", err)
+			}
+			defer ws.Close()
+			// Drain the initial envelope, so the read below can only be the
+			// close — otherwise a socket that never opened would pass.
+			if _, ok := readEnvelope(t, ws, 2*time.Second); !ok {
+				t.Fatal("no initial envelope — the socket never joined the room")
+			}
+
+			resp, body := doJSON(t, srv, "DELETE", tc.path(slug, id), "", owner)
+			if resp.StatusCode != http.StatusNoContent {
+				t.Fatalf("delete: got %d, want 204 (%v)", resp.StatusCode, body)
+			}
+
+			// The error has to be a close frame. A read deadline expiring is
+			// also a non-nil error, and treating that as success would let
+			// this pass against a socket nobody ever closed — which is
+			// exactly what it did before this check was tightened.
+			ws.SetReadDeadline(time.Now().Add(3 * time.Second))
+			_, _, err = ws.ReadMessage()
+			if err == nil {
+				t.Fatal("the deleted room's websocket stayed open")
+			}
+			var closeErr *websocket.CloseError
+			if !errors.As(err, &closeErr) {
+				t.Fatalf("the socket was not closed by the server: %v", err)
+			}
+			if closeErr.Code != websocket.CloseGoingAway {
+				t.Fatalf("close code = %d, want %d (going away)", closeErr.Code, websocket.CloseGoingAway)
+			}
+		})
 	}
 }

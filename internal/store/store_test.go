@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"strings"
@@ -366,5 +367,60 @@ func TestSetPasscode(t *testing.T) {
 	}
 	if cleared.Passcode != "" {
 		t.Fatalf("passcode = %q after clearing, want empty", cleared.Passcode)
+	}
+}
+
+// The RowsAffected guards on Rename and Delete are only reachable through a
+// race — the HTTP layer resolves the space first, so a nonexistent id never
+// gets that far — which is exactly why they need a test that skips the
+// handler and calls the store directly. Without one they are dead code that
+// the whole API suite passes without.
+func TestSpaceRenameAndDeleteReportAVanishedSpace(t *testing.T) {
+	pool := testPool(t)
+	spaces := &Spaces{Pool: pool}
+	gone := "00000000-0000-0000-0000-000000000000"
+
+	if err := spaces.Rename(context.Background(), gone, "Nope"); !errors.Is(err, ErrNoSpace) {
+		t.Fatalf("rename of a space that is not there: got %v, want ErrNoSpace", err)
+	}
+	if err := spaces.Delete(context.Background(), gone); !errors.Is(err, ErrNoSpace) {
+		t.Fatalf("delete of a space that is not there: got %v, want ErrNoSpace", err)
+	}
+}
+
+// The version bump is what a client reconnecting after a rename compares
+// against to know its cached title is stale. Everyone already holding a socket
+// gets the new title from the broadcast regardless, so nothing in the API
+// suite notices if the bump goes missing.
+func TestSessionRenameBumpsTheVersion(t *testing.T) {
+	pool := testPool(t)
+	sp, creator := newSpaceWithCreator(t, pool)
+	sessions := &Sessions{Pool: pool}
+
+	sess, err := sessions.Create(context.Background(), sp.ID, "poker", "Sprint 1", []byte(`{}`), creator.ID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := sessions.ByID(context.Background(), sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sessions.Rename(context.Background(), sess.ID, sp.ID, "Sprint 2"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := sessions.ByID(context.Background(), sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Version != before.Version+1 {
+		t.Fatalf("version after rename: got %d, want %d", after.Version, before.Version+1)
+	}
+	if after.Title != "Sprint 2" {
+		t.Fatalf("title after rename: got %q", after.Title)
+	}
+
+	// And the same guard on the delete path, for a session that is not there.
+	if err := sessions.Delete(context.Background(), sess.ID, "00000000-0000-0000-0000-000000000000"); !errors.Is(err, ErrNoSession) {
+		t.Fatalf("delete scoped to the wrong space: got %v, want ErrNoSession", err)
 	}
 }

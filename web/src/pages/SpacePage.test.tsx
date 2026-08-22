@@ -511,6 +511,27 @@ describe("SpacePage invite links", () => {
     expect(window.location.hash).toBe("");
   });
 
+  // The join must fire once, not once per render. Without the autoJoined
+  // guard the effect re-fires on every re-render and hammers the throttled
+  // join endpoint; a toContainEqual assertion alone would not notice.
+  it("attempts the invite join exactly once across re-renders", async () => {
+    view = locked;
+    window.history.replaceState(null, "", "/s/platform-team#c=TEAM49");
+    const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    const { rerender } = renderApp(routed, { route: "/s/platform-team" });
+
+    await screen.findByText("Platform Team");
+    rerender(routed);
+    rerender(routed);
+    await waitFor(() =>
+      expect(
+        (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
+          .slice(before)
+          .filter(([, path]) => path === "/api/spaces/platform-team/join"),
+      ).toHaveLength(1),
+    );
+  });
+
   it("leaves the gate up, and joins nothing, for a link with no code", async () => {
     view = locked;
     window.history.replaceState(null, "", "/s/platform-team");
