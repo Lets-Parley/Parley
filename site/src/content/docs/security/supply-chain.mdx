@@ -6,7 +6,7 @@ description: Dependency controls, CI security gates, and verifiable release prov
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["go.mod", "Dockerfile", ".github/workflows/ci.yml", ".github/workflows/codeql.yml", ".github/workflows/release.yml", ".github/dependabot.yml"]} />
+<VerifiedStamp version="unreleased" source={["go.mod", "Dockerfile", ".github/workflows/ci.yml", ".github/workflows/codeql.yml", ".github/workflows/scorecard.yml", ".github/workflows/release.yml", ".github/dependabot.yml"]} />
 
 ## Dependencies and builds
 
@@ -61,8 +61,8 @@ prove that external environment reviewers or other GitHub protection settings
 are enabled. Those settings require separate API readback.
 
 Beginning with the first release produced by this hardened workflow, each
-GitHub Release receives two SPDX SBOMs and digest-qualified Compose and
-Kubernetes manifests generated from the published digest.
+GitHub Release receives SBOMs (SPDX and CycloneDX) plus digest-qualified Compose
+and Kubernetes manifests generated from the published digest.
 
 The image SBOM is generated after publication by scanning the `linux/amd64`
 manifest resolved out of the published index, so the digest it records is one a
@@ -72,8 +72,8 @@ frontend dependency; a second, source-level SBOM covers the Go modules and
 `web/`'s npm tree, and excludes `site/`, the documentation site, which is never
 built into the image.
 
-Both SPDX files are plain release assets. They are not signed and carry no
-attestation, unlike the per-platform BuildKit SBOM attestations and the GitHub
+The SPDX and CycloneDX files are plain release assets. They are not signed and
+carry no attestation, unlike the per-platform BuildKit SBOM attestations and the GitHub
 build-provenance attestation on the published digest, which are the
 cryptographically verifiable artifacts. The two SBOMs are generated in a job
 holding registry read and no write permission, and attached by a job holding
@@ -103,7 +103,7 @@ a mutable tag.
 <Capability rows={[
   { name: "Locked dependency sets", status: "built", detail: "Go checksums and npm lockfiles are reviewed in pull requests and updated weekly." },
   { name: "Minimal runtime image", status: "built", detail: "Digest-pinned, non-root distroless static image with no shell or package manager." },
-  { name: "SPDX SBOM", status: "built", detail: "Two per release: an image SBOM scanned from the published linux/amd64 manifest and identified by its digest, and a source SBOM covering the Go and web/ npm trees that the image scan cannot see. Both are unsigned assets. Per-platform SBOM attestations are also attached to the published image by BuildKit." },
+  { name: "SBOM (SPDX + CycloneDX)", status: "built", detail: "Per release: image and source SBOMs are attached in both SPDX JSON and CycloneDX JSON formats. They are unsigned assets. Per-platform SBOM attestations are also attached to the published image by BuildKit." },
   { name: "Build provenance", status: "built", detail: "Maximum BuildKit provenance plus a GitHub artifact attestation bound to the final GHCR digest." },
   { name: "Vulnerability scanning", status: "built", detail: "govulncheck, CodeQL, dependency review, npm audits, and container scanning run in CI." },
 ]} />
