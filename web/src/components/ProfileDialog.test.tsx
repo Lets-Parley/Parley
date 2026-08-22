@@ -30,6 +30,11 @@ function writes(fetchMock: { mock: { calls: unknown[][] } }) {
   return fetchMock.mock.calls.filter(([path]) => path !== "/api/auth");
 }
 
+/** The probe itself, so `writes` filtering it out cannot also hide a stray one. */
+function probes(fetchMock: { mock: { calls: unknown[][] } }) {
+  return fetchMock.mock.calls.filter(([path]) => path === "/api/auth");
+}
+
 /** A fetch that fails until `heal()` is called, so a retry can succeed. */
 function mockFlakyFetch() {
   let broken = true;
@@ -195,6 +200,9 @@ describe("ProfileDialog saving", () => {
     expect(path).toBe("/api/me/avatar");
     expect(init.method).toBe("PATCH");
     expect(JSON.parse(init.body as string)).toEqual({ icon: "bo" });
+    // The mode is asked once, at mount. Without this the `writes` filter would
+    // absorb a probe re-fired on every save and no assertion here would notice.
+    expect(probes(fetchMock)).toHaveLength(1);
     expect(await screen.findByRole("status")).toHaveProperty("textContent", "Profile saved");
     await waitFor(() => expect((save() as HTMLButtonElement).disabled).toBe(true));
   });
@@ -386,6 +394,7 @@ describe("ProfileDialog renaming", () => {
     expect(path).toBe("/api/me");
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body as string)).toEqual({ name: "Dana W." });
+    expect(probes(fetchMock)).toHaveLength(1);
   });
 
   it("keeps Save dimmed for a name that is only whitespace", async () => {
@@ -410,6 +419,7 @@ describe("ProfileDialog renaming", () => {
     await userEvent.click(save());
     await waitFor(() => expect(writes(fetchMock)).toHaveLength(2));
     expect(writes(fetchMock).map(([path]) => path)).toEqual(["/api/me/avatar", "/api/me"]);
+    expect(probes(fetchMock)).toHaveLength(1);
   });
 
   it("writes nothing at all when only the untouched name is submitted", async () => {
