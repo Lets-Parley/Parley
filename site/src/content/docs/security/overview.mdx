@@ -35,6 +35,21 @@ so it does not persist in history or a bookmark. None of that makes the link
 less sensitive than the passcode it contains — anywhere you would not paste the
 code, do not paste the link.
 
+Under an identity provider there is one extra hop: taking a seat from an invite
+link is a full-page trip to the provider and back, and a URL fragment does not
+survive that. So the passcode is held in `sessionStorage` for the trip — written
+only in that mode, scoped to the one space, spent on the first read, expired
+after five minutes, and gone when the tab closes. Open-mode instances never
+write it anywhere.
+
+CodeQL flags that write as `js/clear-text-storage-of-sensitive-data`, and the
+alert is dismissed deliberately rather than silently. A space passcode is a
+shared door code: it is printed on the space page for every member to read and
+is meant to be pasted into a chat. It is not a per-person credential, and any
+same-origin script able to read it out of storage could equally read it off the
+page. The finding is real about the mechanism and immaterial about the asset —
+which is the same reason the passcode is stored readable in the database.
+
 Treat a database dump as disclosing the passcodes of every space — but not any
 member's identity. Session cookies are opaque random tokens stored hashed, so a
 backup contains no credentials that impersonate a person.
