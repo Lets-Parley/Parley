@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
@@ -188,7 +188,9 @@ describe("SpacePage passcode panel", () => {
     view = space;
   });
 
-  it("copies a full invite — link plus passcode — from the primary action", async () => {
+  // The passcode rides in the fragment so the link is the whole invite, and
+  // so it never reaches the server or a Referer header on the way in.
+  it("copies a one-click invite, with the passcode in the fragment", async () => {
     view = protectedSpace;
     const writeText = clipboard();
     renderApp(<SpacePage />, { route: "/s/platform-team" });
@@ -196,9 +198,9 @@ describe("SpacePage passcode panel", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
 
     expect(writeText).toHaveBeenCalledWith(
-      `${window.location.origin}/s/platform-team — passcode TEAM49`,
+      `${window.location.origin}/s/platform-team#c=TEAM49`,
     );
-    expect(screen.getByText("Invite copied — link and passcode")).toBeTruthy();
+    expect(screen.getByText("Invite link copied — it seats them in one click")).toBeTruthy();
   });
 
   it("says so instead of claiming success when the clipboard refuses", async () => {
@@ -216,15 +218,15 @@ describe("SpacePage passcode panel", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
 
     expect(await screen.findByText("Could not copy — copy it by hand.")).toBeTruthy();
-    expect(screen.queryByText("Invite copied — link and passcode")).toBe(null);
+    expect(screen.queryByText(/Invite link copied/)).toBe(null);
   });
 
-  it("copies just the code from the secondary action", async () => {
+  it("copies just the passcode from the secondary action", async () => {
     view = protectedSpace;
     const writeText = clipboard();
     renderApp(<SpacePage />, { route: "/s/platform-team" });
 
-    await userEvent.click(await screen.findByRole("button", { name: "Copy code" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Copy passcode" }));
 
     expect(writeText).toHaveBeenCalledWith("TEAM49");
     expect(screen.getByText("Passcode copied")).toBeTruthy();
@@ -238,8 +240,8 @@ describe("SpacePage passcode panel", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
 
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/s/platform-team`);
-    expect(screen.getByText("Invite link copied")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Copy code" })).toBe(null);
+    expect(screen.getByText("Invite link copied — it seats them in one click")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Copy passcode" })).toBe(null);
   });
 });
 
@@ -379,3 +381,318 @@ function spaceReads(): number {
     .mocked(api)
     .mock.calls.filter((c) => c[0] === "GET" && String(c[1]).startsWith("/api/spaces/")).length;
 }
+
+/**
+ * Renaming and deleting, from the space down to one room. The controls are a
+ * courtesy — the server enforces the same owner rule — so what is asserted
+ * here is that the right request goes out and that a member is not shown a
+ * button that would only earn them a 403.
+ */
+describe("SpacePage space and room admin", () => {
+  const owned = {
+    ...space,
+    members: [{ userId: "marcus", name: "Marcus Okonjo", avatarHue: 40, spectator: false, role: "owner" }],
+  } as unknown as SpaceView;
+  const asMember = {
+    ...space,
+    members: [{ userId: "marcus", name: "Marcus Okonjo", avatarHue: 40, spectator: false, role: "member" }],
+  } as unknown as SpaceView;
+
+  const calls = () => (api as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+
+  afterEach(() => {
+    view = space;
+  });
+
+  it("offers nothing to rename or delete to a plain member", async () => {
+    view = asMember;
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    await screen.findByText("Recent sessions");
+    expect(screen.queryByRole("button", { name: "Delete this space" })).toBe(null);
+    expect(screen.queryByRole("button", { name: "Manage Sprint 12 grooming" })).toBe(null);
+  });
+
+  it("renames the space and keeps the slug, saying so", async () => {
+    view = owned;
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    const field = await screen.findByRole("textbox", { name: "Space name" });
+    await userEvent.clear(field);
+    await userEvent.type(field, "Platform Guild");
+    await userEvent.click(screen.getByRole("button", { name: "Rename" }));
+
+    expect(calls()).toContainEqual([
+      "PATCH",
+      "/api/spaces/platform-team",
+      { name: "Platform Guild" },
+    ]);
+    expect(await screen.findByText("Renamed — the link /s/platform-team still works")).toBeTruthy();
+  });
+
+  // Nothing here is recoverable, so the name has to be typed back before the
+  // button will fire at all.
+  it("will not delete a space until its name is typed back", async () => {
+    view = owned;
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    await userEvent.click(await screen.findByRole("button", { name: "Delete this space" }));
+
+    const go = screen.getByRole("button", { name: "Delete this space" }) as HTMLButtonElement;
+    expect(go.disabled).toBe(true);
+
+    const confirm = screen.getByRole("textbox", { name: "Type Platform Team to confirm" });
+    await userEvent.type(confirm, "Platform Tea");
+    expect((screen.getByRole("button", { name: "Delete this space" }) as HTMLButtonElement).disabled).toBe(true);
+
+    await userEvent.type(confirm, "m");
+    await userEvent.click(screen.getByRole("button", { name: "Delete this space" }));
+    expect(calls()).toContainEqual(["DELETE", "/api/spaces/platform-team"]);
+  });
+
+  it("renames one room through its manage dialog", async () => {
+    view = owned;
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    await userEvent.click(await screen.findByRole("button", { name: "Manage Sprint 12 grooming" }));
+
+    const field = screen.getByRole("textbox", { name: "Session title" });
+    await userEvent.clear(field);
+    await userEvent.type(field, "Sprint 13 grooming");
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Rename" }));
+
+    expect(calls()).toContainEqual([
+      "PATCH",
+      "/api/spaces/platform-team/sessions/s1",
+      { title: "Sprint 13 grooming" },
+    ]);
+  });
+
+  it("deletes one room behind a second click, and says who it affects", async () => {
+    view = owned;
+    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    await userEvent.click(await screen.findByRole("button", { name: "Manage Sprint 12 grooming" }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete this session" }));
+    expect(screen.getByText(/for everyone. It cannot be undone/)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Delete for everyone" }));
+
+    expect(calls()).toContainEqual(["DELETE", "/api/spaces/platform-team/sessions/s1"]);
+  });
+});
+
+/**
+ * A copied invite carries the passcode in the URL fragment, so opening it is
+ * the whole join. The fragment is wiped from the address bar on the way in:
+ * it must not survive into a bookmark, the back button, or a screenshot.
+ */
+describe("SpacePage invite links", () => {
+  const locked = { slug: "platform-team", name: "Platform Team", protected: true } as SpaceView;
+  // Routed, because the join path comes from the URL parameter rather than
+  // from the space payload.
+  const routed = (
+    <Routes>
+      <Route path="/s/:slug" element={<SpacePage />} />
+    </Routes>
+  );
+
+  afterEach(() => {
+    view = space;
+    window.history.replaceState(null, "", "/");
+    sessionStorage.clear();
+  });
+
+  it("joins with the passcode from the fragment, then wipes it", async () => {
+    view = locked;
+    window.history.replaceState(null, "", "/s/platform-team#c=TEAM49");
+    renderApp(routed, { route: "/s/platform-team" });
+
+    await screen.findByText("Platform Team");
+    const joins = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.filter(
+      ([, path]) => path === "/api/spaces/platform-team/join",
+    );
+    expect(joins).toContainEqual(["POST", "/api/spaces/platform-team/join", { passcode: "TEAM49" }]);
+    expect(window.location.hash).toBe("");
+  });
+
+  // The join must fire once, not once per render. Without the autoJoined
+  // guard the effect re-fires on every re-render and hammers the throttled
+  // join endpoint; a toContainEqual assertion alone would not notice.
+  it("attempts the invite join exactly once across re-renders", async () => {
+    view = locked;
+    window.history.replaceState(null, "", "/s/platform-team#c=TEAM49");
+    const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    const { rerender } = renderApp(routed, { route: "/s/platform-team" });
+
+    await screen.findByText("Platform Team");
+    rerender(routed);
+    rerender(routed);
+    await waitFor(() =>
+      expect(
+        (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
+          .slice(before)
+          .filter(([, path]) => path === "/api/spaces/platform-team/join"),
+      ).toHaveLength(1),
+    );
+  });
+
+  it("leaves the gate up, and joins nothing, for a link with no code", async () => {
+    view = locked;
+    window.history.replaceState(null, "", "/s/platform-team");
+    // The mock accumulates across this file, so only the calls this render
+    // makes are counted.
+    const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    renderApp(routed, { route: "/s/platform-team" });
+
+    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    const joins = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      .slice(before)
+      .filter(([, path]) => path === "/api/spaces/platform-team/join");
+    expect(joins).toHaveLength(0);
+  });
+});
+
+/**
+ * Under an identity provider, taking a seat is a full-page trip to the provider
+ * and back, and `next` is built from the path and query alone — the fragment
+ * does not survive it. Because the fragment has already been wiped by then, a
+ * lost code strands the visitor at the passcode gate with nothing left to type,
+ * so it is parked in sessionStorage for exactly one round trip.
+ */
+describe("SpacePage invite links across a sign-in round trip", () => {
+  const locked = { slug: "platform-team", name: "Platform Team", protected: true } as SpaceView;
+  const routed = (
+    <Routes>
+      <Route path="/s/:slug" element={<SpacePage />} />
+    </Routes>
+  );
+
+  // The module mock is shared by the whole file, so anything that swaps its
+  // implementation has to put the default back — a restoreAllMocks() here
+  // leaves `api` returning undefined for every later test in the file.
+  const defaultApi = vi.mocked(api).getMockImplementation()!;
+
+  afterEach(() => {
+    view = space;
+    window.history.replaceState(null, "", "/");
+    sessionStorage.clear();
+    vi.mocked(api).mockImplementation(defaultApi);
+    vi.restoreAllMocks();
+  });
+
+  it("parks the code when the visitor has no identity yet", async () => {
+    view = locked;
+    // No identity, and a provider: the gate that follows is a full-page
+    // navigation, which is the case the parking exists for.
+    vi.mocked(api).mockImplementation((async (_m: string, path: string) => {
+      if (path === "/api/me") return null;
+      if (path === "/api/auth") return { mode: "oidc" };
+      if (path.startsWith("/api/spaces/")) return view;
+      throw new Error(`unexpected api call: ${path}`);
+    }) as typeof defaultApi);
+    window.history.replaceState(null, "", "/s/platform-team#c=TEAM49");
+    renderApp(routed, { route: "/s/platform-team" });
+
+    await screen.findByText("Platform Team");
+    await waitFor(() => expect(sessionStorage.getItem("parley:pending-invite")).toBeTruthy());
+    const parked = JSON.parse(sessionStorage.getItem("parley:pending-invite")!);
+    expect(parked.code).toBe("TEAM49");
+    expect(parked.slug).toBe("platform-team");
+    // And it is out of the address bar already — the whole point of the wipe.
+    expect(window.location.hash).toBe("");
+  });
+
+  // Open mode's gate is a modal — the component stays mounted, so there is
+  // nothing to park and no reason to put a passcode in storage at all.
+  it("parks nothing in open mode, where the gate never leaves the page", async () => {
+    view = locked;
+    vi.mocked(api).mockImplementation((async (_m: string, path: string) => {
+      if (path === "/api/me") return null;
+      if (path === "/api/auth") return { mode: "open" };
+      if (path.startsWith("/api/spaces/")) return view;
+      throw new Error(`unexpected api call: ${path}`);
+    }) as typeof defaultApi);
+    window.history.replaceState(null, "", "/s/platform-team#c=TEAM49");
+    renderApp(routed, { route: "/s/platform-team" });
+
+    await screen.findByText("Platform Team");
+    // Give the effect and the auth probe a chance to land before concluding.
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+    expect(sessionStorage.getItem("parley:pending-invite")).toBeNull();
+  });
+
+  it("joins with the parked code on the way back, with no fragment left", async () => {
+    view = locked;
+    sessionStorage.setItem(
+      "parley:pending-invite",
+      JSON.stringify({ code: "TEAM49", slug: "platform-team", at: Date.now() }),
+    );
+    // Back from the provider: same path, no fragment, and now signed in.
+    window.history.replaceState(null, "", "/s/platform-team");
+    const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    renderApp(routed, { route: "/s/platform-team" });
+
+    await screen.findByText("Platform Team");
+    await waitFor(() =>
+      expect(
+        (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
+          .slice(before)
+          .filter(([, path]) => path === "/api/spaces/platform-team/join"),
+      ).toContainEqual(["POST", "/api/spaces/platform-team/join", { passcode: "TEAM49" }]),
+    );
+    // One attempt only: a refused passcode must land on the gate, not loop.
+    expect(sessionStorage.getItem("parley:pending-invite")).toBeNull();
+  });
+
+  it("will not spend a code parked for a different space", async () => {
+    view = locked;
+    sessionStorage.setItem(
+      "parley:pending-invite",
+      JSON.stringify({ code: "OTHER1", slug: "another-team", at: Date.now() }),
+    );
+    window.history.replaceState(null, "", "/s/platform-team");
+    const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    renderApp(routed, { route: "/s/platform-team" });
+
+    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    expect(
+      (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
+        .slice(before)
+        .filter(([, path]) => path === "/api/spaces/platform-team/join"),
+    ).toHaveLength(0);
+  });
+
+  it("ignores a code parked longer than a sign-in trip could take", async () => {
+    view = locked;
+    sessionStorage.setItem(
+      "parley:pending-invite",
+      JSON.stringify({
+        code: "TEAM49",
+        slug: "platform-team",
+        at: Date.now() - 16 * 60 * 1000,
+      }),
+    );
+    window.history.replaceState(null, "", "/s/platform-team");
+    const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    renderApp(routed, { route: "/s/platform-team" });
+
+    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    expect(
+      (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
+        .slice(before)
+        .filter(([, path]) => path === "/api/spaces/platform-team/join"),
+    ).toHaveLength(0);
+  });
+
+  // Storage can be unavailable — a locked-down browser, or a runner started
+  // with webstorage off. The invite must degrade to the gate, not crash.
+  it("still renders the gate when sessionStorage throws", async () => {
+    view = locked;
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    window.history.replaceState(null, "", "/s/platform-team");
+    renderApp(routed, { route: "/s/platform-team" });
+
+    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+  });
+});

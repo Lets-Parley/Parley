@@ -45,7 +45,7 @@ func getSpace(t *testing.T, srv *httptest.Server, slug string, cookie *http.Cook
 	return resp, body
 }
 
-// joinSpace knocks on a space door, optionally presenting its room code.
+// joinSpace knocks on a space door, optionally presenting its passcode.
 func joinSpace(t *testing.T, srv *httptest.Server, slug string, cookie *http.Cookie, passcode ...string) *http.Response {
 	t.Helper()
 	var body io.Reader
@@ -122,7 +122,7 @@ func TestSpaceLookupRedactsForNonMembers(t *testing.T) {
 		t.Fatal("non-member lookup leaked the roster")
 	}
 
-	// After joining with the room code: roster visible.
+	// After joining with the passcode: roster visible.
 	if resp := joinSpace(t, srv, "secret-roster", eve, sp["passcode"].(string)); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("join: got %d", resp.StatusCode)
 	}
@@ -225,7 +225,7 @@ func TestListMySpacesReturnsOnlyMyMembershipsMostRecentFirst(t *testing.T) {
 		t.Fatalf("first row: got %v", mine[0])
 	}
 	if _, leaked := mine[0]["passcode"]; leaked {
-		t.Fatalf("list leaked a room code: %v", mine[0])
+		t.Fatalf("list leaked a passcode: %v", mine[0])
 	}
 
 	_, theirs := listMySpaces(t, srv, bob)
@@ -362,7 +362,7 @@ func TestMarkSeenNeverCreatesMembership(t *testing.T) {
 	}
 }
 
-// The list is a list: it carries no room code and no internal ordering key.
+// The list is a list: it carries no passcode and no internal ordering key.
 func TestListMySpacesCarriesOnlyTheListedFields(t *testing.T) {
 	srv := testServer(t)
 	ada := signup(t, srv, "Ada")

@@ -1,5 +1,5 @@
 ---
-title: Spaces and room codes
+title: Spaces and passcodes
 description: A memorable link, a six-character code, and a roster that shows who is where.
 ---
 
@@ -9,7 +9,7 @@ import Screenshot from "../../../components/Screenshot.astro";
 import spaceLight from "../../../assets/space-room-code-light.png";
 import spaceDark from "../../../assets/space-room-code-dark.png";
 
-<VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "web/src/pages/SpacePage.tsx", "web/src/pages/Landing.tsx"]} />
+<VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "internal/api/authz.go", "web/src/pages/SpacePage.tsx", "web/src/pages/Landing.tsx"]} />
 
 A space is a team's room. It has a memorable URL — `/s/platform-team` — a roster,
 and a history of every session run in it.
@@ -23,7 +23,7 @@ Signed in, the front page lists the spaces you belong to, most recently active
 first, and each row opens that space. "Active" means the last time you opened
 the space, not the day you joined it — the space page tells the server it was
 opened, so the table you use every week stays at the top. A row for a protected
-space says **Room code**, so you know before you open it whether you will need
+space says **Passcode**, so you know before you open it whether you will need
 six characters to hand anyone you invite. **Create a space** stays on the same
 page as a secondary action.
 
@@ -32,7 +32,7 @@ space is, that the link is the invite, and a box to name your first one. Once yo
 belong to a space that introduction gets out of the way — the list is why you
 came.
 
-## Room codes
+## Passcodes
 
 New spaces are **protected by default**. Joining one needs a six-character code,
 drawn from a 25-character alphabet with the confusable letters removed — no `O`
@@ -44,23 +44,54 @@ are throttled per client address: eight attempts per minute, per space.
 Any member can mint a new code, which immediately retires the old one, or open
 the space entirely so anyone with the link can take a seat.
 
-**Copy invite** puts the whole thing on the clipboard — the space's link, built
-from the address you are already on, followed by the passcode — so it can be
-pasted into a chat in one go. **Copy code** takes just the six characters, for
-when you are reading it out or the link is already pinned somewhere. An open
-space has no code, so the invite is only the link.
+**Copy invite** puts one link on the clipboard, built from the address you are
+already on, with the passcode carried in the URL fragment:
+`https://parley.example/s/platform-team#c=V4KW7J`. Opening it is the whole
+join — there is no code to read off a second line and retype.
+
+The passcode goes in the **fragment** rather than a query string on purpose. A
+fragment is never sent to the server and never appears in a `Referer` header,
+so a link pasted into a chat does not scatter the passcode through access logs,
+proxy history, or the analytics of whatever site someone clicks through to
+next. Parley reads it once on arrival and wipes it from the address bar, so it
+does not survive into a bookmark, the back button, or a screenshot. The link is
+still a secret in transit — treat it exactly as you would the passcode itself.
+
+**Copy passcode** takes just the six characters, for when you are reading it out
+or the link is already pinned somewhere. An open space has no passcode, so the
+invite is only the link.
 
 An open space is appropriate only on a trusted network. For public reachability,
 keep the passcode or put an external SSO/authentication proxy in front and add
 ingress abuse controls.
 
-:::note[Room codes are stored readable, on purpose]
+:::note[Passcodes are stored readable, on purpose]
 A code is meant to be read off the space page and passed to somebody, the way a
 Meet or Zoom code is. Hashing it would mean no member could ever look it up
 again. The consequence — a database dump discloses every space's code — is
 stated plainly in the [security model](/security/overview/), and it is the reason
 a code is a door, not an identity.
 :::
+
+## Renaming and deleting
+
+Under the passcode panel, an owner gets **Space settings**: rename the space, or
+delete it.
+
+A rename changes the display name only. The slug does not move with it, so
+`/s/platform-team` keeps working and every invite already pinned to a channel
+topic keeps working with it.
+
+Deleting is the one genuinely irreversible thing on the page. It takes the
+space and everything under it — every session, story, vote and standup, for
+everybody — and there is no undo and no archive. The button asks you to type
+the space's name back before it will fire, and anyone with a room open is
+disconnected as it lands.
+
+Each session row carries a **Manage** button for owners, offering the same two
+things for one session: rename it, or delete it and its history. That is
+distinct from a facilitator **closing** a session, which ends the meeting,
+keeps the record, and can be reopened.
 
 ## The roster
 
@@ -73,8 +104,8 @@ so it reflects an actual open connection.
 <Screenshot
   light={spaceLight}
   dark={spaceDark}
-  alt="A space page for Platform Team: a sidebar listing its sessions and its six members with presence dots, a list of recent sessions in the middle, and a panel at the foot showing the space passcode RIVER-8412 with Copy invite, Copy code, New code and Make open buttons."
-  caption="One page: who is here, what has been run, and the code to read out — with the controls to rotate it or open the space entirely."
+  alt="A space page for Platform Team: a sidebar listing its sessions and its six members with presence dots, a list of recent sessions in the middle, and a panel at the foot showing the space passcode RIVER-8412 with Copy invite, Copy passcode, New passcode and Make open buttons."
+  caption="One page: who is here, what has been run, and the passcode to read out — with the controls to rotate it or open the space entirely."
 />
 
 ## Members and owners
@@ -86,7 +117,7 @@ first owner.
 An owner sees two controls beside each member: **Make owner** / **Make member**
 to change their standing, and **Remove** to take their seat away. Removal takes
 effect on that person's very next request: they drop straight back to the
-passcode gate. It is not a ban — a current room code lets them rejoin as a
+passcode gate. It is not a ban — a current passcode lets them rejoin as a
 plain member.
 
 A space always needs somebody who can manage it, so the last remaining owner
@@ -120,9 +151,8 @@ timestamp and calling it presence.
 ## What is not here
 
 <Capability rows={[
-  { name: "Per-user or per-team access", status: "not-built", detail: "Put an SSO proxy in front, or turn on <a href='/security/authentication/'>OIDC</a> and keep spaces open only on a trusted network. Owners manage membership, but a room code is still the only door." },
+  { name: "Per-user or per-team access", status: "not-built", detail: "Put an SSO proxy in front, or turn on <a href='/security/authentication/'>OIDC</a> and keep spaces open only on a trusted network. Owners manage membership, but a passcode is still the only door." },
   { name: "Filtering history by date", status: "not-built", detail: "Sort by most recent and scroll; search matches titles." },
-  { name: "Renaming or deleting a space", status: "not-built", detail: "Create a new one. Nothing removes a space today, including via the API." },
-  { name: "Roles beyond owner and member", status: "not-built", detail: "Ownership governs membership only: any member, owner or not, can still rotate the code or open the space. Treat membership as trust, and see the <a href='/security/threat-model/'>threat model</a>." },
+  { name: "Roles beyond owner and member", status: "not-built", detail: "Ownership governs membership and the space itself — renaming and deleting the space and its sessions. It does not govern the door: any member, owner or not, can still rotate the passcode or open the space. Treat membership as trust, and see the <a href='/security/threat-model/'>threat model</a>." },
   { name: "Knock-to-join", status: "not-built", detail: "Share the code. Requesting entry from the door is on the roadmap." },
 ]} />

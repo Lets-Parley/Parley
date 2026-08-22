@@ -6,12 +6,11 @@ import { kindLabel } from "../lib/kinds";
 import type { ConnectionStatus } from "../lib/socket";
 import { useMediaQuery, useTheme } from "../lib/ui";
 import { Avatar } from "./Avatar";
-import { AvatarDialog } from "./AvatarDialog";
+import { ProfileDialog } from "./ProfileDialog";
 import { ConnectionBanner } from "./ConnectionBanner";
 import { KindChip } from "./KindChip";
 import { MemberCard } from "./MemberCard";
 import { Modal } from "./Modal";
-import { useAuthMode } from "./NameGate";
 import logoUrl from "../assets/logo.svg";
 
 export function Logo({ size = 14 }: { size?: number }) {
@@ -154,22 +153,7 @@ export function AppShell({
   const [sideOpen, setSideOpen] = useState(() => sidebarDefault && wide);
   const [who, setWho] = useState<string | null>(null);
   const [rosterOpen, setRosterOpen] = useState(false);
-  const [avatarOpen, setAvatarOpen] = useState(false);
-  const mode = useAuthMode();
-  // Only offered where it means something. In open mode the identity is just a
-  // name in a cookie, and "sign out" would promise more than it does.
-  const signedIn = mode.data?.mode === "oidc";
-
-  // Local sign-out: the cookie and its token row go, the identity provider's
-  // own session is left alone. Someone on a shared machine must sign out there
-  // too, which is why this says "Sign out" and not "Sign out everywhere".
-  async function signOut() {
-    try {
-      await api("DELETE", "/api/me");
-    } finally {
-      window.location.href = "/";
-    }
-  }
+  const [profileOpen, setProfileOpen] = useState(false);
   // No presence feed means presence is unknown, which is not the same as
   // everyone being here: falling back to the whole roster lit a green dot
   // beside people who were nowhere near the space.
@@ -376,10 +360,10 @@ export function AppShell({
           /* On a phone the room's name outranks your own — you already know
              who you are, and the chip still says it. */
           <button
-            onClick={() => setAvatarOpen(true)}
+            onClick={() => setProfileOpen(true)}
             /* One name, said once: the chip announces it here, so the Avatar
                inside stays decorative and the visible span is not read again. */
-            aria-label={`${me.name} — choose your avatar`}
+            aria-label={`${me.name} — your profile`}
             className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-felt-deep py-1 pl-1 hover:bg-surface-hi sm:pr-3"
           >
             <Avatar
@@ -396,15 +380,6 @@ export function AppShell({
             >
               {me.name}
             </span>
-          </button>
-        )}
-
-        {me && signedIn && (
-          <button
-            onClick={signOut}
-            className="hidden shrink-0 rounded-chip border border-line px-2.5 py-1.5 text-[12px] font-bold text-ink-soft hover:bg-felt-deep sm:block"
-          >
-            Sign out
           </button>
         )}
 
@@ -457,7 +432,7 @@ export function AppShell({
         </Modal>
       )}
 
-      {me && avatarOpen && <AvatarDialog me={me} onClose={() => setAvatarOpen(false)} />}
+      {me && profileOpen && <ProfileDialog me={me} onClose={() => setProfileOpen(false)} />}
 
       {/* Looked up rather than asserted: a roster refresh can drop the member
           whose card is open, and a stale id must close the card, not crash. */}

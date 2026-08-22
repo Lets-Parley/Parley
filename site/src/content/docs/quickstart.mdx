@@ -60,24 +60,30 @@ disconnecting client, and v0.1.0 additionally has a room-code throttle bypass.
 
 ## What you get
 
-A space at `/s/your-team` with a six-character room code. Anyone with the link
+A space at `/s/your-team` with a six-character passcode. Anyone with the link
 and the code picks a name, gets an avatar, and is in. Start a poker session or a
 standup from there.
 
 ## Make the chip yours
 
+Clicking your own chip in the top-right corner of any space opens your
+profile — everything about you this server holds.
+
+**Your name** is editable there on a server that signs people in by name alone.
+Where an identity provider is configured the name comes from it, so the field
+is replaced by a note saying so, and **Sign out** takes its place.
+
 The avatar starts as your initials on a colour derived from your name. To wear
-something else, click your own chip in the top-right corner of any space and
-pick one of thirty voxel-art portraits — or **Randomize**, just under the
+something else, pick one of thirty voxel-art portraits — or **Randomize**, just under the
 preview, to be handed one. **Initials** goes back to where you started. You
 wear one mark in total. **Save** stays dim until you change something; press it
-and the mark follows you into every room. Closing the dialog without saving
-keeps what you had.
+and the name and mark follow you into every room. Closing the dialog without
+saving keeps what you had.
 
 <Screenshot
   light={pickerLight}
   dark={pickerDark}
-  alt="The avatar dialog over a space page: a preview and a Randomize button above a grid of thirty voxel-art portraits plus an Initials tile, with Mira selected — a heavier border and a corner pip — and Save active in the corner."
+  alt="The profile dialog over a space page: a display-name field above a preview and a Randomize button above a grid of thirty voxel-art portraits plus an Initials tile, with Mira selected — a heavier border and a corner pip — and Save active in the corner."
   caption="Initials sits first in the grid, so going back to where you started is one click. Nothing is written until you press Save."
 />
 

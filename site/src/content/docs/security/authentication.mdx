@@ -14,7 +14,7 @@ Parley runs in one of two modes, set by `AUTH_MODE` and fixed at boot.
 
 The default, and the original. No accounts: people type a name, get an avatar,
 and take a seat. Nothing to administer, nothing to provision. A stranger with
-the link and the room code is a participant.
+the link and the passcode is a participant.
 
 Use open mode only on a trusted network. A public deployment needs a passcode or
 an external SSO/authentication proxy in front of the whole instance, plus
@@ -51,7 +51,7 @@ being accepted the moment it starts in `oidc` mode. Accounts and rooms stay in
 the database, untouched and unmigrated, but the people behind them come back as
 new federated accounts. There is no account linking: earlier votes and entries
 remain attributed to the old display records. Federated users can rejoin an
-existing space with its room code.
+existing space with its passcode.
 :::
 
 ## Names
@@ -74,9 +74,9 @@ rest of the live updates use, and each peer closes its own sockets for that
 token. The periodic revalidation below is the fallback if that notification is
 lost — for example while a replica's listener is reconnecting.
 
-## Room codes still apply
+## Passcodes still apply
 
-Identity says who you are. The room code says which room you may enter. Signing
+Identity says who you are. The passcode says which room you may enter. Signing
 in does not by itself get anyone into a space — per-user and per-team access is
 on the roadmap.
 

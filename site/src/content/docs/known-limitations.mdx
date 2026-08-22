@@ -38,10 +38,10 @@ accepted and actionable.
 ## Access and identity
 
 <Capability rows={[
-  { name: "Space roles beyond owner and member", status: "not-built", detail: "The owner role ships and gates membership management — see <a href='/security/authorization/'>Authorization</a> — but there is no admin or read-only role, and any member can still rotate the room code or open the space. Story mutations and session controls are facilitator-only; ordinary members retain voting, their own standup entries, and their own standup readiness signal." },
-  { name: "Per-user or per-team space access", status: "not-built", detail: "A room code gates a space; identity does not. Gate the whole instance with an SSO proxy if you need this today." },
-  { name: "Removing a member", status: "built", detail: "An owner removes a member from the space; their next request sees the stranger view and their sockets for that space are closed. It is not a ban — rotate the room code too, or they can rejoin with it. The last owner cannot be removed." },
-  { name: "Account linking when switching to OIDC", status: "not-built", detail: "Anonymous and federated identities are distinct. Existing history remains under the old display records; federated users rejoin spaces with their room codes." },
+  { name: "Space roles beyond owner and member", status: "not-built", detail: "The owner role ships and gates membership management — see <a href='/security/authorization/'>Authorization</a> — but there is no admin or read-only role, and any member can still rotate the passcode or open the space. Story mutations and session controls are facilitator-only; ordinary members retain voting, their own standup entries, and their own standup readiness signal." },
+  { name: "Per-user or per-team space access", status: "not-built", detail: "A passcode gates a space; identity does not. Gate the whole instance with an SSO proxy if you need this today." },
+  { name: "Removing a member", status: "built", detail: "An owner removes a member from the space; their next request sees the stranger view and their sockets for that space are closed. It is not a ban — rotate the passcode too, or they can rejoin with it. The last owner cannot be removed." },
+  { name: "Account linking when switching to OIDC", status: "not-built", detail: "Anonymous and federated identities are distinct. Existing history remains under the old display records; federated users rejoin spaces with their passcodes." },
   { name: "Sign out everywhere or admin revocation UI", status: "not-built", detail: "Delete rows from <code>session_tokens</code> in SQL. HTTP rejects them immediately; WebSockets start a check every 30 seconds, allow a 30-second timeout, and close with code 1008 on failure. A space owner can remove someone from that space, but that revokes no token and reaches no other space." },
   { name: "Account deletion or data-subject tooling", status: "not-built", detail: "SQL against the documented schema; note that deleting a user who facilitated a session is blocked by a foreign key." },
   { name: "Audit log", status: "not-built", detail: "Rows carry <code>user_id</code> and timestamps. Reconstruct from Postgres." },
@@ -56,7 +56,7 @@ accepted and actionable.
   { name: "HSTS and several modern headers", status: "not-built", detail: "Parley sets CSP, nosniff, X-Frame-Options and Referrer-Policy. Add HSTS, Permissions-Policy and the COOP/COEP/CORP family at your proxy." },
   { name: "General ingress rate limiting", status: "not-built", detail: "Room-code guesses and open identity creation are throttled; spaces, sessions, and stories have configurable caps. General API calls and WebSocket connections still need ingress controls." },
   { name: "Encryption at rest", status: "not-built", detail: "Use an encrypted volume or your provider's encryption." },
-  { name: "Room codes hashed at rest", status: "out-of-scope", detail: "Deliberate: a code is meant to be readable by members and passed on. A database dump therefore discloses every code. See the <a href='/security/threat-model/'>threat model</a>." },
+  { name: "Passcodes hashed at rest", status: "out-of-scope", detail: "Deliberate: a code is meant to be readable by members and passed on. A database dump therefore discloses every code. See the <a href='/security/threat-model/'>threat model</a>." },
 ]} />
 
 ## Product
@@ -67,7 +67,7 @@ accepted and actionable.
   { name: "Custom decks", status: "not-built", detail: "Four fixed decks. Pick the closest." },
   { name: "Configurable standup timer", status: "not-built", detail: "The server takes a <code>secondsPerPerson</code> value but no UI sets it, so 90 seconds is effectively fixed." },
   { name: "Explicit facilitator handover in the UI", status: "not-built", detail: "The endpoint exists; no control calls it. The 60-second claim path is wired, and only in the poker room." },
-  { name: "Deleting spaces or sessions", status: "not-built", detail: "Sessions close but do not delete. Remove rows in SQL if you must." },
+  { name: "Undoing a deletion", status: "not-built", detail: "A space owner can delete a space or a session outright, and it cascades. There is no soft delete and no undo — restore from a backup." },
   { name: "Filtering session history by date", status: "not-built", detail: "Search by title, filter by kind, sort by recency." },
   { name: "Export formats beyond CSV", status: "not-built", detail: "Parse the CSV or read the API." },
   { name: "Integrations, notifications, webhooks", status: "not-built", detail: "Nothing is pushed anywhere. The only outbound calls Parley ever makes are to the identity provider you configure in <code>oidc</code> mode. Copy the blockers roundup by hand, or poll the API." },

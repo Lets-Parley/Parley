@@ -251,3 +251,40 @@ func (s *Sessions) BumpVersion(ctx context.Context, id string) error {
 	_, err := s.Pool.Exec(ctx, "update sessions set version = version + 1 where id = $1", id)
 	return err
 }
+
+// Rename retitles a room. Scoped by space as well as id so a caller authorized
+// for one space can never retitle a room in another by guessing its id — the
+// handler's authorization is over the space, so the query must be too.
+//
+// The version bump is what pushes the new title to everyone already in the
+// room; without it the rename would only appear on the next reload.
+func (s *Sessions) Rename(ctx context.Context, id, spaceID, title string) error {
+	tag, err := s.Pool.Exec(ctx,
+		"update sessions set title = $3, version = version + 1 where id = $1 and space_id = $2",
+		id, spaceID, title)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNoSession
+	}
+	return nil
+}
+
+// Delete removes a room and its kind state. Stories, standup rows and presence
+// cascade from the session row, so this is the whole teardown.
+//
+// Scoped by space for the same reason Rename is. Deleting an already-deleted
+// room reports ErrNoSession rather than succeeding quietly: unlike closing,
+// this is not something a client retries blind, and a 404 is the honest answer
+// when the id names nothing.
+func (s *Sessions) Delete(ctx context.Context, id, spaceID string) error {
+	tag, err := s.Pool.Exec(ctx, "delete from sessions where id = $1 and space_id = $2", id, spaceID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNoSession
+	}
+	return nil
+}

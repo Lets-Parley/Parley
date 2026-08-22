@@ -268,12 +268,28 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			r.Post("/spaces/{slug}/sessions", a.handleCreateSession)
 		})
 
-		// Membership management is owner-only, and the middleware answers 404
-		// to anyone outside the space rather than admitting it exists.
+		// Managing the space itself is owner-only, and the middleware answers
+		// 404 to anyone outside the space rather than admitting it exists.
+		// These hang off the /api router by method rather than a Route group,
+		// because GET /spaces/{slug} is already mounted at this pattern and is
+		// deliberately open to non-members.
+		r.With(a.requireSpaceOwner).Patch("/spaces/{slug}", a.handleRenameSpace)
+		r.With(a.requireSpaceOwner).Delete("/spaces/{slug}", a.handleDeleteSpace)
+
 		r.Route("/spaces/{slug}/members/{userId}", func(r chi.Router) {
 			r.Use(a.requireSpaceOwner)
 			r.Post("/role", a.handleSetMemberRole)
 			r.Delete("/", a.handleRemoveMember)
+		})
+
+		// Renaming and deleting a room are housekeeping on the space, so they
+		// are owner-only and live here rather than under /sessions/{id}, where
+		// the facilitator-scoped meeting controls are. Closing a room stays
+		// the facilitator's: it ends a meeting, it does not discard one.
+		r.Route("/spaces/{slug}/sessions/{id}", func(r chi.Router) {
+			r.Use(a.requireSpaceOwner)
+			r.Patch("/", a.handleRenameRoom)
+			r.Delete("/", a.handleDeleteRoom)
 		})
 
 		// requireSessionMember answers 404 for anonymous callers too, so these

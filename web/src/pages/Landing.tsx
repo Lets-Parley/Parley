@@ -228,7 +228,7 @@ export function Landing() {
                 <span className="min-w-0 truncate">{sp.name}</span>
                 {sp.protected && (
                   <span className="shrink-0 font-mono text-[10px] font-normal uppercase tracking-[0.08em] text-ink-faint">
-                    Room code
+                    Passcode
                   </span>
                 )}
               </Link>
@@ -282,7 +282,7 @@ export function Landing() {
 
       <p className="max-w-md text-sm text-ink-faint text-pretty">
         Got a link from a teammate? That link is your invite — just open it. A
-        room code alone won't do it; ask them for the link.
+        passcode alone won't do it; ask them for the link.
       </p>
 
       {needName && (

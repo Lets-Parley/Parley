@@ -63,7 +63,7 @@ reject them. Their own protection is the `state` value in the sign-in cookie.
 <RouteTable rows={[
   { method: "GET", path: "/api/auth", auth: "public", purpose: "Report which auth mode this instance runs — open or oidc. The frontend uses it to pick a sign-in path." },
   { method: "GET", path: "/api/me", auth: "session", purpose: "Current identity: id, name, avatar hue and chosen avatar icon." },
-  { method: "POST", path: "/api/me", auth: "public", purpose: "Create or rename an anonymous identity. Refused with 403 in oidc mode." },
+  { method: "POST", path: "/api/me", auth: "public", purpose: "Create or rename an anonymous identity, rotating the session token. Refused with 403 in oidc mode." },
   { method: "PATCH", path: "/api/me/avatar", auth: "session", purpose: "Set the caller's chosen avatar. Permitted in both auth modes." },
   { method: "DELETE", path: "/api/me", auth: "session", purpose: "Sign out. Deletes the token, synchronously closes its WebSockets with code 1008, and clears the cookie." },
 ]} />
@@ -110,13 +110,17 @@ session envelope.
 ## Spaces
 
 <RouteTable rows={[
-  { method: "GET", path: "/api/spaces", auth: "user", purpose: "The caller's own memberships, most recently active first: slug, name, whether it is protected. Never the room code." },
-  { method: "GET", path: "/api/spaces/{slug}", auth: "public", purpose: "Members get roster, sessions, room code, and the kinds a new session may use. Each session carries here: how many people have a socket open on it right now, 0 once it has ended. Non-members get only the name and whether it is protected. Read-only: it never writes." },
+  { method: "GET", path: "/api/spaces", auth: "user", purpose: "The caller's own memberships, most recently active first: slug, name, whether it is protected. Never the passcode." },
+  { method: "GET", path: "/api/spaces/{slug}", auth: "public", purpose: "Members get roster, sessions, passcode, and the kinds a new session may use. Each session carries here: how many people have a socket open on it right now, 0 once it has ended. Non-members get only the name and whether it is protected. Read-only: it never writes." },
   { method: "POST", path: "/api/spaces", auth: "user", purpose: "Create a space. Protected by default." },
   { method: "POST", path: "/api/spaces/{slug}/join", auth: "user", purpose: "Join, sending {passcode} if the space is protected. Throttled at 8 attempts per 60s per address." },
   { method: "POST", path: "/api/spaces/{slug}/seen", auth: "user", purpose: "Stamp the caller's membership as recently active, which is what orders the landing list. 204, and a silent no-op for a non-member — it never creates a membership." },
-  { method: "POST", path: "/api/spaces/{slug}/passcode", auth: "member", purpose: "Mint a new code, or with {open:true} remove it. Any member may do this." },
+  { method: "POST", path: "/api/spaces/{slug}/passcode", auth: "member", purpose: "Mint a new passcode, or with {open:true} remove it. Any member may do this." },
   { method: "POST", path: "/api/spaces/{slug}/sessions", auth: "member", purpose: "Create a session: kind, title, config." },
+  { method: "PATCH", path: "/api/spaces/{slug}", auth: "owner", purpose: "Rename the space: {name}, 1-64 characters. The slug never moves with it, so invites already sent keep working." },
+  { method: "DELETE", path: "/api/spaces/{slug}", auth: "owner", purpose: "Delete the space and everything under it — sessions, stories, standups, memberships. Irreversible, and it closes the sockets on every open room." },
+  { method: "PATCH", path: "/api/spaces/{slug}/sessions/{id}", auth: "owner", purpose: "Rename a session in this space: {title}, 1-200 characters. Bumps the version, so everyone in the room sees it without a reload." },
+  { method: "DELETE", path: "/api/spaces/{slug}/sessions/{id}", auth: "owner", purpose: "Delete a session and its history. Irreversible, and unlike closing it is not idempotent: a second call is 404. Distinct from DELETE /api/sessions/{id}, which closes." },
   { method: "POST", path: "/api/spaces/{slug}/members/{userId}/role", auth: "owner", purpose: "Promote or demote: {role} is owner or member. 409 if it would leave the space with no owner." },
   { method: "DELETE", path: "/api/spaces/{slug}/members/{userId}", auth: "owner", purpose: "Remove a member. Access is revoked on their next request. 409 if they are the last owner." },
 ]} />
@@ -132,7 +136,7 @@ existence is never disclosed.
   { method: "GET", path: "/api/sessions/{id}/export.csv", auth: "member", purpose: "CSV of the session, rendered from the same redacted view." },
   { method: "POST", path: "/api/sessions/{id}/facilitator/claim", auth: "member", purpose: "Claim the facilitator role after the 60s grace period. Any member." },
   { method: "POST", path: "/api/sessions/{id}/facilitator", auth: "facilitator", purpose: "Hand the role to {userId}. Distinct from the claim route above." },
-  { method: "DELETE", path: "/api/sessions/{id}", auth: "facilitator", purpose: "Close the session." },
+  { method: "DELETE", path: "/api/sessions/{id}", auth: "facilitator", purpose: "Close the session — it ends, its history stays, and it can be reopened. Idempotent. To discard one, see DELETE /api/spaces/{slug}/sessions/{id}, which is owner-only." },
   { method: "POST", path: "/api/sessions/{id}/reopen", auth: "facilitator", purpose: "Reopen a closed session." },
   { method: "POST", path: "/api/sessions/{id}/spectator", auth: "member", purpose: "Toggle your own spectator seat with {on}. A property of a member, not of a kind, so it is a core route rather than an action." },
 ]} />

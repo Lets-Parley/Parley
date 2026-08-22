@@ -53,7 +53,7 @@ func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 
 	var body struct {
 		Name string `json:"name"`
-		// Open opts out of the room code; the default is a protected space.
+		// Open opts out of the passcode; the default is a protected space.
 		Open bool `json:"open"`
 	}
 	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
@@ -178,7 +178,7 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 				views[i] = memberView{UserID: m.UserID, Name: m.Name, AvatarHue: avatarHue(m.UserID), Spectator: m.Spectator, Role: m.Role,
 					AvatarIcon: m.AvatarIcon, At: seats[m.UserID]}
 			}
-			// Members can read the room code any time — passing it on is the
+			// Members can read the passcode any time — passing it on is the
 			// whole point of it.
 			writeJSON(w, http.StatusOK, map[string]any{
 				"slug": sp.Slug, "name": sp.Name, "members": views, "sessions": sessionViews, "kinds": kinds,
@@ -273,7 +273,7 @@ func (a *app) handleJoinSpace(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleSetPasscode rotates the room code or opens the space. Any member can do
+// handleSetPasscode rotates the passcode or opens the space. Any member can do
 // it: they can already read the current code and hand it to anyone.
 func (a *app) handleSetPasscode(w http.ResponseWriter, r *http.Request) {
 	p, _ := PrincipalFrom(r.Context())
@@ -368,4 +368,125 @@ func (a *app) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+// readName decodes and validates a {"name": …} body against the same 1-64
+// character rule space creation uses, so a rename can never produce a name
+// that create would have refused.
+func readName(w http.ResponseWriter, r *http.Request) (string, bool) {
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
+		return "", false
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" || len(name) > 64 {
+		http.Error(w, `{"error":"name must be 1-64 characters"}`, http.StatusBadRequest)
+		return "", false
+	}
+	return name, true
+}
+
+// handleRenameSpace changes a space's display name. It runs behind
+// requireSpaceOwner. The slug does not move with it — see store.Spaces.Rename.
+func (a *app) handleRenameSpace(w http.ResponseWriter, r *http.Request) {
+	sp := spaceFrom(r.Context())
+	name, ok := readName(w, r)
+	if !ok {
+		return
+	}
+	if err := a.spaces.Rename(r.Context(), sp.ID, name); err != nil {
+		http.Error(w, `{"error":"could not rename this space"}`, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"slug": sp.Slug, "name": name})
+}
+
+// handleDeleteSpace removes a space and everything in it. Owner-only and
+// irreversible.
+//
+// The rooms are listed before the delete, not after, because afterwards there
+// is nothing left to list. Each one is then broadcast: the envelope build
+// fails with ErrNoSession on every replica that hears the notification, which
+// closes the sockets — see broadcastLocal.
+//
+// This loop is a latency optimization, not the mechanism. Deleting it does not
+// leave anyone stranded: the presence timer reaches the same ErrNoSession
+// branch on its next tick, and the membership revalidation tick closes them
+// within 30s regardless once the member rows cascade away. It is here so the
+// teardown is immediate rather than eventual, which is why removing it does
+// not fail TestDeletingClosesTheRoomSockets — that test pins the branch, and
+// pinning the loop as well would mean asserting on wall-clock timing.
+func (a *app) handleDeleteSpace(w http.ResponseWriter, r *http.Request) {
+	sp := spaceFrom(r.Context())
+
+	sessions, err := a.sessions.ListBySpace(r.Context(), sp.ID)
+	if err != nil {
+		http.Error(w, `{"error":"could not delete this space"}`, http.StatusInternalServerError)
+		return
+	}
+	if err := a.spaces.Delete(r.Context(), sp.ID); errors.Is(err, store.ErrNoSpace) {
+		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
+		return
+	} else if err != nil {
+		http.Error(w, `{"error":"could not delete this space"}`, http.StatusInternalServerError)
+		return
+	}
+	for _, sess := range sessions {
+		a.broadcastState(r.Context(), sess.ID)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleRenameRoom retitles a room. Owner-only, like the rest of this group:
+// closing a room is the facilitator's call because it is part of running the
+// meeting, but renaming and deleting are housekeeping on the space.
+func (a *app) handleRenameRoom(w http.ResponseWriter, r *http.Request) {
+	sp := spaceFrom(r.Context())
+
+	var body struct {
+		Title string `json:"title"`
+	}
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
+		return
+	}
+	title := strings.TrimSpace(body.Title)
+	if title == "" || len(title) > 200 {
+		http.Error(w, `{"error":"title must be 1-200 characters"}`, http.StatusBadRequest)
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if err := a.sessions.Rename(r.Context(), id, sp.ID, title); errors.Is(err, store.ErrNoSession) {
+		http.Error(w, `{"error":"no such session"}`, http.StatusNotFound)
+		return
+	} else if err != nil {
+		http.Error(w, `{"error":"could not rename this room"}`, http.StatusInternalServerError)
+		return
+	}
+	// Everyone already in the room gets the new title without a reload.
+	a.broadcastState(r.Context(), id)
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "title": title})
+}
+
+// handleDeleteRoom removes a room and its history. Owner-only and
+// irreversible — a facilitator who wants the room to stop but the numbers to
+// survive closes it instead.
+func (a *app) handleDeleteRoom(w http.ResponseWriter, r *http.Request) {
+	sp := spaceFrom(r.Context())
+
+	id := chi.URLParam(r, "id")
+	if err := a.sessions.Delete(r.Context(), id, sp.ID); errors.Is(err, store.ErrNoSession) {
+		http.Error(w, `{"error":"no such session"}`, http.StatusNotFound)
+		return
+	} else if err != nil {
+		http.Error(w, `{"error":"could not delete this room"}`, http.StatusInternalServerError)
+		return
+	}
+	// Closes the sockets on every replica — see handleDeleteSpace.
+	a.broadcastState(r.Context(), id)
+	w.WriteHeader(http.StatusNoContent)
 }

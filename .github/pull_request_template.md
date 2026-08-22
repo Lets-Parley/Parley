@@ -17,4 +17,4 @@
 - [ ] Documentation and verification stamps reflect changed limits, defaults, or security properties.
 - [ ] Migrations are new, additive, and do not edit a shipped migration.
 - [ ] Every commit includes a DCO sign-off created with `git commit -s`.
-- [ ] I removed secrets, credentials, room codes, session data, and private vulnerability details.
+- [ ] I removed secrets, credentials, passcodes, session data, and private vulnerability details.

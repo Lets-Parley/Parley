@@ -17,7 +17,7 @@ import (
 	"github.com/lets-parley/parley/internal/httprequest"
 )
 
-// Room codes avoid the character pairs people mis-read aloud (0/O, 1/I/L) —
+// Passcodes avoid the character pairs people mis-read aloud (0/O, 1/I/L) —
 // this code gets read off a screen and typed by someone in a hurry.
 const passcodeAlphabet = "ACDEFGHJKMNPQRTUVWXY34679"
 
