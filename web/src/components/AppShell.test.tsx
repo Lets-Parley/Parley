@@ -333,7 +333,16 @@ describe("the build stamp", () => {
     renderShell();
     const link = await screen.findByRole("link", { name: "Parley 0.3.0 release notes" });
     expect(link.getAttribute("href")).toBe(
-      "https://github.com/lets-parley/parley/releases/tag/0.3.0",
+      "https://github.com/lets-parley/parley/releases/tag/v0.3.0",
+    );
+  });
+
+  it("does not double-prefix a version that already carries the v", async () => {
+    stubShell("v0.3.0");
+    renderShell();
+    const link = await screen.findByRole("link", { name: "Parley v0.3.0 release notes" });
+    expect(link.getAttribute("href")).toBe(
+      "https://github.com/lets-parley/parley/releases/tag/v0.3.0",
     );
   });
 
