@@ -28,7 +28,7 @@ patch and minor releases do not receive backported security fixes.
 
 | Version | Supported |
 |---|---|
-| 0.4.1 | Yes |
+| 0.6.1 | Yes |
 | 0.3.0, 0.2.2, 0.2.3 | No — superseded |
 | 0.2.0, 0.2.1 | **No — have a known vulnerability, see below** |
 | 0.1.0 | **No — has known vulnerabilities, see below** |
@@ -61,10 +61,10 @@ pulled it, and would break digest verification. A clearly-labelled bad version
 is safer than a mutated one, so v0.1.0, v0.2.0 and v0.2.1 all still point at the
 code they shipped with.
 
-v0.2.2 is the floor for both; upgrade to the current release, v0.4.1.
+v0.2.2 is the floor for both; upgrade to the current release, v0.6.1.
 
 To confirm an upgrade actually took effect, ask the running instance which build
-it is on: `curl -s https://your-parley/version` answers `{"version":"0.4.1"}`.
+it is on: `curl -s https://your-parley/version` answers `{"version":"0.6.1"}`.
 The endpoint is unauthenticated and does not touch the database on purpose, so
 it answers even when the instance is otherwise unhealthy. Details:
 <https://www.letsparley.io/operations/runbook/#which-version-is-this-instance-running>.

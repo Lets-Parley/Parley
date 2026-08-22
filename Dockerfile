@@ -24,4 +24,5 @@ FROM gcr.io/distroless/static-debian12:nonroot@sha256:1b7b9f0f0e0a1d2155f531db58
 COPY --from=gobuild /parley /parley
 EXPOSE 8080
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s CMD ["/parley", "-healthcheck"]
+USER 65532:65532
 ENTRYPOINT ["/parley"]

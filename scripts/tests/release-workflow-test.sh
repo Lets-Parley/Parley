@@ -177,4 +177,37 @@ grep -Fq "printf '<!-- parley-publish-receipt -->" "$workflow"
 # written into the notes as text on any release that had none.
 grep -Fq -e "--json body --jq '.body // \"\"'" "$workflow"
 
+# Every SBOM the sbom job generates must also be uploaded as an artifact and
+# attached to the release. A generated-but-unattached SBOM is the v0.4.2
+# failure exactly, and it is invisible until someone goes looking for a file
+# that was never there.
+#
+# The four expected files are named rather than derived from the workflow. A
+# guard that iterates over whatever the workflow happens to declare passes
+# trivially when a format is deleted — it simply stops iterating over it — and
+# deleting the CycloneDX steps is precisely the regression this exists to
+# catch. The count assertion at the end closes the other direction: a fifth
+# format added without an upload trips it.
+sbom_output_count=$(grep -Fc 'output-file: /tmp/parley-' "$workflow")
+test "$sbom_output_count" -eq 4
+for sbom_suffix in .spdx.json -source.spdx.json .cdx.json -source.cdx.json; do
+  sbom_path="/tmp/parley-\${{ needs.validate.outputs.tag }}$sbom_suffix"
+  # Twice: once as the generator's output-file, once in the artifact path list.
+  sbom_refs=$(grep -Fc -- "$sbom_path" "$workflow")
+  if test "$sbom_refs" -lt 2; then
+    echo "SBOM $sbom_suffix is generated but never uploaded as an artifact" >&2
+    exit 1
+  fi
+  if ! grep -Fq -- "\"sbom/parley-\$TAG$sbom_suffix\"" "$workflow"; then
+    echo "SBOM $sbom_suffix is never attached to the release" >&2
+    exit 1
+  fi
+done
+
+# Both formats are actually requested of the action. Matching only the file
+# names above would stay green if a step kept its .cdx.json output-file while
+# quietly emitting SPDX into it.
+test "$(grep -Fc 'format: spdx-json' "$workflow")" -eq 2
+test "$(grep -Fc 'format: cyclonedx-json' "$workflow")" -eq 2
+
 echo "release workflow checks passed"
