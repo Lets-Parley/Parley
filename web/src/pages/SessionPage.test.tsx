@@ -52,10 +52,13 @@ let mockKind = "standup";
 // Who the room says is running it. Swapped per-case: the guest-link panel is
 // the facilitator's alone.
 let mockFacilitatorId = "dana";
+// The room state is kind-shaped (poker carries stories/deck, standup carries
+// entries) — swapped alongside mockKind so a poker render gets poker state.
+let mockState: unknown = envelope.state;
 
 vi.mock("../lib/useSession", () => ({
   useSession: () => ({
-    data: { ...envelope, kind: mockKind, facilitatorId: mockFacilitatorId },
+    data: { ...envelope, kind: mockKind, facilitatorId: mockFacilitatorId, state: mockState },
     isLoading: false,
     isError: false,
     status: "stale",
@@ -66,6 +69,7 @@ vi.mock("../lib/useSession", () => ({
 beforeEach(() => {
   mockKind = "standup";
   mockFacilitatorId = "dana";
+  mockState = envelope.state;
   localStorage.clear();
 });
 
@@ -106,10 +110,35 @@ const routed = (
   </Routes>
 );
 
-describe("SessionPage for a link guest", () => {
+// Poker's guest guards (isFacilitator, canSpectate, Export CSV) only fire on
+// poker's own state shape — a standup fixture never exercises them, so this
+// mirrors the standup fixture with a poker-shaped state alongside it.
+const pokerState = {
+  deck: { name: "fibonacci", values: ["1", "2", "3", "5", "8"], ordinal: false },
+  currentStoryId: "story-1",
+  stories: [
+    {
+      id: "story-1",
+      ref: "PLAT-412",
+      title: "Rate-limit the join endpoint",
+      notes: "",
+      position: 1,
+      estimate: null,
+      status: "voting",
+      votedUserIds: [],
+    },
+  ],
+};
+
+describe.each([
+  ["standup", envelope.state],
+  ["poker", pokerState],
+])("SessionPage for a link guest (%s)", (kind, state) => {
   const guest = { id: "guest-1", name: "Priya Raman", avatarHue: 200 };
 
   beforeEach(() => {
+    mockKind = kind;
+    mockState = state;
     localStorage.setItem(
       "parley.link-guest",
       JSON.stringify({
@@ -125,18 +154,42 @@ describe("SessionPage for a link guest", () => {
     expect((await screen.findByTestId("link-guest-banner")).textContent).toMatch(/guest link/i);
   });
 
-  it("offers none of the controls a link guest is refused", async () => {
+  // Split into one assertion per control (rather than one packed it()) so a
+  // regression report names which control broke instead of just the first.
+  it("has no space breadcrumb, or other way out into the space", async () => {
     renderApp(routed, { route: "/session/sess-1" });
     await screen.findByTestId("link-guest-banner");
-
-    // No space breadcrumb, and no other way out into the space.
     expect(document.querySelector('a[href="/s/platform-team"]')).toBe(null);
-    // No export, no facilitator controls, no guest-link panel of its own.
+  });
+
+  it("offers no export", async () => {
+    renderApp(routed, { route: "/session/sess-1" });
+    await screen.findByTestId("link-guest-banner");
     expect(screen.queryByText("Export CSV")).toBe(null);
+  });
+
+  it("offers no end-session control", async () => {
+    renderApp(routed, { route: "/session/sess-1" });
+    await screen.findByTestId("link-guest-banner");
     expect(screen.queryByRole("button", { name: /end session/i })).toBe(null);
+  });
+
+  it("offers no guest-links panel of its own", async () => {
+    renderApp(routed, { route: "/session/sess-1" });
+    await screen.findByTestId("link-guest-banner");
     expect(screen.queryByRole("button", { name: /guest links/i })).toBe(null);
-    // And no profile dialog: renaming itself is refused, so it is not offered.
+  });
+
+  it("offers no profile dialog — renaming itself is refused, so it is not offered", async () => {
+    renderApp(routed, { route: "/session/sess-1" });
+    await screen.findByTestId("link-guest-banner");
     expect(screen.queryByRole("button", { name: /your profile/i })).toBe(null);
+  });
+
+  it("offers no sidebar toggle either", async () => {
+    renderApp(routed, { route: "/session/sess-1" });
+    await screen.findByTestId("link-guest-banner");
+    expect(screen.queryByRole("button", { name: "Toggle sidebar" })).toBe(null);
   });
 
   it("never asks the space route it is refused", async () => {
