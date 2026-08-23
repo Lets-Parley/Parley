@@ -46,9 +46,11 @@ func TestLinkGuestCanLeaveTheRoom(t *testing.T) {
 		t.Errorf("leaving did not clear the session cookie: %v", resp.Cookies())
 	}
 
-	// The credential is spent: the same cookie no longer buys the room.
-	if got, err := requestStatus(srv, "GET", "/api/sessions/"+id, "", guest); err != nil || got == http.StatusOK {
-		t.Errorf("the guest cookie still reads the room after leaving: got %d (%v)", got, err)
+	// The credential is spent: the same cookie no longer buys the room. Pin the
+	// exact code — "anything but 200" would also accept a 500, which proves the
+	// server broke rather than that the session ended.
+	if got, err := requestStatus(srv, "GET", "/api/sessions/"+id, "", guest); err != nil || got != http.StatusNotFound {
+		t.Errorf("the guest cookie still reads the room after leaving: got %d, want %d (%v)", got, http.StatusNotFound, err)
 	}
 	// And nobody else's session went with it.
 	if resp, body := doJSON(t, srv, "GET", "/api/me", "", fac); resp.StatusCode != http.StatusOK {
