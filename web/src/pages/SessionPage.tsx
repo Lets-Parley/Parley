@@ -28,14 +28,14 @@ export function SessionPage() {
     (me.data?.linkSessionId === id
       ? { sessionId: id, me: me.data, expiresAt: me.data.linkExpiresAt ?? "" }
       : null);
-  const session = useSession(id);
-  const slug = session.data?.spaceSlug;
-  const [linksOpen, setLinksOpen] = useState(false);
   // A guest link is aimed at someone outside the team, often on a borrowed or
   // shared machine, and closing the tab leaves the HttpOnly cookie valid for
   // the rest of the link's life. Leaving spends it on purpose. What the guest
   // already said — votes, standup entries, CSV attribution — stays in the room.
   const [left, setLeft] = useState(false);
+  const session = useSession(id, !left);
+  const slug = session.data?.spaceSlug;
+  const [linksOpen, setLinksOpen] = useState(false);
   async function leave() {
     // Best effort on the wire, unconditional locally: whatever the server
     // says, this browser must stop presenting itself as the guest.
