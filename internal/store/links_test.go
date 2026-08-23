@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // newLink mints a link on the session with the given lifetime and returns the
@@ -17,6 +19,17 @@ func newLink(t *testing.T, links *Links, sessionID, createdBy string, lifetime t
 		t.Fatal(err)
 	}
 	return link, plain
+}
+
+// clearIdentityBuckets empties the hourly identity budgets, which every test in
+// this database otherwise shares.
+func clearIdentityBuckets(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	for _, table := range []string{"identity_creation_buckets", "identity_creation_global_buckets"} {
+		if _, err := pool.Exec(context.Background(), "delete from "+table); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func TestLinkByTokenResolvesALiveLink(t *testing.T) {
@@ -317,5 +330,55 @@ func TestDeletingTheRoomClosesItsLinkSessions(t *testing.T) {
 	}
 	if !alive {
 		t.Fatal("deleting the room deleted the guest it had minted")
+	}
+}
+
+// Redemption is charged against its own per-address bucket, so a whole team
+// behind one NAT can reach the redemption cap without spending — or being
+// blocked by — the open-signup identity budget for that address.
+func TestLinkRedemptionHasItsOwnPerAddressBucket(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	sess, members := newSession(t, pool, "Fay")
+	links := &Links{Pool: pool}
+	users := &Users{Pool: pool}
+
+	link, _ := newLink(t, links, sess.ID, members[0].ID, LinkLifetime)
+	// The identity buckets are shared by every test in this database.
+	clearIdentityBuckets(t, pool)
+	const address = "10.0.0.9"
+	for i := range LinkRedemptionCap {
+		_, hash := NewToken()
+		if _, err := users.CreateForLink(ctx, "Gus", link.ID, hash, link.ExpiresAt, LinkRedemptionCap, address, LinkRedemptionCap, 500); err != nil {
+			t.Fatalf("redemption %d: %v", i+1, err)
+		}
+	}
+	// The open-signup budget for the same address is untouched.
+	_, openHash := NewToken()
+	if _, err := users.CreateOpen(ctx, "Fay", openHash, address, 10, 500); err != nil {
+		t.Fatalf("open signup after a full link: %v", err)
+	}
+}
+
+// A leaked link is still not an unbounded user-row factory: the global hourly
+// ceiling is charged by every redemption and refuses past it.
+func TestLinkRedemptionStillHitsTheGlobalCeiling(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	sess, members := newSession(t, pool, "Fay")
+	links := &Links{Pool: pool}
+	users := &Users{Pool: pool}
+
+	link, _ := newLink(t, links, sess.ID, members[0].ID, LinkLifetime)
+	// The identity buckets are shared by every test in this database.
+	clearIdentityBuckets(t, pool)
+	_, hash := NewToken()
+	if _, err := users.CreateForLink(ctx, "Gus", link.ID, hash, link.ExpiresAt, LinkRedemptionCap, "10.0.0.10", LinkRedemptionCap, 1); err != nil {
+		t.Fatal(err)
+	}
+	_, hash = NewToken()
+	var limited *IdentityRateLimitError
+	if _, err := users.CreateForLink(ctx, "Gus", link.ID, hash, link.ExpiresAt, LinkRedemptionCap, "10.0.0.11", LinkRedemptionCap, 1); !errors.As(err, &limited) {
+		t.Fatalf("over-ceiling redemption = %v, want IdentityRateLimitError", err)
 	}
 }

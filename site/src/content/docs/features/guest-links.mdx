@@ -111,6 +111,13 @@ Revoking is idempotent, so a retried click is a success rather than an error,
 and a room may hold **20 live links** at a time by default
 (`LINK_LIMIT_PER_SESSION`). Revoked and expired links do not count against it.
 
+Redeeming a link mints a guest account, so it is rate limited by address like
+any other signup — but against its own hourly bucket
+(`LINK_REDEMPTION_IP_HOURLY_LIMIT`, **50** by default) rather than the
+open-signup one, so a whole team sharing one office address can reach a link's
+25-redemption cap. The instance-wide hourly ceiling still applies, which is what
+keeps a leaked link from minting accounts without bound.
+
 ## What is not here
 
 <Capability rows={[

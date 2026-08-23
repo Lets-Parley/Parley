@@ -79,10 +79,14 @@ type Options struct {
 type Limits struct {
 	IdentityIPHourly     int
 	IdentityGlobalHourly int
-	SpacesPerIdentity    int
-	SessionsPerSpace     int
-	StoriesPerSession    int
-	LinksPerSession      int
+	// LinkRedemptionIPHourly is redemption's own per-address budget. It has to
+	// be at least store.LinkRedemptionCap, or a team on one egress address
+	// cannot reach the cap the link advertises.
+	LinkRedemptionIPHourly int
+	SpacesPerIdentity      int
+	SessionsPerSpace       int
+	StoriesPerSession      int
+	LinksPerSession        int
 }
 
 func (l Limits) withDefaults() Limits {
@@ -91,6 +95,9 @@ func (l Limits) withDefaults() Limits {
 	}
 	if l.IdentityGlobalHourly == 0 {
 		l.IdentityGlobalHourly = 500
+	}
+	if l.LinkRedemptionIPHourly == 0 {
+		l.LinkRedemptionIPHourly = 50
 	}
 	if l.SpacesPerIdentity == 0 {
 		l.SpacesPerIdentity = 50

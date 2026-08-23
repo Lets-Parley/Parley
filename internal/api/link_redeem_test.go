@@ -132,9 +132,10 @@ func TestRedeemLinkThrottlesWrongTokens(t *testing.T) {
 }
 
 func TestRedeemLinkIsChargedAgainstTheIdentityLimit(t *testing.T) {
-	// setupSession signs up two identities, so a cap of three leaves room for
+	// Redemption spends its own per-address budget, not the open-signup one
+	// setupSession's two identities come out of: a cap of one leaves room for
 	// exactly one redemption.
-	srv, _ := quotaServer(t, Limits{IdentityIPHourly: 3})
+	srv, _ := quotaServer(t, Limits{LinkRedemptionIPHourly: 1})
 	fac, _, id := setupSession(t, srv, "Identity Limit Space")
 	_, minted := mintLink(t, srv, id, fac)
 	token := minted["token"].(string)

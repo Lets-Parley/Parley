@@ -31,12 +31,13 @@ func TestLoadConfigUsesFiniteAbuseLimitDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := abuseLimits{
-		IdentityIPHourly:     10,
-		IdentityGlobalHourly: 500,
-		SpacesPerIdentity:    50,
-		SessionsPerSpace:     500,
-		StoriesPerSession:    500,
-		LinksPerSession:      20,
+		IdentityIPHourly:       10,
+		IdentityGlobalHourly:   500,
+		LinkRedemptionIPHourly: 50,
+		SpacesPerIdentity:      50,
+		SessionsPerSpace:       500,
+		StoriesPerSession:      500,
+		LinksPerSession:        20,
 	}
 	if cfg.Limits != want {
 		t.Fatalf("limits = %+v, want %+v", cfg.Limits, want)
@@ -47,6 +48,7 @@ func TestLoadConfigRejectsNonPositiveAbuseLimits(t *testing.T) {
 	for _, name := range []string{
 		"IDENTITY_IP_HOURLY_LIMIT",
 		"IDENTITY_GLOBAL_HOURLY_LIMIT",
+		"LINK_REDEMPTION_IP_HOURLY_LIMIT",
 		"SPACE_LIMIT_PER_IDENTITY",
 		"SESSION_LIMIT_PER_SPACE",
 		"STORY_LIMIT_PER_SESSION",

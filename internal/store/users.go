@@ -326,8 +326,8 @@ func AvatarHue(userID string) int {
 
 // CreateForLink mints the ordinary users row behind a redeemed link, flagged
 // link-bound, and opens a session for it whose token dies with the link. It
-// spends the same hourly identity budget an open-mode signup does: without
-// that, one leaked link is an unbounded user-row factory.
+// spends an hourly identity budget of its own, and the shared global one:
+// without that, one leaked link is an unbounded user-row factory.
 //
 // The redemption count is incremented under the same conditional predicate
 // ByToken reads, inside this transaction, so concurrent redemptions of the
@@ -339,7 +339,12 @@ func (s *Users) CreateForLink(ctx context.Context, name, linkID string, tokenHas
 	}
 	defer tx.Rollback(ctx)
 
-	if err := chargeIdentityBuckets(ctx, tx, clientAddress, perClientLimit, globalLimit); err != nil {
+	// Redemption gets its own per-address bucket — the "link|" namespace — so a
+	// whole team behind one NAT can reach the redemption cap without spending
+	// the open-signup budget for that address, and without being blocked by it.
+	// The global bucket is shared: one leaked link is still not an unbounded
+	// user-row factory.
+	if err := chargeIdentityBuckets(ctx, tx, "link|"+clientAddress, perClientLimit, globalLimit); err != nil {
 		return User{}, err
 	}
 

@@ -154,6 +154,14 @@ Open-mode identity creations allowed per verified client address per hour.
 Open-mode identity creations allowed across the instance per hour.
 </EnvVar>
 
+<EnvVar name="LINK_REDEMPTION_IP_HOURLY_LIMIT" default="50" fatal>
+Signed-link redemptions allowed per verified client address per hour. Redemption
+is charged against its own bucket rather than the open-mode one above, so a team
+behind a single office address can reach a link's 25-redemption cap without
+being turned away. Keep it at or above 25. The instance-wide ceiling
+(`IDENTITY_GLOBAL_HOURLY_LIMIT`) still applies to every redemption.
+</EnvVar>
+
 <EnvVar name="SPACE_LIMIT_PER_IDENTITY" default="50" fatal>
 Maximum spaces one identity may create.
 </EnvVar>
