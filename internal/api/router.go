@@ -197,10 +197,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	// a member of the room's space, so a check that only knew the space would
 	// evict them on the revalidation tick.
 	a.hub.ValidateMembership = func(ctx context.Context, sessionID, spaceID, userID string) (bool, error) {
-		if guest, err := a.users.IsLinkGuestOf(ctx, userID, sessionID); err != nil || guest {
-			return guest, err
-		}
-		return a.spaces.IsMember(ctx, spaceID, userID)
+		return a.spaces.IsMemberOrLinkGuest(ctx, spaceID, sessionID, userID)
 	}
 	a.hub.OnDisconnect = func(sessionID, userID string) {
 		if err := a.presence.Gone(context.Background(), sessionID, userID); err != nil {

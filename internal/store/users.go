@@ -373,20 +373,3 @@ func (s *Users) CreateForLink(ctx context.Context, name, linkID string, tokenHas
 	}
 	return u, tx.Commit(ctx)
 }
-
-// IsLinkGuestOf reports whether this user holds a live link bound to this
-// room. The hub asks it on every revalidation tick: a link guest is by design
-// not a member of the room's space, so without this the membership check would
-// evict them on a timer.
-func (s *Users) IsLinkGuestOf(ctx context.Context, userID, sessionID string) (bool, error) {
-	var ok bool
-	err := s.Pool.QueryRow(ctx, `
-		select exists (
-			select 1 from users u join session_links l on l.id = u.link_id
-			where u.id = $1 and l.session_id = $2 and l.revoked_at is null and l.expires_at > now())`,
-		userID, sessionID).Scan(&ok)
-	if err != nil {
-		return false, fmt.Errorf("checking a link guest: %w", err)
-	}
-	return ok, nil
-}
