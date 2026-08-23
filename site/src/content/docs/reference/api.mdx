@@ -6,7 +6,7 @@ description: Every route, who may call it, and what it does.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import RouteTable from "../../../components/RouteTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/standup/routes.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/api/links.go"]} />
 
 There is no API token scheme. Everything authenticates with the `parley_session`
 cookie, so the API is usable from a script only by reusing a browser session's
@@ -141,8 +141,37 @@ existence is never disclosed.
   { method: "POST", path: "/api/sessions/{id}/spectator", auth: "member", purpose: "Toggle your own spectator seat with {on}. A property of a member, not of a kind, so it is a core route rather than an action." },
   { method: "POST", path: "/api/sessions/{id}/links", auth: "facilitator", purpose: "Mint a signed link for this room. Refused once the room is closed. The reply carries the plain token exactly once — nothing can read it again." },
   { method: "GET", path: "/api/sessions/{id}/links", auth: "member", purpose: "List this room's links: ids, expiry, revocation and redemption counts. Never tokens." },
-  { method: "DELETE", path: "/api/sessions/{id}/links/{linkId}", auth: "facilitator", purpose: "Revoke a link. Idempotent — a second call is another 204. The row stays, marked revoked." },
+  { method: "DELETE", path: "/api/sessions/{id}/links/{linkId}", auth: "facilitator", purpose: "Revoke a link. Idempotent — a second call is another 204. The row stays, marked revoked, and everyone who joined through it loses their session immediately." },
 ]} />
+
+## Redeeming a signed link
+
+<RouteTable rows={[
+  { method: "POST", path: "/api/links/redeem", auth: "public", purpose: "Trade a link token for a guest identity in the one room it names: {token, name}. 201 with {sessionId, expiresAt, me} and a session cookie that expires with the link." },
+]} />
+
+This is the only `/api` route open to a caller with no identity that is not
+`POST /api/me`, and the only one a link guest may call.
+
+| Status | Meaning |
+|---|---|
+| 201 | Redeemed. The cookie's token expires exactly when the link does. |
+| 400 | `name` is missing or longer than 64 characters. |
+| 404 | The link is wrong, expired, revoked, or has been redeemed its maximum number of times — the four are one answer, and the reply never repeats the submitted token back. |
+| 429 | Either 8 wrong tokens from this address in 60s, or the hourly identity-creation limit. |
+
+**What redemption grants.** An ordinary `users` row flagged link-bound, and
+nothing but participate access to the one room the link names:
+`GET /api/sessions/{id}` and the session actions that are not
+facilitator-only. Every other route answers 401, 403 or 404 — the identity
+routes, the space view, the CSV export, the facilitator controls, and the link
+routes themselves. A link grants no space membership and no sight of any other
+room.
+
+**When it ends.** The link's expiry (24 hours) lives on the minted session
+token, so the socket is severed mid-session when it lapses. Revoking the link
+deletes those tokens outright and closes the sockets at once. Nothing is
+swept: the guest and their votes stay in the meeting's history.
 
 ## Session actions
 

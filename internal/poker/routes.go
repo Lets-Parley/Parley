@@ -325,10 +325,16 @@ func castVote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, stor
 			if currentID != storyID {
 				return errNotCurrentStory
 			}
+			// Spectating is a property of a space member. A guest who joined
+			// by signed link has no members row and is never a spectator: no
+			// row means a plain participant, not a refusal.
 			var spectator bool
-			if err := tx.QueryRow(r.Context(),
+			err := tx.QueryRow(r.Context(),
 				"select spectator from members where space_id = $1 and user_id = $2",
-				sess.SpaceID, ac.UserID).Scan(&spectator); err != nil || spectator {
+				sess.SpaceID, ac.UserID).Scan(&spectator)
+			if errors.Is(err, pgx.ErrNoRows) {
+				spectator = false
+			} else if err != nil || spectator {
 				return errSpectator
 			}
 			var cfg Config
@@ -349,7 +355,7 @@ func castVote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, stor
 			if err := maybeAutoReveal(r.Context(), tx, connected, sess, storyID); err != nil {
 				return err
 			}
-			_, err := tx.Exec(r.Context(), "update sessions set version = version + 1 where id = $1", sess.ID)
+			_, err = tx.Exec(r.Context(), "update sessions set version = version + 1 where id = $1", sess.ID)
 			return err
 		})
 	switch {

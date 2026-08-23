@@ -759,7 +759,7 @@ func TestSessionRevalidationClosesARemovedMember(t *testing.T) {
 		return time.Now().Add(time.Hour), nil
 	}
 	var calls atomic.Int32
-	h.ValidateMembership = func(context.Context, string, string) (bool, error) {
+	h.ValidateMembership = func(context.Context, string, string, string) (bool, error) {
 		return calls.Add(1) == 1, nil
 	}
 	ws := attachMemberTestConn(t, h, "room", "bob", SessionAuth{
@@ -810,7 +810,7 @@ func TestMembershipRevalidationKeepsAMemberConnected(t *testing.T) {
 		return time.Now().Add(time.Hour), nil
 	}
 	var calls atomic.Int32
-	h.ValidateMembership = func(context.Context, string, string) (bool, error) {
+	h.ValidateMembership = func(context.Context, string, string, string) (bool, error) {
 		calls.Add(1)
 		return true, nil
 	}
@@ -855,7 +855,7 @@ func TestRemovalDuringHandshakeShipsNoRoomState(t *testing.T) {
 	// True for the handshake read, false afterwards: the removal landed
 	// between the two.
 	var calls atomic.Int32
-	h.ValidateMembership = func(context.Context, string, string) (bool, error) {
+	h.ValidateMembership = func(context.Context, string, string, string) (bool, error) {
 		return calls.Add(1) == 1, nil
 	}
 
@@ -886,7 +886,7 @@ func TestConfirmedMembershipStillDeliversRoomState(t *testing.T) {
 	h.ValidateSession = func(context.Context, string) (time.Time, error) {
 		return time.Now().Add(time.Hour), nil
 	}
-	h.ValidateMembership = func(context.Context, string, string) (bool, error) {
+	h.ValidateMembership = func(context.Context, string, string, string) (bool, error) {
 		return true, nil
 	}
 	ws := attachMemberTestConnWithState(t, h, "room", "ada", []byte(`{"deck":[1,2,3]}`), SessionAuth{

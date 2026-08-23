@@ -46,7 +46,7 @@ func TestLinkByTokenRefusesExpiredRevokedAndExhausted(t *testing.T) {
 
 	_, expiredToken := newLink(t, links, sess.ID, members[0].ID, -time.Minute)
 	revoked, revokedToken := newLink(t, links, sess.ID, members[0].ID, LinkLifetime)
-	if err := links.Revoke(ctx, sess.ID, revoked.ID); err != nil {
+	if _, err := links.Revoke(ctx, sess.ID, revoked.ID); err != nil {
 		t.Fatal(err)
 	}
 	exhausted, exhaustedToken := newLink(t, links, sess.ID, members[0].ID, LinkLifetime)
@@ -77,16 +77,16 @@ func TestLinkRevokeIsIdempotentAndScopedToItsSession(t *testing.T) {
 	links := &Links{Pool: pool}
 
 	link, _ := newLink(t, links, sess.ID, members[0].ID, LinkLifetime)
-	if err := links.Revoke(ctx, sess.ID, link.ID); err != nil {
+	if _, err := links.Revoke(ctx, sess.ID, link.ID); err != nil {
 		t.Fatalf("first revoke: %v", err)
 	}
-	if err := links.Revoke(ctx, sess.ID, link.ID); err != nil {
+	if _, err := links.Revoke(ctx, sess.ID, link.ID); err != nil {
 		t.Fatalf("second revoke: %v", err)
 	}
 	// A link belonging to another room must not be revocable through this one,
 	// and the mismatch must not read as a successful no-op either.
 	foreign, _ := newLink(t, links, other.ID, otherMembers[0].ID, LinkLifetime)
-	if err := links.Revoke(ctx, sess.ID, foreign.ID); !errors.Is(err, ErrNoLink) {
+	if _, err := links.Revoke(ctx, sess.ID, foreign.ID); !errors.Is(err, ErrNoLink) {
 		t.Fatalf("cross-session revoke = %v, want ErrNoLink", err)
 	}
 }
@@ -104,7 +104,7 @@ func TestLinkCreateHoldsThePerSessionCap(t *testing.T) {
 	}
 	// Revoking frees the slot: the cap counts live links, not the whole
 	// history, which is never deleted.
-	if err := links.Revoke(ctx, sess.ID, first.ID); err != nil {
+	if _, err := links.Revoke(ctx, sess.ID, first.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := links.Create(ctx, sess.ID, members[0].ID, hash, time.Now().Add(LinkLifetime), 1); err != nil {
@@ -171,5 +171,70 @@ func TestDeletingALinkKeepsItsUsersAndTheirVotes(t *testing.T) {
 	}
 	if votes != 1 {
 		t.Fatalf("votes = %d, want 1", votes)
+	}
+}
+
+// The middleware refuses a link guest the claim route outright; this is the
+// second lock, on the statement itself. Seizing an idle room is the escalation
+// a signed link most obviously invites, so neither guard stands alone.
+func TestClaimFacilitatorRefusesALinkBoundUser(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	sess, members := newSession(t, pool, "Fay", "Mel")
+	links := &Links{Pool: pool}
+	users := &Users{Pool: pool}
+
+	link, _ := newLink(t, links, sess.ID, members[0].ID, LinkLifetime)
+	_, guestToken := NewToken()
+	guest, err := users.CreateForLink(ctx, "Gus", link.ID, guestToken, link.ExpiresAt, LinkRedemptionCap, "10.0.0.1", 10, 500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleFacilitator(t, pool, sess.ID)
+
+	sessions := &Sessions{Pool: pool}
+	if err := sessions.ClaimFacilitator(ctx, sess.ID, guest.ID); !errors.Is(err, ErrNotEligible) {
+		t.Fatalf("link guest claim: got %v, want ErrNotEligible", err)
+	}
+	// The same claim from an ordinary member still succeeds, so the predicate
+	// excludes link-bound users and nothing else.
+	if err := sessions.ClaimFacilitator(ctx, sess.ID, members[1].ID); err != nil {
+		t.Fatalf("member claim: %v", err)
+	}
+}
+
+// Revoking a link closes the sessions it opened: the token rows go, so
+// hub.DisconnectToken has something to sever and revalidation cannot bring
+// them back. The people and their votes stay.
+func TestRevokeClosesTheLinkSessionsItOpened(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	sess, members := newSession(t, pool, "Fay")
+	links := &Links{Pool: pool}
+	users := &Users{Pool: pool}
+
+	link, _ := newLink(t, links, sess.ID, members[0].ID, LinkLifetime)
+	_, tokenHash := NewToken()
+	guest, err := users.CreateForLink(ctx, "Gus", link.ID, tokenHash, link.ExpiresAt, LinkRedemptionCap, "10.0.0.2", 10, 500)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	revoked, err := links.Revoke(ctx, sess.ID, link.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(revoked) != 1 || string(revoked[0]) != string(tokenHash) {
+		t.Fatalf("revoke returned %d token digests, want the guest's one", len(revoked))
+	}
+	if _, err := users.ResolveToken(ctx, tokenHash, false); !errors.Is(err, ErrNoUser) {
+		t.Fatalf("revoked link token still resolves: %v", err)
+	}
+	var alive bool
+	if err := pool.QueryRow(ctx, "select exists (select 1 from users where id = $1)", guest.ID).Scan(&alive); err != nil {
+		t.Fatal(err)
+	}
+	if !alive {
+		t.Fatal("revoking a link deleted the guest it had minted")
 	}
 }

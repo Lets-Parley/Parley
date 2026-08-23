@@ -224,10 +224,15 @@ func (s *Sessions) TransferFacilitator(ctx context.Context, id, actorID, toUserI
 // ClaimFacilitator succeeds only when the current facilitator has not been seen
 // within the grace period. The conditional UPDATE serializes concurrent claims:
 // exactly one wins.
+//
+// A link-bound identity is excluded in the statement itself, behind the
+// middleware that already refuses it: seizing an idle room is the escalation a
+// signed link most obviously invites, so it is refused twice.
 func (s *Sessions) ClaimFacilitator(ctx context.Context, id, claimerID string) error {
 	tag, err := s.Pool.Exec(ctx, `
 		update sessions set facilitator_id = $2, facilitator_seen_at = now(), version = version + 1
-		where id = $1 and facilitator_id <> $2 and facilitator_seen_at < now() - $3::interval`,
+		where id = $1 and facilitator_id <> $2 and facilitator_seen_at < now() - $3::interval
+		  and exists (select 1 from users u where u.id = $2 and u.link_id is null)`,
 		id, claimerID, FacilitatorGrace)
 	if err != nil {
 		return err

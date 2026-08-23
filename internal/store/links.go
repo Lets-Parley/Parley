@@ -114,20 +114,52 @@ func (s *Links) ListForSession(ctx context.Context, sessionID string) ([]Session
 // Revoke is idempotent: revoking an already-revoked link succeeds and leaves
 // the original revoked_at alone. A link belonging to another room is ErrNoLink
 // rather than a silent no-op, so a mistyped id cannot read as success.
-func (s *Links) Revoke(ctx context.Context, sessionID, linkID string) error {
-	tag, err := s.Pool.Exec(ctx,
+// It also deletes the session tokens of everyone who redeemed the link, and
+// hands their digests back so the caller can sever the sockets they are
+// holding — revocation that only stops future redemptions would leave the
+// people already inside there until their tokens expired. The users themselves
+// stay: their votes and updates belong to the meeting.
+func (s *Links) Revoke(ctx context.Context, sessionID, linkID string) ([][]byte, error) {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx,
 		"update session_links set revoked_at = coalesce(revoked_at, now()) where id = $1 and session_id = $2",
 		linkID, sessionID)
 	// A malformed id is simply not a link here, not a server error.
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "22P02" {
-		return ErrNoLink
+		return nil, ErrNoLink
 	}
 	if err != nil {
-		return fmt.Errorf("revoking a session link: %w", err)
+		return nil, fmt.Errorf("revoking a session link: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return ErrNoLink
+		return nil, ErrNoLink
 	}
-	return nil
+
+	rows, err := tx.Query(ctx, `
+		delete from session_tokens
+		where user_id in (select id from users where link_id = $1)
+		returning token_hash`, linkID)
+	if err != nil {
+		return nil, fmt.Errorf("closing the link's sessions: %w", err)
+	}
+	var hashes [][]byte
+	for rows.Next() {
+		var hash []byte
+		if err := rows.Scan(&hash); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scanning a revoked token: %w", err)
+		}
+		hashes = append(hashes, hash)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("closing the link's sessions: %w", err)
+	}
+	return hashes, tx.Commit(ctx)
 }
