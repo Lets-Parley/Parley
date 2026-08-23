@@ -122,8 +122,9 @@ a passcode.
 A link guest may read the one room the link names, take part in it, and read
 their own identity — and may do nothing else. Every other route refuses them,
 including routes that are open to anonymous callers: the identity **writes**
-(so they cannot rename themselves onto the roster as somebody else), the space
-view, the CSV export of the room they are in, the facilitator controls, and the
+(the initial redemption name is not checked, so the roster marks every guest
+seat regardless), the space view, the CSV export of the room they are in,
+the facilitator controls, and the
 link routes.
 
 `GET /api/me` is the single exception, and it is a read. A guest's browser keeps
