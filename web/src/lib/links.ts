@@ -83,6 +83,19 @@ export function rememberLinkGuest(guest: LinkGuest) {
   }
 }
 
+/**
+ * Drop the cached identity. Called when a guest leaves: the cookie behind it is
+ * already gone server-side, and leaving this behind would let a reload paint
+ * the room back from a cache that no credential answers for.
+ */
+export function forgetLinkGuest() {
+  try {
+    localStorage.removeItem(GUEST_KEY);
+  } catch {
+    // Storage is unavailable, so there is nothing cached to forget.
+  }
+}
+
 /** The stored identity, but only if it belongs to this room and still lives. */
 export function linkGuestFor(sessionId: string): LinkGuest | null {
   let raw: string | null = null;

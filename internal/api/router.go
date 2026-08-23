@@ -281,7 +281,13 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		// room — so a browser with no local storage can recover instead of
 		// being stranded in the name gate. Writing identity stays shut.
 		r.Get("/me", a.handleGetMe)
-		r.With(rejectLinkPrincipal).Delete("/me", a.handleDeleteMe)
+		// Open to a link guest too, and the only write on its identity that
+		// is: it spends the credential rather than reshaping it. A guest on a
+		// borrowed browser otherwise has no way to stop the cookie outliving
+		// the visit. It deletes the caller's own session_tokens row and
+		// nothing else — votes, standup entries and CSV attribution survive
+		// leaving exactly as they survive revocation.
+		r.Delete("/me", a.handleDeleteMe)
 		// Its own route, and permitted under both auth modes: choosing an
 		// avatar is not choosing a name, so the provider owning names in OIDC
 		// mode does not reach it. It answers 401 itself.

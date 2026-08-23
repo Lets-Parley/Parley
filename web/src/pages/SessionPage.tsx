@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type SpaceView } from "../lib/api";
-import { linkGuestFor } from "../lib/links";
+import { forgetLinkGuest, linkGuestFor } from "../lib/links";
 import { useSession } from "../lib/useSession";
 import { useMe, NameGate } from "../components/NameGate";
 import { AppShell } from "../components/AppShell";
@@ -31,6 +31,22 @@ export function SessionPage() {
   const session = useSession(id);
   const slug = session.data?.spaceSlug;
   const [linksOpen, setLinksOpen] = useState(false);
+  // A guest link is aimed at someone outside the team, often on a borrowed or
+  // shared machine, and closing the tab leaves the HttpOnly cookie valid for
+  // the rest of the link's life. Leaving spends it on purpose. What the guest
+  // already said — votes, standup entries, CSV attribution — stays in the room.
+  const [left, setLeft] = useState(false);
+  async function leave() {
+    // Best effort on the wire, unconditional locally: whatever the server
+    // says, this browser must stop presenting itself as the guest.
+    try {
+      await api("DELETE", "/api/me");
+    } finally {
+      forgetLinkGuest();
+      qc.clear();
+      setLeft(true);
+    }
+  }
 
   // The sidebar's roster and session list come from the space, not the session
   // envelope — one cached query, shared with the space page. A guest is refused
@@ -47,6 +63,17 @@ export function SessionPage() {
 
   const identity = guest?.me ?? me.data ?? null;
 
+  if (left) {
+    return (
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-8 text-center">
+        <p className="font-display text-2xl">No seat at this table</p>
+        <p role="status" className="max-w-sm text-sm text-ink-soft text-pretty">
+          You've left this room. The guest link is spent on this browser — ask
+          whoever shared it for a new one if you need to come back.
+        </p>
+      </div>
+    );
+  }
   if ((!stored && me.isLoading) || session.isLoading) {
     return <p className="p-8 text-center text-ink-faint">Pulling up a chair…</p>;
   }
@@ -101,7 +128,14 @@ export function SessionPage() {
           className="border-b border-line bg-felt-deep px-5 py-2 text-[13px] text-ink-soft"
         >
           You're in this room on a guest link — just this room, and only until{" "}
-          {new Date(guest.expiresAt).toLocaleString()}.
+          {new Date(guest.expiresAt).toLocaleString()}.{" "}
+          <button
+            type="button"
+            onClick={leave}
+            className="font-bold underline underline-offset-2 hover:text-ink"
+          >
+            Leave room
+          </button>
         </p>
       )}
       {Room ? (

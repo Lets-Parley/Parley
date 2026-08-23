@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
 import { api } from "../lib/api";
@@ -196,6 +197,26 @@ describe.each([
     expect(screen.queryByRole("button", { name: "Toggle sidebar" })).toBe(null);
   });
 
+  // A guest link is aimed at someone on a borrowed or shared machine, so the
+  // seat has to be droppable on purpose: closing the tab leaves the HttpOnly
+  // cookie valid for the whole life of the link.
+  it("can leave the room, which spends the credential and strands nothing", async () => {
+    renderApp(routed, { route: "/session/sess-1" });
+    await screen.findByTestId("link-guest-banner");
+    await userEvent.click(screen.getByRole("button", { name: /leave room/i }));
+
+    await waitFor(() =>
+      expect(
+        vi.mocked(api).mock.calls.some((c) => c[0] === "DELETE" && c[1] === "/api/me"),
+      ).toBe(true),
+    );
+    // A dead link, not a seat — and the cached identity goes with it, so a
+    // reload cannot paint the room back from local storage.
+    expect(await screen.findByText(/no seat at this table/i)).toBeTruthy();
+    expect(screen.queryByTestId("link-guest-banner")).toBe(null);
+    expect(localStorage.getItem("parley.link-guest")).toBe(null);
+  });
+
   it("never asks the space route it is refused", async () => {
     // The mock accumulates across this file, so only this render's calls count.
     const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
@@ -250,6 +271,26 @@ describe("SessionPage for a link guest whose storage was cleared", () => {
     expect(banner.textContent).toMatch(
       new RegExp(new Date(linkMe.linkExpiresAt!).toLocaleString().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
     );
+  });
+
+  // A guest link is aimed at someone on a borrowed or shared machine, so the
+  // seat has to be droppable on purpose: closing the tab leaves the HttpOnly
+  // cookie valid for the whole life of the link.
+  it("can leave the room, which spends the credential and strands nothing", async () => {
+    renderApp(routed, { route: "/session/sess-1" });
+    await screen.findByTestId("link-guest-banner");
+    await userEvent.click(screen.getByRole("button", { name: /leave room/i }));
+
+    await waitFor(() =>
+      expect(
+        vi.mocked(api).mock.calls.some((c) => c[0] === "DELETE" && c[1] === "/api/me"),
+      ).toBe(true),
+    );
+    // A dead link, not a seat — and the cached identity goes with it, so a
+    // reload cannot paint the room back from local storage.
+    expect(await screen.findByText(/no seat at this table/i)).toBeTruthy();
+    expect(screen.queryByTestId("link-guest-banner")).toBe(null);
+    expect(localStorage.getItem("parley.link-guest")).toBe(null);
   });
 
   it("never asks the space route it is refused", async () => {

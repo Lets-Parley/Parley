@@ -119,8 +119,8 @@ code path — but authorization treats it as a capability, not a membership.
 expires (24 hours) or the facilitator revokes it. Send it the way you would send
 a passcode.
 
-A link guest may read the one room the link names, take part in it, and read
-their own identity — and may do nothing else. Every other route refuses them,
+A link guest may read the one room the link names, take part in it, read their
+own identity, and end their own session — and may do nothing else. Every other route refuses them,
 including routes that are open to anonymous callers: the identity **writes**
 (the initial redemption name is not checked, so the roster marks every guest
 seat regardless), the space view, the CSV export of the room they are in,
@@ -134,7 +134,19 @@ used to resolve as nobody, land in the name gate, and be refused the `POST` that
 gate makes. It answers with what the guest already holds: their own id, name,
 avatar, the id of the room they are bound to, and when their seat runs out. It
 carries no space, no slug, no other member and no other session, the same line
-the room envelope's redaction draws. Claiming an abandoned
+the room envelope's redaction draws.
+
+`DELETE /api/me` is the second exception, and the only **write** on identity a
+guest may make: it spends the credential rather than reshaping it. A guest link
+is aimed at somebody outside the team, often on a borrowed or shared machine,
+and closing the tab leaves the `HttpOnly` cookie valid for the rest of the
+link's life — long enough for the next person on that browser to inherit the
+seat. The guest banner therefore carries a **Leave room** control, and it lands
+them on a dead-link screen rather than a seat. Like sign-out for an account, it
+deletes the caller's own `session_tokens` row and nothing else: the user row,
+the link and everything the guest contributed stay exactly where they are.
+
+Claiming an abandoned
 facilitator seat is refused twice — at the middleware and again in the `UPDATE`
 itself.
 
