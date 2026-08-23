@@ -451,3 +451,17 @@ describe("PokerRoom end session", () => {
     ).toBeNull();
   });
 });
+
+describe("PokerRoom link guest", () => {
+  it("never offers facilitator controls, export or spectate to a guest, even when the guest id matches the facilitator id", () => {
+    // The pathological coincidence: a guest whose id happens to equal the
+    // room's facilitatorId. `env.facilitatorId === me.id` alone would read
+    // true here — only the `!guest &&` guard keeps it refused.
+    const env = envelope({ facilitatorId: "guest-1" });
+    const guestMe: Me = { id: "guest-1", name: "Priya Raman", avatarHue: 200 };
+    renderApp(<PokerRoom env={env} me={guestMe} guest />);
+    expect(screen.queryByText("Export CSV")).toBeNull();
+    expect(screen.queryByRole("button", { name: "End session" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /spectat/i })).toBeNull();
+  });
+});
