@@ -57,6 +57,10 @@ export of the room they are sitting in, the facilitator controls, the spectator
 toggle, and the guest-link panel itself. They never see the links to their own
 room, minted or otherwise.
 
+What the room shows them is trimmed to match: a guest sees the people taking
+part in the meeting, not the rest of the space's members, and never the space's
+join code or slug.
+
 A guest is never the facilitator, and never becomes one — the abandoned-seat
 claim is refused for them at the middleware and again in the `UPDATE` behind it.
 

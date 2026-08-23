@@ -127,6 +127,12 @@ are in, the facilitator controls, and the link routes. Claiming an abandoned
 facilitator seat is refused twice — at the middleware and again in the `UPDATE`
 itself.
 
+The room's own envelope is redacted for them too, which is the part no route
+guard could do: the guest's copy carries no `spaceSlug` and no space member who
+is not taking part in that meeting. Otherwise one link would hand out the
+space's join slug and its whole membership list from the one room the guest is
+entitled to read.
+
 :::caution[A guest never takes a turn in a standup]
 Poker is the only kind a link guest plays in full. A standup admits them part
 of the way: entries are keyed to the user, not to a membership, so a guest

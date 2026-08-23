@@ -251,6 +251,11 @@ mutation, the server pushes the **whole session envelope**, redacted for that
 viewer — there are no incremental patches, and an unrevealed vote is absent from
 the payload rather than hidden by the client.
 
+Redaction is per viewer, not per room. A [guest joining by
+link](/features/guest-links/) is served a copy with `spaceSlug` empty and
+`participants` cut to the people taking part in that meeting, on the socket and
+on `GET /api/sessions/{id}` alike. A space member's envelope is the full one.
+
 The `Origin` header must match `BASE_URL`. An **empty** `Origin` is allowed, so
 that non-browser clients can connect.
 

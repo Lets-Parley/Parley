@@ -179,6 +179,31 @@ func roster(ctx context.Context, pool *pgxpool.Pool, spaceID string) (string, []
 	return slug, people, rows.Err()
 }
 
+// RedactForGuest strips space-level data from an envelope bound for a link
+// guest. A signed link is a capability for one room, never membership of the
+// space that holds it, so the guest is shown neither the space's join slug nor
+// a member who is not taking part in this session — otherwise one meeting link
+// enumerates the whole space's roster from the one room it is entitled to.
+//
+// "Taking part" is presence plus the facilitator, both of which the envelope
+// already names, so the roster discloses nothing the guest cannot see anyway.
+func (e Envelope) RedactForGuest() Envelope {
+	e.SpaceSlug = ""
+	here := make(map[string]struct{}, len(e.Presence)+1)
+	for _, id := range e.Presence {
+		here[id] = struct{}{}
+	}
+	here[e.FacilitatorID] = struct{}{}
+	people := []Person{}
+	for _, p := range e.Participants {
+		if _, ok := here[p.UserID]; ok {
+			people = append(people, p)
+		}
+	}
+	e.Participants = people
+	return e
+}
+
 // BuildEnvelope assembles the wire state for a session.
 //
 // Presence comes from the database, not from a hub. That is the whole point:

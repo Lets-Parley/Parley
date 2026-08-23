@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -447,5 +449,125 @@ func TestDeletingTheRoomDoesNotPromoteALinkGuest(t *testing.T) {
 				t.Fatalf("GET /api/spaces after %s delete: got %d, want 401", tc.name, resp.StatusCode)
 			}
 		})
+	}
+}
+
+// TestLinkGuestEnvelopeHidesTheSpace pins both shapes of the same room's
+// envelope. A link is a capability for one meeting, so the guest's copy carries
+// neither the space's join slug nor a space member who is not taking part —
+// otherwise one meeting link enumerates the whole space. The member's copy is
+// the unredacted one, which is what makes the guest's a redaction rather than a
+// change of shape for everybody.
+func TestLinkGuestEnvelopeHidesTheSpace(t *testing.T) {
+	srv := testServer(t)
+	fac, id, guest := mintAndRedeem(t, srv, "Envelope Space")
+
+	names := func(env map[string]any) []string {
+		out := []string{}
+		for _, p := range env["participants"].([]any) {
+			out = append(out, p.(map[string]any)["name"].(string))
+		}
+		sort.Strings(out)
+		return out
+	}
+
+	_, guestEnv := doJSON(t, srv, "GET", "/api/sessions/"+id, "", guest)
+	if slug, _ := guestEnv["spaceSlug"].(string); slug != "" {
+		t.Fatalf("guest envelope spaceSlug = %q, want empty", slug)
+	}
+	// Mel is a member of the space and is nowhere near this meeting.
+	if got := names(guestEnv); !slices.Equal(got, []string{"Fay"}) {
+		t.Fatalf("guest participants = %v, want just the facilitator [Fay]", got)
+	}
+
+	_, facEnv := doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	if slug, _ := facEnv["spaceSlug"].(string); slug == "" {
+		t.Fatal("member envelope lost its spaceSlug")
+	}
+	if got := names(facEnv); !slices.Equal(got, []string{"Fay", "Mel"}) {
+		t.Fatalf("member participants = %v, want the whole roster [Fay Mel]", got)
+	}
+}
+
+// The WebSocket carries the same envelope, and the broadcast path builds one
+// payload for a whole room that can now hold both a member and a guest. A
+// facilitator socket and the guest socket are both attached before the
+// broadcast, so this also pins that the facilitator's own frame from that
+// same broadcast is NOT redacted: the hub must fan out two different
+// payloads to the same room, not silently collapse to one for everybody.
+//
+// The non-guest socket here is a second facilitator connection rather than
+// Mel's own, deliberately: if Mel's socket were the one attached, her
+// presence would make her legitimately visible to the guest too (presence
+// is real "taking part", not a leak), which would defeat the very
+// assertion this test exists to make.
+func TestLinkGuestSocketEnvelopeHidesTheSpace(t *testing.T) {
+	srv := testServerWith(t, testPool(t), Options{AllowedOrigin: testOrigin})
+	fac, id, guest := mintAndRedeem(t, srv, "Envelope Socket Space")
+
+	memberWS, _, err := dialWS(t, srv, id, fac, testOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer memberWS.Close()
+	if _, ok := readEnvelope(t, memberWS, 3*time.Second); !ok {
+		t.Fatal("no initial frame for member")
+	}
+
+	guestWS, _, err := dialWS(t, srv, id, guest, testOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer guestWS.Close()
+	if _, ok := readEnvelope(t, guestWS, 3*time.Second); !ok {
+		t.Fatal("no initial frame for guest")
+	}
+	// A mutation the guest is entitled to see, so the frame under test is a
+	// broadcast rather than the handshake's own initial state. Both sockets
+	// are attached above, so this one broadcast reaches both.
+	addStory(t, srv, id, "Story", fac)
+
+	guestDeadline := time.Now().Add(3 * time.Second)
+	for {
+		env, ok := readEnvelope(t, guestWS, time.Until(guestDeadline))
+		if !ok {
+			t.Fatal("no broadcast frame reached the guest")
+		}
+		if env["title"] == nil {
+			continue
+		}
+		if slug, _ := env["spaceSlug"].(string); slug != "" {
+			t.Fatalf("broadcast frame to a guest carried spaceSlug %q", slug)
+		}
+		for _, p := range env["participants"].([]any) {
+			if name := p.(map[string]any)["name"]; name == "Mel" {
+				t.Fatal("broadcast frame to a guest carried an absent space member")
+			}
+		}
+		break
+	}
+
+	memberDeadline := time.Now().Add(3 * time.Second)
+	for {
+		env, ok := readEnvelope(t, memberWS, time.Until(memberDeadline))
+		if !ok {
+			t.Fatal("no broadcast frame reached the member")
+		}
+		if env["title"] == nil {
+			continue
+		}
+		if slug, _ := env["spaceSlug"].(string); slug == "" {
+			t.Fatal("broadcast frame to a member lost spaceSlug")
+		}
+		sawMel := false
+		for _, p := range env["participants"].([]any) {
+			if name := p.(map[string]any)["name"]; name == "Mel" {
+				sawMel = true
+			}
+		}
+		if !sawMel {
+			t.Fatal("broadcast frame to a member lost the space member Mel")
+		}
+		return
 	}
 }
