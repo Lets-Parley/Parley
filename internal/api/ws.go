@@ -80,7 +80,7 @@ func (a *app) handleWS(w http.ResponseWriter, r *http.Request) {
 	var initial []byte
 	if err == nil {
 		if p.IsLinkGuest() {
-			env = env.RedactForGuest()
+			env = env.RedactForGuest(p.UserID)
 		}
 		initial, _ = json.Marshal(env)
 	}

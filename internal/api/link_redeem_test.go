@@ -476,12 +476,12 @@ func TestLinkGuestEnvelopeHidesTheSpace(t *testing.T) {
 	if slug, _ := guestEnv["spaceSlug"].(string); slug != "" {
 		t.Fatalf("guest envelope spaceSlug = %q, want empty", slug)
 	}
-	// Mel is a member of the space and is nowhere near this meeting. The
-	// guest holds no socket here, so it is not in presence either and its own
-	// seat is not in this copy; TestLinkGuestsSitAtTheTable covers the
-	// connected case.
-	if got := names(guestEnv); !slices.Equal(got, []string{"Fay"}) {
-		t.Fatalf("guest participants = %v, want just the facilitator [Fay]", got)
+	// Mel is a member of the space and is nowhere near this meeting, so the
+	// guest never sees her. The guest holds no socket here and so has no
+	// presence row, but a guest is always shown its own seat —
+	// TestLinkGuestSeesItsOwnSeatWithNoSocket pins that on its own.
+	if got := names(guestEnv); !slices.Equal(got, []string{"Fay", "Gus"}) {
+		t.Fatalf("guest participants = %v, want the facilitator and its own seat [Fay Gus]", got)
 	}
 
 	_, facEnv := doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)

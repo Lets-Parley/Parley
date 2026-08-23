@@ -222,3 +222,85 @@ func TestStateFuncTakesTheConcretePool(t *testing.T) {
 		t.Fatalf("StateFunc's second parameter is %s, want %s — see the add-a-session-kind checklist before changing this", got, want)
 	}
 }
+
+// TestRedactForGuest calls RedactForGuest directly on a hand-built envelope,
+// decoupled from websocket presence timing. That timing is exactly what let a
+// wrong selfID argument at the ws.go call site pass the full API suite: every
+// test that opens a guest websocket also registers that guest's presence
+// through the socket, so the guest was already in the union via the presence
+// branch, and the selfID argument itself was never independently exercised.
+func TestRedactForGuest(t *testing.T) {
+	// A fresh envelope per subtest: RedactForGuest documents a value-receiver
+	// copy, but a mutation that broke that guarantee (e.g. a pointer receiver)
+	// would otherwise leak a mutated base into later subtests and mask itself
+	// — sharing one envelope across subtests defeats the very test meant to
+	// pin the copy behaviour.
+	newBase := func() Envelope {
+		return Envelope{
+			FacilitatorID: "fac-1",
+			Presence:      []string{"present-1"},
+			SpaceSlug:     "acme",
+			Participants: []Person{
+				{UserID: "fac-1", Name: "Facilitator"},
+				{UserID: "present-1", Name: "Present"},
+				{UserID: "self-1", Name: "Self"},
+				{UserID: "absent-1", Name: "Absent Member"},
+				{UserID: "", Name: "Empty ID"},
+			},
+		}
+	}
+
+	t.Run("selfID is kept even though absent from presence and not the facilitator", func(t *testing.T) {
+		base := newBase()
+		got := base.RedactForGuest("self-1")
+		if !hasParticipant(got, "self-1") {
+			t.Fatalf("RedactForGuest(%q) dropped the self participant; participants = %v", "self-1", got.Participants)
+		}
+	})
+
+	t.Run("empty selfID matches nobody, including a participant with an empty UserID", func(t *testing.T) {
+		base := newBase()
+		got := base.RedactForGuest("")
+		if hasParticipant(got, "") {
+			t.Fatal(`RedactForGuest("") kept a participant with an empty UserID; the "" guard must not match it`)
+		}
+	})
+
+	t.Run("presence and facilitator still govern everyone else", func(t *testing.T) {
+		base := newBase()
+		got := base.RedactForGuest("self-1")
+		if !hasParticipant(got, "fac-1") {
+			t.Fatal("RedactForGuest dropped the facilitator")
+		}
+		if !hasParticipant(got, "present-1") {
+			t.Fatal("RedactForGuest dropped a present participant")
+		}
+		if hasParticipant(got, "absent-1") {
+			t.Fatal("RedactForGuest kept a space member who is not present, not the facilitator, and not self — this is the privacy guarantee the feature exists for")
+		}
+	})
+
+	t.Run("the receiver is a copy: the caller's envelope is unmutated", func(t *testing.T) {
+		base := newBase()
+		wantSlug := base.SpaceSlug
+		wantParticipants := append([]Person(nil), base.Participants...)
+
+		_ = base.RedactForGuest("self-1")
+
+		if base.SpaceSlug != wantSlug {
+			t.Fatalf("caller's SpaceSlug changed to %q after RedactForGuest, want %q", base.SpaceSlug, wantSlug)
+		}
+		if !reflect.DeepEqual(base.Participants, wantParticipants) {
+			t.Fatalf("caller's Participants changed after RedactForGuest: got %v, want %v", base.Participants, wantParticipants)
+		}
+	})
+}
+
+func hasParticipant(e Envelope, userID string) bool {
+	for _, p := range e.Participants {
+		if p.UserID == userID {
+			return true
+		}
+	}
+	return false
+}

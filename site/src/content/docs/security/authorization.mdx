@@ -155,8 +155,11 @@ guard could do: the guest's copy carries no `spaceSlug` and no space member who
 is not taking part in that meeting. Otherwise one link would hand out the
 space's join slug and its whole membership list from the one room the guest is
 entitled to read. What the guest does see is everybody taking part, other
-guests included — a guest holds a seat on the roster like anybody else in the
-room, never a spectator's.
+guests included, and always their own seat — a guest holds a seat on the roster
+like anybody else in the room, never a spectator's. Their own seat is in the
+very first copy they are served, before their socket has connected and put them
+in the room's presence: being told you are not in the room you are in is never
+the right answer.
 
 A guest chooses their own display name, and renaming is the only thing refused
 afterwards, so nothing prevents one redeeming as a name a member already

@@ -253,8 +253,9 @@ the payload rather than hidden by the client.
 
 Redaction is per viewer, not per room. A [guest joining by
 link](/features/guest-links/) is served a copy with `spaceSlug` empty and
-`participants` cut to the people taking part in that meeting, on the socket and
-on `GET /api/sessions/{id}` alike. A space member's envelope is the full one.
+`participants` cut to the people taking part in that meeting — plus the guest's
+own seat, which is always present even on a first `GET` made before their socket
+connects — on the socket and on `GET /api/sessions/{id}` alike. A space member's envelope is the full one.
 
 Every `participants` entry carries `guest`: true for a seat held by a signed
 link, false for a space member. A guest may pick any display name, a member's
