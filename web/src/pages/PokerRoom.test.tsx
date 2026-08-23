@@ -451,3 +451,37 @@ describe("PokerRoom end session", () => {
     ).toBeNull();
   });
 });
+
+describe("PokerRoom link guest", () => {
+  it("never offers facilitator controls, export or spectate to a guest, even when the guest id matches the facilitator id", () => {
+    // The pathological coincidence: a guest whose id happens to equal the
+    // room's facilitatorId. `env.facilitatorId === me.id` alone would read
+    // true here — only the `!guest &&` guard keeps it refused.
+    const env = envelope({ facilitatorId: "guest-1" });
+    const guestMe: Me = { id: "guest-1", name: "Priya Raman", avatarHue: 200 };
+    renderApp(<PokerRoom env={env} me={guestMe} guest />);
+    expect(screen.queryByText("Export CSV")).toBeNull();
+    expect(screen.queryByRole("button", { name: "End session" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /spectat/i })).toBeNull();
+  });
+
+  // A guest's capability is this one room. The space behind it refuses them,
+  // so an ended session must not hand them a link straight into a 403 — the
+  // same reasoning that hides the breadcrumb and the space nav.
+  it("offers a guest no way into the space when the session has ended", () => {
+    const env = envelope({ endedAt: "2026-08-18T11:00:00.000Z" });
+    const guestMe: Me = { id: "guest-1", name: "Priya Raman", avatarHue: 200 };
+    renderApp(<PokerRoom env={env} me={guestMe} guest />);
+    expect(screen.getByText("This session has ended")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Back to the space" })).toBeNull();
+  });
+
+  // The same screen for a seated member still has its way out.
+  it("still offers a seated member the way back to the space", () => {
+    const env = envelope({ endedAt: "2026-08-18T11:00:00.000Z" });
+    renderApp(<PokerRoom env={env} me={me} />);
+    expect(
+      screen.getByRole("link", { name: "Back to the space" }).getAttribute("href"),
+    ).toBe("/s/platform-team");
+  });
+});

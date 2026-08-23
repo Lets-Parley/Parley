@@ -11,10 +11,10 @@ import { ResultsPanel, heroOf } from "../components/ResultsPanel";
 import { StoryQueue } from "../components/StoryQueue";
 import { Table, faceOf } from "../components/Table";
 
-export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
+export function PokerRoom({ env, me, guest = false }: { env: Envelope; me: Me; guest?: boolean }) {
   const say = useToast();
   const st = env.state;
-  const isFacilitator = env.facilitatorId === me.id;
+  const isFacilitator = !guest && env.facilitatorId === me.id;
   const current: Story | undefined = st.stories.find((s) => s.id === st.currentStoryId);
   const self = env.participants.find((p) => p.userId === me.id);
   const ended = env.endedAt !== null;
@@ -77,7 +77,8 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
   // The next thing worth pointing at, in queue order — skipping what is done.
   const nextUnestimated = st.stories.find((s) => s.id !== current?.id && !s.estimate);
 
-  const { showClaim, graceLeft } = claimState(env, isFacilitator);
+  // A guest may never take the chair, so it is never offered.
+  const { showClaim, graceLeft } = claimState(env, isFacilitator || guest);
   const claimLeft = useCountdown(graceLeft);
   const facilitator = env.participants.find((p) => p.userId === env.facilitatorId);
 
@@ -171,6 +172,9 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
                 hairline: End session used to sit a cursor-width from Export CSV
                 at the same size and weight. */}
             <span className="flex items-center gap-2 border-l border-line pl-3">
+              {/* A link guest is refused the export, and the whole room's
+                  votes are more than its capability anyway. */}
+              {!guest && (
               <a
                 href={`/api/sessions/${env.id}/export.csv`}
                 download
@@ -178,6 +182,7 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
               >
                 Export CSV
               </a>
+              )}
               {isFacilitator && !ended && (
                 <button
                   className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop"
@@ -204,6 +209,10 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
             <p className="mt-1.5 text-[13px] text-ink-soft">
               {env.title} wrapped up. Its results are saved in the space.
             </p>
+            {/* A link guest's capability is this room alone; the space behind
+                it refuses them, so the way out is not offered — and a guest is
+                never the facilitator, so the whole row goes with it. */}
+            {!guest && (
             <div className="mt-3.5 flex justify-center gap-2.5">
               <Link to={`/s/${env.spaceSlug}`} className={buttonPrimary}>
                 Back to the space
@@ -217,6 +226,7 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
                 </button>
               )}
             </div>
+            )}
           </div>
         )}
 
@@ -331,7 +341,7 @@ export function PokerRoom({ env, me }: { env: Envelope; me: Me }) {
               selected={selected}
               disabled={env.revealed}
               spectating={self?.spectator ?? false}
-              canSpectate={!env.revealed}
+              canSpectate={!env.revealed && !guest}
               onPick={(v) => (selected === v ? undefined : castVote(v))}
               onToggleSpectate={() =>
                 run(() =>

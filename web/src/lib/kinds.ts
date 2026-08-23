@@ -4,7 +4,12 @@ import type { ConnectionStatus } from "./socket";
 import { PokerRoom } from "../pages/PokerRoom";
 import { StandupRoom } from "../pages/StandupRoom";
 
-export type RoomProps = { env: Envelope; me: Me; status?: ConnectionStatus };
+/**
+ * `guest` marks a viewer holding a signed link: bound to this room, never the
+ * facilitator, and refused the export and the spectator toggle. A room must not
+ * offer a control the server will answer 403 to.
+ */
+export type RoomProps = { env: Envelope; me: Me; status?: ConnectionStatus; guest?: boolean };
 
 /** One create-dialog field: a fixed set of options, one of them the default. */
 export type FieldSpec = {

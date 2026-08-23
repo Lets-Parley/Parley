@@ -99,6 +99,12 @@ type Props = {
   activeSessionId?: string;
   /* Sidebar starts closed in a session — the table wants the width. */
   sidebarDefault?: boolean;
+  /**
+   * Whether the viewer holds a guest link rather than an account. Its
+   * capability is one room, so the shell drops every way out of that room: the
+   * space breadcrumb, the space nav, and the profile dialog it may not write.
+   */
+  guest?: boolean;
   actions?: ReactNode;
   children: ReactNode;
 };
@@ -143,6 +149,7 @@ export function AppShell({
   sessions,
   activeSessionId,
   sidebarDefault = true,
+  guest = false,
   actions,
   children,
 }: Props) {
@@ -277,6 +284,7 @@ export function AppShell({
         Skip to the table
       </a>
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-surface px-3 sm:gap-4 sm:px-5">
+        {!guest && (
         <button
           onClick={() => setSideOpen((v) => !v)}
           title="Toggle sidebar"
@@ -288,6 +296,7 @@ export function AppShell({
           <span className="h-0.5 w-3.5 rounded-full bg-ink-soft" />
           <span className="h-0.5 w-3.5 rounded-full bg-ink-soft" />
         </button>
+        )}
 
         {/* The room is the loudest thing in the header, because on a shared
             screen the header's job is to say which round the room is in — not
@@ -302,7 +311,7 @@ export function AppShell({
           <h1 className="truncate text-[17px] font-extrabold tracking-tight sm:text-[19px]">
             {title ?? spaceName}
           </h1>
-          {title && (
+          {title && !guest && (
             <Link
               to={`/s/${spaceSlug}`}
               className="truncate text-[12px] font-semibold text-ink-soft hover:text-ink"
@@ -356,7 +365,7 @@ export function AppShell({
 
         {actions}
 
-        {me && (
+        {me && !guest && (
           /* On a phone the room's name outranks your own — you already know
              who you are, and the chip still says it. */
           <button
@@ -389,7 +398,7 @@ export function AppShell({
       {status && <ConnectionBanner status={status} onRetry={onRetry} />}
 
       <div className="flex flex-1 items-stretch">
-        {sideOpen && wide && (
+        {sideOpen && wide && !guest && (
           <nav
             aria-label="Space"
             className="flex w-[250px] shrink-0 flex-col gap-6 border-r border-line bg-surface p-4"
@@ -401,7 +410,7 @@ export function AppShell({
         <main id="main" className="relative min-w-0 flex-1">{children}</main>
       </div>
 
-      {sideOpen && !wide && (
+      {sideOpen && !wide && !guest && (
         <Modal title={spaceName} onClose={() => setSideOpen(false)} width="20rem">
           <nav aria-label="Space" className="mt-4 flex flex-col gap-6">
             {navBody}

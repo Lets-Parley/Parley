@@ -1017,3 +1017,21 @@ describe("StandupRoom polish", () => {
     expect(panel.className).toContain("bg-surface");
   });
 });
+
+describe("StandupRoom link guest", () => {
+  it("never offers facilitator controls to a guest, even when the guest id matches the facilitator id", () => {
+    // The pathological coincidence: a guest whose id happens to equal the
+    // room's facilitatorId. `env.facilitatorId === me.id` alone would read
+    // true here — only the `!guest &&` guard keeps it refused.
+    const guestMe: Me = { id: "dana", name: "Priya Raman", avatarHue: 200 };
+    renderApp(
+      <StandupRoom env={envelope({ phase: "gathering" })} me={guestMe} guest />,
+    );
+    expect(screen.queryByRole("button", { name: /start the round/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "End session" })).toBeNull();
+    expect(screen.queryByText("Export CSV")).toBeNull();
+    // The ordinary participant affordance stays — a guest still gets to
+    // mark itself ready for its own turn.
+    expect(screen.getByRole("button", { name: "I'm ready" })).toBeTruthy();
+  });
+});

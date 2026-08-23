@@ -16,8 +16,14 @@ export function useAuthMode() {
   });
 }
 
-export function useMe() {
+/**
+ * Who the server says you are, or null when nobody. `enabled` is how a caller
+ * that already holds a link-bound identity keeps this from asking a route it
+ * knows it is refused.
+ */
+export function useMe(enabled = true) {
   return useQuery({
+    enabled,
     queryKey: ["me"],
     queryFn: async () => {
       try {

@@ -117,6 +117,29 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Copy to the clipboard and say so — honestly. A clipboard write rejects on an
+ * insecure origin or a denied permission, and a success toast over a failed
+ * copy sends people off to paste nothing. A caller with somewhere better to put
+ * the bad news passes onError; otherwise it arrives as a toast too.
+ */
+export function useCopy() {
+  const say = useToast();
+  return useCallback(
+    async (text: string, done: string, onError?: (msg: string) => void) => {
+      try {
+        await navigator.clipboard.writeText(text);
+        say(done);
+      } catch {
+        const msg = "Could not copy — copy it by hand.";
+        if (onError) onError(msg);
+        else say(msg);
+      }
+    },
+    [say],
+  );
+}
+
 /* ------------------------------------------------------------- countdown -- */
 
 // Ticks a second-resolution countdown locally so the grace period visibly
