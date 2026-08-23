@@ -26,3 +26,7 @@ landing page.
 Adding a session kind touches `src/lib/kinds.ts` and adds a page; the Go side
 and the migration are covered in
 [Adding a session kind](https://www.letsparley.io/project/contributing/#adding-a-session-kind).
+
+`src/lib/links.ts` keeps a signed link's token in the URL fragment rather than
+the query string, since a query string reaches the `Referer` header and every
+access log along the way.
