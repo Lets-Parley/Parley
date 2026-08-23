@@ -37,8 +37,10 @@ expires. That makes it safer than "just make it public" and more honest than a
 shared passcode that quietly becomes a second identity system.
 
 - Status: Merged, awaiting the next release
-- Landed in [#288](https://github.com/lets-parley/parley/pull/288), [#289](https://github.com/lets-parley/parley/pull/289) and [#291](https://github.com/lets-parley/parley/pull/291)
-- A guest can play poker fully; in a standup they can save an update but not yet hold a turn — [#290](https://github.com/lets-parley/parley/issues/290)
+- Landed in [#288](https://github.com/lets-parley/parley/pull/288), [#289](https://github.com/lets-parley/parley/pull/289) and [#291](https://github.com/lets-parley/parley/pull/291), completed by [#300](https://github.com/lets-parley/parley/pull/300) through [#307](https://github.com/lets-parley/parley/pull/307)
+- Both kinds of room work the same way for a guest: they vote in poker and hold
+  a turn in the standup round-robin, and the facilitator's controls stay with
+  the facilitator — [#290](https://github.com/lets-parley/parley/issues/290)
 
 ## Next
 
