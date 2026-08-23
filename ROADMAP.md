@@ -86,7 +86,7 @@ expires. That makes it safer than "just make it public" and more honest than a
 shared passcode that quietly becomes a second identity system.
 
 - Status: Backlog
-- Tracked in [#282](https://github.com/lets-parley/parley/issues/282)
+- Tracking: [#282](https://github.com/lets-parley/parley/issues/282)
 
 ### Take the whole instance with you
 
