@@ -150,6 +150,11 @@ type Person struct {
 	Name      string `json:"name"`
 	AvatarHue int    `json:"avatarHue"`
 	Spectator bool   `json:"spectator"`
+	// Guest marks a seat held by a signed link rather than by membership of
+	// the space. Nothing stops a guest choosing a member's display name, so
+	// the roster has to say which seat is which — server-side, because a
+	// client cannot tell the two apart from a name alone.
+	Guest bool `json:"guest"`
 	// The chosen avatar. Empty ids mean the client renders the hue alone.
 	AvatarIcon string `json:"avatarIcon"`
 }
@@ -171,11 +176,11 @@ func roster(ctx context.Context, pool *pgxpool.Pool, spaceID, sessionID string, 
 		return "", nil, err
 	}
 	rows, err := pool.Query(ctx, `
-		select m.user_id::text, u.name, m.spectator, u.avatar_icon
+		select m.user_id::text, u.name, m.spectator, false, u.avatar_icon
 		from members m join users u on u.id = m.user_id
 		where m.space_id = $1
 		union
-		select u.id::text, u.name, false, u.avatar_icon
+		select u.id::text, u.name, false, true, u.avatar_icon
 		from users u join session_links l on l.id = u.link_id
 		where l.session_id = $2
 		  and ($3 or (l.revoked_at is null and l.expires_at > now()))
@@ -187,7 +192,7 @@ func roster(ctx context.Context, pool *pgxpool.Pool, spaceID, sessionID string, 
 	people := []Person{}
 	for rows.Next() {
 		var p Person
-		if err := rows.Scan(&p.UserID, &p.Name, &p.Spectator, &p.AvatarIcon); err != nil {
+		if err := rows.Scan(&p.UserID, &p.Name, &p.Spectator, &p.Guest, &p.AvatarIcon); err != nil {
 			return "", nil, err
 		}
 		p.AvatarHue = store.AvatarHue(p.UserID)

@@ -172,6 +172,15 @@ export function StandupRoom({
   const [copyFailed, setCopyFailed] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
   const people = new Map(env.participants.map((p) => [p.userId, p]));
+  // The visual seat marks a guest with " · guest"; the text summaries below
+  // (the live announcement, skipped names, blocker lines) are built from
+  // plain strings, so they need the same tell spelled out in words or a
+  // screen-reader user hears no distinction from a member of the same name.
+  const nameOf = (userId: string) => {
+    const p = people.get(userId);
+    if (!p) return "Someone";
+    return p.guest ? `${p.name} (guest)` : p.name;
+  };
   const speaking = env.phase === "speaking";
   const done = env.phase === "done";
   const current = st.currentSpeakerId ? st.entries.find((e) => e.userId === st.currentSpeakerId) : undefined;
@@ -225,7 +234,7 @@ export function StandupRoom({
       : done
         ? "The standup has wrapped up."
         : speaking && current
-          ? `${people.get(current.userId)?.name ?? "Someone"} is speaking now, ${position} of ${speakers.length}.`
+          ? `${nameOf(current.userId)} is speaking now, ${position} of ${speakers.length}.`
           : "";
 
   // Ending is a two-step await, so a second click can land between the flush
@@ -289,13 +298,11 @@ export function StandupRoom({
       />
     ) : null;
 
-  const skippedNames = st.entries
-    .filter((e) => e.skipped)
-    .map((e) => people.get(e.userId)?.name ?? "Someone");
+  const skippedNames = st.entries.filter((e) => e.skipped).map((e) => nameOf(e.userId));
 
   const blockersText = st.entries
     .filter((e) => e.blockers.trim() && !e.skipped)
-    .map((e) => `${people.get(e.userId)?.name ?? "Someone"}: ${e.blockers.trim()}`)
+    .map((e) => `${nameOf(e.userId)}: ${e.blockers.trim()}`)
     .join("\n");
 
   // The rail is the round, so it is housed in the round bar rather than left
@@ -358,6 +365,7 @@ export function StandupRoom({
                 }
               >
                 {p?.name}
+                {p?.guest && <span className="font-normal text-ink-faint"> · guest</span>}
               </span>
             </button>
             {(isCurrent || e.skipped) && (
@@ -480,7 +488,10 @@ export function StandupRoom({
                         icon={p.avatarIcon}
                         size="sm"
                       />
-                      <span className="font-bold">{p.name}</span>
+                      <span className="font-bold">
+                        {p.name}
+                        {p.guest && <span className="font-normal text-ink-faint"> · guest</span>}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -507,7 +518,12 @@ export function StandupRoom({
                 size="lg"
               />
             )}
-            <h2 className="font-display text-2xl font-semibold">{people.get(shown.userId)?.name}</h2>
+            <h2 className="font-display text-2xl font-semibold">
+              {people.get(shown.userId)?.name}
+              {people.get(shown.userId)?.guest && (
+                <span className="ml-2 align-middle text-sm font-normal text-ink-faint">guest</span>
+              )}
+            </h2>
           </div>
           {canEditOwn && shown.userId === me.id ? (
             <EntryForm draft={draft} update={update} saveState={saveState} />

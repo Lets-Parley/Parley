@@ -36,15 +36,56 @@ function renderTable(over: Partial<Parameters<typeof Table>[0]> = {}) {
 
 const field = () => screen.getByTestId("table-field");
 
-/** Scopes queries to the seat container holding the given first name. */
-function seat(firstName: string) {
+/**
+ * Scopes queries to the seat container holding the given first name.
+ * When two seats share a first name — an impostor wearing a member's name —
+ * pass `userId` to pick the seat by its `data-seat-user`, since a
+ * document-wide `getByText` can't tell the seats apart on name alone.
+ */
+function seat(firstName: string, userId?: string) {
+  if (userId !== undefined) {
+    const container = document.querySelector(`[data-seat-user="${userId}"]`);
+    if (!container) throw new Error(`could not find seat container for userId "${userId}"`);
+    return within(container as HTMLElement);
+  }
   const nameNode = screen.getByText(firstName);
-  const container = nameNode.parentElement;
+  const container = nameNode.closest("[data-seat-user]");
   if (!container) throw new Error(`could not find seat container for "${firstName}"`);
-  return within(container);
+  return within(container as HTMLElement);
 }
 
 describe("Table", () => {
+  // A guest can redeem a link under any name, a member's included, so the seat
+  // has to say which one it is. The mark comes from the server.
+  it("marks a link guest's seat, even one wearing a member's name", () => {
+    const impostor = makePerson({ userId: "guest", name: "Dana Whitfield", guest: true });
+    renderTable({
+      seated: [dana, impostor],
+      online: new Set(["dana", "guest"]),
+    });
+    // Both seats say "Dana" — the marker has to land on the impostor's seat
+    // specifically, and must not also land on the real member's.
+    expect(seat("Dana", "guest").queryByText("· guest")).toBeTruthy();
+    expect(seat("Dana", "dana").queryByText("· guest")).toBeNull();
+  });
+
+  // jsdom does no layout, so this cannot observe whether the marker is
+  // visually clipped — it pins the structural property that keeps it safe
+  // from truncation instead: the marker must not live inside the element
+  // that carries the `truncate` class, or an ellipsis could eat it the way
+  // it ate the whole name-plus-marker line before this fix.
+  it("keeps the guest and you tells outside the truncating name element", () => {
+    const impostor = makePerson({ userId: "guest", name: "A Very Long Guest Display Name", guest: true });
+    renderTable({ seated: [dana, impostor], online: new Set(["dana", "guest"]) });
+
+    const youMark = seat("Dana", "dana").getByText("· you");
+    const guestMark = seat("A", "guest").getByText("· guest");
+    const truncatingAncestor = (node: Element) => node.closest(".truncate");
+
+    expect(truncatingAncestor(youMark)).toBeNull();
+    expect(truncatingAncestor(guestMark)).toBeNull();
+  });
+
   it("counts votes against who could still vote while hidden", () => {
     renderTable({ votedUserIds: ["dana", "marcus"] });
     expect(screen.getByText("2 of 3 voted")).toBeTruthy();

@@ -88,6 +88,9 @@ export type Person = {
   avatarIcon?: string;
   /** Chosen accessory id, opaque to the server. Empty or unknown draws nothing. */
   spectator: boolean;
+  /** Seated by a signed link rather than by membership. Set by the server:
+      a guest may pick any display name, a member's included. */
+  guest?: boolean;
   /** Space standing. Absent in session payloads, which do not carry roles. */
   role?: SpaceRole;
   at?: SeatRef;

@@ -256,6 +256,10 @@ link](/features/guest-links/) is served a copy with `spaceSlug` empty and
 `participants` cut to the people taking part in that meeting, on the socket and
 on `GET /api/sessions/{id}` alike. A space member's envelope is the full one.
 
+Every `participants` entry carries `guest`: true for a seat held by a signed
+link, false for a space member. A guest may pick any display name, a member's
+included, so this is the only reliable way to tell the two apart.
+
 The `Origin` header must match `BASE_URL`. An **empty** `Origin` is allowed, so
 that non-browser clients can connect.
 
