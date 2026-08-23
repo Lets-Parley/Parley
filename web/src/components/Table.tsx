@@ -165,7 +165,11 @@ export function Table({
             const away = !online.has(p.userId);
             const state = revealed ? "face" : voted.has(p.userId) ? "back" : away ? "away" : "empty";
             return (
-              <div key={p.userId} className="flex w-[74px] shrink-0 flex-col items-center gap-2.5">
+              <div
+                key={p.userId}
+                data-seat-user={p.userId}
+                className="flex w-[74px] shrink-0 flex-col items-center gap-2.5"
+              >
                 <Avatar
                   name={p.name}
                   hue={p.avatarHue}

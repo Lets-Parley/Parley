@@ -36,8 +36,18 @@ function renderTable(over: Partial<Parameters<typeof Table>[0]> = {}) {
 
 const field = () => screen.getByTestId("table-field");
 
-/** Scopes queries to the seat container holding the given first name. */
-function seat(firstName: string) {
+/**
+ * Scopes queries to the seat container holding the given first name.
+ * When two seats share a first name — an impostor wearing a member's name —
+ * pass `userId` to pick the seat by its `data-seat-user`, since a
+ * document-wide `getByText` can't tell the seats apart on name alone.
+ */
+function seat(firstName: string, userId?: string) {
+  if (userId !== undefined) {
+    const container = document.querySelector(`[data-seat-user="${userId}"]`);
+    if (!container) throw new Error(`could not find seat container for userId "${userId}"`);
+    return within(container as HTMLElement);
+  }
   const nameNode = screen.getByText(firstName);
   const container = nameNode.parentElement;
   if (!container) throw new Error(`could not find seat container for "${firstName}"`);
@@ -53,7 +63,10 @@ describe("Table", () => {
       seated: [dana, impostor],
       online: new Set(["dana", "guest"]),
     });
-    expect(within(field()).getAllByText("· guest").length).toBe(1);
+    // Both seats say "Dana" — the marker has to land on the impostor's seat
+    // specifically, and must not also land on the real member's.
+    expect(seat("Dana", "guest").queryByText("· guest")).toBeTruthy();
+    expect(seat("Dana", "dana").queryByText("· guest")).toBeNull();
   });
 
   it("counts votes against who could still vote while hidden", () => {
