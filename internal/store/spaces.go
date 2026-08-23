@@ -126,6 +126,25 @@ func (s *Spaces) Join(ctx context.Context, spaceID, userID string) error {
 	return err
 }
 
+// IsMemberOrLinkGuest answers the hub's revalidation question — may this user
+// still hold a socket on this room? — in one roundtrip. A link guest is by
+// design not a member of the room's space, so both predicates have to be
+// asked; asking them as two queries doubled the query volume of the
+// revalidation loop for the whole connected population to serve the rare case.
+func (s *Spaces) IsMemberOrLinkGuest(ctx context.Context, spaceID, sessionID, userID string) (bool, error) {
+	var ok bool
+	err := s.Pool.QueryRow(ctx, `
+		select exists (select 1 from members where space_id = $1 and user_id = $3)
+		    or exists (
+			select 1 from users u join session_links l on l.id = u.link_id
+			where u.id = $3 and l.session_id = $2 and l.revoked_at is null and l.expires_at > now())`,
+		spaceID, sessionID, userID).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("checking room access: %w", err)
+	}
+	return ok, nil
+}
+
 func (s *Spaces) IsMember(ctx context.Context, spaceID, userID string) (bool, error) {
 	var ok bool
 	err := s.Pool.QueryRow(ctx,
