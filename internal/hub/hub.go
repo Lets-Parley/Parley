@@ -70,8 +70,15 @@ type Hub struct {
 	events       chan any
 	done         chan struct{}
 	shutdownOnce sync.Once
-	rooms        map[string]map[*Conn]struct{}
-	pending      map[*Conn]registerEvent
+	// bg tracks every goroutine the hub starts that calls back into the
+	// application — and so into its database pool. Shutdown waits for them:
+	// the caller closes that pool the moment Shutdown returns, and a callback
+	// still in flight at that point is a write against a closed pool.
+	bgMu      sync.Mutex
+	bg        sync.WaitGroup
+	bgStopped bool
+	rooms     map[string]map[*Conn]struct{}
+	pending   map[*Conn]registerEvent
 
 	// OnPresenceChange fires (debounced) after connects/disconnects settle.
 	OnPresenceChange func(sessionID string)
@@ -97,7 +104,6 @@ type Hub struct {
 
 type registerEvent struct {
 	conn     *Conn
-	initial  []byte
 	accepted chan bool
 }
 
@@ -195,7 +201,7 @@ func (h *Hub) run() {
 		case registerEvent:
 			if e.conn.tokenID != "" && h.ValidateSession != nil {
 				h.pending[e.conn] = e
-				go h.validate(e.conn)
+				h.track(func() { h.validate(e.conn) })
 				continue
 			}
 			h.register(e)
@@ -326,7 +332,7 @@ func (h *Hub) run() {
 		case expiryEvent:
 			if h.registered(e.conn) && e.conn.expiresAt.Equal(e.expiresAt) {
 				if h.ValidateSession != nil {
-					go h.validate(e.conn)
+					h.track(func() { h.validate(e.conn) })
 				}
 			}
 		}
@@ -341,19 +347,6 @@ func (h *Hub) register(e registerEvent) {
 	}
 	room[e.conn] = struct{}{}
 	h.armExpiry(e.conn)
-	if e.initial != nil {
-		// The membership read that authorized the handshake happened before
-		// this connection existed, so a removal committed mid-upgrade would
-		// still have shipped a full room snapshot to someone who had just lost
-		// access. Re-check once the connection is registered — from here on the
-		// removal path can see it, and the snapshot is only released if the
-		// second read still says member.
-		if h.gatesInitialState(e.conn) {
-			go h.confirmMembership(e.conn, e.initial)
-		} else {
-			h.deliver(e.conn, e.initial)
-		}
-	}
 	e.accepted <- true
 }
 
@@ -370,6 +363,23 @@ func (h *Hub) rejectPending(c *Conn, closeCode int) <-chan struct{} {
 	close(c.send)
 	pending.accepted <- false
 	return c.writerDone
+}
+
+// track runs fn in its own goroutine and keeps Shutdown waiting for it. Once
+// shutdown has begun fn is dropped rather than started: what it would touch is
+// already being torn down.
+func (h *Hub) track(fn func()) {
+	h.bgMu.Lock()
+	if h.bgStopped {
+		h.bgMu.Unlock()
+		return
+	}
+	h.bg.Add(1)
+	h.bgMu.Unlock()
+	go func() {
+		defer h.bg.Done()
+		fn()
+	}()
 }
 
 func (h *Hub) submit(event any) bool {
@@ -444,7 +454,7 @@ func (h *Hub) remove(c *Conn, closeCode int) <-chan struct{} {
 			}
 		}
 		if last {
-			go h.OnDisconnect(c.SessionID, c.UserID)
+			h.track(func() { h.OnDisconnect(c.SessionID, c.UserID) })
 		}
 	}
 	h.schedulePresence(c.SessionID)
@@ -470,7 +480,7 @@ func (h *Hub) AttachAuthenticated(ws *websocket.Conn, sessionID, userID string, 
 	}
 	c.closeCode.Store(websocket.CloseNormalClosure)
 	accepted := make(chan bool)
-	if !h.submit(registerEvent{conn: c, initial: initial, accepted: accepted}) {
+	if !h.submit(registerEvent{conn: c, accepted: accepted}) {
 		cancel()
 		ws.Close()
 		return
@@ -484,13 +494,39 @@ func (h *Hub) AttachAuthenticated(ws *websocket.Conn, sessionID, userID string, 
 		return
 	}
 	if c.tokenID != "" && h.ValidateSession != nil {
-		go h.revalidate(ctx, c)
+		h.track(func() { h.revalidate(ctx, c) })
 	}
 
+	// Presence first, snapshot second, both on this goroutine. A client that
+	// holds its initial frame is then entitled to assume its own presence row
+	// exists — the roster it is about to read is filtered by exactly that. The
+	// two used to run concurrently, which made "what does this guest see" a
+	// coin flip.
 	if h.OnFacilitatorSeen != nil {
 		h.OnFacilitatorSeen(sessionID, userID)
 	}
+	h.releaseInitial(c, initial)
 	h.schedulePresence(sessionID)
+}
+
+// releaseInitial hands a freshly registered connection the room snapshot the
+// handshake built for it.
+//
+// The membership read that authorized the handshake happened before this
+// connection existed, so a removal committed mid-upgrade would still have
+// shipped a full room snapshot to someone who had just lost access. Re-check
+// now that the connection is registered — from here on the removal path can
+// see it, and the snapshot is only released if the second read still says
+// member.
+func (h *Hub) releaseInitial(c *Conn, initial []byte) {
+	if initial == nil {
+		return
+	}
+	if h.gatesInitialState(c) {
+		h.confirmMembership(c, initial)
+		return
+	}
+	h.submit(initialStateEvent{conn: c, initial: initial})
 }
 
 func (h *Hub) revalidate(ctx context.Context, c *Conn) {
@@ -538,7 +574,8 @@ func (h *Hub) gatesInitialState(c *Conn) bool {
 }
 
 // confirmMembership re-reads membership for an already-registered connection
-// and releases (or refuses) its initial room snapshot.
+// and releases (or refuses) its initial room snapshot. It is called off the
+// owner loop, so the read may block.
 func (h *Hub) confirmMembership(c *Conn, initial []byte) {
 	ctx, cancel := context.WithTimeout(c.ctx, h.validationTimeout())
 	defer cancel()
@@ -657,7 +694,7 @@ func (h *Hub) reader(c *Conn) {
 	c.ws.SetPongHandler(func(string) error {
 		c.ws.SetReadDeadline(time.Now().Add(pongDeadline))
 		if c.authState.Load() == authAccepted && h.OnFacilitatorSeen != nil {
-			h.OnFacilitatorSeen(c.SessionID, c.UserID)
+			h.track(func() { h.OnFacilitatorSeen(c.SessionID, c.UserID) })
 		}
 		return nil
 	})
@@ -762,6 +799,10 @@ func (h *Hub) Shutdown() {
 		if h.submit(shutdownEvent{done: done}) {
 			waitForWriters(<-done)
 		}
+		h.bgMu.Lock()
+		h.bgStopped = true
+		h.bgMu.Unlock()
+		h.bg.Wait()
 	})
 }
 
@@ -790,7 +831,7 @@ func (h *Hub) schedulePresence(sessionID string) {
 		h.timersMu.Lock()
 		delete(h.timers, sessionID)
 		h.timersMu.Unlock()
-		h.OnPresenceChange(sessionID)
+		h.track(func() { h.OnPresenceChange(sessionID) })
 	})
 }
 
