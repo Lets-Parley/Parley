@@ -104,8 +104,9 @@ sit at.
   or a `Referer` header, and Parley wipes it from the address bar on arrival.
 - **Revoke means gone.** Revoking a link closes the sockets of everyone who
   already redeemed it, on the spot. Their votes stay in the meeting they took
-  part in. Guests can vote in a poker room; in a standup they can follow the
-  round and save an update, but never get a turn of their own.
+  part in. Guests vote fully in a poker room, and in a standup take a place in
+  the round and get the turn when it comes round to them; starting, advancing
+  and skipping the round stay with the facilitator.
 
 ### Everything else
 
