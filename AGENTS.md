@@ -180,13 +180,16 @@ migration and embedding mistakes that unit tests miss.
     mid-session severance. `ResolveToken` and `TokenExpiry` must both honour it —
     one of them skipping it leaves a lapsed link either answering requests or
     holding a socket.
-15. **Every hub callback that reaches the database goes through `hub.track`,
-    and presence is recorded before the initial frame is released.** Two rules,
-    one lifecycle. `Hub.Shutdown` waits on a `WaitGroup` covering
-    `OnDisconnect`, `OnPresenceChange`, `OnFacilitatorSeen` and the validation
-    goroutines, because the caller closes the pgx pool the instant it returns —
-    a `go h.Whatever(...)` added outside `track` shows up as `closed pool`
-    errors in an unrelated test minutes later. And `AttachAuthenticated` calls
+15. **Every hub callback that reaches the database from its own goroutine goes
+    through `hub.track`, and presence is recorded before the initial frame is
+    released.** Two rules, one lifecycle. `Hub.Shutdown` waits on a `WaitGroup`
+    covering `OnDisconnect`, `OnPresenceChange`, `OnFacilitatorSeen` and the
+    validation goroutines, because the caller closes the pgx pool the instant it
+    returns — a `go h.Whatever(...)` added outside `track` shows up as `closed
+    pool` errors in an unrelated test minutes later. A callback invoked
+    synchronously on a goroutine the hub already owns needs no `track`: the
+    attach-time `OnFacilitatorSeen` below is deliberately one of these, since
+    `AttachAuthenticated` must not return until it has run — and it calls
     `OnFacilitatorSeen` *before* `releaseInitial`, so a client holding its first
     state frame may assume its own presence row exists. `Envelope.RedactForGuest`
     filters participants to presence ∪ facilitator, so reordering those two turns
