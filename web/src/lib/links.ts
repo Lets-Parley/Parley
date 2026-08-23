@@ -29,6 +29,18 @@ export type Redemption = { sessionId: string; expiresAt: string; me: Me };
 /** How many times one link may be redeemed. A server constant, mirrored for display. */
 export const LINK_REDEMPTION_CAP = 25;
 
+/**
+ * True for an ordinary signed-in account; false for a link guest or nobody.
+ *
+ * `GET /api/me` now succeeds for a link guest too, so a truthy response alone
+ * no longer means "full account" — `linkSessionId` is what tells them apart.
+ * Anything scoped to an account across spaces (the space list, creating a
+ * space) needs this, not a bare `!!me.data` check.
+ */
+export function isFullAccount(me: Me | null | undefined): boolean {
+  return !!me && !me.linkSessionId;
+}
+
 /** The shareable URL for a freshly minted token. */
 export function linkUrl(token: string): string {
   return `${window.location.origin}/link#t=${encodeURIComponent(token)}`;

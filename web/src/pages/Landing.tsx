@@ -11,6 +11,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errorText, type Membership, type SpaceView } from "../lib/api";
 import { useMe, useAuthMode, NameGate } from "../components/NameGate";
+import { isFullAccount } from "../lib/links";
 import { Logo, ThemeToggle } from "../components/AppShell";
 import { buttonPrimary, buttonQuiet, inputClass, labelClass } from "../components/Modal";
 
@@ -53,12 +54,15 @@ export function Landing() {
   // outlive the round trip or the name typed here is gone on the way back.
   const [name, setName] = useState(() => readPending() ?? "");
   const [needName, setNeedName] = useState(false);
-  // Only ever asked for once there is someone to ask about: a signed-out
-  // visitor has no memberships and the route would only answer 401.
+  // Only ever asked for once there is a full account to ask about: a
+  // signed-out visitor has no memberships and the route would only answer
+  // 401, and a link guest is refused it too — that identity belongs to one
+  // room, not to a list of spaces.
+  const fullAccount = isFullAccount(me.data);
   const mine = useQuery({
     queryKey: ["my-spaces"],
     queryFn: () => api<Membership[]>("GET", "/api/spaces"),
-    enabled: !!me.data,
+    enabled: fullAccount,
     retry: false,
   });
   const spaces = mine.data ?? [];
@@ -130,15 +134,15 @@ export function Landing() {
   // ran. Coming back with a name still pending finishes that create instead of
   // asking for the same click a second time.
   useEffect(() => {
-    if (!me.data) return;
+    if (!fullAccount) return;
     const pending = takePending();
     if (pending === null) return;
     doCreate(pending);
-  }, [me.data, doCreate]);
+  }, [fullAccount, doCreate]);
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (!me.data) {
+    if (!fullAccount) {
       sessionStorage.setItem(
         pendingSpaceKey,
         JSON.stringify({ name: name.trim(), at: Date.now() }),
@@ -150,6 +154,7 @@ export function Landing() {
   }
 
   const known = spaces.length > 0;
+  const guestRoomId = me.data?.linkSessionId;
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-2xl flex-col items-center justify-center gap-7 p-6 text-center">
@@ -183,9 +188,22 @@ export function Landing() {
         </h1>
       </div>
 
+      {/* A link guest is not deciding whether to sign up — they already have a
+          seat somewhere. Naming that, with the way back, beats leaving them to
+          guess why the space list and the pitch below don't apply to them. */}
+      {guestRoomId && (
+        <p className="max-w-md text-ink-soft text-pretty">
+          You're here as a guest, from a link — this page is for accounts, not
+          your table.{" "}
+          <Link to={`/session/${guestRoomId}`} className="font-bold underline">
+            Back to your room
+          </Link>
+        </p>
+      )}
+
       {/* The pitch is for someone deciding. Someone with spaces already decided,
           and their list should not sit below an advertisement for it. */}
-      {!known && (
+      {!known && !guestRoomId && (
         <p className="max-w-md text-ink-soft text-pretty">
           Planning poker and daily standups for your team, at your table. A space
           is a room your team keeps — name one, share the link, start a round.
@@ -195,95 +213,103 @@ export function Landing() {
         </p>
       )}
 
-      {mine.isLoading && (
-        <div
-          aria-hidden
-          className="flex w-full max-w-md flex-col gap-2 rounded-panel border border-line bg-surface p-3"
-        >
-          <span className="h-9 rounded-panel bg-felt-deep" />
-          <span className="h-9 w-2/3 rounded-panel bg-felt-deep" />
-        </div>
-      )}
+      {/* A guest's writes are refused server-side, so the create form and the
+          space list below (an account-scoped route) would both just fail for
+          them. The room they already have is the "back to your room" link
+          above — nothing else on this page is theirs to use. */}
+      {!guestRoomId && (
+        <>
+          {mine.isLoading && (
+            <div
+              aria-hidden
+              className="flex w-full max-w-md flex-col gap-2 rounded-panel border border-line bg-surface p-3"
+            >
+              <span className="h-9 rounded-panel bg-felt-deep" />
+              <span className="h-9 w-2/3 rounded-panel bg-felt-deep" />
+            </div>
+          )}
 
-      {mine.isError && (
-        <p className="flex items-center gap-3 text-sm text-ink-soft">
-          Couldn't load your spaces.
-          <button type="button" className={buttonQuiet} onClick={() => mine.refetch()}>
-            Try again
-          </button>
-        </p>
-      )}
+          {mine.isError && (
+            <p className="flex items-center gap-3 text-sm text-ink-soft">
+              Couldn't load your spaces.
+              <button type="button" className={buttonQuiet} onClick={() => mine.refetch()}>
+                Try again
+              </button>
+            </p>
+          )}
 
-      {known && (
-        <ul
-          aria-label="Your spaces"
-          className="flex w-full max-w-md flex-col gap-2 rounded-panel border border-line bg-surface p-3 text-left shadow-rest"
-        >
-          {spaces.map((sp) => (
-            <li key={sp.slug}>
-              <Link
-                to={`/s/${sp.slug}`}
-                className="flex items-center justify-between gap-3 rounded-panel px-3 py-2 font-bold hover:bg-felt-deep"
-              >
-                <span className="min-w-0 truncate">{sp.name}</span>
-                {sp.protected && (
-                  <span className="shrink-0 font-mono text-[10px] font-normal uppercase tracking-[0.08em] text-ink-faint">
-                    Passcode
-                  </span>
-                )}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+          {known && (
+            <ul
+              aria-label="Your spaces"
+              className="flex w-full max-w-md flex-col gap-2 rounded-panel border border-line bg-surface p-3 text-left shadow-rest"
+            >
+              {spaces.map((sp) => (
+                <li key={sp.slug}>
+                  <Link
+                    to={`/s/${sp.slug}`}
+                    className="flex items-center justify-between gap-3 rounded-panel px-3 py-2 font-bold hover:bg-felt-deep"
+                  >
+                    <span className="min-w-0 truncate">{sp.name}</span>
+                    {sp.protected && (
+                      <span className="shrink-0 font-mono text-[10px] font-normal uppercase tracking-[0.08em] text-ink-faint">
+                        Passcode
+                      </span>
+                    )}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
 
-      <form
-        onSubmit={submit}
-        className="flex w-full max-w-md flex-col gap-3 rounded-panel border border-line bg-surface p-5 text-left shadow-rest sm:flex-row sm:items-end"
-      >
-        <div className="min-w-0 flex-1">
-          <label htmlFor={fieldId} className={labelClass + " mt-0"}>
-            {known ? "Another space" : "Name your space"}
-          </label>
-          <input
-            id={fieldId}
-            className={inputClass}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Platform Team"
-            maxLength={64}
-            aria-describedby={error ? errorId : undefined}
-          />
-        </div>
-        <button
-          type="submit"
-          className={buttonPrimary + " shrink-0"}
-          disabled={!name.trim() || busy}
-        >
-          {busy ? "Opening…" : known ? "Create a space" : "Open a space"}
-        </button>
-      </form>
-
-      {error && (
-        <p id={errorId} role="alert" className="flex items-center gap-3 font-bold text-stop">
-          {error}
-          {canRetry && (
+          <form
+            onSubmit={submit}
+            className="flex w-full max-w-md flex-col gap-3 rounded-panel border border-line bg-surface p-5 text-left shadow-rest sm:flex-row sm:items-end"
+          >
+            <div className="min-w-0 flex-1">
+              <label htmlFor={fieldId} className={labelClass + " mt-0"}>
+                {known ? "Another space" : "Name your space"}
+              </label>
+              <input
+                id={fieldId}
+                className={inputClass}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Platform Team"
+                maxLength={64}
+                aria-describedby={error ? errorId : undefined}
+              />
+            </div>
             <button
-              type="button"
-              className={buttonQuiet + " font-bold"}
-              onClick={() => doCreate(name.trim())}
+              type="submit"
+              className={buttonPrimary + " shrink-0"}
               disabled={!name.trim() || busy}
             >
-              Try again
+              {busy ? "Opening…" : known ? "Create a space" : "Open a space"}
             </button>
-          )}
-        </p>
-      )}
+          </form>
 
-      <p className="max-w-md text-sm text-ink-faint text-pretty">
-        Got a link from a teammate? That link is your invite — just open it. A
-        passcode alone won't do it; ask them for the link.
-      </p>
+          {error && (
+            <p id={errorId} role="alert" className="flex items-center gap-3 font-bold text-stop">
+              {error}
+              {canRetry && (
+                <button
+                  type="button"
+                  className={buttonQuiet + " font-bold"}
+                  onClick={() => doCreate(name.trim())}
+                  disabled={!name.trim() || busy}
+                >
+                  Try again
+                </button>
+              )}
+            </p>
+          )}
+
+          <p className="max-w-md text-sm text-ink-faint text-pretty">
+            Got a link from a teammate? That link is your invite — just open it. A
+            passcode alone won't do it; ask them for the link.
+          </p>
+        </>
+      )}
 
       {needName && (
         <NameGate
