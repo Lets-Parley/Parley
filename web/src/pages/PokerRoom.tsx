@@ -209,6 +209,10 @@ export function PokerRoom({ env, me, guest = false }: { env: Envelope; me: Me; g
             <p className="mt-1.5 text-[13px] text-ink-soft">
               {env.title} wrapped up. Its results are saved in the space.
             </p>
+            {/* A link guest's capability is this room alone; the space behind
+                it refuses them, so the way out is not offered — and a guest is
+                never the facilitator, so the whole row goes with it. */}
+            {!guest && (
             <div className="mt-3.5 flex justify-center gap-2.5">
               <Link to={`/s/${env.spaceSlug}`} className={buttonPrimary}>
                 Back to the space
@@ -222,6 +226,7 @@ export function PokerRoom({ env, me, guest = false }: { env: Envelope; me: Me; g
                 </button>
               )}
             </div>
+            )}
           </div>
         )}
 
