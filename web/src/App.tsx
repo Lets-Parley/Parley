@@ -4,6 +4,7 @@ import { ToastProvider } from "./lib/ui";
 import { Landing } from "./pages/Landing";
 import { SpacePage } from "./pages/SpacePage";
 import { SessionPage } from "./pages/SessionPage";
+import { LinkPage } from "./pages/LinkPage";
 
 const queryClient = new QueryClient();
 
@@ -16,6 +17,9 @@ export default function App() {
             <Route path="/" element={<Landing />} />
             <Route path="/s/:slug" element={<SpacePage />} />
             <Route path="/session/:id" element={<SessionPage />} />
+            {/* The token rides in the fragment, so this route takes no
+                parameter of its own — see lib/links. */}
+            <Route path="/link" element={<LinkPage />} />
           </Routes>
         </BrowserRouter>
       </ToastProvider>

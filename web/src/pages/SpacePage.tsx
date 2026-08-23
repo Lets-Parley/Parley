@@ -13,7 +13,7 @@ import {
   inputClass,
   labelClass,
 } from "../components/Modal";
-import { useToast } from "../lib/ui";
+import { useCopy, useToast } from "../lib/ui";
 import { KINDS, defaultConfig, kindLabel, type KindDef } from "../lib/kinds";
 
 // "" is the All tab; every other value is a registered kind's wire id.
@@ -649,18 +649,11 @@ function PasscodePanel({
   onError: (msg: string) => void;
 }) {
   const say = useToast();
+  const copyText = useCopy();
   const [busy, setBusy] = useState(false);
 
-  // Clipboard writes reject on an insecure origin or a denied permission, and a
-  // success toast over a failed copy sends people off to paste nothing.
-  async function copy(text: string, done: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      say(done);
-    } catch {
-      onError("Could not copy — copy it by hand.");
-    }
-  }
+  // The same copy affordance the guest-link panel uses, denial path included.
+  const copy = (text: string, done: string) => copyText(text, done, onError);
 
   async function set(open: boolean) {
     setBusy(true);

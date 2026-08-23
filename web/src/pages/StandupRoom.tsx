@@ -147,14 +147,16 @@ export function StandupRoom({
   env,
   me,
   status = "live",
+  guest = false,
 }: {
   env: Envelope;
   me: Me;
   status?: ConnectionStatus;
+  guest?: boolean;
 }) {
   const st = env.state as unknown as StandupState;
   const say = useToast();
-  const isFacilitator = env.facilitatorId === me.id;
+  const isFacilitator = !guest && env.facilitatorId === me.id;
   const { draft, update, saveState, flush } = useOwnEntryDraft(env, me.id);
   // Where it failed, not just that it did. One string at the foot of the page
   // took failures from ready, start, next, skip and end alike — the same shape
@@ -366,6 +368,9 @@ export function StandupRoom({
           would be chrome around two tertiary links. */}
       <header className="-mb-2 flex flex-wrap items-center justify-end gap-3">
         <span data-testid="session-actions" className="flex items-center gap-2">
+        {/* Refused to a link guest, whose capability is this round, not its
+            record. */}
+        {!guest && (
         <a
           href={`/api/sessions/${env.id}/export.csv`}
           download
@@ -373,6 +378,7 @@ export function StandupRoom({
         >
           Export CSV
         </a>
+        )}
         {isFacilitator && !env.endedAt && (
           <button
             className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop disabled:opacity-50"
