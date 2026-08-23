@@ -239,16 +239,17 @@ func TestRevokeClosesTheLinkSessionsItOpened(t *testing.T) {
 	}
 }
 
-// TestIsLinkGuestOfIgnoresDeadLinks keeps the membership hook fail-closed on
-// its own terms. The hub happens to check the token's expiry first today, but
-// a predicate that only knew about revocation would make this answer depend on
-// two tables staying in step.
-func TestIsLinkGuestOfIgnoresDeadLinks(t *testing.T) {
+// TestIsMemberOrLinkGuestIgnoresDeadLinks keeps the membership hook
+// fail-closed on its own terms. The hub happens to check the token's expiry
+// first today, but a predicate that only knew about revocation would make this
+// answer depend on two tables staying in step.
+func TestIsMemberOrLinkGuestIgnoresDeadLinks(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 	sess, members := newSession(t, pool, "Fay")
 	links := &Links{Pool: pool}
 	users := &Users{Pool: pool}
+	spaces := &Spaces{Pool: pool}
 
 	live, _ := newLink(t, links, sess.ID, members[0].ID, LinkLifetime)
 	expired, _ := newLink(t, links, sess.ID, members[0].ID, LinkLifetime)
@@ -272,14 +273,25 @@ func TestIsLinkGuestOfIgnoresDeadLinks(t *testing.T) {
 	if _, err := links.Revoke(ctx, sess.ID, revoked.ID); err != nil {
 		t.Fatal(err)
 	}
+	stranger, _ := newUser(t, pool, "Sal")
 
-	for name, want := range map[string]bool{"live": true, "expired": false, "revoked": false} {
-		got, err := users.IsLinkGuestOf(ctx, guests[name], sess.ID)
+	cases := map[string]struct {
+		userID string
+		want   bool
+	}{
+		"live":     {guests["live"], true},
+		"expired":  {guests["expired"], false},
+		"revoked":  {guests["revoked"], false},
+		"member":   {members[0].ID, true},
+		"stranger": {stranger.ID, false},
+	}
+	for name, tc := range cases {
+		got, err := spaces.IsMemberOrLinkGuest(ctx, sess.SpaceID, sess.ID, tc.userID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got != want {
-			t.Fatalf("IsLinkGuestOf for the %s link = %v, want %v", name, got, want)
+		if got != tc.want {
+			t.Fatalf("IsMemberOrLinkGuest for the %s case = %v, want %v", name, got, tc.want)
 		}
 	}
 }
