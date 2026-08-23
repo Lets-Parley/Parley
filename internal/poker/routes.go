@@ -325,10 +325,16 @@ func castVote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, stor
 			if currentID != storyID {
 				return errNotCurrentStory
 			}
+			// Spectating is a property of a space member. A guest who joined
+			// by signed link has no members row and is never a spectator: no
+			// row means a plain participant, not a refusal.
 			var spectator bool
-			if err := tx.QueryRow(r.Context(),
+			err := tx.QueryRow(r.Context(),
 				"select spectator from members where space_id = $1 and user_id = $2",
-				sess.SpaceID, ac.UserID).Scan(&spectator); err != nil || spectator {
+				sess.SpaceID, ac.UserID).Scan(&spectator)
+			if errors.Is(err, pgx.ErrNoRows) {
+				spectator = false
+			} else if err != nil || spectator {
 				return errSpectator
 			}
 			var cfg Config
@@ -349,7 +355,7 @@ func castVote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, stor
 			if err := maybeAutoReveal(r.Context(), tx, connected, sess, storyID); err != nil {
 				return err
 			}
-			_, err := tx.Exec(r.Context(), "update sessions set version = version + 1 where id = $1", sess.ID)
+			_, err = tx.Exec(r.Context(), "update sessions set version = version + 1 where id = $1", sess.ID)
 			return err
 		})
 	switch {
@@ -387,13 +393,23 @@ func maybeAutoReveal(ctx context.Context, tx pgx.Tx, connected []string, sess st
 		with eligible as (
 			select user_id from members
 			where space_id = $1 and not spectator and user_id::text = any($2)
+			union
+			-- A guest who joined by signed link has no members row and so no
+			-- spectator flag: it votes like anybody else in the room, and the
+			-- round is waiting on it like anybody else. Leaving it out both
+			-- shrinks the denominator, revealing while it still has a vote to
+			-- cast, and puts its vote outside eligible, which fails the
+			-- "voters subset of eligible" half for as long as that vote stands.
+			select u.id from users u
+			join session_links l on l.id = u.link_id
+			where l.session_id = $4 and u.id::text = any($2)
 		), voters as (
 			select user_id from votes where story_id = $3
 		)
 		select exists (select 1 from eligible)
 		and not exists (select user_id from eligible except select user_id from voters)
 		and not exists (select user_id from voters except select user_id from eligible)`,
-		sess.SpaceID, connected, storyID).Scan(&exact)
+		sess.SpaceID, connected, storyID, sess.ID).Scan(&exact)
 	if err != nil || !exact {
 		return err
 	}

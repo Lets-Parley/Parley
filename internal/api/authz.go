@@ -35,8 +35,16 @@ func (a *app) requireSessionMember(next http.Handler) http.Handler {
 			http.Error(w, `{"error":"could not load session"}`, http.StatusInternalServerError)
 			return
 		}
-		member, err := a.spaces.IsMember(r.Context(), sess.SpaceID, p.UserID)
-		if err != nil || !member {
+		// A link guest belongs to exactly one room and no space, so its
+		// binding stands in for membership — for that room and nothing else.
+		// Any other room is a 404, the same answer a stranger gets.
+		if !p.IsLinkGuest() {
+			member, err := a.spaces.IsMember(r.Context(), sess.SpaceID, p.UserID)
+			if err != nil || !member {
+				http.Error(w, `{"error":"no such session"}`, http.StatusNotFound)
+				return
+			}
+		} else if p.LinkSessionID != sess.ID {
 			http.Error(w, `{"error":"no such session"}`, http.StatusNotFound)
 			return
 		}

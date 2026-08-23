@@ -80,7 +80,7 @@ type Hub struct {
 	// the space its session lives in. Removing a member disconnects them
 	// immediately on this process; this tick is what closes their sockets on
 	// every other one, so the worst case is one revalidation interval.
-	ValidateMembership   func(ctx context.Context, spaceID, userID string) (bool, error)
+	ValidateMembership   func(ctx context.Context, sessionID, spaceID, userID string) (bool, error)
 	RevalidationInterval time.Duration
 	ValidationTimeout    time.Duration
 
@@ -507,7 +507,7 @@ func (h *Hub) validate(c *Conn) {
 	// Membership is authorization, not authentication: a live token whose
 	// holder was removed from the space must lose the socket too.
 	if err == nil && h.ValidateMembership != nil && c.SpaceID != "" {
-		member, memberErr := h.ValidateMembership(ctx, c.SpaceID, c.UserID)
+		member, memberErr := h.ValidateMembership(ctx, c.SessionID, c.SpaceID, c.UserID)
 		switch {
 		case memberErr != nil:
 			err = memberErr
@@ -532,7 +532,7 @@ func (h *Hub) gatesInitialState(c *Conn) bool {
 func (h *Hub) confirmMembership(c *Conn, initial []byte) {
 	ctx, cancel := context.WithTimeout(c.ctx, h.validationTimeout())
 	defer cancel()
-	member, err := h.ValidateMembership(ctx, c.SpaceID, c.UserID)
+	member, err := h.ValidateMembership(ctx, c.SessionID, c.SpaceID, c.UserID)
 	if err == nil && !member {
 		err = ErrNotMember
 	}

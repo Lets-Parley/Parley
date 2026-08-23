@@ -186,7 +186,13 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	a.hub.ValidateSession = func(ctx context.Context, tokenID string) (time.Time, error) {
 		return a.users.TokenExpiry(ctx, []byte(tokenID))
 	}
-	a.hub.ValidateMembership = func(ctx context.Context, spaceID, userID string) (bool, error) {
+	// Link-aware, and it needs the room to be: a link guest is deliberately not
+	// a member of the room's space, so a check that only knew the space would
+	// evict them on the revalidation tick.
+	a.hub.ValidateMembership = func(ctx context.Context, sessionID, spaceID, userID string) (bool, error) {
+		if guest, err := a.users.IsLinkGuestOf(ctx, userID, sessionID); err != nil || guest {
+			return guest, err
+		}
 		return a.spaces.IsMember(ctx, spaceID, userID)
 	}
 	a.hub.OnDisconnect = func(sessionID, userID string) {
@@ -255,15 +261,28 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		r.Use(resolvePrincipal(a.users, mode == ModeOIDC))
 
 		r.Get("/auth", a.handleAuthConfig)
-		r.Post("/me", a.handlePostMe)
-		r.Get("/me", a.handleGetMe)
-		r.Delete("/me", a.handleDeleteMe)
+		// Redeeming is the one door a link guest walks through, so it is the
+		// one /api route that neither requires an identity nor rejects a link
+		// one. Everything it mints is scoped to a single room.
+		r.Post("/links/redeem", a.handleRedeemLink)
+
+		// The identity routes sit outside RequireUser — they are where an
+		// identity comes from — so link guests are turned away here
+		// explicitly. Renaming in particular: a link guest wearing the
+		// facilitator's name on the roster is the cheapest impersonation in
+		// the product.
+		r.With(rejectLinkPrincipal).Post("/me", a.handlePostMe)
+		r.With(rejectLinkPrincipal).Get("/me", a.handleGetMe)
+		r.With(rejectLinkPrincipal).Delete("/me", a.handleDeleteMe)
 		// Its own route, and permitted under both auth modes: choosing an
 		// avatar is not choosing a name, so the provider owning names in OIDC
 		// mode does not reach it. It answers 401 itself.
-		r.Patch("/me/avatar", a.handlePatchMeAvatar)
+		r.With(rejectLinkPrincipal).Patch("/me/avatar", a.handlePatchMeAvatar)
 
-		r.Get("/spaces/{slug}", a.handleGetSpace)
+		// Open to anonymous callers, and so also outside RequireUser: a link
+		// guest is bound to one room and is told nothing about the space
+		// around it.
+		r.With(rejectLinkPrincipal).Get("/spaces/{slug}", a.handleGetSpace)
 		r.Group(func(r chi.Router) {
 			r.Use(RequireUser)
 			r.Get("/spaces", a.handleListMySpaces)
@@ -304,22 +323,36 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		r.Route("/sessions/{id}", func(r chi.Router) {
 			r.Use(a.requireSessionMember)
 			r.Get("/", a.handleGetSession)
-			r.Get("/export.csv", a.handleExportCSV)
+			// The export is the room's whole history in one file, including
+			// every meeting it has held. Membership is not enough for it once
+			// a link guest can be a caller here.
+			r.With(rejectLinkPrincipal).Get("/export.csv", a.handleExportCSV)
 			// The one action dispatcher, mounted for every method so the
 			// dispatcher itself decides 404-vs-405. Kind actions are resolved
 			// against this session's own kind, so two kinds can name an action
 			// the same thing without sharing a namespace to collide in.
 			r.HandleFunc("/actions/{action}", a.handleAction)
-			r.With(rejectEnded).Post("/facilitator/claim", a.handleClaimFacilitator)
-			r.With(rejectEnded).Post("/spectator", a.handleSetSpectator)
+			// Claiming has no facilitator gate by design — it exists for when
+			// there is no live facilitator to ask — so it is the one place a
+			// link guest could seize the room. Refused here, and again in the
+			// UPDATE that store.ClaimFacilitator runs.
+			r.With(rejectEnded, rejectLinkPrincipal).Post("/facilitator/claim", a.handleClaimFacilitator)
+			// Spectating is a flag on a space member, and a link guest is not
+			// one — the toggle has no row to write. Refused rather than
+			// silently accepted, so nobody builds on an answer that lied.
+			r.With(rejectEnded, rejectLinkPrincipal).Post("/spectator", a.handleSetSpectator)
 			// Signed links. Any member may see how many links a room has and
 			// how often they have been used; only the facilitator may mint or
 			// revoke one, and only while the room is still open.
-			r.Get("/links", a.handleListSessionLinks)
-			r.With(rejectEnded, requireFacilitator).Post("/links", a.handleCreateSessionLink)
-			r.With(requireFacilitator).Delete("/links/{linkId}", a.handleRevokeSessionLink)
+			// A link guest never sees the links to its own room, minted or
+			// otherwise: how many exist and how often they have been used is
+			// the room's business, not its guests'.
+			r.With(rejectLinkPrincipal).Get("/links", a.handleListSessionLinks)
+			r.With(rejectEnded, rejectLinkPrincipal, requireFacilitator).Post("/links", a.handleCreateSessionLink)
+			r.With(rejectLinkPrincipal, requireFacilitator).Delete("/links/{linkId}", a.handleRevokeSessionLink)
 			r.Group(func(r chi.Router) {
 				r.Use(rejectEnded)
+				r.Use(rejectLinkPrincipal)
 				r.Use(requireFacilitator)
 				r.Post("/facilitator", a.handleTransferFacilitator)
 			})
@@ -328,6 +361,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			// close stays idempotent — a second DELETE is a no-op 204, which
 			// the handler enforces itself.
 			r.Group(func(r chi.Router) {
+				r.Use(rejectLinkPrincipal)
 				r.Use(requireFacilitator)
 				r.Delete("/", a.handleCloseSession)
 				r.Post("/reopen", a.handleReopenSession)

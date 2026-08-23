@@ -164,7 +164,23 @@ migration and embedding mistakes that unit tests miss.
     from a finished meeting and from any CSV exported afterwards. Link rows are
     never swept either — a link expires on its own `expires_at`, it is not
     garbage-collected.
-13. Dependabot watches only `site/`. Go modules and `web/` dependencies are
+13. **Every new route must be classified for signed-link guests.** A redeemed
+    link is a principal with no space membership, and it reaches any route that
+    does not sit behind `RequireUser` or `requireSpaceOwner`.
+    `TestLinkGuestRouteTable` (`internal/api/link_routes_test.go`) walks chi's
+    registered routes and fails on any pattern it does not already classify, so
+    adding a route means deciding in that table what a link guest gets from it.
+    The rule: participate actions and reading the bound room; everything else
+    401, 403 or 404. Reject one with the `rejectLinkPrincipal` middleware, and
+    put a second lock in the statement itself for anything that would escalate
+    (see `store.ClaimFacilitator`).
+14. **A signed link's expiry lives on the session token it mints**
+    (`session_tokens.expires_at`), never on a timer or a sweeper. `hub.validate`
+    already re-reads token validity on a ticker, so that column is the whole of
+    mid-session severance. `ResolveToken` and `TokenExpiry` must both honour it —
+    one of them skipping it leaves a lapsed link either answering requests or
+    holding a socket.
+15. Dependabot watches only `site/`. Go modules and `web/` dependencies are
     bumped by hand, with tests.
 
 ## Scope

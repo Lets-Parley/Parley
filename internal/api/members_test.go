@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -349,5 +350,40 @@ func TestRemovingAMemberLeavesEveryoneElseConnected(t *testing.T) {
 	// getting state.
 	if _, ok := readEnvelope(t, ownerWS, 2*time.Second); !ok {
 		t.Fatal("the owner's websocket was closed by removing somebody else")
+	}
+}
+
+// TestTheRevalidatorClosesASocketAfterMembershipVanishes covers the ticker's
+// own membership check, which TestRemovingAMemberClosesTheirOpenWebSocket never
+// reaches: that test is served by the immediate disconnect the removal handler
+// fires, so the closure behind the tick could return true unconditionally and
+// stay green. Deleting the row straight from the database leaves the tick as
+// the only thing that can notice.
+func TestTheRevalidatorClosesASocketAfterMembershipVanishes(t *testing.T) {
+	pool := testPool(t)
+	srv := testServerWith(t, pool, Options{sessionRevalidationInterval: 20 * time.Millisecond})
+	slug, owner, _, member, memberID := spaceWithTwo(t, srv)
+
+	_, sess := createSession(t, srv, slug, "poker", "Live round", owner)
+	sessionID, _ := sess["id"].(string)
+	if sessionID == "" {
+		t.Fatalf("no session id: %v", sess)
+	}
+
+	ws, _, err := dialWS(t, srv, sessionID, member, "")
+	if err != nil {
+		t.Fatalf("member could not open a socket: %v", err)
+	}
+	defer ws.Close()
+	if _, ok := readEnvelope(t, ws, 2*time.Second); !ok {
+		t.Fatal("no initial envelope on the member's socket")
+	}
+
+	if _, err := pool.Exec(context.Background(),
+		"delete from members where user_id = $1", memberID); err != nil {
+		t.Fatal(err)
+	}
+	if code := readWSCloseCode(t, ws, 3*time.Second); code != websocket.ClosePolicyViolation {
+		t.Fatalf("revalidated-away websocket close code = %d, want %d", code, websocket.ClosePolicyViolation)
 	}
 }
