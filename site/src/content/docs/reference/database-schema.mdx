@@ -6,9 +6,9 @@ description: The tables, the migrations, and the constraints that act as validat
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp source={["internal/db/migrations", "internal/db/migrate.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/db/migrations", "internal/db/migrate.go"]} />
 
-Fifteen migrations, embedded in the binary and applied at boot. Postgres only —
+Eighteen migrations, embedded in the binary and applied at boot. Postgres only —
 there is no second driver and no plan for one.
 
 ## Migrations
@@ -27,6 +27,7 @@ there is no second driver and no plan for one.
   { name: "0015_member_roles", value: "members.role", note: "owner or member. Backfills the space creator — or, where none was recorded, the most recently active member — as owner" },
   { name: "0016_standup_ready", value: "standup_entries.ready", note: "Advisory gathering-phase signal. Constant default, so no backfill and no table rewrite" },
   { name: "0017_avatar", value: "users.avatar_icon, users.avatar_accessory", note: "Chosen avatar. Constant empty default, so no backfill and no table rewrite. avatar_accessory is unwritten and unread since v0.5.1 and awaits a drop" },
+  { name: "0018_session_links", value: "session_links, users.link_id", note: "Signed links. users.link_id is on delete set null, never cascade — see below" },
 ]} />
 
 ### How the runner behaves
@@ -56,6 +57,7 @@ There are no down-migrations, no checksums, and no dry-run. See
 | `subject` | text | ≤255. Empty for anonymous users |
 | `avatar_icon` | text | ≤32. Opaque client-side id; empty means none chosen |
 | `avatar_accessory` | text | Retired in v0.5.1. Never written and never read; a later migration drops it |
+| `link_id` | uuid | Set when the person arrived through a signed link. `on delete set null` |
 | `created_at` | timestamptz | |
 
 `(issuer, subject)` carries a unique index **partial on `issuer <> ''`**, so every
@@ -134,6 +136,28 @@ out.
 story, so both are allowed to be empty individually but a check constraint
 refuses a row where both are. `votes` is keyed `(story_id, user_id)` and
 cascades on both.
+
+### session_links
+
+A signed link is an opaque capability token bound to exactly one room — never a
+space. The token is never stored; only its SHA-256 digest is.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid | Primary key |
+| `session_id` | uuid | Cascades on room delete |
+| `created_by` | uuid | The facilitator who minted it |
+| `token_hash` | bytea | SHA-256 of the token, unique. The token is shown once, at mint, and is never readable again |
+| `expires_at` | timestamptz | 24 hours after minting, a server constant |
+| `revoked_at` | timestamptz | Null while live. Revoking is idempotent |
+| `redemptions` | int | Counts toward a fixed server-side cap |
+| `created_at` | timestamptz | |
+
+Link rows are never swept or deleted, and `users.link_id` is deliberately `on
+delete set null` rather than cascade. `votes`, `standup_entries` and presence
+all cascade from `users`, so a cascade here would make deleting a room or
+revoking a link erase a guest's votes and updates from a finished meeting — and
+from any CSV exported afterwards.
 
 ### standup_entries
 

@@ -166,6 +166,11 @@ Maximum sessions retained in one space.
 Maximum stories retained in one planning-poker session.
 </EnvVar>
 
+<EnvVar name="LINK_LIMIT_PER_SESSION" default="20" fatal>
+Maximum live signed links one room may hold at once. Revoked and expired links
+are never deleted but stop counting, so revoking one frees a slot.
+</EnvVar>
+
 ## Sign-in
 
 <EnvVar name="AUTH_MODE" default="open" fatal>

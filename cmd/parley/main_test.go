@@ -36,6 +36,7 @@ func TestLoadConfigUsesFiniteAbuseLimitDefaults(t *testing.T) {
 		SpacesPerIdentity:    50,
 		SessionsPerSpace:     500,
 		StoriesPerSession:    500,
+		LinksPerSession:      20,
 	}
 	if cfg.Limits != want {
 		t.Fatalf("limits = %+v, want %+v", cfg.Limits, want)

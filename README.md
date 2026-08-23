@@ -193,6 +193,7 @@ client.
 | `SPACE_LIMIT_PER_IDENTITY` | no | `50` | Spaces an identity may create |
 | `SESSION_LIMIT_PER_SPACE` | no | `500` | Sessions a space may contain |
 | `STORY_LIMIT_PER_SESSION` | no | `500` | Stories a planning-poker session may contain |
+| `LINK_LIMIT_PER_SESSION` | no | `20` | Live signed links a room may hold at once |
 | `AUTH_MODE` | no | `open` | `open` for no accounts, `oidc` to sign in through an identity provider |
 | `OIDC_ISSUER` | with `oidc` | — | Issuer base URL, the one serving `/.well-known/openid-configuration` |
 | `OIDC_CLIENT_ID` | with `oidc` | — | Client ID registered with the provider |
