@@ -177,6 +177,9 @@ export function Table({
                 <div className="max-w-full truncate text-xs font-bold text-ink-soft">
                   {p.name.split(/\s+/)[0]}
                   {p.userId === meId && <span className="font-normal text-ink-faint"> · you</span>}
+                  {/* Any name is available to a link guest, so the seat says
+                      where it came from rather than trusting the name. */}
+                  {p.guest && <span className="font-normal text-ink-faint"> · guest</span>}
                 </div>
                 <div className="flex h-[74px] items-start" style={{ perspective: "600px" }}>
                   <SeatCard
@@ -215,6 +218,7 @@ export function Table({
                 <span className="text-xs font-semibold text-ink-soft">
                   {p.name}
                   {p.userId === meId && " (you)"}
+                  {p.guest && <span className="font-normal text-ink-faint"> · guest</span>}
                 </span>
               </div>
             ))}

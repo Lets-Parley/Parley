@@ -45,6 +45,17 @@ function seat(firstName: string) {
 }
 
 describe("Table", () => {
+  // A guest can redeem a link under any name, a member's included, so the seat
+  // has to say which one it is. The mark comes from the server.
+  it("marks a link guest's seat, even one wearing a member's name", () => {
+    const impostor = makePerson({ userId: "guest", name: "Dana Whitfield", guest: true });
+    renderTable({
+      seated: [dana, impostor],
+      online: new Set(["dana", "guest"]),
+    });
+    expect(within(field()).getAllByText("· guest").length).toBe(1);
+  });
+
   it("counts votes against who could still vote while hidden", () => {
     renderTable({ votedUserIds: ["dana", "marcus"] });
     expect(screen.getByText("2 of 3 voted")).toBeTruthy();

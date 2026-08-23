@@ -193,3 +193,79 @@ func TestLinkRosterIsScopedToItsOwnSession(t *testing.T) {
 		t.Fatalf("session B participants = %v, want just [Fay]: a guest bound to session A must not leak into session B's roster", got)
 	}
 }
+
+// TestGuestWearingAMemberNameIsStillMarkedAGuest is the impersonation guard of
+// #296: nothing stops a guest redeeming as "Fay", so the roster has to say
+// which "Fay" is which. The mark is the server's, not a client convention, and
+// it holds in OIDC mode too, where display names are provider-owned for real
+// users and a freely-chosen guest name is the sharper edge.
+func TestGuestWearingAMemberNameIsStillMarkedAGuest(t *testing.T) {
+	pool := testPool(t)
+	srv := testServerWith(t, pool, Options{AllowedOrigin: testOrigin})
+	fac, _, id := setupSession(t, srv, "Impersonation Space")
+	_, minted := mintLink(t, srv, id, fac)
+	token := minted["token"].(string)
+
+	federated := testServerWith(t, pool, Options{AllowedOrigin: testOrigin, AuthMode: ModeOIDC})
+	guest := redeemAs(t, federated, token, "Fay")
+
+	// The facilitator reads the room on the open-mode server — an OIDC-mode
+	// instance answers no session cookie but the guest's own, which is the
+	// next check.
+	_, env := doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	guests, members := 0, 0
+	for _, p := range env["participants"].([]any) {
+		e := p.(map[string]any)
+		if e["name"] != "Fay" {
+			continue
+		}
+		if e["guest"] == true {
+			guests++
+		} else {
+			members++
+		}
+	}
+	if guests != 1 || members != 1 {
+		t.Fatalf("two people called Fay = %d guest / %d member, want 1 and 1: %v", guests, members, env["participants"])
+	}
+
+	// And the guest's own redacted copy still marks it, so a guest cannot read
+	// its own seat as a member's either. The socket is what puts the guest in
+	// its own redacted roster; the facilitator — also called Fay — is in it
+	// either way, which is exactly the pair the mark has to separate.
+	ws, _, err := dialWS(t, federated, id, guest, testOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+	if _, ok := readEnvelope(t, ws, 3*time.Second); !ok {
+		t.Fatal("no initial frame")
+	}
+	_, meBody := doJSON(t, federated, "GET", "/api/me", "", guest)
+	guestID := meBody["id"].(string)
+	// Presence lands a moment after the socket is accepted, so poll rather
+	// than race it.
+	var own map[string]any
+	seen := 0
+	for range 40 {
+		_, own = doJSON(t, federated, "GET", "/api/sessions/"+id, "", guest)
+		seen = 0
+		for _, p := range own["participants"].([]any) {
+			e := p.(map[string]any)
+			if e["userId"] != guestID {
+				continue
+			}
+			seen++
+			if e["guest"] != true {
+				t.Fatalf("guest's own redacted seat = %v, want guest true", e)
+			}
+		}
+		if seen == 1 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if seen != 1 {
+		t.Fatalf("guest's own seat appears %d times in its redacted roster, want once: %v", seen, own["participants"])
+	}
+}

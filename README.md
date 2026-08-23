@@ -98,7 +98,8 @@ sit at.
 - **One link, one room, one day.** A facilitator mints a guest link and hands it
   to a contractor or somebody from another team. They type a name and sit down
   at that table — no account, no space membership, and no sight of anything
-  else the instance holds. It expires in 24 hours and can be redeemed 25 times.
+  else the instance holds. The roster marks them a guest whatever name they
+  chose. It expires in 24 hours and can be redeemed 25 times.
 - **The URL is the credential**, so share it the way you would share a
   password. The token rides in the URL fragment, which never reaches the server
   or a `Referer` header, and Parley wipes it from the address bar on arrival.

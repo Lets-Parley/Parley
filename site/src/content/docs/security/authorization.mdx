@@ -145,6 +145,15 @@ entitled to read. What the guest does see is everybody taking part, other
 guests included — a guest holds a seat on the roster like anybody else in the
 room, never a spectator's.
 
+A guest chooses their own display name, and renaming is the only thing refused
+afterwards, so nothing prevents one redeeming as a name a member already
+carries. Every roster entry therefore carries a `guest` flag set from how the
+seat was obtained — a space membership, or a signed link — and the clients draw
+it beside the name. The flag survives the guest's own redaction, so a guest
+cannot read its seat as a member's either. This matters most with sign-in
+turned on, where a member's display name comes from the identity provider and
+is not otherwise choosable.
+
 Taking part is uniform across both kinds. Standup entries and poker votes are
 keyed to the user, not to a membership, and the round each one belongs to is
 built from the space's non-spectating members **plus** the guests redeemed into

@@ -358,6 +358,7 @@ export function StandupRoom({
                 }
               >
                 {p?.name}
+                {p?.guest && <span className="font-normal text-ink-faint"> · guest</span>}
               </span>
             </button>
             {(isCurrent || e.skipped) && (
@@ -480,7 +481,10 @@ export function StandupRoom({
                         icon={p.avatarIcon}
                         size="sm"
                       />
-                      <span className="font-bold">{p.name}</span>
+                      <span className="font-bold">
+                        {p.name}
+                        {p.guest && <span className="font-normal text-ink-faint"> · guest</span>}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -507,7 +511,12 @@ export function StandupRoom({
                 size="lg"
               />
             )}
-            <h2 className="font-display text-2xl font-semibold">{people.get(shown.userId)?.name}</h2>
+            <h2 className="font-display text-2xl font-semibold">
+              {people.get(shown.userId)?.name}
+              {people.get(shown.userId)?.guest && (
+                <span className="ml-2 align-middle text-sm font-normal text-ink-faint">guest</span>
+              )}
+            </h2>
           </div>
           {canEditOwn && shown.userId === me.id ? (
             <EntryForm draft={draft} update={update} saveState={saveState} />
