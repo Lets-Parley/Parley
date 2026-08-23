@@ -133,15 +133,20 @@ is not taking part in that meeting. Otherwise one link would hand out the
 space's join slug and its whole membership list from the one room the guest is
 entitled to read.
 
-:::caution[A guest never takes a turn in a standup]
-Poker is the only kind a link guest plays in full. A standup admits them part
-of the way: entries are keyed to the user, not to a membership, so a guest
-follows the round live and can save an update that the room sees. The roster is
-the part membership owns — the running order is built from the space's members,
-so a guest is never placed in it, the turn never reaches them, and the controls
-that move it along are the facilitator's regardless. Closing that gap is still
-to come.
-:::
+Taking part is uniform across both kinds. Standup entries and poker votes are
+keyed to the user, not to a membership, and the round each one belongs to is
+built from the space's non-spectating members **plus** the guests redeemed into
+that room: a guest is placed in the standup's running order and holds the turn
+when it reaches them, and poker's auto-reveal waits on their vote. The
+facilitator-only actions are unchanged by that — `start`, `next` and `skip` in a
+standup, and story selection, reveal and reset in poker, are refused for a guest
+because a guest is never the facilitator.
+
+A link that expires or is revoked while its guest holds the turn does not strand
+the round. The socket is severed on the next revalidation tick, but nothing is
+swept: the guest keeps its slot and the update it wrote, and the facilitator
+moves the round on with `next` or `skip`, the same key they use for anybody who
+has gone quiet.
 
 Expiry lives on the session token the redemption mints, so a lapsed link severs
 the WebSocket mid-meeting rather than waiting for a sweep. Revoking deletes

@@ -80,6 +80,25 @@ func putEntry(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	done(w, r, ac)
 }
 
+// rosterUsers is the set of people a standup round is made of: the space's
+// non-spectating members, plus any guest redeemed into this room by signed
+// link. A guest holds no members row and so no spectator flag — it speaks like
+// anybody else in the room it was let into, exactly as it votes like anybody
+// else in poker's auto-reveal.
+//
+// The liveness of the link is deliberately not tested here, matching poker.
+// A link that expires or is revoked mid-round severs the guest's socket, but
+// its entry — and its turn — stay where they are: nothing is swept, the CSV
+// keeps attributing the update it wrote, and the facilitator moves the round
+// along with next or skip the same way they do for anybody who has gone quiet.
+//
+// $1 is the session, $2 its space.
+const rosterUsers = `
+	select m.user_id from members m where m.space_id = $2 and not m.spectator
+	union
+	select u.id from users u join session_links l on l.id = u.link_id
+	where l.session_id = $1`
+
 // roundStarted reports whether the speaking order is already fixed. A standup
 // sits at the empty phase until start() moves it to "speaking" and then "done".
 func roundStarted(phase string) bool {
@@ -119,8 +138,8 @@ func ensureReadyEntryRow(r *http.Request, tx pgx.Tx, sess store.Session, userID 
 		           order by ps.created_at desc limit 1
 		       ), ''),
 		       (select coalesce(max(position), 0) + 1 from standup_entries where session_id = $1)
-		from members m
-		where m.space_id = $2 and m.user_id = $3 and not m.spectator
+		from (`+rosterUsers+`) m
+		where m.user_id = $3
 		on conflict (session_id, user_id) do nothing`,
 		sess.ID, sess.SpaceID, userID)
 	return err
@@ -207,8 +226,8 @@ func start(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		           order by ps.created_at desc limit 1
 		       ), ''),
 		       0
-		from members m join users u on u.id = m.user_id
-		where m.space_id = $2 and not m.spectator and m.user_id::text = any($3)
+		from (`+rosterUsers+`) m
+		where m.user_id::text = any($3)
 		on conflict (session_id, user_id) do nothing`,
 				sess.ID, sess.SpaceID, connected); err != nil {
 				return err
@@ -222,10 +241,10 @@ func start(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		update standup_entries e set position = r.rn
 		from (
 		    select e2.user_id,
-		           row_number() over (order by m.spectator, u.name, e2.user_id) as rn
+		           row_number() over (order by coalesce(m.spectator, false), u.name, e2.user_id) as rn
 		    from standup_entries e2
 		    join users u on u.id = e2.user_id
-		    join members m on m.space_id = $2 and m.user_id = e2.user_id
+		    left join members m on m.space_id = $2 and m.user_id = e2.user_id
 		    where e2.session_id = $1
 		) r
 		where e.session_id = $1 and e.user_id = r.user_id`,
@@ -237,8 +256,7 @@ func start(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		update sessions set phase = 'speaking', version = version + 1, speaker_started_at = now(),
 		current_speaker_id = (
 		    select e.user_id from standup_entries e
-		    join members m on m.space_id = $2 and m.user_id = e.user_id
-		    where e.session_id = $1 and not m.spectator
+		    where e.session_id = $1 and e.user_id in (`+rosterUsers+`)
 		    order by e.position limit 1)
 		where id = $1`, sess.ID, sess.SpaceID)
 			return err
@@ -268,8 +286,7 @@ func advance(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, markS
 		update sessions set version = version + 1, speaker_started_at = now(),
 		current_speaker_id = (
 		    select e.user_id from standup_entries e
-		    join members m on m.space_id = $2 and m.user_id = e.user_id
-		    where e.session_id = $1 and not m.spectator and e.position > coalesce((
+		    where e.session_id = $1 and e.user_id in (`+rosterUsers+`) and e.position > coalesce((
 		        select position from standup_entries
 		        where session_id = $1 and user_id = sessions.current_speaker_id), 0)
 		    order by e.position limit 1)
