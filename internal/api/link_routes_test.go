@@ -74,8 +74,11 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// The bound room. Reading it and taking part in it is the whole grant.
 	"GET /api/sessions/{id}/": {status: http.StatusOK},
 	// The dispatcher is mounted for every method so that it, not chi, decides
-	// 404-vs-405. Voting is the participate capability; every other verb on
-	// the same action is simply the wrong verb.
+	// 404-vs-405. This table classifies route *patterns*, so {action} here is
+	// one representative name — voting, the participate capability — and every
+	// other verb on the same action is simply the wrong verb. The action names
+	// behind the pattern are enumerated per kind by TestLinkGuestActionVerbs;
+	// this entry deliberately does not stand in for them.
 	"POST /api/sessions/{id}/actions/{action}":    {status: http.StatusNoContent, body: `{"storyId":"{storyId}","value":"5"}`},
 	"GET /api/sessions/{id}/actions/{action}":     {status: http.StatusMethodNotAllowed},
 	"HEAD /api/sessions/{id}/actions/{action}":    {status: http.StatusMethodNotAllowed},
