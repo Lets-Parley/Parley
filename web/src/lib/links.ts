@@ -53,8 +53,10 @@ export function clearLinkToken() {
  * The link identity, kept so a reload of the room does not strand the guest.
  *
  * The cookie is the credential; this is only the name and hue to render with,
- * because a link guest is refused /api/me the way it is refused everything else
- * outside its room. It is bound to one session id and expires with the link.
+ * saved so the room paints without waiting on a round trip. It is a cache, not
+ * the source of truth: when it is missing, GET /api/me re-derives the same
+ * identity from the cookie. It is bound to one session id and expires with the
+ * link.
  */
 export type LinkGuest = { sessionId: string; me: Me; expiresAt: string };
 

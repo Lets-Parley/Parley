@@ -13,11 +13,21 @@ import { getKind } from "../lib/kinds";
 export function SessionPage() {
   const { id = "" } = useParams();
   const qc = useQueryClient();
-  // A link guest is refused /api/me the way it is refused everything outside
-  // this room, so its name and hue come from the redemption it already did.
-  // Read once: the room must not change identity under a re-render.
-  const [guest] = useState(() => linkGuestFor(id));
-  const me = useMe(!guest);
+  // A link guest's name and hue come from the redemption it already did, kept
+  // in local storage. Read once: the room must not change identity under a
+  // re-render.
+  const [stored] = useState(() => linkGuestFor(id));
+  // Local storage is a cache, not the identity — a private window, a cleared
+  // site or a second device has none of it, and the cookie is still perfectly
+  // good. GET /api/me is open to a link principal for exactly this: without it
+  // that guest resolves as nobody and lands in a name gate whose POST the
+  // server refuses, which is a dead end rather than a lost preference.
+  const me = useMe(!stored);
+  const guest =
+    stored ??
+    (me.data?.linkSessionId === id
+      ? { sessionId: id, me: me.data, expiresAt: me.data.linkExpiresAt ?? "" }
+      : null);
   const session = useSession(id);
   const slug = session.data?.spaceSlug;
   const [linksOpen, setLinksOpen] = useState(false);
@@ -28,13 +38,16 @@ export function SessionPage() {
   const space = useQuery({
     queryKey: ["space", slug],
     queryFn: () => api<SpaceView>("GET", `/api/spaces/${slug}`),
-    enabled: !!slug && !guest,
+    // Not while identity is still in flight: a guest recovering from the
+    // cookie alone is not yet known to be one, and the space route is the one
+    // request that must never be made on its behalf.
+    enabled: !!slug && !guest && !me.isLoading,
     retry: false,
   });
 
   const identity = guest?.me ?? me.data ?? null;
 
-  if ((!guest && me.isLoading) || session.isLoading) {
+  if ((!stored && me.isLoading) || session.isLoading) {
     return <p className="p-8 text-center text-ink-faint">Pulling up a chair…</p>;
   }
   if (!guest && me.data === null) {

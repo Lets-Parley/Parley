@@ -38,7 +38,7 @@ vi.mock("../lib/api", async () => {
   return {
     ...actual,
     api: vi.fn(async (_method: string, path: string) => {
-      if (path === "/api/me") return me;
+      if (path === "/api/me") return apiMeResponse;
       if (path === "/api/auth") return { mode: "open" };
       if (path.startsWith("/api/spaces/")) return { name: "Platform Team", members: [], sessions: [] };
       if (path.endsWith("/links")) return { links: [] };
@@ -47,6 +47,9 @@ vi.mock("../lib/api", async () => {
   };
 });
 
+// What GET /api/me answers. Swapped per-case: a link guest whose storage is
+// gone recovers its identity from exactly this route.
+let apiMeResponse: Me = me;
 // The kind under test is swapped per-case; the mock reads it at render time.
 let mockKind = "standup";
 // Who the room says is running it. Swapped per-case: the guest-link panel is
@@ -70,6 +73,7 @@ beforeEach(() => {
   mockKind = "standup";
   mockFacilitatorId = "dana";
   mockState = envelope.state;
+  apiMeResponse = me;
   localStorage.clear();
 });
 
@@ -202,6 +206,60 @@ describe.each([
       .map(([, path]) => path);
     expect(paths.filter((p) => String(p).startsWith("/api/spaces/"))).toEqual([]);
     expect(paths).not.toContain("/api/me");
+  });
+});
+
+/**
+ * Local storage is a cache, not the identity. A guest in a private window, on a
+ * second device, or after clearing site data holds a live cookie and nothing
+ * else — and used to be dropped into the name gate, whose POST the server then
+ * refuses to a link principal. That was a screen with no way out.
+ */
+describe("SessionPage for a link guest whose storage was cleared", () => {
+  const linkMe: Me = {
+    id: "guest-1",
+    name: "Priya Raman",
+    avatarHue: 200,
+    linkSessionId: "sess-1",
+    linkExpiresAt: "2099-01-01T10:00:00.000Z",
+  };
+
+  beforeEach(() => {
+    // Nothing remembered — exactly what a cleared browser looks like.
+    localStorage.clear();
+    apiMeResponse = linkMe;
+  });
+
+  it("lands in the room rather than the name gate", async () => {
+    renderApp(routed, { route: "/session/sess-1" });
+    expect(await screen.findByTestId("link-guest-banner")).toBeTruthy();
+    expect(screen.queryByText(/What should we call you\?/i)).toBe(null);
+  });
+
+  it("still shows no facilitator or space controls", async () => {
+    renderApp(routed, { route: "/session/sess-1" });
+    await screen.findByTestId("link-guest-banner");
+    expect(screen.queryByRole("button", { name: /your profile/i })).toBe(null);
+    expect(screen.queryByRole("button", { name: /guest links/i })).toBe(null);
+    expect(document.querySelector('a[href="/s/platform-team"]')).toBe(null);
+  });
+
+  it("says when the seat runs out, from the server's own expiry", async () => {
+    renderApp(routed, { route: "/session/sess-1" });
+    const banner = await screen.findByTestId("link-guest-banner");
+    expect(banner.textContent).toMatch(
+      new RegExp(new Date(linkMe.linkExpiresAt!).toLocaleString().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
+  });
+
+  it("never asks the space route it is refused", async () => {
+    const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    renderApp(routed, { route: "/session/sess-1" });
+    await screen.findByTestId("link-guest-banner");
+    const paths = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      .slice(before)
+      .map(([, path]) => path);
+    expect(paths.filter((p) => String(p).startsWith("/api/spaces/"))).toEqual([]);
   });
 });
 

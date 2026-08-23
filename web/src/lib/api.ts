@@ -70,6 +70,13 @@ export type Me = {
   name: string;
   avatarHue: number;
   avatarIcon?: string;
+  /**
+   * Set only for a link guest: the one room this identity may take part in,
+   * and when its seat runs out. Absent for an ordinary account, so their
+   * presence is what says "this is a link identity" when nothing local does.
+   */
+  linkSessionId?: string;
+  linkExpiresAt?: string;
 };
 /** Where a member currently has a socket open, within this space only. */
 export type SeatRef = { sessionId: string; title: string };

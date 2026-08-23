@@ -119,11 +119,21 @@ code path — but authorization treats it as a capability, not a membership.
 expires (24 hours) or the facilitator revokes it. Send it the way you would send
 a passcode.
 
-A link guest may read the one room the link names and take part in it, and may
-do nothing else. Every other route refuses them, including routes that are open
-to anonymous callers: the identity routes (so they cannot rename themselves onto
-the roster as somebody else), the space view, the CSV export of the room they
-are in, the facilitator controls, and the link routes. Claiming an abandoned
+A link guest may read the one room the link names, take part in it, and read
+their own identity — and may do nothing else. Every other route refuses them,
+including routes that are open to anonymous callers: the identity **writes**
+(so they cannot rename themselves onto the roster as somebody else), the space
+view, the CSV export of the room they are in, the facilitator controls, and the
+link routes.
+
+`GET /api/me` is the single exception, and it is a read. A guest's browser keeps
+their name and hue in local storage, but a private window, a cleared site or a
+second device has none of it while the cookie is still live — and such a guest
+used to resolve as nobody, land in the name gate, and be refused the `POST` that
+gate makes. It answers with what the guest already holds: their own id, name,
+avatar, the id of the room they are bound to, and when their seat runs out. It
+carries no space, no slug, no other member and no other session, the same line
+the room envelope's redaction draws. Claiming an abandoned
 facilitator seat is refused twice — at the middleware and again in the `UPDATE`
 itself.
 
