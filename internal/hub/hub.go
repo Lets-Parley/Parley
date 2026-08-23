@@ -39,9 +39,12 @@ const (
 )
 
 type Conn struct {
-	UserID       string
-	SessionID    string
-	SpaceID      string
+	UserID    string
+	SessionID string
+	SpaceID   string
+	// guest marks a connection held by a link guest, which is served the
+	// redacted copy of every broadcast.
+	guest        bool
 	ws           *websocket.Conn
 	send         chan []byte
 	hub          *Hub
@@ -106,6 +109,7 @@ type unregisterEvent struct {
 type broadcastEvent struct {
 	sessionID string
 	msg       []byte
+	guestMsg  []byte
 	done      chan struct{}
 }
 
@@ -169,6 +173,8 @@ type SessionAuth struct {
 	TokenID   string
 	SpaceID   string
 	ExpiresAt time.Time
+	// Guest marks a link guest, whose frames are redacted of space-level data.
+	Guest bool
 }
 
 func New() *Hub {
@@ -202,7 +208,11 @@ func (h *Hub) run() {
 			close(e.done)
 		case broadcastEvent:
 			for c := range h.rooms[e.sessionID] {
-				h.deliver(c, e.msg)
+				msg := e.msg
+				if c.guest {
+					msg = e.guestMsg
+				}
+				h.deliver(c, msg)
 			}
 			close(e.done)
 		case connectedEvent:
@@ -452,7 +462,7 @@ func (h *Hub) Attach(ws *websocket.Conn, sessionID, userID string, initial []byt
 func (h *Hub) AttachAuthenticated(ws *websocket.Conn, sessionID, userID string, initial []byte, auth SessionAuth) {
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &Conn{
-		UserID: userID, SessionID: sessionID, SpaceID: auth.SpaceID, ws: ws,
+		UserID: userID, SessionID: sessionID, SpaceID: auth.SpaceID, guest: auth.Guest, ws: ws,
 		send: make(chan []byte, sendBuffer), hub: h, tokenID: auth.TokenID,
 		expiresAt: auth.ExpiresAt,
 		ctx:       ctx, cancel: cancel, stop: make(chan struct{}), writerDone: make(chan struct{}),
@@ -662,8 +672,15 @@ func (h *Hub) reader(c *Conn) {
 
 // Broadcast delivers a frame to every connection in the room.
 func (h *Hub) Broadcast(sessionID string, msg []byte) {
+	h.BroadcastGuest(sessionID, msg, msg)
+}
+
+// BroadcastGuest delivers a frame to every connection in the room, giving the
+// link guests guestMsg instead. The two payloads are the same state; guestMsg
+// is the copy with the space-level data taken out of it.
+func (h *Hub) BroadcastGuest(sessionID string, msg, guestMsg []byte) {
 	done := make(chan struct{})
-	if h.submit(broadcastEvent{sessionID: sessionID, msg: msg, done: done}) {
+	if h.submit(broadcastEvent{sessionID: sessionID, msg: msg, guestMsg: guestMsg, done: done}) {
 		<-done
 	}
 }

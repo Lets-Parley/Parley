@@ -79,9 +79,13 @@ func (a *app) handleWS(w http.ResponseWriter, r *http.Request) {
 	env, err := a.kinds.BuildEnvelope(r.Context(), a.pool, a.presence, a.sessions, sess.ID)
 	var initial []byte
 	if err == nil {
+		if p.IsLinkGuest() {
+			env = env.RedactForGuest()
+		}
 		initial, _ = json.Marshal(env)
 	}
 	a.hub.AttachAuthenticated(ws, sess.ID, p.UserID, initial, hub.SessionAuth{
 		TokenID: string(p.TokenID), SpaceID: sess.SpaceID, ExpiresAt: tokenSession.ExpiresAt,
+		Guest: p.IsLinkGuest(),
 	})
 }

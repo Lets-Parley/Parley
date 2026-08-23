@@ -48,7 +48,16 @@ func (a *app) broadcastLocal(ctx context.Context, sessionID string) {
 		slog.Error("could not marshal session state", "session", sessionID, "error", err)
 		return
 	}
-	a.hub.Broadcast(sessionID, payload)
+	// One room, two audiences: a link guest gets the redacted envelope. The
+	// guest payload is built even when nobody in the room is one — the hub
+	// owns the connections, and asking it first would be a second round trip
+	// through its event loop for every broadcast.
+	guestPayload, err := json.Marshal(env.RedactForGuest())
+	if err != nil {
+		slog.Error("could not marshal redacted session state", "session", sessionID, "error", err)
+		return
+	}
+	a.hub.BroadcastGuest(sessionID, payload, guestPayload)
 }
 
 // unknownKindMessage names the kinds the server actually has registered, so
@@ -130,6 +139,9 @@ func (a *app) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, `{"error":"could not load session"}`, http.StatusInternalServerError)
 		return
+	}
+	if p, ok := PrincipalFrom(r.Context()); ok && p.IsLinkGuest() {
+		env = env.RedactForGuest()
 	}
 	writeJSON(w, http.StatusOK, env)
 }
