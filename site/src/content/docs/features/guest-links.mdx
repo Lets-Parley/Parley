@@ -39,7 +39,8 @@ before copying it, the link is unrecoverable and the only thing to do is revoke
 it and mint another.
 
 Rooms that have ended cannot mint new links. Existing links to an ended room
-still open it, read-only, the way any other participant sees it.
+still open it, read-only — the same view a member gets, minus the CSV export,
+which is never a guest's to take.
 
 ## What the guest gets, and what they do not
 
@@ -59,12 +60,13 @@ room, minted or otherwise.
 A guest is never the facilitator, and never becomes one — the abandoned-seat
 claim is refused for them at the middleware and again in the `UPDATE` behind it.
 
-:::caution[Taking part means poker, for now]
-Poker works completely for a guest. A standup builds its round-robin roster and
-its entry rows from space membership, which a guest does not have, so a guest in
-a standup room can watch it live but cannot claim a turn or write an update.
-Bringing standup to parity is still to come; the gap is recorded under
-[Authorization](/security/authorization/).
+:::caution[A guest never takes a turn in a standup]
+Poker works completely for a guest. A standup works partly: a guest follows the
+round live and can write and save an update, which the room sees like anyone
+else's. What a guest never gets is a place in the running order — the
+round-robin roster is built from space membership, so the turn never lands on
+them, and neither do the controls that move it along. Closing that gap is still
+to come; it is recorded under [Authorization](/security/authorization/).
 :::
 
 ## The URL is the credential
@@ -113,7 +115,7 @@ and a room may hold **20 live links** at a time by default
 
 <Capability rows={[
   { name: "Choosing an expiry or labelling a link", status: "out-of-scope", detail: "One lifetime and one cap are server constants. A facilitator handing out a link has no better idea of the right number than the server does, and a chooser in the UI would be a second, softer copy of a rule the server already owns." },
-  { name: "Taking part in a standup as a guest", status: "not-built", detail: "Standup builds its roster from space membership. A guest can watch a standup room but cannot claim a turn or write an update. Poker works fully." },
+  { name: "Taking a turn in a standup as a guest", status: "not-built", detail: "Standup builds its round-robin roster from space membership. A guest follows the round and can save an update the room sees, but is never placed in the running order, so the turn never reaches them. Poker works fully." },
   { name: "A link to a whole space", status: "out-of-scope", detail: "A link names one room and grants nothing beyond it. To let somebody into everything a space holds, add them to the space with its <a href='/features/spaces-and-room-codes/'>passcode</a>." },
   { name: "Spectating as a guest", status: "not-built", detail: "Spectator mode is a flag on a space membership, which a guest has none of, so the toggle is refused rather than silently accepted." },
   { name: "Turning a guest into an account", status: "not-built", detail: "A guest cannot rename itself or sign in. When the link expires the identity stops working; what they contributed stays." },

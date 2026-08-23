@@ -38,7 +38,7 @@ shared passcode that quietly becomes a second identity system.
 
 - Status: Merged, awaiting the next release
 - Landed in [#288](https://github.com/lets-parley/parley/pull/288), [#289](https://github.com/lets-parley/parley/pull/289) and [#291](https://github.com/lets-parley/parley/pull/291)
-- A guest can play poker but cannot yet take part in a standup — [#290](https://github.com/lets-parley/parley/issues/290)
+- A guest can play poker fully; in a standup they can save an update but not yet hold a turn — [#290](https://github.com/lets-parley/parley/issues/290)
 
 ## Next
 
