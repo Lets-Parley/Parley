@@ -178,12 +178,20 @@ export function Table({
                   facilitator={p.userId === facilitatorId}
                   dim={away}
                 />
-                <div className="max-w-full truncate text-xs font-bold text-ink-soft">
-                  {p.name.split(/\s+/)[0]}
-                  {p.userId === meId && <span className="font-normal text-ink-faint"> · you</span>}
+                {/* The name truncates inside its own min-w-0 span so the
+                    " · you" / " · guest" tells sit outside the truncating
+                    element and can never be the part an ellipsis eats — the
+                    guest tell in particular is a defence, not a decoration. */}
+                <div className="flex max-w-full items-baseline gap-0.5 text-xs font-bold text-ink-soft">
+                  <span className="min-w-0 truncate">{p.name.split(/\s+/)[0]}</span>
+                  {p.userId === meId && (
+                    <span className="shrink-0 whitespace-nowrap font-normal text-ink-faint"> · you</span>
+                  )}
                   {/* Any name is available to a link guest, so the seat says
                       where it came from rather than trusting the name. */}
-                  {p.guest && <span className="font-normal text-ink-faint"> · guest</span>}
+                  {p.guest && (
+                    <span className="shrink-0 whitespace-nowrap font-normal text-ink-faint"> · guest</span>
+                  )}
                 </div>
                 <div className="flex h-[74px] items-start" style={{ perspective: "600px" }}>
                   <SeatCard
