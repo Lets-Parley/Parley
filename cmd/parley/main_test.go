@@ -50,6 +50,7 @@ func TestLoadConfigRejectsNonPositiveAbuseLimits(t *testing.T) {
 		"SPACE_LIMIT_PER_IDENTITY",
 		"SESSION_LIMIT_PER_SPACE",
 		"STORY_LIMIT_PER_SESSION",
+		"LINK_LIMIT_PER_SESSION",
 	} {
 		for _, value := range []string{"0", "-1", "many"} {
 			t.Run(name+"="+value, func(t *testing.T) {
