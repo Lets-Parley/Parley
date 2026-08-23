@@ -490,10 +490,29 @@ func TestLinkGuestEnvelopeHidesTheSpace(t *testing.T) {
 }
 
 // The WebSocket carries the same envelope, and the broadcast path builds one
-// payload for a whole room that can now hold both a member and a guest.
+// payload for a whole room that can now hold both a member and a guest. A
+// facilitator socket and the guest socket are both attached before the
+// broadcast, so this also pins that the facilitator's own frame from that
+// same broadcast is NOT redacted: the hub must fan out two different
+// payloads to the same room, not silently collapse to one for everybody.
+//
+// The non-guest socket here is a second facilitator connection rather than
+// Mel's own, deliberately: if Mel's socket were the one attached, her
+// presence would make her legitimately visible to the guest too (presence
+// is real "taking part", not a leak), which would defeat the very
+// assertion this test exists to make.
 func TestLinkGuestSocketEnvelopeHidesTheSpace(t *testing.T) {
 	srv := testServerWith(t, testPool(t), Options{AllowedOrigin: testOrigin})
 	fac, id, guest := mintAndRedeem(t, srv, "Envelope Socket Space")
+
+	memberWS, _, err := dialWS(t, srv, id, fac, testOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer memberWS.Close()
+	if _, ok := readEnvelope(t, memberWS, 3*time.Second); !ok {
+		t.Fatal("no initial frame for member")
+	}
 
 	guestWS, _, err := dialWS(t, srv, id, guest, testOrigin)
 	if err != nil {
@@ -501,15 +520,16 @@ func TestLinkGuestSocketEnvelopeHidesTheSpace(t *testing.T) {
 	}
 	defer guestWS.Close()
 	if _, ok := readEnvelope(t, guestWS, 3*time.Second); !ok {
-		t.Fatal("no initial frame")
+		t.Fatal("no initial frame for guest")
 	}
 	// A mutation the guest is entitled to see, so the frame under test is a
-	// broadcast rather than the handshake's own initial state.
+	// broadcast rather than the handshake's own initial state. Both sockets
+	// are attached above, so this one broadcast reaches both.
 	addStory(t, srv, id, "Story", fac)
 
-	deadline := time.Now().Add(3 * time.Second)
+	guestDeadline := time.Now().Add(3 * time.Second)
 	for {
-		env, ok := readEnvelope(t, guestWS, time.Until(deadline))
+		env, ok := readEnvelope(t, guestWS, time.Until(guestDeadline))
 		if !ok {
 			t.Fatal("no broadcast frame reached the guest")
 		}
@@ -523,6 +543,30 @@ func TestLinkGuestSocketEnvelopeHidesTheSpace(t *testing.T) {
 			if name := p.(map[string]any)["name"]; name == "Mel" {
 				t.Fatal("broadcast frame to a guest carried an absent space member")
 			}
+		}
+		break
+	}
+
+	memberDeadline := time.Now().Add(3 * time.Second)
+	for {
+		env, ok := readEnvelope(t, memberWS, time.Until(memberDeadline))
+		if !ok {
+			t.Fatal("no broadcast frame reached the member")
+		}
+		if env["title"] == nil {
+			continue
+		}
+		if slug, _ := env["spaceSlug"].(string); slug == "" {
+			t.Fatal("broadcast frame to a member lost spaceSlug")
+		}
+		sawMel := false
+		for _, p := range env["participants"].([]any) {
+			if name := p.(map[string]any)["name"]; name == "Mel" {
+				sawMel = true
+			}
+		}
+		if !sawMel {
+			t.Fatal("broadcast frame to a member lost the space member Mel")
 		}
 		return
 	}
