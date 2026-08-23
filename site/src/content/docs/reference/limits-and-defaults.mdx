@@ -86,6 +86,7 @@ integers and are validated at boot.
   { name: "Room-code attempts", value: "8 per 60s", note: "Per client address, per space; sliding window" },
   { name: "Open identity creation", value: "10/address/hour", note: "IDENTITY_IP_HOURLY_LIMIT" },
   { name: "Open identity creation, instance", value: "500/hour", note: "IDENTITY_GLOBAL_HOURLY_LIMIT" },
+  { name: "Link redemptions per address", value: "50/address/hour", note: "LINK_REDEMPTION_IP_HOURLY_LIMIT; its own bucket, still under the instance ceiling" },
   { name: "Spaces per identity", value: "50", note: "SPACE_LIMIT_PER_IDENTITY" },
   { name: "Sessions per space", value: "500", note: "SESSION_LIMIT_PER_SPACE" },
   { name: "Stories per session", value: "500", note: "STORY_LIMIT_PER_SESSION" },

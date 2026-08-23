@@ -107,6 +107,7 @@ func loadConfig() (config, error) {
 	}{
 		{"IDENTITY_IP_HOURLY_LIMIT", 10, func(v int) { cfg.Limits.IdentityIPHourly = v }},
 		{"IDENTITY_GLOBAL_HOURLY_LIMIT", 500, func(v int) { cfg.Limits.IdentityGlobalHourly = v }},
+		{"LINK_REDEMPTION_IP_HOURLY_LIMIT", 50, func(v int) { cfg.Limits.LinkRedemptionIPHourly = v }},
 		{"SPACE_LIMIT_PER_IDENTITY", 50, func(v int) { cfg.Limits.SpacesPerIdentity = v }},
 		{"SESSION_LIMIT_PER_SPACE", 500, func(v int) { cfg.Limits.SessionsPerSpace = v }},
 		{"STORY_LIMIT_PER_SESSION", 500, func(v int) { cfg.Limits.StoriesPerSession = v }},

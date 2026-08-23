@@ -120,7 +120,7 @@ func (a *app) handleRedeemLink(w http.ResponseWriter, r *http.Request) {
 
 	plain, tokenHash := store.NewToken()
 	u, err := a.users.CreateForLink(r.Context(), name, link.ID, tokenHash, link.ExpiresAt,
-		store.LinkRedemptionCap, clientKey(r), a.limits.IdentityIPHourly, a.limits.IdentityGlobalHourly)
+		store.LinkRedemptionCap, clientKey(r), a.limits.LinkRedemptionIPHourly, a.limits.IdentityGlobalHourly)
 	var limited *store.IdentityRateLimitError
 	if errors.As(err, &limited) {
 		w.Header().Set("Retry-After", strconv.Itoa(limited.RetryAfter))
