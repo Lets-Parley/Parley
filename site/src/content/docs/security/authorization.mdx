@@ -131,7 +131,9 @@ The room's own envelope is redacted for them too, which is the part no route
 guard could do: the guest's copy carries no `spaceSlug` and no space member who
 is not taking part in that meeting. Otherwise one link would hand out the
 space's join slug and its whole membership list from the one room the guest is
-entitled to read.
+entitled to read. What the guest does see is everybody taking part, other
+guests included — a guest holds a seat on the roster like anybody else in the
+room, never a spectator's.
 
 :::caution[A guest never takes a turn in a standup]
 Poker is the only kind a link guest plays in full. A standup admits them part
@@ -146,7 +148,9 @@ to come.
 Expiry lives on the session token the redemption mints, so a lapsed link severs
 the WebSocket mid-meeting rather than waiting for a sweep. Revoking deletes
 those tokens and closes the sockets immediately. Neither deletes the guest: their
-votes and updates stay in the meeting they took part in.
+votes and updates stay in the meeting they took part in, and so does their name.
+A revoked or expired link takes away the seat, not the attribution — a CSV
+exported afterwards still carries the guest by name.
 
 ## Spectators
 
