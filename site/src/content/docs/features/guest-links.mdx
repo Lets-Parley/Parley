@@ -117,6 +117,18 @@ mistake is out of the room in seconds, not at the end of the day.
 
 Deleting the room does the same to its guests.
 
+A guest can also let themselves out. The banner across the top of the room
+carries **Leave room**, which ends that guest's session on the spot and drops
+them on a dead-link screen — the seat is gone, and the cookie behind it stops
+working, rather than sitting valid in the browser until the link expires. That
+matters most in the case guest links are for: a contractor or stakeholder on a
+borrowed or shared machine, where closing the tab should not leave the next
+person holding the seat. It is the guest's own session only; nobody else who
+redeemed the same link is affected, and coming back means a fresh link.
+
+Leaving keeps the same promise revocation does, below: votes, standup entries
+and CSV attribution all survive it.
+
 What revocation does **not** do is unpick the meeting. The guest's user row
 stays, and so do their votes and their standup entries — they belong to the
 session that happened, and to any CSV exported from it afterwards.

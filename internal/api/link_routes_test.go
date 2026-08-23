@@ -50,9 +50,13 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// facilitator's name on the roster. The read carries only the guest's own
 	// name, avatar and bound room; TestLinkGuestCanReadOwnIdentity pins the
 	// field list so it stays that way.
+	// Leaving is the exception to "identity is read-only for a guest": it
+	// spends the credential rather than reshaping it, and it is the only way
+	// a guest on a borrowed browser can stop the cookie outliving the visit.
+	// It deletes the caller's own session_tokens row and nothing else.
 	"POST /api/me":         {status: http.StatusForbidden},
 	"GET /api/me":          {status: http.StatusOK},
-	"DELETE /api/me":       {status: http.StatusForbidden},
+	"DELETE /api/me":       {status: http.StatusNoContent},
 	"PATCH /api/me/avatar": {status: http.StatusForbidden},
 
 	// Spaces. A link is bound to one room, never a space, so none of this is
@@ -122,6 +126,16 @@ func TestLinkGuestRouteTable(t *testing.T) {
 	_, me := doJSON(t, srv, "GET", "/api/me", "", fac)
 	userID, _ := me["id"].(string)
 
+	// DELETE /api/me spends the credential it is called with, so exercising
+	// it with `guest` would make every route the walk reaches afterwards
+	// answer for a signed-out caller instead of a link guest. It gets a second
+	// guest of its own, and the walk's order stops mattering.
+	_, minted := mintLink(t, srv, id, fac)
+	r, body, leaver := redeem(t, srv, minted["token"].(string), "Lee")
+	if r.StatusCode != http.StatusCreated || leaver == nil {
+		t.Fatalf("redeem the second guest: got %d (%v)", r.StatusCode, body)
+	}
+
 	replace := strings.NewReplacer(
 		"{id}", id,
 		"{slug}", slug,
@@ -158,7 +172,11 @@ func TestLinkGuestRouteTable(t *testing.T) {
 		if path == "" {
 			path = "/"
 		}
-		got, err := requestStatus(srv, verb, path, replace.Replace(want.body), guest)
+		cookie := guest
+		if key == "DELETE /api/me" {
+			cookie = leaver
+		}
+		got, err := requestStatus(srv, verb, path, replace.Replace(want.body), cookie)
 		if err != nil {
 			t.Errorf("%s: %v", key, err)
 			return nil

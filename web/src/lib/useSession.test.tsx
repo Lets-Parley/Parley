@@ -47,7 +47,14 @@ function mount(initial = envelope(5)) {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={qc}>{children}</QueryClientProvider>
   );
-  return { ...renderHook(() => useSession("sess-1"), { wrapper }), qc, fetched };
+  return {
+    ...renderHook(({ active }: { active: boolean }) => useSession("sess-1", active), {
+      wrapper,
+      initialProps: { active: true },
+    }),
+    qc,
+    fetched,
+  };
 }
 
 beforeEach(() => {
@@ -134,5 +141,20 @@ describe("useSession", () => {
     await waitFor(() => expect(result.current.data).toBeTruthy());
     unmount();
     expect(hub.stopped).toBe(1);
+  });
+
+  // A guest who has left must not keep presenting a spent credential to the
+  // server — the socket has to come down the moment the caller says so, not
+  // wait for unmount.
+  it("stops the socket when switched inactive, without waiting for unmount", async () => {
+    const { result, rerender } = mount();
+    await waitFor(() => expect(result.current.data).toBeTruthy());
+    rerender({ active: false });
+    await waitFor(() => expect(hub.stopped).toBe(1));
+
+    // A frame arriving after teardown must not resurrect state through a
+    // socket that is supposed to be gone.
+    hub.onState(envelope(6, "after leaving"));
+    expect(result.current.data).not.toMatchObject({ title: "after leaving" });
   });
 });
