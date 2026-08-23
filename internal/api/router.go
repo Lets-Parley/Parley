@@ -32,6 +32,7 @@ type app struct {
 	users    *store.Users
 	spaces   *store.Spaces
 	sessions *store.Sessions
+	links    *store.Links
 	presence *store.Presence
 	hub      *hub.Hub
 	// kinds is the session-kind registry, built once at wiring time.
@@ -81,6 +82,7 @@ type Limits struct {
 	SpacesPerIdentity    int
 	SessionsPerSpace     int
 	StoriesPerSession    int
+	LinksPerSession      int
 }
 
 func (l Limits) withDefaults() Limits {
@@ -98,6 +100,9 @@ func (l Limits) withDefaults() Limits {
 	}
 	if l.StoriesPerSession == 0 {
 		l.StoriesPerSession = 500
+	}
+	if l.LinksPerSession == 0 {
+		l.LinksPerSession = 20
 	}
 	return l
 }
@@ -131,6 +136,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		users:    &store.Users{Pool: pool},
 		spaces:   &store.Spaces{Pool: pool},
 		sessions: &store.Sessions{Pool: pool},
+		links:    &store.Links{Pool: pool},
 		presence: &store.Presence{
 			Pool:      pool,
 			ReplicaID: replicaID(),
@@ -306,6 +312,12 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			r.HandleFunc("/actions/{action}", a.handleAction)
 			r.With(rejectEnded).Post("/facilitator/claim", a.handleClaimFacilitator)
 			r.With(rejectEnded).Post("/spectator", a.handleSetSpectator)
+			// Signed links. Any member may see how many links a room has and
+			// how often they have been used; only the facilitator may mint or
+			// revoke one, and only while the room is still open.
+			r.Get("/links", a.handleListSessionLinks)
+			r.With(rejectEnded, requireFacilitator).Post("/links", a.handleCreateSessionLink)
+			r.With(requireFacilitator).Delete("/links/{linkId}", a.handleRevokeSessionLink)
 			r.Group(func(r chi.Router) {
 				r.Use(rejectEnded)
 				r.Use(requireFacilitator)

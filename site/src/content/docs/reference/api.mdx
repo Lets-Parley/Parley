@@ -139,6 +139,9 @@ existence is never disclosed.
   { method: "DELETE", path: "/api/sessions/{id}", auth: "facilitator", purpose: "Close the session — it ends, its history stays, and it can be reopened. Idempotent. To discard one, see DELETE /api/spaces/{slug}/sessions/{id}, which is owner-only." },
   { method: "POST", path: "/api/sessions/{id}/reopen", auth: "facilitator", purpose: "Reopen a closed session." },
   { method: "POST", path: "/api/sessions/{id}/spectator", auth: "member", purpose: "Toggle your own spectator seat with {on}. A property of a member, not of a kind, so it is a core route rather than an action." },
+  { method: "POST", path: "/api/sessions/{id}/links", auth: "facilitator", purpose: "Mint a signed link for this room. Refused once the room is closed. The reply carries the plain token exactly once — nothing can read it again." },
+  { method: "GET", path: "/api/sessions/{id}/links", auth: "member", purpose: "List this room's links: ids, expiry, revocation and redemption counts. Never tokens." },
+  { method: "DELETE", path: "/api/sessions/{id}/links/{linkId}", auth: "facilitator", purpose: "Revoke a link. Idempotent — a second call is another 204. The row stays, marked revoked." },
 ]} />
 
 ## Session actions

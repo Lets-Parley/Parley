@@ -158,7 +158,13 @@ migration and embedding mistakes that unit tests miss.
     what redeploys the site, since `release.yml` never touches `site/`. Leave
     minimum-version sentences ("chart 0.4.1 or newer") and historical
     references literal; they are not the current version.
-12. Dependabot watches only `site/`. Go modules and `web/` dependencies are
+12. **`users.link_id` is `on delete set null`, never cascade.** `votes`,
+    `standup_entries` and presence all cascade from `users`, so cascading a
+    signed link's delete into its holders would erase their votes and updates
+    from a finished meeting and from any CSV exported afterwards. Link rows are
+    never swept either — a link expires on its own `expires_at`, it is not
+    garbage-collected.
+13. Dependabot watches only `site/`. Go modules and `web/` dependencies are
     bumped by hand, with tests.
 
 ## Scope

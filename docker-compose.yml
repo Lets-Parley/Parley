@@ -18,6 +18,7 @@ services:
       SPACE_LIMIT_PER_IDENTITY: ${SPACE_LIMIT_PER_IDENTITY:-50}
       SESSION_LIMIT_PER_SPACE: ${SESSION_LIMIT_PER_SPACE:-500}
       STORY_LIMIT_PER_SESSION: ${STORY_LIMIT_PER_SESSION:-500}
+      LINK_LIMIT_PER_SESSION: ${LINK_LIMIT_PER_SESSION:-20}
     ports:
       # Bound to localhost by default. To reach it from other machines, change to
       # "0.0.0.0:8080:8080" AND set BASE_URL to the address teammates will use.

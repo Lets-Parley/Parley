@@ -110,6 +110,7 @@ func loadConfig() (config, error) {
 		{"SPACE_LIMIT_PER_IDENTITY", 50, func(v int) { cfg.Limits.SpacesPerIdentity = v }},
 		{"SESSION_LIMIT_PER_SPACE", 500, func(v int) { cfg.Limits.SessionsPerSpace = v }},
 		{"STORY_LIMIT_PER_SESSION", 500, func(v int) { cfg.Limits.StoriesPerSession = v }},
+		{"LINK_LIMIT_PER_SESSION", 20, func(v int) { cfg.Limits.LinksPerSession = v }},
 	}
 	for _, limit := range limits {
 		raw := envOr(limit.name, strconv.Itoa(limit.fallback))
