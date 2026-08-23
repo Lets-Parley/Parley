@@ -154,4 +154,14 @@ describe("Modal dismissal", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(dialog.open).toBe(false);
   });
+
+  // No onClose means no ✕ and nobody to hear a dismissal, so Escape would
+  // close the dialog onto nothing. LinkPage relies on this: its token is gone
+  // from the URL by then, so a dismissed prompt could never be reopened.
+  it("stays open on Escape when there is nowhere to report a dismissal", () => {
+    render(<Modal title="What should we call you?">body</Modal>);
+    const dialog = screen.getByRole("dialog") as HTMLDialogElement;
+    dialog.dispatchEvent(new Event("cancel", { bubbles: false, cancelable: true }));
+    expect(dialog.open).toBe(true);
+  });
 });

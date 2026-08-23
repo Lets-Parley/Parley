@@ -110,6 +110,24 @@ describe("LinkPage", () => {
     expect(navigated).toEqual([]);
   });
 
+  // The fragment is wiped on arrival and the token then lives only in React
+  // state, so a dismissed prompt is unrecoverable — no reload can bring the
+  // token back. Escape must therefore leave the prompt standing. jsdom fires
+  // no `cancel`, so Escape is modelled the way Modal.test.tsx models it.
+  it("keeps the prompt up when Escape cancels it, since the token is unrecoverable", async () => {
+    renderApp(<LinkPage />, { route: "/link" });
+
+    await screen.findByLabelText("Your name");
+    const dialog = screen.getByRole("dialog") as HTMLDialogElement;
+    dialog.dispatchEvent(new Event("cancel", { bubbles: false, cancelable: true }));
+
+    expect(dialog.open).toBe(true);
+    expect(screen.queryByRole("button", { name: "Take a seat" })).not.toBe(null);
+    // The fragment stays wiped regardless: dismissal must never be the reason
+    // a token lingers in the URL.
+    expect(window.location.hash).toBe("");
+  });
+
   it("asks for nothing when the URL carries no token", async () => {
     window.history.replaceState(null, "", "/link");
     renderApp(<LinkPage />, { route: "/link" });
