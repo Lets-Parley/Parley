@@ -682,7 +682,14 @@ function PasscodePanel({
           Space passcode
         </h2>
         {passcode ? (
-          <p className="mt-1 font-mono text-lg font-semibold tracking-[0.16em]">{passcode}</p>
+          /* Never break the code itself. Renaming the buttons to "Copy
+             passcode" and "New passcode" widened the row enough to wrap
+             RIVER-8412 across two lines, which is unreadable for the one
+             string on this panel that gets read out loud. The button row is
+             the thing that should wrap instead — it already can. */
+          <p className="mt-1 whitespace-nowrap font-mono text-lg font-semibold tracking-[0.16em]">
+            {passcode}
+          </p>
         ) : (
           <p className="mt-1 text-[13px] text-ink-soft">
             Open — anyone with the link can take a seat.
