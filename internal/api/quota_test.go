@@ -140,3 +140,22 @@ func TestStoryQuotaIsAtomicInsideActiveSessionTransaction(t *testing.T) {
 		t.Fatalf("stored stories = %d, want 1", count)
 	}
 }
+
+// The zero value of Limits means "unset", and every caller that does not
+// configure a field relies on withDefaults to fill it. Nothing else pins these
+// numbers, so a typo in one of them would otherwise ship silently.
+func TestLimitsWithDefaults(t *testing.T) {
+	got := Limits{}.withDefaults()
+	want := Limits{
+		IdentityIPHourly:       10,
+		IdentityGlobalHourly:   500,
+		LinkRedemptionIPHourly: 50,
+		SpacesPerIdentity:      50,
+		SessionsPerSpace:       500,
+		StoriesPerSession:      500,
+		LinksPerSession:        20,
+	}
+	if got != want {
+		t.Fatalf("Limits{}.withDefaults() = %+v, want %+v", got, want)
+	}
+}
