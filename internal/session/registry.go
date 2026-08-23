@@ -154,7 +154,18 @@ type Person struct {
 	AvatarIcon string `json:"avatarIcon"`
 }
 
-func roster(ctx context.Context, pool *pgxpool.Pool, spaceID string) (string, []Person, error) {
+// roster names everybody the room can render: the space's members, plus the
+// guests who joined this one session by signed link. A guest has no members
+// row and so no spectator flag — it votes like anybody else in the room, the
+// same reading maybeAutoReveal takes of the denominator — so it is seated as a
+// participant, never a spectator.
+//
+// pastGuests widens the guest half from the live links to every link the room
+// ever carried. The wire roster wants the live ones: a revoked or expired link
+// is a seat nobody can occupy any more. An export wants all of them, because
+// a name in a finished meeting's CSV must not depend on whether the link that
+// let its owner in is still good.
+func roster(ctx context.Context, pool *pgxpool.Pool, spaceID, sessionID string, pastGuests bool) (string, []Person, error) {
 	var slug string
 	if err := pool.QueryRow(ctx, "select slug from spaces where id = $1", spaceID).Scan(&slug); err != nil {
 		return "", nil, err
@@ -162,7 +173,13 @@ func roster(ctx context.Context, pool *pgxpool.Pool, spaceID string) (string, []
 	rows, err := pool.Query(ctx, `
 		select m.user_id::text, u.name, m.spectator, u.avatar_icon
 		from members m join users u on u.id = m.user_id
-		where m.space_id = $1 order by u.name`, spaceID)
+		where m.space_id = $1
+		union
+		select u.id::text, u.name, false, u.avatar_icon
+		from users u join session_links l on l.id = u.link_id
+		where l.session_id = $2
+		  and ($3 or (l.revoked_at is null and l.expires_at > now()))
+		order by 2`, spaceID, sessionID, pastGuests)
 	if err != nil {
 		return "", nil, err
 	}
@@ -212,6 +229,17 @@ func (e Envelope) RedactForGuest() Envelope {
 // deliberately no in-process fallback — a second path here is a path that tests
 // exercise and production does not.
 func (r *Registry) BuildEnvelope(ctx context.Context, pool *pgxpool.Pool, presence *store.Presence, sessions *store.Sessions, id string) (Envelope, error) {
+	return r.buildEnvelope(ctx, pool, presence, sessions, id, false)
+}
+
+// BuildExportEnvelope is BuildEnvelope with the roster widened to every guest
+// the room ever admitted. It is for the CSV path only: revoking or expiring a
+// link takes away a seat, never a name already written into the record.
+func (r *Registry) BuildExportEnvelope(ctx context.Context, pool *pgxpool.Pool, presence *store.Presence, sessions *store.Sessions, id string) (Envelope, error) {
+	return r.buildEnvelope(ctx, pool, presence, sessions, id, true)
+}
+
+func (r *Registry) buildEnvelope(ctx context.Context, pool *pgxpool.Pool, presence *store.Presence, sessions *store.Sessions, id string, pastGuests bool) (Envelope, error) {
 	sess, err := sessions.ByID(ctx, id)
 	if err != nil {
 		return Envelope{}, err
@@ -224,7 +252,7 @@ func (r *Registry) BuildEnvelope(ctx context.Context, pool *pgxpool.Pool, presen
 	if err != nil {
 		return Envelope{}, err
 	}
-	slug, people, err := roster(ctx, pool, sess.SpaceID)
+	slug, people, err := roster(ctx, pool, sess.SpaceID, sess.ID, pastGuests)
 	if err != nil {
 		return Envelope{}, err
 	}

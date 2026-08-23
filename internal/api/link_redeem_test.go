@@ -476,7 +476,10 @@ func TestLinkGuestEnvelopeHidesTheSpace(t *testing.T) {
 	if slug, _ := guestEnv["spaceSlug"].(string); slug != "" {
 		t.Fatalf("guest envelope spaceSlug = %q, want empty", slug)
 	}
-	// Mel is a member of the space and is nowhere near this meeting.
+	// Mel is a member of the space and is nowhere near this meeting. The
+	// guest holds no socket here, so it is not in presence either and its own
+	// seat is not in this copy; TestLinkGuestsSitAtTheTable covers the
+	// connected case.
 	if got := names(guestEnv); !slices.Equal(got, []string{"Fay"}) {
 		t.Fatalf("guest participants = %v, want just the facilitator [Fay]", got)
 	}
@@ -485,8 +488,10 @@ func TestLinkGuestEnvelopeHidesTheSpace(t *testing.T) {
 	if slug, _ := facEnv["spaceSlug"].(string); slug == "" {
 		t.Fatal("member envelope lost its spaceSlug")
 	}
-	if got := names(facEnv); !slices.Equal(got, []string{"Fay", "Mel"}) {
-		t.Fatalf("member participants = %v, want the whole roster [Fay Mel]", got)
+	// The member's copy carries the whole space roster and the guest's own
+	// seat: a link guest is a participant in this room, not a hidden voter.
+	if got := names(facEnv); !slices.Equal(got, []string{"Fay", "Gus", "Mel"}) {
+		t.Fatalf("member participants = %v, want the whole roster and the guest [Fay Gus Mel]", got)
 	}
 }
 

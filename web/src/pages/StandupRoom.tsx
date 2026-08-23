@@ -179,7 +179,14 @@ export function StandupRoom({
   const shown = shownId ? st.entries.find((e) => e.userId === shownId) : undefined;
   // Readiness is counted over the people who actually speak: a spectator has no
   // entry row and no turn, so counting them would make "3 of 4" unreachable.
-  const speakers = env.participants.filter((p) => !p.spectator);
+  // The same is true of a live link guest seated as a non-spectator
+  // participant (#304) — the server only ever writes a standup_entries row
+  // for a member, so a guest has none either. Deriving speakers from
+  // st.entries rather than env.participants keeps both out of the
+  // denominator without knowing anything about guests specifically: once a
+  // future change gives guests an entry row, they start counting for free.
+  const entryIds = new Set(st.entries.map((e) => e.userId));
+  const speakers = env.participants.filter((p) => !p.spectator && entryIds.has(p.userId));
   const readyIds = new Set(st.entries.filter((e) => e.ready).map((e) => e.userId));
   const readyCount = speakers.filter((p) => readyIds.has(p.userId)).length;
   const iAmReady = readyIds.has(me.id);

@@ -749,6 +749,55 @@ describe("StandupRoom readiness", () => {
     expect(screen.queryByRole("button", { name: /i'm ready/i })).toBe(null);
     expect(screen.queryByTestId("ready-roster")).toBe(null);
   });
+
+  it("does not count a live guest, who has no entry row, toward the ready denominator", () => {
+    // A link guest is seated as a non-spectator participant (#304), but the
+    // server only ever creates a standup_entries row for a member — a guest
+    // has no members row at all, so it can never appear in st.entries. Until
+    // guests get an actual seat in the round, counting them here makes the
+    // denominator permanently unreachable and leaves them stuck in
+    // waitingOn forever.
+    renderApp(
+      <StandupRoom
+        env={gathering(
+          {
+            facilitatorId: "marcus",
+            participants: [
+              makePerson({ userId: "dana", name: "Dana Whitfield" }),
+              makePerson({ userId: "marcus", name: "Marcus Okonjo" }),
+              makePerson({ userId: "priya", name: "Priya Raman" }),
+              makePerson({ userId: "guest-1", name: "Gabe Guest" }),
+            ],
+          },
+          [
+            { userId: "dana", position: 1, ready: true },
+            { userId: "marcus", position: 2, ready: true },
+            { userId: "priya", position: 3, ready: true },
+          ],
+        )}
+        me={me}
+      />,
+    );
+    expect(startButton().textContent).toMatch(/3 of 3 ready/);
+    expect(screen.getByTestId("ready-roster").textContent).toMatch(/everyone is ready/i);
+    expect(screen.getByTestId("ready-roster").textContent).not.toMatch(/Gabe Guest/);
+  });
+
+  it("still counts a real non-spectator member toward the ready denominator", () => {
+    renderApp(
+      <StandupRoom
+        env={gathering({ facilitatorId: "marcus" }, [
+          { userId: "dana", position: 1, ready: true },
+          { userId: "marcus", position: 2, ready: true },
+          { userId: "priya", position: 3 },
+        ])}
+        me={me}
+      />,
+    );
+    expect(startButton().textContent).toMatch(/2 of 3 ready/);
+    const who = screen.getByTestId("ready-roster");
+    expect(who.textContent).toMatch(/Priya Raman/);
+  });
 });
 
 describe("StandupRoom round composition", () => {
