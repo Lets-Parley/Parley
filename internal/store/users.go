@@ -378,7 +378,7 @@ func (s *Users) IsLinkGuestOf(ctx context.Context, userID, sessionID string) (bo
 	err := s.Pool.QueryRow(ctx, `
 		select exists (
 			select 1 from users u join session_links l on l.id = u.link_id
-			where u.id = $1 and l.session_id = $2 and l.revoked_at is null)`,
+			where u.id = $1 and l.session_id = $2 and l.revoked_at is null and l.expires_at > now())`,
 		userID, sessionID).Scan(&ok)
 	if err != nil {
 		return false, fmt.Errorf("checking a link guest: %w", err)

@@ -238,3 +238,48 @@ func TestRevokeClosesTheLinkSessionsItOpened(t *testing.T) {
 		t.Fatal("revoking a link deleted the guest it had minted")
 	}
 }
+
+// TestIsLinkGuestOfIgnoresDeadLinks keeps the membership hook fail-closed on
+// its own terms. The hub happens to check the token's expiry first today, but
+// a predicate that only knew about revocation would make this answer depend on
+// two tables staying in step.
+func TestIsLinkGuestOfIgnoresDeadLinks(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	sess, members := newSession(t, pool, "Fay")
+	links := &Links{Pool: pool}
+	users := &Users{Pool: pool}
+
+	live, _ := newLink(t, links, sess.ID, members[0].ID, LinkLifetime)
+	expired, _ := newLink(t, links, sess.ID, members[0].ID, LinkLifetime)
+	revoked, _ := newLink(t, links, sess.ID, members[0].ID, LinkLifetime)
+
+	guests := map[string]string{}
+	for name, link := range map[string]SessionLink{"live": live, "expired": expired, "revoked": revoked} {
+		_, hash := NewToken()
+		u, err := users.CreateForLink(ctx, "Gus", link.ID, hash, link.ExpiresAt, LinkRedemptionCap, "10.0.0.3", 10, 500)
+		if err != nil {
+			t.Fatal(err)
+		}
+		guests[name] = u.ID
+	}
+	// Redemption is what mints the guest, so both links are killed afterwards
+	// — exactly as they die under a guest who is already connected.
+	if _, err := pool.Exec(ctx,
+		"update session_links set expires_at = now() - interval '1 minute' where id = $1", expired.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := links.Revoke(ctx, sess.ID, revoked.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, want := range map[string]bool{"live": true, "expired": false, "revoked": false} {
+		got, err := users.IsLinkGuestOf(ctx, guests[name], sess.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("IsLinkGuestOf for the %s link = %v, want %v", name, got, want)
+		}
+	}
+}
