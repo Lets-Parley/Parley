@@ -52,7 +52,7 @@ func (a *app) broadcastLocal(ctx context.Context, sessionID string) {
 	// guest payload is built even when nobody in the room is one — the hub
 	// owns the connections, and asking it first would be a second round trip
 	// through its event loop for every broadcast.
-	guestPayload, err := json.Marshal(env.RedactForGuest())
+	guestPayload, err := json.Marshal(env.RedactForGuest(""))
 	if err != nil {
 		slog.Error("could not marshal redacted session state", "session", sessionID, "error", err)
 		return
@@ -141,7 +141,7 @@ func (a *app) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p, ok := PrincipalFrom(r.Context()); ok && p.IsLinkGuest() {
-		env = env.RedactForGuest()
+		env = env.RedactForGuest(p.UserID)
 	}
 	writeJSON(w, http.StatusOK, env)
 }

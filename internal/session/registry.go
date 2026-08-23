@@ -209,13 +209,23 @@ func roster(ctx context.Context, pool *pgxpool.Pool, spaceID, sessionID string, 
 //
 // "Taking part" is presence plus the facilitator, both of which the envelope
 // already names, so the roster discloses nothing the guest cannot see anyway.
-func (e Envelope) RedactForGuest() Envelope {
+//
+// selfID is the guest the envelope is bound for, and is always kept: presence
+// is registered when a socket connects, so a guest reading the room before its
+// socket settles would otherwise be told it is not in the room it is in. Pass
+// "" where the envelope is not bound to one guest — the broadcast path, which
+// builds a single redacted copy for every guest on the socket, and so has a
+// presence row for each of them already.
+func (e Envelope) RedactForGuest(selfID string) Envelope {
 	e.SpaceSlug = ""
-	here := make(map[string]struct{}, len(e.Presence)+1)
+	here := make(map[string]struct{}, len(e.Presence)+2)
 	for _, id := range e.Presence {
 		here[id] = struct{}{}
 	}
 	here[e.FacilitatorID] = struct{}{}
+	if selfID != "" {
+		here[selfID] = struct{}{}
+	}
 	people := []Person{}
 	for _, p := range e.Participants {
 		if _, ok := here[p.UserID]; ok {

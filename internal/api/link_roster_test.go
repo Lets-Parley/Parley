@@ -269,3 +269,23 @@ func TestGuestWearingAMemberNameIsStillMarkedAGuest(t *testing.T) {
 		t.Fatalf("guest's own seat appears %d times in its redacted roster, want once: %v", seen, own["participants"])
 	}
 }
+
+// TestLinkGuestSeesItsOwnSeatWithNoSocket pins the first paint of a room: a
+// guest that has redeemed a link but not yet opened a socket has no presence
+// row, and used to be filtered out of its own room until the socket settled.
+// The redaction rule is presence ∪ facilitator ∪ self, so the guest's own seat
+// is there from the very first GET — and a member who is nowhere near the
+// meeting still is not.
+func TestLinkGuestSeesItsOwnSeatWithNoSocket(t *testing.T) {
+	srv := testServer(t)
+	_, id, guest := mintAndRedeem(t, srv, "First Paint Space")
+
+	_, env := doJSON(t, srv, "GET", "/api/sessions/"+id, "", guest)
+	got := participantNames(t, env)
+	if !slices.Contains(got, "Gus") {
+		t.Fatalf("participants = %v, want the guest's own seat with no socket open", got)
+	}
+	if slices.Contains(got, "Mel") {
+		t.Fatalf("participants = %v, want an absent member still hidden from a guest", got)
+	}
+}
