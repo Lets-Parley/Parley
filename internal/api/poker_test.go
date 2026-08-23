@@ -471,3 +471,44 @@ func TestClearingAnEstimateUnsetsTheStatus(t *testing.T) {
 		t.Errorf("story is still marked estimated after a clear")
 	}
 }
+
+// A link guest votes like anybody else in the bound room, so it must also count
+// as somebody auto-reveal is waiting on. Building the eligible set from members
+// alone leaves the guest's vote sitting outside it, and the "no voter outside
+// eligible" half of the check then never holds — the round stays hidden for as
+// long as the guest's vote stands.
+func TestAutoRevealCountsLinkGuests(t *testing.T) {
+	srv := testServer(t)
+	fac, slug, id, guest := mintAndRedeemIn(t, srv, "Guest Auto Space")
+	member := signup(t, srv, "Mel")
+	_, sp := doJSON(t, srv, "GET", "/api/spaces/"+slug, "", fac)
+	code, _ := sp["passcode"].(string)
+	if resp := joinSpace(t, srv, slug, member, code); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("join: %d", resp.StatusCode)
+	}
+	story := addStory(t, srv, id, "Guest story", fac)
+	selectStory(t, srv, id, story, fac)
+
+	for _, c := range []*http.Cookie{fac, member, guest} {
+		ws, _, err := dialWS(t, srv, id, c, testOrigin)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer ws.Close()
+	}
+	time.Sleep(2 * time.Second) // let presence settle
+
+	vote(t, srv, id, story, "3", fac)
+	vote(t, srv, id, story, "5", member)
+	_, env := doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	if env["revealed"] == true {
+		t.Fatal("revealed before the link guest had voted")
+	}
+	if resp := vote(t, srv, id, story, "8", guest); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("guest vote: %d", resp.StatusCode)
+	}
+	_, env = doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	if env["revealed"] != true {
+		t.Fatal("the link guest's vote did not complete the table: auto-reveal never fired")
+	}
+}

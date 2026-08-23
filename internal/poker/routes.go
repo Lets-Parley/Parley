@@ -393,13 +393,23 @@ func maybeAutoReveal(ctx context.Context, tx pgx.Tx, connected []string, sess st
 		with eligible as (
 			select user_id from members
 			where space_id = $1 and not spectator and user_id::text = any($2)
+			union
+			-- A guest who joined by signed link has no members row and so no
+			-- spectator flag: it votes like anybody else in the room, and the
+			-- round is waiting on it like anybody else. Leaving it out both
+			-- shrinks the denominator, revealing while it still has a vote to
+			-- cast, and puts its vote outside eligible, which fails the
+			-- "voters subset of eligible" half for as long as that vote stands.
+			select u.id from users u
+			join session_links l on l.id = u.link_id
+			where l.session_id = $4 and u.id::text = any($2)
 		), voters as (
 			select user_id from votes where story_id = $3
 		)
 		select exists (select 1 from eligible)
 		and not exists (select user_id from eligible except select user_id from voters)
 		and not exists (select user_id from voters except select user_id from eligible)`,
-		sess.SpaceID, connected, storyID).Scan(&exact)
+		sess.SpaceID, connected, storyID, sess.ID).Scan(&exact)
 	if err != nil || !exact {
 		return err
 	}
