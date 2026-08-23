@@ -283,3 +283,39 @@ func TestIsLinkGuestOfIgnoresDeadLinks(t *testing.T) {
 		}
 	}
 }
+
+// Deleting the room takes its links with it, and a link's death must take the
+// sessions it opened too. Without that, the guest's token row outlives the
+// session_links row that made it link-bound: users.link_id goes null, the
+// identity resolves as an ordinary account, and a 24-hour participate-only
+// guest is promoted to a full sign-in that can rename itself and mint a fresh
+// unbounded token. The people and their votes still stay.
+func TestDeletingTheRoomClosesItsLinkSessions(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	sess, members := newSession(t, pool, "Fay")
+	links := &Links{Pool: pool}
+	users := &Users{Pool: pool}
+
+	link, _ := newLink(t, links, sess.ID, members[0].ID, LinkLifetime)
+	_, tokenHash := NewToken()
+	guest, err := users.CreateForLink(ctx, "Gus", link.ID, tokenHash, link.ExpiresAt, LinkRedemptionCap, "10.0.0.4", 10, 500)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := pool.Exec(ctx, "delete from sessions where id = $1", sess.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := users.ResolveToken(ctx, tokenHash, false); !errors.Is(err, ErrNoUser) {
+		t.Fatalf("the guest's token still resolves after the room was deleted: %v", err)
+	}
+	var alive bool
+	if err := pool.QueryRow(ctx, "select exists (select 1 from users where id = $1)", guest.ID).Scan(&alive); err != nil {
+		t.Fatal(err)
+	}
+	if !alive {
+		t.Fatal("deleting the room deleted the guest it had minted")
+	}
+}

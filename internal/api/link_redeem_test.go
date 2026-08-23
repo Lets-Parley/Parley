@@ -387,3 +387,65 @@ func TestRedeemedTokenExpiresWithTheLink(t *testing.T) {
 		t.Fatalf("cookie MaxAge = %d, want roughly the link lifetime %d", guest.MaxAge, want)
 	}
 }
+
+// mintAndRedeemIn is mintAndRedeem with the space slug kept, so a test can
+// delete the room or the space out from under the guest.
+func mintAndRedeemIn(t *testing.T, srv *httptest.Server, spaceName string) (fac *http.Cookie, slug, sessionID string, guest *http.Cookie) {
+	t.Helper()
+	fac = signup(t, srv, "Fay")
+	_, sp := createSpace(t, srv, spaceName, fac)
+	slug = sp["slug"].(string)
+	resp, sess := createSession(t, srv, slug, "poker", "Sprint 12", fac)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create session: %d %v", resp.StatusCode, sess)
+	}
+	sessionID = sess["id"].(string)
+	_, minted := mintLink(t, srv, sessionID, fac)
+	token, _ := minted["token"].(string)
+	if token == "" {
+		t.Fatalf("mint returned no token: %v", minted)
+	}
+	r, body, guest := redeem(t, srv, token, "Gus")
+	if r.StatusCode != http.StatusCreated || guest == nil {
+		t.Fatalf("redeem: got %d (%v)", r.StatusCode, body)
+	}
+	return fac, slug, sessionID, guest
+}
+
+// Deleting the room — or the whole space — cascade-deletes the links it
+// carried. The guest's identity must die with them: without that its
+// users.link_id goes null while its token row survives, the principal stops
+// reading as a link guest, and the routes that turn a link guest away start
+// letting it through. Renaming itself there would mint a fresh token with no
+// absolute expiry, turning a 24-hour participate-only guest into an ordinary
+// unbounded account.
+func TestDeletingTheRoomDoesNotPromoteALinkGuest(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		path func(slug, id string) string
+	}{
+		{"room", func(slug, id string) string { return "/api/spaces/" + slug + "/sessions/" + id }},
+		{"space", func(slug, id string) string { return "/api/spaces/" + slug }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := testServer(t)
+			fac, slug, id, guest := mintAndRedeemIn(t, srv, "Cascade "+tc.name)
+
+			if resp, body := doJSON(t, srv, "DELETE", tc.path(slug, id), "", fac); resp.StatusCode >= 300 {
+				t.Fatalf("delete %s: got %d (%v)", tc.name, resp.StatusCode, body)
+			}
+
+			// The identity must simply stop working, exactly as it would if
+			// the link had been revoked.
+			if resp, body := doJSON(t, srv, "GET", "/api/me", "", guest); resp.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("GET /api/me after %s delete: got %d, want 401 (%v)", tc.name, resp.StatusCode, body)
+			}
+			if resp, body := doJSON(t, srv, "POST", "/api/me", `{"name":"Facilitator"}`, guest); resp.StatusCode == http.StatusOK {
+				t.Fatalf("POST /api/me renamed the guest after the %s was deleted (%v)", tc.name, body)
+			}
+			if resp, _ := doJSON(t, srv, "GET", "/api/spaces", "", guest); resp.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("GET /api/spaces after %s delete: got %d, want 401", tc.name, resp.StatusCode)
+			}
+		})
+	}
+}
