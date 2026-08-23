@@ -26,6 +26,20 @@ things copied into a chat window.
 - Status: Merged, awaiting the next release
 - Landed in [#274](https://github.com/lets-parley/parley/pull/274)
 
+### Signed links
+
+Some participation should be named but not account-bound. A person should be
+able to vote on this story, add their standup update, or leave one piece of
+context without first becoming a user the instance has to remember.
+
+A signed link is a capability, not a login: it does one thing, for one room, and
+expires. That makes it safer than "just make it public" and more honest than a
+shared passcode that quietly becomes a second identity system.
+
+- Status: Merged, awaiting the next release
+- Landed in [#288](https://github.com/lets-parley/parley/pull/288), [#289](https://github.com/lets-parley/parley/pull/289) and [#291](https://github.com/lets-parley/parley/pull/291)
+- A guest can play poker fully; in a standup they can save an update but not yet hold a turn — [#290](https://github.com/lets-parley/parley/issues/290)
+
 ## Next
 
 Accepted work, likely to be picked up after current priorities.
@@ -72,18 +86,6 @@ list is the artifact, and it is meant to be uncomfortable: a refinement backlog
 written from evidence rather than from memory.
 
 No tool that sells seats will ever ship this, which is reason enough.
-
-- Status: Backlog
-
-### Signed links
-
-Some participation should be named but not account-bound. A person should be
-able to vote on this story, add their standup update, or leave one piece of
-context without first becoming a user the instance has to remember.
-
-A signed link is a capability, not a login: it does one thing, for one room, and
-expires. That makes it safer than "just make it public" and more honest than a
-shared passcode that quietly becomes a second identity system.
 
 - Status: Backlog
 

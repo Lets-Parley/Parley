@@ -1,0 +1,123 @@
+---
+title: Guest links
+description: A link that seats one person in one room, for a day, and nothing else.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import Capability from "../../../components/Capability.astro";
+import Screenshot from "../../../components/Screenshot.astro";
+import linksLight from "../../../assets/guest-links-light.png";
+import linksDark from "../../../assets/guest-links-dark.png";
+
+<VerifiedStamp version="unreleased" source={["internal/api/links.go", "internal/api/router.go", "internal/store/links.go", "internal/api/link_routes_test.go", "web/src/components/LinkPanel.tsx", "web/src/pages/LinkPage.tsx", "web/src/lib/links.ts"]} />
+
+A contractor needs to size two stories. Somebody from another team wants to vote
+on the one story that touches their service. Neither of them should have to be
+added to your space, hold your passcode, or become a user the instance
+remembers afterwards.
+
+A guest link is the answer: one URL, bound to **one room**, that expires by
+itself. Whoever opens it types a name and sits down at that table. They are not
+a member of the space, and when the link runs out they are not anything at all.
+
+## Minting one
+
+The facilitator of a room gets a **Guest links** button in its header. Nobody
+else does — the panel is not offered to a member, and the server refuses the
+request even if it is asked directly.
+
+<Screenshot
+  light={linksLight}
+  dark={linksDark}
+  alt="A Guest links dialog over a poker room, reading 'A guest link seats whoever opens it in this room only — no space, no other rooms, and never as facilitator.' Below it a Create a guest link button, then two links: Link 1, 0 of 25 used, and Link 2, 3 of 25 used, each with a Revoke button and an expiry a day out."
+  caption="Mint, watch how much of its cap each link has spent, revoke. There is no expiry picker and no label — one lifetime and one cap, both server constants."
+/>
+
+**Create a guest link** returns the URL once, in a field you copy. Nothing
+stores the token: Parley keeps only a hash of it, so if you lose that field
+before copying it, the link is unrecoverable and the only thing to do is revoke
+it and mint another.
+
+Rooms that have ended cannot mint new links. Existing links to an ended room
+still open it, read-only — the same view a member gets, minus the CSV export,
+which is never a guest's to take.
+
+## What the guest gets, and what they do not
+
+The link is a capability for one room. Redeeming it creates an ordinary user —
+a name and a seat colour, present on the roster, attributed in the CSV export
+the room's members can take — flagged as link-bound. They cannot pick a
+portrait, because that is one of the identity routes they are refused.
+
+That flag is the whole of their authorization. A guest may read the room the
+link names and take part in it. Every other route refuses them, including
+routes anonymous callers are welcome on: the identity routes (so they cannot
+rename themselves onto the roster as somebody else), the space page, the CSV
+export of the room they are sitting in, the facilitator controls, the spectator
+toggle, and the guest-link panel itself. They never see the links to their own
+room, minted or otherwise.
+
+A guest is never the facilitator, and never becomes one — the abandoned-seat
+claim is refused for them at the middleware and again in the `UPDATE` behind it.
+
+:::caution[A guest never takes a turn in a standup]
+Poker works completely for a guest. A standup works partly: a guest follows the
+round live and can write and save an update, which the room sees like anyone
+else's. What a guest never gets is a place in the running order — the
+round-robin roster is built from space membership, so the turn never lands on
+them, and neither do the controls that move it along. Closing that gap is still
+to come; it is recorded under [Authorization](/security/authorization/).
+:::
+
+## The URL is the credential
+
+There is no second factor and no invitation to accept. **Anyone holding the
+link is the holder** — forward it and you have handed the seat on. Share it the
+way you would share a password, to one person, over a channel you would send a
+password over.
+
+Two things reduce the blast radius, and neither of them changes that sentence:
+
+- **It expires in 24 hours**, from the moment it is minted. The expiry lives on
+  the session the redemption issues, not on a sweep, so a lapsed link drops the
+  guest's WebSocket mid-meeting rather than leaving them seated until something
+  gets round to noticing.
+- **It can be redeemed 25 times**, and no more. That is a cap on how far a
+  leaked link can spread, not an invitation to hand one link to a whole
+  department — one guest, one link, is what revocation is designed around.
+
+The token rides in the URL **fragment** — `…/link#t=…` — never the query
+string. A fragment is not sent to the server and never appears in a `Referer`
+header, so a link pasted into a chat window does not scatter the credential
+through access logs, proxy history, or the analytics of whatever site the next
+click lands on. Parley reads it once on arrival and wipes it out of the address
+bar, so it does not survive into a bookmark, the back button, or a screenshot.
+It is still a secret in transit.
+
+## Revoking
+
+**Revoke** beside a link kills it immediately, and revocation is not merely a
+stop on future redemptions: the sessions of everyone who already redeemed that
+link are deleted and their sockets are closed on the spot. Someone let in by
+mistake is out of the room in seconds, not at the end of the day.
+
+Deleting the room does the same to its guests.
+
+What revocation does **not** do is unpick the meeting. The guest's user row
+stays, and so do their votes and their standup entries — they belong to the
+session that happened, and to any CSV exported from it afterwards.
+
+Revoking is idempotent, so a retried click is a success rather than an error,
+and a room may hold **20 live links** at a time by default
+(`LINK_LIMIT_PER_SESSION`). Revoked and expired links do not count against it.
+
+## What is not here
+
+<Capability rows={[
+  { name: "Choosing an expiry or labelling a link", status: "out-of-scope", detail: "One lifetime and one cap are server constants. A facilitator handing out a link has no better idea of the right number than the server does, and a chooser in the UI would be a second, softer copy of a rule the server already owns." },
+  { name: "Taking a turn in a standup as a guest", status: "not-built", detail: "Standup builds its round-robin roster from space membership. A guest follows the round and can save an update the room sees, but is never placed in the running order, so the turn never reaches them. Poker works fully." },
+  { name: "A link to a whole space", status: "out-of-scope", detail: "A link names one room and grants nothing beyond it. To let somebody into everything a space holds, add them to the space with its <a href='/features/spaces-and-room-codes/'>passcode</a>." },
+  { name: "Spectating as a guest", status: "not-built", detail: "Spectator mode is a flag on a space membership, which a guest has none of, so the toggle is refused rather than silently accepted." },
+  { name: "Turning a guest into an account", status: "not-built", detail: "A guest cannot rename itself or sign in. When the link expires the identity stops working; what they contributed stays." },
+  { name: "Seeing who redeemed a link", status: "not-built", detail: "The panel reports a count, not a list. Who is in the room is on the roster; which link seated them is not recorded anywhere you can read." },
+]} />
