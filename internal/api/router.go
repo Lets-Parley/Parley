@@ -276,7 +276,11 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		// facilitator's name on the roster is the cheapest impersonation in
 		// the product.
 		r.With(rejectLinkPrincipal).Post("/me", a.handlePostMe)
-		r.With(rejectLinkPrincipal).Get("/me", a.handleGetMe)
+		// Open to a link guest: the only identity route that is. It hands
+		// back what the guest already has — its own name, avatar and bound
+		// room — so a browser with no local storage can recover instead of
+		// being stranded in the name gate. Writing identity stays shut.
+		r.Get("/me", a.handleGetMe)
 		r.With(rejectLinkPrincipal).Delete("/me", a.handleDeleteMe)
 		// Its own route, and permitted under both auth modes: choosing an
 		// avatar is not choosing a name, so the provider owning names in OIDC

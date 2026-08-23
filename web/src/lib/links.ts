@@ -29,6 +29,18 @@ export type Redemption = { sessionId: string; expiresAt: string; me: Me };
 /** How many times one link may be redeemed. A server constant, mirrored for display. */
 export const LINK_REDEMPTION_CAP = 25;
 
+/**
+ * True for an ordinary signed-in account; false for a link guest or nobody.
+ *
+ * `GET /api/me` now succeeds for a link guest too, so a truthy response alone
+ * no longer means "full account" — `linkSessionId` is what tells them apart.
+ * Anything scoped to an account across spaces (the space list, creating a
+ * space) needs this, not a bare `!!me.data` check.
+ */
+export function isFullAccount(me: Me | null | undefined): boolean {
+  return !!me && !me.linkSessionId;
+}
+
 /** The shareable URL for a freshly minted token. */
 export function linkUrl(token: string): string {
   return `${window.location.origin}/link#t=${encodeURIComponent(token)}`;
@@ -53,8 +65,10 @@ export function clearLinkToken() {
  * The link identity, kept so a reload of the room does not strand the guest.
  *
  * The cookie is the credential; this is only the name and hue to render with,
- * because a link guest is refused /api/me the way it is refused everything else
- * outside its room. It is bound to one session id and expires with the link.
+ * saved so the room paints without waiting on a round trip. It is a cache, not
+ * the source of truth: when it is missing, GET /api/me re-derives the same
+ * identity from the cookie. It is bound to one session id and expires with the
+ * link.
  */
 export type LinkGuest = { sessionId: string; me: Me; expiresAt: string };
 

@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/lets-parley/parley/internal/httprequest"
 	"github.com/lets-parley/parley/internal/store"
@@ -19,6 +20,12 @@ type meResponse struct {
 	// arithmetic on it.
 	AvatarHue  int    `json:"avatarHue"`
 	AvatarIcon string `json:"avatarIcon"`
+	// LinkSessionID and LinkExpiresAt are set only for a link guest, and name
+	// the one room it may take part in and the moment its seat runs out. Both
+	// are omitted for an ordinary account, so their presence is what tells a
+	// client it is holding a link identity.
+	LinkSessionID string `json:"linkSessionId,omitempty"`
+	LinkExpiresAt string `json:"linkExpiresAt,omitempty"`
 }
 
 // avatarID is the only thing the server knows about an icon id. It
@@ -46,15 +53,32 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
+// handleGetMe answers "who does this cookie say I am". It is the one identity
+// route open to a link guest, because it is the only way back from a browser
+// that has lost its local storage: the guest still holds a live cookie, but
+// without this it resolves as nobody, is dropped into the name gate, and is
+// then refused the POST that gate makes — a screen with no way out short of
+// re-opening the original link.
+//
+// Opening the read discloses nothing new. A link guest chose its own display
+// name at redemption and already holds the room id it was handed; the reply
+// carries that and its own avatar, and never the space, the space slug, another
+// member or another session — the same line internal/session.RedactForGuest
+// draws around the room envelope.
 func (a *app) handleGetMe(w http.ResponseWriter, r *http.Request) {
 	p, ok := PrincipalFrom(r.Context())
 	if !ok {
 		http.Error(w, `{"error":"not signed in"}`, http.StatusUnauthorized)
 		return
 	}
-	writeJSON(w, http.StatusOK, toMeResponse(store.User{
+	me := toMeResponse(store.User{
 		ID: p.UserID, Name: p.Display, AvatarIcon: p.AvatarIcon,
-	}))
+	})
+	if p.IsLinkGuest() {
+		me.LinkSessionID = p.LinkSessionID
+		me.LinkExpiresAt = p.TokenExpiresAt.UTC().Format(time.RFC3339)
+	}
+	writeJSON(w, http.StatusOK, me)
 }
 
 // handlePatchMeAvatar writes the caller's chosen avatar.

@@ -10,6 +10,16 @@ import { api, type Me } from "../lib/api";
 import { Landing } from "./Landing";
 
 const me: Me = { id: "marcus", name: "Marcus Okonjo", avatarHue: 40 };
+// A link guest: GET /api/me succeeds for them too, but linkSessionId is what
+// says "this is not a full account" — the space list and create must not
+// treat this the way they treat `me` above.
+const guestMe: Me = {
+  id: "guest-1",
+  name: "Guest",
+  avatarHue: 10,
+  linkSessionId: "room-session-1",
+  linkExpiresAt: "2099-01-01T00:00:00.000Z",
+};
 
 const navigate = vi.fn();
 vi.mock("react-router-dom", async () => {
@@ -31,6 +41,7 @@ vi.mock("../lib/api", async () => {
           signedIn = true;
           return me;
         }
+        if (asGuest) return guestMe;
         return signedIn ? me : null;
       }
       if (path === "/api/auth") return { mode: authMode };
@@ -49,6 +60,7 @@ vi.mock("../lib/api", async () => {
 });
 
 let signedIn = true;
+let asGuest = false;
 let authMode: "open" | "oidc" = "oidc";
 let createFails = false;
 let listFails = false;
@@ -80,6 +92,7 @@ const listCalls = () =>
 
 beforeEach(() => {
   signedIn = true;
+  asGuest = false;
   authMode = "oidc";
   createFails = false;
   listFails = false;
@@ -595,5 +608,46 @@ describe("Landing, a pending create raced by both paths", () => {
     expect(spaceCalls()).toEqual([
       ["POST", "/api/spaces", { name: "Platform Team" }],
     ]);
+  });
+});
+
+// GET /api/me now succeeds for a link guest as well as a full account, so
+// Landing must tell them apart itself instead of reading "me.data is truthy"
+// as "I have an account". Without that, a guest whose localStorage was
+// cleared and who wanders here from the logo sees a space list request the
+// server refuses ("Couldn't load your spaces") and a create button that
+// would fail the same way.
+describe("Landing, a link guest", () => {
+  beforeEach(() => {
+    asGuest = true;
+  });
+
+  it("does not ask for the space list as a link guest", async () => {
+    renderApp(<Landing />);
+
+    // Let the me query settle and, if the space list is (wrongly) enabled,
+    // let its fetch actually fire — that happens a render cycle after
+    // me.data lands, not in the same tick as the /api/me call itself.
+    await waitFor(() => expect(screen.getByText("Parley")).toBeTruthy());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(listCalls()).toHaveLength(0);
+    expect(screen.queryByText(/couldn't load your spaces/i)).toBeNull();
+  });
+
+  it("points a link guest back to their room instead of the space list", async () => {
+    renderApp(<Landing />);
+
+    const back = await screen.findByRole("link", { name: /back to your room/i });
+    expect(back.getAttribute("href")).toBe("/session/room-session-1");
+    expect(screen.queryByRole("list", { name: /your spaces/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /open a space|create a space/i })).toBeNull();
+  });
+
+  it("does not attempt to create a space as a link guest", async () => {
+    renderApp(<Landing />);
+
+    await waitFor(() => expect(screen.getByText("Parley")).toBeTruthy());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(spaceCalls()).toHaveLength(0);
   });
 });

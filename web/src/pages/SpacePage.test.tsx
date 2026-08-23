@@ -696,3 +696,57 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
   });
 });
+
+// `GET /api/me` now succeeds for a link guest too (they hold an identity, just
+// bound to a different room). Reusing that identity to join *this* space would
+// be treating "a successful /api/me" as "a full account" again, the same
+// mistake as the space list on Landing — so a guest here goes through the
+// name gate exactly like a signed-out visitor, never straight to a join.
+describe("SpacePage invite links, a link guest", () => {
+  const locked = { slug: "platform-team", name: "Platform Team", protected: true } as SpaceView;
+  const routed = (
+    <Routes>
+      <Route path="/s/:slug" element={<SpacePage />} />
+    </Routes>
+  );
+
+  const defaultApi = vi.mocked(api).getMockImplementation()!;
+
+  afterEach(() => {
+    view = space;
+    window.history.replaceState(null, "", "/");
+    sessionStorage.clear();
+    vi.mocked(api).mockImplementation(defaultApi);
+    vi.restoreAllMocks();
+  });
+
+  it("does not join with a guest identity bound to a different room", async () => {
+    view = locked;
+    vi.mocked(api).mockImplementation((async (_m: string, path: string) => {
+      if (path === "/api/me") {
+        return {
+          id: "guest-1",
+          name: "Guest",
+          avatarHue: 10,
+          linkSessionId: "some-other-session",
+          linkExpiresAt: "2099-01-01T00:00:00.000Z",
+        };
+      }
+      if (path === "/api/auth") return { mode: "open" };
+      if (path.startsWith("/api/spaces/")) return view;
+      throw new Error(`unexpected api call: ${path}`);
+    }) as typeof defaultApi);
+    window.history.replaceState(null, "", "/s/platform-team#c=TEAM49");
+    const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    renderApp(routed, { route: "/s/platform-team" });
+
+    // The gate comes up asking for a name, same as a signed-out visitor —
+    // never straight into a join under the guest's identity.
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+    expect(
+      (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
+        .slice(before)
+        .filter(([, path]) => path === "/api/spaces/platform-team/join"),
+    ).toHaveLength(0);
+  });
+});

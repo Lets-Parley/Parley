@@ -21,9 +21,10 @@ type linkRouteExpectation struct {
 // new route is therefore not mergeable until somebody has decided what a link
 // guest may do with it.
 //
-// The rule the table encodes: participate actions and reading the bound room,
-// nothing else. Everything a link guest is refused answers 401, 403 or 404 —
-// never 200 with less data, because a partial answer is still an answer.
+// The rule the table encodes: participate actions, reading the bound room, and
+// reading its own identity — nothing else. Everything a link guest is refused
+// answers 401, 403 or 404 — never 200 with less data, because a partial answer
+// is still an answer.
 var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// Infrastructure, identical for everyone and carrying nothing about any
 	// room. These are the only non-4xx entries outside the bound session.
@@ -43,11 +44,14 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// wider one. With no token in the body it is simply a bad request.
 	"POST /api/links/redeem": {status: http.StatusBadRequest},
 
-	// Identity. A link guest holds an identity it did not choose and may not
-	// reshape: renaming itself is the escalation that would let it wear the
-	// facilitator's name on the roster.
+	// Identity. A link guest may read its own — that is how a browser with no
+	// local storage finds its way back into the room — but may not reshape it:
+	// renaming itself is the escalation that would let it wear the
+	// facilitator's name on the roster. The read carries only the guest's own
+	// name, avatar and bound room; TestLinkGuestCanReadOwnIdentity pins the
+	// field list so it stays that way.
 	"POST /api/me":         {status: http.StatusForbidden},
-	"GET /api/me":          {status: http.StatusForbidden},
+	"GET /api/me":          {status: http.StatusOK},
 	"DELETE /api/me":       {status: http.StatusForbidden},
 	"PATCH /api/me/avatar": {status: http.StatusForbidden},
 

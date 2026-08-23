@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Person, type SessionSummary, type SpaceRole, type SpaceView } from "../lib/api";
 import { useAuthMode, useMe, NameGate } from "../components/NameGate";
+import { isFullAccount } from "../lib/links";
 import { AppShell, Logo } from "../components/AppShell";
 import { KindChip } from "../components/KindChip";
 import { EmptyTable } from "./PokerRoom";
@@ -170,7 +171,10 @@ export function SpacePage() {
     // pick a name again because their session hadn't arrived yet is worse than
     // a moment's wait.
     if (me.isLoading) return;
-    if (!me.data) {
+    // A link guest is bound to one other room, not to this space — treated as
+    // "no identity here" the same as a signed-out visitor, so joining goes
+    // through the name gate rather than silently reusing that identity.
+    if (!isFullAccount(me.data)) {
       setPending(passcode ?? "");
       // Open mode's gate is a modal: this component stays mounted and the
       // state above survives, so nothing is written anywhere. Only the

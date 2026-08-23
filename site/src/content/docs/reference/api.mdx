@@ -62,7 +62,7 @@ reject them. Their own protection is the `state` value in the sign-in cookie.
 
 <RouteTable rows={[
   { method: "GET", path: "/api/auth", auth: "public", purpose: "Report which auth mode this instance runs — open or oidc. The frontend uses it to pick a sign-in path." },
-  { method: "GET", path: "/api/me", auth: "session", purpose: "Current identity: id, name, avatar hue and chosen avatar icon." },
+  { method: "GET", path: "/api/me", auth: "session", purpose: "Current identity: id, name, avatar hue and chosen avatar icon. For a link guest it also carries linkSessionId and linkExpiresAt, and it is the one identity route a link guest may call." },
   { method: "POST", path: "/api/me", auth: "public", purpose: "Create or rename an anonymous identity, rotating the session token. Refused with 403 in oidc mode." },
   { method: "PATCH", path: "/api/me/avatar", auth: "session", purpose: "Set the caller's chosen avatar. Permitted in both auth modes." },
   { method: "DELETE", path: "/api/me", auth: "session", purpose: "Sign out. Deletes the token, synchronously closes its WebSockets with code 1008, and clears the cookie." },
