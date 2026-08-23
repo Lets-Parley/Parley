@@ -232,6 +232,26 @@ describe("StandupRoom turn accessibility", () => {
     expect(announcer().textContent).toBe("Marcus Okonjo is speaking now, 2 of 3.");
   });
 
+  it("names a guest speaker with a text tell, matching the plain member's name elsewhere", () => {
+    // A guest may redeem under any display name, a member's included, and the
+    // seat's visual " · guest" mark has no screen-reader equivalent unless the
+    // announcement spells it out too. The existing "announces a turn change"
+    // test above already covers a plain member's name staying unmarked.
+    renderApp(
+      <StandupRoom
+        env={envelope({
+          participants: [
+            makePerson({ userId: "dana", name: "Dana Whitfield", guest: true }),
+            makePerson({ userId: "marcus", name: "Marcus Okonjo" }),
+            makePerson({ userId: "priya", name: "Priya Raman" }),
+          ],
+        })}
+        me={me}
+      />,
+    );
+    expect(announcer().textContent).toBe("Dana Whitfield (guest) is speaking now, 1 of 3.");
+  });
+
   it("announces the end of the session", () => {
     renderApp(
       <StandupRoom env={envelope({ phase: "done", state: standupState(null) })} me={me} />,
