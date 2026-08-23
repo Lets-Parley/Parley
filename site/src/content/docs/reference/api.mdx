@@ -163,10 +163,12 @@ This is the only `/api` route open to a caller with no identity that is not
 **What redemption grants.** An ordinary `users` row flagged link-bound, and
 nothing but participate access to the one room the link names:
 `GET /api/sessions/{id}` and the session actions that are not
-facilitator-only. Every other route answers 401, 403 or 404 — the identity
-routes, the space view, the CSV export, the facilitator controls, and the link
-routes themselves. A link grants no space membership and no sight of any other
-room.
+facilitator-only — which today means poker. A standup's actions are driven by
+space membership a link guest does not have, so a guest redeemed into a standup
+room can watch it but cannot take a turn. Every other route answers 401, 403 or
+404 — the identity routes, the space view, the CSV export, the facilitator
+controls, and the link routes themselves. A link grants no space membership and
+no sight of any other room.
 
 **When it ends.** The link's expiry (24 hours) lives on the minted session
 token, so the socket is severed mid-session when it lapses. Revoking the link
