@@ -93,6 +93,20 @@ sit at.
 - **Session history**, searchable by title and filterable by kind, with a
   most-recent / active-first / A–Z sort.
 
+### Guest links
+
+- **One link, one room, one day.** A facilitator mints a guest link and hands it
+  to a contractor or somebody from another team. They type a name and sit down
+  at that table — no account, no space membership, and no sight of anything
+  else the instance holds. It expires in 24 hours and can be redeemed 25 times.
+- **The URL is the credential**, so share it the way you would share a
+  password. The token rides in the URL fragment, which never reaches the server
+  or a `Referer` header, and Parley wipes it from the address bar on arrival.
+- **Revoke means gone.** Revoking a link closes the sockets of everyone who
+  already redeemed it, on the spot. Their votes stay in the meeting they took
+  part in. Guests can vote in a poker room; standup participation is not there
+  yet.
+
 ### Everything else
 
 - **No accounts, or your accounts.** A name and a cookie by default; point

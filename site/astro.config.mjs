@@ -64,6 +64,7 @@ export default defineConfig({
             "features/planning-poker",
             "features/daily-standup",
             "features/spaces-and-room-codes",
+            "features/guest-links",
             "features/exports",
             "features/themes",
           ],
