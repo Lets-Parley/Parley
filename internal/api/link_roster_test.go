@@ -108,3 +108,88 @@ func TestCSVKeepsAGuestNameAfterTheLinkDies(t *testing.T) {
 		t.Fatalf("export after expiry lost the guest's name:\n%s", body)
 	}
 }
+
+// TestLiveRosterDropsAGuestWhenTheLinkDies is the mirror of
+// TestCSVKeepsAGuestNameAfterTheLinkDies on the live path: BuildEnvelope
+// unions in only unrevoked, unexpired links (AC 1 of #295), so once a link
+// is revoked or expired the guest it seated must disappear from
+// GET /api/sessions/{id}'s participants, even though the same name stays in
+// the CSV forever.
+func TestLiveRosterDropsAGuestWhenTheLinkDies(t *testing.T) {
+	srv := testServer(t)
+	fac, id, _ := mintAndRedeem(t, srv, "Guest Live Roster Space")
+
+	_, facEnv := doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	if got := participantNames(t, facEnv); !slices.Contains(got, "Gus") {
+		t.Fatalf("participants = %v, want Gus seated while the link is live", got)
+	}
+
+	_, list := doJSON(t, srv, "GET", "/api/sessions/"+id+"/links", "", fac)
+	linkID := list["links"].([]any)[0].(map[string]any)["id"].(string)
+	if resp, _ := doJSON(t, srv, "DELETE", "/api/sessions/"+id+"/links/"+linkID, "", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("revoke: got %d, want 204", resp.StatusCode)
+	}
+	_, facEnv = doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	if got := participantNames(t, facEnv); slices.Contains(got, "Gus") {
+		t.Fatalf("participants = %v, want Gus gone after revocation", got)
+	}
+
+	// Mint a second link, seat a second guest, then let it expire rather
+	// than revoking it — revoked and expired are separate terms in the
+	// predicate, so a test for one does not pin the other.
+	_, minted := mintLink(t, srv, id, fac)
+	token, _ := minted["token"].(string)
+	if token == "" {
+		t.Fatalf("mint returned no token: %v", minted)
+	}
+	redeemAs(t, srv, token, "Elle")
+	_, facEnv = doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	if got := participantNames(t, facEnv); !slices.Contains(got, "Elle") {
+		t.Fatalf("participants = %v, want Elle seated while her link is live", got)
+	}
+
+	_, list = doJSON(t, srv, "GET", "/api/sessions/"+id+"/links", "", fac)
+	var elleLinkID string
+	for _, l := range list["links"].([]any) {
+		m := l.(map[string]any)
+		if m["id"].(string) != linkID {
+			elleLinkID = m["id"].(string)
+		}
+	}
+	if elleLinkID == "" {
+		t.Fatalf("could not find Elle's link among: %v", list)
+	}
+	if _, err := testDBPool(t).Exec(context.Background(),
+		"update session_links set expires_at = now() - interval '1 day' where id = $1", elleLinkID); err != nil {
+		t.Fatal(err)
+	}
+	_, facEnv = doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	if got := participantNames(t, facEnv); slices.Contains(got, "Elle") {
+		t.Fatalf("participants = %v, want Elle gone after her link expired", got)
+	}
+}
+
+// TestLinkRosterIsScopedToItsOwnSession pins the session_id binding in the
+// guest half of roster()'s union: a guest bound to one session in a space
+// must never appear in a different session's roster in the same space, even
+// though both sessions share the same space_id.
+func TestLinkRosterIsScopedToItsOwnSession(t *testing.T) {
+	srv := testServer(t)
+	fac, slug, sessionA, _ := mintAndRedeemIn(t, srv, "Roster Scope Space")
+
+	resp, sessB := createSession(t, srv, slug, "poker", "Second Meeting", fac)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create second session: %d %v", resp.StatusCode, sessB)
+	}
+	sessionBID := sessB["id"].(string)
+
+	_, envA := doJSON(t, srv, "GET", "/api/sessions/"+sessionA, "", fac)
+	if got := participantNames(t, envA); !slices.Equal(got, []string{"Fay", "Gus"}) {
+		t.Fatalf("session A participants = %v, want [Fay Gus]", got)
+	}
+
+	_, envB := doJSON(t, srv, "GET", "/api/sessions/"+sessionBID, "", fac)
+	if got := participantNames(t, envB); !slices.Equal(got, []string{"Fay"}) {
+		t.Fatalf("session B participants = %v, want just [Fay]: a guest bound to session A must not leak into session B's roster", got)
+	}
+}
