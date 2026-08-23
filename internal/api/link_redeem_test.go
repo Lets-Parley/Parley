@@ -307,3 +307,83 @@ func TestLinkGuestSurvivesTheMembershipRevalidator(t *testing.T) {
 		}
 	}
 }
+
+// TestLinkGuestCannotReachAnUnboundRoom pins the binding itself: a link names
+// one room, and every other room answers a link guest exactly as it answers a
+// stranger. The route table only ever walks the bound room, so without this the
+// binding check could be deleted and the suite would stay green.
+func TestLinkGuestCannotReachAnUnboundRoom(t *testing.T) {
+	srv := testServer(t)
+	_, _, guest := mintAndRedeem(t, srv, "Bound Space")
+	otherFac, _, otherID := setupSession(t, srv, "Other Space")
+
+	if resp, body := doJSON(t, srv, "GET", "/api/sessions/"+otherID, "", guest); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("guest read of an unbound room: got %d, want 404 (%v)", resp.StatusCode, body)
+	}
+	// Participating is the other route a link guest gets a 2xx on, so it needs
+	// the same answer: a real story is selected first so that a refusal cannot
+	// be mistaken for "there was nothing to vote on".
+	story := addStory(t, srv, otherID, "Story", otherFac)
+	selectStory(t, srv, otherID, story, otherFac)
+	if resp, body := doJSON(t, srv, "POST", "/api/sessions/"+otherID+"/actions/vote",
+		`{"storyId":"`+story+`","value":"5"}`, guest); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("guest vote in an unbound room: got %d, want 404 (%v)", resp.StatusCode, body)
+	}
+}
+
+// TestLinkGuestCannotOpenASocketToAnUnboundRoom is the same property on the
+// handshake, which carries the room in a query parameter rather than the path
+// and so has its own copy of the check.
+func TestLinkGuestCannotOpenASocketToAnUnboundRoom(t *testing.T) {
+	srv := testServerWith(t, testPool(t), Options{AllowedOrigin: testOrigin})
+	_, _, guest := mintAndRedeem(t, srv, "Bound Socket Space")
+	_, _, otherID := setupSession(t, srv, "Other Socket Space")
+
+	ws, resp, err := dialWS(t, srv, otherID, guest, testOrigin)
+	if err == nil {
+		ws.Close()
+		t.Fatal("link guest opened a socket to an unbound room")
+	}
+	if resp == nil || resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unbound-room dial = %v (resp %v), want a 404 handshake refusal", err, resp)
+	}
+}
+
+// TestRedeemedTokenExpiresWithTheLink pins the value the whole severance design
+// rests on. There is no sweeper and no second timer: the guest's token is given
+// the link's own expiry at redemption, and that is the only reason an expired
+// link takes its guest offline mid-session. Hand the token the ordinary idle
+// window instead and nothing else in the suite notices.
+func TestRedeemedTokenExpiresWithTheLink(t *testing.T) {
+	srv := testServer(t)
+	fac, _, id := setupSession(t, srv, "Token Expiry Space")
+	_, minted := mintLink(t, srv, id, fac)
+	token, _ := minted["token"].(string)
+	resp, body, guest := redeem(t, srv, token, "Gus")
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("redeem: got %d, want 201 (%v)", resp.StatusCode, body)
+	}
+
+	linkExpiry, err := time.Parse(time.RFC3339Nano, body["expiresAt"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := store.HashToken(guest.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tokenExpiry time.Time
+	if err := testDBPool(t).QueryRow(context.Background(),
+		"select expires_at from session_tokens where token_hash = $1", hash).Scan(&tokenExpiry); err != nil {
+		t.Fatal(err)
+	}
+	if drift := tokenExpiry.Sub(linkExpiry); drift > time.Second || drift < -time.Second {
+		t.Fatalf("token expires_at = %s, want the link's %s (drift %s)", tokenExpiry, linkExpiry, drift)
+	}
+
+	// And the cookie is cut to the same cloth, so the browser forgets it when
+	// the link dies rather than carrying a stale credential for three months.
+	if want := int(store.LinkLifetime.Seconds()); guest.MaxAge > want || guest.MaxAge < want-60 {
+		t.Fatalf("cookie MaxAge = %d, want roughly the link lifetime %d", guest.MaxAge, want)
+	}
+}
