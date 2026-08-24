@@ -1,10 +1,20 @@
 import { type ReactNode, useEffect, useId, useRef } from "react";
 
 /**
+ * Whether a pointer event landed outside the dialog's own box. A click on the
+ * backdrop is dispatched at the <dialog> element itself, so the target alone
+ * cannot tell the backdrop from the dialog's padding — the coordinates can.
+ */
+function onBackdrop(el: HTMLDialogElement, e: { clientX: number; clientY: number }) {
+  const r = el.getBoundingClientRect();
+  return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+}
+
+/**
  * A native <dialog>: focus trapping, Escape-to-close and inertness of the rest
- * of the page all come from the platform. Backdrop-click-to-close is
- * deliberately not re-implemented — <dialog> does not offer it, and Escape plus
- * the ✕ are two dismissals already.
+ * of the page all come from the platform. Backdrop-click-to-close is the one
+ * dismissal <dialog> does not offer, so it is added here — people expect the
+ * dim area to be dead space they can click out through.
  */
 export function Modal({
   title,
@@ -19,6 +29,9 @@ export function Modal({
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const opener = useRef<HTMLElement | null>(null);
+  /* The press must have started on the backdrop too: a drag-select that begins
+     in a field and ends past the edge is not a dismissal. */
+  const pressedBackdrop = useRef(false);
   const titleId = useId();
   useEffect(() => {
     const active = document.activeElement as HTMLElement | null;
@@ -53,6 +66,13 @@ export function Modal({
       onCancel={(e) => {
         e.preventDefault();
         if (onClose) e.currentTarget.close();
+      }}
+      onMouseDown={(e) => {
+        pressedBackdrop.current = e.target === e.currentTarget && onBackdrop(e.currentTarget, e);
+      }}
+      onClick={(e) => {
+        if (!onClose || !pressedBackdrop.current) return;
+        if (e.target === e.currentTarget && onBackdrop(e.currentTarget, e)) onClose();
       }}
       aria-labelledby={titleId}
       className="relative m-auto rounded-panel border border-line bg-surface p-6 text-ink shadow-lift backdrop:bg-card-back/40 backdrop:backdrop-blur-[4px]"
