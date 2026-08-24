@@ -147,7 +147,7 @@ existence is never disclosed.
 ## Redeeming a signed link
 
 <RouteTable rows={[
-  { method: "POST", path: "/api/links/redeem", auth: "public", purpose: "Trade a link token for a guest identity in the one room it names: {token, name}. 201 with {sessionId, expiresAt, me} and a session cookie that expires with the link." },
+  { method: "POST", path: "/api/links/redeem", auth: "public", purpose: "Trade a link token for a guest identity in the one room it names: {token, name}. 201 with {sessionId, expiresAt, me} and a session-scoped cookie: the browser drops it when the browsing session ends, and the token behind it expires with the link." },
 ]} />
 
 This is the only `/api` route open to a caller with no identity that is not
@@ -155,7 +155,7 @@ This is the only `/api` route open to a caller with no identity that is not
 
 | Status | Meaning |
 |---|---|
-| 201 | Redeemed. The cookie's token expires exactly when the link does. |
+| 201 | Redeemed. The cookie carries no `Max-Age`, so closing the tab ends the seat; its token expires exactly when the link does. |
 | 400 | `name` is missing or longer than 64 characters. |
 | 404 | The link is wrong, expired, revoked, or has been redeemed its maximum number of times — the four are one answer, and the reply never repeats the submitted token back. |
 | 429 | Either 8 wrong tokens from this address in 60s, or the hourly identity-creation limit. |

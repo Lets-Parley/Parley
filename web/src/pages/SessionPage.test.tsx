@@ -76,6 +76,7 @@ beforeEach(() => {
   mockState = envelope.state;
   apiMeResponse = me;
   localStorage.clear();
+  sessionStorage.clear();
 });
 
 describe("SessionPage wiring", () => {
@@ -144,7 +145,7 @@ describe.each([
   beforeEach(() => {
     mockKind = kind;
     mockState = state;
-    localStorage.setItem(
+    sessionStorage.setItem(
       "parley.link-guest",
       JSON.stringify({
         sessionId: "sess-1",
@@ -211,10 +212,10 @@ describe.each([
       ).toBe(true),
     );
     // A dead link, not a seat — and the cached identity goes with it, so a
-    // reload cannot paint the room back from local storage.
+    // reload cannot paint the room back from session storage.
     expect(await screen.findByText(/no seat at this table/i)).toBeTruthy();
     expect(screen.queryByTestId("link-guest-banner")).toBe(null);
-    expect(localStorage.getItem("parley.link-guest")).toBe(null);
+    expect(sessionStorage.getItem("parley.link-guest")).toBe(null);
   });
 
   it("never asks the space route it is refused", async () => {
@@ -248,6 +249,7 @@ describe("SessionPage for a link guest whose storage was cleared", () => {
   beforeEach(() => {
     // Nothing remembered — exactly what a cleared browser looks like.
     localStorage.clear();
+    sessionStorage.clear();
     apiMeResponse = linkMe;
   });
 
@@ -287,10 +289,10 @@ describe("SessionPage for a link guest whose storage was cleared", () => {
       ).toBe(true),
     );
     // A dead link, not a seat — and the cached identity goes with it, so a
-    // reload cannot paint the room back from local storage.
+    // reload cannot paint the room back from session storage.
     expect(await screen.findByText(/no seat at this table/i)).toBeTruthy();
     expect(screen.queryByTestId("link-guest-banner")).toBe(null);
-    expect(localStorage.getItem("parley.link-guest")).toBe(null);
+    expect(sessionStorage.getItem("parley.link-guest")).toBe(null);
   });
 
   it("never asks the space route it is refused", async () => {

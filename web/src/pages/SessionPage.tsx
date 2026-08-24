@@ -14,10 +14,10 @@ export function SessionPage() {
   const { id = "" } = useParams();
   const qc = useQueryClient();
   // A link guest's name and hue come from the redemption it already did, kept
-  // in local storage. Read once: the room must not change identity under a
+  // in session storage. Read once: the room must not change identity under a
   // re-render.
   const [stored] = useState(() => linkGuestFor(id));
-  // Local storage is a cache, not the identity — a private window, a cleared
+  // Session storage is a cache, not the identity — a private window, a cleared
   // site or a second device has none of it, and the cookie is still perfectly
   // good. GET /api/me is open to a link principal for exactly this: without it
   // that guest resolves as nobody and lands in a name gate whose POST the
@@ -28,10 +28,11 @@ export function SessionPage() {
     (me.data?.linkSessionId === id
       ? { sessionId: id, me: me.data, expiresAt: me.data.linkExpiresAt ?? "" }
       : null);
-  // A guest link is aimed at someone outside the team, often on a borrowed or
-  // shared machine, and closing the tab leaves the HttpOnly cookie valid for
-  // the rest of the link's life. Leaving spends it on purpose. What the guest
-  // already said — votes, standup entries, CSV attribution — stays in the room.
+  // Closing the tab already ends the seat: the guest's cookie is session-scoped
+  // and its cached identity lives in session storage. Leaving is the deliberate
+  // version — it deletes the token server-side too, so the seat ends even in a
+  // browser that restores its last session. What the guest already said —
+  // votes, standup entries, CSV attribution — stays in the room.
   const [left, setLeft] = useState(false);
   const session = useSession(id, !left);
   const slug = session.data?.spaceSlug;
