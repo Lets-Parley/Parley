@@ -289,3 +289,31 @@ func TestLinkGuestSeesItsOwnSeatWithNoSocket(t *testing.T) {
 		t.Fatalf("participants = %v, want an absent member still hidden from a guest", got)
 	}
 }
+
+// TestGuestSocketSeesItselfInItsFirstFrame pins the identity the websocket
+// handler hands to RedactForGuest. The initial envelope is built and redacted
+// before the socket is attached, so the guest has no presence row yet: the
+// only thing keeping it on its own roster is that the call site passes the
+// guest's own id. Pass anything else — the facilitator's id, a room id — and
+// the guest is redacted out of its own first frame.
+//
+// No other test catches this, because every other guest socket registers
+// presence before anything is asserted, which masks the argument entirely.
+func TestGuestSocketSeesItselfInItsFirstFrame(t *testing.T) {
+	srv := testServer(t)
+	_, id, guest := mintAndRedeem(t, srv, "Guest First Frame Space")
+
+	ws, _, err := dialWS(t, srv, id, guest, testOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+	env, ok := readEnvelope(t, ws, 3*time.Second)
+	if !ok {
+		t.Fatal("no initial frame")
+	}
+	if got := participantNames(t, env); !slices.Contains(got, "Gus") {
+		t.Fatalf("guest's first frame participants = %v, want it to contain the guest itself; "+
+			"the websocket call site is redacting with the wrong identity", got)
+	}
+}
