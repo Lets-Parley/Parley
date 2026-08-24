@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"net/http"
-	"time"
 
 	"github.com/lets-parley/parley/internal/principal"
 	"github.com/lets-parley/parley/internal/store"
@@ -90,10 +89,17 @@ func rejectLinkPrincipal(next http.Handler) http.Handler {
 	})
 }
 
-// setLinkSessionCookie is the ordinary session cookie with the link's own
-// expiry: the browser drops it when the link dies, and the token behind it
-// stops resolving at the same moment whatever the browser does.
-func setLinkSessionCookie(w http.ResponseWriter, value string, secure bool, expiresAt time.Time) {
+// setLinkSessionCookie is the ordinary session cookie with no lifetime at all:
+// no Max-Age and no Expires, so the browser drops it when the browsing session
+// ends. A guest link is aimed at someone outside the team, often on a borrowed
+// or shared machine, and closing the tab should drop the seat rather than leave
+// a live credential for the next person to inherit.
+//
+// A refresh, or navigating away and back mid-meeting, is unaffected: a session
+// cookie survives every navigation inside the browsing session. The token
+// behind it still carries the link's own expiry, so the seat also ends when the
+// link does, whatever the browser decides to keep.
+func setLinkSessionCookie(w http.ResponseWriter, value string, secure bool) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
 		Value:    value,
@@ -101,7 +107,6 @@ func setLinkSessionCookie(w http.ResponseWriter, value string, secure bool, expi
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 		Secure:   secure,
-		MaxAge:   max(1, int(time.Until(expiresAt).Seconds())),
 	})
 }
 

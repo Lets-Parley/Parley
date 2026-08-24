@@ -204,3 +204,29 @@ func TestRejectedMembershipWithNoSnapshotIsStillTornDown(t *testing.T) {
 		t.Fatal("AttachAuthenticated did not return")
 	}
 }
+
+// TestBroadcastBeforeTheInitialFrameIsNotDelivered pins the window between
+// registration and the presence write. The shared guest payload a broadcast
+// carries is redacted with no self id, so a link guest served one before its
+// presence row exists is told it is not in the room it is in. The seam is the
+// presence callback itself, which fires inside the window: a broadcast made
+// there must not reach a connection still waiting for its snapshot. Nothing is
+// lost by dropping it — the initial frame is delivered afterwards and would
+// have overwritten it anyway.
+func TestBroadcastBeforeTheInitialFrameIsNotDelivered(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	h.OnFacilitatorSeen = func(sessionID, _ string) {
+		h.BroadcastGuest(sessionID, []byte("full"), []byte("guest-without-self"))
+	}
+
+	ws, _ := attachWithInitial(t, h, []byte("snapshot"), SessionAuth{Guest: true})
+	ws.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_, msg, err := ws.ReadMessage()
+	if err != nil {
+		t.Fatalf("reading the first frame: %v", err)
+	}
+	if string(msg) != "snapshot" {
+		t.Fatalf("first frame = %q, want snapshot: a guest was broadcast a roster built before its presence row existed, which omits its own seat", msg)
+	}
+}

@@ -196,7 +196,12 @@ migration and embedding mistakes that unit tests miss.
     comes before the frame, so a client holding its first state frame may
     assume its own presence row exists. `Envelope.RedactForGuest`
     filters participants to presence ∪ facilitator, so reordering those two turns
-    every guest-visibility assertion into a coin flip.
+    every guest-visibility assertion into a coin flip. A registered connection
+    is not a broadcast recipient until that first frame has been delivered:
+    broadcasts carry one shared guest payload redacted with no self id, so one
+    fired inside that window would tell a link guest it is not in its own room.
+    Dropping those frames loses nothing, because the initial frame lands after
+    them and would have overwritten them.
 16. Dependabot watches only `site/`. Go modules and `web/` dependencies are
     bumped by hand, with tests.
 

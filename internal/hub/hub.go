@@ -62,10 +62,18 @@ type Conn struct {
 	// (or about to reject), and a pong landing in that window must not write
 	// a presence row for a principal that is about to be torn down.
 	membershipConfirmed atomic.Bool
-	removed             atomic.Bool
-	stop                chan struct{}
-	writerDone          chan struct{}
-	writeMessage        func(messageType int, data []byte) error
+	// broadcastReady flips true once this connection has been handed its
+	// initial frame. Until then it is registered — so teardown and presence
+	// bookkeeping see it — but broadcasts skip it: the shared guest payload
+	// they carry is redacted with no self id, and before the presence write
+	// that leaves a link guest looking at a roster without its own seat.
+	// Dropping those frames costs nothing, since the initial frame lands
+	// afterwards and would have overwritten them.
+	broadcastReady atomic.Bool
+	removed        atomic.Bool
+	stop           chan struct{}
+	writerDone     chan struct{}
+	writeMessage   func(messageType int, data []byte) error
 }
 
 func (c *Conn) Close() {
@@ -220,6 +228,9 @@ func (h *Hub) run() {
 			close(e.done)
 		case broadcastEvent:
 			for c := range h.rooms[e.sessionID] {
+				if !c.broadcastReady.Load() {
+					continue
+				}
 				msg := e.msg
 				if c.guest {
 					msg = e.guestMsg
@@ -335,6 +346,7 @@ func (h *Hub) run() {
 				continue
 			}
 			h.deliver(e.conn, e.initial)
+			e.conn.broadcastReady.Store(true)
 		case expiryEvent:
 			if h.registered(e.conn) && e.conn.expiresAt.Equal(e.expiresAt) {
 				if h.ValidateSession != nil {
@@ -525,6 +537,9 @@ func (h *Hub) AttachAuthenticated(ws *websocket.Conn, sessionID, userID string, 
 // that reaches here still had access after registration.
 func (h *Hub) releaseInitial(c *Conn, initial []byte) {
 	if initial == nil {
+		// Nothing to wait for: a connection with no snapshot coming would
+		// otherwise never become a broadcast recipient.
+		c.broadcastReady.Store(true)
 		return
 	}
 	h.submit(initialStateEvent{conn: c, initial: initial})

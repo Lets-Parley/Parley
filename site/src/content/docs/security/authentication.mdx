@@ -88,7 +88,7 @@ on the roadmap.
   { name: "HttpOnly", value: "yes", note: "" },
   { name: "SameSite", value: "Lax", note: "Part of the cross-site request defence" },
   { name: "Secure", value: "when BASE_URL is https", note: "This is why BASE_URL must be right" },
-  { name: "Max-Age", value: "90 days", note: "Fixed from issue — see below" },
+  { name: "Max-Age", value: "90 days", note: "Fixed from issue — see below. A guest-link session gets no Max-Age at all: see below" },
 ]} />
 
 <SpecTable caption="parley_signin — the sign-in flow cookie, oidc mode only" rows={[
@@ -129,6 +129,21 @@ worth stating precisely:
   count as activity.
 - **Browser side**, the cookie is written with a **fixed 90-day `Max-Age` from
   the moment it was issued**, and it is never rewritten on subsequent requests.
+
+A [guest link](/features/guest-links/) session is the deliberate exception. Its
+cookie carries **no `Max-Age` and no `Expires`**, so it is a session cookie: the
+browser drops it when the browsing session ends. Closing the tab ends the seat
+with no click required, which is the point of a credential aimed at a
+contractor or stakeholder on a borrowed machine. A refresh, or navigating away
+and back mid-meeting, keeps the guest seated — a session cookie survives every
+navigation inside the browsing session — and the token behind it still carries
+the link's own 24-hour expiry, so the seat also ends when the link does.
+
+The one thing that outlives the tab is a browser told to restore its last
+session: "continue where you left off" restores session cookies along with the
+tabs. **Leave room** deletes the token server-side and is proof against that;
+so is revoking the link. This is recorded under
+[known limitations](/known-limitations/).
 
 The browser is therefore the binding constraint. Somebody who uses Parley every
 single day is **still signed out 90 days after signing in**, because the cookie

@@ -130,6 +130,21 @@ redeemed the same link is affected, and coming back means a fresh link.
 Leaving keeps the same promise revocation does, below: votes, standup entries
 and CSV attribution all survive it.
 
+Closing the tab does most of that on its own, without the guest clicking
+anything. A guest's cookie is a **session cookie** — no `Max-Age`, no
+`Expires` — so the browser drops it when the browsing session ends, and the
+name and hue the room paints with are held in `sessionStorage`, which the tab
+takes with it. The next person on that machine opens Parley as nobody. A
+refresh is untouched: both survive every navigation inside the browsing
+session, so a guest who reloads, or navigates away and comes back mid-meeting,
+is still seated.
+
+One case survives a closed tab: a browser configured to restore its last
+session — "continue where you left off" — restores session cookies with the
+tabs, so a guest whose whole browser is reopened that way can still be seated
+until the link expires. **Leave room** and **Revoke** both delete the token
+server-side and are proof against it.
+
 What revocation does **not** do is unpick the meeting. The guest's user row
 stays, and so do their votes and their standup entries — they belong to the
 session that happened, and to any CSV exported from it afterwards.
