@@ -44,22 +44,28 @@ type Conn struct {
 	SpaceID   string
 	// guest marks a connection held by a link guest, which is served the
 	// redacted copy of every broadcast.
-	guest        bool
-	ws           *websocket.Conn
-	send         chan []byte
-	hub          *Hub
-	tokenID      string
-	expiresAt    time.Time
-	closeCode    atomic.Int32
-	ctx          context.Context
-	cancel       context.CancelFunc
-	expiry       *time.Timer
-	writeState   atomic.Uint32
-	authState    atomic.Uint32
-	removed      atomic.Bool
-	stop         chan struct{}
-	writerDone   chan struct{}
-	writeMessage func(messageType int, data []byte) error
+	guest      bool
+	ws         *websocket.Conn
+	send       chan []byte
+	hub        *Hub
+	tokenID    string
+	expiresAt  time.Time
+	closeCode  atomic.Int32
+	ctx        context.Context
+	cancel     context.CancelFunc
+	expiry     *time.Timer
+	writeState atomic.Uint32
+	authState  atomic.Uint32
+	// membershipConfirmed flips true once confirmMembership has cleared this
+	// connection, which is the pong handler's real precondition: authState
+	// alone can be authAccepted while confirmMembership is still in flight
+	// (or about to reject), and a pong landing in that window must not write
+	// a presence row for a principal that is about to be torn down.
+	membershipConfirmed atomic.Bool
+	removed             atomic.Bool
+	stop                chan struct{}
+	writerDone          chan struct{}
+	writeMessage        func(messageType int, data []byte) error
 }
 
 func (c *Conn) Close() {
@@ -506,6 +512,7 @@ func (h *Hub) AttachAuthenticated(ws *websocket.Conn, sessionID, userID string, 
 	if !h.confirmMembership(c) {
 		return
 	}
+	c.membershipConfirmed.Store(true)
 	if h.OnFacilitatorSeen != nil {
 		h.OnFacilitatorSeen(sessionID, userID)
 	}
@@ -695,7 +702,7 @@ func (h *Hub) reader(c *Conn) {
 	c.ws.SetReadDeadline(time.Now().Add(pongDeadline))
 	c.ws.SetPongHandler(func(string) error {
 		c.ws.SetReadDeadline(time.Now().Add(pongDeadline))
-		if c.authState.Load() == authAccepted && h.OnFacilitatorSeen != nil {
+		if c.authState.Load() == authAccepted && c.membershipConfirmed.Load() && h.OnFacilitatorSeen != nil {
 			h.track(func() { h.OnFacilitatorSeen(c.SessionID, c.UserID) })
 		}
 		return nil

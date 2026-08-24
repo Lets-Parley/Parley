@@ -125,6 +125,60 @@ func TestRejectedMembershipRecordsNoPresence(t *testing.T) {
 	}
 }
 
+// TestPongDuringMembershipConfirmationRecordsNoPresence pins the window
+// between the auth-state flip and confirmMembership returning: authState is
+// already authAccepted there, but the connection has not yet cleared the
+// membership re-check. A pong landing in that window must not call
+// OnFacilitatorSeen — that write would put a principal about to be rejected
+// back into the roster, exactly what this PR's reordering is meant to
+// prevent.
+func TestPongDuringMembershipConfirmationRecordsNoPresence(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	confirmStarted := make(chan struct{})
+	releaseConfirm := make(chan struct{})
+	var seenCount atomic.Int32
+	h.OnFacilitatorSeen = func(string, string) { seenCount.Add(1) }
+	h.ValidateMembership = func(context.Context, string, string, string) (bool, error) {
+		close(confirmStarted)
+		<-releaseConfirm
+		return true, nil
+	}
+
+	ws, attached := attachWithInitial(t, h, []byte("snapshot"), SessionAuth{SpaceID: "space"})
+	select {
+	case <-confirmStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("confirmMembership did not start")
+	}
+
+	if err := ws.WriteControl(websocket.PongMessage, []byte("mid-confirm"), time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	// Give the reader goroutine a chance to run the pong handler while
+	// confirmMembership is still blocked.
+	time.Sleep(50 * time.Millisecond)
+	if n := seenCount.Load(); n != 0 {
+		t.Fatalf("OnFacilitatorSeen fired %d time(s) from a pong that landed before membership was confirmed", n)
+	}
+
+	close(releaseConfirm)
+	select {
+	case <-attached:
+	case <-time.After(3 * time.Second):
+		t.Fatal("AttachAuthenticated did not return")
+	}
+	ws.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, msg, err := ws.ReadMessage(); err != nil {
+		t.Fatalf("reading the initial frame: %v", err)
+	} else if string(msg) != "snapshot" {
+		t.Fatalf("initial frame = %q, want snapshot", msg)
+	}
+	if n := seenCount.Load(); n != 1 {
+		t.Fatalf("OnFacilitatorSeen fired %d time(s), want exactly 1 (the attach-time call)", n)
+	}
+}
+
 // TestRejectedMembershipWithNoSnapshotIsStillTornDown pins the case with no
 // initial frame at all: the re-check runs whenever gatesInitialState holds,
 // not only when the handshake built a snapshot to release. A non-member
