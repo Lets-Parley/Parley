@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Modal } from "./Modal";
 
@@ -162,6 +162,71 @@ describe("Modal dismissal", () => {
     render(<Modal title="What should we call you?">body</Modal>);
     const dialog = screen.getByRole("dialog") as HTMLDialogElement;
     dialog.dispatchEvent(new Event("cancel", { bubbles: false, cancelable: true }));
+    expect(dialog.open).toBe(true);
+  });
+});
+
+// The backdrop is not a separate element: a click on it is dispatched at the
+// <dialog> itself, so these walk the pointer through real coordinates against a
+// stubbed box — jsdom lays nothing out and would report every point as outside
+// a 0x0 rect.
+describe("Modal backdrop dismissal", () => {
+  function dialogAt(): HTMLDialogElement {
+    const dialog = screen.getByRole("dialog") as HTMLDialogElement;
+    dialog.getBoundingClientRect = () =>
+      ({ left: 100, top: 100, right: 300, bottom: 300, width: 200, height: 200 }) as DOMRect;
+    return dialog;
+  }
+  const outside = { clientX: 20, clientY: 20 };
+  const inside = { clientX: 200, clientY: 200 };
+
+  it("dismisses when the backdrop is clicked", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal title="Your profile" onClose={onClose}>
+        body
+      </Modal>,
+    );
+    const dialog = dialogAt();
+    fireEvent.mouseDown(dialog, outside);
+    fireEvent.click(dialog, outside);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays open when the dialog's own padding is clicked", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal title="Your profile" onClose={onClose}>
+        body
+      </Modal>,
+    );
+    const dialog = dialogAt();
+    fireEvent.mouseDown(dialog, inside);
+    fireEvent.click(dialog, inside);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  // A drag-select that starts in a field and runs past the edge releases on the
+  // backdrop. That is a selection, not a dismissal — losing a half-typed name
+  // to it is why the press is checked as well as the release.
+  it("stays open when a drag starts inside and ends on the backdrop", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal title="Your profile" onClose={onClose}>
+        body
+      </Modal>,
+    );
+    const dialog = dialogAt();
+    fireEvent.mouseDown(dialog, inside);
+    fireEvent.click(dialog, outside);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("stays open on a backdrop click when there is nowhere to report a dismissal", () => {
+    render(<Modal title="What should we call you?">body</Modal>);
+    const dialog = dialogAt();
+    fireEvent.mouseDown(dialog, outside);
+    fireEvent.click(dialog, outside);
     expect(dialog.open).toBe(true);
   });
 });
