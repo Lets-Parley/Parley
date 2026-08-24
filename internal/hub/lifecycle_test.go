@@ -124,3 +124,29 @@ func TestRejectedMembershipRecordsNoPresence(t *testing.T) {
 		t.Fatal("presence was recorded for a connection the membership re-check rejected: it can appear in another client's roster until OnDisconnect clears it")
 	}
 }
+
+// TestRejectedMembershipWithNoSnapshotIsStillTornDown pins the case with no
+// initial frame at all: the re-check runs whenever gatesInitialState holds,
+// not only when the handshake built a snapshot to release. A non-member
+// socket carrying no snapshot must still be torn down, not left open waiting
+// for the next revalidation tick.
+func TestRejectedMembershipWithNoSnapshotIsStillTornDown(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	h.ValidateMembership = func(context.Context, string, string, string) (bool, error) {
+		return false, nil
+	}
+
+	ws, attached := attachWithInitial(t, h, nil, SessionAuth{SpaceID: "space"})
+	ws.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, msg, err := ws.ReadMessage(); err == nil {
+		t.Fatalf("a rejected connection with no snapshot stayed open and received %q", msg)
+	} else if closeErr, ok := err.(*websocket.CloseError); !ok || closeErr.Code != websocket.ClosePolicyViolation {
+		t.Fatalf("close = %v, want policy violation", err)
+	}
+	select {
+	case <-attached:
+	case <-time.After(3 * time.Second):
+		t.Fatal("AttachAuthenticated did not return")
+	}
+}
