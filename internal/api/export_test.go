@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -97,5 +98,58 @@ func TestStandupCSVExport(t *testing.T) {
 	}
 	if !strings.Contains(body, "Ben") || !strings.Contains(body, "tests") {
 		t.Fatalf("standup export missing entry:\n%s", body)
+	}
+}
+
+// Revoking a link must not cost the guest its name in the CSV: the export
+// roster widens past the live links precisely so a finished meeting's
+// attribution does not depend on whether the door is still open.
+func TestCSVExportKeepsARevokedLinkGuestsName(t *testing.T) {
+	srv := testServer(t)
+	fac, id, guest := mintAndRedeem(t, srv, "Revoked Export Space")
+	story := addStory(t, srv, id, "Guest story", fac)
+	selectStory(t, srv, id, story, fac)
+	vote(t, srv, id, story, "5", guest)
+	doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/reveal", "", fac)
+
+	_, list := doJSON(t, srv, "GET", "/api/sessions/"+id+"/links", "", fac)
+	linkID := list["links"].([]any)[0].(map[string]any)["id"].(string)
+	doJSON(t, srv, "DELETE", "/api/sessions/"+id+"/links/"+linkID, "", fac)
+
+	resp, body := fetchCSV(t, srv, id, fac)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export after revoking a link: got %d", resp.StatusCode)
+	}
+	if !strings.Contains(body, "Gus: 5") {
+		t.Fatalf("revoked guest's name missing from the poker export:\n%s", body)
+	}
+}
+
+// The standup renderer builds its own name map, so it needs its own test; it
+// takes the expiry half of the criterion because revocation and expiry are one
+// predicate in the roster's union and each arm is exercised once.
+func TestStandupCSVExportKeepsAnExpiredLinkGuestsName(t *testing.T) {
+	srv := testServer(t)
+	fac, _, _, id, _ := standupSetup(t, srv, "Expired Export Standup")
+	_, minted := mintLink(t, srv, id, fac)
+	_, _, guest := redeem(t, srv, minted["token"].(string), "Gus")
+	if guest == nil {
+		t.Fatal("redeem set no session cookie")
+	}
+	doJSON(t, srv, "PUT", "/api/sessions/"+id+"/actions/standup",
+		`{"yesterday":"read","today":"tests","blockers":"none"}`, guest)
+
+	pool := testDBPool(t)
+	if _, err := pool.Exec(context.Background(),
+		"update session_links set expires_at = now() - interval '1 minute' where session_id = $1", id); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, body := fetchCSV(t, srv, id, fac)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export after a link expired: got %d", resp.StatusCode)
+	}
+	if !strings.Contains(body, "Gus") {
+		t.Fatalf("expired guest's name missing from the standup export:\n%s", body)
 	}
 }
