@@ -384,10 +384,32 @@ func TestRedeemedTokenExpiresWithTheLink(t *testing.T) {
 		t.Fatalf("token expires_at = %s, want the link's %s (drift %s)", tokenExpiry, linkExpiry, drift)
 	}
 
-	// And the cookie is cut to the same cloth, so the browser forgets it when
-	// the link dies rather than carrying a stale credential for three months.
-	if want := int(store.LinkLifetime.Seconds()); guest.MaxAge > want || guest.MaxAge < want-60 {
-		t.Fatalf("cookie MaxAge = %d, want roughly the link lifetime %d", guest.MaxAge, want)
+}
+
+// TestRedeemedCookieEndsWithTheBrowserSession pins the other half of that
+// design. The token's own expiry is the link's, but the cookie carrying it is
+// session-scoped — no Max-Age and no Expires — so a guest who simply closes the
+// tab stops being that guest instead of leaving a live credential behind for
+// the next person on a borrowed machine. A refresh is unaffected: a session
+// cookie survives every navigation inside the browsing session.
+func TestRedeemedCookieEndsWithTheBrowserSession(t *testing.T) {
+	srv := testServer(t)
+	fac, _, id := setupSession(t, srv, "Session Cookie Space")
+	_, minted := mintLink(t, srv, id, fac)
+	token, _ := minted["token"].(string)
+	resp, body, guest := redeem(t, srv, token, "Gus")
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("redeem: got %d, want 201 (%v)", resp.StatusCode, body)
+	}
+	if guest.MaxAge != 0 {
+		t.Errorf("cookie Max-Age = %d, want 0 — the guest cookie must not outlive the browsing session", guest.MaxAge)
+	}
+	if !guest.Expires.IsZero() {
+		t.Errorf("cookie Expires = %s, want none — the guest cookie must not outlive the browsing session", guest.Expires)
+	}
+	// Still HttpOnly and still same-site: session-scoping is the only change.
+	if !guest.HttpOnly || guest.SameSite != http.SameSiteLaxMode {
+		t.Errorf("cookie = %+v, want HttpOnly and SameSite=Lax", guest)
 	}
 }
 

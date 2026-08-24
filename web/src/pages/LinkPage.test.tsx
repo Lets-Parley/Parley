@@ -40,6 +40,7 @@ beforeEach(() => {
   (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length = 0;
   navigated.length = 0;
   localStorage.clear();
+  sessionStorage.clear();
   window.history.replaceState(null, "", "/link#t=tok-abc");
 });
 
