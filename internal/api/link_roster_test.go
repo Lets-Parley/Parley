@@ -289,3 +289,58 @@ func TestLinkGuestSeesItsOwnSeatWithNoSocket(t *testing.T) {
 		t.Fatalf("participants = %v, want an absent member still hidden from a guest", got)
 	}
 }
+
+// TestGuestSocketSeesItselfInItsFirstFrame pins the identity the websocket
+// handler hands to RedactForGuest. The initial envelope is built and redacted
+// before the socket is attached, so the guest has no presence row yet: the
+// only thing keeping it on its own roster is that the call site passes the
+// guest's own id. Pass anything else — the facilitator's id, a room id — and
+// the guest is redacted out of its own first frame.
+//
+// No other test catches this, because every other guest socket registers
+// presence before anything is asserted, which masks the argument entirely.
+func TestGuestSocketSeesItselfInItsFirstFrame(t *testing.T) {
+	pool := testPool(t)
+	srv := testServerWith(t, pool, Options{AllowedOrigin: "http://example.test"})
+	_, id, guest := mintAndRedeem(t, srv, "Guest First Frame Space")
+
+	// This test's whole point is that the first frame is built and redacted
+	// before the guest has a presence row, so the RedactForGuest(selfID)
+	// argument is the only thing keeping the guest on its own roster (see the
+	// comment above). If a future reordering registers the guest's presence
+	// before the envelope is redacted, this guard - not the assertion below -
+	// is what catches it: without it, the guest would already be present and
+	// the redaction argument would go unexercised while the test kept
+	// passing. It is scoped to the guest's own row, not the session as a
+	// whole, so seating some other participant with presence first (say, the
+	// facilitator) does not misfire this guard for coverage it never lost.
+	_, meBody := doJSON(t, srv, "GET", "/api/me", "", guest)
+	guestID := meBody["id"].(string)
+	var guestPresentBeforeFirstFrame int
+	if err := pool.QueryRow(context.Background(),
+		`select count(*) from session_presence where session_id = $1 and user_id = $2`, id, guestID,
+	).Scan(&guestPresentBeforeFirstFrame); err != nil {
+		t.Fatal(err)
+	}
+	if guestPresentBeforeFirstFrame != 0 {
+		t.Fatalf("the guest already has %d presence row(s) before its socket opened; "+
+			"this test only exercises the RedactForGuest(selfID) argument because the guest has "+
+			"no presence row yet when its first frame is built - if presence registration has "+
+			"moved ahead of that redaction, the guest would already be present and this test "+
+			"would keep passing without catching a wrong identity being passed in", guestPresentBeforeFirstFrame)
+	}
+
+	ws, _, err := dialWS(t, srv, id, guest, testOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+	env, ok := readEnvelope(t, ws, 3*time.Second)
+	if !ok {
+		t.Fatal("no initial frame")
+	}
+	if got := participantNames(t, env); !slices.Contains(got, "Gus") {
+		t.Fatalf("guest's first frame participants = %v, want it to contain the guest itself; "+
+			"the websocket call site is redacting with the wrong identity", got)
+	}
+}
