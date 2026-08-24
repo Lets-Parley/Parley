@@ -2,7 +2,7 @@ services:
   app:
     # Tagging vX.Y.Z publishes the image as X.Y.Z — the metadata action strips
     # the leading v. `docker compose pull` picks up a newer tag.
-    image: ghcr.io/lets-parley/parley:0.7.0
+    image: ghcr.io/lets-parley/parley:0.7.1
     # build: .   # uncomment (and comment out image:) to build from source
     environment:
       DATABASE_URL: postgres://parley:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/parley
