@@ -127,24 +127,33 @@ seat regardless), the space view, the CSV export of the room they are in,
 the facilitator controls, and the
 link routes.
 
-`GET /api/me` is the single exception, and it is a read. A guest's browser keeps
-their name and hue in local storage, but a private window, a cleared site or a
-second device has none of it while the cookie is still live — and such a guest
-used to resolve as nobody, land in the name gate, and be refused the `POST` that
-gate makes. It answers with what the guest already holds: their own id, name,
-avatar, the id of the room they are bound to, and when their seat runs out. It
+`GET /api/me` is the single exception, and it is a read. A guest's browser
+caches their name and hue in `sessionStorage`, which dies with the tab while the
+`HttpOnly` cookie does not — so a fresh tab, a private window, a cleared site or
+a second device has none of that cache with the cookie still live, and such a
+guest used to resolve as nobody, land in the name gate, and be refused the
+`POST` that gate makes. It answers with what the guest already holds: their own
+id, name, avatar, the id of the room they are bound to, and when their seat runs
+out. It
 carries no space, no slug, no other member and no other session, the same line
 the room envelope's redaction draws.
 
 `DELETE /api/me` is the second exception, and the only **write** on identity a
 guest may make: it spends the credential rather than reshaping it. A guest link
 is aimed at somebody outside the team, often on a borrowed or shared machine,
-and closing the tab leaves the `HttpOnly` cookie valid for the rest of the
-link's life — long enough for the next person on that browser to inherit the
-seat. The guest banner therefore carries a **Leave room** control, and it lands
-them on a dead-link screen rather than a seat. Like sign-out for an account, it
-deletes the caller's own `session_tokens` row and nothing else: the user row,
-the link and everything the guest contributed stay exactly where they are.
+and the `HttpOnly` cookie carries no `Max-Age`: it lasts the browsing session,
+not the rest of the link's 24 hours. That is shorter than it used to be, and
+still long enough for the next person to inherit the seat — the browsing session
+is the browser, not the tab, so closing the room tab leaves the cookie sitting
+there for whoever opens the room URL next, and a browser set to restore its last
+session carries it across a quit as well. The guest banner therefore carries a
+**Leave room** control, and it lands them on a dead-link screen rather than a
+seat. What it buys over waiting for the browsing session to end is that it
+happens server-side and immediately: like sign-out for an account, it deletes
+the caller's own `session_tokens` row, so the cookie is dead the moment they
+leave and stays dead through a restored session. That row is all it deletes —
+the user row, the link and everything the guest contributed stay exactly where
+they are.
 
 Claiming an abandoned
 facilitator seat is refused twice — at the middleware and again in the `UPDATE`
