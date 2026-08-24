@@ -133,6 +133,10 @@ jobs:
         run: scripts/tests/check-dco-test.sh
       - name: Test release workflow policy
         run: scripts/tests/release-workflow-test.sh
+      - name: Test image pin checker
+        run: scripts/tests/check-image-pins-test.sh
+      - name: Check pinned image digests still resolve
+        run: scripts/check-image-pins.sh .github/workflows/*.yml
 
   docker:
     name: docker build and smoke
