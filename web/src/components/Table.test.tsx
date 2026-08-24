@@ -367,6 +367,18 @@ describe("planCelebration", () => {
     expect(plan[2].animation).toContain("highfive-solo");
   });
 
+  // The solo isn't its own beat in the ripple — it fires alongside the pair
+  // it trails, not after it. A later beat for the solo also inflates
+  // groupCount, stretching the ripple's stagger budget for every rank after it.
+  it("lands the odd seat out on its rank's last pair's beat", () => {
+    const plan = planCelebration(rows(3), true);
+    expect(plan[2].beat).toBe(plan[0].beat);
+
+    const mixed = planCelebration(rows(5, 3), true); // ranks of 3 and 2
+    expect(mixed[2].beat).toBe(mixed[0].beat);
+    expect(mixed[3].beat).toBeGreaterThan(mixed[0].beat);
+  });
+
   it("plans nothing at all when the table did not agree", () => {
     expect(planCelebration(rows(4), false).every((p) => !p.animation && !p.burst)).toBe(true);
   });
@@ -398,6 +410,23 @@ describe("the consensus high-five", () => {
     const burst = screen.getByTestId("highfive-burst");
     expect(burst.closest("[style*='highfive-right']")).toBeNull();
     expect(burst.closest("[data-seat-user]")).not.toBeNull();
+  });
+
+  // scatter() stands in for Math.random so confetti survives the table
+  // re-rendering on every websocket frame without restarting mid-flight.
+  // A real random per render would make this test flaky/red.
+  it("throws the same confetti geometry on every render", () => {
+    const particleStyles = () =>
+      Array.from(document.querySelectorAll<HTMLElement>("[data-testid='highfive-burst'] [style*='--dx']")).map(
+        (el) => el.getAttribute("style"),
+      );
+    const first = renderTable(agreed);
+    const before = particleStyles();
+    first.unmount();
+    renderTable(agreed);
+    const after = particleStyles();
+    expect(before.length).toBeGreaterThan(0);
+    expect(after).toEqual(before);
   });
 
   it("stays still when the table did not agree", () => {

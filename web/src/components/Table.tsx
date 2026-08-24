@@ -124,7 +124,10 @@ type Celebration = { animation?: string; burst: boolean; beat: number; pair: num
  * Pairing on index alone breaks the moment the seats wrap: an odd-length rank
  * hands its last seat a partner on the row below, and the two lean at each
  * other across the whole table. `rows` carries each seat's measured rank, so
- * pairing happens inside a rank and every rank's odd seat out jumps solo.
+ * pairing happens inside a rank. A rank's odd seat out trails onto its rank's
+ * last pair and jumps solo on that pair's own beat, rather than getting a
+ * later beat of its own — the only rank that gets its own beat for a solo is
+ * one with just a single seat, which has no pair to trail.
  */
 export function planCelebration(rows: number[], celebrate: boolean): Celebration[] {
   const plan: Celebration[] = rows.map(() => ({ burst: false, beat: 0, pair: 0 }));
@@ -132,18 +135,26 @@ export function planCelebration(rows: number[], celebrate: boolean): Celebration
   const groups: number[][] = [];
   for (const rank of new Set(rows)) {
     const inRank = rows.map((r, i) => (r === rank ? i : -1)).filter((i) => i >= 0);
-    for (let i = 0; i < inRank.length; i += 2) groups.push(inRank.slice(i, i + 2));
+    for (let i = 0; i < inRank.length; i += 2) {
+      const slice = inRank.slice(i, i + 2);
+      // The leftover seat of an odd rank rides along on the rank's last
+      // pair instead of starting a group of its own — it doesn't get a beat
+      // (or a slot in groupCount's stagger budget) that the pair beside it
+      // doesn't already have.
+      if (slice.length === 1 && i > 0) groups[groups.length - 1].push(...slice);
+      else groups.push(slice);
+    }
   }
   const { start, stagger } = celebrationBeats(rows.length, groups.length);
   groups.forEach((group, g) => {
     const beat = start + g * stagger;
     group.forEach((seat, side) => {
-      const solo = group.length === 1;
-      const name = solo ? "solo" : side === 0 ? "right" : "left";
+      const lone = group.length === 1;
+      const name = lone || side === 2 ? "solo" : side === 0 ? "right" : "left";
       plan[seat] = {
         animation: `highfive-${name} ${CELEBRATION_MS}ms linear ${beat}ms both`,
-        // One burst per pair, owned by the left seat and thrown into the gap.
-        burst: !solo && side === 0,
+        // One burst per pair, owned by the right seat and thrown into the gap.
+        burst: side === 0 && group.length > 1,
         beat,
         pair: g,
       };
