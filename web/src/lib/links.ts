@@ -69,6 +69,12 @@ export function clearLinkToken() {
  * the source of truth: when it is missing, GET /api/me re-derives the same
  * identity from the cookie. It is bound to one session id and expires with the
  * link.
+ *
+ * Session storage, deliberately, so the cache dies with the tab exactly as the
+ * guest's session cookie does. In local storage it would outlive the credential
+ * by up to a day, and the next person on a borrowed machine would open the room
+ * painted as the guest who left. It still survives a reload — session storage
+ * is per tab, not per navigation.
  */
 export type LinkGuest = { sessionId: string; me: Me; expiresAt: string };
 
@@ -76,7 +82,7 @@ const GUEST_KEY = "parley.link-guest";
 
 export function rememberLinkGuest(guest: LinkGuest) {
   try {
-    localStorage.setItem(GUEST_KEY, JSON.stringify(guest));
+    sessionStorage.setItem(GUEST_KEY, JSON.stringify(guest));
   } catch {
     // Private mode, or storage full. The room still works for this navigation;
     // only a reload is lost, and that is not worth failing the redemption over.
@@ -90,7 +96,7 @@ export function rememberLinkGuest(guest: LinkGuest) {
  */
 export function forgetLinkGuest() {
   try {
-    localStorage.removeItem(GUEST_KEY);
+    sessionStorage.removeItem(GUEST_KEY);
   } catch {
     // Storage is unavailable, so there is nothing cached to forget.
   }
@@ -100,7 +106,7 @@ export function forgetLinkGuest() {
 export function linkGuestFor(sessionId: string): LinkGuest | null {
   let raw: string | null = null;
   try {
-    raw = localStorage.getItem(GUEST_KEY);
+    raw = sessionStorage.getItem(GUEST_KEY);
   } catch {
     return null;
   }

@@ -138,7 +138,7 @@ func (a *app) handleRedeemLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setLinkSessionCookie(w, plain, a.secureCookies, link.ExpiresAt)
+	setLinkSessionCookie(w, plain, a.secureCookies)
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"sessionId": link.SessionID,
 		"expiresAt": link.ExpiresAt,

@@ -70,8 +70,8 @@ export function LinkPage() {
       <form onSubmit={submit} className="flex flex-col gap-3">
         <p className="text-sm text-ink-soft text-pretty">
           You've been invited to one room by a guest link. It is the name your
-          team sees at the table — no account, no email, just a cookie in this
-          browser.
+          team sees at the table — no account, no email, and your seat ends when
+          you close this tab.
         </p>
         <div>
           <label htmlFor={fieldId} className={labelClass + " mt-0"}>
