@@ -13,34 +13,8 @@ For implementation status, see the GitHub Project:
 
 Work in progress or expected in the current development cycle.
 
-### Spaces you can look after
-
-A space used to be permanent the moment it existed: no rename, no delete, and a
-typo in the name was a typo forever. Joining a room meant passing someone a link
-and a passcode by hand, and a display name was set once at first sign-in.
-
-Spaces and rooms can be renamed and deleted by the people who own them, a
-profile is something you can edit, and an invite is one click rather than two
-things copied into a chat window.
-
-- Status: Merged, awaiting the next release
-- Landed in [#274](https://github.com/lets-parley/parley/pull/274)
-
-### Signed links
-
-Some participation should be named but not account-bound. A person should be
-able to vote on this story, add their standup update, or leave one piece of
-context without first becoming a user the instance has to remember.
-
-A signed link is a capability, not a login: it does one thing, for one room, and
-expires. That makes it safer than "just make it public" and more honest than a
-shared passcode that quietly becomes a second identity system.
-
-- Status: Merged, awaiting the next release
-- Landed in [#288](https://github.com/lets-parley/parley/pull/288), [#289](https://github.com/lets-parley/parley/pull/289) and [#291](https://github.com/lets-parley/parley/pull/291), completed by [#300](https://github.com/lets-parley/parley/pull/300) through [#307](https://github.com/lets-parley/parley/pull/307)
-- Both kinds of room work the same way for a guest: they vote in poker and hold
-  a turn in the standup round-robin, and the facilitator's controls stay with
-  the facilitator — [#290](https://github.com/lets-parley/parley/issues/290)
+Nothing is in flight right now — the signed-links and space-ownership work
+shipped in v0.7.0. The next items are under **Next**.
 
 ## Next
 
@@ -268,6 +242,20 @@ Ideas under consideration, not committed to.
 - White-label theming, for anyone hosting Parley on someone else's behalf
 
 ## Completed
+
+### v0.7.0
+
+- A signed link is a capability, not a login: it opens one room, expires on its
+  own, and its holder votes in poker and takes a turn in the standup round-robin
+  without becoming a user the instance has to remember
+- Facilitator controls stay with the facilitator, and a guest's identity is
+  redacted from everyone else's roster
+- Spaces and rooms can be renamed and deleted by the people who own them
+- A display name is something you can edit, not a decision made once at first
+  sign-in
+- An invite is one click rather than a link and a passcode copied into a chat
+  window by hand
+- A unanimous reveal is celebrated at the table
 
 ### v0.6.1
 
