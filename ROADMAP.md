@@ -14,7 +14,7 @@ For implementation status, see the GitHub Project:
 Work in progress or expected in the current development cycle.
 
 Nothing is in flight right now — the signed-links and space-ownership work
-shipped in v0.7.0. The next items are under **Next**.
+shipped in v0.7.1. The next items are under **Next**.
 
 ## Next
 
@@ -243,7 +243,7 @@ Ideas under consideration, not committed to.
 
 ## Completed
 
-### v0.7.0
+### v0.7.1
 
 - A signed link is a capability, not a login: it opens one room, expires on its
   own, and its holder votes in poker and takes a turn in the standup round-robin
@@ -256,6 +256,8 @@ Ideas under consideration, not committed to.
 - An invite is one click rather than a link and a passcode copied into a chat
   window by hand
 - A unanimous reveal is celebrated at the table
+- v0.7.0 was tagged before the release pipeline's skopeo digest was re-resolved
+  and never published; the same contents ship here
 
 ### v0.6.1
 

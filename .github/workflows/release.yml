@@ -8,10 +8,14 @@ permissions:
   contents: read
 
 env:
-  # Pinned by digest, but the digest is not forever: upstream re-pushed v1.22.2
-  # under a new digest and garbage-collected the old one, which broke the v0.4.3
-  # release with "manifest unknown". Re-resolve the tag when that happens again.
-  SKOPEO_IMAGE: quay.io/skopeo/stable:v1.22.2@sha256:64ac45c5a1c01230896fbae960b2213e32a5040e4009b83b5f5cbf31a35f61c3
+  # Pinned by digest, but the digest is not forever: upstream re-pushes v1.22.2
+  # under a new digest and garbage-collects the old one, and the publish job
+  # then dies with "manifest unknown". It has happened three times — v0.4.3,
+  # v0.6.0 and v0.7.0 — and each one cost a version number, because the release
+  # event runs the workflow file from the tag's own commit, so a fix on main
+  # cannot rescue a tag already cut. Re-resolve the tag when it happens again:
+  #   skopeo inspect --format '{{.Digest}}' docker://quay.io/skopeo/stable:v1.22.2
+  SKOPEO_IMAGE: quay.io/skopeo/stable:v1.22.2@sha256:17da3ac5cadf2b27a3dcf7dea857c4cea558ef757641725fc0eec560030057b3
 
 jobs:
   validate:
