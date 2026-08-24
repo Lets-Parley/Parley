@@ -18,7 +18,7 @@ const marcus = makePerson({ userId: "marcus", name: "Marcus Okonjo" });
 const priya = makePerson({ userId: "priya", name: "Priya Raman" });
 
 function renderTable(over: Partial<Parameters<typeof Table>[0]> = {}) {
-  return render(
+  const ui = () => (
     <Table
       seated={[dana, marcus, priya]}
       spectators={[]}
@@ -30,8 +30,13 @@ function renderTable(over: Partial<Parameters<typeof Table>[0]> = {}) {
       facilitatorId="dana"
       meId="dana"
       {...over}
-    />,
+    />
   );
+  const result = render(ui());
+  // A websocket frame that changes nothing still re-renders the table. It has
+  // to be a fresh element each time: handed back the same one, React sees the
+  // identical reference and bails out without re-rendering at all.
+  return { ...result, repaint: () => result.rerender(ui()) };
 }
 
 const field = () => screen.getByTestId("table-field");
@@ -367,6 +372,22 @@ describe("planCelebration", () => {
     expect(plan[2].animation).toContain("highfive-solo");
   });
 
+  // The burst is thrown into the gap to the seat's right, so it has to be the
+  // pair's right-hand seat that owns it — hung off the left seat it lands
+  // outside the pair instead of between them.
+  it("hangs the burst off the pair's right seat", () => {
+    const plan = planCelebration(rows(4), true);
+    expect(plan[0].burst).toBe(true);
+    expect(plan[1].burst).toBe(false);
+  });
+
+  it("leaves a rank of one on its own beat with nothing to throw", () => {
+    const plan = planCelebration(rows(1), true);
+    expect(plan[0].animation).toContain("highfive-solo");
+    expect(plan[0].burst).toBe(false);
+    expect(plan[0].beat).toBe(celebrationBeats(1, 1).start);
+  });
+
   // The solo isn't its own beat in the ripple — it fires alongside the pair
   // it trails, not after it. A later beat for the solo also inflates
   // groupCount, stretching the ripple's stagger budget for every rank after it.
@@ -420,10 +441,9 @@ describe("the consensus high-five", () => {
       Array.from(document.querySelectorAll<HTMLElement>("[data-testid='highfive-burst'] [style*='--dx']")).map(
         (el) => el.getAttribute("style"),
       );
-    const first = renderTable(agreed);
+    const { repaint } = renderTable(agreed);
     const before = particleStyles();
-    first.unmount();
-    renderTable(agreed);
+    repaint();
     const after = particleStyles();
     expect(before.length).toBeGreaterThan(0);
     expect(after).toEqual(before);
