@@ -497,11 +497,15 @@ func (h *Hub) AttachAuthenticated(ws *websocket.Conn, sessionID, userID string, 
 		h.track(func() { h.revalidate(ctx, c) })
 	}
 
-	// Presence first, snapshot second, both on this goroutine. A client that
-	// holds its initial frame is then entitled to assume its own presence row
-	// exists — the roster it is about to read is filtered by exactly that. The
-	// two used to run concurrently, which made "what does this guest see" a
-	// coin flip.
+	// Membership re-check first, then presence, then the snapshot, all on this
+	// goroutine. The re-check can still reject this connection, and presence is
+	// what RedactForGuest filters the roster by, so writing it first would put
+	// a principal that is about to be torn down in the roster everyone else
+	// sees. Presence still lands before the initial frame: a client that holds
+	// its first frame is entitled to assume its own presence row exists.
+	if !h.confirmMembership(c) {
+		return
+	}
 	if h.OnFacilitatorSeen != nil {
 		h.OnFacilitatorSeen(sessionID, userID)
 	}
@@ -510,20 +514,10 @@ func (h *Hub) AttachAuthenticated(ws *websocket.Conn, sessionID, userID string, 
 }
 
 // releaseInitial hands a freshly registered connection the room snapshot the
-// handshake built for it.
-//
-// The membership read that authorized the handshake happened before this
-// connection existed, so a removal committed mid-upgrade would still have
-// shipped a full room snapshot to someone who had just lost access. Re-check
-// now that the connection is registered — from here on the removal path can
-// see it, and the snapshot is only released if the second read still says
-// member.
+// handshake built for it. confirmMembership has already run, so a connection
+// that reaches here still had access after registration.
 func (h *Hub) releaseInitial(c *Conn, initial []byte) {
 	if initial == nil {
-		return
-	}
-	if h.gatesInitialState(c) {
-		h.confirmMembership(c, initial)
 		return
 	}
 	h.submit(initialStateEvent{conn: c, initial: initial})
@@ -567,16 +561,20 @@ func (h *Hub) validate(c *Conn) {
 	h.submit(revalidationEvent{conn: c, expiresAt: expiresAt, err: err})
 }
 
-// gatesInitialState reports whether a connection's first state frame has to
-// wait on a post-registration membership check.
+// gatesInitialState reports whether a connection has to wait on a
+// post-registration membership check before it is treated as present.
 func (h *Hub) gatesInitialState(c *Conn) bool {
 	return h.ValidateMembership != nil && c.SpaceID != ""
 }
 
 // confirmMembership re-reads membership for an already-registered connection
-// and releases (or refuses) its initial room snapshot. It is called off the
-// owner loop, so the read may block.
-func (h *Hub) confirmMembership(c *Conn, initial []byte) {
+// and reports whether it may proceed. A connection that fails tears down here,
+// before anything has been written on its behalf. It is called off the owner
+// loop, so the read may block.
+func (h *Hub) confirmMembership(c *Conn) bool {
+	if !h.gatesInitialState(c) {
+		return true
+	}
 	ctx, cancel := context.WithTimeout(c.ctx, h.validationTimeout())
 	defer cancel()
 	member, err := h.ValidateMembership(ctx, c.SessionID, c.SpaceID, c.UserID)
@@ -584,9 +582,13 @@ func (h *Hub) confirmMembership(c *Conn, initial []byte) {
 		err = ErrNotMember
 	}
 	if c.ctx.Err() != nil {
-		return
+		return false
 	}
-	h.submit(initialStateEvent{conn: c, initial: initial, err: err})
+	if err != nil {
+		h.submit(initialStateEvent{conn: c, err: err})
+		return false
+	}
+	return true
 }
 
 func (h *Hub) validationTimeout() time.Duration {

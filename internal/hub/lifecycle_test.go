@@ -91,3 +91,36 @@ func TestShutdownWaitsForCallbacksTouchingTheDatabase(t *testing.T) {
 		t.Fatalf("%d hub callbacks still running after Shutdown returned: each one is a write against a closed pool", n)
 	}
 }
+
+// TestRejectedMembershipRecordsNoPresence pins the other end of that ordering:
+// a connection the post-registration re-check rejects must never leave a
+// presence row behind. Presence is what RedactForGuest filters the roster by,
+// so a row written for a principal that is about to be torn down puts a
+// non-member in the roster every other client sees.
+func TestRejectedMembershipRecordsNoPresence(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	var seen atomic.Bool
+	h.OnFacilitatorSeen = func(string, string) { seen.Store(true) }
+	// The handshake read said member; the re-check, after registration, sees
+	// the removal that landed in between.
+	h.ValidateMembership = func(context.Context, string, string, string) (bool, error) {
+		return false, nil
+	}
+
+	ws, attached := attachWithInitial(t, h, []byte("snapshot"), SessionAuth{SpaceID: "space"})
+	ws.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, msg, err := ws.ReadMessage(); err == nil {
+		t.Fatalf("a rejected connection received room state: %q", msg)
+	} else if closeErr, ok := err.(*websocket.CloseError); !ok || closeErr.Code != websocket.ClosePolicyViolation {
+		t.Fatalf("close = %v, want policy violation", err)
+	}
+	select {
+	case <-attached:
+	case <-time.After(3 * time.Second):
+		t.Fatal("AttachAuthenticated did not return")
+	}
+	if seen.Load() {
+		t.Fatal("presence was recorded for a connection the membership re-check rejected: it can appear in another client's roster until OnDisconnect clears it")
+	}
+}

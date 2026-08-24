@@ -190,8 +190,11 @@ migration and embedding mistakes that unit tests miss.
     synchronously on a goroutine the hub already owns needs no `track`: the
     attach-time `OnFacilitatorSeen` below is deliberately one of these, since
     `AttachAuthenticated` must not return until it has run — and it calls
-    `OnFacilitatorSeen` *before* `releaseInitial`, so a client holding its first
-    state frame may assume its own presence row exists. `Envelope.RedactForGuest`
+    `confirmMembership`, then `OnFacilitatorSeen`, then `releaseInitial`, in
+    that order. The re-check comes first because a connection it rejects must
+    leave no presence row behind for another client's roster; presence still
+    comes before the frame, so a client holding its first state frame may
+    assume its own presence row exists. `Envelope.RedactForGuest`
     filters participants to presence ∪ facilitator, so reordering those two turns
     every guest-visibility assertion into a coin flip.
 16. Dependabot watches only `site/`. Go modules and `web/` dependencies are
