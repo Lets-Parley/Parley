@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { Person } from "../lib/api";
 import { cueLabel, cueVar, type CueState } from "../lib/cue";
 import { voteTally } from "../lib/derive";
@@ -81,6 +82,119 @@ function SeatCard({
   );
 }
 
+const CELEBRATION_MS = 820;
+/** Where in the jump the two hands actually meet, as a fraction of its run. */
+const IMPACT = 0.48;
+const BITS = 14;
+const CONFETTI_COLORS = ["#ffd54a", "#ff7ab8", "#6fe3c4", "#8ab6ff", "#fff1b8"];
+
+/**
+ * Deterministic stand-in for Math.random, keyed by (pair, particle, axis).
+ *
+ * Not for the aesthetics — for stability. This app re-renders the table on
+ * every websocket frame (a presence blip, a late vote, a cue change), and a
+ * fresh random per render would rewrite each particle's animation string and
+ * restart all of them mid-flight.
+ */
+function scatter(pair: number, k: number, axis: number): number {
+  const x = Math.sin(pair * 127.1 + k * 311.7 + axis * 74.7) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+/**
+ * When the celebration may start, and how far apart the pairs fire.
+ *
+ * The start waits out the slowest card: flip-in is staggered by index, and
+ * card-hop runs 450ms from 620 + index*40. Starting on a fixed delay meant
+ * the first pair jumped while the last cards were still turning over.
+ */
+export function celebrationBeats(seatCount: number, groupCount: number) {
+  const start = 620 + Math.max(0, seatCount - 1) * 40 + 450 + 60;
+  // Budgeted, not per-pair: a fixed stagger makes a full table run for four
+  // seconds and the last pair fires long after the eye has moved on.
+  const stagger = groupCount <= 1 ? 0 : Math.min(110, 420 / (groupCount - 1));
+  return { start, stagger };
+}
+
+type Celebration = { animation?: string; burst: boolean; beat: number; pair: number };
+
+/**
+ * Pairs seats off for the high-five, one pass per rendered rank.
+ *
+ * Pairing on index alone breaks the moment the seats wrap: an odd-length rank
+ * hands its last seat a partner on the row below, and the two lean at each
+ * other across the whole table. `rows` carries each seat's measured rank, so
+ * pairing happens inside a rank and every rank's odd seat out jumps solo.
+ */
+export function planCelebration(rows: number[], celebrate: boolean): Celebration[] {
+  const plan: Celebration[] = rows.map(() => ({ burst: false, beat: 0, pair: 0 }));
+  if (!celebrate) return plan;
+  const groups: number[][] = [];
+  for (const rank of new Set(rows)) {
+    const inRank = rows.map((r, i) => (r === rank ? i : -1)).filter((i) => i >= 0);
+    for (let i = 0; i < inRank.length; i += 2) groups.push(inRank.slice(i, i + 2));
+  }
+  const { start, stagger } = celebrationBeats(rows.length, groups.length);
+  groups.forEach((group, g) => {
+    const beat = start + g * stagger;
+    group.forEach((seat, side) => {
+      const solo = group.length === 1;
+      const name = solo ? "solo" : side === 0 ? "right" : "left";
+      plan[seat] = {
+        animation: `highfive-${name} ${CELEBRATION_MS}ms linear ${beat}ms both`,
+        // One burst per pair, owned by the left seat and thrown into the gap.
+        burst: !solo && side === 0,
+        beat,
+        pair: g,
+      };
+    });
+  });
+  return plan;
+}
+
+/** The impact flash and its confetti, anchored between a pair's two seats. */
+function Burst({ pair, beat }: { pair: number; beat: number }) {
+  const at = beat + CELEBRATION_MS * IMPACT;
+  return (
+    <span
+      aria-hidden
+      data-testid="highfive-burst"
+      className="pointer-events-none absolute left-[calc(100%+6px)] top-[23px] z-[3] h-0 w-0"
+    >
+      {/* Pulled 34ms early so the flash is at its brightest ON the contact
+          frame. Peaking after it reads as two separate events. */}
+      <span
+        className="absolute -left-[17px] -top-[17px] h-[34px] w-[34px] rounded-full opacity-0"
+        style={{
+          background: "radial-gradient(circle,#fff 0%,#ffe27a 45%,transparent 70%)",
+          animation: `highfive-flash 420ms ease-out ${at - 34}ms both`,
+        }}
+      />
+      {Array.from({ length: BITS }, (_, k) => {
+        const angle = scatter(pair, k, 1) * 2 * Math.PI;
+        const speed = 30 + scatter(pair, k, 2) * 40;
+        const spin = (scatter(pair, k, 5) < 0.5 ? -1 : 1) * (200 + scatter(pair, k, 6) * 430);
+        return (
+          <span
+            key={k}
+            className="absolute h-[9px] w-[6px] rounded-[1px] opacity-0"
+            style={
+              {
+                background: CONFETTI_COLORS[k % CONFETTI_COLORS.length],
+                "--dx": `${Math.round(Math.cos(angle) * speed)}px`,
+                "--dy0": `${Math.round(-12 - scatter(pair, k, 3) * 26)}px`,
+                "--dy": `${Math.round(42 + scatter(pair, k, 4) * 44)}px`,
+                "--spin": `${Math.round(spin)}deg`,
+                animation: `highfive-confetti ${Math.round(560 + scatter(pair, k, 7) * 300)}ms linear ${Math.round(at - 24 + scatter(pair, k, 8) * 40)}ms both`,
+              } as CSSProperties
+            }
+          />
+        );
+      })}
+    </span>
+  );
+}
+
 export function Table({
   seated,
   spectators,
@@ -106,6 +220,31 @@ export function Table({
   cueState?: CueState | null;
 }) {
   const { votedCount, canVote, voted } = voteTally(seated, online, votedUserIds, votes);
+
+  // Which rendered rank each seat landed in. Measured rather than derived:
+  // how many seats fit a rank depends on the viewport and on whether the
+  // StoryQueue aside is sharing the row, which no arithmetic here can know.
+  // Reduced motion cancels every animation globally in tokens.css, so the
+  // whole celebration — the particle nodes included — is skipped outright.
+  const ranksRef = useRef<HTMLDivElement>(null);
+  const [rows, setRows] = useState<number[]>([]);
+  const celebrate =
+    consensus &&
+    revealed &&
+    rows.length === seated.length &&
+    !(typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches);
+
+  useLayoutEffect(() => {
+    const el = ranksRef.current;
+    if (!el) return;
+    // A single measurement, before paint: the celebration is a one-shot, so a
+    // resize mid-jump is not worth a ResizeObserver that outlives it.
+    const tops = Array.from(el.children, (c) => (c as HTMLElement).offsetTop);
+    const order = [...new Set(tops)].sort((x, y) => x - y);
+    setRows(tops.map((t) => order.indexOf(t)));
+  }, [seated.length, revealed]);
+
+  const plan = planCelebration(rows, celebrate);
 
   // Background-colour only, and never a transform or filter: this div is an
   // ancestor of the per-seat `perspective: 600px` containers, and either one
@@ -158,26 +297,31 @@ export function Table({
             mobile viewport. Centred: wrapped ranks that centre read as a
             table, left-aligned they read as a roster. */}
         <div
+          ref={ranksRef}
           data-testid="seat-ranks"
-          className="mx-auto flex flex-wrap items-start justify-center gap-3"
+          className="mx-auto flex flex-wrap items-start justify-center gap-x-3 gap-y-9"
         >
           {seated.map((p, i) => {
             const away = !online.has(p.userId);
             const state = revealed ? "face" : voted.has(p.userId) ? "back" : away ? "away" : "empty";
+            const five = plan[i] ?? { burst: false, beat: 0, pair: 0 };
             return (
               <div
                 key={p.userId}
                 data-seat-user={p.userId}
-                className="flex w-[74px] shrink-0 flex-col items-center gap-2.5"
+                className="relative flex w-[74px] shrink-0 flex-col items-center gap-2.5"
               >
-                <Avatar
-                  name={p.name}
-                  hue={p.avatarHue}
-                  icon={p.avatarIcon}
-                  size="lg"
-                  facilitator={p.userId === facilitatorId}
-                  dim={away}
-                />
+                <span className="block" style={{ animation: five.animation }}>
+                  <Avatar
+                    name={p.name}
+                    hue={p.avatarHue}
+                    icon={p.avatarIcon}
+                    size="lg"
+                    facilitator={p.userId === facilitatorId}
+                    dim={away}
+                  />
+                </span>
+                {five.burst && <Burst pair={five.pair} beat={five.beat} />}
                 {/* The name truncates inside its own min-w-0 span so the
                     " · you" / " · guest" tells sit outside the truncating
                     element and can never be the part an ellipsis eats — the

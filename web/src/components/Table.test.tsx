@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
-import { Table, faceOf } from "./Table";
+import { Table, faceOf, celebrationBeats, planCelebration } from "./Table";
 import { makePerson } from "../test/render";
 
 describe("faceOf", () => {
@@ -308,5 +308,122 @@ describe("Table", () => {
     const liveCountSpan = screen.getByRole("status").querySelector("span:first-child");
     expect(liveCountSpan?.className).not.toContain("sr-only");
     expect(screen.getByRole("status").textContent).toContain("1 vote on the table");
+  });
+});
+
+/** The seat's own element, for the animation styles a `within` scope can't reach. */
+function seatEl(userId: string): HTMLElement {
+  const el = document.querySelector(`[data-seat-user="${userId}"]`);
+  if (!el) throw new Error(`no seat for "${userId}"`);
+  return el as HTMLElement;
+}
+
+describe("celebrationBeats", () => {
+  // The cards are still turning over until 620 + (n-1)*40 + 450. Jumping
+  // before that puts the celebration on top of the reveal it is celebrating.
+  it("waits out the slowest card at every table size", () => {
+    for (const n of [1, 2, 6, 15]) {
+      const cardsLand = 620 + (n - 1) * 40 + 450;
+      expect(celebrationBeats(n, Math.ceil(n / 2)).start).toBeGreaterThan(cardsLand);
+    }
+  });
+
+  it("keeps the whole ripple inside a fixed budget as the table grows", () => {
+    const spread = (groups: number) => celebrationBeats(15, groups).stagger * (groups - 1);
+    expect(celebrationBeats(2, 1).stagger).toBe(0);
+    expect(spread(2)).toBeLessThanOrEqual(420);
+    expect(spread(8)).toBeLessThanOrEqual(420);
+  });
+});
+
+describe("planCelebration", () => {
+  const rows = (n: number, perRank = n) =>
+    Array.from({ length: n }, (_, i) => Math.floor(i / perRank));
+
+  it("leans a pair together and bursts once between them", () => {
+    const plan = planCelebration(rows(4), true);
+    expect(plan[0].animation).toContain("highfive-right");
+    expect(plan[1].animation).toContain("highfive-left");
+    expect(plan.filter((p) => p.burst)).toHaveLength(2);
+  });
+
+  it("fires both halves of a pair on the same beat", () => {
+    const plan = planCelebration(rows(4), true);
+    expect(plan[0].beat).toBe(plan[1].beat);
+    expect(plan[2].beat).toBeGreaterThan(plan[0].beat);
+  });
+
+  // Pairing on index alone hands the last seat of an odd rank a partner on
+  // the row below — the two then lean at each other across the whole table.
+  it("never pairs across a rank break", () => {
+    const plan = planCelebration(rows(6, 3), true); // ranks of 3 and 3
+    expect(plan[2].animation).toContain("highfive-solo");
+    expect(plan[3].animation).toContain("highfive-right");
+    expect(plan[2].burst).toBe(false);
+  });
+
+  it("gives a rank's odd seat out a solo jump rather than a lean at nobody", () => {
+    const plan = planCelebration(rows(3), true);
+    expect(plan[2].animation).toContain("highfive-solo");
+  });
+
+  it("plans nothing at all when the table did not agree", () => {
+    expect(planCelebration(rows(4), false).every((p) => !p.animation && !p.burst)).toBe(true);
+  });
+});
+
+describe("the consensus high-five", () => {
+  const agreed = {
+    revealed: true,
+    consensus: true,
+    votes: new Map([
+      ["dana", "5"],
+      ["marcus", "5"],
+      ["priya", "5"],
+    ]),
+    votedUserIds: ["dana", "marcus", "priya"],
+  };
+
+  it("celebrates a unanimous reveal", () => {
+    renderTable(agreed);
+    expect(seatEl("dana").querySelector("[style*='highfive-right']")).not.toBeNull();
+    expect(seatEl("marcus").querySelector("[style*='highfive-left']")).not.toBeNull();
+    expect(screen.getAllByTestId("highfive-burst")).toHaveLength(1);
+  });
+
+  // Inside the animating span, every particle would inherit the jump's
+  // transform and snap back to the seat when it ended.
+  it("anchors the burst outside the jumping avatar", () => {
+    renderTable(agreed);
+    const burst = screen.getByTestId("highfive-burst");
+    expect(burst.closest("[style*='highfive-right']")).toBeNull();
+    expect(burst.closest("[data-seat-user]")).not.toBeNull();
+  });
+
+  it("stays still when the table did not agree", () => {
+    renderTable({ ...agreed, consensus: false });
+    expect(screen.queryByTestId("highfive-burst")).toBeNull();
+    expect(field().querySelector("[style*='highfive']")).toBeNull();
+  });
+
+  it("waits for the reveal before celebrating", () => {
+    renderTable({ ...agreed, revealed: false });
+    expect(screen.queryByTestId("highfive-burst")).toBeNull();
+    expect(field().querySelector("[style*='highfive']")).toBeNull();
+  });
+
+  // The global reduced-motion rule only cancels animations; it cannot remove
+  // 14 particle nodes per pair, so the celebration is never built at all.
+  it("builds no celebration at all under prefers-reduced-motion", () => {
+    const real = window.matchMedia;
+    window.matchMedia = ((q: string) =>
+      ({ matches: q.includes("reduce"), media: q, addEventListener() {}, removeEventListener() {} }) as unknown as MediaQueryList) as typeof window.matchMedia;
+    try {
+      renderTable(agreed);
+      expect(screen.queryByTestId("highfive-burst")).toBeNull();
+      expect(field().querySelector("[style*='highfive']")).toBeNull();
+    } finally {
+      window.matchMedia = real;
+    }
   });
 });
