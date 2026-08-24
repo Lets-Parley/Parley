@@ -300,8 +300,30 @@ func TestLinkGuestSeesItsOwnSeatWithNoSocket(t *testing.T) {
 // No other test catches this, because every other guest socket registers
 // presence before anything is asserted, which masks the argument entirely.
 func TestGuestSocketSeesItselfInItsFirstFrame(t *testing.T) {
-	srv := testServer(t)
+	pool := testPool(t)
+	srv := testServerWith(t, pool, Options{AllowedOrigin: "http://example.test"})
 	_, id, guest := mintAndRedeem(t, srv, "Guest First Frame Space")
+
+	// This test's whole point is that the first frame is built and redacted
+	// before the guest has a presence row, so the RedactForGuest(selfID)
+	// argument is the only thing keeping the guest on its own roster (see the
+	// comment above). If a future reordering registers presence before the
+	// envelope is redacted, this guard - not the assertion below - is what
+	// catches it: without it, the guest would already be present and the
+	// redaction argument would go unexercised while the test kept passing.
+	var presentBeforeFirstFrame int
+	if err := pool.QueryRow(context.Background(),
+		`select count(*) from session_presence where session_id = $1`, id,
+	).Scan(&presentBeforeFirstFrame); err != nil {
+		t.Fatal(err)
+	}
+	if presentBeforeFirstFrame != 0 {
+		t.Fatalf("session already has %d presence row(s) before the guest's socket opened; "+
+			"this test only exercises the RedactForGuest(selfID) argument because the guest has "+
+			"no presence row yet when its first frame is built - if presence registration has "+
+			"moved ahead of that redaction, the guest would already be present and this test "+
+			"would keep passing without catching a wrong identity being passed in", presentBeforeFirstFrame)
+	}
 
 	ws, _, err := dialWS(t, srv, id, guest, testOrigin)
 	if err != nil {
