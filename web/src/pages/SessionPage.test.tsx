@@ -259,6 +259,28 @@ describe("SessionPage for a link guest whose storage was cleared", () => {
     expect(screen.queryByText(/What should we call you\?/i)).toBe(null);
   });
 
+  // The shared-machine story, pinned as it actually behaves rather than as the
+  // seat guarantee was once written. Session storage is tab-scoped, so a closed
+  // tab does take the cached name and hue with it — but the HttpOnly cookie is
+  // scoped to the *browsing session*, not the tab, so it survives as long as
+  // any window of that browser stays open. The next person to open the room URL
+  // is recovered into the same seat from the cookie alone. Only closing the
+  // whole browser, or clicking Leave room, actually ends it.
+  //
+  // Limitation named, per the issue: real cookie lifetime is a browser
+  // behaviour neither jsdom nor Go's httptest can evaluate. What this pins is
+  // the half that is ours — an empty session storage is not by itself enough to
+  // unseat a guest.
+  it("is reseated from the cookie alone when the tab's storage is gone", async () => {
+    expect(sessionStorage.getItem("parley.link-guest")).toBe(null);
+    renderApp(routed, { route: "/session/sess-1" });
+
+    await screen.findByTestId("link-guest-banner");
+    // It asked the server who it is, and was seated as the same guest.
+    expect(vi.mocked(api).mock.calls.some((c) => c[1] === "/api/me")).toBe(true);
+    expect(screen.queryByText(/What should we call you\?/i)).toBe(null);
+  });
+
   it("still shows no facilitator or space controls", async () => {
     renderApp(routed, { route: "/session/sess-1" });
     await screen.findByTestId("link-guest-banner");

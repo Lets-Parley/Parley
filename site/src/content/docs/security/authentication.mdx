@@ -132,18 +132,29 @@ worth stating precisely:
 
 A [guest link](/features/guest-links/) session is the deliberate exception. Its
 cookie carries **no `Max-Age` and no `Expires`**, so it is a session cookie: the
-browser drops it when the browsing session ends. Closing the tab ends the seat
-with no click required, which is the point of a credential aimed at a
-contractor or stakeholder on a borrowed machine. A refresh, or navigating away
-and back mid-meeting, keeps the guest seated — a session cookie survives every
-navigation inside the browsing session — and the token behind it still carries
-the link's own 24-hour expiry, so the seat also ends when the link does.
+browser drops it when the **browsing session** ends. That keeps the seat off
+disk, which is the point of a credential aimed at a contractor or stakeholder
+on a borrowed machine, and the token behind it still carries the link's own
+24-hour expiry, so the seat also ends when the link does.
 
-The one thing that outlives the tab is a browser told to restore its last
-session: "continue where you left off" restores session cookies along with the
-tabs. **Leave room** deletes the token server-side and is proof against that;
-so is revoking the link. This is recorded under
-[known limitations](/known-limitations/).
+A browsing session is the browser, not the tab. **Closing the room tab does not
+end the seat** while another tab or window of the same browser is open — the
+`HttpOnly` cookie is untouched, and the next person to open the room URL is
+recovered into that guest's seat from it. The cached name and hue live in
+`sessionStorage` and do die with the tab, but they are a cache, not the
+identity. Quitting the browser does end the seat, unless it is set to restore
+its last session — "continue where you left off" restores session cookies along
+with the tabs.
+
+**Leave room** deletes the token server-side and is proof against all of that;
+so is revoking the link. Neither of them is optional on a shared machine. This
+is recorded under [known limitations](/known-limitations/).
+
+A refresh, or navigating away and back mid-meeting, keeps the guest seated: a
+session cookie survives every navigation inside the browsing session. Parley
+deliberately does not tear the seat down on `pagehide` — that fires on an
+ordinary reload and on mobile backgrounding too, and would strand a guest who
+did nothing but refresh.
 
 The browser is therefore the binding constraint. Somebody who uses Parley every
 single day is **still signed out 90 days after signing in**, because the cookie
