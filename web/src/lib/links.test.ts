@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { forgetLinkGuest, linkGuestFor, rememberLinkGuest } from "./links";
 
 const guest = {
@@ -47,5 +47,15 @@ describe("the cached link identity", () => {
     rememberLinkGuest({ ...guest, expiresAt: "2000-01-01T00:00:00.000Z" });
 
     expect(linkGuestFor("sess-1")).toBeNull();
+  });
+
+  // Safari private mode throws on storage access rather than returning null.
+  // That must not be mistaken for a real identity to paint the room with.
+  it("returns null, not a fabricated identity, when storage throws", () => {
+    const spy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("storage disabled");
+    });
+    expect(linkGuestFor("sess-1")).toBeNull();
+    spy.mockRestore();
   });
 });

@@ -599,3 +599,24 @@ func TestLinkGuestSocketEnvelopeHidesTheSpace(t *testing.T) {
 		return
 	}
 }
+
+// The Max-Age change that scoped link guests to a browser session must not
+// leak onto ordinary accounts: their cookie needs to survive a browser
+// restart, not just a tab close.
+func TestOrdinaryAccountCookieStillPersists(t *testing.T) {
+	w := httptest.NewRecorder()
+	setSessionCookie(w, "tok", false)
+	res := w.Result()
+	for _, c := range res.Cookies() {
+		if c.Name == sessionCookie {
+			if c.MaxAge <= 0 {
+				t.Errorf("ordinary account cookie Max-Age = %d, want > 0 (must survive browser close)", c.MaxAge)
+			}
+			if !c.HttpOnly {
+				t.Error("ordinary account cookie is not HttpOnly")
+			}
+			return
+		}
+	}
+	t.Fatal("session cookie not set")
+}
