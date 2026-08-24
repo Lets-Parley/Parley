@@ -28,11 +28,13 @@ export function SessionPage() {
     (me.data?.linkSessionId === id
       ? { sessionId: id, me: me.data, expiresAt: me.data.linkExpiresAt ?? "" }
       : null);
-  // Closing the tab already ends the seat: the guest's cookie is session-scoped
-  // and its cached identity lives in session storage. Leaving is the deliberate
-  // version — it deletes the token server-side too, so the seat ends even in a
-  // browser that restores its last session. What the guest already said —
-  // votes, standup entries, CSV attribution — stays in the room.
+  // Closing the tab drops the cached identity — session storage is per tab —
+  // but not the seat: the cookie is scoped to the browsing session, so it
+  // outlives the tab for as long as any window of this browser stays open, and
+  // the recovery above seats the next person from it. Leaving is the reliable
+  // version — it deletes the token server-side, so the seat ends whatever the
+  // browser keeps. What the guest already said — votes, standup entries, CSV
+  // attribution — stays in the room.
   const [left, setLeft] = useState(false);
   const session = useSession(id, !left);
   const slug = session.data?.spaceSlug;

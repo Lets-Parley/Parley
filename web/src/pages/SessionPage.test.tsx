@@ -259,6 +259,51 @@ describe("SessionPage for a link guest whose storage was cleared", () => {
     expect(screen.queryByText(/What should we call you\?/i)).toBe(null);
   });
 
+  // The shared-machine story, pinned as it actually behaves rather than as the
+  // seat guarantee was once written. Session storage is tab-scoped, so a closed
+  // tab does take the cached name and hue with it — but the HttpOnly cookie is
+  // scoped to the *browsing session*, not the tab, so it survives as long as
+  // any window of that browser stays open. The next person to open the room URL
+  // is recovered into the same seat from the cookie alone. Only closing the
+  // whole browser, or clicking Leave room, actually ends it.
+  //
+  // Limitation named, per the issue: real cookie lifetime is a browser
+  // behaviour neither jsdom nor Go's httptest can evaluate. What this pins is
+  // the half that is ours — an empty session storage is not by itself enough to
+  // unseat a guest.
+  it("is reseated from the cookie alone when the tab's storage is gone", async () => {
+    expect(sessionStorage.getItem("parley.link-guest")).toBe(null);
+    const before = vi.mocked(api).mock.calls.length;
+    renderApp(routed, { route: "/session/sess-1" });
+
+    await screen.findByTestId("link-guest-banner");
+    // It asked the server who it is, and was seated as the same guest.
+    const paths = vi.mocked(api).mock.calls.slice(before).map((c) => c[1]);
+    expect(paths).toContain("/api/me");
+    expect(screen.queryByText(/What should we call you\?/i)).toBe(null);
+  });
+
+  // The recovery guard checks that the cookie's linkSessionId matches *this*
+  // room, not merely that some linkSessionId is present. Without this case
+  // every fixture in the file sets linkSessionId to the room's own id, so a
+  // regression that dropped the room comparison would ship silently — a
+  // guest holding a cookie for room A reseated into room B.
+  it("is not seated when the cookie belongs to a different room", async () => {
+    apiMeResponse = { ...linkMe, linkSessionId: "sess-2" };
+    renderApp(routed, { route: "/session/sess-1" });
+    await waitFor(() => expect(screen.queryByText(/Pulling up a chair/i)).toBe(null));
+    expect(screen.queryByTestId("link-guest-banner")).toBe(null);
+  });
+
+  // A plain re-render (a poll landing, an unrelated state update elsewhere in
+  // the tree) must not re-derive the guest and drop the seat.
+  it("stays seated on a plain re-render", async () => {
+    const { rerender } = renderApp(routed, { route: "/session/sess-1" });
+    await screen.findByTestId("link-guest-banner");
+    rerender(routed);
+    expect(await screen.findByTestId("link-guest-banner")).toBeTruthy();
+  });
+
   it("still shows no facilitator or space controls", async () => {
     renderApp(routed, { route: "/session/sess-1" });
     await screen.findByTestId("link-guest-banner");

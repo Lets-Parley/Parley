@@ -92,13 +92,17 @@ func rejectLinkPrincipal(next http.Handler) http.Handler {
 // setLinkSessionCookie is the ordinary session cookie with no lifetime at all:
 // no Max-Age and no Expires, so the browser drops it when the browsing session
 // ends. A guest link is aimed at someone outside the team, often on a borrowed
-// or shared machine, and closing the tab should drop the seat rather than leave
-// a live credential for the next person to inherit.
+// or shared machine, and the seat should not sit valid for a day after they
+// walk away.
 //
-// A refresh, or navigating away and back mid-meeting, is unaffected: a session
-// cookie survives every navigation inside the browsing session. The token
-// behind it still carries the link's own expiry, so the seat also ends when the
-// link does, whatever the browser decides to keep.
+// The browsing session is the browser, not the tab. Closing the room tab while
+// another window of that browser is open leaves this cookie alive, so the next
+// person to open the room URL is recovered into the same seat. What genuinely
+// ends the seat is quitting the browser, the link's own expiry — which the
+// token behind the cookie carries, whatever the browser decides to keep — or
+// Leave room, which deletes the token server-side. A refresh or an in-meeting
+// navigation is unaffected, which is the reason the seat is not torn down on
+// page hide.
 func setLinkSessionCookie(w http.ResponseWriter, value string, secure bool) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,

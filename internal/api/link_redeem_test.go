@@ -388,10 +388,13 @@ func TestRedeemedTokenExpiresWithTheLink(t *testing.T) {
 
 // TestRedeemedCookieEndsWithTheBrowserSession pins the other half of that
 // design. The token's own expiry is the link's, but the cookie carrying it is
-// session-scoped — no Max-Age and no Expires — so a guest who simply closes the
-// tab stops being that guest instead of leaving a live credential behind for
-// the next person on a borrowed machine. A refresh is unaffected: a session
-// cookie survives every navigation inside the browsing session.
+// session-scoped — no Max-Age and no Expires — so it is never written to disk
+// and dies with the browsing session rather than sitting valid for a day.
+//
+// The browsing session is the browser, not the tab: closing the room tab while
+// another window stays open leaves this cookie alive, and the seat with it.
+// Leave room is what ends a seat on demand. Real cookie lifetime is a browser
+// behaviour httptest cannot evaluate; what is pinned here is the header.
 func TestRedeemedCookieEndsWithTheBrowserSession(t *testing.T) {
 	srv := testServer(t)
 	fac, _, id := setupSession(t, srv, "Session Cookie Space")
