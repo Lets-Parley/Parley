@@ -91,3 +91,116 @@ func TestShutdownWaitsForCallbacksTouchingTheDatabase(t *testing.T) {
 		t.Fatalf("%d hub callbacks still running after Shutdown returned: each one is a write against a closed pool", n)
 	}
 }
+
+// TestRejectedMembershipRecordsNoPresence pins the other end of that ordering:
+// a connection the post-registration re-check rejects must never leave a
+// presence row behind. Presence is what RedactForGuest filters the roster by,
+// so a row written for a principal that is about to be torn down puts a
+// non-member in the roster every other client sees.
+func TestRejectedMembershipRecordsNoPresence(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	var seen atomic.Bool
+	h.OnFacilitatorSeen = func(string, string) { seen.Store(true) }
+	// The handshake read said member; the re-check, after registration, sees
+	// the removal that landed in between.
+	h.ValidateMembership = func(context.Context, string, string, string) (bool, error) {
+		return false, nil
+	}
+
+	ws, attached := attachWithInitial(t, h, []byte("snapshot"), SessionAuth{SpaceID: "space"})
+	ws.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, msg, err := ws.ReadMessage(); err == nil {
+		t.Fatalf("a rejected connection received room state: %q", msg)
+	} else if closeErr, ok := err.(*websocket.CloseError); !ok || closeErr.Code != websocket.ClosePolicyViolation {
+		t.Fatalf("close = %v, want policy violation", err)
+	}
+	select {
+	case <-attached:
+	case <-time.After(3 * time.Second):
+		t.Fatal("AttachAuthenticated did not return")
+	}
+	if seen.Load() {
+		t.Fatal("presence was recorded for a connection the membership re-check rejected: it can appear in another client's roster until OnDisconnect clears it")
+	}
+}
+
+// TestPongDuringMembershipConfirmationRecordsNoPresence pins the window
+// between the auth-state flip and confirmMembership returning: authState is
+// already authAccepted there, but the connection has not yet cleared the
+// membership re-check. A pong landing in that window must not call
+// OnFacilitatorSeen — that write would put a principal about to be rejected
+// back into the roster, exactly what this PR's reordering is meant to
+// prevent.
+func TestPongDuringMembershipConfirmationRecordsNoPresence(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	confirmStarted := make(chan struct{})
+	releaseConfirm := make(chan struct{})
+	var seenCount atomic.Int32
+	h.OnFacilitatorSeen = func(string, string) { seenCount.Add(1) }
+	h.ValidateMembership = func(context.Context, string, string, string) (bool, error) {
+		close(confirmStarted)
+		<-releaseConfirm
+		return true, nil
+	}
+
+	ws, attached := attachWithInitial(t, h, []byte("snapshot"), SessionAuth{SpaceID: "space"})
+	select {
+	case <-confirmStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("confirmMembership did not start")
+	}
+
+	if err := ws.WriteControl(websocket.PongMessage, []byte("mid-confirm"), time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	// Give the reader goroutine a chance to run the pong handler while
+	// confirmMembership is still blocked.
+	time.Sleep(50 * time.Millisecond)
+	if n := seenCount.Load(); n != 0 {
+		t.Fatalf("OnFacilitatorSeen fired %d time(s) from a pong that landed before membership was confirmed", n)
+	}
+
+	close(releaseConfirm)
+	select {
+	case <-attached:
+	case <-time.After(3 * time.Second):
+		t.Fatal("AttachAuthenticated did not return")
+	}
+	ws.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, msg, err := ws.ReadMessage(); err != nil {
+		t.Fatalf("reading the initial frame: %v", err)
+	} else if string(msg) != "snapshot" {
+		t.Fatalf("initial frame = %q, want snapshot", msg)
+	}
+	if n := seenCount.Load(); n != 1 {
+		t.Fatalf("OnFacilitatorSeen fired %d time(s), want exactly 1 (the attach-time call)", n)
+	}
+}
+
+// TestRejectedMembershipWithNoSnapshotIsStillTornDown pins the case with no
+// initial frame at all: the re-check runs whenever gatesInitialState holds,
+// not only when the handshake built a snapshot to release. A non-member
+// socket carrying no snapshot must still be torn down, not left open waiting
+// for the next revalidation tick.
+func TestRejectedMembershipWithNoSnapshotIsStillTornDown(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	h.ValidateMembership = func(context.Context, string, string, string) (bool, error) {
+		return false, nil
+	}
+
+	ws, attached := attachWithInitial(t, h, nil, SessionAuth{SpaceID: "space"})
+	ws.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, msg, err := ws.ReadMessage(); err == nil {
+		t.Fatalf("a rejected connection with no snapshot stayed open and received %q", msg)
+	} else if closeErr, ok := err.(*websocket.CloseError); !ok || closeErr.Code != websocket.ClosePolicyViolation {
+		t.Fatalf("close = %v, want policy violation", err)
+	}
+	select {
+	case <-attached:
+	case <-time.After(3 * time.Second):
+		t.Fatal("AttachAuthenticated did not return")
+	}
+}
