@@ -651,3 +651,24 @@ describe("Landing, a link guest", () => {
     expect(spaceCalls()).toHaveLength(0);
   });
 });
+
+describe("Landing, signed out on an OIDC server", () => {
+  beforeEach(() => {
+    signedIn = false;
+  });
+
+  it("offers a way in without first making up a space name", async () => {
+    renderApp(<Landing />);
+
+    const signin = await screen.findByRole("link", { name: /sign in/i });
+    expect(signin.getAttribute("href")).toBe("/auth/login?next=%2F");
+  });
+
+  it("does not offer it on a server with no identity provider", async () => {
+    authMode = "open";
+    renderApp(<Landing />);
+
+    await screen.findByPlaceholderText(/Platform Team/);
+    expect(screen.queryByRole("link", { name: /sign in/i })).toBeNull();
+  });
+});

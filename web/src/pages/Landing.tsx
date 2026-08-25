@@ -213,6 +213,15 @@ export function Landing() {
         </p>
       )}
 
+      {/* Signing in is the only way to a space list, and until now the only
+          door to it was the create form — so someone who already has spaces
+          had to pretend to make a new one to reach their own. */}
+      {mode.data?.mode === "oidc" && !fullAccount && !guestRoomId && !me.isLoading && (
+        <a href="/auth/login?next=%2F" className={buttonPrimary + " text-center"}>
+          Sign in
+        </a>
+      )}
+
       {/* A guest's writes are refused server-side, so the create form and the
           space list below (an account-scoped route) would both just fail for
           them. The room they already have is the "back to your room" link
