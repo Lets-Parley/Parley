@@ -100,6 +100,11 @@ type Props = {
   /* Sidebar starts closed in a session — the table wants the width. */
   sidebarDefault?: boolean;
   /**
+   * Whether the viewer owns this space. Only the link to the settings route
+   * rides on it — the route gates itself, and so does the server.
+   */
+  canManage?: boolean;
+  /**
    * Whether the viewer holds a guest link rather than an account. Its
    * capability is one room, so the shell drops every way out of that room: the
    * space breadcrumb, the space nav, and the profile dialog it may not write.
@@ -149,6 +154,7 @@ export function AppShell({
   sessions,
   activeSessionId,
   sidebarDefault = true,
+  canManage = false,
   guest = false,
   actions,
   children,
@@ -257,6 +263,19 @@ export function AppShell({
                     {me?.id === m.userId && (
                       <span className="font-mono text-[9px] text-ink-faint">you</span>
                     )}
+                    {/* Roles ride on the space payload only; a session roster
+                        carries none, and must not imply everyone is a member
+                        of nothing. */}
+                    {m.role && (
+                      <span
+                        className={
+                          "shrink-0 rounded-chip px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.06em] " +
+                          (m.role === "owner" ? "bg-accent-soft text-ink" : "bg-felt-deep text-ink-faint")
+                        }
+                      >
+                        {m.role === "owner" ? "Owner" : "Member"}
+                      </span>
+                    )}
                     {m.at && (
                       <span className="ml-auto shrink-0 font-mono text-[9px] text-go">
                         {m.at.sessionId === activeSessionId ? "here" : "in session"}
@@ -268,6 +287,18 @@ export function AppShell({
               </ul>
             </section>
           )}
+      {canManage && (
+        <section className="border-t border-line pt-3">
+          <Link
+            to={`/s/${spaceSlug}/settings`}
+            className="flex items-center gap-2 rounded-chip px-2.5 py-1.5 text-[13px] font-semibold text-ink-soft hover:bg-felt-deep"
+          >
+            <span aria-hidden>⚙</span>
+            Settings
+          </Link>
+        </section>
+      )}
+
       <BuildStamp />
     </>
   );

@@ -84,8 +84,9 @@ sit at.
 - **One memorable link per team.** `/s/platform-team`, and that's the URL you
   paste in chat.
 - **Protected by default.** New spaces get a six-character passcode. People
-  enter the code, pick a name, and they're in. Any member can
-  mint a new code, or open the space so the link alone is the invite.
+  enter the code, pick a name, and they're in. The space page shows the code
+  and a one-click invite; an owner can mint a new code from
+  `/s/<slug>/settings`, or open the space so the link alone is the invite.
 - **Roster with presence:** who's around, who's in a session, and a jump
   straight to the table they're sitting at.
 - **Customizable avatars.** Pick one of thirty voxel-art portraits, and it
@@ -406,8 +407,9 @@ and passed on, the way a Meet or Zoom code is, so hashing it would only mean
 nobody could ever see it again. Treat a database dump as disclosing the room
 codes of every space — but not any member's identity. Session cookies remain
 opaque random tokens stored hashed, so a backup still contains no credentials
-that impersonate a person. Any member can mint a new code (retiring the old
-one) or open the space entirely.
+that impersonate a person. The server lets any member mint a new code
+(retiring the old one) or open the space entirely; the controls that do so are
+offered to owners, on the space's settings page.
 
 What Parley does enforce: acting in a space requires having joined it; a
 protected space refuses joins without the code; session existence is never
