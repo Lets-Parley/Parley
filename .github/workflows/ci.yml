@@ -204,7 +204,7 @@ jobs:
       # cheaply: single-platform, loaded straight into the local daemon, and
       # checked with the binary's own `-version` flag so it needs no
       # database or running server.
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
       - name: Build via build-push-action with the release build-arg
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
