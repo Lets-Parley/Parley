@@ -46,7 +46,7 @@ export function SpaceSettingsPage() {
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["space", slug] });
 
-  if (space.isLoading) {
+  if (space.isLoading || me.isLoading) {
     return <p className="p-8 text-center text-ink-faint">Finding the table…</p>;
   }
   if (!space.data) {

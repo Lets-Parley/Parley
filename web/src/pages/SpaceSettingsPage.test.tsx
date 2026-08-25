@@ -23,13 +23,18 @@ const base = {
 
 let view: SpaceView = base;
 const calls: Array<[string, string, unknown]> = [];
+let meBehavior: "ok" | "pending" | "error" = "ok";
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
   return {
     ...actual,
     api: vi.fn(async (method: string, path: string, body?: unknown) => {
-      if (path === "/api/me") return me;
+      if (path === "/api/me") {
+        if (meBehavior === "pending") return new Promise<never>(() => {});
+        if (meBehavior === "error") throw new Error("me blew up");
+        return me;
+      }
       if (path === "/api/auth") return { mode: "open" };
       if (method === "GET" && path.startsWith("/api/spaces/")) return view;
       calls.push([method, path, body]);
@@ -50,6 +55,7 @@ const routed = (
 beforeEach(() => {
   calls.length = 0;
   view = base;
+  meBehavior = "ok";
 });
 
 afterEach(() => {
@@ -63,6 +69,33 @@ describe("SpaceSettingsPage", () => {
     expect(await screen.findByRole("heading", { name: "Settings", level: 1 })).toBeTruthy();
     const back = screen.getByRole("link", { name: /Back to Platform Team/ });
     expect(back.getAttribute("href")).toBe("/s/platform-team");
+  });
+
+  // An owner must never see the lockout note just because /api/me is still
+  // in flight -- canManage has to wait on identity the same way it waits on
+  // the space, or a slow me request reads as a false "you can't manage this".
+  it("does not lock out an owner while identity is still loading", async () => {
+    meBehavior = "pending";
+    renderApp(routed, { route: "/s/platform-team/settings" });
+
+    // Give the space query a real chance to settle -- with the bug, that is
+    // enough for canManage to be computed against a still-pending me and show
+    // the lockout even though me will eventually say this visitor is the owner.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(screen.queryByText(/Only an owner can manage this space/)).toBe(null);
+    expect(screen.getByText("Finding the table\u2026")).toBeTruthy();
+  });
+
+  // When identity flatly fails to load (not just slow), the safest default is
+  // the same lockout a genuine non-owner sees, not a spinner that never ends.
+  it("locks out the page rather than spinning forever when identity fails to load", async () => {
+    meBehavior = "error";
+    renderApp(routed, { route: "/s/platform-team/settings" });
+
+    expect(
+      await screen.findByText(/Only an owner can manage this space/),
+    ).toBeTruthy();
   });
 
   it("is where the manageable roster lives, with its role controls", async () => {
