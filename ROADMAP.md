@@ -243,6 +243,12 @@ Ideas under consideration, not committed to.
 
 ## Completed
 
+### v0.7.2
+
+- Signing in no longer means pretending to make a space: the landing page has
+  its own way in, and says which account it is listing spaces for, with the way
+  back out
+
 ### v0.7.1
 
 - A signed link is a capability, not a login: it opens one room, expires on its
