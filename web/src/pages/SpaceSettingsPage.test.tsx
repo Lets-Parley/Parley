@@ -88,6 +88,20 @@ describe("SpaceSettingsPage", () => {
     expect(calls).toContainEqual(["POST", "/api/spaces/platform-team/passcode", { open: true }]);
   });
 
+  it("copies just the passcode from the secondary action", async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    renderApp(routed, { route: "/s/platform-team/settings" });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Copy passcode" }));
+
+    expect(writeText).toHaveBeenCalledWith("TEAM49");
+    expect(screen.getByText("Passcode copied")).toBeTruthy();
+  });
+
   it("renames the space and keeps the slug", async () => {
     renderApp(routed, { route: "/s/platform-team/settings" });
 
