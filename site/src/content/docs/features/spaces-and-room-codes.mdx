@@ -9,7 +9,7 @@ import Screenshot from "../../../components/Screenshot.astro";
 import spaceLight from "../../../assets/space-room-code-light.png";
 import spaceDark from "../../../assets/space-room-code-dark.png";
 
-<VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "internal/api/authz.go", "web/src/pages/SpacePage.tsx", "web/src/pages/Landing.tsx"]} />
+<VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "internal/api/authz.go", "web/src/pages/SpacePage.tsx", "web/src/pages/SpaceSettingsPage.tsx", "web/src/pages/Landing.tsx"]} />
 
 A space is a team's room. It has a memorable URL — `/s/platform-team` — a roster,
 and a history of every session run in it.
@@ -41,8 +41,12 @@ against `0`, no `I` against `1` — because this code gets read aloud in a meeti
 Codes are matched case-insensitively and compared in constant time. Wrong guesses
 are throttled per client address: eight attempts per minute, per space.
 
-Any member can mint a new code, which immediately retires the old one, or open
-the space entirely so anyone with the link can take a seat.
+`/s/<slug>` carries a one-line invite strip above the session list: the
+passcode, and **Copy invite**. Nothing on it changes the door. Minting a new
+code — which immediately retires the old one and drops everyone still holding
+it back to the gate — and opening the space entirely both live under
+**Access** on [the settings page](#space-settings), which is owner-only. The
+server itself still accepts either request from any member.
 
 **Copy invite** puts one link on the clipboard, built from the address you are
 already on, with the passcode carried in the URL fragment:
@@ -57,9 +61,10 @@ next. Parley reads it once on arrival and wipes it from the address bar, so it
 does not survive into a bookmark, the back button, or a screenshot. The link is
 still a secret in transit — treat it exactly as you would the passcode itself.
 
-**Copy passcode** takes just the six characters, for when you are reading it out
-or the link is already pinned somewhere. An open space has no passcode, so the
-invite is only the link.
+**Copy passcode**, beside the Access controls in settings, takes just the six
+characters, for when you are reading it out or the link is already pinned
+somewhere. An open space has no passcode, so the invite is only the link, and
+the strip says so in the same one line rather than showing an empty panel.
 
 An open space is appropriate only on a trusted network. For public reachability,
 keep the passcode or put an external SSO/authentication proxy in front and add
@@ -73,17 +78,27 @@ stated plainly in the [security model](/security/overview/), and it is the reaso
 a code is a door, not an identity.
 :::
 
-## Renaming and deleting
+## Space settings
 
-Under the passcode panel, an owner gets **Space settings**: rename the space, or
-delete it.
+Everything that changes a space lives on its own route, `/s/<slug>/settings`,
+reached from **Settings** at the foot of the sidebar — the rail on a wide
+screen, the same sheet on a phone. The link, and the page, are owner-only: a
+member who types the URL is told to ask an owner, and the server refuses the
+requests behind it in any case.
+
+The page holds four things, in order: **Members** with their role controls,
+**Access** (above), **Space** for the name, and a fenced **Danger zone**.
+
+Splitting it out keeps the page a team opens daily to what it came for. The
+session list and the invite are one audience and one lifetime; renaming,
+rotating and deleting are another.
 
 A rename changes the display name only. The slug does not move with it, so
 `/s/platform-team` keeps working and every invite already pinned to a channel
 topic keeps working with it.
 
-Deleting is the one genuinely irreversible thing on the page. It takes the
-space and everything under it — every session, story, vote and standup, for
+Deleting sits alone in the danger zone. It is the one genuinely irreversible
+thing in Parley: it takes the space and everything under it — every session, story, vote and standup, for
 everybody — and there is no undo and no archive. The button asks you to type
 the space's name back before it will fire, and anyone with a room open is
 disconnected as it lands.
@@ -110,12 +125,13 @@ so it reflects an actual open connection.
 
 ## Members and owners
 
-Under the session list, the **Members** panel names everyone in the space and
-their role — **Owner** or **Member**. The person who created the space is its
-first owner.
+The sidebar roster names everyone in the space and their role — **Owner** or
+**Member**. The person who created the space is its first owner. The controls
+that change a role live on the settings page, under **Members**.
 
-An owner sees two controls beside each member: **Make owner** / **Make member**
-to change their standing, and **Remove** to take their seat away. Removal takes
+There, an owner gets two controls beside each member: **Make owner** /
+**Make member** to change their standing, and **Remove** to take their seat
+away. Removal takes
 effect on that person's very next request: they drop straight back to the
 passcode gate. It is not a ban — a current passcode lets them rejoin as a
 plain member.
@@ -153,6 +169,6 @@ timestamp and calling it presence.
 <Capability rows={[
   { name: "Per-user or per-team access", status: "not-built", detail: "Put an SSO proxy in front, or turn on <a href='/security/authentication/'>OIDC</a> and keep spaces open only on a trusted network. Owners manage membership, but a passcode is still the only door." },
   { name: "Filtering history by date", status: "not-built", detail: "Sort by most recent and scroll; search matches titles." },
-  { name: "Roles beyond owner and member", status: "not-built", detail: "Ownership governs membership and the space itself — renaming and deleting the space and its sessions. It does not govern the door: any member, owner or not, can still rotate the passcode or open the space. Treat membership as trust, and see the <a href='/security/threat-model/'>threat model</a>." },
+  { name: "Roles beyond owner and member", status: "not-built", detail: "Ownership governs membership and the space itself — renaming and deleting the space and its sessions, and the settings page that holds those controls. It does not govern the door at the server: any member, owner or not, can still rotate the passcode or open the space through the API. Treat membership as trust, and see the <a href='/security/threat-model/'>threat model</a>." },
   { name: "Knock-to-join", status: "not-built", detail: "Share the code. Requesting entry from the door is on the roadmap." },
 ]} />

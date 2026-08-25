@@ -210,7 +210,7 @@ toggle, not a permission an administrator grants.
 ## What there is not
 
 <Capability rows={[
-  { name: "Roles beyond owner and member", status: "not-built", detail: "Ownership covers membership management and the space itself — renaming and deleting the space and its sessions. It does not cover the door: any member, owner or not, can still rotate the passcode or open the space." },
+  { name: "Roles beyond owner and member", status: "not-built", detail: "Ownership covers membership management and the space itself — renaming and deleting the space and its sessions. It does not cover the door: the server still lets any member, owner or not, rotate the passcode or open the space, though the controls that do so are offered only to owners, on the space settings page." },
   { name: "Per-user or per-team space access", status: "not-built", detail: "A passcode is the only gate. Signing in with OIDC proves who you are but grants nothing by itself." },
   { name: "Removing a session participant", status: "not-built", detail: "A facilitator can hand the role to another member, but there is no eject-from-this-session-only control. Remove them from the space instead, or rotate the passcode." },
   { name: "Undo, or an audit trail, for a deletion", status: "not-built", detail: "An owner can delete a space or a session, and it is gone — no soft delete, no archive, no record that it existed. Restore from a <a href='/operations/backups-and-recovery/'>backup</a> if you need one back." },

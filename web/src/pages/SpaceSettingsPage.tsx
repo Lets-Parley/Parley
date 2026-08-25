@@ -1,0 +1,458 @@
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { api, type Person, type SpaceRole, type SpaceView } from "../lib/api";
+import { useMe } from "../components/NameGate";
+import { AppShell } from "../components/AppShell";
+import {
+  buttonDanger,
+  buttonQuiet,
+  inputClass,
+  labelClass,
+} from "../components/Modal";
+import { useCopy, useToast } from "../lib/ui";
+import { inviteLink } from "../lib/invite";
+
+/**
+ * Everything that changes a space, on its own page.
+ *
+ * It is a route rather than a panel on the space page because the two have
+ * different audiences and different lifetimes: the table is what the team opens
+ * daily, and this is housekeeping an owner does rarely. Keeping them on one
+ * scroll put `Delete this space` beside the session list and pushed the
+ * passcode about a viewport and a half down.
+ *
+ * The query key is the space page's, so arriving here serves from cache.
+ */
+export function SpaceSettingsPage() {
+  const { slug = "" } = useParams();
+  const qc = useQueryClient();
+  const me = useMe();
+  const say = useToast();
+  // Route changes do not move focus on their own, so a keyboard or screen
+  // reader user would still be parked wherever the Settings link was.
+  const column = useRef<HTMLDivElement>(null);
+
+  const space = useQuery({
+    queryKey: ["space", slug],
+    queryFn: () => api<SpaceView>("GET", `/api/spaces/${slug}`),
+    retry: false,
+  });
+
+  const ready = !!space.data;
+  useEffect(() => {
+    if (ready) column.current?.focus();
+  }, [ready]);
+
+  const refresh = () => qc.invalidateQueries({ queryKey: ["space", slug] });
+
+  if (space.isLoading || me.isLoading) {
+    return <p className="p-8 text-center text-ink-faint">Finding the table…</p>;
+  }
+  if (!space.data) {
+    return (
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-8 text-center">
+        <p className="font-display text-2xl">No table under that name</p>
+        <p className="text-sm text-ink-soft">Check the link with your team.</p>
+      </div>
+    );
+  }
+
+  const sp = space.data;
+  // Settings is not a way in. Somebody who has not joined belongs at the gate,
+  // which is what the space page renders for them.
+  if (sp.members === undefined) return <Navigate to={`/s/${slug}`} replace />;
+
+  // Hiding a control is a courtesy; the server enforces the same rule and
+  // answers 403 to a member who reaches the route another way.
+  const canManage = sp.members.find((m) => m.userId === me.data?.id)?.role === "owner";
+
+  return (
+    <AppShell
+      spaceSlug={sp.slug}
+      spaceName={sp.name}
+      title="Settings"
+      me={me.data ?? null}
+      members={sp.members}
+      presence={sp.members.filter((m) => m.at).map((m) => m.userId)}
+      sessions={sp.sessions ?? []}
+      canManage={canManage}
+    >
+      {/* Full width by design: below 768px the sidebar is a sheet, so this is
+          the whole column, and above it the rail is already beside us. */}
+      <div
+        ref={column}
+        tabIndex={-1}
+        className="mx-auto max-w-[760px] px-6 py-9 outline-none sm:px-8"
+      >
+        <Link
+          to={`/s/${sp.slug}`}
+          className="inline-block text-[13px] font-bold text-accent hover:underline"
+        >
+          ← Back to {sp.name}
+        </Link>
+
+        {!canManage ? (
+          <p className="mt-6 rounded-card border border-line bg-surface px-5 py-4 text-sm text-ink-soft text-pretty">
+            Only an owner can manage this space. Ask one of them — the roster in
+            the sidebar says who they are.
+          </p>
+        ) : (
+          <>
+            <MembersPanel
+              slug={sp.slug}
+              members={sp.members}
+              meId={me.data?.id ?? ""}
+              onChanged={refresh}
+              onError={say}
+            />
+            <AccessPanel
+              slug={sp.slug}
+              passcode={sp.passcode ?? ""}
+              onChanged={refresh}
+              onError={say}
+            />
+            <SpaceNamePanel slug={sp.slug} name={sp.name} onChanged={refresh} onError={say} />
+            <DangerZone slug={sp.slug} name={sp.name} onError={say} />
+          </>
+        )}
+      </div>
+    </AppShell>
+  );
+}
+
+/**
+ * Who is in the space and who runs it.
+ *
+ * Every rule here is enforced by the server as well — hiding a button is a
+ * courtesy, not the guard.
+ */
+function MembersPanel({
+  slug,
+  members,
+  meId,
+  onChanged,
+  onError,
+}: {
+  slug: string;
+  members: Person[];
+  meId: string;
+  onChanged: () => void;
+  onError: (msg: string) => void;
+}) {
+  const say = useToast();
+  const [busy, setBusy] = useState("");
+  const owners = members.filter((m) => m.role === "owner").length;
+
+  async function run(userId: string, work: () => Promise<unknown>, done: string) {
+    setBusy(userId);
+    try {
+      await work();
+      onChanged();
+      say(done);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Could not update that member.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  function setRole(m: Person, role: SpaceRole) {
+    run(
+      m.userId,
+      () => api("POST", `/api/spaces/${slug}/members/${m.userId}/role`, { role }),
+      role === "owner" ? `${m.name} can now manage this space` : `${m.name} is a member again`,
+    );
+  }
+
+  function remove(m: Person) {
+    run(
+      m.userId,
+      () => api("DELETE", `/api/spaces/${slug}/members/${m.userId}`),
+      `${m.name} no longer has a seat here`,
+    );
+  }
+
+  if (members.length === 0) return null;
+
+  return (
+    <section className="mt-6 rounded-card border border-line bg-surface px-5 py-4">
+      <h2 className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">Members</h2>
+      <ul className="mt-2 flex flex-col divide-y divide-line">
+        {members.map((m) => {
+          const isOwner = m.role === "owner";
+          // The server refuses to strand a space without an owner; the UI says
+          // so up front instead of offering a button that always 409s.
+          const lastOwner = isOwner && owners < 2;
+          return (
+            <li key={m.userId} className="flex flex-wrap items-center gap-2 py-2">
+              <span className="min-w-0 flex-1 truncate text-[14px] font-semibold">
+                {m.name}
+                {m.userId === meId && <span className="ml-1.5 text-ink-faint">(you)</span>}
+              </span>
+              <span
+                className={
+                  "shrink-0 rounded-chip px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] " +
+                  (isOwner ? "bg-accent-soft text-ink" : "bg-felt-deep text-ink-faint")
+                }
+              >
+                {isOwner ? "Owner" : "Member"}
+              </span>
+              <button
+                className={buttonQuiet}
+                disabled={busy === m.userId || lastOwner}
+                title={lastOwner ? "Promote someone else first — a space needs an owner" : undefined}
+                aria-label={(isOwner ? "Make member: " : "Make owner: ") + m.name}
+                onClick={() => setRole(m, isOwner ? "member" : "owner")}
+              >
+                {isOwner ? "Make member" : "Make owner"}
+              </button>
+              <button
+                className={buttonQuiet}
+                disabled={busy === m.userId || lastOwner}
+                title={lastOwner ? "Promote someone else first — a space needs an owner" : undefined}
+                aria-label={"Remove: " + m.name}
+                onClick={() => remove(m)}
+              >
+                Remove
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * The door: the passcode, and the two ways to change it.
+ *
+ * Rotating locks out everyone still holding the old code, which is why these
+ * controls live here rather than on the page the team opens daily.
+ */
+function AccessPanel({
+  slug,
+  passcode,
+  onChanged,
+  onError,
+}: {
+  slug: string;
+  passcode: string;
+  onChanged: () => void;
+  onError: (msg: string) => void;
+}) {
+  const say = useToast();
+  const copyText = useCopy();
+  const [busy, setBusy] = useState(false);
+
+  // The same copy affordance the guest-link panel uses, denial path included.
+  const copy = (text: string, done: string) => copyText(text, done, onError);
+
+  async function set(open: boolean) {
+    setBusy(true);
+    try {
+      await api("POST", `/api/spaces/${slug}/passcode`, { open });
+      onChanged();
+      say(open ? "Space opened — the link is now the only thing needed" : "New passcode — the old one stops working");
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Could not update the passcode.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mt-6 rounded-card border border-line bg-surface px-5 py-4">
+      <h2 className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">Access</h2>
+      {passcode ? (
+        /* Never break the code itself — it is the one string on this page that
+           gets read out loud. The button row wraps instead. */
+        <p className="mt-1 whitespace-nowrap font-mono text-lg font-semibold tracking-[0.16em]">
+          {passcode}
+        </p>
+      ) : (
+        <p className="mt-1 text-[13px] text-ink-soft">
+          Open — anyone with the link can take a seat.
+        </p>
+      )}
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button
+          className={buttonQuiet}
+          onClick={() =>
+            copy(inviteLink(slug, passcode), "Invite link copied — it seats them in one click")
+          }
+        >
+          Copy invite
+        </button>
+        {passcode && (
+          <button className={buttonQuiet} onClick={() => copy(passcode, "Passcode copied")}>
+            Copy passcode
+          </button>
+        )}
+        <button className={buttonQuiet} disabled={busy} onClick={() => set(false)}>
+          {passcode ? "New passcode" : "Protect space"}
+        </button>
+        {passcode && (
+          <button className={buttonQuiet} disabled={busy} onClick={() => set(true)}>
+            Make open
+          </button>
+        )}
+      </div>
+      <p className="mt-2 text-[12px] text-ink-faint text-pretty">
+        A new passcode retires the old one immediately — anyone still holding it
+        drops back to the gate.
+      </p>
+    </section>
+  );
+}
+
+/** Renaming the space. The slug deliberately stays put. */
+function SpaceNamePanel({
+  slug,
+  name,
+  onChanged,
+  onError,
+}: {
+  slug: string;
+  name: string;
+  onChanged: () => void;
+  onError: (msg: string) => void;
+}) {
+  const say = useToast();
+  const [draft, setDraft] = useState(name);
+  const [busy, setBusy] = useState(false);
+  const nameFieldId = useId();
+
+  const trimmed = draft.trim();
+
+  async function rename(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api("PATCH", `/api/spaces/${slug}`, { name: trimmed });
+      onChanged();
+      // The slug is in every invite already handed out, so it deliberately
+      // stays put — say so rather than leaving people hunting for a new link.
+      say(`Renamed — the link /s/${slug} still works`);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Could not rename this space.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mt-6 rounded-card border border-line bg-surface px-5 py-4">
+      <h2 className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">Space</h2>
+      <form onSubmit={rename} className="mt-1 flex flex-wrap items-end gap-3">
+        <div className="min-w-[200px] flex-1">
+          <label htmlFor={nameFieldId} className={labelClass + " mt-0"}>
+            Space name
+          </label>
+          <input
+            id={nameFieldId}
+            className={inputClass}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            maxLength={64}
+          />
+        </div>
+        <button type="submit" className={buttonQuiet} disabled={busy || !trimmed || trimmed === name}>
+          Rename
+        </button>
+      </form>
+      <p className="mt-2 text-[12px] text-ink-faint text-pretty">
+        The address stays /s/{slug}, so invites already sent keep working.
+      </p>
+    </section>
+  );
+}
+
+/**
+ * Deleting the space, fenced off from everything above it.
+ *
+ * Deleting asks for the name to be typed back. The confirmation is not
+ * ceremony — nothing here is recoverable, and every session, story and vote in
+ * the space goes with it.
+ */
+function DangerZone({
+  slug,
+  name,
+  onError,
+}: {
+  slug: string;
+  name: string;
+  onError: (msg: string) => void;
+}) {
+  const navigate = useNavigate();
+  const say = useToast();
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [typed, setTyped] = useState("");
+
+  async function destroy() {
+    setBusy(true);
+    try {
+      await api("DELETE", `/api/spaces/${slug}`);
+      say(`${name} is gone`);
+      navigate("/");
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Could not delete this space.");
+      setBusy(false);
+      setConfirming(false);
+    }
+  }
+
+  return (
+    /* The fence is the point: a red border and its own heading, so nothing in
+       here can be mistaken for the housekeeping above it. */
+    <section className="mt-8 rounded-card border-2 border-stop bg-surface px-5 py-4">
+      <h2 className="font-mono text-[10px] uppercase tracking-[0.08em] text-stop">Danger zone</h2>
+      {confirming ? (
+        <div className="mt-3">
+          <p className="text-[13px] text-ink-soft text-pretty">
+            This deletes {name} and every session, story and vote in it, for
+            everyone. It cannot be undone. Type <strong>{name}</strong> to
+            confirm.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <input
+              className={inputClass + " min-w-[200px] max-w-[280px] flex-1"}
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              aria-label={`Type ${name} to confirm`}
+              autoFocus
+            />
+            <button
+              className={buttonDanger + " disabled:opacity-50"}
+              disabled={busy || typed.trim() !== name}
+              onClick={() => void destroy()}
+            >
+              {busy ? "Deleting…" : "Delete this space"}
+            </button>
+            <button
+              className={buttonQuiet}
+              disabled={busy}
+              onClick={() => {
+                setConfirming(false);
+                setTyped("");
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="mt-1 text-[13px] text-ink-soft text-pretty">
+            Deleting takes the space and everything under it, for everybody.
+            There is no undo and no archive.
+          </p>
+          <button className={buttonQuiet + " mt-3"} onClick={() => setConfirming(true)}>
+            Delete this space
+          </button>
+        </>
+      )}
+    </section>
+  );
+}

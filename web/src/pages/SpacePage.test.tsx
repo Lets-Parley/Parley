@@ -172,7 +172,7 @@ describe("SpacePage create dialog", () => {
   });
 });
 
-describe("SpacePage passcode panel", () => {
+describe("SpacePage invite strip", () => {
   const protectedSpace = { ...space, protected: true, passcode: "TEAM49" } as SpaceView;
 
   function clipboard() {
@@ -221,17 +221,6 @@ describe("SpacePage passcode panel", () => {
     expect(screen.queryByText(/Invite link copied/)).toBe(null);
   });
 
-  it("copies just the passcode from the secondary action", async () => {
-    view = protectedSpace;
-    const writeText = clipboard();
-    renderApp(<SpacePage />, { route: "/s/platform-team" });
-
-    await userEvent.click(await screen.findByRole("button", { name: "Copy passcode" }));
-
-    expect(writeText).toHaveBeenCalledWith("TEAM49");
-    expect(screen.getByText("Passcode copied")).toBeTruthy();
-  });
-
   it("copies the bare link when the space is open", async () => {
     view = { ...space, protected: false, passcode: undefined } as SpaceView;
     const writeText = clipboard();
@@ -241,7 +230,6 @@ describe("SpacePage passcode panel", () => {
 
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/s/platform-team`);
     expect(screen.getByText("Invite link copied — it seats them in one click")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Copy passcode" })).toBe(null);
   });
 });
 
@@ -388,7 +376,7 @@ function spaceReads(): number {
  * here is that the right request goes out and that a member is not shown a
  * button that would only earn them a 403.
  */
-describe("SpacePage space and room admin", () => {
+describe("SpacePage room admin", () => {
   const owned = {
     ...space,
     members: [{ userId: "marcus", name: "Marcus Okonjo", avatarHue: 40, spectator: false, role: "owner" }],
@@ -404,47 +392,14 @@ describe("SpacePage space and room admin", () => {
     view = space;
   });
 
-  it("offers nothing to rename or delete to a plain member", async () => {
+  it("offers nothing to manage to a plain member", async () => {
     view = asMember;
     renderApp(<SpacePage />, { route: "/s/platform-team" });
     await screen.findByText("Recent sessions");
-    expect(screen.queryByRole("button", { name: "Delete this space" })).toBe(null);
+    // The settings route is where renaming and deleting live now, and a
+    // member is not pointed at it.
+    expect(screen.queryByRole("link", { name: "Settings" })).toBe(null);
     expect(screen.queryByRole("button", { name: "Manage Sprint 12 grooming" })).toBe(null);
-  });
-
-  it("renames the space and keeps the slug, saying so", async () => {
-    view = owned;
-    renderApp(<SpacePage />, { route: "/s/platform-team" });
-    const field = await screen.findByRole("textbox", { name: "Space name" });
-    await userEvent.clear(field);
-    await userEvent.type(field, "Platform Guild");
-    await userEvent.click(screen.getByRole("button", { name: "Rename" }));
-
-    expect(calls()).toContainEqual([
-      "PATCH",
-      "/api/spaces/platform-team",
-      { name: "Platform Guild" },
-    ]);
-    expect(await screen.findByText("Renamed — the link /s/platform-team still works")).toBeTruthy();
-  });
-
-  // Nothing here is recoverable, so the name has to be typed back before the
-  // button will fire at all.
-  it("will not delete a space until its name is typed back", async () => {
-    view = owned;
-    renderApp(<SpacePage />, { route: "/s/platform-team" });
-    await userEvent.click(await screen.findByRole("button", { name: "Delete this space" }));
-
-    const go = screen.getByRole("button", { name: "Delete this space" }) as HTMLButtonElement;
-    expect(go.disabled).toBe(true);
-
-    const confirm = screen.getByRole("textbox", { name: "Type Platform Team to confirm" });
-    await userEvent.type(confirm, "Platform Tea");
-    expect((screen.getByRole("button", { name: "Delete this space" }) as HTMLButtonElement).disabled).toBe(true);
-
-    await userEvent.type(confirm, "m");
-    await userEvent.click(screen.getByRole("button", { name: "Delete this space" }));
-    expect(calls()).toContainEqual(["DELETE", "/api/spaces/platform-team"]);
   });
 
   it("renames one room through its manage dialog", async () => {
