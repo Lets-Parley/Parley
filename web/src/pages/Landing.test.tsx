@@ -651,3 +651,55 @@ describe("Landing, a link guest", () => {
     expect(spaceCalls()).toHaveLength(0);
   });
 });
+
+describe("Landing, signed out on an OIDC server", () => {
+  beforeEach(() => {
+    signedIn = false;
+  });
+
+  it("offers a way in without first making up a space name", async () => {
+    renderApp(<Landing />);
+
+    const signin = await screen.findByRole("link", { name: /sign in/i });
+    expect(signin.getAttribute("href")).toBe("/auth/login?next=%2F");
+  });
+
+  it("does not offer it on a server with no identity provider", async () => {
+    authMode = "open";
+    renderApp(<Landing />);
+
+    await screen.findByPlaceholderText(/Platform Team/);
+    expect(screen.queryByRole("link", { name: /sign in/i })).toBeNull();
+  });
+});
+
+describe("Landing, signed in on an OIDC server", () => {
+  it("says who you are and offers the way out", async () => {
+    renderApp(<Landing />);
+
+    expect(await screen.findByText("Marcus Okonjo")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: /sign out/i }));
+
+    await waitFor(() =>
+      expect(
+        vi.mocked(api).mock.calls.some((c) => c[0] === "DELETE" && c[1] === "/api/me"),
+      ).toBe(true),
+    );
+  });
+
+  it("says nothing about accounts on a server with no identity provider", async () => {
+    authMode = "open";
+    renderApp(<Landing />);
+
+    await screen.findByPlaceholderText(/Platform Team/);
+    expect(screen.queryByRole("button", { name: /sign out/i })).toBeNull();
+  });
+
+  it("leaves a link guest alone", async () => {
+    asGuest = true;
+    renderApp(<Landing />);
+
+    await screen.findByRole("link", { name: /back to your room/i });
+    expect(screen.queryByRole("button", { name: /sign out/i })).toBeNull();
+  });
+});

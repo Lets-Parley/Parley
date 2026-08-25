@@ -13,6 +13,7 @@ import { api, errorText, type Membership, type SpaceView } from "../lib/api";
 import { useMe, useAuthMode, NameGate } from "../components/NameGate";
 import { isFullAccount } from "../lib/links";
 import { Logo, ThemeToggle } from "../components/AppShell";
+import { Avatar } from "../components/Avatar";
 import { buttonPrimary, buttonQuiet, inputClass, labelClass } from "../components/Modal";
 
 // Deliberately sessionStorage, not localStorage: an abandoned space name should
@@ -211,6 +212,43 @@ export function Landing() {
             ? " Sign in with your usual account."
             : " Self-hosted, no accounts, no fuss."}
         </p>
+      )}
+
+      {/* Who the server thinks you are, and the way out. Without it a shared
+          machine, or a second account, has no door on this page — the space
+          list just silently belongs to somebody else. Signing back in as
+          someone else is the Sign in link this leaves behind. */}
+      {mode.data?.mode === "oidc" && fullAccount && me.data && (
+        <p className="flex items-center gap-3 text-sm text-ink-soft">
+          <Avatar name={me.data.name} hue={me.data.avatarHue} icon={me.data.avatarIcon} size="sm" />
+          <span>
+            Signed in as <span className="font-bold text-ink">{me.data.name}</span>
+          </span>
+          <button
+            type="button"
+            className={buttonQuiet}
+            onClick={async () => {
+              // The cookie and its token row go; the identity provider's own
+              // session is untouched, so this is "Sign out", not "everywhere".
+              try {
+                await api("DELETE", "/api/me");
+              } finally {
+                window.location.href = "/";
+              }
+            }}
+          >
+            Sign out
+          </button>
+        </p>
+      )}
+
+      {/* Signing in is the only way to a space list, and until now the only
+          door to it was the create form — so someone who already has spaces
+          had to pretend to make a new one to reach their own. */}
+      {mode.data?.mode === "oidc" && !fullAccount && !guestRoomId && !me.isLoading && (
+        <a href="/auth/login?next=%2F" className={buttonPrimary + " text-center"}>
+          Sign in
+        </a>
       )}
 
       {/* A guest's writes are refused server-side, so the create form and the
