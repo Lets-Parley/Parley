@@ -24,6 +24,6 @@ keywords:
 # than useless: it renders a current chart around an older image — an HA chart
 # wrapped around a pre-HA binary, which looks correct and then dies at
 # replicaCount 2. 0.0.0 resolves to no published tag, so that install fails
-# loudly instead. Installing from a clone means passing --set image.tag=0.7.1.
+# loudly instead. Installing from a clone means passing --set image.tag=0.7.2.
 version: 0.0.0
 appVersion: "0.0.0"
