@@ -110,6 +110,20 @@ func TestRedeemLinkAcceptsSixtyFourMultiByteCharacters(t *testing.T) {
 	}
 }
 
+func TestRedeemLinkRejectsSixtyFiveMultiByteCharacters(t *testing.T) {
+	srv := testServer(t)
+	fac, _, sessionID := setupSession(t, srv, "Link Unicode Reject")
+	_, minted := mintLink(t, srv, sessionID, fac)
+	token := minted["token"].(string)
+
+	// Name validation runs before the token is looked up, so this token is
+	// still unused after the rejection below and does not need to be re-minted.
+	resp, body, _ := redeem(t, srv, token, repeatRunes("い", 65))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("65-character redeem name: got %d, want 400 (%v)", resp.StatusCode, body)
+	}
+}
+
 func TestRoomTitleAcceptsTwoHundredMultiByteCharacters(t *testing.T) {
 	srv := testServer(t)
 	cookie := signup(t, srv, "Ada")
