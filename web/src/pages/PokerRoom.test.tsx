@@ -376,6 +376,35 @@ describe("PokerRoom errors", () => {
   });
 });
 
+describe("PokerRoom save offer", () => {
+  const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+
+  function revealed(median: number) {
+    const env = envelope({ facilitatorConnected: true, revealed: true });
+    env.state.stories[0].results = {
+      histogram: [
+        { value: "3", count: 1 },
+        { value: "5", count: 1 },
+      ],
+      median,
+      average: median,
+      consensus: false,
+    };
+    return env;
+  }
+
+  it("offers no save when the median is not a card in the deck", () => {
+    // 3 and 5 average to a median of 4, which the backend rejects outright.
+    renderApp(<PokerRoom env={revealed(4)} me={dana} />);
+    expect(screen.queryByRole("button", { name: /^Save/ })).toBeNull();
+  });
+
+  it("still offers the save when the median is a real card", () => {
+    renderApp(<PokerRoom env={revealed(3)} me={dana} />);
+    expect(screen.getByRole("button", { name: "Save 3 to story" })).toBeTruthy();
+  });
+});
+
 describe("PokerRoom saved estimate", () => {
   const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
 

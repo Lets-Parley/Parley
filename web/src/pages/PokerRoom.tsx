@@ -147,11 +147,11 @@ export function PokerRoom({ env, me, guest = false }: { env: Envelope; me: Me; g
                   // Nothing to offer when the room only played "?" or coffee:
                   // there is no estimate in that round to write down.
                   results &&
-                  heroOf(results).save && (
+                  heroOf(results, st.deck.values).save && (
                     <button
                       className={buttonGo}
                       onClick={async () => {
-                        const value = heroOf(results).save!;
+                        const value = heroOf(results, st.deck.values).save!;
                         if (await run(() => action(env.id, "story", { storyId: current!.id, estimate: value }))) {
                           say(`Estimate ${value} saved to ${current!.ref || "the ad-hoc round"}`);
                         }

@@ -9,6 +9,8 @@ const results = (over: Partial<Results> = {}): Results => ({
   ...over,
 });
 
+const fib = ["1", "2", "3", "5", "8", "13", "21", "34", "?", "coffee"];
+
 describe("heroOf", () => {
   it("leads with the agreed number on consensus", () => {
     const h = heroOf(results({ consensus: true, histogram: [{ value: "5", count: 4 }] }));
@@ -41,9 +43,28 @@ describe("heroOf", () => {
         average: 4.333,
         mode: "5",
       }),
+      fib,
     );
     expect(h).toMatchObject({ value: "5", save: "5", label: "median" });
     expect(h.sub).toBe("average 4.3 · mode 5 · 3 votes");
+  });
+
+  it("offers no save when the median falls between two cards", () => {
+    // Votes of 3 and 5 on a Fibonacci deck put the median at 4, which is not a
+    // card — the backend rejects it, so the room must not be offered the save.
+    const h = heroOf(
+      results({
+        histogram: [
+          { value: "3", count: 1 },
+          { value: "5", count: 1 },
+        ],
+        median: 4,
+        average: 4,
+      }),
+      fib,
+    );
+    expect(h).toMatchObject({ value: "4", label: "median" });
+    expect(h.save).toBeUndefined();
   });
 
   it("never invents an average for an ordinal deck", () => {
