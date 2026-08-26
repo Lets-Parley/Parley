@@ -72,3 +72,23 @@ describe("tokens.css dark-mode coverage", () => {
     expect(duplicates).toEqual([]);
   });
 });
+
+/*
+ * Tailwind v4 stopped giving buttons the browser's cursor:pointer, and the app
+ * shipped a screenful of controls that looked inert. The fix is a single base
+ * rule, so the regression guard is a single assertion on it: jsdom computes no
+ * cascade, and one true `cursor: pointer` in the source is the whole contract.
+ */
+describe("base cursor", () => {
+  const base = extractBlock(css, "@layer base");
+
+  it("gives enabled buttons a pointer", () => {
+    expect(base).toContain("button:not(:disabled)");
+    expect(base).toMatch(/cursor:\s*pointer/);
+  });
+
+  it("leaves disabled buttons alone", () => {
+    // A bare `button {}` would hand a pointer to a control that does nothing.
+    expect(base).not.toMatch(/(^|,|\s)button\s*[,{]/);
+  });
+});

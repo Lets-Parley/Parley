@@ -140,7 +140,7 @@ export function ProfileDialog({ me, onClose }: { me: Me; onClose: () => void }) 
             <label
               key={id}
               className={
-                "relative flex cursor-pointer flex-col items-center gap-1.5 rounded-chip border-2 p-2 text-center text-[11px] font-bold focus-within:outline focus-within:outline-2 focus-within:outline-accent " +
+                "relative flex flex-col items-center gap-1.5 rounded-chip border-2 p-2 text-center text-[11px] font-bold focus-within:outline focus-within:outline-2 focus-within:outline-accent " +
                 // Never colour alone: the selected card takes the accent
                 // border and the corner pip below.
                 (picked === id ? "border-accent bg-felt-deep" : "border-line hover:bg-felt-deep") +
