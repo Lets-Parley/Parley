@@ -139,6 +139,32 @@ func TestVoteReportsDatabaseErrorNotSpectator(t *testing.T) {
 	}
 }
 
+// A client that disconnects mid-request is not a server fault: the request
+// context itself (not merely a query's child context) must be genuinely done
+// by the time writeMutationError runs, or the ERROR branch still fires and
+// the finding this test guards is unproven.
+func TestVoteReportsCancelledRequestAtDebugNotError(t *testing.T) {
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	_, ac, storyID := voteFixtureTraced(t, cancelOnQuery{match: "from members where space_id"})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/", nil).WithContext(ctx)
+	castVote(rec, req, ac, storyID, "5")
+
+	if strings.Contains(logs.String(), `level=ERROR msg="could not record vote"`) {
+		t.Fatalf("expected no ERROR log for the cancelled vote request, got %q", logs.String())
+	}
+	if !strings.Contains(logs.String(), `level=DEBUG msg="could not record vote"`) {
+		t.Fatalf("expected a DEBUG log for the cancelled vote request, got %q", logs.String())
+	}
+}
+
 func TestVoteRefusesSpectator(t *testing.T) {
 	pool, ac, storyID := voteFixture(t)
 	if _, err := pool.Exec(context.Background(),
