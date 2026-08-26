@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -94,7 +95,7 @@ func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	title := strings.TrimSpace(body.Title)
-	if title == "" || len(title) > 200 {
+	if title == "" || utf8.RuneCountInString(title) > 200 {
 		http.Error(w, `{"error":"title must be 1-200 characters"}`, http.StatusBadRequest)
 		return
 	}
