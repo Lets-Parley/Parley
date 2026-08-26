@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 
@@ -61,7 +62,7 @@ func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.TrimSpace(body.Name)
-	if name == "" || len(name) > 64 {
+	if name == "" || utf8.RuneCountInString(name) > 64 {
 		http.Error(w, `{"error":"name must be 1-64 characters"}`, http.StatusBadRequest)
 		return
 	}
@@ -382,7 +383,7 @@ func readName(w http.ResponseWriter, r *http.Request) (string, bool) {
 		return "", false
 	}
 	name := strings.TrimSpace(body.Name)
-	if name == "" || len(name) > 64 {
+	if name == "" || utf8.RuneCountInString(name) > 64 {
 		http.Error(w, `{"error":"name must be 1-64 characters"}`, http.StatusBadRequest)
 		return "", false
 	}
@@ -454,7 +455,7 @@ func (a *app) handleRenameRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	title := strings.TrimSpace(body.Title)
-	if title == "" || len(title) > 200 {
+	if title == "" || utf8.RuneCountInString(title) > 200 {
 		http.Error(w, `{"error":"title must be 1-200 characters"}`, http.StatusBadRequest)
 		return
 	}
