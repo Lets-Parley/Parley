@@ -30,7 +30,9 @@ func Summarize(deck Deck, values []string) Results {
 			res.Histogram = append(res.Histogram, HistogramRow{Value: v, Count: counts[v]})
 		}
 	}
-	res.Consensus = len(res.Histogram) == 1 && len(values) > 1
+	// A room where everyone shrugged ("?") or called for a break collapses to a
+	// single histogram row too — that is not agreement on an estimate.
+	res.Consensus = len(res.Histogram) == 1 && len(values) > 1 && !isSpecial(res.Histogram[0].Value)
 
 	if deck.Ordinal {
 		res.Mode, res.Range = ordinalStats(deck, counts)
