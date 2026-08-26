@@ -186,8 +186,20 @@ func displayName(candidates ...string) string {
 		if at := strings.IndexByte(c, '@'); at > 0 && strings.Contains(c, ".") {
 			c = c[:at]
 		}
-		if len(c) > 64 {
-			c = strings.TrimSpace(c[:64])
+		// A claim can carry control characters (e.g. a raw NUL) that are valid
+		// UTF-8 but that Postgres refuses outright in a text column, so they
+		// must be stripped before the length cap, not just the invalid bytes.
+		c = strings.Map(func(r rune) rune {
+			if r < 0x20 || r == 0x7f {
+				return -1
+			}
+			return r
+		}, c)
+		// The column's check is char_length, so the cap counts runes; slicing
+		// bytes would cut a multi-byte name mid-rune and hand Postgres invalid
+		// UTF-8, which it rejects outright.
+		if r := []rune(c); len(r) > 64 {
+			c = strings.TrimSpace(string(r[:64]))
 		}
 		if c != "" {
 			return c
