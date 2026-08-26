@@ -12,10 +12,13 @@ const specials = new Set(["?", "coffee"]);
  *
  * `value` is for reading and `save` is for keeping, and they are not always the
  * same string: the coffee card reads "☕" and a room that only played specials
- * has a hero to show but nothing worth writing onto the story.
+ * has a hero to show but nothing worth writing onto the story. A median can
+ * land between two cards (3 and 5 give 4), and the server only accepts a card
+ * from `deck`, so that median is shown and not offered for saving.
  */
 export function heroOf(
   results: Results,
+  deck: string[],
 ): { value: string; save?: string; label: string; sub: string } {
   const total = results.histogram.reduce((n, r) => n + r.count, 0);
   const votes = `${total} ${total === 1 ? "vote" : "votes"}`;
@@ -37,7 +40,12 @@ export function heroOf(
       votes,
     ].filter(Boolean);
     const median = String(results.median);
-    return { value: median, save: median, label: "median", sub: parts.join(" · ") };
+    return {
+      value: median,
+      save: deck.includes(median) ? median : undefined,
+      label: "median",
+      sub: parts.join(" · "),
+    };
   }
   // Ordinal decks (t-shirt) have no meaningful average — say so rather than
   // inventing one.
@@ -55,7 +63,7 @@ export function heroOf(
 }
 
 export function ResultsPanel({ results }: { results: Results }) {
-  const hero = heroOf(results);
+  const hero = heroOf(results, []);
   const max = Math.max(...results.histogram.map((r) => r.count), 1);
 
   return (
