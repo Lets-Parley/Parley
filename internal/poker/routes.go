@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -61,6 +62,7 @@ func writeMutationError(w http.ResponseWriter, err error, fallback string) {
 	case errors.Is(err, store.ErrQuotaExceeded):
 		http.Error(w, `{"error":"story limit reached for this session"}`, http.StatusConflict)
 	default:
+		slog.Error(fallback, "error", err)
 		http.Error(w, `{"error":"`+fallback+`"}`, http.StatusInternalServerError)
 	}
 }
@@ -334,7 +336,9 @@ func castVote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, stor
 				sess.SpaceID, ac.UserID).Scan(&spectator)
 			if errors.Is(err, pgx.ErrNoRows) {
 				spectator = false
-			} else if err != nil || spectator {
+			} else if err != nil {
+				return fmt.Errorf("reading spectator flag: %w", err)
+			} else if spectator {
 				return errSpectator
 			}
 			var cfg Config
