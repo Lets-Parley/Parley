@@ -41,11 +41,55 @@ func TestDisplayNameTruncatesWithoutSplittingARune(t *testing.T) {
 	// a rune. Postgres rejects invalid UTF-8 in a text column, which would turn
 	// every sign-in for this user into a failed insert.
 	got := displayName(strings.Repeat("い", 100))
+	want := strings.Repeat("い", 64)
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
 	if !utf8.ValidString(got) {
 		t.Fatalf("got invalid UTF-8: %q", got)
 	}
 	if n := utf8.RuneCountInString(got); n != 64 {
 		t.Errorf("got %d runes, want 64", n)
+	}
+}
+
+func TestDisplayNameStripsControlCharacters(t *testing.T) {
+	// A raw NUL is valid UTF-8 (utf8.ValidString accepts it), but Postgres
+	// refuses a text column containing one outright, producing the same
+	// sign-in 500 this package exists to prevent.
+	got := displayName("al\x00ice")
+	if strings.ContainsRune(got, 0) {
+		t.Fatalf("got %q, want the NUL stripped", got)
+	}
+	if got != "alice" {
+		t.Errorf("got %q, want %q", got, "alice")
+	}
+}
+
+func TestDisplayNameTrimsTrailingSpaceAfterTruncation(t *testing.T) {
+	got := displayName(strings.Repeat("a", 63) + " " + strings.Repeat("a", 36))
+	if strings.HasSuffix(got, " ") {
+		t.Fatalf("got %q, want no trailing space", got)
+	}
+	if n := utf8.RuneCountInString(got); n != 63 {
+		t.Errorf("got %d runes, want 63", n)
+	}
+}
+
+func TestDisplayNameSkipsAnAllWhitespaceCandidate(t *testing.T) {
+	got := displayName(strings.Repeat(" ", 100), "", "", "sub-1")
+	if got != "sub-1" {
+		t.Errorf("got %q, want %q", got, "sub-1")
+	}
+}
+
+func TestDisplayNameSkipsACandidateThatBecomesEmptyAfterStripping(t *testing.T) {
+	// "\x00" is non-empty and non-whitespace, so it survives the leading
+	// TrimSpace check, but control-character stripping reduces it to "" -
+	// that candidate must still be skipped in favor of the next one.
+	got := displayName("\x00", "", "", "sub-1")
+	if got != "sub-1" {
+		t.Errorf("got %q, want %q", got, "sub-1")
 	}
 }
 
