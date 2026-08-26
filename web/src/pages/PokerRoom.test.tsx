@@ -399,9 +399,26 @@ describe("PokerRoom save offer", () => {
     expect(screen.queryByRole("button", { name: /^Save/ })).toBeNull();
   });
 
+  it("says why in a live region when the median isn't a card, instead of just vanishing", () => {
+    renderApp(<PokerRoom env={revealed(4)} me={dana} />);
+    const note = screen.getByText("4 isn't a card in this deck — vote again to settle on one.");
+    expect(note.closest("[aria-live]")).toBeTruthy();
+  });
+
   it("still offers the save when the median is a real card", () => {
     renderApp(<PokerRoom env={revealed(3)} me={dana} />);
     expect(screen.getByRole("button", { name: "Save 3 to story" })).toBeTruthy();
+  });
+
+  it("saves the exact value it showed when clicked, and announces it", async () => {
+    // heroOf used to be called three times per render (guard, click, label);
+    // a caller that let just one of those calls drift from the deck could
+    // post an estimate the backend would reject. Actually clicking exercises
+    // the real onClick handler, not just the rendered label.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    renderApp(<PokerRoom env={revealed(3)} me={dana} />);
+    await userEvent.click(screen.getByRole("button", { name: "Save 3 to story" }));
+    expect(await screen.findByText(/Estimate 3 saved to PLAT-412/)).toBeTruthy();
   });
 });
 

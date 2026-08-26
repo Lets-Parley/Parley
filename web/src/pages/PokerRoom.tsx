@@ -31,6 +31,10 @@ export function PokerRoom({ env, me, guest = false }: { env: Envelope; me: Me; g
   const spectators: Person[] = env.participants.filter((p) => p.spectator && online.has(p.userId));
   const votes = new Map((current?.votes ?? []).map((v) => [v.userId, v.value]));
   const results = env.revealed ? current?.results : undefined;
+  // Computed once so the render guard, the click handler and the label can
+  // never disagree about which value is offered — three separate calls used
+  // to drift out of sync and post an estimate the deck would reject.
+  const hero = results ? heroOf(results, st.deck.values) : undefined;
   const tally = voteTally(seated, online, current?.votedUserIds ?? [], votes);
 
   // The round boundary, found client-side. NOT env.version — the server bumps
@@ -147,19 +151,29 @@ export function PokerRoom({ env, me, guest = false }: { env: Envelope; me: Me; g
                   // Nothing to offer when the room only played "?" or coffee:
                   // there is no estimate in that round to write down.
                   results &&
-                  heroOf(results, st.deck.values).save && (
+                  hero &&
+                  (hero.save ? (
                     <button
                       className={buttonGo}
                       onClick={async () => {
-                        const value = heroOf(results, st.deck.values).save!;
+                        const value = hero.save!;
                         if (await run(() => action(env.id, "story", { storyId: current!.id, estimate: value }))) {
                           say(`Estimate ${value} saved to ${current!.ref || "the ad-hoc round"}`);
                         }
                       }}
                     >
-                      Save {heroOf(results).value} to story
+                      Save {hero.value} to story
                     </button>
-                  )
+                  ) : (
+                    hero.label === "median" && (
+                      // A silent gap here reads as a missing button with no
+                      // reason, and a screen reader gets nothing at all. Say
+                      // why, inside a live region so it is announced.
+                      <p role="status" aria-live="polite" className="text-[13px] font-semibold text-ink-faint">
+                        {hero.value} isn't a card in this deck — vote again to settle on one.
+                      </p>
+                    )
+                  ))
                 ))
               )}
               <button className={buttonQuiet} onClick={() => (env.revealed ? setConfirmReset(true) : reset())}>

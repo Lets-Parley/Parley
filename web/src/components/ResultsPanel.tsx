@@ -18,7 +18,7 @@ const specials = new Set(["?", "coffee"]);
  */
 export function heroOf(
   results: Results,
-  deck: string[] = [],
+  deck: string[],
 ): { value: string; save?: string; label: string; sub: string } {
   const total = results.histogram.reduce((n, r) => n + r.count, 0);
   const votes = `${total} ${total === 1 ? "vote" : "votes"}`;
@@ -63,7 +63,7 @@ export function heroOf(
 }
 
 export function ResultsPanel({ results }: { results: Results }) {
-  const hero = heroOf(results);
+  const hero = heroOf(results, []);
   const max = Math.max(...results.histogram.map((r) => r.count), 1);
 
   return (
