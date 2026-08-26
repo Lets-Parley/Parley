@@ -8,6 +8,8 @@ import Capability from "../../../components/Capability.astro";
 import Screenshot from "../../../components/Screenshot.astro";
 import spaceLight from "../../../assets/space-room-code-light.png";
 import spaceDark from "../../../assets/space-room-code-dark.png";
+import settingsLight from "../../../assets/space-settings-light.png";
+import settingsDark from "../../../assets/space-settings-dark.png";
 
 <VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "internal/api/authz.go", "web/src/pages/SpacePage.tsx", "web/src/pages/SpaceSettingsPage.tsx", "web/src/pages/Landing.tsx"]} />
 
@@ -108,6 +110,13 @@ things for one session: rename it, or delete it and its history. That is
 distinct from a facilitator **closing** a session, which ends the meeting,
 keeps the record, and can be reopened.
 
+<Screenshot
+  light={settingsLight}
+  dark={settingsDark}
+  alt="The space settings page for Platform Team: a Back to Platform Team link, a Members panel listing all six with Make owner and Remove beside each and an Owner chip on Dana Whitfield, an Access panel showing RIVER-8412 with Copy invite, Copy passcode, New passcode and Make open, a Space panel for renaming, and a red-bordered Danger Zone holding Delete this space."
+  caption="Everything that changes the space, on one owner-only route — with the irreversible thing fenced off at the bottom."
+/>
+
 ## The roster
 
 The roster shows everybody who has joined, with a live presence dot and, when
@@ -119,8 +128,8 @@ so it reflects an actual open connection.
 <Screenshot
   light={spaceLight}
   dark={spaceDark}
-  alt="A space page for Platform Team: a sidebar listing its sessions and its six members with presence dots, a list of recent sessions in the middle, and a panel at the foot showing the space passcode RIVER-8412 with Copy invite, Copy passcode, New passcode and Make open buttons."
-  caption="One page: who is here, what has been run, and the passcode to read out — with the controls to rotate it or open the space entirely."
+  alt="A space page for Platform Team: a sidebar listing its sessions and its six members with presence dots and an Owner chip beside Dana Whitfield, and in the middle a one-line invite strip reading PASSCODE RIVER-8412 with a Copy invite button, above the list of recent sessions."
+  caption="The table first: the passcode to read out, then what has been run. Nothing on this page changes the door."
 />
 
 ## Members and owners

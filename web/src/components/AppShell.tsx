@@ -265,15 +265,13 @@ export function AppShell({
                     )}
                     {/* Roles ride on the space payload only; a session roster
                         carries none, and must not imply everyone is a member
-                        of nothing. */}
-                    {m.role && (
-                      <span
-                        className={
-                          "shrink-0 rounded-chip px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.06em] " +
-                          (m.role === "owner" ? "bg-accent-soft text-ink" : "bg-felt-deep text-ink-faint")
-                        }
-                      >
-                        {m.role === "owner" ? "Owner" : "Member"}
+                        of nothing. Only owners are chipped: every other span in
+                        this row is shrink-0, so a chip on all six rows takes the
+                        width out of the names, and "Member" is what being listed
+                        here already means. */}
+                    {m.role === "owner" && (
+                      <span className="shrink-0 rounded-chip bg-accent-soft px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.06em] text-ink">
+                        Owner
                       </span>
                     )}
                     {m.at && (
@@ -432,7 +430,7 @@ export function AppShell({
         {sideOpen && wide && !guest && (
           <nav
             aria-label="Space"
-            className="flex w-[250px] shrink-0 flex-col gap-6 border-r border-line bg-surface p-4"
+            className="flex w-[310px] shrink-0 flex-col gap-6 border-r border-line bg-surface p-4"
           >
             {navBody}
           </nav>
