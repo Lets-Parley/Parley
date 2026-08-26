@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestDisplayNamePrefersFriendliestClaim(t *testing.T) {
@@ -32,6 +33,19 @@ func TestDisplayNamePrefersFriendliestClaim(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestDisplayNameTruncatesWithoutSplittingARune(t *testing.T) {
+	// "い" is three bytes, so byte 64 of a 100-rune name lands in the middle of
+	// a rune. Postgres rejects invalid UTF-8 in a text column, which would turn
+	// every sign-in for this user into a failed insert.
+	got := displayName(strings.Repeat("い", 100))
+	if !utf8.ValidString(got) {
+		t.Fatalf("got invalid UTF-8: %q", got)
+	}
+	if n := utf8.RuneCountInString(got); n != 64 {
+		t.Errorf("got %d runes, want 64", n)
 	}
 }
 

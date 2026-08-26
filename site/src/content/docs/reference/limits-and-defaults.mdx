@@ -15,7 +15,7 @@ integers and are validated at boot.
 ## Field lengths
 
 <SpecTable rows={[
-  { name: "User name", value: "1–64", note: "Check constraint; also caps a name derived from an IdP claim" },
+  { name: "User name", value: "1–64 characters", note: "Check constraint counts characters, not bytes; also caps a name derived from an IdP claim" },
   { name: "Space name", value: "1–64", note: "" },
   { name: "Space slug", value: "1–64", note: "Lowercase, URL-safe pattern, unique" },
   { name: "Passcode", value: "6", note: "Column allows 12; the generator makes 6" },
