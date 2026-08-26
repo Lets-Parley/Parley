@@ -292,6 +292,21 @@ describe("getting to the table", () => {
     expect(within(list).getByRole("button", { name: /Marcus Okonjo.*offline/i })).toBeTruthy();
   });
 
+  it("chips only the owners, so a plain member's name keeps the width", () => {
+    stubAuthMode("open");
+    // Every row but the name is shrink-0, so a chip on all six rows takes the
+    // width out of the names — which is the one thing the roster is for.
+    renderShell({
+      members: [
+        makePerson({ userId: "dana", name: "Dana Whitfield", role: "owner" }),
+        makePerson({ userId: "marcus", name: "Marcus Okonjo", role: "member" }),
+      ],
+    });
+    const list = screen.getByRole("heading", { name: /Members/ }).parentElement!;
+    expect(within(list).getByText("Owner")).toBeTruthy();
+    expect(within(list).queryByText("Member")).toBeNull();
+  });
+
   it("says a name once, not twice, where a label already carries it", () => {
     stubAuthMode("open");
     renderShell({ members: roster.slice(0, 1) });

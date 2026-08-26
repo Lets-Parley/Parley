@@ -265,13 +265,16 @@ describe("SpacePage after the split", () => {
   });
 
   // The one bit the page-section roster carried that the sidebar did not.
-  it("moves the Owner/Member chip onto the sidebar roster", async () => {
+  // Only the owner is chipped: the row's other spans are all shrink-0, so a
+  // chip on every row is paid for out of the names, and "Member" is what
+  // appearing in this roster already means.
+  it("moves the Owner chip onto the sidebar roster", async () => {
     renderApp(routed, { route: "/s/platform-team" });
 
     const nav = within(await screen.findByRole("navigation", { name: "Space" }));
     const ada = nav.getByRole("button", { name: /Ada/ });
     expect(within(ada).getByText("Owner")).toBeTruthy();
     const bob = nav.getByRole("button", { name: /Bob/ });
-    expect(within(bob).getByText("Member")).toBeTruthy();
+    expect(within(bob).queryByText("Member")).toBe(null);
   });
 });
