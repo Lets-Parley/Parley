@@ -243,6 +243,16 @@ Ideas under consideration, not committed to.
 
 ## Completed
 
+### v0.7.3
+
+- A space page is the table again: `/s/<slug>` opens on a one-line invite strip
+  and the session list, and everything that changes the space — members and
+  their roles, the passcode, the name, and deleting it — moves to an owner-only
+  `/s/<slug>/settings`, with the irreversible thing fenced off at the bottom
+- The roster is rendered once where it belongs, in the sidebar, instead of three
+  times down the page, and member names are no longer squeezed by their own
+  role chips
+
 ### v0.7.2
 
 - Signing in no longer means pretending to make a space: the landing page has
