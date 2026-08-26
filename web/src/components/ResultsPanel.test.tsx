@@ -9,9 +9,11 @@ const results = (over: Partial<Results> = {}): Results => ({
   ...over,
 });
 
+const fib = ["1", "2", "3", "5", "8", "13", "21", "34", "?", "coffee"];
+
 describe("heroOf", () => {
   it("leads with the agreed number on consensus", () => {
-    const h = heroOf(results({ consensus: true, histogram: [{ value: "5", count: 4 }] }));
+    const h = heroOf(results({ consensus: true, histogram: [{ value: "5", count: 4 }] }), fib);
     expect(h).toMatchObject({ value: "5", save: "5", label: "consensus" });
     expect(h.sub).toBe("4 of 4 picked 5");
   });
@@ -19,13 +21,13 @@ describe("heroOf", () => {
   it("shows the coffee glyph but saves nothing from it", () => {
     // A room that only played specials has a hero to show and no estimate
     // worth writing onto the story.
-    const h = heroOf(results({ consensus: true, histogram: [{ value: "coffee", count: 3 }] }));
+    const h = heroOf(results({ consensus: true, histogram: [{ value: "coffee", count: 3 }] }), fib);
     expect(h.value).toBe("☕");
     expect(h.save).toBeUndefined();
   });
 
   it("saves nothing from a unanimous question mark either", () => {
-    const h = heroOf(results({ consensus: true, histogram: [{ value: "?", count: 2 }] }));
+    const h = heroOf(results({ consensus: true, histogram: [{ value: "?", count: 2 }] }), fib);
     expect(h.value).toBe("?");
     expect(h.save).toBeUndefined();
   });
@@ -41,9 +43,28 @@ describe("heroOf", () => {
         average: 4.333,
         mode: "5",
       }),
+      fib,
     );
     expect(h).toMatchObject({ value: "5", save: "5", label: "median" });
     expect(h.sub).toBe("average 4.3 · mode 5 · 3 votes");
+  });
+
+  it("offers no save when the median falls between two cards", () => {
+    // Votes of 3 and 5 on a Fibonacci deck put the median at 4, which is not a
+    // card — the backend rejects it, so the room must not be offered the save.
+    const h = heroOf(
+      results({
+        histogram: [
+          { value: "3", count: 1 },
+          { value: "5", count: 1 },
+        ],
+        median: 4,
+        average: 4,
+      }),
+      fib,
+    );
+    expect(h).toMatchObject({ value: "4", label: "median" });
+    expect(h.save).toBeUndefined();
   });
 
   it("never invents an average for an ordinal deck", () => {
@@ -57,6 +78,7 @@ describe("heroOf", () => {
         mode: "M",
         range: "S–M",
       }),
+      ["S", "M", "L"],
     );
     expect(h).toMatchObject({ value: "M", save: "M", label: "mode" });
     expect(h.sub).toContain("ordinal deck, no average");
@@ -65,18 +87,18 @@ describe("heroOf", () => {
   });
 
   it("says vote, singular, for a single voter", () => {
-    const h = heroOf(results({ histogram: [{ value: "M", count: 1 }], mode: "M" }));
+    const h = heroOf(results({ histogram: [{ value: "M", count: 1 }], mode: "M" }), ["M"]);
     expect(h.sub).toContain("1 vote ");
   });
 
   it("rounds the average to one place instead of printing float noise", () => {
-    const h = heroOf(results({ histogram: [{ value: "1", count: 3 }], median: 2, average: 2.6666 }));
+    const h = heroOf(results({ histogram: [{ value: "1", count: 3 }], median: 2, average: 2.6666 }), ["1", "2", "3"]);
     expect(h.sub).toContain("average 2.7");
   });
 
   it("degrades to an em dash rather than undefined when there is nothing to show", () => {
-    expect(heroOf(results({ consensus: true })).value).toBe("—");
-    expect(heroOf(results()).value).toBe("—");
+    expect(heroOf(results({ consensus: true }), fib).value).toBe("—");
+    expect(heroOf(results(), fib).value).toBe("—");
   });
 });
 

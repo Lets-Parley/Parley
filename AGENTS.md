@@ -81,6 +81,11 @@ database-backed, so a skip is a green run that verified nothing.
   `*.test.ts`/`*.test.tsx`; `src/test/render.tsx` supplies the three providers
   every screen assumes. It is deliberately thin — no jest-dom matchers, no
   `globals: true`, so nothing had to be added to `tsconfig.app.json`.
+- Accessibility is checked by axe-core: `src/test/axe.ts` exposes
+  `expectNoViolations(container)`, and `src/components/a11y.test.tsx` runs it
+  over the props-only components. A component that owns fetches asserts it in
+  its own test, where the mock already exists. jsdom has no layout, so colour
+  contrast and target size are not covered — those still need a real browser.
 - Frontend behaviour changes need a test too, and the same rule applies: it
   must have been seen to fail first. Every defect this project has shipped in
   `web/` — the dead claim button, the member card, the frozen standup timer —
