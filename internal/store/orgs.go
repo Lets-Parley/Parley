@@ -134,6 +134,34 @@ func (o *Orgs) GrantMember(ctx context.Context, orgID, userID, role string) erro
 	return nil
 }
 
+// GrantAdmin makes someone an admin from server configuration alone: it is the
+// bootstrap path, and the only way a fresh or upgraded instance mints its
+// first org admin. Unlike GrantMember it promotes an existing row, because
+// 0021_orgs.sql already backfilled every existing account into the default org
+// as a member — leaving that row alone would make the setting inert precisely
+// where it is most needed.
+//
+// A revoked row is still untouched, and reported as not granted. Config is a
+// stronger signal than a claim, but resurrecting an account an admin
+// deliberately removed is worse than refusing: whoever set the variable can
+// also un-revoke on purpose.
+func (o *Orgs) GrantAdmin(ctx context.Context, orgID, userID string) (bool, error) {
+	var granted bool
+	err := o.Pool.QueryRow(ctx, `
+		insert into org_members (org_id, user_id, role) values ($1, $2, $3)
+		on conflict (org_id, user_id) do update set role = excluded.role
+		where org_members.revoked_at is null
+		returning true`,
+		orgID, userID, OrgRoleAdmin).Scan(&granted)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("granting org admin: %w", err)
+	}
+	return granted, nil
+}
+
 // SetClaimValue points an org at the identity-provider claim value that maps
 // to it. It is the bootstrap path: without it a fresh OIDC instance has no org
 // any token's claim matches, so nobody is ever a member of anything.

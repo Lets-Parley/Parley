@@ -1,10 +1,14 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -390,5 +394,113 @@ func TestSignInSurvivesMappingFailure(t *testing.T) {
 	}
 	if !issued {
 		t.Error("a mapping failure suppressed the session cookie, locking the account out of an instance it has an account on")
+	}
+}
+
+// bootstrapMemberRow is the state 0021_orgs.sql's backfill leaves every
+// existing account in: a plain member row in the default org. It is written
+// by hand because the users row only exists once someone has signed in.
+func bootstrapMemberRow(t *testing.T, pool *pgxpool.Pool, orgID, userID string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(),
+		"insert into org_members (org_id, user_id, role) values ($1, $2, 'member')", orgID, userID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestBootstrapAdminPromotesAnExistingMember is the upgrade case, and the one
+// that matters most: 0021's backfill already put every existing account in the
+// default org, so on any upgraded instance the configured bootstrap identity
+// arrives at sign-in with a membership row already there. A grant that left it
+// alone would leave the operator with no way at all to mint the first admin.
+func TestBootstrapAdminPromotesAnExistingMember(t *testing.T) {
+	idp := newFakeIdP(t)
+	suffix := randomSlugSuffix(t)
+	idp.subject = "upgraded-" + suffix
+	srv, pool := oidcServerMapping(t, idp, "", BootstrapAdmin{Issuer: idp.URL, Subject: "upgraded-" + suffix})
+	defaultOrg, err := (&store.Orgs{Pool: pool}).Default(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The account exists before the operator sets the variable, exactly as an
+	// upgrade leaves it.
+	plain := testServerWith(t, pool, Options{
+		AllowedOrigin: "http://example.test",
+		AuthMode:      ModeOIDC,
+		OIDC: auth.New(auth.Config{
+			Issuer:      idp.URL,
+			ClientID:    "parley-test",
+			RedirectURL: "http://example.test/auth/callback",
+		}),
+	})
+	userID := userIDOf(t, plain, signIn(t, plain, idp))
+	bootstrapMemberRow(t, pool, defaultOrg.ID, userID)
+
+	// Signing in against the configured instance must now promote them.
+	if got := userIDOf(t, srv, signIn(t, srv, idp)); got != userID {
+		t.Fatalf("the second sign-in minted a different user (%s vs %s)", got, userID)
+	}
+	if got := memberships(t, pool, userID); got[defaultOrg.ID] != store.OrgRoleAdmin {
+		t.Errorf("bootstrap admin's role after an upgrade = %q, want %q", got[defaultOrg.ID], store.OrgRoleAdmin)
+	}
+}
+
+// TestBootstrapAdminDoesNotResurrectARevokedMember: admin revocation is a
+// tombstone that wins over anything arriving at sign-in. Server config is a
+// stronger signal than a claim, but silently un-revoking an account an admin
+// deliberately removed is worse than refusing — so the grant does nothing and
+// says so, rather than leaving the operator staring at a silent no-op.
+func TestBootstrapAdminDoesNotResurrectARevokedMember(t *testing.T) {
+	ctx := context.Background()
+	idp := newFakeIdP(t)
+	suffix := randomSlugSuffix(t)
+	idp.subject = "revoked-boss-" + suffix
+	srv, pool := oidcServerMapping(t, idp, "", BootstrapAdmin{Issuer: idp.URL, Subject: "revoked-boss-" + suffix})
+	defaultOrg, err := (&store.Orgs{Pool: pool}).Default(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plain := testServerWith(t, pool, Options{
+		AllowedOrigin: "http://example.test",
+		AuthMode:      ModeOIDC,
+		OIDC: auth.New(auth.Config{
+			Issuer:      idp.URL,
+			ClientID:    "parley-test",
+			RedirectURL: "http://example.test/auth/callback",
+		}),
+	})
+	userID := userIDOf(t, plain, signIn(t, plain, idp))
+	bootstrapMemberRow(t, pool, defaultOrg.ID, userID)
+	var revokedAt time.Time
+	if err := pool.QueryRow(ctx,
+		"update org_members set revoked_at = now() where org_id = $1 and user_id = $2 returning revoked_at",
+		defaultOrg.ID, userID).Scan(&revokedAt); err != nil {
+		t.Fatal(err)
+	}
+
+	var logged bytes.Buffer
+	restore := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(restore) })
+
+	signIn(t, srv, idp)
+
+	var role string
+	var got time.Time
+	if err := pool.QueryRow(ctx,
+		"select role, revoked_at from org_members where org_id = $1 and user_id = $2",
+		defaultOrg.ID, userID).Scan(&role, &got); err != nil {
+		t.Fatal(err)
+	}
+	if role != store.OrgRoleMember {
+		t.Errorf("a revoked row's role = %q, want %q — the tombstone must win", role, store.OrgRoleMember)
+	}
+	if !got.Equal(revokedAt) {
+		t.Errorf("revoked_at moved from %v to %v; the tombstone was disturbed", revokedAt, got)
+	}
+	if !strings.Contains(logged.String(), "revoked") {
+		t.Errorf("no warning naming the revocation was logged; operator sees a silent no-op. logs: %q", logged.String())
 	}
 }

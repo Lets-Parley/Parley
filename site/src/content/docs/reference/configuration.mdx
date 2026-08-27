@@ -257,10 +257,10 @@ Without it a fresh instance is unusable: no org matches any claim, so nobody is
 an admin, and nobody can create the first org. It grants membership; it never
 restores one an admin revoked.
 
-Set it before that person's first sign-in. If they already have a membership
-row in the default org — including a revoked one — the grant is a no-op and
-will **not** promote them to admin, no matter how many times they sign in
-afterwards. Promote an existing member from another admin account instead.
+It works whether or not they already belong to the default org: an existing
+member is promoted to admin at their next sign-in. The one case it will not act
+on is a **revoked** membership, which stays revoked and logs a warning — undo
+the revocation first, then sign in again.
 </EnvVar>
 
 ## Variables that do not exist

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/lets-parley/parley/internal/auth"
 	"github.com/lets-parley/parley/internal/store"
@@ -39,8 +40,13 @@ func (a *app) mapOrgMembership(ctx context.Context, userID string, ident auth.Id
 		if err != nil {
 			return fmt.Errorf("resolving the default org: %w", err)
 		}
-		if err := a.orgs.GrantMember(ctx, orgID, userID, store.OrgRoleAdmin); err != nil {
+		granted, err := a.orgs.GrantAdmin(ctx, orgID, userID)
+		if err != nil {
 			return err
+		}
+		if !granted {
+			slog.Warn("the configured bootstrap admin was not made an admin: their membership of the default org is revoked, and a revocation is not undone at sign-in — restore the membership first",
+				"user_id", userID, "issuer", ident.Issuer)
 		}
 	}
 	orgs, err := a.orgs.ByClaimValues(ctx, ident.OrgClaims)
