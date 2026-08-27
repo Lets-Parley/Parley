@@ -254,3 +254,141 @@ func TestLinkGuestGainsNoOrgMembership(t *testing.T) {
 		})
 	}
 }
+
+// TestGrantDefaultOrgMembershipRefusesLinkGuest pins the guard itself, not
+// just the path that currently reaches it. Today handlePostMe is the only
+// caller and it never carries a link session, so disabling the check inside
+// grantDefaultOrgMembership changes nothing an end-to-end test can see — the
+// guard would be free to rot until a future phase wired a new caller through
+// it and quietly enrolled every link guest on the instance.
+func TestGrantDefaultOrgMembershipRefusesLinkGuest(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	a := &app{pool: pool, orgs: &store.Orgs{Pool: pool}}
+
+	var guestID string
+	if err := pool.QueryRow(ctx,
+		"insert into users (name) values ('Gus') returning id").Scan(&guestID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := a.grantDefaultOrgMembership(ctx, Principal{
+		UserID:        guestID,
+		LinkSessionID: "11111111-1111-1111-1111-111111111111",
+	}); err != nil {
+		t.Fatalf("granting for a link guest returned %v, want nil — it is a no-op, not a failure", err)
+	}
+	var rows int
+	if err := pool.QueryRow(ctx,
+		"select count(*) from org_members where user_id = $1", guestID).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 0 {
+		t.Errorf("a link guest got %d org_members rows, want none", rows)
+	}
+
+	// The same call without the link session must still enrol, so the test
+	// fails for the right reason rather than because nothing works.
+	var userID string
+	if err := pool.QueryRow(ctx,
+		"insert into users (name) values ('Ada') returning id").Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.grantDefaultOrgMembership(ctx, Principal{UserID: userID}); err != nil {
+		t.Fatal(err)
+	}
+	defaultOrg, err := (&store.Orgs{Pool: pool}).Default(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := memberships(t, pool, userID); got[defaultOrg.ID] != store.OrgRoleMember {
+		t.Errorf("an ordinary account got %v, want member of the default org", got)
+	}
+}
+
+// TestBootstrapAdminIsKeyedOnIssuerAndSubject is the security half of the
+// pair. The subject is only unique within the issuer that minted it, so if
+// the issuer half of the comparison were dropped, any provider able to mint a
+// token carrying the configured subject string — a second tenant of a shared
+// IdP, a test provider left wired up — would be handed admin of the default
+// org.
+func TestBootstrapAdminIsKeyedOnIssuerAndSubject(t *testing.T) {
+	configured := newFakeIdP(t)
+	impostor := newFakeIdP(t)
+	suffix := randomSlugSuffix(t)
+	subject := "boss-" + suffix
+	configured.subject = subject
+	impostor.subject = subject
+
+	pool := testPool(t)
+	admin := BootstrapAdmin{Issuer: configured.URL, Subject: subject}
+	oidcSrv := func(idp *fakeIdP) *httptest.Server {
+		return testServerWith(t, pool, Options{
+			AllowedOrigin:  "http://example.test",
+			AuthMode:       ModeOIDC,
+			BootstrapAdmin: admin,
+			OIDC: auth.New(auth.Config{
+				Issuer:      idp.URL,
+				ClientID:    "parley-test",
+				RedirectURL: "http://example.test/auth/callback",
+			}),
+		})
+	}
+
+	defaultOrg, err := (&store.Orgs{Pool: pool}).Default(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	realSrv := oidcSrv(configured)
+	granted := userIDOf(t, realSrv, signIn(t, realSrv, configured))
+	if got := memberships(t, pool, granted); got[defaultOrg.ID] != store.OrgRoleAdmin {
+		t.Fatalf("the configured issuer's admin got %v, want admin of the default org", got)
+	}
+
+	// Same subject string, different issuer: a different person entirely.
+	impostorSrv := oidcSrv(impostor)
+	other := userIDOf(t, impostorSrv, signIn(t, impostorSrv, impostor))
+	if other == granted {
+		t.Fatal("the two issuers resolved to one users row; the pair is not the identity")
+	}
+	if got := memberships(t, pool, other); len(got) != 0 {
+		t.Errorf("a matching subject from another issuer was granted %v, want nothing", got)
+	}
+}
+
+// TestSignInSurvivesMappingFailure pins a deliberate decision in both
+// directions: mapping runs after the account is saved, and a failure there is
+// logged rather than fatal. An account with no org is something an admin can
+// repair; an instance where a broken mapping query locks everybody out of
+// signing in is not.
+func TestSignInSurvivesMappingFailure(t *testing.T) {
+	ctx := context.Background()
+	idp := newFakeIdP(t)
+	suffix := randomSlugSuffix(t)
+	idp.subject = "unmappable-" + suffix
+	srv, pool := oidcServerMapping(t, idp, "", BootstrapAdmin{Issuer: idp.URL, Subject: "unmappable-" + suffix})
+
+	// A real failure from the real code path: the grant the bootstrap admin
+	// triggers has nowhere to write.
+	if _, err := pool.Exec(ctx, "drop table org_members cascade"); err != nil {
+		t.Fatal(err)
+	}
+
+	authURL, flow := startSignin(t, srv, "/")
+	idp.nonce = authURL.Query().Get("nonce")
+	resp := callback(t, srv, flow, authURL.Query().Get("state"))
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("callback status = %d, want 302 — a mapping failure must not fail the sign-in", resp.StatusCode)
+	}
+	var issued bool
+	for _, c := range resp.Cookies() {
+		if c.Name == sessionCookie && c.Value != "" {
+			issued = true
+		}
+	}
+	if !issued {
+		t.Error("a mapping failure suppressed the session cookie, locking the account out of an instance it has an account on")
+	}
+}
