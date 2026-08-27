@@ -35,6 +35,34 @@ constant baked into the server.
 
 - Status: Backlog
 
+### Parley on a phone
+
+Standup is the ceremony people most often join from a corridor or a car park,
+and the poker table is a layout nobody has decided the 375px version of, so
+what it does there today is whatever the CSS happens to produce. A participant
+who cannot vote from a phone is a participant who does not join.
+
+Named breakpoints and a decided layout for every surface, touch-first controls
+with no hover-only affordances, and a check in CI so that the next change to a
+grid does not quietly undo it.
+
+- Status: Backlog
+- Tracking: [#379](https://github.com/lets-parley/parley/issues/379)
+
+### The estimate lands on the ticket
+
+A poker story can carry a Jira issue key, and the agreed estimate writes to the
+story point field when it is saved. That is the whole of the first slice.
+
+The wide version — importing a board, syncing status, filing issues from the
+room — is what the tools in this space already shipped, and it is also what
+their users still complain about. Breadth is not the gap. One write path that
+always works is. The same job for GitHub does not start until this one is
+boring.
+
+- Status: Backlog
+- Tracking: [#391](https://github.com/lets-parley/parley/issues/391), under [#378](https://github.com/lets-parley/parley/issues/378)
+
 ### Honest ceremonies
 
 Two changes that make ceremonies tell the truth without turning facilitation
@@ -230,8 +258,10 @@ Ideas under consideration, not committed to.
   self-hosted tool, and nearly free once a conflict-free document engine exists
 - Retro synthesis and meeting recaps, with a bring-your-own model endpoint so
   nothing leaves the instance
-- Two-way issue sync with Jira ([#378](https://github.com/lets-parley/parley/issues/378)) and GitHub ([#383](https://github.com/lets-parley/parley/issues/383)) — import stories,
-  write the estimate back, and file a ticket from the room; Linear to follow
+- The rest of two-way issue sync — importing a board, syncing status, filing
+  from the room — beyond the write-back now under Next
+  ([#378](https://github.com/lets-parley/parley/issues/378)); the same job for GitHub, once Jira works
+  ([#383](https://github.com/lets-parley/parley/issues/383)); Linear to follow
 - Replaying how a board or a ceremony actually evolved
 - Spaces a creator can open to anyone, no sign-in required, on an instance
   that otherwise requires an identity provider
@@ -241,20 +271,23 @@ Ideas under consideration, not committed to.
 - A room that dies with the meeting — the session ends when the calendar event does
 - Audit logging, retention policies, and SSO group-to-role mapping
 - White-label theming, for anyone hosting Parley on someone else's behalf
-- Parley on a phone: a decided layout at every breakpoint, touch-first controls, and a test that
-  catches the regression ([#379](https://github.com/lets-parley/parley/issues/379))
-- Configurable timers for both poker and standup, rather than one number nobody chose ([#380](https://github.com/lets-parley/parley/issues/380))
-- Feature flags, so an operator runs the modules they want and unfinished work can merge dark
-  ([#381](https://github.com/lets-parley/parley/issues/381))
-- Slack: a card posted when a session ends, and — the harder half — a standup collected from a
-  channel thread ([#382](https://github.com/lets-parley/parley/issues/382))
-- Team health and mood over time, with anonymity and minimum-n decided before anything is built
-  ([#384](https://github.com/lets-parley/parley/issues/384))
-- A shared board owned by a space rather than a session — the persistence every other ceremony
-  eventually wants ([#385](https://github.com/lets-parley/parley/issues/385))
+- Configurable timers for poker and standup — after switchable decks, and as
+  one control rather than a ceremony of its own ([#380](https://github.com/lets-parley/parley/issues/380))
+- Feature flags, once there is a third ceremony to turn off; machinery in
+  search of a problem while there are two ([#381](https://github.com/lets-parley/parley/issues/381))
+- Slack: a card posted when a session ends. The bot that runs a standup in a
+  thread is a fight with the bots, on the axis where Parley is weakest
+  ([#382](https://github.com/lets-parley/parley/issues/382))
+- Team health and mood over time — anonymity and minimum-n settled before
+  anything is built, and no scoreboard ([#384](https://github.com/lets-parley/parley/issues/384))
+- A shared board owned by a space. Deliberately not scheduled: the tools that
+  ship one get asked for the work to live in the tracker instead
+  ([#385](https://github.com/lets-parley/parley/issues/385))
 - Kudos, with no leaderboard ([#386](https://github.com/lets-parley/parley/issues/386))
-- Reactions and comments on a standup entry or a story ([#387](https://github.com/lets-parley/parley/issues/387))
-- Async standup: a window instead of a meeting, for teams that are not awake at once ([#388](https://github.com/lets-parley/parley/issues/388))
+- Reactions and comments on a standup entry or a story — cheap once the storage
+  boundary exists, and worth little before it ([#387](https://github.com/lets-parley/parley/issues/387))
+- Async standup: a window instead of a meeting. The live clock is the wedge,
+  and this is the version with the clock taken out ([#388](https://github.com/lets-parley/parley/issues/388))
 
 ## Completed
 
