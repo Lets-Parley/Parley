@@ -84,9 +84,8 @@ func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 	if a.authMode == ModeOpen {
 		visibility = store.VisibilityPrivate
 	}
-	orgID, err := a.orgID(r.Context())
-	if err != nil {
-		http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+	orgID, ok := a.resolveOrg(w, r)
+	if !ok {
 		return
 	}
 	sp, err := a.spaces.Create(r.Context(), orgID, name, slug, passcode, p.UserID, visibility, a.limits.SpacesPerIdentity)
@@ -123,9 +122,8 @@ func (a *app) handleListMySpaces(w http.ResponseWriter, r *http.Request) {
 
 // handleGetSpace returns name only to non-members; roster requires membership.
 func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
-	orgID, err := a.orgID(r.Context())
-	if err != nil {
-		http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+	orgID, ok := a.resolveOrg(w, r)
+	if !ok {
 		return
 	}
 	sp, err := a.spaces.BySlug(r.Context(), orgID, chi.URLParam(r, "slug"))
@@ -224,9 +222,8 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 func (a *app) handleMarkSpaceSeen(w http.ResponseWriter, r *http.Request) {
 	p, _ := PrincipalFrom(r.Context())
 
-	orgID, err := a.orgID(r.Context())
-	if err != nil {
-		http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+	orgID, ok := a.resolveOrg(w, r)
+	if !ok {
 		return
 	}
 	sp, err := a.spaces.BySlug(r.Context(), orgID, chi.URLParam(r, "slug"))
@@ -260,9 +257,8 @@ func (a *app) handleJoinSpace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orgID, err := a.orgID(r.Context())
-	if err != nil {
-		http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+	orgID, ok := a.resolveOrg(w, r)
+	if !ok {
 		return
 	}
 	sp, err := a.spaces.BySlug(r.Context(), orgID, chi.URLParam(r, "slug"))
@@ -314,9 +310,8 @@ func (a *app) handleSetPasscode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orgID, err := a.orgID(r.Context())
-	if err != nil {
-		http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+	orgID, ok := a.resolveOrg(w, r)
+	if !ok {
 		return
 	}
 	sp, err := a.spaces.BySlug(r.Context(), orgID, chi.URLParam(r, "slug"))

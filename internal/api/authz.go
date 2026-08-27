@@ -99,9 +99,8 @@ func (a *app) requireSpaceOwner(next http.Handler) http.Handler {
 			http.Error(w, `{"error":"not signed in"}`, http.StatusUnauthorized)
 			return
 		}
-		orgID, err := a.orgID(r.Context())
-		if err != nil {
-			http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+		orgID, ok := a.resolveOrg(w, r)
+		if !ok {
 			return
 		}
 		sp, err := a.spaces.BySlug(r.Context(), orgID, chi.URLParam(r, "slug"))

@@ -426,6 +426,17 @@ func requireJSONBody(next http.Handler) http.Handler {
 	})
 }
 
+// resolveOrg hands a handler the org it resolves slugs within, or answers the
+// request itself and reports false.
+func (a *app) resolveOrg(w http.ResponseWriter, r *http.Request) (string, bool) {
+	orgID, err := a.orgID(r.Context())
+	if err != nil {
+		http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+		return "", false
+	}
+	return orgID, true
+}
+
 // orgID is the org a slug is resolved within: until an instance is divided,
 // the default org. It is read once and cached rather than resolved at wiring
 // time, because a pool is lazy — Router must not require a reachable database
