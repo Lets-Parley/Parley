@@ -513,7 +513,18 @@ func TestCreateSpaceVisibilityByAuthMode(t *testing.T) {
 			serve: func(t *testing.T) (*httptest.Server, *pgxpool.Pool, *http.Cookie) {
 				idp := newFakeIdP(t)
 				srv, pool := oidcServerPool(t, idp)
-				return srv, pool, signInOIDC(t, srv, idp)
+				cookie := signInOIDC(t, srv, idp)
+				// The fake provider hands back no org claim, so nothing
+				// enrols this account anywhere and creating a space is
+				// refused — see TestCreateSpaceRequiresOrgMembership. This
+				// case is about the visibility a real member's space gets,
+				// so give them the membership a matching claim would have.
+				if _, err := pool.Exec(context.Background(),
+					"insert into org_members (org_id, user_id, role) select id, $1, $2 from orgs where slug = $3",
+					userIDOf(t, srv, cookie), store.OrgRoleMember, store.DefaultOrgSlug); err != nil {
+					t.Fatal(err)
+				}
+				return srv, pool, cookie
 			},
 			want: store.VisibilityOrg,
 		},
