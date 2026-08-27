@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -175,6 +176,12 @@ func (a *app) handlePostMe(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, `{"error":"could not create user"}`, http.StatusInternalServerError)
 		return
+	}
+	// Open mode has a single org and everyone in it. CreateOpen never mints a
+	// link-bound row, but the check belongs at the point membership is
+	// granted rather than in the reader's head.
+	if err := a.grantDefaultOrgMembership(r.Context(), Principal{UserID: u.ID, LinkSessionID: u.LinkSessionID}); err != nil {
+		slog.Error("could not map org membership", "user_id", u.ID, "error", err)
 	}
 	setSessionCookie(w, plain, a.secureCookies)
 	writeJSON(w, http.StatusCreated, toMeResponse(u))

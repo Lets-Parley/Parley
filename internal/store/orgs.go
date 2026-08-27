@@ -86,3 +86,67 @@ func (o *Orgs) IsMember(ctx context.Context, orgID, userID string) (bool, error)
 	}
 	return ok, nil
 }
+
+// ByClaimValues resolves the orgs an identity provider's claim values map to.
+// Matching is exact and case-sensitive, and a value no org registered maps to
+// nothing: a claim never creates an org.
+func (o *Orgs) ByClaimValues(ctx context.Context, values []string) ([]Org, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	rows, err := o.Pool.Query(ctx,
+		"select id, slug, name from orgs where claim_value = any($1)", values)
+	if err != nil {
+		return nil, fmt.Errorf("reading orgs by claim: %w", err)
+	}
+	defer rows.Close()
+	var orgs []Org
+	for rows.Next() {
+		var org Org
+		if err := rows.Scan(&org.ID, &org.Slug, &org.Name); err != nil {
+			return nil, fmt.Errorf("reading orgs by claim: %w", err)
+		}
+		orgs = append(orgs, org)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reading orgs by claim: %w", err)
+	}
+	return orgs, nil
+}
+
+// GrantMember enrols someone from something they carry rather than something
+// an admin did: an identity-provider claim, or open mode's single org. It
+// leaves an existing row entirely alone, which is what makes revocation stick
+// — the claim arrives again on every sign-in, so a grant that cleared
+// revoked_at would undo an admin's removal at the next login. AddMember is the
+// deliberate, admin-driven counterpart that does restore.
+func (o *Orgs) GrantMember(ctx context.Context, orgID, userID, role string) error {
+	if role != OrgRoleAdmin && role != OrgRoleMember {
+		return ErrBadRole
+	}
+	_, err := o.Pool.Exec(ctx, `
+		insert into org_members (org_id, user_id, role) values ($1, $2, $3)
+		on conflict (org_id, user_id) do nothing`,
+		orgID, userID, role)
+	if err != nil {
+		return fmt.Errorf("granting org membership: %w", err)
+	}
+	return nil
+}
+
+// SetClaimValue points an org at the identity-provider claim value that maps
+// to it. It is the bootstrap path: without it a fresh OIDC instance has no org
+// any token's claim matches, so nobody is ever a member of anything.
+func (o *Orgs) SetClaimValue(ctx context.Context, slug, claimValue string) error {
+	if claimValue == "" {
+		return errors.New("an org's claim value may not be empty: it would match every token that lacks the claim")
+	}
+	tag, err := o.Pool.Exec(ctx, "update orgs set claim_value = $2 where slug = $1", slug, claimValue)
+	if err != nil {
+		return fmt.Errorf("setting an org claim value: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNoOrg
+	}
+	return nil
+}

@@ -55,9 +55,12 @@ type app struct {
 	listenerUp atomic.Bool
 	// orgs resolves the org a slug belongs to. Until an instance is divided,
 	// that is always the default org, cached behind defaultOrg.
-	orgs       *store.Orgs
-	orgMu      sync.Mutex
-	defaultOrg string
+	orgs *store.Orgs
+	// bootstrapAdmin is the (issuer, subject) pair an operator granted admin
+	// of the default org from configuration.
+	bootstrapAdmin BootstrapAdmin
+	orgMu          sync.Mutex
+	defaultOrg     string
 }
 
 type Options struct {
@@ -67,6 +70,9 @@ type Options struct {
 	AuthMode string
 	// OIDC must be set when AuthMode is ModeOIDC and is ignored otherwise.
 	OIDC *auth.Provider
+	// BootstrapAdmin, when set, is granted admin of the default org the first
+	// time that identity signs in. Ignored outside ModeOIDC.
+	BootstrapAdmin BootstrapAdmin
 	// Version is the build's version string; "dev" when left unset.
 	Version string
 	// TrustProxyHeaders reads X-Forwarded-For only from hops in
@@ -172,6 +178,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	}
 	if mode == ModeOIDC {
 		a.oidc = opts.OIDC
+		a.bootstrapAdmin = opts.BootstrapAdmin
 	}
 	listenCtx := opts.Context
 	if listenCtx == nil {

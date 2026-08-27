@@ -224,7 +224,14 @@ migration and embedding mistakes that unit tests miss.
     Enrolling those rows in an org hands directory visibility to anyone ever
     sent a guest link — and the mistake is invisible on any instance that has
     never issued one.
-18. Dependabot watches only `site/`. Go modules and `web/` dependencies are
+18. **Claim-derived membership never overrides a revocation tombstone.**
+    `Orgs.GrantMember` (`internal/store/orgs.go`) inserts and does nothing on
+    conflict; `Orgs.AddMember` is the deliberate, admin-driven counterpart that
+    restores a revoked row and re-applies the role. Every sign-in re-grants
+    from the claim, so a grant that cleared `revoked_at` would undo an admin's
+    removal at the revoked person's next login. Sign-in mapping and open-mode
+    enrolment both go through `GrantMember`.
+19. Dependabot watches only `site/`. Go modules and `web/` dependencies are
     bumped by hand, with tests.
 
 ## Scope

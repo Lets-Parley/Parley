@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -134,5 +135,114 @@ func TestSpaceCreateVisibility(t *testing.T) {
 	creator, _ := newUser(t, pool, "Ada")
 	if _, err := spaces.Create(ctx, org.ID, "Vis", "vis-"+randSuffix(t), "", creator.ID, "everyone", 50); !errors.Is(err, ErrBadVisibility) {
 		t.Fatalf("an unknown visibility = %v, want ErrBadVisibility", err)
+	}
+}
+
+// TestOrgsByClaimValues is the whole of claim mapping: only a value an admin
+// already registered on an org matches, and an unknown one creates nothing.
+func TestOrgsByClaimValues(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	orgs := &Orgs{Pool: pool}
+	claim := "platform-" + randSuffix(t)
+	var orgID string
+	if err := pool.QueryRow(ctx,
+		"insert into orgs (slug, name, claim_value) values ($1, 'Platform', $2) returning id", claim, claim,
+	).Scan(&orgID); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := orgs.ByClaimValues(ctx, []string{claim, "not-an-org-" + randSuffix(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != orgID {
+		t.Fatalf("ByClaimValues = %+v, want just the org carrying %q", got, claim)
+	}
+
+	// Case-sensitive: a provider group that differs only in case is a
+	// different group, and matching it loosely would widen every mapping.
+	if got, err := orgs.ByClaimValues(ctx, []string{strings.ToUpper(claim)}); err != nil || len(got) != 0 {
+		t.Fatalf("ByClaimValues on a differently-cased value = %+v (%v), want no match", got, err)
+	}
+	if got, err := orgs.ByClaimValues(ctx, nil); err != nil || len(got) != 0 {
+		t.Fatalf("ByClaimValues with no values = %+v (%v), want no match", got, err)
+	}
+	// An empty claim value must never match: the column forbids storing one,
+	// and a token carrying "" is a token carrying nothing.
+	if got, err := orgs.ByClaimValues(ctx, []string{""}); err != nil || len(got) != 0 {
+		t.Fatalf("ByClaimValues on an empty value = %+v (%v), want no match", got, err)
+	}
+}
+
+// TestGrantMemberHonoursTheTombstone is the revocation rule: a claim keeps
+// arriving on every sign-in, so a grant that cleared revoked_at would undo an
+// admin's removal at the revoked person's next login.
+func TestGrantMemberHonoursTheTombstone(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	orgs := &Orgs{Pool: pool}
+	org, err := orgs.Default(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, _ := newUser(t, pool, "Ada")
+
+	if err := orgs.GrantMember(ctx, org.ID, u.ID, OrgRoleMember); err != nil {
+		t.Fatal(err)
+	}
+	if member, err := orgs.IsMember(ctx, org.ID, u.ID); err != nil || !member {
+		t.Fatalf("IsMember after a grant = %v, %v; want true", member, err)
+	}
+	if err := orgs.GrantMember(ctx, org.ID, u.ID, "wizard"); !errors.Is(err, ErrBadRole) {
+		t.Fatalf("GrantMember with an unknown role = %v, want ErrBadRole", err)
+	}
+
+	if _, err := pool.Exec(ctx, "update org_members set revoked_at = now() where org_id = $1 and user_id = $2", org.ID, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := orgs.GrantMember(ctx, org.ID, u.ID, OrgRoleMember); err != nil {
+			t.Fatal(err)
+		}
+		if member, err := orgs.IsMember(ctx, org.ID, u.ID); err != nil || member {
+			t.Fatalf("a grant resurrected a revoked membership (%v, %v)", member, err)
+		}
+	}
+	// Nor may it quietly promote: a revoked row keeps the role it was
+	// revoked with.
+	if err := orgs.GrantMember(ctx, org.ID, u.ID, OrgRoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+	var role string
+	if err := pool.QueryRow(ctx, "select role from org_members where org_id = $1 and user_id = $2", org.ID, u.ID).Scan(&role); err != nil {
+		t.Fatal(err)
+	}
+	if role != OrgRoleMember {
+		t.Errorf("role after granting over a tombstone = %q, want it untouched (%q)", role, OrgRoleMember)
+	}
+}
+
+// TestSetClaimValue is the bootstrap path: without it a fresh OIDC instance
+// has no org whose claim any token can match.
+func TestSetClaimValue(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	orgs := &Orgs{Pool: pool}
+	claim := "bootstrap-" + randSuffix(t)
+	if err := orgs.SetClaimValue(ctx, DefaultOrgSlug, claim); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { orgs.SetClaimValue(context.Background(), DefaultOrgSlug, DefaultOrgSlug) })
+
+	got, err := orgs.ByClaimValues(ctx, []string{claim})
+	if err != nil || len(got) != 1 || got[0].Slug != DefaultOrgSlug {
+		t.Fatalf("after SetClaimValue, ByClaimValues = %+v (%v), want the default org", got, err)
+	}
+	if err := orgs.SetClaimValue(ctx, DefaultOrgSlug, ""); err == nil {
+		t.Error("SetClaimValue accepted an empty claim, which would match every token that lacks the claim")
+	}
+	if err := orgs.SetClaimValue(ctx, "no-such-org", claim); !errors.Is(err, ErrNoOrg) {
+		t.Fatalf("SetClaimValue on a missing org = %v, want ErrNoOrg", err)
 	}
 }
