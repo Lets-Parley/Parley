@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -8,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lets-parley/parley/internal/store"
 )
@@ -477,5 +480,55 @@ func TestMarkSeenDoesNotRestoreARemovedMember(t *testing.T) {
 	}
 	if _, view := getSpace(t, srv, slug, owner); len(view["members"].([]any)) != 1 {
 		t.Fatalf("roster grew back: %v", view["members"])
+	}
+}
+
+// TestCreateSpaceVisibilityByAuthMode pins the guard in handleCreateSpace.
+// Open mode mints anonymous identities on POST /api/me, so an org-visible
+// space created there would be a room any visitor could walk into once
+// org-visible spaces become joinable without a passcode. Open mode must force
+// private; a real org still gets org visibility.
+func TestCreateSpaceVisibilityByAuthMode(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// serve builds a server in the mode under test and hands back the
+		// pool behind it plus a signed-in session.
+		serve func(t *testing.T) (*httptest.Server, *pgxpool.Pool, *http.Cookie)
+		want  string
+	}{
+		{
+			name: "open",
+			serve: func(t *testing.T) (*httptest.Server, *pgxpool.Pool, *http.Cookie) {
+				pool := testPool(t)
+				srv := testServerWith(t, pool, Options{AllowedOrigin: "http://example.test"})
+				return srv, pool, signup(t, srv, "Ada")
+			},
+			want: store.VisibilityPrivate,
+		},
+		{
+			name: "oidc",
+			serve: func(t *testing.T) (*httptest.Server, *pgxpool.Pool, *http.Cookie) {
+				idp := newFakeIdP(t)
+				srv, pool := oidcServerPool(t, idp)
+				return srv, pool, signInOIDC(t, srv, idp)
+			},
+			want: store.VisibilityOrg,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, pool, cookie := tc.serve(t)
+			resp, sp := createSpace(t, srv, "Platform Team", cookie)
+			if resp.StatusCode != http.StatusCreated {
+				t.Fatalf("create: got %d, want 201 (%v)", resp.StatusCode, sp)
+			}
+			var got string
+			if err := pool.QueryRow(context.Background(),
+				"select visibility from spaces where slug = $1", sp["slug"]).Scan(&got); err != nil {
+				t.Fatalf("read visibility: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("visibility = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

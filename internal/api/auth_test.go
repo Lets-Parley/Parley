@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/lets-parley/parley/internal/auth"
 )
 
@@ -113,6 +115,14 @@ func (f *fakeIdP) signIDToken(t *testing.T) string {
 // oidcServer wires a Parley router in OIDC mode against the fake provider.
 func oidcServer(t *testing.T, idp *fakeIdP) *httptest.Server {
 	t.Helper()
+	srv, _ := oidcServerPool(t, idp)
+	return srv
+}
+
+// oidcServerPool is oidcServer for the tests that also have to read the rows
+// the handlers wrote.
+func oidcServerPool(t *testing.T, idp *fakeIdP) (*httptest.Server, *pgxpool.Pool) {
+	t.Helper()
 	pool := testPool(t)
 	return testServerWith(t, pool, Options{
 		AllowedOrigin: "http://example.test",
@@ -124,7 +134,7 @@ func oidcServer(t *testing.T, idp *fakeIdP) *httptest.Server {
 			ClientSecret: "shh",
 			RedirectURL:  "http://example.test/auth/callback",
 		}),
-	})
+	}), pool
 }
 
 // noRedirect keeps the test client from following the sign-in hops, so each
