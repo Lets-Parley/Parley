@@ -16,11 +16,18 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Landing />} />
-            <Route path="/s/:slug" element={<SpacePage />} />
-            <Route path="/s/:slug/settings" element={<SpaceSettingsPage />} />
+            {/* A space slug is unique inside an org, not across the
+                instance, so both halves are in the path — see lib/paths. */}
+            <Route path="/o/:org/s/:slug" element={<SpacePage />} />
+            <Route path="/o/:org/s/:slug/settings" element={<SpaceSettingsPage />} />
             <Route path="/session/:id" element={<SessionPage />} />
-            {/* The token rides in the fragment, so this route takes no
-                parameter of its own — see lib/links. */}
+            {/* Both of these stay un-prefixed, deliberately. A session id is
+                a globally-unique uuid and this is the URL people paste into
+                chat mid-standup; /link is the landing page for a signed link,
+                reached by someone who has no identity yet and therefore no org
+                — prefixing it would make every issued link unopenable.
+                The token rides in the fragment, so /link takes no parameter of
+                its own — see lib/links. */}
             <Route path="/link" element={<LinkPage />} />
           </Routes>
         </BrowserRouter>

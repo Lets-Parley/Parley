@@ -16,6 +16,7 @@ import {
   labelClass,
 } from "../components/Modal";
 import { useCopy, useToast } from "../lib/ui";
+import { spaceApi, spacePath } from "../lib/paths";
 import { inviteLink } from "../lib/invite";
 import { KINDS, defaultConfig, kindLabel, type KindDef } from "../lib/kinds";
 
@@ -122,7 +123,7 @@ function relativeDate(iso: string): string {
 }
 
 export function SpacePage() {
-  const { slug = "" } = useParams();
+  const { org = "", slug = "" } = useParams();
   const qc = useQueryClient();
   const me = useMe();
   const authMode = useAuthMode();
@@ -146,8 +147,8 @@ export function SpacePage() {
   const [autoJoined, setAutoJoined] = useState(false);
 
   const space = useQuery({
-    queryKey: ["space", slug],
-    queryFn: () => api<SpaceView>("GET", `/api/spaces/${slug}`),
+    queryKey: ["space", org, slug],
+    queryFn: () => api<SpaceView>("GET", spaceApi(org, slug)),
     retry: false,
     // Presence ages out after ~100s (2 × the socket pong deadline), so a page
     // read once shows a headcount that is quietly wrong within two minutes.
@@ -162,8 +163,8 @@ export function SpacePage() {
   const isMember = space.data?.members !== undefined;
   useEffect(() => {
     if (!isMember) return;
-    api("POST", `/api/spaces/${slug}/seen`).catch(() => {});
-  }, [slug, isMember]);
+    api("POST", `${spaceApi(org, slug)}/seen`).catch(() => {});
+  }, [org, slug, isMember]);
 
   // The one join path, whether the passcode was typed at the gate or carried
   // in by an invite link. Identity comes first: a visitor with no name is sent
@@ -203,9 +204,9 @@ export function SpacePage() {
 
   async function doJoin(passcode?: string) {
     try {
-      await api("POST", `/api/spaces/${slug}/join`, passcode ? { passcode } : {});
+      await api("POST", `${spaceApi(org, slug)}/join`, passcode ? { passcode } : {});
       setError("");
-      qc.invalidateQueries({ queryKey: ["space", slug] });
+      qc.invalidateQueries({ queryKey: ["space", org, slug] });
       say("You're seated — pull up a chair");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not join.");
@@ -237,6 +238,7 @@ export function SpacePage() {
       <>
         <Gate
           name={sp.name}
+          org={org}
           slug={sp.slug}
           locked={sp.protected}
           error={error}
@@ -275,6 +277,7 @@ export function SpacePage() {
 
   return (
     <AppShell
+      orgSlug={org}
       spaceSlug={sp.slug}
       spaceName={sp.name}
       me={me.data ?? null}
@@ -286,7 +289,7 @@ export function SpacePage() {
       canManage={canManage}
     >
       <div className="mx-auto max-w-[760px] px-6 py-9 sm:px-8">
-        <InviteStrip slug={sp.slug} passcode={sp.passcode ?? ""} />
+        <InviteStrip org={org} slug={sp.slug} passcode={sp.passcode ?? ""} />
 
         <div className="mb-5 flex items-center justify-between gap-4">
           <h2 className="text-[22px] font-extrabold tracking-tight">Recent sessions</h2>
@@ -411,16 +414,18 @@ export function SpacePage() {
 
       {managing && (
         <RoomManageModal
+          org={org}
           slug={sp.slug}
           room={managing}
           onClose={() => setManaging(null)}
-          onChanged={() => qc.invalidateQueries({ queryKey: ["space", slug] })}
+          onChanged={() => qc.invalidateQueries({ queryKey: ["space", org, slug] })}
           onError={say}
         />
       )}
 
       {creating && (
         <NewSessionModal
+          org={org}
           slug={sp.slug}
           kinds={offered}
           onClose={() => setCreating(false)}
@@ -433,12 +438,14 @@ export function SpacePage() {
 
 function Gate({
   name,
+  org,
   slug,
   locked,
   error,
   onJoin,
 }: {
   name: string;
+  org: string;
   slug: string;
   locked: boolean;
   error: string;
@@ -455,7 +462,7 @@ function Gate({
       <div className="w-full max-w-[420px] rounded-panel border border-line bg-surface px-10 py-9 text-center shadow-rest">
         <h1 className="text-2xl font-extrabold tracking-tight">{name}</h1>
         <p className="mt-2 inline-block rounded-chip bg-felt-deep px-2.5 py-1 font-mono text-[11px] text-ink-faint">
-          /s/{slug}
+          {spacePath(org, slug)}
         </p>
         <div className="my-6 h-px bg-line" />
 
@@ -514,11 +521,11 @@ function Gate({
  * The invite, in one line, above the session list.
  *
  * Read-only on purpose: rotating a passcode locks out everyone still holding
- * the old one, so every control that changes the door lives on /s/:slug/settings
+ * the old one, so every control that changes the door lives on the settings page
  * instead. An open space has no code to show, so the strip says so in the same
  * one line rather than rendering a bordered panel around the word "Open".
  */
-function InviteStrip({ slug, passcode }: { slug: string; passcode: string }) {
+function InviteStrip({ org, slug, passcode }: { org: string; slug: string; passcode: string }) {
   const copyText = useCopy();
 
   return (
@@ -545,7 +552,7 @@ function InviteStrip({ slug, passcode }: { slug: string; passcode: string }) {
         className={buttonQuiet}
         onClick={() =>
           void copyText(
-            inviteLink(slug, passcode),
+            inviteLink(org, slug, passcode),
             "Invite link copied — it seats them in one click",
           )
         }
@@ -561,12 +568,14 @@ function InviteStrip({ slug, passcode }: { slug: string; passcode: string }) {
  * facilitator's call because it ends a meeting, while deleting discards one.
  */
 function RoomManageModal({
+  org,
   slug,
   room,
   onClose,
   onChanged,
   onError,
 }: {
+  org: string;
   slug: string;
   room: SessionSummary;
   onClose: () => void;
@@ -585,7 +594,7 @@ function RoomManageModal({
     e.preventDefault();
     setBusy(true);
     try {
-      await api("PATCH", `/api/spaces/${slug}/sessions/${room.id}`, { title: trimmed });
+      await api("PATCH", `${spaceApi(org, slug)}/sessions/${room.id}`, { title: trimmed });
       onChanged();
       say("Session renamed");
       onClose();
@@ -598,7 +607,7 @@ function RoomManageModal({
   async function destroy() {
     setBusy(true);
     try {
-      await api("DELETE", `/api/spaces/${slug}/sessions/${room.id}`);
+      await api("DELETE", `${spaceApi(org, slug)}/sessions/${room.id}`);
       onChanged();
       say(`${room.title} is gone`);
       onClose();
@@ -665,11 +674,13 @@ function RoomManageModal({
 }
 
 function NewSessionModal({
+  org,
   slug,
   kinds,
   onClose,
   onError,
 }: {
+  org: string;
   slug: string;
   /** The kinds this space may start, in registry order. Never empty. */
   kinds: KindDef[];
@@ -684,7 +695,7 @@ function NewSessionModal({
   async function submit(e: FormEvent) {
     e.preventDefault();
     try {
-      const sess = await api<SessionSummary>("POST", `/api/spaces/${slug}/sessions`, {
+      const sess = await api<SessionSummary>("POST", `${spaceApi(org, slug)}/sessions`, {
         kind: kind.id,
         title: title.trim(),
         config,

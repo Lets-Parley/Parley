@@ -1,3 +1,5 @@
+import { spacePath } from "./paths";
+
 /**
  * The whole invite, as one link.
  *
@@ -7,7 +9,7 @@
  * SpacePage for the other end of that trip. An open space has no code, so the
  * link is the whole invite already.
  */
-export function inviteLink(slug: string, passcode: string): string {
-  const link = `${window.location.origin}/s/${slug}`;
+export function inviteLink(org: string, slug: string, passcode: string): string {
+  const link = `${window.location.origin}${spacePath(org, slug)}`;
   return passcode ? `${link}#c=${encodeURIComponent(passcode)}` : link;
 }

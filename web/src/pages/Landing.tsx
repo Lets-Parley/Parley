@@ -9,7 +9,8 @@ import {
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, errorText, type Membership, type SpaceView } from "../lib/api";
+import { api, errorText, type Membership, type OrgMembership, type SpaceView } from "../lib/api";
+import { spacePath } from "../lib/paths";
 import { useMe, useAuthMode, NameGate } from "../components/NameGate";
 import { isFullAccount } from "../lib/links";
 import { Logo, ThemeToggle } from "../components/AppShell";
@@ -67,6 +68,21 @@ export function Landing() {
     retry: false,
   });
   const spaces = mine.data ?? [];
+  // The orgs the caller belongs to, asked alongside the spaces. An empty array
+  // is a real answer and a different screen: someone whose identity provider
+  // handed them no claim any org here registered has nowhere to put a space,
+  // so offering them the create form would only produce a refusal.
+  const myOrgs = useQuery({
+    queryKey: ["my-orgs"],
+    queryFn: () => api<OrgMembership[]>("GET", "/api/orgs"),
+    enabled: fullAccount,
+    retry: false,
+  });
+  const orgs = myOrgs.data ?? [];
+  const noOrg = fullAccount && myOrgs.isSuccess && orgs.length === 0;
+  // Which org the list is showing. Null is "all of them", which is what a
+  // single-org instance always shows — there is nothing to switch between.
+  const [orgFilter, setOrgFilter] = useState<string | null>(null);
   const qc = useQueryClient();
   const [error, setError] = useState("");
   // The create is a round trip to somebody's own server, which may be a
@@ -111,7 +127,7 @@ export function Landing() {
       // wrong from here is a problem with showing it, not with making it, so
       // the latch stays shut: a second press must never buy a second space.
       try {
-        navigate(`/s/${sp.slug}`);
+        navigate(spacePath(sp.orgSlug ?? "", sp.slug));
       } catch (e) {
         // The space is real but we could not go there. Refresh the list so it
         // shows up as a link rather than leaving the visitor on a dead page
@@ -154,6 +170,19 @@ export function Landing() {
     doCreate(name.trim());
   }
 
+  // Grouped by org, in the switcher's order, because a slug is only unique
+  // inside one org: two orgs can each have a "platform-team", and a flat list
+  // would show the same name twice with nothing to tell them apart.
+  const shown = orgFilter ? spaces.filter((sp) => sp.orgSlug === orgFilter) : spaces;
+  // Grouped off the memberships themselves, not off the org list: the list is
+  // where the display names come from, but a space already carries the org it
+  // lives in, so a failed org read costs a heading its proper name rather than
+  // hiding every space the caller has.
+  const grouped = [...new Set(shown.map((sp) => sp.orgSlug))].map((slug) => ({
+    slug,
+    name: orgs.find((o) => o.slug === slug)?.name ?? slug,
+    spaces: shown.filter((sp) => sp.orgSlug === slug),
+  }));
   const known = spaces.length > 0;
   const guestRoomId = me.data?.linkSessionId;
 
@@ -255,7 +284,24 @@ export function Landing() {
           space list below (an account-scoped route) would both just fail for
           them. The room they already have is the "back to your room" link
           above — nothing else on this page is theirs to use. */}
-      {!guestRoomId && (
+      {!guestRoomId && noOrg && (
+        <section
+          aria-label="No org yet"
+          className="w-full max-w-md rounded-card border border-line bg-surface px-5 py-4 text-left"
+        >
+          <h2 className="font-display text-xl">You're signed in, but not in an org yet</h2>
+          <p className="mt-2 text-sm text-ink-soft text-pretty">
+            Spaces live inside an org, and your account isn't in one. Ask an
+            administrator to add you — they map your identity provider's groups
+            onto the orgs on this instance.
+          </p>
+          <p className="mt-3 text-sm text-ink-soft text-pretty">
+            Signed in as <span className="font-bold">{me.data?.name}</span>.
+          </p>
+        </section>
+      )}
+
+      {!guestRoomId && !noOrg && (
         <>
           {mine.isLoading && (
             <div
@@ -276,27 +322,68 @@ export function Landing() {
             </p>
           )}
 
-          {known && (
-            <ul
-              aria-label="Your spaces"
-              className="flex w-full max-w-md flex-col gap-2 rounded-panel border border-line bg-surface p-3 text-left shadow-rest"
+          {orgs.length > 1 && (
+            /* Only worth showing when there is something to switch between.
+               Plain buttons rather than a menu: they are in the tab order as
+               they stand, and Enter or Space activates each one. */
+            <nav
+              aria-label="Your orgs"
+              className="flex w-full max-w-md flex-wrap items-center gap-2"
             >
-              {spaces.map((sp) => (
-                <li key={sp.slug}>
-                  <Link
-                    to={`/s/${sp.slug}`}
-                    className="flex items-center justify-between gap-3 rounded-panel px-3 py-2 font-bold hover:bg-felt-deep"
-                  >
-                    <span className="min-w-0 truncate">{sp.name}</span>
-                    {sp.protected && (
-                      <span className="shrink-0 font-mono text-[10px] font-normal uppercase tracking-[0.08em] text-ink-faint">
-                        Passcode
-                      </span>
-                    )}
-                  </Link>
-                </li>
+              <button
+                type="button"
+                aria-pressed={orgFilter === null}
+                onClick={() => setOrgFilter(null)}
+                className={orgFilter === null ? buttonPrimary : buttonQuiet}
+              >
+                All orgs
+              </button>
+              {orgs.map((o) => (
+                <button
+                  key={o.slug}
+                  type="button"
+                  aria-pressed={orgFilter === o.slug}
+                  onClick={() => setOrgFilter(o.slug)}
+                  className={orgFilter === o.slug ? buttonPrimary : buttonQuiet}
+                >
+                  {o.name}
+                </button>
               ))}
-            </ul>
+            </nav>
+          )}
+
+          {known && (
+            <div className="flex w-full max-w-md flex-col gap-3">
+              {grouped.map((group) => (
+                <section key={group.slug} className="flex flex-col gap-2">
+                  {grouped.length > 1 && (
+                    <h2 className="px-1 text-left font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+                      {group.name}
+                    </h2>
+                  )}
+                  <ul
+                    aria-label={`Your spaces in ${group.name}`}
+                    className="flex flex-col gap-2 rounded-panel border border-line bg-surface p-3 text-left shadow-rest"
+                  >
+                    {group.spaces.map((sp) => (
+                      <li key={sp.orgSlug + "/" + sp.slug}>
+                        <Link
+                          to={spacePath(sp.orgSlug, sp.slug)}
+                          className="flex items-center justify-between gap-3 rounded-panel px-3 py-2 font-bold hover:bg-felt-deep"
+                        >
+                          <span className="min-w-0 truncate">{sp.name}</span>
+                          {sp.protected && (
+                            <span className="shrink-0 font-mono text-[10px] font-normal uppercase tracking-[0.08em] text-ink-faint">
+                              Passcode
+                            </span>
+                          )}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
+            </div>
           )}
 
           <form

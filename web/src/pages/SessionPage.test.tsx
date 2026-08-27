@@ -20,6 +20,7 @@ const envelope: Envelope = {
   facilitatorConnected: true,
   endedAt: null,
   presence: ["marcus"],
+  orgSlug: "acme",
   spaceSlug: "platform-team",
   participants: [{ userId: "dana", name: "Dana Whitfield", avatarHue: 120, spectator: false }],
   serverTime: "2026-08-18T10:00:00.000Z",
@@ -41,7 +42,7 @@ vi.mock("../lib/api", async () => {
     api: vi.fn(async (_method: string, path: string) => {
       if (path === "/api/me") return apiMeResponse;
       if (path === "/api/auth") return { mode: "open" };
-      if (path.startsWith("/api/spaces/")) return { name: "Platform Team", members: [], sessions: [] };
+      if (path.startsWith("/api/orgs/acme/spaces/")) return { name: "Platform Team", members: [], sessions: [] };
       if (path.endsWith("/links")) return { links: [] };
       throw new Error(`unexpected api call: ${path}`);
     }),
@@ -165,7 +166,7 @@ describe.each([
   it("has no space breadcrumb, or other way out into the space", async () => {
     renderApp(routed, { route: "/session/sess-1" });
     await screen.findByTestId("link-guest-banner");
-    expect(document.querySelector('a[href="/s/platform-team"]')).toBe(null);
+    expect(document.querySelector('a[href="/o/acme/s/platform-team"]')).toBe(null);
   });
 
   it("offers no export", async () => {
@@ -226,7 +227,7 @@ describe.each([
     const paths = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
       .slice(before)
       .map(([, path]) => path);
-    expect(paths.filter((p) => String(p).startsWith("/api/spaces/"))).toEqual([]);
+    expect(paths.filter((p) => String(p).startsWith("/api/orgs/acme/spaces/"))).toEqual([]);
     expect(paths).not.toContain("/api/me");
   });
 });
@@ -309,7 +310,7 @@ describe("SessionPage for a link guest whose storage was cleared", () => {
     await screen.findByTestId("link-guest-banner");
     expect(screen.queryByRole("button", { name: /your profile/i })).toBe(null);
     expect(screen.queryByRole("button", { name: /guest links/i })).toBe(null);
-    expect(document.querySelector('a[href="/s/platform-team"]')).toBe(null);
+    expect(document.querySelector('a[href="/o/acme/s/platform-team"]')).toBe(null);
   });
 
   it("says when the seat runs out, from the server's own expiry", async () => {
@@ -347,7 +348,7 @@ describe("SessionPage for a link guest whose storage was cleared", () => {
     const paths = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
       .slice(before)
       .map(([, path]) => path);
-    expect(paths.filter((p) => String(p).startsWith("/api/spaces/"))).toEqual([]);
+    expect(paths.filter((p) => String(p).startsWith("/api/orgs/acme/spaces/"))).toEqual([]);
   });
 });
 

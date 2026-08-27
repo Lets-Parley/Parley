@@ -10,6 +10,7 @@ import { ErrorRow, Modal, buttonDanger, buttonGo, buttonPrimary, buttonQuiet, ty
 import { ResultsPanel, heroOf } from "../components/ResultsPanel";
 import { StoryQueue } from "../components/StoryQueue";
 import { Table, faceOf } from "../components/Table";
+import { spacePath } from "../lib/paths";
 
 export function PokerRoom({ env, me, guest = false }: { env: Envelope; me: Me; guest?: boolean }) {
   const say = useToast();
@@ -228,7 +229,7 @@ export function PokerRoom({ env, me, guest = false }: { env: Envelope; me: Me; g
                 never the facilitator, so the whole row goes with it. */}
             {!guest && (
             <div className="mt-3.5 flex justify-center gap-2.5">
-              <Link to={`/s/${env.spaceSlug}`} className={buttonPrimary}>
+              <Link to={spacePath(env.orgSlug, env.spaceSlug)} className={buttonPrimary}>
                 Back to the space
               </Link>
               {isFacilitator && (

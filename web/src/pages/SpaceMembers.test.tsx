@@ -25,7 +25,7 @@ vi.mock("../lib/api", async () => {
     api: vi.fn(async (method: string, path: string, body?: unknown) => {
       if (path === "/api/me") return me;
       if (path === "/api/auth") return { mode: "open" };
-      if (method === "GET" && path.startsWith("/api/spaces/")) return view;
+      if (method === "GET" && path.startsWith("/api/orgs/acme/spaces/")) return view;
       calls.push([method, path, body]);
       return undefined;
     }),
@@ -45,7 +45,7 @@ describe("Space settings member management", () => {
         { userId: "bob", name: "Bob", avatarHue: 2, spectator: false, role: "owner" },
       ],
     } as unknown as SpaceView;
-    renderApp(<SpaceSettingsPage />, { route: "/s/platform-team/settings" });
+    renderApp(<SpaceSettingsPage />, { route: "/o/acme/s/platform-team/settings", path: "/o/:org/s/:slug/settings" });
 
     // Roles are still readable — the sidebar roster names them — but nothing
     // on this page is actionable.
@@ -62,18 +62,18 @@ describe("Space settings member management", () => {
         { userId: "bob", name: "Bob", avatarHue: 2, spectator: false, role: "owner" },
       ],
     } as unknown as SpaceView;
-    renderApp(<SpaceSettingsPage />, { route: "/s/platform-team/settings" });
+    renderApp(<SpaceSettingsPage />, { route: "/o/acme/s/platform-team/settings", path: "/o/:org/s/:slug/settings" });
 
     const main = within(await screen.findByRole("main"));
     await userEvent.click(main.getByRole("button", { name: "Make member: Bob" }));
     expect(calls).toContainEqual([
       "POST",
-      "/api/spaces/platform-team/members/bob/role",
+      "/api/orgs/acme/spaces/platform-team/members/bob/role",
       { role: "member" },
     ]);
 
     await userEvent.click(main.getByRole("button", { name: "Remove: Bob" }));
-    expect(calls).toContainEqual(["DELETE", "/api/spaces/platform-team/members/bob", undefined]);
+    expect(calls).toContainEqual(["DELETE", "/api/orgs/acme/spaces/platform-team/members/bob", undefined]);
   });
 
   it("does not offer to strand the space without an owner", async () => {
@@ -84,7 +84,7 @@ describe("Space settings member management", () => {
         { userId: "bob", name: "Bob", avatarHue: 2, spectator: false, role: "member" },
       ],
     } as unknown as SpaceView;
-    renderApp(<SpaceSettingsPage />, { route: "/s/platform-team/settings" });
+    renderApp(<SpaceSettingsPage />, { route: "/o/acme/s/platform-team/settings", path: "/o/:org/s/:slug/settings" });
 
     // Ada is the only owner: neither demoting nor removing her is on offer.
     const main = within(await screen.findByRole("main"));
