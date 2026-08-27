@@ -577,6 +577,7 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     await waitFor(() => expect(sessionStorage.getItem("parley:pending-invite")).toBeTruthy());
     const parked = JSON.parse(sessionStorage.getItem("parley:pending-invite")!);
     expect(parked.code).toBe("TEAM49");
+    expect(parked.org).toBe("acme");
     expect(parked.slug).toBe("platform-team");
     // And it is out of the address bar already — the whole point of the wipe.
     expect(window.location.hash).toBe("");
@@ -605,7 +606,7 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     view = locked;
     sessionStorage.setItem(
       "parley:pending-invite",
-      JSON.stringify({ code: "TEAM49", slug: "platform-team", at: Date.now() }),
+      JSON.stringify({ code: "TEAM49", org: "acme", slug: "platform-team", at: Date.now() }),
     );
     // Back from the provider: same path, no fragment, and now signed in.
     window.history.replaceState(null, "", "/o/acme/s/platform-team");
@@ -622,6 +623,27 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     );
     // One attempt only: a refused passcode must land on the gate, not loop.
     expect(sessionStorage.getItem("parley:pending-invite")).toBeNull();
+  });
+
+  // Slugs are unique inside an org, not across the instance: two orgs can each
+  // have a "platform-team". A code parked for one must not be spent — and
+  // burned — against the other's space of the same name.
+  it("will not spend a code parked for the same slug in another org", async () => {
+    view = locked;
+    sessionStorage.setItem(
+      "parley:pending-invite",
+      JSON.stringify({ code: "TEAM49", org: "globex", slug: "platform-team", at: Date.now() }),
+    );
+    window.history.replaceState(null, "", "/o/acme/s/platform-team");
+    const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
+
+    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    expect(
+      (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
+        .slice(before)
+        .filter(([, path]) => path === "/api/orgs/acme/spaces/platform-team/join"),
+    ).toHaveLength(0);
   });
 
   it("will not spend a code parked for a different space", async () => {

@@ -33,12 +33,12 @@ type Sort = "Recent" | "Active first" | "A\u2013Z";
  * read once and wiped from the address bar immediately, so it does not survive
  * into a bookmark or a screenshot either.
  */
-function takeInviteCode(slug: string): string {
+function takeInviteCode(org: string, slug: string): string {
   const match = /(?:^|&)c=([^&]+)/.exec(window.location.hash.replace(/^#/, ""));
   if (!match) {
     // Nothing in the fragment. It may still be parked from before a sign-in
     // round trip, which is the only other place an invite code lives.
-    return takeParkedInvite(slug);
+    return takeParkedInvite(org, slug);
   }
   window.history.replaceState(null, "", window.location.pathname + window.location.search);
   return decodeURIComponent(match[1]);
@@ -77,7 +77,7 @@ const pendingInviteMaxAgeMs = 5 * 60 * 1000;
 
 /** Reads the parked code and drops it: one attempt, so a refused passcode
  *  lands on the gate rather than being retried on every mount. */
-function takeParkedInvite(slug: string): string {
+function takeParkedInvite(org: string, slug: string): string {
   let raw: string | null = null;
   try {
     raw = sessionStorage.getItem(pendingInviteKey);
@@ -92,11 +92,19 @@ function takeParkedInvite(slug: string): string {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== "object" || parsed === null) return "";
-    const { code, at, slug: forSlug } = parsed as { code?: unknown; at?: unknown; slug?: unknown };
+    const {
+      code,
+      at,
+      org: forOrg,
+      slug: forSlug,
+    } = parsed as { code?: unknown; at?: unknown; org?: unknown; slug?: unknown };
     if (typeof code !== "string" || typeof at !== "number") return "";
     // A passcode belongs to one space. Landing on a different one must not
-    // spend it there — it would be refused, and the real invite is gone.
-    if (forSlug !== slug) return "";
+    // spend it there — it would be refused, and the real invite is gone. Both
+    // halves of the address, because a slug is only unique inside an org: two
+    // orgs can each have a "platform-team", and matching on the slug alone
+    // would burn a real invite against the wrong one.
+    if (forOrg !== org || forSlug !== slug) return "";
     if (!Number.isFinite(at) || Date.now() - at > pendingInviteMaxAgeMs) return "";
     return code;
   } catch {
@@ -104,10 +112,10 @@ function takeParkedInvite(slug: string): string {
   }
 }
 
-function parkInvite(slug: string, code: string): void {
+function parkInvite(org: string, slug: string, code: string): void {
   if (!code) return;
   try {
-    sessionStorage.setItem(pendingInviteKey, JSON.stringify({ code, slug, at: Date.now() }));
+    sessionStorage.setItem(pendingInviteKey, JSON.stringify({ code, org, slug, at: Date.now() }));
   } catch {
     // See takeParkedInvite: parking is a convenience, never a requirement.
   }
@@ -139,7 +147,7 @@ export function SpacePage() {
   // Read on the first render, before anything can navigate: an invite link
   // carries its passcode in the fragment, and this is the only chance to see
   // it. Empty for a link pasted without one, which is the ordinary case.
-  const [invited] = useState(() => takeInviteCode(slug));
+  const [invited] = useState(() => takeInviteCode(org, slug));
   /** The room whose manage dialog is open, if any. */
   const [managing, setManaging] = useState<SessionSummary | null>(null);
   // One attempt only. A refused passcode must land on the gate with the error
@@ -184,7 +192,7 @@ export function SpacePage() {
       // provider gate leaves the page, and only that case pays the cost of
       // putting the passcode in storage.
       if (authMode.data?.mode === "oidc") {
-        parkInvite(slug, passcode ?? "");
+        parkInvite(org, slug, passcode ?? "");
       }
       setNeedName(true);
       return;
