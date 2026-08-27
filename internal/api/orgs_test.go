@@ -52,15 +52,44 @@ func TestSpaceRoutesResolveWithinTheDefaultOrg(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The victim's space: a member of the *foreign* org owns a space whose
+	// slug the caller will ask for under their own org. Asserting the
+	// middleware is mounted would prove ordering, not that the lookup itself
+	// is org-filtered, so every route gets its own request.
+	//
+	// The member routes need a real member id and a real session id in the
+	// foreign space, so that a handler which did resolve the wrong space
+	// would find something to act on rather than 404 for an unrelated reason.
+	var foreignSpaceID string
+	if err := pool.QueryRow(ctx, "select id from spaces where org_id = $1 and slug = $2", otherOrg, foreignSlug).Scan(&foreignSpaceID); err != nil {
+		t.Fatal(err)
+	}
+	_, adaID := signupWithID(t, srv, "Ada Two")
+	if _, err := pool.Exec(ctx, "insert into members (space_id, user_id, role) values ($1, $2, 'owner')", foreignSpaceID, adaID); err != nil {
+		t.Fatal(err)
+	}
+	var foreignSessionID string
+	if err := pool.QueryRow(ctx,
+		"insert into sessions (space_id, kind, title, facilitator_id, config) values ($1, 'poker', 'Foreign', $2, '{}') returning id",
+		foreignSpaceID, adaID).Scan(&foreignSessionID); err != nil {
+		t.Fatal(err)
+	}
+
+	base := "/api/orgs/" + store.DefaultOrgSlug + "/spaces/" + foreignSlug
 	for _, tc := range []struct {
 		name, method, path, body string
 	}{
-		{"handleGetSpace", "GET", "/api/spaces/" + foreignSlug, ""},
-		{"handleJoinSpace", "POST", "/api/spaces/" + foreignSlug + "/join", "{}"},
-		{"handleMarkSpaceSeen", "POST", "/api/spaces/" + foreignSlug + "/seen", ""},
-		{"handleSetPasscode", "POST", "/api/spaces/" + foreignSlug + "/passcode", "{}"},
-		{"handleCreateSession", "POST", "/api/spaces/" + foreignSlug + "/sessions", `{"kind":"poker","title":"Planning"}`},
-		{"requireSpaceOwner", "PATCH", "/api/spaces/" + foreignSlug, `{"name":"Renamed"}`},
+		{"handleGetSpace", "GET", base, ""},
+		{"handleJoinSpace", "POST", base + "/join", "{}"},
+		{"handleMarkSpaceSeen", "POST", base + "/seen", ""},
+		{"handleSetPasscode", "POST", base + "/passcode", "{}"},
+		{"handleCreateSession", "POST", base + "/sessions", `{"kind":"poker","title":"Planning"}`},
+		{"requireSpaceOwner/rename", "PATCH", base, `{"name":"Renamed"}`},
+		{"requireSpaceOwner/delete", "DELETE", base, ""},
+		{"requireSpaceOwner/setRole", "POST", base + "/members/" + adaID + "/role", `{"role":"member"}`},
+		{"requireSpaceOwner/removeMember", "DELETE", base + "/members/" + adaID, ""},
+		{"requireSpaceOwner/renameRoom", "PATCH", base + "/sessions/" + foreignSessionID, `{"title":"Renamed"}`},
+		{"requireSpaceOwner/deleteRoom", "DELETE", base + "/sessions/" + foreignSessionID, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var body *strings.Reader

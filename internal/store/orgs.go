@@ -24,6 +24,12 @@ const (
 
 var ErrNoOrg = errors.New("no such org")
 
+// ErrNotOrgMember is what a lookup reports for someone outside an org. It is
+// distinct from ErrNoOrg so a caller cannot mistake "there is no such org" for
+// "you are not in it" — the HTTP surface answers both with the same 404, but
+// the store keeps them apart.
+var ErrNotOrgMember = errors.New("not a member of this org")
+
 // Org is a tenant: a set of people, and the spaces those people own. Org
 // membership is deliberately not space membership — it decides what someone
 // can find, not what they can join.
@@ -85,6 +91,55 @@ func (o *Orgs) IsMember(ctx context.Context, orgID, userID string) (bool, error)
 		return false, fmt.Errorf("checking org membership: %w", err)
 	}
 	return ok, nil
+}
+
+// RoleOf reports the caller's standing in an org, or ErrNotOrgMember. A
+// revoked row is not a membership, the same reading IsMember takes.
+func (o *Orgs) RoleOf(ctx context.Context, orgID, userID string) (string, error) {
+	var role string
+	err := o.Pool.QueryRow(ctx,
+		"select role from org_members where org_id = $1 and user_id = $2 and revoked_at is null",
+		orgID, userID).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotOrgMember
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading org role: %w", err)
+	}
+	return role, nil
+}
+
+// OrgMembership is one org the caller belongs to, as the org switcher lists
+// them. The role rides along so a client can offer the admin surface without a
+// second request per org.
+type OrgMembership struct {
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+	Role string `json:"role"`
+}
+
+// ForUser lists the orgs someone currently belongs to, by name. An empty list
+// is a real answer: a signed-in account whose claims matched no org belongs
+// nowhere, and the client shows it the dead-end rather than an empty switcher.
+func (o *Orgs) ForUser(ctx context.Context, userID string) ([]OrgMembership, error) {
+	rows, err := o.Pool.Query(ctx, `
+		select o.slug, o.name, m.role
+		from org_members m join orgs o on o.id = m.org_id
+		where m.user_id = $1 and m.revoked_at is null
+		order by o.name`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("listing orgs: %w", err)
+	}
+	defer rows.Close()
+	orgs := []OrgMembership{}
+	for rows.Next() {
+		var m OrgMembership
+		if err := rows.Scan(&m.Slug, &m.Name, &m.Role); err != nil {
+			return nil, fmt.Errorf("listing orgs: %w", err)
+		}
+		orgs = append(orgs, m)
+	}
+	return orgs, rows.Err()
 }
 
 // ByClaimValues resolves the orgs an identity provider's claim values map to.

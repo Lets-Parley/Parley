@@ -105,7 +105,7 @@ func TestSessionQuotaIsAtomicAtCreationBoundary(t *testing.T) {
 	_, space := createSpace(t, srv, "Session Quota", creator)
 	slug := space["slug"].(string)
 	statuses := concurrentStatuses(t, 8, func(i int) (int, error) {
-		return requestStatus(srv, http.MethodPost, "/api/spaces/"+slug+"/sessions", fmt.Sprintf(`{"kind":"poker","title":"Session %d"}`, i), creator)
+		return requestStatus(srv, http.MethodPost, "/api/orgs/default/spaces/"+slug+"/sessions", fmt.Sprintf(`{"kind":"poker","title":"Session %d"}`, i), creator)
 	})
 	requireStatuses(t, statuses, http.StatusCreated, http.StatusConflict, 1)
 

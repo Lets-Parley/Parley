@@ -133,6 +133,27 @@ func (s *Spaces) BySlug(ctx context.Context, orgID, slug string) (Space, error) 
 	return sp, err
 }
 
+// BySlugInOrg resolves an org slug and a space slug together, in one query.
+//
+// The single statement is the point, not a convenience: this is the anonymous
+// link-landing lookup, so a nonexistent org, a space in a different org, and a
+// slug that exists nowhere must all fail identically. Resolving the org first
+// and the space second would cost one query for a bad org and two for a bad
+// slug, and that difference is a cross-org existence oracle no amount of
+// matching the response body hides.
+func (s *Spaces) BySlugInOrg(ctx context.Context, orgSlug, slug string) (Space, error) {
+	var sp Space
+	err := s.Pool.QueryRow(ctx, `
+		select sp.id, sp.slug, sp.name, sp.passcode
+		from spaces sp join orgs o on o.id = sp.org_id
+		where o.slug = $1 and sp.slug = $2`, orgSlug, slug,
+	).Scan(&sp.ID, &sp.Slug, &sp.Name, &sp.Passcode)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Space{}, ErrNoSpace
+	}
+	return sp, err
+}
+
 // SetPasscode replaces the passcode, or clears it to open the space.
 func (s *Spaces) SetPasscode(ctx context.Context, spaceID, passcode string) error {
 	_, err := s.Pool.Exec(ctx, "update spaces set passcode = $2 where id = $1", spaceID, passcode)
@@ -194,16 +215,22 @@ func (s *Spaces) MarkSeen(ctx context.Context, spaceID, userID string) error {
 // last_seen_at orders the list server-side and is not part of the payload —
 // nothing on the page shows it.
 type Membership struct {
-	Slug      string `json:"slug"`
-	Name      string `json:"name"`
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+	// OrgSlug is the org segment of the space's URL. Slugs are unique inside
+	// an org rather than across the instance, so a list entry without it
+	// cannot be turned back into a link.
+	OrgSlug   string `json:"orgSlug"`
 	Protected bool   `json:"protected"`
 }
 
 // ForUser lists the caller's own spaces, most recently active first.
 func (s *Spaces) ForUser(ctx context.Context, userID string) ([]Membership, error) {
 	rows, err := s.Pool.Query(ctx, `
-		select sp.slug, sp.name, sp.passcode <> ''
-		from members m join spaces sp on sp.id = m.space_id
+		select sp.slug, sp.name, o.slug, sp.passcode <> ''
+		from members m
+		join spaces sp on sp.id = m.space_id
+		join orgs o on o.id = sp.org_id
 		where m.user_id = $1
 		order by m.last_seen_at desc, sp.name`, userID)
 	if err != nil {
@@ -213,7 +240,7 @@ func (s *Spaces) ForUser(ctx context.Context, userID string) ([]Membership, erro
 	spaces := []Membership{}
 	for rows.Next() {
 		var sp Membership
-		if err := rows.Scan(&sp.Slug, &sp.Name, &sp.Protected); err != nil {
+		if err := rows.Scan(&sp.Slug, &sp.Name, &sp.OrgSlug, &sp.Protected); err != nil {
 			return nil, err
 		}
 		spaces = append(spaces, sp)

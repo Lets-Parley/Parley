@@ -84,11 +84,11 @@ func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 	if a.authMode == ModeOpen {
 		visibility = store.VisibilityPrivate
 	}
-	orgID, ok := a.resolveOrg(w, r)
+	org, ok := a.resolveOrg(w, r)
 	if !ok {
 		return
 	}
-	sp, err := a.spaces.Create(r.Context(), orgID, name, slug, passcode, p.UserID, visibility, a.limits.SpacesPerIdentity)
+	sp, err := a.spaces.Create(r.Context(), org.ID, name, slug, passcode, p.UserID, visibility, a.limits.SpacesPerIdentity)
 	if errors.Is(err, store.ErrSlugTaken) {
 		http.Error(w, `{"error":"that space name is taken — pick another"}`, http.StatusConflict)
 		return
@@ -102,8 +102,11 @@ func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The creator is the one person who has to see the code straight away.
+	// orgSlug rides along because a slug alone is no longer an address: the
+	// creator is redirected to /o/{org}/s/{slug}, and a client that had to
+	// guess the org segment would guess wrong on any instance with two.
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"id": sp.ID, "slug": sp.Slug, "name": sp.Name,
+		"id": sp.ID, "slug": sp.Slug, "name": sp.Name, "orgSlug": org.Slug,
 		"passcode": sp.Passcode, "protected": sp.Passcode != "",
 	})
 }
@@ -121,12 +124,13 @@ func (a *app) handleListMySpaces(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGetSpace returns name only to non-members; roster requires membership.
+// It is the pre-join link-landing route and stays anonymous, so it cannot sit
+// behind requireOrgMember, which needs a principal. It resolves its org from
+// the URL segment instead, and does so in the same query as the space: a
+// nonexistent org, a space in another org, and a slug that exists nowhere all
+// have to fail after the same amount of work — see store.Spaces.BySlugInOrg.
 func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
-	orgID, ok := a.resolveOrg(w, r)
-	if !ok {
-		return
-	}
-	sp, err := a.spaces.BySlug(r.Context(), orgID, chi.URLParam(r, "slug"))
+	sp, err := a.spaces.BySlugInOrg(r.Context(), orgSlugFromRoute(r), chi.URLParam(r, "slug"))
 	if errors.Is(err, store.ErrNoSpace) {
 		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
 		return
@@ -222,11 +226,7 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 func (a *app) handleMarkSpaceSeen(w http.ResponseWriter, r *http.Request) {
 	p, _ := PrincipalFrom(r.Context())
 
-	orgID, ok := a.resolveOrg(w, r)
-	if !ok {
-		return
-	}
-	sp, err := a.spaces.BySlug(r.Context(), orgID, chi.URLParam(r, "slug"))
+	sp, err := a.spaces.BySlug(r.Context(), orgFrom(r.Context()).ID, chi.URLParam(r, "slug"))
 	if errors.Is(err, store.ErrNoSpace) {
 		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
 		return
@@ -257,11 +257,7 @@ func (a *app) handleJoinSpace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orgID, ok := a.resolveOrg(w, r)
-	if !ok {
-		return
-	}
-	sp, err := a.spaces.BySlug(r.Context(), orgID, chi.URLParam(r, "slug"))
+	sp, err := a.spaces.BySlug(r.Context(), orgFrom(r.Context()).ID, chi.URLParam(r, "slug"))
 	if errors.Is(err, store.ErrNoSpace) {
 		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
 		return
@@ -310,11 +306,7 @@ func (a *app) handleSetPasscode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orgID, ok := a.resolveOrg(w, r)
-	if !ok {
-		return
-	}
-	sp, err := a.spaces.BySlug(r.Context(), orgID, chi.URLParam(r, "slug"))
+	sp, err := a.spaces.BySlug(r.Context(), orgFrom(r.Context()).ID, chi.URLParam(r, "slug"))
 	if errors.Is(err, store.ErrNoSpace) {
 		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
 		return

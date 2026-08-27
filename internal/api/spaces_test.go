@@ -34,7 +34,7 @@ func createSpace(t *testing.T, srv *httptest.Server, name string, cookie *http.C
 
 func getSpace(t *testing.T, srv *httptest.Server, slug string, cookie *http.Cookie) (*http.Response, map[string]any) {
 	t.Helper()
-	req, _ := http.NewRequest("GET", srv.URL+"/api/spaces/"+slug, nil)
+	req, _ := http.NewRequest("GET", srv.URL+"/api/orgs/default/spaces/"+slug, nil)
 	if cookie != nil {
 		req.AddCookie(cookie)
 	}
@@ -55,7 +55,7 @@ func joinSpace(t *testing.T, srv *httptest.Server, slug string, cookie *http.Coo
 	if len(passcode) > 0 {
 		body = strings.NewReader(`{"passcode":"` + passcode[0] + `"}`)
 	}
-	req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/"+slug+"/join", body)
+	req, _ := http.NewRequest("POST", srv.URL+"/api/orgs/default/spaces/"+slug+"/join", body)
 	req.Header.Set("Content-Type", "application/json")
 	if cookie != nil {
 		req.AddCookie(cookie)
@@ -168,7 +168,7 @@ func TestSlugify(t *testing.T) {
 }
 
 func TestJoinReturnsPayloadTooLargeForOversizedJSON(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/api/spaces/example/join", strings.NewReader(`{"passcode":"`+strings.Repeat("x", 4<<10)+`"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/orgs/default/spaces/example/join", strings.NewReader(`{"passcode":"`+strings.Repeat("x", 4<<10)+`"}`))
 	rec := httptest.NewRecorder()
 
 	(&app{}).handleJoinSpace(rec, req)
@@ -248,7 +248,7 @@ func TestListMySpacesRefusesAnonymous(t *testing.T) {
 // markSeen pings the "I opened this space" endpoint the space page calls.
 func markSeen(t *testing.T, srv *httptest.Server, slug string, cookie *http.Cookie) *http.Response {
 	t.Helper()
-	req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/"+slug+"/seen", nil)
+	req, _ := http.NewRequest("POST", srv.URL+"/api/orgs/default/spaces/"+slug+"/seen", nil)
 	if cookie != nil {
 		req.AddCookie(cookie)
 	}
@@ -377,7 +377,10 @@ func TestListMySpacesCarriesOnlyTheListedFields(t *testing.T) {
 	}
 	for key := range mine[0] {
 		switch key {
-		case "slug", "name", "protected":
+		// orgSlug is part of the address, not extra disclosure: a slug alone
+		// no longer resolves to a space, so the list would be unlinkable
+		// without it.
+		case "slug", "name", "orgSlug", "protected":
 		default:
 			t.Fatalf("unexpected field %q in %v", key, mine[0])
 		}
@@ -447,7 +450,7 @@ func TestMarkSeenRefusesCrossSite(t *testing.T) {
 		{"sec-fetch-site", "Sec-Fetch-Site", "cross-site"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/alpha-squad/seen", nil)
+			req, _ := http.NewRequest("POST", srv.URL+"/api/orgs/default/spaces/alpha-squad/seen", nil)
 			req.Header.Set(tc.header, tc.value)
 			req.AddCookie(ada)
 			resp, err := srv.Client().Do(req)

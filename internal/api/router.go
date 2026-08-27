@@ -60,7 +60,7 @@ type app struct {
 	// of the default org from configuration.
 	bootstrapAdmin BootstrapAdmin
 	orgMu          sync.Mutex
-	defaultOrg     string
+	defaultOrg     store.Org
 }
 
 type Options struct {
@@ -307,42 +307,64 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		// mode does not reach it. It answers 401 itself.
 		r.With(rejectLinkPrincipal).Patch("/me/avatar", a.handlePatchMeAvatar)
 
-		// Open to anonymous callers, and so also outside RequireUser: a link
-		// guest is bound to one room and is told nothing about the space
-		// around it.
-		r.With(rejectLinkPrincipal).Get("/spaces/{slug}", a.handleGetSpace)
 		r.Group(func(r chi.Router) {
 			r.Use(RequireUser)
+			// Cross-org and deliberately un-prefixed: both answer "which
+			// orgs and spaces does this cookie reach", which is the question
+			// the landing page asks before it knows an org to ask within.
+			r.Get("/orgs", a.handleListMyOrgs)
 			r.Get("/spaces", a.handleListMySpaces)
 			r.Post("/spaces", a.handleCreateSpace)
-			r.Post("/spaces/{slug}/join", a.handleJoinSpace)
-			r.Post("/spaces/{slug}/seen", a.handleMarkSpaceSeen)
-			r.Post("/spaces/{slug}/passcode", a.handleSetPasscode)
-			r.Post("/spaces/{slug}/sessions", a.handleCreateSession)
 		})
 
-		// Managing the space itself is owner-only, and the middleware answers
-		// 404 to anyone outside the space rather than admitting it exists.
-		// These hang off the /api router by method rather than a Route group,
-		// because GET /spaces/{slug} is already mounted at this pattern and is
-		// deliberately open to non-members.
-		r.With(a.requireSpaceOwner).Patch("/spaces/{slug}", a.handleRenameSpace)
-		r.With(a.requireSpaceOwner).Delete("/spaces/{slug}", a.handleDeleteSpace)
+		// Everything that resolves a space slug hangs off an org, because a
+		// slug is unique inside one org rather than across the instance.
+		r.Route("/orgs/{org}", func(r chi.Router) {
+			// Open to anonymous callers, and so also outside RequireUser and
+			// requireOrgMember: this is the link-landing view someone reads
+			// before they have joined anything. A link guest is refused —
+			// its capability is one room, never a space around it.
+			r.With(rejectLinkPrincipal).Get("/spaces/{slug}", a.handleGetSpace)
 
-		r.Route("/spaces/{slug}/members/{userId}", func(r chi.Router) {
-			r.Use(a.requireSpaceOwner)
-			r.Post("/role", a.handleSetMemberRole)
-			r.Delete("/", a.handleRemoveMember)
-		})
+			r.Group(func(r chi.Router) {
+				r.Use(RequireUser)
+				r.Use(a.requireOrgMember)
+				r.Post("/spaces/{slug}/join", a.handleJoinSpace)
+				r.Post("/spaces/{slug}/seen", a.handleMarkSpaceSeen)
+				r.Post("/spaces/{slug}/passcode", a.handleSetPasscode)
+				r.Post("/spaces/{slug}/sessions", a.handleCreateSession)
+			})
 
-		// Renaming and deleting a room are housekeeping on the space, so they
-		// are owner-only and live here rather than under /sessions/{id}, where
-		// the facilitator-scoped meeting controls are. Closing a room stays
-		// the facilitator's: it ends a meeting, it does not discard one.
-		r.Route("/spaces/{slug}/sessions/{id}", func(r chi.Router) {
-			r.Use(a.requireSpaceOwner)
-			r.Patch("/", a.handleRenameRoom)
-			r.Delete("/", a.handleDeleteRoom)
+			// Managing the space itself is owner-only, and the middleware
+			// answers 404 to anyone outside the space rather than admitting
+			// it exists. These hang off the router by method rather than a
+			// Route group, because GET /spaces/{slug} is already mounted at
+			// this pattern and is deliberately open to non-members.
+			r.Group(func(r chi.Router) {
+				r.Use(a.requireOrgMember)
+				r.Use(a.requireSpaceOwner)
+				r.Patch("/spaces/{slug}", a.handleRenameSpace)
+				r.Delete("/spaces/{slug}", a.handleDeleteSpace)
+			})
+
+			r.Route("/spaces/{slug}/members/{userId}", func(r chi.Router) {
+				r.Use(a.requireOrgMember)
+				r.Use(a.requireSpaceOwner)
+				r.Post("/role", a.handleSetMemberRole)
+				r.Delete("/", a.handleRemoveMember)
+			})
+
+			// Renaming and deleting a room are housekeeping on the space, so
+			// they are owner-only and live here rather than under
+			// /sessions/{id}, where the facilitator-scoped meeting controls
+			// are. Closing a room stays the facilitator's: it ends a meeting,
+			// it does not discard one.
+			r.Route("/spaces/{slug}/sessions/{id}", func(r chi.Router) {
+				r.Use(a.requireOrgMember)
+				r.Use(a.requireSpaceOwner)
+				r.Patch("/", a.handleRenameRoom)
+				r.Delete("/", a.handleDeleteRoom)
+			})
 		})
 
 		// requireSessionMember answers 404 for anonymous callers too, so these
@@ -433,31 +455,36 @@ func requireJSONBody(next http.Handler) http.Handler {
 	})
 }
 
-// resolveOrg hands a handler the org it resolves slugs within, or answers the
-// request itself and reports false.
-func (a *app) resolveOrg(w http.ResponseWriter, r *http.Request) (string, bool) {
-	orgID, err := a.orgID(r.Context())
+// resolveOrg hands a handler the org a space is created in when the caller did
+// not name one, or answers the request itself and reports false.
+func (a *app) resolveOrg(w http.ResponseWriter, r *http.Request) (store.Org, bool) {
+	org, err := a.org(r.Context())
 	if err != nil {
 		http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
-		return "", false
+		return store.Org{}, false
 	}
-	return orgID, true
+	return org, true
 }
 
-// orgID is the org a slug is resolved within: until an instance is divided,
-// the default org. It is read once and cached rather than resolved at wiring
-// time, because a pool is lazy — Router must not require a reachable database
-// to hand back a handler.
-func (a *app) orgID(ctx context.Context) (string, error) {
+// org is the default org: the one an instance that has never been divided
+// puts everything in. It is read once and cached rather than resolved at
+// wiring time, because a pool is lazy — Router must not require a reachable
+// database to hand back a handler.
+func (a *app) org(ctx context.Context) (store.Org, error) {
 	a.orgMu.Lock()
 	defer a.orgMu.Unlock()
-	if a.defaultOrg != "" {
+	if a.defaultOrg.ID != "" {
 		return a.defaultOrg, nil
 	}
 	org, err := a.orgs.Default(ctx)
 	if err != nil {
-		return "", err
+		return store.Org{}, err
 	}
-	a.defaultOrg = org.ID
-	return org.ID, nil
+	a.defaultOrg = org
+	return org, nil
+}
+
+func (a *app) orgID(ctx context.Context) (string, error) {
+	org, err := a.org(ctx)
+	return org.ID, err
 }
