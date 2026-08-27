@@ -604,3 +604,33 @@ func TestLinkGuestReachesItsRoomWithNoOrgAnywhere(t *testing.T) {
 		t.Errorf("a link guest has %d org_members rows, want 0 — a link is a seat in one room, not membership of a tenant", memberships)
 	}
 }
+
+// TestCreateSpaceRequiresOrgMembership pins the one write that names no org in
+// its path to the same tenancy rule as the ones that do. Creating in an org the
+// caller is outside of would hand them a space every follow-up call — join,
+// seen, passcode, sessions — then answers 404 for, because those are org-gated.
+// The refusal is the same 404 requireOrgMember gives, for the same reason: the
+// existence of an org is not disclosed to anyone outside it.
+func TestCreateSpaceRequiresOrgMembership(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	srv := httptest.NewServer(Router(pool, Options{AllowedOrigin: testOrigin}))
+	t.Cleanup(srv.Close)
+
+	ada, adaID := signupWithID(t, srv, "Ada")
+	// Signing up enrols the caller in the default org, so the outsider has to
+	// be made one: this is the account an identity provider hands back with no
+	// claim any org here recognises.
+	if _, err := pool.Exec(ctx,
+		"update org_members set revoked_at = now() where user_id = $1", adaID); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, body := createSpace(t, srv, "Outsider "+randomSlugSuffix(t), ada)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("POST /api/spaces as a non-member = %d, want 404 — 403 would confirm the org exists (body %v)", resp.StatusCode, body)
+	}
+	if got := body["error"]; got != "no such org" {
+		t.Errorf(`error = %v, want "no such org" — the same body requireOrgMember answers with`, got)
+	}
+}

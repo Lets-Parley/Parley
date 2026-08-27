@@ -88,6 +88,21 @@ func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// This route names no org in its path, so requireOrgMember cannot guard
+	// it — but the space still lands in one, and every follow-up call against
+	// it is org-gated. Creating for an outsider would hand them a space they
+	// could not join, open a room in, or set a passcode on. Same 404 as
+	// requireOrgMember, and for the same reason: whether an org exists is not
+	// disclosed to anyone outside it.
+	member, err := a.orgs.IsMember(r.Context(), org.ID, p.UserID)
+	if err != nil {
+		http.Error(w, `{"error":"could not load org"}`, http.StatusInternalServerError)
+		return
+	}
+	if !member {
+		http.Error(w, `{"error":"no such org"}`, http.StatusNotFound)
+		return
+	}
 	sp, err := a.spaces.Create(r.Context(), org.ID, name, slug, passcode, p.UserID, visibility, a.limits.SpacesPerIdentity)
 	if errors.Is(err, store.ErrSlugTaken) {
 		http.Error(w, `{"error":"that space name is taken — pick another"}`, http.StatusConflict)

@@ -152,10 +152,16 @@ export function Landing() {
   // asking for the same click a second time.
   useEffect(() => {
     if (!fullAccount) return;
+    // The create lands in an org, and every call against the space afterwards
+    // is org-gated — so resuming for an account in no org would silently make
+    // them a space they cannot use. Wait for the org answer, then stand down
+    // and leave the dead end below to explain it; the name stays in the field
+    // to send once somebody has added them.
+    if (myOrgs.isPending || noOrg) return;
     const pending = takePending();
     if (pending === null) return;
     doCreate(pending);
-  }, [fullAccount, doCreate]);
+  }, [fullAccount, myOrgs.isPending, noOrg, doCreate]);
 
   function submit(e: FormEvent) {
     e.preventDefault();

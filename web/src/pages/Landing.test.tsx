@@ -802,6 +802,20 @@ describe("Landing across orgs", () => {
     expect(screen.queryByPlaceholderText(/Platform Team/)).toBeNull();
   });
 
+  // The resume runs on its own, with no click behind it, so a caller in no org
+  // would have a space created for them that every follow-up call then refuses.
+  // The dead end is the answer for them, and the name stays theirs to retry.
+  it("does not resume a pending create for an account in no org", async () => {
+    myOrgs = [];
+    mySpaces = [];
+    stash("Platform Team");
+    renderApp(<Landing />);
+
+    await screen.findByRole("region", { name: "No org yet" });
+    expect(spaceCalls()).toHaveLength(0);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   // axe in both render passes. It deliberately skips colour contrast — jsdom
   // has no layout — so contrast on these controls stays a review item.
   for (const theme of ["light", "dark"] as const) {
