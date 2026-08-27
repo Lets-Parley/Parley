@@ -84,7 +84,7 @@ anonymous row can share the empty pair while federated identities stay unique.
 
 `(space_id, user_id)` composite primary key, plus `spectator` and `last_seen_at`.
 Both foreign keys cascade. `last_seen_at` is stamped on join and refreshed by
-`POST /api/spaces/{slug}/seen`, which the space page sends when a member opens
+`POST /api/orgs/{org}/spaces/{slug}/seen`, which the space page sends when a member opens
 it; the space read itself is a GET and never writes. It orders the landing
 page's space list and is never returned to the client.
 

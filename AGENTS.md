@@ -231,7 +231,36 @@ migration and embedding mistakes that unit tests miss.
     from the claim, so a grant that cleared `revoked_at` would undo an admin's
     removal at the revoked person's next login. Sign-in mapping and open-mode
     enrolment both go through `GrantMember`.
-19. Dependabot watches only `site/`. Go modules and `web/` dependencies are
+19. **The org in a request comes from `requireOrgMember`, never from chi twice.**
+    Space routes are mounted under `/api/orgs/{org}/`. `orgSlugFromRoute`
+    (`internal/api/authz.go`) is the only reader of that URL segment, and
+    `orgFrom(ctx)` is how every handler behind the middleware gets the org —
+    with an unchecked type assertion, so a handler mounted outside it panics
+    rather than reading a zero uuid and skipping the tenancy check.
+    `TestOrgParamHasOneReader` enforces this with go/types, so
+    `chi.URLParamFromCtx` and `RouteContext().URLParam` are caught too.
+20. **Sitting behind `requireOrgMember` is not the tenancy boundary.** It
+    proves the caller is in org A and says nothing about which org a space
+    resolved by slug belongs to: `spaces.slug` is unique per org, so every
+    lookup behind it must also filter by `orgFrom(ctx).ID`.
+    `TestSpaceRoutesResolveWithinTheDefaultOrg` puts an identically-slugged
+    space in a second org and asserts 404 per route.
+21. **`GET /api/orgs/{org}/spaces/{slug}` must stay one query.** It is the
+    anonymous link landing, so a bad org, a space in another org, and a slug
+    that exists nowhere have to fail after identical work — hence
+    `Spaces.BySlugInOrg`. Resolving the org first and the space second is a
+    cross-org existence oracle even with identical response bodies.
+22. **The session tree and `POST /api/links/redeem` never acquire an org
+    prefix.** A link guest belongs to no org and no space, so it has no org
+    slug for a URL and no membership to derive one from; prefixing either would
+    break every signed link ever issued. `TestEveryRouteIsScopeClassified`
+    fails the build on any route that is not explicitly classified.
+23. **Every space URL in `web/src` comes from `lib/paths.ts`.** SPA routes, API
+    calls, the copied invite and the rename toast's prose all build from
+    `spacePath` / `spaceSettingsPath` / `spaceApi` — a slug alone is not an
+    address any more, and the one site written out by hand is the one that
+    404s. `renderApp` takes a `path` so `useParams` actually resolves in tests.
+24. Dependabot watches only `site/`. Go modules and `web/` dependencies are
     bumped by hand, with tests.
 
 ## Scope

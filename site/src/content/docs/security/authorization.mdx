@@ -6,11 +6,45 @@ description: Membership, facilitator rights, and what the server checks on every
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/authz.go", "internal/api/principal.go", "internal/store/spaces.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/store/sessions.go", "internal/store/links.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/authz.go", "internal/api/principal.go", "internal/store/spaces.go", "internal/store/orgs.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/store/sessions.go", "internal/store/links.go"]} />
 
-Parley has four authorization concepts and no more: **you are a member of the
-space**, **you own the space**, **you are the facilitator of this session**, and
-**you hold a signed link to this one room**.
+Parley has five authorization concepts and no more: **you are a member of the
+org**, **you are a member of the space**, **you own the space**, **you are the
+facilitator of this session**, and **you hold a signed link to this one room**.
+
+## Org membership
+
+A space slug is unique inside an org, not across the instance, so a space's
+address names both: `/o/{org}/s/{slug}`, and every space route on the API is
+mounted under `/api/orgs/{org}/`.
+
+`requireOrgMember` resolves the `{org}` segment once, checks the caller belongs
+to it, and puts the org in the request context. Someone outside the org gets
+**404, not 403** — the same non-disclosure rule membership follows, so an
+unprivileged account elsewhere on the instance cannot use the status code to
+enumerate tenants. `requireOrgAdmin` narrows that to the org's admins and
+answers `403`, which discloses nothing: the caller is already known to be
+inside.
+
+Standing behind the middleware is not the boundary on its own. It proves the
+*caller* is in org A and says nothing about which org a space resolved by slug
+belongs to, so every lookup behind it is filtered by the org id from the
+context as well. Without that, a member of org A could join, re-passcode, or
+open a session in a same-named space owned by org B.
+
+`GET /api/orgs/{org}/spaces/{slug}` is the exception, and stays anonymous: it
+is the pre-join landing view someone reads before they have joined anything, so
+there is no principal to check. It resolves the org and the space in a single
+joined query, so a nonexistent org, a space in a different org, and a slug that
+exists nowhere all fail after identical work. Resolving them in sequence would
+cost one query for a bad org and two for a bad slug, and that difference is a
+cross-org existence oracle no amount of matching the response body hides.
+
+Two routes stay outside the org prefix on purpose. `/api/sessions/...` does,
+because a link guest belongs to no org and no space: it has no org slug to put
+in a URL and no membership one could be derived from, so an org-prefixed
+session tree would 404 every signed link ever issued. `POST /api/links/redeem`
+does, because it mints the identity an org prefix would require.
 
 ## Membership
 
@@ -41,7 +75,7 @@ The room-level split is deliberate. **Closing** a session ends a meeting and is
 the facilitator's, because it is part of running one; the record survives and
 it can be reopened. **Deleting** a session discards it and is the owner's,
 because it is housekeeping on the space. The delete route is addressed through
-the space (`DELETE /api/spaces/{slug}/sessions/{id}`) and its SQL is scoped by
+the space (`DELETE /api/orgs/{org}/spaces/{slug}/sessions/{id}`) and its SQL is scoped by
 `space_id` as well as by id, so owning one space can never reach a session in
 another even with its id in hand.
 
