@@ -230,7 +230,8 @@ Ideas under consideration, not committed to.
   self-hosted tool, and nearly free once a conflict-free document engine exists
 - Retro synthesis and meeting recaps, with a bring-your-own model endpoint so
   nothing leaves the instance
-- Two-way issue sync with Jira, Linear, and GitHub
+- Two-way issue sync with Jira ([#378](https://github.com/lets-parley/parley/issues/378)) and GitHub ([#383](https://github.com/lets-parley/parley/issues/383)) — import stories,
+  write the estimate back, and file a ticket from the room; Linear to follow
 - Replaying how a board or a ceremony actually evolved
 - Spaces a creator can open to anyone, no sign-in required, on an instance
   that otherwise requires an identity provider
@@ -240,6 +241,20 @@ Ideas under consideration, not committed to.
 - A room that dies with the meeting — the session ends when the calendar event does
 - Audit logging, retention policies, and SSO group-to-role mapping
 - White-label theming, for anyone hosting Parley on someone else's behalf
+- Parley on a phone: a decided layout at every breakpoint, touch-first controls, and a test that
+  catches the regression ([#379](https://github.com/lets-parley/parley/issues/379))
+- Configurable timers for both poker and standup, rather than one number nobody chose ([#380](https://github.com/lets-parley/parley/issues/380))
+- Feature flags, so an operator runs the modules they want and unfinished work can merge dark
+  ([#381](https://github.com/lets-parley/parley/issues/381))
+- Slack: a card posted when a session ends, and — the harder half — a standup collected from a
+  channel thread ([#382](https://github.com/lets-parley/parley/issues/382))
+- Team health and mood over time, with anonymity and minimum-n decided before anything is built
+  ([#384](https://github.com/lets-parley/parley/issues/384))
+- A shared board owned by a space rather than a session — the persistence every other ceremony
+  eventually wants ([#385](https://github.com/lets-parley/parley/issues/385))
+- Kudos, with no leaderboard ([#386](https://github.com/lets-parley/parley/issues/386))
+- Reactions and comments on a standup entry or a story ([#387](https://github.com/lets-parley/parley/issues/387))
+- Async standup: a window instead of a meeting, for teams that are not awake at once ([#388](https://github.com/lets-parley/parley/issues/388))
 
 ## Completed
 
