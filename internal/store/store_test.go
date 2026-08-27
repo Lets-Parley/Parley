@@ -63,11 +63,22 @@ func newSpaceWithCreator(t *testing.T, pool *pgxpool.Pool) (Space, User) {
 	}
 	slug := prefix + "-" + randSuffix(t)
 	creator, _ := newUser(t, pool, "Creator "+randSuffix(t))
-	sp, err := (&Spaces{Pool: pool}).Create(context.Background(), t.Name(), slug, "", creator.ID, 50)
+	sp, err := (&Spaces{Pool: pool}).Create(context.Background(), defaultOrgID(t, pool), t.Name(), slug, "", creator.ID, VisibilityOrg, 50)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return sp, creator
+}
+
+// defaultOrgID resolves the org the migration puts every existing space in,
+// which is still the only org an instance has.
+func defaultOrgID(t *testing.T, pool *pgxpool.Pool) string {
+	t.Helper()
+	org, err := (&Orgs{Pool: pool}).Default(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return org.ID
 }
 
 // randSuffix keeps slugs unique across reruns against the same database.
@@ -267,10 +278,10 @@ func TestSpaceCreateRejectsDuplicateSlug(t *testing.T) {
 
 	sp := newSpace(t, pool)
 	creator, _ := newUser(t, pool, "Duplicate Slug Creator")
-	if _, err := spaces.Create(ctx, "Other name", sp.Slug, "", creator.ID, 50); err != ErrSlugTaken {
+	if _, err := spaces.Create(ctx, defaultOrgID(t, pool), "Other name", sp.Slug, "", creator.ID, VisibilityOrg, 50); err != ErrSlugTaken {
 		t.Fatalf("duplicate slug: got %v, want ErrSlugTaken", err)
 	}
-	if _, err := spaces.BySlug(ctx, "no-such-space-"+randSuffix(t)); err != ErrNoSpace {
+	if _, err := spaces.BySlug(ctx, defaultOrgID(t, pool), "no-such-space-"+randSuffix(t)); err != ErrNoSpace {
 		t.Fatalf("missing slug: got %v, want ErrNoSpace", err)
 	}
 }
@@ -351,7 +362,7 @@ func TestSetPasscode(t *testing.T) {
 	if err := spaces.SetPasscode(ctx, sp.ID, "TEAM49"); err != nil {
 		t.Fatal(err)
 	}
-	got, err := spaces.BySlug(ctx, sp.Slug)
+	got, err := spaces.BySlug(ctx, defaultOrgID(t, pool), sp.Slug)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +372,7 @@ func TestSetPasscode(t *testing.T) {
 	if err := spaces.SetPasscode(ctx, sp.ID, ""); err != nil {
 		t.Fatal(err)
 	}
-	cleared, err := spaces.BySlug(ctx, sp.Slug)
+	cleared, err := spaces.BySlug(ctx, defaultOrgID(t, pool), sp.Slug)
 	if err != nil {
 		t.Fatal(err)
 	}

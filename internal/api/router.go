@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -52,6 +53,11 @@ type app struct {
 	// replica can still hear the others.
 	instanceID string
 	listenerUp atomic.Bool
+	// orgs resolves the org a slug belongs to. Until an instance is divided,
+	// that is always the default org, cached behind defaultOrg.
+	orgs       *store.Orgs
+	orgMu      sync.Mutex
+	defaultOrg string
 }
 
 type Options struct {
@@ -141,6 +147,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	a := &app{
 		pool:     pool,
 		users:    &store.Users{Pool: pool},
+		orgs:     &store.Orgs{Pool: pool},
 		spaces:   &store.Spaces{Pool: pool},
 		sessions: &store.Sessions{Pool: pool},
 		links:    &store.Links{Pool: pool},
@@ -417,4 +424,33 @@ func requireJSONBody(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// resolveOrg hands a handler the org it resolves slugs within, or answers the
+// request itself and reports false.
+func (a *app) resolveOrg(w http.ResponseWriter, r *http.Request) (string, bool) {
+	orgID, err := a.orgID(r.Context())
+	if err != nil {
+		http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+		return "", false
+	}
+	return orgID, true
+}
+
+// orgID is the org a slug is resolved within: until an instance is divided,
+// the default org. It is read once and cached rather than resolved at wiring
+// time, because a pool is lazy — Router must not require a reachable database
+// to hand back a handler.
+func (a *app) orgID(ctx context.Context) (string, error) {
+	a.orgMu.Lock()
+	defer a.orgMu.Unlock()
+	if a.defaultOrg != "" {
+		return a.defaultOrg, nil
+	}
+	org, err := a.orgs.Default(ctx)
+	if err != nil {
+		return "", err
+	}
+	a.defaultOrg = org.ID
+	return org.ID, nil
 }

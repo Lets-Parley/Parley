@@ -19,8 +19,20 @@ var (
 	ErrNotMember     = errors.New("not a member of this space")
 	ErrBadRole       = errors.New("unknown role")
 	ErrLastOwner     = errors.New("the last owner cannot be demoted or removed")
+	ErrBadVisibility = errors.New("unknown visibility")
 	slugStrip        = regexp.MustCompile(`[^a-z0-9]+`)
 	slugTrim         = regexp.MustCompile(`^-+|-+$`)
+)
+
+// Space visibility. 'private' is reachable only by its link or an invitation;
+// 'org' is additionally listed to the org's members. The same two values are
+// the spaces.visibility CHECK constraint.
+//
+// The column defaults to 'private' so an upgrade discloses exactly what it
+// disclosed the day before. New spaces name their visibility explicitly.
+const (
+	VisibilityPrivate = "private"
+	VisibilityOrg     = "org"
 )
 
 type Space struct {
@@ -67,7 +79,14 @@ func Slugify(name string) string {
 	return s
 }
 
-func (s *Spaces) Create(ctx context.Context, name, slug, passcode, creatorID string, limit int) (Space, error) {
+// Create makes a space inside one org. visibility is passed in rather than
+// defaulted here because open mode must force VisibilityPrivate: it mints
+// anonymous identities, and an org-visible space with no passcode would let
+// any visitor walk into any new room.
+func (s *Spaces) Create(ctx context.Context, orgID, name, slug, passcode, creatorID, visibility string, limit int) (Space, error) {
+	if visibility != VisibilityPrivate && visibility != VisibilityOrg {
+		return Space{}, ErrBadVisibility
+	}
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return Space{}, err
@@ -85,8 +104,8 @@ func (s *Spaces) Create(ctx context.Context, name, slug, passcode, creatorID str
 	}
 	var sp Space
 	err = tx.QueryRow(ctx,
-		"insert into spaces (slug, name, passcode, creator_id) values ($1, $2, $3, $4) returning id, slug, name, passcode",
-		slug, name, passcode, creatorID,
+		"insert into spaces (org_id, slug, name, passcode, creator_id, visibility) values ($1, $2, $3, $4, $5, $6) returning id, slug, name, passcode",
+		orgID, slug, name, passcode, creatorID, visibility,
 	).Scan(&sp.ID, &sp.Slug, &sp.Name, &sp.Passcode)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -101,10 +120,12 @@ func (s *Spaces) Create(ctx context.Context, name, slug, passcode, creatorID str
 	return sp, tx.Commit(ctx)
 }
 
-func (s *Spaces) BySlug(ctx context.Context, slug string) (Space, error) {
+// BySlug resolves a slug within one org. A slug is unique inside an org, not
+// across the instance, so the org is part of the question.
+func (s *Spaces) BySlug(ctx context.Context, orgID, slug string) (Space, error) {
 	var sp Space
 	err := s.Pool.QueryRow(ctx,
-		"select id, slug, name, passcode from spaces where slug = $1", slug,
+		"select id, slug, name, passcode from spaces where org_id = $1 and slug = $2", orgID, slug,
 	).Scan(&sp.ID, &sp.Slug, &sp.Name, &sp.Passcode)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Space{}, ErrNoSpace

@@ -77,7 +77,18 @@ func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 		passcode = newPasscode()
 	}
 
-	sp, err := a.spaces.Create(r.Context(), name, slug, passcode, p.UserID, a.limits.SpacesPerIdentity)
+	// Open mode mints anonymous identities, so an org-visible space with no
+	// passcode would be a room any visitor could walk into. It gets private
+	// spaces; a space is only listed to an org when the org means something.
+	visibility := store.VisibilityOrg
+	if a.authMode == ModeOpen {
+		visibility = store.VisibilityPrivate
+	}
+	orgID, ok := a.resolveOrg(w, r)
+	if !ok {
+		return
+	}
+	sp, err := a.spaces.Create(r.Context(), orgID, name, slug, passcode, p.UserID, visibility, a.limits.SpacesPerIdentity)
 	if errors.Is(err, store.ErrSlugTaken) {
 		http.Error(w, `{"error":"that space name is taken — pick another"}`, http.StatusConflict)
 		return
@@ -111,7 +122,11 @@ func (a *app) handleListMySpaces(w http.ResponseWriter, r *http.Request) {
 
 // handleGetSpace returns name only to non-members; roster requires membership.
 func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
-	sp, err := a.spaces.BySlug(r.Context(), chi.URLParam(r, "slug"))
+	orgID, ok := a.resolveOrg(w, r)
+	if !ok {
+		return
+	}
+	sp, err := a.spaces.BySlug(r.Context(), orgID, chi.URLParam(r, "slug"))
 	if errors.Is(err, store.ErrNoSpace) {
 		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
 		return
@@ -207,7 +222,11 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 func (a *app) handleMarkSpaceSeen(w http.ResponseWriter, r *http.Request) {
 	p, _ := PrincipalFrom(r.Context())
 
-	sp, err := a.spaces.BySlug(r.Context(), chi.URLParam(r, "slug"))
+	orgID, ok := a.resolveOrg(w, r)
+	if !ok {
+		return
+	}
+	sp, err := a.spaces.BySlug(r.Context(), orgID, chi.URLParam(r, "slug"))
 	if errors.Is(err, store.ErrNoSpace) {
 		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
 		return
@@ -238,7 +257,11 @@ func (a *app) handleJoinSpace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sp, err := a.spaces.BySlug(r.Context(), chi.URLParam(r, "slug"))
+	orgID, ok := a.resolveOrg(w, r)
+	if !ok {
+		return
+	}
+	sp, err := a.spaces.BySlug(r.Context(), orgID, chi.URLParam(r, "slug"))
 	if errors.Is(err, store.ErrNoSpace) {
 		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
 		return
@@ -287,7 +310,11 @@ func (a *app) handleSetPasscode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sp, err := a.spaces.BySlug(r.Context(), chi.URLParam(r, "slug"))
+	orgID, ok := a.resolveOrg(w, r)
+	if !ok {
+		return
+	}
+	sp, err := a.spaces.BySlug(r.Context(), orgID, chi.URLParam(r, "slug"))
 	if errors.Is(err, store.ErrNoSpace) {
 		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
 		return

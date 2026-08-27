@@ -207,7 +207,24 @@ migration and embedding mistakes that unit tests miss.
     fired inside that window would tell a link guest it is not in its own room.
     Dropping those frames loses nothing, because the initial frame lands after
     them and would have overwritten them.
-16. Dependabot watches only `site/`. Go modules and `web/` dependencies are
+16. **A space slug is unique inside an org, not across the instance, and every
+    space lookup carries an org.** `Spaces.Create` and `Spaces.BySlug` take an
+    org id (`internal/store/spaces.go`); handlers get it from `app.orgID`,
+    which resolves the default org lazily because `Router` must not require a
+    reachable database. `spaces.org_id` keeps a column default for one release
+    so a replica on the previous binary can still insert; `on delete restrict`,
+    because cascading from `orgs` would erase a tenant's whole history.
+    `spaces.visibility` defaults to `'private'` so an upgrade discloses exactly
+    what it did the day before, and open mode forces `'private'` on new spaces:
+    it mints anonymous identities, and an org-visible space with no passcode
+    would be a room any visitor could walk into.
+17. **A backfill that says "every user" must exclude `users.link_id is not
+    null`.** A redeemed signed link mints an ordinary `users` row, but that is
+    a capability on one room rather than an account (`Principal.LinkSessionID`).
+    Enrolling those rows in an org hands directory visibility to anyone ever
+    sent a guest link — and the mistake is invisible on any instance that has
+    never issued one.
+18. Dependabot watches only `site/`. Go modules and `web/` dependencies are
     bumped by hand, with tests.
 
 ## Scope
