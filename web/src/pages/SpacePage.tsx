@@ -67,7 +67,9 @@ function takeInviteCode(org: string, slug: string): string {
  * and dies with the tab. A space passcode is a shared door code that is
  * printed on the space page for every member to read and passed around in
  * chat; it is not a per-person credential. Same-origin script that could read
- * this could equally read it off the page.
+ * this could equally read it off the page. Accepted and tracked as issue
+ * #395, along with the real fix: a short-lived, server-issued, single-use
+ * handle in place of the passcode itself.
  */
 const pendingInviteKey = "parley:pending-invite";
 // A sign-in round trip takes seconds. Five minutes is already generous, and
@@ -115,6 +117,10 @@ function takeParkedInvite(org: string, slug: string): string {
 function parkInvite(org: string, slug: string, code: string): void {
   if (!code) return;
   try {
+    // See the doc comment on pendingInviteKey above for why a shared,
+    // short-lived, single-space passcode is accepted here; tracked as
+    // issue #395.
+    // codeql[js/clear-text-storage-of-sensitive-data]
     sessionStorage.setItem(pendingInviteKey, JSON.stringify({ code, org, slug, at: Date.now() }));
   } catch {
     // See takeParkedInvite: parking is a convenience, never a requirement.
