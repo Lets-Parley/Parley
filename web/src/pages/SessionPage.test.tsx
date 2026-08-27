@@ -60,10 +60,20 @@ let mockFacilitatorId = "dana";
 // The room state is kind-shaped (poker carries stories/deck, standup carries
 // entries) — swapped alongside mockKind so a poker render gets poker state.
 let mockState: unknown = envelope.state;
+// The org the envelope names. The sidebar's space lookup is addressed by it,
+// and a slug alone is not an address, so an empty one is a broken envelope
+// rather than a page with one panel missing.
+let mockOrgSlug = "acme";
 
 vi.mock("../lib/useSession", () => ({
   useSession: () => ({
-    data: { ...envelope, kind: mockKind, facilitatorId: mockFacilitatorId, state: mockState },
+    data: {
+      ...envelope,
+      kind: mockKind,
+      facilitatorId: mockFacilitatorId,
+      state: mockState,
+      orgSlug: mockOrgSlug,
+    },
     isLoading: false,
     isError: false,
     status: "stale",
@@ -75,12 +85,36 @@ beforeEach(() => {
   mockKind = "standup";
   mockFacilitatorId = "dana";
   mockState = envelope.state;
+  mockOrgSlug = "acme";
   apiMeResponse = me;
   localStorage.clear();
   sessionStorage.clear();
 });
 
 describe("SessionPage wiring", () => {
+  // The sidebar's space lookup is org-scoped now, and the org comes from the
+  // socket envelope. Pin the URL it is actually asked for: a slug on its own
+  // addresses nothing.
+  it("looks the space up under the org the envelope names", async () => {
+    renderApp(<SessionPage />);
+    await waitFor(() =>
+      expect(
+        vi.mocked(api).mock.calls.some(
+          (c) => c[0] === "GET" && c[1] === "/api/orgs/acme/spaces/platform-team",
+        ),
+      ).toBe(true),
+    );
+  });
+
+  // An envelope with no org used to disable the space query silently: the
+  // sidebar simply came up empty and nothing said why. A regression in what
+  // the socket sends has to be visible.
+  it("says so when the envelope carries no org", async () => {
+    mockOrgSlug = "";
+    renderApp(<SessionPage />);
+    expect(await screen.findByText(/no seat at this table/i)).toBeTruthy();
+  });
+
   it("passes the live connection status through to the room, so a stale link stays silent", async () => {
     renderApp(<SessionPage />);
     // StandupRoom's announcer defaults to "live" when no status prop is wired

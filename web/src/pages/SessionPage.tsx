@@ -85,7 +85,11 @@ export function SessionPage() {
   if (!guest && me.data === null) {
     return <NameGate onDone={() => session.refetch()} />;
   }
-  if (session.isError || !session.data || !identity) {
+  // An envelope with no org is a broken envelope, not a page with one panel
+  // missing: a slug alone addresses no space, so the sidebar lookup below
+  // could only be skipped. Treated as a failed session read so it is visible
+  // rather than silent.
+  if (session.isError || !session.data || !session.data.orgSlug || !identity) {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-8 text-center">
         <p className="font-display text-2xl">No seat at this table</p>
