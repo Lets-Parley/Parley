@@ -7,10 +7,12 @@
 package auth
 
 import (
+	"cmp"
 	"context"
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -27,7 +29,14 @@ type Config struct {
 	RedirectURL  string
 	// Scopes beyond "openid", which is always requested.
 	Scopes []string
+	// OrgClaim names the id_token claim that carries the caller's groups, and
+	// defaults to "groups". Its values are matched against orgs.claim_value.
+	OrgClaim string
 }
+
+// DefaultOrgClaim is the claim read when none is configured. "groups" is what
+// Keycloak, Authentik, Okta and Entra all call it by default.
+const DefaultOrgClaim = "groups"
 
 // Identity is what a completed sign-in tells us about a person. It is
 // deliberately narrow: Parley stores a name and nothing else.
@@ -35,6 +44,10 @@ type Identity struct {
 	Issuer  string
 	Subject string
 	Name    string
+	// OrgClaims are the values of the configured group claim, in the order the
+	// provider sent them. They are candidate org claim values and nothing
+	// more: one that matches no org grants nothing.
+	OrgClaims []string
 }
 
 type Provider struct {
@@ -165,12 +178,55 @@ func (p *Provider) Exchange(ctx context.Context, code, pkceVerifier, nonce strin
 	// Claims are best-effort: a provider that sends only "sub" still yields a
 	// usable account, just with a duller name.
 	_ = idToken.Claims(&claims)
+	var all map[string]any
+	_ = idToken.Claims(&all)
 
 	return Identity{
-		Issuer:  idToken.Issuer,
-		Subject: idToken.Subject,
-		Name:    displayName(claims.Name, claims.PreferredUsername, claims.Email, idToken.Subject),
+		Issuer:    idToken.Issuer,
+		Subject:   idToken.Subject,
+		Name:      displayName(claims.Name, claims.PreferredUsername, claims.Email, idToken.Subject),
+		OrgClaims: p.orgClaims(all),
 	}, nil
+}
+
+// orgClaims reads the configured group claim. A provider may send it as an
+// array of strings or as a bare string, and may leave it out entirely; each of
+// those is a legal token, so none of them is an error. Values are returned
+// verbatim, to be compared exactly and case-sensitively against
+// orgs.claim_value.
+//
+// Entra replaces the claim with a "_claim_names" pointer once a user is in
+// more than 200 groups, since the token would otherwise be too large. Parley
+// does not follow that pointer — it would mean calling Microsoft Graph with a
+// token of its own — so such a user maps to no org and needs membership
+// granted another way. It is logged, because the alternative is silent
+// under-granting that looks exactly like a misconfigured claim name.
+func (p *Provider) orgClaims(all map[string]any) []string {
+	name := cmp.Or(p.cfg.OrgClaim, DefaultOrgClaim)
+	switch v := all[name].(type) {
+	case string:
+		if v != "" {
+			return []string{v}
+		}
+	case []any:
+		var values []string
+		for _, entry := range v {
+			// A provider that sends a number or an object here is not a reason
+			// to fail a sign-in, and not a reason to invent a value.
+			if s, ok := entry.(string); ok && s != "" {
+				values = append(values, s)
+			}
+		}
+		return values
+	case nil:
+		if names, ok := all["_claim_names"].(map[string]any); ok {
+			if _, over := names[name]; over {
+				slog.Warn("the identity provider sent a claim-name pointer instead of the group claim, which Entra does above 200 groups — no org membership can be mapped for this sign-in",
+					"claim", name)
+			}
+		}
+	}
+	return nil
 }
 
 // displayName picks the friendliest claim the provider actually sent. The users

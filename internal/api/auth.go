@@ -163,6 +163,12 @@ func (a *app) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Signed in, but the account could not be saved. Try again.", http.StatusInternalServerError)
 		return
 	}
+	// Mapping is not a gate on signing in: a failure here leaves someone with
+	// an account and no org, which an admin can repair, rather than locking
+	// the whole instance out.
+	if err := a.mapOrgMembership(r.Context(), u.ID, ident); err != nil {
+		slog.Error("could not map org membership", "user_id", u.ID, "error", err)
+	}
 	slog.Info("sign-in", "user_id", u.ID, "issuer", ident.Issuer)
 
 	setSessionCookie(w, plain, a.secureCookies)
