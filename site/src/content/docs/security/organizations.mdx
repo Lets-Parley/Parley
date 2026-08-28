@@ -37,11 +37,13 @@ it is told they looked.
 
 Two rules keep that from being decoration:
 
-- **Custody can only make a space more private.** An admin may take a space out
-  of the org directory. Only the space's own owner can put one in. Without that
-  asymmetry an admin could make a private space org-visible, find it in the
-  directory, join it as an ordinary member, and read everything — with every
-  custody handler still perfectly clean.
+- **Custody may only make a space more private on visibility.** `org` →
+  `private` is permitted; `private` → `org` is refused with 403 and stays the
+  space owner's alone. Without that asymmetry an admin could make a private
+  space org-visible, find it in the directory, join it as an ordinary member,
+  and read everything — with every custody handler still perfectly clean.
+  Custody may also archive or un-archive a space: archiving takes it out of the
+  org directory; un-archiving restores an org-visible space to the directory.
 - **Ownership is granted, never transferred.** An admin can promote someone who
   is *already* a member of the space. They cannot name themself, cannot name a
   non-member, and never remove an incumbent.
