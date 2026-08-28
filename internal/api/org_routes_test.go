@@ -140,8 +140,12 @@ func TestOrgParamHasOneReader(t *testing.T) {
 	}
 }
 
-// TestEverySpaceLookupIsGated enumerates the store.Spaces.BySlug call sites and
-// pins how each one gets its org. A new call site is unclassified and fails.
+// TestEverySpaceLookupIsGated enumerates the call sites of every store.Spaces
+// method that resolves a space by slug and pins how each one gets its org. The
+// scan matches on the *shape* of the method — any exported method on
+// store.Spaces whose name contains "Slug" — rather than a list of known method
+// names, so a new lookup added under a new name is caught rather than skipped.
+// A call site that is not classified below fails.
 func TestEverySpaceLookupIsGated(t *testing.T) {
 	// The classification: every BySlug caller must take its org id from
 	// orgFrom(ctx), which only requireOrgMember ever puts there.
@@ -162,6 +166,13 @@ func TestEverySpaceLookupIsGated(t *testing.T) {
 		"handleGetSpace":         true,
 		"handleMintInviteHandle": true,
 	}
+	// The legacy /s/{slug} shim has no org in the URL and no context org: it
+	// exists to find one. Its lookup carries the scoping itself, joining the
+	// caller's own org_members inside the query, so the allowlist names the
+	// one function and the one method that may do that.
+	legacyRedirect := map[string]string{
+		"legacySpaceRedirect": "OrgSlugsForMemberSpaceSlug",
+	}
 
 	fset, files, info := typeCheckAPIPackage(t)
 	seen := map[string]bool{}
@@ -176,7 +187,9 @@ func TestEverySpaceLookupIsGated(t *testing.T) {
 				return true
 			}
 			method := sel.Sel.Name
-			if method != "BySlug" && method != "BySlugInOrg" {
+			// Any exported store.Spaces method naming a slug resolves a space
+			// by slug as far as this check is concerned.
+			if !ast.IsExported(method) || !strings.Contains(method, "Slug") {
 				return true
 			}
 			// Resolve the receiver to *store.Spaces, so an unrelated BySlug
@@ -205,18 +218,24 @@ func TestEverySpaceLookupIsGated(t *testing.T) {
 				if !strings.Contains(src, "orgFrom(") {
 					t.Errorf("%s: %s passes %q as the org id — it must be orgFrom(r.Context()).ID, so the org comes from requireOrgMember and is not re-derived", pos, fn, src)
 				}
+			case legacyRedirect[fn] != "":
+				if method != legacyRedirect[fn] {
+					t.Errorf("%s: %s is allowed to resolve a slug without a context org only through %s, which scopes the lookup to the caller's own memberships — not %s", pos, fn, legacyRedirect[fn], method)
+				}
 			default:
-				t.Errorf("%s: %s resolves a space by slug but is not classified — decide whether it sits behind requireOrgMember or is deliberately anonymous, then add it here", pos, fn)
+				t.Errorf("%s: %s resolves a space by slug but is not classified — decide whether it sits behind requireOrgMember, is deliberately anonymous, or belongs on the legacy-redirect allowlist, then add it here", pos, fn)
 			}
 			return true
 		})
 	}
-	for fn := range wantContextOrg {
-		if !seen[fn] {
-			t.Errorf("%s no longer resolves a space by slug — the classification is stale", fn)
+	for _, classification := range []map[string]bool{wantContextOrg, anonymous} {
+		for fn := range classification {
+			if !seen[fn] {
+				t.Errorf("%s no longer resolves a space by slug — the classification is stale", fn)
+			}
 		}
 	}
-	for fn := range anonymous {
+	for fn := range legacyRedirect {
 		if !seen[fn] {
 			t.Errorf("%s no longer resolves a space by slug — the classification is stale", fn)
 		}
