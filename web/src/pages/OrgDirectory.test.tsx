@@ -8,6 +8,7 @@ import { OrgDirectory } from "./OrgDirectory";
 
 let directory: OrgSpace[] = [];
 let fails: unknown = null;
+let authMode: "open" | "oidc" = "oidc";
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -18,6 +19,8 @@ vi.mock("../lib/api", async () => {
         if (fails) throw fails;
         return directory;
       }
+      if (path === "/api/auth") return { mode: authMode };
+      if (path === "/api/me") return null;
       throw new Error(`unexpected api call: ${path}`);
     }),
   };
@@ -41,6 +44,7 @@ function show() {
 beforeEach(() => {
   directory = [];
   fails = null;
+  authMode = "oidc";
   vi.mocked(api).mockClear();
   document.documentElement.removeAttribute("data-theme");
 });
@@ -91,6 +95,41 @@ describe("OrgDirectory", () => {
     directory = [space()];
     await userEvent.click(screen.getByRole("button", { name: /try again/i }));
     await waitFor(() => expect(screen.getByRole("link", { name: /platform team/i })).toBeTruthy());
+  });
+
+  // The docs advertise /o/:org as the address of the directory, so a bookmark
+  // or a link pasted into a channel is opened by somebody with no session at
+  // all. "Unauthorized" with a Try again button is a dead end for them: the
+  // button cannot conjure an identity. The rest of the app answers a 401 with
+  // the gate, and so does this.
+  it("sends a signed-out visitor to sign in rather than showing a raw refusal", async () => {
+    fails = new ApiError(401, "unauthorized");
+    show();
+
+    const signin = await screen.findByRole("link", { name: /sign in/i });
+    expect(signin.getAttribute("href")).toContain("/auth/login?next=");
+    expect(screen.queryByRole("button", { name: /try again/i })).toBeNull();
+    expect(screen.queryByText(/unauthorized/i)).toBeNull();
+  });
+
+  it("asks an open-mode visitor for a name instead of refusing them", async () => {
+    authMode = "open";
+    fails = new ApiError(401, "unauthorized");
+    show();
+
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+    expect(screen.getByLabelText(/your name/i)).toBeTruthy();
+  });
+
+  it("has no axe violations on the sign-in gate, in either theme", async () => {
+    fails = new ApiError(401, "unauthorized");
+    for (const theme of ["light", "dark"] as const) {
+      document.documentElement.setAttribute("data-theme", theme);
+      const { container, unmount } = show();
+      await screen.findByRole("link", { name: /sign in/i });
+      await expectNoViolations(container);
+      unmount();
+    }
   });
 
   it("has no axe violations in either theme", async () => {

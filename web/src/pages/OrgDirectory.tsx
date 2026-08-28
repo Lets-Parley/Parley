@@ -1,9 +1,10 @@
 import { useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { api, errorText, type OrgSpace } from "../lib/api";
+import { api, ApiError, errorText, type OrgSpace } from "../lib/api";
 import { orgSpacesApi, spacePath } from "../lib/paths";
 import { Logo, ThemeToggle } from "../components/AppShell";
+import { NameGate } from "../components/NameGate";
 import { buttonQuiet } from "../components/Modal";
 
 /**
@@ -28,6 +29,13 @@ export function OrgDirectory() {
     queryFn: () => api<OrgSpace[]>("GET", orgSpacesApi(org)),
     retry: false,
   });
+
+  // This URL is the advertised address of the directory, so it is opened from
+  // a bookmark or a pasted link by somebody with no session at all. A 401 is
+  // not a failure to report — it is a missing identity, and "Try again" cannot
+  // produce one. The rest of the app answers that with the gate, which either
+  // asks for a name or hands over to the identity provider, so this does too.
+  const needsIdentity = spaces.error instanceof ApiError && spaces.error.status === 401;
 
   // Rooms the caller is already in first: this page exists to get somebody
   // back to their table, and only then to show them what else is out there.
@@ -61,7 +69,19 @@ export function OrgDirectory() {
         </div>
       )}
 
-      {spaces.isError && (
+      {needsIdentity && (
+        <>
+          <p className="text-ink-soft text-pretty">
+            Sign in to see what {org} keeps here.
+          </p>
+          <NameGate
+            because={`To see the spaces in ${org}:`}
+            onDone={() => void spaces.refetch()}
+          />
+        </>
+      )}
+
+      {spaces.isError && !needsIdentity && (
         <p role="alert" className="flex items-center gap-3 font-bold text-stop">
           {errorText(spaces.error)}
           <button type="button" className={buttonQuiet} onClick={() => spaces.refetch()}>
