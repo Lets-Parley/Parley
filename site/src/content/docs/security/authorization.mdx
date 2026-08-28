@@ -67,9 +67,10 @@ member to owner, demote an owner back to member, or remove a member from the
 space.
 
 An owner also owns the space itself: renaming it, deleting it, changing who can
-find it, and renaming or deleting any session in it. All six routes go through
-the same `requireSpaceOwner` middleware, which resolves the slug, reads the caller's
-role, and answers `403` to a member and `404` to anyone outside the space.
+find it, and renaming or deleting any session in it. Every one of those routes
+goes through the same `requireSpaceOwner` middleware, which resolves the slug,
+reads the caller's role, and answers `403` to a member and `404` to anyone
+outside the space.
 
 The room-level split is deliberate. **Closing** a session ends a meeting and is
 the facilitator's, because it is part of running one; the record survives and
