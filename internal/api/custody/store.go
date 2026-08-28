@@ -346,6 +346,8 @@ func (s *Store) RevokeOrgMember(ctx context.Context, scope Scope, userID string)
 			return fmt.Errorf("reading the member's spaces: %w", err)
 		}
 
+		var needPromotion []string
+		needsOne := map[string]bool{}
 		for _, sr := range spaces {
 			// A space that already has a second owner needs no promotion at
 			// all: the grant is additive, so promoting anyway would quietly
@@ -353,22 +355,19 @@ func (s *Store) RevokeOrgMember(ctx context.Context, scope Scope, userID string)
 			if sr.role != roleOwner || sr.owners > 1 {
 				continue
 			}
-			var successor string
-			err := tx.QueryRow(ctx, `
-				select user_id from members
-				where space_id = $1 and user_id <> $2
-				order by last_seen_at desc, user_id
-				limit 1`, sr.id, userID).Scan(&successor)
-			if errors.Is(err, pgx.ErrNoRows) {
+			needPromotion = append(needPromotion, sr.id)
+			needsOne[sr.id] = true
+		}
+		promoted, err := promoteSuccessors(ctx, tx, needPromotion, userID)
+		if err != nil {
+			return err
+		}
+		// A space that needed a successor and did not get one has nobody left
+		// to promote, and blocks the whole revoke. `spaces` is ordered by slug,
+		// so the refusal names them in a stable order.
+		for _, sr := range spaces {
+			if needsOne[sr.id] && !promoted[sr.id] {
 				blocked = append(blocked, sr.slug)
-				continue
-			}
-			if err != nil {
-				return fmt.Errorf("choosing a successor owner: %w", err)
-			}
-			if _, err := tx.Exec(ctx,
-				"update members set role = $3 where space_id = $1 and user_id = $2", sr.id, successor, roleOwner); err != nil {
-				return fmt.Errorf("promoting a successor owner: %w", err)
 			}
 		}
 		if len(blocked) > 0 {
@@ -399,6 +398,50 @@ func (s *Store) RevokeOrgMember(ctx context.Context, scope Scope, userID string)
 		return nil, blocked, err
 	}
 	return removed, nil, nil
+}
+
+// promoteSuccessors gives every named space a new owner in one statement and
+// reports which ones got one. A space missing from the result had no eligible
+// member left, which is the caller's cue to refuse.
+//
+// The per-space rule is unchanged, only evaluated set-wise: `distinct on
+// (space_id)` picks one candidate per space, and the ORDER BY carries 0015's
+// rule — most recent last_seen_at, user_id as the tiebreak — with space_id
+// leading it because `distinct on` requires that. The person being revoked is
+// excluded, and the update touches only the rows the candidate set names, so
+// a space that already has a second owner is never reached: it is not in the
+// list at all.
+func promoteSuccessors(ctx context.Context, tx pgx.Tx, spaceIDs []string, userID string) (map[string]bool, error) {
+	promoted := map[string]bool{}
+	if len(spaceIDs) == 0 {
+		return promoted, nil
+	}
+	rows, err := tx.Query(ctx, `
+		with candidates as (
+			select distinct on (m.space_id) m.space_id, m.user_id
+			from members m
+			where m.space_id = any($1::uuid[]) and m.user_id <> $2
+			order by m.space_id, m.last_seen_at desc, m.user_id
+		)
+		update members m set role = $3
+		from candidates c
+		where m.space_id = c.space_id and m.user_id = c.user_id
+		returning m.space_id::text`, spaceIDs, userID, roleOwner)
+	if err != nil {
+		return nil, fmt.Errorf("promoting successor owners: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var spaceID string
+		if err := rows.Scan(&spaceID); err != nil {
+			return nil, fmt.Errorf("promoting successor owners: %w", err)
+		}
+		promoted[spaceID] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("promoting successor owners: %w", err)
+	}
+	return promoted, nil
 }
 
 // RestoreOrgMember lifts a revocation. Only a revoked row is restorable: an
