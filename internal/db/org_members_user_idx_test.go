@@ -39,10 +39,15 @@ func TestOrgMembersUserActiveIndexExists(t *testing.T) {
 		where indexname = 'org_members_user_active_idx'`).Scan(&def); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(def, "user_id") {
-		t.Fatalf("index must lead with user_id; got %s", def)
+	lower := strings.ToLower(def)
+	// pg_indexes renders btree indexes as "USING btree (cols) WHERE …".
+	// Require user_id alone as the leading (and only) key — an (org_id,
+	// user_id) composite still contains "user_id" but cannot serve
+	// user-leading lookups without org_id.
+	if !strings.Contains(lower, "using btree (user_id) where") {
+		t.Fatalf("index must be btree on (user_id) alone; got %s", def)
 	}
-	if !strings.Contains(strings.ToLower(def), "where") || !strings.Contains(def, "revoked_at") {
+	if !strings.Contains(lower, "revoked_at is null") {
 		t.Fatalf("index must be partial on revoked_at is null; got %s", def)
 	}
 }

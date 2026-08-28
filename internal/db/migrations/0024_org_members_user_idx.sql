@@ -10,8 +10,8 @@
 -- create index concurrently cannot run inside a transaction, and
 -- migrate.go wraps each migration file in one, so this is a regular
 -- create index. Boot serialises behind the migration advisory lock, so the
--- short AccessExclusiveLock during the build is held only while that one
--- replica applies the file.
+-- ShareLock taken during the build is held only while that one replica
+-- applies the file.
 
 create index org_members_user_active_idx
     on org_members (user_id)
