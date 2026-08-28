@@ -110,6 +110,25 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	"PATCH /api/orgs/{org}/spaces/{slug}/sessions/{id}/":       {status: http.StatusNotFound},
 	"DELETE /api/orgs/{org}/spaces/{slug}/sessions/{id}/":      {status: http.StatusNotFound},
 
+	// Org custody, all of it 401 and all of it for the same reason:
+	// RequireUser is the first middleware on the tree, ahead of
+	// requireOrgMember and requireOrgAdmin. A link guest belongs to no org and
+	// can never be an admin of one, so it is turned away before anything here
+	// resolves a slug — and specifically with 401 rather than 404, so the
+	// ordering that produces it is pinned. This is the widest surface in the
+	// product: it lists every space in an org, private ones included, and
+	// purges the org. A link handed to a stranger must not reach a byte of it.
+	"DELETE /api/orgs/{org}/":                             {status: http.StatusUnauthorized},
+	"GET /api/orgs/{org}/admin/spaces":                    {status: http.StatusUnauthorized},
+	"PATCH /api/orgs/{org}/admin/spaces/{slug}":           {status: http.StatusUnauthorized},
+	"DELETE /api/orgs/{org}/admin/spaces/{slug}":          {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/admin/spaces/{slug}/owners":     {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/admin/spaces/{slug}/claim":      {status: http.StatusUnauthorized},
+	"GET /api/orgs/{org}/admin/members":                   {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/admin/members/{userId}/role":    {status: http.StatusUnauthorized},
+	"DELETE /api/orgs/{org}/admin/members/{userId}":       {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/admin/members/{userId}/restore": {status: http.StatusUnauthorized},
+
 	// The bound room. Reading it and taking part in it is the whole grant.
 	"GET /api/sessions/{id}/": {status: http.StatusOK},
 	// The dispatcher is mounted for every method so that it, not chi, decides

@@ -18,6 +18,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/lets-parley/parley/internal/api/custody"
 	"github.com/lets-parley/parley/internal/auth"
 	"github.com/lets-parley/parley/internal/httprequest"
 	"github.com/lets-parley/parley/internal/hub"
@@ -61,6 +62,13 @@ type app struct {
 	bootstrapAdmin BootstrapAdmin
 	orgMu          sync.Mutex
 	defaultOrg     store.Org
+	// custody is the org admin's surface over the org's spaces. It lives in
+	// its own package so that "an org admin can manage a space without
+	// reading anything said in it" is a link-time fact rather than a promise:
+	// nothing in internal/api/custody imports the session, presence or store
+	// packages, so a handler there has no type to reach session content
+	// through.
+	custody *custody.Handlers
 }
 
 type Options struct {
@@ -175,6 +183,16 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		passcodeAttempts: newAttemptLimiter(pool),
 		limits:           opts.Limits.withDefaults(),
 		instanceID:       newInstanceID(),
+	}
+	a.custody = &custody.Handlers{
+		Store: &custody.Store{Pool: pool},
+		// An org revoke drops every space the person held in that org, so the
+		// sockets they already have open have to go too — here, and on every
+		// other replica, which is what the notification is for.
+		OnMembershipRevoked: func(ctx context.Context, userID string) {
+			a.hub.DisconnectUser(userID)
+			a.notifyMemberRevoke(ctx, userID)
+		},
 	}
 	if mode == ModeOIDC {
 		a.oidc = opts.OIDC
@@ -369,6 +387,27 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 				r.Patch("/spaces/{slug}/visibility", a.handleSetVisibility)
 			})
 
+			// Org custody. An org admin may manage any space in the org,
+			// including a private one they are not in, and may read nothing
+			// said inside it. The gate is three deep on purpose: RequireUser
+			// so a link guest is 401 rather than 404 one step later,
+			// requireOrgMember so an outsider is told nothing about whether
+			// the org exists, and requireOrgAdmin so an ordinary member is
+			// refused. custodyScope hands the resolved org and the acting
+			// user to the custody package, which never reads the URL itself.
+			r.Group(func(r chi.Router) {
+				r.Use(RequireUser)
+				r.Use(a.requireOrgMember)
+				r.Use(a.requireOrgAdmin)
+				r.Use(a.custodyScope)
+				// Purging the org is not an action on a space, so it is
+				// mounted at the org itself rather than inside the custody
+				// tree. It is irreversible and asks for the org's own slug
+				// back before it will run.
+				r.Delete("/", a.custody.PurgeOrg)
+				r.Route("/admin", a.custody.Mount)
+			})
+
 			r.Route("/spaces/{slug}/members/{userId}", func(r chi.Router) {
 				r.Use(a.requireOrgMember)
 				r.Use(a.requireSpaceOwner)
@@ -483,6 +522,21 @@ func requireJSONBody(next http.Handler) http.Handler {
 			}
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+// custodyScope hands the custody package what the org gates already
+// established: which org this request is scoped to, and who is acting. It is
+// the only bridge between the two packages, and it means no custody handler
+// ever reads a route parameter to decide which org it is acting on.
+func (a *app) custodyScope(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, _ := PrincipalFrom(r.Context())
+		org := orgFrom(r.Context())
+		ctx := custody.WithScope(r.Context(), custody.Scope{
+			OrgID: org.ID, OrgSlug: org.Slug, ActorID: p.UserID,
+		})
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
