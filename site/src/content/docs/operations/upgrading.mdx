@@ -43,7 +43,9 @@ anything, or tell anybody. Concretely:
 - **Your links keep working.** A `/s/{slug}` address redirects to the space's new
   `/o/{org}/s/{slug}` home, resolved against the caller's own memberships.
   Someone who is not signed in — or a guest holding a signed session link — is
-  served the app exactly as before.
+  served the app exactly as before. A signed-in caller who has no matching
+  membership, or more than one, gets a 404 rather than a redirect: the address
+  names one space and Parley will not guess which org you meant.
 - **Signed session links are untouched.** They address a session, not a space,
   and they never carried an org segment.
 - **Existing spaces become "unlisted".** This is a change in *discoverability
