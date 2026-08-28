@@ -6,7 +6,7 @@ description: Assets, trust boundaries, who is in scope, and the risks accepted o
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/authz.go", "internal/api/passcode.go", "internal/api/security.go", "internal/api/me.go", "internal/hub/hub.go", "internal/poker/routes.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/authz.go", "internal/api/passcode.go", "internal/api/security.go", "internal/api/me.go", "internal/hub/hub.go", "internal/poker/routes.go", "internal/api/custody/store.go", "internal/db/migrations/0023_org_custody.sql"]} />
 
 Parley is a self-hosted tool a team joins by following a link. This page states
 what it protects, from whom, and what it deliberately does not.
@@ -118,7 +118,7 @@ The 30-second check remains the fallback for a notification lost in transit.
   { name: "Anonymous participation by default", status: "out-of-scope", detail: "It is the product for a trusted network: a link and a name, no account. Public deployments need a passcode or external SSO/auth proxy plus ingress abuse controls." },
   { name: "The sign-in flow cookie is unsigned", status: "out-of-scope", detail: "It is base64 JSON, not a signature. It only ever carries values that are re-validated on use — the redirect target is re-sanitised after the round trip, and state and nonce are compared in constant time against the identity provider's response." },
   { name: "No general ingress rate limiter", status: "not-built", detail: "Room-code guesses, open-mode identity creation, and resource counts are bounded. Rate-limit requests and connections at your reverse proxy or ingress too. Budget for the client's own polling first: an open space page re-reads the space every 30 seconds — roughly 2 requests per minute per tab — so a limit tighter than that breaks the page rather than an attacker." },
-  { name: "No audit log", status: "not-built", detail: "Rows carry <code>user_id</code> and timestamps; query Postgres directly if you need to reconstruct who did what. <code>LOG_LEVEL=debug</code> opts into one diagnostic line per request carrying the socket peer, the <code>X-Forwarded-For</code> chain and the resolved client address — for proving a proxy is configured correctly, not an audit trail: it names no user, is not retained, and is not queryable." },
+  { name: "Org audit log is write-only", status: "built", detail: "<code>org_audit_log</code> records <code>space.claim</code>, <code>space.delete</code>, <code>space.add_owner</code> and <code>org.purge</code>. There is no read API or screen yet — <a href='https://github.com/Lets-Parley/Parley/issues/399'>#399</a> — so review means querying Postgres; see <a href='/security/organizations/'>Organizations</a>. Ordinary row timestamps and <code>LOG_LEVEL=debug</code> client-address lines are not that trail: debug names no user, is not retained, and is not queryable." },
 ]} />
 
 ## Reporting a vulnerability

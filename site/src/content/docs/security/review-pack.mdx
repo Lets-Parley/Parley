@@ -6,7 +6,7 @@ description: One page for a security reviewer — summary, data inventory, contr
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api", "internal/auth", "internal/db/migrations", ".github/workflows/ci.yml", ".github/workflows/release.yml"]} />
+<VerifiedStamp version="unreleased" source={["internal/api", "internal/auth", "internal/db/migrations", "internal/api/custody", ".github/workflows/ci.yml", ".github/workflows/release.yml"]} />
 
 For anyone signing off on Parley for a team or an organisation. Everything here
 is also on the individual pages; this is the version you can read in one sitting
@@ -23,8 +23,9 @@ configure.
 - **Data**: everything is in your Postgres.
 - **Identity**: none by default on a trusted network; optionally any OpenID
   Connect provider, or an external authentication proxy for public access.
-- **Access control**: a six-character passcode per space, plus an owner role
-  that gates membership management within it.
+- **Access control**: a six-character passcode per space, space owners (several
+  allowed) for membership and space housekeeping, and org-admin custody over
+  the org's spaces without reading their contents.
 
 ## The one-paragraph summary
 
@@ -33,24 +34,25 @@ not want an account system. Its space boundary is a shared passcode, not
 identity — anyone holding a code has participation in that space, and any
 member can change or remove that code. Inside a session, story mutations and
 meeting controls are facilitator-only; ordinary members retain voting, their own
-standup entries, and their own standup readiness signal. The interesting protections are around
-*vote secrecy* (strong, and structural) and *not disclosing what exists to
-strangers* (also strong). The gaps are concentrated in operations and governance:
-an org admin role that is not yet exposed as a
-console (the owner role remains per space, and gates membership management
-only — not the passcode), no audit log (a `LOG_LEVEL=debug`
-opt-in logs the resolved client address and forwarding chain per request for
-proxy diagnosis; it is neither retained nor queryable as an audit trail), no
-retention or erasure
-tooling, and no metrics. The hardened release pipeline publishes an SPDX SBOM
-and verifiable digest-bound
-provenance for releases it produces; v0.1.0 through v0.2.1 were not backfilled.
+standup entries, and their own standup readiness signal. The interesting
+protections are around *vote secrecy* (strong, and structural) and *not
+disclosing what exists to strangers* (also strong). Governance sits beside
+that: a space can have several owners (membership management and the space
+itself — not the passcode), and an org admin has
+[custody without access](/security/organizations/) over every space in the org.
+`org_audit_log` records a handful of custody actions but is **write-only**
+today — no read API or screen
+([#399](https://github.com/Lets-Parley/Parley/issues/399)). There is still no
+retention or erasure tooling, and no metrics. The hardened release pipeline
+publishes an SPDX SBOM and verifiable digest-bound provenance for releases it
+produces; v0.1.0 through v0.2.1 were not backfilled.
 
 If your requirement is "a team of engineers estimates stories without a
 third-party SaaS", it fits well. If your requirement is "attributable,
-auditable access to work-planning data", it does not fit yet without an SSO
-proxy in front and some SQL of your own: the role model is two roles inside one
-space, not an access-control plane over the instance.
+auditable access to work-planning data from a product UI", it does not fit yet
+without an SSO proxy in front and SQL of your own: custody events land in
+`org_audit_log` for an operator to query, and ordinary votes and entries are
+rows with `user_id` and timestamps, not a review console.
 
 ## Data inventory
 
@@ -82,9 +84,9 @@ Full detail: [Data and privacy](/security/data-and-privacy/).
   { name: "CSV formula-injection escaping", status: "built", detail: "Cells starting = + - @ tab or CR are quote-prefixed." },
   { name: "Container hardening", status: "built", detail: "distroless static non-root; the k8s manifest adds drop ALL, no privilege escalation, seccomp RuntimeDefault, read-only root filesystem." },
   { name: "Transport security", status: "not-built", detail: "Parley never terminates TLS and does not send HSTS. Terminate at a proxy and add HSTS there." },
-  { name: "Space owner role", status: "built", detail: "<code>members.role</code> is <code>owner</code> or <code>member</code>, constrained in the database since migration <code>0015</code>, and a space is never left without an owner. Only an owner may promote, demote, or remove a member, rename or delete the space, or rename or delete a session in it; a member gets 403 and an outsider 404. It stops short of the door: any member may still rotate or remove the passcode, and in-meeting controls — stories, reveals, closing a session — are facilitator-only rather than owner-only." },
-  { name: "Instance administrator", status: "not-built", detail: "Ownership is per space and confers nothing outside it. There is no operator account, no cross-space view, and no way to administer an instance other than SQL. Gate the instance behind an SSO proxy if that matters." },
-  { name: "Audit logging", status: "not-built", detail: "None. Rows carry user_id and timestamps; reconstruct from Postgres if needed." },
+  { name: "Space owner role", status: "built", detail: "<code>members.role</code> is <code>owner</code> or <code>member</code>, constrained in the database since migration <code>0015</code>. A space can have several owners and is never left without at least one. Only an owner may promote, demote, or remove a member, rename or delete the space, or rename or delete a session in it; a member gets 403 and an outsider 404. It stops short of the door: any member may still rotate or remove the passcode, and in-meeting controls — stories, reveals, closing a session — are facilitator-only rather than owner-only." },
+  { name: "Org admin custody", status: "built", detail: "An org admin manages every space in the org — including private ones — without reading votes, standups or rosters. Custody may only make a space more private; ownership is granted, never transferred; claiming an abandoned space is the one path that becomes access and is audit-logged. See <a href='/security/organizations/'>Organizations</a>. There is no instance-wide operator account; cross-instance administration remains SQL." },
+  { name: "Audit logging", status: "built", detail: "<code>org_audit_log</code> records <code>space.claim</code>, <code>space.delete</code>, <code>space.add_owner</code> and <code>org.purge</code>. It is write-only today — no read API or screen (<a href='https://github.com/Lets-Parley/Parley/issues/399'>#399</a>); query Postgres. Owner-driven space or session deletes are not in that log. <code>LOG_LEVEL=debug</code> client-address lines are not an audit trail." },
   { name: "Retention and erasure", status: "not-built", detail: "Application records are not automatically deleted. Token authorization expires, but its row remains. Write erasure SQL against the documented schema; deleting a user who facilitated a session is blocked by a foreign key." },
   { name: "General ingress rate limiting", status: "not-built", detail: "Identity creation and room-code guesses are throttled, and resources have configurable caps. Apply request and WebSocket limits at your ingress too. Note the client itself is now a steady low-rate caller: an open space page re-reads the space every 30 seconds, about 2 requests per minute per tab, so size any limit above that." },
   { name: "Metrics and tracing", status: "not-built", detail: "JSON logs only. Blackbox-probe /readyz and take request metrics from your proxy." },
@@ -122,8 +124,12 @@ network; public deployments need an additional access and abuse-control layer.
   immediately. WebSocket shared-store detection and removal can take nearly 60
   seconds; transport closure then follows subject to the active-write and
   close-frame deadlines.
-- *Can we prove who estimated what?* In `oidc` mode, yes, from the database. There
-  is no report and no audit trail; the data is there to query.
+- *Can we prove who estimated what?* In `oidc` mode, yes, from the database.
+  Votes and entries carry `user_id` and timestamps. Custody actions
+  (`space.claim`, `space.delete`, `space.add_owner`, `org.purge`) land in
+  `org_audit_log`, which is write-only today — no product UI
+  ([#399](https://github.com/Lets-Parley/Parley/issues/399)); query Postgres.
+  See [Organizations](/security/organizations/).
 - *What happens on a breach of the database?* Everything is disclosed, including
   every passcode. Session tokens are hashed, so they are not directly reusable.
 - *Is there a disclosure process?* Yes — use

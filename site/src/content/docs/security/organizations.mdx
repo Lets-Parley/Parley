@@ -5,7 +5,7 @@ description: What an org admin can and cannot see, and the three ways someone re
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/custody/custody.go", "internal/api/custody/store.go", "internal/api/org_membership.go", "internal/api/router.go", "internal/auth/oidc.go", "internal/db/migrations/0021_orgs.sql"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/custody/custody.go", "internal/api/custody/store.go", "internal/api/org_membership.go", "internal/api/router.go", "internal/auth/oidc.go", "internal/db/migrations/0021_orgs.sql", "internal/db/migrations/0023_org_custody.sql"]} />
 
 An organization is a tenancy boundary. Spaces belong to one, slugs are unique
 inside one rather than across the instance, and every space route on the API is
@@ -160,4 +160,5 @@ with the org row.
 
 **A purge is not recoverable without a backup.** There is no undo, no soft
 delete and no retention window. The audit records survive and still name what was
-purged; nothing else does. The default org cannot be purged at all.
+purged (write-only, as above — [#399](https://github.com/Lets-Parley/Parley/issues/399));
+nothing else does. The default org cannot be purged at all.
