@@ -281,7 +281,37 @@ migration and embedding mistakes that unit tests miss.
     then `requireOrgMember`, in that order, so a link guest is refused 401 at
     the first of them. If the directory ever answered for a link guest, one
     link to one standup would list every org-visible space on the instance.
-26. Dependabot watches only `site/`. Go modules and `web/` dependencies are
+26. **Org custody is management without access, and four things enforce it.**
+    (a) Custody handlers live in `internal/api/custody`, which imports neither
+    the session, presence and hub packages nor `internal/store` — a `go list
+    -deps` test fails the build if that changes, and the two duplicated
+    constant blocks are the deliberate price. (b) They answer with
+    `CustodySpace` and nothing else; a test reads the response as raw JSON and
+    rejects any key outside the allow-list, because reflecting over the struct
+    would not catch a handler marshalling an untyped map. (c) Custody may only
+    make a space **more** private: `private` → `org` is 403 there and stays
+    the space owner's alone, or an admin widens a private space, joins it as an
+    ordinary org member and has everything by a different door. (d) Ownership
+    is granted, never transferred — an existing member only, never the admin
+    themself, and never demoting an incumbent.
+27. **An org-level revoke must not strand a space.** The last-owner guard in
+    `store.Spaces.mutateMembership` runs one space at a time, so the
+    cross-space delete in `custody.Store.RevokeOrgMember` has to do the same
+    job itself: promote the most recently active remaining member (0015's rule,
+    `last_seen_at` then `user_id`) where the revoked person was sole owner, and
+    refuse the whole revoke — writing nothing — where there is nobody to
+    promote. The tombstone is an upsert, never an update: somebody with no
+    `org_members` row yet must still be revocable before their first sign-in.
+28. **`org_audit_log`'s foreign keys must never cascade.** Both are `on delete
+    set null` and both slugs are stored as text, so a record outlives the space
+    and the org it names. The org purge deletes exactly those things, so a
+    cascade would erase the record of the action most worth recording.
+29. **The org purge is one transaction, and the counts are read inside it.**
+    `spaces.org_id` is `on delete restrict`, so spaces go before the org row;
+    an interrupted purge must leave everything standing rather than some spaces
+    gone, the rest not, and the org row undeletable. It refuses without the
+    org's own slug as `confirm`, and it refuses the default org outright.
+30. Dependabot watches only `site/`. Go modules and `web/` dependencies are
     bumped by hand, with tests.
 
 ## Scope

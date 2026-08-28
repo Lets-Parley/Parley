@@ -28,6 +28,7 @@ there is no second driver and no plan for one.
   { name: "0016_standup_ready", value: "standup_entries.ready", note: "Advisory gathering-phase signal. Constant default, so no backfill and no table rewrite" },
   { name: "0017_avatar", value: "users.avatar_icon, users.avatar_accessory", note: "Chosen avatar. Constant empty default, so no backfill and no table rewrite. avatar_accessory is unwritten and unread since v0.5.1 and awaits a drop" },
   { name: "0018_session_links", value: "session_links, users.link_id", note: "Signed links. users.link_id is on delete set null, never cascade — see below" },
+  { name: "0023_org_custody", value: "spaces.archived_at, org_audit_log", note: "Org custody. Neither audit foreign key cascades, so the record outlives what it names — see below" },
 ]} />
 
 ### How the runner behaves
@@ -79,6 +80,7 @@ anonymous row can share the empty pair while federated identities stay unique.
 | `slug` | text | Unique, and constrained to a lowercase URL-safe pattern |
 | `name` | text | 1–64 characters |
 | `passcode` | text | ≤12. **Plaintext by design** — empty means open |
+| `archived_at` | timestamptz | Null unless an org admin has archived it. Hides it from the org directory and nothing more |
 
 ### members
 
@@ -99,6 +101,36 @@ active member, so no upgraded space is left with nobody able to manage it.
 
 A partial index on `(space_id) where role = 'owner'` backs the last-owner
 guard, which counts owners under a row lock before any demotion or removal.
+
+### org_audit_log
+
+The record of what an org admin did with custody of a space. It exists because
+claiming an abandoned space is the one path by which an admin becomes a member
+of a space they were not in, and an escalation nobody can review afterwards is
+not a control.
+
+| Column | Type | Notes |
+|---|---|---|
+| `org_id` | uuid | `on delete set null` — never cascade |
+| `org_slug` | text | Denormalized, so a record still names its org after the org is gone |
+| `space_id` | uuid | `on delete set null` — never cascade |
+| `space_slug` | text | Denormalized for the same reason. Empty for an org-level action |
+| `actor_id` | uuid | `on delete set null`: deleting an account does not rewrite history |
+| `action` | text | `space.claim`, `space.delete`, `space.add_owner`, `org.purge` |
+| `detail` | text | Human-readable context. Never session content |
+| `created_at` | timestamptz | |
+
+The non-cascading foreign keys are the whole design. `DELETE /api/orgs/{org}`
+deletes the org's spaces and then the org itself; if these rows went with them,
+the purge would erase the record of what an admin did to a space that no longer
+exists. Instead the ids are nulled, the slugs remain, and the log still says
+what happened to what.
+
+### spaces.archived_at
+
+Nullable, and the only thing it does is take a space out of the org directory.
+Its members, its history, its passcode and its own URL are all untouched, and
+an admin can restore it by clearing the flag.
 
 ### session_kinds
 

@@ -46,6 +46,89 @@ in a URL and no membership one could be derived from, so an org-prefixed
 session tree would 404 every signed link ever issued. `POST /api/links/redeem`
 does, because it mints the identity an org prefix would require.
 
+## Org custody: management without access
+
+An org admin has custody of every space in their org, private ones included,
+and access to none of them. They can list, rename, archive, narrow, delete and
+repair the ownership of a space they are not in, and they can read nothing said
+inside it — no roster, no presence, no votes, no standup entries, no notes.
+
+Four things hold that line, and they hold it together:
+
+- **The response type is the allow-list.** Custody answers with a fixed struct
+  — `id`, `slug`, `name`, `ownerIds`, `visibility`, `memberCount`,
+  `archivedAt` — so "carries no session content" is enforced by the compiler
+  rather than by a reviewer remembering the forbidden field names. A test
+  intercepts the response as raw JSON and fails on any key outside that list,
+  which also catches a handler that marshalled an untyped map instead.
+- **The handlers cannot reach session content.** They live in
+  `internal/api/custody`, which does not import the session, presence, hub or
+  store packages at all. A test asserts that with `go list -deps`. The types
+  that hold what was said in a space are not linked into the package.
+- **Custody may only make a space more private.** `org` → `private` is
+  permitted; `private` → `org` is refused with 403 and stays the space owner's
+  alone. Without this the rest is theatre: an admin flips a private space to
+  org-visible, finds it in the directory, joins as an ordinary org member, and
+  has everything — through a different door, with every custody handler still
+  perfectly pure.
+- **Ownership is granted, never transferred.** An admin may promote somebody
+  who is already a member of the space. They may not name themself, may not
+  name a non-member, and never demote an incumbent. A "reassign" that demoted
+  the incumbents would be one call that removes every owner of a space the
+  admin cannot see; naming themself would be a way in through the ordinary
+  member routes.
+
+### Claiming an abandoned space
+
+There is exactly one path by which an org admin becomes a member of a space
+they were not in: `POST /api/orgs/{org}/admin/spaces/{slug}/claim`, refused
+while any member remains. It exists because a space with nobody left in it can
+otherwise never be managed again, and there is nobody to hand it to.
+
+Every claim writes a row to `org_audit_log`. Neither of that table's foreign
+keys cascades and both slugs are stored as text, so the record outlives the
+space and the org it names — including an org purge, which is the action most
+worth having a record of.
+
+A space also cannot be *driven* to abandonment first. Removing members one at
+a time is refused at the last owner, and no custody action other than an
+org-level revoke removes a space's members at all.
+
+### Revoking an org member
+
+`DELETE /api/orgs/{org}/admin/members/{userId}` removes somebody from the org
+and from every space in it, in one transaction, and upserts a tombstone rather
+than updating one — so an admin can shut the door on somebody who has never
+signed in, and a sign-in never clears it. `POST .../restore` lifts it, because
+without an un-revoke a mis-click would be permanent.
+
+The per-space half matters more than it looks. The last-owner guard runs one
+space at a time, so a cross-space bulk delete would bypass it and strand every
+space where the revoked person was the sole owner. Instead the revoke promotes
+the most recently active remaining member where it can, and where it cannot it
+refuses with 409, names those spaces, and writes nothing at all.
+
+Their open WebSockets close immediately on the replica that served the revoke
+and, via the `parley_member_revoke` notification, on every other replica too.
+If that notification is lost, the backstop is the hub's revalidation tick — at
+most 30 seconds.
+
+### Purging an org
+
+`DELETE /api/orgs/{org}` is the most destructive route in the product: every
+space, every session and the org row itself. It cannot happen by accident —
+`spaces.org_id` is `on delete restrict`, so the database refuses a bare delete
+— and it will not run without the org's own slug sent back as `confirm`.
+Without that confirmation it answers 400 and states the exact space and session
+counts it would destroy, read inside the same transaction that would have done
+the destroying.
+
+The whole purge is one transaction: an interrupted one leaves the org and every
+space exactly as they were, rather than some spaces gone, the rest standing,
+and the org row undeletable behind the restrict foreign key. The audit records
+survive, and still name what was purged. Nothing else does — there is no
+restore.
+
 ## Membership
 
 Acting anywhere inside a space requires having joined it. That is checked on the

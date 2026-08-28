@@ -129,6 +129,44 @@ session envelope.
   { method: "DELETE", path: "/api/orgs/{org}/spaces/{slug}/members/{userId}", auth: "owner", purpose: "Remove a member. Access is revoked on their next request. 409 if they are the last owner." },
 ]} />
 
+### Org custody
+
+An org admin manages the spaces in their org — including private ones they are
+not a member of — and can read nothing said inside them. Custody responses
+carry an explicit allow-list of fields (`id`, `slug`, `name`, `ownerIds`,
+`visibility`, `memberCount`, `archivedAt`) and nothing else: no roster, no
+presence, no sessions, no votes, no standup entries. The handlers behind them
+live in a package that does not link the session, presence, hub or store
+packages at all, so the limit is a build-time fact rather than a convention.
+
+Two rules make custody stop short of access. Custody may only make a space
+**more** private — `org` → `private` is allowed here, `private` → `org` is
+refused with 403 and remains the space owner's alone. And ownership is
+**granted, never transferred**: an admin may promote somebody who is already a
+member of the space, may not name themself or any non-member, and never
+demotes an incumbent owner.
+
+<RouteTable rows={[
+  { method: "GET", path: "/api/orgs/{org}/admin/spaces", auth: "org admin", purpose: "Every space in the org, private and archived ones included, as metadata only: id, slug, name, ownerIds (all of them — a space can have several), visibility, memberCount, archivedAt." },
+  { method: "PATCH", path: "/api/orgs/{org}/admin/spaces/{slug}", auth: "org admin", purpose: "Rename with {name}, archive or restore with {archived}, and narrow with {visibility:'private'}. 403 on {visibility:'org'}: custody can only make a space more private. Archiving takes a space out of the org directory and does nothing else — its members, history and URL are untouched." },
+  { method: "DELETE", path: "/api/orgs/{org}/admin/spaces/{slug}", auth: "org admin", purpose: "Delete the space and everything under it. Irreversible, and audit-logged." },
+  { method: "POST", path: "/api/orgs/{org}/admin/spaces/{slug}/owners", auth: "org admin", purpose: "Grant ownership to {userId}, who must already be a member of that space. Additive: existing owners keep their role. 403 if the admin names themself or anybody who is not a member — that would be a way into a space they cannot read, through the ordinary member routes." },
+  { method: "POST", path: "/api/orgs/{org}/admin/spaces/{slug}/claim", auth: "org admin", purpose: "Take ownership of a space nobody is left in. 409 while any member remains. This is the one action that makes an admin a member of a space they were not in, and it writes an audit record every time it succeeds." },
+  { method: "GET", path: "/api/orgs/{org}/admin/members", auth: "org admin", purpose: "The org's membership, revoked rows included: userId, name, role, revokedAt." },
+  { method: "POST", path: "/api/orgs/{org}/admin/members/{userId}/role", auth: "org admin", purpose: "Set {role} to admin or member. 409 if it would leave the org with no admin." },
+  { method: "DELETE", path: "/api/orgs/{org}/admin/members/{userId}", auth: "org admin", purpose: "Revoke somebody from the org and from every space in it, in one transaction. Where they were a space's sole owner it promotes the most recently active remaining member; where there is nobody to promote it refuses with 409 and names those spaces, and writes nothing at all. The tombstone is an upsert, so somebody with no membership row yet can be revoked before their first sign-in. Their open sockets close on every replica." },
+  { method: "POST", path: "/api/orgs/{org}/admin/members/{userId}/restore", auth: "org admin", purpose: "Lift a revocation, so the next sign-in enrols them again if their claim still matches. Without it a mis-click would be permanent." },
+  { method: "DELETE", path: "/api/orgs/{org}", auth: "org admin", purpose: "Purge the org: every space, every session, and the org row itself, in one transaction. Send {confirm} matching the org's own slug; without it the call is 400 and reports the exact space and session counts it would destroy, read inside the transaction that would have done it. Irreversible, and the audit records survive it. The default org cannot be purged." },
+]} />
+
+:::caution[The purge cannot be undone]
+`DELETE /api/orgs/{org}` destroys every space, session, story, standup entry
+and membership in the org along with the org itself. There is no soft delete
+and no restore. The only thing that outlives it is the audit log, which keeps
+the org and space slugs as text precisely so the record of what happened
+survives the thing it happened to.
+:::
+
 ### Links shared before spaces carried an org
 
 Space URLs used to be `/s/{slug}`, with no org in them. That path is still
