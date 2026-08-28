@@ -80,6 +80,18 @@ Identity says who you are. The passcode says which room you may enter. Signing
 in does not by itself get anyone into a space — per-user and per-team access is
 on the roadmap.
 
+An invite link carries its passcode in the URL fragment, which never reaches a
+server, but a fragment also does not survive the full-page trip to an identity
+provider and back. So under a provider the browser trades the code at
+`POST /api/orgs/{org}/spaces/{slug}/invite` for an invite handle and carries
+that across the round trip instead: an opaque token the server issues only to a
+caller who already presented the right passcode, stored as a sha256 digest the
+way guest-link tokens are, bound to one space, expiring in five minutes, and
+consumed by the first join that spends it. The passcode itself is never written
+to browser storage. The mint route is a passcode attempt like any other and
+spends from the same per-address budget, so it cannot be used to guess a code
+any faster than the join door can.
+
 
 ## Cookies
 

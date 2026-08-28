@@ -3,6 +3,7 @@ package standup
 import (
 	"errors"
 	"net/http"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 
@@ -54,7 +55,12 @@ func putEntry(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
 		return
 	}
-	if len(body.Yesterday) > 2000 || len(body.Today) > 2000 || len(body.Blockers) > 2000 {
+	// Characters, not bytes: the column's char_length check counts characters
+	// and so does the client's maxLength, so a byte count rejected legal
+	// entries in any non-ASCII script and lost the autosave behind them.
+	if utf8.RuneCountInString(body.Yesterday) > 2000 ||
+		utf8.RuneCountInString(body.Today) > 2000 ||
+		utf8.RuneCountInString(body.Blockers) > 2000 {
 		http.Error(w, `{"error":"each field can be at most 2000 characters"}`, http.StatusBadRequest)
 		return
 	}

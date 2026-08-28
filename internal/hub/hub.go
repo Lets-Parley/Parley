@@ -157,6 +157,10 @@ type disconnectMemberEvent struct {
 	done    chan []<-chan struct{}
 }
 
+func (e disconnectMemberEvent) matches(c *Conn) bool {
+	return c.UserID == e.userID && c.SpaceID == e.spaceID
+}
+
 type disconnectSessionEvent struct {
 	sessionID string
 	done      chan []<-chan struct{}
@@ -290,13 +294,13 @@ func (h *Hub) run() {
 		case disconnectMemberEvent:
 			writers := []<-chan struct{}{}
 			for c := range h.pending {
-				if c.SpaceID == e.spaceID && c.UserID == e.userID {
+				if e.matches(c) {
 					writers = append(writers, h.rejectPending(c, websocket.ClosePolicyViolation))
 				}
 			}
 			for _, room := range h.rooms {
 				for c := range room {
-					if c.SpaceID == e.spaceID && c.UserID == e.userID {
+					if e.matches(c) {
 						if done := h.remove(c, websocket.ClosePolicyViolation); done != nil {
 							writers = append(writers, done)
 						}
@@ -788,6 +792,12 @@ func (h *Hub) DisconnectToken(tokenID string) {
 // DisconnectSpaceMember synchronously removes every connection this process
 // holds for a user in a space. Membership is authorization, so a removal has
 // to reach sockets that are already open, not just the next HTTP request.
+//
+// Both ids are required. There is deliberately no "every space this user
+// holds" form: the only caller that wanted one was an org revoke, whose reach
+// stops at that org's spaces, and a wildcard would close sockets in spaces the
+// person is still a member of. An empty user id would also match the anonymous
+// connections that have not been authenticated yet.
 func (h *Hub) DisconnectSpaceMember(spaceID, userID string) {
 	if spaceID == "" || userID == "" {
 		return

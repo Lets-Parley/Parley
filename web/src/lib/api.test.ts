@@ -60,7 +60,7 @@ describe("api", () => {
 
   it("raises the server's own message, carrying the status", async () => {
     fetchMock().mockResolvedValue(reply(403, '{"error":"That code didn\'t match."}'));
-    const err = await failure(api("POST", "/api/spaces/x/join"));
+    const err = await failure(api("POST", "/api/orgs/acme/spaces/x/join"));
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(403);
     expect(err.message).toBe("That code didn't match.");

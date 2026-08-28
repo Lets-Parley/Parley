@@ -128,13 +128,13 @@ func TestSpacePasscodeGate(t *testing.T) {
 
 	// A stranger learns the name and that a code is needed — nothing else.
 	stranger := signup(t, srv, "Stranger")
-	_, view := doJSON(t, srv, "GET", "/api/spaces/locked-room", "", stranger)
+	_, view := doJSON(t, srv, "GET", "/api/orgs/default/spaces/locked-room", "", stranger)
 	if view["protected"] != true || view["members"] != nil || view["passcode"] != nil {
 		t.Fatalf("stranger view leaked something: %v", view)
 	}
 
 	// Wrong code is refused with copy that names the problem.
-	resp, body := doJSON(t, srv, "POST", "/api/spaces/locked-room/join", `{"passcode":"AAAAAA"}`, stranger)
+	resp, body := doJSON(t, srv, "POST", "/api/orgs/default/spaces/locked-room/join", `{"passcode":"AAAAAA"}`, stranger)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("wrong passcode: %d", resp.StatusCode)
 	}
@@ -143,37 +143,37 @@ func TestSpacePasscodeGate(t *testing.T) {
 	}
 
 	// Right code gets in, and the roster then carries the code for sharing.
-	if resp, _ := doJSON(t, srv, "POST", "/api/spaces/locked-room/join",
+	if resp, _ := doJSON(t, srv, "POST", "/api/orgs/default/spaces/locked-room/join",
 		`{"passcode":"`+strings.ToLower(code)+`"}`, stranger); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("correct passcode rejected: %d", resp.StatusCode)
 	}
-	_, member := doJSON(t, srv, "GET", "/api/spaces/locked-room", "", stranger)
+	_, member := doJSON(t, srv, "GET", "/api/orgs/default/spaces/locked-room", "", stranger)
 	if member["passcode"] != code {
 		t.Fatalf("members should be able to read the code: %v", member["passcode"])
 	}
 
 	// Re-joining as a member never re-presents the code.
-	if resp, _ := doJSON(t, srv, "POST", "/api/spaces/locked-room/join", "", stranger); resp.StatusCode != http.StatusNoContent {
+	if resp, _ := doJSON(t, srv, "POST", "/api/orgs/default/spaces/locked-room/join", "", stranger); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("member rejoin: %d", resp.StatusCode)
 	}
 
 	// Rotating invalidates the old code.
-	_, rotated := doJSON(t, srv, "POST", "/api/spaces/locked-room/passcode", "", owner)
+	_, rotated := doJSON(t, srv, "POST", "/api/orgs/default/spaces/locked-room/passcode", "", owner)
 	next, _ := rotated["passcode"].(string)
 	if next == "" || next == code {
 		t.Fatalf("rotate should mint a new code: %v", rotated)
 	}
 	outsider := signup(t, srv, "Late")
-	if resp, _ := doJSON(t, srv, "POST", "/api/spaces/locked-room/join",
+	if resp, _ := doJSON(t, srv, "POST", "/api/orgs/default/spaces/locked-room/join",
 		`{"passcode":"`+code+`"}`, outsider); resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("the retired code still worked: %d", resp.StatusCode)
 	}
 
 	// Opening the space drops the door entirely.
-	if resp, opened := doJSON(t, srv, "POST", "/api/spaces/locked-room/passcode", `{"open":true}`, owner); opened["protected"] != false {
+	if resp, opened := doJSON(t, srv, "POST", "/api/orgs/default/spaces/locked-room/passcode", `{"open":true}`, owner); opened["protected"] != false {
 		t.Fatalf("open: %d %v", resp.StatusCode, opened)
 	}
-	if resp, _ := doJSON(t, srv, "POST", "/api/spaces/locked-room/join", "", outsider); resp.StatusCode != http.StatusNoContent {
+	if resp, _ := doJSON(t, srv, "POST", "/api/orgs/default/spaces/locked-room/join", "", outsider); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("open space should admit anyone: %d", resp.StatusCode)
 	}
 }
@@ -186,7 +186,7 @@ func TestSpacePasscodeThrottled(t *testing.T) {
 	guesser := signup(t, srv, "Guesser")
 	var last int
 	for range passcodeAttemptLimit + 2 {
-		resp, _ := doJSON(t, srv, "POST", "/api/spaces/throttle-room/join", `{"passcode":"ZZZZZZ"}`, guesser)
+		resp, _ := doJSON(t, srv, "POST", "/api/orgs/default/spaces/throttle-room/join", `{"passcode":"ZZZZZZ"}`, guesser)
 		last = resp.StatusCode
 	}
 	if last != http.StatusTooManyRequests {
@@ -202,7 +202,7 @@ func TestOpenSpaceOnRequest(t *testing.T) {
 		t.Fatalf("explicitly open space: %v", created)
 	}
 	stranger := signup(t, srv, "Stranger")
-	if resp, _ := doJSON(t, srv, "POST", "/api/spaces/open-room/join", "", stranger); resp.StatusCode != http.StatusNoContent {
+	if resp, _ := doJSON(t, srv, "POST", "/api/orgs/default/spaces/open-room/join", "", stranger); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("open space join: %d", resp.StatusCode)
 	}
 }
@@ -243,7 +243,7 @@ func TestPasscodeAcceptedFromChunkedBody(t *testing.T) {
 	// http.NewRequest with a plain io.Reader (not *strings.Reader) leaves
 	// ContentLength unset, so net/http streams the body chunked.
 	body := io.MultiReader(strings.NewReader(`{"passcode":"` + code + `"}`))
-	req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/chunked-room/join", body)
+	req, _ := http.NewRequest("POST", srv.URL+"/api/orgs/default/spaces/chunked-room/join", body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", testOrigin)
 	req.AddCookie(stranger)

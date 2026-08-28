@@ -206,7 +206,7 @@ func TestAutoRevealOnlyOnVoteEvents(t *testing.T) {
 	srv := testServer(t)
 	fac, m1, id := setupSession(t, srv, "Auto Space")
 	m2 := signup(t, srv, "Third")
-	_, auto := doJSON(t, srv, "GET", "/api/spaces/auto-space", "", m1)
+	_, auto := doJSON(t, srv, "GET", "/api/orgs/default/spaces/auto-space", "", m1)
 	autoCode, _ := auto["passcode"].(string)
 	if resp := joinSpace(t, srv, "auto-space", m2, autoCode); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("join: %d", resp.StatusCode)
@@ -269,7 +269,7 @@ func TestAutoRevealRequiresExactConnectedVoterSet(t *testing.T) {
 	srv := testServer(t)
 	fac, connectedVoter, id := setupSession(t, srv, "Exact Auto Space")
 	staleVoter := signup(t, srv, "Stale Voter")
-	_, space := doJSON(t, srv, "GET", "/api/spaces/exact-auto-space", "", connectedVoter)
+	_, space := doJSON(t, srv, "GET", "/api/orgs/default/spaces/exact-auto-space", "", connectedVoter)
 	code, _ := space["passcode"].(string)
 	if resp := joinSpace(t, srv, "exact-auto-space", staleVoter, code); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("join stale voter: %d", resp.StatusCode)
@@ -354,7 +354,7 @@ func TestDeckConfigRespected(t *testing.T) {
 	ada := signup(t, srv, "Ada")
 	_, sp := createSpace(t, srv, "Deck Space", ada)
 	slug := sp["slug"].(string)
-	req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/"+slug+"/sessions",
+	req, _ := http.NewRequest("POST", srv.URL+"/api/orgs/default/spaces/"+slug+"/sessions",
 		strings.NewReader(`{"kind":"poker","title":"Shirts","config":{"deck":"tshirt"}}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(ada)
@@ -481,7 +481,7 @@ func TestAutoRevealCountsLinkGuests(t *testing.T) {
 	srv := testServer(t)
 	fac, slug, id, guest := mintAndRedeemIn(t, srv, "Guest Auto Space")
 	member := signup(t, srv, "Mel")
-	_, sp := doJSON(t, srv, "GET", "/api/spaces/"+slug, "", fac)
+	_, sp := doJSON(t, srv, "GET", "/api/orgs/default/spaces/"+slug, "", fac)
 	code, _ := sp["passcode"].(string)
 	if resp := joinSpace(t, srv, slug, member, code); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("join: %d", resp.StatusCode)

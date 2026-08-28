@@ -81,6 +81,11 @@ database-backed, so a skip is a green run that verified nothing.
   `*.test.ts`/`*.test.tsx`; `src/test/render.tsx` supplies the three providers
   every screen assumes. It is deliberately thin — no jest-dom matchers, no
   `globals: true`, so nothing had to be added to `tsconfig.app.json`.
+- Accessibility is checked by axe-core: `src/test/axe.ts` exposes
+  `expectNoViolations(container)`, and `src/components/a11y.test.tsx` runs it
+  over the props-only components. A component that owns fetches asserts it in
+  its own test, where the mock already exists. jsdom has no layout, so colour
+  contrast and target size are not covered — those still need a real browser.
 - Frontend behaviour changes need a test too, and the same rule applies: it
   must have been seen to fail first. Every defect this project has shipped in
   `web/` — the dead claim button, the member card, the frozen standup timer —
@@ -202,7 +207,111 @@ migration and embedding mistakes that unit tests miss.
     fired inside that window would tell a link guest it is not in its own room.
     Dropping those frames loses nothing, because the initial frame lands after
     them and would have overwritten them.
-16. Dependabot watches only `site/`. Go modules and `web/` dependencies are
+16. **A space slug is unique inside an org, not across the instance, and every
+    space lookup carries an org.** `Spaces.Create` and `Spaces.BySlug` take an
+    org id (`internal/store/spaces.go`); handlers get it from `app.orgID`,
+    which resolves the default org lazily because `Router` must not require a
+    reachable database. `spaces.org_id` keeps a column default for one release
+    so a replica on the previous binary can still insert; `on delete restrict`,
+    because cascading from `orgs` would erase a tenant's whole history.
+    `spaces.visibility` defaults to `'private'` so an upgrade discloses exactly
+    what it did the day before, and open mode forces `'private'` on new spaces:
+    it mints anonymous identities, and an org-visible space with no passcode
+    would be a room any visitor could walk into.
+17. **A backfill that says "every user" must exclude `users.link_id is not
+    null`.** A redeemed signed link mints an ordinary `users` row, but that is
+    a capability on one room rather than an account (`Principal.LinkSessionID`).
+    Enrolling those rows in an org hands directory visibility to anyone ever
+    sent a guest link — and the mistake is invisible on any instance that has
+    never issued one.
+18. **Claim-derived membership never overrides a revocation tombstone.**
+    `Orgs.GrantMember` (`internal/store/orgs.go`) inserts and does nothing on
+    conflict; `Orgs.AddMember` is the deliberate, admin-driven counterpart that
+    restores a revoked row and re-applies the role. Every sign-in re-grants
+    from the claim, so a grant that cleared `revoked_at` would undo an admin's
+    removal at the revoked person's next login. Sign-in mapping and open-mode
+    enrolment both go through `GrantMember`.
+19. **The org in a request comes from `requireOrgMember`, never from chi twice.**
+    Space routes are mounted under `/api/orgs/{org}/`. `orgSlugFromRoute`
+    (`internal/api/authz.go`) is the only reader of that URL segment, and
+    `orgFrom(ctx)` is how every handler behind the middleware gets the org —
+    with an unchecked type assertion, so a handler mounted outside it panics
+    rather than reading a zero uuid and skipping the tenancy check.
+    `TestOrgParamHasOneReader` enforces this with go/types, so
+    `chi.URLParamFromCtx` and `RouteContext().URLParam` are caught too.
+20. **Sitting behind `requireOrgMember` is not the tenancy boundary.** It
+    proves the caller is in org A and says nothing about which org a space
+    resolved by slug belongs to: `spaces.slug` is unique per org, so every
+    lookup behind it must also filter by `orgFrom(ctx).ID`.
+    `TestSpaceRoutesResolveWithinTheDefaultOrg` puts an identically-slugged
+    space in a second org and asserts 404 per route.
+21. **`GET /api/orgs/{org}/spaces/{slug}` must stay one query.** It is the
+    anonymous link landing, so a bad org, a space in another org, and a slug
+    that exists nowhere have to fail after identical work — hence
+    `Spaces.BySlugInOrg`. Resolving the org first and the space second is a
+    cross-org existence oracle even with identical response bodies.
+22. **The session tree and `POST /api/links/redeem` never acquire an org
+    prefix.** A link guest belongs to no org and no space, so it has no org
+    slug for a URL and no membership to derive one from; prefixing either would
+    break every signed link ever issued. `TestEveryRouteIsScopeClassified`
+    fails the build on any route that is not explicitly classified.
+23. **Every space URL in `web/src` comes from `lib/paths.ts`.** SPA routes, API
+    calls, the copied invite and the rename toast's prose all build from
+    `spacePath` / `spaceSettingsPath` / `spaceApi` — a slug alone is not an
+    address any more, and the one site written out by hand is the one that
+    404s. `renderApp` takes a `path` so `useParams` actually resolves in tests.
+24. **`GET /s/{slug}` resolves only against the caller's own org
+    memberships.** It is the shim keeping links shared before space URLs
+    carried an org alive, and it must never do a global slug lookup: that
+    would answer differently for a slug held in an org the caller is outside
+    than for one that exists nowhere. Zero matches and more than one both
+    answer 404 — guessing between two of the caller's orgs would drop them in
+    the wrong tenant's room. Anonymous callers and link guests fall through to
+    the SPA, and it is a 302, not a 301, because a membership can be revoked.
+25. **Space visibility governs discovery, never entry.** `spaces.visibility`
+    decides whether a space is listed to its org by
+    `GET /api/orgs/{org}/spaces`; the passcode still decides who is let in, and
+    `handleJoinSpace` compares it identically whatever the visibility. So
+    `PATCH .../visibility` must never write the passcode and
+    `POST .../passcode` must never write the visibility — "listed but locked"
+    is a real state and neither route may silently strip the other. Two
+    refusals hold the boundary: open mode is refused `org` visibility *before*
+    the store call, so the PATCH cannot route around the guard in
+    `handleCreateSpace`; and the directory is mounted inside `RequireUser` and
+    then `requireOrgMember`, in that order, so a link guest is refused 401 at
+    the first of them. If the directory ever answered for a link guest, one
+    link to one standup would list every org-visible space on the instance.
+26. **Org custody is management without access, and four things enforce it.**
+    (a) Custody handlers live in `internal/api/custody`, which imports neither
+    the session, presence and hub packages nor `internal/store` — a `go list
+    -deps` test fails the build if that changes, and the two duplicated
+    constant blocks are the deliberate price. (b) They answer with
+    `CustodySpace` and nothing else; a test reads the response as raw JSON and
+    rejects any key outside the allow-list, because reflecting over the struct
+    would not catch a handler marshalling an untyped map. (c) Custody may only
+    make a space **more** private: `private` → `org` is 403 there and stays
+    the space owner's alone, or an admin widens a private space, joins it as an
+    ordinary org member and has everything by a different door. (d) Ownership
+    is granted, never transferred — an existing member only, never the admin
+    themself, and never demoting an incumbent.
+27. **An org-level revoke must not strand a space.** The last-owner guard in
+    `store.Spaces.mutateMembership` runs one space at a time, so the
+    cross-space delete in `custody.Store.RevokeOrgMember` has to do the same
+    job itself: promote the most recently active remaining member (0015's rule,
+    `last_seen_at` then `user_id`) where the revoked person was sole owner, and
+    refuse the whole revoke — writing nothing — where there is nobody to
+    promote. The tombstone is an upsert, never an update: somebody with no
+    `org_members` row yet must still be revocable before their first sign-in.
+28. **`org_audit_log`'s foreign keys must never cascade.** Both are `on delete
+    set null` and both slugs are stored as text, so a record outlives the space
+    and the org it names. The org purge deletes exactly those things, so a
+    cascade would erase the record of the action most worth recording.
+29. **The org purge is one transaction, and the counts are read inside it.**
+    `spaces.org_id` is `on delete restrict`, so spaces go before the org row;
+    an interrupted purge must leave everything standing rather than some spaces
+    gone, the rest not, and the org row undeletable. It refuses without the
+    org's own slug as `confirm`, and it refuses the default org outright.
+30. Dependabot watches only `site/`. Go modules and `web/` dependencies are
     bumped by hand, with tests.
 
 ## Scope

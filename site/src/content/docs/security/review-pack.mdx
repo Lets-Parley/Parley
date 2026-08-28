@@ -36,8 +36,9 @@ meeting controls are facilitator-only; ordinary members retain voting, their own
 standup entries, and their own standup readiness signal. The interesting protections are around
 *vote secrecy* (strong, and structural) and *not disclosing what exists to
 strangers* (also strong). The gaps are concentrated in operations and governance:
-no instance-wide administrator (the owner role is per space, and gates
-membership management only — not the passcode), no audit log (a `LOG_LEVEL=debug`
+an org admin role that is not yet exposed as a
+console (the owner role remains per space, and gates membership management
+only — not the passcode), no audit log (a `LOG_LEVEL=debug`
 opt-in logs the resolved client address and forwarding chain per request for
 proxy diagnosis; it is neither retained nor queryable as an audit trail), no
 retention or erasure

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -52,7 +53,7 @@ var (
 	errStoryUnidentified = errors.New("story has neither ref nor title")
 )
 
-func writeMutationError(w http.ResponseWriter, err error, fallback string) {
+func writeMutationError(ctx context.Context, w http.ResponseWriter, err error, fallback string) {
 	switch {
 	case errors.Is(err, store.ErrNotFacilitator):
 		http.Error(w, `{"error":"only the facilitator can do that"}`, http.StatusForbidden)
@@ -60,7 +61,15 @@ func writeMutationError(w http.ResponseWriter, err error, fallback string) {
 		http.Error(w, `{"error":"this session has ended"}`, http.StatusConflict)
 	case errors.Is(err, store.ErrQuotaExceeded):
 		http.Error(w, `{"error":"story limit reached for this session"}`, http.StatusConflict)
+	case errors.Is(err, context.Canceled) && ctx.Err() != nil:
+		// A client that aborts an in-flight request is not a server fault:
+		// don't amplify ERROR volume for something the server didn't do
+		// wrong. The status is unchanged for now — flipping it needs its own
+		// look at what clients expect back from an aborted request.
+		slog.Debug(fallback, "error", err)
+		http.Error(w, `{"error":"`+fallback+`"}`, http.StatusInternalServerError)
 	default:
+		slog.Error(fallback, "error", err)
 		http.Error(w, `{"error":"`+fallback+`"}`, http.StatusInternalServerError)
 	}
 }
@@ -117,7 +126,7 @@ func addStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 			return err
 		})
 	if err != nil {
-		writeMutationError(w, err, "could not add story")
+		writeMutationError(r.Context(), w, err, "could not add story")
 		return
 	}
 	committed(w, r, ac)
@@ -243,7 +252,7 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 		return
 	}
 	if err != nil {
-		writeMutationError(w, err, "could not update story")
+		writeMutationError(r.Context(), w, err, "could not update story")
 		return
 	}
 	committed(w, r, ac)
@@ -277,7 +286,7 @@ func selectStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		return
 	}
 	if err != nil {
-		writeMutationError(w, err, "could not select story")
+		writeMutationError(r.Context(), w, err, "could not select story")
 		return
 	}
 	committed(w, r, ac)
@@ -334,7 +343,9 @@ func castVote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, stor
 				sess.SpaceID, ac.UserID).Scan(&spectator)
 			if errors.Is(err, pgx.ErrNoRows) {
 				spectator = false
-			} else if err != nil || spectator {
+			} else if err != nil {
+				return fmt.Errorf("reading spectator flag: %w", err)
+			} else if spectator {
 				return errSpectator
 			}
 			var cfg Config
@@ -368,7 +379,7 @@ func castVote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, stor
 	case errors.Is(err, errInvalidVote):
 		http.Error(w, `{"error":"that vote is not in this session's deck"}`, http.StatusConflict)
 	case err != nil:
-		writeMutationError(w, err, "could not record vote")
+		writeMutationError(r.Context(), w, err, "could not record vote")
 	default:
 		committed(w, r, ac)
 	}
@@ -424,7 +435,7 @@ func reveal(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 			return err
 		})
 	if err != nil {
-		writeMutationError(w, err, "could not reveal votes")
+		writeMutationError(r.Context(), w, err, "could not reveal votes")
 		return
 	}
 	committed(w, r, ac)
@@ -441,7 +452,7 @@ func reset(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 			return err
 		})
 	if err != nil {
-		writeMutationError(w, err, "could not reset votes")
+		writeMutationError(r.Context(), w, err, "could not reset votes")
 		return
 	}
 	committed(w, r, ac)

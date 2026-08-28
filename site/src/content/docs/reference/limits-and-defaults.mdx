@@ -15,15 +15,15 @@ integers and are validated at boot.
 ## Field lengths
 
 <SpecTable rows={[
-  { name: "User name", value: "1–64", note: "Check constraint; also caps a name derived from an IdP claim" },
-  { name: "Space name", value: "1–64", note: "" },
+  { name: "User name", value: "1–64", note: "Characters, not bytes; also caps a name derived from an IdP claim" },
+  { name: "Space name", value: "1–64", note: "Characters, not bytes" },
   { name: "Space slug", value: "1–64", note: "Lowercase, URL-safe pattern, unique" },
   { name: "Passcode", value: "6", note: "Column allows 12; the generator makes 6" },
-  { name: "Session title", value: "1–200", note: "" },
+  { name: "Session title", value: "1–200", note: "Characters, not bytes" },
   { name: "Story title", value: "1–200", note: "" },
   { name: "Story notes", value: "≤2000", note: "" },
   { name: "Story reference", value: "≤40", note: "" },
-  { name: "Standup fields", value: "≤2000 each", note: "yesterday, today, blockers" },
+  { name: "Standup fields", value: "≤2000 each", note: "yesterday, today, blockers; characters, not bytes" },
   { name: "OIDC issuer / subject", value: "≤255 each", note: "" },
 ]} />
 

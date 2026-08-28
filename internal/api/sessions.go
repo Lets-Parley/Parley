@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -69,7 +70,7 @@ func unknownKindMessage(kinds *session.Registry) string {
 func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	p, _ := PrincipalFrom(r.Context())
 
-	sp, err := a.spaces.BySlug(r.Context(), chi.URLParam(r, "slug"))
+	sp, err := a.spaces.BySlug(r.Context(), orgFrom(r.Context()).ID, chi.URLParam(r, "slug"))
 	if errors.Is(err, store.ErrNoSpace) {
 		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
 		return
@@ -94,7 +95,7 @@ func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	title := strings.TrimSpace(body.Title)
-	if title == "" || len(title) > 200 {
+	if title == "" || utf8.RuneCountInString(title) > 200 {
 		http.Error(w, `{"error":"title must be 1-200 characters"}`, http.StatusBadRequest)
 		return
 	}

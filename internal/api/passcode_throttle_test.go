@@ -22,7 +22,7 @@ func TestPasscodeThrottleHoldsAcrossReplicas(t *testing.T) {
 	guesser := signup(t, one, "Guesser")
 
 	guess := func(srv *httptest.Server) int {
-		resp, _ := doJSON(t, srv, "POST", "/api/spaces/split-room/join", `{"passcode":"ZZZZZZ"}`, guesser)
+		resp, _ := doJSON(t, srv, "POST", "/api/orgs/default/spaces/split-room/join", `{"passcode":"ZZZZZZ"}`, guesser)
 		return resp.StatusCode
 	}
 

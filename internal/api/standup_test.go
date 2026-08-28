@@ -23,7 +23,7 @@ func standupSetup(t *testing.T, srv *httptest.Server, spaceName string) (fac, m1
 			t.Fatalf("join: %d", resp.StatusCode)
 		}
 	}
-	req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/"+slug+"/sessions",
+	req, _ := http.NewRequest("POST", srv.URL+"/api/orgs/default/spaces/"+slug+"/sessions",
 		strings.NewReader(`{"kind":"standup","title":"Daily"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(fac)
@@ -165,7 +165,7 @@ func TestStandupCarryForward(t *testing.T) {
 	}
 
 	// Today's standup in the same space.
-	req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/"+slug+"/sessions",
+	req, _ := http.NewRequest("POST", srv.URL+"/api/orgs/default/spaces/"+slug+"/sessions",
 		strings.NewReader(`{"kind":"standup","title":"Daily 2"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(fac)
