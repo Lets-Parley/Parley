@@ -215,6 +215,50 @@ strings. The coercion means `"false"` behaves correctly; it also means `"True"`,
 `"yes"` and a typo all read as false, without complaint. Pass real YAML
 booleans in a values file where you can.
 
+### Setting variables the chart has no knob for
+
+Most of the [configuration reference](/reference/configuration/) is reachable
+from a named value — `baseURL`, `auth.mode`, `logLevel`, the proxy-trust pair.
+A few variables are not: `OIDC_SCOPES`, and the seven abuse and resource limits.
+Those go through **`extraEnv`**, a list of Kubernetes EnvVar entries appended
+verbatim to the container after the chart's own env block:
+
+```yaml
+extraEnv:
+  - name: OIDC_SCOPES
+    value: "profile email groups"
+```
+
+`valueFrom` works too — each entry is a full EnvVar, not a string map. The
+variables themselves, and what each limit counts, live in the
+[configuration reference](/reference/configuration/); this page does not
+re-list them.
+
+**Last entry wins.** Kubernetes takes the last env entry when a name repeats, and
+`extraEnv` is last. Chart-owned names that override this way include
+`DATABASE_URL`, `BASE_URL`, `LOG_LEVEL`, `AUTH_MODE`, `POD_NAME`, the `OIDC_*`
+set, and the proxy-trust pair (`TRUST_PROXY_HEADERS` /
+`TRUSTED_PROXY_CIDRS`). Prefer the named values for those. Setting them here
+also skips the `helm template` refuses and NOTES NetworkPolicy warnings that
+read only the named values — so `TRUST_PROXY_HEADERS=true` in `extraEnv` can
+enable proxy trust while `trustProxyHeaders` stays false.
+
+Keep `DATABASE_URL` on `valueFrom` / `secretKeyRef` if you must override it; a
+plain `value:` puts the connection string in the Deployment env. Flipping
+`AUTH_MODE` here can silently open an oidc instance while `auth.mode` still
+looks locked down — prefer `auth.mode` and `database.existingSecret`.
+
+`PORT` is not one of the intended uses. Probes and `containerPort` target
+8080; the Service maps `service.port` (default 80) to that target. Setting
+`PORT` in `extraEnv` leaves the probes on 8080 and fails readiness.
+`service.port` only changes the cluster-facing Service port, not the process
+listen port.
+
+A malformed entry — a map instead of a list, or an entry with no `name` — fails
+at `helm template` time with a named error rather than rendering a manifest the
+API server will reject later. See
+[below](#it-refuses-to-render-a-deployment-that-cannot-work).
+
 ### TLS is entirely the ingress's job
 
 Parley speaks plain HTTP on 8080 and has no certificate handling of any kind.
@@ -326,6 +370,8 @@ them:
   because a values merge that drops `existingSecret` would otherwise downgrade
   a confidential client to a public one in silence.
 - **Ingress TLS under an `http://` base URL.**
+- **A malformed `extraEnv`** — a map instead of a list, or an entry with no
+  `name`. See [above](#setting-variables-the-chart-has-no-knob-for).
 
 The chart also sets `automountServiceAccountToken: false` on both the
 ServiceAccount and the pod: Parley makes no Kubernetes API calls, so the token

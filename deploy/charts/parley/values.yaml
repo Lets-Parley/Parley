@@ -272,9 +272,10 @@ logLevel: info
 #     LINK_LIMIT_PER_SESSION. See the configuration reference for what each
 #     one counts before you raise it.
 #
-# PORT is deliberately not one of them. The Service, the probes and the
-# container port are all wired to 8080, and moving the listener without them
-# is a pod that never passes a readiness check. Change service.port instead.
+# PORT is deliberately not one of them. Probes and containerPort target 8080;
+# the Service maps service.port (default 80) to that target. Setting PORT here
+# leaves the probes on 8080 and fails readiness. service.port only changes the
+# cluster-facing Service port, not the process listen port.
 #
 # DATABASE_URL, BASE_URL, LOG_LEVEL, AUTH_MODE, POD_NAME, the OIDC settings
 # and the proxy-trust pair are set from the values above; setting one here as
