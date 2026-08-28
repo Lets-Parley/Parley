@@ -260,6 +260,15 @@ var routeScoping = map[string]string{
 	"PATCH /api/orgs/{org}/spaces/{slug}/sessions/{id}/":       "org-scoped",
 	"DELETE /api/orgs/{org}/spaces/{slug}/sessions/{id}/":      "org-scoped",
 
+	// The legacy space link. It carries a slug and no org — that is the whole
+	// point of it — so it is neither org-scoped nor a route with nothing to
+	// scope. It resolves the org from the caller's own org memberships and
+	// redirects; it never looks a slug up globally, so it cannot answer for a
+	// space in an org the caller is outside. Its own class, because waving it
+	// through as non-slug would also wave through the next unprefixed slug
+	// route somebody adds.
+	"GET /s/{slug}": "legacy-redirect",
+
 	// Anonymous-exempt, and the reason is signed links in every case. A link
 	// guest is a users row carrying link_id: it belongs to no org and no
 	// space, so it has no org slug to put in a URL and no membership one
@@ -321,6 +330,13 @@ func TestEveryRouteIsScopeClassified(t *testing.T) {
 		case "anonymous-exempt", "non-slug":
 			if strings.HasPrefix(route, "/api/orgs/{org}/") {
 				t.Errorf("route %q acquired an {org} prefix but is classified %s", key, scope)
+			}
+		case "legacy-redirect":
+			// Exactly one route may hold this class, and it is the shim for
+			// pre-org links. A second one would be a new unprefixed slug
+			// route wearing the exemption rather than earning it.
+			if key != "GET /s/{slug}" {
+				t.Errorf("route %q is classified legacy-redirect, which only GET /s/{slug} may be", key)
 			}
 		default:
 			t.Errorf("route %q has unknown scope %q", key, scope)

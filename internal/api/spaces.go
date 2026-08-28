@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -619,4 +620,53 @@ func (a *app) handleMintInviteHandle(w http.ResponseWriter, r *http.Request) {
 	// The only time the handle is ever readable: nothing stores it, and no
 	// other response carries one.
 	writeJSON(w, http.StatusCreated, map[string]any{"handle": plain})
+}
+
+// legacySpaceRedirect keeps links minted before space URLs carried an org
+// working. It sends /s/{slug} to /o/{org}/s/{slug}, resolving the org
+// against the caller's own org memberships and never against a global slug
+// lookup, so a space created later in another org cannot change where an
+// existing link goes.
+//
+// 302 rather than the 301 the issue asked for: a membership is revocable, and
+// a browser is entitled to cache a 301 forever. A user removed from an org
+// would keep being sent into a URL that now answers 404, with nothing the
+// server could say to correct it. The redirect is a compatibility shim on a
+// legacy path, not a permanent identity for the resource, so the cheaper,
+// reversible answer is the honest one.
+//
+// Anonymous callers, and link guests, fall through to the SPA: with no
+// membership to resolve there is no org to name, and the client already knows
+// how to put a visitor through sign-in or the name gate. Distinguishing them
+// from a signed-in caller with no matching membership matters — the second is
+// a genuinely dead link and gets a 404.
+//
+// The SPA handler is passed in rather than built here so the fallback a
+// no-membership caller gets is byte-for-byte the one r.NotFound serves.
+func (a *app) legacySpaceRedirect(spa http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		p, ok := PrincipalFrom(r.Context())
+		if !ok || p.IsLinkGuest() {
+			spa(w, r)
+			return
+		}
+		slug := chi.URLParam(r, "slug")
+		orgs, err := a.spaces.OrgSlugsForMemberSpaceSlug(r.Context(), p.UserID, slug)
+		if err != nil {
+			slog.Error("could not resolve a legacy space link", "error", err)
+			http.Error(w, `{"error":"could not resolve that link"}`, http.StatusInternalServerError)
+			return
+		}
+		// Zero and more than one are the same answer on purpose. Zero is a
+		// dead link; more than one is only reachable now that slugs repeat
+		// across orgs, and guessing between them would drop somebody into
+		// another tenant's room. Neither discloses anything: only the
+		// caller's own orgs were searched, so a slug held elsewhere is
+		// indistinguishable from one that exists nowhere.
+		if len(orgs) != 1 {
+			http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
+			return
+		}
+		http.Redirect(w, r, "/o/"+url.PathEscape(orgs[0])+"/s/"+url.PathEscape(slug), http.StatusFound)
+	}
 }

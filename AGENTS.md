@@ -260,7 +260,15 @@ migration and embedding mistakes that unit tests miss.
     `spacePath` / `spaceSettingsPath` / `spaceApi` — a slug alone is not an
     address any more, and the one site written out by hand is the one that
     404s. `renderApp` takes a `path` so `useParams` actually resolves in tests.
-24. Dependabot watches only `site/`. Go modules and `web/` dependencies are
+24. **`GET /s/{slug}` resolves only against the caller's own org
+    memberships.** It is the shim keeping links shared before space URLs
+    carried an org alive, and it must never do a global slug lookup: that
+    would answer differently for a slug held in an org the caller is outside
+    than for one that exists nowhere. Zero matches and more than one both
+    answer 404 — guessing between two of the caller's orgs would drop them in
+    the wrong tenant's room. Anonymous callers and link guests fall through to
+    the SPA, and it is a 302, not a 301, because a membership can be revoked.
+25. Dependabot watches only `site/`. Go modules and `web/` dependencies are
     bumped by hand, with tests.
 
 ## Scope
