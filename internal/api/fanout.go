@@ -37,6 +37,21 @@ const notifyChannel = "parley_session"
 // discovering later. The raw token (the cookie value) must never go on the wire.
 const revokeChannel = "parley_revoke"
 
+// memberRevokeChannel carries org-membership revocations between replicas.
+//
+// It is a separate channel from revokeChannel rather than a reuse of it
+// because the two are keyed on different things: that one names a session
+// token, this one names a space and a user. Nothing about an org revoke identifies which
+// tokens the person holds, and enumerating them would put credential material
+// on a channel anything able to LISTEN on this database can read.
+//
+// Without it, a revoked member's socket survives on every replica other than
+// the one that served the revoke until that connection's revalidation tick
+// notices the membership row is gone — at most hub's maxRevalidate, 30s. The
+// payload is the user id, which is not a credential and is already visible to
+// every participant in any room they are in.
+const memberRevokeChannel = "parley_member_revoke"
+
 // listenerBackoffMax caps the reconnect delay. A replica that cannot listen is
 // a replica whose clients silently stop receiving other people's votes, so it
 // retries hard rather than politely.
@@ -84,6 +99,18 @@ func (a *app) notifyRevoke(ctx context.Context, tokenHash []byte) {
 	if _, err := a.pool.Exec(ctx, "select pg_notify($1, $2)", revokeChannel, payload); err != nil {
 		// No token material in the log line; the failure itself is the news.
 		slog.Error("could not notify other replicas of a session revocation", "error", err)
+	}
+}
+
+// notifyMemberRevoke tells the other replicas to drop the WebSockets this user
+// holds in one space. Best-effort for the same reason as notify and
+// notifyRevoke: the revocation itself has already committed, and the bounded
+// cost of a lost notification is one remote socket living until its next
+// revalidation tick.
+func (a *app) notifyMemberRevoke(ctx context.Context, spaceID, userID string) {
+	payload := a.instanceID + " " + spaceID + " " + userID
+	if _, err := a.pool.Exec(ctx, "select pg_notify($1, $2)", memberRevokeChannel, payload); err != nil {
+		slog.Error("could not notify other replicas of an org membership revocation", "error", err)
 	}
 }
 
@@ -140,7 +167,7 @@ func (a *app) listenOnce(ctx context.Context) error {
 
 	// Both channels on the one dedicated connection: a second parked connection
 	// would double the idle backends for no gain.
-	for _, channel := range []string{notifyChannel, revokeChannel} {
+	for _, channel := range []string{notifyChannel, revokeChannel, memberRevokeChannel} {
 		if _, err := conn.Exec(ctx, "listen "+channel); err != nil {
 			return err
 		}
@@ -183,6 +210,13 @@ func (a *app) listenOnce(ctx context.Context) error {
 				continue
 			}
 			a.hub.DisconnectToken(string(tokenHash))
+		case memberRevokeChannel:
+			spaceID, userID, ok := strings.Cut(rest, " ")
+			if !ok {
+				slog.Warn("ignoring malformed membership revocation notification")
+				continue
+			}
+			a.hub.DisconnectSpaceMember(spaceID, userID)
 		}
 	}
 }

@@ -281,6 +281,22 @@ var routeScoping = map[string]string{
 	"PATCH /api/orgs/{org}/spaces/{slug}/sessions/{id}/":       "org-scoped",
 	"DELETE /api/orgs/{org}/spaces/{slug}/sessions/{id}/":      "org-scoped",
 
+	// Org custody. Every one of these hangs off an org and is admin-only
+	// inside it: the tree exists so an org admin can manage a space they are
+	// not a member of, which makes the org segment the entire authorization
+	// context. Purging the org is mounted at the org itself rather than under
+	// /admin because it is not an action on a space.
+	"DELETE /api/orgs/{org}/":                             "org-scoped",
+	"GET /api/orgs/{org}/admin/spaces":                    "org-scoped",
+	"PATCH /api/orgs/{org}/admin/spaces/{slug}":           "org-scoped",
+	"DELETE /api/orgs/{org}/admin/spaces/{slug}":          "org-scoped",
+	"POST /api/orgs/{org}/admin/spaces/{slug}/owners":     "org-scoped",
+	"POST /api/orgs/{org}/admin/spaces/{slug}/claim":      "org-scoped",
+	"GET /api/orgs/{org}/admin/members":                   "org-scoped",
+	"POST /api/orgs/{org}/admin/members/{userId}/role":    "org-scoped",
+	"DELETE /api/orgs/{org}/admin/members/{userId}":       "org-scoped",
+	"POST /api/orgs/{org}/admin/members/{userId}/restore": "org-scoped",
+
 	// The legacy space link. It carries a slug and no org — that is the whole
 	// point of it — so it is neither org-scoped nor a route with nothing to
 	// scope. It resolves the org from the caller's own org memberships and

@@ -522,7 +522,10 @@ type OrgSpace struct {
 }
 
 // ForOrg lists what one caller may see of one org: every org-visible space,
-// plus every space they are a member of, private ones included.
+// plus every space they are a member of, private ones included. An archived
+// space is in neither half — that is what archiving is for, and it is the only
+// thing the flag does: the space, its members and its history are untouched
+// and it is still reachable by its own URL.
 //
 // The membership half is a member check and not an authorship one on purpose.
 // Somebody added to a private space has to keep finding it here after the
@@ -537,7 +540,8 @@ func (s *Spaces) ForOrg(ctx context.Context, orgID, userID string) ([]OrgSpace, 
 		select sp.slug, sp.name, sp.visibility, sp.passcode <> '', m.user_id is not null
 		from spaces sp
 		left join members m on m.space_id = sp.id and m.user_id = $2
-		where sp.org_id = $1 and (sp.visibility = $3 or m.user_id is not null)
+		where sp.org_id = $1 and sp.archived_at is null
+		  and (sp.visibility = $3 or m.user_id is not null)
 		order by sp.name`, orgID, userID, VisibilityOrg)
 	if err != nil {
 		return nil, fmt.Errorf("listing the org directory: %w", err)
