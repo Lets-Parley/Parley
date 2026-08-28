@@ -2,12 +2,17 @@ package custody
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -125,6 +130,10 @@ func TestAnInterruptedPurgeLeavesEverythingStanding(t *testing.T) {
 	t.Cleanup(func() {
 		pool.Exec(context.Background(), "delete from spaces where org_id = $1", orgID)
 		pool.Exec(context.Background(), "delete from orgs where id = $1", orgID)
+		// The audit record deliberately outlives the org it names, and this
+		// test's org slug is derived from its own name: without this a second
+		// run against the same database would count the first run's record.
+		pool.Exec(context.Background(), "delete from org_audit_log where org_slug = $1", orgSlug)
 	})
 	for _, name := range []string{"one", "two"} {
 		if _, err := pool.Exec(ctx,
@@ -140,11 +149,8 @@ func TestAnInterruptedPurgeLeavesEverythingStanding(t *testing.T) {
 			return Counts{}, err
 		}
 		defer tx.Rollback(ctx)
-		counts, err := countOrgContents(ctx, tx, orgID)
+		counts, err := purgeTx(ctx, tx, scope, nil)
 		if err != nil {
-			return counts, err
-		}
-		if err := purgeTx(ctx, tx, scope, counts); err != nil {
 			return counts, err
 		}
 		// The interruption: everything the purge did is discarded here.
@@ -183,5 +189,135 @@ func TestAnInterruptedPurgeLeavesEverythingStanding(t *testing.T) {
 	}
 	if orgs != 0 {
 		t.Fatal("the orgs row survived a committed purge")
+	}
+}
+
+// newOrg creates an empty org to purge. Never the default one: purging that
+// would leave the instance with nowhere to put a new space.
+func newOrg(t *testing.T, pool *pgxpool.Pool, prefix string) (id, slug string) {
+	t.Helper()
+	slug = fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
+	if err := pool.QueryRow(context.Background(),
+		"insert into orgs (slug, name, claim_value) values ($1, $2, $1) returning id", slug, prefix).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), "delete from spaces where org_id = $1", id)
+		pool.Exec(context.Background(), "delete from orgs where id = $1", id)
+	})
+	return id, slug
+}
+
+func newSpace(t *testing.T, pool *pgxpool.Pool, orgID, slug string) string {
+	t.Helper()
+	var id string
+	if err := pool.QueryRow(context.Background(),
+		"insert into spaces (org_id, slug, name) values ($1, $2, $2) returning id", orgID, slug).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// TestThePurgeReportsTheSpacesItActuallyDestroyed. The count and the delete
+// were two statements, and under read committed a space committed between them
+// was destroyed without ever being counted: the operator was told "this will
+// destroy 1 space" and 2 went. For the most destructive route in the codebase
+// the number has to be true, so it now comes back from the delete itself.
+func TestThePurgeReportsTheSpacesItActuallyDestroyed(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	orgID, orgSlug := newOrg(t, pool, "racedpurge")
+	newSpace(t, pool, orgID, orgSlug+"-first")
+
+	// Somebody else creates a space in the org, and commits, in the window
+	// between the purge counting and the purge deleting.
+	store := &Store{Pool: pool, hooks: purgeHooks{afterCount: func(ctx context.Context) error {
+		newSpace(t, pool, orgID, orgSlug+"-second")
+		return nil
+	}}}
+	counts, err := store.Purge(ctx, Scope{OrgID: orgID, OrgSlug: orgSlug}, orgSlug)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var survivors int
+	if err := pool.QueryRow(ctx, "select count(*) from spaces where slug like $1", orgSlug+"-%").Scan(&survivors); err != nil {
+		t.Fatal(err)
+	}
+	if survivors != 0 {
+		t.Fatalf("%d spaces survived the purge", survivors)
+	}
+	if counts.Spaces != 2 {
+		t.Fatalf("the purge destroyed 2 spaces and reported %d — a purge must report what it destroyed, not what it expected to", counts.Spaces)
+	}
+	var detail string
+	if err := pool.QueryRow(ctx,
+		"select detail from org_audit_log where action = 'org.purge' and org_slug = $1", orgSlug).Scan(&detail); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(detail, "2 spaces") {
+		t.Fatalf("the audit record says %q, and the purge destroyed 2 spaces", detail)
+	}
+}
+
+// TestAPurgeRefusesWhenTheOrgRowIsAlreadyGone. Deleting every space and then
+// failing the final delete on a lingering foreign key — or on an org row that
+// is no longer there — is a failure, not a success, and the whole transaction
+// has to go back. The hook is the only way in: the audit record's foreign key
+// means no ordinary sequence of calls can reach the final delete with the org
+// row missing.
+func TestAPurgeRefusesWhenTheOrgRowIsAlreadyGone(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	orgID, orgSlug := newOrg(t, pool, "vanishedorg")
+	newSpace(t, pool, orgID, orgSlug+"-only")
+
+	store := &Store{Pool: pool, hooks: purgeHooks{beforeOrgDelete: func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, "delete from orgs where id = $1", orgID)
+		return err
+	}}}
+	if _, err := store.Purge(ctx, Scope{OrgID: orgID, OrgSlug: orgSlug}, orgSlug); err == nil {
+		t.Fatal("a purge whose final delete removed no org row reported success")
+	}
+
+	assertPurgeLeftEverythingStanding(t, pool, orgID, orgSlug, 1)
+}
+
+// TestPurgeRollsBackItsOwnTransaction. purgeTx being correct proves nothing
+// about Purge's Begin/Commit/Rollback wiring around it: the failure has to
+// happen inside a transaction Purge itself opened.
+func TestPurgeRollsBackItsOwnTransaction(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	orgID, orgSlug := newOrg(t, pool, "abandonedpurge")
+	newSpace(t, pool, orgID, orgSlug+"-only")
+
+	boom := errors.New("the purge could not finish")
+	store := &Store{Pool: pool, hooks: purgeHooks{beforeOrgDelete: func(context.Context, pgx.Tx) error { return boom }}}
+	if _, err := store.Purge(ctx, Scope{OrgID: orgID, OrgSlug: orgSlug}, orgSlug); !errors.Is(err, boom) {
+		t.Fatalf("purge = %v, want the failure it hit", err)
+	}
+
+	assertPurgeLeftEverythingStanding(t, pool, orgID, orgSlug, 1)
+}
+
+func assertPurgeLeftEverythingStanding(t *testing.T, pool *pgxpool.Pool, orgID, orgSlug string, spaces int) {
+	t.Helper()
+	ctx := context.Background()
+	var gotOrgs, gotSpaces, records int
+	if err := pool.QueryRow(ctx, "select count(*) from orgs where id = $1", orgID).Scan(&gotOrgs); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, "select count(*) from spaces where org_id = $1", orgID).Scan(&gotSpaces); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, "select count(*) from org_audit_log where org_slug = $1", orgSlug).Scan(&records); err != nil {
+		t.Fatal(err)
+	}
+	if gotOrgs != 1 || gotSpaces != spaces {
+		t.Fatalf("a failed purge left %d orgs and %d spaces, want 1 and %d", gotOrgs, gotSpaces, spaces)
+	}
+	if records != 0 {
+		t.Fatalf("a failed purge left %d audit records behind, want 0 — it did not happen", records)
 	}
 }

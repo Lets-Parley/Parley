@@ -31,6 +31,25 @@ var (
 // the boundary this phase exists to draw.
 type Store struct {
 	Pool *pgxpool.Pool
+
+	// hooks are interruption points inside a purge, nil everywhere but this
+	// package's own tests. A purge is one transaction with no seam an ordinary
+	// input can reach into, and the states worth pinning — another session
+	// committing a space mid-purge, the destructive half failing part-way —
+	// exist only between its statements.
+	hooks purgeHooks
+}
+
+// purgeHooks is test-only and unexported: nothing outside this package can
+// name it, set it, or observe that it exists.
+type purgeHooks struct {
+	// afterCount runs after the preview count and before anything is
+	// destroyed: the window in which another session's write used to go
+	// unreported.
+	afterCount func(context.Context) error
+	// beforeOrgDelete runs after the spaces and the audit record, immediately
+	// before the org row itself goes.
+	beforeOrgDelete func(context.Context, pgx.Tx) error
 }
 
 // SpacesInOrg lists every space in the org, private and archived ones
@@ -395,14 +414,17 @@ type Counts struct {
 
 // Purge deletes an org and everything in it, in one transaction.
 //
-// The confirmation is compared inside that transaction, against counts read
-// from it, so the numbers reported back are the numbers that were destroyed
-// rather than a snapshot from before somebody else's write. An interrupted
-// purge is a rolled-back transaction and leaves the org and every space
-// exactly as they were — which matters more here than anywhere else in the
-// codebase, because spaces.org_id is `on delete restrict`: a half-finished
-// purge would otherwise leave some spaces gone, the rest standing, and the org
-// row undeletable, with no described way back.
+// A purge reports what it destroyed, not what it expected to destroy: the
+// numbers come back from the delete itself, so a space committed by somebody
+// else while the purge was running is counted rather than quietly vaporised.
+// The counts read before the confirmation is checked are a preview and are
+// reported only on the refusal path, where nothing has been destroyed at all.
+//
+// An interrupted purge is a rolled-back transaction and leaves the org and
+// every space exactly as they were — which matters more here than anywhere
+// else in the codebase, because spaces.org_id is `on delete restrict`: a
+// half-finished purge would otherwise leave some spaces gone, the rest
+// standing, and the org row undeletable, with no described way back.
 func (s *Store) Purge(ctx context.Context, scope Scope, confirm string) (Counts, error) {
 	var counts Counts
 	tx, err := s.Pool.Begin(ctx)
@@ -418,7 +440,13 @@ func (s *Store) Purge(ctx context.Context, scope Scope, confirm string) (Counts,
 	if confirm != scope.OrgSlug {
 		return counts, ErrConfirmationRequired
 	}
-	if err := purgeTx(ctx, tx, scope, counts); err != nil {
+	if s.hooks.afterCount != nil {
+		if err := s.hooks.afterCount(ctx); err != nil {
+			return counts, err
+		}
+	}
+	counts, err = purgeTx(ctx, tx, scope, s.hooks.beforeOrgDelete)
+	if err != nil {
 		return counts, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -427,6 +455,10 @@ func (s *Store) Purge(ctx context.Context, scope Scope, confirm string) (Counts,
 	return counts, nil
 }
 
+// countOrgContents is the preview a refused purge reports. It is deliberately
+// not the number a completed purge reports: under read committed another
+// session can commit a space between this select and the delete, and that
+// space would be destroyed without ever appearing here.
 func countOrgContents(ctx context.Context, tx pgx.Tx, orgID string) (Counts, error) {
 	var c Counts
 	if err := tx.QueryRow(ctx, `
@@ -440,30 +472,47 @@ func countOrgContents(ctx context.Context, tx pgx.Tx, orgID string) (Counts, err
 
 // purgeTx is the destructive half, separated so a test can run it inside a
 // transaction it then aborts and prove that an interrupted purge leaves
-// everything standing.
+// everything standing. It returns what it actually destroyed.
+//
+// The spaces and their sessions are counted by the same statement that deletes
+// them, so the two cannot disagree: a single statement sees one snapshot, and
+// the sessions counted are exactly the sessions the delete cascaded away.
+// Counting beforehand and deleting afterwards would report a number that was
+// already stale by the time the delete ran.
 //
 // Order is load-bearing exactly once: spaces.org_id is `on delete restrict`,
 // so the spaces have to go before the org row. org_members needs no step of
 // its own — it cascades with the org.
-func purgeTx(ctx context.Context, tx pgx.Tx, scope Scope, counts Counts) error {
-	// Written before the deletes and never cascaded away: this is the record
-	// of the most destructive action in the product, and it has to outlive
-	// everything it names.
+func purgeTx(ctx context.Context, tx pgx.Tx, scope Scope, beforeOrgDelete func(context.Context, pgx.Tx) error) (Counts, error) {
+	var counts Counts
+	if err := tx.QueryRow(ctx, `
+		with doomed as (delete from spaces where org_id = $1 returning id)
+		select (select count(*) from doomed),
+		       (select count(*) from sessions where space_id in (select id from doomed))`,
+		scope.OrgID).Scan(&counts.Spaces, &counts.Sessions); err != nil {
+		return counts, fmt.Errorf("deleting the org's spaces: %w", err)
+	}
+	// Written after the spaces so it can say what there actually was, still
+	// inside the same transaction and still before the org row goes, and never
+	// cascaded away: this is the record of the most destructive action in the
+	// product, and it has to outlive everything it names.
 	if err := audit(ctx, tx, scope, SpaceRef{}, "org.purge",
 		fmt.Sprintf("purged %d spaces and %d sessions", counts.Spaces, counts.Sessions)); err != nil {
-		return err
+		return counts, err
 	}
-	if _, err := tx.Exec(ctx, "delete from spaces where org_id = $1", scope.OrgID); err != nil {
-		return fmt.Errorf("deleting the org's spaces: %w", err)
+	if beforeOrgDelete != nil {
+		if err := beforeOrgDelete(ctx, tx); err != nil {
+			return counts, err
+		}
 	}
 	tag, err := tx.Exec(ctx, "delete from orgs where id = $1", scope.OrgID)
 	if err != nil {
-		return fmt.Errorf("deleting the org: %w", err)
+		return counts, fmt.Errorf("deleting the org: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("deleting the org: it was already gone")
+		return counts, fmt.Errorf("deleting the org: it was already gone")
 	}
-	return nil
+	return counts, nil
 }
 
 // audit writes one record. The org and space slugs are stored as text
