@@ -2,6 +2,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "./lib/ui";
 import { Landing } from "./pages/Landing";
+import { OrgDirectory } from "./pages/OrgDirectory";
 import { SpacePage } from "./pages/SpacePage";
 import { SpaceSettingsPage } from "./pages/SpaceSettingsPage";
 import { SessionPage } from "./pages/SessionPage";
@@ -16,6 +17,12 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Landing />} />
+            {/* The org directory: how somebody finds their team's room
+                without being sent a link. It lists what the server says this
+                caller may see — org-visible spaces plus their own — and being
+                listed is discovery, not entry: a space with a passcode still
+                asks for it. */}
+            <Route path="/o/:org" element={<OrgDirectory />} />
             {/* A space slug is unique inside an org, not across the
                 instance, so both halves are in the path — see lib/paths. */}
             <Route path="/o/:org/s/:slug" element={<SpacePage />} />

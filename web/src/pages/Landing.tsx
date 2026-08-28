@@ -10,7 +10,7 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errorText, type Membership, type OrgMembership, type SpaceView } from "../lib/api";
-import { spacePath } from "../lib/paths";
+import { orgPath, spacePath } from "../lib/paths";
 import { useMe, useAuthMode, NameGate } from "../components/NameGate";
 import { isFullAccount } from "../lib/links";
 import { Logo, ThemeToggle } from "../components/AppShell";
@@ -362,11 +362,16 @@ export function Landing() {
             <div className="flex w-full max-w-md flex-col gap-3">
               {grouped.map((group) => (
                 <section key={group.slug} className="flex flex-col gap-2">
-                  {grouped.length > 1 && (
-                    <h2 className="px-1 text-left font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
-                      {group.name}
-                    </h2>
-                  )}
+                  <h2 className="flex items-baseline justify-between gap-3 px-1 text-left font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+                    {grouped.length > 1 ? <span>{group.name}</span> : <span />}
+                    {/* The only door to the directory. Without it, finding a
+                        space you have not joined still needs somebody to send
+                        you a link, which is the thing the directory exists to
+                        stop. */}
+                    <Link to={orgPath(group.slug)} className="underline hover:text-ink">
+                      Browse {group.name}
+                    </Link>
+                  </h2>
                   <ul
                     aria-label={`Your spaces in ${group.name}`}
                     className="flex flex-col gap-2 rounded-panel border border-line bg-surface p-3 text-left shadow-rest"

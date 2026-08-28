@@ -63,6 +63,39 @@ afterEach(() => {
 });
 
 describe("SpaceSettingsPage", () => {
+  // Visibility and the passcode are two different questions, and the panel has
+  // to keep saying so: a space listed in the org directory is findable, not
+  // open. A control that read as "make this space public" would be a lie about
+  // what the server does.
+  it("lists and unlists the space without touching the passcode", async () => {
+    view = { ...base, visibility: "private" } as SpaceView;
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+
+    const panel = (await screen.findByRole("heading", { name: /who can find it/i }))
+      .closest("section") as HTMLElement;
+    expect(panel.textContent).toMatch(/only a link or an invite/i);
+    expect(panel.textContent).toMatch(/a space with a passcode\s+still asks for it/i);
+
+    await userEvent.click(within(panel).getByRole("button", { name: /list in the org/i }));
+    // The build stamp asks for /version on mount, which is not what this is
+    // about; the writes are.
+    expect(calls.filter(([method]) => method !== "GET")).toEqual([
+      ["PATCH", "/api/orgs/acme/spaces/platform-team/visibility", { visibility: "org" }],
+    ]);
+  });
+
+  it("offers the way back out once a space is listed", async () => {
+    view = { ...base, visibility: "org" } as SpaceView;
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+
+    const panel = (await screen.findByRole("heading", { name: /who can find it/i }))
+      .closest("section") as HTMLElement;
+    await userEvent.click(within(panel).getByRole("button", { name: /unlist from the org/i }));
+    expect(calls.filter(([method]) => method !== "GET")).toEqual([
+      ["PATCH", "/api/orgs/acme/spaces/platform-team/visibility", { visibility: "private" }],
+    ]);
+  });
+
   it("gives the page a heading and a link back to the space", async () => {
     renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
 

@@ -338,6 +338,14 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			r.Group(func(r chi.Router) {
 				r.Use(RequireUser)
 				r.Use(a.requireOrgMember)
+				// The org directory. RequireUser is ahead of
+				// requireOrgMember deliberately: a link guest belongs to no
+				// org, and it has to be refused 401 here — the same answer
+				// GET /api/spaces gives it — rather than 404 one middleware
+				// later. If this route ever answered for a link guest, one
+				// link to one standup would become a listing of every
+				// org-visible space on the instance.
+				r.Get("/spaces", a.handleListOrgSpaces)
 				r.Post("/spaces/{slug}/join", a.handleJoinSpace)
 				r.Post("/spaces/{slug}/seen", a.handleMarkSpaceSeen)
 				r.Post("/spaces/{slug}/passcode", a.handleSetPasscode)
@@ -354,6 +362,11 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 				r.Use(a.requireSpaceOwner)
 				r.Patch("/spaces/{slug}", a.handleRenameSpace)
 				r.Delete("/spaces/{slug}", a.handleDeleteSpace)
+				// Who can find this space at all is housekeeping on it, so
+				// it sits with renaming and deleting rather than with the
+				// member-level controls. A link guest gets 404 here, from
+				// requireOrgMember: it belongs to no org.
+				r.Patch("/spaces/{slug}/visibility", a.handleSetVisibility)
 			})
 
 			r.Route("/spaces/{slug}/members/{userId}", func(r chi.Router) {

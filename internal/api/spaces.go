@@ -216,10 +216,13 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 					AvatarIcon: m.AvatarIcon, At: seats[m.UserID]}
 			}
 			// Members can read the passcode any time — passing it on is the
-			// whole point of it.
+			// whole point of it. Visibility rides alongside it and under the
+			// same rule: it is what the settings page shows an owner, and it
+			// is deliberately absent from the stranger view below, where
+			// "is this room listed to its org" is nobody's business.
 			writeJSON(w, http.StatusOK, map[string]any{
 				"slug": sp.Slug, "name": sp.Name, "members": views, "sessions": sessionViews, "kinds": kinds,
-				"passcode": sp.Passcode, "protected": sp.Passcode != "",
+				"passcode": sp.Passcode, "protected": sp.Passcode != "", "visibility": sp.Visibility,
 			})
 			return
 		}
@@ -668,5 +671,73 @@ func (a *app) legacySpaceRedirect(spa http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		http.Redirect(w, r, "/o/"+url.PathEscape(orgs[0])+"/s/"+url.PathEscape(slug), http.StatusFound)
+	}
+}
+
+// handleListOrgSpaces is the org directory: the spaces in this org the caller
+// may see, which is every org-visible one plus every one they belong to.
+//
+// It is mounted inside RequireUser and then requireOrgMember, in that order,
+// and the order is the security property rather than a style choice. A link
+// guest is a users row in no org and no space, so it must be turned away by
+// RequireUser with a 401 before requireOrgMember ever runs — the same answer
+// GET /api/spaces gives it, and pinned by TestLinkGuestRouteTable. Reversing
+// the two would answer 404 instead, which is a weaker statement, and if the
+// directory ever answered at all, one link to one standup would become a
+// listing of every org-visible space on the instance.
+//
+// The org id is read from the request context, never from the URL segment, so
+// requireOrgMember stays the single source of truth for which tenant this is.
+func (a *app) handleListOrgSpaces(w http.ResponseWriter, r *http.Request) {
+	p, _ := PrincipalFrom(r.Context())
+	spaces, err := a.spaces.ForOrg(r.Context(), orgFrom(r.Context()).ID, p.UserID)
+	if err != nil {
+		slog.Error("could not list an org's spaces", "error", err)
+		http.Error(w, `{"error":"could not load this org's spaces"}`, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, spaces)
+}
+
+// handleSetVisibility lists a space to its org, or takes it back out of the
+// directory. Owner-only, like renaming and deleting: it is housekeeping on the
+// space rather than something that happens inside one.
+//
+// The open-mode refusal is checked here, before the store call, and not only
+// at creation. Open mode mints anonymous identities on POST /api/me and enrols
+// every non-guest in the default org, so an org-visible space there is visible
+// to any visitor on the internet — and if it also has no passcode, joinable by
+// them. handleCreateSpace already forces private; without this the new route
+// would be the way around that guard.
+//
+// It never touches the passcode. Visibility governs discovery — whether a
+// space appears in the directory — and not entry, so a space can be both
+// listed and locked, and joining an org-visible space still goes through
+// handleJoinSpace's passcode gate exactly as before.
+func (a *app) handleSetVisibility(w http.ResponseWriter, r *http.Request) {
+	sp := spaceFrom(r.Context())
+
+	var body struct {
+		Visibility string `json:"visibility"`
+	}
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"visibility is required"}`)
+		return
+	}
+	if body.Visibility == store.VisibilityOrg && a.authMode == ModeOpen {
+		http.Error(w, `{"error":"this instance has no accounts, so every visitor would be in the org — org-visible spaces need sign-in configured"}`, http.StatusForbidden)
+		return
+	}
+
+	err := a.spaces.SetVisibility(r.Context(), sp.ID, body.Visibility)
+	switch {
+	case errors.Is(err, store.ErrBadVisibility):
+		http.Error(w, `{"error":"visibility must be private or org"}`, http.StatusBadRequest)
+	case errors.Is(err, store.ErrNoSpace):
+		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
+	case err != nil:
+		http.Error(w, `{"error":"could not change who can see this space"}`, http.StatusInternalServerError)
+	default:
+		w.WriteHeader(http.StatusNoContent)
 	}
 }

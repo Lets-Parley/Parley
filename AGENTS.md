@@ -268,7 +268,20 @@ migration and embedding mistakes that unit tests miss.
     answer 404 — guessing between two of the caller's orgs would drop them in
     the wrong tenant's room. Anonymous callers and link guests fall through to
     the SPA, and it is a 302, not a 301, because a membership can be revoked.
-25. Dependabot watches only `site/`. Go modules and `web/` dependencies are
+25. **Space visibility governs discovery, never entry.** `spaces.visibility`
+    decides whether a space is listed to its org by
+    `GET /api/orgs/{org}/spaces`; the passcode still decides who is let in, and
+    `handleJoinSpace` compares it identically whatever the visibility. So
+    `PATCH .../visibility` must never write the passcode and
+    `POST .../passcode` must never write the visibility — "listed but locked"
+    is a real state and neither route may silently strip the other. Two
+    refusals hold the boundary: open mode is refused `org` visibility *before*
+    the store call, so the PATCH cannot route around the guard in
+    `handleCreateSpace`; and the directory is mounted inside `RequireUser` and
+    then `requireOrgMember`, in that order, so a link guest is refused 401 at
+    the first of them. If the directory ever answered for a link guest, one
+    link to one standup would list every org-visible space on the instance.
+26. Dependabot watches only `site/`. Go modules and `web/` dependencies are
     bumped by hand, with tests.
 
 ## Scope

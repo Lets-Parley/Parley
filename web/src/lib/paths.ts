@@ -22,3 +22,13 @@ export function spaceSettingsPath(org: string, slug: string): string {
 export function spaceApi(org: string, slug: string): string {
   return `/api/orgs/${org}/spaces/${slug}`;
 }
+
+/** The SPA route for an org's directory of spaces. */
+export function orgPath(org: string): string {
+  return `/o/${org}`;
+}
+
+/** The API for the spaces in one org the caller may see. */
+export function orgSpacesApi(org: string): string {
+  return `/api/orgs/${org}/spaces`;
+}
