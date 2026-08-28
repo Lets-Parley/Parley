@@ -85,11 +85,13 @@ export function SessionPage() {
   if (!guest && me.data === null) {
     return <NameGate onDone={() => session.refetch()} />;
   }
-  // An envelope with no org is a broken envelope, not a page with one panel
-  // missing: a slug alone addresses no space, so the sidebar lookup below
-  // could only be skipped. Treated as a failed session read so it is visible
-  // rather than silent.
-  if (session.isError || !session.data || !session.data.orgSlug || !identity) {
+  // An envelope with no org is broken for a member — a slug alone addresses no
+  // space, so treating it as a failed session read keeps the regression
+  // visible. For a link guest it is normal: RedactForGuest blanks OrgSlug and
+  // SpaceSlug so the room never leaks tenancy the guest is not part of. The
+  // sidebar lookup stays disabled either way (enabled: !!slug && !!org &&
+  // !guest); only the room itself must still render for the guest.
+  if (session.isError || !session.data || (!guest && !session.data.orgSlug) || !identity) {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-8 text-center">
         <p className="font-display text-2xl">No seat at this table</p>

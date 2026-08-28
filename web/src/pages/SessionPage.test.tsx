@@ -32,6 +32,23 @@ const envelope: Envelope = {
   },
 } as unknown as Envelope;
 
+/**
+ * Mirrors Envelope.RedactForGuest (internal/session/registry.go): blank both
+ * tenancy slugs and keep only presence ∪ facilitator ∪ self. Guest tests must
+ * drive this shape — putting orgSlug back on a hand-written mock is the blind
+ * spot that hid #402.
+ */
+function redactForGuest(env: Envelope, selfID: string): Envelope {
+  const here = new Set<string>([...env.presence, env.facilitatorId]);
+  if (selfID) here.add(selfID);
+  return {
+    ...env,
+    orgSlug: "",
+    spaceSlug: "",
+    participants: env.participants.filter((p) => here.has(p.userId)),
+  };
+}
+
 // api() is called by useMe, the sidebar space query, and AppShell's auth-mode
 // query. Only the session's own connection status matters for this test, so
 // every other call is answered with a harmless stand-in.
@@ -61,19 +78,24 @@ let mockFacilitatorId = "dana";
 // entries) — swapped alongside mockKind so a poker render gets poker state.
 let mockState: unknown = envelope.state;
 // The org the envelope names. The sidebar's space lookup is addressed by it,
-// and a slug alone is not an address, so an empty one is a broken envelope
-// rather than a page with one panel missing.
+// and a slug alone is not an address — for a *member*, empty is a broken
+// envelope. Link guests get "" from RedactForGuest; see mockData.
 let mockOrgSlug = "acme";
+// Full envelope override. Guest cases set this to a RedactForGuest result so
+// the page is exercised against the real redacted wire shape.
+let mockData: Envelope | null = null;
 
 vi.mock("../lib/useSession", () => ({
   useSession: () => ({
-    data: {
-      ...envelope,
-      kind: mockKind,
-      facilitatorId: mockFacilitatorId,
-      state: mockState,
-      orgSlug: mockOrgSlug,
-    },
+    data:
+      mockData ??
+      ({
+        ...envelope,
+        kind: mockKind,
+        facilitatorId: mockFacilitatorId,
+        state: mockState,
+        orgSlug: mockOrgSlug,
+      } as Envelope),
     isLoading: false,
     isError: false,
     status: "stale",
@@ -86,6 +108,7 @@ beforeEach(() => {
   mockFacilitatorId = "dana";
   mockState = envelope.state;
   mockOrgSlug = "acme";
+  mockData = null;
   apiMeResponse = me;
   localStorage.clear();
   sessionStorage.clear();
@@ -106,10 +129,11 @@ describe("SessionPage wiring", () => {
     );
   });
 
-  // An envelope with no org used to disable the space query silently: the
-  // sidebar simply came up empty and nothing said why. A regression in what
-  // the socket sends has to be visible.
-  it("says so when the envelope carries no org", async () => {
+  // For a member, an envelope with no org used to disable the space query
+  // silently: the sidebar simply came up empty and nothing said why. A
+  // regression in what the socket sends has to be visible. (Link guests are
+  // the deliberate exception — see the RedactForGuest cases below.)
+  it("says so when a member envelope carries no org", async () => {
     mockOrgSlug = "";
     renderApp(<SessionPage />);
     expect(await screen.findByText(/no seat at this table/i)).toBeTruthy();
@@ -180,6 +204,26 @@ describe.each([
   beforeEach(() => {
     mockKind = kind;
     mockState = state;
+    // Real redacted wire shape — blank org/space, roster trimmed. Putting the
+    // org slug back here is exactly how these tests used to miss #402.
+    mockData = redactForGuest(
+      {
+        ...envelope,
+        kind,
+        state,
+        presence: ["guest-1", "dana"],
+        participants: [
+          { userId: "dana", name: "Dana Whitfield", avatarHue: 120, spectator: false },
+          { userId: "guest-1", name: guest.name, avatarHue: guest.avatarHue, spectator: false },
+          // Space member not in the room — RedactForGuest must drop them.
+          { userId: "absent", name: "Absent Member", avatarHue: 10, spectator: false },
+        ],
+      } as Envelope,
+      guest.id,
+    );
+    expect(mockData.orgSlug).toBe("");
+    expect(mockData.spaceSlug).toBe("");
+    expect(mockData.participants.map((p) => p.userId).sort()).toEqual(["dana", "guest-1"]);
     sessionStorage.setItem(
       "parley.link-guest",
       JSON.stringify({
@@ -193,6 +237,8 @@ describe.each([
   it("says what the link is and when it runs out", async () => {
     renderApp(routed, { route: "/session/sess-1" });
     expect((await screen.findByTestId("link-guest-banner")).textContent).toMatch(/guest link/i);
+    // The redacted envelope must not be mistaken for a failed session read.
+    expect(screen.queryByText(/no seat at this table/i)).toBe(null);
   });
 
   // Split into one assertion per control (rather than one packed it()) so a
@@ -261,7 +307,8 @@ describe.each([
     const paths = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
       .slice(before)
       .map(([, path]) => path);
-    expect(paths.filter((p) => String(p).startsWith("/api/orgs/acme/spaces/"))).toEqual([]);
+    // No org on a redacted envelope — any space lookup would be wrong.
+    expect(paths.filter((p) => String(p).includes("/spaces/"))).toEqual([]);
     expect(paths).not.toContain("/api/me");
   });
 });
@@ -286,6 +333,17 @@ describe("SessionPage for a link guest whose storage was cleared", () => {
     localStorage.clear();
     sessionStorage.clear();
     apiMeResponse = linkMe;
+    mockData = redactForGuest(
+      {
+        ...envelope,
+        presence: ["guest-1", "dana"],
+        participants: [
+          { userId: "dana", name: "Dana Whitfield", avatarHue: 120, spectator: false },
+          { userId: "guest-1", name: linkMe.name, avatarHue: linkMe.avatarHue, spectator: false },
+        ],
+      } as Envelope,
+      linkMe.id,
+    );
   });
 
   it("lands in the room rather than the name gate", async () => {
@@ -382,7 +440,7 @@ describe("SessionPage for a link guest whose storage was cleared", () => {
     const paths = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
       .slice(before)
       .map(([, path]) => path);
-    expect(paths.filter((p) => String(p).startsWith("/api/orgs/acme/spaces/"))).toEqual([]);
+    expect(paths.filter((p) => String(p).includes("/spaces/"))).toEqual([]);
   });
 });
 
