@@ -235,16 +235,24 @@ variables themselves, and what each limit counts, live in the
 re-list them.
 
 **Last entry wins.** Kubernetes takes the last env entry when a name repeats, and
-`extraEnv` is last, so an entry named `DATABASE_URL` or `AUTH_MODE` silently
-overrides what the chart set from `values`. That is deliberate — an overlay
-that needs to swap the secret or flip auth mode can do it with only a values
-diff to review — but a GitOps merge that reuses either name by accident flips
-the same thing with the same silence. Prefer the named values for anything the
-chart already owns.
+`extraEnv` is last. Chart-owned names that override this way include
+`DATABASE_URL`, `BASE_URL`, `LOG_LEVEL`, `AUTH_MODE`, `POD_NAME`, the `OIDC_*`
+set, and the proxy-trust pair (`TRUST_PROXY_HEADERS` /
+`TRUSTED_PROXY_CIDRS`). Prefer the named values for those. Setting them here
+also skips the `helm template` refuses and NOTES NetworkPolicy warnings that
+read only the named values — so `TRUST_PROXY_HEADERS=true` in `extraEnv` can
+enable proxy trust while `trustProxyHeaders` stays false.
 
-`PORT` is not one of the intended uses. The Service, the probes and
-`containerPort` are all wired to 8080; changing the listener alone produces a
-pod that never passes readiness. Change `service.port` instead.
+Keep `DATABASE_URL` on `valueFrom` / `secretKeyRef` if you must override it; a
+plain `value:` puts the connection string in the Deployment env. Flipping
+`AUTH_MODE` here can silently open an oidc instance while `auth.mode` still
+looks locked down — prefer `auth.mode` and `database.existingSecret`.
+
+`PORT` is not one of the intended uses. Probes and `containerPort` target
+8080; the Service maps `service.port` (default 80) to that target. Setting
+`PORT` in `extraEnv` leaves the probes on 8080 and fails readiness.
+`service.port` only changes the cluster-facing Service port, not the process
+listen port.
 
 A malformed entry — a map instead of a list, or an entry with no `name` — fails
 at `helm template` time with a named error rather than rendering a manifest the
