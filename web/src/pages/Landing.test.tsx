@@ -8,6 +8,7 @@ import userEvent from "@testing-library/user-event";
 import { renderApp } from "../test/render";
 import { api, type Me } from "../lib/api";
 import { Landing } from "./Landing";
+import { expectNoViolations } from "../test/axe";
 
 const me: Me = { id: "marcus", name: "Marcus Okonjo", avatarHue: 40 };
 // A link guest: GET /api/me succeeds for them too, but linkSessionId is what
@@ -45,6 +46,7 @@ vi.mock("../lib/api", async () => {
         return signedIn ? me : null;
       }
       if (path === "/api/auth") return { mode: authMode };
+      if (path === "/api/orgs") return myOrgs;
       if (path === "/api/spaces" && method === "GET") {
         if (listFails) throw new Error("Could not list your spaces.");
         return mySpaces;
@@ -67,10 +69,16 @@ let listFails = false;
 // Set to a promise a test resolves by hand, to hold the create in flight long
 // enough to look at the button while it waits.
 let holdCreate: Promise<void> | null = null;
-let mySpaces: { slug: string; name: string; protected: boolean }[] = [];
+let mySpaces: { slug: string; name: string; orgSlug: string; protected: boolean }[] = [];
+// The orgs the caller belongs to. One by default, which is what a single-tenant
+// instance looks like: the switcher stays out of the way and the list is flat.
+let myOrgs: { slug: string; name: string; role: "admin" | "member" }[] = [
+  { slug: "acme", name: "Acme", role: "member" },
+];
 const createdSpace = {
   slug: "platform-team",
   name: "Platform Team",
+  orgSlug: "acme",
   protected: false,
 };
 // What POST /api/spaces resolves with. Normally the new space; a test sets it
@@ -98,8 +106,10 @@ beforeEach(() => {
   listFails = false;
   holdCreate = null;
   createResult = createdSpace;
+  myOrgs = [{ slug: "acme", name: "Acme", role: "member" }];
   mySpaces = [];
   sessionStorage.clear();
+  localStorage.clear();
   navigate.mockClear();
   vi.mocked(api).mockClear();
 });
@@ -107,8 +117,8 @@ beforeEach(() => {
 describe("Landing, signed in with spaces", () => {
   beforeEach(() => {
     mySpaces = [
-      { slug: "platform-team", name: "Platform Team", protected: true },
-      { slug: "design-guild", name: "Design Guild", protected: false },
+      { slug: "platform-team", name: "Platform Team", orgSlug: "acme", protected: true },
+      { slug: "design-guild", name: "Design Guild", orgSlug: "acme", protected: false },
     ];
   });
 
@@ -120,8 +130,8 @@ describe("Landing, signed in with spaces", () => {
     expect(within(links[0]).getByText("Platform Team")).toBeTruthy();
     expect(within(links[1]).getByText("Design Guild")).toBeTruthy();
     expect(links.map((a) => a.getAttribute("href"))).toEqual([
-      "/s/platform-team",
-      "/s/design-guild",
+      "/o/acme/s/platform-team",
+      "/o/acme/s/design-guild",
     ]);
   });
 
@@ -147,7 +157,7 @@ describe("Landing, signed in with spaces", () => {
     await userEvent.click(screen.getByRole("button", { name: /create a space/i }));
 
     await waitFor(() =>
-      expect(navigate).toHaveBeenCalledWith("/s/platform-team"),
+      expect(navigate).toHaveBeenCalledWith("/o/acme/s/platform-team"),
     );
     expect(spaceCalls()).toContainEqual(["POST", "/api/spaces", { name: "New Crew" }]);
   });
@@ -158,7 +168,7 @@ describe("Landing, signed in with spaces", () => {
     renderApp(<Landing />);
 
     await waitFor(() =>
-      expect(navigate).toHaveBeenCalledWith("/s/platform-team"),
+      expect(navigate).toHaveBeenCalledWith("/o/acme/s/platform-team"),
     );
     expect(spaceCalls()).toContainEqual([
       "POST",
@@ -173,7 +183,7 @@ describe("Landing", () => {
   it("shows no space list, and asks the server for none, while signed out", async () => {
     signedIn = false;
     mySpaces = [
-      { slug: "platform-team", name: "Platform Team", protected: true },
+      { slug: "platform-team", name: "Platform Team", orgSlug: "acme", protected: true },
     ];
 
     renderApp(<Landing />);
@@ -204,7 +214,7 @@ describe("Landing", () => {
     );
     expect(input.value).toBe("Platform Team");
     await waitFor(() =>
-      expect(navigate).toHaveBeenCalledWith("/s/platform-team"),
+      expect(navigate).toHaveBeenCalledWith("/o/acme/s/platform-team"),
     );
     expect(vi.mocked(api).mock.calls).toContainEqual([
       "POST",
@@ -274,7 +284,7 @@ describe("Landing", () => {
     await userEvent.click(screen.getByRole("button", { name: "Open a space" }));
 
     await waitFor(() =>
-      expect(navigate).toHaveBeenCalledWith("/s/platform-team"),
+      expect(navigate).toHaveBeenCalledWith("/o/acme/s/platform-team"),
     );
   });
 
@@ -388,7 +398,7 @@ describe("Landing", () => {
       release();
     });
     await waitFor(() =>
-      expect(navigate).toHaveBeenCalledWith("/s/platform-team"),
+      expect(navigate).toHaveBeenCalledWith("/o/acme/s/platform-team"),
     );
     expect(spaceCalls()).toHaveLength(1);
   });
@@ -405,7 +415,7 @@ describe("Landing", () => {
 
     listFails = false;
     mySpaces = [
-      { slug: "platform-team", name: "Platform Team", protected: false },
+      { slug: "platform-team", name: "Platform Team", orgSlug: "acme", protected: false },
     ];
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
 
@@ -430,7 +440,7 @@ describe("Landing", () => {
     await userEvent.click(screen.getByRole("button", { name: "Open a space" }));
 
     await waitFor(() =>
-      expect(navigate).toHaveBeenCalledWith("/s/platform-team"),
+      expect(navigate).toHaveBeenCalledWith("/o/acme/s/platform-team"),
     );
     expect(spaceCalls()).toHaveLength(2);
   });
@@ -460,7 +470,7 @@ describe("Landing", () => {
     );
 
     await waitFor(() =>
-      expect(navigate).toHaveBeenCalledWith("/s/platform-team"),
+      expect(navigate).toHaveBeenCalledWith("/o/acme/s/platform-team"),
     );
     await act(async () => {});
     expect(spaceCalls()).toEqual([
@@ -510,7 +520,7 @@ describe("Landing", () => {
     const open = screen.getByRole("button", { name: "Open a space" });
     await userEvent.click(open);
     await waitFor(() =>
-      expect(navigate).toHaveBeenCalledWith("/s/platform-team"),
+      expect(navigate).toHaveBeenCalledWith("/o/acme/s/platform-team"),
     );
 
     // In the app the navigate above swaps the route and unmounts this screen.
@@ -566,7 +576,7 @@ describe("Landing, a pending create raced by both paths", () => {
     await finishTheGate();
 
     await waitFor(() =>
-      expect(navigate).toHaveBeenCalledWith("/s/platform-team"),
+      expect(navigate).toHaveBeenCalledWith("/o/acme/s/platform-team"),
     );
     expect(spaceCalls()).toEqual([
       ["POST", "/api/spaces", { name: "Platform Team" }],
@@ -603,7 +613,7 @@ describe("Landing, a pending create raced by both paths", () => {
     await finishTheGate();
 
     await waitFor(() =>
-      expect(navigate).toHaveBeenCalledWith("/s/platform-team"),
+      expect(navigate).toHaveBeenCalledWith("/o/acme/s/platform-team"),
     );
     expect(spaceCalls()).toEqual([
       ["POST", "/api/spaces", { name: "Platform Team" }],
@@ -702,4 +712,128 @@ describe("Landing, signed in on an OIDC server", () => {
     await screen.findByRole("link", { name: /back to your room/i });
     expect(screen.queryByRole("button", { name: /sign out/i })).toBeNull();
   });
+});
+
+/**
+ * Everything the org cutover added to this page: the switcher, the grouping a
+ * slug's org-scoping makes necessary, and the dead end for an account the
+ * identity provider put in no org at all.
+ */
+describe("Landing across orgs", () => {
+  const twoOrgs = () => {
+    myOrgs = [
+      { slug: "acme", name: "Acme", role: "member" },
+      { slug: "globex", name: "Globex", role: "admin" },
+    ];
+    mySpaces = [
+      { slug: "platform-team", name: "Platform Team", orgSlug: "acme", protected: true },
+      { slug: "platform-team", name: "Platform Team", orgSlug: "globex", protected: false },
+      { slug: "design-guild", name: "Design Guild", orgSlug: "acme", protected: false },
+    ];
+  };
+
+  // Two orgs can each hold a "platform-team", so the slug alone is ambiguous
+  // and both links have to name their own org or one of them goes to the
+  // wrong space.
+  it("groups the list by org and links each space through its own", async () => {
+    twoOrgs();
+    renderApp(<Landing />);
+
+    const acme = within(await screen.findByRole("list", { name: "Your spaces in Acme" }));
+    expect(acme.getByRole("link", { name: /Platform Team/ }).getAttribute("href")).toBe(
+      "/o/acme/s/platform-team",
+    );
+    const globex = within(screen.getByRole("list", { name: "Your spaces in Globex" }));
+    expect(globex.getByRole("link", { name: /Platform Team/ }).getAttribute("href")).toBe(
+      "/o/globex/s/platform-team",
+    );
+  });
+
+  it("keeps the switcher out of the way on a single-org instance", async () => {
+    mySpaces = [
+      { slug: "platform-team", name: "Platform Team", orgSlug: "acme", protected: false },
+    ];
+    renderApp(<Landing />);
+
+    await screen.findByRole("list", { name: /your spaces/i });
+    expect(screen.queryByRole("navigation", { name: "Your orgs" })).toBeNull();
+  });
+
+  it("narrows the list to the org the switcher names", async () => {
+    twoOrgs();
+    renderApp(<Landing />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Globex" }));
+
+    expect(screen.getByRole("list", { name: "Your spaces in Globex" })).toBeTruthy();
+    expect(screen.queryByRole("list", { name: "Your spaces in Acme" })).toBeNull();
+  });
+
+  // Every new control has to be reachable and operable without a pointer: a
+  // switcher only a mouse can work is a switcher some of the team cannot use.
+  it("is switched by keyboard alone", async () => {
+    twoOrgs();
+    renderApp(<Landing />);
+
+    const all = await screen.findByRole("button", { name: "All orgs" });
+    all.focus();
+    await userEvent.tab();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Acme" }));
+    await userEvent.tab();
+    const globex = screen.getByRole("button", { name: "Globex" });
+    expect(document.activeElement).toBe(globex);
+
+    await userEvent.keyboard("{Enter}");
+    expect(globex.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("list", { name: "Your spaces in Acme" })).toBeNull();
+  });
+
+  // A signed-in account whose claims matched no org has nowhere to put a
+  // space. Offering the create form would only produce a refusal, and an
+  // empty page would read as a bug.
+  it("tells an account in no org what to do about it, without crashing", async () => {
+    myOrgs = [];
+    mySpaces = [];
+    renderApp(<Landing />);
+
+    const dead = await screen.findByRole("region", { name: "No org yet" });
+    expect(within(dead).getByText(/ask an administrator/i)).toBeTruthy();
+    expect(within(dead).getByText("Marcus Okonjo")).toBeTruthy();
+    expect(screen.queryByPlaceholderText(/Platform Team/)).toBeNull();
+  });
+
+  // The resume runs on its own, with no click behind it, so a caller in no org
+  // would have a space created for them that every follow-up call then refuses.
+  // The dead end is the answer for them, and the name stays theirs to retry.
+  it("does not resume a pending create for an account in no org", async () => {
+    myOrgs = [];
+    mySpaces = [];
+    stash("Platform Team");
+    renderApp(<Landing />);
+
+    await screen.findByRole("region", { name: "No org yet" });
+    expect(spaceCalls()).toHaveLength(0);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  // axe in both render passes. It deliberately skips colour contrast — jsdom
+  // has no layout — so contrast on these controls stays a review item.
+  for (const theme of ["light", "dark"] as const) {
+    it(`has no axe violations in the ${theme} pass, switcher and grouping`, async () => {
+      twoOrgs();
+      localStorage.setItem("parley:theme", theme);
+      const { container } = renderApp(<Landing />);
+      await screen.findByRole("navigation", { name: "Your orgs" });
+      await expectNoViolations(container);
+    });
+
+    it(`has no axe violations in the ${theme} pass, no-org dead end`, async () => {
+      myOrgs = [];
+      mySpaces = [];
+      localStorage.setItem("parley:theme", theme);
+      const { container } = renderApp(<Landing />);
+      await screen.findByRole("region", { name: "No org yet" });
+      await expectNoViolations(container);
+    });
+  }
 });

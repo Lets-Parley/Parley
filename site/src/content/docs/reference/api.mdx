@@ -110,19 +110,21 @@ session envelope.
 ## Spaces
 
 <RouteTable rows={[
-  { method: "GET", path: "/api/spaces", auth: "user", purpose: "The caller's own memberships, most recently active first: slug, name, whether it is protected. Never the passcode." },
-  { method: "GET", path: "/api/spaces/{slug}", auth: "public", purpose: "Members get roster, sessions, passcode, and the kinds a new session may use. Each session carries here: how many people have a socket open on it right now, 0 once it has ended. Non-members get only the name and whether it is protected. Read-only: it never writes." },
+  { method: "GET", path: "/api/orgs", auth: "user", purpose: "The orgs the caller belongs to: slug, name, role. Cross-org and un-prefixed by design — it is what a client asks before it knows an org to ask within. An empty array is a real answer: an account whose identity-provider claims matched no org belongs nowhere." },
+  { method: "GET", path: "/api/spaces", auth: "user", purpose: "The caller's own memberships, most recently active first: slug, orgSlug, name, whether it is protected. Cross-org, so it stays un-prefixed. Never the passcode." },
+  { method: "GET", path: "/api/orgs/{org}/spaces/{slug}", auth: "public", purpose: "Members get roster, sessions, passcode, and the kinds a new session may use. Each session carries here: how many people have a socket open on it right now, 0 once it has ended. Non-members get only the name and whether it is protected. Read-only: it never writes." },
   { method: "POST", path: "/api/spaces", auth: "user", purpose: "Create a space. Protected by default." },
-  { method: "POST", path: "/api/spaces/{slug}/join", auth: "user", purpose: "Join, sending {passcode} if the space is protected. Throttled at 8 attempts per 60s per address." },
-  { method: "POST", path: "/api/spaces/{slug}/seen", auth: "user", purpose: "Stamp the caller's membership as recently active, which is what orders the landing list. 204, and a silent no-op for a non-member — it never creates a membership." },
-  { method: "POST", path: "/api/spaces/{slug}/passcode", auth: "member", purpose: "Mint a new passcode, or with {open:true} remove it. Any member may do this." },
-  { method: "POST", path: "/api/spaces/{slug}/sessions", auth: "member", purpose: "Create a session: kind, title, config." },
-  { method: "PATCH", path: "/api/spaces/{slug}", auth: "owner", purpose: "Rename the space: {name}, 1-64 characters. The slug never moves with it, so invites already sent keep working." },
-  { method: "DELETE", path: "/api/spaces/{slug}", auth: "owner", purpose: "Delete the space and everything under it — sessions, stories, standups, memberships. Irreversible, and it closes the sockets on every open room." },
-  { method: "PATCH", path: "/api/spaces/{slug}/sessions/{id}", auth: "owner", purpose: "Rename a session in this space: {title}, 1-200 characters. Bumps the version, so everyone in the room sees it without a reload." },
-  { method: "DELETE", path: "/api/spaces/{slug}/sessions/{id}", auth: "owner", purpose: "Delete a session and its history. Irreversible, and unlike closing it is not idempotent: a second call is 404. Distinct from DELETE /api/sessions/{id}, which closes." },
-  { method: "POST", path: "/api/spaces/{slug}/members/{userId}/role", auth: "owner", purpose: "Promote or demote: {role} is owner or member. 409 if it would leave the space with no owner." },
-  { method: "DELETE", path: "/api/spaces/{slug}/members/{userId}", auth: "owner", purpose: "Remove a member. Access is revoked on their next request. 409 if they are the last owner." },
+  { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/join", auth: "user", purpose: "Join, sending {passcode} — or {handle} from the invite route below — if the space is protected. Throttled at 8 attempts per 60s per address." },
+  { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/invite", auth: "public", purpose: "Trade {passcode} for {handle}: an opaque, single-use capability on this one space, good for five minutes, that a visitor can carry across an identity-provider sign-in instead of the passcode. A wrong code is refused exactly as join refuses it, and spends from the same 8-per-60s budget. A miss answers the same 404 as the public space read, so it discloses no more than that route does." },
+  { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/seen", auth: "user", purpose: "Stamp the caller's membership as recently active, which is what orders the landing list. 204, and a silent no-op for a non-member — it never creates a membership." },
+  { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/passcode", auth: "member", purpose: "Mint a new passcode, or with {open:true} remove it. Any member may do this." },
+  { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/sessions", auth: "member", purpose: "Create a session: kind, title, config." },
+  { method: "PATCH", path: "/api/orgs/{org}/spaces/{slug}", auth: "owner", purpose: "Rename the space: {name}, 1-64 characters. The slug never moves with it, so invites already sent keep working." },
+  { method: "DELETE", path: "/api/orgs/{org}/spaces/{slug}", auth: "owner", purpose: "Delete the space and everything under it — sessions, stories, standups, memberships. Irreversible, and it closes the sockets on every open room." },
+  { method: "PATCH", path: "/api/orgs/{org}/spaces/{slug}/sessions/{id}", auth: "owner", purpose: "Rename a session in this space: {title}, 1-200 characters. Bumps the version, so everyone in the room sees it without a reload." },
+  { method: "DELETE", path: "/api/orgs/{org}/spaces/{slug}/sessions/{id}", auth: "owner", purpose: "Delete a session and its history. Irreversible, and unlike closing it is not idempotent: a second call is 404. Distinct from DELETE /api/sessions/{id}, which closes." },
+  { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/members/{userId}/role", auth: "owner", purpose: "Promote or demote: {role} is owner or member. 409 if it would leave the space with no owner." },
+  { method: "DELETE", path: "/api/orgs/{org}/spaces/{slug}/members/{userId}", auth: "owner", purpose: "Remove a member. Access is revoked on their next request. 409 if they are the last owner." },
 ]} />
 
 ## Sessions
@@ -136,7 +138,7 @@ existence is never disclosed.
   { method: "GET", path: "/api/sessions/{id}/export.csv", auth: "member", purpose: "CSV of the session, rendered from the same redacted view." },
   { method: "POST", path: "/api/sessions/{id}/facilitator/claim", auth: "member", purpose: "Claim the facilitator role after the 60s grace period. Any member." },
   { method: "POST", path: "/api/sessions/{id}/facilitator", auth: "facilitator", purpose: "Hand the role to {userId}. Distinct from the claim route above." },
-  { method: "DELETE", path: "/api/sessions/{id}", auth: "facilitator", purpose: "Close the session — it ends, its history stays, and it can be reopened. Idempotent. To discard one, see DELETE /api/spaces/{slug}/sessions/{id}, which is owner-only." },
+  { method: "DELETE", path: "/api/sessions/{id}", auth: "facilitator", purpose: "Close the session — it ends, its history stays, and it can be reopened. Idempotent. To discard one, see DELETE /api/orgs/{org}/spaces/{slug}/sessions/{id}, which is owner-only." },
   { method: "POST", path: "/api/sessions/{id}/reopen", auth: "facilitator", purpose: "Reopen a closed session." },
   { method: "POST", path: "/api/sessions/{id}/spectator", auth: "member", purpose: "Toggle your own spectator seat with {on}. A property of a member, not of a kind, so it is a core route rather than an action." },
   { method: "POST", path: "/api/sessions/{id}/links", auth: "facilitator", purpose: "Mint a signed link for this room. Refused once the room is closed. The reply carries the plain token exactly once — nothing can read it again." },

@@ -27,7 +27,7 @@ func signupWithID(t *testing.T, srv *httptest.Server, name string) (*http.Cookie
 
 func setRole(t *testing.T, srv *httptest.Server, slug, userID, role string, cookie *http.Cookie) (*http.Response, string) {
 	t.Helper()
-	req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/"+slug+"/members/"+userID+"/role",
+	req, _ := http.NewRequest("POST", srv.URL+"/api/orgs/default/spaces/"+slug+"/members/"+userID+"/role",
 		strings.NewReader(`{"role":"`+role+`"}`))
 	req.Header.Set("Content-Type", "application/json")
 	if cookie != nil {
@@ -44,7 +44,7 @@ func setRole(t *testing.T, srv *httptest.Server, slug, userID, role string, cook
 
 func removeMember(t *testing.T, srv *httptest.Server, slug, userID string, cookie *http.Cookie) (*http.Response, string) {
 	t.Helper()
-	req, _ := http.NewRequest("DELETE", srv.URL+"/api/spaces/"+slug+"/members/"+userID, nil)
+	req, _ := http.NewRequest("DELETE", srv.URL+"/api/orgs/default/spaces/"+slug+"/members/"+userID, nil)
 	if cookie != nil {
 		req.AddCookie(cookie)
 	}
@@ -215,7 +215,7 @@ func TestRemovalRevokesAccessOnTheNextRequest(t *testing.T) {
 		t.Fatalf("the space stopped looking protected to a removed member: %v", body)
 	}
 	// And they cannot create a session in it any more.
-	req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/"+slug+"/sessions",
+	req, _ := http.NewRequest("POST", srv.URL+"/api/orgs/default/spaces/"+slug+"/sessions",
 		strings.NewReader(`{"kind":"poker","title":"After removal"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(member)

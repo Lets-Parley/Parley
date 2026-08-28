@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/lets-parley/parley/internal/store"
 )
 
 // linkRouteExpectation is what a link guest gets on one route: the status, and
@@ -59,21 +61,38 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	"DELETE /api/me":       {status: http.StatusNoContent},
 	"PATCH /api/me/avatar": {status: http.StatusForbidden},
 
-	// Spaces. A link is bound to one room, never a space, so none of this is
-	// visible — including the deliberately-public space view.
-	"GET /api/spaces/{slug}":                        {status: http.StatusForbidden},
-	"PATCH /api/spaces/{slug}":                      {status: http.StatusNotFound},
-	"DELETE /api/spaces/{slug}":                     {status: http.StatusNotFound},
-	"GET /api/spaces":                               {status: http.StatusUnauthorized},
-	"POST /api/spaces":                              {status: http.StatusUnauthorized},
-	"POST /api/spaces/{slug}/join":                  {status: http.StatusUnauthorized},
-	"POST /api/spaces/{slug}/seen":                  {status: http.StatusUnauthorized},
-	"POST /api/spaces/{slug}/passcode":              {status: http.StatusUnauthorized},
-	"POST /api/spaces/{slug}/sessions":              {status: http.StatusUnauthorized},
-	"POST /api/spaces/{slug}/members/{userId}/role": {status: http.StatusNotFound},
-	"DELETE /api/spaces/{slug}/members/{userId}/":   {status: http.StatusNotFound},
-	"PATCH /api/spaces/{slug}/sessions/{id}/":       {status: http.StatusNotFound},
-	"DELETE /api/spaces/{slug}/sessions/{id}/":      {status: http.StatusNotFound},
+	// Orgs and spaces. A link is bound to one room, never a space, and never
+	// the org around it, so none of this is visible.
+	//
+	// Every entry below kept the status its un-prefixed predecessor answered,
+	// and the two mechanisms behind those statuses are not interchangeable.
+	// The public space view answers 403 through rejectLinkPrincipal, which is
+	// why it stays mounted with that middleware and outside RequireUser. The
+	// list and the write routes answer 401 through RequireUser, which is why
+	// RequireUser stays ahead of requireOrgMember on them — reversing the two
+	// would turn those 401s into 404s. The owner routes answer 404, formerly
+	// from requireSpaceOwner's slug lookup and now from requireOrgMember one
+	// step earlier: a link guest belongs to no org.
+	"GET /api/orgs":                     {status: http.StatusUnauthorized},
+	"GET /api/spaces":                   {status: http.StatusUnauthorized},
+	"POST /api/spaces":                  {status: http.StatusUnauthorized},
+	"GET /api/orgs/{org}/spaces/{slug}": {status: http.StatusForbidden},
+	// Minting an invite handle is anonymous by design, so a link guest reaches
+	// it with a principal in hand — and gets nothing. A link is a capability
+	// on one room; a handle is a capability on the space around it, which is
+	// wider than the grant. rejectLinkPrincipal refuses it at the door, the
+	// same 403 the public space read answers, before any passcode is compared.
+	"POST /api/orgs/{org}/spaces/{slug}/invite":                {status: http.StatusForbidden},
+	"PATCH /api/orgs/{org}/spaces/{slug}":                      {status: http.StatusNotFound},
+	"DELETE /api/orgs/{org}/spaces/{slug}":                     {status: http.StatusNotFound},
+	"POST /api/orgs/{org}/spaces/{slug}/join":                  {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/spaces/{slug}/seen":                  {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/spaces/{slug}/passcode":              {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/spaces/{slug}/sessions":              {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/spaces/{slug}/members/{userId}/role": {status: http.StatusNotFound},
+	"DELETE /api/orgs/{org}/spaces/{slug}/members/{userId}/":   {status: http.StatusNotFound},
+	"PATCH /api/orgs/{org}/spaces/{slug}/sessions/{id}/":       {status: http.StatusNotFound},
+	"DELETE /api/orgs/{org}/spaces/{slug}/sessions/{id}/":      {status: http.StatusNotFound},
 
 	// The bound room. Reading it and taking part in it is the whole grant.
 	"GET /api/sessions/{id}/": {status: http.StatusOK},
@@ -138,6 +157,7 @@ func TestLinkGuestRouteTable(t *testing.T) {
 
 	replace := strings.NewReplacer(
 		"{id}", id,
+		"{org}", store.DefaultOrgSlug,
 		"{slug}", slug,
 		"{action}", "vote",
 		"{linkId}", linkID,

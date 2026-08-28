@@ -36,7 +36,7 @@ vi.mock("../lib/api", async () => {
         return me;
       }
       if (path === "/api/auth") return { mode: "open" };
-      if (method === "GET" && path.startsWith("/api/spaces/")) return view;
+      if (method === "GET" && path.startsWith("/api/orgs/acme/spaces/")) return view;
       calls.push([method, path, body]);
       return undefined;
     }),
@@ -47,8 +47,8 @@ vi.mock("../lib/api", async () => {
 // against the real router rather than a component rendered on its own.
 const routed = (
   <Routes>
-    <Route path="/s/:slug" element={<SpacePage />} />
-    <Route path="/s/:slug/settings" element={<SpaceSettingsPage />} />
+    <Route path="/o/:org/s/:slug" element={<SpacePage />} />
+    <Route path="/o/:org/s/:slug/settings" element={<SpaceSettingsPage />} />
   </Routes>
 );
 
@@ -64,11 +64,11 @@ afterEach(() => {
 
 describe("SpaceSettingsPage", () => {
   it("gives the page a heading and a link back to the space", async () => {
-    renderApp(routed, { route: "/s/platform-team/settings" });
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
 
     expect(await screen.findByRole("heading", { name: "Settings", level: 1 })).toBeTruthy();
     const back = screen.getByRole("link", { name: /Back to Platform Team/ });
-    expect(back.getAttribute("href")).toBe("/s/platform-team");
+    expect(back.getAttribute("href")).toBe("/o/acme/s/platform-team");
   });
 
   // An owner must never see the lockout note just because /api/me is still
@@ -76,7 +76,7 @@ describe("SpaceSettingsPage", () => {
   // the space, or a slow me request reads as a false "you can't manage this".
   it("does not lock out an owner while identity is still loading", async () => {
     meBehavior = "pending";
-    renderApp(routed, { route: "/s/platform-team/settings" });
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
 
     // Give the space query a real chance to settle -- with the bug, that is
     // enough for canManage to be computed against a still-pending me and show
@@ -91,7 +91,7 @@ describe("SpaceSettingsPage", () => {
   // the same lockout a genuine non-owner sees, not a spinner that never ends.
   it("locks out the page rather than spinning forever when identity fails to load", async () => {
     meBehavior = "error";
-    renderApp(routed, { route: "/s/platform-team/settings" });
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
 
     expect(
       await screen.findByText(/Only an owner can manage this space/),
@@ -99,26 +99,26 @@ describe("SpaceSettingsPage", () => {
   });
 
   it("is where the manageable roster lives, with its role controls", async () => {
-    renderApp(routed, { route: "/s/platform-team/settings" });
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
 
     const main = within(await screen.findByRole("main"));
     expect(main.getByRole("heading", { name: "Members" })).toBeTruthy();
     await userEvent.click(main.getByRole("button", { name: "Make owner: Bob" }));
     expect(calls).toContainEqual([
       "POST",
-      "/api/spaces/platform-team/members/bob/role",
+      "/api/orgs/acme/spaces/platform-team/members/bob/role",
       { role: "owner" },
     ]);
   });
 
   it("holds the mutating passcode controls", async () => {
-    renderApp(routed, { route: "/s/platform-team/settings" });
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
 
     await userEvent.click(await screen.findByRole("button", { name: "New passcode" }));
-    expect(calls).toContainEqual(["POST", "/api/spaces/platform-team/passcode", { open: false }]);
+    expect(calls).toContainEqual(["POST", "/api/orgs/acme/spaces/platform-team/passcode", { open: false }]);
 
     await userEvent.click(screen.getByRole("button", { name: "Make open" }));
-    expect(calls).toContainEqual(["POST", "/api/spaces/platform-team/passcode", { open: true }]);
+    expect(calls).toContainEqual(["POST", "/api/orgs/acme/spaces/platform-team/passcode", { open: true }]);
   });
 
   it("copies just the passcode from the secondary action", async () => {
@@ -127,7 +127,7 @@ describe("SpaceSettingsPage", () => {
       value: { writeText },
       configurable: true,
     });
-    renderApp(routed, { route: "/s/platform-team/settings" });
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
 
     await userEvent.click(await screen.findByRole("button", { name: "Copy passcode" }));
 
@@ -136,7 +136,7 @@ describe("SpaceSettingsPage", () => {
   });
 
   it("renames the space and keeps the slug", async () => {
-    renderApp(routed, { route: "/s/platform-team/settings" });
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
 
     const field = await screen.findByRole("textbox", { name: "Space name" });
     await userEvent.clear(field);
@@ -145,15 +145,31 @@ describe("SpaceSettingsPage", () => {
 
     expect(calls).toContainEqual([
       "PATCH",
-      "/api/spaces/platform-team",
+      "/api/orgs/acme/spaces/platform-team",
       { name: "Platform Guild" },
     ]);
+  });
+
+  // The toast names a URL as prose rather than as a link, so nothing else
+  // would catch it going stale — and the sentence's whole claim is that the
+  // address it names still works.
+  it("names an address that still resolves in the rename toast", async () => {
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+
+    const field = await screen.findByRole("textbox", { name: "Space name" });
+    await userEvent.clear(field);
+    await userEvent.type(field, "Platform Guild");
+    await userEvent.click(screen.getByRole("button", { name: "Rename" }));
+
+    expect(
+      await screen.findByText("Renamed — the link /o/acme/s/platform-team still works"),
+    ).toBeTruthy();
   });
 
   // Nothing here is recoverable. The confirmation is the whole guard, and it
   // has to survive the move to its own page unchanged.
   it("fences delete in a danger zone and still asks for the name to be typed back", async () => {
-    renderApp(routed, { route: "/s/platform-team/settings" });
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
 
     const danger = (await screen.findByRole("heading", { name: "Danger zone" })).closest("section")!;
     await userEvent.click(within(danger).getByRole("button", { name: "Delete this space" }));
@@ -169,7 +185,7 @@ describe("SpaceSettingsPage", () => {
 
     await userEvent.type(confirm, "m");
     await userEvent.click(within(danger).getByRole("button", { name: "Delete this space" }));
-    expect(calls).toContainEqual(["DELETE", "/api/spaces/platform-team", undefined]);
+    expect(calls).toContainEqual(["DELETE", "/api/orgs/acme/spaces/platform-team", undefined]);
   });
 
   // Hiding a control is a courtesy the server repeats, but a non-owner who
@@ -182,7 +198,7 @@ describe("SpaceSettingsPage", () => {
         { userId: "bob", name: "Bob", avatarHue: 2, spectator: false, role: "owner" },
       ],
     } as unknown as SpaceView;
-    renderApp(routed, { route: "/s/platform-team/settings" });
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
 
     expect(await screen.findByText(/Only an owner can manage this space/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Delete this space" })).toBe(null);
@@ -199,7 +215,7 @@ describe("SpaceSettingsPage", () => {
   // the gate, which is what /s/:slug renders for them.
   it("sends a non-member to the space itself", async () => {
     view = { slug: "platform-team", name: "Platform Team", protected: true } as SpaceView;
-    renderApp(routed, { route: "/s/platform-team/settings" });
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
 
     expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Danger zone" })).toBe(null);
@@ -208,16 +224,16 @@ describe("SpaceSettingsPage", () => {
   // One query key across both routes: arriving at settings from the space must
   // not re-read what is already in hand.
   it("shares the space query key with the space page", async () => {
-    const { queryClient } = renderApp(routed, { route: "/s/platform-team/settings" });
+    const { queryClient } = renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
     await screen.findByRole("heading", { name: "Settings", level: 1 });
 
-    expect(queryClient.getQueryData(["space", "platform-team"])).toBeTruthy();
+    expect(queryClient.getQueryData(["space", "acme", "platform-team"])).toBeTruthy();
   });
 });
 
 describe("SpacePage after the split", () => {
   it("keeps a one-line invite strip and nothing that mutates", async () => {
-    renderApp(routed, { route: "/s/platform-team" });
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
 
     const main = within(await screen.findByRole("main"));
     // The passcode is still readable, and the invite still copyable.
@@ -235,7 +251,7 @@ describe("SpacePage after the split", () => {
 
   it("collapses the strip to one line for an open space, never an empty panel", async () => {
     view = { ...base, protected: false, passcode: undefined } as SpaceView;
-    const { container } = renderApp(routed, { route: "/s/platform-team" });
+    const { container } = renderApp(routed, { route: "/o/acme/s/platform-team" });
 
     const main = within(await screen.findByRole("main"));
     expect(main.getByText(/Open — anyone with the link/)).toBeTruthy();
@@ -244,10 +260,10 @@ describe("SpacePage after the split", () => {
   });
 
   it("links an owner to the settings route from the sidebar", async () => {
-    renderApp(routed, { route: "/s/platform-team" });
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
 
     const link = await screen.findByRole("link", { name: "Settings" });
-    expect(link.getAttribute("href")).toBe("/s/platform-team/settings");
+    expect(link.getAttribute("href")).toBe("/o/acme/s/platform-team/settings");
   });
 
   it("offers no settings link to a plain member", async () => {
@@ -258,7 +274,7 @@ describe("SpacePage after the split", () => {
         { userId: "bob", name: "Bob", avatarHue: 2, spectator: false, role: "owner" },
       ],
     } as unknown as SpaceView;
-    renderApp(routed, { route: "/s/platform-team" });
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
 
     await screen.findByText("Recent sessions");
     expect(screen.queryByRole("link", { name: "Settings" })).toBe(null);
@@ -269,7 +285,7 @@ describe("SpacePage after the split", () => {
   // chip on every row is paid for out of the names, and "Member" is what
   // appearing in this roster already means.
   it("moves the Owner chip onto the sidebar roster", async () => {
-    renderApp(routed, { route: "/s/platform-team" });
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
 
     const nav = within(await screen.findByRole("navigation", { name: "Space" }));
     const ada = nav.getByRole("button", { name: /Ada/ });

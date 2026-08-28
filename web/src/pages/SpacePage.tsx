@@ -16,12 +16,20 @@ import {
   labelClass,
 } from "../components/Modal";
 import { useCopy, useToast } from "../lib/ui";
+import { spaceApi, spacePath } from "../lib/paths";
 import { inviteLink } from "../lib/invite";
 import { KINDS, defaultConfig, kindLabel, type KindDef } from "../lib/kinds";
 
 // "" is the All tab; every other value is a registered kind's wire id.
 const KIND_TABS = [{ id: "", label: "All" }, ...KINDS];
 type Sort = "Recent" | "Active first" | "A\u2013Z";
+
+/**
+ * The credential an invite arrived with: a passcode read out of the URL
+ * fragment, or a handle that waited out a sign-in round trip. Exactly one of
+ * them is ever set, and the join door takes either.
+ */
+type Invite = { passcode?: string; handle?: string };
 
 /**
  * The passcode an invite link carried, taken from the URL fragment.
@@ -32,51 +40,51 @@ type Sort = "Recent" | "Active first" | "A\u2013Z";
  * read once and wiped from the address bar immediately, so it does not survive
  * into a bookmark or a screenshot either.
  */
-function takeInviteCode(slug: string): string {
+function takeInviteCode(org: string, slug: string): Invite {
   const match = /(?:^|&)c=([^&]+)/.exec(window.location.hash.replace(/^#/, ""));
   if (!match) {
-    // Nothing in the fragment. It may still be parked from before a sign-in
-    // round trip, which is the only other place an invite code lives.
-    return takeParkedInvite(slug);
+    // Nothing in the fragment. There may still be a handle parked from before
+    // a sign-in round trip, which is the only other place an invite lives.
+    return takeParkedInvite(org, slug);
   }
   window.history.replaceState(null, "", window.location.pathname + window.location.search);
-  return decodeURIComponent(match[1]);
+  return { passcode: decodeURIComponent(match[1]) };
 }
 
 /**
- * Where an invite passcode waits out a sign-in round trip.
+ * Where an invite handle waits out a sign-in round trip.
  *
  * Under an identity provider, taking a seat is a full-page navigation to the
  * provider and back. The fragment does not survive it — `next` is built from
  * the path and query alone, deliberately, because putting the passcode in a
  * query string is the exposure the fragment exists to avoid. Without somewhere
- * to park it the code is simply lost, and worse than lost: the fragment has
- * already been wiped, so the invite link the visitor clicked no longer carries
- * it either and they are stranded at the passcode gate with nothing to type.
+ * to park something the invite is simply lost, and worse than lost: the
+ * fragment has already been wiped, so the link the visitor clicked no longer
+ * carries the code either and they are stranded at the passcode gate with
+ * nothing to type.
+ *
+ * What waits here is never the passcode. The code is traded first, at the mint
+ * door, for an opaque handle the server issues only to a caller who already
+ * presented the right code: a capability on this one space that expires in
+ * five minutes and is spent by the first join that uses it. So the door code —
+ * the one every member of the space shares and reads off the space page —
+ * never goes into storage at all, and what does is worth nothing a moment
+ * later.
  *
  * sessionStorage, not localStorage, and stamped: an abandoned invite should die
  * with the tab rather than seat someone next week, and the stamp narrows it
  * further to roughly one sign-in trip. Same shape as the pending space name on
  * the landing page, for the same reason.
- *
- * This does put a passcode in storage in the clear, which is what CodeQL's
- * js/clear-text-storage-of-sensitive-data flags. It is written only when a
- * provider sign-in is about to navigate the page away — never in open mode —
- * it is scoped to one space, spent on the first read, expires in five minutes,
- * and dies with the tab. A space passcode is a shared door code that is
- * printed on the space page for every member to read and passed around in
- * chat; it is not a per-person credential. Same-origin script that could read
- * this could equally read it off the page.
  */
 const pendingInviteKey = "parley:pending-invite";
-// A sign-in round trip takes seconds. Five minutes is already generous, and
-// every minute past that is a plaintext passcode sitting in storage for no
-// reason.
+// A sign-in round trip takes seconds. Five minutes is already generous, and it
+// is the server's own limit on the handle too — expiring it here first only
+// saves a call that would be refused anyway.
 const pendingInviteMaxAgeMs = 5 * 60 * 1000;
 
-/** Reads the parked code and drops it: one attempt, so a refused passcode
+/** Reads the parked handle and drops it: one attempt, so a refused invite
  *  lands on the gate rather than being retried on every mount. */
-function takeParkedInvite(slug: string): string {
+function takeParkedInvite(org: string, slug: string): Invite {
   let raw: string | null = null;
   try {
     raw = sessionStorage.getItem(pendingInviteKey);
@@ -85,30 +93,45 @@ function takeParkedInvite(slug: string): string {
     // Storage can be unavailable — a locked-down browser, or a test runner
     // started with webstorage off. An invite that cannot be parked still
     // works; it just asks for the passcode.
-    return "";
+    return {};
   }
-  if (!raw) return "";
+  if (!raw) return {};
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null) return "";
-    const { code, at, slug: forSlug } = parsed as { code?: unknown; at?: unknown; slug?: unknown };
-    if (typeof code !== "string" || typeof at !== "number") return "";
-    // A passcode belongs to one space. Landing on a different one must not
-    // spend it there — it would be refused, and the real invite is gone.
-    if (forSlug !== slug) return "";
-    if (!Number.isFinite(at) || Date.now() - at > pendingInviteMaxAgeMs) return "";
-    return code;
+    if (typeof parsed !== "object" || parsed === null) return {};
+    const {
+      handle,
+      at,
+      org: forOrg,
+      slug: forSlug,
+    } = parsed as { handle?: unknown; at?: unknown; org?: unknown; slug?: unknown };
+    if (typeof handle !== "string" || typeof at !== "number") return {};
+    // A handle belongs to one space. Landing on a different one must not spend
+    // it there — the server refuses it, and the real invite is gone. Both
+    // halves of the address, because a slug is only unique inside an org: two
+    // orgs can each have a "platform-team", and matching on the slug alone
+    // would burn a live invite against the wrong one.
+    if (forOrg !== org || forSlug !== slug) return {};
+    if (!Number.isFinite(at) || Date.now() - at > pendingInviteMaxAgeMs) return {};
+    return { handle };
   } catch {
-    return "";
+    return {};
   }
 }
 
-function parkInvite(slug: string, code: string): void {
+/** Trades the invite passcode for a handle and parks that instead. The mint
+ *  door checks the code exactly as the join door does, so a wrong one gets
+ *  nothing to park — and a right one is left in memory only, where the page
+ *  already had it. */
+async function parkInvite(org: string, slug: string, code: string): Promise<void> {
   if (!code) return;
   try {
-    sessionStorage.setItem(pendingInviteKey, JSON.stringify({ code, slug, at: Date.now() }));
+    const { handle } = await api<{ handle: string }>("POST", `${spaceApi(org, slug)}/invite`, { passcode: code });
+    sessionStorage.setItem(pendingInviteKey, JSON.stringify({ handle, org, slug, at: Date.now() }));
   } catch {
-    // See takeParkedInvite: parking is a convenience, never a requirement.
+    // See takeParkedInvite: parking is a convenience, never a requirement. A
+    // visitor whose handle could not be minted or stored is asked for the
+    // passcode on the way back, which is where they started.
   }
 }
 
@@ -122,7 +145,7 @@ function relativeDate(iso: string): string {
 }
 
 export function SpacePage() {
-  const { slug = "" } = useParams();
+  const { org = "", slug = "" } = useParams();
   const qc = useQueryClient();
   const me = useMe();
   const authMode = useAuthMode();
@@ -133,12 +156,12 @@ export function SpacePage() {
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState("");
   const [sort, setSort] = useState<Sort>("Recent");
-  // Held across the name prompt so a joiner types the code exactly once.
-  const [pending, setPending] = useState("");
+  // Held across the name prompt so a joiner presents the invite exactly once.
+  const [pending, setPending] = useState<Invite>({});
   // Read on the first render, before anything can navigate: an invite link
   // carries its passcode in the fragment, and this is the only chance to see
   // it. Empty for a link pasted without one, which is the ordinary case.
-  const [invited] = useState(() => takeInviteCode(slug));
+  const [invited] = useState<Invite>(() => takeInviteCode(org, slug));
   /** The room whose manage dialog is open, if any. */
   const [managing, setManaging] = useState<SessionSummary | null>(null);
   // One attempt only. A refused passcode must land on the gate with the error
@@ -146,8 +169,8 @@ export function SpacePage() {
   const [autoJoined, setAutoJoined] = useState(false);
 
   const space = useQuery({
-    queryKey: ["space", slug],
-    queryFn: () => api<SpaceView>("GET", `/api/spaces/${slug}`),
+    queryKey: ["space", org, slug],
+    queryFn: () => api<SpaceView>("GET", spaceApi(org, slug)),
     retry: false,
     // Presence ages out after ~100s (2 × the socket pong deadline), so a page
     // read once shows a headcount that is quietly wrong within two minutes.
@@ -162,13 +185,13 @@ export function SpacePage() {
   const isMember = space.data?.members !== undefined;
   useEffect(() => {
     if (!isMember) return;
-    api("POST", `/api/spaces/${slug}/seen`).catch(() => {});
-  }, [slug, isMember]);
+    api("POST", `${spaceApi(org, slug)}/seen`).catch(() => {});
+  }, [org, slug, isMember]);
 
   // The one join path, whether the passcode was typed at the gate or carried
   // in by an invite link. Identity comes first: a visitor with no name is sent
   // through the gate, and the code is held so they only present it once.
-  function attemptJoin(passcode?: string) {
+  async function attemptJoin(invite: Invite = {}) {
     // Still loading is not the same as "has no identity": asking a member to
     // pick a name again because their session hadn't arrived yet is worse than
     // a moment's wait.
@@ -177,35 +200,38 @@ export function SpacePage() {
     // "no identity here" the same as a signed-out visitor, so joining goes
     // through the name gate rather than silently reusing that identity.
     if (!isFullAccount(me.data)) {
-      setPending(passcode ?? "");
+      setPending(invite);
       // Open mode's gate is a modal: this component stays mounted and the
-      // state above survives, so nothing is written anywhere. Only the
-      // provider gate leaves the page, and only that case pays the cost of
-      // putting the passcode in storage.
+      // state above survives, so nothing is written anywhere and no handle is
+      // minted. Only the provider gate leaves the page, and only that case
+      // needs something that survives the trip.
       if (authMode.data?.mode === "oidc") {
-        parkInvite(slug, passcode ?? "");
+        await parkInvite(org, slug, invite.passcode ?? "");
       }
       setNeedName(true);
       return;
     }
-    doJoin(passcode);
+    doJoin(invite);
   }
 
   // An invite link seats you without a second step. It runs at most once — a
   // refused code leaves the gate up with the error on it rather than looping.
   useEffect(() => {
-    if (!invited || autoJoined || isMember || me.isLoading) return;
+    if ((!invited.passcode && !invited.handle) || autoJoined || isMember || me.isLoading) return;
     setAutoJoined(true);
     // attemptJoin closes over this render's state; the guards above are what
     // keep it to a single run, not the dependency list.
     attemptJoin(invited);
   }, [invited, autoJoined, isMember, me.isLoading]);
 
-  async function doJoin(passcode?: string) {
+  async function doJoin(invite: Invite = {}) {
     try {
-      await api("POST", `/api/spaces/${slug}/join`, passcode ? { passcode } : {});
+      // A handle if one survived the round trip, the typed passcode otherwise.
+      // Never both: the join door spends whichever it is handed.
+      const credential = invite.handle ? { handle: invite.handle } : invite.passcode ? { passcode: invite.passcode } : {};
+      await api("POST", `${spaceApi(org, slug)}/join`, credential);
       setError("");
-      qc.invalidateQueries({ queryKey: ["space", slug] });
+      qc.invalidateQueries({ queryKey: ["space", org, slug] });
       say("You're seated — pull up a chair");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not join.");
@@ -237,16 +263,17 @@ export function SpacePage() {
       <>
         <Gate
           name={sp.name}
+          org={org}
           slug={sp.slug}
           locked={sp.protected}
           error={error}
-          onJoin={attemptJoin}
+          onJoin={(passcode) => attemptJoin(passcode ? { passcode } : {})}
         />
         {needName && (
           <NameGate
             onDone={() => {
               setNeedName(false);
-              doJoin(pending || undefined);
+              doJoin(pending);
             }}
           />
         )}
@@ -275,6 +302,7 @@ export function SpacePage() {
 
   return (
     <AppShell
+      orgSlug={org}
       spaceSlug={sp.slug}
       spaceName={sp.name}
       me={me.data ?? null}
@@ -286,7 +314,7 @@ export function SpacePage() {
       canManage={canManage}
     >
       <div className="mx-auto max-w-[760px] px-6 py-9 sm:px-8">
-        <InviteStrip slug={sp.slug} passcode={sp.passcode ?? ""} />
+        <InviteStrip org={org} slug={sp.slug} passcode={sp.passcode ?? ""} />
 
         <div className="mb-5 flex items-center justify-between gap-4">
           <h2 className="text-[22px] font-extrabold tracking-tight">Recent sessions</h2>
@@ -411,16 +439,18 @@ export function SpacePage() {
 
       {managing && (
         <RoomManageModal
+          org={org}
           slug={sp.slug}
           room={managing}
           onClose={() => setManaging(null)}
-          onChanged={() => qc.invalidateQueries({ queryKey: ["space", slug] })}
+          onChanged={() => qc.invalidateQueries({ queryKey: ["space", org, slug] })}
           onError={say}
         />
       )}
 
       {creating && (
         <NewSessionModal
+          org={org}
           slug={sp.slug}
           kinds={offered}
           onClose={() => setCreating(false)}
@@ -433,12 +463,14 @@ export function SpacePage() {
 
 function Gate({
   name,
+  org,
   slug,
   locked,
   error,
   onJoin,
 }: {
   name: string;
+  org: string;
   slug: string;
   locked: boolean;
   error: string;
@@ -455,7 +487,7 @@ function Gate({
       <div className="w-full max-w-[420px] rounded-panel border border-line bg-surface px-10 py-9 text-center shadow-rest">
         <h1 className="text-2xl font-extrabold tracking-tight">{name}</h1>
         <p className="mt-2 inline-block rounded-chip bg-felt-deep px-2.5 py-1 font-mono text-[11px] text-ink-faint">
-          /s/{slug}
+          {spacePath(org, slug)}
         </p>
         <div className="my-6 h-px bg-line" />
 
@@ -514,11 +546,11 @@ function Gate({
  * The invite, in one line, above the session list.
  *
  * Read-only on purpose: rotating a passcode locks out everyone still holding
- * the old one, so every control that changes the door lives on /s/:slug/settings
+ * the old one, so every control that changes the door lives on the settings page
  * instead. An open space has no code to show, so the strip says so in the same
  * one line rather than rendering a bordered panel around the word "Open".
  */
-function InviteStrip({ slug, passcode }: { slug: string; passcode: string }) {
+function InviteStrip({ org, slug, passcode }: { org: string; slug: string; passcode: string }) {
   const copyText = useCopy();
 
   return (
@@ -545,7 +577,7 @@ function InviteStrip({ slug, passcode }: { slug: string; passcode: string }) {
         className={buttonQuiet}
         onClick={() =>
           void copyText(
-            inviteLink(slug, passcode),
+            inviteLink(org, slug, passcode),
             "Invite link copied — it seats them in one click",
           )
         }
@@ -561,12 +593,14 @@ function InviteStrip({ slug, passcode }: { slug: string; passcode: string }) {
  * facilitator's call because it ends a meeting, while deleting discards one.
  */
 function RoomManageModal({
+  org,
   slug,
   room,
   onClose,
   onChanged,
   onError,
 }: {
+  org: string;
   slug: string;
   room: SessionSummary;
   onClose: () => void;
@@ -585,7 +619,7 @@ function RoomManageModal({
     e.preventDefault();
     setBusy(true);
     try {
-      await api("PATCH", `/api/spaces/${slug}/sessions/${room.id}`, { title: trimmed });
+      await api("PATCH", `${spaceApi(org, slug)}/sessions/${room.id}`, { title: trimmed });
       onChanged();
       say("Session renamed");
       onClose();
@@ -598,7 +632,7 @@ function RoomManageModal({
   async function destroy() {
     setBusy(true);
     try {
-      await api("DELETE", `/api/spaces/${slug}/sessions/${room.id}`);
+      await api("DELETE", `${spaceApi(org, slug)}/sessions/${room.id}`);
       onChanged();
       say(`${room.title} is gone`);
       onClose();
@@ -665,11 +699,13 @@ function RoomManageModal({
 }
 
 function NewSessionModal({
+  org,
   slug,
   kinds,
   onClose,
   onError,
 }: {
+  org: string;
   slug: string;
   /** The kinds this space may start, in registry order. Never empty. */
   kinds: KindDef[];
@@ -684,7 +720,7 @@ function NewSessionModal({
   async function submit(e: FormEvent) {
     e.preventDefault();
     try {
-      const sess = await api<SessionSummary>("POST", `/api/spaces/${slug}/sessions`, {
+      const sess = await api<SessionSummary>("POST", `${spaceApi(org, slug)}/sessions`, {
         kind: kind.id,
         title: title.trim(),
         config,

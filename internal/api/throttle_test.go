@@ -12,7 +12,7 @@ import (
 // is what an attacker controls when the server is reachable directly.
 func joinFrom(t *testing.T, srv *httptest.Server, slug, forwardedFor, passcode string, cookie *http.Cookie) *http.Response {
 	t.Helper()
-	req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/"+slug+"/join",
+	req, _ := http.NewRequest("POST", srv.URL+"/api/orgs/default/spaces/"+slug+"/join",
 		strings.NewReader(`{"passcode":"`+passcode+`"}`))
 	req.Header.Set("Content-Type", "application/json")
 	if forwardedFor != "" {

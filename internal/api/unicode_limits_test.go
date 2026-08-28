@@ -81,7 +81,7 @@ func TestRenameSpaceAcceptsSixtyFourMultiByteCharacters(t *testing.T) {
 	slug := sp["slug"].(string)
 
 	name := repeatRunes("い", 64)
-	resp, body := doJSON(t, srv, "PATCH", "/api/spaces/"+slug, `{"name":"`+name+`"}`, cookie)
+	resp, body := doJSON(t, srv, "PATCH", "/api/orgs/default/spaces/"+slug, `{"name":"`+name+`"}`, cookie)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("rename space: got %d, want 200 (%v)", resp.StatusCode, body)
 	}
@@ -91,7 +91,7 @@ func TestRenameSpaceAcceptsSixtyFourMultiByteCharacters(t *testing.T) {
 		t.Fatalf("space: got %d %v, want the persisted name", resp.StatusCode, body)
 	}
 
-	resp, body = doJSON(t, srv, "PATCH", "/api/spaces/"+slug, `{"name":"`+repeatRunes("い", 65)+`"}`, cookie)
+	resp, body = doJSON(t, srv, "PATCH", "/api/orgs/default/spaces/"+slug, `{"name":"`+repeatRunes("い", 65)+`"}`, cookie)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("65-character rename: got %d, want 400 (%v)", resp.StatusCode, body)
 	}
@@ -143,7 +143,7 @@ func TestRoomTitleAcceptsTwoHundredMultiByteCharacters(t *testing.T) {
 	}
 
 	renamed := "ま" + repeatRunes("い", 199)
-	resp, body = doJSON(t, srv, "PATCH", "/api/spaces/"+slug+"/sessions/"+id, `{"title":"`+renamed+`"}`, cookie)
+	resp, body = doJSON(t, srv, "PATCH", "/api/orgs/default/spaces/"+slug+"/sessions/"+id, `{"title":"`+renamed+`"}`, cookie)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("rename room: got %d, want 200 (%v)", resp.StatusCode, body)
 	}
@@ -151,7 +151,7 @@ func TestRoomTitleAcceptsTwoHundredMultiByteCharacters(t *testing.T) {
 		t.Fatalf("title = %v, want the title as sent", body["title"])
 	}
 
-	resp, body = doJSON(t, srv, "PATCH", "/api/spaces/"+slug+"/sessions/"+id, `{"title":"`+repeatRunes("い", 201)+`"}`, cookie)
+	resp, body = doJSON(t, srv, "PATCH", "/api/orgs/default/spaces/"+slug+"/sessions/"+id, `{"title":"`+repeatRunes("い", 201)+`"}`, cookie)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("201-character rename: got %d, want 400 (%v)", resp.StatusCode, body)
 	}

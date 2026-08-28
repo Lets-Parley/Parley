@@ -142,6 +142,7 @@ function envelope(over: Partial<Envelope> = {}): Envelope {
     facilitatorConnected: true,
     endedAt: null,
     presence: ["marcus"],
+    orgSlug: "acme",
     spaceSlug: "platform-team",
     participants: [
       makePerson({ userId: "dana", name: "Dana Whitfield" }),

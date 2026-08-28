@@ -105,6 +105,8 @@ export type SpaceView = {
   passcode?: string;
   members?: Person[];
   sessions?: SessionSummary[];
+  /** Present on create only: where the new space lives. */
+  orgSlug?: string;
   /** The kinds a new session may use — retired kinds are omitted. Members only. */
   kinds?: string[];
 };
@@ -112,7 +114,15 @@ export type SpaceView = {
 export type Membership = {
   slug: string;
   name: string;
+  /** The org segment of the space's URL — a slug alone no longer resolves. */
+  orgSlug: string;
   protected: boolean;
+};
+/** One org the caller belongs to, as the switcher lists them. */
+export type OrgMembership = {
+  slug: string;
+  name: string;
+  role: "admin" | "member";
 };
 export type SessionSummary = {
   id: string;
@@ -163,6 +173,8 @@ export type Envelope = {
   endedAt: string | null;
   presence: string[];
   spaceSlug: string;
+  /** The space's org. Empty for a link guest, along with spaceSlug. */
+  orgSlug: string;
   participants: Person[];
   serverTime: string;
   state: PokerState;

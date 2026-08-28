@@ -12,6 +12,7 @@ import {
 } from "../components/Modal";
 import { useCopy, useToast } from "../lib/ui";
 import { inviteLink } from "../lib/invite";
+import { spaceApi, spacePath } from "../lib/paths";
 
 /**
  * Everything that changes a space, on its own page.
@@ -25,7 +26,7 @@ import { inviteLink } from "../lib/invite";
  * The query key is the space page's, so arriving here serves from cache.
  */
 export function SpaceSettingsPage() {
-  const { slug = "" } = useParams();
+  const { org = "", slug = "" } = useParams();
   const qc = useQueryClient();
   const me = useMe();
   const say = useToast();
@@ -34,8 +35,8 @@ export function SpaceSettingsPage() {
   const column = useRef<HTMLDivElement>(null);
 
   const space = useQuery({
-    queryKey: ["space", slug],
-    queryFn: () => api<SpaceView>("GET", `/api/spaces/${slug}`),
+    queryKey: ["space", org, slug],
+    queryFn: () => api<SpaceView>("GET", spaceApi(org, slug)),
     retry: false,
   });
 
@@ -44,7 +45,7 @@ export function SpaceSettingsPage() {
     if (ready) column.current?.focus();
   }, [ready]);
 
-  const refresh = () => qc.invalidateQueries({ queryKey: ["space", slug] });
+  const refresh = () => qc.invalidateQueries({ queryKey: ["space", org, slug] });
 
   if (space.isLoading || me.isLoading) {
     return <p className="p-8 text-center text-ink-faint">Finding the table…</p>;
@@ -61,7 +62,7 @@ export function SpaceSettingsPage() {
   const sp = space.data;
   // Settings is not a way in. Somebody who has not joined belongs at the gate,
   // which is what the space page renders for them.
-  if (sp.members === undefined) return <Navigate to={`/s/${slug}`} replace />;
+  if (sp.members === undefined) return <Navigate to={spacePath(org, slug)} replace />;
 
   // Hiding a control is a courtesy; the server enforces the same rule and
   // answers 403 to a member who reaches the route another way.
@@ -69,6 +70,7 @@ export function SpaceSettingsPage() {
 
   return (
     <AppShell
+      orgSlug={org}
       spaceSlug={sp.slug}
       spaceName={sp.name}
       title="Settings"
@@ -86,7 +88,7 @@ export function SpaceSettingsPage() {
         className="mx-auto max-w-[760px] px-6 py-9 outline-none sm:px-8"
       >
         <Link
-          to={`/s/${sp.slug}`}
+          to={spacePath(org, sp.slug)}
           className="inline-block text-[13px] font-bold text-accent hover:underline"
         >
           ← Back to {sp.name}
@@ -100,6 +102,7 @@ export function SpaceSettingsPage() {
         ) : (
           <>
             <MembersPanel
+              org={org}
               slug={sp.slug}
               members={sp.members}
               meId={me.data?.id ?? ""}
@@ -107,13 +110,14 @@ export function SpaceSettingsPage() {
               onError={say}
             />
             <AccessPanel
+              org={org}
               slug={sp.slug}
               passcode={sp.passcode ?? ""}
               onChanged={refresh}
               onError={say}
             />
-            <SpaceNamePanel slug={sp.slug} name={sp.name} onChanged={refresh} onError={say} />
-            <DangerZone slug={sp.slug} name={sp.name} onError={say} />
+            <SpaceNamePanel org={org} slug={sp.slug} name={sp.name} onChanged={refresh} onError={say} />
+            <DangerZone org={org} slug={sp.slug} name={sp.name} onError={say} />
           </>
         )}
       </div>
@@ -128,12 +132,14 @@ export function SpaceSettingsPage() {
  * courtesy, not the guard.
  */
 function MembersPanel({
+  org,
   slug,
   members,
   meId,
   onChanged,
   onError,
 }: {
+  org: string;
   slug: string;
   members: Person[];
   meId: string;
@@ -160,7 +166,7 @@ function MembersPanel({
   function setRole(m: Person, role: SpaceRole) {
     run(
       m.userId,
-      () => api("POST", `/api/spaces/${slug}/members/${m.userId}/role`, { role }),
+      () => api("POST", `${spaceApi(org, slug)}/members/${m.userId}/role`, { role }),
       role === "owner" ? `${m.name} can now manage this space` : `${m.name} is a member again`,
     );
   }
@@ -168,7 +174,7 @@ function MembersPanel({
   function remove(m: Person) {
     run(
       m.userId,
-      () => api("DELETE", `/api/spaces/${slug}/members/${m.userId}`),
+      () => api("DELETE", `${spaceApi(org, slug)}/members/${m.userId}`),
       `${m.name} no longer has a seat here`,
     );
   }
@@ -231,11 +237,13 @@ function MembersPanel({
  * controls live here rather than on the page the team opens daily.
  */
 function AccessPanel({
+  org,
   slug,
   passcode,
   onChanged,
   onError,
 }: {
+  org: string;
   slug: string;
   passcode: string;
   onChanged: () => void;
@@ -251,7 +259,7 @@ function AccessPanel({
   async function set(open: boolean) {
     setBusy(true);
     try {
-      await api("POST", `/api/spaces/${slug}/passcode`, { open });
+      await api("POST", `${spaceApi(org, slug)}/passcode`, { open });
       onChanged();
       say(open ? "Space opened — the link is now the only thing needed" : "New passcode — the old one stops working");
     } catch (e) {
@@ -279,7 +287,7 @@ function AccessPanel({
         <button
           className={buttonQuiet}
           onClick={() =>
-            copy(inviteLink(slug, passcode), "Invite link copied — it seats them in one click")
+            copy(inviteLink(org, slug, passcode), "Invite link copied — it seats them in one click")
           }
         >
           Copy invite
@@ -308,11 +316,13 @@ function AccessPanel({
 
 /** Renaming the space. The slug deliberately stays put. */
 function SpaceNamePanel({
+  org,
   slug,
   name,
   onChanged,
   onError,
 }: {
+  org: string;
   slug: string;
   name: string;
   onChanged: () => void;
@@ -329,11 +339,11 @@ function SpaceNamePanel({
     e.preventDefault();
     setBusy(true);
     try {
-      await api("PATCH", `/api/spaces/${slug}`, { name: trimmed });
+      await api("PATCH", spaceApi(org, slug), { name: trimmed });
       onChanged();
       // The slug is in every invite already handed out, so it deliberately
       // stays put — say so rather than leaving people hunting for a new link.
-      say(`Renamed — the link /s/${slug} still works`);
+      say(`Renamed — the link ${spacePath(org, slug)} still works`);
     } catch (err) {
       onError(err instanceof Error ? err.message : "Could not rename this space.");
     } finally {
@@ -362,7 +372,7 @@ function SpaceNamePanel({
         </button>
       </form>
       <p className="mt-2 text-[12px] text-ink-faint text-pretty">
-        The address stays /s/{slug}, so invites already sent keep working.
+        The address stays {spacePath(org, slug)}, so invites already sent keep working.
       </p>
     </section>
   );
@@ -376,10 +386,12 @@ function SpaceNamePanel({
  * the space goes with it.
  */
 function DangerZone({
+  org,
   slug,
   name,
   onError,
 }: {
+  org: string;
   slug: string;
   name: string;
   onError: (msg: string) => void;
@@ -393,7 +405,7 @@ function DangerZone({
   async function destroy() {
     setBusy(true);
     try {
-      await api("DELETE", `/api/spaces/${slug}`);
+      await api("DELETE", spaceApi(org, slug));
       say(`${name} is gone`);
       navigate("/");
     } catch (err) {

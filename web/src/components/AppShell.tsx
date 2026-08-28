@@ -11,6 +11,7 @@ import { ConnectionBanner } from "./ConnectionBanner";
 import { KindChip } from "./KindChip";
 import { MemberCard } from "./MemberCard";
 import { Modal } from "./Modal";
+import { spacePath, spaceSettingsPath } from "../lib/paths";
 import logoUrl from "../assets/logo.svg";
 
 export function Logo({ size = 14 }: { size?: number }) {
@@ -85,6 +86,7 @@ export function ConnectionDot({ status }: { status: ConnectionStatus }) {
 }
 
 type Props = {
+  orgSlug: string;
   spaceSlug: string;
   spaceName: string;
   title?: string;
@@ -143,6 +145,7 @@ export function ThemeToggle() {
 }
 
 export function AppShell({
+  orgSlug,
   spaceSlug,
   spaceName,
   title,
@@ -217,7 +220,7 @@ export function AppShell({
                      facilitator hunting yesterday's round concludes it is gone. */
                   <li>
                     <Link
-                      to={`/s/${spaceSlug}`}
+                      to={spacePath(orgSlug, spaceSlug)}
                       className="block rounded-chip px-2.5 py-1.5 text-[13px] font-semibold text-accent hover:bg-felt-deep"
                     >
                       All {sessions.length} sessions
@@ -288,7 +291,7 @@ export function AppShell({
       {canManage && (
         <section className="border-t border-line pt-3">
           <Link
-            to={`/s/${spaceSlug}/settings`}
+            to={spaceSettingsPath(orgSlug, spaceSlug)}
             className="flex items-center gap-2 rounded-chip px-2.5 py-1.5 text-[13px] font-semibold text-ink-soft hover:bg-felt-deep"
           >
             <span aria-hidden>⚙</span>
@@ -342,7 +345,7 @@ export function AppShell({
           </h1>
           {title && !guest && (
             <Link
-              to={`/s/${spaceSlug}`}
+              to={spacePath(orgSlug, spaceSlug)}
               className="truncate text-[12px] font-semibold text-ink-soft hover:text-ink"
             >
               {spaceName}

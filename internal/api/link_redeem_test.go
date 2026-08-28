@@ -452,8 +452,8 @@ func TestDeletingTheRoomDoesNotPromoteALinkGuest(t *testing.T) {
 		name string
 		path func(slug, id string) string
 	}{
-		{"room", func(slug, id string) string { return "/api/spaces/" + slug + "/sessions/" + id }},
-		{"space", func(slug, id string) string { return "/api/spaces/" + slug }},
+		{"room", func(slug, id string) string { return "/api/orgs/default/spaces/" + slug + "/sessions/" + id }},
+		{"space", func(slug, id string) string { return "/api/orgs/default/spaces/" + slug }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			srv := testServer(t)

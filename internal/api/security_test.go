@@ -165,7 +165,7 @@ func TestCrossSiteGetDoesNotRenewSession(t *testing.T) {
 	before := lastUsedAt(t, pool)
 
 	// Exactly what a third-party page's <img src> looks like on the wire.
-	req, _ := http.NewRequest("GET", srv.URL+"/api/spaces/alpha-squad", nil)
+	req, _ := http.NewRequest("GET", srv.URL+"/api/orgs/default/spaces/alpha-squad", nil)
 	req.Header.Set("Origin", "https://evil.example")
 	req.Header.Set("Sec-Fetch-Site", "cross-site")
 	req.AddCookie(ada)
@@ -191,7 +191,7 @@ func TestCrossSiteGetDoesNotRenewSession(t *testing.T) {
 	}
 
 	// chi routes HEAD to the GET handlers, so it is held to the same rule.
-	req, _ = http.NewRequest("HEAD", srv.URL+"/api/spaces/alpha-squad", nil)
+	req, _ = http.NewRequest("HEAD", srv.URL+"/api/orgs/default/spaces/alpha-squad", nil)
 	req.AddCookie(ada)
 	resp, err = srv.Client().Do(req)
 	if err != nil {

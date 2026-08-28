@@ -21,6 +21,7 @@ function envelope(over: Partial<Envelope> = {}): Envelope {
     facilitatorOfflineSince: "2026-08-18T10:00:00.000Z",
     endedAt: null,
     presence: ["marcus"],
+    orgSlug: "acme",
     spaceSlug: "platform-team",
     participants: [
       makePerson({ userId: "dana", name: "Dana Whitfield" }),
@@ -528,6 +529,6 @@ describe("PokerRoom link guest", () => {
     renderApp(<PokerRoom env={env} me={me} />);
     expect(
       screen.getByRole("link", { name: "Back to the space" }).getAttribute("href"),
-    ).toBe("/s/platform-team");
+    ).toBe("/o/acme/s/platform-team");
   });
 });

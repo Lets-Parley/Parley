@@ -13,7 +13,7 @@ import settingsDark from "../../../assets/space-settings-dark.png";
 
 <VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "internal/api/authz.go", "web/src/pages/SpacePage.tsx", "web/src/pages/SpaceSettingsPage.tsx", "web/src/pages/Landing.tsx"]} />
 
-A space is a team's room. It has a memorable URL — `/s/platform-team` — a roster,
+A space is a team's room. It has a memorable URL — `/o/acme/s/platform-team` — a roster,
 and a history of every session run in it.
 
 The URL is the point. It survives being pinned to a channel topic, and it is the
@@ -52,7 +52,7 @@ server itself still accepts either request from any member.
 
 **Copy invite** puts one link on the clipboard, built from the address you are
 already on, with the passcode carried in the URL fragment:
-`https://parley.example/s/platform-team#c=V4KW7J`. Opening it is the whole
+`https://parley.example/o/acme/s/platform-team#c=V4KW7J`. Opening it is the whole
 join — there is no code to read off a second line and retype.
 
 The passcode goes in the **fragment** rather than a query string on purpose. A
@@ -96,7 +96,7 @@ session list and the invite are one audience and one lifetime; renaming,
 rotating and deleting are another.
 
 A rename changes the display name only. The slug does not move with it, so
-`/s/platform-team` keeps working and every invite already pinned to a channel
+`/o/acme/s/platform-team` keeps working and every invite already pinned to a channel
 topic keeps working with it.
 
 Deleting sits alone in the danger zone. It is the one genuinely irreversible

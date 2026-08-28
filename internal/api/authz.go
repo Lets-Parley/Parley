@@ -99,11 +99,7 @@ func (a *app) requireSpaceOwner(next http.Handler) http.Handler {
 			http.Error(w, `{"error":"not signed in"}`, http.StatusUnauthorized)
 			return
 		}
-		orgID, ok := a.resolveOrg(w, r)
-		if !ok {
-			return
-		}
-		sp, err := a.spaces.BySlug(r.Context(), orgID, chi.URLParam(r, "slug"))
+		sp, err := a.spaces.BySlug(r.Context(), orgFrom(r.Context()).ID, chi.URLParam(r, "slug"))
 		if errors.Is(err, store.ErrNoSpace) {
 			http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
 			return
@@ -126,5 +122,87 @@ func (a *app) requireSpaceOwner(next http.Handler) http.Handler {
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), spaceKey{}, sp)))
+	})
+}
+
+type orgKey struct{}
+
+// orgFrom is the org the current request is scoped to. The type assertion is
+// deliberately unchecked, exactly like sessionFrom and spaceFrom above: a
+// handler mounted outside requireOrgMember must panic loudly rather than read
+// a zero uuid and quietly skip the tenancy check. A comma-ok read with a
+// zero-value fallback would compile, run, and fail open.
+func orgFrom(ctx context.Context) store.Org {
+	return ctx.Value(orgKey{}).(store.Org)
+}
+
+// orgSlugFromRoute is the one place in this package that reads the {org} URL
+// segment. Everything downstream reads the resolved org from the request
+// context instead, so there is exactly one source of truth per request;
+// TestOrgParamHasOneReader pins that with go/packages type information, which
+// also catches URLParamFromCtx and RouteContext().URLParam.
+func orgSlugFromRoute(r *http.Request) string {
+	return chi.URLParam(r, "org")
+}
+
+// requireOrgMember resolves {org} and requires the caller to belong to it. A
+// non-member gets 404 rather than 403, the same posture requireSpaceOwner and
+// requireSessionMember take: whether an org exists is not disclosed to anyone
+// outside it, so an unprivileged account elsewhere on the instance cannot use
+// the status code to enumerate tenants.
+//
+// It proves only that the *caller* is in this org. It says nothing about which
+// org a space resolved by slug belongs to, so every handler behind it must
+// still filter its own lookup by the org id this puts in the context.
+func (a *app) requireOrgMember(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, ok := PrincipalFrom(r.Context())
+		if !ok {
+			http.Error(w, `{"error":"not signed in"}`, http.StatusUnauthorized)
+			return
+		}
+		org, err := a.orgs.BySlug(r.Context(), orgSlugFromRoute(r))
+		if errors.Is(err, store.ErrNoOrg) {
+			http.Error(w, `{"error":"no such org"}`, http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(w, `{"error":"could not load org"}`, http.StatusInternalServerError)
+			return
+		}
+		member, err := a.orgs.IsMember(r.Context(), org.ID, p.UserID)
+		if err != nil {
+			http.Error(w, `{"error":"could not load org"}`, http.StatusInternalServerError)
+			return
+		}
+		if !member {
+			http.Error(w, `{"error":"no such org"}`, http.StatusNotFound)
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), orgKey{}, org)))
+	})
+}
+
+// requireOrgAdmin runs inside requireOrgMember and narrows it to the org's
+// admins. A member who is not one gets 403 — they are already known to be
+// inside the org, so refusing the action discloses nothing the 404 above was
+// protecting.
+func (a *app) requireOrgAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, _ := PrincipalFrom(r.Context())
+		role, err := a.orgs.RoleOf(r.Context(), orgFrom(r.Context()).ID, p.UserID)
+		if errors.Is(err, store.ErrNotOrgMember) {
+			http.Error(w, `{"error":"no such org"}`, http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(w, `{"error":"could not load org"}`, http.StatusInternalServerError)
+			return
+		}
+		if role != store.OrgRoleAdmin {
+			http.Error(w, `{"error":"only an org admin can do that"}`, http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
