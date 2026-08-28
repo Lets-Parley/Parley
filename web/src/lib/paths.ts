@@ -28,7 +28,15 @@ export function orgPath(org: string): string {
   return `/o/${org}`;
 }
 
-/** The API for the spaces in one org the caller may see. */
-export function orgSpacesApi(org: string): string {
-  return `/api/orgs/${org}/spaces`;
+/**
+ * The API for the spaces in one org the caller may see.
+ *
+ * The answer is one page. `after` is the opaque cursor the previous page
+ * returned as `next`, and it is passed straight back rather than interpreted —
+ * a client that reads it is a client that will break when the server's paging
+ * key changes.
+ */
+export function orgSpacesApi(org: string, after = ""): string {
+  const base = `/api/orgs/${org}/spaces`;
+  return after ? `${base}?after=${encodeURIComponent(after)}` : base;
 }

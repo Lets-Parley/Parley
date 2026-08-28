@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { api, ApiError, errorText, type OrgSpace } from "../lib/api";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { api, ApiError, errorText, type OrgSpacePage } from "../lib/api";
 import { orgSpacesApi, spacePath } from "../lib/paths";
 import { Logo, ThemeToggle } from "../components/AppShell";
 import { NameGate } from "../components/NameGate";
@@ -21,12 +21,24 @@ import { buttonQuiet } from "../components/Modal";
  * passcode-protected one puts them in front of its gate — both of which the
  * space page already knows how to do. The "Passcode" badge is the honest
  * warning that the second is what will happen.
+ *
+ * It arrives a page at a time, and the rest is asked for by a button rather
+ * than by scrolling. An org that has been running for a year has more rooms
+ * than anybody wants sent at once, and this is the page a new member is
+ * pointed at from the landing page — the first thing they load and the one
+ * most likely to be large. A button is the accessible half of that bargain:
+ * it is in the tab order, it says what it does, and nothing loads because
+ * somebody's finger slipped on a trackpad.
  */
 export function OrgDirectory() {
   const { org = "" } = useParams();
-  const spaces = useQuery({
+  const spaces = useInfiniteQuery({
     queryKey: ["org-spaces", org],
-    queryFn: () => api<OrgSpace[]>("GET", orgSpacesApi(org)),
+    queryFn: ({ pageParam }) => api<OrgSpacePage>("GET", orgSpacesApi(org, pageParam)),
+    initialPageParam: "",
+    // The cursor is opaque and absent at the end of the list, which is what
+    // tells react-query there is no further page to offer.
+    getNextPageParam: (last: OrgSpacePage) => last.next || undefined,
     retry: false,
   });
 
@@ -39,8 +51,11 @@ export function OrgDirectory() {
 
   // Rooms the caller is already in first: this page exists to get somebody
   // back to their table, and only then to show them what else is out there.
+  // The server's order is by name, and this sort is stable, so a page loaded
+  // later is appended inside its group rather than shuffling what is already
+  // on screen.
   const rows = useMemo(() => {
-    const all = spaces.data ?? [];
+    const all = (spaces.data?.pages ?? []).flatMap((page) => page.spaces);
     return [...all].sort((a, b) => Number(b.member) - Number(a.member));
   }, [spaces.data]);
 
@@ -117,6 +132,24 @@ export function OrgDirectory() {
             </li>
           ))}
         </ul>
+      )}
+
+      {spaces.hasNextPage && (
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className={buttonQuiet}
+            disabled={spaces.isFetchingNextPage}
+            onClick={() => void spaces.fetchNextPage()}
+          >
+            {spaces.isFetchingNextPage ? "Loading more…" : "Show more spaces"}
+          </button>
+          {/* Said out loud, because appending rows below the fold is silent
+              to somebody who cannot see the list grow. */}
+          <span role="status" className="text-sm text-ink-faint">
+            Showing {rows.length} so far
+          </span>
+        </div>
       )}
 
       <p className="text-sm text-ink-faint text-pretty">

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -688,15 +689,39 @@ func (a *app) legacySpaceRedirect(spa http.HandlerFunc) http.HandlerFunc {
 //
 // The org id is read from the request context, never from the URL segment, so
 // requireOrgMember stays the single source of truth for which tenant this is.
+//
+// The answer is one page, never the whole org. An org that has been running
+// for a year has more rooms than anybody wants to be sent at once, and this is
+// the page a new member is pointed at from the landing page, so it is both the
+// first thing they load and the one most likely to be large. `after` is an
+// opaque cursor from the previous page's `next`; `limit` is clamped to
+// store.DirectoryMaxPageSize rather than refused.
 func (a *app) handleListOrgSpaces(w http.ResponseWriter, r *http.Request) {
 	p, _ := PrincipalFrom(r.Context())
-	spaces, err := a.spaces.ForOrg(r.Context(), orgFrom(r.Context()).ID, p.UserID)
+	limit := 0
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			http.Error(w, `{"error":"limit must be a positive whole number"}`, http.StatusBadRequest)
+			return
+		}
+		limit = n
+	}
+	page, err := a.spaces.ForOrg(r.Context(), orgFrom(r.Context()).ID, p.UserID,
+		r.URL.Query().Get("after"), limit)
+	if errors.Is(err, store.ErrBadCursor) {
+		// Never a silent restart from the top: a cursor this build did not
+		// mint means the caller is asking for a position nobody can name,
+		// and answering page one would look like the list had reset.
+		http.Error(w, `{"error":"that page cursor is not one we issued"}`, http.StatusBadRequest)
+		return
+	}
 	if err != nil {
 		slog.Error("could not list an org's spaces", "error", err)
 		http.Error(w, `{"error":"could not load this org's spaces"}`, http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, spaces)
+	writeJSON(w, http.StatusOK, page)
 }
 
 // handleSetVisibility lists a space to its org, or takes it back out of the

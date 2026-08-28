@@ -3,21 +3,32 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderApp } from "../test/render";
 import { expectNoViolations } from "../test/axe";
-import { api, ApiError, type OrgSpace } from "../lib/api";
+import { api, ApiError, type OrgSpace, type OrgSpacePage } from "../lib/api";
 import { OrgDirectory } from "./OrgDirectory";
 
 let directory: OrgSpace[] = [];
+/** How many rows the fake server puts on a page. 0 means all of them. */
+let pageSize = 0;
 let fails: unknown = null;
 let authMode: "open" | "oidc" = "oidc";
+
+/** The paging the server actually does: a cursor naming the last row sent. */
+function serve(after: string): OrgSpacePage {
+  const from = after ? directory.findIndex((sp) => sp.slug === after) + 1 : 0;
+  const rest = directory.slice(from);
+  if (pageSize <= 0 || rest.length <= pageSize) return { spaces: rest };
+  const spaces = rest.slice(0, pageSize);
+  return { spaces, next: spaces[spaces.length - 1].slug };
+}
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
   return {
     ...actual,
     api: vi.fn(async (_method: string, path: string) => {
-      if (path === "/api/orgs/acme/spaces") {
+      if (path.startsWith("/api/orgs/acme/spaces")) {
         if (fails) throw fails;
-        return directory;
+        return serve(new URL(path, "http://x").searchParams.get("after") ?? "");
       }
       if (path === "/api/auth") return { mode: authMode };
       if (path === "/api/me") return null;
@@ -43,6 +54,7 @@ function show() {
 
 beforeEach(() => {
   directory = [];
+  pageSize = 0;
   fails = null;
   authMode = "oidc";
   vi.mocked(api).mockClear();
@@ -119,6 +131,71 @@ describe("OrgDirectory", () => {
 
     expect(await screen.findByRole("dialog")).toBeTruthy();
     expect(screen.getByLabelText(/your name/i)).toBeTruthy();
+  });
+
+  // The directory is bounded, so an org with more rooms than one page has to
+  // offer a way to the rest of them — and it has to be one that works without
+  // a mouse. A button is in the tab order and says what it does; an
+  // infinite-scroll sentinel is neither.
+  it("asks for the next page from a keyboard-operable control", async () => {
+    directory = [
+      space({ slug: "aaa", name: "Aaa" }),
+      space({ slug: "bbb", name: "Bbb" }),
+      space({ slug: "ccc", name: "Ccc" }),
+    ];
+    pageSize = 2;
+    show();
+
+    const list = await screen.findByRole("list", { name: /spaces in acme/i });
+    await waitFor(() => expect(within(list).getAllByRole("link")).toHaveLength(2));
+
+    const more = screen.getByRole("button", { name: /show more/i });
+    more.focus();
+    expect(document.activeElement).toBe(more);
+    await userEvent.keyboard("{Enter}");
+
+    await waitFor(() => expect(within(list).getAllByRole("link")).toHaveLength(3));
+    // The end of the list is the end of the control: no button left offering
+    // a page that is not there.
+    expect(screen.queryByRole("button", { name: /show more/i })).toBeNull();
+  });
+
+  // The cursor is opaque and belongs to the server. The page hands back
+  // exactly what it was given, because a client that parses it is a client
+  // that breaks the day the paging key changes.
+  it("hands the server's cursor back untouched", async () => {
+    directory = [
+      space({ slug: "aaa", name: "Aaa" }),
+      space({ slug: "b b/b", name: "Bbb" }),
+      space({ slug: "ccc", name: "Ccc" }),
+    ];
+    pageSize = 1;
+    show();
+
+    await screen.findByRole("link", { name: /aaa/i });
+    await userEvent.click(screen.getByRole("button", { name: /show more/i }));
+    await screen.findByRole("link", { name: /bbb/i });
+    await userEvent.click(screen.getByRole("button", { name: /show more/i }));
+    await screen.findByRole("link", { name: /ccc/i });
+
+    expect(vi.mocked(api).mock.calls.map(([, path]) => path)).toContain(
+      `/api/orgs/acme/spaces?after=${encodeURIComponent("b b/b")}`,
+    );
+  });
+
+  it("has no axe violations with more pages to load, in either theme", async () => {
+    directory = [
+      space({ slug: "aaa", name: "Aaa" }),
+      space({ slug: "bbb", name: "Bbb", member: true }),
+    ];
+    pageSize = 1;
+    for (const theme of ["light", "dark"] as const) {
+      document.documentElement.setAttribute("data-theme", theme);
+      const { container, unmount } = show();
+      await screen.findByRole("button", { name: /show more/i });
+      await expectNoViolations(container);
+      unmount();
+    }
   });
 
   it("has no axe violations on the sign-in gate, in either theme", async () => {
