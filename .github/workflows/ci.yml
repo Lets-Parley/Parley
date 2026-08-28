@@ -286,6 +286,31 @@ jobs:
             grep -q "^kind: $kind$" /tmp/all.yaml || { echo "missing $kind"; exit 1; }
           done
 
+      # extraEnv is what makes the documented "every variable is settable"
+      # claim true, so it needs a render that proves it reaches the container —
+      # and a malformed entry has to be refused here rather than at kubectl
+      # apply, where helm template and helm lint both say yes.
+      - name: passes extra environment variables through
+        run: |
+          set -eu
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=parley \
+            --set 'extraEnv[0].name=OIDC_SCOPES' \
+            --set-string 'extraEnv[0].value=profile email groups' > /tmp/extraenv.yaml
+          grep -q 'name: OIDC_SCOPES' /tmp/extraenv.yaml
+          grep -q 'value: profile email groups' /tmp/extraenv.yaml
+          # And the chart's own variables are still there beside it.
+          grep -q 'name: DATABASE_URL' /tmp/extraenv.yaml
+      - name: refuses an extra environment variable with no name
+        run: |
+          ! helm template parley deploy/charts/parley \
+            --set database.existingSecret=x \
+            --set-string 'extraEnv[0].value=no-name-here' 2>/dev/null
+          # A map where a list belongs otherwise surfaces as a coalesce error
+          # from inside Helm rather than a sentence naming the value.
+          ! helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set 'extraEnv.name=X' 2>/dev/null
+
       # The guards. Each of these MUST fail to render; a guard that never fires
       # in CI is a guard nobody has tested.
       - name: refuses a missing database secret
