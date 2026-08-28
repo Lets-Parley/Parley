@@ -536,8 +536,12 @@ describe("SpacePage invite links", () => {
  * Under an identity provider, taking a seat is a full-page trip to the provider
  * and back, and `next` is built from the path and query alone — the fragment
  * does not survive it. Because the fragment has already been wiped by then, a
- * lost code strands the visitor at the passcode gate with nothing left to type,
- * so it is parked in sessionStorage for exactly one round trip.
+ * lost invite strands the visitor at the passcode gate with nothing left to
+ * type, so something is parked in sessionStorage for exactly one round trip.
+ *
+ * That something is never the passcode. The code is traded first for an opaque
+ * server-issued handle — single use, five minutes, one space — and the handle
+ * is what waits.
  */
 describe("SpacePage invite links across a sign-in round trip", () => {
   const locked = { slug: "platform-team", name: "Platform Team", protected: true } as SpaceView;
@@ -560,13 +564,16 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     vi.restoreAllMocks();
   });
 
-  it("parks the code when the visitor has no identity yet", async () => {
+  it("parks a minted handle, and never the passcode, when the visitor has no identity yet", async () => {
     view = locked;
     // No identity, and a provider: the gate that follows is a full-page
     // navigation, which is the case the parking exists for.
-    vi.mocked(api).mockImplementation((async (_m: string, path: string) => {
+    const seen: unknown[][] = [];
+    vi.mocked(api).mockImplementation((async (method: string, path: string, body?: unknown) => {
+      seen.push([method, path, body]);
       if (path === "/api/me") return null;
       if (path === "/api/auth") return { mode: "oidc" };
+      if (path === "/api/orgs/acme/spaces/platform-team/invite") return { handle: "HANDLE-1" };
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
@@ -575,16 +582,42 @@ describe("SpacePage invite links across a sign-in round trip", () => {
 
     await screen.findByText("Platform Team");
     await waitFor(() => expect(sessionStorage.getItem("parley:pending-invite")).toBeTruthy());
-    const parked = JSON.parse(sessionStorage.getItem("parley:pending-invite")!);
-    expect(parked.code).toBe("TEAM49");
+    // The code was spent at the mint door, where the server checks it exactly
+    // as the join door does.
+    expect(seen).toContainEqual(["POST", "/api/orgs/acme/spaces/platform-team/invite", { passcode: "TEAM49" }]);
+    const raw = sessionStorage.getItem("parley:pending-invite")!;
+    const parked = JSON.parse(raw);
+    expect(parked.handle).toBe("HANDLE-1");
     expect(parked.org).toBe("acme");
     expect(parked.slug).toBe("platform-team");
+    // The whole point: the door code itself is nowhere in storage.
+    expect(raw).not.toContain("TEAM49");
+    expect(parked.code).toBeUndefined();
     // And it is out of the address bar already — the whole point of the wipe.
     expect(window.location.hash).toBe("");
   });
 
+  // A wrong code mints nothing, so there is nothing to park: the mint door
+  // refuses it exactly as the join door would.
+  it("parks nothing when the passcode is refused at the mint door", async () => {
+    view = locked;
+    vi.mocked(api).mockImplementation((async (_m: string, path: string) => {
+      if (path === "/api/me") return null;
+      if (path === "/api/auth") return { mode: "oidc" };
+      if (path === "/api/orgs/acme/spaces/platform-team/invite") throw new Error("That passcode doesn't match this space.");
+      if (path.startsWith("/api/orgs/acme/spaces/")) return view;
+      throw new Error(`unexpected api call: ${path}`);
+    }) as typeof defaultApi);
+    window.history.replaceState(null, "", "/o/acme/s/platform-team#c=WRONG1");
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
+
+    await screen.findByText("Platform Team");
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+    expect(sessionStorage.getItem("parley:pending-invite")).toBeNull();
+  });
+
   // Open mode's gate is a modal — the component stays mounted, so there is
-  // nothing to park and no reason to put a passcode in storage at all.
+  // nothing to park and no reason to mint a handle at all.
   it("parks nothing in open mode, where the gate never leaves the page", async () => {
     view = locked;
     vi.mocked(api).mockImplementation((async (_m: string, path: string) => {
@@ -602,11 +635,11 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     expect(sessionStorage.getItem("parley:pending-invite")).toBeNull();
   });
 
-  it("joins with the parked code on the way back, with no fragment left", async () => {
+  it("joins with the parked handle on the way back, with no fragment left", async () => {
     view = locked;
     sessionStorage.setItem(
       "parley:pending-invite",
-      JSON.stringify({ code: "TEAM49", org: "acme", slug: "platform-team", at: Date.now() }),
+      JSON.stringify({ handle: "HANDLE-1", org: "acme", slug: "platform-team", at: Date.now() }),
     );
     // Back from the provider: same path, no fragment, and now signed in.
     window.history.replaceState(null, "", "/o/acme/s/platform-team");
@@ -619,20 +652,20 @@ describe("SpacePage invite links across a sign-in round trip", () => {
         (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
           .slice(before)
           .filter(([, path]) => path === "/api/orgs/acme/spaces/platform-team/join"),
-      ).toContainEqual(["POST", "/api/orgs/acme/spaces/platform-team/join", { passcode: "TEAM49" }]),
+      ).toContainEqual(["POST", "/api/orgs/acme/spaces/platform-team/join", { handle: "HANDLE-1" }]),
     );
-    // One attempt only: a refused passcode must land on the gate, not loop.
+    // One attempt only: a refused invite must land on the gate, not loop.
     expect(sessionStorage.getItem("parley:pending-invite")).toBeNull();
   });
 
   // Slugs are unique inside an org, not across the instance: two orgs can each
-  // have a "platform-team". A code parked for one must not be spent — and
+  // have a "platform-team". A handle parked for one must not be spent — and
   // burned — against the other's space of the same name.
-  it("will not spend a code parked for the same slug in another org", async () => {
+  it("will not spend a handle parked for the same slug in another org", async () => {
     view = locked;
     sessionStorage.setItem(
       "parley:pending-invite",
-      JSON.stringify({ code: "TEAM49", org: "globex", slug: "platform-team", at: Date.now() }),
+      JSON.stringify({ handle: "HANDLE-1", org: "globex", slug: "platform-team", at: Date.now() }),
     );
     window.history.replaceState(null, "", "/o/acme/s/platform-team");
     const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
@@ -646,11 +679,11 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     ).toHaveLength(0);
   });
 
-  it("will not spend a code parked for a different space", async () => {
+  it("will not spend a handle parked for a different space", async () => {
     view = locked;
     sessionStorage.setItem(
       "parley:pending-invite",
-      JSON.stringify({ code: "OTHER1", slug: "another-team", at: Date.now() }),
+      JSON.stringify({ handle: "HANDLE-OTHER", slug: "another-team", at: Date.now() }),
     );
     window.history.replaceState(null, "", "/o/acme/s/platform-team");
     const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
@@ -664,12 +697,12 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     ).toHaveLength(0);
   });
 
-  it("ignores a code parked longer than a sign-in trip could take", async () => {
+  it("ignores a handle parked longer than a sign-in trip could take", async () => {
     view = locked;
     sessionStorage.setItem(
       "parley:pending-invite",
       JSON.stringify({
-        code: "TEAM49",
+        handle: "HANDLE-1",
         slug: "platform-team",
         at: Date.now() - 16 * 60 * 1000,
       }),
