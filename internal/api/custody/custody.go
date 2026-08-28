@@ -49,9 +49,12 @@ const (
 const maxNameLength = 64
 
 // Scope is what the surrounding router has already established about the
-// request: which org it is scoped to, and who is acting. Handlers here read it
-// from the request context and never from the URL, so the org gate stays the
-// one source of truth.
+// request: which org it is scoped to, and who is acting. These are the
+// trust-bearing values, and handlers here read them from the request context
+// only, so the org gate stays the one source of truth. Route params are read —
+// a slug and a user id say which space and which member a call is about — but
+// only to address a resource inside the org the scope has already fixed:
+// nothing in a URL widens what the caller may touch.
 type Scope struct {
 	OrgID   string
 	OrgSlug string

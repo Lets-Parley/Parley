@@ -393,8 +393,11 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			// so a link guest is 401 rather than 404 one step later,
 			// requireOrgMember so an outsider is told nothing about whether
 			// the org exists, and requireOrgAdmin so an ordinary member is
-			// refused. custodyScope hands the resolved org and the acting
-			// user to the custody package, which never reads the URL itself.
+			// refused. custodyScope then hands the custody package the
+			// trust-bearing values — the resolved org and the acting user —
+			// which are the ones that must never be attacker-controlled. The
+			// handlers do read route params, but only to address a resource
+			// (which space, which member) inside the org already fixed here.
 			r.Group(func(r chi.Router) {
 				r.Use(RequireUser)
 				r.Use(a.requireOrgMember)
