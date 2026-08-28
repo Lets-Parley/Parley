@@ -188,10 +188,14 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		Store: &custody.Store{Pool: pool},
 		// An org revoke drops every space the person held in that org, so the
 		// sockets they already have open have to go too — here, and on every
-		// other replica, which is what the notification is for.
-		OnMembershipRevoked: func(ctx context.Context, userID string) {
-			a.hub.DisconnectUser(userID)
-			a.notifyMemberRevoke(ctx, userID)
+		// other replica, which is what the notification is for. One space at a
+		// time, because that is the scope the revoke actually had: the same
+		// person may hold spaces in other orgs, and those sockets stay.
+		OnMembershipRevoked: func(ctx context.Context, userID string, spaceIDs []string) {
+			for _, spaceID := range spaceIDs {
+				a.hub.DisconnectSpaceMember(spaceID, userID)
+				a.notifyMemberRevoke(ctx, spaceID, userID)
+			}
 		},
 	}
 	if mode == ModeOIDC {

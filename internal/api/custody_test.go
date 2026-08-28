@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lets-parley/parley/internal/store"
@@ -662,4 +664,98 @@ func TestOrgRevokeClosesASocketOnAnotherReplica(t *testing.T) {
 	}
 
 	awaitRevoked(t, wsB, "an org revoke served by instance A never closed the socket held by instance B")
+}
+
+// TestAnOrgRevokeSparesSpacesInAnotherOrg is the blast radius of a revoke. The
+// revoke removes membership in one org's spaces, so the disconnect must reach
+// exactly those sockets. A user who also belongs to a space in a second org is
+// still a member there, and closing that socket too would throw them out of a
+// room they still have every right to be in — including when the revoke is
+// pre-emptive and they were never in the revoking org at all.
+func TestAnOrgRevokeSparesSpacesInAnotherOrg(t *testing.T) {
+	ctx := context.Background()
+	srv, pool, admin, _ := custodyServer(t)
+
+	fac := signup(t, srv, "Fay")
+	member, memberID := signupWithID(t, srv, "Mel")
+	sessionHere := spaceWithMember(t, srv, fac, member, "Revoked Org Space")
+	sessionElsewhere := spaceWithMember(t, srv, fac, member, "Other Org Space")
+
+	// Move the second space into a second org, where the revoke has no reach.
+	var otherOrg string
+	other := "other-" + randomSlugSuffix(t)
+	if err := pool.QueryRow(ctx,
+		"insert into orgs (slug, name, claim_value) values ($1, 'Other', $1) returning id", other).Scan(&otherOrg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx,
+		"update spaces set org_id = $1 where id = (select space_id from sessions where id = $2)",
+		otherOrg, sessionElsewhere); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx,
+		"insert into org_members (org_id, user_id, role) values ($1, $2, 'member') on conflict do nothing",
+		otherOrg, memberID); err != nil {
+		t.Fatal(err)
+	}
+
+	wsHere, _, err := dialWS(t, srv, sessionHere, member, testOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wsHere.Close()
+	consumePresenceFrames(t, wsHere)
+	wsElsewhere, _, err := dialWS(t, srv, sessionElsewhere, member, testOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wsElsewhere.Close()
+	consumePresenceFrames(t, wsElsewhere)
+
+	if got, err := requestStatus(srv, "DELETE", custodyPath+"/members/"+memberID, "", admin); err != nil || got != http.StatusNoContent {
+		t.Fatalf("revoke = %d (%v), want 204", got, err)
+	}
+
+	awaitRevoked(t, wsHere, "a revoke from this org left the socket in this org open")
+	awaitStillOpen(t, wsElsewhere, "a revoke from one org closed the socket held in another org")
+}
+
+// spaceWithMember creates a space owned by fac, joins member to it, and returns
+// the id of a session inside it.
+func spaceWithMember(t *testing.T, srv *httptest.Server, fac, member *http.Cookie, name string) string {
+	t.Helper()
+	_, sp := createSpace(t, srv, name+" "+randomSlugSuffix(t), fac)
+	slug, _ := sp["slug"].(string)
+	code, _ := sp["passcode"].(string)
+	if resp := joinSpace(t, srv, slug, member, code); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("join %s: %d", slug, resp.StatusCode)
+	}
+	resp, sess := createSession(t, srv, slug, "poker", "Sprint", fac)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create session in %s: %d %v", slug, resp.StatusCode, sess)
+	}
+	id, _ := sess["id"].(string)
+	if id == "" {
+		t.Fatalf("no session id: %v", sess)
+	}
+	return id
+}
+
+// awaitStillOpen is the inverse of awaitRevoked: it reads for long enough that
+// a disconnect aimed at this socket would have arrived, and fails if one did.
+// Frames are fine — a close is not.
+func awaitStillOpen(t *testing.T, ws *websocket.Conn, where string) {
+	t.Helper()
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	for {
+		_, _, err := ws.ReadMessage()
+		if err == nil {
+			continue
+		}
+		var closeErr *websocket.CloseError
+		if errors.As(err, &closeErr) {
+			t.Fatalf("%s: socket closed with %d", where, closeErr.Code)
+		}
+		return // a read deadline, which is the socket still being open
+	}
 }

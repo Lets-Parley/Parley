@@ -108,10 +108,12 @@ space where the revoked person was the sole owner. Instead the revoke promotes
 the most recently active remaining member where it can, and where it cannot it
 refuses with 409, names those spaces, and writes nothing at all.
 
-Their open WebSockets close immediately on the replica that served the revoke
-and, via the `parley_member_revoke` notification, on every other replica too.
-If that notification is lost, the backstop is the hub's revalidation tick — at
-most 30 seconds.
+Their open WebSockets in that org's spaces close immediately on the replica
+that served the revoke and, via one `parley_member_revoke` notification per
+space, on every other replica too. Only those spaces: a revoke reaches one org,
+so sockets the same person holds in another org's spaces are left alone. If a
+notification is lost, the backstop is the hub's revalidation tick — at most 30
+seconds.
 
 ### Purging an org
 

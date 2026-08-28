@@ -375,9 +375,14 @@ func TestTheSuccessorTiebreakIsTheUserID(t *testing.T) {
 	want := candidates[len(candidates)-1]
 
 	store := &Store{Pool: pool}
-	blocked, err := store.RevokeOrgMember(ctx, Scope{OrgID: orgID, OrgSlug: orgSlug, ActorID: adminID}, ownerID)
+	removed, blocked, err := store.RevokeOrgMember(ctx, Scope{OrgID: orgID, OrgSlug: orgSlug, ActorID: adminID}, ownerID)
 	if err != nil {
 		t.Fatalf("revoke: %v (blocked %v)", err, blocked)
+	}
+	// The reported ids are what the caller aims a disconnect at, so they have
+	// to be the spaces the revoke actually emptied — no more, no less.
+	if len(removed) != 1 || removed[0] != spaceID {
+		t.Fatalf("removed = %v, want just the one space %s", removed, spaceID)
 	}
 
 	var owners []string

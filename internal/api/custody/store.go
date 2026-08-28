@@ -291,7 +291,12 @@ func lockOrgMembership(ctx context.Context, tx pgx.Tx, orgID, userID string) (st
 }
 
 // RevokeOrgMember removes somebody from the org and from every space in it, in
-// one transaction, and reports the spaces that block it.
+// one transaction, and reports the spaces it removed them from as well as the
+// spaces that block it.
+//
+// The removed ids are what the caller aims a disconnect at. They are the scope
+// of the revoke and nothing wider: this person may hold spaces in other orgs,
+// which this transaction does not touch and whose sockets must survive.
 //
 // Per space it does exactly what mutateMembership would have done one call at
 // a time: if the person is the sole owner it promotes a replacement, and if
@@ -299,9 +304,9 @@ func lockOrgMembership(ctx context.Context, tx pgx.Tx, orgID, userID string) (st
 // promotion rule is the one 0015_member_roles.sql already established for this
 // problem — most recent last_seen_at, user_id as the tiebreak — and it
 // excludes the person being revoked.
-func (s *Store) RevokeOrgMember(ctx context.Context, scope Scope, userID string) ([]string, error) {
-	var blocked []string
-	err := s.inTx(ctx, func(tx pgx.Tx) error {
+func (s *Store) RevokeOrgMember(ctx context.Context, scope Scope, userID string) (removed, blocked []string, err error) {
+	err = s.inTx(ctx, func(tx pgx.Tx) error {
+		removed, blocked = nil, nil
 		current, admins, err := lockOrgMembership(ctx, tx, scope.OrgID, userID)
 		// Somebody with no membership row is still revocable: the tombstone is
 		// an upsert precisely so an admin can shut the door before the person
@@ -369,6 +374,9 @@ func (s *Store) RevokeOrgMember(ctx context.Context, scope Scope, userID string)
 		if len(blocked) > 0 {
 			return ErrWouldStrandSpace
 		}
+		for _, sr := range spaces {
+			removed = append(removed, sr.id)
+		}
 
 		if _, err := tx.Exec(ctx, `
 			delete from members m using spaces sp
@@ -387,7 +395,10 @@ func (s *Store) RevokeOrgMember(ctx context.Context, scope Scope, userID string)
 		}
 		return nil
 	})
-	return blocked, err
+	if err != nil {
+		return nil, blocked, err
+	}
+	return removed, nil, nil
 }
 
 // RestoreOrgMember lifts a revocation. Only a revoked row is restorable: an

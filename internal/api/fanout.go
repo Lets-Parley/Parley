@@ -41,7 +41,7 @@ const revokeChannel = "parley_revoke"
 //
 // It is a separate channel from revokeChannel rather than a reuse of it
 // because the two are keyed on different things: that one names a session
-// token, this one names a user. Nothing about an org revoke identifies which
+// token, this one names a space and a user. Nothing about an org revoke identifies which
 // tokens the person holds, and enumerating them would put credential material
 // on a channel anything able to LISTEN on this database can read.
 //
@@ -102,12 +102,14 @@ func (a *app) notifyRevoke(ctx context.Context, tokenHash []byte) {
 	}
 }
 
-// notifyMemberRevoke tells the other replicas to drop every WebSocket held by
-// this user. Best-effort for the same reason as notify and notifyRevoke: the
-// revocation itself has already committed, and the bounded cost of a lost
-// notification is one remote socket living until its next revalidation tick.
-func (a *app) notifyMemberRevoke(ctx context.Context, userID string) {
-	if _, err := a.pool.Exec(ctx, "select pg_notify($1, $2)", memberRevokeChannel, a.instanceID+" "+userID); err != nil {
+// notifyMemberRevoke tells the other replicas to drop the WebSockets this user
+// holds in one space. Best-effort for the same reason as notify and
+// notifyRevoke: the revocation itself has already committed, and the bounded
+// cost of a lost notification is one remote socket living until its next
+// revalidation tick.
+func (a *app) notifyMemberRevoke(ctx context.Context, spaceID, userID string) {
+	payload := a.instanceID + " " + spaceID + " " + userID
+	if _, err := a.pool.Exec(ctx, "select pg_notify($1, $2)", memberRevokeChannel, payload); err != nil {
 		slog.Error("could not notify other replicas of an org membership revocation", "error", err)
 	}
 }
@@ -209,7 +211,12 @@ func (a *app) listenOnce(ctx context.Context) error {
 			}
 			a.hub.DisconnectToken(string(tokenHash))
 		case memberRevokeChannel:
-			a.hub.DisconnectUser(rest)
+			spaceID, userID, ok := strings.Cut(rest, " ")
+			if !ok {
+				slog.Warn("ignoring malformed membership revocation notification")
+				continue
+			}
+			a.hub.DisconnectSpaceMember(spaceID, userID)
 		}
 	}
 }

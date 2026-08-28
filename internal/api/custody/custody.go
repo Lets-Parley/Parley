@@ -76,11 +76,13 @@ func scopeFrom(ctx context.Context) Scope {
 }
 
 // Handlers is the custody surface. OnMembershipRevoked is optional and is how
-// the caller closes the live sockets of somebody who has just been revoked;
-// this package holds no reference to the hub.
+// the caller closes the live sockets of somebody who has just been revoked; it
+// is handed the ids of the spaces the revoke actually removed them from, so the
+// disconnect can be aimed at exactly those and not at spaces in other orgs they
+// are still a member of. This package holds no reference to the hub.
 type Handlers struct {
 	Store               *Store
-	OnMembershipRevoked func(ctx context.Context, userID string)
+	OnMembershipRevoked func(ctx context.Context, userID string, spaceIDs []string)
 }
 
 // Mount registers the custody tree. The caller is responsible for putting the
@@ -356,7 +358,7 @@ func (h *Handlers) setMemberRole(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) revokeMember(w http.ResponseWriter, r *http.Request) {
 	s := scopeFrom(r.Context())
 	userID := chi.URLParam(r, "userId")
-	blocked, err := h.Store.RevokeOrgMember(r.Context(), s, userID)
+	removed, blocked, err := h.Store.RevokeOrgMember(r.Context(), s, userID)
 	switch {
 	case errors.Is(err, ErrLastAdmin):
 		http.Error(w, `{"error":"this org would be left with no admin — promote somebody else first"}`, http.StatusConflict)
@@ -370,7 +372,7 @@ func (h *Handlers) revokeMember(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"could not revoke that member"}`, http.StatusInternalServerError)
 	default:
 		if h.OnMembershipRevoked != nil {
-			h.OnMembershipRevoked(r.Context(), userID)
+			h.OnMembershipRevoked(r.Context(), userID, removed)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
