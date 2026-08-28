@@ -205,10 +205,10 @@ export type Envelope = {
 
 /**
  * The verb each action answers on. Most actions are transitions on the session
- * and take POST; the two that are not say so — a standup entry is an upsert of
- * the caller's own row (PUT) and a story edit is a partial update (PATCH). The
- * server routes on (verb, action) and answers 405 for the wrong one, so this
- * table has to match internal/session's registry.
+ * and take POST; the ones that are not say so here — standup/ready are upserts
+ * (PUT), story and poker config are partial updates (PATCH). The server routes
+ * on (verb, action) and answers 405 for the wrong one, so this table has to
+ * match internal/session's registry.
  */
 const actionVerbs: Record<string, string> = {
   standup: "PUT",
