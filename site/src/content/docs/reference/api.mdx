@@ -115,7 +115,7 @@ session envelope.
   { method: "GET", path: "/api/orgs/{org}/spaces", auth: "member", purpose: "The org directory: every space in this org with visibility 'org', plus every space the caller belongs to — slug, name, visibility, whether it is protected, and whether the caller is already a member. Never the passcode. Someone outside the org gets 404, not an empty list." },
   { method: "PATCH", path: "/api/orgs/{org}/spaces/{slug}/visibility", auth: "owner", purpose: "Set {visibility} to 'org' to list the space in the org directory, or 'private' to take it back out. 204. On an instance without sign-in configured, 'org' is refused with 403 — every visitor would be in the org. It never touches the passcode: visibility governs discovery, not entry." },
   { method: "GET", path: "/api/orgs/{org}/spaces/{slug}", auth: "public", purpose: "Members get roster, sessions, passcode, and the kinds a new session may use. Each session carries here: how many people have a socket open on it right now, 0 once it has ended. Non-members get only the name and whether it is protected. Read-only: it never writes." },
-  { method: "POST", path: "/api/spaces", auth: "user", purpose: "Create a space. Protected by default." },
+  { method: "POST", path: "/api/spaces", auth: "user", purpose: "Create a space. Protected by default. Un-prefixed like the list above, and for the same reason — it is the landing page's route, called before an org is in the URL, so it names none and the space lands in the default org." },
   { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/join", auth: "user", purpose: "Join, sending {passcode} — or {handle} from the invite route below — if the space is protected. Throttled at 8 attempts per 60s per address." },
   { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/invite", auth: "public", purpose: "Trade {passcode} for {handle}: an opaque, single-use capability on this one space, good for five minutes, that a visitor can carry across an identity-provider sign-in instead of the passcode. A wrong code is refused exactly as join refuses it, and spends from the same 8-per-60s budget. A miss answers the same 404 as the public space read, so it discloses no more than that route does." },
   { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/seen", auth: "user", purpose: "Stamp the caller's membership as recently active, which is what orders the landing list. 204, and a silent no-op for a non-member — it never creates a membership." },
@@ -210,6 +210,12 @@ existence is never disclosed.
 
 This is the only `/api` route open to a caller with no identity that is not
 `POST /api/me`, and the only one a link guest may call.
+
+It carries no org prefix, and neither does anything under `/api/sessions/{id}`
+or the `/session/{id}` and `/link` pages that reach them. That is deliberate and
+permanent: a link guest belongs to no org and no space, so it has no org slug to
+put in a URL and no membership to derive one from. Adding a prefix here would
+404 every signed link ever issued.
 
 | Status | Meaning |
 |---|---|
