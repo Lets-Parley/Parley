@@ -84,7 +84,7 @@ topologySpreadConstraints:
     whenUnsatisfiable: ScheduleAnyway
 
 database:
-  # Parley ships no Postgres — bring a managed database or an operator. Create
+  # DATABASE_URL — Parley ships no Postgres — bring a managed database or an operator. Create
   # the secret yourself and name it here:
   #
   #   kubectl create secret generic parley \
@@ -95,19 +95,24 @@ database:
   existingSecret: ""
   secretKey: database-url
 
-# The address users reach Parley at, exactly as they type it. Get this wrong and
+# BASE_URL — the address users reach Parley at, exactly as they type it. Get this wrong and
 # the session cookie is silently dropped — if you terminate TLS at the Ingress,
 # this must be the https:// address.
 baseURL: https://parley.example.com
 
-# open  — anyone with the link picks a name and sits down.
-# oidc  — sign-in through your identity provider.
+# AUTH_MODE:
+#   open  — anyone with the link picks a name and sits down.
+#   oidc  — sign-in through your identity provider.
 auth:
   mode: open
   oidc:
+    # OIDC_ISSUER — the provider's base address, the one serving
+    # /.well-known/openid-configuration.
     issuer: ""
+    # OIDC_CLIENT_ID — the registration's client id.
     clientID: ""
-    # Read from a secret you create; never set the client secret in values.
+    # OIDC_CLIENT_SECRET is read from a secret you create; never set the
+    # client secret in values.
     #
     # With auth.mode=oidc you must choose one of these two, and the chart
     # refuses to render if you choose neither: a values merge that drops
@@ -147,7 +152,7 @@ auth:
     # then. Without it nobody is an admin and nobody can create the first org.
     bootstrapAdmin: ""
 
-# An Ingress terminates the connection, so without this every visitor arrives
+# TRUST_PROXY_HEADERS. An Ingress terminates the connection, so without this every visitor arrives
 # wearing the controller's address and the room-code throttle counts the whole
 # internet as one client: eight wrong guesses would lock everybody out of that
 # space.
@@ -160,7 +165,8 @@ auth:
 # is a network whose members can name any client address they like.
 trustProxyHeaders: false
 
-# Every CIDR that can be an immediate or forwarded proxy hop, comma-separated.
+# TRUSTED_PROXY_CIDRS — every CIDR that can be an immediate or forwarded proxy
+# hop, comma-separated.
 # Required whenever trustProxyHeaders is true: the app refuses to start on a
 # trusted-proxy setting with no allowlist, because "trust the header from
 # anyone" is exactly the bypass the setting exists to prevent. The chart fails
@@ -244,7 +250,37 @@ networkPolicy:
   # a `from` of namespaceSelector/podSelector/ipBlock peers.
   extraIngress: []
 
+# LOG_LEVEL — one of debug, info, warn, error. Anything else stops the process.
 logLevel: info
+
+# Environment variables appended verbatim to the container, for the settings
+# this chart does not give a value of its own. Each entry is a full EnvVar, so
+# a valueFrom works here too.
+#
+#     extraEnv:
+#       - name: OIDC_SCOPES
+#         value: "profile email groups"
+#
+# What you would reach for it for:
+#
+#   * OIDC_SCOPES — the scopes requested alongside openid, space-separated.
+#     Providers that only issue the group claim on request need it.
+#   * The abuse and resource limits, every one a positive integer:
+#     IDENTITY_IP_HOURLY_LIMIT, IDENTITY_GLOBAL_HOURLY_LIMIT,
+#     LINK_REDEMPTION_IP_HOURLY_LIMIT, SPACE_LIMIT_PER_IDENTITY,
+#     SESSION_LIMIT_PER_SPACE, STORY_LIMIT_PER_SESSION and
+#     LINK_LIMIT_PER_SESSION. See the configuration reference for what each
+#     one counts before you raise it.
+#
+# PORT is deliberately not one of them. The Service, the probes and the
+# container port are all wired to 8080, and moving the listener without them
+# is a pod that never passes a readiness check. Change service.port instead.
+#
+# DATABASE_URL, BASE_URL, LOG_LEVEL, AUTH_MODE, POD_NAME, the OIDC settings
+# and the proxy-trust pair are set from the values above; setting one here as
+# well means the container carries the name twice, and Kubernetes takes the
+# last one, which is this list.
+extraEnv: []
 
 service:
   type: ClusterIP

@@ -141,6 +141,13 @@ proxy's own forwarded-header trust as well — Traefik
 and arrives with the proxy's blessing.
 </EnvVar>
 
+<EnvVar name="POD_NAME">
+Optional, and only useful on Kubernetes. Stamped on the presence rows this
+process writes, so a row that outlives its pod can be traced back to the pod
+that wrote it. Unset, Parley uses a random per-process id instead and nothing
+else changes. The chart fills it in from `metadata.name`.
+</EnvVar>
+
 ## Abuse and resource limits
 
 Every value below must be a positive integer. Invalid or zero values stop the

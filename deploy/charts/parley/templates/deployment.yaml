@@ -147,6 +147,9 @@ spec:
                   key: {{ .Values.auth.oidc.secretKey }}
             {{- end }}
             {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           # Nothing answers on 8080 until migrations finish, so liveness must not
