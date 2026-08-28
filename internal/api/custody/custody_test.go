@@ -111,6 +111,107 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
+// queryCounter counts the statements a call sends to the server, `begin` and
+// `commit` included: they are round trips too, and the whole point of batching
+// this work is that the transaction is held open across fewer of them.
+type queryCounter struct{ n int }
+
+func (c *queryCounter) TraceQueryStart(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQueryStartData) context.Context {
+	c.n++
+	return ctx
+}
+
+func (c *queryCounter) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+
+func countingPool(t *testing.T, counter *queryCounter) *pgxpool.Pool {
+	t.Helper()
+	cfg, err := pgxpool.ParseConfig(dbtest.DSN(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConnConfig.Tracer = counter
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
+}
+
+// TestARevokeCostsTheSameNumberOfRoundTripsWhateverTheSpaceCount. The per-space
+// work is what stops a space being stranded ownerless, but the data is
+// set-shaped: choosing every successor and promoting them is two statements
+// whether the person is in two spaces or twenty. A revoke whose cost grows with
+// the membership holds one transaction open across every one of those trips.
+func TestARevokeCostsTheSameNumberOfRoundTripsWhateverTheSpaceCount(t *testing.T) {
+	ctx := context.Background()
+	// Migrations run once, off the pool whose statements are not counted.
+	testPool(t)
+	counter := &queryCounter{}
+	pool := countingPool(t, counter)
+
+	revokeAcross := func(spaces int) int {
+		orgID, orgSlug := newOrg(t, pool, fmt.Sprintf("roundtrips%d", spaces))
+		newUser := func(name string) string {
+			var id string
+			if err := pool.QueryRow(ctx, "insert into users (name) values ($1) returning id", name).Scan(&id); err != nil {
+				t.Fatal(err)
+			}
+			return id
+		}
+		adminID, ownerID := newUser("Admin"), newUser("Owner")
+		for id, role := range map[string]string{adminID: "admin", ownerID: "member"} {
+			if _, err := pool.Exec(ctx,
+				"insert into org_members (org_id, user_id, role) values ($1, $2, $3)", orgID, id, role); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var spaceIDs []string
+		for i := range spaces {
+			spaceID := newSpace(t, pool, orgID, fmt.Sprintf("%s-%d", orgSlug, i))
+			spaceIDs = append(spaceIDs, spaceID)
+			if _, err := pool.Exec(ctx,
+				"insert into members (space_id, user_id, role) values ($1, $2, 'owner')", spaceID, ownerID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := pool.Exec(ctx,
+				"insert into members (space_id, user_id, role) values ($1, $2, 'member')", spaceID, newUser("Successor")); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		store := &Store{Pool: pool}
+		before := counter.n
+		removed, blocked, err := store.RevokeOrgMember(ctx, Scope{OrgID: orgID, OrgSlug: orgSlug, ActorID: adminID}, ownerID)
+		cost := counter.n - before
+		if err != nil {
+			t.Fatalf("revoke across %d spaces: %v (blocked %v)", spaces, err, blocked)
+		}
+		t.Logf("a revoke across %d spaces cost %d round trips", spaces, cost)
+		if len(removed) != spaces {
+			t.Fatalf("removed = %v, want all %d spaces", removed, spaces)
+		}
+		// Every one of them keeps an owner: batching may not cost a space its
+		// last-owner protection.
+		for _, spaceID := range spaceIDs {
+			var owners int
+			if err := pool.QueryRow(ctx,
+				"select count(*) from members where space_id = $1 and role = 'owner'", spaceID).Scan(&owners); err != nil {
+				t.Fatal(err)
+			}
+			if owners != 1 {
+				t.Fatalf("space %s has %d owners after the revoke, want exactly the promoted successor", spaceID, owners)
+			}
+		}
+		return cost
+	}
+
+	few, many := revokeAcross(2), revokeAcross(8)
+	if many != few {
+		t.Fatalf("revoking a member of 8 spaces took %d round trips against %d for 2 — the per-space work is still serial", many, few)
+	}
+}
+
 // TestAnInterruptedPurgeLeavesEverythingStanding runs the destructive half
 // inside a transaction the test then aborts. It matters more here than
 // anywhere else in the codebase: spaces.org_id is `on delete restrict`, so a
@@ -327,6 +428,12 @@ func assertPurgeLeftEverythingStanding(t *testing.T, pool *pgxpool.Pool, orgID, 
 // and the user_id as the tiebreak so that promotion never depends on the order
 // the rows happen to come back in; two candidates last seen at the same instant
 // is the only case that can tell the two apart.
+//
+// Under the old per-space query this test passed even with the whole ORDER BY
+// gone: the members PK gave an index-only scan that returned ascending user_id
+// anyway. The batched `distinct on` sorts a scan of all the affected spaces at
+// once, so dropping the tiebreak now hands the promotion to whichever row was
+// written first — which is why the candidates below go in highest id first.
 func TestTheSuccessorTiebreakIsTheUserID(t *testing.T) {
 	ctx := context.Background()
 	pool := testPool(t)
