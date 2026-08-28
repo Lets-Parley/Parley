@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -319,5 +320,80 @@ func assertPurgeLeftEverythingStanding(t *testing.T, pool *pgxpool.Pool, orgID, 
 	}
 	if records != 0 {
 		t.Fatalf("a failed purge left %d audit records behind, want 0 — it did not happen", records)
+	}
+}
+
+// TestTheSuccessorTiebreakIsTheUserID. 0015 chose the most recent last_seen_at
+// and the user_id as the tiebreak so that promotion never depends on the order
+// the rows happen to come back in; two candidates last seen at the same instant
+// is the only case that can tell the two apart.
+func TestTheSuccessorTiebreakIsTheUserID(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	orgID, orgSlug := newOrg(t, pool, "tiebreak")
+	spaceID := newSpace(t, pool, orgID, orgSlug+"-space")
+
+	newUser := func(name string) string {
+		var id string
+		if err := pool.QueryRow(ctx, "insert into users (name) values ($1) returning id", name).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	adminID, ownerID := newUser("Admin"), newUser("Owner")
+	for _, id := range []string{adminID, ownerID} {
+		role := "member"
+		if id == adminID {
+			role = "admin"
+		}
+		if _, err := pool.Exec(ctx,
+			"insert into org_members (org_id, user_id, role) values ($1, $2, $3)", orgID, id, role); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := pool.Exec(ctx,
+		"insert into members (space_id, user_id, role) values ($1, $2, 'owner')", spaceID, ownerID); err != nil {
+		t.Fatal(err)
+	}
+	// Four eligible successors, all seen at the very same instant: only the
+	// user_id separates them. They are written highest id first, so a
+	// promotion that took whatever the scan returned first would take the
+	// wrong one.
+	seen := time.Now().UTC()
+	candidates := []string{}
+	for i := range 4 {
+		candidates = append(candidates, newUser(fmt.Sprintf("Candidate %d", i)))
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(candidates)))
+	for _, id := range candidates {
+		if _, err := pool.Exec(ctx,
+			"insert into members (space_id, user_id, role, last_seen_at) values ($1, $2, 'member', $3)",
+			spaceID, id, seen); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := candidates[len(candidates)-1]
+
+	store := &Store{Pool: pool}
+	blocked, err := store.RevokeOrgMember(ctx, Scope{OrgID: orgID, OrgSlug: orgSlug, ActorID: adminID}, ownerID)
+	if err != nil {
+		t.Fatalf("revoke: %v (blocked %v)", err, blocked)
+	}
+
+	var owners []string
+	rows, err := pool.Query(ctx, "select user_id::text from members where space_id = $1 and role = 'owner'", spaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		owners = append(owners, id)
+	}
+	rows.Close()
+	if len(owners) != 1 || owners[0] != want {
+		t.Fatalf("the successor is %v, want exactly %s — with equal last_seen_at the lowest user_id takes it, not whatever the scan returned first", owners, want)
 	}
 }

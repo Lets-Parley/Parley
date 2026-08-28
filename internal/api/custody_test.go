@@ -230,6 +230,32 @@ func TestCustodyOwnershipIsGrantedToMembersOnly(t *testing.T) {
 	}
 }
 
+// TestAnOrgAdminInsideASpaceStillCannotPromoteThemself. An admin who is also
+// an ordinary member of the space — somebody promoted to org admin after
+// having joined a room — is the only shape that reaches the self-grant refusal
+// at all: for an admin who is not a member, the members-only rule refuses the
+// same request first, and the check would be dead code.
+func TestAnOrgAdminInsideASpaceStillCannotPromoteThemself(t *testing.T) {
+	ctx := context.Background()
+	srv, pool, admin, adminID := custodyServer(t)
+	slug, _, _, passcode := privateSpace(t, srv)
+	custodyJoin(t, srv, slug, passcode, admin)
+
+	resp, body := custodyDo(t, srv, "POST", "/spaces/"+slug+"/owners", `{"userId":"`+adminID+`"}`, admin)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("an org admin who is a member granting themself ownership = %d, want 403 (%v)", resp.StatusCode, body)
+	}
+	var role string
+	if err := pool.QueryRow(ctx,
+		"select m.role from members m join spaces sp on sp.id = m.space_id where sp.slug = $1 and m.user_id = $2",
+		slug, adminID).Scan(&role); err != nil {
+		t.Fatal(err)
+	}
+	if role != store.RoleMember {
+		t.Fatalf("the admin's role in the space is %q — custody is management, not membership, and an admin never promotes themself", role)
+	}
+}
+
 // TestCustodyOwnershipGrantIsAdditive: custody repairs "our only owner left",
 // it never decides who runs a room the admin is not in.
 func TestCustodyOwnershipGrantIsAdditive(t *testing.T) {
