@@ -1,11 +1,13 @@
-# Environment variables the process reads that no scan of cmd/parley/main.go
-# can find, one per line. They are still held to the same rule as every other
-# key: named in the configuration reference and in the chart's values file.
+# Environment variables the process reads that no scan of the Go source can
+# find, one per line. They are still held to the same rule as every other key:
+# named in the configuration reference and in the chart's values file.
+#
+# The scan walks every non-test file under cmd/ and internal/ and resolves the
+# callee, so a read that merely lives outside main.go does NOT belong here —
+# POD_NAME sat here until the scan was widened to find it. What would belong is
+# a key only ever named outside Go: read by the entrypoint script, consumed by
+# a library from its own environment, or assembled at runtime from parts.
 #
 # Keep this list as short as it can be. An entry the scan can find on its own
 # fails the test rather than sitting here, so the list cannot quietly grow past
 # what it is for.
-
-# Read in internal/api/presence.go, not in main.go, and set by the chart from
-# the pod's own metadata so a presence row can name the pod that holds it.
-POD_NAME
