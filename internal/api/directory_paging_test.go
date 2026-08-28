@@ -2,14 +2,19 @@ package api
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strconv"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/lets-parley/parley/internal/db"
+	"github.com/lets-parley/parley/internal/dbtest"
 	"github.com/lets-parley/parley/internal/store"
 )
 
@@ -167,6 +172,88 @@ func TestOrgDirectoryHidesArchivedSpacesOnEveryPage(t *testing.T) {
 	for _, slug := range pageSlugs(all) {
 		if slug == gone {
 			t.Errorf("an archived space is listed in the directory: %v", pageSlugs(all))
+		}
+	}
+}
+
+// noIndexScanPool is testPool with sequential scans forced on every
+// connection. spaces_org_directory_idx is on (org_id, name, slug), so a keyset
+// page with a LIMIT usually rides it for "order by name" and gets the right
+// (name, slug) tie-break as a side effect of the index's own physical order —
+// which would let a missing `, sp.slug` in Spaces.ForOrg's ORDER BY hide
+// behind the query planner's mood instead of failing on its own merits. This
+// forces the plan the ORDER BY clause is actually answerable for: a
+// sequential scan feeding an explicit Sort, so a sort key of name alone
+// breaks ties in scan order and not slug order.
+func noIndexScanPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	cfg, err := pgxpool.ParseConfig(dbtest.DSN(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, "set enable_indexscan = off; set enable_bitmapscan = off")
+		return err
+	}
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if _, err := pool.Exec(context.Background(), "drop schema public cascade; create schema public"); err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	if err := db.Migrate(context.Background(), pool, log, db.MigrationsFS); err != nil {
+		t.Fatal(err)
+	}
+	return pool
+}
+
+// directSpace inserts an org-visible, passcode-free space straight into the
+// table, bypassing handleCreateSpace so the test controls the physical
+// insertion order exactly. A rename (an UPDATE) would move the row's tuple to
+// wherever the table has room and make that order unpredictable — a plain
+// INSERT does not.
+func directSpace(t *testing.T, pool *pgxpool.Pool, orgID, slug, name string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(),
+		"insert into spaces (org_id, slug, name, passcode, visibility) values ($1, $2, $3, '', $4)",
+		orgID, slug, name, store.VisibilityOrg); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The keyset orders by (name, slug), not name alone, because names are not
+// unique inside an org — handleRenameSpace can put two spaces on the same
+// name, and migration 0025's own comment says slug is in the key for exactly
+// that reason: without it the cursor cannot name a single row, and a
+// one-row-at-a-time walk past two identically-named spaces can skip or repeat
+// whichever one the tie-break puts second.
+func TestOrgDirectoryPagesSpacesWithIdenticalNames(t *testing.T) {
+	ctx := context.Background()
+	pool := noIndexScanPool(t)
+	srv := testServerWith(t, pool, Options{AllowedOrigin: testOrigin})
+	fay := signup(t, srv, "Fay")
+
+	org, err := (&store.Orgs{Pool: pool}).Default(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	leader := listedSpace(t, srv, pool, "Aaa Leader", fay)
+	twinB, twinA := "twins-zzzzz", "twins-aaaaa"
+	directSpace(t, pool, org.ID, twinB, "Twins")
+	directSpace(t, pool, org.ID, twinA, "Twins")
+
+	_, rows := listOrgSpacesPaged(t, srv, fay, 1)
+	counts := map[string]int{}
+	for _, slug := range pageSlugs(rows) {
+		counts[slug]++
+	}
+	for _, slug := range []string{leader, twinA, twinB} {
+		if counts[slug] != 1 {
+			t.Errorf("space %q appeared %d times across a limit=1 walk past two identically-named spaces, want exactly 1", slug, counts[slug])
 		}
 	}
 }
