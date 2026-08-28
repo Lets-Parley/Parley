@@ -278,6 +278,7 @@ func TestAutoRevealOnlyOnVoteEvents(t *testing.T) {
 func TestAutoRevealRequiresExactConnectedVoterSet(t *testing.T) {
 	srv := testServer(t)
 	fac, connectedVoter, id := setupSession(t, srv, "Exact Auto Space")
+	setAutoReveal(t, srv, id, true, fac)
 	staleVoter := signup(t, srv, "Stale Voter")
 	_, space := doJSON(t, srv, "GET", "/api/orgs/default/spaces/exact-auto-space", "", connectedVoter)
 	code, _ := space["passcode"].(string)
@@ -547,9 +548,17 @@ func TestAutoRevealDefaultsOff(t *testing.T) {
 		t.Fatal("state.autoReveal defaults to on")
 	}
 
-	vote(t, srv, id, story, "3", fac)
-	vote(t, srv, id, story, "5", member)
+	if resp := vote(t, srv, id, story, "3", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("facilitator vote: %d", resp.StatusCode)
+	}
+	if resp := vote(t, srv, id, story, "5", member); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("member vote: %d", resp.StatusCode)
+	}
 	_, env = doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	voted := currentStory(env, story)["votedUserIds"].([]any)
+	if len(voted) != 2 {
+		t.Fatalf("votes did not land: votedUserIds=%v", voted)
+	}
 	if env["revealed"] == true {
 		t.Fatal("everyone voted but auto-reveal is off — round must stay closed")
 	}
@@ -672,7 +681,37 @@ func TestAutoRevealToggleOffDoesNotUnreveal(t *testing.T) {
 		t.Fatal("turning auto-reveal off un-revealed an open round")
 	}
 	st := env["state"].(map[string]any)
-	if st["autoReveal"] == true {
-		t.Fatal("state.autoReveal still on after turning it off")
+	if st["autoReveal"] != false {
+		t.Fatalf("state.autoReveal = %v after turning it off, want false", st["autoReveal"])
+	}
+
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/reset", "", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("reset: %d", resp.StatusCode)
+	}
+	if resp := vote(t, srv, id, story, "3", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("re-vote facilitator: %d", resp.StatusCode)
+	}
+	if resp := vote(t, srv, id, story, "5", member); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("re-vote member: %d", resp.StatusCode)
+	}
+	_, env = doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	if env["revealed"] == true {
+		t.Fatal("full table with auto-reveal off auto-opened after reset")
+	}
+}
+
+func TestConfigRequiresFacilitator(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Config Authority Space")
+
+	if resp, _ := doJSON(t, srv, "PATCH", "/api/sessions/"+id+"/actions/config", `{"autoReveal":true}`, member); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("member config: %d, want 403", resp.StatusCode)
+	}
+	if resp, _ := doJSON(t, srv, "PATCH", "/api/sessions/"+id+"/actions/config", `{"autoReveal":true}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("facilitator config: %d, want 204", resp.StatusCode)
+	}
+	_, env := doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	if env["state"].(map[string]any)["autoReveal"] != true {
+		t.Fatal("facilitator config did not set autoReveal")
 	}
 }

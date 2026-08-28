@@ -53,6 +53,7 @@ var linkGuestActionVerbs = map[string]map[string]linkGuestVerb{
 		"select":  {facilitatorOnly: true, refused: true},
 		"reveal":  {facilitatorOnly: true, refused: true},
 		"reset":   {facilitatorOnly: true, refused: true},
+		"config":  {facilitatorOnly: true, refused: true, body: `{"autoReveal":true}`},
 		"vote":    {body: `{"storyId":"{storyId}","value":"5"}`},
 		// No dispatcher flag, and refused anyway: applyPatch asks
 		// store.WithActiveSession for the facilitator. Editing the backlog is

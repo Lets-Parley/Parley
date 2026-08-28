@@ -279,6 +279,7 @@ func TestAutoRevealCountsVotersOnEveryReplica(t *testing.T) {
 	srvB := secondInstance(t)
 
 	fac, member, id := setupSession(t, srvA, "Auto Reveal Space")
+	setAutoReveal(t, srvA, id, true, fac)
 
 	// Both people are in the room, but on different replicas.
 	wsFac, _, err := dialWS(t, srvA, id, fac, testOrigin)
