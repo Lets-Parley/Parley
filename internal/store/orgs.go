@@ -56,6 +56,30 @@ func (o *Orgs) BySlug(ctx context.Context, slug string) (Org, error) {
 	return org, nil
 }
 
+// MembershipBySlug resolves an org by slug and the caller's live role in it in
+// one round trip. A missing org is ErrNoOrg; an org the caller does not belong
+// to is ErrNotOrgMember — the HTTP layer answers both with the same 404, but
+// the store keeps them apart the way RoleOf and BySlug do.
+func (o *Orgs) MembershipBySlug(ctx context.Context, slug, userID string) (Org, string, error) {
+	var org Org
+	var role *string
+	err := o.Pool.QueryRow(ctx, `
+		select o.id, o.slug, o.name, m.role
+		from orgs o
+		left join org_members m on m.org_id = o.id and m.user_id = $2 and m.revoked_at is null
+		where o.slug = $1`, slug, userID).Scan(&org.ID, &org.Slug, &org.Name, &role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Org{}, "", ErrNoOrg
+	}
+	if err != nil {
+		return Org{}, "", fmt.Errorf("resolving org membership: %w", err)
+	}
+	if role == nil {
+		return Org{}, "", ErrNotOrgMember
+	}
+	return org, *role, nil
+}
+
 // Default resolves the org every caller belongs to until an instance grows a
 // second one.
 func (o *Orgs) Default(ctx context.Context) (Org, error) {

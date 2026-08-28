@@ -7,15 +7,21 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/lets-parley/parley/internal/db"
+	"github.com/lets-parley/parley/internal/dbtest"
 	"github.com/lets-parley/parley/internal/principal"
 	"github.com/lets-parley/parley/internal/store"
 )
@@ -521,9 +527,9 @@ func TestAnonymousSpaceViewCarriesNoOrgData(t *testing.T) {
 	}
 }
 
-// TestRequireOrgAdminNarrowsToAdmins exercises the admin gate directly: it has
-// no route of its own yet, and mounting one here is what keeps it honest until
-// the custody surface arrives.
+// TestRequireOrgAdminNarrowsToAdmins exercises the admin gate the way the
+// router mounts it: behind requireOrgMember, which is what puts the caller's
+// role in the request context. requireOrgAdmin must not hit the database.
 func TestRequireOrgAdminNarrowsToAdmins(t *testing.T) {
 	ctx := context.Background()
 	pool := testPool(t)
@@ -534,13 +540,15 @@ func TestRequireOrgAdminNarrowsToAdmins(t *testing.T) {
 	}
 
 	r := chi.NewRouter()
-	r.With(a.requireOrgAdmin).Get("/probe", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
+	r.Route("/{org}", func(r chi.Router) {
+		r.Use(a.requireOrgMember)
+		r.With(a.requireOrgAdmin).Get("/probe", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		})
 	})
 
 	call := func(userID string) int {
-		req := httptest.NewRequest("GET", "/probe", nil)
-		req = req.WithContext(context.WithValue(req.Context(), orgKey{}, org))
+		req := httptest.NewRequest("GET", "/"+org.Slug+"/probe", nil)
 		req = req.WithContext(principal.With(req.Context(), Principal{UserID: userID}))
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
@@ -568,6 +576,118 @@ func TestRequireOrgAdminNarrowsToAdmins(t *testing.T) {
 	stranger := newUser(t, a, "Stranger")
 	if got := call(stranger); got != http.StatusNotFound {
 		t.Errorf("someone outside the org = %d, want 404 — 403 would confirm the org exists", got)
+	}
+}
+
+// countingTracer tallies every statement the pool runs so a middleware can be
+// measured without depending on wall-clock latency against a local Postgres.
+type countingTracer struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (c *countingTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQueryStartData) context.Context {
+	c.mu.Lock()
+	c.n++
+	c.mu.Unlock()
+	return ctx
+}
+
+func (c *countingTracer) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+
+func (c *countingTracer) take() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := c.n
+	c.n = 0
+	return n
+}
+
+// tracedTestPool is testPool with a QueryTracer wired in before any connection
+// is opened, so authorization round trips are visible to the countingTracer.
+func tracedTestPool(t *testing.T, tracer pgx.QueryTracer) *pgxpool.Pool {
+	t.Helper()
+	cfg, err := pgxpool.ParseConfig(dbtest.DSN(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConnConfig.Tracer = tracer
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if _, err := pool.Exec(context.Background(), "drop schema public cascade; create schema public"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Migrate(context.Background(), pool, slog.New(slog.NewTextHandler(os.Stderr, nil)), db.MigrationsFS); err != nil {
+		t.Fatal(err)
+	}
+	return pool
+}
+
+// TestOrgAuthzRoundTrips is the acceptance pin for #403: every org-scoped
+// request used to pay BySlug + IsMember before the handler, and admin routes
+// paid RoleOf on top. One joined lookup must cover both gates, and the count
+// must not grow again without this test noticing.
+func TestOrgAuthzRoundTrips(t *testing.T) {
+	ctx := context.Background()
+	tracer := &countingTracer{}
+	pool := tracedTestPool(t, tracer)
+	a := &app{orgs: &store.Orgs{Pool: pool}, users: &store.Users{Pool: pool}}
+	org, err := a.orgs.Default(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tracer.take() // discard migrate / default-org traffic
+
+	member := newUser(t, a, "Member")
+	if err := a.orgs.AddMember(ctx, org.ID, member, store.OrgRoleMember); err != nil {
+		t.Fatal(err)
+	}
+	admin := newUser(t, a, "Admin")
+	if err := a.orgs.AddMember(ctx, org.ID, admin, store.OrgRoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+	tracer.take()
+
+	memberRouter := chi.NewRouter()
+	memberRouter.Route("/{org}", func(r chi.Router) {
+		r.Use(a.requireOrgMember)
+		r.Get("/probe", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		})
+	})
+	adminRouter := chi.NewRouter()
+	adminRouter.Route("/{org}", func(r chi.Router) {
+		r.Use(a.requireOrgMember)
+		r.Use(a.requireOrgAdmin)
+		r.Get("/probe", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		})
+	})
+
+	hit := func(router chi.Router, userID string) int {
+		t.Helper()
+		req := httptest.NewRequest("GET", "/"+org.Slug+"/probe", nil)
+		req = req.WithContext(principal.With(req.Context(), Principal{UserID: userID}))
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	if got := hit(memberRouter, member); got != http.StatusNoContent {
+		t.Fatalf("member probe = %d, want 204", got)
+	}
+	if n := tracer.take(); n != 1 {
+		t.Errorf("requireOrgMember paid %d database round trips, want 1", n)
+	}
+
+	if got := hit(adminRouter, admin); got != http.StatusNoContent {
+		t.Fatalf("admin probe = %d, want 204", got)
+	}
+	if n := tracer.take(); n != 1 {
+		t.Errorf("requireOrgMember+requireOrgAdmin paid %d database round trips, want 1 (no third RoleOf)", n)
 	}
 }
 

@@ -21,6 +21,42 @@ func TestOrgsDefaultResolves(t *testing.T) {
 	}
 }
 
+func TestMembershipBySlug(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	orgs := &Orgs{Pool: pool}
+	org, err := orgs.Default(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, _ := newUser(t, pool, "Ada")
+
+	if _, _, err := orgs.MembershipBySlug(ctx, "no-such-org", u.ID); !errors.Is(err, ErrNoOrg) {
+		t.Fatalf("missing org = %v, want ErrNoOrg", err)
+	}
+	if _, _, err := orgs.MembershipBySlug(ctx, org.Slug, u.ID); !errors.Is(err, ErrNotOrgMember) {
+		t.Fatalf("outsider = %v, want ErrNotOrgMember", err)
+	}
+
+	if err := orgs.AddMember(ctx, org.ID, u.ID, OrgRoleMember); err != nil {
+		t.Fatal(err)
+	}
+	got, role, err := orgs.MembershipBySlug(ctx, org.Slug, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != org.ID || role != OrgRoleMember {
+		t.Fatalf("MembershipBySlug = %+v role=%q, want id %s role %q", got, role, org.ID, OrgRoleMember)
+	}
+
+	if _, err := pool.Exec(ctx, "update org_members set revoked_at = now() where org_id = $1 and user_id = $2", org.ID, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := orgs.MembershipBySlug(ctx, org.Slug, u.ID); !errors.Is(err, ErrNotOrgMember) {
+		t.Fatalf("revoked membership = %v, want ErrNotOrgMember", err)
+	}
+}
+
 func TestOrgMembership(t *testing.T) {
 	ctx := context.Background()
 	pool := testPool(t)

@@ -126,6 +126,7 @@ func (a *app) requireSpaceOwner(next http.Handler) http.Handler {
 }
 
 type orgKey struct{}
+type orgRoleKey struct{}
 
 // orgFrom is the org the current request is scoped to. The type assertion is
 // deliberately unchecked, exactly like sessionFrom and spaceFrom above: a
@@ -134,6 +135,15 @@ type orgKey struct{}
 // zero-value fallback would compile, run, and fail open.
 func orgFrom(ctx context.Context) store.Org {
 	return ctx.Value(orgKey{}).(store.Org)
+}
+
+// orgRoleFrom is the caller's role in orgFrom's org. requireOrgMember puts it
+// there in the same lookup that resolved the org, so requireOrgAdmin is a
+// context read rather than a third database round trip. The assertion is
+// unchecked for the same reason orgFrom's is: this middleware only runs inside
+// requireOrgMember.
+func orgRoleFrom(ctx context.Context) string {
+	return ctx.Value(orgRoleKey{}).(string)
 }
 
 // orgSlugFromRoute is the one place in this package that reads the {org} URL
@@ -154,6 +164,10 @@ func orgSlugFromRoute(r *http.Request) string {
 // It proves only that the *caller* is in this org. It says nothing about which
 // org a space resolved by slug belongs to, so every handler behind it must
 // still filter its own lookup by the org id this puts in the context.
+//
+// The caller's role rides along in the context so requireOrgAdmin does not
+// re-query. Membership is re-read on every request — there is no cache that
+// would outlive a revocation.
 func (a *app) requireOrgMember(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p, ok := PrincipalFrom(r.Context())
@@ -161,8 +175,8 @@ func (a *app) requireOrgMember(next http.Handler) http.Handler {
 			http.Error(w, `{"error":"not signed in"}`, http.StatusUnauthorized)
 			return
 		}
-		org, err := a.orgs.BySlug(r.Context(), orgSlugFromRoute(r))
-		if errors.Is(err, store.ErrNoOrg) {
+		org, role, err := a.orgs.MembershipBySlug(r.Context(), orgSlugFromRoute(r), p.UserID)
+		if errors.Is(err, store.ErrNoOrg) || errors.Is(err, store.ErrNotOrgMember) {
 			http.Error(w, `{"error":"no such org"}`, http.StatusNotFound)
 			return
 		}
@@ -170,36 +184,20 @@ func (a *app) requireOrgMember(next http.Handler) http.Handler {
 			http.Error(w, `{"error":"could not load org"}`, http.StatusInternalServerError)
 			return
 		}
-		member, err := a.orgs.IsMember(r.Context(), org.ID, p.UserID)
-		if err != nil {
-			http.Error(w, `{"error":"could not load org"}`, http.StatusInternalServerError)
-			return
-		}
-		if !member {
-			http.Error(w, `{"error":"no such org"}`, http.StatusNotFound)
-			return
-		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), orgKey{}, org)))
+		ctx := context.WithValue(r.Context(), orgKey{}, org)
+		ctx = context.WithValue(ctx, orgRoleKey{}, role)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
 // requireOrgAdmin runs inside requireOrgMember and narrows it to the org's
 // admins. A member who is not one gets 403 — they are already known to be
 // inside the org, so refusing the action discloses nothing the 404 above was
-// protecting.
+// protecting. The role comes from the context requireOrgMember already filled;
+// this gate does not touch the database.
 func (a *app) requireOrgAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p, _ := PrincipalFrom(r.Context())
-		role, err := a.orgs.RoleOf(r.Context(), orgFrom(r.Context()).ID, p.UserID)
-		if errors.Is(err, store.ErrNotOrgMember) {
-			http.Error(w, `{"error":"no such org"}`, http.StatusNotFound)
-			return
-		}
-		if err != nil {
-			http.Error(w, `{"error":"could not load org"}`, http.StatusInternalServerError)
-			return
-		}
-		if role != store.OrgRoleAdmin {
+		if orgRoleFrom(r.Context()) != store.OrgRoleAdmin {
 			http.Error(w, `{"error":"only an org admin can do that"}`, http.StatusForbidden)
 			return
 		}
