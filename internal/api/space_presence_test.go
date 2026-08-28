@@ -13,7 +13,7 @@ import (
 // order is the server's business.
 func spaceSessionRows(t *testing.T, srv *httptest.Server, slug string, cookie *http.Cookie) map[string]map[string]any {
 	t.Helper()
-	resp, body := doJSON(t, srv, "GET", "/api/spaces/"+slug, "", cookie)
+	resp, body := doJSON(t, srv, "GET", "/api/orgs/default/spaces/"+slug, "", cookie)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("get space: %d", resp.StatusCode)
 	}
@@ -188,7 +188,7 @@ func TestNonMemberSeesNoSessionCounts(t *testing.T) {
 	})
 
 	outsider := signup(t, srv, "Nosy")
-	resp, body := doJSON(t, srv, "GET", "/api/spaces/"+slug, "", outsider)
+	resp, body := doJSON(t, srv, "GET", "/api/orgs/default/spaces/"+slug, "", outsider)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("stranger get space: %d", resp.StatusCode)
 	}
@@ -230,7 +230,7 @@ func TestMemberCountsInEverySessionTheyHaveOpen(t *testing.T) {
 	})
 
 	// ...while the roster still puts them in exactly one place.
-	_, body := doJSON(t, srv, "GET", "/api/spaces/"+slug, "", fac)
+	_, body := doJSON(t, srv, "GET", "/api/orgs/default/spaces/"+slug, "", fac)
 	members, _ := body["members"].([]any)
 	seated := 0
 	for _, m := range members {

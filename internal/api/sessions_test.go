@@ -23,7 +23,7 @@ const testOrigin = "http://example.test"
 
 func createSession(t *testing.T, srv *httptest.Server, slug, kind, title string, cookie *http.Cookie) (*http.Response, map[string]any) {
 	t.Helper()
-	req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/"+slug+"/sessions",
+	req, _ := http.NewRequest("POST", srv.URL+"/api/orgs/default/spaces/"+slug+"/sessions",
 		strings.NewReader(`{"kind":"`+kind+`","title":"`+title+`"}`))
 	req.Header.Set("Content-Type", "application/json")
 	if cookie != nil {
@@ -300,7 +300,7 @@ func TestConcurrentClaimsHaveOneWinner(t *testing.T) {
 	fac, m1, id := setupSession(t, srv, "Race Space")
 	_ = fac
 	m2 := signup(t, srv, "Second")
-	_, race := doJSON(t, srv, "GET", "/api/spaces/race-space", "", m1)
+	_, race := doJSON(t, srv, "GET", "/api/orgs/default/spaces/race-space", "", m1)
 	raceCode, _ := race["passcode"].(string)
 	if resp := joinSpace(t, srv, "race-space", m2, raceCode); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("join: %d", resp.StatusCode)
@@ -581,7 +581,7 @@ func TestSessionKindValidation(t *testing.T) {
 	if resp, _ := createSession(t, srv, slug, "retro", "Nope", ada); resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("unknown kind: got %d", resp.StatusCode)
 	}
-	req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/"+slug+"/sessions",
+	req, _ := http.NewRequest("POST", srv.URL+"/api/orgs/default/spaces/"+slug+"/sessions",
 		strings.NewReader(`{"kind":"poker","title":"T","config":{"bogus":1}}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(ada)

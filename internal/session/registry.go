@@ -138,9 +138,13 @@ type Envelope struct {
 	EndedAt              *time.Time `json:"endedAt"`
 	Presence             []string   `json:"presence"`
 	SpaceSlug            string     `json:"spaceSlug"`
-	Participants         []Person   `json:"participants"`
-	ServerTime           time.Time  `json:"serverTime"`
-	State                any        `json:"state"`
+	// OrgSlug is the org segment of the space's URL. The session page builds
+	// a space API URL out of both halves, so a missing one breaks its lookup
+	// rather than merely a label.
+	OrgSlug      string    `json:"orgSlug"`
+	Participants []Person  `json:"participants"`
+	ServerTime   time.Time `json:"serverTime"`
+	State        any       `json:"state"`
 }
 
 // Person is a roster entry carried in the envelope so clients can render
@@ -170,10 +174,12 @@ type Person struct {
 // is a seat nobody can occupy any more. An export wants all of them, because
 // a name in a finished meeting's CSV must not depend on whether the link that
 // let its owner in is still good.
-func roster(ctx context.Context, pool *pgxpool.Pool, spaceID, sessionID string, pastGuests bool) (string, []Person, error) {
-	var slug string
-	if err := pool.QueryRow(ctx, "select slug from spaces where id = $1", spaceID).Scan(&slug); err != nil {
-		return "", nil, err
+func roster(ctx context.Context, pool *pgxpool.Pool, spaceID, sessionID string, pastGuests bool) (string, string, []Person, error) {
+	var slug, orgSlug string
+	if err := pool.QueryRow(ctx,
+		"select sp.slug, o.slug from spaces sp join orgs o on o.id = sp.org_id where sp.id = $1", spaceID,
+	).Scan(&slug, &orgSlug); err != nil {
+		return "", "", nil, err
 	}
 	rows, err := pool.Query(ctx, `
 		select m.user_id::text, u.name, m.spectator, false, u.avatar_icon
@@ -186,19 +192,19 @@ func roster(ctx context.Context, pool *pgxpool.Pool, spaceID, sessionID string, 
 		  and ($3 or (l.revoked_at is null and l.expires_at > now()))
 		order by 2`, spaceID, sessionID, pastGuests)
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
 	defer rows.Close()
 	people := []Person{}
 	for rows.Next() {
 		var p Person
 		if err := rows.Scan(&p.UserID, &p.Name, &p.Spectator, &p.Guest, &p.AvatarIcon); err != nil {
-			return "", nil, err
+			return "", "", nil, err
 		}
 		p.AvatarHue = store.AvatarHue(p.UserID)
 		people = append(people, p)
 	}
-	return slug, people, rows.Err()
+	return slug, orgSlug, people, rows.Err()
 }
 
 // RedactForGuest strips space-level data from an envelope bound for a link
@@ -218,6 +224,7 @@ func roster(ctx context.Context, pool *pgxpool.Pool, spaceID, sessionID string, 
 // presence row for each of them already.
 func (e Envelope) RedactForGuest(selfID string) Envelope {
 	e.SpaceSlug = ""
+	e.OrgSlug = ""
 	here := make(map[string]struct{}, len(e.Presence)+2)
 	for _, id := range e.Presence {
 		here[id] = struct{}{}
@@ -267,7 +274,7 @@ func (r *Registry) buildEnvelope(ctx context.Context, pool *pgxpool.Pool, presen
 	if err != nil {
 		return Envelope{}, err
 	}
-	slug, people, err := roster(ctx, pool, sess.SpaceID, sess.ID, pastGuests)
+	slug, orgSlug, people, err := roster(ctx, pool, sess.SpaceID, sess.ID, pastGuests)
 	if err != nil {
 		return Envelope{}, err
 	}
@@ -295,6 +302,7 @@ func (r *Registry) buildEnvelope(ctx context.Context, pool *pgxpool.Pool, presen
 		EndedAt:              sess.EndedAt,
 		Presence:             connected,
 		SpaceSlug:            slug,
+		OrgSlug:              orgSlug,
 		Participants:         people,
 		ServerTime:           time.Now().UTC(),
 		State:                state,

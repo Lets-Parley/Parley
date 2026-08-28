@@ -105,6 +105,12 @@ export type SpaceView = {
   passcode?: string;
   members?: Person[];
   sessions?: SessionSummary[];
+  /** Whether the space is listed in its org's directory. Members only — a
+      stranger at the door is not told whether the room is listed. Governs
+      discovery, never entry: a listed space with a passcode still asks. */
+  visibility?: "private" | "org";
+  /** Present on create only: where the new space lives. */
+  orgSlug?: string;
   /** The kinds a new session may use — retired kinds are omitted. Members only. */
   kinds?: string[];
 };
@@ -112,7 +118,32 @@ export type SpaceView = {
 export type Membership = {
   slug: string;
   name: string;
+  /** The org segment of the space's URL — a slug alone no longer resolves. */
+  orgSlug: string;
   protected: boolean;
+};
+/**
+ * One space in an org's directory.
+ *
+ * The list holds every org-visible space plus the ones the caller belongs to,
+ * so a `private` row is always one they are already in. There is deliberately
+ * no passcode here: this is a list of doors, not a room anyone has entered.
+ */
+export type OrgSpace = {
+  slug: string;
+  name: string;
+  visibility: "private" | "org";
+  /** Whether the door needs a passcode. Org visibility governs being listed,
+      never being let in, so a listed space can still be locked. */
+  protected: boolean;
+  /** Whether the caller is already a member. */
+  member: boolean;
+};
+/** One org the caller belongs to, as the switcher lists them. */
+export type OrgMembership = {
+  slug: string;
+  name: string;
+  role: "admin" | "member";
 };
 export type SessionSummary = {
   id: string;
@@ -163,6 +194,8 @@ export type Envelope = {
   endedAt: string | null;
   presence: string[];
   spaceSlug: string;
+  /** The space's org. Empty for a link guest, along with spaceSlug. */
+  orgSlug: string;
   participants: Person[];
   serverTime: string;
   state: PokerState;

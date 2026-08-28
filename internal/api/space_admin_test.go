@@ -37,7 +37,7 @@ func TestRenameSpaceKeepsTheSlug(t *testing.T) {
 	_, created := createSpace(t, srv, "Platform Team", owner)
 	slug, _ := created["slug"].(string)
 
-	resp, body := doJSON(t, srv, "PATCH", "/api/spaces/"+slug, `{"name":"Platform Guild"}`, owner)
+	resp, body := doJSON(t, srv, "PATCH", "/api/orgs/default/spaces/"+slug, `{"name":"Platform Guild"}`, owner)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("rename: got %d, want 200 (%v)", resp.StatusCode, body)
 	}
@@ -57,7 +57,7 @@ func TestRenameSpaceRejectsAnEmptyName(t *testing.T) {
 	_, created := createSpace(t, srv, "Platform Team", owner)
 	slug, _ := created["slug"].(string)
 
-	resp, _ := doJSON(t, srv, "PATCH", "/api/spaces/"+slug, `{"name":"   "}`, owner)
+	resp, _ := doJSON(t, srv, "PATCH", "/api/orgs/default/spaces/"+slug, `{"name":"   "}`, owner)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("blank rename: got %d, want 400", resp.StatusCode)
 	}
@@ -85,11 +85,11 @@ func TestSpaceAdminIsOwnerOnly(t *testing.T) {
 		{"delete", "DELETE", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, _ := doJSON(t, srv, tc.method, "/api/spaces/"+slug, tc.body, member)
+			resp, _ := doJSON(t, srv, tc.method, "/api/orgs/default/spaces/"+slug, tc.body, member)
 			if resp.StatusCode != http.StatusForbidden {
 				t.Fatalf("member: got %d, want 403", resp.StatusCode)
 			}
-			resp, _ = doJSON(t, srv, tc.method, "/api/spaces/"+slug, tc.body, outsider)
+			resp, _ = doJSON(t, srv, tc.method, "/api/orgs/default/spaces/"+slug, tc.body, outsider)
 			if resp.StatusCode != http.StatusNotFound {
 				t.Fatalf("outsider: got %d, want 404", resp.StatusCode)
 			}
@@ -116,7 +116,7 @@ func TestDeleteSpaceRemovesItsRooms(t *testing.T) {
 	}
 	id, _ := sess["id"].(string)
 
-	resp, _ := doJSON(t, srv, "DELETE", "/api/spaces/"+slug, "", owner)
+	resp, _ := doJSON(t, srv, "DELETE", "/api/orgs/default/spaces/"+slug, "", owner)
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete: got %d, want 204", resp.StatusCode)
 	}
@@ -137,7 +137,7 @@ func TestRenameRoom(t *testing.T) {
 	_, sess := createSession(t, srv, slug, "poker", "Sprint 12", owner)
 	id, _ := sess["id"].(string)
 
-	resp, _ := doJSON(t, srv, "PATCH", "/api/spaces/"+slug+"/sessions/"+id, `{"title":"Sprint 13"}`, owner)
+	resp, _ := doJSON(t, srv, "PATCH", "/api/orgs/default/spaces/"+slug+"/sessions/"+id, `{"title":"Sprint 13"}`, owner)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("rename: got %d, want 200", resp.StatusCode)
 	}
@@ -155,7 +155,7 @@ func TestDeleteRoomLeavesTheSpace(t *testing.T) {
 	_, drop := createSession(t, srv, slug, "poker", "Drop me", owner)
 	dropID, _ := drop["id"].(string)
 
-	resp, _ := doJSON(t, srv, "DELETE", "/api/spaces/"+slug+"/sessions/"+dropID, "", owner)
+	resp, _ := doJSON(t, srv, "DELETE", "/api/orgs/default/spaces/"+slug+"/sessions/"+dropID, "", owner)
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete: got %d, want 204", resp.StatusCode)
 	}
@@ -167,7 +167,7 @@ func TestDeleteRoomLeavesTheSpace(t *testing.T) {
 	}
 
 	// Unlike closing, deleting is not idempotent: a second call names nothing.
-	resp, _ = doJSON(t, srv, "DELETE", "/api/spaces/"+slug+"/sessions/"+dropID, "", owner)
+	resp, _ = doJSON(t, srv, "DELETE", "/api/orgs/default/spaces/"+slug+"/sessions/"+dropID, "", owner)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("second delete: got %d, want 404", resp.StatusCode)
 	}
@@ -189,11 +189,11 @@ func TestRoomAdminCannotReachAnotherSpace(t *testing.T) {
 
 	// Addressed through the space this caller does own, carrying an id from
 	// the one they do not.
-	resp, _ := doJSON(t, srv, "PATCH", "/api/spaces/"+mySlug+"/sessions/"+victim, `{"title":"Hijacked"}`, owner)
+	resp, _ := doJSON(t, srv, "PATCH", "/api/orgs/default/spaces/"+mySlug+"/sessions/"+victim, `{"title":"Hijacked"}`, owner)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("cross-space rename: got %d, want 404", resp.StatusCode)
 	}
-	resp, _ = doJSON(t, srv, "DELETE", "/api/spaces/"+mySlug+"/sessions/"+victim, "", owner)
+	resp, _ = doJSON(t, srv, "DELETE", "/api/orgs/default/spaces/"+mySlug+"/sessions/"+victim, "", owner)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("cross-space delete: got %d, want 404", resp.StatusCode)
 	}
@@ -210,11 +210,11 @@ func TestRenameRoomRejectsAnEmptyTitle(t *testing.T) {
 	_, sess := createSession(t, srv, slug, "poker", "Sprint 12", owner)
 	id, _ := sess["id"].(string)
 
-	resp, _ := doJSON(t, srv, "PATCH", "/api/spaces/"+slug+"/sessions/"+id, `{"title":"   "}`, owner)
+	resp, _ := doJSON(t, srv, "PATCH", "/api/orgs/default/spaces/"+slug+"/sessions/"+id, `{"title":"   "}`, owner)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("blank title: got %d, want 400", resp.StatusCode)
 	}
-	resp, _ = doJSON(t, srv, "PATCH", "/api/spaces/"+slug+"/sessions/"+id,
+	resp, _ = doJSON(t, srv, "PATCH", "/api/orgs/default/spaces/"+slug+"/sessions/"+id,
 		`{"title":"`+strings.Repeat("x", 201)+`"}`, owner)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("over-long title: got %d, want 400", resp.StatusCode)
@@ -234,8 +234,8 @@ func TestDeletingClosesTheRoomSockets(t *testing.T) {
 		name string
 		path func(slug, id string) string
 	}{
-		{"the room itself", func(slug, id string) string { return "/api/spaces/" + slug + "/sessions/" + id }},
-		{"the whole space", func(slug, _ string) string { return "/api/spaces/" + slug }},
+		{"the room itself", func(slug, id string) string { return "/api/orgs/default/spaces/" + slug + "/sessions/" + id }},
+		{"the whole space", func(slug, _ string) string { return "/api/orgs/default/spaces/" + slug }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			srv := testServer(t)

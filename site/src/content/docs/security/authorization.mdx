@@ -6,11 +6,130 @@ description: Membership, facilitator rights, and what the server checks on every
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/authz.go", "internal/api/principal.go", "internal/store/spaces.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/store/sessions.go", "internal/store/links.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/authz.go", "internal/api/principal.go", "internal/store/spaces.go", "internal/store/orgs.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/store/sessions.go", "internal/store/links.go"]} />
 
-Parley has four authorization concepts and no more: **you are a member of the
-space**, **you own the space**, **you are the facilitator of this session**, and
-**you hold a signed link to this one room**.
+Parley has five authorization concepts and no more: **you are a member of the
+org**, **you are a member of the space**, **you own the space**, **you are the
+facilitator of this session**, and **you hold a signed link to this one room**.
+
+## Org membership
+
+A space slug is unique inside an org, not across the instance, so a space's
+address names both: `/o/{org}/s/{slug}`, and every space route on the API is
+mounted under `/api/orgs/{org}/`.
+
+`requireOrgMember` resolves the `{org}` segment once, checks the caller belongs
+to it, and puts the org in the request context. Someone outside the org gets
+**404, not 403** — the same non-disclosure rule membership follows, so an
+unprivileged account elsewhere on the instance cannot use the status code to
+enumerate tenants. `requireOrgAdmin` narrows that to the org's admins and
+answers `403`, which discloses nothing: the caller is already known to be
+inside.
+
+Standing behind the middleware is not the boundary on its own. It proves the
+*caller* is in org A and says nothing about which org a space resolved by slug
+belongs to, so every lookup behind it is filtered by the org id from the
+context as well. Without that, a member of org A could join, re-passcode, or
+open a session in a same-named space owned by org B.
+
+`GET /api/orgs/{org}/spaces/{slug}` is the exception, and stays anonymous: it
+is the pre-join landing view someone reads before they have joined anything, so
+there is no principal to check. It resolves the org and the space in a single
+joined query, so a nonexistent org, a space in a different org, and a slug that
+exists nowhere all fail after identical work. Resolving them in sequence would
+cost one query for a bad org and two for a bad slug, and that difference is a
+cross-org existence oracle no amount of matching the response body hides.
+
+Two routes stay outside the org prefix on purpose. `/api/sessions/...` does,
+because a link guest belongs to no org and no space: it has no org slug to put
+in a URL and no membership one could be derived from, so an org-prefixed
+session tree would 404 every signed link ever issued. `POST /api/links/redeem`
+does, because it mints the identity an org prefix would require.
+
+## Org custody: management without access
+
+An org admin has custody of every space in their org, private ones included,
+and access to none of them. They can list, rename, archive, narrow, delete and
+repair the ownership of a space they are not in, and they can read nothing said
+inside it — no roster, no presence, no votes, no standup entries, no notes.
+
+Four things hold that line, and they hold it together:
+
+- **The response type is the allow-list.** Custody answers with a fixed struct
+  — `id`, `slug`, `name`, `ownerIds`, `visibility`, `memberCount`,
+  `archivedAt` — so "carries no session content" is enforced by the compiler
+  rather than by a reviewer remembering the forbidden field names. A test
+  intercepts the response as raw JSON and fails on any key outside that list,
+  which also catches a handler that marshalled an untyped map instead.
+- **The handlers cannot reach session content.** They live in
+  `internal/api/custody`, which does not import the session, presence, hub or
+  store packages at all. A test asserts that with `go list -deps`. The types
+  that hold what was said in a space are not linked into the package.
+- **Custody may only make a space more private.** `org` → `private` is
+  permitted; `private` → `org` is refused with 403 and stays the space owner's
+  alone. Without this the rest is theatre: an admin flips a private space to
+  org-visible, finds it in the directory, joins as an ordinary org member, and
+  has everything — through a different door, with every custody handler still
+  perfectly pure.
+- **Ownership is granted, never transferred.** An admin may promote somebody
+  who is already a member of the space. They may not name themself, may not
+  name a non-member, and never demote an incumbent. A "reassign" that demoted
+  the incumbents would be one call that removes every owner of a space the
+  admin cannot see; naming themself would be a way in through the ordinary
+  member routes.
+
+### Claiming an abandoned space
+
+There is exactly one path by which an org admin becomes a member of a space
+they were not in: `POST /api/orgs/{org}/admin/spaces/{slug}/claim`, refused
+while any member remains. It exists because a space with nobody left in it can
+otherwise never be managed again, and there is nobody to hand it to.
+
+Every claim writes a row to `org_audit_log`. Neither of that table's foreign
+keys cascades and both slugs are stored as text, so the record outlives the
+space and the org it names — including an org purge, which is the action most
+worth having a record of.
+
+A space also cannot be *driven* to abandonment first. Removing members one at
+a time is refused at the last owner, and no custody action other than an
+org-level revoke removes a space's members at all.
+
+### Revoking an org member
+
+`DELETE /api/orgs/{org}/admin/members/{userId}` removes somebody from the org
+and from every space in it, in one transaction, and upserts a tombstone rather
+than updating one — so an admin can shut the door on somebody who has never
+signed in, and a sign-in never clears it. `POST .../restore` lifts it, because
+without an un-revoke a mis-click would be permanent.
+
+The per-space half matters more than it looks. The last-owner guard runs one
+space at a time, so a cross-space bulk delete would bypass it and strand every
+space where the revoked person was the sole owner. Instead the revoke promotes
+the most recently active remaining member where it can, and where it cannot it
+refuses with 409, names those spaces, and writes nothing at all.
+
+Their open WebSockets in that org's spaces close immediately on the replica
+that served the revoke and, via one `parley_member_revoke` notification per
+space, on every other replica too. Only those spaces: a revoke reaches one org,
+so sockets the same person holds in another org's spaces are left alone. If a
+notification is lost, the backstop is the hub's revalidation tick — at most 30
+seconds.
+
+### Purging an org
+
+`DELETE /api/orgs/{org}` is the most destructive route in the product: every
+space, every session and the org row itself. It cannot happen by accident —
+`spaces.org_id` is `on delete restrict`, so the database refuses a bare delete
+— and it will not run without the org's own slug sent back as `confirm`.
+Without that confirmation it answers 400 and states the exact space and session
+counts it would destroy, read inside the same transaction that would have done
+the destroying.
+
+The whole purge is one transaction: an interrupted one leaves the org and every
+space exactly as they were, rather than some spaces gone, the rest standing,
+and the org row undeletable behind the restrict foreign key. The audit records
+survive, and still name what was purged. Nothing else does — there is no
+restore.
 
 ## Membership
 
@@ -32,16 +151,17 @@ who creates a space is seeded as its owner. Only an owner may promote another
 member to owner, demote an owner back to member, or remove a member from the
 space.
 
-An owner also owns the space itself: renaming it, deleting it, and renaming or
-deleting any session in it. All five routes go through the same
-`requireSpaceOwner` middleware, which resolves the slug, reads the caller's
-role, and answers `403` to a member and `404` to anyone outside the space.
+An owner also owns the space itself: renaming it, deleting it, changing who can
+find it, and renaming or deleting any session in it. Every one of those routes
+goes through the same `requireSpaceOwner` middleware, which resolves the slug,
+reads the caller's role, and answers `403` to a member and `404` to anyone
+outside the space.
 
 The room-level split is deliberate. **Closing** a session ends a meeting and is
 the facilitator's, because it is part of running one; the record survives and
 it can be reopened. **Deleting** a session discards it and is the owner's,
 because it is housekeeping on the space. The delete route is addressed through
-the space (`DELETE /api/spaces/{slug}/sessions/{id}`) and its SQL is scoped by
+the space (`DELETE /api/orgs/{org}/spaces/{slug}/sessions/{id}`) and its SQL is scoped by
 `space_id` as well as by id, so owning one space can never reach a session in
 another even with its id in hand.
 
@@ -56,6 +176,34 @@ Two guard rails are enforced in the database transaction, not in the UI:
 
 A member who is not an owner gets `403` from either route. Someone outside the
 space gets `404` — the same non-disclosure rule the roster follows.
+
+### Visibility governs discovery, not entry
+
+`spaces.visibility` is `private` or `org`. An org-visible space is *listed* to
+the org's members at `GET /api/orgs/{org}/spaces`; a private one appears in
+that list only to people who are already members of it. Nothing else changes:
+being able to find a space grants nothing about getting into it, and
+`handleJoinSpace` compares the passcode exactly as it did before, for org
+members included. A space that is both listed and protected is a real and
+supported state — `PATCH .../visibility` never writes the passcode, and
+`POST .../passcode` never writes the visibility, so neither route can silently
+strip the other.
+
+Two refusals hold the boundary:
+
+- **Open mode cannot reach org visibility.** An instance with no sign-in
+  configured mints an anonymous identity for every visitor on `POST /api/me`
+  and enrols it in the default org, so a listed, passcode-free space there
+  would be joinable by anyone on the internet. Space creation forces `private`,
+  and `PATCH .../visibility` refuses `org` with `403` *before* it reaches the
+  database, so the route cannot be used to route around the create-time guard.
+- **A signed-link guest gets neither the directory nor entry.** A redeemed link
+  is a `users` row in no org and no space. The directory sits behind
+  `RequireUser` and then `requireOrgMember`, in that order, so a link guest is
+  refused `401` at the first of them — the same answer `GET /api/spaces` gives
+  it, and the same `401` it gets from the join route. That ordering is the
+  guarantee: if the directory ever answered for a link guest, one link to one
+  standup would become a listing of every org-visible space on the instance.
 
 ### Removal takes effect immediately
 
@@ -210,7 +358,7 @@ toggle, not a permission an administrator grants.
 ## What there is not
 
 <Capability rows={[
-  { name: "Roles beyond owner and member", status: "not-built", detail: "Ownership covers membership management and the space itself — renaming and deleting the space and its sessions. It does not cover the door: any member, owner or not, can still rotate the passcode or open the space." },
+  { name: "Roles beyond owner and member", status: "not-built", detail: "Ownership covers membership management and the space itself — renaming and deleting the space and its sessions. It does not cover the door: the server still lets any member, owner or not, rotate the passcode or open the space, though the controls that do so are offered only to owners, on the space settings page." },
   { name: "Per-user or per-team space access", status: "not-built", detail: "A passcode is the only gate. Signing in with OIDC proves who you are but grants nothing by itself." },
   { name: "Removing a session participant", status: "not-built", detail: "A facilitator can hand the role to another member, but there is no eject-from-this-session-only control. Remove them from the space instead, or rotate the passcode." },
   { name: "Undo, or an audit trail, for a deletion", status: "not-built", detail: "An owner can delete a space or a session, and it is gone — no soft delete, no archive, no record that it existed. Restore from a <a href='/operations/backups-and-recovery/'>backup</a> if you need one back." },

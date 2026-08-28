@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useId, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type Person, type SessionSummary, type SpaceRole, type SpaceView } from "../lib/api";
+import { api, type SessionSummary, type SpaceView } from "../lib/api";
 import { useAuthMode, useMe, NameGate } from "../components/NameGate";
 import { isFullAccount } from "../lib/links";
 import { AppShell, Logo } from "../components/AppShell";
@@ -9,17 +9,27 @@ import { KindChip } from "../components/KindChip";
 import { EmptyTable } from "./PokerRoom";
 import {
   Modal,
+  buttonDanger,
   buttonPrimary,
   buttonQuiet,
   inputClass,
   labelClass,
 } from "../components/Modal";
 import { useCopy, useToast } from "../lib/ui";
+import { spaceApi, spacePath } from "../lib/paths";
+import { inviteLink } from "../lib/invite";
 import { KINDS, defaultConfig, kindLabel, type KindDef } from "../lib/kinds";
 
 // "" is the All tab; every other value is a registered kind's wire id.
 const KIND_TABS = [{ id: "", label: "All" }, ...KINDS];
 type Sort = "Recent" | "Active first" | "A\u2013Z";
+
+/**
+ * The credential an invite arrived with: a passcode read out of the URL
+ * fragment, or a handle that waited out a sign-in round trip. Exactly one of
+ * them is ever set, and the join door takes either.
+ */
+type Invite = { passcode?: string; handle?: string };
 
 /**
  * The passcode an invite link carried, taken from the URL fragment.
@@ -30,51 +40,51 @@ type Sort = "Recent" | "Active first" | "A\u2013Z";
  * read once and wiped from the address bar immediately, so it does not survive
  * into a bookmark or a screenshot either.
  */
-function takeInviteCode(slug: string): string {
+function takeInviteCode(org: string, slug: string): Invite {
   const match = /(?:^|&)c=([^&]+)/.exec(window.location.hash.replace(/^#/, ""));
   if (!match) {
-    // Nothing in the fragment. It may still be parked from before a sign-in
-    // round trip, which is the only other place an invite code lives.
-    return takeParkedInvite(slug);
+    // Nothing in the fragment. There may still be a handle parked from before
+    // a sign-in round trip, which is the only other place an invite lives.
+    return takeParkedInvite(org, slug);
   }
   window.history.replaceState(null, "", window.location.pathname + window.location.search);
-  return decodeURIComponent(match[1]);
+  return { passcode: decodeURIComponent(match[1]) };
 }
 
 /**
- * Where an invite passcode waits out a sign-in round trip.
+ * Where an invite handle waits out a sign-in round trip.
  *
  * Under an identity provider, taking a seat is a full-page navigation to the
  * provider and back. The fragment does not survive it — `next` is built from
  * the path and query alone, deliberately, because putting the passcode in a
  * query string is the exposure the fragment exists to avoid. Without somewhere
- * to park it the code is simply lost, and worse than lost: the fragment has
- * already been wiped, so the invite link the visitor clicked no longer carries
- * it either and they are stranded at the passcode gate with nothing to type.
+ * to park something the invite is simply lost, and worse than lost: the
+ * fragment has already been wiped, so the link the visitor clicked no longer
+ * carries the code either and they are stranded at the passcode gate with
+ * nothing to type.
+ *
+ * What waits here is never the passcode. The code is traded first, at the mint
+ * door, for an opaque handle the server issues only to a caller who already
+ * presented the right code: a capability on this one space that expires in
+ * five minutes and is spent by the first join that uses it. So the door code —
+ * the one every member of the space shares and reads off the space page —
+ * never goes into storage at all, and what does is worth nothing a moment
+ * later.
  *
  * sessionStorage, not localStorage, and stamped: an abandoned invite should die
  * with the tab rather than seat someone next week, and the stamp narrows it
  * further to roughly one sign-in trip. Same shape as the pending space name on
  * the landing page, for the same reason.
- *
- * This does put a passcode in storage in the clear, which is what CodeQL's
- * js/clear-text-storage-of-sensitive-data flags. It is written only when a
- * provider sign-in is about to navigate the page away — never in open mode —
- * it is scoped to one space, spent on the first read, expires in five minutes,
- * and dies with the tab. A space passcode is a shared door code that is
- * printed on the space page for every member to read and passed around in
- * chat; it is not a per-person credential. Same-origin script that could read
- * this could equally read it off the page.
  */
 const pendingInviteKey = "parley:pending-invite";
-// A sign-in round trip takes seconds. Five minutes is already generous, and
-// every minute past that is a plaintext passcode sitting in storage for no
-// reason.
+// A sign-in round trip takes seconds. Five minutes is already generous, and it
+// is the server's own limit on the handle too — expiring it here first only
+// saves a call that would be refused anyway.
 const pendingInviteMaxAgeMs = 5 * 60 * 1000;
 
-/** Reads the parked code and drops it: one attempt, so a refused passcode
+/** Reads the parked handle and drops it: one attempt, so a refused invite
  *  lands on the gate rather than being retried on every mount. */
-function takeParkedInvite(slug: string): string {
+function takeParkedInvite(org: string, slug: string): Invite {
   let raw: string | null = null;
   try {
     raw = sessionStorage.getItem(pendingInviteKey);
@@ -83,30 +93,45 @@ function takeParkedInvite(slug: string): string {
     // Storage can be unavailable — a locked-down browser, or a test runner
     // started with webstorage off. An invite that cannot be parked still
     // works; it just asks for the passcode.
-    return "";
+    return {};
   }
-  if (!raw) return "";
+  if (!raw) return {};
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null) return "";
-    const { code, at, slug: forSlug } = parsed as { code?: unknown; at?: unknown; slug?: unknown };
-    if (typeof code !== "string" || typeof at !== "number") return "";
-    // A passcode belongs to one space. Landing on a different one must not
-    // spend it there — it would be refused, and the real invite is gone.
-    if (forSlug !== slug) return "";
-    if (!Number.isFinite(at) || Date.now() - at > pendingInviteMaxAgeMs) return "";
-    return code;
+    if (typeof parsed !== "object" || parsed === null) return {};
+    const {
+      handle,
+      at,
+      org: forOrg,
+      slug: forSlug,
+    } = parsed as { handle?: unknown; at?: unknown; org?: unknown; slug?: unknown };
+    if (typeof handle !== "string" || typeof at !== "number") return {};
+    // A handle belongs to one space. Landing on a different one must not spend
+    // it there — the server refuses it, and the real invite is gone. Both
+    // halves of the address, because a slug is only unique inside an org: two
+    // orgs can each have a "platform-team", and matching on the slug alone
+    // would burn a live invite against the wrong one.
+    if (forOrg !== org || forSlug !== slug) return {};
+    if (!Number.isFinite(at) || Date.now() - at > pendingInviteMaxAgeMs) return {};
+    return { handle };
   } catch {
-    return "";
+    return {};
   }
 }
 
-function parkInvite(slug: string, code: string): void {
+/** Trades the invite passcode for a handle and parks that instead. The mint
+ *  door checks the code exactly as the join door does, so a wrong one gets
+ *  nothing to park — and a right one is left in memory only, where the page
+ *  already had it. */
+async function parkInvite(org: string, slug: string, code: string): Promise<void> {
   if (!code) return;
   try {
-    sessionStorage.setItem(pendingInviteKey, JSON.stringify({ code, slug, at: Date.now() }));
+    const { handle } = await api<{ handle: string }>("POST", `${spaceApi(org, slug)}/invite`, { passcode: code });
+    sessionStorage.setItem(pendingInviteKey, JSON.stringify({ handle, org, slug, at: Date.now() }));
   } catch {
-    // See takeParkedInvite: parking is a convenience, never a requirement.
+    // See takeParkedInvite: parking is a convenience, never a requirement. A
+    // visitor whose handle could not be minted or stored is asked for the
+    // passcode on the way back, which is where they started.
   }
 }
 
@@ -120,7 +145,7 @@ function relativeDate(iso: string): string {
 }
 
 export function SpacePage() {
-  const { slug = "" } = useParams();
+  const { org = "", slug = "" } = useParams();
   const qc = useQueryClient();
   const me = useMe();
   const authMode = useAuthMode();
@@ -131,12 +156,12 @@ export function SpacePage() {
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState("");
   const [sort, setSort] = useState<Sort>("Recent");
-  // Held across the name prompt so a joiner types the code exactly once.
-  const [pending, setPending] = useState("");
+  // Held across the name prompt so a joiner presents the invite exactly once.
+  const [pending, setPending] = useState<Invite>({});
   // Read on the first render, before anything can navigate: an invite link
   // carries its passcode in the fragment, and this is the only chance to see
   // it. Empty for a link pasted without one, which is the ordinary case.
-  const [invited] = useState(() => takeInviteCode(slug));
+  const [invited] = useState<Invite>(() => takeInviteCode(org, slug));
   /** The room whose manage dialog is open, if any. */
   const [managing, setManaging] = useState<SessionSummary | null>(null);
   // One attempt only. A refused passcode must land on the gate with the error
@@ -144,8 +169,8 @@ export function SpacePage() {
   const [autoJoined, setAutoJoined] = useState(false);
 
   const space = useQuery({
-    queryKey: ["space", slug],
-    queryFn: () => api<SpaceView>("GET", `/api/spaces/${slug}`),
+    queryKey: ["space", org, slug],
+    queryFn: () => api<SpaceView>("GET", spaceApi(org, slug)),
     retry: false,
     // Presence ages out after ~100s (2 × the socket pong deadline), so a page
     // read once shows a headcount that is quietly wrong within two minutes.
@@ -160,13 +185,13 @@ export function SpacePage() {
   const isMember = space.data?.members !== undefined;
   useEffect(() => {
     if (!isMember) return;
-    api("POST", `/api/spaces/${slug}/seen`).catch(() => {});
-  }, [slug, isMember]);
+    api("POST", `${spaceApi(org, slug)}/seen`).catch(() => {});
+  }, [org, slug, isMember]);
 
   // The one join path, whether the passcode was typed at the gate or carried
   // in by an invite link. Identity comes first: a visitor with no name is sent
   // through the gate, and the code is held so they only present it once.
-  function attemptJoin(passcode?: string) {
+  async function attemptJoin(invite: Invite = {}) {
     // Still loading is not the same as "has no identity": asking a member to
     // pick a name again because their session hadn't arrived yet is worse than
     // a moment's wait.
@@ -175,35 +200,38 @@ export function SpacePage() {
     // "no identity here" the same as a signed-out visitor, so joining goes
     // through the name gate rather than silently reusing that identity.
     if (!isFullAccount(me.data)) {
-      setPending(passcode ?? "");
+      setPending(invite);
       // Open mode's gate is a modal: this component stays mounted and the
-      // state above survives, so nothing is written anywhere. Only the
-      // provider gate leaves the page, and only that case pays the cost of
-      // putting the passcode in storage.
+      // state above survives, so nothing is written anywhere and no handle is
+      // minted. Only the provider gate leaves the page, and only that case
+      // needs something that survives the trip.
       if (authMode.data?.mode === "oidc") {
-        parkInvite(slug, passcode ?? "");
+        await parkInvite(org, slug, invite.passcode ?? "");
       }
       setNeedName(true);
       return;
     }
-    doJoin(passcode);
+    doJoin(invite);
   }
 
   // An invite link seats you without a second step. It runs at most once — a
   // refused code leaves the gate up with the error on it rather than looping.
   useEffect(() => {
-    if (!invited || autoJoined || isMember || me.isLoading) return;
+    if ((!invited.passcode && !invited.handle) || autoJoined || isMember || me.isLoading) return;
     setAutoJoined(true);
     // attemptJoin closes over this render's state; the guards above are what
     // keep it to a single run, not the dependency list.
     attemptJoin(invited);
   }, [invited, autoJoined, isMember, me.isLoading]);
 
-  async function doJoin(passcode?: string) {
+  async function doJoin(invite: Invite = {}) {
     try {
-      await api("POST", `/api/spaces/${slug}/join`, passcode ? { passcode } : {});
+      // A handle if one survived the round trip, the typed passcode otherwise.
+      // Never both: the join door spends whichever it is handed.
+      const credential = invite.handle ? { handle: invite.handle } : invite.passcode ? { passcode: invite.passcode } : {};
+      await api("POST", `${spaceApi(org, slug)}/join`, credential);
       setError("");
-      qc.invalidateQueries({ queryKey: ["space", slug] });
+      qc.invalidateQueries({ queryKey: ["space", org, slug] });
       say("You're seated — pull up a chair");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not join.");
@@ -235,16 +263,17 @@ export function SpacePage() {
       <>
         <Gate
           name={sp.name}
+          org={org}
           slug={sp.slug}
           locked={sp.protected}
           error={error}
-          onJoin={attemptJoin}
+          onJoin={(passcode) => attemptJoin(passcode ? { passcode } : {})}
         />
         {needName && (
           <NameGate
             onDone={() => {
               setNeedName(false);
-              doJoin(pending || undefined);
+              doJoin(pending);
             }}
           />
         )}
@@ -273,6 +302,7 @@ export function SpacePage() {
 
   return (
     <AppShell
+      orgSlug={org}
       spaceSlug={sp.slug}
       spaceName={sp.name}
       me={me.data ?? null}
@@ -281,8 +311,11 @@ export function SpacePage() {
       // has is who the server says is sitting in a live session right now.
       presence={(sp.members ?? []).filter((m) => m.at).map((m) => m.userId)}
       sessions={all}
+      canManage={canManage}
     >
       <div className="mx-auto max-w-[760px] px-6 py-9 sm:px-8">
+        <InviteStrip org={org} slug={sp.slug} passcode={sp.passcode ?? ""} />
+
         <div className="mb-5 flex items-center justify-between gap-4">
           <h2 className="text-[22px] font-extrabold tracking-tight">Recent sessions</h2>
           {offered.length > 0 && (
@@ -402,49 +435,26 @@ export function SpacePage() {
           </ul>
         )}
 
-        {error && <p className="mt-4 text-center text-sm font-bold text-stop">{error}</p>}
-
-        <MembersPanel
-          slug={sp.slug}
-          members={sp.members ?? []}
-          meId={me.data?.id ?? ""}
-          onChanged={() => qc.invalidateQueries({ queryKey: ["space", slug] })}
-          onError={setError}
-        />
-
-        {canManage && (
-          <SpaceSettingsPanel
-            slug={sp.slug}
-            name={sp.name}
-            onChanged={() => qc.invalidateQueries({ queryKey: ["space", slug] })}
-            onError={setError}
-          />
-        )}
-
-        <PasscodePanel
-          slug={sp.slug}
-          passcode={sp.passcode ?? ""}
-          onChanged={() => qc.invalidateQueries({ queryKey: ["space", slug] })}
-          onError={setError}
-        />
       </div>
 
       {managing && (
         <RoomManageModal
+          org={org}
           slug={sp.slug}
           room={managing}
           onClose={() => setManaging(null)}
-          onChanged={() => qc.invalidateQueries({ queryKey: ["space", slug] })}
-          onError={setError}
+          onChanged={() => qc.invalidateQueries({ queryKey: ["space", org, slug] })}
+          onError={say}
         />
       )}
 
       {creating && (
         <NewSessionModal
+          org={org}
           slug={sp.slug}
           kinds={offered}
           onClose={() => setCreating(false)}
-          onError={setError}
+          onError={say}
         />
       )}
     </AppShell>
@@ -453,12 +463,14 @@ export function SpacePage() {
 
 function Gate({
   name,
+  org,
   slug,
   locked,
   error,
   onJoin,
 }: {
   name: string;
+  org: string;
   slug: string;
   locked: boolean;
   error: string;
@@ -475,7 +487,7 @@ function Gate({
       <div className="w-full max-w-[420px] rounded-panel border border-line bg-surface px-10 py-9 text-center shadow-rest">
         <h1 className="text-2xl font-extrabold tracking-tight">{name}</h1>
         <p className="mt-2 inline-block rounded-chip bg-felt-deep px-2.5 py-1 font-mono text-[11px] text-ink-faint">
-          /s/{slug}
+          {spacePath(org, slug)}
         </p>
         <div className="my-6 h-px bg-line" />
 
@@ -531,335 +543,48 @@ function Gate({
 }
 
 /**
- * Who is in the space and who runs it. Owners get the controls; everyone else
- * sees the roles, because knowing who to ask is the point of showing them.
+ * The invite, in one line, above the session list.
  *
- * Every rule here is enforced by the server as well — hiding a button is a
- * courtesy, not the guard.
+ * Read-only on purpose: rotating a passcode locks out everyone still holding
+ * the old one, so every control that changes the door lives on the settings page
+ * instead. An open space has no code to show, so the strip says so in the same
+ * one line rather than rendering a bordered panel around the word "Open".
  */
-function MembersPanel({
-  slug,
-  members,
-  meId,
-  onChanged,
-  onError,
-}: {
-  slug: string;
-  members: Person[];
-  meId: string;
-  onChanged: () => void;
-  onError: (msg: string) => void;
-}) {
-  const say = useToast();
-  const [busy, setBusy] = useState("");
-  const myRole = members.find((m) => m.userId === meId)?.role;
-  const canManage = myRole === "owner";
-  const owners = members.filter((m) => m.role === "owner").length;
-
-  async function run(userId: string, work: () => Promise<unknown>, done: string) {
-    setBusy(userId);
-    try {
-      await work();
-      onChanged();
-      say(done);
-    } catch (e) {
-      onError(e instanceof Error ? e.message : "Could not update that member.");
-    } finally {
-      setBusy("");
-    }
-  }
-
-  function setRole(m: Person, role: SpaceRole) {
-    run(
-      m.userId,
-      () => api("POST", `/api/spaces/${slug}/members/${m.userId}/role`, { role }),
-      role === "owner" ? `${m.name} can now manage this space` : `${m.name} is a member again`,
-    );
-  }
-
-  function remove(m: Person) {
-    run(
-      m.userId,
-      () => api("DELETE", `/api/spaces/${slug}/members/${m.userId}`),
-      `${m.name} no longer has a seat here`,
-    );
-  }
-
-  if (members.length === 0) return null;
-
-  return (
-    <section className="mt-8 rounded-card border border-line bg-surface px-5 py-4">
-      <h2 className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">Members</h2>
-      <ul className="mt-2 flex flex-col divide-y divide-line">
-        {members.map((m) => {
-          const isOwner = m.role === "owner";
-          // The server refuses to strand a space without an owner; the UI says
-          // so up front instead of offering a button that always 409s.
-          const lastOwner = isOwner && owners < 2;
-          return (
-            <li key={m.userId} className="flex flex-wrap items-center gap-2 py-2">
-              <span className="min-w-0 flex-1 truncate text-[14px] font-semibold">
-                {m.name}
-                {m.userId === meId && <span className="ml-1.5 text-ink-faint">(you)</span>}
-              </span>
-              <span
-                className={
-                  "shrink-0 rounded-chip px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] " +
-                  (isOwner ? "bg-accent-soft text-ink" : "bg-felt-deep text-ink-faint")
-                }
-              >
-                {isOwner ? "Owner" : "Member"}
-              </span>
-              {canManage && (
-                <>
-                  <button
-                    className={buttonQuiet}
-                    disabled={busy === m.userId || lastOwner}
-                    title={lastOwner ? "Promote someone else first — a space needs an owner" : undefined}
-                    aria-label={(isOwner ? "Make member: " : "Make owner: ") + m.name}
-                    onClick={() => setRole(m, isOwner ? "member" : "owner")}
-                  >
-                    {isOwner ? "Make member" : "Make owner"}
-                  </button>
-                  <button
-                    className={buttonQuiet}
-                    disabled={busy === m.userId || lastOwner}
-                    title={lastOwner ? "Promote someone else first — a space needs an owner" : undefined}
-                    aria-label={"Remove: " + m.name}
-                    onClick={() => remove(m)}
-                  >
-                    Remove
-                  </button>
-                </>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </section>
-  );
-}
-
-/** The passcode, readable by members so they can pass it on. */
-function PasscodePanel({
-  slug,
-  passcode,
-  onChanged,
-  onError,
-}: {
-  slug: string;
-  passcode: string;
-  onChanged: () => void;
-  onError: (msg: string) => void;
-}) {
-  const say = useToast();
+function InviteStrip({ org, slug, passcode }: { org: string; slug: string; passcode: string }) {
   const copyText = useCopy();
-  const [busy, setBusy] = useState(false);
-
-  // The same copy affordance the guest-link panel uses, denial path included.
-  const copy = (text: string, done: string) => copyText(text, done, onError);
-
-  async function set(open: boolean) {
-    setBusy(true);
-    try {
-      await api("POST", `/api/spaces/${slug}/passcode`, { open });
-      onChanged();
-      say(open ? "Space opened — the link is now the only thing needed" : "New passcode — the old one stops working");
-    } catch (e) {
-      onError(e instanceof Error ? e.message : "Could not update the passcode.");
-    } finally {
-      setBusy(false);
-    }
-  }
 
   return (
-    <section className="mt-8 flex flex-wrap items-center gap-3 rounded-card border border-line bg-surface px-5 py-4">
-      <div className="min-w-0 flex-1">
-        <h2 className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
-          Space passcode
-        </h2>
-        {passcode ? (
-          /* Never break the code itself. Renaming the buttons to "Copy
-             passcode" and "New passcode" widened the row enough to wrap
-             RIVER-8412 across two lines, which is unreadable for the one
-             string on this panel that gets read out loud. The button row is
-             the thing that should wrap instead — it already can. */
-          <p className="mt-1 whitespace-nowrap font-mono text-lg font-semibold tracking-[0.16em]">
-            {passcode}
-          </p>
-        ) : (
-          <p className="mt-1 text-[13px] text-ink-soft">
-            Open — anyone with the link can take a seat.
-          </p>
-        )}
-      </div>
+    <div
+      data-testid="invite-strip"
+      className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line pb-3"
+    >
+      <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+        {passcode ? "Passcode" : "Access"}
+      </span>
+      {passcode ? (
+        /* Never break the code itself — it is the one string here that gets
+           read out loud. */
+        <span className="whitespace-nowrap font-mono text-[15px] font-semibold tracking-[0.16em]">
+          {passcode}
+        </span>
+      ) : (
+        <span className="text-[13px] text-ink-soft">
+          Open — anyone with the link can take a seat.
+        </span>
+      )}
+      <span className="flex-1" />
       <button
         className={buttonQuiet}
-        onClick={() => {
-          const link = `${window.location.origin}/s/${slug}`;
-          // The passcode rides in the fragment, so the link is the whole
-          // invite: one click seats them, with nothing to read off a second
-          // line and retype. A fragment never reaches the server or a Referer
-          // header, so it stays out of access logs — see takeInviteCode.
-          copy(
-            passcode ? `${link}#c=${encodeURIComponent(passcode)}` : link,
+        onClick={() =>
+          void copyText(
+            inviteLink(org, slug, passcode),
             "Invite link copied — it seats them in one click",
-          );
-        }}
+          )
+        }
       >
         Copy invite
       </button>
-      {passcode && (
-        <button
-          className={buttonQuiet}
-          onClick={() => copy(passcode, "Passcode copied")}
-        >
-          Copy passcode
-        </button>
-      )}
-      <button className={buttonQuiet} disabled={busy} onClick={() => set(false)}>
-        {passcode ? "New passcode" : "Protect space"}
-      </button>
-      {passcode && (
-        <button className={buttonQuiet} disabled={busy} onClick={() => set(true)}>
-          Make open
-        </button>
-      )}
-    </section>
-  );
-}
-
-/**
- * Renaming and deleting the space itself. Owners only, and the last thing on
- * the page: it is housekeeping, not something anyone came here to do.
- *
- * Deleting asks for the name to be typed back. The confirmation is not
- * ceremony — nothing here is recoverable, and every session, story and vote in
- * the space goes with it.
- */
-function SpaceSettingsPanel({
-  slug,
-  name,
-  onChanged,
-  onError,
-}: {
-  slug: string;
-  name: string;
-  onChanged: () => void;
-  onError: (msg: string) => void;
-}) {
-  const navigate = useNavigate();
-  const say = useToast();
-  const [draft, setDraft] = useState(name);
-  const [busy, setBusy] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const [typed, setTyped] = useState("");
-  const nameFieldId = useId();
-
-  const trimmed = draft.trim();
-
-  async function rename(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      await api("PATCH", `/api/spaces/${slug}`, { name: trimmed });
-      onChanged();
-      // The slug is in every invite already handed out, so it deliberately
-      // stays put — say so rather than leaving people hunting for a new link.
-      say(`Renamed — the link /s/${slug} still works`);
-    } catch (err) {
-      onError(err instanceof Error ? err.message : "Could not rename this space.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function destroy() {
-    setBusy(true);
-    try {
-      await api("DELETE", `/api/spaces/${slug}`);
-      say(`${name} is gone`);
-      navigate("/");
-    } catch (err) {
-      onError(err instanceof Error ? err.message : "Could not delete this space.");
-      setBusy(false);
-      setConfirming(false);
-    }
-  }
-
-  return (
-    <section className="mt-8 rounded-card border border-line bg-surface px-5 py-4">
-      <h2 className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
-        Space settings
-      </h2>
-
-      <form onSubmit={rename} className="mt-3 flex flex-wrap items-end gap-3">
-        <div className="min-w-[200px] flex-1">
-          <label htmlFor={nameFieldId} className={labelClass + " mt-0"}>
-            Space name
-          </label>
-          <input
-            id={nameFieldId}
-            className={inputClass}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            maxLength={64}
-          />
-        </div>
-        <button
-          type="submit"
-          className={buttonQuiet}
-          disabled={busy || !trimmed || trimmed === name}
-        >
-          Rename
-        </button>
-      </form>
-      <p className="mt-2 text-[12px] text-ink-faint text-pretty">
-        The address stays /s/{slug}, so invites already sent keep working.
-      </p>
-
-      <div className="my-4 h-px bg-line" />
-
-      {confirming ? (
-        <div>
-          <p className="text-[13px] text-ink-soft text-pretty">
-            This deletes {name} and every session, story and vote in it, for
-            everyone. It cannot be undone. Type <strong>{name}</strong> to
-            confirm.
-          </p>
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <input
-              className={inputClass + " min-w-[200px] max-w-[280px] flex-1"}
-              value={typed}
-              onChange={(e) => setTyped(e.target.value)}
-              aria-label={`Type ${name} to confirm`}
-              autoFocus
-            />
-            <button
-              className="rounded-chip bg-stop px-4 py-2 text-[13px] font-bold text-surface disabled:opacity-50"
-              disabled={busy || typed.trim() !== name}
-              onClick={() => void destroy()}
-            >
-              {busy ? "Deleting…" : "Delete this space"}
-            </button>
-            <button
-              className={buttonQuiet}
-              disabled={busy}
-              onClick={() => {
-                setConfirming(false);
-                setTyped("");
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : (
-        <button className={buttonQuiet} onClick={() => setConfirming(true)}>
-          Delete this space
-        </button>
-      )}
-    </section>
+    </div>
   );
 }
 
@@ -868,12 +593,14 @@ function SpaceSettingsPanel({
  * facilitator's call because it ends a meeting, while deleting discards one.
  */
 function RoomManageModal({
+  org,
   slug,
   room,
   onClose,
   onChanged,
   onError,
 }: {
+  org: string;
   slug: string;
   room: SessionSummary;
   onClose: () => void;
@@ -892,7 +619,7 @@ function RoomManageModal({
     e.preventDefault();
     setBusy(true);
     try {
-      await api("PATCH", `/api/spaces/${slug}/sessions/${room.id}`, { title: trimmed });
+      await api("PATCH", `${spaceApi(org, slug)}/sessions/${room.id}`, { title: trimmed });
       onChanged();
       say("Session renamed");
       onClose();
@@ -905,7 +632,7 @@ function RoomManageModal({
   async function destroy() {
     setBusy(true);
     try {
-      await api("DELETE", `/api/spaces/${slug}/sessions/${room.id}`);
+      await api("DELETE", `${spaceApi(org, slug)}/sessions/${room.id}`);
       onChanged();
       say(`${room.title} is gone`);
       onClose();
@@ -954,7 +681,7 @@ function RoomManageModal({
               Cancel
             </button>
             <button
-              className="rounded-chip bg-stop px-4 py-2 text-[13px] font-bold text-surface disabled:opacity-50"
+              className={buttonDanger + " disabled:opacity-50"}
               disabled={busy}
               onClick={() => void destroy()}
             >
@@ -972,11 +699,13 @@ function RoomManageModal({
 }
 
 function NewSessionModal({
+  org,
   slug,
   kinds,
   onClose,
   onError,
 }: {
+  org: string;
   slug: string;
   /** The kinds this space may start, in registry order. Never empty. */
   kinds: KindDef[];
@@ -991,7 +720,7 @@ function NewSessionModal({
   async function submit(e: FormEvent) {
     e.preventDefault();
     try {
-      const sess = await api<SessionSummary>("POST", `/api/spaces/${slug}/sessions`, {
+      const sess = await api<SessionSummary>("POST", `${spaceApi(org, slug)}/sessions`, {
         kind: kind.id,
         title: title.trim(),
         config,

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -8,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lets-parley/parley/internal/store"
 )
@@ -31,7 +34,7 @@ func createSpace(t *testing.T, srv *httptest.Server, name string, cookie *http.C
 
 func getSpace(t *testing.T, srv *httptest.Server, slug string, cookie *http.Cookie) (*http.Response, map[string]any) {
 	t.Helper()
-	req, _ := http.NewRequest("GET", srv.URL+"/api/spaces/"+slug, nil)
+	req, _ := http.NewRequest("GET", srv.URL+"/api/orgs/default/spaces/"+slug, nil)
 	if cookie != nil {
 		req.AddCookie(cookie)
 	}
@@ -52,7 +55,7 @@ func joinSpace(t *testing.T, srv *httptest.Server, slug string, cookie *http.Coo
 	if len(passcode) > 0 {
 		body = strings.NewReader(`{"passcode":"` + passcode[0] + `"}`)
 	}
-	req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/"+slug+"/join", body)
+	req, _ := http.NewRequest("POST", srv.URL+"/api/orgs/default/spaces/"+slug+"/join", body)
 	req.Header.Set("Content-Type", "application/json")
 	if cookie != nil {
 		req.AddCookie(cookie)
@@ -165,7 +168,7 @@ func TestSlugify(t *testing.T) {
 }
 
 func TestJoinReturnsPayloadTooLargeForOversizedJSON(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/api/spaces/example/join", strings.NewReader(`{"passcode":"`+strings.Repeat("x", 4<<10)+`"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/orgs/default/spaces/example/join", strings.NewReader(`{"passcode":"`+strings.Repeat("x", 4<<10)+`"}`))
 	rec := httptest.NewRecorder()
 
 	(&app{}).handleJoinSpace(rec, req)
@@ -245,7 +248,7 @@ func TestListMySpacesRefusesAnonymous(t *testing.T) {
 // markSeen pings the "I opened this space" endpoint the space page calls.
 func markSeen(t *testing.T, srv *httptest.Server, slug string, cookie *http.Cookie) *http.Response {
 	t.Helper()
-	req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/"+slug+"/seen", nil)
+	req, _ := http.NewRequest("POST", srv.URL+"/api/orgs/default/spaces/"+slug+"/seen", nil)
 	if cookie != nil {
 		req.AddCookie(cookie)
 	}
@@ -374,7 +377,10 @@ func TestListMySpacesCarriesOnlyTheListedFields(t *testing.T) {
 	}
 	for key := range mine[0] {
 		switch key {
-		case "slug", "name", "protected":
+		// orgSlug is part of the address, not extra disclosure: a slug alone
+		// no longer resolves to a space, so the list would be unlinkable
+		// without it.
+		case "slug", "name", "orgSlug", "protected":
 		default:
 			t.Fatalf("unexpected field %q in %v", key, mine[0])
 		}
@@ -444,7 +450,7 @@ func TestMarkSeenRefusesCrossSite(t *testing.T) {
 		{"sec-fetch-site", "Sec-Fetch-Site", "cross-site"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			req, _ := http.NewRequest("POST", srv.URL+"/api/spaces/alpha-squad/seen", nil)
+			req, _ := http.NewRequest("POST", srv.URL+"/api/orgs/default/spaces/alpha-squad/seen", nil)
 			req.Header.Set(tc.header, tc.value)
 			req.AddCookie(ada)
 			resp, err := srv.Client().Do(req)
@@ -477,5 +483,66 @@ func TestMarkSeenDoesNotRestoreARemovedMember(t *testing.T) {
 	}
 	if _, view := getSpace(t, srv, slug, owner); len(view["members"].([]any)) != 1 {
 		t.Fatalf("roster grew back: %v", view["members"])
+	}
+}
+
+// TestCreateSpaceVisibilityByAuthMode pins the guard in handleCreateSpace.
+// Open mode mints anonymous identities on POST /api/me, so an org-visible
+// space created there would be a room any visitor could walk into once
+// org-visible spaces become joinable without a passcode. Open mode must force
+// private; a real org still gets org visibility.
+func TestCreateSpaceVisibilityByAuthMode(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// serve builds a server in the mode under test and hands back the
+		// pool behind it plus a signed-in session.
+		serve func(t *testing.T) (*httptest.Server, *pgxpool.Pool, *http.Cookie)
+		want  string
+	}{
+		{
+			name: "open",
+			serve: func(t *testing.T) (*httptest.Server, *pgxpool.Pool, *http.Cookie) {
+				pool := testPool(t)
+				srv := testServerWith(t, pool, Options{AllowedOrigin: "http://example.test"})
+				return srv, pool, signup(t, srv, "Ada")
+			},
+			want: store.VisibilityPrivate,
+		},
+		{
+			name: "oidc",
+			serve: func(t *testing.T) (*httptest.Server, *pgxpool.Pool, *http.Cookie) {
+				idp := newFakeIdP(t)
+				srv, pool := oidcServerPool(t, idp)
+				cookie := signInOIDC(t, srv, idp)
+				// The fake provider hands back no org claim, so nothing
+				// enrols this account anywhere and creating a space is
+				// refused — see TestCreateSpaceRequiresOrgMembership. This
+				// case is about the visibility a real member's space gets,
+				// so give them the membership a matching claim would have.
+				if _, err := pool.Exec(context.Background(),
+					"insert into org_members (org_id, user_id, role) select id, $1, $2 from orgs where slug = $3",
+					userIDOf(t, srv, cookie), store.OrgRoleMember, store.DefaultOrgSlug); err != nil {
+					t.Fatal(err)
+				}
+				return srv, pool, cookie
+			},
+			want: store.VisibilityOrg,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, pool, cookie := tc.serve(t)
+			resp, sp := createSpace(t, srv, "Platform Team", cookie)
+			if resp.StatusCode != http.StatusCreated {
+				t.Fatalf("create: got %d, want 201 (%v)", resp.StatusCode, sp)
+			}
+			var got string
+			if err := pool.QueryRow(context.Background(),
+				"select visibility from spaces where slug = $1", sp["slug"]).Scan(&got); err != nil {
+				t.Fatalf("read visibility: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("visibility = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

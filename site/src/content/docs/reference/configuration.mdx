@@ -216,6 +216,53 @@ Space-separated. `openid` is always prepended, so you never list it. `email` is
 requested only to derive a display name; **no email address is stored**.
 </EnvVar>
 
+<EnvVar name="OIDC_ORG_CLAIM" default="groups">
+The `id_token` claim that carries the caller's groups. At each sign-in its
+values are matched against the claim value an admin registered on each org, and
+membership is granted for every match.
+
+Matching is exact and case-sensitive. A value no org claims grants nothing and
+never creates an org.
+
+The claim may arrive as a single string, as an array of strings, or not at all;
+all three are accepted, and a token without it simply maps to no org. Entries
+that are not strings are ignored.
+
+Membership lags in both directions: the session cookie is long-lived, so a
+group added or removed at the provider reaches Parley at the person's next
+sign-in. A membership an admin revoked is a tombstone and stays revoked no
+matter how often the claim arrives again.
+
+Microsoft Entra replaces this claim with a `_claim_names` pointer once a user is
+in more than 200 groups. Parley does not follow that pointer, so such a user
+maps to no org and needs membership granted another way; the sign-in is logged
+with a warning.
+</EnvVar>
+
+<EnvVar name="PARLEY_DEFAULT_ORG_CLAIM" badValue="Refuses to start if the default org is missing or the value is empty">
+Points the built-in default org at one of your provider's groups, so a fresh
+instance has something for `OIDC_ORG_CLAIM` to match. Applied at boot, after
+migrations. Leave it unset once your orgs carry their own claim values.
+</EnvVar>
+
+<EnvVar name="PARLEY_BOOTSTRAP_ADMIN" badValue="Refuses to start unless it is an issuer|subject pair">
+Grants admin of the default org to one identity the first time it signs in,
+written as `issuer|subject` — for example
+`https://keycloak.example.com/realms/yourteam|8f2c…`.
+
+It is the pair from the `id_token` rather than a user id because the account
+does not exist until that person first signs in. Ignored in open mode.
+
+Without it a fresh instance is unusable: no org matches any claim, so nobody is
+an admin, and nobody can create the first org. It grants membership; it never
+restores one an admin revoked.
+
+It works whether or not they already belong to the default org: an existing
+member is promoted to admin at their next sign-in. The one case it will not act
+on is a **revoked** membership, which stays revoked and logs a warning — undo
+the revocation first, then sign in again.
+</EnvVar>
+
 ## Variables that do not exist
 
 Worth stating, because they are natural guesses:

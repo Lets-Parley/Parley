@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
@@ -63,11 +64,22 @@ func newSpaceWithCreator(t *testing.T, pool *pgxpool.Pool) (Space, User) {
 	}
 	slug := prefix + "-" + randSuffix(t)
 	creator, _ := newUser(t, pool, "Creator "+randSuffix(t))
-	sp, err := (&Spaces{Pool: pool}).Create(context.Background(), t.Name(), slug, "", creator.ID, 50)
+	sp, err := (&Spaces{Pool: pool}).Create(context.Background(), defaultOrgID(t, pool), t.Name(), slug, "", creator.ID, VisibilityOrg, 50)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return sp, creator
+}
+
+// defaultOrgID resolves the org the migration puts every existing space in,
+// which is still the only org an instance has.
+func defaultOrgID(t *testing.T, pool *pgxpool.Pool) string {
+	t.Helper()
+	org, err := (&Orgs{Pool: pool}).Default(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return org.ID
 }
 
 // randSuffix keeps slugs unique across reruns against the same database.
@@ -267,10 +279,10 @@ func TestSpaceCreateRejectsDuplicateSlug(t *testing.T) {
 
 	sp := newSpace(t, pool)
 	creator, _ := newUser(t, pool, "Duplicate Slug Creator")
-	if _, err := spaces.Create(ctx, "Other name", sp.Slug, "", creator.ID, 50); err != ErrSlugTaken {
+	if _, err := spaces.Create(ctx, defaultOrgID(t, pool), "Other name", sp.Slug, "", creator.ID, VisibilityOrg, 50); err != ErrSlugTaken {
 		t.Fatalf("duplicate slug: got %v, want ErrSlugTaken", err)
 	}
-	if _, err := spaces.BySlug(ctx, "no-such-space-"+randSuffix(t)); err != ErrNoSpace {
+	if _, err := spaces.BySlug(ctx, defaultOrgID(t, pool), "no-such-space-"+randSuffix(t)); err != ErrNoSpace {
 		t.Fatalf("missing slug: got %v, want ErrNoSpace", err)
 	}
 }
@@ -351,7 +363,7 @@ func TestSetPasscode(t *testing.T) {
 	if err := spaces.SetPasscode(ctx, sp.ID, "TEAM49"); err != nil {
 		t.Fatal(err)
 	}
-	got, err := spaces.BySlug(ctx, sp.Slug)
+	got, err := spaces.BySlug(ctx, defaultOrgID(t, pool), sp.Slug)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +373,7 @@ func TestSetPasscode(t *testing.T) {
 	if err := spaces.SetPasscode(ctx, sp.ID, ""); err != nil {
 		t.Fatal(err)
 	}
-	cleared, err := spaces.BySlug(ctx, sp.Slug)
+	cleared, err := spaces.BySlug(ctx, defaultOrgID(t, pool), sp.Slug)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,5 +434,36 @@ func TestSessionRenameBumpsTheVersion(t *testing.T) {
 	// And the same guard on the delete path, for a session that is not there.
 	if err := sessions.Delete(context.Background(), sess.ID, "00000000-0000-0000-0000-000000000000"); !errors.Is(err, ErrNoSession) {
 		t.Fatalf("delete scoped to the wrong space: got %v, want ErrNoSession", err)
+	}
+}
+
+// TestSpaceNeverMarshalsItsSecrets holds the json:"-" tags on Space. Handlers
+// hand-build the anonymous pre-join view today, so nothing else would notice
+// if a tag were dropped — and the day someone marshals a Space straight to a
+// non-member, the passcode and the space's discoverability must not ride along.
+func TestSpaceNeverMarshalsItsSecrets(t *testing.T) {
+	b, err := json.Marshal(Space{
+		ID:         "4f1b6b6e-0000-4000-8000-000000000000",
+		Slug:       "platform",
+		Name:       "Platform",
+		Passcode:   "hunter2",
+		Visibility: VisibilityOrg,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"passcode", "Passcode", "visibility", "Visibility"} {
+		if _, ok := got[key]; ok {
+			t.Errorf("marshalled Space carries %q: %s", key, b)
+		}
+	}
+	for _, key := range []string{"id", "slug", "name"} {
+		if _, ok := got[key]; !ok {
+			t.Errorf("marshalled Space is missing %q: %s", key, b)
+		}
 	}
 }

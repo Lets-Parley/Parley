@@ -11,6 +11,7 @@ import { ConnectionBanner } from "./ConnectionBanner";
 import { KindChip } from "./KindChip";
 import { MemberCard } from "./MemberCard";
 import { Modal } from "./Modal";
+import { spacePath, spaceSettingsPath } from "../lib/paths";
 import logoUrl from "../assets/logo.svg";
 
 export function Logo({ size = 14 }: { size?: number }) {
@@ -85,6 +86,7 @@ export function ConnectionDot({ status }: { status: ConnectionStatus }) {
 }
 
 type Props = {
+  orgSlug: string;
   spaceSlug: string;
   spaceName: string;
   title?: string;
@@ -99,6 +101,11 @@ type Props = {
   activeSessionId?: string;
   /* Sidebar starts closed in a session — the table wants the width. */
   sidebarDefault?: boolean;
+  /**
+   * Whether the viewer owns this space. Only the link to the settings route
+   * rides on it — the route gates itself, and so does the server.
+   */
+  canManage?: boolean;
   /**
    * Whether the viewer holds a guest link rather than an account. Its
    * capability is one room, so the shell drops every way out of that room: the
@@ -138,6 +145,7 @@ export function ThemeToggle() {
 }
 
 export function AppShell({
+  orgSlug,
   spaceSlug,
   spaceName,
   title,
@@ -149,6 +157,7 @@ export function AppShell({
   sessions,
   activeSessionId,
   sidebarDefault = true,
+  canManage = false,
   guest = false,
   actions,
   children,
@@ -211,7 +220,7 @@ export function AppShell({
                      facilitator hunting yesterday's round concludes it is gone. */
                   <li>
                     <Link
-                      to={`/s/${spaceSlug}`}
+                      to={spacePath(orgSlug, spaceSlug)}
                       className="block rounded-chip px-2.5 py-1.5 text-[13px] font-semibold text-accent hover:bg-felt-deep"
                     >
                       All {sessions.length} sessions
@@ -257,6 +266,17 @@ export function AppShell({
                     {me?.id === m.userId && (
                       <span className="font-mono text-[9px] text-ink-faint">you</span>
                     )}
+                    {/* Roles ride on the space payload only; a session roster
+                        carries none, and must not imply everyone is a member
+                        of nothing. Only owners are chipped: every other span in
+                        this row is shrink-0, so a chip on all six rows takes the
+                        width out of the names, and "Member" is what being listed
+                        here already means. */}
+                    {m.role === "owner" && (
+                      <span className="shrink-0 rounded-chip bg-accent-soft px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.06em] text-ink">
+                        Owner
+                      </span>
+                    )}
                     {m.at && (
                       <span className="ml-auto shrink-0 font-mono text-[9px] text-go">
                         {m.at.sessionId === activeSessionId ? "here" : "in session"}
@@ -268,6 +288,18 @@ export function AppShell({
               </ul>
             </section>
           )}
+      {canManage && (
+        <section className="border-t border-line pt-3">
+          <Link
+            to={spaceSettingsPath(orgSlug, spaceSlug)}
+            className="flex items-center gap-2 rounded-chip px-2.5 py-1.5 text-[13px] font-semibold text-ink-soft hover:bg-felt-deep"
+          >
+            <span aria-hidden>⚙</span>
+            Settings
+          </Link>
+        </section>
+      )}
+
       <BuildStamp />
     </>
   );
@@ -313,7 +345,7 @@ export function AppShell({
           </h1>
           {title && !guest && (
             <Link
-              to={`/s/${spaceSlug}`}
+              to={spacePath(orgSlug, spaceSlug)}
               className="truncate text-[12px] font-semibold text-ink-soft hover:text-ink"
             >
               {spaceName}
@@ -401,7 +433,7 @@ export function AppShell({
         {sideOpen && wide && !guest && (
           <nav
             aria-label="Space"
-            className="flex w-[250px] shrink-0 flex-col gap-6 border-r border-line bg-surface p-4"
+            className="flex w-[310px] shrink-0 flex-col gap-6 border-r border-line bg-surface p-4"
           >
             {navBody}
           </nav>

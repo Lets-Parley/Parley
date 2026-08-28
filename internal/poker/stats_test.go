@@ -53,3 +53,23 @@ func TestHalfCardNumeric(t *testing.T) {
 		t.Fatalf("half card average: %v", res.Average)
 	}
 }
+
+func TestSpecialsAreNeverConsensus(t *testing.T) {
+	deck, _ := DeckByName("fibonacci")
+	if Summarize(deck, []string{"?", "?", "?"}).Consensus {
+		t.Fatal("nobody estimated — that is not consensus")
+	}
+	if Summarize(deck, []string{"coffee", "coffee"}).Consensus {
+		t.Fatal("a unanimous coffee break is not consensus")
+	}
+	if Summarize(deck, []string{"5", "?"}).Consensus {
+		t.Fatal("one estimate plus a shrug is not consensus")
+	}
+	ordinal, _ := DeckByName("tshirt")
+	if Summarize(ordinal, []string{"?", "?"}).Consensus {
+		t.Fatal("ordinal decks must not report consensus on specials either")
+	}
+	if !Summarize(ordinal, []string{"M", "M"}).Consensus {
+		t.Fatal("unanimous ordinal votes must still be consensus")
+	}
+}

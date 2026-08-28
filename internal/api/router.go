@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/lets-parley/parley/internal/api/custody"
 	"github.com/lets-parley/parley/internal/auth"
 	"github.com/lets-parley/parley/internal/httprequest"
 	"github.com/lets-parley/parley/internal/hub"
@@ -52,6 +54,21 @@ type app struct {
 	// replica can still hear the others.
 	instanceID string
 	listenerUp atomic.Bool
+	// orgs resolves the org a slug belongs to. Until an instance is divided,
+	// that is always the default org, cached behind defaultOrg.
+	orgs *store.Orgs
+	// bootstrapAdmin is the (issuer, subject) pair an operator granted admin
+	// of the default org from configuration.
+	bootstrapAdmin BootstrapAdmin
+	orgMu          sync.Mutex
+	defaultOrg     store.Org
+	// custody is the org admin's surface over the org's spaces. It lives in
+	// its own package so that "an org admin can manage a space without
+	// reading anything said in it" is a link-time fact rather than a promise:
+	// nothing in internal/api/custody imports the session, presence or store
+	// packages, so a handler there has no type to reach session content
+	// through.
+	custody *custody.Handlers
 }
 
 type Options struct {
@@ -61,6 +78,9 @@ type Options struct {
 	AuthMode string
 	// OIDC must be set when AuthMode is ModeOIDC and is ignored otherwise.
 	OIDC *auth.Provider
+	// BootstrapAdmin, when set, is granted admin of the default org the first
+	// time that identity signs in. Ignored outside ModeOIDC.
+	BootstrapAdmin BootstrapAdmin
 	// Version is the build's version string; "dev" when left unset.
 	Version string
 	// TrustProxyHeaders reads X-Forwarded-For only from hops in
@@ -141,6 +161,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	a := &app{
 		pool:     pool,
 		users:    &store.Users{Pool: pool},
+		orgs:     &store.Orgs{Pool: pool},
 		spaces:   &store.Spaces{Pool: pool},
 		sessions: &store.Sessions{Pool: pool},
 		links:    &store.Links{Pool: pool},
@@ -163,8 +184,23 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		limits:           opts.Limits.withDefaults(),
 		instanceID:       newInstanceID(),
 	}
+	a.custody = &custody.Handlers{
+		Store: &custody.Store{Pool: pool},
+		// An org revoke drops every space the person held in that org, so the
+		// sockets they already have open have to go too — here, and on every
+		// other replica, which is what the notification is for. One space at a
+		// time, because that is the scope the revoke actually had: the same
+		// person may hold spaces in other orgs, and those sockets stay.
+		OnMembershipRevoked: func(ctx context.Context, userID string, spaceIDs []string) {
+			for _, spaceID := range spaceIDs {
+				a.hub.DisconnectSpaceMember(spaceID, userID)
+				a.notifyMemberRevoke(ctx, spaceID, userID)
+			}
+		},
+	}
 	if mode == ModeOIDC {
 		a.oidc = opts.OIDC
+		a.bootstrapAdmin = opts.BootstrapAdmin
 	}
 	listenCtx := opts.Context
 	if listenCtx == nil {
@@ -293,42 +329,110 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		// mode does not reach it. It answers 401 itself.
 		r.With(rejectLinkPrincipal).Patch("/me/avatar", a.handlePatchMeAvatar)
 
-		// Open to anonymous callers, and so also outside RequireUser: a link
-		// guest is bound to one room and is told nothing about the space
-		// around it.
-		r.With(rejectLinkPrincipal).Get("/spaces/{slug}", a.handleGetSpace)
 		r.Group(func(r chi.Router) {
 			r.Use(RequireUser)
+			// Cross-org and deliberately un-prefixed: both answer "which
+			// orgs and spaces does this cookie reach", which is the question
+			// the landing page asks before it knows an org to ask within.
+			r.Get("/orgs", a.handleListMyOrgs)
 			r.Get("/spaces", a.handleListMySpaces)
 			r.Post("/spaces", a.handleCreateSpace)
-			r.Post("/spaces/{slug}/join", a.handleJoinSpace)
-			r.Post("/spaces/{slug}/seen", a.handleMarkSpaceSeen)
-			r.Post("/spaces/{slug}/passcode", a.handleSetPasscode)
-			r.Post("/spaces/{slug}/sessions", a.handleCreateSession)
 		})
 
-		// Managing the space itself is owner-only, and the middleware answers
-		// 404 to anyone outside the space rather than admitting it exists.
-		// These hang off the /api router by method rather than a Route group,
-		// because GET /spaces/{slug} is already mounted at this pattern and is
-		// deliberately open to non-members.
-		r.With(a.requireSpaceOwner).Patch("/spaces/{slug}", a.handleRenameSpace)
-		r.With(a.requireSpaceOwner).Delete("/spaces/{slug}", a.handleDeleteSpace)
+		// Everything that resolves a space slug hangs off an org, because a
+		// slug is unique inside one org rather than across the instance.
+		r.Route("/orgs/{org}", func(r chi.Router) {
+			// Open to anonymous callers, and so also outside RequireUser and
+			// requireOrgMember: this is the link-landing view someone reads
+			// before they have joined anything. A link guest is refused —
+			// its capability is one room, never a space around it.
+			r.With(rejectLinkPrincipal).Get("/spaces/{slug}", a.handleGetSpace)
+			// Anonymous for the same reason and mounted beside it: this is
+			// where someone who has not signed in yet trades an invite
+			// passcode for a short-lived handle to carry across the provider
+			// round trip. It is a passcode attempt, so it spends from the
+			// join door's throttle budget under the same key, and it takes
+			// the read above's 404 posture so it cannot enumerate spaces. A
+			// link guest is refused: its capability is one room, and a handle
+			// on the space around it is not something it may mint.
+			r.With(rejectLinkPrincipal).Post("/spaces/{slug}/invite", a.handleMintInviteHandle)
 
-		r.Route("/spaces/{slug}/members/{userId}", func(r chi.Router) {
-			r.Use(a.requireSpaceOwner)
-			r.Post("/role", a.handleSetMemberRole)
-			r.Delete("/", a.handleRemoveMember)
-		})
+			r.Group(func(r chi.Router) {
+				r.Use(RequireUser)
+				r.Use(a.requireOrgMember)
+				// The org directory. RequireUser is ahead of
+				// requireOrgMember deliberately: a link guest belongs to no
+				// org, and it has to be refused 401 here — the same answer
+				// GET /api/spaces gives it — rather than 404 one middleware
+				// later. If this route ever answered for a link guest, one
+				// link to one standup would become a listing of every
+				// org-visible space on the instance.
+				r.Get("/spaces", a.handleListOrgSpaces)
+				r.Post("/spaces/{slug}/join", a.handleJoinSpace)
+				r.Post("/spaces/{slug}/seen", a.handleMarkSpaceSeen)
+				r.Post("/spaces/{slug}/passcode", a.handleSetPasscode)
+				r.Post("/spaces/{slug}/sessions", a.handleCreateSession)
+			})
 
-		// Renaming and deleting a room are housekeeping on the space, so they
-		// are owner-only and live here rather than under /sessions/{id}, where
-		// the facilitator-scoped meeting controls are. Closing a room stays
-		// the facilitator's: it ends a meeting, it does not discard one.
-		r.Route("/spaces/{slug}/sessions/{id}", func(r chi.Router) {
-			r.Use(a.requireSpaceOwner)
-			r.Patch("/", a.handleRenameRoom)
-			r.Delete("/", a.handleDeleteRoom)
+			// Managing the space itself is owner-only, and the middleware
+			// answers 404 to anyone outside the space rather than admitting
+			// it exists. These hang off the router by method rather than a
+			// Route group, because GET /spaces/{slug} is already mounted at
+			// this pattern and is deliberately open to non-members.
+			r.Group(func(r chi.Router) {
+				r.Use(a.requireOrgMember)
+				r.Use(a.requireSpaceOwner)
+				r.Patch("/spaces/{slug}", a.handleRenameSpace)
+				r.Delete("/spaces/{slug}", a.handleDeleteSpace)
+				// Who can find this space at all is housekeeping on it, so
+				// it sits with renaming and deleting rather than with the
+				// member-level controls. A link guest gets 404 here, from
+				// requireOrgMember: it belongs to no org.
+				r.Patch("/spaces/{slug}/visibility", a.handleSetVisibility)
+			})
+
+			// Org custody. An org admin may manage any space in the org,
+			// including a private one they are not in, and may read nothing
+			// said inside it. The gate is three deep on purpose: RequireUser
+			// so a link guest is 401 rather than 404 one step later,
+			// requireOrgMember so an outsider is told nothing about whether
+			// the org exists, and requireOrgAdmin so an ordinary member is
+			// refused. custodyScope then hands the custody package the
+			// trust-bearing values — the resolved org and the acting user —
+			// which are the ones that must never be attacker-controlled. The
+			// handlers do read route params, but only to address a resource
+			// (which space, which member) inside the org already fixed here.
+			r.Group(func(r chi.Router) {
+				r.Use(RequireUser)
+				r.Use(a.requireOrgMember)
+				r.Use(a.requireOrgAdmin)
+				r.Use(a.custodyScope)
+				// Purging the org is not an action on a space, so it is
+				// mounted at the org itself rather than inside the custody
+				// tree. It is irreversible and asks for the org's own slug
+				// back before it will run.
+				r.Delete("/", a.custody.PurgeOrg)
+				r.Route("/admin", a.custody.Mount)
+			})
+
+			r.Route("/spaces/{slug}/members/{userId}", func(r chi.Router) {
+				r.Use(a.requireOrgMember)
+				r.Use(a.requireSpaceOwner)
+				r.Post("/role", a.handleSetMemberRole)
+				r.Delete("/", a.handleRemoveMember)
+			})
+
+			// Renaming and deleting a room are housekeeping on the space, so
+			// they are owner-only and live here rather than under
+			// /sessions/{id}, where the facilitator-scoped meeting controls
+			// are. Closing a room stays the facilitator's: it ends a meeting,
+			// it does not discard one.
+			r.Route("/spaces/{slug}/sessions/{id}", func(r chi.Router) {
+				r.Use(a.requireOrgMember)
+				r.Use(a.requireSpaceOwner)
+				r.Patch("/", a.handleRenameRoom)
+				r.Delete("/", a.handleDeleteRoom)
+			})
 		})
 
 		// requireSessionMember answers 404 for anonymous callers too, so these
@@ -385,7 +489,16 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 
 	r.With(resolvePrincipal(a.users, mode == ModeOIDC)).Get("/ws", a.handleWS)
 
-	r.NotFound(web.SPAHandler())
+	spa := web.SPAHandler()
+	// The compatibility shim for links minted before space URLs carried an
+	// org. It is mounted as a real route rather than left to the catch-all
+	// below, because the catch-all would simply serve the app shell to a path
+	// the client router no longer knows. Everything it cannot resolve — an
+	// anonymous caller, a link guest — falls through to that same shell, so
+	// mounting it changes nothing for anyone it does not redirect.
+	r.With(resolvePrincipal(a.users, mode == ModeOIDC)).Get("/s/{slug}", a.legacySpaceRedirect(spa))
+
+	r.NotFound(spa)
 
 	return &Handler{Handler: r, hub: a.hub}
 }
@@ -417,4 +530,53 @@ func requireJSONBody(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// custodyScope hands the custody package what the org gates already
+// established: which org this request is scoped to, and who is acting. It is
+// the only bridge between the two packages, and it means no custody handler
+// ever reads a route parameter to decide which org it is acting on.
+func (a *app) custodyScope(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, _ := PrincipalFrom(r.Context())
+		org := orgFrom(r.Context())
+		ctx := custody.WithScope(r.Context(), custody.Scope{
+			OrgID: org.ID, OrgSlug: org.Slug, ActorID: p.UserID,
+		})
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// resolveOrg hands a handler the org a space is created in when the caller did
+// not name one, or answers the request itself and reports false.
+func (a *app) resolveOrg(w http.ResponseWriter, r *http.Request) (store.Org, bool) {
+	org, err := a.org(r.Context())
+	if err != nil {
+		http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+		return store.Org{}, false
+	}
+	return org, true
+}
+
+// org is the default org: the one an instance that has never been divided
+// puts everything in. It is read once and cached rather than resolved at
+// wiring time, because a pool is lazy — Router must not require a reachable
+// database to hand back a handler.
+func (a *app) org(ctx context.Context) (store.Org, error) {
+	a.orgMu.Lock()
+	defer a.orgMu.Unlock()
+	if a.defaultOrg.ID != "" {
+		return a.defaultOrg, nil
+	}
+	org, err := a.orgs.Default(ctx)
+	if err != nil {
+		return store.Org{}, err
+	}
+	a.defaultOrg = org
+	return org, nil
+}
+
+func (a *app) orgID(ctx context.Context) (string, error) {
+	org, err := a.org(ctx)
+	return org.ID, err
 }
