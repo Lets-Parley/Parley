@@ -44,6 +44,11 @@ type Space struct {
 	// the space is open to anyone with the link. Never serialize this to a
 	// non-member: handlers pick what to expose.
 	Passcode string `json:"-"`
+	// Visibility is VisibilityPrivate or VisibilityOrg. Withheld from the
+	// wire for the same reason as the passcode: whether a space is listed to
+	// its org is the room's business, and the anonymous pre-join view must not
+	// gain a field just because this struct did. Handlers pick what to expose.
+	Visibility string `json:"-"`
 }
 
 // Space roles. An owner may promote, demote and remove; a member may not.
@@ -126,8 +131,8 @@ func (s *Spaces) Create(ctx context.Context, orgID, name, slug, passcode, creato
 func (s *Spaces) BySlug(ctx context.Context, orgID, slug string) (Space, error) {
 	var sp Space
 	err := s.Pool.QueryRow(ctx,
-		"select id, slug, name, passcode from spaces where org_id = $1 and slug = $2", orgID, slug,
-	).Scan(&sp.ID, &sp.Slug, &sp.Name, &sp.Passcode)
+		"select id, slug, name, passcode, visibility from spaces where org_id = $1 and slug = $2", orgID, slug,
+	).Scan(&sp.ID, &sp.Slug, &sp.Name, &sp.Passcode, &sp.Visibility)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Space{}, ErrNoSpace
 	}
@@ -145,10 +150,10 @@ func (s *Spaces) BySlug(ctx context.Context, orgID, slug string) (Space, error) 
 func (s *Spaces) BySlugInOrg(ctx context.Context, orgSlug, slug string) (Space, error) {
 	var sp Space
 	err := s.Pool.QueryRow(ctx, `
-		select sp.id, sp.slug, sp.name, sp.passcode
+		select sp.id, sp.slug, sp.name, sp.passcode, sp.visibility
 		from spaces sp join orgs o on o.id = sp.org_id
 		where o.slug = $1 and sp.slug = $2`, orgSlug, slug,
-	).Scan(&sp.ID, &sp.Slug, &sp.Name, &sp.Passcode)
+	).Scan(&sp.ID, &sp.Slug, &sp.Name, &sp.Passcode, &sp.Visibility)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Space{}, ErrNoSpace
 	}
@@ -480,4 +485,74 @@ func (s *Spaces) RedeemInviteHandle(ctx context.Context, spaceID string, tokenHa
 		return false, fmt.Errorf("redeeming an invite handle: %w", err)
 	}
 	return tag.RowsAffected() == 1, nil
+}
+
+// SetVisibility moves a space between 'private' and 'org'. It deliberately
+// touches nothing else — the passcode above all — because org visibility
+// governs discovery and never entry: "listed in the directory but still behind
+// its passcode" has to be a state a space can be in, and neither this nor
+// SetPasscode may silently strip the other.
+func (s *Spaces) SetVisibility(ctx context.Context, spaceID, visibility string) error {
+	if visibility != VisibilityPrivate && visibility != VisibilityOrg {
+		return ErrBadVisibility
+	}
+	tag, err := s.Pool.Exec(ctx, "update spaces set visibility = $2 where id = $1", spaceID, visibility)
+	if err != nil {
+		return fmt.Errorf("updating space visibility: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNoSpace
+	}
+	return nil
+}
+
+// OrgSpace is one row of an org's directory. Deliberately no passcode: this is
+// a list of doors, not a space someone has been admitted to. Protected says
+// whether the door needs a code, which is what the page needs to know whether
+// to offer "Join" or "Enter the passcode"; Member says the caller is already
+// inside.
+type OrgSpace struct {
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+	// Visibility is VisibilityOrg or VisibilityPrivate. A private row can only
+	// be one the caller belongs to — that is what the query below guarantees.
+	Visibility string `json:"visibility"`
+	Protected  bool   `json:"protected"`
+	Member     bool   `json:"member"`
+}
+
+// ForOrg lists what one caller may see of one org: every org-visible space,
+// plus every space they are a member of, private ones included.
+//
+// The membership half is a member check and not an authorship one on purpose.
+// Somebody added to a private space has to keep finding it here after the
+// person who created it has left, and the creator who was later removed must
+// stop seeing it — creator_id answers neither question.
+//
+// The org id comes from requireOrgMember rather than from the URL, and the
+// membership join carries the caller's own id, so no row here can name a space
+// in an org the caller is outside or a private space they are not in.
+func (s *Spaces) ForOrg(ctx context.Context, orgID, userID string) ([]OrgSpace, error) {
+	rows, err := s.Pool.Query(ctx, `
+		select sp.slug, sp.name, sp.visibility, sp.passcode <> '', m.user_id is not null
+		from spaces sp
+		left join members m on m.space_id = sp.id and m.user_id = $2
+		where sp.org_id = $1 and (sp.visibility = $3 or m.user_id is not null)
+		order by sp.name`, orgID, userID, VisibilityOrg)
+	if err != nil {
+		return nil, fmt.Errorf("listing the org directory: %w", err)
+	}
+	defer rows.Close()
+	spaces := []OrgSpace{}
+	for rows.Next() {
+		var sp OrgSpace
+		if err := rows.Scan(&sp.Slug, &sp.Name, &sp.Visibility, &sp.Protected, &sp.Member); err != nil {
+			return nil, fmt.Errorf("listing the org directory: %w", err)
+		}
+		spaces = append(spaces, sp)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("listing the org directory: %w", err)
+	}
+	return spaces, nil
 }

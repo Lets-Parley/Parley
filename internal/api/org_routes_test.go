@@ -266,7 +266,9 @@ var routeScoping = map[string]string{
 	"POST /api/spaces": "non-slug",
 
 	// Every space route hangs off an org.
+	"GET /api/orgs/{org}/spaces":                               "org-scoped",
 	"GET /api/orgs/{org}/spaces/{slug}":                        "org-scoped",
+	"PATCH /api/orgs/{org}/spaces/{slug}/visibility":           "org-scoped",
 	"POST /api/orgs/{org}/spaces/{slug}/invite":                "org-scoped",
 	"PATCH /api/orgs/{org}/spaces/{slug}":                      "org-scoped",
 	"DELETE /api/orgs/{org}/spaces/{slug}":                     "org-scoped",
@@ -496,7 +498,7 @@ func TestAnonymousSpaceViewCarriesNoOrgData(t *testing.T) {
 			t.Errorf("the anonymous space view is missing %q: %v", want, body)
 		}
 	}
-	for _, forbidden := range []string{"members", "sessions", "passcode", "kinds", "org", "orgSlug"} {
+	for _, forbidden := range []string{"members", "sessions", "passcode", "kinds", "org", "orgSlug", "visibility"} {
 		if _, leaked := body[forbidden]; leaked {
 			t.Errorf("the anonymous space view leaks %q: %v", forbidden, body)
 		}

@@ -86,6 +86,7 @@ func TestSpaceRoutesResolveWithinTheDefaultOrg(t *testing.T) {
 		{"handleCreateSession", "POST", base + "/sessions", `{"kind":"poker","title":"Planning"}`},
 		{"requireSpaceOwner/rename", "PATCH", base, `{"name":"Renamed"}`},
 		{"requireSpaceOwner/delete", "DELETE", base, ""},
+		{"requireSpaceOwner/setVisibility", "PATCH", base + "/visibility", `{"visibility":"org"}`},
 		{"requireSpaceOwner/setRole", "POST", base + "/members/" + adaID + "/role", `{"role":"member"}`},
 		{"requireSpaceOwner/removeMember", "DELETE", base + "/members/" + adaID, ""},
 		{"requireSpaceOwner/renameRoom", "PATCH", base + "/sessions/" + foreignSessionID, `{"title":"Renamed"}`},

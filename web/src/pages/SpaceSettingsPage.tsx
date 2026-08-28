@@ -116,6 +116,13 @@ export function SpaceSettingsPage() {
               onChanged={refresh}
               onError={say}
             />
+            <VisibilityPanel
+              org={org}
+              slug={sp.slug}
+              visibility={sp.visibility ?? "private"}
+              onChanged={refresh}
+              onError={say}
+            />
             <SpaceNamePanel org={org} slug={sp.slug} name={sp.name} onChanged={refresh} onError={say} />
             <DangerZone org={org} slug={sp.slug} name={sp.name} onError={say} />
           </>
@@ -309,6 +316,82 @@ function AccessPanel({
       <p className="mt-2 text-[12px] text-ink-faint text-pretty">
         A new passcode retires the old one immediately — anyone still holding it
         drops back to the gate.
+      </p>
+    </section>
+  );
+}
+
+/**
+ * Whether the org can find this space at all.
+ *
+ * Deliberately its own panel, and not a control inside Access: the two answer
+ * different questions and conflating them is exactly the mistake this feature
+ * has to avoid. Visibility decides who can *find* the space; the passcode
+ * decides who gets *in*. Neither route writes the other, so "listed in the
+ * directory but still behind its passcode" is a real state — and the copy below
+ * says so, because a row in a directory reads as an open door if nothing
+ * contradicts it.
+ *
+ * An instance with no sign-in configured refuses org visibility outright, since
+ * every visitor there is handed an identity and enrolled in the only org. That
+ * refusal is the server's; this shows whatever it says rather than guessing.
+ */
+function VisibilityPanel({
+  org,
+  slug,
+  visibility,
+  onChanged,
+  onError,
+}: {
+  org: string;
+  slug: string;
+  visibility: "private" | "org";
+  onChanged: () => void;
+  onError: (msg: string) => void;
+}) {
+  const say = useToast();
+  const [busy, setBusy] = useState(false);
+  const listed = visibility === "org";
+
+  async function set(next: "private" | "org") {
+    setBusy(true);
+    try {
+      await api("PATCH", `${spaceApi(org, slug)}/visibility`, { visibility: next });
+      onChanged();
+      say(
+        next === "org"
+          ? "Listed — anyone in your org can find this space"
+          : "Unlisted — only a link or an invite finds this space now",
+      );
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Could not change who can find this space.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mt-6 rounded-card border border-line bg-surface px-5 py-4">
+      <h2 className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+        Who can find it
+      </h2>
+      <p className="mt-1 text-[13px] text-ink-soft">
+        {listed
+          ? "Listed — everyone in your org sees this space in the directory."
+          : "Unlisted — only a link or an invite finds this space."}
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button
+          className={buttonQuiet}
+          disabled={busy}
+          onClick={() => set(listed ? "private" : "org")}
+        >
+          {listed ? "Unlist from the org" : "List in the org"}
+        </button>
+      </div>
+      <p className="mt-2 text-[12px] text-ink-faint text-pretty">
+        Being listed is not the same as being open. A space with a passcode
+        still asks for it, whoever finds it.
       </p>
     </section>
   );

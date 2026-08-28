@@ -66,10 +66,11 @@ who creates a space is seeded as its owner. Only an owner may promote another
 member to owner, demote an owner back to member, or remove a member from the
 space.
 
-An owner also owns the space itself: renaming it, deleting it, and renaming or
-deleting any session in it. All five routes go through the same
-`requireSpaceOwner` middleware, which resolves the slug, reads the caller's
-role, and answers `403` to a member and `404` to anyone outside the space.
+An owner also owns the space itself: renaming it, deleting it, changing who can
+find it, and renaming or deleting any session in it. Every one of those routes
+goes through the same `requireSpaceOwner` middleware, which resolves the slug,
+reads the caller's role, and answers `403` to a member and `404` to anyone
+outside the space.
 
 The room-level split is deliberate. **Closing** a session ends a meeting and is
 the facilitator's, because it is part of running one; the record survives and
@@ -90,6 +91,34 @@ Two guard rails are enforced in the database transaction, not in the UI:
 
 A member who is not an owner gets `403` from either route. Someone outside the
 space gets `404` — the same non-disclosure rule the roster follows.
+
+### Visibility governs discovery, not entry
+
+`spaces.visibility` is `private` or `org`. An org-visible space is *listed* to
+the org's members at `GET /api/orgs/{org}/spaces`; a private one appears in
+that list only to people who are already members of it. Nothing else changes:
+being able to find a space grants nothing about getting into it, and
+`handleJoinSpace` compares the passcode exactly as it did before, for org
+members included. A space that is both listed and protected is a real and
+supported state — `PATCH .../visibility` never writes the passcode, and
+`POST .../passcode` never writes the visibility, so neither route can silently
+strip the other.
+
+Two refusals hold the boundary:
+
+- **Open mode cannot reach org visibility.** An instance with no sign-in
+  configured mints an anonymous identity for every visitor on `POST /api/me`
+  and enrols it in the default org, so a listed, passcode-free space there
+  would be joinable by anyone on the internet. Space creation forces `private`,
+  and `PATCH .../visibility` refuses `org` with `403` *before* it reaches the
+  database, so the route cannot be used to route around the create-time guard.
+- **A signed-link guest gets neither the directory nor entry.** A redeemed link
+  is a `users` row in no org and no space. The directory sits behind
+  `RequireUser` and then `requireOrgMember`, in that order, so a link guest is
+  refused `401` at the first of them — the same answer `GET /api/spaces` gives
+  it, and the same `401` it gets from the join route. That ordering is the
+  guarantee: if the directory ever answered for a link guest, one link to one
+  standup would become a listing of every org-visible space on the instance.
 
 ### Removal takes effect immediately
 

@@ -11,7 +11,7 @@ import spaceDark from "../../../assets/space-room-code-dark.png";
 import settingsLight from "../../../assets/space-settings-light.png";
 import settingsDark from "../../../assets/space-settings-dark.png";
 
-<VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "internal/api/authz.go", "web/src/pages/SpacePage.tsx", "web/src/pages/SpaceSettingsPage.tsx", "web/src/pages/Landing.tsx"]} />
+<VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "internal/api/authz.go", "web/src/pages/OrgDirectory.tsx", "web/src/pages/SpacePage.tsx", "web/src/pages/SpaceSettingsPage.tsx", "web/src/pages/Landing.tsx"]} />
 
 A space is a team's room. It has a memorable URL — `/o/acme/s/platform-team` — a roster,
 and a history of every session run in it.
@@ -33,6 +33,32 @@ Signed out, or in no spaces yet, the page introduces the product instead: what a
 space is, that the link is the invite, and a box to name your first one. Once you
 belong to a space that introduction gets out of the way — the list is why you
 came.
+
+## Finding a space you were never sent
+
+A space is either **private** or **visible to its org**. A private space is
+reachable only by its link or an invitation; an org-visible one is additionally
+listed in the org's directory at `/o/acme`, which every member of that org can
+browse. The front page carries a **Browse _org_** link for every org you
+belong to — including when you have joined no space yet, which is exactly when
+you need it. New spaces are org-visible, so a team can find its own rooms
+without anybody pasting a URL — and an owner can take one back out of the
+directory from **Space settings** at any time.
+
+Opening `/o/acme` while signed out asks you to sign in first, then shows the
+directory, so a bookmarked or shared directory link works from a cold start.
+
+Being listed is **discovery, not entry**. Org visibility decides who can *find*
+a space; the passcode still decides who gets *in*. A space that is both listed
+and protected shows a **Passcode** badge in the directory, and opening it puts
+you in front of the same gate anyone with the link would meet. Only a space
+with no passcode is open-on-click, and then only to members of its org.
+
+On an instance with no sign-in configured, org visibility is refused outright:
+every visitor there is handed an anonymous identity and enrolled in the only
+org, so a listed, passcode-free space would be a room the whole internet could
+walk into. Such instances get private spaces, and the passcode stays the door.
+Turn on [OIDC](/security/authentication/) if you want a directory.
 
 ## Passcodes
 

@@ -10,7 +10,7 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errorText, type Membership, type OrgMembership, type SpaceView } from "../lib/api";
-import { spacePath } from "../lib/paths";
+import { orgPath, spacePath } from "../lib/paths";
 import { useMe, useAuthMode, NameGate } from "../components/NameGate";
 import { isFullAccount } from "../lib/links";
 import { Logo, ThemeToggle } from "../components/AppShell";
@@ -190,6 +190,9 @@ export function Landing() {
     spaces: shown.filter((sp) => sp.orgSlug === slug),
   }));
   const known = spaces.length > 0;
+  // Which orgs get a directory door. Straight off the org memberships, so it
+  // survives an empty space list; narrowed by the switcher when one is set.
+  const browsable = orgFilter ? orgs.filter((o) => o.slug === orgFilter) : orgs;
   const guestRoomId = me.data?.linkSessionId;
 
   return (
@@ -390,6 +393,29 @@ export function Landing() {
                 </section>
               ))}
             </div>
+          )}
+
+          {/* The door to the directory, hung off org membership rather than
+              off the space list above. Someone who has joined nothing yet has
+              no rows for a link to sit in — and they are exactly who the
+              directory is for, since the alternative is waiting for a
+              teammate to send a URL. It follows the switcher's filter so the
+              page never offers a door to an org it is not showing. */}
+          {browsable.length > 0 && (
+            <nav
+              aria-label="Browse an org"
+              className="flex w-full max-w-md flex-wrap items-center justify-center gap-x-4 gap-y-1 text-sm"
+            >
+              {browsable.map((o) => (
+                <Link
+                  key={o.slug}
+                  to={orgPath(o.slug)}
+                  className="text-ink-soft underline hover:text-ink"
+                >
+                  Browse {o.name}
+                </Link>
+              ))}
+            </nav>
           )}
 
           <form

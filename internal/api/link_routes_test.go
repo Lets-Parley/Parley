@@ -80,17 +80,26 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// would turn those 401s into 404s. The owner routes answer 404, formerly
 	// from requireSpaceOwner's slug lookup and now from requireOrgMember one
 	// step earlier: a link guest belongs to no org.
-	"GET /api/orgs":                     {status: http.StatusUnauthorized},
-	"GET /api/spaces":                   {status: http.StatusUnauthorized},
-	"POST /api/spaces":                  {status: http.StatusUnauthorized},
+	"GET /api/orgs":    {status: http.StatusUnauthorized},
+	"GET /api/spaces":  {status: http.StatusUnauthorized},
+	"POST /api/spaces": {status: http.StatusUnauthorized},
+	// The org directory. A link guest belongs to no org, so it gets nothing
+	// here — and specifically 401 from RequireUser rather than 404 from
+	// requireOrgMember, because RequireUser is mounted first. That ordering is
+	// the whole guarantee: this route lists every org-visible space in the
+	// org, so a link handed to a stranger must never reach it.
+	"GET /api/orgs/{org}/spaces":        {status: http.StatusUnauthorized},
 	"GET /api/orgs/{org}/spaces/{slug}": {status: http.StatusForbidden},
 	// Minting an invite handle is anonymous by design, so a link guest reaches
 	// it with a principal in hand — and gets nothing. A link is a capability
 	// on one room; a handle is a capability on the space around it, which is
 	// wider than the grant. rejectLinkPrincipal refuses it at the door, the
 	// same 403 the public space read answers, before any passcode is compared.
-	"POST /api/orgs/{org}/spaces/{slug}/invite":                {status: http.StatusForbidden},
-	"PATCH /api/orgs/{org}/spaces/{slug}":                      {status: http.StatusNotFound},
+	"POST /api/orgs/{org}/spaces/{slug}/invite": {status: http.StatusForbidden},
+	"PATCH /api/orgs/{org}/spaces/{slug}":       {status: http.StatusNotFound},
+	// Owner-only, and behind requireOrgMember, which a link guest fails first:
+	// 404, the same answer the other owner routes give it.
+	"PATCH /api/orgs/{org}/spaces/{slug}/visibility":           {status: http.StatusNotFound},
 	"DELETE /api/orgs/{org}/spaces/{slug}":                     {status: http.StatusNotFound},
 	"POST /api/orgs/{org}/spaces/{slug}/join":                  {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/spaces/{slug}/seen":                  {status: http.StatusUnauthorized},

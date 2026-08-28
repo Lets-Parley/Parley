@@ -816,9 +816,56 @@ describe("Landing across orgs", () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
+  // The whole point of the directory is finding a room nobody sent you a link
+  // to — which is exactly the position of someone who has joined no space yet.
+  // Hanging its only door off the space list put it out of reach of the one
+  // person it was built for.
+  it("offers the directory to an org member who has no spaces at all", async () => {
+    mySpaces = [];
+    renderApp(<Landing />);
+
+    const browse = await screen.findByRole("link", { name: /browse acme/i });
+    expect(browse.getAttribute("href")).toBe("/o/acme");
+  });
+
+  it("offers a directory door for every org, and narrows with the switcher", async () => {
+    twoOrgs();
+    renderApp(<Landing />);
+
+    const nav = await screen.findByRole("navigation", { name: "Browse an org" });
+    expect(within(nav).getAllByRole("link").map((a) => a.getAttribute("href"))).toEqual([
+      "/o/acme",
+      "/o/globex",
+    ]);
+
+    await userEvent.click(screen.getByRole("button", { name: "Globex" }));
+    await waitFor(() =>
+      expect(within(nav).getAllByRole("link").map((a) => a.getAttribute("href"))).toEqual([
+        "/o/globex",
+      ]),
+    );
+  });
+
+  it("puts the directory door in the tab order, no pointer needed", async () => {
+    mySpaces = [];
+    renderApp(<Landing />);
+    const browse = await screen.findByRole("link", { name: /browse acme/i });
+
+    browse.focus();
+    expect(document.activeElement).toBe(browse);
+  });
+
   // axe in both render passes. It deliberately skips colour contrast — jsdom
   // has no layout — so contrast on these controls stays a review item.
   for (const theme of ["light", "dark"] as const) {
+    it(`has no axe violations in the ${theme} pass, directory door with no spaces`, async () => {
+      mySpaces = [];
+      localStorage.setItem("parley:theme", theme);
+      const { container } = renderApp(<Landing />);
+      await screen.findByRole("navigation", { name: "Browse an org" });
+      await expectNoViolations(container);
+    });
+
     it(`has no axe violations in the ${theme} pass, switcher and grouping`, async () => {
       twoOrgs();
       localStorage.setItem("parley:theme", theme);
