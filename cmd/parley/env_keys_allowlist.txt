@@ -1,0 +1,11 @@
+# Environment variables the process reads that no scan of cmd/parley/main.go
+# can find, one per line. They are still held to the same rule as every other
+# key: named in the configuration reference and in the chart's values file.
+#
+# Keep this list as short as it can be. An entry the scan can find on its own
+# fails the test rather than sitting here, so the list cannot quietly grow past
+# what it is for.
+
+# Read in internal/api/presence.go, not in main.go, and set by the chart from
+# the pod's own metadata so a presence row can name the pod that holds it.
+POD_NAME
