@@ -30,6 +30,7 @@ function envelope(over: Partial<Envelope> = {}): Envelope {
     serverTime: "2026-08-18T10:00:30.000Z",
     state: {
       deck: { name: "fibonacci", values: ["1", "2", "3", "5", "8"], ordinal: false },
+      autoReveal: false,
       currentStoryId: "story-1",
       stories: [
         {
@@ -499,6 +500,45 @@ describe("PokerRoom end session", () => {
   });
 });
 
+describe("PokerRoom auto-reveal", () => {
+  const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+
+  it("hides the toggle from a non-facilitator", () => {
+    renderApp(<PokerRoom env={envelope()} me={me} />);
+    expect(screen.queryByRole("button", { name: /Auto-reveal/ })).toBeNull();
+  });
+
+  it("shows the toggle off by default for the facilitator", () => {
+    const env = envelope({ facilitatorConnected: true });
+    renderApp(<PokerRoom env={env} me={dana} />);
+    const toggle = screen.getByRole("button", { name: "Auto-reveal off" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("PATCHes config when the facilitator turns auto-reveal on", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+    const env = envelope({ facilitatorConnected: true });
+    renderApp(<PokerRoom env={env} me={dana} />);
+    await userEvent.click(screen.getByRole("button", { name: "Auto-reveal off" }));
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/sessions/sess-1/actions/config",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toEqual({ autoReveal: true });
+  });
+
+  it("offers Auto-reveal on when the flag is already set", () => {
+    const env = envelope({ facilitatorConnected: true });
+    env.state.autoReveal = true;
+    renderApp(<PokerRoom env={env} me={dana} />);
+    const toggle = screen.getByRole("button", { name: "Auto-reveal on" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  });
+});
+
 describe("PokerRoom link guest", () => {
   it("never offers facilitator controls, export or spectate to a guest, even when the guest id matches the facilitator id", () => {
     // The pathological coincidence: a guest whose id happens to equal the
@@ -510,6 +550,7 @@ describe("PokerRoom link guest", () => {
     expect(screen.queryByText("Export CSV")).toBeNull();
     expect(screen.queryByRole("button", { name: "End session" })).toBeNull();
     expect(screen.queryByRole("button", { name: /spectat/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Auto-reveal/ })).toBeNull();
   });
 
   // A guest's capability is this one room. The space behind it refuses them,

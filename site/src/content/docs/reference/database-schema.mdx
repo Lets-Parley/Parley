@@ -164,7 +164,7 @@ out.
 |---|---|---|
 | `kind` | text | Foreign key to `session_kinds.kind`, `on delete restrict`. Adding a ceremony is a new row, not a schema change — see [Adding a session kind](/project/contributing/#adding-a-session-kind) |
 | `title` | text | 1–200 characters |
-| `config` | jsonb | Write-once, decoded into a typed struct |
+| `config` | jsonb | Kind-decoded JSON. Poker may update `autoReveal` after create via `PATCH .../actions/config`; the deck stays create-time |
 | `phase`, `revealed`, `version` | | `version` increments on mutation |
 | `facilitator_id` | uuid | References `users` — **no cascade** |
 | `current_speaker_id` | uuid | Nullable, references `users` — **no cascade** |

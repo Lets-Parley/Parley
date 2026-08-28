@@ -177,6 +177,105 @@ describe("SpacePage create dialog", () => {
       delete space.kinds;
     }
   });
+
+  it("offers poker's auto-reveal checkbox and omits it for standup", async () => {
+    space.kinds = ["poker", "standup"];
+    try {
+      renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+      await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+      const dialog = within(screen.getByRole("dialog"));
+      // Poker is first in registry order, so the dialog opens on it.
+      expect(dialog.getByRole("checkbox", { name: /Auto-reveal when everyone has voted/ })).toBeTruthy();
+      await userEvent.click(dialog.getByRole("button", { name: "Standup" }));
+      expect(dialog.queryByRole("checkbox", { name: /Auto-reveal when everyone has voted/ })).toBe(null);
+    } finally {
+      delete space.kinds;
+    }
+  });
+
+  it("posts autoReveal false by default and true when the poker toggle is on", async () => {
+    space.kinds = ["poker"];
+    const defaultApi = vi.mocked(api).getMockImplementation()!;
+    const createReply = {
+      id: "new-1",
+      kind: "poker",
+      title: "Sprint",
+      createdAt: "2026-08-18T12:00:00.000Z",
+      endedAt: null,
+      here: 0,
+    };
+    vi.mocked(api).mockImplementation((async (method: string, path: string, _body?: unknown) => {
+      if (path === "/api/me") return me;
+      if (path === "/api/auth") return { mode: "open" };
+      if (method === "POST" && path === "/api/orgs/acme/spaces/platform-team/sessions") {
+        return createReply;
+      }
+      if (path.startsWith("/api/orgs/acme/spaces/")) return view;
+      throw new Error(`unexpected api call: ${path}`);
+    }) as typeof defaultApi);
+    try {
+      renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+      await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+      const dialog = within(screen.getByRole("dialog"));
+      await userEvent.type(dialog.getByLabelText("Title"), "Sprint off");
+      await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+      await waitFor(() => {
+        const create = vi.mocked(api).mock.calls.find(
+          ([m, p]) => m === "POST" && String(p).endsWith("/sessions"),
+        );
+        expect(create?.[2]).toEqual({
+          kind: "poker",
+          title: "Sprint off",
+          config: { deck: "fibonacci", autoReveal: false },
+        });
+      });
+    } finally {
+      delete space.kinds;
+      vi.mocked(api).mockImplementation(defaultApi);
+    }
+  });
+
+  it("posts autoReveal true when the create-dialog toggle is checked", async () => {
+    space.kinds = ["poker"];
+    const defaultApi = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation((async (method: string, path: string, _body?: unknown) => {
+      if (path === "/api/me") return me;
+      if (path === "/api/auth") return { mode: "open" };
+      if (method === "POST" && path === "/api/orgs/acme/spaces/platform-team/sessions") {
+        return {
+          id: "new-2",
+          kind: "poker",
+          title: "Sprint",
+          createdAt: "2026-08-18T12:00:00.000Z",
+          endedAt: null,
+          here: 0,
+        };
+      }
+      if (path.startsWith("/api/orgs/acme/spaces/")) return view;
+      throw new Error(`unexpected api call: ${path}`);
+    }) as typeof defaultApi);
+    try {
+      renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+      await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+      const dialog = within(screen.getByRole("dialog"));
+      await userEvent.type(dialog.getByLabelText("Title"), "Sprint on");
+      await userEvent.click(dialog.getByRole("checkbox", { name: /Auto-reveal when everyone has voted/ }));
+      await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+      await waitFor(() => {
+        const create = vi.mocked(api).mock.calls.find(
+          ([m, p]) => m === "POST" && String(p).endsWith("/sessions"),
+        );
+        expect(create?.[2]).toEqual({
+          kind: "poker",
+          title: "Sprint on",
+          config: { deck: "fibonacci", autoReveal: true },
+        });
+      });
+    } finally {
+      delete space.kinds;
+      vi.mocked(api).mockImplementation(defaultApi);
+    }
+  });
 });
 
 describe("SpacePage invite strip", () => {

@@ -803,6 +803,21 @@ function NewSessionModal({
           </Fragment>
         ))}
 
+        {(kind.toggles ?? []).map((t) => (
+          <label key={t.key} className="mt-4 flex items-start gap-3 text-sm text-ink-soft">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={config[t.key] === true}
+              onChange={(e) => setConfig({ ...config, [t.key]: e.target.checked })}
+            />
+            <span>
+              <span className="block font-semibold text-ink">{t.label}</span>
+              {t.hint && <span className="mt-0.5 block text-[13px] text-ink-faint">{t.hint}</span>}
+            </span>
+          </label>
+        ))}
+
         <div className="mt-6 flex justify-end gap-2.5">
           <button type="button" className={buttonQuiet} onClick={onClose}>
             Cancel

@@ -236,8 +236,8 @@ back as a plain member.
 
 The facilitator is one member per session, recorded on the session row. Only
 they can create, edit, reorder, select, or delete poker stories; reveal or reset
-a round; save an estimate; start or advance a standup; close or reopen the
-session; or hand the role to someone else.
+a round; toggle poker auto-reveal; save an estimate; start or advance a standup;
+close or reopen the session; or hand the role to someone else.
 
 Every one of those is enforced server-side. Ordinary members retain the active
 participation that belongs to them: a non-spectator may cast their own poker
@@ -341,10 +341,10 @@ Taking part is uniform across both kinds. Standup entries and poker votes are
 keyed to the user, not to a membership, and the round each one belongs to is
 built from the space's non-spectating members **plus** the guests redeemed into
 that room: a guest is placed in the standup's running order and holds the turn
-when it reaches them, and poker's auto-reveal waits on their vote. The
-facilitator-only actions are unchanged by that — `start`, `next` and `skip` in a
-standup, and story selection, reveal and reset in poker, are refused for a guest
-because a guest is never the facilitator.
+when it reaches them, and poker's auto-reveal — opt-in, off by default — waits on
+their vote when it is on. The facilitator-only actions are unchanged by that —
+`start`, `next` and `skip` in a standup, and stories, reveal, reset and config in
+poker, are refused for a guest because a guest is never the facilitator.
 
 A link that expires or is revoked while its guest holds the turn does not strand
 the round. The socket is severed on the next revalidation tick, but nothing is

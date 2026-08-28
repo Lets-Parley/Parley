@@ -180,6 +180,7 @@ const routed = (
 // mirrors the standup fixture with a poker-shaped state alongside it.
 const pokerState = {
   deck: { name: "fibonacci", values: ["1", "2", "3", "5", "8"], ordinal: false },
+  autoReveal: false,
   currentStoryId: "story-1",
   stories: [
     {

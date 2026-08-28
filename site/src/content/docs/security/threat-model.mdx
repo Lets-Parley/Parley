@@ -46,7 +46,8 @@ address per space.
 **A participant trying to see votes early.** Handled. Redaction happens in the
 serializer that builds every payload, not in a handler, so an unrevealed vote is
 structurally absent from the API response, the WebSocket frame and the CSV
-export alike. Auto-reveal only ever fires when a vote lands, so disconnecting
+export alike. When auto-reveal is on it only ever fires when a vote lands (or
+when the facilitator turns the flag on with a full table), so disconnecting
 cannot trigger a reveal.
 
 **A malicious website in another tab.** Handled by three layers rather than a

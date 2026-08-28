@@ -25,11 +25,13 @@ describe("kind registry", () => {
     const poker = getKind("poker")!;
     expect(poker.fields?.[0]?.key).toBe("deck");
     expect(poker.fields?.[0]?.options.map((o) => o.id)).toContain("fibonacci");
+    expect(poker.toggles?.[0]?.key).toBe("autoReveal");
+    expect(poker.toggles?.[0]?.default).toBe(false);
     expect(getKind("standup")!.fields ?? []).toEqual([]);
   });
 
   it("builds a create-time config from the field defaults", () => {
-    expect(defaultConfig(getKind("poker")!)).toEqual({ deck: "fibonacci" });
+    expect(defaultConfig(getKind("poker")!)).toEqual({ deck: "fibonacci", autoReveal: false });
     expect(defaultConfig(getKind("standup")!)).toEqual({});
   });
 });

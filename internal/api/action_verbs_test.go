@@ -32,6 +32,7 @@ func TestNonPostActionsAreMirroredInTheClientVerbTable(t *testing.T) {
 		"ready":   http.MethodPut,
 		"standup": http.MethodPut,
 		"story":   http.MethodPatch,
+		"config":  http.MethodPatch,
 	}
 	for _, k := range []session.Kind{poker.Kind(), standup.Kind()} {
 		for name, a := range k.Actions {

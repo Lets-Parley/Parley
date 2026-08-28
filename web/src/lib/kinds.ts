@@ -18,6 +18,14 @@ export type FieldSpec = {
   options: { id: string; name: string; sample: string[] }[];
 };
 
+/** A create-dialog boolean, defaulted off or on. */
+export type ToggleSpec = {
+  key: string;
+  label: string;
+  hint?: string;
+  default: boolean;
+};
+
 export type KindDef = {
   /** The wire id — what the server stores and the envelope carries. */
   id: string;
@@ -25,6 +33,7 @@ export type KindDef = {
   label: string;
   Room: ComponentType<RoomProps>;
   fields?: FieldSpec[];
+  toggles?: ToggleSpec[];
 };
 
 /**
@@ -49,6 +58,14 @@ export const KINDS: KindDef[] = [
         ],
       },
     ],
+    toggles: [
+      {
+        key: "autoReveal",
+        label: "Auto-reveal when everyone has voted",
+        hint: "Off by default — the facilitator Reveal button opens the round.",
+        default: false,
+      },
+    ],
   },
   { id: "standup", label: "Standup", Room: StandupRoom },
 ];
@@ -68,6 +85,9 @@ export function kindLabel(id: string): string {
 }
 
 /** The config a new session of this kind starts with: each field's default. */
-export function defaultConfig(kind: KindDef): Record<string, string> {
-  return Object.fromEntries((kind.fields ?? []).map((f) => [f.key, f.options[0].id]));
+export function defaultConfig(kind: KindDef): Record<string, string | boolean> {
+  return {
+    ...Object.fromEntries((kind.fields ?? []).map((f) => [f.key, f.options[0].id])),
+    ...Object.fromEntries((kind.toggles ?? []).map((t) => [t.key, t.default])),
+  };
 }

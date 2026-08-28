@@ -161,6 +161,7 @@ describe("action", () => {
       ["next", "POST"],
       ["skip", "POST"],
       ["story", "PATCH"],
+      ["config", "PATCH"],
       ["standup", "PUT"],
       ["ready", "PUT"],
     ];

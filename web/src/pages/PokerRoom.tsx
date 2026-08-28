@@ -180,6 +180,15 @@ export function PokerRoom({ env, me, guest = false }: { env: Envelope; me: Me; g
               <button className={buttonQuiet} onClick={() => (env.revealed ? setConfirmReset(true) : reset())}>
                 Reset
               </button>
+              <button
+                className={buttonQuiet}
+                aria-pressed={st.autoReveal}
+                onClick={() =>
+                  run(() => action(env.id, "config", { autoReveal: !st.autoReveal }), { retry: true })
+                }
+              >
+                {st.autoReveal ? "Auto-reveal on" : "Auto-reveal off"}
+              </button>
               </>
             )}
 
