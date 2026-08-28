@@ -155,7 +155,13 @@ func TestEverySpaceLookupIsGated(t *testing.T) {
 		"handleCreateSession": true,
 		"requireSpaceOwner":   true,
 	}
-	const anonymous = "handleGetSpace"
+	// The anonymous pre-join routes: neither can sit behind a membership
+	// check, so both use BySlugInOrg with the org resolved from the URL
+	// segment in the same query.
+	anonymous := map[string]bool{
+		"handleGetSpace":         true,
+		"handleMintInviteHandle": true,
+	}
 
 	fset, files, info := typeCheckAPIPackage(t)
 	seen := map[string]bool{}
@@ -187,7 +193,7 @@ func TestEverySpaceLookupIsGated(t *testing.T) {
 			seen[fn] = true
 			pos := fset.Position(call.Pos())
 			switch {
-			case fn == anonymous:
+			case anonymous[fn]:
 				if method != "BySlugInOrg" {
 					t.Errorf("%s: %s must use BySlugInOrg so a bad org and a bad slug cost the same one query", pos, fn)
 				}
@@ -210,8 +216,10 @@ func TestEverySpaceLookupIsGated(t *testing.T) {
 			t.Errorf("%s no longer resolves a space by slug — the classification is stale", fn)
 		}
 	}
-	if !seen[anonymous] {
-		t.Errorf("%s no longer resolves a space by slug — the classification is stale", anonymous)
+	for fn := range anonymous {
+		if !seen[fn] {
+			t.Errorf("%s no longer resolves a space by slug — the classification is stale", fn)
+		}
 	}
 }
 
@@ -240,6 +248,7 @@ var routeScoping = map[string]string{
 
 	// Every space route hangs off an org.
 	"GET /api/orgs/{org}/spaces/{slug}":                        "org-scoped",
+	"POST /api/orgs/{org}/spaces/{slug}/invite":                "org-scoped",
 	"PATCH /api/orgs/{org}/spaces/{slug}":                      "org-scoped",
 	"DELETE /api/orgs/{org}/spaces/{slug}":                     "org-scoped",
 	"POST /api/orgs/{org}/spaces/{slug}/join":                  "org-scoped",

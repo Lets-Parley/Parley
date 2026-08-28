@@ -325,6 +325,15 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			// before they have joined anything. A link guest is refused —
 			// its capability is one room, never a space around it.
 			r.With(rejectLinkPrincipal).Get("/spaces/{slug}", a.handleGetSpace)
+			// Anonymous for the same reason and mounted beside it: this is
+			// where someone who has not signed in yet trades an invite
+			// passcode for a short-lived handle to carry across the provider
+			// round trip. It is a passcode attempt, so it spends from the
+			// join door's throttle budget under the same key, and it takes
+			// the read above's 404 posture so it cannot enumerate spaces. A
+			// link guest is refused: its capability is one room, and a handle
+			// on the space around it is not something it may mint.
+			r.With(rejectLinkPrincipal).Post("/spaces/{slug}/invite", a.handleMintInviteHandle)
 
 			r.Group(func(r chi.Router) {
 				r.Use(RequireUser)

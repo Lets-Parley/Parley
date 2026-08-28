@@ -73,10 +73,16 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// would turn those 401s into 404s. The owner routes answer 404, formerly
 	// from requireSpaceOwner's slug lookup and now from requireOrgMember one
 	// step earlier: a link guest belongs to no org.
-	"GET /api/orgs":                                            {status: http.StatusUnauthorized},
-	"GET /api/spaces":                                          {status: http.StatusUnauthorized},
-	"POST /api/spaces":                                         {status: http.StatusUnauthorized},
-	"GET /api/orgs/{org}/spaces/{slug}":                        {status: http.StatusForbidden},
+	"GET /api/orgs":                     {status: http.StatusUnauthorized},
+	"GET /api/spaces":                   {status: http.StatusUnauthorized},
+	"POST /api/spaces":                  {status: http.StatusUnauthorized},
+	"GET /api/orgs/{org}/spaces/{slug}": {status: http.StatusForbidden},
+	// Minting an invite handle is anonymous by design, so a link guest reaches
+	// it with a principal in hand — and gets nothing. A link is a capability
+	// on one room; a handle is a capability on the space around it, which is
+	// wider than the grant. rejectLinkPrincipal refuses it at the door, the
+	// same 403 the public space read answers, before any passcode is compared.
+	"POST /api/orgs/{org}/spaces/{slug}/invite":                {status: http.StatusForbidden},
 	"PATCH /api/orgs/{org}/spaces/{slug}":                      {status: http.StatusNotFound},
 	"DELETE /api/orgs/{org}/spaces/{slug}":                     {status: http.StatusNotFound},
 	"POST /api/orgs/{org}/spaces/{slug}/join":                  {status: http.StatusUnauthorized},

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -401,4 +402,45 @@ func (s *Spaces) Delete(ctx context.Context, spaceID string) error {
 		return ErrNoSpace
 	}
 	return nil
+}
+
+// InviteHandleLifetime bounds an invite handle. It covers one sign-in round
+// trip, which takes seconds — anything longer is a live capability on a space
+// sitting in a browser for no reason.
+const InviteHandleLifetime = 5 * time.Minute
+
+// CreateInviteHandle records a minted handle against one space. Only the
+// digest is stored, the same way session_links stores a link token: the handle
+// itself exists in exactly one HTTP response and nowhere else.
+func (s *Spaces) CreateInviteHandle(ctx context.Context, spaceID string, tokenHash []byte, expiresAt time.Time) error {
+	if _, err := s.Pool.Exec(ctx,
+		"insert into space_invite_handles (token_hash, space_id, expires_at) values ($1, $2, $3)",
+		tokenHash, spaceID, expiresAt); err != nil {
+		return fmt.Errorf("creating an invite handle: %w", err)
+	}
+	// Opportunistic sweep of handles nobody came back for. A spent one is
+	// already gone — redemption deletes it — so this only ever removes rows
+	// that could no longer be redeemed anyway.
+	s.Pool.Exec(ctx, "delete from space_invite_handles where expires_at <= now()")
+	return nil
+}
+
+// RedeemInviteHandle spends a handle against one space, reporting whether it
+// was good for that space.
+//
+// The delete is the whole check, deliberately: reading the row and marking it
+// afterwards would let two concurrent redemptions both see it unspent and both
+// be admitted. Here the second request blocks on the row lock, re-reads the
+// committed row, finds it gone and matches nothing. The space id is part of
+// the WHERE rather than something the caller compares afterwards, so a handle
+// for one space can never be spent against another — including a same-named
+// space in a different org, since a slug is unique only inside one.
+func (s *Spaces) RedeemInviteHandle(ctx context.Context, spaceID string, tokenHash []byte) (bool, error) {
+	tag, err := s.Pool.Exec(ctx,
+		"delete from space_invite_handles where token_hash = $1 and space_id = $2 and expires_at > now()",
+		tokenHash, spaceID)
+	if err != nil {
+		return false, fmt.Errorf("redeeming an invite handle: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
 }

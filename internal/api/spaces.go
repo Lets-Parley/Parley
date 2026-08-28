@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
@@ -263,6 +264,9 @@ func (a *app) handleJoinSpace(w http.ResponseWriter, r *http.Request) {
 
 	var body struct {
 		Passcode string `json:"passcode"`
+		// Handle is an invite handle minted by handleMintInviteHandle: what a
+		// visitor carries across a provider sign-in instead of the passcode.
+		Handle string `json:"handle"`
 	}
 	// Decode whatever arrives rather than trusting Content-Length: a chunked
 	// request declares -1, and skipping the decode would drop a correct
@@ -289,16 +293,35 @@ func (a *app) handleJoinSpace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if sp.Passcode != "" && !member {
-		key := clientKey(r) + "|" + sp.ID
-		if !a.passcodeAttempts.take(r.Context(), key) {
-			http.Error(w, `{"error":"too many tries — wait a minute, then enter the passcode again"}`, http.StatusTooManyRequests)
-			return
+		// An invite handle stands in for the passcode, and only for the one
+		// space it was minted against. Redemption spends it, so a handle that
+		// worked a moment ago will not work again; a handle that is wrong,
+		// expired, or for another space simply falls through to the passcode
+		// check below and is refused there, on the throttled path.
+		admitted := false
+		if body.Handle != "" {
+			hash, err := store.HashToken(body.Handle)
+			if err == nil {
+				ok, err := a.spaces.RedeemInviteHandle(r.Context(), sp.ID, hash)
+				if err != nil {
+					http.Error(w, `{"error":"could not join space"}`, http.StatusInternalServerError)
+					return
+				}
+				admitted = ok
+			}
 		}
-		if !passcodeMatches(sp.Passcode, body.Passcode) {
-			http.Error(w, `{"error":"That passcode doesn't match this space. Passcodes are 6 characters — check for a typo, or ask whoever invited you."}`, http.StatusForbidden)
-			return
+		if !admitted {
+			key := clientKey(r) + "|" + sp.ID
+			if !a.passcodeAttempts.take(r.Context(), key) {
+				http.Error(w, passcodeThrottled, http.StatusTooManyRequests)
+				return
+			}
+			if !passcodeMatches(sp.Passcode, body.Passcode) {
+				http.Error(w, passcodeRefused, http.StatusForbidden)
+				return
+			}
+			a.passcodeAttempts.refund(r.Context(), key)
 		}
-		a.passcodeAttempts.refund(r.Context(), key)
 	}
 
 	if err := a.spaces.Join(r.Context(), sp.ID, p.UserID); err != nil {
@@ -524,4 +547,76 @@ func (a *app) handleDeleteRoom(w http.ResponseWriter, r *http.Request) {
 	// Closes the sockets on every replica — see handleDeleteSpace.
 	a.broadcastState(r.Context(), id)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// The two answers the passcode door gives, shared so the mint door gives the
+// byte-identical one. A mint that refused differently — its own wording, its
+// own status — would be a cheaper oracle than the join it stands in for.
+const (
+	passcodeRefused   = `{"error":"That passcode doesn't match this space. Passcodes are 6 characters — check for a typo, or ask whoever invited you."}`
+	passcodeThrottled = `{"error":"too many tries — wait a minute, then enter the passcode again"}`
+)
+
+// handleMintInviteHandle trades a space passcode for an opaque, single-use
+// handle on that one space.
+//
+// It exists for the provider sign-in round trip. An invite link carries its
+// passcode in the URL fragment so the code never reaches a server log, but a
+// fragment does not survive a navigation to the identity provider and back, so
+// something has to wait in the browser meanwhile. This is what waits: a
+// capability on one space that expires in minutes and dies on first use,
+// rather than the passcode itself, which is the door code for everyone.
+//
+// Anonymous by necessity — the whole point is that the caller has no identity
+// yet — and therefore mounted beside handleGetSpace, outside RequireUser and
+// requireOrgMember, resolving its org from the URL segment in the same single
+// query. It takes that route's 404 posture with it: a bad org, a space in
+// another org and a slug that exists nowhere all answer identically, so this
+// cannot become a way to enumerate spaces.
+//
+// It is a passcode attempt, so it spends from the join door's budget under the
+// very same key. Anything less would make it an unauthenticated
+// passcode-guessing oracle — a worse door than the one it stands beside.
+func (a *app) handleMintInviteHandle(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Passcode string `json:"passcode"`
+	}
+	if err := decodeOptional(w, r, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
+		return
+	}
+
+	sp, err := a.spaces.BySlugInOrg(r.Context(), orgSlugFromRoute(r), chi.URLParam(r, "slug"))
+	if errors.Is(err, store.ErrNoSpace) {
+		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// Exactly the join door's check, in the same order and under the same
+	// throttle key, so the two share one budget rather than two.
+	if sp.Passcode != "" {
+		key := clientKey(r) + "|" + sp.ID
+		if !a.passcodeAttempts.take(r.Context(), key) {
+			http.Error(w, passcodeThrottled, http.StatusTooManyRequests)
+			return
+		}
+		if !passcodeMatches(sp.Passcode, body.Passcode) {
+			http.Error(w, passcodeRefused, http.StatusForbidden)
+			return
+		}
+		a.passcodeAttempts.refund(r.Context(), key)
+	}
+
+	plain, hash := store.NewToken()
+	if err := a.spaces.CreateInviteHandle(r.Context(), sp.ID, hash, time.Now().Add(store.InviteHandleLifetime)); err != nil {
+		http.Error(w, `{"error":"could not prepare the invite"}`, http.StatusInternalServerError)
+		return
+	}
+	// The only time the handle is ever readable: nothing stores it, and no
+	// other response carries one.
+	writeJSON(w, http.StatusCreated, map[string]any{"handle": plain})
 }
