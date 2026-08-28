@@ -190,6 +190,9 @@ export function Landing() {
     spaces: shown.filter((sp) => sp.orgSlug === slug),
   }));
   const known = spaces.length > 0;
+  // Which orgs get a directory door. Straight off the org memberships, so it
+  // survives an empty space list; narrowed by the switcher when one is set.
+  const browsable = orgFilter ? orgs.filter((o) => o.slug === orgFilter) : orgs;
   const guestRoomId = me.data?.linkSessionId;
 
   return (
@@ -362,16 +365,11 @@ export function Landing() {
             <div className="flex w-full max-w-md flex-col gap-3">
               {grouped.map((group) => (
                 <section key={group.slug} className="flex flex-col gap-2">
-                  <h2 className="flex items-baseline justify-between gap-3 px-1 text-left font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
-                    {grouped.length > 1 ? <span>{group.name}</span> : <span />}
-                    {/* The only door to the directory. Without it, finding a
-                        space you have not joined still needs somebody to send
-                        you a link, which is the thing the directory exists to
-                        stop. */}
-                    <Link to={orgPath(group.slug)} className="underline hover:text-ink">
-                      Browse {group.name}
-                    </Link>
-                  </h2>
+                  {grouped.length > 1 && (
+                    <h2 className="px-1 text-left font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+                      {group.name}
+                    </h2>
+                  )}
                   <ul
                     aria-label={`Your spaces in ${group.name}`}
                     className="flex flex-col gap-2 rounded-panel border border-line bg-surface p-3 text-left shadow-rest"
@@ -395,6 +393,29 @@ export function Landing() {
                 </section>
               ))}
             </div>
+          )}
+
+          {/* The door to the directory, hung off org membership rather than
+              off the space list above. Someone who has joined nothing yet has
+              no rows for a link to sit in — and they are exactly who the
+              directory is for, since the alternative is waiting for a
+              teammate to send a URL. It follows the switcher's filter so the
+              page never offers a door to an org it is not showing. */}
+          {browsable.length > 0 && (
+            <nav
+              aria-label="Browse an org"
+              className="flex w-full max-w-md flex-wrap items-center justify-center gap-x-4 gap-y-1 text-sm"
+            >
+              {browsable.map((o) => (
+                <Link
+                  key={o.slug}
+                  to={orgPath(o.slug)}
+                  className="text-ink-soft underline hover:text-ink"
+                >
+                  Browse {o.name}
+                </Link>
+              ))}
+            </nav>
           )}
 
           <form
