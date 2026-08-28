@@ -6,7 +6,7 @@ description: Every route, who may call it, and what it does.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import RouteTable from "../../../components/RouteTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/api/links.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/api/links.go"]} />
 
 There is no API token scheme. Everything authenticates with the `parley_session`
 cookie, so the API is usable from a script only by reusing a browser session's
@@ -112,7 +112,7 @@ session envelope.
 <RouteTable rows={[
   { method: "GET", path: "/api/orgs", auth: "user", purpose: "The orgs the caller belongs to: slug, name, role. Cross-org and un-prefixed by design — it is what a client asks before it knows an org to ask within. An empty array is a real answer: an account whose identity-provider claims matched no org belongs nowhere." },
   { method: "GET", path: "/api/spaces", auth: "user", purpose: "The caller's own memberships, most recently active first: slug, orgSlug, name, whether it is protected. Cross-org, so it stays un-prefixed. Never the passcode." },
-  { method: "GET", path: "/api/orgs/{org}/spaces", auth: "member", purpose: "The org directory: every space in this org with visibility 'org', plus every space the caller belongs to — slug, name, visibility, whether it is protected, and whether the caller is already a member. Never the passcode. Someone outside the org gets 404, not an empty list." },
+  { method: "GET", path: "/api/orgs/{org}/spaces", auth: "member", purpose: "The org directory: every space in this org with visibility 'org', plus every space the caller belongs to — slug, name, visibility, whether it is protected, and whether the caller is already a member. Never the passcode. Paged: see below. Someone outside the org gets 404, not an empty list." },
   { method: "PATCH", path: "/api/orgs/{org}/spaces/{slug}/visibility", auth: "owner", purpose: "Set {visibility} to 'org' to list the space in the org directory, or 'private' to take it back out. 204. On an instance without sign-in configured, 'org' is refused with 403 — every visitor would be in the org. It never touches the passcode: visibility governs discovery, not entry." },
   { method: "GET", path: "/api/orgs/{org}/spaces/{slug}", auth: "public", purpose: "Members get roster, sessions, passcode, and the kinds a new session may use. Each session carries here: how many people have a socket open on it right now, 0 once it has ended. Non-members get only the name and whether it is protected. Read-only: it never writes." },
   { method: "POST", path: "/api/spaces", auth: "user", purpose: "Create a space. Protected by default. Un-prefixed like the list above, and for the same reason — it is the landing page's route, called before an org is in the URL, so it names none and the space lands in the default org." },
@@ -128,6 +128,41 @@ session envelope.
   { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/members/{userId}/role", auth: "owner", purpose: "Promote or demote: {role} is owner or member. 409 if it would leave the space with no owner." },
   { method: "DELETE", path: "/api/orgs/{org}/spaces/{slug}/members/{userId}", auth: "owner", purpose: "Remove a member. Access is revoked on their next request. 409 if they are the last owner." },
 ]} />
+
+### Paging the org directory
+
+`GET /api/orgs/{org}/spaces` answers with one page, never the whole org:
+
+```json
+{
+  "spaces": [
+    { "slug": "platform-team", "name": "Platform Team", "visibility": "org", "protected": true, "member": false }
+  ],
+  "next": "UGxhdGZvcm0gVGVhbQBwbGF0Zm9ybS10ZWFt"
+}
+```
+
+| Parameter | Default | Maximum | Meaning |
+| --- | --- | --- | --- |
+| `limit` | 50 | 200 | Rows on this page. An ask above the maximum is clamped, not refused. |
+| `after` | — | — | The `next` from the previous page. Omit it for the first page. |
+
+`next` is present only while there is another page, so "no `next`" is the end
+of the list. It is an opaque cursor: it encodes the sort key of the last row on
+the page — the directory is ordered by name, with the slug breaking ties — and
+a client must hand it back unread. A value this build did not issue is refused
+with 400 rather than quietly restarting from the top, and a `limit` that is not
+a positive whole number is 400 too.
+
+Paging is by cursor and not by offset because the set moves while somebody is
+reading it. An offset re-counts the list on every request, so a space created
+ahead of the reader pushes a row across the page boundary and it is never seen,
+and one archived behind them shows a row twice. A cursor names a position, so
+neither can happen.
+
+The scope rule holds page by page and is not a filter the client applies: a
+private space the caller is not a member of never appears on any page, and
+archived spaces appear on none.
 
 ### Org custody
 

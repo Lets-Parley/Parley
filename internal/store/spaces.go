@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"regexp"
@@ -521,6 +522,64 @@ type OrgSpace struct {
 	Member     bool   `json:"member"`
 }
 
+// Page sizes for the org directory. The default is what a caller that asks
+// for nothing gets; the maximum is the most one request will ever return,
+// however large a number is asked for.
+const (
+	DirectoryPageSize    = 50
+	DirectoryMaxPageSize = 200
+)
+
+// ClampDirectoryPageSize turns whatever a caller asked for into a page size
+// this endpoint will actually serve: nothing asked for means the default, and
+// more than the maximum means the maximum. It clamps rather than refusing so
+// an over-large ask still gets an answer — the bound is the server's promise
+// about its own work, not a rule the caller has broken.
+func ClampDirectoryPageSize(limit int) int {
+	if limit <= 0 {
+		return DirectoryPageSize
+	}
+	if limit > DirectoryMaxPageSize {
+		return DirectoryMaxPageSize
+	}
+	return limit
+}
+
+// ErrBadCursor is an `after` value this build did not mint. Cursors are
+// opaque, so the only honest answer is to refuse rather than to guess at a
+// starting point and silently begin somewhere else in the list.
+var ErrBadCursor = errors.New("store: malformed directory cursor")
+
+// OrgSpacePage is one page of an org's directory, plus the cursor that asks
+// for the page after it. Next is empty when this page is the end of the list.
+type OrgSpacePage struct {
+	Spaces []OrgSpace `json:"spaces"`
+	Next   string     `json:"next,omitempty"`
+}
+
+// DirectoryCursor is the position of the last row of a page, encoded as an
+// opaque string. It is a keyset and not an offset because rows are created
+// and archived while somebody is paging: an offset re-counts the list on
+// every request, so a space added ahead of the reader pushes one row across
+// the boundary and it is never seen, and one removed shows a row twice.
+// (name, slug) is exactly the sort key, and slug is unique, so it names one
+// row and the row after it is always well defined.
+func encodeCursor(name, slug string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(name + "\x00" + slug))
+}
+
+func decodeCursor(cursor string) (name, slug string, err error) {
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return "", "", ErrBadCursor
+	}
+	name, slug, found := strings.Cut(string(raw), "\x00")
+	if !found || slug == "" {
+		return "", "", ErrBadCursor
+	}
+	return name, slug, nil
+}
+
 // ForOrg lists what one caller may see of one org: every org-visible space,
 // plus every space they are a member of, private ones included. An archived
 // space is in neither half — that is what archiving is for, and it is the only
@@ -534,29 +593,53 @@ type OrgSpace struct {
 //
 // The org id comes from requireOrgMember rather than from the URL, and the
 // membership join carries the caller's own id, so no row here can name a space
-// in an org the caller is outside or a private space they are not in.
-func (s *Spaces) ForOrg(ctx context.Context, orgID, userID string) ([]OrgSpace, error) {
+// in an org the caller is outside or a private space they are not in. That is
+// true of every page: the disclosure rule is in the where clause, and paging
+// only ever narrows what it already allowed, so a later page can no more leak
+// a private space than the first one can.
+//
+// limit is clamped rather than rejected, so an absurd ask is answered with the
+// maximum instead of an error. after is a cursor from a previous page.
+func (s *Spaces) ForOrg(ctx context.Context, orgID, userID, after string, limit int) (OrgSpacePage, error) {
+	limit = ClampDirectoryPageSize(limit)
+	var afterName, afterSlug *string
+	if after != "" {
+		name, slug, err := decodeCursor(after)
+		if err != nil {
+			return OrgSpacePage{}, err
+		}
+		afterName, afterSlug = &name, &slug
+	}
+	// One row more than asked for: whether it exists is the whole of "is
+	// there a page after this one", and it costs nothing over the index.
 	rows, err := s.Pool.Query(ctx, `
 		select sp.slug, sp.name, sp.visibility, sp.passcode <> '', m.user_id is not null
 		from spaces sp
 		left join members m on m.space_id = sp.id and m.user_id = $2
 		where sp.org_id = $1 and sp.archived_at is null
 		  and (sp.visibility = $3 or m.user_id is not null)
-		order by sp.name`, orgID, userID, VisibilityOrg)
+		  and ($4::text is null or (sp.name, sp.slug) > ($4, $5))
+		order by sp.name, sp.slug
+		limit $6`, orgID, userID, VisibilityOrg, afterName, afterSlug, limit+1)
 	if err != nil {
-		return nil, fmt.Errorf("listing the org directory: %w", err)
+		return OrgSpacePage{}, fmt.Errorf("listing the org directory: %w", err)
 	}
 	defer rows.Close()
-	spaces := []OrgSpace{}
+	page := OrgSpacePage{Spaces: []OrgSpace{}}
 	for rows.Next() {
 		var sp OrgSpace
 		if err := rows.Scan(&sp.Slug, &sp.Name, &sp.Visibility, &sp.Protected, &sp.Member); err != nil {
-			return nil, fmt.Errorf("listing the org directory: %w", err)
+			return OrgSpacePage{}, fmt.Errorf("listing the org directory: %w", err)
 		}
-		spaces = append(spaces, sp)
+		page.Spaces = append(page.Spaces, sp)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("listing the org directory: %w", err)
+		return OrgSpacePage{}, fmt.Errorf("listing the org directory: %w", err)
 	}
-	return spaces, nil
+	if len(page.Spaces) > limit {
+		page.Spaces = page.Spaces[:limit]
+		last := page.Spaces[limit-1]
+		page.Next = encodeCursor(last.Name, last.Slug)
+	}
+	return page, nil
 }

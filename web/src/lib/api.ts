@@ -139,6 +139,18 @@ export type OrgSpace = {
   /** Whether the caller is already a member. */
   member: boolean;
 };
+/**
+ * One page of an org's directory.
+ *
+ * `next` is an opaque cursor to hand back as `after`, absent once the list has
+ * been read to its end. It is a position and not a page number, so a space
+ * created or archived while somebody is reading cannot make the next page skip
+ * a room or show one twice.
+ */
+export type OrgSpacePage = {
+  spaces: OrgSpace[];
+  next?: string;
+};
 /** One org the caller belongs to, as the switcher lists them. */
 export type OrgMembership = {
   slug: string;

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -50,10 +52,21 @@ func makeOrgVisible(t *testing.T, pool *pgxpool.Pool, slug string) {
 	}
 }
 
-// listOrgSpaces reads the directory.
-func listOrgSpaces(t *testing.T, srv *httptest.Server, cookie *http.Cookie) (*http.Response, []map[string]any) {
+// directoryPage is the paginated envelope the directory answers with.
+type directoryPage struct {
+	Spaces []map[string]any `json:"spaces"`
+	Next   string           `json:"next"`
+}
+
+// listOrgSpacesRaw reads one page of the directory, passing the query string
+// through verbatim so a test can ask for a bad cursor or a bad limit.
+func listOrgSpacesRaw(t *testing.T, srv *httptest.Server, query string, cookie *http.Cookie) (*http.Response, directoryPage) {
 	t.Helper()
-	req, _ := http.NewRequest("GET", srv.URL+"/api/orgs/"+store.DefaultOrgSlug+"/spaces", nil)
+	url := srv.URL + "/api/orgs/" + store.DefaultOrgSlug + "/spaces"
+	if query != "" {
+		url += "?" + query
+	}
+	req, _ := http.NewRequest("GET", url, nil)
 	if cookie != nil {
 		req.AddCookie(cookie)
 	}
@@ -61,10 +74,63 @@ func listOrgSpaces(t *testing.T, srv *httptest.Server, cookie *http.Cookie) (*ht
 	if err != nil {
 		t.Fatal(err)
 	}
-	var body []map[string]any
-	json.NewDecoder(resp.Body).Decode(&body)
+	var page directoryPage
+	json.NewDecoder(resp.Body).Decode(&page)
 	resp.Body.Close()
-	return resp, body
+	return resp, page
+}
+
+// listOrgSpaces reads the whole directory, following the cursor to its end.
+// Every existing caller wants "what may this person see", which is now spread
+// across pages, and walking them here is also what proves the disclosure rule
+// holds on the later ones and not only on the first.
+func listOrgSpaces(t *testing.T, srv *httptest.Server, cookie *http.Cookie) (*http.Response, []map[string]any) {
+	t.Helper()
+	return listOrgSpacesPaged(t, srv, cookie, 0)
+}
+
+// listOrgSpacesPaged walks the directory with an explicit page size, so a test
+// can force several pages without creating a page's worth of spaces. It fails
+// on a duplicate slug, because a cursor that hands the same row out twice is
+// the paging bug this endpoint exists to avoid.
+func listOrgSpacesPaged(t *testing.T, srv *httptest.Server, cookie *http.Cookie, limit int) (*http.Response, []map[string]any) {
+	t.Helper()
+	query := ""
+	if limit > 0 {
+		query = "limit=" + strconv.Itoa(limit)
+	}
+	first, page := listOrgSpacesRaw(t, srv, query, cookie)
+	if first.StatusCode != http.StatusOK {
+		return first, page.Spaces
+	}
+	rows := page.Spaces
+	seen := map[string]bool{}
+	for _, row := range rows {
+		seen[row["slug"].(string)] = true
+	}
+	for pages := 0; page.Next != ""; pages++ {
+		if pages > 50 {
+			t.Fatalf("the directory cursor never reached the end after %d pages", pages)
+		}
+		next := "after=" + url.QueryEscape(page.Next)
+		if query != "" {
+			next = query + "&" + next
+		}
+		var resp *http.Response
+		resp, page = listOrgSpacesRaw(t, srv, next, cookie)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("following the directory cursor = %d, want 200", resp.StatusCode)
+		}
+		for _, row := range page.Spaces {
+			slug := row["slug"].(string)
+			if seen[slug] {
+				t.Errorf("the space %q appeared on two pages — the cursor is duplicating rows", slug)
+			}
+			seen[slug] = true
+		}
+		rows = append(rows, page.Spaces...)
+	}
+	return first, rows
 }
 
 func setVisibility(t *testing.T, srv *httptest.Server, slug, visibility string, cookie *http.Cookie) int {
@@ -150,23 +216,35 @@ func TestOpenModeRefusesOrgVisibility(t *testing.T) {
 // not one they happened to create. A private space someone else keeps is
 // absent, and someone outside the org gets 404 rather than an empty list,
 // because whether the org exists is not disclosed to anyone outside it.
+//
+// It reads the directory a page at a time, one row per page, and the private
+// space is named so that it sorts last. A paginated leak is still a leak, so
+// the space this test would catch has to be one that could only ever show up
+// on a later page.
 func TestOrgDirectoryScope(t *testing.T) {
 	ctx := context.Background()
 	pool := testPool(t)
 	srv := testServerWith(t, pool, Options{AllowedOrigin: testOrigin})
 
 	fay := signup(t, srv, "Fay")
-	listed := createOpenSpace(t, srv, "Listed "+randomSlugSuffix(t), fay)
+	listed := createOpenSpace(t, srv, "Aaa Listed "+randomSlugSuffix(t), fay)
 	listedSlug := listed["slug"].(string)
 	makeOrgVisible(t, pool, listedSlug)
 
-	hidden := createOpenSpace(t, srv, "Hidden "+randomSlugSuffix(t), fay)
+	// Two more org-visible spaces so the private one below can never be on
+	// the first page, whatever order the rest arrive in.
+	for _, name := range []string{"Bbb Filler ", "Ccc Filler "} {
+		filler := createOpenSpace(t, srv, name+randomSlugSuffix(t), fay)
+		makeOrgVisible(t, pool, filler["slug"].(string))
+	}
+
+	hidden := createOpenSpace(t, srv, "Zzz Hidden "+randomSlugSuffix(t), fay)
 	hiddenSlug := hidden["slug"].(string)
 
 	// A second org member, who belongs to neither space.
 	ada, adaID := signupWithID(t, srv, "Ada")
 
-	resp, body := listOrgSpaces(t, srv, ada)
+	resp, body := listOrgSpacesPaged(t, srv, ada, 1)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("an org member reading the directory = %d, want 200", resp.StatusCode)
 	}
@@ -188,7 +266,7 @@ func TestOrgDirectoryScope(t *testing.T) {
 	if resp := joinSpace(t, srv, hiddenSlug, ada); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("joining the private space = %d, want 204", resp.StatusCode)
 	}
-	_, body = listOrgSpaces(t, srv, ada)
+	_, body = listOrgSpacesPaged(t, srv, ada, 1)
 	found := false
 	for _, row := range body {
 		if row["slug"] == hiddenSlug {
