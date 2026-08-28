@@ -58,6 +58,24 @@ Pin a version rather than `latest`. %VERSION% is the current release, and 0.2.2 
 the security floor: every earlier release can be crashed remotely by a
 disconnecting client, and v0.1.0 additionally has a room-code throttle bypass.
 
+## Signing people in with your own identity provider
+
+Open mode needs nothing else. If you set `AUTH_MODE=oidc`, three more variables
+decide who ends up in which organization, and a first run needs all three:
+
+```sh
+OIDC_ORG_CLAIM=groups                     # id_token claim carrying the groups
+PARLEY_DEFAULT_ORG_CLAIM=parley-users     # group the default org answers to
+PARLEY_BOOTSTRAP_ADMIN=https://idp.example/realms/yourteam|8f2c...
+```
+
+`PARLEY_BOOTSTRAP_ADMIN` is an `issuer|subject` pair, because the account does
+not exist until that person first signs in. Without it nobody is granted admin
+of the default org, so nobody can promote themselves or stand up any admin
+operations.
+[Organizations and claim mapping](/operations/organizations/) covers the rest,
+and [Configuration](/reference/configuration/) lists every variable.
+
 ## What you get
 
 A space at `/o/acme/s/your-team` with a six-character passcode. Anyone with the link

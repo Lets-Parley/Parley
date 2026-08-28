@@ -81,12 +81,13 @@ sit at.
 
 ### Spaces
 
-- **One memorable link per team.** `/s/platform-team`, and that's the URL you
-  paste in chat.
+- **One memorable link per team.** `/o/acme/s/platform-team`, and that's the URL
+  you paste in chat. A space lives inside an organization, so its address always
+  names both.
 - **Protected by default.** New spaces get a six-character passcode. People
   enter the code, pick a name, and they're in. The space page shows the code
   and a one-click invite; an owner can mint a new code from
-  `/s/<slug>/settings`, or open the space so the link alone is the invite.
+  `/o/<org>/s/<slug>/settings`, or open the space so the link alone is the invite.
 - **Roster with presence:** who's around, who's in a session, and a jump
   straight to the table they're sitting at.
 - **Customizable avatars.** Pick one of thirty voxel-art portraits, and it
@@ -217,6 +218,9 @@ client.
 | `OIDC_CLIENT_ID` | with `oidc` | — | Client ID registered with the provider |
 | `OIDC_CLIENT_SECRET` | no | — | Client secret. Leave unset for a public-client registration; PKCE carries the flow either way |
 | `OIDC_SCOPES` | no | `profile email` | Extra scopes; `openid` is always requested |
+| `OIDC_ORG_CLAIM` | no | `groups` | The `id_token` claim carrying the caller's groups, matched against each org's registered claim value at every sign-in |
+| `PARLEY_DEFAULT_ORG_CLAIM` | no | — | Points the built-in default org at one of your provider's groups, so a fresh instance has something to match |
+| `PARLEY_BOOTSTRAP_ADMIN` | no | — | `issuer\|subject` pair granted admin of the default org on first sign-in. Without it a fresh `oidc` instance has no admin and no way to make one |
 
 Boot logs print the derived settings (`cookie_secure`, `allowed_ws_origin`)
 so a misconfiguration is visible in the first three lines.
@@ -362,7 +366,17 @@ AUTH_MODE=oidc
 OIDC_ISSUER=https://keycloak.example.com/realms/yourteam
 OIDC_CLIENT_ID=parley
 OIDC_CLIENT_SECRET=...   # omit for a public client
+
+OIDC_ORG_CLAIM=groups                     # claim carrying the caller's groups
+PARLEY_DEFAULT_ORG_CLAIM=parley-users     # group the default org answers to
+PARLEY_BOOTSTRAP_ADMIN=https://keycloak.example.com/realms/yourteam|8f2c...
 ```
+
+An OIDC instance maps groups to organizations, so those last three matter on a
+first run: without `PARLEY_BOOTSTRAP_ADMIN` nobody is an admin of the default
+org and nobody can create the first one. The full mapping story — claim
+matching, revocation tombstones, custody — is in
+[Organizations and claim mapping](https://www.letsparley.io/operations/organizations/).
 
 Register `<BASE_URL>/auth/callback` as the redirect URI with your provider, and
 allow the `openid`, `profile`, and `email` scopes. Sign-in uses the
