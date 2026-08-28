@@ -70,8 +70,9 @@ PARLEY_BOOTSTRAP_ADMIN=https://idp.example/realms/yourteam|8f2c...
 ```
 
 `PARLEY_BOOTSTRAP_ADMIN` is an `issuer|subject` pair, because the account does
-not exist until that person first signs in. Without it no org matches any claim,
-so nobody is an admin and nobody can create the first org.
+not exist until that person first signs in. Without it nobody is granted admin
+of the default org, so nobody can promote themselves or stand up any admin
+operations.
 [Organizations and claim mapping](/operations/organizations/) covers the rest,
 and [Configuration](/reference/configuration/) lists every variable.
 
