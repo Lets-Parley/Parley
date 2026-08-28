@@ -1,0 +1,163 @@
+---
+title: Organizations
+description: What an org admin can and cannot see, and the three ways someone reaches a room.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+
+<VerifiedStamp version="unreleased" source={["internal/api/custody/custody.go", "internal/api/custody/store.go", "internal/api/org_membership.go", "internal/api/router.go", "internal/auth/oidc.go", "internal/db/migrations/0021_orgs.sql"]} />
+
+An organization is a tenancy boundary. Spaces belong to one, slugs are unique
+inside one rather than across the instance, and every space route on the API is
+mounted under `/api/orgs/{org}/`. Who belongs to an org is decided by a claim in
+the `id_token` — see
+[Claim mapping](/operations/organizations/) for the setup.
+
+This page is about the part an operator has to be able to explain to their own
+team: what the person administering an org can see.
+
+## Custody is not access
+
+An org admin has **custody** of every space in their org and **access** to none
+of them.
+
+Custody is management. They can list every space including the private ones,
+rename one, archive one, delete one, make one less discoverable, and repair the
+ownership of a space they are not in. What the custody API answers with is a
+fixed structure — the space's id, slug and name, the user ids of its owners, its
+visibility, how many members it has, and whether it is archived. That is the
+whole list, and it is a Go type rather than a convention: the handlers live in a
+package that does not link the session, presence or hub code at all, so there is
+nothing there to leak.
+
+So an admin can see that a private space called *Reorg planning* exists, that it
+has four members, and who owns it. They cannot read a vote, a standup entry, a
+note, a story title or a roster, they do not appear in the room, and nobody in
+it is told they looked.
+
+Two rules keep that from being decoration:
+
+- **Custody can only make a space more private.** An admin may take a space out
+  of the org directory. Only the space's own owner can put one in. Without that
+  asymmetry an admin could make a private space org-visible, find it in the
+  directory, join it as an ordinary member, and read everything — with every
+  custody handler still perfectly clean.
+- **Ownership is granted, never transferred.** An admin can promote someone who
+  is *already* a member of the space. They cannot name themself, cannot name a
+  non-member, and never remove an incumbent.
+
+There is exactly one exception, below.
+
+## Claiming an abandoned space
+
+A space everybody has left cannot be managed by anyone, and there is nobody to
+hand it to. So an admin may **claim** a space with zero members, which makes
+them its owner and therefore a member of it. It is refused while a single member
+remains.
+
+This is the only route in the product by which custody becomes access, and it
+writes a row to `org_audit_log` naming the org, the space, the actor and the
+time. Neither of that table's foreign keys cascades and both slugs are stored as
+text, so the record outlives the space and the org it names.
+
+The audit log is **write-only today**: there is no API route that reads it, and
+no screen. Reading it means querying the database directly —
+
+```sql
+select created_at, org_slug, space_slug, actor_id, action, detail
+from org_audit_log order by created_at desc limit 50;
+```
+
+— and if that record matters to you, back the table up like any other.
+[A read route is tracked](https://github.com/Lets-Parley/Parley/issues/399);
+until it lands, do not describe the audit log to your team as something they can
+review.
+
+## Private means private from your colleagues
+
+It does not mean private from whoever runs the instance. A Parley admin has
+custody, a database administrator has everything, and a backup is a copy of
+everything. That is true of every self-hosted tool and it is worth saying out
+loud, because "private" in the space settings screen is about discovery by
+peers: it decides whether a space is listed in the org directory, and nothing
+else. The passcode is what decides who gets in — including for members of the
+org, who are not thereby members of any space.
+
+## The three ways into a room
+
+The custody screens list spaces and their member counts, and the members screen
+lists the org. Read together they look like a census of everyone who can reach a
+room's contents. **They are not**, and this is the row that gets missed:
+
+| Path | How they got there | What an org admin sees | Can an admin revoke it? |
+| --- | --- | --- | --- |
+| **Org membership** | A claim in their `id_token` matched the org's registered value at their last sign-in — or, in open mode, they simply signed in | Their name and role on the org members screen | Yes. Revoking removes them from the org and from every space in it, and closes their WebSockets in that org's spaces |
+| **Space membership** | They joined a space with its passcode, or with an invite handle from someone who held the passcode | That the space has *n* members, and the user ids of its owners. Not the roster | Only through an org revoke, which is org-wide. There is no per-space eviction in the custody API — the space's owner manages its members |
+| **A redeemed signed link** | A facilitator sent them a link to one room, and they opened it | **Nothing.** These identities belong to no org and no space. They are not on the members screen, they are not in the space's member count, and there is no route that lists them | **No.** Org member revocation cannot reach them, because they have no org membership to revoke |
+
+A redeemed link mints an identity that can take part in **exactly one session**
+and nothing else on the instance. It is a capability on one room rather than an
+account, which is why it is deliberately outside org membership — and why an org
+admin cannot see or revoke one.
+
+What governs a link guest instead:
+
+- **The link's own expiry.** A link lives 24 hours, and the guest's session
+  token expires with it.
+- **Whoever holds the room.** The session's facilitator can revoke an individual
+  link, which is per-session and belongs to them rather than to the org.
+
+So when the question is "who can read what is in this room", the answer is the
+space's members plus anyone holding a live link to a session in it. The org
+members screen answers a different question.
+
+## Membership is only as fresh as the last sign-in
+
+Org membership derived from a claim is evaluated **when someone signs in**, and
+the session cookie is long-lived and refreshed on write and on WebSocket
+connect. A session can therefore be arbitrarily stale.
+
+This lags in both directions, and both are worth planning for:
+
+- **Removals do not propagate.** Taking somebody out of a group at the identity
+  provider changes nothing in Parley until their next sign-in, which may never
+  come while they keep the tab open. Deprovisioning somebody means revoking them
+  in Parley as well — an explicit admin action, and the only one that takes
+  effect immediately.
+- **Additions lag identically.** Somebody added to an IdP group gains nothing
+  until they sign in again. This is the usual "why can this person not see the
+  org directory" support ticket, and the answer is almost always that they have
+  not signed in since.
+
+A revocation is a tombstone, so it beats any claim that arrives later: the group
+membership re-appearing at the provider does not undo it, and neither does the
+bootstrap-admin setting. An admin has to restore them explicitly.
+
+## A broad claim value is a broad org
+
+An org matches one exact, case-sensitive claim value. Point one at a group
+everybody is in — `Domain Users`, `Everyone`, an all-staff group — and the whole
+company becomes a member of that org.
+
+The blast radius is bounded: they get the org's directory of org-visible spaces,
+and a passcode still stands between them and any space they have not joined. But
+the org members list is a disclosure in itself — a roster of the company, its
+names, and who administers it — and the directory shows every space an owner
+chose to list. Point orgs at the groups you would be comfortable naming to each
+other.
+
+## Deleting an org
+
+An org holding spaces cannot be deleted. `spaces.org_id` is `on delete restrict`,
+so the database itself refuses, and a stray `delete from orgs` fails rather than
+orphaning anything.
+
+The deliberate route is `DELETE /api/orgs/{org}`, which requires the org's own
+slug sent back as confirmation. Without it the request is refused and answers
+with the exact number of spaces and sessions it would have destroyed. With it,
+every space and every session in the org is destroyed, in one transaction, along
+with the org row.
+
+**A purge is not recoverable without a backup.** There is no undo, no soft
+delete and no retention window. The audit records survive and still name what was
+purged; nothing else does. The default org cannot be purged at all.

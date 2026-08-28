@@ -26,6 +26,47 @@ migrations. If it did, Parley refuses to start and says so, rather than running
 against a schema it doesn't understand. Restore from a
 [backup](/operations/backups-and-recovery/) instead.
 
+## Upgrading to v0.5.0: organizations
+
+v0.5.0 puts every space inside an organization. The migrations that do it
+(`0021`–`0023`) are **forward-only — there is no down path and no rollback**.
+[Take a backup first](/operations/backups-and-recovery/) and check that you can
+restore it; if the upgrade goes wrong, restoring that backup is the only way
+back.
+
+### If you run one team on one instance, nothing visible changes
+
+The migration creates one org, called `default`, and puts every existing space
+and every existing account in it. You do not have to create anything, configure
+anything, or tell anybody. Concretely:
+
+- **Your links keep working.** A `/s/{slug}` address redirects to the space's new
+  `/o/{org}/s/{slug}` home, resolved against the caller's own memberships.
+  Someone who is not signed in — or a guest holding a signed session link — is
+  served the app exactly as before.
+- **Signed session links are untouched.** They address a session, not a space,
+  and they never carried an org segment.
+- **Existing spaces become "unlisted".** This is a change in *discoverability
+  only*. Nothing about who can open a space or what they see changes: a stranger
+  who opens a link to an existing space still gets its name and whether a
+  passcode is set, exactly as they did the day before the upgrade. Being
+  unlisted only means the space is not in the org directory, a screen that did
+  not exist yesterday.
+- **Passcodes still do the same job.** Visibility governs discovery; the
+  passcode governs entry, including for members of your org.
+
+New spaces you make after the upgrade are listed in the directory by default,
+and their owner can unlist them at any time. In open mode every space is
+unlisted and the directory stays empty.
+
+### If you run more than one team
+
+Read [Organizations and claim mapping](/operations/organizations/) before you
+upgrade. It covers creating a second org, pointing it at one of your provider's
+groups, and bootstrapping the first admin — and
+[Organizations](/security/organizations/) covers what the person administering
+an org can then see, which is worth being able to answer before somebody asks.
+
 ## Postgres
 
 Parley supports PostgreSQL 13 and newer, with no upper bound — the compose file

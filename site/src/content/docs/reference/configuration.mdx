@@ -224,7 +224,9 @@ requested only to derive a display name; **no email address is stored**.
 </EnvVar>
 
 <EnvVar name="OIDC_ORG_CLAIM" default="groups">
-The `id_token` claim that carries the caller's groups. At each sign-in its
+Read only in OIDC mode. The `id_token` claim that carries the caller's groups;
+[Organizations and claim mapping](/operations/organizations/) covers the setup
+end to end. At each sign-in its
 values are matched against the claim value an admin registered on each org, and
 membership is granted for every match.
 

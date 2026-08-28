@@ -393,6 +393,11 @@ function VisibilityPanel({
         Being listed is not the same as being open. A space with a passcode
         still asks for it, whoever finds it.
       </p>
+      <p className="mt-2 text-[12px] text-ink-faint text-pretty">
+        Unlisted means hidden from your colleagues, not from whoever runs this
+        instance: an org admin can see that this space exists, its name and how
+        many members it has, though never what is said in it.
+      </p>
     </section>
   );
 }

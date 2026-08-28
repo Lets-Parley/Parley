@@ -311,7 +311,19 @@ migration and embedding mistakes that unit tests miss.
     an interrupted purge must leave everything standing rather than some spaces
     gone, the rest not, and the org row undeletable. It refuses without the
     org's own slug as `confirm`, and it refuses the default org outright.
-30. Dependabot watches only `site/`. Go modules and `web/` dependencies are
+30. **Every environment variable is named in both operator-facing places.**
+    `TestEveryEnvironmentVariableIsDocumented` walks `cmd/parley/main.go` and
+    requires each key it can read to appear in
+    `site/src/content/docs/reference/configuration.mdx` *and* in
+    `deploy/charts/parley/values.yaml`. It resolves the callee rather than
+    grepping, because most of the configuration goes through `envOr` and a
+    literal `os.Getenv` scan covers eight keys out of twenty-two. Add a third
+    helper to `envReaders` if you write one; a key that only a new helper reads
+    is invisible otherwise, and the test fails if a name in that map is never
+    called. `env_keys_allowlist.txt` holds only keys no scan of `main.go` can
+    find, and an entry the scan *can* find is an error so the list cannot
+    accumulate. Finding zero keys is a fatal failure, never a pass.
+31. Dependabot watches only `site/`. Go modules and `web/` dependencies are
     bumped by hand, with tests.
 
 ## Scope
