@@ -6,7 +6,7 @@ description: Membership, facilitator rights, and what the server checks on every
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/authz.go", "internal/api/principal.go", "internal/store/spaces.go", "internal/store/orgs.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/store/sessions.go", "internal/store/links.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/authz.go", "internal/api/principal.go", "internal/store/spaces.go", "internal/store/orgs.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/store/sessions.go", "internal/store/links.go", "internal/api/custody/store.go", "internal/db/migrations/0023_org_custody.sql"]} />
 
 Parley has five authorization concepts and no more: **you are a member of the
 org**, **you are a member of the space**, **you own the space**, **you are the
@@ -90,10 +90,14 @@ they were not in: `POST /api/orgs/{org}/admin/spaces/{slug}/claim`, refused
 while any member remains. It exists because a space with nobody left in it can
 otherwise never be managed again, and there is nobody to hand it to.
 
-Every claim writes a row to `org_audit_log`. Neither of that table's foreign
-keys cascades and both slugs are stored as text, so the record outlives the
-space and the org it names — including an org purge, which is the action most
-worth having a record of.
+Every claim writes a row to `org_audit_log`, as do custody space deletes,
+ownership grants and org purges. Neither of that table's foreign keys cascades
+and both slugs are stored as text, so the record outlives the space and the org
+it names — including an org purge, which is the action most worth having a
+record of. The log is **write-only** today: there is no read route or screen
+([#399](https://github.com/Lets-Parley/Parley/issues/399)); query Postgres, and
+do not describe it as something a team can review in the product until that
+lands. See [Organizations](/security/organizations/).
 
 A space also cannot be *driven* to abandonment first. Removing members one at
 a time is refused at the last owner, and no custody action other than an
@@ -133,8 +137,9 @@ the destroying.
 The whole purge is one transaction: an interrupted one leaves the org and every
 space exactly as they were, rather than some spaces gone, the rest standing,
 and the org row undeletable behind the restrict foreign key. The audit records
-survive, and still name what was purged. Nothing else does — there is no
-restore.
+survive, and still name what was purged — write-only, as above; there is no
+product UI to open them ([#399](https://github.com/Lets-Parley/Parley/issues/399)).
+Nothing else does — there is no restore.
 
 ## Membership
 
@@ -152,9 +157,9 @@ nothing else — no roster, no session list, no passcode.
 ## Space owner
 
 Every member carries a role on `members.role`: `owner` or `member`. The person
-who creates a space is seeded as its owner. Only an owner may promote another
-member to owner, demote an owner back to member, or remove a member from the
-space.
+who creates a space is seeded as its owner. A space can have several owners;
+only an owner may promote another member to owner, demote an owner back to
+member, or remove a member from the space.
 
 An owner also owns the space itself: renaming it, deleting it, changing who can
 find it, and renaming or deleting any session in it. Every one of those routes
@@ -366,7 +371,7 @@ toggle, not a permission an administrator grants.
   { name: "Roles beyond owner and member", status: "not-built", detail: "Ownership covers membership management and the space itself — renaming and deleting the space and its sessions. It does not cover the door: the server still lets any member, owner or not, rotate the passcode or open the space, though the controls that do so are offered only to owners, on the space settings page." },
   { name: "Per-user or per-team space access", status: "not-built", detail: "A passcode is the only gate. Signing in with OIDC proves who you are but grants nothing by itself." },
   { name: "Removing a session participant", status: "not-built", detail: "A facilitator can hand the role to another member, but there is no eject-from-this-session-only control. Remove them from the space instead, or rotate the passcode." },
-  { name: "Undo, or an audit trail, for a deletion", status: "not-built", detail: "An owner can delete a space or a session, and it is gone — no soft delete, no archive, no record that it existed. Restore from a <a href='/operations/backups-and-recovery/'>backup</a> if you need one back." },
+  { name: "Undo, or an audit trail, for an owner deletion", status: "not-built", detail: "An owner can delete a space or a session, and it is gone — no soft delete, no archive, and no row in <code>org_audit_log</code> (that table covers org-admin custody actions only, and is write-only — <a href='https://github.com/Lets-Parley/Parley/issues/399'>#399</a>). Restore from a <a href='/operations/backups-and-recovery/'>backup</a> if you need one back." },
   { name: "Spectating as a link guest", status: "not-built", detail: "Spectator mode is a flag on a space membership, and a link guest has none, so the toggle is refused rather than silently accepted." },
   { name: "Upgrading a link identity into an account", status: "not-built", detail: "A link guest cannot rename itself or sign in. When the link expires the identity stops working; what they contributed stays." },
 ]} />

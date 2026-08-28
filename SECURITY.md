@@ -97,8 +97,11 @@ These are documented, deliberate, and not bugs:
 
 - **Passcodes are readable in the database.** By design; a code is meant to be
   read off the space page and passed on.
-- **Any member can rotate or remove a space's passcode.** There are no space
-  owner or administrator roles.
+- **Any member can rotate or remove a space's passcode.** Spaces can have
+  several owners, and an org admin has custody of every space in their org
+  (management without access — see
+  <https://www.letsparley.io/security/organizations/>). Neither role gates the
+  passcode: any member may still rotate or remove it.
 - **Story-queue control is facilitator-only.** Ordinary members retain voting
   and their own standup entries.
 - **Anonymous participation.** That is the default product.

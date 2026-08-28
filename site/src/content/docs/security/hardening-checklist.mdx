@@ -6,7 +6,7 @@ description: The ordered list of things to get right before you expose Parley to
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/security.go", "internal/api/client_address.go", "internal/api/authz.go", "internal/api/me.go", "internal/poker/routes.go", "cmd/parley/main.go", "deploy/k8s/deployment.yaml", "deploy/charts/parley/templates/networkpolicy.yaml", ".github/workflows/release.yml"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/security.go", "internal/api/client_address.go", "internal/api/authz.go", "internal/api/me.go", "internal/poker/routes.go", "cmd/parley/main.go", "deploy/k8s/deployment.yaml", "deploy/charts/parley/templates/networkpolicy.yaml", ".github/workflows/release.yml", "internal/api/custody/store.go", "internal/db/migrations/0023_org_custody.sql"]} />
 
 In order. The first three are the ones that actually bite.
 
@@ -171,18 +171,23 @@ successful hardened release. Releases v0.1.0 through v0.2.1 were not backfilled.
 - **There is no bind-address setting.** The process listens on all interfaces;
   only `PORT` is configurable. Use a firewall, a container port binding, or a
   proxy.
-- **There is no admin account, and the space-owner role is narrower than one.**
-  Every member carries a role of `owner` or `member`, and only an owner may
-  promote, demote, or remove a member — but ownership stops at the space
-  boundary and covers nothing else. Any member may still change or remove the
-  passcode; story mutations and session controls are facilitator-only, not
-  owner-only. An org admin governs an org's membership, but there is still no
-  operator account and no cross-space view, so an instance-wide action is a SQL
-  statement. A member
-  writes only their own rows: their poker vote, their standup entry, and their
-  standup readiness signal.
-- **There is no audit log.** `LOG_LEVEL=debug` turns on one diagnostic line
-  per request — the socket peer, the `X-Forwarded-For` chain and the resolved
-  client address, and nothing else; no cookie, token or header is ever logged.
-  It exists to prove proxy configuration, not to attribute actions: it carries
-  no user, is not retained, and is not queryable.
+- **There is no instance-wide operator account.** Space ownership is per space
+  (a space can have several owners) and stops at that boundary: only an owner
+  may promote, demote, or remove a member, but any member may still change or
+  remove the passcode, and story mutations and session controls are
+  facilitator-only. An org admin has **custody** of every space in their org —
+  list, rename, archive, delete, narrow visibility, grant ownership, claim an
+  abandoned room — without reading votes, standups or rosters. That is
+  management without access; see
+  [Organizations](/security/organizations/). Cross-instance administration is
+  still SQL. A member writes only their own rows: their poker vote, their
+  standup entry, and their standup readiness signal.
+- **The org audit log is write-only.** `org_audit_log` records `space.claim`,
+  `space.delete`, `space.add_owner` and `org.purge`. There is no API route or
+  screen that reads it —
+  [tracked as #399](https://github.com/Lets-Parley/Parley/issues/399) —
+  so reviewing it means querying Postgres. Do not describe it to a team as
+  something they can open in the product. `LOG_LEVEL=debug` is unrelated: one
+  diagnostic line per request with the socket peer, the `X-Forwarded-For`
+  chain and the resolved client address, and nothing else; no cookie, token or
+  header is ever logged. It proves proxy configuration, not who did what.
