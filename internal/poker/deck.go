@@ -64,5 +64,6 @@ func (d Deck) Has(value string) bool {
 
 // Config is the poker session config document.
 type Config struct {
-	Deck string `json:"deck"`
+	Deck       string `json:"deck"`
+	AutoReveal bool   `json:"autoReveal"`
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,8 +24,14 @@ const testOrigin = "http://example.test"
 
 func createSession(t *testing.T, srv *httptest.Server, slug, kind, title string, cookie *http.Cookie) (*http.Response, map[string]any) {
 	t.Helper()
+	return createSessionWithConfig(t, srv, slug, kind, title, `{}`, cookie)
+}
+
+func createSessionWithConfig(t *testing.T, srv *httptest.Server, slug, kind, title, config string, cookie *http.Cookie) (*http.Response, map[string]any) {
+	t.Helper()
+	body := fmt.Sprintf(`{"kind":%q,"title":%q,"config":%s}`, kind, title, config)
 	req, _ := http.NewRequest("POST", srv.URL+"/api/orgs/default/spaces/"+slug+"/sessions",
-		strings.NewReader(`{"kind":"`+kind+`","title":"`+title+`"}`))
+		strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	if cookie != nil {
 		req.AddCookie(cookie)
@@ -33,10 +40,10 @@ func createSession(t *testing.T, srv *httptest.Server, slug, kind, title string,
 	if err != nil {
 		t.Fatal(err)
 	}
-	var body map[string]any
-	json.NewDecoder(resp.Body).Decode(&body)
+	var out map[string]any
+	json.NewDecoder(resp.Body).Decode(&out)
 	resp.Body.Close()
-	return resp, body
+	return resp, out
 }
 
 func doJSON(t *testing.T, srv *httptest.Server, method, path, body string, cookie *http.Cookie) (*http.Response, map[string]any) {

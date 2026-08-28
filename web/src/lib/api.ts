@@ -178,6 +178,8 @@ export type Story = {
 };
 export type PokerState = {
   deck: { name: string; values: string[]; ordinal: boolean };
+  /** When true, the last eligible vote opens the round. Default false. */
+  autoReveal: boolean;
   currentStoryId: string | null;
   stories: Story[];
 };
@@ -208,7 +210,12 @@ export type Envelope = {
  * server routes on (verb, action) and answers 405 for the wrong one, so this
  * table has to match internal/session's registry.
  */
-const actionVerbs: Record<string, string> = { standup: "PUT", ready: "PUT", story: "PATCH" };
+const actionVerbs: Record<string, string> = {
+  standup: "PUT",
+  ready: "PUT",
+  story: "PATCH",
+  config: "PATCH",
+};
 
 /**
  * Every kind-specific write goes through one server route:

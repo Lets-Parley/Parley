@@ -25,6 +25,7 @@ func actions() map[string]session.Action {
 		"select":  {Verb: http.MethodPost, Do: selectStory, FacilitatorOnly: true},
 		"reveal":  {Verb: http.MethodPost, Do: reveal, FacilitatorOnly: true},
 		"reset":   {Verb: http.MethodPost, Do: reset, FacilitatorOnly: true},
+		"config":  {Verb: http.MethodPatch, Do: patchConfig, FacilitatorOnly: true},
 		"story":   {Verb: http.MethodPatch, Do: patchStory},
 		"vote":    {Verb: http.MethodPost, Do: vote},
 	}
@@ -386,8 +387,10 @@ func castVote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, stor
 
 }
 
-// maybeAutoReveal fires only here, on a vote landing — never from presence
-// changes, so a disconnect can shrink the denominator but can't reveal.
+// maybeAutoReveal opens the round when every eligible connected voter has cast.
+// Callers are the vote path and a mid-session config toggle that turns the
+// flag on — never presence changes, so a disconnect can shrink the denominator
+// but can't reveal.
 //
 // The connected set comes from the presence store, which sees every replica.
 // Counting only the clients attached here shrinks the denominator, and a
@@ -395,7 +398,17 @@ func castVote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, stor
 // votes to cast — the one thing hidden votes must never do. It is read by the
 // caller before the transaction opens: reading it here would hold the session
 // row lock across another query for no reason.
+//
+// Auto-reveal is opt-in via session config. Off (the default) leaves the
+// facilitator Reveal as the only way to open the round.
 func maybeAutoReveal(ctx context.Context, tx pgx.Tx, connected []string, sess store.Session, storyID string) error {
+	var cfg Config
+	if err := json.Unmarshal(sess.Config, &cfg); err != nil {
+		return fmt.Errorf("reading poker config for auto-reveal: %w", err)
+	}
+	if !cfg.AutoReveal {
+		return nil
+	}
 	if len(connected) == 0 {
 		return nil
 	}
@@ -426,6 +439,65 @@ func maybeAutoReveal(ctx context.Context, tx pgx.Tx, connected []string, sess st
 	}
 	_, err = tx.Exec(ctx, "update sessions set revealed = true where id = $1 and not revealed", sess.ID)
 	return err
+}
+
+func patchConfig(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+	var body struct {
+		AutoReveal *bool `json:"autoReveal"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if body.AutoReveal == nil {
+		http.Error(w, `{"error":"autoReveal is required"}`, http.StatusBadRequest)
+		return
+	}
+	want := *body.AutoReveal
+
+	// Presence is read before the transaction for the same reason vote does:
+	// maybeAutoReveal needs the connected set when enabling mid-round.
+	connected, err := ac.Presence.InSession(r.Context(), ac.Session.ID)
+	if err != nil {
+		slog.Error("could not read presence for auto-reveal", "session", ac.Session.ID, "error", err)
+		connected = nil
+	}
+
+	err = (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
+		func(tx pgx.Tx, sess store.Session) error {
+			var cfg Config
+			if err := json.Unmarshal(sess.Config, &cfg); err != nil {
+				return fmt.Errorf("reading poker config: %w", err)
+			}
+			cfg.AutoReveal = want
+			raw, err := json.Marshal(cfg)
+			if err != nil {
+				return fmt.Errorf("encoding poker config: %w", err)
+			}
+			if _, err := tx.Exec(r.Context(),
+				"update sessions set config = $2, version = version + 1 where id = $1",
+				sess.ID, raw); err != nil {
+				return err
+			}
+			sess.Config = raw
+			if !want || sess.Revealed {
+				return nil
+			}
+			var storyID string
+			if err := tx.QueryRow(r.Context(),
+				"select coalesce(current_story_id::text,'') from sessions where id = $1", sess.ID,
+			).Scan(&storyID); err != nil {
+				return err
+			}
+			if storyID == "" {
+				return nil
+			}
+			return maybeAutoReveal(r.Context(), tx, connected, sess, storyID)
+		})
+	if err != nil {
+		writeMutationError(r.Context(), w, err, "could not update session config")
+		return
+	}
+	committed(w, r, ac)
 }
 
 func reveal(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
