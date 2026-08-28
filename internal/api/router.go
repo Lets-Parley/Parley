@@ -430,7 +430,16 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 
 	r.With(resolvePrincipal(a.users, mode == ModeOIDC)).Get("/ws", a.handleWS)
 
-	r.NotFound(web.SPAHandler())
+	spa := web.SPAHandler()
+	// The compatibility shim for links minted before space URLs carried an
+	// org. It is mounted as a real route rather than left to the catch-all
+	// below, because the catch-all would simply serve the app shell to a path
+	// the client router no longer knows. Everything it cannot resolve — an
+	// anonymous caller, a link guest — falls through to that same shell, so
+	// mounting it changes nothing for anyone it does not redirect.
+	r.With(resolvePrincipal(a.users, mode == ModeOIDC)).Get("/s/{slug}", a.legacySpaceRedirect(spa))
+
+	r.NotFound(spa)
 
 	return &Handler{Handler: r, hub: a.hub}
 }

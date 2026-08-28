@@ -61,6 +61,13 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	"DELETE /api/me":       {status: http.StatusNoContent},
 	"PATCH /api/me/avatar": {status: http.StatusForbidden},
 
+	// The legacy space-link shim. A link guest belongs to no org, so there is
+	// nothing for it to resolve against — and resolving it against somebody
+	// else's memberships is exactly the escalation the whole table exists to
+	// prevent. It gets the app shell, the same 200 an anonymous visitor gets,
+	// and the client sends it wherever its own bound room is.
+	"GET /s/{slug}": {status: http.StatusOK},
+
 	// Orgs and spaces. A link is bound to one room, never a space, and never
 	// the org around it, so none of this is visible.
 	//

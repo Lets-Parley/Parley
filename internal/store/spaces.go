@@ -155,6 +155,43 @@ func (s *Spaces) BySlugInOrg(ctx context.Context, orgSlug, slug string) (Space, 
 	return sp, err
 }
 
+// OrgSlugsForMemberSpaceSlug lists the slugs of the orgs the caller belongs to
+// that hold a space with this slug, capped at two results.
+//
+// It is the legacy-link redirect's whole lookup, and the join to org_members is
+// the security property rather than a filter for convenience: resolving the
+// slug globally and checking membership afterwards would answer differently for
+// a slug that exists in an org the caller cannot reach than for one that exists
+// nowhere, which is a cross-org existence oracle. Two rows is all the caller of
+// this needs — one is a redirect, anything else is not — so the scan stops
+// there rather than materialising every collision on the instance.
+func (s *Spaces) OrgSlugsForMemberSpaceSlug(ctx context.Context, userID, slug string) ([]string, error) {
+	rows, err := s.Pool.Query(ctx, `
+		select o.slug
+		from spaces sp
+		join orgs o on o.id = sp.org_id
+		join org_members om on om.org_id = o.id and om.user_id = $1 and om.revoked_at is null
+		where sp.slug = $2
+		order by o.slug
+		limit 2`, userID, slug)
+	if err != nil {
+		return nil, fmt.Errorf("resolving legacy space slug: %w", err)
+	}
+	defer rows.Close()
+	var orgs []string
+	for rows.Next() {
+		var org string
+		if err := rows.Scan(&org); err != nil {
+			return nil, fmt.Errorf("resolving legacy space slug: %w", err)
+		}
+		orgs = append(orgs, org)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("resolving legacy space slug: %w", err)
+	}
+	return orgs, nil
+}
+
 // SetPasscode replaces the passcode, or clears it to open the space.
 func (s *Spaces) SetPasscode(ctx context.Context, spaceID, passcode string) error {
 	_, err := s.Pool.Exec(ctx, "update spaces set passcode = $2 where id = $1", spaceID, passcode)

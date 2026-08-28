@@ -127,6 +127,22 @@ session envelope.
   { method: "DELETE", path: "/api/orgs/{org}/spaces/{slug}/members/{userId}", auth: "owner", purpose: "Remove a member. Access is revoked on their next request. 409 if they are the last owner." },
 ]} />
 
+### Links shared before spaces carried an org
+
+Space URLs used to be `/s/{slug}`, with no org in them. That path is still
+served, as a redirect, so links shared before the change keep working.
+
+<RouteTable rows={[
+  { method: "GET", path: "/s/{slug}", auth: "public", purpose: "302 to /o/{org}/s/{slug} when exactly one of the caller's own orgs holds a space with this slug. Anonymous visitors and guests holding a signed link get the app itself instead, so the client can put them through sign-in. A signed-in caller whose orgs hold no such space — or more than one, which repeating slugs across orgs now makes possible — gets 404 rather than a guess." },
+]} />
+
+The org is resolved against the caller's own memberships, never by looking the
+slug up across the instance, so a space created later in another org cannot
+change where an existing link goes, and a slug held in an org the caller is
+outside answers exactly as one that exists nowhere. The 302 is deliberate: an
+org membership can be revoked, and a permanently-cached 301 would keep sending
+someone to a space they no longer reach.
+
 ## Sessions
 
 Every route below requires membership of the session's space, and answers **404**
