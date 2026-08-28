@@ -333,6 +333,9 @@ describe("SessionPage for a link guest whose storage was cleared", () => {
     localStorage.clear();
     sessionStorage.clear();
     apiMeResponse = linkMe;
+    // Same pin as the primary guest suite: reinjecting orgSlug/spaceSlug (or
+    // leaving an absent member on the roster) must fail here, not only in UI
+    // asserts that still pass with a non-redacted fixture.
     mockData = redactForGuest(
       {
         ...envelope,
@@ -340,10 +343,14 @@ describe("SessionPage for a link guest whose storage was cleared", () => {
         participants: [
           { userId: "dana", name: "Dana Whitfield", avatarHue: 120, spectator: false },
           { userId: "guest-1", name: linkMe.name, avatarHue: linkMe.avatarHue, spectator: false },
+          { userId: "absent", name: "Absent Member", avatarHue: 10, spectator: false },
         ],
       } as Envelope,
       linkMe.id,
     );
+    expect(mockData.orgSlug).toBe("");
+    expect(mockData.spaceSlug).toBe("");
+    expect(mockData.participants.map((p) => p.userId).sort()).toEqual(["dana", "guest-1"]);
   });
 
   it("lands in the room rather than the name gate", async () => {
