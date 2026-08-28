@@ -69,7 +69,7 @@ against `0`, no `I` against `1` — because this code gets read aloud in a meeti
 Codes are matched case-insensitively and compared in constant time. Wrong guesses
 are throttled per client address: eight attempts per minute, per space.
 
-`/s/<slug>` carries a one-line invite strip above the session list: the
+`/o/<org>/s/<slug>` carries a one-line invite strip above the session list: the
 passcode, and **Copy invite**. Nothing on it changes the door. Minting a new
 code — which immediately retires the old one and drops everyone still holding
 it back to the gate — and opening the space entirely both live under
@@ -108,7 +108,7 @@ a code is a door, not an identity.
 
 ## Space settings
 
-Everything that changes a space lives on its own route, `/s/<slug>/settings`,
+Everything that changes a space lives on its own route, `/o/<org>/s/<slug>/settings`,
 reached from **Settings** at the foot of the sidebar — the rail on a wide
 screen, the same sheet on a phone. The link, and the page, are owner-only: a
 member who types the URL is told to ask an owner, and the server refuses the
