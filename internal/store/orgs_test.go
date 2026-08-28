@@ -107,6 +107,66 @@ func TestSpaceSlugScopedToOrg(t *testing.T) {
 	}
 }
 
+// TestSetVisibilityIsScopedToOneSpaceID pins SetVisibility to the id it is
+// given. Slugs are unique per org, not per instance, so a caller that ever
+// passed a slug where an id belongs would flip the same-named space in every
+// other org. Two orgs share a slug here, and only the one addressed may move.
+func TestSetVisibilityIsScopedToOneSpaceID(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	spaces := &Spaces{Pool: pool}
+	defaultOrg, err := (&Orgs{Pool: pool}).Default(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	suffix := randSuffix(t)
+	var other string
+	if err := pool.QueryRow(ctx,
+		"insert into orgs (slug, name, claim_value) values ($1, 'Other', $1) returning id", "other-"+suffix,
+	).Scan(&other); err != nil {
+		t.Fatal(err)
+	}
+
+	slug := "shared-" + suffix
+	creator, _ := newUser(t, pool, "Ada")
+	mine, err := spaces.Create(ctx, defaultOrg.ID, "Shared", slug, "", creator.ID, VisibilityPrivate, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	theirs, err := spaces.Create(ctx, other, "Shared", slug, "", creator.ID, VisibilityPrivate, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := spaces.SetVisibility(ctx, mine.ID, VisibilityOrg); err != nil {
+		t.Fatal(err)
+	}
+
+	visibilityOf := func(id string) string {
+		t.Helper()
+		var got string
+		if err := pool.QueryRow(ctx, "select visibility from spaces where id = $1", id).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got := visibilityOf(mine.ID); got != VisibilityOrg {
+		t.Errorf("the addressed space = %q, want %q", got, VisibilityOrg)
+	}
+	if got := visibilityOf(theirs.ID); got != VisibilityPrivate {
+		t.Fatalf("the same-slugged space in another org = %q, want %q: SetVisibility reached across orgs", got, VisibilityPrivate)
+	}
+
+	// The other half of the same guarantee: a caller that handed over a slug
+	// where an id belongs must be refused, not served two spaces at once.
+	if err := spaces.SetVisibility(ctx, theirs.Slug, VisibilityOrg); err == nil {
+		t.Error("SetVisibility accepted a slug in place of a space id")
+	}
+	if got := visibilityOf(theirs.ID); got != VisibilityPrivate {
+		t.Fatalf("after a slug was passed, the other org's space = %q, want %q", got, VisibilityPrivate)
+	}
+}
+
 // TestSpaceCreateVisibility: open mode has to be able to force 'private'.
 // Anonymous identities plus an org-visible space with no passcode would let
 // any visitor join any new space.
