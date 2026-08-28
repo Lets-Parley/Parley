@@ -152,9 +152,14 @@ type disconnectTokenEvent struct {
 }
 
 type disconnectMemberEvent struct {
+	// spaceID empty means every space this user holds a connection in.
 	spaceID string
 	userID  string
 	done    chan []<-chan struct{}
+}
+
+func (e disconnectMemberEvent) matches(c *Conn) bool {
+	return c.UserID == e.userID && (e.spaceID == "" || c.SpaceID == e.spaceID)
 }
 
 type disconnectSessionEvent struct {
@@ -290,13 +295,13 @@ func (h *Hub) run() {
 		case disconnectMemberEvent:
 			writers := []<-chan struct{}{}
 			for c := range h.pending {
-				if c.SpaceID == e.spaceID && c.UserID == e.userID {
+				if e.matches(c) {
 					writers = append(writers, h.rejectPending(c, websocket.ClosePolicyViolation))
 				}
 			}
 			for _, room := range h.rooms {
 				for c := range room {
-					if c.SpaceID == e.spaceID && c.UserID == e.userID {
+					if e.matches(c) {
 						if done := h.remove(c, websocket.ClosePolicyViolation); done != nil {
 							writers = append(writers, done)
 						}
@@ -785,11 +790,23 @@ func (h *Hub) DisconnectToken(tokenID string) {
 	}
 }
 
+// DisconnectUser synchronously removes every connection this process holds for
+// a user, in any space. It is what an org-level revocation needs: the person
+// has lost every space in the org at once, and there is no single space id to
+// aim at.
+func (h *Hub) DisconnectUser(userID string) {
+	h.DisconnectSpaceMember("", userID)
+}
+
 // DisconnectSpaceMember synchronously removes every connection this process
 // holds for a user in a space. Membership is authorization, so a removal has
 // to reach sockets that are already open, not just the next HTTP request.
+//
+// An empty spaceID means every space, which is how DisconnectUser is
+// expressed. A user id is still required: an empty one would match the
+// anonymous connections that have not been authenticated yet.
 func (h *Hub) DisconnectSpaceMember(spaceID, userID string) {
-	if spaceID == "" || userID == "" {
+	if userID == "" {
 		return
 	}
 	done := make(chan []<-chan struct{}, 1)
