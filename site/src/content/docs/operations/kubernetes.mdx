@@ -215,6 +215,42 @@ strings. The coercion means `"false"` behaves correctly; it also means `"True"`,
 `"yes"` and a typo all read as false, without complaint. Pass real YAML
 booleans in a values file where you can.
 
+### Setting variables the chart has no knob for
+
+Most of the [configuration reference](/reference/configuration/) is reachable
+from a named value — `baseURL`, `auth.mode`, `logLevel`, the proxy-trust pair.
+A few variables are not: `OIDC_SCOPES`, and the seven abuse and resource limits.
+Those go through **`extraEnv`**, a list of Kubernetes EnvVar entries appended
+verbatim to the container after the chart's own env block:
+
+```yaml
+extraEnv:
+  - name: OIDC_SCOPES
+    value: "profile email groups"
+```
+
+`valueFrom` works too — each entry is a full EnvVar, not a string map. The
+variables themselves, and what each limit counts, live in the
+[configuration reference](/reference/configuration/); this page does not
+re-list them.
+
+**Last entry wins.** Kubernetes takes the last env entry when a name repeats, and
+`extraEnv` is last, so an entry named `DATABASE_URL` or `AUTH_MODE` silently
+overrides what the chart set from `values`. That is deliberate — an overlay
+that needs to swap the secret or flip auth mode can do it with only a values
+diff to review — but a GitOps merge that reuses either name by accident flips
+the same thing with the same silence. Prefer the named values for anything the
+chart already owns.
+
+`PORT` is not one of the intended uses. The Service, the probes and
+`containerPort` are all wired to 8080; changing the listener alone produces a
+pod that never passes readiness. Change `service.port` instead.
+
+A malformed entry — a map instead of a list, or an entry with no `name` — fails
+at `helm template` time with a named error rather than rendering a manifest the
+API server will reject later. See
+[below](#it-refuses-to-render-a-deployment-that-cannot-work).
+
 ### TLS is entirely the ingress's job
 
 Parley speaks plain HTTP on 8080 and has no certificate handling of any kind.
@@ -326,6 +362,8 @@ them:
   because a values merge that drops `existingSecret` would otherwise downgrade
   a confidential client to a public one in silence.
 - **Ingress TLS under an `http://` base URL.**
+- **A malformed `extraEnv`** — a map instead of a list, or an entry with no
+  `name`. See [above](#setting-variables-the-chart-has-no-knob-for).
 
 The chart also sets `automountServiceAccountToken: false` on both the
 ServiceAccount and the pod: Parley makes no Kubernetes API calls, so the token
