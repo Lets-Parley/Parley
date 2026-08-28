@@ -29,6 +29,7 @@ there is no second driver and no plan for one.
   { name: "0017_avatar", value: "users.avatar_icon, users.avatar_accessory", note: "Chosen avatar. Constant empty default, so no backfill and no table rewrite. avatar_accessory is unwritten and unread since v0.5.1 and awaits a drop" },
   { name: "0018_session_links", value: "session_links, users.link_id", note: "Signed links. users.link_id is on delete set null, never cascade — see below" },
   { name: "0023_org_custody", value: "spaces.archived_at, org_audit_log", note: "Org custody. Neither audit foreign key cascades, so the record outlives what it names — see below" },
+  { name: "0024_org_members_user_idx", value: "org_members (user_id) where revoked_at is null", note: "Partial index for \"which orgs is this user in\". Regular create index — migrate.go wraps each file in a transaction, so concurrently is unavailable" },
 ]} />
 
 ### How the runner behaves
@@ -101,6 +102,14 @@ active member, so no upgraded space is left with nobody able to manage it.
 
 A partial index on `(space_id) where role = 'owner'` backs the last-owner
 guard, which counts owners under a row lock before any demotion or removal.
+
+### org_members
+
+`(org_id, user_id)` composite primary key — good for "is this user in this
+org". Lookups that ask "which orgs is this user in" (the org switcher and
+landing grouping via `Orgs.ForUser`) use a partial index on `(user_id) where
+revoked_at is null` instead. The admin members screen lists by `org_id` and
+includes revoked rows, so it does not need that index.
 
 ### org_audit_log
 
