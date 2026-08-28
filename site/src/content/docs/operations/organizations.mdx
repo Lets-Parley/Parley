@@ -1,0 +1,151 @@
+---
+title: Organizations and claim mapping
+description: Creating orgs, pointing them at your provider's groups, and the claim shapes Parley accepts.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+
+<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "internal/auth/oidc.go", "internal/api/org_membership.go", "internal/store/orgs.go", "internal/db/migrations/0021_orgs.sql"]} />
+
+Every space belongs to an organization. A single-team instance needs to know
+nothing about them: there is one org, called `default`, everybody is in it, and
+nothing on this page applies. It matters once you want two teams on one instance
+who should not see each other's spaces.
+
+## Open mode
+
+In open mode there is one org and it is `default`. Everybody who signs in joins
+it as an ordinary member, and **nobody is an admin** — there is no sign-in to
+authenticate an admin with, so there is no admin. Spaces are always created
+unlisted, and the org directory is empty by design.
+
+One group of people is deliberately left out, in both modes: **a guest who
+redeemed a signed link joins no org at all.** A redeemed link mints an identity
+that is a capability on one room rather than an account, so putting it in an org
+would enrol every guest of every meeting in your company's org and put them in
+the members list. If you are looking for somebody in the directory and cannot
+find them, check whether they arrived through a link — that is the answer far
+more often than it is a bug.
+
+## OIDC mode
+
+Membership comes from the identity provider. At each sign-in Parley reads one
+claim from the `id_token`, matches its values against the value registered on
+each org, and grants membership for every match.
+
+`OIDC_ORG_CLAIM` names the claim, and defaults to `groups` — what Keycloak,
+Authentik, Okta and Entra all call it. Matching is **exact and
+case-sensitive**. A value no org claims grants nothing, and a claim never
+creates an org: orgs are created deliberately, by an admin, and pointed at a
+group afterwards.
+
+Some providers only put the group claim in the token if you ask for it. That is
+a scope, not a Parley setting — add it to `OIDC_SCOPES`.
+
+### The shapes a claim can arrive in
+
+Providers disagree about how to serialize a claim, so all of these are handled
+rather than being an error:
+
+| Shape in the `id_token` | Example | What Parley does |
+| --- | --- | --- |
+| A single string | `"groups": "platform"` | Treated as one value. An empty string maps to nothing |
+| An array of strings | `"groups": ["platform", "design"]` | Every value is matched. Entries that are not strings, and empty strings, are skipped rather than failing the sign-in |
+| Absent | no `groups` key at all | Maps to no org. This is normal for a user in no groups, and is not an error |
+| An Entra overage pointer | `"_claim_names": { "groups": "src1" }` | **Maps to no org**, and logs a warning naming the claim |
+
+The last row is the one that surprises people. Microsoft Entra stops putting
+group ids in the token once a user is in more than about 200 groups, and
+replaces the claim with a pointer to a Graph endpoint. **Parley does not follow
+that pointer** — doing so would mean holding a Graph credential and making an
+outbound call on every sign-in, on the sign-in path — so an affected user maps
+to no org and needs membership granted another way. Their sign-in still
+succeeds; look for the warning in the logs:
+
+```
+the identity provider sent a claim-name pointer instead of the group claim,
+which Entra does above 200 groups — no org membership can be mapped for this
+sign-in
+```
+
+The practical fix at the provider is a group-claim configuration that emits only
+the groups assigned to the application, which stays under the threshold.
+
+### Membership is evaluated at sign-in
+
+Not continuously. The consequences — stale sessions, removals that do not
+propagate, and the tombstone that beats a returning claim — are on
+[Organizations](/security/organizations/#membership-is-only-as-fresh-as-the-last-sign-in),
+along with what a broadly-held group such as `Domain Users` costs you if you
+point an org at it.
+
+## Bootstrapping the first admin
+
+A fresh OIDC instance has a problem: no org matches anybody's claim, so nobody
+is a member of anything, so nobody can create the first org. Two variables break
+that circle, both read only in OIDC mode and both meant to be removed once the
+instance is running.
+
+`PARLEY_DEFAULT_ORG_CLAIM` points the built-in `default` org at one of your
+provider's groups, so `OIDC_ORG_CLAIM` has something to match. It is applied at
+boot, after migrations; if the value is empty or the default org is missing,
+Parley refuses to start rather than come up with nobody able to sign in usefully.
+
+`PARLEY_BOOTSTRAP_ADMIN` makes one person an admin of the default org at their
+next sign-in. It is written as `issuer|subject`:
+
+```
+PARLEY_BOOTSTRAP_ADMIN='https://keycloak.example.com/realms/yourteam|8f2c1e60-…'
+```
+
+It is that pair rather than a user id because the account does not exist until
+that person first signs in — the `(issuer, subject)` pair from the `id_token`
+*is* the identity. A malformed value is a fatal configuration error, on purpose:
+half a pair can never match, and an instance that boots with a bootstrap admin
+who will never be matched has no way to make its first org.
+
+It promotes an existing member as happily as it enrols a new one. The one case
+it will not act on is a **revoked** membership, which stays revoked; it logs a
+warning instead. Restore the membership first, then sign in again.
+
+Unset both once your orgs carry their own claim values.
+
+## Creating an org
+
+**There is no route and no screen for this yet.** A second org is created with
+SQL, against the same database Parley uses:
+
+```sql
+insert into orgs (slug, name, claim_value)
+values ('platform', 'Platform', 'platform-engineering');
+```
+
+- `slug` is what appears in every URL — lowercase letters, digits and hyphens,
+  starting and ending with one of the first two, up to 64 characters.
+- `name` is what people see, 1 to 64 characters.
+- `claim_value` is the value your provider sends in `OIDC_ORG_CLAIM`. It is
+  unique across orgs and **may not be empty**: an empty value would match every
+  token that simply lacks the claim, which hands the org to everybody.
+
+Membership follows from that alone — anyone whose token carries the value is a
+member at their next sign-in, and their spaces live at `/o/{org}/s/{slug}`. To
+make somebody an admin of a new org, set their `org_members.role` to `admin` the
+same way. Take a [backup](/operations/backups-and-recovery/) first, as with any
+hand-written statement against a live database.
+
+Slugs are unique **inside** an org, not across the instance, so two teams can
+both have a `retro` and neither can reach the other's.
+
+## What to check when it does not work
+
+- **Somebody is in no org.** Read the `id_token` your provider actually issues.
+  The claim may be named something else (`OIDC_ORG_CLAIM`), missing because the
+  scope was not requested (`OIDC_SCOPES`), or an Entra overage pointer.
+- **They were added at the provider and still see nothing.** They have not
+  signed in since. Membership is not re-evaluated on a live session.
+- **They are a link guest.** Not an org member by design; see above.
+- **The value looks right but does not match.** Matching is case-sensitive and
+  exact, and some providers send group *ids* rather than names. Register what
+  the token actually contains.
+- **A revoked person keeps being refused.** A revocation is a tombstone and
+  beats any later claim. Restore them explicitly.

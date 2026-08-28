@@ -3,6 +3,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
+import { expectNoViolations } from "../test/axe";
 import type { Me, SpaceView } from "../lib/api";
 import { SpacePage } from "./SpacePage";
 import { SpaceSettingsPage } from "./SpaceSettingsPage";
@@ -261,6 +262,26 @@ describe("SpaceSettingsPage", () => {
     await screen.findByRole("heading", { name: "Settings", level: 1 });
 
     expect(queryClient.getQueryData(["space", "acme", "platform-team"])).toBeTruthy();
+  });
+
+  // The settings panel is a screen a space owner is sent to from the sidebar,
+  // so it gets the same axe pass as the directory and the landing page. The
+  // role queries above already catch a control that stops being a button at
+  // all; what they cannot see is a control that still answers to its role but
+  // has lost its accessible name, an image with no alt text, a skipped heading
+  // level, or aria pointing at nothing. Contrast is not covered — jsdom has no
+  // layout — so that stays a review item.
+  it("has no axe violations in either theme", async () => {
+    view = { ...base, visibility: "private" } as SpaceView;
+    for (const theme of ["light", "dark"] as const) {
+      document.documentElement.setAttribute("data-theme", theme);
+      const { container, unmount } = renderApp(routed, {
+        route: "/o/acme/s/platform-team/settings",
+      });
+      await screen.findByRole("heading", { name: /who can find it/i });
+      await expectNoViolations(container);
+      unmount();
+    }
   });
 });
 

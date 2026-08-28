@@ -74,6 +74,7 @@ export default defineConfig({
           items: [
             { slug: "operations", label: "Overview" },
             "operations/architecture",
+            "operations/organizations",
             "operations/deployment",
             "operations/single-server",
             "operations/kubernetes",
@@ -97,6 +98,7 @@ export default defineConfig({
             "security/threat-model",
             "security/authentication",
             "security/authorization",
+            "security/organizations",
             "security/data-and-privacy",
             "security/hardening-checklist",
             "security/supply-chain",

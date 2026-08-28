@@ -46,6 +46,28 @@
 {{- fail "auth.mode is oidc but neither auth.oidc.existingSecret nor auth.oidc.publicClient is set. Choose one: set auth.oidc.existingSecret to the name of a Secret holding the client secret (never put the secret in values), or set auth.oidc.publicClient=true if the provider registration is a public client — Parley uses PKCE, so that works with no secret at all. Leaving both unset is not a public client, it is an unanswered question, so the chart refuses rather than quietly dropping the secret from a confidential-client deployment." }}
 {{- end }}
 {{- end }}
+{{- /*
+  extraEnv is spliced into the container's env list verbatim, so a malformed
+  entry does not fail here — it renders a structurally valid manifest that the
+  API server rejects at apply time, long after `helm template` and `helm lint`
+  both said yes. An EnvVar with no name is the shape that gets there: it reads
+  as a plausible list entry and is only wrong against the Kubernetes schema.
+  A map instead of a list is the other one, and produces a coalesce error two
+  layers down rather than a sentence naming the value.
+*/ -}}
+{{- if .Values.extraEnv }}
+{{- if not (kindIs "slice" .Values.extraEnv) }}
+{{- fail (printf "extraEnv must be a list of environment variables, but is a %s. Write it as a YAML list of EnvVar entries:\n\n    extraEnv:\n      - name: OIDC_SCOPES\n        value: \"profile email groups\"\n" (kindOf .Values.extraEnv)) }}
+{{- end }}
+{{- range $i, $entry := .Values.extraEnv }}
+{{- if not (kindIs "map" $entry) }}
+{{- fail (printf "extraEnv[%d] is a %s, not an environment variable. Every entry is a full Kubernetes EnvVar, so it needs at least a name and a value." $i (kindOf $entry)) }}
+{{- end }}
+{{- if not (get $entry "name") }}
+{{- fail (printf "extraEnv[%d] has no name. Kubernetes rejects an EnvVar without one, but not until you apply the manifest, so the chart refuses to render it: give the entry a name, or drop it." $i) }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- include "parley.checkReplicas" . -}}
 apiVersion: apps/v1
 kind: Deployment
@@ -146,6 +168,9 @@ spec:
                   name: {{ .Values.auth.oidc.existingSecret }}
                   key: {{ .Values.auth.oidc.secretKey }}
             {{- end }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
             {{- end }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
