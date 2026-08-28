@@ -2,8 +2,12 @@ package api
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -30,6 +34,43 @@ func noRedirectGet(t *testing.T, srv *httptest.Server, path string, cookie *http
 	}
 	t.Cleanup(func() { resp.Body.Close() })
 	return resp
+}
+
+// capturedResponse is a response flattened for comparison. The header set is
+// rendered as a sorted string so two responses can be compared whole.
+type capturedResponse struct {
+	status  int
+	body    string
+	headers string
+}
+
+// perRequestHeaders are excluded from the comparison because they legitimately
+// differ between any two requests, whatever the outcome: Date is a clock
+// reading. Everything else — Content-Type, Content-Length, the security
+// headers — must match, since a difference in any of them is as much of an
+// existence oracle as a difference in the status line.
+var perRequestHeaders = map[string]bool{"Date": true}
+
+func captureResponse(t *testing.T, resp *http.Response) capturedResponse {
+	t.Helper()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for name := range resp.Header {
+		if !perRequestHeaders[name] {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	var sb strings.Builder
+	for _, name := range names {
+		values := append([]string(nil), resp.Header.Values(name)...)
+		sort.Strings(values)
+		fmt.Fprintf(&sb, "%s: %s\n", name, strings.Join(values, ", "))
+	}
+	return capturedResponse{status: resp.StatusCode, body: string(body), headers: sb.String()}
 }
 
 // otherOrgHoldingSlug inserts a second org owning a space with the given slug,
@@ -112,7 +153,9 @@ func TestLegacySpaceLinkIs404WithoutAMatchingMembership(t *testing.T) {
 
 // TestLegacySpaceLinkIsIndistinguishableAcrossOrgs closes the existence
 // oracle: a slug that exists only in an org the caller is not in must answer
-// exactly as a slug that exists nowhere.
+// exactly as a slug that exists nowhere. Status alone is not enough — a body
+// or a header that differed would leak the same fact just as loudly — so the
+// whole response is compared.
 func TestLegacySpaceLinkIsIndistinguishableAcrossOrgs(t *testing.T) {
 	pool := testPool(t)
 	srv := httptest.NewServer(Router(pool, Options{AllowedOrigin: testOrigin}))
@@ -122,10 +165,37 @@ func TestLegacySpaceLinkIsIndistinguishableAcrossOrgs(t *testing.T) {
 	hidden := "hidden-" + randomSlugSuffix(t)
 	otherOrgHoldingSlug(t, pool, hidden, userIDOf(t, srv, ada), "")
 
-	elsewhere := noRedirectGet(t, srv, "/s/"+hidden, ada).StatusCode
-	nowhere := noRedirectGet(t, srv, "/s/nope-"+randomSlugSuffix(t), ada).StatusCode
-	if elsewhere != nowhere {
-		t.Errorf("a slug in an org the caller is not in answered %d but a slug that exists nowhere answered %d — that difference is a cross-org existence oracle", elsewhere, nowhere)
+	elsewhere := captureResponse(t, noRedirectGet(t, srv, "/s/"+hidden, ada))
+	nowhere := captureResponse(t, noRedirectGet(t, srv, "/s/nope-"+randomSlugSuffix(t), ada))
+	if elsewhere.status != nowhere.status {
+		t.Errorf("a slug in an org the caller is not in answered %d but a slug that exists nowhere answered %d — that difference is a cross-org existence oracle", elsewhere.status, nowhere.status)
+	}
+	if elsewhere.body != nowhere.body {
+		t.Errorf("a slug in an org the caller is not in answered body %q but a slug that exists nowhere answered %q — that difference is a cross-org existence oracle", elsewhere.body, nowhere.body)
+	}
+	if elsewhere.headers != nowhere.headers {
+		t.Errorf("a slug in an org the caller is not in answered headers %q but a slug that exists nowhere answered %q — that difference is a cross-org existence oracle", elsewhere.headers, nowhere.headers)
+	}
+}
+
+// TestLegacySpaceLinkIgnoresAnotherUsersMembershipInAnotherOrg is the test that
+// separates "an org I am a member of holds this slug" from "somebody is a
+// member of an org that holds this slug". Bob really belongs to the other org;
+// Ada does not, and must not be redirected through his membership.
+func TestLegacySpaceLinkIgnoresAnotherUsersMembershipInAnotherOrg(t *testing.T) {
+	pool := testPool(t)
+	srv := httptest.NewServer(Router(pool, Options{AllowedOrigin: testOrigin}))
+	t.Cleanup(srv.Close)
+
+	ada := signup(t, srv, "Ada")
+	bob := signup(t, srv, "Bob")
+	bobID := userIDOf(t, srv, bob)
+	hidden := "hidden-" + randomSlugSuffix(t)
+	otherOrgHoldingSlug(t, pool, hidden, bobID, bobID)
+
+	resp := noRedirectGet(t, srv, "/s/"+hidden, ada)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("GET /s/%s = %d %q, want 404 — the slug is held by an org another user belongs to and the caller does not", hidden, resp.StatusCode, resp.Header.Get("Location"))
 	}
 }
 
@@ -170,9 +240,12 @@ func TestLegacySpaceLinkRefusesAnAmbiguousMatch(t *testing.T) {
 	}
 }
 
-// TestLegacyRedirectMatchesOnlySpacePaths pins the blast radius. /link and
-// /session/{id} are the signed-link landings, and a link guest belongs to no
-// org, so neither may ever be resolved against org memberships.
+// TestLegacyRedirectMatchesOnlySpacePaths pins the blast radius of the route
+// pattern: /link, /session/{id} and / still reach the SPA unredirected, so the
+// shim resolves /s/{slug} and nothing else. It says nothing about who the
+// handler will redirect — that a link guest gets the app shell rather than a
+// redirect is pinned by TestLinkGuestRouteTable, and that an anonymous caller
+// does by TestLegacySpaceLinkServesTheSPAToAnonymous.
 func TestLegacyRedirectMatchesOnlySpacePaths(t *testing.T) {
 	srv := testServer(t)
 	ada := signup(t, srv, "Ada")
