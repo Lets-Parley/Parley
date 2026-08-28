@@ -27,7 +27,7 @@ function stubAuthMode(mode: "open" | "oidc") {
 
 function renderShell(over: Partial<Parameters<typeof AppShell>[0]> = {}) {
   return renderApp(
-    <AppShell spaceSlug="platform-team" spaceName="Platform Team" me={me} {...over}>
+    <AppShell orgSlug="acme" spaceSlug="platform-team" spaceName="Platform Team" me={me} {...over}>
       <p>table</p>
     </AppShell>,
   );
@@ -196,7 +196,7 @@ describe("what the sidebar admits it is hiding", () => {
     stubAuthMode("open");
     renderShell({ sessions: manySessions(12) as never });
     const more = screen.getByRole("link", { name: "All 12 sessions" });
-    expect(more.getAttribute("href")).toBe("/s/platform-team");
+    expect(more.getAttribute("href")).toBe("/o/acme/s/platform-team");
   });
 
   it("says nothing about more sessions when the list is whole", () => {
@@ -235,7 +235,7 @@ describe("what the header says the screen is", () => {
     expect(screen.getByRole("link", { name: "Parley home" })).toBeTruthy();
     // The slug is in the address bar already; the header's tightest region
     // does not repeat it.
-    expect(screen.queryByText("/s/platform-team")).toBeNull();
+    expect(screen.queryByText("/o/acme/s/platform-team")).toBeNull();
   });
 });
 
@@ -290,6 +290,21 @@ describe("getting to the table", () => {
     const list = screen.getByRole("heading", { name: /Members/ }).parentElement!;
     expect(within(list).getByRole("button", { name: /Dana Whitfield.*online/i })).toBeTruthy();
     expect(within(list).getByRole("button", { name: /Marcus Okonjo.*offline/i })).toBeTruthy();
+  });
+
+  it("chips only the owners, so a plain member's name keeps the width", () => {
+    stubAuthMode("open");
+    // Every row but the name is shrink-0, so a chip on all six rows takes the
+    // width out of the names — which is the one thing the roster is for.
+    renderShell({
+      members: [
+        makePerson({ userId: "dana", name: "Dana Whitfield", role: "owner" }),
+        makePerson({ userId: "marcus", name: "Marcus Okonjo", role: "member" }),
+      ],
+    });
+    const list = screen.getByRole("heading", { name: /Members/ }).parentElement!;
+    expect(within(list).getByText("Owner")).toBeTruthy();
+    expect(within(list).queryByText("Member")).toBeNull();
   });
 
   it("says a name once, not twice, where a label already carries it", () => {
@@ -452,7 +467,7 @@ describe("the avatar survives a reload", () => {
   function MeHost() {
     const { data } = useQuery({ queryKey: ["me"], queryFn: () => api<Me>("GET", "/api/me") });
     return (
-      <AppShell spaceSlug="platform-team" spaceName="Platform Team" me={data ?? null}>
+      <AppShell orgSlug="acme" spaceSlug="platform-team" spaceName="Platform Team" me={data ?? null}>
         <p>table</p>
       </AppShell>
     );

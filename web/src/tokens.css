@@ -232,3 +232,14 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Tailwind v4 dropped the browser default of cursor:pointer on buttons, so
+   every control in the app came out with an arrow. Restore it once, here,
+   rather than sprinkling cursor-pointer on each button. Disabled controls keep
+   the default arrow: a pointer on something that does nothing is a lie. */
+@layer base {
+  button:not(:disabled),
+  label:has(> input[type="radio"]),
+  label:has(> input[type="checkbox"]),
+  summary { cursor: pointer; }
+}

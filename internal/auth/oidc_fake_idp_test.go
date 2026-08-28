@@ -27,6 +27,9 @@ type fakeIdP struct {
 	name    string
 	// omitIDToken reproduces a provider that answers without an id_token.
 	omitIDToken bool
+	// extra claims merged into the id_token, so a test can send a group claim
+	// of any shape — or the pointer Entra sends instead of one.
+	extra map[string]any
 }
 
 func newFakeIdP(t *testing.T) *fakeIdP {
@@ -100,6 +103,9 @@ func (f *fakeIdP) signIDToken(t *testing.T) string {
 		"iat":   time.Now().Unix(),
 		"nonce": f.nonce,
 		"name":  f.name,
+	}
+	for k, v := range f.extra {
+		claims[k] = v
 	}
 	seg := func(v any) string {
 		b, err := json.Marshal(v)

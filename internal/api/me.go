@@ -3,11 +3,13 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/lets-parley/parley/internal/httprequest"
 	"github.com/lets-parley/parley/internal/store"
@@ -140,7 +142,7 @@ func (a *app) handlePostMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.TrimSpace(body.Name)
-	if name == "" || len(name) > 64 {
+	if name == "" || utf8.RuneCountInString(name) > 64 {
 		http.Error(w, `{"error":"name must be 1-64 characters"}`, http.StatusBadRequest)
 		return
 	}
@@ -174,6 +176,12 @@ func (a *app) handlePostMe(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, `{"error":"could not create user"}`, http.StatusInternalServerError)
 		return
+	}
+	// Open mode has a single org and everyone in it. CreateOpen never mints a
+	// link-bound row, but the check belongs at the point membership is
+	// granted rather than in the reader's head.
+	if err := a.grantDefaultOrgMembership(r.Context(), Principal{UserID: u.ID, LinkSessionID: u.LinkSessionID}); err != nil {
+		slog.Error("could not map org membership", "user_id", u.ID, "error", err)
 	}
 	setSessionCookie(w, plain, a.secureCookies)
 	writeJSON(w, http.StatusCreated, toMeResponse(u))

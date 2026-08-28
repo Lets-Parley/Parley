@@ -133,6 +133,19 @@ auth:
     existingSecret: ""
     publicClient: false
     secretKey: oidc-client-secret
+    # OIDC_ORG_CLAIM — the id_token claim carrying the caller's groups, whose
+    # values are matched exactly and case-sensitively against each org's
+    # registered claim value. Empty leaves Parley's default, "groups".
+    orgClaim: ""
+    # PARLEY_DEFAULT_ORG_CLAIM — bootstrap only: points the built-in default
+    # org at one of your provider's groups, so a fresh instance has something
+    # for orgClaim to match.
+    defaultOrgClaim: ""
+    # PARLEY_BOOTSTRAP_ADMIN — bootstrap only: "issuer|subject" from the
+    # id_token, granted admin of the default org at its first sign-in. It is
+    # the pair rather than a user id because the account does not exist until
+    # then. Without it nobody is an admin and nobody can create the first org.
+    bootstrapAdmin: ""
 
 # An Ingress terminates the connection, so without this every visitor arrives
 # wearing the controller's address and the room-code throttle counts the whole

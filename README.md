@@ -84,8 +84,9 @@ sit at.
 - **One memorable link per team.** `/s/platform-team`, and that's the URL you
   paste in chat.
 - **Protected by default.** New spaces get a six-character passcode. People
-  enter the code, pick a name, and they're in. Any member can
-  mint a new code, or open the space so the link alone is the invite.
+  enter the code, pick a name, and they're in. The space page shows the code
+  and a one-click invite; an owner can mint a new code from
+  `/s/<slug>/settings`, or open the space so the link alone is the invite.
 - **Roster with presence:** who's around, who's in a session, and a jump
   straight to the table they're sitting at.
 - **Customizable avatars.** Pick one of thirty voxel-art portraits, and it
@@ -186,10 +187,10 @@ Skip compose entirely and point the image at your own database:
 docker run -d --name parley -p 8080:8080 \
   -e DATABASE_URL='postgres://parley:secret@db:5432/parley' \
   -e BASE_URL='https://parley.example.com' \
-  ghcr.io/lets-parley/parley:0.7.1
+  ghcr.io/lets-parley/parley:0.7.3
 ```
 
-Pin a version rather than `latest` — 0.7.1 is the current release. 0.2.2 is the
+Pin a version rather than `latest` — 0.7.3 is the current release. 0.2.2 is the
 security floor: every earlier release can be crashed remotely by a disconnecting
 client.
 
@@ -291,7 +292,7 @@ Then:
 kubectl create secret generic parley \
   --from-literal=database-url='postgres://parley:secret@host:5432/parley?sslmode=require'
 
-helm install parley oci://ghcr.io/lets-parley/charts/parley --version 0.7.1 \
+helm install parley oci://ghcr.io/lets-parley/charts/parley --version 0.7.3 \
   --set database.existingSecret=parley \
   --set baseURL=https://parley.example.com
 ```
@@ -329,7 +330,7 @@ pods that boot together serialize their migrations behind an advisory lock. The
 chart defaults to one replica, so an upgrade never doubles a running install's
 pods behind your back; `--set replicaCount=2` opts in. This needs **chart 0.4.1 or
 newer** — every published chart before it refuses `replicaCount > 1` at render
-time, so pass `--version 0.7.1` when you scale up. Above one replica the
+time, so pass `--version 0.7.3` when you scale up. Above one replica the
 chart also renders a PodDisruptionBudget and a topology spread constraint — a
 budget in front of a single pod would deadlock the drain it was meant to
 survive. Each replica opens up to 10 pooled Postgres connections plus one for
@@ -406,8 +407,9 @@ and passed on, the way a Meet or Zoom code is, so hashing it would only mean
 nobody could ever see it again. Treat a database dump as disclosing the room
 codes of every space — but not any member's identity. Session cookies remain
 opaque random tokens stored hashed, so a backup still contains no credentials
-that impersonate a person. Any member can mint a new code (retiring the old
-one) or open the space entirely.
+that impersonate a person. The server lets any member mint a new code
+(retiring the old one) or open the space entirely; the controls that do so are
+offered to owners, on the space's settings page.
 
 What Parley does enforce: acting in a space requires having joined it; a
 protected space refuses joins without the code; session existence is never
@@ -452,7 +454,7 @@ version and keeping the values you set the first time, then confirm the pods
 actually rolled rather than assuming they did:
 
 ```sh
-helm upgrade parley oci://ghcr.io/lets-parley/charts/parley --version 0.7.1 \
+helm upgrade parley oci://ghcr.io/lets-parley/charts/parley --version 0.7.3 \
   --reuse-values
 kubectl rollout status deploy/parley
 helm test parley

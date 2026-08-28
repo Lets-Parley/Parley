@@ -110,20 +110,78 @@ session envelope.
 ## Spaces
 
 <RouteTable rows={[
-  { method: "GET", path: "/api/spaces", auth: "user", purpose: "The caller's own memberships, most recently active first: slug, name, whether it is protected. Never the passcode." },
-  { method: "GET", path: "/api/spaces/{slug}", auth: "public", purpose: "Members get roster, sessions, passcode, and the kinds a new session may use. Each session carries here: how many people have a socket open on it right now, 0 once it has ended. Non-members get only the name and whether it is protected. Read-only: it never writes." },
+  { method: "GET", path: "/api/orgs", auth: "user", purpose: "The orgs the caller belongs to: slug, name, role. Cross-org and un-prefixed by design — it is what a client asks before it knows an org to ask within. An empty array is a real answer: an account whose identity-provider claims matched no org belongs nowhere." },
+  { method: "GET", path: "/api/spaces", auth: "user", purpose: "The caller's own memberships, most recently active first: slug, orgSlug, name, whether it is protected. Cross-org, so it stays un-prefixed. Never the passcode." },
+  { method: "GET", path: "/api/orgs/{org}/spaces", auth: "member", purpose: "The org directory: every space in this org with visibility 'org', plus every space the caller belongs to — slug, name, visibility, whether it is protected, and whether the caller is already a member. Never the passcode. Someone outside the org gets 404, not an empty list." },
+  { method: "PATCH", path: "/api/orgs/{org}/spaces/{slug}/visibility", auth: "owner", purpose: "Set {visibility} to 'org' to list the space in the org directory, or 'private' to take it back out. 204. On an instance without sign-in configured, 'org' is refused with 403 — every visitor would be in the org. It never touches the passcode: visibility governs discovery, not entry." },
+  { method: "GET", path: "/api/orgs/{org}/spaces/{slug}", auth: "public", purpose: "Members get roster, sessions, passcode, and the kinds a new session may use. Each session carries here: how many people have a socket open on it right now, 0 once it has ended. Non-members get only the name and whether it is protected. Read-only: it never writes." },
   { method: "POST", path: "/api/spaces", auth: "user", purpose: "Create a space. Protected by default." },
-  { method: "POST", path: "/api/spaces/{slug}/join", auth: "user", purpose: "Join, sending {passcode} if the space is protected. Throttled at 8 attempts per 60s per address." },
-  { method: "POST", path: "/api/spaces/{slug}/seen", auth: "user", purpose: "Stamp the caller's membership as recently active, which is what orders the landing list. 204, and a silent no-op for a non-member — it never creates a membership." },
-  { method: "POST", path: "/api/spaces/{slug}/passcode", auth: "member", purpose: "Mint a new passcode, or with {open:true} remove it. Any member may do this." },
-  { method: "POST", path: "/api/spaces/{slug}/sessions", auth: "member", purpose: "Create a session: kind, title, config." },
-  { method: "PATCH", path: "/api/spaces/{slug}", auth: "owner", purpose: "Rename the space: {name}, 1-64 characters. The slug never moves with it, so invites already sent keep working." },
-  { method: "DELETE", path: "/api/spaces/{slug}", auth: "owner", purpose: "Delete the space and everything under it — sessions, stories, standups, memberships. Irreversible, and it closes the sockets on every open room." },
-  { method: "PATCH", path: "/api/spaces/{slug}/sessions/{id}", auth: "owner", purpose: "Rename a session in this space: {title}, 1-200 characters. Bumps the version, so everyone in the room sees it without a reload." },
-  { method: "DELETE", path: "/api/spaces/{slug}/sessions/{id}", auth: "owner", purpose: "Delete a session and its history. Irreversible, and unlike closing it is not idempotent: a second call is 404. Distinct from DELETE /api/sessions/{id}, which closes." },
-  { method: "POST", path: "/api/spaces/{slug}/members/{userId}/role", auth: "owner", purpose: "Promote or demote: {role} is owner or member. 409 if it would leave the space with no owner." },
-  { method: "DELETE", path: "/api/spaces/{slug}/members/{userId}", auth: "owner", purpose: "Remove a member. Access is revoked on their next request. 409 if they are the last owner." },
+  { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/join", auth: "user", purpose: "Join, sending {passcode} — or {handle} from the invite route below — if the space is protected. Throttled at 8 attempts per 60s per address." },
+  { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/invite", auth: "public", purpose: "Trade {passcode} for {handle}: an opaque, single-use capability on this one space, good for five minutes, that a visitor can carry across an identity-provider sign-in instead of the passcode. A wrong code is refused exactly as join refuses it, and spends from the same 8-per-60s budget. A miss answers the same 404 as the public space read, so it discloses no more than that route does." },
+  { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/seen", auth: "user", purpose: "Stamp the caller's membership as recently active, which is what orders the landing list. 204, and a silent no-op for a non-member — it never creates a membership." },
+  { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/passcode", auth: "member", purpose: "Mint a new passcode, or with {open:true} remove it. Any member may do this." },
+  { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/sessions", auth: "member", purpose: "Create a session: kind, title, config." },
+  { method: "PATCH", path: "/api/orgs/{org}/spaces/{slug}", auth: "owner", purpose: "Rename the space: {name}, 1-64 characters. The slug never moves with it, so invites already sent keep working." },
+  { method: "DELETE", path: "/api/orgs/{org}/spaces/{slug}", auth: "owner", purpose: "Delete the space and everything under it — sessions, stories, standups, memberships. Irreversible, and it closes the sockets on every open room." },
+  { method: "PATCH", path: "/api/orgs/{org}/spaces/{slug}/sessions/{id}", auth: "owner", purpose: "Rename a session in this space: {title}, 1-200 characters. Bumps the version, so everyone in the room sees it without a reload." },
+  { method: "DELETE", path: "/api/orgs/{org}/spaces/{slug}/sessions/{id}", auth: "owner", purpose: "Delete a session and its history. Irreversible, and unlike closing it is not idempotent: a second call is 404. Distinct from DELETE /api/sessions/{id}, which closes." },
+  { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/members/{userId}/role", auth: "owner", purpose: "Promote or demote: {role} is owner or member. 409 if it would leave the space with no owner." },
+  { method: "DELETE", path: "/api/orgs/{org}/spaces/{slug}/members/{userId}", auth: "owner", purpose: "Remove a member. Access is revoked on their next request. 409 if they are the last owner." },
 ]} />
+
+### Org custody
+
+An org admin manages the spaces in their org — including private ones they are
+not a member of — and can read nothing said inside them. Custody responses
+carry an explicit allow-list of fields (`id`, `slug`, `name`, `ownerIds`,
+`visibility`, `memberCount`, `archivedAt`) and nothing else: no roster, no
+presence, no sessions, no votes, no standup entries. The handlers behind them
+live in a package that does not link the session, presence, hub or store
+packages at all, so the limit is a build-time fact rather than a convention.
+
+Two rules make custody stop short of access. Custody may only make a space
+**more** private — `org` → `private` is allowed here, `private` → `org` is
+refused with 403 and remains the space owner's alone. And ownership is
+**granted, never transferred**: an admin may promote somebody who is already a
+member of the space, may not name themself or any non-member, and never
+demotes an incumbent owner.
+
+<RouteTable rows={[
+  { method: "GET", path: "/api/orgs/{org}/admin/spaces", auth: "org admin", purpose: "Every space in the org, private and archived ones included, as metadata only: id, slug, name, ownerIds (all of them — a space can have several), visibility, memberCount, archivedAt." },
+  { method: "PATCH", path: "/api/orgs/{org}/admin/spaces/{slug}", auth: "org admin", purpose: "Rename with {name}, archive or restore with {archived}, and narrow with {visibility:'private'}. 403 on {visibility:'org'}: custody can only make a space more private. Archiving takes a space out of the org directory and does nothing else — its members, history and URL are untouched." },
+  { method: "DELETE", path: "/api/orgs/{org}/admin/spaces/{slug}", auth: "org admin", purpose: "Delete the space and everything under it. Irreversible, and audit-logged." },
+  { method: "POST", path: "/api/orgs/{org}/admin/spaces/{slug}/owners", auth: "org admin", purpose: "Grant ownership to {userId}, who must already be a member of that space. Additive: existing owners keep their role. 403 if the admin names themself or anybody who is not a member — that would be a way into a space they cannot read, through the ordinary member routes." },
+  { method: "POST", path: "/api/orgs/{org}/admin/spaces/{slug}/claim", auth: "org admin", purpose: "Take ownership of a space nobody is left in. 409 while any member remains. This is the one action that makes an admin a member of a space they were not in, and it writes an audit record every time it succeeds." },
+  { method: "GET", path: "/api/orgs/{org}/admin/members", auth: "org admin", purpose: "The org's membership, revoked rows included: userId, name, role, revokedAt." },
+  { method: "POST", path: "/api/orgs/{org}/admin/members/{userId}/role", auth: "org admin", purpose: "Set {role} to admin or member. 409 if it would leave the org with no admin." },
+  { method: "DELETE", path: "/api/orgs/{org}/admin/members/{userId}", auth: "org admin", purpose: "Revoke somebody from the org and from every space in it, in one transaction. Where they were a space's sole owner it promotes the most recently active remaining member; where there is nobody to promote it refuses with 409 and names those spaces, and writes nothing at all. The tombstone is an upsert, so somebody with no membership row yet can be revoked before their first sign-in. Their open sockets close on every replica." },
+  { method: "POST", path: "/api/orgs/{org}/admin/members/{userId}/restore", auth: "org admin", purpose: "Lift a revocation, so the next sign-in enrols them again if their claim still matches. Without it a mis-click would be permanent." },
+  { method: "DELETE", path: "/api/orgs/{org}", auth: "org admin", purpose: "Purge the org: every space, every session, and the org row itself, in one transaction. Send {confirm} matching the org's own slug; without it the call is 400 and reports the exact space and session counts it would destroy, read inside the transaction that would have done it. Irreversible, and the audit records survive it. The default org cannot be purged." },
+]} />
+
+:::caution[The purge cannot be undone]
+`DELETE /api/orgs/{org}` destroys every space, session, story, standup entry
+and membership in the org along with the org itself. There is no soft delete
+and no restore. The only thing that outlives it is the audit log, which keeps
+the org and space slugs as text precisely so the record of what happened
+survives the thing it happened to.
+:::
+
+### Links shared before spaces carried an org
+
+Space URLs used to be `/s/{slug}`, with no org in them. That path is still
+served, as a redirect, so links shared before the change keep working.
+
+<RouteTable rows={[
+  { method: "GET", path: "/s/{slug}", auth: "public", purpose: "302 to /o/{org}/s/{slug} when exactly one of the caller's own orgs holds a space with this slug. Anonymous visitors and guests holding a signed link get the app itself instead, so the client can put them through sign-in. A signed-in caller whose orgs hold no such space — or more than one, which repeating slugs across orgs now makes possible — gets 404 rather than a guess." },
+]} />
+
+The org is resolved against the caller's own memberships, never by looking the
+slug up across the instance, so a space created later in another org cannot
+change where an existing link goes, and a slug held in an org the caller is
+outside answers exactly as one that exists nowhere. The 302 is deliberate: an
+org membership can be revoked, and a permanently-cached 301 would keep sending
+someone to a space they no longer reach.
 
 ## Sessions
 
@@ -136,7 +194,7 @@ existence is never disclosed.
   { method: "GET", path: "/api/sessions/{id}/export.csv", auth: "member", purpose: "CSV of the session, rendered from the same redacted view." },
   { method: "POST", path: "/api/sessions/{id}/facilitator/claim", auth: "member", purpose: "Claim the facilitator role after the 60s grace period. Any member." },
   { method: "POST", path: "/api/sessions/{id}/facilitator", auth: "facilitator", purpose: "Hand the role to {userId}. Distinct from the claim route above." },
-  { method: "DELETE", path: "/api/sessions/{id}", auth: "facilitator", purpose: "Close the session — it ends, its history stays, and it can be reopened. Idempotent. To discard one, see DELETE /api/spaces/{slug}/sessions/{id}, which is owner-only." },
+  { method: "DELETE", path: "/api/sessions/{id}", auth: "facilitator", purpose: "Close the session — it ends, its history stays, and it can be reopened. Idempotent. To discard one, see DELETE /api/orgs/{org}/spaces/{slug}/sessions/{id}, which is owner-only." },
   { method: "POST", path: "/api/sessions/{id}/reopen", auth: "facilitator", purpose: "Reopen a closed session." },
   { method: "POST", path: "/api/sessions/{id}/spectator", auth: "member", purpose: "Toggle your own spectator seat with {on}. A property of a member, not of a kind, so it is a core route rather than an action." },
   { method: "POST", path: "/api/sessions/{id}/links", auth: "facilitator", purpose: "Mint a signed link for this room. Refused once the room is closed. The reply carries the plain token exactly once — nothing can read it again." },

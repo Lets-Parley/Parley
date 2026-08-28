@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
@@ -6,6 +6,7 @@ import { renderApp } from "../test/render";
 import { api } from "../lib/api";
 import type { Me, SpaceView } from "../lib/api";
 import { SpacePage } from "./SpacePage";
+import { inviteLink } from "../lib/invite";
 
 const me: Me = { id: "marcus", name: "Marcus Okonjo", avatarHue: 40 };
 
@@ -44,7 +45,7 @@ vi.mock("../lib/api", async () => {
     api: vi.fn(async (_method: string, path: string) => {
       if (path === "/api/me") return me;
       if (path === "/api/auth") return { mode: "open" };
-      if (path.startsWith("/api/spaces/")) {
+      if (path.startsWith("/api/orgs/acme/spaces/")) {
         if (failSpace) throw new Error("network");
         return view;
       }
@@ -53,9 +54,15 @@ vi.mock("../lib/api", async () => {
   };
 });
 
+// The api mock is module-scoped, so its call log outlives a test. Tests that
+// count calls need the log to be about their own render and nothing else.
+beforeEach(() => {
+  vi.mocked(api).mockClear();
+});
+
 describe("SpacePage kind filter", () => {
   it("shows every kind under All and narrows to exactly one under a kind tab", async () => {
-    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     // The sidebar lists the same sessions unfiltered, so every assertion here
     // has to be scoped to the filtered list in the main column.
     const list = () => within(screen.getByRole("main"));
@@ -89,7 +96,7 @@ describe("SpacePage session list", () => {
   // Nothing else in the row names the kind, so deleting the chip would
   // otherwise leave the page saying nothing at all about what a session is.
   it("names each session's kind on its row, with the glyph", async () => {
-    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await screen.findAllByText("Sprint 12 grooming");
     // The sidebar lists the same sessions, so scope to the main column.
     const main = within(screen.getByRole("main"));
@@ -107,7 +114,7 @@ describe("SpacePage session list", () => {
   // The empty state borrows the chip's label vocabulary as inline text: it
   // has to say which filter came up empty, in the same words as the tab.
   it("names the active kind filter when nothing matches", async () => {
-    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await screen.findByText("Recent sessions");
     await userEvent.click(screen.getByRole("button", { name: "Standup" }));
     await userEvent.type(screen.getByLabelText("Search sessions"), "zzz");
@@ -123,7 +130,7 @@ describe("SpacePage create dialog", () => {
     // offer what the server listed rather than every kind it can render.
     space.kinds = ["poker"];
     try {
-      renderApp(<SpacePage />, { route: "/s/platform-team" });
+      renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
       await userEvent.click(await screen.findByRole("button", { name: "New session" }));
       const dialog = within(screen.getByRole("dialog"));
       expect(dialog.getByRole("button", { name: "Poker" })).toBeTruthy();
@@ -139,7 +146,7 @@ describe("SpacePage create dialog", () => {
   it("offers every kind when the space view lists them all", async () => {
     space.kinds = ["poker", "standup"];
     try {
-      renderApp(<SpacePage />, { route: "/s/platform-team" });
+      renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
       await userEvent.click(await screen.findByRole("button", { name: "New session" }));
       const dialog = within(screen.getByRole("dialog"));
       expect(dialog.getByRole("button", { name: "Poker" })).toBeTruthy();
@@ -153,7 +160,7 @@ describe("SpacePage create dialog", () => {
     // No `space.kinds` is set here: an older server sends no field at all,
     // and the page must fall back to offering everything rather than
     // treating the absence as an empty allowlist.
-    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await userEvent.click(await screen.findByRole("button", { name: "New session" }));
     const dialog = within(screen.getByRole("dialog"));
     expect(dialog.getByRole("button", { name: "Poker" })).toBeTruthy();
@@ -163,7 +170,7 @@ describe("SpacePage create dialog", () => {
   it("hides New session when the space offers no kinds", async () => {
     space.kinds = [];
     try {
-      renderApp(<SpacePage />, { route: "/s/platform-team" });
+      renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
       await screen.findByText("Recent sessions");
       expect(screen.queryByRole("button", { name: "New session" })).toBe(null);
     } finally {
@@ -172,7 +179,7 @@ describe("SpacePage create dialog", () => {
   });
 });
 
-describe("SpacePage passcode panel", () => {
+describe("SpacePage invite strip", () => {
   const protectedSpace = { ...space, protected: true, passcode: "TEAM49" } as SpaceView;
 
   function clipboard() {
@@ -193,12 +200,12 @@ describe("SpacePage passcode panel", () => {
   it("copies a one-click invite, with the passcode in the fragment", async () => {
     view = protectedSpace;
     const writeText = clipboard();
-    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
 
     await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
 
     expect(writeText).toHaveBeenCalledWith(
-      `${window.location.origin}/s/platform-team#c=TEAM49`,
+      `${window.location.origin}/o/acme/s/platform-team#c=TEAM49`,
     );
     expect(screen.getByText("Invite link copied — it seats them in one click")).toBeTruthy();
   });
@@ -213,7 +220,7 @@ describe("SpacePage passcode panel", () => {
       },
       configurable: true,
     });
-    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
 
     await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
 
@@ -221,27 +228,15 @@ describe("SpacePage passcode panel", () => {
     expect(screen.queryByText(/Invite link copied/)).toBe(null);
   });
 
-  it("copies just the passcode from the secondary action", async () => {
-    view = protectedSpace;
-    const writeText = clipboard();
-    renderApp(<SpacePage />, { route: "/s/platform-team" });
-
-    await userEvent.click(await screen.findByRole("button", { name: "Copy passcode" }));
-
-    expect(writeText).toHaveBeenCalledWith("TEAM49");
-    expect(screen.getByText("Passcode copied")).toBeTruthy();
-  });
-
   it("copies the bare link when the space is open", async () => {
     view = { ...space, protected: false, passcode: undefined } as SpaceView;
     const writeText = clipboard();
-    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
 
     await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
 
-    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/s/platform-team`);
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/o/acme/s/platform-team`);
     expect(screen.getByText("Invite link copied — it seats them in one click")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Copy passcode" })).toBe(null);
   });
 });
 
@@ -258,17 +253,17 @@ describe("SpacePage last-opened stamp", () => {
   // than an empty string.
   const routed = (
     <Routes>
-      <Route path="/s/:slug" element={<SpacePage />} />
+      <Route path="/o/:org/s/:slug" element={<SpacePage />} />
     </Routes>
   );
 
   it("posts the stamp once for a member", async () => {
     const { api } = await import("../lib/api");
-    renderApp(routed, { route: "/s/platform-team" });
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
     await screen.findAllByText("Sprint 12 grooming");
 
     const stamps = () =>
-      vi.mocked(api).mock.calls.filter(([, path]) => path === "/api/spaces/platform-team/seen");
+      vi.mocked(api).mock.calls.filter(([, path]) => path === "/api/orgs/acme/spaces/platform-team/seen");
     expect(stamps().length).toBe(1);
     expect(stamps()[0][0]).toBe("POST");
 
@@ -286,7 +281,7 @@ describe("SpacePage last-opened stamp", () => {
     const { api } = await import("../lib/api");
     vi.mocked(api).mockClear();
     view = { slug: "platform-team", name: "Platform Team", protected: true } as SpaceView;
-    renderApp(routed, { route: "/s/platform-team" });
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
     await screen.findByText("Platform Team");
 
     expect(
@@ -312,7 +307,7 @@ describe("SpacePage session badge", () => {
   }
 
   it("counts the people in each session rather than calling every open one live", async () => {
-    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await screen.findByText("Recent sessions");
 
     // A busy session says how many, and never the old word.
@@ -335,7 +330,7 @@ describe("SpacePage session badge", () => {
     // start from a clean slate rather than from whatever ran before.
     vi.mocked(api).mockClear();
     vi.useFakeTimers();
-    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     // findBy* is off the table under fake timers — its polling runs on the
     // clock the test is holding still. Advance instead, well short of the
     // poll interval, to let the first read settle.
@@ -352,7 +347,7 @@ describe("SpacePage session badge", () => {
 
   it("keeps the page up when a background refresh fails", async () => {
     vi.useFakeTimers();
-    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await vi.advanceTimersByTimeAsync(1_000);
     expect(screen.getByText("Recent sessions")).toBeTruthy();
 
@@ -368,7 +363,7 @@ describe("SpacePage session badge", () => {
 
   it("still shows the dead end when the very first read fails", async () => {
     failSpace = true;
-    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     expect(await screen.findByText("No table under that name")).toBeTruthy();
   });
 });
@@ -379,7 +374,7 @@ describe("SpacePage session badge", () => {
 function spaceReads(): number {
   return vi
     .mocked(api)
-    .mock.calls.filter((c) => c[0] === "GET" && String(c[1]).startsWith("/api/spaces/")).length;
+    .mock.calls.filter((c) => c[0] === "GET" && String(c[1]).startsWith("/api/orgs/acme/spaces/")).length;
 }
 
 /**
@@ -388,7 +383,7 @@ function spaceReads(): number {
  * here is that the right request goes out and that a member is not shown a
  * button that would only earn them a 403.
  */
-describe("SpacePage space and room admin", () => {
+describe("SpacePage room admin", () => {
   const owned = {
     ...space,
     members: [{ userId: "marcus", name: "Marcus Okonjo", avatarHue: 40, spectator: false, role: "owner" }],
@@ -404,52 +399,19 @@ describe("SpacePage space and room admin", () => {
     view = space;
   });
 
-  it("offers nothing to rename or delete to a plain member", async () => {
+  it("offers nothing to manage to a plain member", async () => {
     view = asMember;
-    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await screen.findByText("Recent sessions");
-    expect(screen.queryByRole("button", { name: "Delete this space" })).toBe(null);
+    // The settings route is where renaming and deleting live now, and a
+    // member is not pointed at it.
+    expect(screen.queryByRole("link", { name: "Settings" })).toBe(null);
     expect(screen.queryByRole("button", { name: "Manage Sprint 12 grooming" })).toBe(null);
-  });
-
-  it("renames the space and keeps the slug, saying so", async () => {
-    view = owned;
-    renderApp(<SpacePage />, { route: "/s/platform-team" });
-    const field = await screen.findByRole("textbox", { name: "Space name" });
-    await userEvent.clear(field);
-    await userEvent.type(field, "Platform Guild");
-    await userEvent.click(screen.getByRole("button", { name: "Rename" }));
-
-    expect(calls()).toContainEqual([
-      "PATCH",
-      "/api/spaces/platform-team",
-      { name: "Platform Guild" },
-    ]);
-    expect(await screen.findByText("Renamed — the link /s/platform-team still works")).toBeTruthy();
-  });
-
-  // Nothing here is recoverable, so the name has to be typed back before the
-  // button will fire at all.
-  it("will not delete a space until its name is typed back", async () => {
-    view = owned;
-    renderApp(<SpacePage />, { route: "/s/platform-team" });
-    await userEvent.click(await screen.findByRole("button", { name: "Delete this space" }));
-
-    const go = screen.getByRole("button", { name: "Delete this space" }) as HTMLButtonElement;
-    expect(go.disabled).toBe(true);
-
-    const confirm = screen.getByRole("textbox", { name: "Type Platform Team to confirm" });
-    await userEvent.type(confirm, "Platform Tea");
-    expect((screen.getByRole("button", { name: "Delete this space" }) as HTMLButtonElement).disabled).toBe(true);
-
-    await userEvent.type(confirm, "m");
-    await userEvent.click(screen.getByRole("button", { name: "Delete this space" }));
-    expect(calls()).toContainEqual(["DELETE", "/api/spaces/platform-team"]);
   });
 
   it("renames one room through its manage dialog", async () => {
     view = owned;
-    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await userEvent.click(await screen.findByRole("button", { name: "Manage Sprint 12 grooming" }));
 
     const field = screen.getByRole("textbox", { name: "Session title" });
@@ -459,21 +421,21 @@ describe("SpacePage space and room admin", () => {
 
     expect(calls()).toContainEqual([
       "PATCH",
-      "/api/spaces/platform-team/sessions/s1",
+      "/api/orgs/acme/spaces/platform-team/sessions/s1",
       { title: "Sprint 13 grooming" },
     ]);
   });
 
   it("deletes one room behind a second click, and says who it affects", async () => {
     view = owned;
-    renderApp(<SpacePage />, { route: "/s/platform-team" });
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await userEvent.click(await screen.findByRole("button", { name: "Manage Sprint 12 grooming" }));
 
     await userEvent.click(screen.getByRole("button", { name: "Delete this session" }));
     expect(screen.getByText(/for everyone. It cannot be undone/)).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Delete for everyone" }));
 
-    expect(calls()).toContainEqual(["DELETE", "/api/spaces/platform-team/sessions/s1"]);
+    expect(calls()).toContainEqual(["DELETE", "/api/orgs/acme/spaces/platform-team/sessions/s1"]);
   });
 });
 
@@ -488,7 +450,7 @@ describe("SpacePage invite links", () => {
   // from the space payload.
   const routed = (
     <Routes>
-      <Route path="/s/:slug" element={<SpacePage />} />
+      <Route path="/o/:org/s/:slug" element={<SpacePage />} />
     </Routes>
   );
 
@@ -498,16 +460,38 @@ describe("SpacePage invite links", () => {
     sessionStorage.clear();
   });
 
-  it("joins with the passcode from the fragment, then wipes it", async () => {
+  // The round trip, not just the prefix: lib/invite mints the URL, the browser
+  // is put at it, and takeInviteCode reads the code back out. Asserting the
+  // path alone would pass on a link whose fragment the org prefix had eaten,
+  // and a fragment never reaches the server, so nothing else would notice.
+  it("seats someone from a link this build itself minted", async () => {
     view = locked;
-    window.history.replaceState(null, "", "/s/platform-team#c=TEAM49");
-    renderApp(routed, { route: "/s/platform-team" });
+    const minted = inviteLink("acme", "platform-team", "TEAM49");
+    expect(minted).toBe(`${window.location.origin}/o/acme/s/platform-team#c=TEAM49`);
+    window.history.replaceState(null, "", minted.slice(window.location.origin.length));
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
 
     await screen.findByText("Platform Team");
     const joins = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.filter(
-      ([, path]) => path === "/api/spaces/platform-team/join",
+      ([, path]) => path === "/api/orgs/acme/spaces/platform-team/join",
     );
-    expect(joins).toContainEqual(["POST", "/api/spaces/platform-team/join", { passcode: "TEAM49" }]);
+    expect(joins).toContainEqual([
+      "POST",
+      "/api/orgs/acme/spaces/platform-team/join",
+      { passcode: "TEAM49" },
+    ]);
+  });
+
+  it("joins with the passcode from the fragment, then wipes it", async () => {
+    view = locked;
+    window.history.replaceState(null, "", "/o/acme/s/platform-team#c=TEAM49");
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
+
+    await screen.findByText("Platform Team");
+    const joins = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.filter(
+      ([, path]) => path === "/api/orgs/acme/spaces/platform-team/join",
+    );
+    expect(joins).toContainEqual(["POST", "/api/orgs/acme/spaces/platform-team/join", { passcode: "TEAM49" }]);
     expect(window.location.hash).toBe("");
   });
 
@@ -516,9 +500,9 @@ describe("SpacePage invite links", () => {
   // join endpoint; a toContainEqual assertion alone would not notice.
   it("attempts the invite join exactly once across re-renders", async () => {
     view = locked;
-    window.history.replaceState(null, "", "/s/platform-team#c=TEAM49");
+    window.history.replaceState(null, "", "/o/acme/s/platform-team#c=TEAM49");
     const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
-    const { rerender } = renderApp(routed, { route: "/s/platform-team" });
+    const { rerender } = renderApp(routed, { route: "/o/acme/s/platform-team" });
 
     await screen.findByText("Platform Team");
     rerender(routed);
@@ -527,23 +511,23 @@ describe("SpacePage invite links", () => {
       expect(
         (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
           .slice(before)
-          .filter(([, path]) => path === "/api/spaces/platform-team/join"),
+          .filter(([, path]) => path === "/api/orgs/acme/spaces/platform-team/join"),
       ).toHaveLength(1),
     );
   });
 
   it("leaves the gate up, and joins nothing, for a link with no code", async () => {
     view = locked;
-    window.history.replaceState(null, "", "/s/platform-team");
+    window.history.replaceState(null, "", "/o/acme/s/platform-team");
     // The mock accumulates across this file, so only the calls this render
     // makes are counted.
     const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
-    renderApp(routed, { route: "/s/platform-team" });
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
 
     expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
     const joins = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
       .slice(before)
-      .filter(([, path]) => path === "/api/spaces/platform-team/join");
+      .filter(([, path]) => path === "/api/orgs/acme/spaces/platform-team/join");
     expect(joins).toHaveLength(0);
   });
 });
@@ -552,14 +536,18 @@ describe("SpacePage invite links", () => {
  * Under an identity provider, taking a seat is a full-page trip to the provider
  * and back, and `next` is built from the path and query alone — the fragment
  * does not survive it. Because the fragment has already been wiped by then, a
- * lost code strands the visitor at the passcode gate with nothing left to type,
- * so it is parked in sessionStorage for exactly one round trip.
+ * lost invite strands the visitor at the passcode gate with nothing left to
+ * type, so something is parked in sessionStorage for exactly one round trip.
+ *
+ * That something is never the passcode. The code is traded first for an opaque
+ * server-issued handle — single use, five minutes, one space — and the handle
+ * is what waits.
  */
 describe("SpacePage invite links across a sign-in round trip", () => {
   const locked = { slug: "platform-team", name: "Platform Team", protected: true } as SpaceView;
   const routed = (
     <Routes>
-      <Route path="/s/:slug" element={<SpacePage />} />
+      <Route path="/o/:org/s/:slug" element={<SpacePage />} />
     </Routes>
   );
 
@@ -576,40 +564,70 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     vi.restoreAllMocks();
   });
 
-  it("parks the code when the visitor has no identity yet", async () => {
+  it("parks a minted handle, and never the passcode, when the visitor has no identity yet", async () => {
     view = locked;
     // No identity, and a provider: the gate that follows is a full-page
     // navigation, which is the case the parking exists for.
-    vi.mocked(api).mockImplementation((async (_m: string, path: string) => {
+    const seen: unknown[][] = [];
+    vi.mocked(api).mockImplementation((async (method: string, path: string, body?: unknown) => {
+      seen.push([method, path, body]);
       if (path === "/api/me") return null;
       if (path === "/api/auth") return { mode: "oidc" };
-      if (path.startsWith("/api/spaces/")) return view;
+      if (path === "/api/orgs/acme/spaces/platform-team/invite") return { handle: "HANDLE-1" };
+      if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
-    window.history.replaceState(null, "", "/s/platform-team#c=TEAM49");
-    renderApp(routed, { route: "/s/platform-team" });
+    window.history.replaceState(null, "", "/o/acme/s/platform-team#c=TEAM49");
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
 
     await screen.findByText("Platform Team");
     await waitFor(() => expect(sessionStorage.getItem("parley:pending-invite")).toBeTruthy());
-    const parked = JSON.parse(sessionStorage.getItem("parley:pending-invite")!);
-    expect(parked.code).toBe("TEAM49");
+    // The code was spent at the mint door, where the server checks it exactly
+    // as the join door does.
+    expect(seen).toContainEqual(["POST", "/api/orgs/acme/spaces/platform-team/invite", { passcode: "TEAM49" }]);
+    const raw = sessionStorage.getItem("parley:pending-invite")!;
+    const parked = JSON.parse(raw);
+    expect(parked.handle).toBe("HANDLE-1");
+    expect(parked.org).toBe("acme");
     expect(parked.slug).toBe("platform-team");
+    // The whole point: the door code itself is nowhere in storage.
+    expect(raw).not.toContain("TEAM49");
+    expect(parked.code).toBeUndefined();
     // And it is out of the address bar already — the whole point of the wipe.
     expect(window.location.hash).toBe("");
   });
 
+  // A wrong code mints nothing, so there is nothing to park: the mint door
+  // refuses it exactly as the join door would.
+  it("parks nothing when the passcode is refused at the mint door", async () => {
+    view = locked;
+    vi.mocked(api).mockImplementation((async (_m: string, path: string) => {
+      if (path === "/api/me") return null;
+      if (path === "/api/auth") return { mode: "oidc" };
+      if (path === "/api/orgs/acme/spaces/platform-team/invite") throw new Error("That passcode doesn't match this space.");
+      if (path.startsWith("/api/orgs/acme/spaces/")) return view;
+      throw new Error(`unexpected api call: ${path}`);
+    }) as typeof defaultApi);
+    window.history.replaceState(null, "", "/o/acme/s/platform-team#c=WRONG1");
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
+
+    await screen.findByText("Platform Team");
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+    expect(sessionStorage.getItem("parley:pending-invite")).toBeNull();
+  });
+
   // Open mode's gate is a modal — the component stays mounted, so there is
-  // nothing to park and no reason to put a passcode in storage at all.
+  // nothing to park and no reason to mint a handle at all.
   it("parks nothing in open mode, where the gate never leaves the page", async () => {
     view = locked;
     vi.mocked(api).mockImplementation((async (_m: string, path: string) => {
       if (path === "/api/me") return null;
       if (path === "/api/auth") return { mode: "open" };
-      if (path.startsWith("/api/spaces/")) return view;
+      if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
-    window.history.replaceState(null, "", "/s/platform-team#c=TEAM49");
-    renderApp(routed, { route: "/s/platform-team" });
+    window.history.replaceState(null, "", "/o/acme/s/platform-team#c=TEAM49");
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
 
     await screen.findByText("Platform Team");
     // Give the effect and the auth probe a chance to land before concluding.
@@ -617,66 +635,87 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     expect(sessionStorage.getItem("parley:pending-invite")).toBeNull();
   });
 
-  it("joins with the parked code on the way back, with no fragment left", async () => {
+  it("joins with the parked handle on the way back, with no fragment left", async () => {
     view = locked;
     sessionStorage.setItem(
       "parley:pending-invite",
-      JSON.stringify({ code: "TEAM49", slug: "platform-team", at: Date.now() }),
+      JSON.stringify({ handle: "HANDLE-1", org: "acme", slug: "platform-team", at: Date.now() }),
     );
     // Back from the provider: same path, no fragment, and now signed in.
-    window.history.replaceState(null, "", "/s/platform-team");
+    window.history.replaceState(null, "", "/o/acme/s/platform-team");
     const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
-    renderApp(routed, { route: "/s/platform-team" });
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
 
     await screen.findByText("Platform Team");
     await waitFor(() =>
       expect(
         (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
           .slice(before)
-          .filter(([, path]) => path === "/api/spaces/platform-team/join"),
-      ).toContainEqual(["POST", "/api/spaces/platform-team/join", { passcode: "TEAM49" }]),
+          .filter(([, path]) => path === "/api/orgs/acme/spaces/platform-team/join"),
+      ).toContainEqual(["POST", "/api/orgs/acme/spaces/platform-team/join", { handle: "HANDLE-1" }]),
     );
-    // One attempt only: a refused passcode must land on the gate, not loop.
+    // One attempt only: a refused invite must land on the gate, not loop.
     expect(sessionStorage.getItem("parley:pending-invite")).toBeNull();
   });
 
-  it("will not spend a code parked for a different space", async () => {
+  // Slugs are unique inside an org, not across the instance: two orgs can each
+  // have a "platform-team". A handle parked for one must not be spent — and
+  // burned — against the other's space of the same name.
+  it("will not spend a handle parked for the same slug in another org", async () => {
     view = locked;
     sessionStorage.setItem(
       "parley:pending-invite",
-      JSON.stringify({ code: "OTHER1", slug: "another-team", at: Date.now() }),
+      JSON.stringify({ handle: "HANDLE-1", org: "globex", slug: "platform-team", at: Date.now() }),
     );
-    window.history.replaceState(null, "", "/s/platform-team");
+    window.history.replaceState(null, "", "/o/acme/s/platform-team");
     const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
-    renderApp(routed, { route: "/s/platform-team" });
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
 
     expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
     expect(
       (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
         .slice(before)
-        .filter(([, path]) => path === "/api/spaces/platform-team/join"),
+        .filter(([, path]) => path === "/api/orgs/acme/spaces/platform-team/join"),
     ).toHaveLength(0);
   });
 
-  it("ignores a code parked longer than a sign-in trip could take", async () => {
+  it("will not spend a handle parked for a different space", async () => {
+    view = locked;
+    sessionStorage.setItem(
+      "parley:pending-invite",
+      JSON.stringify({ handle: "HANDLE-OTHER", slug: "another-team", at: Date.now() }),
+    );
+    window.history.replaceState(null, "", "/o/acme/s/platform-team");
+    const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
+
+    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    expect(
+      (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
+        .slice(before)
+        .filter(([, path]) => path === "/api/orgs/acme/spaces/platform-team/join"),
+    ).toHaveLength(0);
+  });
+
+  it("ignores a handle parked longer than a sign-in trip could take", async () => {
     view = locked;
     sessionStorage.setItem(
       "parley:pending-invite",
       JSON.stringify({
-        code: "TEAM49",
+        handle: "HANDLE-1",
         slug: "platform-team",
         at: Date.now() - 16 * 60 * 1000,
       }),
     );
-    window.history.replaceState(null, "", "/s/platform-team");
+    window.history.replaceState(null, "", "/o/acme/s/platform-team");
     const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
-    renderApp(routed, { route: "/s/platform-team" });
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
 
     expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
     expect(
       (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
         .slice(before)
-        .filter(([, path]) => path === "/api/spaces/platform-team/join"),
+        .filter(([, path]) => path === "/api/orgs/acme/spaces/platform-team/join"),
     ).toHaveLength(0);
   });
 
@@ -690,8 +729,8 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("denied");
     });
-    window.history.replaceState(null, "", "/s/platform-team");
-    renderApp(routed, { route: "/s/platform-team" });
+    window.history.replaceState(null, "", "/o/acme/s/platform-team");
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
 
     expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
   });
@@ -706,7 +745,7 @@ describe("SpacePage invite links, a link guest", () => {
   const locked = { slug: "platform-team", name: "Platform Team", protected: true } as SpaceView;
   const routed = (
     <Routes>
-      <Route path="/s/:slug" element={<SpacePage />} />
+      <Route path="/o/:org/s/:slug" element={<SpacePage />} />
     </Routes>
   );
 
@@ -733,12 +772,12 @@ describe("SpacePage invite links, a link guest", () => {
         };
       }
       if (path === "/api/auth") return { mode: "open" };
-      if (path.startsWith("/api/spaces/")) return view;
+      if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
-    window.history.replaceState(null, "", "/s/platform-team#c=TEAM49");
+    window.history.replaceState(null, "", "/o/acme/s/platform-team#c=TEAM49");
     const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
-    renderApp(routed, { route: "/s/platform-team" });
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
 
     // The gate comes up asking for a name, same as a signed-out visitor —
     // never straight into a join under the guest's identity.
@@ -746,7 +785,7 @@ describe("SpacePage invite links, a link guest", () => {
     expect(
       (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
         .slice(before)
-        .filter(([, path]) => path === "/api/spaces/platform-team/join"),
+        .filter(([, path]) => path === "/api/orgs/acme/spaces/platform-team/join"),
     ).toHaveLength(0);
   });
 });

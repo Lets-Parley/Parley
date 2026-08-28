@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -19,8 +20,20 @@ var (
 	ErrNotMember     = errors.New("not a member of this space")
 	ErrBadRole       = errors.New("unknown role")
 	ErrLastOwner     = errors.New("the last owner cannot be demoted or removed")
+	ErrBadVisibility = errors.New("unknown visibility")
 	slugStrip        = regexp.MustCompile(`[^a-z0-9]+`)
 	slugTrim         = regexp.MustCompile(`^-+|-+$`)
+)
+
+// Space visibility. 'private' is reachable only by its link or an invitation;
+// 'org' is additionally listed to the org's members. The same two values are
+// the spaces.visibility CHECK constraint.
+//
+// The column defaults to 'private' so an upgrade discloses exactly what it
+// disclosed the day before. New spaces name their visibility explicitly.
+const (
+	VisibilityPrivate = "private"
+	VisibilityOrg     = "org"
 )
 
 type Space struct {
@@ -31,6 +44,11 @@ type Space struct {
 	// the space is open to anyone with the link. Never serialize this to a
 	// non-member: handlers pick what to expose.
 	Passcode string `json:"-"`
+	// Visibility is VisibilityPrivate or VisibilityOrg. Withheld from the
+	// wire for the same reason as the passcode: whether a space is listed to
+	// its org is the room's business, and the anonymous pre-join view must not
+	// gain a field just because this struct did. Handlers pick what to expose.
+	Visibility string `json:"-"`
 }
 
 // Space roles. An owner may promote, demote and remove; a member may not.
@@ -67,7 +85,14 @@ func Slugify(name string) string {
 	return s
 }
 
-func (s *Spaces) Create(ctx context.Context, name, slug, passcode, creatorID string, limit int) (Space, error) {
+// Create makes a space inside one org. visibility is passed in rather than
+// defaulted here because open mode must force VisibilityPrivate: it mints
+// anonymous identities, and an org-visible space with no passcode would let
+// any visitor walk into any new room.
+func (s *Spaces) Create(ctx context.Context, orgID, name, slug, passcode, creatorID, visibility string, limit int) (Space, error) {
+	if visibility != VisibilityPrivate && visibility != VisibilityOrg {
+		return Space{}, ErrBadVisibility
+	}
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return Space{}, err
@@ -85,8 +110,8 @@ func (s *Spaces) Create(ctx context.Context, name, slug, passcode, creatorID str
 	}
 	var sp Space
 	err = tx.QueryRow(ctx,
-		"insert into spaces (slug, name, passcode, creator_id) values ($1, $2, $3, $4) returning id, slug, name, passcode",
-		slug, name, passcode, creatorID,
+		"insert into spaces (org_id, slug, name, passcode, creator_id, visibility) values ($1, $2, $3, $4, $5, $6) returning id, slug, name, passcode",
+		orgID, slug, name, passcode, creatorID, visibility,
 	).Scan(&sp.ID, &sp.Slug, &sp.Name, &sp.Passcode)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -101,15 +126,75 @@ func (s *Spaces) Create(ctx context.Context, name, slug, passcode, creatorID str
 	return sp, tx.Commit(ctx)
 }
 
-func (s *Spaces) BySlug(ctx context.Context, slug string) (Space, error) {
+// BySlug resolves a slug within one org. A slug is unique inside an org, not
+// across the instance, so the org is part of the question.
+func (s *Spaces) BySlug(ctx context.Context, orgID, slug string) (Space, error) {
 	var sp Space
 	err := s.Pool.QueryRow(ctx,
-		"select id, slug, name, passcode from spaces where slug = $1", slug,
-	).Scan(&sp.ID, &sp.Slug, &sp.Name, &sp.Passcode)
+		"select id, slug, name, passcode, visibility from spaces where org_id = $1 and slug = $2", orgID, slug,
+	).Scan(&sp.ID, &sp.Slug, &sp.Name, &sp.Passcode, &sp.Visibility)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Space{}, ErrNoSpace
 	}
 	return sp, err
+}
+
+// BySlugInOrg resolves an org slug and a space slug together, in one query.
+//
+// The single statement is the point, not a convenience: this is the anonymous
+// link-landing lookup, so a nonexistent org, a space in a different org, and a
+// slug that exists nowhere must all fail identically. Resolving the org first
+// and the space second would cost one query for a bad org and two for a bad
+// slug, and that difference is a cross-org existence oracle no amount of
+// matching the response body hides.
+func (s *Spaces) BySlugInOrg(ctx context.Context, orgSlug, slug string) (Space, error) {
+	var sp Space
+	err := s.Pool.QueryRow(ctx, `
+		select sp.id, sp.slug, sp.name, sp.passcode, sp.visibility
+		from spaces sp join orgs o on o.id = sp.org_id
+		where o.slug = $1 and sp.slug = $2`, orgSlug, slug,
+	).Scan(&sp.ID, &sp.Slug, &sp.Name, &sp.Passcode, &sp.Visibility)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Space{}, ErrNoSpace
+	}
+	return sp, err
+}
+
+// OrgSlugsForMemberSpaceSlug lists the slugs of the orgs the caller belongs to
+// that hold a space with this slug, capped at two results.
+//
+// It is the legacy-link redirect's whole lookup, and the join to org_members is
+// the security property rather than a filter for convenience: resolving the
+// slug globally and checking membership afterwards would answer differently for
+// a slug that exists in an org the caller cannot reach than for one that exists
+// nowhere, which is a cross-org existence oracle. Two rows is all the caller of
+// this needs — one is a redirect, anything else is not — so the scan stops
+// there rather than materialising every collision on the instance.
+func (s *Spaces) OrgSlugsForMemberSpaceSlug(ctx context.Context, userID, slug string) ([]string, error) {
+	rows, err := s.Pool.Query(ctx, `
+		select o.slug
+		from spaces sp
+		join orgs o on o.id = sp.org_id
+		join org_members om on om.org_id = o.id and om.user_id = $1 and om.revoked_at is null
+		where sp.slug = $2
+		order by o.slug
+		limit 2`, userID, slug)
+	if err != nil {
+		return nil, fmt.Errorf("resolving legacy space slug: %w", err)
+	}
+	defer rows.Close()
+	var orgs []string
+	for rows.Next() {
+		var org string
+		if err := rows.Scan(&org); err != nil {
+			return nil, fmt.Errorf("resolving legacy space slug: %w", err)
+		}
+		orgs = append(orgs, org)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("resolving legacy space slug: %w", err)
+	}
+	return orgs, nil
 }
 
 // SetPasscode replaces the passcode, or clears it to open the space.
@@ -173,16 +258,22 @@ func (s *Spaces) MarkSeen(ctx context.Context, spaceID, userID string) error {
 // last_seen_at orders the list server-side and is not part of the payload —
 // nothing on the page shows it.
 type Membership struct {
-	Slug      string `json:"slug"`
-	Name      string `json:"name"`
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+	// OrgSlug is the org segment of the space's URL. Slugs are unique inside
+	// an org rather than across the instance, so a list entry without it
+	// cannot be turned back into a link.
+	OrgSlug   string `json:"orgSlug"`
 	Protected bool   `json:"protected"`
 }
 
 // ForUser lists the caller's own spaces, most recently active first.
 func (s *Spaces) ForUser(ctx context.Context, userID string) ([]Membership, error) {
 	rows, err := s.Pool.Query(ctx, `
-		select sp.slug, sp.name, sp.passcode <> ''
-		from members m join spaces sp on sp.id = m.space_id
+		select sp.slug, sp.name, o.slug, sp.passcode <> ''
+		from members m
+		join spaces sp on sp.id = m.space_id
+		join orgs o on o.id = sp.org_id
 		where m.user_id = $1
 		order by m.last_seen_at desc, sp.name`, userID)
 	if err != nil {
@@ -192,7 +283,7 @@ func (s *Spaces) ForUser(ctx context.Context, userID string) ([]Membership, erro
 	spaces := []Membership{}
 	for rows.Next() {
 		var sp Membership
-		if err := rows.Scan(&sp.Slug, &sp.Name, &sp.Protected); err != nil {
+		if err := rows.Scan(&sp.Slug, &sp.Name, &sp.OrgSlug, &sp.Protected); err != nil {
 			return nil, err
 		}
 		spaces = append(spaces, sp)
@@ -353,4 +444,119 @@ func (s *Spaces) Delete(ctx context.Context, spaceID string) error {
 		return ErrNoSpace
 	}
 	return nil
+}
+
+// InviteHandleLifetime bounds an invite handle. It covers one sign-in round
+// trip, which takes seconds — anything longer is a live capability on a space
+// sitting in a browser for no reason.
+const InviteHandleLifetime = 5 * time.Minute
+
+// CreateInviteHandle records a minted handle against one space. Only the
+// digest is stored, the same way session_links stores a link token: the handle
+// itself exists in exactly one HTTP response and nowhere else.
+func (s *Spaces) CreateInviteHandle(ctx context.Context, spaceID string, tokenHash []byte, expiresAt time.Time) error {
+	if _, err := s.Pool.Exec(ctx,
+		"insert into space_invite_handles (token_hash, space_id, expires_at) values ($1, $2, $3)",
+		tokenHash, spaceID, expiresAt); err != nil {
+		return fmt.Errorf("creating an invite handle: %w", err)
+	}
+	// Opportunistic sweep of handles nobody came back for. A spent one is
+	// already gone — redemption deletes it — so this only ever removes rows
+	// that could no longer be redeemed anyway.
+	s.Pool.Exec(ctx, "delete from space_invite_handles where expires_at <= now()")
+	return nil
+}
+
+// RedeemInviteHandle spends a handle against one space, reporting whether it
+// was good for that space.
+//
+// The delete is the whole check, deliberately: reading the row and marking it
+// afterwards would let two concurrent redemptions both see it unspent and both
+// be admitted. Here the second request blocks on the row lock, re-reads the
+// committed row, finds it gone and matches nothing. The space id is part of
+// the WHERE rather than something the caller compares afterwards, so a handle
+// for one space can never be spent against another — including a same-named
+// space in a different org, since a slug is unique only inside one.
+func (s *Spaces) RedeemInviteHandle(ctx context.Context, spaceID string, tokenHash []byte) (bool, error) {
+	tag, err := s.Pool.Exec(ctx,
+		"delete from space_invite_handles where token_hash = $1 and space_id = $2 and expires_at > now()",
+		tokenHash, spaceID)
+	if err != nil {
+		return false, fmt.Errorf("redeeming an invite handle: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// SetVisibility moves a space between 'private' and 'org'. It deliberately
+// touches nothing else — the passcode above all — because org visibility
+// governs discovery and never entry: "listed in the directory but still behind
+// its passcode" has to be a state a space can be in, and neither this nor
+// SetPasscode may silently strip the other.
+func (s *Spaces) SetVisibility(ctx context.Context, spaceID, visibility string) error {
+	if visibility != VisibilityPrivate && visibility != VisibilityOrg {
+		return ErrBadVisibility
+	}
+	tag, err := s.Pool.Exec(ctx, "update spaces set visibility = $2 where id = $1", spaceID, visibility)
+	if err != nil {
+		return fmt.Errorf("updating space visibility: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNoSpace
+	}
+	return nil
+}
+
+// OrgSpace is one row of an org's directory. Deliberately no passcode: this is
+// a list of doors, not a space someone has been admitted to. Protected says
+// whether the door needs a code, which is what the page needs to know whether
+// to offer "Join" or "Enter the passcode"; Member says the caller is already
+// inside.
+type OrgSpace struct {
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+	// Visibility is VisibilityOrg or VisibilityPrivate. A private row can only
+	// be one the caller belongs to — that is what the query below guarantees.
+	Visibility string `json:"visibility"`
+	Protected  bool   `json:"protected"`
+	Member     bool   `json:"member"`
+}
+
+// ForOrg lists what one caller may see of one org: every org-visible space,
+// plus every space they are a member of, private ones included. An archived
+// space is in neither half — that is what archiving is for, and it is the only
+// thing the flag does: the space, its members and its history are untouched
+// and it is still reachable by its own URL.
+//
+// The membership half is a member check and not an authorship one on purpose.
+// Somebody added to a private space has to keep finding it here after the
+// person who created it has left, and the creator who was later removed must
+// stop seeing it — creator_id answers neither question.
+//
+// The org id comes from requireOrgMember rather than from the URL, and the
+// membership join carries the caller's own id, so no row here can name a space
+// in an org the caller is outside or a private space they are not in.
+func (s *Spaces) ForOrg(ctx context.Context, orgID, userID string) ([]OrgSpace, error) {
+	rows, err := s.Pool.Query(ctx, `
+		select sp.slug, sp.name, sp.visibility, sp.passcode <> '', m.user_id is not null
+		from spaces sp
+		left join members m on m.space_id = sp.id and m.user_id = $2
+		where sp.org_id = $1 and sp.archived_at is null
+		  and (sp.visibility = $3 or m.user_id is not null)
+		order by sp.name`, orgID, userID, VisibilityOrg)
+	if err != nil {
+		return nil, fmt.Errorf("listing the org directory: %w", err)
+	}
+	defer rows.Close()
+	spaces := []OrgSpace{}
+	for rows.Next() {
+		var sp OrgSpace
+		if err := rows.Scan(&sp.Slug, &sp.Name, &sp.Visibility, &sp.Protected, &sp.Member); err != nil {
+			return nil, fmt.Errorf("listing the org directory: %w", err)
+		}
+		spaces = append(spaces, sp)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("listing the org directory: %w", err)
+	}
+	return spaces, nil
 }

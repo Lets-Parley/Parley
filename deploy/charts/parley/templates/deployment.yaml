@@ -127,6 +127,18 @@ spec:
               value: {{ required "auth.oidc.issuer is required when auth.mode is oidc" .Values.auth.oidc.issuer | quote }}
             - name: OIDC_CLIENT_ID
               value: {{ required "auth.oidc.clientID is required when auth.mode is oidc" .Values.auth.oidc.clientID | quote }}
+            {{- with .Values.auth.oidc.orgClaim }}
+            - name: OIDC_ORG_CLAIM
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.auth.oidc.defaultOrgClaim }}
+            - name: PARLEY_DEFAULT_ORG_CLAIM
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.auth.oidc.bootstrapAdmin }}
+            - name: PARLEY_BOOTSTRAP_ADMIN
+              value: {{ . | quote }}
+            {{- end }}
             {{- if .Values.auth.oidc.existingSecret }}
             - name: OIDC_CLIENT_SECRET
               valueFrom:

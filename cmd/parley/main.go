@@ -18,6 +18,7 @@ import (
 	"github.com/lets-parley/parley/internal/api"
 	"github.com/lets-parley/parley/internal/auth"
 	"github.com/lets-parley/parley/internal/db"
+	"github.com/lets-parley/parley/internal/store"
 )
 
 // version is stamped at build time with -ldflags "-X main.version=…". An
@@ -25,12 +26,18 @@ import (
 var version = "dev"
 
 type config struct {
-	DatabaseURL       string
-	Port              string
-	BaseURL           *url.URL
-	LogLevel          slog.Level
-	AuthMode          string
-	OIDC              auth.Config
+	DatabaseURL string
+	Port        string
+	BaseURL     *url.URL
+	LogLevel    slog.Level
+	AuthMode    string
+	OIDC        auth.Config
+	// DefaultOrgClaim, when set, points the default org at an identity-provider
+	// group so a fresh instance has something for a claim to match.
+	DefaultOrgClaim string
+	// BootstrapAdmin is the (issuer, subject) pair granted admin of the
+	// default org at its first sign-in.
+	BootstrapAdmin    api.BootstrapAdmin
 	TrustProxy        bool
 	TrustedProxyCIDRs []netip.Prefix
 	Limits            abuseLimits
@@ -133,6 +140,20 @@ func loadConfig() (config, error) {
 			ClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
 			RedirectURL:  strings.TrimSuffix(base.String(), "/") + "/auth/callback",
 			Scopes:       strings.Fields(envOr("OIDC_SCOPES", "profile email")),
+			OrgClaim:     envOr("OIDC_ORG_CLAIM", auth.DefaultOrgClaim),
+		}
+		cfg.DefaultOrgClaim = strings.TrimSpace(os.Getenv("PARLEY_DEFAULT_ORG_CLAIM"))
+		// The (issuer, subject) pair is the identity — 0009_federated_identity
+		// makes it so, and the users row does not exist until this person
+		// first signs in. Half a pair can never match, and a bootstrap admin
+		// that silently never matches leaves an instance with no way to make
+		// its first org, so it is refused rather than read loosely.
+		if raw := strings.TrimSpace(os.Getenv("PARLEY_BOOTSTRAP_ADMIN")); raw != "" {
+			issuer, subject, ok := strings.Cut(raw, "|")
+			if !ok || issuer == "" || subject == "" || strings.Contains(subject, "|") {
+				return cfg, fmt.Errorf("PARLEY_BOOTSTRAP_ADMIN %q is not an issuer and subject pair — use the form https://idp.example/realm|the-sub-claim", raw)
+			}
+			cfg.BootstrapAdmin = api.BootstrapAdmin{Issuer: issuer, Subject: subject}
 		}
 		// No client secret: the provider registration is a public client and
 		// PKCE alone ties the code to this browser, which is how Keycloak,
@@ -215,6 +236,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Bootstrap, after the migration that creates the default org and before
+	// the first request can map a claim against it.
+	if cfg.DefaultOrgClaim != "" {
+		if err := (&store.Orgs{Pool: pool}).SetClaimValue(ctx, store.DefaultOrgSlug, cfg.DefaultOrgClaim); err != nil {
+			log.Error("FATAL: could not point the default org at PARLEY_DEFAULT_ORG_CLAIM", "error", err)
+			os.Exit(1)
+		}
+	}
+
 	opts := api.Options{
 		// The signal context, so SIGTERM stops the cross-replica listener
 		// along with everything else rather than leaving it dialling.
@@ -226,6 +256,7 @@ func main() {
 		Version:           version,
 		TrustedProxyCIDRs: cfg.TrustedProxyCIDRs,
 		Limits:            cfg.Limits,
+		BootstrapAdmin:    cfg.BootstrapAdmin,
 	}
 	if cfg.AuthMode == api.ModeOIDC {
 		// Discovery happens on the first sign-in rather than here: an identity
