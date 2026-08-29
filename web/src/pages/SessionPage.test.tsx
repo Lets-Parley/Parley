@@ -302,7 +302,10 @@ describe.each([
   });
 
   
-  it("clears open-mode session memory on leave", async () => {
+  // Leave room is link-guest only. rememberOpenSession already skips link
+  // principals, so wiping last-name here would discard an unrelated open-mode
+  // seat this browser held before redeeming the guest link.
+  it("preserves open-mode session memory when a link guest leaves", async () => {
     rememberOpenSession("Priya Raman");
     expect(localStorage.getItem("parley:last-name")).toBe("Priya Raman");
     renderApp(routed, { route: "/session/sess-1" });
@@ -313,8 +316,7 @@ describe.each([
         vi.mocked(api).mock.calls.some((c) => c[0] === "DELETE" && c[1] === "/api/me"),
       ).toBe(true),
     );
-    expect(localStorage.getItem("parley:last-name")).toBeNull();
-    expect(localStorage.getItem("parley:session-ended")).toBeNull();
+    expect(localStorage.getItem("parley:last-name")).toBe("Priya Raman");
   });
 
   it("never asks the space route it is refused", async () => {

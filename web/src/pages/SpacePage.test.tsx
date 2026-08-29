@@ -892,6 +892,44 @@ describe("SpacePage invite links, a link guest", () => {
 
 
 describe("SpacePage expired-session remint", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  // Primary cookie Max-Age path for #187: cold reload has no member-shaped
+  // cache — GET space is stranger JSON and GET /api/me is a bare 401. The
+  // remembered open-mode name must still surface "Your session ended", not
+  // only the room-code join gate.
+  it("shows the expired-session gate on cold reload with a stranger space payload", async () => {
+    rememberOpenSession("Marcus Okonjo");
+    view = {
+      slug: "platform-team",
+      name: "Platform Team",
+      protected: false,
+    } as SpaceView;
+    vi.mocked(api).mockImplementation(async (method: string, path: string) => {
+      if (path === "/api/auth") return { mode: "open" };
+      if (path === "/api/me" && method === "GET") {
+        throw new ApiError(401, "unauthorized");
+      }
+      if (path === "/api/me" && method === "POST") {
+        return { id: "u-new", name: "Ada", avatarHue: 40 };
+      }
+      if (path.startsWith("/api/orgs/acme/spaces/")) {
+        if (path.endsWith("/seen") && method === "POST") return undefined;
+        return view;
+      }
+      throw new Error(`unexpected api call: ${method} ${path}`);
+    });
+
+    renderApp(<SpacePage />, {
+      route: "/o/acme/s/platform-team",
+      path: "/o/:org/s/:slug",
+    });
+
+    expect(await screen.findByRole("heading", { name: /your session ended/i })).toBeTruthy();
+  });
+
   it("keeps half-typed create-session fields mounted under the name gate", async () => {
     rememberOpenSession("Marcus Okonjo");
     view = {

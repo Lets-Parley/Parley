@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Me, type SpaceView } from "../lib/api";
 import { forgetLinkGuest, linkGuestFor } from "../lib/links";
 import { useSession } from "../lib/useSession";
-import { useMe, NameGate, clearSessionMemory } from "../components/NameGate";
+import { useMe, NameGate } from "../components/NameGate";
 import { AppShell } from "../components/AppShell";
 import { LinkPanel } from "../components/LinkPanel";
 import { Modal, buttonQuiet } from "../components/Modal";
@@ -48,12 +48,13 @@ export function SessionPage() {
   const [linksOpen, setLinksOpen] = useState(false);
   async function leave() {
     // Best effort on the wire, unconditional locally: whatever the server
-    // says, this browser must stop presenting itself as the guest.
+    // says, this browser must stop presenting itself as the guest. Leave is
+    // link-guest only; rememberOpenSession already skips link principals, so
+    // clearing open-mode last-name here would wipe an unrelated prior seat.
     try {
       await api("DELETE", "/api/me");
     } finally {
       forgetLinkGuest();
-      clearSessionMemory();
       qc.clear();
       setLeft(true);
     }

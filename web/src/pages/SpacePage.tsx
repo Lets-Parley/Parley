@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type SessionSummary, type SpaceView } from "../lib/api";
 import { useAuthMode, useMe, NameGate } from "../components/NameGate";
 import { isFullAccount } from "../lib/links";
+import { openSessionLapsed } from "../lib/sessionMemory";
 import { AppShell, Logo } from "../components/AppShell";
 import { KindChip } from "../components/KindChip";
 import { EmptyTable } from "./PokerRoom";
@@ -193,10 +194,12 @@ export function SpacePage() {
   // its own POST. A failed stamp is a slightly stale sort order, nothing to
   // interrupt anyone about.
   const isMember = space.data?.members !== undefined;
-  // Cached member view + a null me means the seat dropped under us. Overlay
-  // the gate so half-typed create-session fields stay mounted; a silent slide
-  // into the room-code gate is the stranger bug.
-  const sessionLapsed = isMember && !me.isLoading && me.data === null;
+  // Cookie Max-Age (and mid-view 401) look like a first visit on the wire —
+  // stranger space JSON, no members. Key on remembered open-mode seat, not on
+  // a cached roster, so cold reload still gets "Your session ended". When
+  // members *were* cached, the same flag overlays so half-typed fields stay.
+  const sessionLapsed =
+    !me.isLoading && me.data === null && openSessionLapsed().lapsed;
   useEffect(() => {
     if (!isMember) return;
     api("POST", `${spaceApi(org, slug)}/seen`).catch(() => {});
@@ -283,13 +286,26 @@ export function SpacePage() {
           error={error}
           onJoin={(passcode) => attemptJoin(passcode ? { passcode } : {})}
         />
-        {needName && (
+        {sessionLapsed ? (
           <NameGate
             onDone={() => {
-              setNeedName(false);
-              doJoin(pending);
+              // Same remint hygiene as the member overlay: drop any leftover
+              // member-shaped fields before the new seat is accepted.
+              qc.setQueryData<SpaceView>(["space", org, slug], (prev) =>
+                prev ? strangerSpace(prev) : prev,
+              );
+              void qc.invalidateQueries({ queryKey: ["space", org, slug] });
             }}
           />
+        ) : (
+          needName && (
+            <NameGate
+              onDone={() => {
+                setNeedName(false);
+                doJoin(pending);
+              }}
+            />
+          )
         )}
       </>
     );
