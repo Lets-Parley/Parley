@@ -3,9 +3,10 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
-import { api } from "../lib/api";
+import { api, ApiError } from "../lib/api";
 import type { Me, SpaceView } from "../lib/api";
 import { SpacePage } from "./SpacePage";
+import { rememberOpenSession } from "../lib/sessionMemory";
 import { inviteLink } from "../lib/invite";
 
 const me: Me = { id: "marcus", name: "Marcus Okonjo", avatarHue: 40 };
@@ -886,5 +887,145 @@ describe("SpacePage invite links, a link guest", () => {
         .slice(before)
         .filter(([, path]) => path === "/api/orgs/acme/spaces/platform-team/join"),
     ).toHaveLength(0);
+  });
+});
+
+
+describe("SpacePage expired-session remint", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  // Primary cookie Max-Age path for #187: cold reload has no member-shaped
+  // cache — GET space is stranger JSON and GET /api/me is a bare 401. The
+  // remembered open-mode name must still surface "Your session ended", not
+  // only the room-code join gate.
+  it("shows the expired-session gate on cold reload with a stranger space payload", async () => {
+    rememberOpenSession("Marcus Okonjo");
+    view = {
+      slug: "platform-team",
+      name: "Platform Team",
+      protected: false,
+    } as SpaceView;
+    vi.mocked(api).mockImplementation(async (method: string, path: string) => {
+      if (path === "/api/auth") return { mode: "open" };
+      if (path === "/api/me" && method === "GET") {
+        throw new ApiError(401, "unauthorized");
+      }
+      if (path === "/api/me" && method === "POST") {
+        return { id: "u-new", name: "Ada", avatarHue: 40 };
+      }
+      if (path.startsWith("/api/orgs/acme/spaces/")) {
+        if (path.endsWith("/seen") && method === "POST") return undefined;
+        return view;
+      }
+      throw new Error(`unexpected api call: ${method} ${path}`);
+    });
+
+    renderApp(<SpacePage />, {
+      route: "/o/acme/s/platform-team",
+      path: "/o/:org/s/:slug",
+    });
+
+    expect(await screen.findByRole("heading", { name: /your session ended/i })).toBeTruthy();
+  });
+
+  it("keeps half-typed create-session fields mounted under the name gate", async () => {
+    rememberOpenSession("Marcus Okonjo");
+    view = {
+      ...space,
+      passcode: "TEAM49",
+      members: [{ userId: "marcus", name: "Marcus Okonjo", avatarHue: 40, spectator: false }],
+    } as SpaceView;
+    let signedIn = true;
+    vi.mocked(api).mockImplementation(async (method: string, path: string) => {
+      if (path === "/api/auth") return { mode: "open" };
+      if (path === "/api/me" && method === "GET") {
+        if (!signedIn) throw new ApiError(401, "session ended");
+        return me;
+      }
+      if (path === "/api/me" && method === "POST") {
+        return { id: "u-new", name: "Ada", avatarHue: 40 };
+      }
+      if (path.startsWith("/api/orgs/acme/spaces/")) {
+        if (path.endsWith("/seen") && method === "POST") return undefined;
+        return view;
+      }
+      throw new Error(`unexpected api call: ${method} ${path}`);
+    });
+
+    const { queryClient } = renderApp(<SpacePage />, {
+      route: "/o/acme/s/platform-team",
+      path: "/o/:org/s/:slug",
+    });
+    await screen.findByText("Recent sessions");
+    await userEvent.click(screen.getByRole("button", { name: "New session" }));
+    const title = await screen.findByLabelText(/session title|title/i);
+    await userEvent.type(title, "Half-typed planning");
+
+    signedIn = false;
+    await queryClient.resetQueries({ queryKey: ["me"] });
+
+    expect(await screen.findByRole("heading", { name: /your session ended/i })).toBeTruthy();
+    expect(screen.getByDisplayValue("Half-typed planning")).toBeTruthy();
+  });
+
+  it("strips passcode/roster from the cache before accepting a reminted seat", async () => {
+    rememberOpenSession("Marcus Okonjo");
+    view = {
+      ...space,
+      passcode: "TEAM49",
+      members: [{ userId: "marcus", name: "Marcus Okonjo", avatarHue: 40, spectator: false }],
+    } as SpaceView;
+    let signedIn = true;
+    let reminted = false;
+    const pendingSpace: { resolve: ((v: SpaceView) => void) | null } = { resolve: null };
+    vi.mocked(api).mockImplementation(async (method: string, path: string) => {
+      if (path === "/api/auth") return { mode: "open" };
+      if (path === "/api/me" && method === "GET") {
+        if (!signedIn) throw new ApiError(401, "session ended");
+        return reminted ? { id: "u-new", name: "Ada", avatarHue: 40 } : me;
+      }
+      if (path === "/api/me" && method === "POST") {
+        reminted = true;
+        signedIn = true;
+        return { id: "u-new", name: "Ada", avatarHue: 40 };
+      }
+      if (path.startsWith("/api/orgs/acme/spaces/")) {
+        if (path.endsWith("/seen") && method === "POST") return undefined;
+        if (reminted) {
+          // Hang the refetch so only the stranger-shaped cache can be on screen.
+          return new Promise<SpaceView>((resolve) => {
+            pendingSpace.resolve = resolve;
+          });
+        }
+        return view;
+      }
+      throw new Error(`unexpected api call: ${method} ${path}`);
+    });
+
+    const { queryClient } = renderApp(<SpacePage />, {
+      route: "/o/acme/s/platform-team",
+      path: "/o/:org/s/:slug",
+    });
+    expect(await screen.findByText("TEAM49")).toBeTruthy();
+
+    signedIn = false;
+    await queryClient.resetQueries({ queryKey: ["me"] });
+    expect(await screen.findByRole("heading", { name: /your session ended/i })).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: /take a seat as a new guest/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("TEAM49")).toBeNull();
+    });
+    // Still a stranger while the space refetch hangs — join gate, not roster.
+    expect(screen.queryByText("Recent sessions")).toBeNull();
+
+    pendingSpace.resolve?.({
+      slug: "platform-team",
+      name: "Platform Team",
+      protected: false,
+    } as SpaceView);
   });
 });

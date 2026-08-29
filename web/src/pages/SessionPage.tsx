@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type SpaceView } from "../lib/api";
+import { api, type Me, type SpaceView } from "../lib/api";
 import { forgetLinkGuest, linkGuestFor } from "../lib/links";
 import { useSession } from "../lib/useSession";
 import { useMe, NameGate } from "../components/NameGate";
@@ -10,6 +10,11 @@ import { LinkPanel } from "../components/LinkPanel";
 import { Modal, buttonQuiet } from "../components/Modal";
 import { getKind } from "../lib/kinds";
 import { spaceApi } from "../lib/paths";
+
+/** Drop member-only fields after an identity remint — see SpacePage. */
+function strangerSpace(prev: SpaceView): SpaceView {
+  return { slug: prev.slug, name: prev.name, protected: prev.protected };
+}
 
 export function SessionPage() {
   const { id = "" } = useParams();
@@ -43,7 +48,9 @@ export function SessionPage() {
   const [linksOpen, setLinksOpen] = useState(false);
   async function leave() {
     // Best effort on the wire, unconditional locally: whatever the server
-    // says, this browser must stop presenting itself as the guest.
+    // says, this browser must stop presenting itself as the guest. Leave is
+    // link-guest only; rememberOpenSession already skips link principals, so
+    // clearing open-mode last-name here would wipe an unrelated prior seat.
     try {
       await api("DELETE", "/api/me");
     } finally {
@@ -66,7 +73,17 @@ export function SessionPage() {
     retry: false,
   });
 
-  const identity = guest?.me ?? me.data ?? null;
+  const liveIdentity = guest?.me ?? me.data ?? null;
+  // Hold the last known seat across a mid-room 401 so the expired-session
+  // NameGate can overlay the room instead of unmounting half-typed standup
+  // text or an estimate in progress. Adjusting state during render is the
+  // React-documented way to keep a previous value without reading a ref.
+  const [keptIdentity, setKeptIdentity] = useState<Me | null>(null);
+  if (liveIdentity && liveIdentity !== keptIdentity) {
+    setKeptIdentity(liveIdentity);
+  }
+  const needsName = !guest && !me.isLoading && me.data === null;
+  const identity = liveIdentity ?? (needsName ? keptIdentity : null);
 
   if (left) {
     return (
@@ -82,8 +99,20 @@ export function SessionPage() {
   if ((!stored && me.isLoading) || session.isLoading) {
     return <p className="p-8 text-center text-ink-faint">Pulling up a chair…</p>;
   }
-  if (!guest && me.data === null) {
-    return <NameGate onDone={() => session.refetch()} />;
+  if (needsName && !identity) {
+    return (
+      <NameGate
+        onDone={() => {
+          if (org && slug) {
+            qc.setQueryData<SpaceView>(["space", org, slug], (prev) =>
+              prev ? strangerSpace(prev) : prev,
+            );
+            void qc.invalidateQueries({ queryKey: ["space", org, slug] });
+          }
+          void session.refetch();
+        }}
+      />
+    );
   }
   // An envelope with no org is broken for a member — a slug alone addresses no
   // space, so treating it as a failed session read keeps the regression
@@ -110,63 +139,78 @@ export function SessionPage() {
   const isFacilitator = !guest && env.facilitatorId === identity.id;
 
   return (
-    <AppShell
-      orgSlug={env.orgSlug}
-      spaceSlug={env.spaceSlug}
-      spaceName={space.data?.name ?? env.spaceSlug}
-      title={env.title}
-      me={identity}
-      guest={!!guest}
-      status={session.status}
-      onRetry={() => qc.invalidateQueries({ queryKey: ["session", id] })}
-      members={space.data?.members}
-      presence={env.presence}
-      sessions={space.data?.sessions}
-      activeSessionId={env.id}
-      sidebarDefault={false}
-      actions={
-        isFacilitator && (
-          <button className={buttonQuiet} onClick={() => setLinksOpen(true)}>
-            Guest links
-          </button>
-        )
-      }
-    >
-      {guest && (
-        /* Say what the link is and when it runs out, so nobody discovers the
-           second half by being dropped mid-round. */
-        <p
-          data-testid="link-guest-banner"
-          className="border-b border-line bg-felt-deep px-5 py-2 text-[13px] text-ink-soft"
-        >
-          You're in this room on a guest link — just this room, and only until{" "}
-          {new Date(guest.expiresAt).toLocaleString()}.{" "}
-          <button
-            type="button"
-            onClick={leave}
-            className="font-bold underline underline-offset-2 hover:text-ink"
+    <>
+      <AppShell
+        orgSlug={env.orgSlug}
+        spaceSlug={env.spaceSlug}
+        spaceName={space.data?.name ?? env.spaceSlug}
+        title={env.title}
+        me={identity}
+        guest={!!guest}
+        status={session.status}
+        onRetry={() => qc.invalidateQueries({ queryKey: ["session", id] })}
+        members={space.data?.members}
+        presence={env.presence}
+        sessions={space.data?.sessions}
+        activeSessionId={env.id}
+        sidebarDefault={false}
+        actions={
+          isFacilitator && (
+            <button className={buttonQuiet} onClick={() => setLinksOpen(true)}>
+              Guest links
+            </button>
+          )
+        }
+      >
+        {guest && (
+          /* Say what the link is and when it runs out, so nobody discovers the
+             second half by being dropped mid-round. */
+          <p
+            data-testid="link-guest-banner"
+            className="border-b border-line bg-felt-deep px-5 py-2 text-[13px] text-ink-soft"
           >
-            Leave room
-          </button>
-        </p>
+            You're in this room on a guest link — just this room, and only until{" "}
+            {new Date(guest.expiresAt).toLocaleString()}.{" "}
+            <button
+              type="button"
+              onClick={leave}
+              className="font-bold underline underline-offset-2 hover:text-ink"
+            >
+              Leave room
+            </button>
+          </p>
+        )}
+        {Room ? (
+          <Room env={env} me={identity} status={session.status} guest={!!guest} />
+        ) : (
+          // Falling through to a room here would point one kind's controls at
+          // another kind's state, so an unknown kind gets no room at all.
+          <p className="p-8 text-center text-ink-soft text-pretty">
+            This Parley doesn't know how to open a “{env.kind}” session. It may
+            need a newer version.
+          </p>
+        )}
+        {linksOpen && (
+          <Modal title="Guest links" onClose={() => setLinksOpen(false)} width="34rem">
+            <div className="mt-4">
+              <LinkPanel sessionId={env.id} ended={env.endedAt !== null} />
+            </div>
+          </Modal>
+        )}
+      </AppShell>
+      {needsName && (
+        <NameGate
+          onDone={() => {
+            if (org && slug) {
+              qc.setQueryData<SpaceView>(["space", org, slug], (prev) =>
+                prev ? strangerSpace(prev) : prev,
+              );
+              void qc.invalidateQueries({ queryKey: ["space", org, slug] });
+            }
+            void session.refetch();
+          }}
+        />
       )}
-      {Room ? (
-        <Room env={env} me={identity} status={session.status} guest={!!guest} />
-      ) : (
-        // Falling through to a room here would point one kind's controls at
-        // another kind's state, so an unknown kind gets no room at all.
-        <p className="p-8 text-center text-ink-soft text-pretty">
-          This Parley doesn't know how to open a “{env.kind}” session. It may
-          need a newer version.
-        </p>
-      )}
-      {linksOpen && (
-        <Modal title="Guest links" onClose={() => setLinksOpen(false)} width="34rem">
-          <div className="mt-4">
-            <LinkPanel sessionId={env.id} ended={env.endedAt !== null} />
-          </div>
-        </Modal>
-      )}
-    </AppShell>
+    </>
   );
 }

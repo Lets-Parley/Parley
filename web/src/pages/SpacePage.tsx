@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type SessionSummary, type SpaceView } from "../lib/api";
 import { useAuthMode, useMe, NameGate } from "../components/NameGate";
 import { isFullAccount } from "../lib/links";
+import { openSessionLapsed } from "../lib/sessionMemory";
 import { AppShell, Logo } from "../components/AppShell";
 import { KindChip } from "../components/KindChip";
 import { EmptyTable } from "./PokerRoom";
@@ -144,6 +145,16 @@ function relativeDate(iso: string): string {
   return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 
+
+/** Member-only fields must not survive an identity remint. A new open-mode
+ *  seat is a stranger until the server says otherwise — leaving passcode or
+ *  roster in the react-query cache would show them to a principal who is no
+ *  longer a member. */
+function strangerSpace(prev: SpaceView): SpaceView {
+  return { slug: prev.slug, name: prev.name, protected: prev.protected };
+}
+
+
 export function SpacePage() {
   const { org = "", slug = "" } = useParams();
   const qc = useQueryClient();
@@ -183,6 +194,12 @@ export function SpacePage() {
   // its own POST. A failed stamp is a slightly stale sort order, nothing to
   // interrupt anyone about.
   const isMember = space.data?.members !== undefined;
+  // Cookie Max-Age (and mid-view 401) look like a first visit on the wire —
+  // stranger space JSON, no members. Key on remembered open-mode seat, not on
+  // a cached roster, so cold reload still gets "Your session ended". When
+  // members *were* cached, the same flag overlays so half-typed fields stay.
+  const sessionLapsed =
+    !me.isLoading && me.data === null && openSessionLapsed().lapsed;
   useEffect(() => {
     if (!isMember) return;
     api("POST", `${spaceApi(org, slug)}/seen`).catch(() => {});
@@ -269,13 +286,26 @@ export function SpacePage() {
           error={error}
           onJoin={(passcode) => attemptJoin(passcode ? { passcode } : {})}
         />
-        {needName && (
+        {sessionLapsed ? (
           <NameGate
             onDone={() => {
-              setNeedName(false);
-              doJoin(pending);
+              // Same remint hygiene as the member overlay: drop any leftover
+              // member-shaped fields before the new seat is accepted.
+              qc.setQueryData<SpaceView>(["space", org, slug], (prev) =>
+                prev ? strangerSpace(prev) : prev,
+              );
+              void qc.invalidateQueries({ queryKey: ["space", org, slug] });
             }}
           />
+        ) : (
+          needName && (
+            <NameGate
+              onDone={() => {
+                setNeedName(false);
+                doJoin(pending);
+              }}
+            />
+          )
         )}
       </>
     );
@@ -301,6 +331,7 @@ export function SpacePage() {
   const canManage = (sp.members ?? []).find((m) => m.userId === me.data?.id)?.role === "owner";
 
   return (
+    <>
     <AppShell
       orgSlug={org}
       spaceSlug={sp.slug}
@@ -458,6 +489,20 @@ export function SpacePage() {
         />
       )}
     </AppShell>
+    {sessionLapsed && (
+      <NameGate
+        onDone={() => {
+          // Drop member-shaped cache before the reminted seat is accepted so
+          // passcode/roster cannot linger for a principal who is no longer a
+          // member. Refetch then fills in whatever the new identity is allowed.
+          qc.setQueryData<SpaceView>(["space", org, slug], (prev) =>
+            prev ? strangerSpace(prev) : prev,
+          );
+          void qc.invalidateQueries({ queryKey: ["space", org, slug] });
+        }}
+      />
+    )}
+    </>
   );
 }
 

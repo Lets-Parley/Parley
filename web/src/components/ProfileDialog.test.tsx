@@ -3,6 +3,8 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ProfileDialog } from "./ProfileDialog";
 import { renderApp } from "../test/render";
+import { rememberOpenSession } from "../lib/sessionMemory";
+import { NameGate } from "./NameGate";
 import type { Me } from "../lib/api";
 
 const me: Me = { id: "u1", name: "Dana Whitfield", avatarHue: 120, avatarIcon: "" };
@@ -376,6 +378,31 @@ describe("ProfileDialog and the auth mode", () => {
     const [path, init] = writes(fetchMock)[0] as unknown as [string, RequestInit];
     expect(path).toBe("/api/me");
     expect(init.method).toBe("DELETE");
+  });
+
+  it("clears open-mode session memory on sign-out so the next gate is a first visit", async () => {
+    rememberOpenSession("Dana Whitfield");
+    const fetchMock = mockFetch("oidc");
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        get href() {
+          return "/";
+        },
+        set href(_v: string) {},
+      },
+    });
+    renderApp(<ProfileDialog me={me} onClose={() => {}} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some((c) => String(c[0]) === "/api/me")).toBe(true),
+    );
+
+    renderApp(<NameGate onDone={() => {}} />);
+    expect(
+      await screen.findByRole("heading", { name: /what should we call you/i }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: /your session ended/i })).toBeNull();
   });
 });
 

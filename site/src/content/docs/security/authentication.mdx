@@ -170,9 +170,15 @@ did nothing but refresh.
 
 The browser is therefore the binding constraint. Somebody who uses Parley every
 single day is **still signed out 90 days after signing in**, because the cookie
-expires even though the token behind it is perfectly healthy. They sign in again
-and carry on; nothing is lost. But do not tell your users that activity keeps
-them signed in, because it does not.
+expires even though the token behind it is perfectly healthy.
+
+Under an identity provider they sign in again and carry on; nothing is lost.
+In **open mode** there is nothing to sign back into: taking a seat again mints
+a **new** anonymous identity. The previous memberships stay with the orphaned
+user. The app surfaces that as an explicit "Your session ended" gate rather than
+as a silent first-visit name prompt, but it cannot restore the old seat — the
+cookie was the whole of it. Do not tell your users that activity keeps them
+signed in, because it does not.
 
 ## Revocation and long-lived connections
 

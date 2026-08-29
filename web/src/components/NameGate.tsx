@@ -1,6 +1,12 @@
 import { useId, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, errorText, type Me } from "../lib/api";
+import {
+  clearSessionMemory,
+  noteSessionEnded,
+  openSessionLapsed,
+  rememberOpenSession,
+} from "../lib/sessionMemory";
 import { Modal, buttonPrimary, inputClass, labelClass } from "./Modal";
 
 /**
@@ -27,9 +33,17 @@ export function useMe(enabled = true) {
     queryKey: ["me"],
     queryFn: async () => {
       try {
-        return await api<Me>("GET", "/api/me");
+        const me = await api<Me>("GET", "/api/me");
+        // Link guests are a one-room capability, not an open-mode seat to
+        // recover into — remembering them would show the expired-session
+        // gate after Leave room or link expiry.
+        if (!me.linkSessionId) rememberOpenSession(me.name);
+        return me;
       } catch (e) {
-        if (e instanceof ApiError && e.status === 401) return null;
+        if (e instanceof ApiError && e.status === 401) {
+          if (e.message === "session ended") noteSessionEnded();
+          return null;
+        }
         throw e;
       }
     },
@@ -41,6 +55,11 @@ export function useMe(enabled = true) {
 // Asks for a display name the first time one is needed, then gets out of the
 // way. On a server with an identity provider there is nothing to ask: the same
 // gate sends people to sign in instead, so callers need no mode of their own.
+//
+// When this browser already held an open-mode seat and the cookie no longer
+// resolves, the copy changes: continuing mints a *new* anonymous identity,
+// and the previous memberships stay with the orphaned one. Pretending that is
+// a first visit is how someone ends up a stranger at their own space.
 export function NameGate({
   onDone,
   onCancel,
@@ -58,7 +77,8 @@ export function NameGate({
 }) {
   const qc = useQueryClient();
   const mode = useAuthMode();
-  const [name, setName] = useState("");
+  const { lapsed, lastName } = openSessionLapsed();
+  const [name, setName] = useState(lapsed ? lastName : "");
   const [error, setError] = useState("");
   const fieldId = useId();
   const errorId = useId();
@@ -69,6 +89,7 @@ export function NameGate({
     e.preventDefault();
     try {
       const me = await api<Me>("POST", "/api/me", { name });
+      rememberOpenSession(me.name);
       qc.setQueryData(["me"], me);
       onDone(me);
     } catch (err) {
@@ -76,13 +97,29 @@ export function NameGate({
     }
   }
 
+  const title = lapsed ? "Your session ended" : "What should we call you?";
+  const submitLabel = lapsed ? "Take a seat as a new guest" : "Take a seat";
+
   return (
-    <Modal title="What should we call you?" onClose={onCancel}>
+    <Modal title={title} onClose={onCancel} opaque>
       <form onSubmit={submit} className="flex flex-col gap-3">
         <p className="text-sm text-ink-soft text-pretty">
-          {because ? `${because} ` : ""}It is the name your team sees at the
-          table. Nothing leaves this server — no account, no email, just a
-          cookie in this browser.
+          {lapsed ? (
+            <>
+              {because ? `${because} ` : ""}
+              This browser no longer has your seat — the cookie expired or was
+              cleared. Taking a seat again makes a{" "}
+              <strong className="font-bold text-ink">new guest</strong> identity
+              on this device. Your previous name and memberships stay with the
+              old one; there is no way back from here.
+            </>
+          ) : (
+            <>
+              {because ? `${because} ` : ""}It is the name your team sees at the
+              table. Nothing leaves this server — no account, no email, just a
+              cookie in this browser.
+            </>
+          )}
         </p>
         <div>
           <label htmlFor={fieldId} className={labelClass + " mt-0"}>
@@ -105,7 +142,7 @@ export function NameGate({
           </p>
         )}
         <button type="submit" className={buttonPrimary} disabled={!name.trim()}>
-          Take a seat
+          {submitLabel}
         </button>
       </form>
     </Modal>
@@ -117,7 +154,7 @@ export function NameGate({
 function SigninGate({ onCancel, because }: { onCancel?: () => void; because?: string }) {
   const next = window.location.pathname + window.location.search;
   return (
-    <Modal title="Sign in to take a seat" onClose={onCancel}>
+    <Modal title="Sign in to take a seat" onClose={onCancel} opaque>
       <div className="flex flex-col gap-3">
         <p className="text-sm text-ink-soft text-pretty">
           {because ? `${because} ` : ""}This Parley signs you in through your
@@ -134,3 +171,7 @@ function SigninGate({ onCancel, because }: { onCancel?: () => void; because?: st
     </Modal>
   );
 }
+
+/** Drop the remembered seat. Call on intentional sign-out so the next visit
+ *  is a first visit, not an "expired session" warning. */
+export { clearSessionMemory };

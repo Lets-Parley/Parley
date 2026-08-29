@@ -70,6 +70,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 func (a *app) handleGetMe(w http.ResponseWriter, r *http.Request) {
 	p, ok := PrincipalFrom(r.Context())
 	if !ok {
+		// A cookie that no longer resolves is not a first visit: the client
+		// uses this wording to warn that continuing in open mode mints a new
+		// anonymous identity rather than restoring the old seat.
+		if _, err := r.Cookie(sessionCookie); err == nil {
+			http.Error(w, `{"error":"session ended"}`, http.StatusUnauthorized)
+			return
+		}
 		http.Error(w, `{"error":"not signed in"}`, http.StatusUnauthorized)
 		return
 	}
