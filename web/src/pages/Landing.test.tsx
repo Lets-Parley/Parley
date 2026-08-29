@@ -521,10 +521,17 @@ describe("Landing", () => {
     await waitFor(() =>
       expect(navigate).toHaveBeenCalledWith("/o/acme/s/platform-team"),
     );
-    expect(spaceCalls()).toHaveLength(1);
+    expect(spaceCalls()).toEqual([
+      ["POST", "/api/spaces", { name: "Platform Team" }],
+    ]);
 
     await userEvent.click(open);
-    await waitFor(() => expect(spaceCalls()).toHaveLength(2));
+    await waitFor(() =>
+      expect(spaceCalls()).toEqual([
+        ["POST", "/api/spaces", { name: "Platform Team" }],
+        ["POST", "/api/spaces", { name: "Platform Team" }],
+      ]),
+    );
   });
 });
 

@@ -89,9 +89,9 @@ export function Landing() {
   // Raspberry Pi. A control that stays live and silent through it reads as
   // broken even though the latch below makes a second press harmless.
   const [busy, setBusy] = useState(false);
-  // Only a create that never reached the server is worth pressing again. Once
-  // the space exists, the latch below is shut for good and a retry button would
-  // be an inert control sitting next to an error — the list link is the way on.
+  // Only a create that never reached the server is worth pressing again. When
+  // navigate fails after a successful create, the latch stays shut and a retry
+  // button would be inert next to an error — the list link is the way on.
   const [canRetry, setCanRetry] = useState(false);
   const fieldId = useId();
   const errorId = useId();
