@@ -941,7 +941,7 @@ describe("SpacePage expired-session remint", () => {
     } as SpaceView;
     let signedIn = true;
     let reminted = false;
-    let releaseSpace: ((v: SpaceView) => void) | null = null;
+    const pendingSpace: { resolve: ((v: SpaceView) => void) | null } = { resolve: null };
     vi.mocked(api).mockImplementation(async (method: string, path: string) => {
       if (path === "/api/auth") return { mode: "open" };
       if (path === "/api/me" && method === "GET") {
@@ -958,7 +958,7 @@ describe("SpacePage expired-session remint", () => {
         if (reminted) {
           // Hang the refetch so only the stranger-shaped cache can be on screen.
           return new Promise<SpaceView>((resolve) => {
-            releaseSpace = resolve;
+            pendingSpace.resolve = resolve;
           });
         }
         return view;
@@ -984,7 +984,7 @@ describe("SpacePage expired-session remint", () => {
     // Still a stranger while the space refetch hangs — join gate, not roster.
     expect(screen.queryByText("Recent sessions")).toBeNull();
 
-    releaseSpace?.({
+    pendingSpace.resolve?.({
       slug: "platform-team",
       name: "Platform Team",
       protected: false,
