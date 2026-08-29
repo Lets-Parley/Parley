@@ -144,6 +144,16 @@ function relativeDate(iso: string): string {
   return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 
+
+/** Member-only fields must not survive an identity remint. A new open-mode
+ *  seat is a stranger until the server says otherwise — leaving passcode or
+ *  roster in the react-query cache would show them to a principal who is no
+ *  longer a member. */
+function strangerSpace(prev: SpaceView): SpaceView {
+  return { slug: prev.slug, name: prev.name, protected: prev.protected };
+}
+
+
 export function SpacePage() {
   const { org = "", slug = "" } = useParams();
   const qc = useQueryClient();
@@ -466,7 +476,13 @@ export function SpacePage() {
     {sessionLapsed && (
       <NameGate
         onDone={() => {
-          qc.invalidateQueries({ queryKey: ["space", org, slug] });
+          // Drop member-shaped cache before the reminted seat is accepted so
+          // passcode/roster cannot linger for a principal who is no longer a
+          // member. Refetch then fills in whatever the new identity is allowed.
+          qc.setQueryData<SpaceView>(["space", org, slug], (prev) =>
+            prev ? strangerSpace(prev) : prev,
+          );
+          void qc.invalidateQueries({ queryKey: ["space", org, slug] });
         }}
       />
     )}

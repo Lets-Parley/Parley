@@ -101,7 +101,7 @@ export function NameGate({
   const submitLabel = lapsed ? "Take a seat as a new guest" : "Take a seat";
 
   return (
-    <Modal title={title} onClose={onCancel}>
+    <Modal title={title} onClose={onCancel} opaque>
       <form onSubmit={submit} className="flex flex-col gap-3">
         <p className="text-sm text-ink-soft text-pretty">
           {lapsed ? (
@@ -154,7 +154,7 @@ export function NameGate({
 function SigninGate({ onCancel, because }: { onCancel?: () => void; because?: string }) {
   const next = window.location.pathname + window.location.search;
   return (
-    <Modal title="Sign in to take a seat" onClose={onCancel}>
+    <Modal title="Sign in to take a seat" onClose={onCancel} opaque>
       <div className="flex flex-col gap-3">
         <p className="text-sm text-ink-soft text-pretty">
           {because ? `${because} ` : ""}This Parley signs you in through your

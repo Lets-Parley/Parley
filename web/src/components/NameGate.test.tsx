@@ -1,10 +1,13 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { NameGate } from "./NameGate";
+import { NameGate, useMe } from "./NameGate";
 import { renderApp } from "../test/render";
 import type { Me } from "../lib/api";
-import { rememberOpenSession } from "../lib/sessionMemory";
+import {
+  clearSessionMemory,
+  rememberOpenSession,
+} from "../lib/sessionMemory";
 
 const minted: Me = { id: "u-new", name: "Ada", avatarHue: 40 };
 
@@ -93,6 +96,100 @@ describe("NameGate", () => {
     expect(await screen.findByRole("heading", { name: /sign in to take a seat/i })).toBeTruthy();
     const link = screen.getByRole("link", { name: /continue to sign in/i });
     expect(link.getAttribute("href")).toMatch(/^\/auth\/login\?next=/);
+    expect(screen.queryByRole("heading", { name: /your session ended/i })).toBeNull();
+  });
+});
+
+
+function MeThenGate() {
+  const me = useMe();
+  if (me.isLoading) return <p>loading</p>;
+  if (!me.data) return <NameGate onDone={() => {}} />;
+  return <p>signed in as {me.data.name}</p>;
+}
+
+describe("useMe session-memory wiring", () => {
+  it('notes "session ended" from GET /api/me so NameGate shows the expired copy', async () => {
+    // Empty localStorage: only the 401 body can mark the seat as ended.
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/auth") {
+        return new Response(JSON.stringify({ mode: "open" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (path === "/api/me" && (init?.method ?? "GET") === "GET") {
+        return new Response(JSON.stringify({ error: "session ended" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ error: "not signed in" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp(<MeThenGate />);
+
+    expect(await screen.findByRole("heading", { name: /your session ended/i })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: /what should we call you/i })).toBeNull();
+  });
+
+  it('keeps the first-visit gate for a plain "not signed in" 401 with empty memory', async () => {
+    mockAuth("open");
+    renderApp(<MeThenGate />);
+
+    expect(
+      await screen.findByRole("heading", { name: /what should we call you/i }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: /your session ended/i })).toBeNull();
+  });
+
+  it("does not remember a link-guest seat as an open-mode session", async () => {
+    const linkMe: Me = {
+      id: "guest-1",
+      name: "Priya",
+      avatarHue: 200,
+      linkSessionId: "sess-1",
+      linkExpiresAt: "2099-01-01T00:00:00.000Z",
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/auth") {
+        return new Response(JSON.stringify({ mode: "open" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (path === "/api/me") {
+        return new Response(JSON.stringify(linkMe), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("{}", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp(<MeThenGate />);
+
+    expect(await screen.findByText(/signed in as Priya/i)).toBeTruthy();
+    expect(localStorage.getItem("parley:last-name")).toBeNull();
+    expect(localStorage.getItem("parley:session-ended")).toBeNull();
+  });
+});
+
+describe("clearSessionMemory", () => {
+  it("clears the expired-session marker so the next gate is a first visit", async () => {
+    rememberOpenSession("Ada Lovelace");
+    clearSessionMemory();
+    mockAuth("open");
+    renderApp(<NameGate onDone={() => {}} />);
+
+    expect(
+      await screen.findByRole("heading", { name: /what should we call you/i }),
+    ).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /your session ended/i })).toBeNull();
   });
 });

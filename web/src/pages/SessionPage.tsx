@@ -11,6 +11,11 @@ import { Modal, buttonQuiet } from "../components/Modal";
 import { getKind } from "../lib/kinds";
 import { spaceApi } from "../lib/paths";
 
+/** Drop member-only fields after an identity remint — see SpacePage. */
+function strangerSpace(prev: SpaceView): SpaceView {
+  return { slug: prev.slug, name: prev.name, protected: prev.protected };
+}
+
 export function SessionPage() {
   const { id = "" } = useParams();
   const qc = useQueryClient();
@@ -94,7 +99,19 @@ export function SessionPage() {
     return <p className="p-8 text-center text-ink-faint">Pulling up a chair…</p>;
   }
   if (needsName && !identity) {
-    return <NameGate onDone={() => session.refetch()} />;
+    return (
+      <NameGate
+        onDone={() => {
+          if (org && slug) {
+            qc.setQueryData<SpaceView>(["space", org, slug], (prev) =>
+              prev ? strangerSpace(prev) : prev,
+            );
+            void qc.invalidateQueries({ queryKey: ["space", org, slug] });
+          }
+          void session.refetch();
+        }}
+      />
+    );
   }
   // An envelope with no org is broken for a member — a slug alone addresses no
   // space, so treating it as a failed session read keeps the regression
@@ -180,7 +197,19 @@ export function SessionPage() {
           </Modal>
         )}
       </AppShell>
-      {needsName && <NameGate onDone={() => session.refetch()} />}
+      {needsName && (
+        <NameGate
+          onDone={() => {
+            if (org && slug) {
+              qc.setQueryData<SpaceView>(["space", org, slug], (prev) =>
+                prev ? strangerSpace(prev) : prev,
+              );
+              void qc.invalidateQueries({ queryKey: ["space", org, slug] });
+            }
+            void session.refetch();
+          }}
+        />
+      )}
     </>
   );
 }

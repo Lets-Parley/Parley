@@ -3,9 +3,10 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
-import { api } from "../lib/api";
+import { api, ApiError } from "../lib/api";
 import type { Envelope, Me } from "../lib/api";
 import { SessionPage } from "./SessionPage";
+import { rememberOpenSession } from "../lib/sessionMemory";
 
 const me: Me = { id: "marcus", name: "Marcus Okonjo", avatarHue: 40 };
 
@@ -300,6 +301,22 @@ describe.each([
     expect(sessionStorage.getItem("parley.link-guest")).toBe(null);
   });
 
+  
+  it("clears open-mode session memory on leave", async () => {
+    rememberOpenSession("Priya Raman");
+    expect(localStorage.getItem("parley:last-name")).toBe("Priya Raman");
+    renderApp(routed, { route: "/session/sess-1" });
+    await screen.findByTestId("link-guest-banner");
+    await userEvent.click(screen.getByRole("button", { name: /leave room/i }));
+    await waitFor(() =>
+      expect(
+        vi.mocked(api).mock.calls.some((c) => c[0] === "DELETE" && c[1] === "/api/me"),
+      ).toBe(true),
+    );
+    expect(localStorage.getItem("parley:last-name")).toBeNull();
+    expect(localStorage.getItem("parley:session-ended")).toBeNull();
+  });
+
   it("never asks the space route it is refused", async () => {
     // The mock accumulates across this file, so only this render's calls count.
     const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
@@ -463,5 +480,35 @@ describe("SessionPage guest-link panel", () => {
     renderApp(routed, { route: "/session/sess-1" });
     await screen.findByRole("button", { name: /your profile/i });
     expect(screen.queryByRole("button", { name: /guest links/i })).toBe(null);
+  });
+});
+
+
+describe("SessionPage expired-session overlay", () => {
+  it("keeps the room mounted under NameGate when the seat drops mid-session", async () => {
+    rememberOpenSession("Marcus Okonjo");
+    let signedIn = true;
+    vi.mocked(api).mockImplementation(async (_method: string, path: string) => {
+      if (path === "/api/me") {
+        if (!signedIn) throw new ApiError(401, "session ended");
+        return apiMeResponse;
+      }
+      if (path === "/api/auth") return { mode: "open" };
+      if (path.startsWith("/api/orgs/acme/spaces/")) {
+        return { slug: "platform-team", name: "Platform Team", protected: false, members: [], sessions: [] };
+      }
+      if (path.endsWith("/links")) return { links: [] };
+      throw new Error(`unexpected api call: ${path}`);
+    });
+
+    const { queryClient } = renderApp(routed, { route: "/session/sess-1" });
+    // Room title from the envelope — must survive the overlay.
+    expect(await screen.findByText("Daily")).toBeTruthy();
+
+    signedIn = false;
+    await queryClient.resetQueries({ queryKey: ["me"] });
+
+    expect(await screen.findByRole("heading", { name: /your session ended/i })).toBeTruthy();
+    expect(screen.getByText("Daily")).toBeTruthy();
   });
 });

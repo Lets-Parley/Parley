@@ -21,11 +21,15 @@ export function Modal({
   children,
   onClose,
   width = "26rem",
+  opaque = false,
 }: {
   title: string;
   children: ReactNode;
   onClose?: () => void;
   width?: string;
+  /** Solid cover — use when the dialog sits over secrets (passcode, roster)
+   *  that a translucent scrim would leave shoulder-readable. */
+  opaque?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const opener = useRef<HTMLElement | null>(null);
@@ -75,7 +79,12 @@ export function Modal({
         if (e.target === e.currentTarget && onBackdrop(e.currentTarget, e)) onClose();
       }}
       aria-labelledby={titleId}
-      className="relative m-auto rounded-panel border border-line bg-surface p-6 text-ink shadow-lift backdrop:bg-card-back/40 backdrop:backdrop-blur-[4px]"
+      className={
+        "relative m-auto rounded-panel border border-line bg-surface p-6 text-ink shadow-lift " +
+        (opaque
+          ? "backdrop:bg-surface backdrop:backdrop-blur-none"
+          : "backdrop:bg-card-back/40 backdrop:backdrop-blur-[4px]")
+      }
       style={{ width: `min(92vw, ${width})`, animation: "modal-drop 280ms var(--ease-settle)" }}
     >
       <h2 id={titleId} className="mb-1 text-[19px] font-extrabold tracking-tight">
