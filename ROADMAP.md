@@ -13,8 +13,8 @@ For implementation status, see the GitHub Project:
 
 Work in progress or expected in the current development cycle.
 
-Nothing is in flight right now — the signed-links and space-ownership work
-shipped in v0.7.1. The next items are under **Next**.
+Nothing is in flight right now — organizations shipped in v0.8.0. The next
+items are under **Next**.
 
 ## Next
 
@@ -104,33 +104,6 @@ story for the many people whose backup story is currently nothing at all.
 Export lands first and on its own — it is half the work and most of the trust.
 
 - Status: Backlog
-
-### Somewhere for spaces to live
-
-A space belongs to the instance and to nobody else. Slugs are unique across the
-whole database, so two teams that both name a room "Platform Team" collide and
-the second one is told the name is taken by a space it cannot see. When the
-person who made a room leaves, nothing can be done with it: it cannot be
-renamed, reassigned, or cleaned up, because space owner is the highest thing
-there is. And a new starter cannot find their team's standup without somebody
-sending them a link and a passcode.
-
-Organizations put a level above spaces. Membership comes from the identity
-provider that already knows which team someone is on, so there are no invitation
-emails and Parley goes on storing a name and nothing else. Belonging to an
-organization does not put you in its rooms — joining stays something you choose
-to do — but it does let you find the ones that want to be found.
-
-An organization admin gets custody without access. They can rename, archive,
-and clean up any space, including private ones, and hand a room whose owner has
-left to somebody still in it. They cannot read a vote, a standup entry, or a
-note, and they cannot put themselves in a room in order to. Private means
-private from your colleagues; it has never meant private from whoever runs the
-server, and the documentation will say so plainly rather than let people assume
-otherwise.
-
-- Status: Backlog
-- Tracking: [#203](https://github.com/lets-parley/parley/issues/203)
 
 ## Later
 
@@ -290,6 +263,24 @@ Ideas under consideration, not committed to.
   and this is the version with the clock taken out ([#388](https://github.com/lets-parley/parley/issues/388))
 
 ## Completed
+
+### v0.8.0
+
+- Organizations put a level above spaces: membership comes from the identity
+  provider that already knows which team someone is on, space slugs are unique
+  per organization instead of per instance, and a new starter can find their
+  team's rooms in the org directory instead of waiting for a link and a passcode
+- An organization admin gets custody without access — rename, archive, reassign
+  and clean up any space, including private ones, without being able to read a
+  vote, a standup entry or a note, and the documentation now says plainly what
+  an admin can and cannot see
+- Space URLs are org-scoped, with legacy `/s/<slug>` links redirected to their
+  organization rather than broken
+- Poker can reveal on its own once everyone has voted, if you want it to
+- Character limits are counted in characters everywhere — names, titles, standup
+  entries and OIDC display names no longer truncate on a multi-byte name
+- The test suite checks the UI with axe-core, and clickable controls finally get
+  a pointer cursor
 
 ### v0.7.3
 

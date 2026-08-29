@@ -188,10 +188,10 @@ Skip compose entirely and point the image at your own database:
 docker run -d --name parley -p 8080:8080 \
   -e DATABASE_URL='postgres://parley:secret@db:5432/parley' \
   -e BASE_URL='https://parley.example.com' \
-  ghcr.io/lets-parley/parley:0.7.3
+  ghcr.io/lets-parley/parley:0.8.0
 ```
 
-Pin a version rather than `latest` — 0.7.3 is the current release. 0.2.2 is the
+Pin a version rather than `latest` — 0.8.0 is the current release. 0.2.2 is the
 security floor: every earlier release can be crashed remotely by a disconnecting
 client.
 
@@ -296,7 +296,7 @@ Then:
 kubectl create secret generic parley \
   --from-literal=database-url='postgres://parley:secret@host:5432/parley?sslmode=require'
 
-helm install parley oci://ghcr.io/lets-parley/charts/parley --version 0.7.3 \
+helm install parley oci://ghcr.io/lets-parley/charts/parley --version 0.8.0 \
   --set database.existingSecret=parley \
   --set baseURL=https://parley.example.com
 ```
@@ -334,7 +334,7 @@ pods that boot together serialize their migrations behind an advisory lock. The
 chart defaults to one replica, so an upgrade never doubles a running install's
 pods behind your back; `--set replicaCount=2` opts in. This needs **chart 0.4.1 or
 newer** — every published chart before it refuses `replicaCount > 1` at render
-time, so pass `--version 0.7.3` when you scale up. Above one replica the
+time, so pass `--version 0.8.0` when you scale up. Above one replica the
 chart also renders a PodDisruptionBudget and a topology spread constraint — a
 budget in front of a single pod would deadlock the drain it was meant to
 survive. Each replica opens up to 10 pooled Postgres connections plus one for
@@ -468,7 +468,7 @@ version and keeping the values you set the first time, then confirm the pods
 actually rolled rather than assuming they did:
 
 ```sh
-helm upgrade parley oci://ghcr.io/lets-parley/charts/parley --version 0.7.3 \
+helm upgrade parley oci://ghcr.io/lets-parley/charts/parley --version 0.8.0 \
   --reuse-values
 kubectl rollout status deploy/parley
 helm test parley
