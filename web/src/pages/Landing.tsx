@@ -97,14 +97,14 @@ export function Landing() {
   const errorId = useId();
 
   // Both the resume effect and the gate can finish the same pending name, and
-  // either can win the race. One shared latch makes the loser a no-op, so a
-  // name buys exactly one space.
+  // either can win the race. One shared latch makes the loser a no-op while a
+  // create is in flight. The gate's onDone creates only from a pending value
+  // it consumed — never from the typed name — so releasing the latch after a
+  // success cannot reopen a duplicate through that path.
   //
-  // The latch is deliberately one-way: only a failure releases it. A success
-  // navigates away, and a create that has already succeeded must not be able to
-  // fire again from a path that wakes up late — so a mounted Landing grants one
-  // space and one only, and a retry is available exactly when there is
-  // something to retry. Both halves of that contract are pinned by tests.
+  // Past a successful POST the space exists: if navigate then fails, the latch
+  // stays shut so a second press cannot buy another. A clean success releases
+  // it (and busy), which is the ordinary in-flight-guard behaviour.
   const creating = useRef(false);
   const doCreate = useCallback(
     async (spaceName: string) => {
@@ -142,7 +142,10 @@ export function Landing() {
         qc.invalidateQueries({ queryKey: ["my-spaces"] });
         setBusy(false);
         setError("The space was created, but we couldn't open it. It's in your list below.");
+        return;
       }
+      creating.current = false;
+      setBusy(false);
     },
     [navigate, qc],
   );
@@ -479,7 +482,13 @@ export function Landing() {
           }}
           onDone={() => {
             setNeedName(false);
-            doCreate(takePending() ?? name.trim());
+            // Create only from a pending value this handler consumed. The typed
+            // name in React state is not a second source of truth: after the
+            // resume effect has already taken the pending slot, falling back to
+            // `name` would POST again and mint a duplicate space.
+            const pending = takePending();
+            if (pending === null) return;
+            doCreate(pending);
           }}
         />
       )}

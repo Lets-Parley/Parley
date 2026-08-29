@@ -345,14 +345,9 @@ describe("Landing", () => {
     await waitFor(() => expect(listCalls()).toHaveLength(1));
   });
 
-  // The two halves of the latch contract. A failure has to hand the name back
-  // so the person in front of the screen can simply press the button again;
-  // a success must not, because the create already happened and no late-waking
-  // path may repeat it.
-  // Try again is the other half of the latch, made visible. It may only be
-  // offered while there is something to retry: once the POST has landed the
-  // space exists, the latch is shut for good, and the button would be an inert
-  // control sitting next to an error.
+  // Try again is the visible half of a failed create. It may only be offered
+  // while there is something to retry: once the POST has landed the space
+  // exists, and the button would be an inert control sitting next to an error.
   it("offers Try again after a failed create, and withdraws it once the space exists", async () => {
     createFails = true;
 
@@ -480,7 +475,8 @@ describe("Landing", () => {
 
   // The POST landing is the point of no return. Everything after it — reading
   // the body, changing route — is about showing the space, and a stumble there
-  // must not offer a button press that buys a second one.
+  // must not offer a button press that buys a second one. The latch stays shut
+  // for that case alone: the space already exists on the server.
   it("does not re-run a create whose POST already succeeded", async () => {
     createResult = undefined;
 
@@ -510,7 +506,10 @@ describe("Landing", () => {
     await waitFor(() => expect(listCalls().length).toBeGreaterThan(1));
   });
 
-  it("creates one space per visit, however many times the button is pressed", async () => {
+  // The latch is an in-flight guard, not a permanent seal: after a successful
+  // create it releases. In the app the navigate unmounts this screen; the test
+  // holds it mounted to pin that a later press is allowed to create again.
+  it("releases the create latch after a successful create", async () => {
     renderApp(<Landing />);
 
     await userEvent.type(
@@ -522,16 +521,10 @@ describe("Landing", () => {
     await waitFor(() =>
       expect(navigate).toHaveBeenCalledWith("/o/acme/s/platform-team"),
     );
+    expect(spaceCalls()).toHaveLength(1);
 
-    // In the app the navigate above swaps the route and unmounts this screen.
-    // The test holds it mounted on purpose, to pin what happens if anything —
-    // a second press, a path waking late — reaches doCreate after a success.
     await userEvent.click(open);
-    await act(async () => {});
-
-    expect(spaceCalls()).toEqual([
-      ["POST", "/api/spaces", { name: "Platform Team" }],
-    ]);
+    await waitFor(() => expect(spaceCalls()).toHaveLength(2));
   });
 });
 
@@ -539,8 +532,9 @@ describe("Landing", () => {
 // Only the resume-first ordering is a genuine race: the gate hands over the
 // name synchronously, so when it goes first the effect finds nothing left to
 // do. When the resume effect wins, the gate is still on screen and about to
-// call through — and the typed name must still buy exactly one space, because
-// a second POST leaves a stray space with its own membership row.
+// call through — onDone must create only from a pending value it consumed, not
+// from the typed name still sitting in React state, or a second POST leaves a
+// stray space with its own membership row.
 describe("Landing, a pending create raced by both paths", () => {
   beforeEach(() => {
     signedIn = false;
