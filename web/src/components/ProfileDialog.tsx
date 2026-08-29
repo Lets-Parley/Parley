@@ -5,7 +5,7 @@ import { useToast } from "../lib/ui";
 import { Avatar } from "./Avatar";
 import { avatarIconIds, avatarIconLabels } from "./avatarIcons";
 import { buttonPrimary, buttonQuiet, ErrorRow, inputClass, labelClass, Modal } from "./Modal";
-import { useAuthMode } from "./NameGate";
+import { useAuthMode, clearSessionMemory } from "./NameGate";
 
 /**
  * Everything about you that this server holds: your name and the mark on your
@@ -55,6 +55,7 @@ export function ProfileDialog({ me, onClose }: { me: Me; onClose: () => void }) 
     try {
       await api("DELETE", "/api/me");
     } finally {
+      clearSessionMemory();
       window.location.href = "/";
     }
   }

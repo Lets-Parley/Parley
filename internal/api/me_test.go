@@ -155,9 +155,24 @@ func TestForgedCookieRejected(t *testing.T) {
 	srv := testServer(t)
 
 	forged := &http.Cookie{Name: sessionCookie, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
-	resp, _ := getMe(t, srv, forged)
+	resp, body := getMe(t, srv, forged)
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("forged cookie: got %d, want 401", resp.StatusCode)
+	}
+	if body["error"] != "session ended" {
+		t.Fatalf("forged cookie error: got %v, want session ended", body["error"])
+	}
+}
+
+func TestNoCookieIsNotSignedIn(t *testing.T) {
+	srv := testServer(t)
+
+	resp, body := getMe(t, srv, nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("no cookie: got %d, want 401", resp.StatusCode)
+	}
+	if body["error"] != "not signed in" {
+		t.Fatalf("no cookie error: got %v, want not signed in", body["error"])
 	}
 }
 

@@ -183,6 +183,10 @@ export function SpacePage() {
   // its own POST. A failed stamp is a slightly stale sort order, nothing to
   // interrupt anyone about.
   const isMember = space.data?.members !== undefined;
+  // Cached member view + a null me means the seat dropped under us. Overlay
+  // the gate so half-typed create-session fields stay mounted; a silent slide
+  // into the room-code gate is the stranger bug.
+  const sessionLapsed = isMember && !me.isLoading && me.data === null;
   useEffect(() => {
     if (!isMember) return;
     api("POST", `${spaceApi(org, slug)}/seen`).catch(() => {});
@@ -301,6 +305,7 @@ export function SpacePage() {
   const canManage = (sp.members ?? []).find((m) => m.userId === me.data?.id)?.role === "owner";
 
   return (
+    <>
     <AppShell
       orgSlug={org}
       spaceSlug={sp.slug}
@@ -458,6 +463,14 @@ export function SpacePage() {
         />
       )}
     </AppShell>
+    {sessionLapsed && (
+      <NameGate
+        onDone={() => {
+          qc.invalidateQueries({ queryKey: ["space", org, slug] });
+        }}
+      />
+    )}
+    </>
   );
 }
 

@@ -61,7 +61,8 @@ describe("NameGate", () => {
 
     expect(await screen.findByRole("heading", { name: /your session ended/i })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /what should we call you/i })).toBeNull();
-    expect(screen.getByText(/new guest/i)).toBeTruthy();
+    expect(screen.getByText(/makes a/i).textContent).toMatch(/new guest/i);
+    expect(screen.getByRole("button", { name: /take a seat as a new guest/i })).toBeTruthy();
     const field = screen.getByLabelText(/your name/i) as HTMLInputElement;
     expect(field.value).toBe("Ada Lovelace");
   });

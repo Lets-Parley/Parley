@@ -11,7 +11,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errorText, type Membership, type OrgMembership, type SpaceView } from "../lib/api";
 import { orgPath, spacePath } from "../lib/paths";
-import { useMe, useAuthMode, NameGate } from "../components/NameGate";
+import { useMe, useAuthMode, NameGate, clearSessionMemory } from "../components/NameGate";
 import { isFullAccount } from "../lib/links";
 import { Logo, ThemeToggle } from "../components/AppShell";
 import { Avatar } from "../components/Avatar";
@@ -274,6 +274,7 @@ export function Landing() {
               try {
                 await api("DELETE", "/api/me");
               } finally {
+                clearSessionMemory();
                 window.location.href = "/";
               }
             }}
