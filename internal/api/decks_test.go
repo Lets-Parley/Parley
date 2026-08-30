@@ -241,3 +241,18 @@ func TestDeletingADeckLeavesSessionsCreatedFromItPlayable(t *testing.T) {
 		t.Fatalf("save estimate after deck deletion: got %d", resp.StatusCode)
 	}
 }
+
+// A deck id that is not even a valid uuid is a lookup that found nothing, not
+// a server fault: Postgres' 22P02 must be mapped to a 404, same as a
+// well-formed id that just doesn't exist.
+func TestMalformedDeckIDIs404NotServerError(t *testing.T) {
+	srv := testServer(t)
+	owner, _, slug := deckSpace(t, srv)
+	path := "/api/orgs/default/spaces/" + slug + "/decks/not-a-uuid"
+	if resp, _ := doJSON(t, srv, http.MethodPatch, path, `{"name":"X","cards":["1","2"]}`, owner); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("malformed id update: got %d, want 404", resp.StatusCode)
+	}
+	if resp, _ := doJSON(t, srv, http.MethodDelete, path, "", owner); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("malformed id delete: got %d, want 404", resp.StatusCode)
+	}
+}
