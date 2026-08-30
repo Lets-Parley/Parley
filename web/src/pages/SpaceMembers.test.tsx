@@ -25,6 +25,7 @@ vi.mock("../lib/api", async () => {
     api: vi.fn(async (method: string, path: string, body?: unknown) => {
       if (path === "/api/me") return me;
       if (path === "/api/auth") return { mode: "open" };
+      if (method === "GET" && path.endsWith("/decks")) return [];
       if (method === "GET" && path.startsWith("/api/orgs/acme/spaces/")) return view;
       calls.push([method, path, body]);
       return undefined;

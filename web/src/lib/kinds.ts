@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import type { Envelope, Me } from "./api";
+import type { Deck, Envelope, Me } from "./api";
 import type { ConnectionStatus } from "./socket";
 import { PokerRoom } from "../pages/PokerRoom";
 import { StandupRoom } from "../pages/StandupRoom";
@@ -11,12 +11,59 @@ import { StandupRoom } from "../pages/StandupRoom";
  */
 export type RoomProps = { env: Envelope; me: Me; status?: ConnectionStatus; guest?: boolean };
 
-/** One create-dialog field: a fixed set of options, one of them the default. */
+/**
+ * A deck as a session config carries it: the cards themselves, not a row id.
+ * A session stores what it was created with, so editing or deleting the deck
+ * it came from can never change the cards under votes already cast.
+ */
+export type DeckValue = { name: string; values: string[]; ordinal: boolean };
+
+/** What a create-dialog field can put in the config document. */
+export type ConfigValue = string | boolean | DeckValue;
+
+/** One choice in a field: what it is called, what it looks like, what it sets. */
+export type FieldOption = {
+  id: string;
+  name: string;
+  sample: string[];
+  value: ConfigValue;
+};
+
+/**
+ * One create-dialog field: the built-in options, one of them the default, and
+ * optionally a space-scoped source appended after them. The built-ins stay a
+ * typed module; only the space's own rows are fetched.
+ */
 export type FieldSpec = {
   key: string;
   label: string;
-  options: { id: string; name: string; sample: string[] }[];
+  options: FieldOption[];
+  /** Where this field's space-owned options come from. */
+  source?: "decks";
 };
+
+/**
+ * A field's options for one space: its built-ins, then the space's own decks.
+ * A field with no source is served unchanged, so the fieldless standup kind
+ * and any future fixed field never trigger a fetch or a merge.
+ */
+export function fieldOptions(field: FieldSpec, decks: Deck[]): FieldOption[] {
+  if (field.source !== "decks") return field.options;
+  return [
+    ...field.options,
+    ...decks.map((d) => ({
+      id: d.id,
+      name: d.name,
+      sample: d.cards.slice(0, 5),
+      value: { name: d.name, values: d.cards, ordinal: d.ordinal },
+    })),
+  ];
+}
+
+/** Whether a config value is the one an option sets. Decks compare by cards. */
+export function isChosen(current: ConfigValue | undefined, option: FieldOption): boolean {
+  return JSON.stringify(current) === JSON.stringify(option.value);
+}
 
 /** A create-dialog boolean, defaulted off or on. */
 export type ToggleSpec = {
@@ -50,11 +97,12 @@ export const KINDS: KindDef[] = [
       {
         key: "deck",
         label: "Deck",
+        source: "decks",
         options: [
-          { id: "fibonacci", name: "Fibonacci", sample: ["0", "1", "2", "3", "5"] },
-          { id: "modified-fibonacci", name: "Modified Fib", sample: ["½", "1", "2", "3", "5"] },
-          { id: "tshirt", name: "T-shirt", sample: ["XS", "S", "M", "L", "XL"] },
-          { id: "powers-of-2", name: "Powers of 2", sample: ["1", "2", "4", "8", "16"] },
+          { id: "fibonacci", name: "Fibonacci", sample: ["0", "1", "2", "3", "5"], value: "fibonacci" },
+          { id: "modified-fibonacci", name: "Modified Fib", sample: ["½", "1", "2", "3", "5"], value: "modified-fibonacci" },
+          { id: "tshirt", name: "T-shirt", sample: ["XS", "S", "M", "L", "XL"], value: "tshirt" },
+          { id: "powers-of-2", name: "Powers of 2", sample: ["1", "2", "4", "8", "16"], value: "powers-of-2" },
         ],
       },
     ],
@@ -85,9 +133,9 @@ export function kindLabel(id: string): string {
 }
 
 /** The config a new session of this kind starts with: each field's default. */
-export function defaultConfig(kind: KindDef): Record<string, string | boolean> {
+export function defaultConfig(kind: KindDef): Record<string, ConfigValue> {
   return {
-    ...Object.fromEntries((kind.fields ?? []).map((f) => [f.key, f.options[0].id])),
+    ...Object.fromEntries((kind.fields ?? []).map((f) => [f.key, f.options[0].value])),
     ...Object.fromEntries((kind.toggles ?? []).map((t) => [t.key, t.default])),
   };
 }

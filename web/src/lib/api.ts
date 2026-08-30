@@ -114,6 +114,21 @@ export type SpaceView = {
   /** The kinds a new session may use — retired kinds are omitted. Members only. */
   kinds?: string[];
 };
+/**
+ * A card template saved by a space. It is never joined to at vote time: a
+ * session copies the cards it was created with into its own config, so editing
+ * or deleting a deck leaves rooms already dealt from it untouched.
+ */
+export type Deck = {
+  id: string;
+  name: string;
+  /** The deck's own cards. `?` and `coffee` are the server's and never here. */
+  cards: string[];
+  /** A deck whose cards are an order rather than numbers — no average. */
+  ordinal: boolean;
+  createdAt: string;
+};
+
 /** One space the caller belongs to, as listed on the landing page. */
 export type Membership = {
   slug: string;

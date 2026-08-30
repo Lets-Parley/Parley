@@ -11,7 +11,7 @@ import spaceDark from "../../../assets/space-room-code-dark.png";
 import settingsLight from "../../../assets/space-settings-light.png";
 import settingsDark from "../../../assets/space-settings-dark.png";
 
-<VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "internal/api/authz.go", "web/src/pages/OrgDirectory.tsx", "web/src/pages/SpacePage.tsx", "web/src/pages/SpaceSettingsPage.tsx", "web/src/pages/Landing.tsx"]} />
+<VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "internal/api/authz.go", "web/src/pages/OrgDirectory.tsx", "web/src/pages/SpacePage.tsx", "web/src/pages/SpaceSettingsPage.tsx", "web/src/components/DecksPanel.tsx", "web/src/pages/Landing.tsx"]} />
 
 A space is a team's room. It has a memorable URL — `/o/acme/s/platform-team` — a roster,
 and a history of every session run in it.
@@ -114,12 +114,15 @@ a code is a door, not an identity.
 
 Everything that changes a space lives on its own route, `/o/<org>/s/<slug>/settings`,
 reached from **Settings** at the foot of the sidebar — the rail on a wide
-screen, the same sheet on a phone. The link, and the page, are owner-only: a
-member who types the URL is told to ask an owner, and the server refuses the
-requests behind it in any case.
+screen, the same sheet on a phone. The link, and everything that changes the
+space, are owner-only: a member who types the URL is told to ask an owner, and
+the server refuses the requests behind it in any case.
 
-The page holds four things, in order: **Members** with their role controls,
-**Access** (above), **Space** for the name, and a fenced **Danger zone**.
+The page holds five things, in order: **Members** with their role controls,
+**Access** (above), **Space** for the name, [**Decks**](/features/planning-poker/#decks-of-your-own)
+— the card sets this space has saved — and a fenced **Danger zone**. Decks are
+the one panel a member sees too, read-only: they pick a deck when they start a
+session, so which ones exist is reference rather than administration.
 
 Splitting it out keeps the page a team opens daily to what it came for. The
 session list and the invite are one audience and one lifetime; renaming,

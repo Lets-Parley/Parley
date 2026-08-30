@@ -10,6 +10,7 @@ import {
   inputClass,
   labelClass,
 } from "../components/Modal";
+import { DecksPanel } from "../components/DecksPanel";
 import { useCopy, useToast } from "../lib/ui";
 import { inviteLink } from "../lib/invite";
 import { spaceApi, spacePath } from "../lib/paths";
@@ -124,9 +125,14 @@ export function SpaceSettingsPage() {
               onError={say}
             />
             <SpaceNamePanel org={org} slug={sp.slug} name={sp.name} onChanged={refresh} onError={say} />
-            <DangerZone org={org} slug={sp.slug} name={sp.name} onError={say} />
           </>
         )}
+        {/* Outside the owner branch on purpose: the decks are what a member
+            picks from when they start a session, so seeing which ones the
+            space keeps is reference, not administration. Only the controls
+            are an owner's. */}
+        <DecksPanel org={org} slug={sp.slug} canManage={canManage} onError={say} />
+        {canManage && <DangerZone org={org} slug={sp.slug} name={sp.name} onError={say} />}
       </div>
     </AppShell>
   );

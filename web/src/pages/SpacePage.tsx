@@ -1,7 +1,7 @@
-import { Fragment, useEffect, useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type SessionSummary, type SpaceView } from "../lib/api";
+import { api, type Deck, type SessionSummary, type SpaceView } from "../lib/api";
 import { useAuthMode, useMe, NameGate } from "../components/NameGate";
 import { isFullAccount } from "../lib/links";
 import { openSessionLapsed } from "../lib/sessionMemory";
@@ -17,9 +17,16 @@ import {
   labelClass,
 } from "../components/Modal";
 import { useCopy, useToast } from "../lib/ui";
-import { spaceApi, spacePath } from "../lib/paths";
+import { decksApi, spaceApi, spacePath } from "../lib/paths";
 import { inviteLink } from "../lib/invite";
-import { KINDS, defaultConfig, kindLabel, type KindDef } from "../lib/kinds";
+import {
+  KINDS,
+  defaultConfig,
+  fieldOptions,
+  isChosen,
+  kindLabel,
+  type KindDef,
+} from "../lib/kinds";
 
 // "" is the All tab; every other value is a registered kind's wire id.
 const KIND_TABS = [{ id: "", label: "All" }, ...KINDS];
@@ -761,6 +768,17 @@ function NewSessionModal({
   const [kind, setKind] = useState(kinds[0]);
   const [title, setTitle] = useState("");
   const [config, setConfig] = useState(() => defaultConfig(kinds[0]));
+  const groupName = useId();
+  // The space's own decks, fetched only for a kind that has a space-scoped
+  // field: a standup has none, and must not cost a request to say so. Failing
+  // to load them leaves the built-ins, which is the whole dialog still working.
+  const wantsDecks = (kind.fields ?? []).some((f) => f.source === "decks");
+  const decks = useQuery({
+    queryKey: ["decks", org, slug],
+    queryFn: () => api<Deck[]>("GET", decksApi(org, slug)),
+    enabled: wantsDecks,
+    retry: false,
+  });
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -815,22 +833,31 @@ function NewSessionModal({
           autoFocus
         />
 
+        {/* Real radios in a real fieldset: the grouping, the keyboard path and
+            the "Deck, House deck, selected" announcement all come from the
+            platform. The input is only visually hidden, never display:none,
+            so it keeps its place in the tab order. */}
         {(kind.fields ?? []).map((f) => (
-          <Fragment key={f.key}>
-            <span className={labelClass}>{f.label}</span>
+          <fieldset key={f.key} className="border-0 p-0">
+            <legend className={labelClass}>{f.label}</legend>
             <div className="grid grid-cols-2 gap-2">
-              {f.options.map((d) => (
-                <button
+              {fieldOptions(f, decks.data ?? []).map((d) => (
+                <label
                   key={d.id}
-                  type="button"
-                  onClick={() => setConfig({ ...config, [f.key]: d.id })}
                   className={
-                    "rounded-chip px-3.5 py-3 text-left " +
-                    (config[f.key] === d.id
+                    "cursor-pointer rounded-chip px-3.5 py-3 text-left has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent " +
+                    (isChosen(config[f.key], d)
                       ? "border-2 border-accent bg-accent-soft"
                       : "border border-line hover:bg-felt-deep")
                   }
                 >
+                  <input
+                    type="radio"
+                    className="sr-only"
+                    name={`${groupName}-${f.key}`}
+                    checked={isChosen(config[f.key], d)}
+                    onChange={() => setConfig({ ...config, [f.key]: d.value })}
+                  />
                   <span className="block text-[13px] font-bold">{d.name}</span>
                   <span className="mt-2 flex gap-1">
                     {d.sample.map((v) => (
@@ -842,10 +869,10 @@ function NewSessionModal({
                       </span>
                     ))}
                   </span>
-                </button>
+                </label>
               ))}
             </div>
-          </Fragment>
+          </fieldset>
         ))}
 
         {(kind.toggles ?? []).map((t) => (
