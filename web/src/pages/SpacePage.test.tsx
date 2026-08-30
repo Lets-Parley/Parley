@@ -682,7 +682,6 @@ describe("SpacePage invite links across a sign-in round trip", () => {
       if (path === "/api/auth") return { mode: "oidc" };
       if (path === "/api/orgs/acme/spaces/platform-team/invite") return { handle: "HANDLE-1" };
       if (path.endsWith("/decks")) return decks;
-      if (path.endsWith("/decks")) return decks;
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
@@ -715,7 +714,6 @@ describe("SpacePage invite links across a sign-in round trip", () => {
       if (path === "/api/auth") return { mode: "oidc" };
       if (path === "/api/orgs/acme/spaces/platform-team/invite") throw new Error("That passcode doesn't match this space.");
       if (path.endsWith("/decks")) return decks;
-      if (path.endsWith("/decks")) return decks;
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
@@ -734,7 +732,6 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     vi.mocked(api).mockImplementation((async (_m: string, path: string) => {
       if (path === "/api/me") return null;
       if (path === "/api/auth") return { mode: "open" };
-      if (path.endsWith("/decks")) return decks;
       if (path.endsWith("/decks")) return decks;
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
@@ -885,7 +882,6 @@ describe("SpacePage invite links, a link guest", () => {
         };
       }
       if (path === "/api/auth") return { mode: "open" };
-      if (path.endsWith("/decks")) return decks;
       if (path.endsWith("/decks")) return decks;
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
@@ -1139,6 +1135,25 @@ describe("SpacePage deck chooser", () => {
       // The group says what is being chosen, so the announcement is not a
       // bare "House deck" with no context.
       expect(dialog.getByRole("group", { name: "Deck" })).toBeTruthy();
+    } finally {
+      delete space.kinds;
+    }
+  });
+
+  it("is reachable via Tab, not only programmatic focus", async () => {
+    space.kinds = ["poker"];
+    decks = [house];
+    try {
+      const dialog = await openDialog();
+      await dialog.findByRole("radio", { name: /House deck/ });
+      dialog.getByLabelText("Title").focus();
+      let active: Element | null = null;
+      for (let i = 0; i < 10; i += 1) {
+        await userEvent.tab();
+        active = document.activeElement;
+        if ((active as HTMLInputElement | null)?.type === "radio") break;
+      }
+      expect(active).toBe(dialog.getByRole("radio", { name: /Fibonacci/ }));
     } finally {
       delete space.kinds;
     }
