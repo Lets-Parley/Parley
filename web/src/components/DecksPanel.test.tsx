@@ -14,6 +14,14 @@ const house: Deck = {
   createdAt: "2026-08-18T10:00:00.000Z",
 };
 
+const fib: Deck = {
+  id: "d2",
+  name: "Fibonacci",
+  cards: ["1", "2", "3", "5", "8"],
+  ordinal: false,
+  createdAt: "2026-08-19T10:00:00.000Z",
+};
+
 let decks: Deck[] = [];
 const calls: Array<[string, string, unknown]> = [];
 
@@ -102,6 +110,25 @@ describe("DecksPanel", () => {
     expect(screen.queryByRole("button", { name: "New deck" })).toBe(null);
     expect(screen.queryByRole("button", { name: "Edit: House deck" })).toBe(null);
     expect(screen.queryByRole("button", { name: "Delete: House deck" })).toBe(null);
+  });
+
+  it("resets the form when switching which deck is being edited", async () => {
+    decks = [house, fib];
+    show();
+    await userEvent.click(await screen.findByRole("button", { name: "Edit: House deck" }));
+    expect((screen.getByLabelText("Deck name") as HTMLInputElement).value).toBe("House deck");
+    await userEvent.click(screen.getByRole("button", { name: "Edit: Fibonacci" }));
+    expect((screen.getByLabelText("Deck name") as HTMLInputElement).value).toBe("Fibonacci");
+    expect((screen.getByLabelText(/Cards/) as HTMLInputElement).value).toBe("1, 2, 3, 5, 8");
+
+    await userEvent.click(screen.getByRole("button", { name: "Save deck" }));
+    await waitFor(() =>
+      expect(calls).toContainEqual([
+        "PATCH",
+        "/api/orgs/acme/spaces/platform-team/decks/d2",
+        { name: "Fibonacci", cards: ["1", "2", "3", "5", "8"], ordinal: false },
+      ]),
+    );
   });
 
   it("has no axe violations, editing form open", async () => {

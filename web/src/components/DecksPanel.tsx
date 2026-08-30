@@ -154,6 +154,7 @@ export function DecksPanel({
       {canManage &&
         (editing !== null ? (
           <DeckForm
+            key={editing ? editing.id : "new"}
             deck={editing || null}
             busy={busy}
             onCancel={() => setEditing(null)}
