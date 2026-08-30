@@ -4,7 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
 import { api, ApiError } from "../lib/api";
-import type { Me, SpaceView } from "../lib/api";
+import type { Deck, Me, SpaceView } from "../lib/api";
+import { expectNoViolations } from "../test/axe";
 import { SpacePage } from "./SpacePage";
 import { rememberOpenSession } from "../lib/sessionMemory";
 import { inviteLink } from "../lib/invite";
@@ -35,6 +36,8 @@ const space = {
 
 // The api mock reads this, so a test can swap in a different space view.
 let view: SpaceView = space;
+// The space's saved decks, as the create dialog reads them.
+let decks: Deck[] = [];
 // Flipped on to make the next space read fail, which is how a background
 // refetch failure is reproduced.
 let failSpace = false;
@@ -46,6 +49,7 @@ vi.mock("../lib/api", async () => {
     api: vi.fn(async (_method: string, path: string) => {
       if (path === "/api/me") return me;
       if (path === "/api/auth") return { mode: "open" };
+      if (path.endsWith("/decks")) return decks;
       if (path.startsWith("/api/orgs/acme/spaces/")) {
         if (failSpace) throw new Error("network");
         return view;
@@ -59,6 +63,7 @@ vi.mock("../lib/api", async () => {
 // count calls need the log to be about their own render and nothing else.
 beforeEach(() => {
   vi.mocked(api).mockClear();
+  decks = [];
 });
 
 describe("SpacePage kind filter", () => {
@@ -211,6 +216,7 @@ describe("SpacePage create dialog", () => {
       if (method === "POST" && path === "/api/orgs/acme/spaces/platform-team/sessions") {
         return createReply;
       }
+      if (path.endsWith("/decks")) return decks;
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
@@ -252,6 +258,7 @@ describe("SpacePage create dialog", () => {
           here: 0,
         };
       }
+      if (path.endsWith("/decks")) return decks;
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
@@ -674,6 +681,8 @@ describe("SpacePage invite links across a sign-in round trip", () => {
       if (path === "/api/me") return null;
       if (path === "/api/auth") return { mode: "oidc" };
       if (path === "/api/orgs/acme/spaces/platform-team/invite") return { handle: "HANDLE-1" };
+      if (path.endsWith("/decks")) return decks;
+      if (path.endsWith("/decks")) return decks;
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
@@ -705,6 +714,8 @@ describe("SpacePage invite links across a sign-in round trip", () => {
       if (path === "/api/me") return null;
       if (path === "/api/auth") return { mode: "oidc" };
       if (path === "/api/orgs/acme/spaces/platform-team/invite") throw new Error("That passcode doesn't match this space.");
+      if (path.endsWith("/decks")) return decks;
+      if (path.endsWith("/decks")) return decks;
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
@@ -723,6 +734,8 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     vi.mocked(api).mockImplementation((async (_m: string, path: string) => {
       if (path === "/api/me") return null;
       if (path === "/api/auth") return { mode: "open" };
+      if (path.endsWith("/decks")) return decks;
+      if (path.endsWith("/decks")) return decks;
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
@@ -872,6 +885,8 @@ describe("SpacePage invite links, a link guest", () => {
         };
       }
       if (path === "/api/auth") return { mode: "open" };
+      if (path.endsWith("/decks")) return decks;
+      if (path.endsWith("/decks")) return decks;
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
@@ -915,6 +930,7 @@ describe("SpacePage expired-session remint", () => {
       if (path === "/api/me" && method === "POST") {
         return { id: "u-new", name: "Ada", avatarHue: 40 };
       }
+      if (path.endsWith("/decks")) return decks;
       if (path.startsWith("/api/orgs/acme/spaces/")) {
         if (path.endsWith("/seen") && method === "POST") return undefined;
         return view;
@@ -947,6 +963,7 @@ describe("SpacePage expired-session remint", () => {
       if (path === "/api/me" && method === "POST") {
         return { id: "u-new", name: "Ada", avatarHue: 40 };
       }
+      if (path.endsWith("/decks")) return decks;
       if (path.startsWith("/api/orgs/acme/spaces/")) {
         if (path.endsWith("/seen") && method === "POST") return undefined;
         return view;
@@ -991,6 +1008,7 @@ describe("SpacePage expired-session remint", () => {
         signedIn = true;
         return { id: "u-new", name: "Ada", avatarHue: 40 };
       }
+      if (path.endsWith("/decks")) return decks;
       if (path.startsWith("/api/orgs/acme/spaces/")) {
         if (path.endsWith("/seen") && method === "POST") return undefined;
         if (reminted) {
@@ -1027,5 +1045,125 @@ describe("SpacePage expired-session remint", () => {
       name: "Platform Team",
       protected: false,
     } as SpaceView);
+  });
+});
+
+describe("SpacePage deck chooser", () => {
+  const house: Deck = {
+    id: "d1",
+    name: "House deck",
+    cards: ["S", "M", "L"],
+    ordinal: true,
+    createdAt: "2026-08-18T10:00:00.000Z",
+  };
+
+  // The suite above leaves its own hung-refetch mock installed, so re-seat a
+  // plain one rather than inheriting whatever ran last.
+  beforeEach(() => {
+    view = space;
+    vi.mocked(api).mockImplementation((async (_method: string, path: string) => {
+      if (path === "/api/me") return me;
+      if (path === "/api/auth") return { mode: "open" };
+      if (path.endsWith("/decks")) return decks;
+      if (path.startsWith("/api/orgs/acme/spaces/")) return view;
+      throw new Error(`unexpected api call: ${path}`);
+    }) as never);
+  });
+
+  async function openDialog() {
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+    return within(screen.getByRole("dialog"));
+  }
+
+  it("offers the space's own decks after the built-in four", async () => {
+    space.kinds = ["poker"];
+    decks = [house];
+    try {
+      const dialog = await openDialog();
+      const deck = await dialog.findByRole("radio", { name: /House deck/ });
+      expect(deck).toBeTruthy();
+      expect(dialog.getByRole("radio", { name: /Fibonacci/ })).toBeTruthy();
+    } finally {
+      delete space.kinds;
+    }
+  });
+
+  it("posts a custom deck as its cards, never as a row id", async () => {
+    space.kinds = ["poker"];
+    decks = [house];
+    const defaultApi = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation((async (method: string, path: string) => {
+      if (path === "/api/me") return me;
+      if (path === "/api/auth") return { mode: "open" };
+      if (method === "POST" && path.endsWith("/sessions")) {
+        return { id: "new-3", kind: "poker", title: "Sprint", createdAt: "2026-08-18T12:00:00.000Z", endedAt: null, here: 0 };
+      }
+      if (path.endsWith("/decks")) return decks;
+      if (path.startsWith("/api/orgs/acme/spaces/")) return view;
+      throw new Error(`unexpected api call: ${path}`);
+    }) as typeof defaultApi);
+    try {
+      const dialog = await openDialog();
+      await userEvent.type(dialog.getByLabelText("Title"), "Sizing");
+      await userEvent.click(await dialog.findByRole("radio", { name: /House deck/ }));
+      await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+      await waitFor(() => {
+        const create = vi.mocked(api).mock.calls.find(([m, p]) => m === "POST" && String(p).endsWith("/sessions"));
+        expect(create?.[2]).toEqual({
+          kind: "poker",
+          title: "Sizing",
+          // The cards themselves: deleting the deck row afterwards must not
+          // change what this session deals.
+          config: { deck: { name: "House deck", values: ["S", "M", "L"], ordinal: true }, autoReveal: false },
+        });
+      });
+    } finally {
+      delete space.kinds;
+      vi.mocked(api).mockImplementation(defaultApi);
+    }
+  });
+
+  it("reaches the chooser by keyboard and announces which deck is chosen", async () => {
+    space.kinds = ["poker"];
+    decks = [house];
+    try {
+      const dialog = await openDialog();
+      const fib = await dialog.findByRole("radio", { name: /Fibonacci/ });
+      expect(fib.getAttribute("aria-checked") ?? String((fib as HTMLInputElement).checked)).toBe("true");
+      const custom = dialog.getByRole("radio", { name: /House deck/ }) as HTMLInputElement;
+      custom.focus();
+      await userEvent.keyboard(" ");
+      expect(custom.checked).toBe(true);
+      expect((fib as HTMLInputElement).checked).toBe(false);
+      // The group says what is being chosen, so the announcement is not a
+      // bare "House deck" with no context.
+      expect(dialog.getByRole("group", { name: "Deck" })).toBeTruthy();
+    } finally {
+      delete space.kinds;
+    }
+  });
+
+  it("has no axe violations in the create dialog", async () => {
+    space.kinds = ["poker", "standup"];
+    decks = [house];
+    try {
+      const dialog = await openDialog();
+      await dialog.findByRole("radio", { name: /House deck/ });
+      await expectNoViolations(screen.getByRole("dialog"));
+    } finally {
+      delete space.kinds;
+    }
+  });
+
+  it("leaves the standup dialog fieldless and asks for no decks", async () => {
+    space.kinds = ["standup"];
+    try {
+      const dialog = await openDialog();
+      expect(dialog.queryByRole("group", { name: "Deck" })).toBe(null);
+      expect(vi.mocked(api).mock.calls.some(([, p]) => String(p).endsWith("/decks"))).toBe(false);
+    } finally {
+      delete space.kinds;
+    }
   });
 });

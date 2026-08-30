@@ -14,7 +14,7 @@ import hiddenDark from "../../../assets/hidden-votes-dark.png";
 import tshirtLight from "../../../assets/tshirt-results-light.png";
 import tshirtDark from "../../../assets/tshirt-results-dark.png";
 
-<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx"]} />
 
 A poker session is a queue of work and a table of people. The facilitator puts
 one item on the table, everybody votes face-down, and the round opens when the
@@ -48,7 +48,8 @@ characters, notes at 2000, and a reference at 40.
 
 ## The decks
 
-Four, chosen when the session is created and fixed for its lifetime. Every deck
+Four built in, plus any a space has saved of its own, chosen when the session is
+created and fixed for its lifetime. Every deck
 also carries `?` — "no idea" — and a coffee card. Both appear in the per-value
 counts, so you can see that three people said `?`, but neither is ever fed into
 an average, a median, a mode or a range — nor into consensus: a round where
@@ -62,6 +63,19 @@ the room is not told it agreed.
 
 A vote is validated against the session's own deck on the way in, so a client
 cannot store a value the deck does not contain.
+
+### Decks of your own
+
+A space owner can save its own decks under **Settings → Decks**: a name, between
+two and fifteen cards, and a switch for whether the cards are an order rather
+than numbers. They then sit beside the built-in four in the create dialog, and
+every member of the space can see the list even though only an owner can change
+it.
+
+A saved deck is a template, not a reference. Starting a session copies the cards
+into that session, so renaming a deck, rewriting its cards or deleting it
+outright leaves every room already dealing them exactly as it was — no vote
+already cast can be invalidated by an edit here.
 
 ## Hidden votes and auto-reveal
 
@@ -141,6 +155,6 @@ Reset clears the votes on the current story and starts it again.
 <Capability rows={[
   { name: "Vote timer", status: "not-built", detail: "Use a facilitator's own timer. Opt-in auto-reveal can end a round without one when everyone has voted." },
   { name: "Estimate history across sessions", status: "not-built", detail: "Export each session to CSV and keep them; cross-session analytics is on the <a href='/project/roadmap/'>roadmap</a>." },
-  { name: "Custom decks", status: "not-built", detail: "Pick the closest of the four. A session now stores the cards it was created with rather than a deck name, so nothing can change a deck under votes already cast, but no picker offers a custom one yet." },
+  { name: "Sharing a deck between spaces", status: "not-built", detail: "A saved deck belongs to one space. Copy the cards into a deck of the same name in the other space; an org-owned deck is on the <a href='/project/roadmap/'>roadmap</a>." },
   { name: "Editing a revealed vote", status: "out-of-scope", detail: "Reset the round instead — silently changing a revealed vote would make the reveal meaningless." },
 ]} />

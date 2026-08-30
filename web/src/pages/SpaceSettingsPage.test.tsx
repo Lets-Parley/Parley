@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
 import { expectNoViolations } from "../test/axe";
-import type { Me, SpaceView } from "../lib/api";
+import type { Deck, Me, SpaceView } from "../lib/api";
 import { SpacePage } from "./SpacePage";
 import { SpaceSettingsPage } from "./SpaceSettingsPage";
 
@@ -23,6 +23,7 @@ const base = {
 } as unknown as SpaceView;
 
 let view: SpaceView = base;
+let decks: Deck[] = [];
 const calls: Array<[string, string, unknown]> = [];
 let meBehavior: "ok" | "pending" | "error" = "ok";
 
@@ -37,6 +38,7 @@ vi.mock("../lib/api", async () => {
         return me;
       }
       if (path === "/api/auth") return { mode: "open" };
+      if (method === "GET" && path.endsWith("/decks")) return decks;
       if (method === "GET" && path.startsWith("/api/orgs/acme/spaces/")) return view;
       calls.push([method, path, body]);
       return undefined;
@@ -56,6 +58,9 @@ const routed = (
 beforeEach(() => {
   calls.length = 0;
   view = base;
+  decks = [
+    { id: "d1", name: "House deck", cards: ["S", "M", "L"], ordinal: true, createdAt: "2026-08-18T10:00:00.000Z" },
+  ];
   meBehavior = "ok";
 });
 
@@ -243,6 +248,19 @@ describe("SpaceSettingsPage", () => {
     expect(screen.queryByRole("textbox", { name: "Space name" })).toBe(null);
     // The way back is still there — a dead end would be worse than the gate.
     expect(screen.getByRole("link", { name: /Back to Platform Team/ })).toBeTruthy();
+    // The decks are reference, not control: a member picks one when they start
+    // a session, so they get to see what is on offer without being able to
+    // change it.
+    expect(await screen.findByText("House deck")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "New deck" })).toBe(null);
+    expect(screen.queryByRole("button", { name: "Edit: House deck" })).toBe(null);
+  });
+
+  it("gives an owner the deck controls", async () => {
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+    expect(await screen.findByRole("heading", { name: "Decks" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "New deck" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Edit: House deck" })).toBeTruthy();
   });
 
   // Settings is not a way into a space: someone who has not joined belongs at
@@ -279,6 +297,7 @@ describe("SpaceSettingsPage", () => {
         route: "/o/acme/s/platform-team/settings",
       });
       await screen.findByRole("heading", { name: /who can find it/i });
+      await screen.findByText("House deck");
       await expectNoViolations(container);
       unmount();
     }

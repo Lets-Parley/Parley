@@ -23,6 +23,11 @@ export function spaceApi(org: string, slug: string): string {
   return `/api/orgs/${org}/spaces/${slug}`;
 }
 
+/** The API for a space's saved decks. One deck appends its id. */
+export function decksApi(org: string, slug: string): string {
+  return `${spaceApi(org, slug)}/decks`;
+}
+
 /** The SPA route for an org's directory of spaces. */
 export function orgPath(org: string): string {
   return `/o/${org}`;
