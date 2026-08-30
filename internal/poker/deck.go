@@ -3,6 +3,8 @@ package poker
 import (
 	"encoding/json"
 	"fmt"
+	"math"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -62,8 +64,10 @@ func cardValue(v string) (float64, bool) {
 	if v == "\u00bd" {
 		return 0.5, true
 	}
+	// ParseFloat accepts "NaN" and the infinities; neither can be averaged nor
+	// carried by encoding/json, so they are not numbers as far as a deck goes.
 	n, err := strconv.ParseFloat(v, 64)
-	if err != nil {
+	if err != nil || math.IsNaN(n) || math.IsInf(n, 0) {
 		return 0, false
 	}
 	return n, true
@@ -173,11 +177,32 @@ func (c Config) ResolveDeck() Deck {
 // any member could store arbitrary card values, counts and lengths.
 func (c Config) Validate() error {
 	d := c.Deck
-	if _, builtin := decks[d.Name]; builtin || len(d.Values) == 0 {
+	if len(d.Values) == 0 {
+		return nil
+	}
+	if builtin, ok := decks[d.Name]; ok {
+		// A deck carrying its own cards under a reserved name would be stored
+		// as the bare name, silently discarding those cards.
+		if !slices.Equal(builtin.Values, d.Values) {
+			return fmt.Errorf("deck name %q is reserved", d.Name)
+		}
 		return nil
 	}
 	if strings.TrimSpace(d.Name) == "" || len(d.Name) > 40 {
 		return fmt.Errorf("a deck needs a name of 1-40 characters")
+	}
+	// The server appends one of each special itself, so a second occurrence is
+	// one the caller submitted.
+	for _, sp := range specials {
+		n := 0
+		for _, v := range d.Values {
+			if v == sp {
+				n++
+			}
+		}
+		if n > 1 {
+			return fmt.Errorf("card %q is reserved", sp)
+		}
 	}
 	cs := cards(d.Values)
 	if len(cs) < 2 || len(cs) > 15 {
@@ -187,9 +212,6 @@ func (c Config) Validate() error {
 	for _, v := range cs {
 		if n := len([]rune(v)); n < 1 || n > 8 {
 			return fmt.Errorf("card %q is not 1-8 characters", v)
-		}
-		if isSpecial(v) {
-			return fmt.Errorf("card %q is reserved", v)
 		}
 		if seen[v] {
 			return fmt.Errorf("card %q is listed twice", v)
