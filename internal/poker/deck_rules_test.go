@@ -55,6 +55,15 @@ func TestConfigRejectsCustomDeckWithBuiltinName(t *testing.T) {
 // here clears the 2-15 bound, so only the reserved-card rule can fail it.
 func TestConfigRejectsSubmittedSpecials(t *testing.T) {
 	for _, v := range specials {
+		// The same deck without the special has to be ACCEPTED, or a Validate
+		// that rejects everything would satisfy the assertion below.
+		var control Config
+		if err := json.Unmarshal([]byte(`{"deck":{"name":"x","values":["1","2"]}}`), &control); err != nil {
+			t.Fatal(err)
+		}
+		if err := control.Validate(); err != nil {
+			t.Fatalf("the deck without %q was rejected: %v", v, err)
+		}
 		raw := `{"deck":{"name":"x","values":["1","2","` + v + `"]}}`
 		var cfg Config
 		if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
@@ -67,5 +76,35 @@ func TestConfigRejectsSubmittedSpecials(t *testing.T) {
 		if !strings.Contains(err.Error(), "reserved") {
 			t.Fatalf("card %q was rejected by the wrong rule: %v", v, err)
 		}
+	}
+}
+
+// Individually finite cards can still sum to +Inf. Results rides inside the
+// state payload marshalled for every client in the room, so a non-finite
+// average would break the reveal for everyone, not just the voter.
+func TestSummarizeStaysMarshallableOnOverflow(t *testing.T) {
+	raw := `{"deck":{"name":"bignum","values":["1.5e308","1.6e308"]}}`
+	var cfg Config
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		t.Skipf("deck rejected at decode: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Skipf("deck rejected by Validate: %v", err)
+	}
+	res := Summarize(cfg.ResolveDeck(), []string{"1.5e308", "1.6e308"})
+	if _, err := json.Marshal(res); err != nil {
+		t.Fatalf("results of large-but-finite cards do not marshal: %v", err)
+	}
+}
+
+// The everyday case must keep its numbers: the overflow guard may not drop
+// the average and median off an ordinary deck.
+func TestSummarizeKeepsLargeButFiniteStats(t *testing.T) {
+	res := Summarize(decks["fibonacci"], []string{"8", "13"})
+	if res.Average == nil || *res.Average != 10.5 {
+		t.Fatalf("average = %v, want 10.5", res.Average)
+	}
+	if res.Median == nil || *res.Median != 10.5 {
+		t.Fatalf("median = %v, want 10.5", res.Median)
 	}
 }
