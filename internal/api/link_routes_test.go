@@ -99,12 +99,20 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	"PATCH /api/orgs/{org}/spaces/{slug}":       {status: http.StatusNotFound},
 	// Owner-only, and behind requireOrgMember, which a link guest fails first:
 	// 404, the same answer the other owner routes give it.
-	"PATCH /api/orgs/{org}/spaces/{slug}/visibility":           {status: http.StatusNotFound},
-	"DELETE /api/orgs/{org}/spaces/{slug}":                     {status: http.StatusNotFound},
-	"POST /api/orgs/{org}/spaces/{slug}/join":                  {status: http.StatusUnauthorized},
-	"POST /api/orgs/{org}/spaces/{slug}/seen":                  {status: http.StatusUnauthorized},
-	"POST /api/orgs/{org}/spaces/{slug}/passcode":              {status: http.StatusUnauthorized},
-	"POST /api/orgs/{org}/spaces/{slug}/sessions":              {status: http.StatusUnauthorized},
+	"PATCH /api/orgs/{org}/spaces/{slug}/visibility": {status: http.StatusNotFound},
+	"DELETE /api/orgs/{org}/spaces/{slug}":           {status: http.StatusNotFound},
+	"POST /api/orgs/{org}/spaces/{slug}/join":        {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/spaces/{slug}/seen":        {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/spaces/{slug}/passcode":    {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/spaces/{slug}/sessions":    {status: http.StatusUnauthorized},
+	// A space's decks, read and write alike: RequireUser is the first
+	// middleware on the tree, so a link guest is turned away at the door with
+	// 401. Its capability is one room, and the deck templates of the space
+	// around that room are not part of it.
+	"GET /api/orgs/{org}/spaces/{slug}/decks/":                 {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/spaces/{slug}/decks/":                {status: http.StatusUnauthorized},
+	"PATCH /api/orgs/{org}/spaces/{slug}/decks/{deckId}":       {status: http.StatusUnauthorized},
+	"DELETE /api/orgs/{org}/spaces/{slug}/decks/{deckId}":      {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/spaces/{slug}/members/{userId}/role": {status: http.StatusNotFound},
 	"DELETE /api/orgs/{org}/spaces/{slug}/members/{userId}/":   {status: http.StatusNotFound},
 	"PATCH /api/orgs/{org}/spaces/{slug}/sessions/{id}/":       {status: http.StatusNotFound},

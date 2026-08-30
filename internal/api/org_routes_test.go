@@ -164,6 +164,7 @@ func TestEverySpaceLookupIsGated(t *testing.T) {
 		"handleSetPasscode":   true,
 		"handleCreateSession": true,
 		"requireSpaceOwner":   true,
+		"requireSpaceMember":  true,
 	}
 	// The anonymous pre-join routes: neither can sit behind a membership
 	// check, so both use BySlugInOrg with the org resolved from the URL
@@ -282,6 +283,10 @@ var routeScoping = map[string]string{
 	"POST /api/orgs/{org}/spaces/{slug}/seen":                  "org-scoped",
 	"POST /api/orgs/{org}/spaces/{slug}/passcode":              "org-scoped",
 	"POST /api/orgs/{org}/spaces/{slug}/sessions":              "org-scoped",
+	"GET /api/orgs/{org}/spaces/{slug}/decks/":                 "org-scoped",
+	"POST /api/orgs/{org}/spaces/{slug}/decks/":                "org-scoped",
+	"PATCH /api/orgs/{org}/spaces/{slug}/decks/{deckId}":       "org-scoped",
+	"DELETE /api/orgs/{org}/spaces/{slug}/decks/{deckId}":      "org-scoped",
 	"POST /api/orgs/{org}/spaces/{slug}/members/{userId}/role": "org-scoped",
 	"DELETE /api/orgs/{org}/spaces/{slug}/members/{userId}/":   "org-scoped",
 	"PATCH /api/orgs/{org}/spaces/{slug}/sessions/{id}/":       "org-scoped",
