@@ -24,16 +24,16 @@ Accepted work, likely to be picked up after current priorities.
 
 Parley already ships four decks, and they are enough to run most rooms. The
 problem is everything they cannot express: teams that want to carry their own
-deck and keep it stable across sessions; rooms where a vote can stay open so a
-distributed team estimates when they can; observers who watch the discussion but
-do not participate in the vote.
+deck and keep it stable across sessions, and rooms where a vote can stay open so
+a distributed team estimates when they can.
 
-Switchable poker is the first slice that makes planning poker feel like it was
-made for the way a team already works, rather than asking the team to work the
-way the tool expects. A deck becomes something you choose and own, not a global
-constant baked into the server.
+A deck stops being a global constant baked into the server and becomes something
+a space chooses and owns. A session keeps a copy of the cards it was created
+with, so editing or deleting a deck can never invalidate an estimate already
+agreed.
 
 - Status: Backlog
+- Tracking: [#423](https://github.com/lets-parley/parley/issues/423)
 
 ### Parley on a phone
 
