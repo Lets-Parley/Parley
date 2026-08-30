@@ -164,7 +164,7 @@ out.
 |---|---|---|
 | `kind` | text | Foreign key to `session_kinds.kind`, `on delete restrict`. Adding a ceremony is a new row, not a schema change — see [Adding a session kind](/project/contributing/#adding-a-session-kind) |
 | `title` | text | 1–200 characters |
-| `config` | jsonb | Kind-decoded JSON. Poker may update `autoReveal` after create via `PATCH .../actions/config`; the deck stays create-time |
+| `config` | jsonb | Kind-decoded JSON. Poker may update `autoReveal` and `openVoting` after create via `PATCH .../actions/config`, one key at a time; the deck stays create-time |
 | `phase`, `revealed`, `version` | | `version` increments on mutation |
 | `facilitator_id` | uuid | References `users` — **no cascade** |
 | `current_speaker_id` | uuid | Nullable, references `users` — **no cascade** |
@@ -187,6 +187,23 @@ no join. Nothing points at this table.
 There is deliberately no `check` on `cards`. The card rules live in Go, in
 `internal/poker`, and the deck routes and the session-create route run the same
 function — a second copy in SQL would be a copy that drifts.
+
+### round_voters
+
+| Column | Type | Notes |
+|---|---|---|
+| `story_id` | uuid | References `stories`, `on delete cascade` |
+| `user_id` | uuid | References `users`, `on delete cascade` |
+
+Who an *open* round is waiting for, written when the story goes on the table
+and only for a session with `openVoting` on. An open round is estimated
+asynchronously, so it cannot be gated on who happens to be connected when the
+last vote lands; reading the set live from the space does not work either,
+because a forty-member space would never complete a five-person round and a
+link guest has no `members` row to be found in. So the expected voters — the
+space's non-spectator members plus the guests whose link was still good at that
+moment — are snapshotted, and the round waits for exactly those people. A
+closed round never touches this table.
 
 ### stories, votes
 

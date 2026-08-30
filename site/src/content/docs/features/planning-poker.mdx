@@ -87,6 +87,33 @@ disconnect can shrink the denominator; it can never open the round. Otherwise
 closing a laptop would be a way to reveal everyone else's votes. Turning
 auto-reveal off mid-round does not close an already-open round.
 
+## Open voting, for a team that is not in the room
+
+A distributed team cannot all be at the table at once, and the denominator
+above is unforgiving about that: it counts who is connected, so a round cannot
+complete while half the team is asleep.
+
+**Open voting** changes what the round waits for. When a story goes on the
+table with open voting on, Parley records who is expected to vote — the space's
+non-spectator members, plus any link guests whose link is good at that moment —
+and the round waits for exactly those people, connected or not. Somebody who
+opens the room hours later still finds the round waiting, and their vote is the
+one that completes it.
+
+Because the list is a snapshot, it does not move under the round: a member who
+joins the space after the story went on the table is not in it and cannot hold
+the round open, and a member who leaves the tab is still in it and is still
+waited for. Turning open voting on mid-round records the list for the story
+already on the table, so that round can complete too.
+
+Open voting reveals nothing by itself. It only changes *who* the round is
+waiting for; whether the last vote opens the round is still auto-reveal's
+question, and with auto-reveal off the facilitator still hits **Reveal**. The
+two are independent switches and all four combinations do what they say.
+
+Either way the room names the seats it is still waiting for, so an open round
+that has stalled shows who it has stalled on.
+
 <Screenshot
   light={hiddenLight}
   dark={hiddenDark}

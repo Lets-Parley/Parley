@@ -31,6 +31,7 @@ type WireStory struct {
 type State struct {
 	Deck           wireDeck    `json:"deck"`
 	AutoReveal     bool        `json:"autoReveal"`
+	OpenVoting     bool        `json:"openVoting"`
 	CurrentStoryID *string     `json:"currentStoryId"`
 	Stories        []WireStory `json:"stories"`
 }
@@ -56,7 +57,7 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	}
 	deck := cfg.ResolveDeck()
 
-	st := State{Deck: wireDeck(deck), AutoReveal: cfg.AutoReveal, Stories: []WireStory{}}
+	st := State{Deck: wireDeck(deck), AutoReveal: cfg.AutoReveal, OpenVoting: cfg.OpenVoting, Stories: []WireStory{}}
 
 	var currentID string
 	if err := pool.QueryRow(ctx,

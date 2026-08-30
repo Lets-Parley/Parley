@@ -37,6 +37,10 @@ export function PokerRoom({ env, me, guest = false }: { env: Envelope; me: Me; g
   // to drift out of sync and post an estimate the deck would reject.
   const hero = results ? heroOf(results, st.deck.values) : undefined;
   const tally = voteTally(seated, online, current?.votedUserIds ?? [], votes);
+  // Who the round is still waiting for, by name. A count alone tells the room
+  // that somebody is missing but not whether it is waiting on the one person
+  // who has already left for the day.
+  const waitingOn = seated.filter((p) => !tally.voted.has(p.userId)).map((p) => p.name);
 
   // The round boundary, found client-side. NOT env.version — the server bumps
   // that on every vote too. See useRoundEpoch.
@@ -345,6 +349,18 @@ export function PokerRoom({ env, me, guest = false }: { env: Envelope; me: Me; g
             }
           />
         ) : null}
+
+        {current && !ended && !env.revealed && waitingOn.length > 0 && (
+          // Deliberately not a live region: the cue line above already
+          // announces "n of m voted" on every change, and a second live
+          // region reciting the same round twice is noise, not detail.
+          <p className="mt-3 text-[13px] text-ink-faint">
+            Waiting on{" "}
+            {waitingOn.length > 5
+              ? `${waitingOn.slice(0, 5).join(", ")} and ${waitingOn.length - 5} more`
+              : waitingOn.join(", ")}
+          </p>
+        )}
 
         {results && <ResultsPanel results={results} />}
 

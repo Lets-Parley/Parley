@@ -167,6 +167,14 @@ func cards(values []string) []string {
 type Config struct {
 	Deck       Deck `json:"deck"`
 	AutoReveal bool `json:"autoReveal"`
+	// OpenVoting keeps a round open for asynchronous estimation: it waits for
+	// the voters recorded when the round opened rather than for whoever is
+	// connected. It does not reveal anything on its own — that is AutoReveal.
+	//
+	// omitempty for the same reason Deck marshals to a bare name: a config
+	// with the option off has to stay byte-identical to one written before the
+	// option existed, so an older binary reads it unchanged after a rollback.
+	OpenVoting bool `json:"openVoting,omitempty"`
 }
 
 // ResolveDeck is the session's deck. A config that names no deck — every

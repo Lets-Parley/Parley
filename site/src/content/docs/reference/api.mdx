@@ -329,7 +329,7 @@ action against a closed session is **409**; reopen it first.
   { method: "POST", path: "/api/sessions/{id}/actions/select", auth: "facilitator", purpose: "Put a story on the table and clear the reveal." },
   { method: "POST", path: "/api/sessions/{id}/actions/reveal", auth: "facilitator", purpose: "Open the round." },
   { method: "POST", path: "/api/sessions/{id}/actions/reset", auth: "facilitator", purpose: "Clear votes on the current story." },
-  { method: "PATCH", path: "/api/sessions/{id}/actions/config", auth: "facilitator", purpose: "Set {autoReveal}. Default false. Turning it on mid-round with a full table runs the auto-reveal check immediately; turning it off never un-reveals." },
+  { method: "PATCH", path: "/api/sessions/{id}/actions/config", auth: "facilitator", purpose: "Partial update of {autoReveal, openVoting}, both default false. A key the body leaves out keeps its value, an empty body changes nothing, an unknown key is 400. Turning autoReveal on mid-round with a full table runs the check immediately; turning it off never un-reveals. Turning openVoting on mid-round records the expected voters for the story already on the table." },
   { method: "POST", path: "/api/sessions/{id}/spectator", auth: "member", purpose: "Toggle your own spectator seat with {on}." },
 ]} />
 
