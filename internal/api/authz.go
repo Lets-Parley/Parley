@@ -204,3 +204,37 @@ func (a *app) requireOrgAdmin(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// requireSpaceMember resolves {slug} to a space and requires the caller to
+// belong to it. It is the read gate for anything owned by a space rather than
+// by the org around it: mounting such a read on org membership instead would
+// let any org member enumerate a private space's contents. A non-member gets
+// 404, not 403 — a 403 would confirm the space exists.
+func (a *app) requireSpaceMember(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, ok := PrincipalFrom(r.Context())
+		if !ok {
+			http.Error(w, `{"error":"not signed in"}`, http.StatusUnauthorized)
+			return
+		}
+		sp, err := a.spaces.BySlug(r.Context(), orgFrom(r.Context()).ID, chi.URLParam(r, "slug"))
+		if errors.Is(err, store.ErrNoSpace) {
+			http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+			return
+		}
+		member, err := a.spaces.IsMember(r.Context(), sp.ID, p.UserID)
+		if err != nil {
+			http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+			return
+		}
+		if !member {
+			http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), spaceKey{}, sp)))
+	})
+}

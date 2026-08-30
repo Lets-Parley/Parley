@@ -170,6 +170,24 @@ out.
 | `current_speaker_id` | uuid | Nullable, references `users` — **no cascade** |
 | `facilitator_seen_at` | timestamptz | Drives the 60-second claim grace |
 
+### decks
+
+| Column | Type | Notes |
+|---|---|---|
+| `space_id` | uuid | References `spaces`, `on delete cascade`. Every lookup is scoped by it, so an id alone never reaches another space's deck |
+| `name` | text | Unique per space |
+| `cards` | text[] | The deck's own cards. `cards`, not `values`: `values` is a reserved word in Postgres |
+| `ordinal` | boolean | An ordinal deck (t-shirt sizes) has no arithmetic; a numeric one requires every card to parse |
+
+A deck is a template a space picks from, never a reference a session holds:
+creating a session copies the cards into its own `config`, so editing or
+deleting a deck cannot invalidate a vote already cast, and the vote path gains
+no join. Nothing points at this table.
+
+There is deliberately no `check` on `cards`. The card rules live in Go, in
+`internal/poker`, and the deck routes and the session-create route run the same
+function — a second copy in SQL would be a copy that drifts.
+
 ### stories, votes
 
 `stories` carries `title` (≤200), `notes` (≤2000), `ref` (≤40), a fractional

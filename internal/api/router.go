@@ -34,6 +34,7 @@ type app struct {
 	users    *store.Users
 	spaces   *store.Spaces
 	sessions *store.Sessions
+	decks    *store.Decks
 	links    *store.Links
 	presence *store.Presence
 	hub      *hub.Hub
@@ -105,6 +106,7 @@ type Limits struct {
 	LinkRedemptionIPHourly int
 	SpacesPerIdentity      int
 	SessionsPerSpace       int
+	DecksPerSpace          int
 	StoriesPerSession      int
 	LinksPerSession        int
 }
@@ -124,6 +126,9 @@ func (l Limits) withDefaults() Limits {
 	}
 	if l.SessionsPerSpace == 0 {
 		l.SessionsPerSpace = 500
+	}
+	if l.DecksPerSpace == 0 {
+		l.DecksPerSpace = 20
 	}
 	if l.StoriesPerSession == 0 {
 		l.StoriesPerSession = 500
@@ -164,6 +169,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		orgs:     &store.Orgs{Pool: pool},
 		spaces:   &store.Spaces{Pool: pool},
 		sessions: &store.Sessions{Pool: pool},
+		decks:    &store.Decks{Pool: pool},
 		links:    &store.Links{Pool: pool},
 		presence: &store.Presence{
 			Pool:      pool,
@@ -372,6 +378,23 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 				r.Post("/spaces/{slug}/seen", a.handleMarkSpaceSeen)
 				r.Post("/spaces/{slug}/passcode", a.handleSetPasscode)
 				r.Post("/spaces/{slug}/sessions", a.handleCreateSession)
+			})
+
+			// A space's decks. Reading them is gated on membership of the
+			// space itself rather than of the org: deck names are things a
+			// team wrote, and a private space must not have them enumerable
+			// by every org member. Writing is the owner's, alongside the
+			// other housekeeping on the space.
+			r.Route("/spaces/{slug}/decks", func(r chi.Router) {
+				r.Use(RequireUser)
+				r.Use(a.requireOrgMember)
+				r.With(a.requireSpaceMember).Get("/", a.handleListDecks)
+				r.Group(func(r chi.Router) {
+					r.Use(a.requireSpaceOwner)
+					r.Post("/", a.handleCreateDeck)
+					r.Patch("/{deckId}", a.handleUpdateDeck)
+					r.Delete("/{deckId}", a.handleDeleteDeck)
+				})
 			})
 
 			// Managing the space itself is owner-only, and the middleware

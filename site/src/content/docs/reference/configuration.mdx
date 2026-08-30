@@ -177,6 +177,12 @@ Maximum spaces one identity may create.
 Maximum sessions retained in one space.
 </EnvVar>
 
+<EnvVar name="DECK_LIMIT_PER_SPACE" default="20" fatal>
+Maximum saved card decks one space may keep. A deck is a template a session
+copies its cards from, so lowering this never affects a session already
+created.
+</EnvVar>
+
 <EnvVar name="STORY_LIMIT_PER_SESSION" default="500" fatal>
 Maximum stories retained in one planning-poker session.
 </EnvVar>
