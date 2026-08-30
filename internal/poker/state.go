@@ -29,7 +29,7 @@ type WireStory struct {
 }
 
 type State struct {
-	Deck           Deck        `json:"deck"`
+	Deck           wireDeck    `json:"deck"`
 	AutoReveal     bool        `json:"autoReveal"`
 	CurrentStoryID *string     `json:"currentStoryId"`
 	Stories        []WireStory `json:"stories"`
@@ -54,12 +54,9 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	if err := json.Unmarshal(sess.Config, &cfg); err != nil {
 		return nil, err
 	}
-	deck, ok := DeckByName(cfg.Deck)
-	if !ok {
-		deck, _ = DeckByName("fibonacci")
-	}
+	deck := cfg.ResolveDeck()
 
-	st := State{Deck: deck, AutoReveal: cfg.AutoReveal, Stories: []WireStory{}}
+	st := State{Deck: wireDeck(deck), AutoReveal: cfg.AutoReveal, Stories: []WireStory{}}
 
 	var currentID string
 	if err := pool.QueryRow(ctx,

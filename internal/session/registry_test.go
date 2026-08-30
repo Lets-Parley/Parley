@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"reflect"
 	"testing"
@@ -303,4 +304,30 @@ func hasParticipant(e Envelope, userID string) bool {
 		}
 	}
 	return false
+}
+
+type validatedConfig struct {
+	N int `json:"n"`
+}
+
+func (c *validatedConfig) Validate() error {
+	if c.N > 3 {
+		return errors.New("n is too big")
+	}
+	return nil
+}
+
+// A kind whose config validates itself gets that validation on the way in —
+// ParseConfig is the only gate between a space member and a stored config.
+func TestParseConfigRunsValidate(t *testing.T) {
+	r := NewRegistry()
+	if err := r.Register(Kind{Name: "validated", NewConfig: func() any { return &validatedConfig{} }}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.ParseConfig("validated", []byte(`{"n":1}`)); err != nil {
+		t.Fatalf("valid config rejected: %v", err)
+	}
+	if _, err := r.ParseConfig("validated", []byte(`{"n":9}`)); err == nil {
+		t.Fatal("invalid config accepted")
+	}
 }

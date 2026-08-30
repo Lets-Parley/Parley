@@ -228,11 +228,10 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 					}
 				} else {
 					var cfg Config
-					json.Unmarshal(sess.Config, &cfg)
-					deck, ok := DeckByName(cfg.Deck)
-					if !ok {
-						deck, _ = DeckByName("fibonacci")
+					if err := json.Unmarshal(sess.Config, &cfg); err != nil {
+						return fmt.Errorf("reading poker config: %w", err)
 					}
+					deck := cfg.ResolveDeck()
 					if !deck.Has(*estimate) || isSpecial(*estimate) {
 						return errInvalidEstimate
 					}
@@ -350,11 +349,10 @@ func castVote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, stor
 				return errSpectator
 			}
 			var cfg Config
-			json.Unmarshal(sess.Config, &cfg)
-			deck, ok := DeckByName(cfg.Deck)
-			if !ok {
-				deck, _ = DeckByName("fibonacci")
+			if err := json.Unmarshal(sess.Config, &cfg); err != nil {
+				return fmt.Errorf("reading poker config: %w", err)
 			}
+			deck := cfg.ResolveDeck()
 			if !deck.Has(value) {
 				return errInvalidVote
 			}

@@ -120,6 +120,14 @@ func (r *Registry) ParseConfig(kind string, raw []byte) ([]byte, error) {
 	if dec.More() {
 		return nil, fmt.Errorf("trailing data after the %s config document", kind)
 	}
+	// A structural decode says the document is the right shape, not that its
+	// values are allowed. A kind that cares validates itself here — the only
+	// gate between a space member and a stored config.
+	if v, ok := cfg.(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return nil, fmt.Errorf("validating the %s config document: %w", kind, err)
+		}
+	}
 	return json.Marshal(cfg)
 }
 
