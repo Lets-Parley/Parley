@@ -1,6 +1,9 @@
 package poker
 
-import "sort"
+import (
+	"math"
+	"sort"
+)
 
 type HistogramRow struct {
 	Value string `json:"value"`
@@ -60,9 +63,17 @@ func Summarize(deck Deck, values []string) Results {
 	} else {
 		med = (nums[len(nums)/2-1] + nums[len(nums)/2]) / 2
 	}
-	res.Average, res.Median = &avg, &med
+	// Individually finite cards can still sum past float64: an overflowed
+	// average is +Inf, which encoding/json refuses, and Results is marshalled
+	// into the state payload every client in the room reads. Omitting the
+	// number beats poisoning the whole broadcast.
+	if finite(avg) && finite(med) {
+		res.Average, res.Median = &avg, &med
+	}
 	return res
 }
+
+func finite(n float64) bool { return !math.IsNaN(n) && !math.IsInf(n, 0) }
 
 func ordinalStats(deck Deck, counts map[string]int) (mode, rng *string) {
 	best, bestCount := "", 0
