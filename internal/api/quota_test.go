@@ -152,6 +152,7 @@ func TestLimitsWithDefaults(t *testing.T) {
 		LinkRedemptionIPHourly: 50,
 		SpacesPerIdentity:      50,
 		SessionsPerSpace:       500,
+		DecksPerSpace:          20,
 		StoriesPerSession:      500,
 		LinksPerSession:        20,
 	}

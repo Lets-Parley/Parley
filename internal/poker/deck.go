@@ -125,11 +125,17 @@ func (d *Deck) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &raw); err != nil {
 		return err
 	}
-	// The specials are the server's, always appended and never stored, so a
-	// custom deck carries only its own cards on disk.
-	values := append(append([]string{}, raw.Values...), specials...)
-	*d = Deck{Name: raw.Name, Values: values, Ordinal: raw.Ordinal, numeric: derive(values, raw.Ordinal)}
+	*d = NewDeck(raw.Name, raw.Values, raw.Ordinal)
 	return nil
+}
+
+// NewDeck builds a custom deck from the cards a caller supplied. The specials
+// are the server's, always appended and never stored, so a custom deck carries
+// only its own cards on disk — and a caller that submits one of them is left
+// with a duplicate for Validate to reject.
+func NewDeck(name string, cards []string, ordinal bool) Deck {
+	values := append(append([]string{}, cards...), specials...)
+	return Deck{Name: name, Values: values, Ordinal: ordinal, numeric: derive(values, ordinal)}
 }
 
 // MarshalJSON writes the legacy bare name for a built-in deck, so a config
@@ -172,11 +178,16 @@ func (c Config) ResolveDeck() Deck {
 	return c.Deck
 }
 
-// Validate enforces the card rules on a custom deck. Session config reaches
-// here straight from a space member, so this is the trust boundary: without it
-// any member could store arbitrary card values, counts and lengths.
+// Validate enforces the card rules on the config's deck.
 func (c Config) Validate() error {
-	d := c.Deck
+	return c.Deck.Validate()
+}
+
+// Validate enforces the card rules on a custom deck. Both session config and a
+// stored deck template reach here straight from a space member, so this is the
+// trust boundary — and it is the only copy of the rule, so the two paths
+// cannot drift apart on what a legal card is.
+func (d Deck) Validate() error {
 	if len(d.Values) == 0 {
 		return nil
 	}
