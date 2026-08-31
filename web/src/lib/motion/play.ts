@@ -1,4 +1,4 @@
-import type { PileOnPlan } from "./plan";
+import type { KickPlan, PileOnPlan } from "./plan";
 
 /**
  * The WAAPI adapter and the overlay's lifetime.
@@ -46,6 +46,84 @@ export function playPileOn(layer: HTMLElement, plan: PileOnPlan): () => void {
   const timer = window.setTimeout(() => layer.replaceChildren(), Math.round(plan.endMs) + 250);
   return () => {
     window.clearTimeout(timer);
+    for (const a of running) a.cancel();
+    layer.replaceChildren();
+  };
+}
+
+/** Matches the inline font-size below; a rect read here would only re-measure it. */
+export const BOOT_PX = 52;
+
+/**
+ * The kick: the boot's arc, the seat's launch, and the two beats the row is
+ * gated on.
+ *
+ * The seat is CLONED into the overlay rather than moved. The original stays in
+ * the row, held invisible, so the gap it leaves does not close while the eye
+ * is still following the thing that made it — the row is released at `onExit`,
+ * when the seat is fully off screen, and never at contact.
+ */
+export function playKick(
+  layer: HTMLElement,
+  plan: KickPlan,
+  seat: HTMLElement,
+  { onContact, onExit }: { onContact: () => void; onExit: () => void },
+): () => void {
+  const running: Animation[] = [];
+  const timers: number[] = [];
+
+  const boot = document.createElement("span");
+  boot.setAttribute("aria-hidden", "true");
+  boot.className = "pointer-events-none absolute leading-none";
+  boot.style.left = `${plan.boot.origin.x - BOOT_PX / 2}px`;
+  boot.style.top = `${plan.boot.origin.y - BOOT_PX / 2}px`;
+  boot.style.fontSize = `${BOOT_PX}px`;
+  boot.style.transformOrigin = "center center";
+  boot.textContent = "🥾";
+  layer.appendChild(boot);
+  if (typeof boot.animate === "function") {
+    running.push(
+      boot.animate(plan.boot.frames, {
+        duration: plan.boot.durationMs,
+        // Linear on purpose: the dip and the rise are gravity in the sampled
+        // frames, not an easing curve laid over them.
+        easing: "linear",
+        fill: "forwards",
+      }),
+    );
+  }
+
+  timers.push(
+    window.setTimeout(() => {
+      onContact();
+      const clone = seat.cloneNode(true) as HTMLElement;
+      clone.removeAttribute("data-seat-user");
+      clone.setAttribute("aria-hidden", "true");
+      clone.style.position = "absolute";
+      clone.style.left = `${plan.seatX}px`;
+      clone.style.top = `${plan.seatY}px`;
+      clone.style.margin = "0";
+      clone.style.visibility = "visible";
+      clone.style.animation = "";
+      clone.style.transformOrigin = "center center";
+      layer.appendChild(clone);
+      if (typeof clone.animate === "function") {
+        running.push(
+          clone.animate(plan.launch.frames, {
+            duration: plan.launch.durationMs,
+            easing: "linear",
+            fill: "forwards",
+          }),
+        );
+      }
+    }, Math.round(plan.impactMs)),
+  );
+
+  timers.push(window.setTimeout(onExit, Math.round(plan.exitMs)));
+  timers.push(window.setTimeout(() => layer.replaceChildren(), Math.round(plan.endMs)));
+
+  return () => {
+    for (const t of timers) window.clearTimeout(t);
     for (const a of running) a.cancel();
     layer.replaceChildren();
   };

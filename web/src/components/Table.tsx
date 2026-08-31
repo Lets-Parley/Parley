@@ -4,14 +4,18 @@ import { cueLabel, cueVar, type CueState } from "../lib/cue";
 import { safeDisplayName } from "../lib/displayName";
 import { voteTally } from "../lib/derive";
 import {
+  BOOT_PX,
   EMOJI_RADIUS,
   FLIP_MS,
   flipDeltas,
+  measureKick,
   measurePileOn,
   measureSeats,
   planDropIn,
+  planKick,
   pileOnOutlier,
   planPileOn,
+  playKick,
   playPileOn,
   releaseFlip,
   revealSettledAt,
@@ -235,6 +239,8 @@ export function Table({
   meId,
   cueState = null,
   status = "live",
+  onRemove,
+  kicked = null,
 }: {
   seated: Person[];
   spectators: Person[];
@@ -249,8 +255,53 @@ export function Table({
   cueState?: CueState | null;
   /** The socket's state, and the only thing that tells a rejoin from a blip. */
   status?: ConnectionStatus;
+  /**
+   * Offered only to a facilitator in a live room. Its presence is the whole
+   * permission check on this side — the seat never decides for itself.
+   */
+  onRemove?: (person: Person) => void;
+  /**
+   * Somebody was removed from the room, as its own event.
+   *
+   * It cannot be inferred from the envelope. `participants` is the SPACE's
+   * roster, not the session's, so a removed person is still in it and simply
+   * stops being present — which is exactly what closing a laptop looks like.
+   * Booting every seat that goes quiet would boot half the room; hence a
+   * frame that says a removal happened, and a sequence number so a second
+   * removal of the same person is a second event.
+   */
+  kicked?: { userId: string; seq: number } | null;
 }) {
-  const { votedCount, canVote, voted } = voteTally(seated, online, votedUserIds, votes);
+  const { joined } = useRosterDelta([...online], status);
+
+  // Who the kick has already carried off. Held here because nothing upstream
+  // can: `seated` still contains them, and will until they are removed from
+  // the space itself. Cleared when their presence comes back — a rejoin gets
+  // its seat, and its drop-in, like anybody else arriving.
+  //
+  // The roster delta's `left` is deliberately NOT the trigger: it fires for
+  // every dropped connection in the room, and a boot per closed laptop is not
+  // the feature. Only the `kicked` event says a removal happened.
+  //
+  // Pruned against presence rather than against the join delta: the delta
+  // holds its last value for as long as nothing changes, so a seat kicked in
+  // the same breath as somebody else's arrival was un-departed by a "join"
+  // that had already happened and put straight back in the row. Observed in a
+  // browser, not theorised. Each entry therefore waits until it has actually
+  // been seen absent before a return can clear it, which also survives the
+  // envelope that still lists the victim as present arriving after the kick.
+  const [departed, setDeparted] = useState<{ id: string; absent: boolean }[]>([]);
+  const kept = departed
+    .map((d) => (d.absent || online.has(d.id) ? d : { ...d, absent: true }))
+    .filter((d) => !(d.absent && online.has(d.id)));
+  if (kept.length !== departed.length || kept.some((d, i) => d !== departed[i])) setDeparted(kept);
+  // The seat being launched: still in the row, holding its gap open, but not
+  // drawn — its clone is the thing in flight.
+  const [flying, setFlying] = useState<string | null>(null);
+  const onTable =
+    kept.length > 0 ? seated.filter((p) => !kept.some((d) => d.id === p.userId)) : seated;
+
+  const { votedCount, canVote, voted } = voteTally(onTable, online, votedUserIds, votes);
 
   // Which rendered rank each seat landed in. Measured rather than derived:
   // how many seats fit a rank depends on the viewport and on whether the
@@ -261,7 +312,7 @@ export function Table({
   const [rows, setRows] = useState<number[]>([]);
   const reduced =
     typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const celebrate = consensus && revealed && rows.length === seated.length && !reduced;
+  const celebrate = consensus && revealed && rows.length === onTable.length && !reduced;
 
   // Near-unanimity is the moment a room most wants a reaction and the one the
   // table used to answer with silence. Consensus and near-consensus are
@@ -269,7 +320,7 @@ export function Table({
   const pileOnRef = useRef<HTMLDivElement>(null);
   const outlier = revealed
     ? pileOnOutlier(
-        seated.flatMap((p) => {
+        onTable.flatMap((p) => {
           const value = votes.get(p.userId);
           return value === undefined ? [] : [{ userId: p.userId, value }];
         }),
@@ -289,7 +340,46 @@ export function Table({
     const geometry = measurePileOn({ layer, throwers, target, emojiRadius: EMOJI_RADIUS });
     if (!geometry) return;
     return playPileOn(layer, planPileOn(geometry));
-  }, [outlier, reduced, seated.length]);
+  }, [outlier, reduced, onTable.length]);
+
+  // The kick. Everything is solved before a node exists, and the row is gated
+  // on the launch's exit rather than on the contact: at contact the seat is
+  // only hidden, so its gap is held open under the thing the eye is following.
+  // Its own overlay, never the pile-on's — either teardown empties the layer
+  // it owns, and one shared layer would strand whichever animation was second.
+  const kickRef = useRef<HTMLDivElement>(null);
+  const kickSeq = kicked?.seq ?? 0;
+  const victim = kicked?.userId ?? null;
+  useEffect(() => {
+    const layer = kickRef.current;
+    if (!layer || !victim) return;
+    // A removal nobody can animate is still a removal.
+    const close = () =>
+      setDeparted((d) => (d.some((x) => x.id === victim) ? d : [...d, { id: victim, absent: false }]));
+    const seat = layer.parentElement?.querySelector<HTMLElement>(
+      `[data-seat-user="${CSS.escape(victim)}"]`,
+    );
+    const avatar = seat?.querySelector("[data-avatar]");
+    if (reduced || !seat || !avatar) {
+      close();
+      return;
+    }
+    const plan = planKick(measureKick({ layer, seat, avatar, bootPx: BOOT_PX }));
+    // Null where there is no arc to swing through. The glyph is never created,
+    // so there is nothing left standing on the felt.
+    if (!plan) {
+      close();
+      return;
+    }
+    return playKick(layer, plan, seat, {
+      onContact: () => setFlying(victim),
+      onExit: () => {
+        setFlying(null);
+        close();
+      },
+    });
+    // Keyed on the sequence number: the same person removed twice is two kicks.
+  }, [kickSeq, victim, reduced]);
 
   useLayoutEffect(() => {
     const el = ranksRef.current;
@@ -299,20 +389,17 @@ export function Table({
     const tops = Array.from(el.children, (c) => (c as HTMLElement).offsetTop);
     const order = [...new Set(tops)].sort((x, y) => x - y);
     setRows(tops.map((t) => order.indexOf(t)));
-  }, [seated.length, revealed]);
+  }, [onTable.length, revealed]);
 
   const plan = planCelebration(rows, celebrate);
 
-  // Someone joining mid-meeting used to simply exist, one frame after they did
-  // not. `online` is env.presence, which is the only join signal there is.
-  const { joined } = useRosterDelta([...online], status);
   // Held in a ref rather than state: the animation string has to survive every
   // later websocket frame untouched, or React rewrites it and restarts the
   // fall halfway down. Nothing schedules a timer to clean these up — a
   // finished CSS animation costs nothing, and the map is bounded by the roster.
   const dropsRef = useRef(new Map<string, CSSProperties>());
   if (!reduced && joined.length > 0) {
-    for (const d of planDropIn({ joined, seatCount: seated.length, revealed })) {
+    for (const d of planDropIn({ joined, seatCount: onTable.length, revealed })) {
       dropsRef.current.set(d.userId, {
         "--drop-d": `${d.distancePx}px`,
         animation: `seat-drop ${Math.round(d.durationMs)}ms linear ${Math.round(d.delayMs)}ms both`,
@@ -320,7 +407,7 @@ export function Table({
     }
   }
   for (const id of dropsRef.current.keys()) {
-    if (!seated.some((p) => p.userId === id)) dropsRef.current.delete(id);
+    if (!onTable.some((p) => p.userId === id)) dropsRef.current.delete(id);
   }
 
   // FLIP, every render: the row has already re-laid-out by the time this runs,
@@ -390,7 +477,7 @@ export function Table({
           data-testid="seat-ranks"
           className="mx-auto flex flex-wrap items-start justify-center gap-x-3 gap-y-9"
         >
-          {seated.map((p, i) => {
+          {onTable.map((p, i) => {
             const away = !online.has(p.userId);
             const state = revealed ? "face" : voted.has(p.userId) ? "back" : away ? "away" : "empty";
             const five = plan[i] ?? { burst: false, beat: 0, pair: 0 };
@@ -398,9 +485,28 @@ export function Table({
               <div
                 key={p.userId}
                 data-seat-user={p.userId}
-                className="relative flex w-[74px] shrink-0 flex-col items-center gap-2.5"
-                style={dropsRef.current.get(p.userId)}
+                className="group/seat relative flex w-[74px] shrink-0 flex-col items-center gap-2.5"
+                style={
+                  p.userId === flying
+                    ? { ...dropsRef.current.get(p.userId), visibility: "hidden" }
+                    : dropsRef.current.get(p.userId)
+                }
               >
+                {onRemove && p.userId !== meId && (
+                  // The control, not the decision: it is rendered only where
+                  // PokerRoom passes a handler, and the server checks the role
+                  // again on the way in.
+                  <button
+                    type="button"
+                    aria-label={`Remove ${safeDisplayName(p.name)}`}
+                    onClick={() => onRemove(p)}
+                    // Faint but always there rather than hover-only: a control that
+                    // exists only under a pointer does not exist on a tablet.
+                    className="absolute -right-1 -top-1 z-[5] flex h-5 w-5 items-center justify-center rounded-full border border-line bg-surface text-[11px] font-bold leading-none text-ink-faint opacity-60 shadow-rest transition hover:text-stop hover:opacity-100 focus-visible:opacity-100"
+                  >
+                    <span aria-hidden>×</span>
+                  </button>
+                )}
                 <span className="block" data-avatar style={{ animation: five.animation }}>
                   <Avatar
                     name={p.name}
@@ -482,6 +588,16 @@ export function Table({
           aria-hidden
           data-testid="pileon-layer"
           className="pointer-events-none absolute inset-0 z-[4] overflow-visible"
+        />
+
+        {/* The boot and the seat it launches. Its own layer, above the throws:
+            a kick landing mid-pile-on empties this one when it is done and
+            leaves the other's emoji in flight. */}
+        <div
+          ref={kickRef}
+          aria-hidden
+          data-testid="kick-layer"
+          className="pointer-events-none absolute inset-0 z-[6] overflow-visible"
         />
       </div>
 

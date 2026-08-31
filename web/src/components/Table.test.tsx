@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { Table, faceOf, celebrationBeats, planCelebration } from "./Table";
 import { PILE_ON_EMOJI } from "../lib/motion";
 import { makePerson } from "../test/render";
@@ -692,5 +692,205 @@ describe("Table drop-in", () => {
     arrive(["dana", "marcus"], { status: "reconnecting" as const });
     arrive(three, { status: "live" as const });
     for (const id of three) expect(seatEl(id).style.animation).toBe("");
+  });
+});
+
+describe("the kick", () => {
+  const seatedTrio = [dana, marcus, priya];
+
+  /** Layout, which jsdom has none of: enough for the boot to have somewhere to swing. */
+  function withLayout() {
+    const rect = (el: Element): DOMRect => {
+      const seat = el.closest?.("[data-seat-user]") as HTMLElement | null;
+      const i = seat ? seatedTrio.findIndex((p) => p.userId === seat.dataset.seatUser) : -1;
+      const left = 300 + Math.max(0, i) * 86;
+      const box =
+        el.hasAttribute?.("data-avatar") || el.querySelector?.("[data-avatar]") === null
+          ? { left: left + 13, top: 210, width: 48, height: 48 }
+          : { left, top: 200, width: 74, height: 150 };
+      if ((el as HTMLElement).dataset?.testid === "kick-layer" || el === document.body) {
+        return { left: 0, top: 100, width: 1280, height: 400, right: 1280, bottom: 500, x: 0, y: 100, toJSON: () => ({}) } as DOMRect;
+      }
+      return {
+        ...box,
+        right: box.left + box.width,
+        bottom: box.top + box.height,
+        x: box.left,
+        y: box.top,
+        toJSON: () => ({}),
+      } as DOMRect;
+    };
+    return vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: Element,
+    ) {
+      return rect(this);
+    });
+  }
+
+  function kickable(over: Partial<Parameters<typeof Table>[0]> = {}) {
+    const ui = (kicked: { userId: string; seq: number } | null) => (
+      <Table
+        seated={seatedTrio}
+        spectators={[]}
+        online={new Set(["dana", "marcus", "priya"])}
+        votedUserIds={[]}
+        votes={new Map()}
+        revealed={false}
+        consensus={false}
+        facilitatorId="dana"
+        meId="dana"
+        kicked={kicked}
+        {...over}
+      />
+    );
+    const r = render(ui(null));
+    return { ...r, boot: () => r.rerender(ui({ userId: "priya", seq: 1 })) };
+  }
+
+  const layer = () => screen.getByTestId("kick-layer");
+  const seatOf = (id: string) => document.querySelector(`[data-seat-user="${id}"]`);
+
+  it("offers a remove control on every seat but your own, only when it is given one", () => {
+    render(
+      <Table
+        seated={seatedTrio}
+        spectators={[]}
+        online={new Set(["dana", "marcus", "priya"])}
+        votedUserIds={[]}
+        votes={new Map()}
+        revealed={false}
+        consensus={false}
+        facilitatorId="dana"
+        meId="dana"
+        onRemove={() => {}}
+      />,
+    );
+    expect(screen.getAllByRole("button", { name: /^Remove / })).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Remove Dana Whitfield" })).toBeNull();
+  });
+
+  it("offers none at all without one", () => {
+    kickable();
+    expect(screen.queryAllByRole("button", { name: /^Remove / })).toHaveLength(0);
+  });
+
+  it("holds the seat in the row until the launch is off screen, then closes it", () => {
+    vi.useFakeTimers();
+    const rects = withLayout();
+    try {
+      const { boot } = kickable();
+      boot();
+      // The boot is beside the seat before anything moves, and it is the only
+      // thing in the overlay until it connects.
+      expect(layer().textContent).toContain("🥾");
+      expect(seatOf("priya")).not.toBeNull();
+
+      // Contact: the seat is cloned into the overlay and held, invisible, in
+      // the row. The row must NOT have closed.
+      act(() => vi.advanceTimersByTime(400));
+      expect(layer().querySelector("[aria-hidden='true'] .truncate")).not.toBeNull();
+      expect(seatOf("priya")).not.toBeNull();
+
+      // And once it is gone, the row closes.
+      act(() => vi.advanceTimersByTime(4000));
+      expect(seatOf("priya")).toBeNull();
+    } finally {
+      rects.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("leaves no stray glyph when there is no geometry to swing through", () => {
+    // jsdom's own rects: every one of them zero, so the swing has no arc.
+    vi.useFakeTimers();
+    try {
+      const { boot } = kickable();
+      boot();
+      expect(layer().childElementCount).toBe(0);
+      // The row still closes — a removal nobody could animate is still a removal.
+      expect(seatOf("priya")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("removes the seat outright under prefers-reduced-motion", () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("prefers-reduced-motion"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    const rects = withLayout();
+    const raf = vi.spyOn(globalThis, "requestAnimationFrame");
+    try {
+      const { boot } = kickable();
+      boot();
+      expect(seatOf("priya")).toBeNull();
+      expect(layer().childElementCount).toBe(0);
+      expect(raf).not.toHaveBeenCalled();
+    } finally {
+      rects.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  // Observed in a browser: the roster delta holds its last value while
+  // nothing changes, so pruning the departed against `joined` put a seat that
+  // had joined a moment earlier straight back into the row the instant it was
+  // kicked.
+  it("stays gone when the same person had only just joined", () => {
+    const ui = (online: string[], kicked: { userId: string; seq: number } | null) => (
+      <Table
+        seated={seatedTrio}
+        spectators={[]}
+        online={new Set(online)}
+        votedUserIds={[]}
+        votes={new Map()}
+        revealed={false}
+        consensus={false}
+        facilitatorId="dana"
+        meId="dana"
+        kicked={kicked}
+      />
+    );
+    const r = render(ui(["dana", "marcus"], null));
+    r.rerender(ui(["dana", "marcus", "priya"], null)); // priya arrives
+    r.rerender(ui(["dana", "marcus", "priya"], { userId: "priya", seq: 1 }));
+    expect(seatOf("priya")).toBeNull();
+    // And a frame that changes nothing must not bring her back either.
+    r.rerender(ui(["dana", "marcus"], { userId: "priya", seq: 1 }));
+    expect(seatOf("priya")).toBeNull();
+  });
+
+  it("gives the seat back when they come around again", () => {
+    const ui = (online: string[], kicked: { userId: string; seq: number } | null) => (
+      <Table
+        seated={seatedTrio}
+        spectators={[]}
+        online={new Set(online)}
+        votedUserIds={[]}
+        votes={new Map()}
+        revealed={false}
+        consensus={false}
+        facilitatorId="dana"
+        meId="dana"
+        kicked={kicked}
+      />
+    );
+    const r = render(ui(["dana", "marcus", "priya"], null));
+    r.rerender(ui(["dana", "marcus", "priya"], { userId: "priya", seq: 1 }));
+    expect(seatOf("priya")).toBeNull();
+    r.rerender(ui(["dana", "marcus"], { userId: "priya", seq: 1 })); // presence catches up
+    expect(seatOf("priya")).toBeNull();
+    r.rerender(ui(["dana", "marcus", "priya"], { userId: "priya", seq: 1 })); // she walks back in
+    expect(seatOf("priya")).not.toBeNull();
+  });
+
+  it("keeps the pile-on's overlay to itself", () => {
+    // Two layers, not one: a kick landing mid-pile-on tears down its own
+    // overlay when it is done, and must not empty the other's.
+    kickable();
+    expect(screen.getByTestId("pileon-layer")).not.toBe(screen.getByTestId("kick-layer"));
   });
 });

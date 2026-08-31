@@ -11,6 +11,8 @@ import {
   planPileOn,
   revealSettledAt,
   staggerFor,
+  KICK_REFLOW_MS,
+  planKick,
 } from "./plan";
 
 const ballots = (values: string[]) => values.map((value, i) => ({ userId: `u${i}`, value }));
@@ -175,5 +177,54 @@ describe("planDropIn", () => {
 
   it("plans nothing for nobody", () => {
     expect(planDropIn({ joined: [], seatCount: 3, revealed: false })).toEqual([]);
+  });
+});
+
+describe("planKick", () => {
+  const geometry = () => ({
+    avatar: { center: { x: 400, y: 120 }, radius: 24 },
+    seat: { x: 363, y: 96, width: 74, height: 150 },
+    bootRadius: 26,
+    bounds: {
+      box: { width: 74, height: 150 },
+      viewport: { width: 1280, height: 800 },
+      offset: { x: 100, y: 200 },
+    },
+  });
+
+  it("swings in from beside the seat and is rising when it lands", () => {
+    const plan = planKick(geometry())!;
+    expect(plan).not.toBeNull();
+    const m = plan.boot.metrics;
+    expect(m.closest).toBeLessThanOrEqual(m.hitRadius);
+    expect(m.dip).toBeGreaterThan(0);
+    expect(m.riseAfterDip).toBeGreaterThan(0);
+    expect(m.startOffsetX).toBeGreaterThanOrEqual(150);
+    expect(plan.boot.velocity.x).toBeLessThan(0);
+    expect(plan.boot.velocity.y).toBeLessThan(0);
+  });
+
+  it("sends the seat up and to the left, and off the screen", () => {
+    const plan = planKick(geometry())!;
+    expect(plan.velocity.x).toBeLessThan(0);
+    expect(plan.velocity.y).toBeLessThan(0);
+    expect(plan.exitMs).toBeGreaterThan(plan.impactMs);
+    // It really leaves rather than running out the cap and dissolving.
+    expect(plan.launch.frames.every((f) => f.opacity === 1)).toBe(true);
+  });
+
+  it("closes the row only once the seat is gone, and tears down after that", () => {
+    const plan = planKick(geometry())!;
+    expect(plan.exitMs).toBeGreaterThan(plan.impactMs);
+    expect(plan.endMs).toBeGreaterThanOrEqual(plan.exitMs + KICK_REFLOW_MS);
+  });
+
+  it("is null for geometry there is nothing to swing at", () => {
+    // What an unmeasurable seat actually looks like: every rect zero, which is
+    // also every rect a test environment with no layout returns.
+    const g = geometry();
+    expect(planKick({ ...g, avatar: { ...g.avatar, radius: 0 } })).toBeNull();
+    expect(planKick({ ...g, bootRadius: 0 })).toBeNull();
+    expect(planKick({ ...g, seat: { ...g.seat, width: 0, height: 0 } })).toBeNull();
   });
 });

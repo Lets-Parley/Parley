@@ -11,6 +11,9 @@ import {
   simulateThrow,
   solveContact,
   solveThrow,
+  BOOT_TIP_SPEED,
+  simulateLaunch,
+  swingBoot,
 } from "./physics";
 
 describe("projectileAt", () => {
@@ -246,5 +249,101 @@ describe("dropBounce", () => {
     const hop = body.slice(body.indexOf(contact![0]) + contact![0].length);
     const stops = [...hop.matchAll(/\* (-?[\d.]+)\)/g)].map((m) => Number(m[1]));
     expect(Math.min(...stops)).toBeCloseTo(-(DROP_RESTITUTION ** 2), 6);
+  });
+});
+
+describe("swingBoot", () => {
+  // The geometry the kick's call site solves: the boot waits to the right of
+  // the avatar and swings in on a circle whose pivot is above the chord.
+  const avatar = { x: 400, y: 300 };
+  const geometry = (target = avatar, avatarR = 24, bootR = 26) => {
+    const hitRadius = avatarR + bootR * 0.72;
+    const contactCx = target.x + hitRadius;
+    const startCx = contactCx + Math.max(150, avatarR * 6);
+    const halfChord = (startCx - contactCx) / 2;
+    const lift = Math.max(70, halfChord * 1.6);
+    return {
+      pivot: { x: (startCx + contactCx) / 2, y: target.y - lift },
+      radius: Math.hypot(halfChord, lift),
+      startAngle: Math.atan2(halfChord, lift),
+      target,
+      hitRadius,
+    };
+  };
+
+  it("reaches the avatar, dipping first and rising into the contact", () => {
+    const g = geometry();
+    const swing = swingBoot({ ...g, angularSpeed: BOOT_TIP_SPEED / g.radius });
+    expect(swing).not.toBeNull();
+    const m = swing!.metrics;
+    expect(m.closest).toBeLessThanOrEqual(m.hitRadius);
+    expect(m.dip).toBeGreaterThan(0);
+    expect(m.riseAfterDip).toBeGreaterThan(0);
+    expect(m.startOffsetX).toBeGreaterThanOrEqual(150);
+  });
+
+  it("hands the seat a velocity that is up and to the left", () => {
+    const g = geometry();
+    const swing = swingBoot({ ...g, angularSpeed: BOOT_TIP_SPEED / g.radius })!;
+    expect(swing.velocity.x).toBeLessThan(0);
+    expect(swing.velocity.y).toBeLessThan(0);
+  });
+
+  it("returns null for geometry it cannot reach", () => {
+    const g = geometry();
+    // A target the arc never passes through: the disc is far below the circle.
+    expect(swingBoot({ ...g, target: { x: g.target.x, y: g.target.y + 4000 } })).toBeNull();
+    // And a boot with no push at all never gets there inside the window.
+    expect(swingBoot({ ...g, angularSpeed: 0, startAngle: 0.0001 })).toBeNull();
+  });
+
+  it("keeps swinging past the contact rather than stopping on it", () => {
+    const g = geometry();
+    const swing = swingBoot({ ...g, angularSpeed: BOOT_TIP_SPEED / g.radius })!;
+    expect(swing.durationMs).toBeGreaterThan(swing.impactMs);
+    expect(swing.frames[swing.frames.length - 1].offset).toBeCloseTo(1, 6);
+    // The wind-up is a hold in place, not a jump: the first two frames are
+    // the same pose.
+    expect(swing.frames[0].transform).toBe(swing.frames[1].transform);
+  });
+});
+
+describe("simulateLaunch", () => {
+  const bounds = {
+    box: { width: 74, height: 150 },
+    viewport: { width: 1280, height: 800 },
+    offset: { x: 0, y: 0 },
+  };
+
+  it("never fades a seat that leaves the screen", () => {
+    const launch = simulateLaunch({
+      p0: { x: 400, y: 300 },
+      v: { x: -1200, y: -900 },
+      bounds,
+      spin: 200,
+    });
+    expect(launch.exitMs).toBeLessThan(launch.durationMs + 1);
+    expect(launch.frames.every((f) => f.opacity === 1)).toBe(true);
+  });
+
+  it("always fades one that does not", () => {
+    // Nowhere to go: a viewport far larger than gravity can clear in the cap.
+    const launch = simulateLaunch({
+      p0: { x: 400, y: 300 },
+      v: { x: 0, y: 0 },
+      bounds: { ...bounds, viewport: { width: 100000, height: 100000 } },
+      spin: 0,
+    });
+    expect(launch.frames[launch.frames.length - 1].opacity).toBe(0);
+  });
+
+  it("is the shared gravity, not a scripted slide", () => {
+    const v = { x: -900, y: -700 };
+    const p0 = { x: 400, y: 300 };
+    const launch = simulateLaunch({ p0, v, bounds, spin: 0 });
+    const half = launch.frames[Math.floor(launch.frames.length / 2)];
+    const t = (half.offset * launch.durationMs) / 1000;
+    const want = projectileAt(p0, v, t);
+    expect(half.transform).toContain(`translate(${(want.x - p0.x).toFixed(2)}px`);
   });
 });

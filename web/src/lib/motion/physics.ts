@@ -227,3 +227,250 @@ export function dropBounce(
     apex: restitution * restitution * d,
   };
 }
+
+/**
+ * How fast the boot's tip is travelling when it lands, in px/s. It is an
+ * initial push, not a speed the arc is forced to hold — gravity takes it from
+ * there, which is why the dip and the rise have the shape they do.
+ */
+export const BOOT_TIP_SPEED = 1600;
+/** How much of the boot's contact speed the seat takes: it is the light body. */
+export const KICK_TRANSFER = 0.95;
+/** The boot stands beside the seat this long before it moves, so it is seen. */
+export const BOOT_WINDUP_MS = 200;
+/** And keeps swinging this long after, minus what it gave away. */
+export const BOOT_FOLLOW_MS = 220;
+/** A boot that has not reached the avatar by now never will. */
+const SWING_CAP_S = 1.2;
+/** A launched seat is cut loose after this long even if it is still on screen. */
+const LAUNCH_CAP_MS = 1400;
+
+export type BootSwing = {
+  frames: Frame[];
+  durationMs: number;
+  impactMs: number;
+  hit: Vec;
+  velocity: Vec;
+  origin: Vec;
+  /** Evidence the motion is real rather than plausible; asserted in the tests. */
+  metrics: {
+    dip: number;
+    riseAfterDip: number;
+    closest: number;
+    hitRadius: number;
+    startOffsetX: number;
+  };
+};
+
+/**
+ * A driven pendulum whose arc passes through both the boot's rest spot and the
+ * avatar's edge.
+ *
+ * The pivot sits above the chord between the two, so the low point of the
+ * circle falls between them: the boot dips on the way across and is *rising*
+ * when it lands. That is what keeps the contact flat, and a flat contact is
+ * what sends the seat sideways instead of lobbing it straight up.
+ *
+ * Integrated rather than closed-form because a'' = -(G/L)·sin a has no
+ * elementary solution — this is the one curve in the module gravity cannot be
+ * solved through — but the contact is still *solved*, by bisecting the
+ * bracketing samples, not merely timed. Null when the arc never reaches the
+ * disc: a caller that cannot swing must draw nothing rather than a boot that
+ * misses.
+ */
+export function swingBoot({
+  pivot,
+  radius,
+  startAngle,
+  angularSpeed = BOOT_TIP_SPEED / radius,
+  target,
+  hitRadius,
+  // The boot's glyph points right at rest and is mirrored, which flips the
+  // sense of rotation — hence the negated angle.
+  pose = (deg: number) => `rotate(${(-deg).toFixed(1)}deg) scaleX(-1)`,
+  windupMs = BOOT_WINDUP_MS,
+  followMs = BOOT_FOLLOW_MS,
+  transfer = KICK_TRANSFER,
+}: {
+  pivot: Vec;
+  radius: number;
+  startAngle: number;
+  angularSpeed?: number;
+  target: Vec;
+  hitRadius: number;
+  pose?: (deg: number) => string;
+  windupMs?: number;
+  followMs?: number;
+  transfer?: number;
+}): BootSwing | null {
+  const dt = SAMPLE_S;
+  const posAt = (a: number): Vec => ({
+    x: pivot.x + radius * Math.sin(a),
+    y: pivot.y + radius * Math.cos(a),
+  });
+  const gapAt = (a: number) => {
+    const p = posAt(a);
+    return Math.hypot(p.x - target.x, p.y - target.y) - hitRadius;
+  };
+
+  // Semi-implicit Euler on a'' = -(G/L)·sin a. Gravity shapes the timing; the
+  // initial push sets how hard it arrives.
+  const samples: { t: number; a: number }[] = [{ t: 0, a: startAngle }];
+  let a = startAngle;
+  let w = -angularSpeed;
+  let contact: { t: number; a: number; w: number } | null = null;
+  for (let step = 1; step * dt <= SWING_CAP_S; step++) {
+    const prev = { a, w };
+    w += -(GRAVITY / radius) * Math.sin(a) * dt;
+    a += w * dt;
+    const t = step * dt;
+    samples.push({ t, a });
+    if (gapAt(a) <= 0) {
+      // Bisect on the interpolated state between the bracketing samples, so
+      // the strike lands ON the disc rather than a frame inside it.
+      let lo = 0;
+      let hi = 1;
+      for (let i = 0; i < 24; i++) {
+        const mid = (lo + hi) / 2;
+        if (gapAt(prev.a + (a - prev.a) * mid) <= 0) hi = mid;
+        else lo = mid;
+      }
+      contact = {
+        t: (step - 1) * dt + hi * dt,
+        a: prev.a + (a - prev.a) * hi,
+        w: prev.w + (w - prev.w) * hi,
+      };
+      samples[samples.length - 1] = { t: contact.t, a: contact.a };
+      break;
+    }
+  }
+  if (!contact) return null;
+
+  const hit = posAt(contact.a);
+  // Tangential velocity: d/dt of the arc, which points up and to the left
+  // exactly because the boot is on its way back up.
+  const velocity = {
+    x: radius * contact.w * Math.cos(contact.a),
+    y: -radius * contact.w * Math.sin(contact.a),
+  };
+
+  // Follow-through: it keeps swinging, minus what it gave away. Nothing is
+  // ever frozen on the contact point and dissolved.
+  let fa = contact.a;
+  let fw = contact.w * (1 - transfer);
+  const follow: { t: number; a: number }[] = [];
+  for (let t = contact.t + dt; t <= contact.t + followMs / 1000; t += dt) {
+    fw += -(GRAVITY / radius) * Math.sin(fa) * dt;
+    fa += fw * dt;
+    follow.push({ t, a: fa });
+  }
+
+  // A wind-up hold in front, so the boot is seen where it stands before the
+  // swing — which at this speed is only a handful of frames.
+  const lead = windupMs / 1000;
+  const timeline = [
+    { t: 0, a: startAngle },
+    ...[...samples, ...follow].map((s) => ({ t: s.t + lead, a: s.a })),
+  ];
+  const totalMs = timeline[timeline.length - 1].t * 1000;
+  const origin = posAt(startAngle);
+  const contactT = contact.t + lead;
+  const frameAt = (ang: number) => {
+    const p = posAt(ang);
+    return `translate(${(p.x - origin.x).toFixed(2)}px, ${(p.y - origin.y).toFixed(2)}px) ${pose((ang * 180) / Math.PI)}`;
+  };
+  const frames: Frame[] = timeline.map(({ t, a: ang }) => {
+    const after = t > contactT ? (t - contactT) / (followMs / 1000) : 0;
+    return {
+      offset: Math.min(1, Math.max(0, (t * 1000) / totalMs)),
+      transform: frameAt(ang),
+      // The boot leaves as it came, on its own arc — the opacity only runs
+      // while it is already swinging away.
+      opacity: Math.max(0, 1 - after),
+    };
+  });
+
+  let dip = 0;
+  let closest = Infinity;
+  for (const { t, a: ang } of samples) {
+    if (t > contact.t) continue;
+    const p = posAt(ang);
+    dip = Math.max(dip, p.y - origin.y);
+    closest = Math.min(closest, Math.hypot(p.x - target.x, p.y - target.y));
+  }
+
+  return {
+    frames,
+    durationMs: totalMs,
+    impactMs: contactT * 1000,
+    hit,
+    velocity,
+    origin,
+    metrics: {
+      dip,
+      riseAfterDip: dip - (hit.y - origin.y),
+      closest,
+      hitRadius,
+      // How far to one side the glyph waits: an arc, not a straight drop.
+      startOffsetX: Math.abs(origin.x - target.x),
+    },
+  };
+}
+
+/**
+ * The kicked seat: one launch, the shared gravity, no bounce.
+ *
+ * Reports the moment it is fully off screen, which is what the row waits for —
+ * tested against the seat's circumscribing circle, because a tumbling box
+ * sweeps wider than its own width and the row must not start closing while a
+ * corner is still visible. Only a launch that never leaves is faded; one that
+ * goes is simulated all the way out at full opacity.
+ */
+export function simulateLaunch({
+  p0,
+  v,
+  bounds,
+  spin,
+}: {
+  p0: Vec;
+  v: Vec;
+  bounds: Bounds;
+  spin: number;
+}): { frames: Frame[]; durationMs: number; exitMs: number } {
+  const gone = offScreenTest(bounds);
+  const path: { t: number; transform: string }[] = [];
+  let exitMs: number | null = null;
+  for (let t = 0; t <= LAUNCH_CAP_MS / 1000; t += SAMPLE_S) {
+    const p = projectileAt(p0, v, t);
+    path.push({
+      t,
+      transform: `translate(${(p.x - p0.x).toFixed(2)}px, ${(p.y - p0.y).toFixed(2)}px) rotate(${(spin * t).toFixed(1)}deg)`,
+    });
+    if (gone(p)) {
+      exitMs = t * 1000;
+      break;
+    }
+  }
+
+  const durationMs = exitMs ?? LAUNCH_CAP_MS;
+  // A seat that never leaves has to end somewhere, and the sampled path stops
+  // one step short of the cap. The last frame is the real position at the cap,
+  // fully dissolved — the only fade in this whole animation.
+  if (exitMs === null) {
+    const p = projectileAt(p0, v, durationMs / 1000);
+    path.push({
+      t: durationMs / 1000,
+      transform: `translate(${(p.x - p0.x).toFixed(2)}px, ${(p.y - p0.y).toFixed(2)}px) rotate(${((spin * durationMs) / 1000).toFixed(1)}deg)`,
+    });
+  }
+  const fadeFrom = exitMs === null ? Math.max(0, durationMs - FADE_MS) : Infinity;
+  const frames = path.map(({ t, transform }) => ({
+    offset: Math.min(1, Math.max(0, (t * 1000) / durationMs)),
+    transform,
+    opacity:
+      t * 1000 <= fadeFrom
+        ? 1
+        : Math.max(0, 1 - (t * 1000 - fadeFrom) / Math.max(1, durationMs - fadeFrom)),
+  }));
+  return { frames, durationMs, exitMs: exitMs ?? durationMs };
+}

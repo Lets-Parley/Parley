@@ -328,6 +328,10 @@ func (a *app) handleRemoveParticipant(w http.ResponseWriter, r *http.Request) {
 
 	a.hub.DisconnectSessionMember(sess.ID, target, body.Message)
 	a.notifyParticipantRemoved(r.Context(), sess.ID, target, body.Message)
+	// The room is told a removal happened, separately from the new roster: the
+	// envelope shows who is present, never who has just stopped being, and the
+	// two look identical to a client that only diffs presence.
+	a.broadcastKick(sess.ID, target)
 	// Belt and braces: dropping the connection above already fires
 	// OnPresenceChange, which broadcasts the new envelope on its own, so this
 	// is not the only path to it. It stays for the case where the person held

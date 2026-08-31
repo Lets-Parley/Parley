@@ -14,7 +14,7 @@ import { Table, faceOf } from "../components/Table";
 import { spacePath } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
 
-export function PokerRoom({ env, me, status = "live", guest = false }: RoomProps) {
+export function PokerRoom({ env, me, status = "live", guest = false, kickReason = "", kicked = null }: RoomProps) {
   const say = useToast();
   const st = env.state;
   const isFacilitator = !guest && env.facilitatorId === me.id;
@@ -28,6 +28,9 @@ export function PokerRoom({ env, me, status = "live", guest = false }: RoomProps
   const [fail, setFail] = useState<(Fail & { where: "room" | "queue" }) | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  // Who is about to be shown the door, and what to say on the way out.
+  const [confirmRemove, setConfirmRemove] = useState<Person | null>(null);
+  const [removeMessage, setRemoveMessage] = useState("");
 
   const online = new Set(env.presence);
   const seated: Person[] = env.participants.filter((p) => !p.spectator);
@@ -92,6 +95,12 @@ export function PokerRoom({ env, me, status = "live", guest = false }: RoomProps
   const { showClaim, graceLeft } = claimState(env, isFacilitator || guest);
   const claimLeft = useCountdown(graceLeft);
   const facilitator = env.participants.find((p) => p.userId === env.facilitatorId);
+
+  // Removed from THIS room, which is not the same as losing the space — the
+  // socket said so with its own close code, and this is its own screen. It
+  // replaces the room outright: everything below it belongs to a table this
+  // person is no longer at.
+  if (status === "kicked") return <ShownTheDoor message={kickReason} env={env} guest={guest} />;
 
   return (
     <div className="flex flex-wrap items-start gap-6 p-5 sm:p-7">
@@ -341,6 +350,8 @@ export function PokerRoom({ env, me, status = "live", guest = false }: RoomProps
             meId={me.id}
             cueState={cueState}
             status={status}
+            kicked={kicked}
+            onRemove={isFacilitator && !ended ? setConfirmRemove : undefined}
           />
         ) : !ended ? (
           <EmptyTable
@@ -444,6 +455,63 @@ export function PokerRoom({ env, me, status = "live", guest = false }: RoomProps
               }}
             >
               End session
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {confirmRemove && (
+        <Modal
+          title={`Remove ${safeDisplayName(confirmRemove.name)} from the room?`}
+          onClose={() => setConfirmRemove(null)}
+        >
+          <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+            They lose their seat at this table right away. Their space membership is
+            untouched — they can be invited back into the room whenever you like.
+          </p>
+          <label className="mt-4 block text-[13px] font-semibold text-ink-soft" htmlFor="kick-message">
+            A message, if you want one (optional)
+          </label>
+          <textarea
+            id="kick-message"
+            value={removeMessage}
+            onChange={(e) => setRemoveMessage(e.target.value)}
+            /* 80 characters, not a round 100: the message rides the websocket
+               close frame, which carries 123 BYTES, and a cap in characters
+               has to leave room for the multi-byte ones. */
+            maxLength={80}
+            rows={2}
+            placeholder="Wrong room — see you in the retro"
+            className="mt-1.5 w-full resize-none rounded-chip border border-line bg-surface px-3 py-2 text-sm"
+          />
+          <p className="mt-1 text-right font-mono text-[11px] text-ink-faint">
+            {removeMessage.length}/80
+          </p>
+          <div className="mt-5 flex justify-end gap-2.5">
+            <button className={buttonQuiet} onClick={() => setConfirmRemove(null)}>
+              Keep them
+            </button>
+            <button
+              className={buttonDanger}
+              onClick={async () => {
+                const target = confirmRemove;
+                const message = removeMessage.trim();
+                setConfirmRemove(null);
+                setRemoveMessage("");
+                if (
+                  await run(() =>
+                    api(
+                      "POST",
+                      `/api/sessions/${env.id}/participants/${target.userId}/remove`,
+                      { message },
+                    ),
+                  )
+                ) {
+                  say(`${safeDisplayName(target.name)} is out of the room`);
+                }
+              }}
+            >
+              Remove from room
             </button>
           </div>
         </Modal>
@@ -567,6 +635,47 @@ export function EmptyTable({
       {actions && <div className="flex flex-wrap items-center justify-center gap-2.5">{actions}</div>}
       {footnote && (
         <p className="max-w-[400px] text-center text-xs text-ink-faint text-pretty">{footnote}</p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Where a removed person lands. Deliberately not the space-level "no access"
+ * banner: they are still a member of the space, and telling them otherwise
+ * over one round of planning poker would be both wrong and alarming. Playful
+ * on purpose — being asked to step out of a meeting is not a security event.
+ */
+function ShownTheDoor({
+  message,
+  env,
+  guest,
+}: {
+  message: string;
+  env: Envelope;
+  guest: boolean;
+}) {
+  return (
+    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-8 py-16 text-center">
+      <span aria-hidden className="text-[4rem] leading-none">
+        🥾
+      </span>
+      <h2 className="font-display text-[1.75rem]">You've been shown the door</h2>
+      <p role="status" className="max-w-[420px] text-sm text-ink-soft text-pretty">
+        The facilitator took your seat at {env.title}. You're still in the space — ask
+        them for a nudge when the table has room again.
+      </p>
+      {message && (
+        // Somebody else's words, so they are quoted rather than spoken in the
+        // product's voice.
+        <blockquote className="max-w-[420px] rounded-panel border border-line bg-surface px-5 py-3 text-sm italic text-ink-soft shadow-rest">
+          “{message}”
+        </blockquote>
+      )}
+      {!guest && (
+        <Link to={spacePath(env.orgSlug, env.spaceSlug)} className={buttonPrimary}>
+          Back to the space
+        </Link>
       )}
     </div>
   );

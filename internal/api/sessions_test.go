@@ -860,6 +860,62 @@ func waitForPresence(t *testing.T, srv *httptest.Server, sessionID, user string,
 	t.Fatalf("user %s never appeared in the presence of session %s", user, sessionID)
 }
 
+// The room learns that a removal happened, not merely that presence changed.
+// Nothing in the envelope can carry it: the roster is space membership, so the
+// removed person is still in `participants` and only stops being present —
+// which is exactly what closing a laptop looks like. Without this frame the
+// client cannot tell a boot from a dropped connection.
+func TestRoomRemovalIsAnnouncedToTheRoom(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Removal Announcement Space")
+	mel := userID(t, srv, member)
+
+	victim, _, err := dialWS(t, srv, id, member, testOrigin)
+	if err != nil {
+		t.Fatalf("dial victim: %v", err)
+	}
+	defer victim.Close()
+	facWS, _, err := dialWS(t, srv, id, fac, testOrigin)
+	if err != nil {
+		t.Fatalf("dial facilitator: %v", err)
+	}
+	defer facWS.Close()
+	for _, ws := range []*websocket.Conn{victim, facWS} {
+		if _, ok := readEnvelope(t, ws, 5*time.Second); !ok {
+			t.Fatal("no initial state frame")
+		}
+	}
+	waitForPresence(t, srv, id, mel, fac)
+
+	if resp, body := removeParticipant(t, srv, id, mel, `{}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("remove: got %d %v, want 204", resp.StatusCode, body)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if time.Now().After(deadline) {
+			t.Fatal("the room was never told who was removed")
+		}
+		frame, ok := readEnvelope(t, facWS, 2*time.Second)
+		if !ok {
+			t.Fatal("the room was never told who was removed")
+		}
+		kick, ok := frame["kick"].(map[string]any)
+		if !ok {
+			continue // an ordinary envelope; the announcement is behind it
+		}
+		if kick["userId"] != mel {
+			t.Fatalf("kick frame named %v, want %s", kick["userId"], mel)
+		}
+		// The message is for the person who was removed and rides their close
+		// frame. It must not be handed to everybody still in the room.
+		if _, leaked := kick["message"]; leaked {
+			t.Fatal("the kick frame carried the facilitator's message to the whole room")
+		}
+		return
+	}
+}
+
 func TestFacilitatorRemovesParticipantFromTheRoom(t *testing.T) {
 	srv := testServer(t)
 	fac, member, id := setupSession(t, srv, "Removal Space")

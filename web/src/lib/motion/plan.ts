@@ -1,4 +1,14 @@
-import { dropBounce, simulateThrow, type Bounds, type Frame, type Vec } from "./physics";
+import {
+  KICK_TRANSFER,
+  dropBounce,
+  simulateLaunch,
+  simulateThrow,
+  swingBoot,
+  type BootSwing,
+  type Bounds,
+  type Frame,
+  type Vec,
+} from "./physics";
 
 /**
  * Playfully cross and classic heckling, never mocking — this fires
@@ -246,4 +256,91 @@ export function planDropIn({
       distancePx,
     };
   });
+}
+
+/** How long the row takes to close once the kicked seat has left. */
+export const KICK_REFLOW_MS = 420;
+/** A beat of air after the reflow before the overlay is emptied. */
+const KICK_TEARDOWN_MS = 120;
+
+export type KickGeometry = {
+  /** The victim's avatar, in the overlay's own coordinates. */
+  avatar: Disc;
+  /** The victim's whole seat, in the same coordinates. */
+  seat: { x: number; y: number; width: number; height: number };
+  bootRadius: number;
+  /** What the seat has to get past before the row may close. */
+  bounds: Bounds;
+};
+
+export type KickPlan = {
+  boot: BootSwing;
+  launch: { frames: Frame[]; durationMs: number; exitMs: number };
+  /** Where the seat's clone starts, in the overlay's coordinates. */
+  seatX: number;
+  seatY: number;
+  velocity: Vec;
+  spin: number;
+  /** The boot connects: the seat is handed its velocity and starts to travel. */
+  impactMs: number;
+  /** The seat is fully gone. The row closes here and not a frame earlier. */
+  exitMs: number;
+  /** Everything is over and the overlay can be emptied. */
+  endMs: number;
+};
+
+/**
+ * The whole kick, solved before a single node is created.
+ *
+ * The boot waits to the RIGHT of its target and swings left, which is a
+ * deliberate cost rather than an oversight: for a seat near the right edge it
+ * rests over its neighbour, and that is the price of "appears beside the
+ * avatar". Time-to-reflow depends on how far the seat has to travel to leave
+ * the viewport, so a seat on the right takes noticeably longer than one on the
+ * left — correct, not a timing bug, and neither is pinned to a constant.
+ *
+ * Null where there is nothing to swing at. Every rect is zero in an
+ * environment with no layout, and a boot solved against zeroes would be a
+ * glyph standing on the felt forever.
+ */
+export function planKick({ avatar, seat, bootRadius, bounds }: KickGeometry): KickPlan | null {
+  if (!(avatar.radius > 0) || !(bootRadius > 0) || !(seat.width > 0) || !(seat.height > 0)) {
+    return null;
+  }
+  // Contact is the avatar's right edge; the boot rests a short way further
+  // right, far enough that what the eye sees is an arc rather than a drop.
+  const hitRadius = avatar.radius + bootRadius * 0.72;
+  const contactCx = avatar.center.x + hitRadius;
+  const startCx = contactCx + Math.max(150, avatar.radius * 6);
+  const halfChord = (startCx - contactCx) / 2;
+  // A high pivot keeps the dip shallow and the contact flat, which is what
+  // sends the seat out sideways rather than lobbing it straight up.
+  const lift = Math.max(70, halfChord * 1.6);
+  const boot = swingBoot({
+    pivot: { x: (startCx + contactCx) / 2, y: avatar.center.y - lift },
+    radius: Math.hypot(halfChord, lift),
+    startAngle: Math.atan2(halfChord, lift),
+    target: avatar.center,
+    hitRadius,
+  });
+  if (!boot) return null;
+
+  // The seat inherits the boot's tangential speed at contact, which is why it
+  // always leaves up-and-left. Nothing here is a chosen vector.
+  const velocity = { x: boot.velocity.x * KICK_TRANSFER, y: boot.velocity.y * KICK_TRANSFER };
+  const spin = (velocity.x / 40) * -1;
+  const launch = simulateLaunch({ p0: { x: seat.x, y: seat.y }, v: velocity, bounds, spin });
+  const impactMs = boot.impactMs;
+  const exitMs = impactMs + launch.exitMs;
+  return {
+    boot,
+    launch,
+    seatX: seat.x,
+    seatY: seat.y,
+    velocity,
+    spin,
+    impactMs,
+    exitMs,
+    endMs: Math.max(boot.durationMs, exitMs + KICK_REFLOW_MS + KICK_TEARDOWN_MS),
+  };
 }
