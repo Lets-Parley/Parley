@@ -218,6 +218,7 @@ client.
 | `IDENTITY_GLOBAL_HOURLY_LIMIT` | no | `500` | Open-mode identity creations across the instance per hour |
 | `SPACE_LIMIT_PER_IDENTITY` | no | `50` | Spaces an identity may create |
 | `SESSION_LIMIT_PER_SPACE` | no | `500` | Sessions a space may contain |
+| `DECK_LIMIT_PER_SPACE` | no | `20` | Saved card decks a space may keep |
 | `STORY_LIMIT_PER_SESSION` | no | `500` | Stories a planning-poker session may contain |
 | `LINK_LIMIT_PER_SESSION` | no | `20` | Live signed links a room may hold at once |
 | `LINK_REDEMPTION_IP_HOURLY_LIMIT` | no | `50` | Signed-link redemptions per verified client address per hour, budgeted separately from open-mode identity creation |
