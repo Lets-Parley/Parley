@@ -178,6 +178,79 @@ func TestJoinKeepsFacilitatorWhenOverCap(t *testing.T) {
 // a reveal. If the presence clear did not share the transaction's fate, a
 // failure after the prune would leave the round altered — possibly revealed —
 // for somebody still fully connected, and no retry could undo it.
+// GoneTx clears one row: this session, this user, this replica. Each predicate
+// is load-bearing on its own — a missing session_id would eject somebody from
+// every room at once, and a missing replica_id would delete a row another
+// replica owns and is responsible for clearing.
+func TestGoneTxClearsOnlyItsOwnSessionUserAndReplica(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	sp, u := newSpaceWithCreator(t, pool)
+	other, _ := newUser(t, pool, "Other")
+	sessions := &Sessions{Pool: pool}
+	a, err := sessions.Create(ctx, sp.ID, "poker", "Room A", []byte(`{"deck":"fibonacci"}`), u.ID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := sessions.Create(ctx, sp.ID, "poker", "Room B", []byte(`{"deck":"fibonacci"}`), u.ID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r1 := &Presence{Pool: pool, ReplicaID: "r1", Window: time.Minute}
+	r2 := &Presence{Pool: pool, ReplicaID: "r2", Window: time.Minute}
+	// The row to clear, plus one differing in each predicate.
+	for _, seed := range []struct {
+		p       *Presence
+		session string
+		user    string
+	}{
+		{r1, a.ID, u.ID},     // the target
+		{r1, b.ID, u.ID},     // same user and replica, another room
+		{r1, a.ID, other.ID}, // same room and replica, another person
+		{r2, a.ID, u.ID},     // same room and person, another replica
+	} {
+		if err := seed.p.Seen(ctx, seed.session, seed.user); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r1.GoneTx(ctx, tx, a.ID, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	rows := func(session, user, replica string) int {
+		t.Helper()
+		var n int
+		if err := pool.QueryRow(ctx,
+			`select count(*) from session_presence
+			 where session_id = $1 and user_id = $2 and replica_id = $3`,
+			session, user, replica).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := rows(a.ID, u.ID, "r1"); n != 0 {
+		t.Fatalf("the target row survived: %d", n)
+	}
+	if n := rows(b.ID, u.ID, "r1"); n != 1 {
+		t.Fatalf("room B lost the same person: %d rows, want 1 — the session predicate is missing", n)
+	}
+	if n := rows(a.ID, other.ID, "r1"); n != 1 {
+		t.Fatalf("another person lost their seat: %d rows, want 1 — the user predicate is missing", n)
+	}
+	if n := rows(a.ID, u.ID, "r2"); n != 1 {
+		t.Fatalf("another replica's row was deleted: %d rows, want 1 — the replica predicate is missing", n)
+	}
+}
+
 func TestGoneTxSharesTheCallersTransaction(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()

@@ -291,6 +291,13 @@ func (a *app) handleRemoveParticipant(w http.ResponseWriter, r *http.Request) {
 		connected = nil
 	}
 	connected = slices.DeleteFunc(connected, func(id string) bool { return id == target })
+	// Presence, the round prune and any auto-reveal share one transaction. Two
+	// transactions leave a window where the round has already been altered — and
+	// possibly revealed — for somebody still fully connected, and a retry cannot
+	// undo a reveal that has already fired. GoneTx's own contract is covered in
+	// internal/store; that this handler uses it rather than the pool has no
+	// regression test, because faking a mid-transaction failure from here would
+	// need a fault-injection hook on Options that nothing else wants.
 	err = a.sessions.WithActiveSession(r.Context(), sess.ID, p.UserID, false,
 		func(tx pgx.Tx, locked store.Session) error {
 			if err := a.presence.GoneTx(r.Context(), tx, locked.ID, target); err != nil {
