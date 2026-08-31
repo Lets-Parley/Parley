@@ -53,18 +53,26 @@ sit at.
 - **Story queue.** The facilitator adds work as a ticket (with a reference like
   `PLAT-412`) or as an ad-hoc line item, with optional notes, and controls its
   order and selection. Ordinary members retain their own votes.
-- **Four decks:** Fibonacci, modified Fibonacci, T-shirt sizes, and powers of
-  two. Every deck carries `?` and a coffee card.
-- **Hidden votes.** Nobody sees a value until the round opens, which happens
-  automatically once everyone at the table has voted, or when the facilitator
-  calls it.
+- **Four decks built in:** Fibonacci, modified Fibonacci, T-shirt sizes, and
+  powers of two. Every deck carries `?` and a coffee card.
+- **Decks of your own.** A space owner saves its own card sets under
+  **Settings → Decks**, and they sit beside the built-in four when a session is
+  created. A saved deck is a template — a session copies the cards, so editing
+  or deleting a deck never changes a room that is already dealing them.
+- **Hidden votes.** Nobody sees a value until the facilitator hits **Reveal**.
+  Teams that prefer the last vote to open the round turn on **auto-reveal**.
+- **Open voting** for a team that is not all in the room at once: the round
+  waits for everyone who has been in *this* room rather than only whoever is
+  connected, so somebody can vote hours later and still complete it. It never
+  reveals a round by itself — that stays auto-reveal's question.
 - **Stats that suit the deck.** Median up front, per-value counts underneath,
   average only when the deck is numeric. A T-shirt round reports mode and range
   instead of inventing a meaningless "M-and-a-half".
 - **Save the estimate:** one click writes the agreed number onto the story and
   moves the queue along.
 - **Spectators** can step back from the table and watch without holding up the
-  round. They don't count toward the auto-reveal.
+  round. They don't count toward the auto-reveal, and stepping out mid-round
+  ends the wait there and then if everyone else has already voted.
 
 ### Daily standup
 
