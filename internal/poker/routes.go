@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -266,7 +267,7 @@ func selectStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		return
 	}
 	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
-		func(tx pgx.Tx, _ store.Session) error {
+		func(tx pgx.Tx, sess store.Session) error {
 			tag, err := tx.Exec(r.Context(), `
 				update sessions set current_story_id = $2, revealed = false, version = version + 1
 				where id = $1 and exists (select 1 from stories where id = $2 and session_id = $1)`,
@@ -277,9 +278,20 @@ func selectStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 			if tag.RowsAffected() == 0 {
 				return errStoryNotInSession
 			}
-			_, err = tx.Exec(r.Context(),
-				"update stories set status = 'voting' where id = $1 and status = 'pending'", body.StoryID)
-			return err
+			if _, err := tx.Exec(r.Context(),
+				"update stories set status = 'voting' where id = $1 and status = 'pending'", body.StoryID); err != nil {
+				return err
+			}
+			var cfg Config
+			if err := json.Unmarshal(sess.Config, &cfg); err != nil {
+				return fmt.Errorf("reading poker config: %w", err)
+			}
+			if !cfg.OpenVoting {
+				return nil
+			}
+			// Inside the same transaction that put the story on the table, so
+			// the round and the set of people it waits for begin together.
+			return snapshotVoters(r.Context(), tx, sess, body.StoryID)
 		})
 	if errors.Is(err, errStoryNotInSession) {
 		http.Error(w, `{"error":"that story is not in this session"}`, http.StatusBadRequest)
@@ -407,6 +419,43 @@ func maybeAutoReveal(ctx context.Context, tx pgx.Tx, connected []string, sess st
 	if !cfg.AutoReveal {
 		return nil
 	}
+	if cfg.OpenVoting {
+		// An open round waits for the people recorded when it opened, so
+		// nobody has to be connected for the last vote to complete it. Only
+		// the "everybody expected has voted" half is required: a vote from
+		// somebody outside the snapshot — somebody who turned up after the
+		// round opened — is a bonus, and must not hold the round shut.
+		//
+		// The recorded set is intersected with the people who could still cast
+		// a vote if they wanted to. Membership can be taken away and a link can
+		// be revoked or expire after the snapshot, and the vote the round is
+		// holding out for then can never arrive: without this the round is
+		// wedged shut and auto-reveal is silently dead for it forever.
+		var complete bool
+		if err := tx.QueryRow(ctx, `
+			with expected as (
+				select rv.user_id from round_voters rv
+				where rv.story_id = $1 and (
+					exists (
+						select 1 from members m
+						where m.space_id = $2 and m.user_id = rv.user_id and not m.spectator)
+					or exists (
+						select 1 from users u
+						join session_links l on l.id = u.link_id
+						where u.id = rv.user_id and l.session_id = $3
+						and l.revoked_at is null and l.expires_at > now())
+				)
+			)
+			select exists (select 1 from expected)
+			and not exists (
+				select user_id from expected
+				except select user_id from votes where story_id = $1)`,
+			storyID, sess.SpaceID, sess.ID).Scan(&complete); err != nil || !complete {
+			return err
+		}
+		_, err := tx.Exec(ctx, "update sessions set revealed = true where id = $1 and not revealed", sess.ID)
+		return err
+	}
 	if len(connected) == 0 {
 		return nil
 	}
@@ -439,18 +488,71 @@ func maybeAutoReveal(ctx context.Context, tx pgx.Tx, connected []string, sess st
 	return err
 }
 
+// snapshotVoters records who an open round is waiting for: the people who have
+// joined this session, minus the spectators.
+//
+// Not the space's members. A forty-member space runs five-person rounds, and a
+// round that waits for the other thirty-five never completes at all — the bug
+// this whole feature exists to avoid, reintroduced one layer down. Belonging
+// to the session is the narrower question, and it is durable, so somebody who
+// is away when the story goes on the table is still waited for.
+//
+// A link guest has no members row and so no spectator flag; it joined the
+// session like anybody else and is in the set on the same terms.
+//
+// Re-selecting a story adds anybody new without disturbing the people already
+// recorded, so a vote already cast never falls outside the set that is waited
+// for.
+func snapshotVoters(ctx context.Context, tx pgx.Tx, sess store.Session, storyID string) error {
+	_, err := tx.Exec(ctx, `
+		insert into round_voters (story_id, user_id)
+		select $2::uuid, p.user_id from session_participants p
+		where p.session_id = $3
+		and not exists (
+			select 1 from members m
+			where m.space_id = $1 and m.user_id = p.user_id and m.spectator)
+		on conflict do nothing`, sess.SpaceID, storyID, sess.ID)
+	if err != nil {
+		return fmt.Errorf("recording the round's voters: %w", err)
+	}
+	return nil
+}
+
+// patchConfig is a partial update: a key the body does not name keeps the
+// value it has, so a client that knows about one option cannot silently reset
+// another it has never heard of. An unknown key is refused rather than
+// dropped — dropping it looks exactly like it applied.
 func patchConfig(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
-	var body struct {
-		AutoReveal *bool `json:"autoReveal"`
-	}
-	if !decode(w, r, &body) {
+	var body map[string]json.RawMessage
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil && !errors.Is(err, io.EOF) {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
 		return
 	}
-	if body.AutoReveal == nil {
-		http.Error(w, `{"error":"autoReveal is required"}`, http.StatusBadRequest)
+	var autoReveal, openVoting *bool
+	for key, raw := range body {
+		var into **bool
+		switch key {
+		case "autoReveal":
+			into = &autoReveal
+		case "openVoting":
+			into = &openVoting
+		default:
+			http.Error(w, `{"error":"unknown config field"}`, http.StatusBadRequest)
+			return
+		}
+		var on bool
+		if err := json.Unmarshal(raw, &on); err != nil {
+			http.Error(w, `{"error":"config options are true or false"}`, http.StatusBadRequest)
+			return
+		}
+		*into = &on
+	}
+	if autoReveal == nil && openVoting == nil {
+		// Nothing named, nothing to write: bumping the version would broadcast
+		// a round of state to everybody for a change nobody made.
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	want := *body.AutoReveal
 
 	// Presence is read before the transaction for the same reason vote does:
 	// maybeAutoReveal needs the connected set when enabling mid-round.
@@ -466,7 +568,13 @@ func patchConfig(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 			if err := json.Unmarshal(sess.Config, &cfg); err != nil {
 				return fmt.Errorf("reading poker config: %w", err)
 			}
-			cfg.AutoReveal = want
+			opening := openVoting != nil && *openVoting && !cfg.OpenVoting
+			if autoReveal != nil {
+				cfg.AutoReveal = *autoReveal
+			}
+			if openVoting != nil {
+				cfg.OpenVoting = *openVoting
+			}
 			raw, err := json.Marshal(cfg)
 			if err != nil {
 				return fmt.Errorf("encoding poker config: %w", err)
@@ -477,7 +585,7 @@ func patchConfig(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 				return err
 			}
 			sess.Config = raw
-			if !want || sess.Revealed {
+			if sess.Revealed {
 				return nil
 			}
 			var storyID string
@@ -487,6 +595,17 @@ func patchConfig(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 				return err
 			}
 			if storyID == "" {
+				return nil
+			}
+			// A round already on the table when open voting is switched on has
+			// no recorded voters, and without them it could never complete on
+			// its own.
+			if opening {
+				if err := snapshotVoters(r.Context(), tx, sess, storyID); err != nil {
+					return err
+				}
+			}
+			if !cfg.AutoReveal {
 				return nil
 			}
 			return maybeAutoReveal(r.Context(), tx, connected, sess, storyID)
@@ -511,15 +630,43 @@ func reveal(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	committed(w, r, ac)
 }
 
+// reset starts a fresh round on the story already on the table, so it is a
+// round boundary in its own right and the open round's roster is retaken here
+// — the same reason selectStory takes one. Without it a story that was
+// revealed before open voting was switched on reopens with nobody recorded,
+// and a round with an empty roster can never complete on its own.
+//
+// snapshotVoters is additive (on conflict do nothing), so a round that already
+// has a roster keeps every person in it and simply gains anybody who has
+// joined since; a vote already cast can never fall outside the set.
 func reset(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
-		func(tx pgx.Tx, _ store.Session) error {
+		func(tx pgx.Tx, sess store.Session) error {
 			if _, err := tx.Exec(r.Context(),
 				"delete from votes where story_id = (select current_story_id from sessions where id = $1)", ac.Session.ID); err != nil {
 				return err
 			}
-			_, err := tx.Exec(r.Context(), "update sessions set revealed = false, version = version + 1 where id = $1", ac.Session.ID)
-			return err
+			if _, err := tx.Exec(r.Context(), "update sessions set revealed = false, version = version + 1 where id = $1", ac.Session.ID); err != nil {
+				return err
+			}
+			var cfg Config
+			if err := json.Unmarshal(sess.Config, &cfg); err != nil {
+				return fmt.Errorf("reading poker config: %w", err)
+			}
+			if !cfg.OpenVoting {
+				// A closed round's denominator is who is connected, and it has
+				// no roster: recording one here would change that quietly.
+				return nil
+			}
+			var storyID string
+			if err := tx.QueryRow(r.Context(),
+				"select coalesce(current_story_id::text,'') from sessions where id = $1", ac.Session.ID).Scan(&storyID); err != nil {
+				return err
+			}
+			if storyID == "" {
+				return nil
+			}
+			return snapshotVoters(r.Context(), tx, sess, storyID)
 		})
 	if err != nil {
 		writeMutationError(r.Context(), w, err, "could not reset votes")

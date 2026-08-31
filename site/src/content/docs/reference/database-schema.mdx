@@ -164,7 +164,7 @@ out.
 |---|---|---|
 | `kind` | text | Foreign key to `session_kinds.kind`, `on delete restrict`. Adding a ceremony is a new row, not a schema change — see [Adding a session kind](/project/contributing/#adding-a-session-kind) |
 | `title` | text | 1–200 characters |
-| `config` | jsonb | Kind-decoded JSON. Poker may update `autoReveal` after create via `PATCH .../actions/config`; the deck stays create-time |
+| `config` | jsonb | Kind-decoded JSON. Poker may update `autoReveal` and `openVoting` after create via `PATCH .../actions/config`, one key at a time; the deck stays create-time |
 | `phase`, `revealed`, `version` | | `version` increments on mutation |
 | `facilitator_id` | uuid | References `users` — **no cascade** |
 | `current_speaker_id` | uuid | Nullable, references `users` — **no cascade** |
@@ -187,6 +187,41 @@ no join. Nothing points at this table.
 There is deliberately no `check` on `cards`. The card rules live in Go, in
 `internal/poker`, and the deck routes and the session-create route run the same
 function — a second copy in SQL would be a copy that drifts.
+
+### session_participants
+
+| Column | Type | Notes |
+|---|---|---|
+| `session_id` | uuid | References `sessions`, `on delete cascade` |
+| `user_id` | uuid | References `users`, `on delete cascade` |
+| `joined_at` | timestamptz | When they first turned up |
+
+Who belongs to a session. One row the first time somebody attaches to the room,
+kept afterwards — this is durable, and deliberately not the same question as
+`session_presence`, which is erased on disconnect and swept, and so only ever
+says "connected recently". It is narrower than `members` (a forty-member space
+runs five-person rounds) and wider (a link guest has no `members` row and still
+turns up).
+
+### round_voters
+
+| Column | Type | Notes |
+|---|---|---|
+| `story_id` | uuid | References `stories`, `on delete cascade` |
+| `user_id` | uuid | References `users`, `on delete cascade` |
+
+Who an *open* round is waiting for, written when the story goes on the table
+and only for a session with `openVoting` on: the `session_participants` of that
+session, minus anyone whose `members` row is a spectator. An open round is
+estimated asynchronously, so it cannot be gated on who happens to be connected
+when the last vote lands. Snapshotting is what makes it finishable — reading
+the set live would move the goalposts under a round in progress.
+
+The completion check intersects these rows with the people who could still cast
+a vote: a non-spectator member of the space, or a guest whose link is not
+revoked and not expired. Without that, removing a member — or revoking a link —
+after the snapshot would leave the round waiting forever on a vote that can
+never arrive. A closed round never touches this table.
 
 ### stories, votes
 

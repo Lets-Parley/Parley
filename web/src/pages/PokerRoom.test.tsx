@@ -573,3 +573,30 @@ describe("PokerRoom link guest", () => {
     ).toBe("/o/acme/s/platform-team");
   });
 });
+
+describe("PokerRoom waiting list", () => {
+  // A round that stays open for asynchronous estimation can wait for someone
+  // who is not in the room at all, so the table has to name who is missing.
+  it("names the seats the round is still waiting for", () => {
+    const env = envelope();
+    env.state.stories[0].votedUserIds = ["dana"];
+    renderApp(<PokerRoom env={env} me={me} />);
+    const line = screen.getByText(/Waiting on/);
+    expect(line.textContent).toContain("Marcus Okonjo");
+    expect(line.textContent).not.toContain("Dana Whitfield");
+  });
+
+  it("says nothing once everyone expected has voted", () => {
+    const env = envelope();
+    env.state.stories[0].votedUserIds = ["dana", "marcus"];
+    renderApp(<PokerRoom env={env} me={me} />);
+    expect(screen.queryByText(/Waiting on/)).toBeNull();
+  });
+
+  it("says nothing once the round is revealed", () => {
+    const env = envelope({ revealed: true });
+    env.state.stories[0].votedUserIds = ["dana"];
+    renderApp(<PokerRoom env={env} me={me} />);
+    expect(screen.queryByText(/Waiting on/)).toBeNull();
+  });
+});

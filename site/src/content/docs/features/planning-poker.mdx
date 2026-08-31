@@ -101,6 +101,47 @@ disconnect can shrink the denominator; it can never open the round. Otherwise
 closing a laptop would be a way to reveal everyone else's votes. Turning
 auto-reveal off mid-round does not close an already-open round.
 
+## Open voting, for a team that is not in the room
+
+A distributed team cannot all be at the table at once, and the denominator
+above is unforgiving about that: it counts who is connected, so a round cannot
+complete while half the team is asleep.
+
+**Open voting** changes what the round waits for. When a story goes on the
+table with open voting on, Parley records who is expected to vote — **everyone
+who has been in this room, whether or not they are here now**, minus the
+spectators — and the round waits for exactly those people. Opening the room
+once is enough to be counted; you do not have to still be connected, and you do
+not have to have voted. Somebody who comes back hours later still finds the
+round waiting, and their vote is the one that completes it.
+
+The list is the room, not the space. A forty-person space that runs five-person
+rounds gets a five-person round: the thirty-five who never opened this room are
+not in it and never hold it up. A link guest who has been in the room is in it
+on the same terms as anyone else — no `members` row required.
+
+Because the list is a snapshot, it does not move under the round. Someone
+opening this room for the **first time** after the story went on the table is
+not in it: they are very welcome to vote, and their vote is a bonus that can
+never hold the round shut. Somebody who merely closed their tab *is* in it and
+is still waited for. And if a person in the list is removed from the space, or
+their guest link is revoked or expires, the round stops waiting for them —
+their vote could never arrive, and a round wedged on it would never complete.
+
+Turning open voting on mid-round records the list for the story already on the
+table, so that round can complete too. If the story has already been revealed
+there is no round to record, so **Reset** takes the list instead — a re-vote on
+a revealed story waits for whoever is in the room at that point, latecomers
+included.
+
+Open voting reveals nothing by itself. It only changes *who* the round is
+waiting for; whether the last vote opens the round is still auto-reveal's
+question, and with auto-reveal off the facilitator still hits **Reveal**. The
+two are independent switches and all four combinations do what they say.
+
+Either way the room names the seats it is still waiting for, so an open round
+that has stalled shows who it has stalled on.
+
 <Screenshot
   light={hiddenLight}
   dark={hiddenDark}
