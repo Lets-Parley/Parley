@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { Person } from "../lib/api";
 import { cueLabel, cueVar, type CueState } from "../lib/cue";
+import { safeDisplayName } from "../lib/displayName";
 import { voteTally } from "../lib/derive";
 import { Avatar } from "./Avatar";
 
@@ -338,7 +339,9 @@ export function Table({
                     element and can never be the part an ellipsis eats — the
                     guest tell in particular is a defence, not a decoration. */}
                 <div className="flex max-w-full items-baseline gap-0.5 text-xs font-bold text-ink-soft">
-                  <span className="min-w-0 truncate">{p.name.split(/\s+/)[0]}</span>
+                  <span className="min-w-0 truncate">
+                    {safeDisplayName(p.name).split(/\s+/)[0]}
+                  </span>
                   {p.userId === meId && (
                     <span className="shrink-0 whitespace-nowrap font-normal text-ink-faint"> · you</span>
                   )}
@@ -383,7 +386,7 @@ export function Table({
                   spectator
                 />
                 <span className="text-xs font-semibold text-ink-soft">
-                  {p.name}
+                  {safeDisplayName(p.name)}
                   {p.userId === meId && " (you)"}
                   {p.guest && <span className="font-normal text-ink-faint"> · guest</span>}
                 </span>

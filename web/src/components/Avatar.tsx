@@ -1,9 +1,10 @@
+import { safeDisplayName } from "../lib/displayName";
 import { avatarIcon } from "./avatarIcons";
 
 const sizes = { xs: 24, sm: 28, md: 38, lg: 46 } as const;
 
 export function initialsOf(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const parts = safeDisplayName(name).trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
@@ -66,6 +67,9 @@ export function Avatar({
   decorative,
 }: Props) {
   const px = sizes[size];
+  // Bidi overrides in a display name can flip surrounding UI chrome; the
+  // chip's label and initials both go through the same neutralization.
+  const shown = safeDisplayName(name);
   return (
     <span
       className="relative inline-flex select-none items-center justify-center rounded-full font-bold"
@@ -87,12 +91,12 @@ export function Avatar({
         // against 2.23 / 3.05 at the old 0.55. See the contrast doc.
         opacity: spectator || dim ? 0.7 : 1,
       }}
-      title={decorative ? undefined : name}
+      title={decorative ? undefined : shown}
       role={decorative ? undefined : "img"}
       aria-hidden={decorative || undefined}
-      aria-label={decorative ? undefined : name}
+      aria-label={decorative ? undefined : shown}
     >
-      {face(name, size, px, icon)}
+      {face(shown, size, px, icon)}
       {facilitator && (
         <span
           className="absolute -right-px -bottom-px rounded-full bg-brass"

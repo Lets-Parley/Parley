@@ -79,6 +79,25 @@ describe("MemberCard", () => {
     expect(dialog.tagName).toBe("DIALOG");
   });
 
+  it("strips a bidi override from the dialog name so surrounding chrome stays put", () => {
+    renderApp(
+      <MemberCard
+        member={makePerson({ name: "Alice\u202Ekkad" })}
+        isYou={false}
+        onClose={() => {}}
+      />,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Alicekkad" });
+    expect(dialog.getAttribute("aria-label") ?? dialog.textContent).not.toContain("\u202E");
+  });
+
+  it("still names the dialog with a legitimate Arabic display name", () => {
+    renderApp(
+      <MemberCard member={makePerson({ name: "محمد علي" })} isYou={false} onClose={() => {}} />,
+    );
+    expect(screen.getByRole("dialog", { name: "محمد علي" })).toBeTruthy();
+  });
+
   it("renders the member's name exactly once", () => {
     renderApp(<MemberCard member={makePerson({ name: "Dana Whitfield" })} isYou={false} onClose={() => {}} />);
     expect(screen.getAllByText("Dana Whitfield")).toHaveLength(1);

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { action, api, errorText, type Envelope, type Me } from "../lib/api";
+import { safeDisplayName } from "../lib/displayName";
 import type { ConnectionStatus } from "../lib/socket";
 import { useToast } from "../lib/ui";
 import { Avatar } from "../components/Avatar";
@@ -179,7 +180,8 @@ export function StandupRoom({
   const nameOf = (userId: string) => {
     const p = people.get(userId);
     if (!p) return "Someone";
-    return p.guest ? `${p.name} (guest)` : p.name;
+    const name = safeDisplayName(p.name);
+    return p.guest ? `${name} (guest)` : name;
   };
   const speaking = env.phase === "speaking";
   const done = env.phase === "done";
@@ -221,7 +223,7 @@ export function StandupRoom({
   const nextLabel = done
     ? "Round complete"
     : nextUp
-      ? `Next: ${people.get(nextUp.userId)?.name ?? "Someone"}`
+      ? `Next: ${safeDisplayName(people.get(nextUp.userId)?.name ?? "Someone")}`
       : "Last turn";
 
   // One polite line for the whole room. It never carries the countdown, so it
@@ -364,7 +366,7 @@ export function StandupRoom({
                   (isShown ? (e.skipped ? " underline underline-offset-8" : " underline underline-offset-4") : "")
                 }
               >
-                {p?.name}
+                {p?.name != null && safeDisplayName(p.name)}
                 {p?.guest && <span className="font-normal text-ink-faint"> · guest</span>}
               </span>
             </button>
@@ -489,7 +491,7 @@ export function StandupRoom({
                         size="sm"
                       />
                       <span className="font-bold">
-                        {p.name}
+                        {safeDisplayName(p.name)}
                         {p.guest && <span className="font-normal text-ink-faint"> · guest</span>}
                       </span>
                     </li>
@@ -519,7 +521,8 @@ export function StandupRoom({
               />
             )}
             <h2 className="font-display text-2xl font-semibold">
-              {people.get(shown.userId)?.name}
+              {people.get(shown.userId) &&
+                safeDisplayName(people.get(shown.userId)!.name)}
               {people.get(shown.userId)?.guest && (
                 <span className="ml-2 align-middle text-sm font-normal text-ink-faint">guest</span>
               )}

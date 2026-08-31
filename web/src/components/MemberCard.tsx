@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import type { Person } from "../lib/api";
+import { safeDisplayName } from "../lib/displayName";
 import { Avatar } from "./Avatar";
 import { Modal } from "./Modal";
 
@@ -33,12 +34,13 @@ export function MemberCard({
         ? `at this table now`
         : at.title
       : "not in a session right now";
+  const name = safeDisplayName(member.name);
 
   return (
-    <Modal title={member.name} onClose={onClose} width="300px">
+    <Modal title={name} onClose={onClose} width="300px">
       <div className="flex items-center gap-3">
         <Avatar
-          name={member.name}
+          name={name}
           hue={member.avatarHue}
           icon={member.avatarIcon}
           size="md"
