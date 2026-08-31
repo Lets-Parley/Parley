@@ -1,8 +1,17 @@
 package api
 
 import (
+	"context"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
+
+	"github.com/lets-parley/parley/internal/store"
 )
 
 // RemoveMember prunes round_voters for the current story, but the removed
@@ -121,5 +130,84 @@ func TestOpenRoundStopsWaitingAfterOrgRevoke(t *testing.T) {
 	vote(t, srv, id, story, "3", fac)
 	if !revealed(t, srv, id, fac) {
 		t.Fatal("an org revoke left Mel in the pending set and wedged auto-reveal")
+	}
+}
+
+// A remote replica keeps the removed member's socket until revalidation (up to
+// 30s). If attach-time Join failed, that socket's pong retries OnJoin; without
+// an eligibility re-check it re-inserts them into session_participants, and
+// the next open-voting snapshot waits for a person who can never vote.
+func TestPongRetryDoesNotReinsertRemovedMember(t *testing.T) {
+	pool := testPool(t)
+	handler := Router(pool, Options{AllowedOrigin: testOrigin, Context: testContext(t)})
+	srv := httptest.NewServer(handler)
+	t.Cleanup(func() {
+		handler.Shutdown()
+		srv.Close()
+	})
+
+	fac, member, id := setupSession(t, srv, "Pong Retry Reinsert Space")
+	leaver, leaverID := signupWithID(t, srv, "Lou")
+	_, spBody := doJSON(t, srv, "GET", "/api/orgs/default/spaces/pong-retry-reinsert-space", "", fac)
+	code, _ := spBody["passcode"].(string)
+	if resp := joinSpace(t, srv, "pong-retry-reinsert-space", leaver, code); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("join leaver: %d", resp.StatusCode)
+	}
+	var spaceID string
+	if err := pool.QueryRow(context.Background(),
+		`select id::text from spaces where slug = 'pong-retry-reinsert-space'`).Scan(&spaceID); err != nil {
+		t.Fatal(err)
+	}
+
+	var leaverJoins atomic.Int32
+	innerJoin := handler.hub.OnJoin
+	handler.hub.OnJoin = func(sessionID, userID string) error {
+		if userID == leaverID {
+			if leaverJoins.Add(1) == 1 {
+				return fmt.Errorf("transient attach failure")
+			}
+		}
+		return innerJoin(sessionID, userID)
+	}
+
+	joinRoom(t, srv, id, fac)
+	joinRoom(t, srv, id, member)
+	leaverWS := joinRoom(t, srv, id, leaver)
+	if n := leaverJoins.Load(); n != 1 {
+		t.Fatalf("leaver OnJoin on attach = %d, want 1 (failed)", n)
+	}
+
+	// Simulate the remote-replica window: membership is gone and participants
+	// are pruned, but this process has not yet torn the socket down.
+	if err := (&store.Spaces{Pool: pool}).RemoveMember(context.Background(), spaceID, leaverID); err != nil {
+		t.Fatalf("RemoveMember: %v", err)
+	}
+
+	if err := leaverWS.WriteControl(websocket.PongMessage, []byte("ping"), time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	var stillThere bool
+	if err := pool.QueryRow(context.Background(),
+		`select exists (select 1 from session_participants where session_id = $1 and user_id = $2)`,
+		id, leaverID).Scan(&stillThere); err != nil {
+		t.Fatal(err)
+	}
+	if stillThere {
+		t.Fatal("pong retry re-inserted a removed member into session_participants")
+	}
+
+	setConfig(t, srv, id, `{"autoReveal":true,"openVoting":true}`, fac)
+	story := addStory(t, srv, id, "After pong", fac)
+	selectStory(t, srv, id, story, fac)
+	if resp := vote(t, srv, id, story, "3", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("facilitator vote: %d", resp.StatusCode)
+	}
+	if resp := vote(t, srv, id, story, "5", member); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("member vote: %d", resp.StatusCode)
+	}
+	if !revealed(t, srv, id, fac) {
+		t.Fatal("a pong-retry ghost in session_participants wedged open-voting auto-reveal")
 	}
 }

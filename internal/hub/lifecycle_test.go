@@ -225,6 +225,95 @@ func TestJoinRetriesOnPongAfterAttachFailure(t *testing.T) {
 	}
 }
 
+// A persistent OnJoin failure must not reintroduce a durable write on every
+// heartbeat forever. After the attempt bound the pong path stops calling
+// OnJoin even though joined stays false.
+func TestJoinRetryStopsAfterBound(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	var joins atomic.Int32
+	h.OnJoin = func(string, string) error {
+		joins.Add(1)
+		return fmt.Errorf("persistent")
+	}
+	h.OnFacilitatorSeen = func(string, string) {}
+	h.ValidateMembership = func(context.Context, string, string, string) (bool, error) {
+		return true, nil
+	}
+
+	ws, attached := attachWithInitial(t, h, []byte("snapshot"), SessionAuth{SpaceID: "space"})
+	select {
+	case <-attached:
+	case <-time.After(3 * time.Second):
+		t.Fatal("AttachAuthenticated did not return")
+	}
+	ws.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, _, err := ws.ReadMessage(); err != nil {
+		t.Fatalf("reading the initial frame: %v", err)
+	}
+	if n := joins.Load(); n != 1 {
+		t.Fatalf("OnJoin on attach = %d, want 1", n)
+	}
+
+	for i := 0; i < maxJoinAttempts+2; i++ {
+		if err := ws.WriteControl(websocket.PongMessage, []byte("ping"), time.Now().Add(time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) && joins.Load() < int32(i+2) && joins.Load() < int32(maxJoinAttempts) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		// Let a tracked retry finish even when it is the one that hits the bound.
+		time.Sleep(50 * time.Millisecond)
+	}
+	if n := joins.Load(); n != int32(maxJoinAttempts) {
+		t.Fatalf("OnJoin after persistent failure = %d, want exactly %d (bounded); further pongs must not keep probing", n, maxJoinAttempts)
+	}
+}
+
+// A pong retry must not re-insert someone who lost membership after attach.
+// membershipConfirmed stays true until revalidation closes the socket; without
+// an eligibility re-check the retry would call OnJoin and resurrect them in
+// session_participants.
+func TestJoinRetrySkipsWhenNoLongerEligible(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	var joins atomic.Int32
+	var eligible atomic.Bool
+	eligible.Store(true)
+	h.OnJoin = func(string, string) error {
+		joins.Add(1)
+		return fmt.Errorf("transient")
+	}
+	h.OnFacilitatorSeen = func(string, string) {}
+	h.ValidateMembership = func(context.Context, string, string, string) (bool, error) {
+		return eligible.Load(), nil
+	}
+
+	ws, attached := attachWithInitial(t, h, []byte("snapshot"), SessionAuth{SpaceID: "space"})
+	select {
+	case <-attached:
+	case <-time.After(3 * time.Second):
+		t.Fatal("AttachAuthenticated did not return")
+	}
+	ws.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, _, err := ws.ReadMessage(); err != nil {
+		t.Fatalf("reading the initial frame: %v", err)
+	}
+	if n := joins.Load(); n != 1 {
+		t.Fatalf("OnJoin on attach = %d, want 1", n)
+	}
+
+	eligible.Store(false)
+	if err := ws.WriteControl(websocket.PongMessage, []byte("ping"), time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if n := joins.Load(); n != 1 {
+		t.Fatalf("OnJoin after removal = %d, want 1; pong must not retry Join for an ineligible user", n)
+	}
+}
+
 // TestPongDuringMembershipConfirmationRecordsNoPresence pins the window
 // between the auth-state flip and confirmMembership returning: authState is
 // already authAccepted there, but the connection has not yet cleared the
