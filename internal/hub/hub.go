@@ -24,11 +24,17 @@ const (
 	presenceDebounce = 1500 * time.Millisecond
 	maxRevalidate    = 30 * time.Second
 	maxValidation    = 30 * time.Second
-	// maxJoinAttempts caps OnJoin calls per connection (attach plus pong
-	// retries). A persistent failure must not run a Join transaction on every
-	// heartbeat forever — that is the write #448 removed.
+	// maxJoinAttempts caps join work (attach plus pong retries) per
+	// joinRetryWindow. A persistent failure must not run a Join transaction on
+	// every heartbeat forever — that is the write #448 removed.
 	maxJoinAttempts = 3
 )
+
+// joinRetryWindow bounds maxJoinAttempts to a sliding window rather than to the
+// life of the connection. A persistent failure still cannot write on every
+// heartbeat, but a database that recovers can bring a stranded connection back
+// without waiting for the client to reconnect. Overridden in tests.
+var joinRetryWindow = 5 * time.Minute
 
 const (
 	writeIdle uint32 = iota
@@ -72,12 +78,20 @@ type Conn struct {
 	// can retry until the durable participants row lands — without probing on
 	// every heartbeat after it has.
 	joined atomic.Bool
-	// joinAttempts counts OnJoin calls (attach plus pong retries). Once it
-	// reaches maxJoinAttempts the pong path stops, so a persistent failure
-	// cannot turn every heartbeat into a Join transaction.
+	// joinAttempts counts join attempts inside the current joinRetryWindow. An
+	// attempt is spent per pass through the retry path — the eligibility read
+	// included, whether or not it reaches OnJoin — so both database calls stay
+	// bounded. Once it reaches maxJoinAttempts the pong path stops until the
+	// window rolls, and a persistent failure cannot turn every heartbeat into
+	// database work.
 	joinAttempts atomic.Int32
-	// joinGaveUp flips true when retries stop — either the attempt bound was
-	// hit or eligibility was lost. Logging happens on the transition only.
+	// joinWindowStart is when the current attempt window opened, in Unix nanos.
+	joinWindowStart atomic.Int64
+	// joinBoundLogged keeps the exhausted-attempts log to once per window.
+	joinBoundLogged atomic.Bool
+	// joinGaveUp flips true only when eligibility was definitively lost. That
+	// is permanent by design; running out of attempts is not, so it never sets
+	// this. Logging happens on the transition only.
 	joinGaveUp atomic.Bool
 	// broadcastReady flips true once this connection has been handed its
 	// initial frame. Until then it is registered — so teardown and presence
@@ -554,7 +568,7 @@ func (h *Hub) AttachAuthenticated(ws *websocket.Conn, sessionID, userID string, 
 	}
 	c.membershipConfirmed.Store(true)
 	if h.OnJoin != nil {
-		c.joinAttempts.Add(1)
+		c.consumeJoinAttempt()
 		if err := h.OnJoin(sessionID, userID); err == nil {
 			c.joined.Store(true)
 		}
@@ -652,39 +666,74 @@ func (h *Hub) confirmMembership(c *Conn) bool {
 // retryJoin is the pong-path counterpart to the attach-time OnJoin write. It
 // re-checks eligibility before inserting — a removed member must never be
 // resurrected into session_participants by a still-open remote socket — and
-// stops after maxJoinAttempts so a persistent failure cannot write on every
-// heartbeat.
+// spends at most maxJoinAttempts per joinRetryWindow so a persistent failure
+// cannot touch the database on every heartbeat.
 func (h *Hub) retryJoin(c *Conn) {
 	if c.joined.Load() || c.joinGaveUp.Load() || h.OnJoin == nil {
+		return
+	}
+	// Reserve the attempt before the eligibility re-check, not between it and
+	// OnJoin. The re-check is itself a database read, so gating only the write
+	// would leave a persistently failing connection querying on every pong —
+	// the per-heartbeat traffic this bound exists to stop.
+	if !c.consumeJoinAttempt() {
 		return
 	}
 	if h.ValidateMembership != nil && c.SpaceID != "" {
 		ctx, cancel := context.WithTimeout(c.ctx, h.validationTimeout())
 		member, err := h.ValidateMembership(ctx, c.SessionID, c.SpaceID, c.UserID)
 		cancel()
-		if err != nil || !member {
+		switch {
+		case err != nil:
+			// We could not tell whether they still belong, which is not the
+			// same as knowing they do not. The attempt is spent either way, so
+			// a persistent failure stays bounded, but the connection stays
+			// retryable: a database that comes back must be able to land this
+			// row, or a still-connected member sits outside every later
+			// open-voting snapshot.
+			slog.Warn("session join retry: could not determine eligibility",
+				"session", c.SessionID, "user", c.UserID, "error", err)
+			return
+		case !member:
 			if c.joinGaveUp.CompareAndSwap(false, true) {
-				slog.Error("abandoning session join retry: no longer eligible",
-					"session", c.SessionID, "user", c.UserID, "error", err)
+				slog.Info("abandoning session join retry: no longer eligible",
+					"session", c.SessionID, "user", c.UserID)
 			}
 			return
-		}
-	}
-	for {
-		n := c.joinAttempts.Load()
-		if n >= maxJoinAttempts {
-			if c.joinGaveUp.CompareAndSwap(false, true) {
-				slog.Error("abandoning session join retry: attempts exhausted",
-					"session", c.SessionID, "user", c.UserID, "attempts", maxJoinAttempts)
-			}
-			return
-		}
-		if c.joinAttempts.CompareAndSwap(n, n+1) {
-			break
 		}
 	}
 	if err := h.OnJoin(c.SessionID, c.UserID); err == nil {
 		c.joined.Store(true)
+	}
+}
+
+// consumeJoinAttempt reserves one of this window's attempts, rolling the window
+// over first when it has elapsed. It reports whether an attempt was available;
+// false means the caller must not touch the database at all this heartbeat —
+// neither the eligibility read nor the join write.
+func (c *Conn) consumeJoinAttempt() bool {
+	now := time.Now().UnixNano()
+	for {
+		start := c.joinWindowStart.Load()
+		if now-start >= int64(joinRetryWindow) {
+			if !c.joinWindowStart.CompareAndSwap(start, now) {
+				continue
+			}
+			c.joinAttempts.Store(0)
+			c.joinBoundLogged.Store(false)
+		}
+		n := c.joinAttempts.Load()
+		if n >= maxJoinAttempts {
+			if c.joinBoundLogged.CompareAndSwap(false, true) {
+				slog.Warn("pausing session join retries: attempts exhausted for this window",
+					"session", c.SessionID, "user", c.UserID,
+					"attempts", maxJoinAttempts, "window", joinRetryWindow)
+			}
+			return false
+		}
+		if c.joinAttempts.CompareAndSwap(n, n+1) {
+			return true
+		}
 	}
 }
 
