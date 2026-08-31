@@ -20,21 +20,6 @@ items are under **Next**.
 
 Accepted work, likely to be picked up after current priorities.
 
-### Switchable poker
-
-Parley already ships four decks, and they are enough to run most rooms. The
-problem is everything they cannot express: teams that want to carry their own
-deck and keep it stable across sessions; rooms where a vote can stay open so a
-distributed team estimates when they can; observers who watch the discussion but
-do not participate in the vote.
-
-Switchable poker is the first slice that makes planning poker feel like it was
-made for the way a team already works, rather than asking the team to work the
-way the tool expects. A deck becomes something you choose and own, not a global
-constant baked into the server.
-
-- Status: Backlog
-
 ### Parley on a phone
 
 Standup is the ceremony people most often join from a corridor or a car park,
@@ -244,8 +229,8 @@ Ideas under consideration, not committed to.
 - A room that dies with the meeting — the session ends when the calendar event does
 - Audit logging, retention policies, and SSO group-to-role mapping
 - White-label theming, for anyone hosting Parley on someone else's behalf
-- Configurable timers for poker and standup — after switchable decks, and as
-  one control rather than a ceremony of its own ([#380](https://github.com/lets-parley/parley/issues/380))
+- Configurable timers for poker and standup — as one control rather than a
+  ceremony of its own ([#380](https://github.com/lets-parley/parley/issues/380))
 - Feature flags, once there is a third ceremony to turn off; machinery in
   search of a problem while there are two ([#381](https://github.com/lets-parley/parley/issues/381))
 - Slack: a card posted when a session ends. The bot that runs a standup in a
@@ -263,6 +248,17 @@ Ideas under consideration, not committed to.
   and this is the version with the clock taken out ([#388](https://github.com/lets-parley/parley/issues/388))
 
 ## Completed
+
+### v0.9.0
+
+- A space can save its own card decks under Settings, and they sit beside the
+  built-in four when a session is created. A session copies the cards, so
+  editing or deleting a deck never changes a room that is already dealing them
+- Open voting keeps a round open for everyone who has been in the room, not
+  only whoever is connected right now, so a distributed team can estimate
+  across timezones. It never reveals a round by itself
+- Sitting out mid-round as a spectator ends the wait there and then once
+  everyone else has already voted
 
 ### v0.8.0
 
