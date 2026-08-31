@@ -65,6 +65,11 @@ const geom = (throwerCount: number) => ({
   seatCount: throwerCount + 1,
   target: { center: { x: 400, y: 200 }, radius: 23 },
   emojiRadius: 12,
+  bounds: {
+    box: { width: 24, height: 24 },
+    viewport: { width: 900, height: 500 },
+    offset: { x: 0, y: 0 },
+  },
   throwers: Array.from({ length: throwerCount }, (_, i) => ({
     center: { x: 40 + i * 86, y: 200 },
     radius: 23,
@@ -82,10 +87,24 @@ describe("planPileOn", () => {
     expect(planPileOn(geom(7))).toEqual(planPileOn(geom(7)));
   });
 
-  it("staggers on the shared budget and reports the beats the caller schedules", () => {
+  it("staggers unevenly, so no two impacts land on the same beat", () => {
+    const plan = planPileOn(geom(5));
+    const delays = plan.throws.map((t) => t.delayMs);
+    const gaps = delays.slice(1).map((d, i) => d - delays[i]);
+    expect(new Set(gaps.map((g) => g.toFixed(3))).size).toBe(gaps.length);
+    // Impacts, not just releases: what the eye reads is when they land.
+    const impacts = plan.throws.map((t) => t.delayMs + t.impactMs).sort((a, b) => a - b);
+    const between = impacts.slice(1).map((d, i) => d - impacts[i]);
+    expect(new Set(between.map((g) => g.toFixed(3))).size).toBe(between.length);
+  });
+
+  it("still spends exactly the budgeted stagger and reports the caller's beats", () => {
     const plan = planPileOn(geom(5));
     const { start, stagger } = pileOnBeats(6, 5);
-    expect(plan.throws.map((t) => t.delayMs)).toEqual([0, 1, 2, 3, 4].map((i) => start + i * stagger));
+    const delays = plan.throws.map((t) => t.delayMs);
+    expect(delays[0]).toBe(start);
+    expect(delays[delays.length - 1]).toBeCloseTo(start + stagger * 4, 6);
+    for (let i = 1; i < delays.length; i++) expect(delays[i]).toBeGreaterThan(delays[i - 1]);
     expect(plan.impactMs).toBe(Math.min(...plan.throws.map((t) => t.delayMs + t.impactMs)));
     expect(plan.endMs).toBe(Math.max(...plan.throws.map((t) => t.delayMs + t.durationMs)));
   });

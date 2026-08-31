@@ -36,6 +36,14 @@ export function measurePileOn({
     target: discIn(box, target),
     throwers: throwers.map((el) => discIn(box, el)),
     emojiRadius,
+    // The emoji is chased until it clears the window, not merely the overlay:
+    // the overlay is only as tall as the felt, and an emoji that stops at its
+    // edge stops in plain sight.
+    bounds: {
+      box: { width: emojiRadius * 2, height: emojiRadius * 2 },
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      offset: { x: box.left, y: box.top },
+    },
   };
 }
 
