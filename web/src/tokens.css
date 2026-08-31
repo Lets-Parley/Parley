@@ -225,6 +225,30 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   70%  { opacity: 1 }
   100% { transform: translate(var(--dx), var(--dy)) rotate(var(--spin)); opacity: 0 }
 }
+/* A joining seat falls into its slot and takes one light bounce. Static, and
+   it can be: fallT = √(2d/G) and bounceT = 2r·fallT, so the shape in
+   normalised time is fixed by the restitution alone (r = 0.35 — see
+   DROP_RESTITUTION) and the distance enters only as the --drop-d scale factor.
+   Contact is at 1/(1+2r) = 58.8%, the apex of the hop is r²·d. Linear, because
+   the fast-slow-fast is gravity in the stops rather than a bezier imitating
+   it. */
+@keyframes seat-drop {
+  0%    { transform: translateY(calc(var(--drop-d) * -1)) }
+  29.4% { transform: translateY(calc(var(--drop-d) * -0.75)) }
+  44.1% { transform: translateY(calc(var(--drop-d) * -0.4375)) }
+  52.9% { transform: translateY(calc(var(--drop-d) * -0.19)) }
+  58.8% { transform: translateY(0) }
+  69.1% { transform: translateY(calc(var(--drop-d) * -0.091875)) }
+  79.4% { transform: translateY(calc(var(--drop-d) * -0.1225)) }
+  89.7% { transform: translateY(calc(var(--drop-d) * -0.091875)) }
+  100%  { transform: translateY(0) }
+}
+/* The FLIP: seats already on the table are pushed back to where they were and
+   released, so the row opens before anything falls into the gap. */
+@keyframes seat-flip-release {
+  from { transform: translate(var(--flip-dx, 0), var(--flip-dy, 0)) }
+  to   { transform: translate(0, 0) }
+}
 @keyframes stamp-in { from { transform: scale(1.15); opacity: 0 } to { transform: scale(1); opacity: 1 } }
 @keyframes toast-up { from { transform: translate(-50%, 12px); opacity: 0 } to { transform: translate(-50%, 0); opacity: 1 } }
 @keyframes modal-drop { from { transform: translateY(-6px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }

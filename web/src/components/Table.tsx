@@ -1,8 +1,25 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { Person } from "../lib/api";
 import { cueLabel, cueVar, type CueState } from "../lib/cue";
 import { safeDisplayName } from "../lib/displayName";
 import { voteTally } from "../lib/derive";
+import {
+  EMOJI_RADIUS,
+  FLIP_MS,
+  flipDeltas,
+  measurePileOn,
+  measureSeats,
+  planDropIn,
+  pileOnOutlier,
+  planPileOn,
+  playPileOn,
+  releaseFlip,
+  revealSettledAt,
+  staggerFor,
+  type Box,
+} from "../lib/motion";
+import { useRosterDelta } from "../lib/rosterDelta";
+import type { ConnectionStatus } from "../lib/socket";
 import { Avatar } from "./Avatar";
 
 const ROTATIONS = [-2, 3, -1, 2, -3, 1, 2];
@@ -110,11 +127,10 @@ function scatter(pair: number, k: number, axis: number): number {
  * the first pair jumped while the last cards were still turning over.
  */
 export function celebrationBeats(seatCount: number, groupCount: number) {
-  const start = 620 + Math.max(0, seatCount - 1) * 40 + 450 + 60;
-  // Budgeted, not per-pair: a fixed stagger makes a full table run for four
-  // seconds and the last pair fires long after the eye has moved on.
-  const stagger = groupCount <= 1 ? 0 : Math.min(110, 420 / (groupCount - 1));
-  return { start, stagger };
+  // Both budgets live in lib/motion so the high-five and the pile-on cannot
+  // drift apart — two copies would disagree, and then one animation starts
+  // underneath the other.
+  return { start: revealSettledAt(seatCount), stagger: staggerFor(groupCount) };
 }
 
 type Celebration = { animation?: string; burst: boolean; beat: number; pair: number };
@@ -218,6 +234,7 @@ export function Table({
   facilitatorId,
   meId,
   cueState = null,
+  status = "live",
 }: {
   seated: Person[];
   spectators: Person[];
@@ -230,6 +247,8 @@ export function Table({
   meId: string;
   /** Owned and accumulated by PokerRoom. null when the light is cut. */
   cueState?: CueState | null;
+  /** The socket's state, and the only thing that tells a rejoin from a blip. */
+  status?: ConnectionStatus;
 }) {
   const { votedCount, canVote, voted } = voteTally(seated, online, votedUserIds, votes);
 
@@ -240,11 +259,37 @@ export function Table({
   // whole celebration — the particle nodes included — is skipped outright.
   const ranksRef = useRef<HTMLDivElement>(null);
   const [rows, setRows] = useState<number[]>([]);
-  const celebrate =
-    consensus &&
-    revealed &&
-    rows.length === seated.length &&
-    !(typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const reduced =
+    typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const celebrate = consensus && revealed && rows.length === seated.length && !reduced;
+
+  // Near-unanimity is the moment a room most wants a reaction and the one the
+  // table used to answer with silence. Consensus and near-consensus are
+  // mutually exclusive, so this is its own trigger rather than a reuse.
+  const pileOnRef = useRef<HTMLDivElement>(null);
+  const outlier = revealed
+    ? pileOnOutlier(
+        seated.flatMap((p) => {
+          const value = votes.get(p.userId);
+          return value === undefined ? [] : [{ userId: p.userId, value }];
+        }),
+      )
+    : null;
+
+  useEffect(() => {
+    const layer = pileOnRef.current;
+    if (!layer || !outlier || reduced) return;
+    const target = layer.parentElement?.querySelector(
+      `[data-seat-user="${CSS.escape(outlier)}"] [data-avatar]`,
+    );
+    if (!target) return;
+    const throwers = Array.from(
+      layer.parentElement?.querySelectorAll("[data-seat-user] [data-avatar]") ?? [],
+    ).filter((el) => el !== target);
+    const geometry = measurePileOn({ layer, throwers, target, emojiRadius: EMOJI_RADIUS });
+    if (!geometry) return;
+    return playPileOn(layer, planPileOn(geometry));
+  }, [outlier, reduced, seated.length]);
 
   useLayoutEffect(() => {
     const el = ranksRef.current;
@@ -257,6 +302,38 @@ export function Table({
   }, [seated.length, revealed]);
 
   const plan = planCelebration(rows, celebrate);
+
+  // Someone joining mid-meeting used to simply exist, one frame after they did
+  // not. `online` is env.presence, which is the only join signal there is.
+  const { joined } = useRosterDelta([...online], status);
+  // Held in a ref rather than state: the animation string has to survive every
+  // later websocket frame untouched, or React rewrites it and restarts the
+  // fall halfway down. Nothing schedules a timer to clean these up — a
+  // finished CSS animation costs nothing, and the map is bounded by the roster.
+  const dropsRef = useRef(new Map<string, CSSProperties>());
+  if (!reduced && joined.length > 0) {
+    for (const d of planDropIn({ joined, seatCount: seated.length, revealed })) {
+      dropsRef.current.set(d.userId, {
+        "--drop-d": `${d.distancePx}px`,
+        animation: `seat-drop ${Math.round(d.durationMs)}ms linear ${Math.round(d.delayMs)}ms both`,
+      } as CSSProperties);
+    }
+  }
+  for (const id of dropsRef.current.keys()) {
+    if (!seated.some((p) => p.userId === id)) dropsRef.current.delete(id);
+  }
+
+  // FLIP, every render: the row has already re-laid-out by the time this runs,
+  // so the seats that moved are pushed back to where they were and released.
+  // A joiner is absent from the previous map and so is left to its own drop.
+  const seatBoxes = useRef<Map<string, Box>>(new Map());
+  useLayoutEffect(() => {
+    const el = ranksRef.current;
+    if (!el) return;
+    const last = measureSeats(el);
+    if (!reduced) releaseFlip(el, flipDeltas(seatBoxes.current, last), FLIP_MS);
+    seatBoxes.current = last;
+  });
 
   // Background-colour only, and never a transform or filter: this div is an
   // ancestor of the per-seat `perspective: 600px` containers, and either one
@@ -271,7 +348,7 @@ export function Table({
       <div
         data-testid="table-field"
         data-cue={cueState ?? "off"}
-        className="rounded-panel px-2 py-4"
+        className="relative rounded-panel px-2 py-4"
         style={{
           background: field,
           // Killed outright by tokens.css's prefers-reduced-motion rule. There
@@ -322,8 +399,9 @@ export function Table({
                 key={p.userId}
                 data-seat-user={p.userId}
                 className="relative flex w-[74px] shrink-0 flex-col items-center gap-2.5"
+                style={dropsRef.current.get(p.userId)}
               >
-                <span className="block" style={{ animation: five.animation }}>
+                <span className="block" data-avatar style={{ animation: five.animation }}>
                   <Avatar
                     name={p.name}
                     hue={p.avatarHue}
@@ -394,6 +472,17 @@ export function Table({
             ))}
           </div>
         )}
+
+        {/* The thrown emoji live here rather than inside a seat: a seat is
+            `overflow: visible` but it also wraps, and an arc anchored in one
+            would be re-laid-out mid-flight. aria-hidden — the reveal and its
+            statistics already say everything this decorates. */}
+        <div
+          ref={pileOnRef}
+          aria-hidden
+          data-testid="pileon-layer"
+          className="pointer-events-none absolute inset-0 z-[4] overflow-visible"
+        />
       </div>
 
       {/* One live region for the whole table: the count and the cue read as a

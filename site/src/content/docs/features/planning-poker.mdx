@@ -16,7 +16,7 @@ import createDark from "../../../assets/create-session-dark.png";
 import tshirtLight from "../../../assets/tshirt-results-light.png";
 import tshirtDark from "../../../assets/tshirt-results-dark.png";
 
-<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx"]} />
+<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts"]} />
 
 A poker session is a queue of work and a table of people. The facilitator puts
 one item on the table, everybody votes face-down, and the round opens when the
@@ -211,6 +211,43 @@ all told, even at a full table — so it never delays the next round.
 Everything here is decoration. `prefers-reduced-motion: reduce` skips it
 entirely — not just the movement, the confetti is never drawn — and the reveal,
 the statistics and the saved estimate are identical either way.
+
+## When everyone but one agrees
+
+A reveal where every voter but one landed on the same card gets the opposite
+reaction: each of the other seats lobs an emoji across the table at the lone
+dissenter. Each one is a real throw: it arcs under gravity, bounces off the
+avatar it hits — glancing or square, depending on where it lands — and tumbles
+off the bottom of the screen. They arrive on uneven beats, so it reads as a
+pile-on rather than a volley. The set is playfully cross — eye-rolls, red flags, and the classic theatre-heckling
+repertoire of tomatoes, eggs and a lemon — and never mocking, because nobody
+opted into being the target.
+
+It is deliberately narrow. It does not fire at unanimity (that is the high-five
+above), nor with two or more dissenters, nor when the majority card is `?` or
+coffee — the same exclusion that keeps those two out of consensus — and not at
+all below four voters, where "all but one agree" is true of nearly every split.
+The two celebrations can never both run.
+
+Like the high-five it is pure decoration, and `prefers-reduced-motion: reduce`
+skips it entirely: no emoji is drawn at all.
+
+## When someone joins
+
+A seat that appears mid-meeting drops into its slot and takes one light bounce.
+The row opens first — the seats already on the table slide to their new
+positions, and only then does the new one fall into the gap they made, rather
+than landing on a row still rearranging itself under it.
+
+Several people arriving at once — the usual start of a standup — are staggered
+across a fixed budget rather than a fixed gap each, so a dozen joiners are all
+on the table inside half a second instead of queueing up one after another. A
+reconnection is not an arrival: coming back from a dropped network does not
+replay the whole room as though everybody had just walked in. Someone who
+genuinely leaves and comes back does drop in again.
+
+`prefers-reduced-motion: reduce` skips it entirely — the seat is simply there,
+with no movement and nothing scheduled.
 
 ## Removing someone from the room
 

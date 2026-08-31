@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import { Table, faceOf, celebrationBeats, planCelebration } from "./Table";
+import { PILE_ON_EMOJI } from "../lib/motion";
 import { makePerson } from "../test/render";
 
 describe("faceOf", () => {
@@ -474,5 +475,222 @@ describe("the consensus high-five", () => {
     } finally {
       window.matchMedia = real;
     }
+  });
+});
+
+describe("the emoji pile-on", () => {
+  const room = ["ana", "ben", "cy", "dee", "eli"].map((id) =>
+    makePerson({ userId: id, name: `${id[0].toUpperCase()}${id.slice(1)} Vance` }),
+  );
+  const online = new Set(room.map((p) => p.userId));
+
+  function reveal(values: string[]) {
+    return render(
+      <Table
+        seated={room}
+        spectators={[]}
+        online={online}
+        votedUserIds={room.map((p) => p.userId)}
+        votes={new Map(room.map((p, i) => [p.userId, values[i]]))}
+        revealed
+        consensus={new Set(values).size === 1}
+        facilitatorId="ana"
+        meId="ana"
+      />,
+    );
+  }
+
+  const flying = () =>
+    Array.from(screen.getByTestId("pileon-layer").children, (c) => c.textContent);
+
+  it("throws one emoji from every other seat at the lone dissenter", () => {
+    reveal(["5", "5", "5", "5", "8"]);
+    const thrown = flying();
+    expect(thrown).toHaveLength(room.length - 1);
+    for (const emoji of thrown) expect(PILE_ON_EMOJI).toContain(emoji);
+  });
+
+  it("stays out of the way of the consensus high-five", () => {
+    reveal(["5", "5", "5", "5", "5"]);
+    expect(flying()).toHaveLength(0);
+    expect(screen.getAllByTestId("highfive-burst").length).toBeGreaterThan(0);
+  });
+
+  it("does not fire on a genuine split", () => {
+    reveal(["5", "5", "5", "8", "13"]);
+    expect(flying()).toHaveLength(0);
+  });
+
+  it("finds a dissenter whose id carries selector metacharacters", () => {
+    const odd = [...room.slice(0, 4), makePerson({ userId: 'we"ird', name: "Odd Vance" })];
+    render(
+      <Table
+        seated={odd}
+        spectators={[]}
+        online={new Set(odd.map((p) => p.userId))}
+        votedUserIds={odd.map((p) => p.userId)}
+        votes={new Map(odd.map((p, i) => [p.userId, i === 4 ? "8" : "5"]))}
+        revealed
+        consensus={false}
+        facilitatorId="ana"
+        meId="ana"
+      />,
+    );
+    expect(flying()).toHaveLength(odd.length - 1);
+  });
+
+  it("creates no overlay children under reduced motion, and schedules no frames", () => {
+    const raf = vi.spyOn(globalThis, "requestAnimationFrame");
+    vi.spyOn(window, "matchMedia").mockReturnValue({
+      matches: true,
+      media: "(prefers-reduced-motion: reduce)",
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    } as unknown as MediaQueryList);
+    reveal(["5", "5", "5", "5", "8"]);
+    expect(flying()).toHaveLength(0);
+    expect(raf).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it("cancels its cleanup timer and empties the overlay when the table unmounts", () => {
+    const clear = vi.spyOn(window, "clearTimeout");
+    const { unmount, container } = reveal(["5", "5", "5", "5", "8"]);
+    const layer = screen.getByTestId("pileon-layer");
+    expect(layer.children.length).toBeGreaterThan(0);
+    unmount();
+    expect(clear).toHaveBeenCalled();
+    expect(layer.children).toHaveLength(0);
+    expect(container.querySelector('[data-testid="pileon-layer"]')).toBeNull();
+    vi.restoreAllMocks();
+  });
+});
+
+/*
+ * The drop-in. `css: false` in the Vitest config means no computed styles, but
+ * `--drop-d` and the animation shorthand are inline on the seat, so both are
+ * directly observable.
+ */
+describe("Table drop-in", () => {
+  const three = ["dana", "marcus", "priya"];
+
+  function joinable(over: Partial<Parameters<typeof Table>[0]> = {}) {
+    const props = (presence: string[], extra: Partial<Parameters<typeof Table>[0]> = {}) => (
+      <Table
+        seated={[dana, marcus, priya]}
+        spectators={[]}
+        online={new Set(presence)}
+        status="live"
+        votedUserIds={[]}
+        votes={new Map()}
+        revealed={false}
+        consensus={false}
+        facilitatorId="dana"
+        meId="dana"
+        {...over}
+        {...extra}
+      />
+    );
+    const r = render(props(["dana", "marcus"]));
+    return {
+      ...r,
+      arrive: (presence = three, extra = {}) => r.rerender(props(presence, extra)),
+    };
+  }
+
+  const seatEl = (userId: string) =>
+    document.querySelector(`[data-seat-user="${userId}"]`) as HTMLElement;
+
+  it("animates nobody on the first envelope", () => {
+    joinable();
+    for (const id of ["dana", "marcus"]) expect(seatEl(id).style.animation).toBe("");
+  });
+
+  it("drops a mid-session joiner into their slot", () => {
+    const { arrive } = joinable();
+    arrive();
+    const el = seatEl("priya");
+    expect(el.style.animation).toContain("seat-drop");
+    const d = Number(el.style.getPropertyValue("--drop-d").replace("px", ""));
+    expect(d).toBeGreaterThan(70);
+    expect(d).toBeLessThan(130);
+    // The row is FLIPped open first, so the fall cannot start on frame zero.
+    expect(el.style.animation).toMatch(/(\d+)ms both$/);
+    expect(Number(el.style.animation.match(/ (\d+)ms both$/)![1])).toBeGreaterThanOrEqual(260);
+    // Everyone already seated is left alone.
+    expect(seatEl("dana").style.animation).toBe("");
+  });
+
+  it("holds the joiner's animation steady across later envelopes", () => {
+    const { arrive } = joinable();
+    arrive();
+    const before = seatEl("priya").style.animation;
+    arrive();
+    arrive();
+    expect(seatEl("priya").style.animation).toBe(before);
+  });
+
+  it("staggers a burst without queueing it", () => {
+    const { arrive } = joinable();
+    arrive();
+    const delay = (id: string) => Number(seatEl(id).style.animation.match(/ (\d+)ms both$/)![1]);
+    expect(delay("priya")).toBeGreaterThanOrEqual(260);
+    expect(delay("priya")).toBeLessThanOrEqual(260 + 420);
+  });
+
+  it("schedules nothing at all under prefers-reduced-motion", () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("prefers-reduced-motion"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    const timer = vi.spyOn(globalThis, "setTimeout");
+    const raf = vi.spyOn(globalThis, "requestAnimationFrame");
+    const { arrive } = joinable();
+    arrive();
+    expect(seatEl("priya").style.animation).toBe("");
+    expect(timer).not.toHaveBeenCalled();
+    expect(raf).not.toHaveBeenCalled();
+  });
+
+  // The prune loop's comment claims the drop map "is bounded by the roster".
+  // Churn a seat in and out and then bring it back on a frame that seeds
+  // rather than diffs: with the pruning gone the stale entry survives the
+  // absence and paints a fall nobody triggered, which is the same leak as an
+  // unbounded map, made visible.
+  it("forgets a drop once its seat leaves the roster", () => {
+    const props = (seated: Parameters<typeof Table>[0]["seated"], presence: string[], status: "live" | "reconnecting" = "live") => (
+      <Table
+        seated={seated}
+        spectators={[]}
+        online={new Set(presence)}
+        status={status}
+        votedUserIds={[]}
+        votes={new Map()}
+        revealed={false}
+        consensus={false}
+        facilitatorId="dana"
+        meId="dana"
+      />
+    );
+    const pair = [dana, marcus];
+    const trio = [dana, marcus, priya];
+    const r = render(props(pair, ["dana", "marcus"]));
+    for (let i = 0; i < 10; i++) {
+      r.rerender(props(trio, ["dana", "marcus", "priya"]));
+      expect(seatEl("priya").style.animation).toContain("seat-drop");
+      r.rerender(props(pair, ["dana", "marcus"]));
+    }
+    // Back on a reconnect: nothing joined, so nothing may be falling.
+    r.rerender(props(trio, ["dana", "marcus", "priya"], "reconnecting"));
+    expect(seatEl("priya").style.animation).toBe("");
+  });
+
+  it("does not animate the room back in after a reconnect", () => {
+    const { arrive } = joinable();
+    arrive(["dana", "marcus"], { status: "reconnecting" as const });
+    arrive(three, { status: "live" as const });
+    for (const id of three) expect(seatEl(id).style.animation).toBe("");
   });
 });
