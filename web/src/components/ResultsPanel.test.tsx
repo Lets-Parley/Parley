@@ -86,6 +86,25 @@ describe("heroOf", () => {
     expect(h.sub).toMatch(/^range S–M · 4 votes/);
   });
 
+  it("calls an all-? round on a numeric deck 'no estimate', never 'ordinal'", () => {
+    // After #363, all-specials no longer report consensus; without a dedicated
+    // branch the hero falls through to the ordinal-deck copy on Fibonacci.
+    const h = heroOf(results({ histogram: [{ value: "?", count: 3 }], consensus: false }), fib);
+    expect(h).toMatchObject({ value: "?", label: "no estimate", save: undefined });
+    expect(h.sub).toBe("3 of 3 picked ?");
+    expect(h.sub).not.toContain("ordinal deck");
+  });
+
+  it("calls an all-coffee round on a numeric deck 'no estimate', never 'ordinal'", () => {
+    const h = heroOf(
+      results({ histogram: [{ value: "coffee", count: 2 }], consensus: false }),
+      fib,
+    );
+    expect(h).toMatchObject({ value: "☕", label: "no estimate", save: undefined });
+    expect(h.sub).toBe("2 of 2 picked ☕");
+    expect(h.sub).not.toContain("ordinal deck");
+  });
+
   it("says vote, singular, for a single voter", () => {
     const h = heroOf(results({ histogram: [{ value: "M", count: 1 }], mode: "M" }), ["M"]);
     expect(h.sub).toContain("1 vote ");

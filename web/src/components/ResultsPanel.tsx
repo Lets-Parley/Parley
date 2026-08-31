@@ -33,6 +33,17 @@ export function heroOf(
       sub: `${total} of ${total} picked ${only ? faceOf(only) : "—"}`,
     };
   }
+  // All-specials with no consensus (everyone played ? or coffee) is not an
+  // ordinal deck — naming it one was the fallback before this branch existed.
+  if (results.histogram.length > 0 && results.histogram.every((r) => specials.has(r.value))) {
+    const face = faceOf(results.histogram[0].value);
+    return {
+      value: face,
+      save: undefined,
+      label: "no estimate",
+      sub: `${total} of ${total} picked ${face}`,
+    };
+  }
   if (results.median !== undefined) {
     const parts = [
       results.average !== undefined ? `average ${round(results.average)}` : null,
