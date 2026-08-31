@@ -419,3 +419,117 @@ func TestBroadcastBeforeTheInitialFrameIsNotDelivered(t *testing.T) {
 		t.Fatalf("first frame = %q, want snapshot: a guest was broadcast a roster built before its presence row existed, which omits its own seat", msg)
 	}
 }
+
+// A transient eligibility-check failure must not strand a live connection. The
+// bound still applies — an error consumes an attempt — but the connection stays
+// retryable, so a database that recovers brings the participants row back
+// instead of leaving a still-connected voter out of every later snapshot.
+func TestJoinRetrySurvivesTransientEligibilityError(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	var joins atomic.Int32
+	var failing atomic.Bool
+	h.OnJoin = func(string, string) error {
+		if joins.Add(1) == 1 {
+			return fmt.Errorf("attach blip")
+		}
+		return nil
+	}
+	h.OnFacilitatorSeen = func(string, string) {}
+	h.ValidateMembership = func(context.Context, string, string, string) (bool, error) {
+		if failing.Load() {
+			return false, fmt.Errorf("database unreachable")
+		}
+		return true, nil
+	}
+
+	ws, attached := attachWithInitial(t, h, []byte("snapshot"), SessionAuth{SpaceID: "space"})
+	select {
+	case <-attached:
+	case <-time.After(3 * time.Second):
+		t.Fatal("AttachAuthenticated did not return")
+	}
+	ws.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, _, err := ws.ReadMessage(); err != nil {
+		t.Fatalf("reading the initial frame: %v", err)
+	}
+
+	// The database goes away after attach, so the pong-path eligibility re-check
+	// errors. That pong must not call OnJoin and must not permanently abandon
+	// the connection.
+	failing.Store(true)
+	pong(t, ws)
+	time.Sleep(150 * time.Millisecond)
+	if n := joins.Load(); n != 1 {
+		t.Fatalf("OnJoin during eligibility error = %d, want 1 (attach only)", n)
+	}
+
+	// The database recovers. The next pong must retry and succeed.
+	failing.Store(false)
+	pong(t, ws)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && joins.Load() < 2 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := joins.Load(); n != 2 {
+		t.Fatalf("OnJoin after the eligibility check recovered = %d, want 2; a transient error must not strand the connection", n)
+	}
+}
+
+// Attempts are bounded per window, not for the life of the connection. Once the
+// window elapses a recovered database can bring the connection back; without
+// this a brief blip leaves a still-connected member out of open-voting
+// snapshots until they happen to reconnect.
+func TestJoinRetryResumesAfterWindow(t *testing.T) {
+	restore := joinRetryWindow
+	joinRetryWindow = 400 * time.Millisecond
+	t.Cleanup(func() { joinRetryWindow = restore })
+
+	h := New()
+	t.Cleanup(h.Shutdown)
+	var joins atomic.Int32
+	h.OnJoin = func(string, string) error {
+		joins.Add(1)
+		return fmt.Errorf("persistent")
+	}
+	h.OnFacilitatorSeen = func(string, string) {}
+	h.ValidateMembership = func(context.Context, string, string, string) (bool, error) {
+		return true, nil
+	}
+
+	ws, attached := attachWithInitial(t, h, []byte("snapshot"), SessionAuth{SpaceID: "space"})
+	select {
+	case <-attached:
+	case <-time.After(3 * time.Second):
+		t.Fatal("AttachAuthenticated did not return")
+	}
+	ws.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, _, err := ws.ReadMessage(); err != nil {
+		t.Fatalf("reading the initial frame: %v", err)
+	}
+
+	for i := 0; i < maxJoinAttempts+2; i++ {
+		pong(t, ws)
+		time.Sleep(20 * time.Millisecond)
+	}
+	if n := joins.Load(); n != int32(maxJoinAttempts) {
+		t.Fatalf("OnJoin within one window = %d, want %d", n, maxJoinAttempts)
+	}
+
+	time.Sleep(joinRetryWindow + 100*time.Millisecond)
+	pong(t, ws)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && joins.Load() <= int32(maxJoinAttempts) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := joins.Load(); n <= int32(maxJoinAttempts) {
+		t.Fatalf("OnJoin after the retry window elapsed = %d, want more than %d; an exhausted connection must recover", n, maxJoinAttempts)
+	}
+}
+
+func pong(t *testing.T, ws *websocket.Conn) {
+	t.Helper()
+	if err := ws.WriteControl(websocket.PongMessage, []byte("ping"), time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+}
