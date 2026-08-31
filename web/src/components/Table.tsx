@@ -268,7 +268,9 @@ export function Table({
   useEffect(() => {
     const layer = pileOnRef.current;
     if (!layer || !outlier || reduced) return;
-    const target = layer.parentElement?.querySelector(`[data-seat-user="${outlier}"] [data-avatar]`);
+    const target = layer.parentElement?.querySelector(
+      `[data-seat-user="${CSS.escape(outlier)}"] [data-avatar]`,
+    );
     if (!target) return;
     const throwers = Array.from(
       layer.parentElement?.querySelectorAll("[data-seat-user] [data-avatar]") ?? [],

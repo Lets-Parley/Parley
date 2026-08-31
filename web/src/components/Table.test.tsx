@@ -521,6 +521,24 @@ describe("the emoji pile-on", () => {
     expect(flying()).toHaveLength(0);
   });
 
+  it("finds a dissenter whose id carries selector metacharacters", () => {
+    const odd = [...room.slice(0, 4), makePerson({ userId: 'we"ird', name: "Odd Vance" })];
+    render(
+      <Table
+        seated={odd}
+        spectators={[]}
+        online={new Set(odd.map((p) => p.userId))}
+        votedUserIds={odd.map((p) => p.userId)}
+        votes={new Map(odd.map((p, i) => [p.userId, i === 4 ? "8" : "5"]))}
+        revealed
+        consensus={false}
+        facilitatorId="ana"
+        meId="ana"
+      />,
+    );
+    expect(flying()).toHaveLength(odd.length - 1);
+  });
+
   it("creates no overlay children under reduced motion, and schedules no frames", () => {
     const raf = vi.spyOn(globalThis, "requestAnimationFrame");
     vi.spyOn(window, "matchMedia").mockReturnValue({
