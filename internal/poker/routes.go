@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -105,7 +106,9 @@ func addStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		http.Error(w, `{"error":"`+msg+`"}`, http.StatusBadRequest)
 		return
 	}
-	if len(body.Notes) > 2000 {
+	// Characters, not bytes: the column's char_length check counts characters
+	// and so does the client's maxLength.
+	if utf8.RuneCountInString(body.Notes) > 2000 {
 		http.Error(w, `{"error":"notes can be at most 2000 characters"}`, http.StatusBadRequest)
 		return
 	}
@@ -160,14 +163,14 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 	var title *string
 	if body.Title != nil {
 		t := strings.TrimSpace(*body.Title)
-		if len(t) > 200 {
+		if utf8.RuneCountInString(t) > 200 {
 			http.Error(w, `{"error":"title can be at most 200 characters"}`, http.StatusBadRequest)
 			return
 		}
 		title = &t
 	}
 	if body.Notes != nil {
-		if len(*body.Notes) > 2000 {
+		if utf8.RuneCountInString(*body.Notes) > 2000 {
 			http.Error(w, `{"error":"notes can be at most 2000 characters"}`, http.StatusBadRequest)
 			return
 		}
@@ -175,7 +178,7 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 	var ref *string
 	if body.Ref != nil {
 		trimmed := strings.TrimSpace(*body.Ref)
-		if len(trimmed) > 40 {
+		if utf8.RuneCountInString(trimmed) > 40 {
 			http.Error(w, `{"error":"a ticket reference can be at most 40 characters"}`, http.StatusBadRequest)
 			return
 		}
@@ -684,9 +687,9 @@ func storyIdentityError(title, ref string) string {
 	switch {
 	case title == "" && ref == "":
 		return "a ticket needs a reference or a title"
-	case len(title) > 200:
+	case utf8.RuneCountInString(title) > 200:
 		return "a title can be at most 200 characters"
-	case len(ref) > 40:
+	case utf8.RuneCountInString(ref) > 40:
 		return "a ticket reference can be at most 40 characters"
 	}
 	return ""
