@@ -20,6 +20,26 @@ func sitOut(t *testing.T, srv *httptest.Server, sessionID string, on bool, c *ht
 	}
 }
 
+// spectating reads the caller's own spectator flag back off the session
+// roster, which is where the toggle's one visible effect lands.
+func spectating(t *testing.T, srv *httptest.Server, sessionID string, c *http.Cookie) bool {
+	t.Helper()
+	_, me := doJSON(t, srv, "GET", "/api/me", "", c)
+	id, _ := me["id"].(string)
+	if id == "" {
+		t.Fatalf("no user id in the /api/me response: %v", me)
+	}
+	_, env := doJSON(t, srv, "GET", "/api/sessions/"+sessionID, "", c)
+	for _, p := range env["participants"].([]any) {
+		person := p.(map[string]any)
+		if person["userId"] == id {
+			return person["spectator"] == true
+		}
+	}
+	t.Fatalf("%s is not on the roster: %v", id, env["participants"])
+	return false
+}
+
 // addToSpace signs a third person up and puts them in the space.
 func addToSpace(t *testing.T, srv *httptest.Server, slug, name string, fac *http.Cookie) *http.Cookie {
 	t.Helper()
@@ -144,6 +164,16 @@ func TestSitOutWithAutoRevealOffRevealsNothing(t *testing.T) {
 	sitOut(t, srv, id, true, member)
 	if revealed(t, srv, id, fac) {
 		t.Fatal("a spectator toggle revealed a round with auto-reveal off")
+	}
+	// "Nothing but the roster" is only half the claim: the roster has to have
+	// changed. Without this the test passes just as happily against a toggle
+	// that writes nothing at all.
+	if !spectating(t, srv, id, member) {
+		t.Fatal("the toggle returned 204 without putting the member on the roster as a spectator")
+	}
+	sitOut(t, srv, id, false, member)
+	if spectating(t, srv, id, member) {
+		t.Fatal("sitting back down left the member on the roster as a spectator")
 	}
 }
 
