@@ -199,6 +199,7 @@ const routed = (
 const pokerState = {
   deck: { name: "fibonacci", values: ["1", "2", "3", "5", "8"], ordinal: false },
   autoReveal: false,
+  openVoting: false,
   currentStoryId: "story-1",
   stories: [
     {

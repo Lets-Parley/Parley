@@ -194,6 +194,7 @@ describe("SpacePage create dialog", () => {
       expect(dialog.getByRole("checkbox", { name: /Auto-reveal when everyone has voted/ })).toBeTruthy();
       await userEvent.click(dialog.getByRole("button", { name: "Standup" }));
       expect(dialog.queryByRole("checkbox", { name: /Auto-reveal when everyone has voted/ })).toBe(null);
+      expect(dialog.queryByRole("checkbox", { name: /Open voting/ })).toBe(null);
     } finally {
       delete space.kinds;
     }
@@ -233,7 +234,60 @@ describe("SpacePage create dialog", () => {
         expect(create?.[2]).toEqual({
           kind: "poker",
           title: "Sprint off",
-          config: { deck: "fibonacci", autoReveal: false },
+          config: { deck: "fibonacci", autoReveal: false, openVoting: false },
+        });
+      });
+    } finally {
+      delete space.kinds;
+      vi.mocked(api).mockImplementation(defaultApi);
+    }
+  });
+
+  it("offers open voting in the create dialog and says what it changes", async () => {
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+    const dialog = within(screen.getByRole("dialog"));
+    const box = dialog.getByRole("checkbox", { name: /Open voting/ });
+    expect((box as HTMLInputElement).checked).toBe(false);
+    // It is not a second reveal switch, and the dialog has to say so.
+    expect(dialog.getByText(/waits for/)).toBeTruthy();
+  });
+
+  it("posts openVoting true when the create-dialog open-voting toggle is checked", async () => {
+    space.kinds = ["poker"];
+    const defaultApi = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation((async (method: string, path: string, _body?: unknown) => {
+      if (path === "/api/me") return me;
+      if (path === "/api/auth") return { mode: "open" };
+      if (method === "POST" && path === "/api/orgs/acme/spaces/platform-team/sessions") {
+        return {
+          id: "new-3",
+          kind: "poker",
+          title: "Sprint open",
+          createdAt: "2026-08-18T12:00:00.000Z",
+          endedAt: null,
+          here: 0,
+        };
+      }
+      if (path.endsWith("/decks")) return decks;
+      if (path.startsWith("/api/orgs/acme/spaces/")) return view;
+      throw new Error(`unexpected api call: ${path}`);
+    }) as typeof defaultApi);
+    try {
+      renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+      await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+      const dialog = within(screen.getByRole("dialog"));
+      await userEvent.type(dialog.getByLabelText("Title"), "Sprint open");
+      await userEvent.click(dialog.getByRole("checkbox", { name: /Open voting/ }));
+      await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+      await waitFor(() => {
+        const create = vi.mocked(api).mock.calls.find(
+          ([m, p]) => m === "POST" && String(p).endsWith("/sessions"),
+        );
+        expect(create?.[2]).toEqual({
+          kind: "poker",
+          title: "Sprint open",
+          config: { deck: "fibonacci", autoReveal: false, openVoting: true },
         });
       });
     } finally {
@@ -276,7 +330,7 @@ describe("SpacePage create dialog", () => {
         expect(create?.[2]).toEqual({
           kind: "poker",
           title: "Sprint on",
-          config: { deck: "fibonacci", autoReveal: true },
+          config: { deck: "fibonacci", autoReveal: true, openVoting: false },
         });
       });
     } finally {
@@ -1111,7 +1165,7 @@ describe("SpacePage deck chooser", () => {
           title: "Sizing",
           // The cards themselves: deleting the deck row afterwards must not
           // change what this session deals.
-          config: { deck: { name: "House deck", values: ["S", "M", "L"], ordinal: true }, autoReveal: false },
+          config: { deck: { name: "House deck", values: ["S", "M", "L"], ordinal: true }, autoReveal: false, openVoting: false },
         });
       });
     } finally {

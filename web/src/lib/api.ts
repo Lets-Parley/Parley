@@ -207,6 +207,11 @@ export type PokerState = {
   deck: { name: string; values: string[]; ordinal: boolean };
   /** When true, the last eligible vote opens the round. Default false. */
   autoReveal: boolean;
+  /**
+   * When true, a round waits for everyone who has been in this room rather
+   * than only whoever is connected. It reveals nothing by itself.
+   */
+  openVoting: boolean;
   currentStoryId: string | null;
   stories: Story[];
 };

@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { PokerRoom } from "./PokerRoom";
 import { makePerson, renderApp } from "../test/render";
 import type { Envelope, Me } from "../lib/api";
+import { expectNoViolations } from "../test/axe";
 
 const me: Me = { id: "marcus", name: "Marcus Okonjo", avatarHue: 40 };
 
@@ -31,6 +32,7 @@ function envelope(over: Partial<Envelope> = {}): Envelope {
     state: {
       deck: { name: "fibonacci", values: ["1", "2", "3", "5", "8"], ordinal: false },
       autoReveal: false,
+      openVoting: false,
       currentStoryId: "story-1",
       stories: [
         {
@@ -554,6 +556,75 @@ describe("PokerRoom auto-reveal", () => {
   });
 });
 
+describe("PokerRoom open voting", () => {
+  const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+
+  it("hides the toggle from a non-facilitator", () => {
+    renderApp(<PokerRoom env={envelope()} me={me} />);
+    expect(screen.queryByRole("button", { name: /Open voting/ })).toBeNull();
+  });
+
+  it("shows the toggle off by default for the facilitator", () => {
+    const env = envelope({ facilitatorConnected: true });
+    renderApp(<PokerRoom env={env} me={dana} />);
+    const toggle = screen.getByRole("button", { name: "Open voting off" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  // The whole point of the control: it is not a second reveal switch.
+  it("describes the toggle as changing who the round waits for, not whether it reveals", () => {
+    const env = envelope({ facilitatorConnected: true });
+    const { container } = renderApp(<PokerRoom env={env} me={dana} />);
+    const toggle = screen.getByRole("button", { name: "Open voting off" });
+    const id = toggle.getAttribute("aria-describedby");
+    expect(id).toBeTruthy();
+    const description = container.ownerDocument.getElementById(String(id));
+    expect(description?.textContent).toMatch(/waits for/);
+    expect(description?.textContent).toMatch(/reveal/);
+  });
+
+  it("PATCHes config when the facilitator turns open voting on", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+    const env = envelope({ facilitatorConnected: true });
+    renderApp(<PokerRoom env={env} me={dana} />);
+    await userEvent.click(screen.getByRole("button", { name: "Open voting off" }));
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/sessions/sess-1/actions/config",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toEqual({ openVoting: true });
+  });
+
+  it("PATCHes openVoting false when the facilitator turns it back off", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+    const env = envelope({ facilitatorConnected: true });
+    env.state.openVoting = true;
+    renderApp(<PokerRoom env={env} me={dana} />);
+    await userEvent.click(screen.getByRole("button", { name: "Open voting on" }));
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toEqual({ openVoting: false });
+  });
+
+  it("offers Open voting on when the flag is already set", () => {
+    const env = envelope({ facilitatorConnected: true });
+    env.state.openVoting = true;
+    renderApp(<PokerRoom env={env} me={dana} />);
+    const toggle = screen.getByRole("button", { name: "Open voting on" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("has no axe violations on the facilitator's control cluster", async () => {
+    const env = envelope({ facilitatorConnected: true });
+    const { container } = renderApp(<PokerRoom env={env} me={dana} />);
+    await expectNoViolations(container);
+  });
+});
+
 describe("PokerRoom link guest", () => {
   it("never offers facilitator controls, export or spectate to a guest, even when the guest id matches the facilitator id", () => {
     // The pathological coincidence: a guest whose id happens to equal the
@@ -566,6 +637,7 @@ describe("PokerRoom link guest", () => {
     expect(screen.queryByRole("button", { name: "End session" })).toBeNull();
     expect(screen.queryByRole("button", { name: /spectat/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Auto-reveal/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Open voting/ })).toBeNull();
   });
 
   // A guest's capability is this one room. The space behind it refuses them,
