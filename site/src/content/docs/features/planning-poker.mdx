@@ -16,7 +16,7 @@ import createDark from "../../../assets/create-session-dark.png";
 import tshirtLight from "../../../assets/tshirt-results-light.png";
 import tshirtDark from "../../../assets/tshirt-results-dark.png";
 
-<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx"]} />
+<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts"]} />
 
 A poker session is a queue of work and a table of people. The facilitator puts
 one item on the table, everybody votes face-down, and the round opens when the
@@ -211,6 +211,24 @@ all told, even at a full table — so it never delays the next round.
 Everything here is decoration. `prefers-reduced-motion: reduce` skips it
 entirely — not just the movement, the confetti is never drawn — and the reveal,
 the statistics and the saved estimate are identical either way.
+
+## When everyone but one agrees
+
+A reveal where every voter but one landed on the same card gets the opposite
+reaction: each of the other seats lobs an emoji across the table at the lone
+dissenter, staggered so they arrive as a pile-on rather than a volley. The set
+is playfully cross — eye-rolls, red flags, and the classic theatre-heckling
+repertoire of tomatoes, eggs and a lemon — and never mocking, because nobody
+opted into being the target.
+
+It is deliberately narrow. It does not fire at unanimity (that is the high-five
+above), nor with two or more dissenters, nor when the majority card is `?` or
+coffee — the same exclusion that keeps those two out of consensus — and not at
+all below four voters, where "all but one agree" is true of nearly every split.
+The two celebrations can never both run.
+
+Like the high-five it is pure decoration, and `prefers-reduced-motion: reduce`
+skips it entirely: no emoji is drawn at all.
 
 ## Ending the round
 
