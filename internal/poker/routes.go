@@ -467,19 +467,26 @@ func maybeAutoReveal(ctx context.Context, tx pgx.Tx, connected []string, sess st
 			union
 			-- A guest who joined by signed link has no members row and so no
 			-- spectator flag: it votes like anybody else in the room, and the
-			-- round is waiting on it like anybody else. Leaving it out both
-			-- shrinks the denominator, revealing while it still has a vote to
-			-- cast, and puts its vote outside eligible, which fails the
-			-- "voters subset of eligible" half for as long as that vote stands.
+			-- round is waiting on it like anybody else. Leaving it out shrinks
+			-- the denominator, revealing while it still has a vote to cast.
 			select u.id from users u
 			join session_links l on l.id = u.link_id
 			where l.session_id = $4 and u.id::text = any($2)
 		), voters as (
 			select user_id from votes where story_id = $3
 		)
+		-- Only the "everybody eligible has voted" half, for the reason the open
+		-- branch gives: a vote from outside the eligible set is a bonus, never
+		-- a reason to hold the round shut. The half that also demanded voters
+		-- be a subset of eligible was guarding against a reveal driven by a
+		-- vote from somebody the round is not waiting on — but it never could:
+		-- an extra vote cannot satisfy the half above for anybody else, so the
+		-- set that is waited for is unchanged either way. What it did do is
+		-- wedge the round shut forever once somebody voted and then left the
+		-- eligible set — sat out, dropped their membership, disconnected —
+		-- because their vote then stands outside eligible for good.
 		select exists (select 1 from eligible)
-		and not exists (select user_id from eligible except select user_id from voters)
-		and not exists (select user_id from voters except select user_id from eligible)`,
+		and not exists (select user_id from eligible except select user_id from voters)`,
 		sess.SpaceID, connected, storyID, sess.ID).Scan(&exact)
 	if err != nil || !exact {
 		return err

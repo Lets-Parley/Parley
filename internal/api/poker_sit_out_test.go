@@ -167,3 +167,57 @@ func TestStandupSpectatorToggleIsUnaffected(t *testing.T) {
 		t.Fatal("sitting back down in standup did not restore the entry row")
 	}
 }
+
+// A vote cast by somebody who then sits out is stale, not a reason to hold the
+// round open: when the genuine last outstanding estimator sits out, the round
+// completes even though an earlier voter has since left the table.
+func TestSitOutCompletesAClosedRoundAfterAVoterSatOut(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Sit Out Stale Vote Space")
+	other := addToSpace(t, srv, "sit-out-stale-vote-space", "Ora", fac)
+	setAutoReveal(t, srv, id, true, fac)
+	story := addStory(t, srv, id, "Stale vote story", fac)
+	selectStory(t, srv, id, story, fac)
+	joinRoom(t, srv, id, fac)
+	joinRoom(t, srv, id, member)
+	joinRoom(t, srv, id, other)
+	time.Sleep(2 * time.Second) // let presence settle
+
+	vote(t, srv, id, story, "3", fac)
+	vote(t, srv, id, story, "5", member)
+	sitOut(t, srv, id, true, member)
+	if revealed(t, srv, id, fac) {
+		t.Fatal("round revealed while a third estimator had not cast")
+	}
+	sitOut(t, srv, id, true, other)
+	if !revealed(t, srv, id, fac) {
+		t.Fatal("the last outstanding voter sat out and the round stayed open behind a departed voter's vote")
+	}
+}
+
+// And the symmetric case: sitting out after voting and then sitting back down
+// leaves the round exactly where it was, with that vote counting again.
+func TestSittingBackDownAfterVotingCountsTheVoteAgain(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Sit Out Round Trip Space")
+	other := addToSpace(t, srv, "sit-out-round-trip-space", "Ora", fac)
+	setAutoReveal(t, srv, id, true, fac)
+	story := addStory(t, srv, id, "Round trip story", fac)
+	selectStory(t, srv, id, story, fac)
+	joinRoom(t, srv, id, fac)
+	joinRoom(t, srv, id, member)
+	joinRoom(t, srv, id, other)
+	time.Sleep(2 * time.Second)
+
+	vote(t, srv, id, story, "3", fac)
+	vote(t, srv, id, story, "5", member)
+	sitOut(t, srv, id, true, member)
+	sitOut(t, srv, id, false, member)
+	if revealed(t, srv, id, fac) {
+		t.Fatal("round revealed while a third estimator had not cast")
+	}
+	vote(t, srv, id, story, "8", other)
+	if !revealed(t, srv, id, fac) {
+		t.Fatal("the returned voter's earlier vote stopped counting")
+	}
+}
