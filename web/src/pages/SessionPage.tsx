@@ -120,7 +120,12 @@ export function SessionPage() {
   // SpaceSlug so the room never leaks tenancy the guest is not part of. The
   // sidebar lookup stays disabled either way (enabled: !!slug && !!org &&
   // !guest); only the room itself must still render for the guest.
-  if (session.isError || !session.data || (!guest && !session.data.orgSlug) || !identity) {
+  //
+  // isError alone is not enough to tear the room down: useSession invalidates
+  // on every reconnect with retry:false, so a single failed background refetch
+  // keeps prior data. Unmounting Room here would destroy an unsaved standup
+  // draft that lives in useState inside the room. Gate on data presence only.
+  if (!session.data || (!guest && !session.data.orgSlug) || !identity) {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-8 text-center">
         <p className="font-display text-2xl">No seat at this table</p>

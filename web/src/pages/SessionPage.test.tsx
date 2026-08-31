@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
@@ -85,20 +85,26 @@ let mockOrgSlug = "acme";
 // Full envelope override. Guest cases set this to a RedactForGuest result so
 // the page is exercised against the real redacted wire shape.
 let mockData: Envelope | null = null;
+// A background refetch that failed while prior data is still cached — the
+// react-query shape after invalidate+retry:false rejects. Distinct from a
+// genuine miss, which leaves data undefined.
+let mockSessionError = false;
+let mockSessionHasData = true;
 
 vi.mock("../lib/useSession", () => ({
   useSession: () => ({
-    data:
-      mockData ??
-      ({
-        ...envelope,
-        kind: mockKind,
-        facilitatorId: mockFacilitatorId,
-        state: mockState,
-        orgSlug: mockOrgSlug,
-      } as Envelope),
+    data: !mockSessionHasData
+      ? undefined
+      : (mockData ??
+        ({
+          ...envelope,
+          kind: mockKind,
+          facilitatorId: mockFacilitatorId,
+          state: mockState,
+          orgSlug: mockOrgSlug,
+        } as Envelope)),
     isLoading: false,
-    isError: false,
+    isError: mockSessionError,
     status: "stale",
     refetch: () => {},
   }),
@@ -110,9 +116,20 @@ beforeEach(() => {
   mockState = envelope.state;
   mockOrgSlug = "acme";
   mockData = null;
+  mockSessionError = false;
+  mockSessionHasData = true;
   apiMeResponse = me;
   localStorage.clear();
   sessionStorage.clear();
+  // The expired-session case swaps api's implementation; put the default back
+  // so later cases are not stranded behind a closed-over signedIn=false.
+  vi.mocked(api).mockImplementation(async (_method: string, path: string) => {
+    if (path === "/api/me") return apiMeResponse;
+    if (path === "/api/auth") return { mode: "open" };
+    if (path.startsWith("/api/orgs/acme/spaces/")) return { name: "Platform Team", members: [], sessions: [] };
+    if (path.endsWith("/links")) return { links: [] };
+    throw new Error(`unexpected api call: ${path}`);
+  });
 });
 
 describe("SessionPage wiring", () => {
@@ -512,5 +529,71 @@ describe("SessionPage expired-session overlay", () => {
 
     expect(await screen.findByRole("heading", { name: /your session ended/i })).toBeTruthy();
     expect(screen.getByText("Daily")).toBeTruthy();
+  });
+});
+
+/**
+ * useSession invalidates on every reconnect with retry:false. A single failed
+ * background refetch used to flip SessionPage into "No seat" and unmount the
+ * Room — which destroyed the standup draft living in useState inside
+ * useOwnEntryDraft. Stale query data must keep the room mounted; only a miss
+ * with no data is a genuine no-seat.
+ */
+describe("SessionPage transient session refetch failure", () => {
+  beforeEach(() => {
+    mockFacilitatorId = "dana";
+    mockData = {
+      ...envelope,
+      participants: [
+        { userId: "dana", name: "Dana Whitfield", avatarHue: 120, spectator: false },
+        { userId: "marcus", name: "Marcus Okonjo", avatarHue: 40, spectator: false },
+      ],
+      state: {
+        entries: [
+          {
+            userId: "marcus",
+            yesterday: "",
+            today: "",
+            blockers: "",
+            position: 1,
+            skipped: false,
+          },
+        ],
+        currentSpeakerId: "marcus",
+        speakerStartedAt: "2026-08-18T10:00:00.000Z",
+        secondsPerPerson: 90,
+      },
+    } as unknown as Envelope;
+  });
+
+  it("keeps the room mounted and the standup draft intact when a refetch fails", async () => {
+    // react-query keeps prior data when a background refetch rejects — isError
+    // with data still present. The old gate treated any isError as no-seat and
+    // unmounted Room, wiping the draft. Mount under success, type into the
+    // draft, then flip isError while data remains and re-render — proving the
+    // room does not unmount across that transition.
+    const { rerender } = renderApp(routed, { route: "/session/sess-1" });
+
+    expect(await screen.findByText("Daily")).toBeTruthy();
+    expect(screen.queryByText(/no seat at this table/i)).toBe(null);
+
+    const yesterday = screen.getAllByRole("textbox")[0] as HTMLTextAreaElement;
+    fireEvent.change(yesterday, { target: { value: "half-typed blocker notes" } });
+    expect(yesterday.value).toBe("half-typed blocker notes");
+
+    mockSessionError = true;
+    rerender(routed);
+
+    expect(screen.getByText("Daily")).toBeTruthy();
+    expect(screen.queryByText(/no seat at this table/i)).toBe(null);
+    const yesterdayAfter = screen.getAllByRole("textbox")[0] as HTMLTextAreaElement;
+    expect(yesterdayAfter.value).toBe("half-typed blocker notes");
+  });
+
+  it("still shows no seat when the session query has no data", async () => {
+    mockSessionError = true;
+    mockSessionHasData = false;
+    renderApp(routed, { route: "/session/sess-1" });
+    expect(await screen.findByText(/no seat at this table/i)).toBeTruthy();
   });
 });
