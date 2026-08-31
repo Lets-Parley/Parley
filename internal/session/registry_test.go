@@ -1,13 +1,17 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"reflect"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/lets-parley/parley/internal/store"
 )
 
 // testConfig stands in for a real kind's config document. Registering a kind
@@ -329,5 +333,43 @@ func TestParseConfigRunsValidate(t *testing.T) {
 	}
 	if _, err := r.ParseConfig("validated", []byte(`{"n":9}`)); err == nil {
 		t.Fatal("invalid config accepted")
+	}
+}
+
+// The roster hook is looked up by kind, and the kind asked for is the kind
+// that runs. Nothing downstream can catch a mix-up: poker's hook reads the
+// current story, which a standup session never has, so the wrong hook is a
+// silent no-op rather than a failure.
+func TestRosterChangedIsTheRequestedKindsHook(t *testing.T) {
+	ran := ""
+	hook := func(name string) func(context.Context, pgx.Tx, store.Session, []string) error {
+		return func(context.Context, pgx.Tx, store.Session, []string) error {
+			ran = name
+			return nil
+		}
+	}
+	a, b := testKind(), testKind()
+	a.Name, a.RosterChanged = "kinda", hook("kinda")
+	b.Name, b.RosterChanged = "kindb", hook("kindb")
+	r := registryWith(t, a, b)
+
+	changed, ok := r.RosterChanged("kindb")
+	if !ok {
+		t.Fatal("RosterChanged(\"kindb\") reports no hook for a kind that has one")
+	}
+	if err := changed(context.Background(), nil, store.Session{}, nil); err != nil {
+		t.Fatalf("hook: %v", err)
+	}
+	if ran != "kindb" {
+		t.Fatalf("RosterChanged(\"kindb\") returned %q's hook", ran)
+	}
+
+	// And a kind without one is reported as having none, rather than
+	// borrowing a neighbour's.
+	plain := testKind()
+	plain.Name = "kindc"
+	r2 := registryWith(t, a, plain)
+	if _, ok := r2.RosterChanged("kindc"); ok {
+		t.Fatal("a kind with no roster hook was handed somebody else's")
 	}
 }
