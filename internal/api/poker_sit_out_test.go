@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -249,5 +250,48 @@ func TestSittingBackDownAfterVotingCountsTheVoteAgain(t *testing.T) {
 	vote(t, srv, id, story, "8", other)
 	if !revealed(t, srv, id, fac) {
 		t.Fatal("the returned voter's earlier vote stopped counting")
+	}
+}
+
+// The flag write and the kind's reveal check share one transaction, so a hook
+// that fails takes the flag with it. Moving the hook into a transaction of its
+// own after the toggle committed is invisible to every other test here — the
+// reveal still lands, just a moment later and unprotected — so it is pinned by
+// its failure mode instead.
+//
+// The failure is induced through the data rather than through a test kind: the
+// registry is built inside Router and a test cannot reach it, and a seam cut
+// into production code purely to fail on demand would be worse than this. A
+// session config that is valid JSON but not a poker config makes poker's own
+// roster hook return an error on the next toggle.
+func TestSpectatorToggleRollsBackWhenTheKindsHookFails(t *testing.T) {
+	pool := testPool(t)
+	srv := testServerWith(t, pool, Options{AllowedOrigin: testOrigin})
+	fac, member, id := setupSession(t, srv, "Sit Out Atomic Space")
+	setAutoReveal(t, srv, id, true, fac)
+	story := addStory(t, srv, id, "Atomic story", fac)
+	selectStory(t, srv, id, story, fac)
+
+	_, me := doJSON(t, srv, "GET", "/api/me", "", member)
+	userID, _ := me["id"].(string)
+	if userID == "" {
+		t.Fatalf("no user id in the /api/me response: %v", me)
+	}
+	if _, err := pool.Exec(context.Background(),
+		"update sessions set config = '[]'::jsonb where id = $1", id); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/spectator", `{"on":true}`, member)
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("spectator toggle with a failing roster hook: got %d, want 500", resp.StatusCode)
+	}
+	var spectator bool
+	if err := pool.QueryRow(context.Background(),
+		"select spectator from members where user_id = $1", userID).Scan(&spectator); err != nil {
+		t.Fatal(err)
+	}
+	if spectator {
+		t.Fatal("the roster hook failed and the spectator flag was committed anyway — the two are not in one transaction")
 	}
 }
