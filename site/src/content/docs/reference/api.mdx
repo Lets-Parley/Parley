@@ -233,6 +233,7 @@ existence is never disclosed.
   { method: "GET", path: "/api/sessions/{id}/export.csv", auth: "member", purpose: "CSV of the session, rendered from the same redacted view." },
   { method: "POST", path: "/api/sessions/{id}/facilitator/claim", auth: "member", purpose: "Claim the facilitator role after the 60s grace period. Any member." },
   { method: "POST", path: "/api/sessions/{id}/facilitator", auth: "facilitator", purpose: "Hand the role to {userId}. Distinct from the claim route above." },
+  { method: "POST", path: "/api/sessions/{id}/participants/{userId}/remove", auth: "facilitator", purpose: "Remove {userId} from this session only — their presence row goes and their sockets for this room close with code 4001. Space membership is untouched and they may rejoin. Optional body {message}, shown to them on the way out and truncated to 123 bytes on a rune boundary. Removing yourself or the facilitator is 400." },
   { method: "DELETE", path: "/api/sessions/{id}", auth: "facilitator", purpose: "Close the session — it ends, its history stays, and it can be reopened. Idempotent. To discard one, see DELETE /api/orgs/{org}/spaces/{slug}/sessions/{id}, which is owner-only." },
   { method: "POST", path: "/api/sessions/{id}/reopen", auth: "facilitator", purpose: "Reopen a closed session." },
   { method: "POST", path: "/api/sessions/{id}/spectator", auth: "member", purpose: "Toggle your own spectator seat with {on}. A property of a member, not of a kind, so it is a core route rather than an action." },
@@ -372,6 +373,11 @@ The authenticated token is checked in the shared store at least every 30
 seconds without refreshing its idle lifetime. Revocation, expiry, or validation
 failure closes the socket with WebSocket policy code `1008`; logout disconnects
 the token's sockets synchronously.
+
+A facilitator removing someone from a room closes only that person's sockets for
+that room, with the application close code `4001` and the facilitator's message
+as the close reason. It is a distinct code from `1008` on purpose: `1008` means
+the space is gone for them, `4001` means this meeting is, and they may rejoin.
 
 ## Anything else
 

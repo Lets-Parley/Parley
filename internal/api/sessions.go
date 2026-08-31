@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -217,6 +218,56 @@ func (a *app) handleTransferFacilitator(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, `{"error":"could not transfer facilitator"}`, http.StatusInternalServerError)
 		return
 	}
+	a.broadcastState(r.Context(), sess.ID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleRemoveParticipant ejects one person from THIS room. It is deliberately
+// much smaller than the space-level removal next to it: the session_presence
+// row goes and their sockets for this room close, but their space membership is
+// untouched and they may walk back in through the same link. Reversible by
+// design — blocking a rejoin would need a persisted per-session blocklist.
+//
+// The facilitator's optional message rides the close frame rather than a frame
+// of its own: by the time it would arrive the recipient is no longer a session
+// member, and every route that could have carried it would refuse them.
+func (a *app) handleRemoveParticipant(w http.ResponseWriter, r *http.Request) {
+	p, _ := PrincipalFrom(r.Context())
+	sess := sessionFrom(r.Context())
+	target := chi.URLParam(r, "userId")
+
+	var body struct {
+		Message string `json:"message"`
+	}
+	// The message is optional, so an empty body is not an error.
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil && !errors.Is(err, io.EOF) {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
+		return
+	}
+
+	if target == "" {
+		http.Error(w, `{"error":"userId is required"}`, http.StatusBadRequest)
+		return
+	}
+	if target == p.UserID {
+		http.Error(w, `{"error":"you cannot remove yourself — leave the room instead"}`, http.StatusBadRequest)
+		return
+	}
+	// The role, not the caller: a facilitator who has just handed the role on
+	// must not be able to remove the person now holding it.
+	if target == sess.FacilitatorID {
+		http.Error(w, `{"error":"the facilitator cannot be removed — hand the role on first"}`, http.StatusBadRequest)
+		return
+	}
+
+	if err := a.presence.Gone(r.Context(), sess.ID, target); err != nil {
+		slog.Error("could not clear presence for a removed participant",
+			"session", sess.ID, "user", target, "error", err)
+		http.Error(w, `{"error":"could not remove that person"}`, http.StatusInternalServerError)
+		return
+	}
+	a.hub.DisconnectSessionMember(sess.ID, target, body.Message)
+	a.notifyParticipantRemoved(r.Context(), sess.ID, target, body.Message)
 	a.broadcastState(r.Context(), sess.ID)
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lets-parley/parley/internal/dbtest"
+	"github.com/lets-parley/parley/internal/hub"
 	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/store"
 )
@@ -834,4 +835,198 @@ func retireKind(t *testing.T, pool *pgxpool.Pool, kind string) {
 			t.Errorf("restoring the retired kind: %v", err)
 		}
 	})
+}
+
+// removeParticipant posts the facilitator removal for one user.
+func removeParticipant(t *testing.T, srv *httptest.Server, sessionID, userID, body string, cookie *http.Cookie) (*http.Response, map[string]any) {
+	t.Helper()
+	return doJSON(t, srv, "POST", "/api/sessions/"+sessionID+"/participants/"+userID+"/remove", body, cookie)
+}
+
+// waitForPresence blocks until the room's envelope lists the user, so a removal
+// test is removing somebody the server has actually seen arrive.
+func waitForPresence(t *testing.T, srv *httptest.Server, sessionID, user string, cookie *http.Cookie) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		_, env := doJSON(t, srv, "GET", "/api/sessions/"+sessionID, "", cookie)
+		for _, id := range env["presence"].([]any) {
+			if id == user {
+				return
+			}
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("user %s never appeared in the presence of session %s", user, sessionID)
+}
+
+func TestFacilitatorRemovesParticipantFromTheRoom(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Removal Space")
+	mel := userID(t, srv, member)
+
+	// Two tabs for the person being removed; both have to close.
+	tabA, _, err := dialWS(t, srv, id, member, testOrigin)
+	if err != nil {
+		t.Fatalf("dial first tab: %v", err)
+	}
+	defer tabA.Close()
+	tabB, _, err := dialWS(t, srv, id, member, testOrigin)
+	if err != nil {
+		t.Fatalf("dial second tab: %v", err)
+	}
+	defer tabB.Close()
+	facWS, _, err := dialWS(t, srv, id, fac, testOrigin)
+	if err != nil {
+		t.Fatalf("dial facilitator: %v", err)
+	}
+	defer facWS.Close()
+	for _, ws := range []*websocket.Conn{tabA, tabB, facWS} {
+		if _, ok := readEnvelope(t, ws, 5*time.Second); !ok {
+			t.Fatal("no initial state frame")
+		}
+	}
+	waitForPresence(t, srv, id, mel, fac)
+
+	const message = "we will pick this up tomorrow"
+	resp, body := removeParticipant(t, srv, id, mel, `{"message":"`+message+`"}`, fac)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("remove: got %d %v, want 204", resp.StatusCode, body)
+	}
+
+	for i, ws := range []*websocket.Conn{tabA, tabB} {
+		ws.SetReadDeadline(time.Now().Add(5 * time.Second))
+		for {
+			_, _, err := ws.ReadMessage()
+			if err == nil {
+				continue // a state frame in flight; the close is behind it
+			}
+			closeErr, ok := err.(*websocket.CloseError)
+			if !ok {
+				t.Fatalf("tab %d: close = %v, want a close frame", i, err)
+			}
+			if closeErr.Code != hub.CloseRemovedFromSession {
+				t.Fatalf("tab %d: close code = %d, want %d", i, closeErr.Code, hub.CloseRemovedFromSession)
+			}
+			if closeErr.Text != message {
+				t.Fatalf("tab %d: close reason = %q, want %q", i, closeErr.Text, message)
+			}
+			break
+		}
+	}
+
+	// Everyone else sees the roster change without asking.
+	deadline := time.Now().Add(5 * time.Second)
+	gone := false
+	for !gone && time.Now().Before(deadline) {
+		env, ok := readEnvelope(t, facWS, 2*time.Second)
+		if !ok {
+			break
+		}
+		present, _ := env["presence"].([]any)
+		gone = true
+		for _, uid := range present {
+			if uid == mel {
+				gone = false
+			}
+		}
+	}
+	if !gone {
+		t.Fatal("the facilitator never received an envelope without the removed participant")
+	}
+
+	// Space membership is untouched, and the room is open to them again.
+	resp, _ = doJSON(t, srv, "GET", "/api/sessions/"+id, "", member)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("removed member lost space access: got %d, want 200", resp.StatusCode)
+	}
+	rejoined, _, err := dialWS(t, srv, id, member, testOrigin)
+	if err != nil {
+		t.Fatalf("removed member could not rejoin: %v", err)
+	}
+	defer rejoined.Close()
+	if _, ok := readEnvelope(t, rejoined, 5*time.Second); !ok {
+		t.Fatal("rejoined member got no state frame")
+	}
+}
+
+func TestRemoveParticipantPermissionMatrix(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Removal Matrix Space")
+	fay := userID(t, srv, fac)
+	mel := userID(t, srv, member)
+
+	// A member is not a facilitator.
+	if resp, _ := removeParticipant(t, srv, id, fay, `{}`, member); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("non-facilitator remove: got %d, want 403", resp.StatusCode)
+	}
+	// Removing yourself is a mistake, not a feature.
+	if resp, body := removeParticipant(t, srv, id, fay, `{}`, fac); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("self remove: got %d %v, want 400", resp.StatusCode, body)
+	}
+
+	// Transfer the role, then check the facilitator cannot be removed by the
+	// new facilitator either — the rule is about the role, not the caller.
+	if resp, body := doJSON(t, srv, "POST", "/api/sessions/"+id+"/facilitator", `{"userId":"`+mel+`"}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("transfer: got %d %v", resp.StatusCode, body)
+	}
+	if resp, body := removeParticipant(t, srv, id, mel, `{}`, member); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("removing the facilitator: got %d %v, want 400", resp.StatusCode, body)
+	}
+
+	// An ended room takes no further facilitator actions.
+	if resp, _ := doJSON(t, srv, "DELETE", "/api/sessions/"+id+"/", "", member); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("close session: got %d", resp.StatusCode)
+	}
+	if resp, _ := removeParticipant(t, srv, id, fay, `{}`, member); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("remove in an ended session: got %d, want 409", resp.StatusCode)
+	}
+}
+
+func TestRemoveParticipantAcceptsNoBodyAndTruncatesALongMessage(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Removal Message Space")
+	mel := userID(t, srv, member)
+
+	ws, _, err := dialWS(t, srv, id, member, testOrigin)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer ws.Close()
+	if _, ok := readEnvelope(t, ws, 5*time.Second); !ok {
+		t.Fatal("no initial state frame")
+	}
+	waitForPresence(t, srv, id, mel, fac)
+
+	// Sixty three-byte runes: 180 bytes, well past the 123 a close frame can
+	// carry. A cut mid-rune would make the frame invalid and the client would
+	// see an abnormal closure instead of the message.
+	long := strings.Repeat("あ", 60)
+	resp, body := removeParticipant(t, srv, id, mel, `{"message":"`+long+`"}`, fac)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("remove with a long message: got %d %v, want 204", resp.StatusCode, body)
+	}
+	ws.SetReadDeadline(time.Now().Add(5 * time.Second))
+	for {
+		_, _, err := ws.ReadMessage()
+		if err == nil {
+			continue
+		}
+		closeErr, ok := err.(*websocket.CloseError)
+		if !ok {
+			t.Fatalf("close = %v, want a close frame", err)
+		}
+		if closeErr.Code != hub.CloseRemovedFromSession {
+			t.Fatalf("close code = %d, want %d", closeErr.Code, hub.CloseRemovedFromSession)
+		}
+		if want := strings.Repeat("あ", 41); closeErr.Text != want {
+			t.Fatalf("close reason = %q, want it truncated to %q", closeErr.Text, want)
+		}
+		break
+	}
+
+	// A removal with no body at all is a removal with no message.
+	if resp, body := removeParticipant(t, srv, id, mel, "", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("remove with no body: got %d %v, want 204", resp.StatusCode, body)
+	}
 }

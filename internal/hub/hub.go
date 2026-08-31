@@ -7,9 +7,21 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
 )
+
+// CloseRemovedFromSession is the close code a socket gets when the room's
+// facilitator removes that person from the room. It is an application code
+// (the 4000–4999 range) deliberately: 1008/ClosePolicyViolation already means
+// "removed from the space", which is a different and permanent thing, and the
+// client shows a different screen for each.
+const CloseRemovedFromSession = 4001
+
+// maxCloseReason is the byte budget for a close reason. A control frame's
+// payload is 125 bytes and the close code takes the first two.
+const maxCloseReason = 123
 
 // PongDeadline is how long a connection may go without answering a ping before
 // it is considered gone. Exported because presence freshness is derived from
@@ -55,18 +67,23 @@ type Conn struct {
 	SpaceID   string
 	// guest marks a connection held by a link guest, which is served the
 	// redacted copy of every broadcast.
-	guest      bool
-	ws         *websocket.Conn
-	send       chan []byte
-	hub        *Hub
-	tokenID    string
-	expiresAt  time.Time
-	closeCode  atomic.Int32
-	ctx        context.Context
-	cancel     context.CancelFunc
-	expiry     *time.Timer
-	writeState atomic.Uint32
-	authState  atomic.Uint32
+	guest     bool
+	ws        *websocket.Conn
+	send      chan []byte
+	hub       *Hub
+	tokenID   string
+	expiresAt time.Time
+	closeCode atomic.Int32
+	// closeReason rides the close frame beside closeCode, so a facilitator's
+	// message reaches a removed client without a frame type of its own — by
+	// the time it would arrive, that client is no longer a session member and
+	// every other route would refuse it.
+	closeReason atomic.Pointer[string]
+	ctx         context.Context
+	cancel      context.CancelFunc
+	expiry      *time.Timer
+	writeState  atomic.Uint32
+	authState   atomic.Uint32
 	// membershipConfirmed flips true once confirmMembership has cleared this
 	// connection, which is the pong handler's real precondition: authState
 	// alone can be authAccepted while confirmMembership is still in flight
@@ -199,6 +216,21 @@ func (e disconnectMemberEvent) matches(c *Conn) bool {
 	return c.UserID == e.userID && c.SpaceID == e.spaceID
 }
 
+// disconnectSessionMemberEvent closes one person's sockets in one room. It is
+// narrower than disconnectMemberEvent (a whole space) and than
+// disconnectSessionEvent (a whole room): a facilitator removing someone from a
+// meeting must not touch the sockets they hold for any other meeting.
+type disconnectSessionMemberEvent struct {
+	sessionID string
+	userID    string
+	reason    string
+	done      chan []<-chan struct{}
+}
+
+func (e disconnectSessionMemberEvent) matches(c *Conn) bool {
+	return c.UserID == e.userID && c.SessionID == e.sessionID
+}
+
 type disconnectSessionEvent struct {
 	sessionID string
 	done      chan []<-chan struct{}
@@ -263,9 +295,9 @@ func (h *Hub) run() {
 			h.register(e)
 		case unregisterEvent:
 			if _, pending := h.pending[e.conn]; pending {
-				h.rejectPending(e.conn, websocket.CloseNormalClosure)
+				h.rejectPending(e.conn, websocket.CloseNormalClosure, "")
 			} else {
-				h.remove(e.conn, websocket.CloseNormalClosure)
+				h.remove(e.conn, websocket.CloseNormalClosure, "")
 			}
 			close(e.done)
 		case broadcastEvent:
@@ -299,11 +331,11 @@ func (h *Hub) run() {
 		case shutdownEvent:
 			writers := []<-chan struct{}{}
 			for c := range h.pending {
-				writers = append(writers, h.rejectPending(c, websocket.CloseGoingAway))
+				writers = append(writers, h.rejectPending(c, websocket.CloseGoingAway, ""))
 			}
 			for _, room := range h.rooms {
 				for c := range room {
-					if done := h.remove(c, websocket.CloseGoingAway); done != nil {
+					if done := h.remove(c, websocket.CloseGoingAway, ""); done != nil {
 						writers = append(writers, done)
 					}
 				}
@@ -316,13 +348,13 @@ func (h *Hub) run() {
 			writers := []<-chan struct{}{}
 			for c := range h.pending {
 				if c.tokenID == e.tokenID {
-					writers = append(writers, h.rejectPending(c, websocket.ClosePolicyViolation))
+					writers = append(writers, h.rejectPending(c, websocket.ClosePolicyViolation, ""))
 				}
 			}
 			for _, room := range h.rooms {
 				for c := range room {
 					if c.tokenID == e.tokenID {
-						if done := h.remove(c, websocket.ClosePolicyViolation); done != nil {
+						if done := h.remove(c, websocket.ClosePolicyViolation, ""); done != nil {
 							writers = append(writers, done)
 						}
 					}
@@ -333,15 +365,30 @@ func (h *Hub) run() {
 			writers := []<-chan struct{}{}
 			for c := range h.pending {
 				if e.matches(c) {
-					writers = append(writers, h.rejectPending(c, websocket.ClosePolicyViolation))
+					writers = append(writers, h.rejectPending(c, websocket.ClosePolicyViolation, ""))
 				}
 			}
 			for _, room := range h.rooms {
 				for c := range room {
 					if e.matches(c) {
-						if done := h.remove(c, websocket.ClosePolicyViolation); done != nil {
+						if done := h.remove(c, websocket.ClosePolicyViolation, ""); done != nil {
 							writers = append(writers, done)
 						}
+					}
+				}
+			}
+			e.done <- writers
+		case disconnectSessionMemberEvent:
+			writers := []<-chan struct{}{}
+			for c := range h.pending {
+				if e.matches(c) {
+					writers = append(writers, h.rejectPending(c, CloseRemovedFromSession, e.reason))
+				}
+			}
+			for c := range h.rooms[e.sessionID] {
+				if e.matches(c) {
+					if done := h.remove(c, CloseRemovedFromSession, e.reason); done != nil {
+						writers = append(writers, done)
 					}
 				}
 			}
@@ -350,11 +397,11 @@ func (h *Hub) run() {
 			writers := []<-chan struct{}{}
 			for c := range h.pending {
 				if c.SessionID == e.sessionID {
-					writers = append(writers, h.rejectPending(c, websocket.CloseGoingAway))
+					writers = append(writers, h.rejectPending(c, websocket.CloseGoingAway, ""))
 				}
 			}
 			for c := range h.rooms[e.sessionID] {
-				if done := h.remove(c, websocket.CloseGoingAway); done != nil {
+				if done := h.remove(c, websocket.CloseGoingAway, ""); done != nil {
 					writers = append(writers, done)
 				}
 			}
@@ -362,7 +409,7 @@ func (h *Hub) run() {
 		case revalidationEvent:
 			if pending, ok := h.pending[e.conn]; ok {
 				if e.err != nil {
-					h.rejectPending(e.conn, websocket.ClosePolicyViolation)
+					h.rejectPending(e.conn, websocket.ClosePolicyViolation, "")
 					continue
 				}
 				delete(h.pending, e.conn)
@@ -374,7 +421,7 @@ func (h *Hub) run() {
 				continue
 			}
 			if e.err != nil {
-				h.remove(e.conn, websocket.ClosePolicyViolation)
+				h.remove(e.conn, websocket.ClosePolicyViolation, "")
 				continue
 			}
 			e.conn.expiresAt = e.expiresAt
@@ -384,7 +431,7 @@ func (h *Hub) run() {
 				continue
 			}
 			if e.err != nil {
-				h.remove(e.conn, websocket.ClosePolicyViolation)
+				h.remove(e.conn, websocket.ClosePolicyViolation, "")
 				continue
 			}
 			h.deliver(e.conn, e.initial)
@@ -410,7 +457,7 @@ func (h *Hub) register(e registerEvent) {
 	e.accepted <- true
 }
 
-func (h *Hub) rejectPending(c *Conn, closeCode int) <-chan struct{} {
+func (h *Hub) rejectPending(c *Conn, closeCode int, closeReason string) <-chan struct{} {
 	pending, ok := h.pending[c]
 	if !ok {
 		return nil
@@ -419,6 +466,7 @@ func (h *Hub) rejectPending(c *Conn, closeCode int) <-chan struct{} {
 	c.markRemoved()
 	c.cancel()
 	c.closeCode.Store(int32(closeCode))
+	c.setCloseReason(closeReason)
 	close(c.stop)
 	close(c.send)
 	pending.accepted <- false
@@ -455,7 +503,7 @@ func (h *Hub) deliver(c *Conn, msg []byte) {
 	select {
 	case c.send <- msg:
 	default:
-		h.remove(c, websocket.CloseNormalClosure)
+		h.remove(c, websocket.CloseNormalClosure, "")
 	}
 }
 
@@ -482,7 +530,7 @@ func (h *Hub) armExpiry(c *Conn) {
 	})
 }
 
-func (h *Hub) remove(c *Conn, closeCode int) <-chan struct{} {
+func (h *Hub) remove(c *Conn, closeCode int, closeReason string) <-chan struct{} {
 	room, ok := h.rooms[c.SessionID]
 	if !ok {
 		return nil
@@ -496,6 +544,7 @@ func (h *Hub) remove(c *Conn, closeCode int) <-chan struct{} {
 	}
 	c.cancel()
 	c.closeCode.Store(int32(closeCode))
+	c.setCloseReason(closeReason)
 	close(c.stop)
 	close(c.send)
 	delete(room, c)
@@ -800,7 +849,8 @@ func (h *Hub) writer(c *Conn) {
 
 func (h *Hub) writeClose(c *Conn) {
 	c.ws.SetWriteDeadline(time.Now().Add(writeDeadline))
-	c.writeMessage(websocket.CloseMessage, websocket.FormatCloseMessage(int(c.closeCode.Load()), ""))
+	c.writeMessage(websocket.CloseMessage,
+		websocket.FormatCloseMessage(int(c.closeCode.Load()), c.loadCloseReason()))
 }
 
 func (c *Conn) beginWrite() bool {
@@ -934,6 +984,28 @@ func (h *Hub) DisconnectSpaceMember(spaceID, userID string) {
 	}
 }
 
+// DisconnectSessionMember synchronously removes every connection this process
+// holds for one user in one room, carrying the facilitator's optional message
+// on the close frame. Sockets the same person holds in other rooms are left
+// alone: this is an ejection from a meeting, not from the product.
+//
+// Both ids are required. An empty user id would match the connections that
+// have not been authenticated yet, and an empty session id would reach every
+// room the person is in.
+func (h *Hub) DisconnectSessionMember(sessionID, userID, reason string) {
+	if sessionID == "" || userID == "" {
+		return
+	}
+	done := make(chan []<-chan struct{}, 1)
+	event := disconnectSessionMemberEvent{
+		sessionID: sessionID, userID: userID,
+		reason: TruncateCloseReason(reason), done: done,
+	}
+	if h.submit(event) {
+		waitForWriters(<-done)
+	}
+}
+
 // DisconnectSession synchronously removes every connection this process holds
 // for a room. It is how a deleted room is torn down: unlike a removed member,
 // there is no membership row whose absence the revalidation tick would notice,
@@ -1002,4 +1074,32 @@ func (h *Hub) stopPresenceTimers() {
 		timer.Stop()
 		delete(h.timers, sessionID)
 	}
+}
+
+// TruncateCloseReason clips a close reason to what a control frame can carry,
+// on a rune boundary. A message cut mid-character would make the whole frame
+// invalid UTF-8, and the client would drop it — reason and all.
+func TruncateCloseReason(reason string) string {
+	if len(reason) <= maxCloseReason {
+		return reason
+	}
+	cut := maxCloseReason
+	for cut > 0 && !utf8.RuneStart(reason[cut]) {
+		cut--
+	}
+	return reason[:cut]
+}
+
+func (c *Conn) setCloseReason(reason string) {
+	if reason == "" {
+		return
+	}
+	c.closeReason.Store(&reason)
+}
+
+func (c *Conn) loadCloseReason() string {
+	if r := c.closeReason.Load(); r != nil {
+		return *r
+	}
+	return ""
 }

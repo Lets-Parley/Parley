@@ -504,6 +504,10 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 				r.Use(rejectLinkPrincipal)
 				r.Use(requireFacilitator)
 				r.Post("/facilitator", a.handleTransferFacilitator)
+				// Ejection from this meeting only. It is the facilitator's
+				// hammer, and a much smaller one than the space-level
+				// removal, which is the owner's.
+				r.Post("/participants/{userId}/remove", a.handleRemoveParticipant)
 			})
 			// Close and reopen sit outside the rejectEnded group. Reopen is
 			// the one write that only makes sense on an ended session, and
