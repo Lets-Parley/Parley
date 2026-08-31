@@ -247,15 +247,32 @@ func (a *app) handleSetSpectator(w http.ResponseWriter, r *http.Request) {
 		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
 		return
 	}
-	err := a.sessions.WithActiveSession(r.Context(), sess.ID, p.UserID, false,
+	// Read before the transaction, for the same reason the vote path does: the
+	// kind's hook may need the connected set, and reading it under the session
+	// row lock would hold that lock across another query for no reason.
+	connected, err := a.presence.InSession(r.Context(), sess.ID)
+	if err != nil {
+		slog.Error("could not read presence for a spectator toggle", "session", sess.ID, "error", err)
+		connected = nil
+	}
+
+	err = a.sessions.WithActiveSession(r.Context(), sess.ID, p.UserID, false,
 		func(tx pgx.Tx, locked store.Session) error {
 			if _, err := tx.Exec(r.Context(),
 				"update members set spectator = $3 where space_id = $1 and user_id = $2",
 				locked.SpaceID, p.UserID, body.On); err != nil {
 				return err
 			}
-			_, err := tx.Exec(r.Context(), "update sessions set version = version + 1 where id = $1", locked.ID)
-			return err
+			if _, err := tx.Exec(r.Context(), "update sessions set version = version + 1 where id = $1", locked.ID); err != nil {
+				return err
+			}
+			// Sitting out can be the last thing a round was waiting for, and
+			// sitting back down restores the wait. The kind decides what that
+			// means; the core just says the roster moved.
+			if changed, ok := a.kinds.RosterChanged(locked.Kind); ok {
+				return changed(r.Context(), tx, locked, connected)
+			}
+			return nil
 		})
 	if errors.Is(err, store.ErrSessionEnded) {
 		http.Error(w, `{"error":"this session has ended"}`, http.StatusConflict)

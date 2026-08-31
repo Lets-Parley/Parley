@@ -488,6 +488,27 @@ func maybeAutoReveal(ctx context.Context, tx pgx.Tx, connected []string, sess st
 	return err
 }
 
+// rosterChanged is the registry's seam for a change to who the session is
+// waiting on: the spectator toggle is a core route, so poker reacts to it here
+// rather than the core knowing what poker does with it. It runs inside the
+// toggle's own transaction, so the reveal check sees the flag it just wrote —
+// and the round completing is attributed to the person sitting out rather than
+// surfacing later, out of nowhere, on somebody else's next vote.
+func rosterChanged(ctx context.Context, tx pgx.Tx, sess store.Session, connected []string) error {
+	if sess.Revealed {
+		return nil
+	}
+	var storyID string
+	if err := tx.QueryRow(ctx,
+		"select coalesce(current_story_id::text,'') from sessions where id = $1", sess.ID).Scan(&storyID); err != nil {
+		return fmt.Errorf("reading the current story: %w", err)
+	}
+	if storyID == "" {
+		return nil
+	}
+	return maybeAutoReveal(ctx, tx, connected, sess, storyID)
+}
+
 // snapshotVoters records who an open round is waiting for: the people who have
 // joined this session, minus the spectators.
 //

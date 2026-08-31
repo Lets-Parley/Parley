@@ -44,6 +44,9 @@ func Kind() session.Kind {
 		NewConfig: func() any { return &Config{} },
 		CSV:       exportCSV,
 		Actions:   actions(),
+		// A round waits for the people who can still vote, so the moment
+		// somebody sits out it may already be complete.
+		RosterChanged: rosterChanged,
 	}
 }
 
