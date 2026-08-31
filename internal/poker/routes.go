@@ -467,26 +467,35 @@ func maybeAutoReveal(ctx context.Context, tx pgx.Tx, connected []string, sess st
 			union
 			-- A guest who joined by signed link has no members row and so no
 			-- spectator flag: it votes like anybody else in the room, and the
-			-- round is waiting on it like anybody else. Leaving it out shrinks
-			-- the denominator, revealing while it still has a vote to cast.
+			-- round is waiting on it like anybody else. Leaving it out both
+			-- shrinks the denominator, revealing while it still has a vote to
+			-- cast, and puts its vote outside eligible, which fails the
+			-- "voters subset of eligible" half for as long as that vote stands.
 			select u.id from users u
 			join session_links l on l.id = u.link_id
 			where l.session_id = $4 and u.id::text = any($2)
 		), voters as (
-			select user_id from votes where story_id = $3
+			-- A vote left behind by somebody who has since sat out is not a
+			-- vote the round is still holding: it stands outside eligible for
+			-- good, so counting it would fail the "voters subset of eligible"
+			-- half below forever, and nobody sitting out afterwards could ever
+			-- complete the round.
+			--
+			-- Only a spectator's vote is dropped, and only because sitting out
+			-- is a deliberate withdrawal from the round. A vote from somebody
+			-- who has merely disconnected still counts, and still holds the
+			-- round shut through that same half: a disconnect is not consent,
+			-- and a table that has already part-voted must not be opened
+			-- merely because the last person still connected has cast.
+			select v.user_id from votes v
+			where v.story_id = $3
+			and not exists (
+				select 1 from members m
+				where m.space_id = $1 and m.user_id = v.user_id and m.spectator)
 		)
-		-- Only the "everybody eligible has voted" half, for the reason the open
-		-- branch gives: a vote from outside the eligible set is a bonus, never
-		-- a reason to hold the round shut. The half that also demanded voters
-		-- be a subset of eligible was guarding against a reveal driven by a
-		-- vote from somebody the round is not waiting on — but it never could:
-		-- an extra vote cannot satisfy the half above for anybody else, so the
-		-- set that is waited for is unchanged either way. What it did do is
-		-- wedge the round shut forever once somebody voted and then left the
-		-- eligible set — sat out, dropped their membership, disconnected —
-		-- because their vote then stands outside eligible for good.
 		select exists (select 1 from eligible)
-		and not exists (select user_id from eligible except select user_id from voters)`,
+		and not exists (select user_id from eligible except select user_id from voters)
+		and not exists (select user_id from voters except select user_id from eligible)`,
 		sess.SpaceID, connected, storyID, sess.ID).Scan(&exact)
 	if err != nil || !exact {
 		return err
