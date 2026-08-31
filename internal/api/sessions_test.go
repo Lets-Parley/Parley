@@ -860,6 +860,62 @@ func waitForPresence(t *testing.T, srv *httptest.Server, sessionID, user string,
 	t.Fatalf("user %s never appeared in the presence of session %s", user, sessionID)
 }
 
+// The room learns that a removal happened, not merely that presence changed.
+// Nothing in the envelope can carry it: the roster is space membership, so the
+// removed person is still in `participants` and only stops being present —
+// which is exactly what closing a laptop looks like. Without this frame the
+// client cannot tell a boot from a dropped connection.
+func TestRoomRemovalIsAnnouncedToTheRoom(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Removal Announcement Space")
+	mel := userID(t, srv, member)
+
+	victim, _, err := dialWS(t, srv, id, member, testOrigin)
+	if err != nil {
+		t.Fatalf("dial victim: %v", err)
+	}
+	defer victim.Close()
+	facWS, _, err := dialWS(t, srv, id, fac, testOrigin)
+	if err != nil {
+		t.Fatalf("dial facilitator: %v", err)
+	}
+	defer facWS.Close()
+	for _, ws := range []*websocket.Conn{victim, facWS} {
+		if _, ok := readEnvelope(t, ws, 5*time.Second); !ok {
+			t.Fatal("no initial state frame")
+		}
+	}
+	waitForPresence(t, srv, id, mel, fac)
+
+	if resp, body := removeParticipant(t, srv, id, mel, `{}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("remove: got %d %v, want 204", resp.StatusCode, body)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if time.Now().After(deadline) {
+			t.Fatal("the room was never told who was removed")
+		}
+		frame, ok := readEnvelope(t, facWS, 2*time.Second)
+		if !ok {
+			t.Fatal("the room was never told who was removed")
+		}
+		kick, ok := frame["kick"].(map[string]any)
+		if !ok {
+			continue // an ordinary envelope; the announcement is behind it
+		}
+		if kick["userId"] != mel {
+			t.Fatalf("kick frame named %v, want %s", kick["userId"], mel)
+		}
+		// The message is for the person who was removed and rides their close
+		// frame. It must not be handed to everybody still in the room.
+		if _, leaked := kick["message"]; leaked {
+			t.Fatal("the kick frame carried the facilitator's message to the whole room")
+		}
+		return
+	}
+}
+
 func TestFacilitatorRemovesParticipantFromTheRoom(t *testing.T) {
 	srv := testServer(t)
 	fac, member, id := setupSession(t, srv, "Removal Space")
@@ -1064,6 +1120,56 @@ func TestSessionRemovalClosesASocketOnAnotherReplica(t *testing.T) {
 		t.Fatalf("remove on A = %d (%v), want 204", resp.StatusCode, body)
 	}
 	awaitRemoved(t, wsB, message, "a removal served by instance A never closed the socket held by instance B")
+}
+
+// The other half of a cross-replica removal, and the half that carries the
+// animation: the ROOM has to be told. Closing the victim's socket on another
+// replica is not enough — without the announcement, every remaining client on
+// that replica sees the departed merely stop being present, which is what
+// closing a laptop looks like, and the row never closes.
+func TestSessionRemovalIsAnnouncedOnAnotherReplica(t *testing.T) {
+	srvA := testServer(t)
+	srvB := secondInstance(t)
+	fac, member, id := setupSession(t, srvA, "Cross Replica Announcement Space")
+	mel := userID(t, srvA, member)
+
+	waitReady(t, srvB, true, 10*time.Second)
+	// The witness is someone who is NOT removed, holding a socket on B while
+	// the removal is served by A.
+	witness, _, err := dialWS(t, srvB, id, fac, testOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer witness.Close()
+	consumePresenceFrames(t, witness)
+
+	if resp, body := removeParticipant(t, srvA, id, mel, `{"message":"see you tomorrow"}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("remove on A = %d (%v), want 204", resp.StatusCode, body)
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if time.Now().After(deadline) {
+			t.Fatal("a removal served by instance A never told the room held by instance B")
+		}
+		frame, ok := readEnvelope(t, witness, time.Until(deadline))
+		if !ok {
+			t.Fatal("a removal served by instance A never told the room held by instance B")
+		}
+		kick, ok := frame["kick"].(map[string]any)
+		if !ok {
+			continue // an ordinary envelope; the announcement is behind it
+		}
+		if kick["userId"] != mel {
+			t.Fatalf("kick frame named %v, want %s", kick["userId"], mel)
+		}
+		// The facilitator's words ride the removed person's close frame alone,
+		// on this replica as on any other.
+		if _, leaked := kick["message"]; leaked {
+			t.Fatal("the kick frame carried the facilitator's message to the whole room")
+		}
+		return
+	}
 }
 
 // pg_notify refuses a payload over 8000 bytes, and the notify is best-effort,

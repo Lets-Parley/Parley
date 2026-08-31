@@ -64,12 +64,13 @@ export function BuildStamp() {
   );
 }
 
-// The wire calls these live/reconnecting/stale/removed. A room does not.
+// The wire calls these live/reconnecting/stale/removed/kicked. A room does not.
 const STATUS_WORD: Record<ConnectionStatus, string> = {
   live: "live",
   reconnecting: "reconnecting",
   stale: "offline",
   removed: "no access",
+  kicked: "removed",
 };
 
 export function ConnectionDot({ status }: { status: ConnectionStatus }) {

@@ -7,7 +7,7 @@ const sockets: FakeSocket[] = [];
 class FakeSocket {
   static OPEN = 1;
   onopen: (() => void) | null = null;
-  onclose: ((ev: { code: number }) => void) | null = null;
+  onclose: ((ev: { code: number; reason?: string }) => void) | null = null;
   onerror: (() => void) | null = null;
   onmessage: ((ev: { data: string }) => void) | null = null;
   closed = false;
@@ -23,8 +23,8 @@ class FakeSocket {
   open() {
     this.onopen?.();
   }
-  drop(code = 1006) {
-    this.onclose?.({ code });
+  drop(code = 1006, reason = "") {
+    this.onclose?.({ code, reason });
   }
   send(data: string) {
     this.onmessage?.({ data });
@@ -33,13 +33,19 @@ class FakeSocket {
 
 function connect() {
   const onState = vi.fn();
+  const onKick = vi.fn();
   const statuses: ConnectionStatus[] = [];
+  const reasons: (string | undefined)[] = [];
   const stop = connectSession({
     sessionId: "sess 1",
     onState,
-    onStatus: (s) => statuses.push(s),
+    onKick,
+    onStatus: (s, reason) => {
+      statuses.push(s);
+      reasons.push(reason);
+    },
   });
-  return { onState, statuses, stop };
+  return { onState, onKick, statuses, reasons, stop };
 }
 
 beforeEach(() => {
@@ -200,5 +206,45 @@ describe("connectSession", () => {
     sockets[0].drop();
     stop();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("a room removal", () => {
+  it("is its own terminal status, carrying the facilitator's message", () => {
+    const { statuses, reasons } = connect();
+    sockets[0].open();
+    sockets[0].drop(4001, "we're taking this one offline");
+    // 1008 still means the space; 4001 means this room, and they must not
+    // share a screen.
+    expect(statuses).toEqual(["live", "kicked"]);
+    expect(reasons[1]).toBe("we're taking this one offline");
+    vi.advanceTimersByTime(120_000);
+    expect(sockets).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("says nothing extra when no message was sent with it", () => {
+    const { reasons } = connect();
+    sockets[0].open();
+    sockets[0].drop(4001);
+    expect(reasons[1]).toBe("");
+  });
+
+  it("hands a kick frame to onKick and never to onState", () => {
+    const { onState, onKick } = connect();
+    sockets[0].open();
+    sockets[0].send(JSON.stringify({ kick: { userId: "u7" } }));
+    expect(onKick).toHaveBeenCalledWith("u7");
+    // An event is not a snapshot: letting it through would overwrite the
+    // envelope the whole room is rendered from.
+    expect(onState).not.toHaveBeenCalled();
+  });
+
+  it("still routes ordinary envelopes to onState", () => {
+    const { onState, onKick } = connect();
+    sockets[0].open();
+    sockets[0].send(JSON.stringify({ id: "s1", version: 3 }));
+    expect(onState).toHaveBeenCalledWith({ id: "s1", version: 3 });
+    expect(onKick).not.toHaveBeenCalled();
   });
 });

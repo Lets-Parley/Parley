@@ -186,7 +186,14 @@ export function SessionPage() {
           </p>
         )}
         {Room ? (
-          <Room env={env} me={identity} status={session.status} guest={!!guest} />
+          <Room
+            env={env}
+            me={identity}
+            status={session.status}
+            guest={!!guest}
+            kickReason={session.kickReason}
+            kicked={session.kicked}
+          />
         ) : (
           // Falling through to a room here would point one kind's controls at
           // another kind's state, so an unknown kind gets no room at all.

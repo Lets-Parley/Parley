@@ -6,6 +6,13 @@ import { connectSession, type ConnectionStatus } from "./socket";
 export function useSession(id: string, active = true) {
   const qc = useQueryClient();
   const [status, setStatus] = useState<ConnectionStatus>("live");
+  // The facilitator's parting message, off the close frame. It has no home in
+  // the envelope: by the time it is said this client has no socket left.
+  const [kickReason, setKickReason] = useState("");
+  // Somebody ELSE being removed. Carried with a sequence number so two
+  // removals of the same person — a rejoin and a second boot — are two events
+  // rather than one object React sees as unchanged.
+  const [kicked, setKicked] = useState<{ userId: string; seq: number } | null>(null);
 
   const query = useQuery({
     queryKey: ["session", id],
@@ -36,8 +43,10 @@ export function useSession(id: string, active = true) {
           prev && prev.version > env.version ? prev : env,
         );
       },
-      onStatus: (s) => {
+      onKick: (userId) => setKicked((prev) => ({ userId, seq: (prev?.seq ?? 0) + 1 })),
+      onStatus: (s, reason) => {
         setStatus(s);
+        if (s === "kicked") setKickReason(reason ?? "");
         if (s === "live") {
           qc.invalidateQueries({ queryKey: ["session", id] });
         }
@@ -46,5 +55,5 @@ export function useSession(id: string, active = true) {
     return stop;
   }, [id, qc, active]);
 
-  return { ...query, status };
+  return { ...query, status, kickReason, kicked };
 }

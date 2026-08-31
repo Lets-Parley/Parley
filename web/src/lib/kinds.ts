@@ -9,7 +9,16 @@ import { StandupRoom } from "../pages/StandupRoom";
  * facilitator, and refused the export and the spectator toggle. A room must not
  * offer a control the server will answer 403 to.
  */
-export type RoomProps = { env: Envelope; me: Me; status?: ConnectionStatus; guest?: boolean };
+export type RoomProps = {
+  env: Envelope;
+  me: Me;
+  status?: ConnectionStatus;
+  guest?: boolean;
+  /** Why you were removed from the room, when the facilitator said. */
+  kickReason?: string;
+  /** Somebody else was removed. Re-fired per removal, never per render. */
+  kicked?: { userId: string; seq: number } | null;
+};
 
 /**
  * A deck as a session config carries it: the cards themselves, not a row id.

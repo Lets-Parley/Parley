@@ -9,7 +9,9 @@ export function ConnectionBanner({
   status: ConnectionStatus;
   onRetry?: () => void;
 }) {
-  if (status === "live") return null;
+  // A room removal has the room's own screen — a banner over the top of it
+  // would say the same thing twice, in a smaller voice.
+  if (status === "live" || status === "kicked") return null;
   const removed = status === "removed";
   const stale = status === "stale" || removed;
   return (

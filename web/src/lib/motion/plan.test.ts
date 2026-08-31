@@ -11,6 +11,8 @@ import {
   planPileOn,
   revealSettledAt,
   staggerFor,
+  KICK_REFLOW_MS,
+  planKick,
 } from "./plan";
 
 const ballots = (values: string[]) => values.map((value, i) => ({ userId: `u${i}`, value }));
@@ -175,5 +177,91 @@ describe("planDropIn", () => {
 
   it("plans nothing for nobody", () => {
     expect(planDropIn({ joined: [], seatCount: 3, revealed: false })).toEqual([]);
+  });
+});
+
+describe("planKick", () => {
+  const geometry = () => ({
+    avatar: { center: { x: 400, y: 120 }, radius: 24 },
+    seat: { x: 363, y: 96, width: 74, height: 150 },
+    bootRadius: 26,
+    bounds: {
+      box: { width: 74, height: 150 },
+      viewport: { width: 1280, height: 800 },
+      offset: { x: 100, y: 200 },
+    },
+  });
+
+  it("swings in from beside the seat and is rising when it lands", () => {
+    const plan = planKick(geometry())!;
+    expect(plan).not.toBeNull();
+    const m = plan.boot.metrics;
+    expect(m.closest).toBeLessThanOrEqual(m.hitRadius);
+    expect(m.dip).toBeGreaterThan(0);
+    expect(m.riseAfterDip).toBeGreaterThan(0);
+    expect(m.startOffsetX).toBeGreaterThanOrEqual(150);
+    expect(plan.boot.velocity.x).toBeLessThan(0);
+    expect(plan.boot.velocity.y).toBeLessThan(0);
+  });
+
+  it("sends the seat up and to the left, and off the screen", () => {
+    const plan = planKick(geometry())!;
+    expect(plan.velocity.x).toBeLessThan(0);
+    expect(plan.velocity.y).toBeLessThan(0);
+    expect(plan.exitMs).toBeGreaterThan(plan.impactMs);
+    // It really leaves rather than running out the cap and dissolving.
+    expect(plan.launch.frames.every((f) => f.opacity === 1)).toBe(true);
+  });
+
+  it("closes the row only once the seat is gone, and tears down after that", () => {
+    const plan = planKick(geometry())!;
+    expect(plan.exitMs).toBeGreaterThan(plan.impactMs);
+    expect(plan.endMs).toBeGreaterThanOrEqual(plan.exitMs + KICK_REFLOW_MS);
+  });
+
+  // Observed in a browser: the boot's own animation ended, and because the
+  // overlay was not emptied until the SEAT had cleared the viewport the glyph
+  // held its last frame, still visible, for the best part of a second.
+  it("takes the boot away under its own motion, on its own schedule", () => {
+    const plan = planKick(geometry())!;
+    // Its lifetime is its own: it is gone long before the seat has left, and
+    // is never stretched to the seat's exit.
+    expect(plan.bootEndMs).toBeLessThan(plan.exitMs);
+    expect(plan.bootEndMs).toBeGreaterThanOrEqual(plan.boot.durationMs);
+
+    // And what it does last is travel. Every one of the closing frames moves
+    // the glyph a real distance, so nothing is ever held still and dissolved.
+    const at = (f: { transform: string }) => {
+      const m = /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/.exec(f.transform)!;
+      return { x: Number(m[1]), y: Number(m[2]) };
+    };
+    const tail = plan.boot.frames.slice(-6);
+    for (let i = 1; i < tail.length; i++) {
+      const a = at(tail[i - 1]);
+      const b = at(tail[i]);
+      expect(Math.hypot(b.x - a.x, b.y - a.y)).toBeGreaterThan(6);
+    }
+    // The fade rides on that travel and finishes with it.
+    expect(plan.boot.frames[plan.boot.frames.length - 1].opacity).toBe(0);
+  });
+
+  // The other null: every rect is measurable, so the guards above pass, but
+  // the arc the geometry implies never reaches the disc inside the swing's
+  // window. A caller that cannot swing must draw nothing.
+  it("is null for a valid seat the swing cannot reach", () => {
+    const g = geometry();
+    // A huge avatar puts the boot's rest spot proportionally further out, and
+    // the pendulum it hangs off is too long to cross in time.
+    const plan = planKick({ ...g, avatar: { center: { x: 400, y: 120 }, radius: 400 } });
+    expect(plan).toBeNull();
+  });
+
+  it("is null for geometry there is nothing to swing at", () => {
+    // What an unmeasurable seat actually looks like: every rect zero, which is
+    // also every rect a test environment with no layout returns.
+    const g = geometry();
+    expect(planKick({ ...g, avatar: { ...g.avatar, radius: 0 } })).toBeNull();
+    expect(planKick({ ...g, bootRadius: 0 })).toBeNull();
+    expect(planKick({ ...g, seat: { ...g.seat, width: 0, height: 0 } })).toBeNull();
   });
 });

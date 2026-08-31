@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"log/slog"
 	"strings"
 	"time"
@@ -140,6 +141,37 @@ func (a *app) notifyParticipantRemoved(ctx context.Context, sessionID, userID, m
 	}
 }
 
+// broadcastKick tells everyone still in the room that somebody was removed
+// from it, as an event rather than as state.
+//
+// It cannot be inferred from the envelope. A session's roster is the SPACE's
+// membership — session_participants is a different thing, used for open
+// voting — so a removed person is still in `participants` and merely stops
+// being present, which is indistinguishable from closing a laptop. The client
+// needs the difference to know whether to close the gap in the row, and this
+// frame is that difference.
+//
+// The payload deliberately carries no message: the facilitator's words are
+// for the person who was removed, and travel on their close frame alone.
+//
+// Sent per replica, by whichever one is holding the sockets: the local handler
+// calls it for its own clients and the LISTEN path calls it for theirs, so
+// every socket in the room hears it exactly once.
+func (a *app) broadcastKick(sessionID, userID string) {
+	msg, err := json.Marshal(struct {
+		Kick struct {
+			UserID string `json:"userId"`
+		} `json:"kick"`
+	}{Kick: struct {
+		UserID string `json:"userId"`
+	}{UserID: userID}})
+	if err != nil {
+		slog.Error("could not encode a room removal frame", "session", sessionID, "error", err)
+		return
+	}
+	a.hub.Broadcast(sessionID, msg)
+}
+
 // listen keeps a dedicated connection parked on LISTEN and rebroadcasts what it
 // hears to this replica's own clients.
 //
@@ -259,6 +291,7 @@ func (a *app) listenOnce(ctx context.Context) error {
 			// This replica holds its own presence row for anyone connected
 			// here; closing the socket runs OnDisconnect, which clears it.
 			a.hub.DisconnectSessionMember(sessionID, userID, message)
+			a.broadcastKick(sessionID, userID)
 		}
 	}
 }

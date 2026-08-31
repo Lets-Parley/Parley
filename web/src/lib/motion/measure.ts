@@ -1,5 +1,5 @@
 import type { Box } from "./flip";
-import type { Disc, PileOnGeometry } from "./plan";
+import type { Disc, KickGeometry, PileOnGeometry } from "./plan";
 
 /**
  * The only place in the motion module that reads layout.
@@ -97,4 +97,36 @@ export function measureSeats(container: HTMLElement): Map<string, Box> {
     out.set(id, { left: r.left - t.x, top: r.top - t.y });
   }
   return out;
+}
+
+/**
+ * Everything the kick needs to know about the screen, read once.
+ *
+ * The seat's own rect is the box the exit test uses, and the viewport is the
+ * window rather than the overlay: the overlay is only as tall as the felt, and
+ * a seat that stops at its edge stops in plain sight.
+ */
+export function measureKick({
+  layer,
+  seat,
+  avatar,
+  bootPx,
+}: {
+  layer: HTMLElement;
+  seat: Element;
+  avatar: Element;
+  bootPx: number;
+}): KickGeometry {
+  const box = layer.getBoundingClientRect();
+  const r = seat.getBoundingClientRect();
+  return {
+    avatar: discIn(box, avatar),
+    seat: { x: r.left - box.left, y: r.top - box.top, width: r.width, height: r.height },
+    bootRadius: bootPx / 2,
+    bounds: {
+      box: { width: r.width, height: r.height },
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      offset: { x: box.left, y: box.top },
+    },
+  };
 }

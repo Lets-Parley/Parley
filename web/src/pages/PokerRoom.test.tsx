@@ -732,3 +732,82 @@ describe("PokerRoom reconnect wiring", () => {
     expect(seat.style.animation).toBe("");
   });
 });
+
+describe("removing someone from the room", () => {
+  const fac: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+  const room = (over: Partial<Envelope> = {}) =>
+    envelope({ presence: ["dana", "marcus"], ...over });
+
+  it("offers the control to the facilitator, on every seat but their own", () => {
+    renderApp(<PokerRoom env={room()} me={fac} />);
+    expect(screen.getByRole("button", { name: "Remove Marcus Okonjo" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Remove Dana Whitfield" })).toBeNull();
+  });
+
+  it("offers it to nobody else", () => {
+    renderApp(<PokerRoom env={room()} me={me} />);
+    expect(screen.queryAllByRole("button", { name: /^Remove / })).toHaveLength(0);
+  });
+
+  it("withdraws it from an ended room", () => {
+    renderApp(
+      <PokerRoom env={room({ endedAt: "2026-08-18T11:00:00.000Z" })} me={fac} />,
+    );
+    expect(screen.queryAllByRole("button", { name: /^Remove / })).toHaveLength(0);
+  });
+
+  it("sends the optional message, capped at 80 characters", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+    const user = userEvent.setup();
+    renderApp(<PokerRoom env={room()} me={fac} />);
+    await user.click(screen.getByRole("button", { name: "Remove Marcus Okonjo" }));
+    const box = screen.getByLabelText(/message/i) as HTMLTextAreaElement;
+    // A close reason is 123 BYTES, so the cap is what stops a multi-byte
+    // message being truncated mid-character on the wire.
+    expect(box.maxLength).toBe(80);
+    await user.type(box, "wrong room, sorry");
+    await user.click(screen.getByRole("button", { name: "Remove from room" }));
+    await waitFor(() =>
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/sessions/sess-1/participants/marcus/remove",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ message: "wrong room, sorry" }),
+        }),
+      ),
+    );
+  });
+
+  it("posts nothing when the confirm is dismissed", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const user = userEvent.setup();
+    renderApp(<PokerRoom env={room()} me={fac} />);
+    await user.click(screen.getByRole("button", { name: "Remove Marcus Okonjo" }));
+    await user.click(screen.getByRole("button", { name: /keep them/i }));
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("the screen a removed person lands on", () => {
+  it("is its own, and repeats what the facilitator said", () => {
+    renderApp(
+      <PokerRoom env={envelope()} me={me} status="kicked" kickReason="wrong room, sorry" />,
+    );
+    expect(screen.getByText(/wrong room, sorry/)).toBeTruthy();
+    // Never the space-level wording: they still belong to the space.
+    expect(screen.queryByText(/no longer have access to this space/)).toBeNull();
+    expect(screen.queryByTestId("table-field")).toBeNull();
+  });
+
+  it("stands on its own when nothing was said", () => {
+    renderApp(<PokerRoom env={envelope()} me={me} status="kicked" />);
+    expect(screen.getByRole("heading", { name: /shown the door/i })).toBeTruthy();
+  });
+
+  it("leaves an ordinary room alone", () => {
+    renderApp(<PokerRoom env={envelope()} me={me} status="live" />);
+    expect(screen.queryByRole("heading", { name: /shown the door/i })).toBeNull();
+  });
+});
