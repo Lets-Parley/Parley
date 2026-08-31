@@ -22,8 +22,21 @@ type Presence struct {
 
 // Seen records that a user is connected here, now. Called on attach and on
 // every pong, so an unchanged connection keeps refreshing its row.
+//
+// It also records, once and durably, that this person belongs to the session.
+// Presence answers "connected recently" and is erased by Gone and Sweep;
+// an asynchronous round has to wait for people who are away, and cannot ask a
+// table that forgets them. Turning up in the room is what makes somebody a
+// participant, so this is the one place that knows. The repeat from every pong
+// costs nothing: after the first it conflicts and does nothing, and riding
+// along in the same statement keeps it to one round trip.
 func (p *Presence) Seen(ctx context.Context, sessionID, userID string) error {
 	_, err := p.Pool.Exec(ctx, `
+		with joined as (
+			insert into session_participants (session_id, user_id)
+			values ($1, $2)
+			on conflict do nothing
+		)
 		insert into session_presence (session_id, user_id, replica_id, seen_at)
 		values ($1, $2, $3, now())
 		on conflict (session_id, user_id, replica_id) do update set seen_at = now()`,

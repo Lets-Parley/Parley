@@ -188,6 +188,21 @@ There is deliberately no `check` on `cards`. The card rules live in Go, in
 `internal/poker`, and the deck routes and the session-create route run the same
 function — a second copy in SQL would be a copy that drifts.
 
+### session_participants
+
+| Column | Type | Notes |
+|---|---|---|
+| `session_id` | uuid | References `sessions`, `on delete cascade` |
+| `user_id` | uuid | References `users`, `on delete cascade` |
+| `joined_at` | timestamptz | When they first turned up |
+
+Who belongs to a session. One row the first time somebody attaches to the room,
+kept afterwards — this is durable, and deliberately not the same question as
+`session_presence`, which is erased on disconnect and swept, and so only ever
+says "connected recently". It is narrower than `members` (a forty-member space
+runs five-person rounds) and wider (a link guest has no `members` row and still
+turns up).
+
 ### round_voters
 
 | Column | Type | Notes |
@@ -196,14 +211,17 @@ function — a second copy in SQL would be a copy that drifts.
 | `user_id` | uuid | References `users`, `on delete cascade` |
 
 Who an *open* round is waiting for, written when the story goes on the table
-and only for a session with `openVoting` on. An open round is estimated
-asynchronously, so it cannot be gated on who happens to be connected when the
-last vote lands; reading the set live from the space does not work either,
-because a forty-member space would never complete a five-person round and a
-link guest has no `members` row to be found in. So the expected voters — the
-space's non-spectator members plus the guests whose link was still good at that
-moment — are snapshotted, and the round waits for exactly those people. A
-closed round never touches this table.
+and only for a session with `openVoting` on: the `session_participants` of that
+session, minus anyone whose `members` row is a spectator. An open round is
+estimated asynchronously, so it cannot be gated on who happens to be connected
+when the last vote lands. Snapshotting is what makes it finishable — reading
+the set live would move the goalposts under a round in progress.
+
+The completion check intersects these rows with the people who could still cast
+a vote: a non-spectator member of the space, or a guest whose link is not
+revoked and not expired. Without that, removing a member — or revoking a link —
+after the snapshot would leave the round waiting forever on a vote that can
+never arrive. A closed round never touches this table.
 
 ### stories, votes
 

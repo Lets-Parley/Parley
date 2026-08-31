@@ -423,15 +423,34 @@ func maybeAutoReveal(ctx context.Context, tx pgx.Tx, connected []string, sess st
 		// An open round waits for the people recorded when it opened, so
 		// nobody has to be connected for the last vote to complete it. Only
 		// the "everybody expected has voted" half is required: a vote from
-		// somebody outside the snapshot — a member who joined the space after
-		// the round opened — is a bonus, and must not hold the round shut.
+		// somebody outside the snapshot — somebody who turned up after the
+		// round opened — is a bonus, and must not hold the round shut.
+		//
+		// The recorded set is intersected with the people who could still cast
+		// a vote if they wanted to. Membership can be taken away and a link can
+		// be revoked or expire after the snapshot, and the vote the round is
+		// holding out for then can never arrive: without this the round is
+		// wedged shut and auto-reveal is silently dead for it forever.
 		var complete bool
 		if err := tx.QueryRow(ctx, `
-			select exists (select 1 from round_voters where story_id = $1)
+			with expected as (
+				select rv.user_id from round_voters rv
+				where rv.story_id = $1 and (
+					exists (
+						select 1 from members m
+						where m.space_id = $2 and m.user_id = rv.user_id and not m.spectator)
+					or exists (
+						select 1 from users u
+						join session_links l on l.id = u.link_id
+						where u.id = rv.user_id and l.session_id = $3
+						and l.revoked_at is null and l.expires_at > now())
+				)
+			)
+			select exists (select 1 from expected)
 			and not exists (
-				select user_id from round_voters where story_id = $1
+				select user_id from expected
 				except select user_id from votes where story_id = $1)`,
-			storyID).Scan(&complete); err != nil || !complete {
+			storyID, sess.SpaceID, sess.ID).Scan(&complete); err != nil || !complete {
 			return err
 		}
 		_, err := tx.Exec(ctx, "update sessions set revealed = true where id = $1 and not revealed", sess.ID)
@@ -469,11 +488,17 @@ func maybeAutoReveal(ctx context.Context, tx pgx.Tx, connected []string, sess st
 	return err
 }
 
-// snapshotVoters records who an open round is waiting for: the space's
-// non-spectator members plus the guests whose signed link is still good, as
-// they stand at this moment. A guest has no members row and so no spectator
-// flag — it votes like anybody else in the room, the same reading the closed
-// round takes of its denominator.
+// snapshotVoters records who an open round is waiting for: the people who have
+// joined this session, minus the spectators.
+//
+// Not the space's members. A forty-member space runs five-person rounds, and a
+// round that waits for the other thirty-five never completes at all — the bug
+// this whole feature exists to avoid, reintroduced one layer down. Belonging
+// to the session is the narrower question, and it is durable, so somebody who
+// is away when the story goes on the table is still waited for.
+//
+// A link guest has no members row and so no spectator flag; it joined the
+// session like anybody else and is in the set on the same terms.
 //
 // Re-selecting a story adds anybody new without disturbing the people already
 // recorded, so a vote already cast never falls outside the set that is waited
@@ -481,12 +506,11 @@ func maybeAutoReveal(ctx context.Context, tx pgx.Tx, connected []string, sess st
 func snapshotVoters(ctx context.Context, tx pgx.Tx, sess store.Session, storyID string) error {
 	_, err := tx.Exec(ctx, `
 		insert into round_voters (story_id, user_id)
-		select $2::uuid, m.user_id from members m
-		where m.space_id = $1 and not m.spectator
-		union
-		select $2::uuid, u.id from users u
-		join session_links l on l.id = u.link_id
-		where l.session_id = $3 and l.revoked_at is null and l.expires_at > now()
+		select $2::uuid, p.user_id from session_participants p
+		where p.session_id = $3
+		and not exists (
+			select 1 from members m
+			where m.space_id = $1 and m.user_id = p.user_id and m.spectator)
 		on conflict do nothing`, sess.SpaceID, storyID, sess.ID)
 	if err != nil {
 		return fmt.Errorf("recording the round's voters: %w", err)
