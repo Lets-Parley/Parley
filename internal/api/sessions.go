@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/lets-parley/parley/internal/httprequest"
+	"github.com/lets-parley/parley/internal/hub"
 	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/store"
 )
@@ -253,10 +256,57 @@ func (a *app) handleRemoveParticipant(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"you cannot remove yourself — leave the room instead"}`, http.StatusBadRequest)
 		return
 	}
-	// The role, not the caller: a facilitator who has just handed the role on
-	// must not be able to remove the person now holding it.
+	// The role, not the caller. requireFacilitator has already established
+	// that the caller holds the role, so this is unreachable today and the
+	// guard above catches the same request first; it stays so the rule
+	// survives any future route that admits a second privileged caller.
 	if target == sess.FacilitatorID {
 		http.Error(w, `{"error":"the facilitator cannot be removed — hand the role on first"}`, http.StatusBadRequest)
+		return
+	}
+
+	// One truncation, one value, three consumers: the close frame, the local
+	// hub call and the cross-replica notify payload all carry the identical
+	// string. pg_notify refuses a payload over 8000 bytes, and that failure is
+	// best-effort — an untruncated message would leave every other replica
+	// never hearing about the removal at all.
+	body.Message = hub.TruncateCloseReason(body.Message)
+
+	// An open round that is still waiting for the person being ejected could
+	// never complete: their vote can no longer arrive. Drop them from the
+	// expected voters and let the kind re-check completion in the same
+	// transaction, exactly as the spectator toggle does. The vote they had
+	// already cast stays, and still counts.
+	//
+	// Before the presence clear, so a failure here leaves nothing half-done.
+	connected, err := a.presence.InSession(r.Context(), sess.ID)
+	if err != nil {
+		slog.Error("could not read presence for a participant removal", "session", sess.ID, "error", err)
+		connected = nil
+	}
+	connected = slices.DeleteFunc(connected, func(id string) bool { return id == target })
+	err = a.sessions.WithActiveSession(r.Context(), sess.ID, p.UserID, false,
+		func(tx pgx.Tx, locked store.Session) error {
+			if _, err := tx.Exec(r.Context(), `
+				delete from round_voters rv
+				using stories st
+				where rv.story_id = st.id and rv.user_id = $1 and st.session_id = $2`,
+				target, locked.ID); err != nil {
+				return fmt.Errorf("dropping the removed participant from open rounds: %w", err)
+			}
+			if changed, ok := a.kinds.RosterChanged(locked.Kind); ok {
+				return changed(r.Context(), tx, locked, connected)
+			}
+			return nil
+		})
+	if errors.Is(err, store.ErrSessionEnded) {
+		http.Error(w, `{"error":"this session has ended"}`, http.StatusConflict)
+		return
+	}
+	if err != nil {
+		slog.Error("could not drop a removed participant from the open round",
+			"session", sess.ID, "user", target, "error", err)
+		http.Error(w, `{"error":"could not remove that person"}`, http.StatusInternalServerError)
 		return
 	}
 

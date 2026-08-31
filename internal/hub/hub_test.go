@@ -1049,6 +1049,20 @@ func TestCloseReasonIsTruncatedOnARuneBoundary(t *testing.T) {
 	if short := "short enough"; TruncateCloseReason(short) != short {
 		t.Fatal("a reason within the limit was altered")
 	}
+
+	// Three-byte runes divide 123 exactly, so a naive byte cut lands on a
+	// boundary by luck. Four-byte runes do not, and catch the cut that three
+	// -byte ones let through.
+	emoji := TruncateCloseReason(strings.Repeat("\U0001F600", 40))
+	if len(emoji) > 123 {
+		t.Fatalf("truncated reason is %d bytes, want at most 123", len(emoji))
+	}
+	if !utf8.ValidString(emoji) {
+		t.Fatalf("truncated reason is not valid UTF-8: %q", emoji)
+	}
+	if want := strings.Repeat("\U0001F600", 30); emoji != want {
+		t.Fatalf("truncated reason = %q, want %q", emoji, want)
+	}
 }
 
 func TestDisconnectSessionMemberTruncatesTheReason(t *testing.T) {

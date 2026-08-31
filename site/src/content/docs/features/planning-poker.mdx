@@ -216,9 +216,16 @@ the statistics and the saved estimate are identical either way.
 
 The facilitator can remove a participant from the room they are running. It ends
 that person's seat in **this meeting** and nothing else: their sockets for the
-room close, their seat disappears from everyone else's table on the next update,
-and their membership of the space is untouched. They can walk back in through
-the same link or room code.
+room close and the seat they were occupying at the table empties on the next
+update. They are still a member of the space, so they still appear wherever the
+space's people are listed, and they can walk back in through the same link or
+room code.
+
+If a round is open when they go, it stops waiting for them: a round that needed
+their estimate to auto-reveal reveals as soon as everyone still at the table has
+voted. A vote they had already cast stays on the table and still counts towards
+the result — removing someone ends their seat, it does not retract what they
+had already said.
 
 The removal can carry a short message — "we will pick this up tomorrow" — which
 the person sees on the way out. Keep it to 80 characters; a longer one is cut to

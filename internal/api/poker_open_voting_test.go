@@ -552,3 +552,29 @@ func TestResetRecordsNoRosterForAClosedRound(t *testing.T) {
 		t.Fatalf("reset recorded %d voters for a closed round", n)
 	}
 }
+
+// Removing the person an open round is still waiting for has to stop the round
+// waiting for them: their vote can no longer arrive, and until the expected set
+// forgets them auto-reveal cannot fire at all. The vote they had already cast
+// is a different question, and stays.
+func TestRemovingTheLastOutstandingVoterCompletesAnOpenRound(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Open Removal Space")
+	mel := userID(t, srv, member)
+	joinRoom(t, srv, id, fac)
+	joinRoom(t, srv, id, member)
+	setConfig(t, srv, id, `{"autoReveal":true,"openVoting":true}`, fac)
+	story := addStory(t, srv, id, "Removal story", fac)
+	selectStory(t, srv, id, story, fac)
+
+	vote(t, srv, id, story, "3", fac)
+	if revealed(t, srv, id, fac) {
+		t.Fatal("open round revealed while a voter had not cast")
+	}
+	if resp, body := removeParticipant(t, srv, id, mel, `{}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("remove: got %d %v, want 204", resp.StatusCode, body)
+	}
+	if !revealed(t, srv, id, fac) {
+		t.Fatal("the round is still waiting for somebody who has been removed from it")
+	}
+}

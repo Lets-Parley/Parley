@@ -965,6 +965,16 @@ func TestRemoveParticipantPermissionMatrix(t *testing.T) {
 		t.Fatalf("self remove: got %d %v, want 400", resp.StatusCode, body)
 	}
 
+	// A link guest is not a facilitator and can never become one, so the route
+	// refuses it whoever it names.
+	_, minted := mintLink(t, srv, id, fac)
+	token, _ := minted["token"].(string)
+	if resp, body, guest := redeem(t, srv, token, "Gus"); resp.StatusCode != http.StatusCreated || guest == nil {
+		t.Fatalf("redeem: got %d %v", resp.StatusCode, body)
+	} else if resp, _ := removeParticipant(t, srv, id, mel, `{}`, guest); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("link-guest remove: got %d, want 403", resp.StatusCode)
+	}
+
 	// Transfer the role, then check the facilitator cannot be removed by the
 	// new facilitator either — the rule is about the role, not the caller.
 	if resp, body := doJSON(t, srv, "POST", "/api/sessions/"+id+"/facilitator", `{"userId":"`+mel+`"}`, fac); resp.StatusCode != http.StatusNoContent {
@@ -1028,5 +1038,81 @@ func TestRemoveParticipantAcceptsNoBodyAndTruncatesALongMessage(t *testing.T) {
 	// A removal with no body at all is a removal with no message.
 	if resp, body := removeParticipant(t, srv, id, mel, "", fac); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("remove with no body: got %d %v, want 204", resp.StatusCode, body)
+	}
+}
+
+// TestSessionRemovalClosesASocketOnAnotherReplica is the cross-replica half of
+// a removal. Hub.DisconnectSessionMember only reaches the process it runs in,
+// so without parley_participant_remove the person ejected on one replica keeps
+// a live socket on every other one until their presence row ages out.
+func TestSessionRemovalClosesASocketOnAnotherReplica(t *testing.T) {
+	srvA := testServer(t)
+	srvB := secondInstance(t)
+	fac, member, id := setupSession(t, srvA, "Cross Replica Removal Space")
+	mel := userID(t, srvA, member)
+
+	waitReady(t, srvB, true, 10*time.Second)
+	wsB, _, err := dialWS(t, srvB, id, member, testOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wsB.Close()
+	consumePresenceFrames(t, wsB)
+
+	const message = "we will pick this up tomorrow"
+	if resp, body := removeParticipant(t, srvA, id, mel, `{"message":"`+message+`"}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("remove on A = %d (%v), want 204", resp.StatusCode, body)
+	}
+	awaitRemoved(t, wsB, message, "a removal served by instance A never closed the socket held by instance B")
+}
+
+// pg_notify refuses a payload over 8000 bytes, and the notify is best-effort,
+// so an oversized message would fail silently: the request still answers 204
+// and this replica still closes its own sockets, while every other replica
+// never hears about the removal at all. The message is clipped once, before
+// any of the three consumers sees it.
+func TestAnOversizedRemovalMessageStillReachesAnotherReplica(t *testing.T) {
+	srvA := testServer(t)
+	srvB := secondInstance(t)
+	fac, member, id := setupSession(t, srvA, "Oversized Removal Space")
+	mel := userID(t, srvA, member)
+
+	waitReady(t, srvB, true, 10*time.Second)
+	wsB, _, err := dialWS(t, srvB, id, member, testOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wsB.Close()
+	consumePresenceFrames(t, wsB)
+
+	long := strings.Repeat("x", 20000)
+	if resp, body := removeParticipant(t, srvA, id, mel, `{"message":"`+long+`"}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("remove on A = %d (%v), want 204", resp.StatusCode, body)
+	}
+	awaitRemoved(t, wsB, hub.TruncateCloseReason(long),
+		"an oversized message stopped the removal reaching the socket held by instance B")
+}
+
+// awaitRemoved reads until the socket closes, and insists on the removal's own
+// close code and message rather than any closure at all.
+func awaitRemoved(t *testing.T, ws *websocket.Conn, message, where string) {
+	t.Helper()
+	ws.SetReadDeadline(time.Now().Add(10 * time.Second))
+	for {
+		_, _, err := ws.ReadMessage()
+		if err == nil {
+			continue
+		}
+		closeErr, ok := err.(*websocket.CloseError)
+		if !ok {
+			t.Fatalf("%s: %v", where, err)
+		}
+		if closeErr.Code != hub.CloseRemovedFromSession {
+			t.Fatalf("%s: close code = %d, want %d", where, closeErr.Code, hub.CloseRemovedFromSession)
+		}
+		if closeErr.Text != message {
+			t.Fatalf("%s: close reason = %q, want %q", where, closeErr.Text, message)
+		}
+		return
 	}
 }
