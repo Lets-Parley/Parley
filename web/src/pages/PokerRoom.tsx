@@ -11,6 +11,7 @@ import { ResultsPanel, heroOf } from "../components/ResultsPanel";
 import { StoryQueue } from "../components/StoryQueue";
 import { Table, faceOf } from "../components/Table";
 import { spacePath } from "../lib/paths";
+import { safeDisplayName } from "../lib/displayName";
 
 export function PokerRoom({ env, me, guest = false }: { env: Envelope; me: Me; guest?: boolean }) {
   const say = useToast();
@@ -40,7 +41,7 @@ export function PokerRoom({ env, me, guest = false }: { env: Envelope; me: Me; g
   // Who the round is still waiting for, by name. A count alone tells the room
   // that somebody is missing but not whether it is waiting on the one person
   // who has already left for the day.
-  const waitingOn = seated.filter((p) => !tally.voted.has(p.userId)).map((p) => p.name);
+  const waitingOn = seated.filter((p) => !tally.voted.has(p.userId)).map((p) => safeDisplayName(p.name));
 
   // The round boundary, found client-side. NOT env.version — the server bumps
   // that on every vote too. See useRoundEpoch.
@@ -274,7 +275,7 @@ export function PokerRoom({ env, me, guest = false }: { env: Envelope; me: Me; g
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-[15px] font-extrabold">
-                {facilitator.name} — the facilitator — lost connection
+                {safeDisplayName(facilitator.name)} — the facilitator — lost connection
               </p>
               <p className="mt-0.5 text-[13px] text-ink-soft">
                 {claimLeft && claimLeft > 0

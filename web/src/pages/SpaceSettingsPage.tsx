@@ -14,6 +14,7 @@ import { DecksPanel } from "../components/DecksPanel";
 import { useCopy, useToast } from "../lib/ui";
 import { inviteLink } from "../lib/invite";
 import { spaceApi, spacePath } from "../lib/paths";
+import { safeDisplayName } from "../lib/displayName";
 
 /**
  * Everything that changes a space, on its own page.
@@ -180,7 +181,7 @@ function MembersPanel({
     run(
       m.userId,
       () => api("POST", `${spaceApi(org, slug)}/members/${m.userId}/role`, { role }),
-      role === "owner" ? `${m.name} can now manage this space` : `${m.name} is a member again`,
+      role === "owner" ? `${safeDisplayName(m.name)} can now manage this space` : `${safeDisplayName(m.name)} is a member again`,
     );
   }
 
@@ -188,7 +189,7 @@ function MembersPanel({
     run(
       m.userId,
       () => api("DELETE", `${spaceApi(org, slug)}/members/${m.userId}`),
-      `${m.name} no longer has a seat here`,
+      `${safeDisplayName(m.name)} no longer has a seat here`,
     );
   }
 
@@ -206,7 +207,7 @@ function MembersPanel({
           return (
             <li key={m.userId} className="flex flex-wrap items-center gap-2 py-2">
               <span className="min-w-0 flex-1 truncate text-[14px] font-semibold">
-                {m.name}
+                {safeDisplayName(m.name)}
                 {m.userId === meId && <span className="ml-1.5 text-ink-faint">(you)</span>}
               </span>
               <span
@@ -221,7 +222,7 @@ function MembersPanel({
                 className={buttonQuiet}
                 disabled={busy === m.userId || lastOwner}
                 title={lastOwner ? "Promote someone else first — a space needs an owner" : undefined}
-                aria-label={(isOwner ? "Make member: " : "Make owner: ") + m.name}
+                aria-label={(isOwner ? "Make member: " : "Make owner: ") + safeDisplayName(m.name)}
                 onClick={() => setRole(m, isOwner ? "member" : "owner")}
               >
                 {isOwner ? "Make member" : "Make owner"}
@@ -230,7 +231,7 @@ function MembersPanel({
                 className={buttonQuiet}
                 disabled={busy === m.userId || lastOwner}
                 title={lastOwner ? "Promote someone else first — a space needs an owner" : undefined}
-                aria-label={"Remove: " + m.name}
+                aria-label={"Remove: " + safeDisplayName(m.name)}
                 onClick={() => remove(m)}
               >
                 Remove

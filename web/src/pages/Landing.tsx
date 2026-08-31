@@ -16,6 +16,7 @@ import { isFullAccount } from "../lib/links";
 import { Logo, ThemeToggle } from "../components/AppShell";
 import { Avatar } from "../components/Avatar";
 import { buttonPrimary, buttonQuiet, inputClass, labelClass } from "../components/Modal";
+import { safeDisplayName } from "../lib/displayName";
 
 // Deliberately sessionStorage, not localStorage: an abandoned space name should
 // die with the tab rather than greet someone next week. The stamp narrows it
@@ -263,7 +264,7 @@ export function Landing() {
         <p className="flex items-center gap-3 text-sm text-ink-soft">
           <Avatar name={me.data.name} hue={me.data.avatarHue} icon={me.data.avatarIcon} size="sm" />
           <span>
-            Signed in as <span className="font-bold text-ink">{me.data.name}</span>
+            Signed in as <span className="font-bold text-ink">{safeDisplayName(me.data.name)}</span>
           </span>
           <button
             type="button"

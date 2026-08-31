@@ -102,6 +102,21 @@ describe("PokerRoom facilitator claim", () => {
     expect(screen.getByText(/The grace period is over/)).toBeTruthy();
   });
 
+  it("strips bidi overrides from the facilitator name in the claim banner", () => {
+    const spoofed = "Alice\u202Ekkad";
+    const env = envelope({
+      serverTime: "2026-08-18T10:01:00.000Z",
+      participants: [
+        makePerson({ userId: "dana", name: spoofed }),
+        makePerson({ userId: "marcus", name: "Marcus Okonjo" }),
+      ],
+    });
+    renderApp(<PokerRoom env={env} me={me} />);
+    const line = screen.getByText(/the facilitator — lost connection/);
+    expect(line.textContent).toBe("Alicekkad — the facilitator — lost connection");
+    expect(line.textContent).not.toContain("\u202E");
+  });
+
   it("offers the chair to nobody while the facilitator is connected", () => {
     renderApp(<PokerRoom env={envelope({ facilitatorConnected: true })} me={me} />);
     expect(screen.queryByRole("button", { name: /^Claim/ })).toBeNull();
@@ -584,6 +599,21 @@ describe("PokerRoom waiting list", () => {
     const line = screen.getByText(/Waiting on/);
     expect(line.textContent).toContain("Marcus Okonjo");
     expect(line.textContent).not.toContain("Dana Whitfield");
+  });
+
+  it("strips bidi overrides from waiting names", () => {
+    const spoofed = "Marcus\u202EoknojO";
+    const env = envelope({
+      participants: [
+        makePerson({ userId: "dana", name: "Dana Whitfield" }),
+        makePerson({ userId: "marcus", name: spoofed }),
+      ],
+    });
+    env.state.stories[0].votedUserIds = ["dana"];
+    renderApp(<PokerRoom env={env} me={me} />);
+    const line = screen.getByText(/Waiting on/);
+    expect(line.textContent).toBe("Waiting on MarcusoknojO");
+    expect(line.textContent).not.toContain("\u202E");
   });
 
   it("says nothing once everyone expected has voted", () => {
