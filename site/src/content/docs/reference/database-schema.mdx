@@ -201,7 +201,10 @@ kept afterwards — this is durable, and deliberately not the same question as
 `session_presence`, which is erased on disconnect and swept, and so only ever
 says "connected recently". It is narrower than `members` (a forty-member space
 runs five-person rounds) and wider (a link guest has no `members` row and still
-turns up).
+turns up). Written on WebSocket attach only, not on every pong. Capped at 200
+rows per session: attaching past the cap drops the oldest joiner so a long-lived
+room cannot grow the table — or the open-voting snapshots that copy it —
+without bound.
 
 ### round_voters
 
@@ -211,17 +214,20 @@ turns up).
 | `user_id` | uuid | References `users`, `on delete cascade` |
 
 Who an *open* round is waiting for, written when the story goes on the table
-and only for a session with `openVoting` on: the `session_participants` of that
-session, minus anyone whose `members` row is a spectator. An open round is
-estimated asynchronously, so it cannot be gated on who happens to be connected
-when the last vote lands. Snapshotting is what makes it finishable — reading
-the set live would move the goalposts under a round in progress.
+and only for a session with `openVoting` on: up to 200 of the
+`session_participants` of that session (most recent first), minus anyone whose
+`members` row is a spectator. An open round is estimated asynchronously, so it
+cannot be gated on who happens to be connected when the last vote lands.
+Snapshotting is what makes it finishable — reading the set live would move the
+goalposts under a round in progress.
 
-The completion check intersects these rows with the people who could still cast
-a vote: a non-spectator member of the space, or a guest whose link is not
-revoked and not expired. Without that, removing a member — or revoking a link —
-after the snapshot would leave the round waiting forever on a vote that can
-never arrive. A closed round never touches this table.
+The completion check asks whether every still-pending recorded voter has cast.
+Spectators stay in the table so sitting back down restores the wait, and are
+skipped live. Departed members and revoked guests are removed from the table
+when membership changes; expired guests are dropped on the next vote. Without
+that, removing a member — or revoking a link — after the snapshot would leave
+the round waiting forever on a vote that can never arrive. A closed round never
+touches this table.
 
 ### stories, votes
 

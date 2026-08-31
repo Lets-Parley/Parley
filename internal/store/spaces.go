@@ -363,6 +363,18 @@ func (s *Spaces) RemoveMember(ctx context.Context, spaceID, userID string) error
 		if err != nil {
 			return fmt.Errorf("removing member: %w", err)
 		}
+		// An open round that still waited for this person would never complete:
+		// their vote can no longer arrive. Drop them from every in-flight
+		// roster in this space so the next vote's cheap completion check sees
+		// the updated pending set without rebuilding eligibility.
+		if _, err := tx.Exec(ctx, `
+			delete from round_voters rv
+			using stories st
+			join sessions s on s.id = st.session_id
+			where rv.story_id = st.id and rv.user_id = $1 and s.space_id = $2`,
+			userID, spaceID); err != nil {
+			return fmt.Errorf("dropping the member from open rounds: %w", err)
+		}
 		return nil
 	})
 }

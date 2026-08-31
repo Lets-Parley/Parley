@@ -429,31 +429,37 @@ func maybeAutoReveal(ctx context.Context, tx pgx.Tx, connected []string, sess st
 		// somebody outside the snapshot — somebody who turned up after the
 		// round opened — is a bonus, and must not hold the round shut.
 		//
-		// The recorded set is intersected with the people who could still cast
-		// a vote if they wanted to. Membership can be taken away and a link can
-		// be revoked or expire after the snapshot, and the vote the round is
-		// holding out for then can never arrive: without this the round is
-		// wedged shut and auto-reveal is silently dead for it forever.
+		// Departed members and revoked links are pruned when membership
+		// changes (RemoveMember / Links.Revoke), so the vote path does not
+		// rebuild the eligible set with per-row EXISTS probes. Expired links
+		// have no mutation hook, so they are dropped here with a narrow join
+		// on guests only. Spectators stay in round_voters so sitting back
+		// down restores the wait; the completion check skips them live.
+		if _, err := tx.Exec(ctx, `
+			delete from round_voters rv
+			using users u
+			join session_links l on l.id = u.link_id
+			where rv.story_id = $1 and rv.user_id = u.id
+			and (l.revoked_at is not null or l.expires_at <= now())`, storyID); err != nil {
+			return fmt.Errorf("dropping lapsed link guests from the round: %w", err)
+		}
 		var complete bool
 		if err := tx.QueryRow(ctx, `
-			with expected as (
-				select rv.user_id from round_voters rv
-				where rv.story_id = $1 and (
-					exists (
-						select 1 from members m
-						where m.space_id = $2 and m.user_id = rv.user_id and not m.spectator)
-					or exists (
-						select 1 from users u
-						join session_links l on l.id = u.link_id
-						where u.id = rv.user_id and l.session_id = $3
-						and l.revoked_at is null and l.expires_at > now())
-				)
+			select exists (
+				select 1 from round_voters rv
+				where rv.story_id = $1
+				and not exists (
+					select 1 from members m
+					where m.space_id = $2 and m.user_id = rv.user_id and m.spectator)
 			)
-			select exists (select 1 from expected)
 			and not exists (
-				select user_id from expected
+				select rv.user_id from round_voters rv
+				where rv.story_id = $1
+				and not exists (
+					select 1 from members m
+					where m.space_id = $2 and m.user_id = rv.user_id and m.spectator)
 				except select user_id from votes where story_id = $1)`,
-			storyID, sess.SpaceID, sess.ID).Scan(&complete); err != nil || !complete {
+			storyID, sess.SpaceID).Scan(&complete); err != nil || !complete {
 			return err
 		}
 		_, err := tx.Exec(ctx, "update sessions set revealed = true where id = $1 and not revealed", sess.ID)
@@ -529,7 +535,8 @@ func rosterChanged(ctx context.Context, tx pgx.Tx, sess store.Session, connected
 }
 
 // snapshotVoters records who an open round is waiting for: the people who have
-// joined this session, minus the spectators.
+// joined this session, minus the spectators, most recent first, capped so a
+// long-lived room cannot grow the expected set without bound.
 //
 // Not the space's members. A forty-member space runs five-person rounds, and a
 // round that waits for the other thirty-five never completes at all — the bug
@@ -542,7 +549,8 @@ func rosterChanged(ctx context.Context, tx pgx.Tx, sess store.Session, connected
 //
 // Re-selecting a story adds anybody new without disturbing the people already
 // recorded, so a vote already cast never falls outside the set that is waited
-// for.
+// for. The cap still applies to the select, so an over-full room cannot keep
+// appending forever via re-select either.
 func snapshotVoters(ctx context.Context, tx pgx.Tx, sess store.Session, storyID string) error {
 	_, err := tx.Exec(ctx, `
 		insert into round_voters (story_id, user_id)
@@ -551,7 +559,9 @@ func snapshotVoters(ctx context.Context, tx pgx.Tx, sess store.Session, storyID 
 		and not exists (
 			select 1 from members m
 			where m.space_id = $1 and m.user_id = p.user_id and m.spectator)
-		on conflict do nothing`, sess.SpaceID, storyID, sess.ID)
+		order by p.joined_at desc, p.user_id desc
+		limit $4
+		on conflict do nothing`, sess.SpaceID, storyID, sess.ID, store.MaxSessionParticipantsForTest())
 	if err != nil {
 		return fmt.Errorf("recording the round's voters: %w", err)
 	}

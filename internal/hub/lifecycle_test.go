@@ -125,6 +125,51 @@ func TestRejectedMembershipRecordsNoPresence(t *testing.T) {
 	}
 }
 
+// TestJoinFiresOnAttachNotOnPong pins that session belonging is recorded once
+// at attach. The pong path still refreshes presence (OnFacilitatorSeen) but
+// must not re-run the durable participant write.
+func TestJoinFiresOnAttachNotOnPong(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	var joins, seens atomic.Int32
+	h.OnJoin = func(string, string) { joins.Add(1) }
+	h.OnFacilitatorSeen = func(string, string) { seens.Add(1) }
+	h.ValidateMembership = func(context.Context, string, string, string) (bool, error) {
+		return true, nil
+	}
+
+	ws, attached := attachWithInitial(t, h, []byte("snapshot"), SessionAuth{SpaceID: "space"})
+	select {
+	case <-attached:
+	case <-time.After(3 * time.Second):
+		t.Fatal("AttachAuthenticated did not return")
+	}
+	ws.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, _, err := ws.ReadMessage(); err != nil {
+		t.Fatalf("reading the initial frame: %v", err)
+	}
+	if n := joins.Load(); n != 1 {
+		t.Fatalf("OnJoin fired %d time(s) on attach, want 1", n)
+	}
+	if n := seens.Load(); n != 1 {
+		t.Fatalf("OnFacilitatorSeen fired %d time(s) on attach, want 1", n)
+	}
+
+	if err := ws.WriteControl(websocket.PongMessage, []byte("ping"), time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && seens.Load() < 2 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := seens.Load(); n != 2 {
+		t.Fatalf("OnFacilitatorSeen after pong = %d, want 2", n)
+	}
+	if n := joins.Load(); n != 1 {
+		t.Fatalf("OnJoin fired on pong (%d total); belonging must stay attach-only", n)
+	}
+}
+
 // TestPongDuringMembershipConfirmationRecordsNoPresence pins the window
 // between the auth-state flip and confirmMembership returning: authState is
 // already authAccepted there, but the connection has not yet cleared the

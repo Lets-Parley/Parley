@@ -161,5 +161,15 @@ func (s *Links) Revoke(ctx context.Context, sessionID, linkID string) ([][]byte,
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("closing the link's sessions: %w", err)
 	}
+	// Same reason RemoveMember prunes round_voters: a revoked guest can never
+	// cast, so an open round must stop waiting for them without the vote path
+	// re-deriving eligibility.
+	if _, err := tx.Exec(ctx, `
+		delete from round_voters rv
+		using users u, stories st
+		where rv.user_id = u.id and u.link_id = $1
+		and rv.story_id = st.id and st.session_id = $2`, linkID, sessionID); err != nil {
+		return nil, fmt.Errorf("dropping the link's guests from open rounds: %w", err)
+	}
 	return hashes, tx.Commit(ctx)
 }

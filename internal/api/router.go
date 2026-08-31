@@ -222,6 +222,13 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	a.hub.OnPresenceChange = func(sessionID string) {
 		a.broadcastState(context.Background(), sessionID)
 	}
+	a.hub.OnJoin = func(sessionID, userID string) {
+		// Attach only: durable belonging for open-voting snapshots. Must not
+		// ride on the pong path — that was a PK probe per client per heartbeat.
+		if err := a.presence.Join(context.Background(), sessionID, userID); err != nil {
+			slog.Error("could not record session participant", "session", sessionID, "user", userID, "error", err)
+		}
+	}
 	a.hub.OnFacilitatorSeen = func(sessionID, userID string) {
 		ctx := context.Background()
 		a.sessions.TouchFacilitatorSeen(ctx, sessionID, userID)

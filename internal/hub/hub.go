@@ -96,6 +96,9 @@ type Hub struct {
 
 	// OnPresenceChange fires (debounced) after connects/disconnects settle.
 	OnPresenceChange func(sessionID string)
+	// OnJoin fires once on attach after membership is confirmed, so the
+	// durable session_participants row is written there and not on every pong.
+	OnJoin func(sessionID, userID string)
 	// OnFacilitatorSeen fires on connect and each pong so liveness reaches the DB.
 	OnFacilitatorSeen func(sessionID, userID string)
 	// ValidateSession checks session validity through the shared store.
@@ -529,6 +532,9 @@ func (h *Hub) AttachAuthenticated(ws *websocket.Conn, sessionID, userID string, 
 		return
 	}
 	c.membershipConfirmed.Store(true)
+	if h.OnJoin != nil {
+		h.OnJoin(sessionID, userID)
+	}
 	if h.OnFacilitatorSeen != nil {
 		h.OnFacilitatorSeen(sessionID, userID)
 	}

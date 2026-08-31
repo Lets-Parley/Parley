@@ -6,7 +6,7 @@ description: Field lengths, body caps, timeouts, pool sizes and lifetimes, in on
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/db/migrations", "internal/hub/hub.go", "internal/db/db.go", "internal/api/passcode.go", "internal/api/router.go", "cmd/parley/main.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/db/migrations", "internal/hub/hub.go", "internal/db/db.go", "internal/api/passcode.go", "internal/api/router.go", "cmd/parley/main.go", "internal/store/presence.go"]} />
 
 Everything numeric, transcribed from source. None of these is configurable
 unless the page says so. The environment variables named below accept positive
@@ -91,6 +91,7 @@ integers and are validated at boot.
   { name: "Sessions per space", value: "500", note: "SESSION_LIMIT_PER_SPACE" },
   { name: "Saved decks per space", value: "20", note: "DECK_LIMIT_PER_SPACE; over the cap is a 409, and a deck is a template, never a reference a session holds" },
   { name: "Stories per session", value: "500", note: "STORY_LIMIT_PER_SESSION" },
+  { name: "Session participants", value: "200", note: "Hard ceiling on who belongs to one session; attaching past the cap drops the oldest joiner. Open-voting snapshots copy at most this many (most recent first) into the round's expected set" },
   { name: "Live signed links per room", value: "20", note: "LINK_LIMIT_PER_SESSION" },
   { name: "Room-code alphabet", value: "25 characters", note: "Confusable letters removed; ~244M combinations" },
   { name: "Facilitator claim grace", value: "60s", note: "Server-measured; claim is one conditional UPDATE" },
