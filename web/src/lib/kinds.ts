@@ -113,6 +113,12 @@ export const KINDS: KindDef[] = [
         hint: "Off by default — the facilitator Reveal button opens the round.",
         default: false,
       },
+      {
+        key: "openVoting",
+        label: "Open voting for people who are not in the room",
+        hint: "Changes who the round waits for, not whether it reveals: the round waits for everyone who has been in this room, connected or not.",
+        default: false,
+      },
     ],
   },
   { id: "standup", label: "Standup", Room: StandupRoom },

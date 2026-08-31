@@ -194,6 +194,23 @@ export function PokerRoom({ env, me, guest = false }: { env: Envelope; me: Me; g
               >
                 {st.autoReveal ? "Auto-reveal on" : "Auto-reveal off"}
               </button>
+              <button
+                className={buttonQuiet}
+                aria-pressed={st.openVoting}
+                aria-describedby="open-voting-hint"
+                onClick={() =>
+                  run(() => action(env.id, "config", { openVoting: !st.openVoting }), { retry: true })
+                }
+              >
+                {st.openVoting ? "Open voting on" : "Open voting off"}
+              </button>
+              {/* The one thing people get wrong about this switch: it is not a
+                  second Reveal. Say so where a screen reader will read it with
+                  the button. */}
+              <span id="open-voting-hint" className="sr-only">
+                Changes who the round waits for, not whether it reveals: with open voting on the round
+                waits for everyone who has been in this room, connected or not.
+              </span>
               </>
             )}
 

@@ -162,10 +162,14 @@ two are independent switches and all four combinations do what they say.
 Either way the room names the seats it is still waiting for, so an open round
 that has stalled shows who it has stalled on.
 
-Open voting has no control in the room yet. Auto-reveal is a checkbox in the
-create dialog and a switch in the room; open voting is set through the API —
-`PATCH /api/sessions/{id}/actions/config` with `{"openVoting": true}`, which
-only the facilitator may call. See the [API reference](/reference/api/).
+Open voting sits beside auto-reveal on both surfaces: it is a checkbox in the
+create dialog — **Open voting for people who are not in the room** — and a
+switch in the room, next to the auto-reveal one, that only the facilitator
+sees. Turning it on or off there takes effect for the round on the table, so a
+round that has stalled on somebody who has gone home can be opened up without
+resetting it. The same change is available to scripts as
+`PATCH /api/sessions/{id}/actions/config`; see the
+[API reference](/reference/api/).
 
 <Screenshot
   light={hiddenLight}
