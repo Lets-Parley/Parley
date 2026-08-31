@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { PILE_ON_EMOJI, pileOnBeats, pileOnOutlier, planPileOn, revealSettledAt, staggerFor } from "./plan";
+import { dropBounce } from "./physics";
+import {
+  DROP_DISTANCE_PX,
+  FLIP_MS,
+  PILE_ON_EMOJI,
+  joinBeats,
+  pileOnBeats,
+  pileOnOutlier,
+  planDropIn,
+  planPileOn,
+  revealSettledAt,
+  staggerFor,
+} from "./plan";
 
 const ballots = (values: string[]) => values.map((value, i) => ({ userId: `u${i}`, value }));
 
@@ -109,5 +121,59 @@ describe("planPileOn", () => {
     const plan = planPileOn(geom(0));
     expect(plan.throws).toHaveLength(0);
     expect(plan.endMs).toBe(0);
+  });
+});
+
+describe("joinBeats", () => {
+  it("leads with the FLIP so the row is open before the fall starts", () => {
+    expect(joinBeats(5, 1, false).start).toBe(FLIP_MS);
+  });
+
+  it("waits out a reveal rather than dropping under turning cards", () => {
+    expect(joinBeats(5, 1, true).start).toBe(revealSettledAt(5) + FLIP_MS);
+  });
+
+  it("spends the same stagger budget as every other group animation", () => {
+    expect(joinBeats(5, 12, false).stagger).toBe(staggerFor(12));
+  });
+});
+
+describe("planDropIn", () => {
+  const twelve = Array.from({ length: 12 }, (_, i) => `u${i}`);
+
+  it("resolves a dozen joiners inside 420ms plus one drop", () => {
+    const plan = planDropIn({ joined: twelve, seatCount: 12, revealed: false });
+    expect(plan).toHaveLength(12);
+    const first = plan[0].delayMs;
+    const longest = Math.max(...plan.map((d) => d.durationMs));
+    // A bounded spread, not a fixed per-seat gap: a 110ms stagger would put
+    // the twelfth of them on a queue more than a second long.
+    expect(Math.max(...plan.map((d) => d.delayMs)) - first).toBeLessThanOrEqual(420);
+    expect(Math.max(...plan.map((d) => d.delayMs + d.durationMs)) - first).toBeLessThanOrEqual(
+      420 + longest + 0.001,
+    );
+  });
+
+  it("lands nobody on the same beat, or from the same height", () => {
+    const plan = planDropIn({ joined: twelve, seatCount: 12, revealed: false });
+    const gaps = plan.slice(1).map((d, i) => d.delayMs - plan[i].delayMs);
+    // A fixed gap between every pair reads as a mechanism firing, not as
+    // people arriving.
+    expect(new Set(gaps.map((g) => g.toFixed(3))).size).toBeGreaterThan(gaps.length - 2);
+    expect(new Set(plan.map((d) => d.distancePx.toFixed(3))).size).toBe(plan.length);
+    // Deterministic, so the same envelope replans identically.
+    expect(planDropIn({ joined: twelve, seatCount: 12, revealed: false })).toEqual(plan);
+  });
+
+  it("gives a lone joiner no stagger at all", () => {
+    const [only] = planDropIn({ joined: ["dana"], seatCount: 3, revealed: false });
+    expect(only).toMatchObject({ userId: "dana", delayMs: FLIP_MS });
+    expect(only.durationMs).toBeCloseTo(dropBounce(only.distancePx).durationMs, 10);
+    expect(only.distancePx).toBeGreaterThan(DROP_DISTANCE_PX * 0.8);
+    expect(only.distancePx).toBeLessThan(DROP_DISTANCE_PX * 1.2);
+  });
+
+  it("plans nothing for nobody", () => {
+    expect(planDropIn({ joined: [], seatCount: 3, revealed: false })).toEqual([]);
   });
 });

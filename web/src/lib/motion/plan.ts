@@ -1,4 +1,4 @@
-import { simulateThrow, type Bounds, type Frame, type Vec } from "./physics";
+import { dropBounce, simulateThrow, type Bounds, type Frame, type Vec } from "./physics";
 
 /**
  * Playfully cross and classic heckling, never mocking — this fires
@@ -168,4 +168,82 @@ export function planPileOn({
     endMs: throws.reduce((m, t) => Math.max(m, t.delayMs + t.durationMs), 0),
     throws,
   };
+}
+
+/**
+ * How far above its slot a joining seat starts.
+ *
+ * A constant, not a measurement: the drop is scale-invariant, so the distance
+ * is only a scale factor on a curve whose shape is already fixed — and reading
+ * a rect to discover a number the design picked anyway would buy nothing.
+ * Roughly one seat plus a little air, matching the harness's start pad.
+ */
+export const DROP_DISTANCE_PX = 96;
+
+/** How long the row takes to open before anything falls into the gap it made. */
+export const FLIP_MS = 260;
+
+/**
+ * When a joining seat may start falling, and how far apart several of them go.
+ *
+ * The FLIP has to be finished first — a seat landing in a slot that is still
+ * opening reads as the row shoving it aside. During a reveal the same
+ * clearing expression the pile-on and the high-five wait on applies, so a
+ * joiner never drops through cards that are still turning over.
+ */
+export function joinBeats(seatCount: number, joinCount: number, revealed: boolean) {
+  return {
+    start: (revealed ? revealSettledAt(seatCount) : 0) + FLIP_MS,
+    stagger: staggerFor(joinCount),
+  };
+}
+
+export type PlannedDrop = {
+  userId: string;
+  delayMs: number;
+  durationMs: number;
+  distancePx: number;
+};
+
+/**
+ * Every seat arriving in one envelope, solved but not yet handed to the DOM.
+ *
+ * Each seat gets its own fall: the distance is jittered, and √d carries that
+ * straight into the duration, so no two land at the same instant even before
+ * the stagger. The beats are jittered inside their own slot as well, which is
+ * what keeps a burst reading as people arriving rather than as a mechanism
+ * firing. The last slot is left exactly on its beat so the spread stays inside
+ * the stagger budget however the hash falls.
+ *
+ * The variation is a deterministic hash of the index, never Math.random: the
+ * table re-renders on every websocket frame, and a fresh random per render
+ * would rewrite each seat's animation and restart the fall halfway down. The
+ * drop takes hash axes 6 and 7, kept clear of the ones the pile-on throws use,
+ * so a join burst and a reveal pile-on never share a random sequence.
+ *
+ * Nothing coalesces here on purpose either. hub.go already merges presence
+ * changes inside 1500ms into a single rebroadcast, so a meeting-start burst
+ * arrives as one diff of several ids; a second layer would only fight it.
+ */
+export function planDropIn({
+  joined,
+  seatCount,
+  revealed,
+}: {
+  joined: string[];
+  seatCount: number;
+  revealed: boolean;
+}): PlannedDrop[] {
+  const { start, stagger } = joinBeats(seatCount, joined.length, revealed);
+  const last = joined.length - 1;
+  return joined.map((userId, i) => {
+    const distancePx = DROP_DISTANCE_PX * (0.85 + jitter(i, 6) * 0.34);
+    const slot = i === last ? i : i + jitter(i, 7) * 0.85;
+    return {
+      userId,
+      delayMs: start + slot * stagger,
+      durationMs: dropBounce(distancePx).durationMs,
+      distancePx,
+    };
+  });
 }

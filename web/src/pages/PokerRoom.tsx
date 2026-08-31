@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { action, api, errorText, type Envelope, type Me, type Person, type Story } from "../lib/api";
+import { action, api, errorText, type Envelope, type Person, type Story } from "../lib/api";
 import { cueFor, useCueAccumulator, useRoundEpoch } from "../lib/cue";
+import type { RoomProps } from "../lib/kinds";
 import { GRACE_SECONDS, claimState, voteTally } from "../lib/derive";
 import { useCountdown, useToast } from "../lib/ui";
 import { Avatar } from "../components/Avatar";
@@ -13,7 +14,7 @@ import { Table, faceOf } from "../components/Table";
 import { spacePath } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
 
-export function PokerRoom({ env, me, guest = false }: { env: Envelope; me: Me; guest?: boolean }) {
+export function PokerRoom({ env, me, status = "live", guest = false }: RoomProps) {
   const say = useToast();
   const st = env.state;
   const isFacilitator = !guest && env.facilitatorId === me.id;
@@ -339,6 +340,7 @@ export function PokerRoom({ env, me, guest = false }: { env: Envelope; me: Me; g
             facilitatorId={env.facilitatorId}
             meId={me.id}
             cueState={cueState}
+            status={status}
           />
         ) : !ended ? (
           <EmptyTable
