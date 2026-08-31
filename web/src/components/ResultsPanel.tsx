@@ -35,13 +35,24 @@ export function heroOf(
   }
   // All-specials with no consensus (everyone played ? or coffee) is not an
   // ordinal deck — naming it one was the fallback before this branch existed.
+  // Homogeneous all-? / all-coffee keeps the "N of N picked …" copy; a mix of
+  // both must not pick histogram[0] and claim unanimity.
   if (results.histogram.length > 0 && results.histogram.every((r) => specials.has(r.value))) {
-    const face = faceOf(results.histogram[0].value);
+    if (results.histogram.length === 1) {
+      const face = faceOf(results.histogram[0].value);
+      return {
+        value: face,
+        save: undefined,
+        label: "no estimate",
+        sub: `${total} of ${total} picked ${face}`,
+      };
+    }
+    const listed = results.histogram.map((r) => faceOf(r.value)).join(" and ");
     return {
-      value: face,
+      value: "—",
       save: undefined,
       label: "no estimate",
-      sub: `${total} of ${total} picked ${face}`,
+      sub: `${total} votes · ${listed}`,
     };
   }
   if (results.median !== undefined) {

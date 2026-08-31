@@ -105,6 +105,24 @@ describe("heroOf", () => {
     expect(h.sub).not.toContain("ordinal deck");
   });
 
+  it("does not claim unanimity when the room mixed ? and coffee", () => {
+    // histogram[0] alone is not what everyone picked — the sub must not say
+    // "N of N picked ?" (or coffee) for a mixed specials reveal.
+    const h = heroOf(
+      results({
+        histogram: [
+          { value: "?", count: 2 },
+          { value: "coffee", count: 1 },
+        ],
+        consensus: false,
+      }),
+      fib,
+    );
+    expect(h).toMatchObject({ value: "—", label: "no estimate", save: undefined });
+    expect(h.sub).toBe("3 votes · ? and ☕");
+    expect(h.sub).not.toContain("ordinal deck");
+  });
+
   it("says vote, singular, for a single voter", () => {
     const h = heroOf(results({ histogram: [{ value: "M", count: 1 }], mode: "M" }), ["M"]);
     expect(h.sub).toContain("1 vote ");
