@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -14,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/lets-parley/parley/internal/httprequest"
+	"github.com/lets-parley/parley/internal/hub"
 	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/store"
 )
@@ -217,6 +221,118 @@ func (a *app) handleTransferFacilitator(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, `{"error":"could not transfer facilitator"}`, http.StatusInternalServerError)
 		return
 	}
+	a.broadcastState(r.Context(), sess.ID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleRemoveParticipant ejects one person from THIS room. It is deliberately
+// much smaller than the space-level removal next to it: the session_presence
+// row goes and their sockets for this room close, but their space membership is
+// untouched and they may walk back in through the same link. Reversible by
+// design — blocking a rejoin would need a persisted per-session blocklist.
+//
+// The facilitator's optional message rides the close frame rather than a frame
+// of its own: by the time it would arrive the recipient is no longer a session
+// member, and every route that could have carried it would refuse them.
+func (a *app) handleRemoveParticipant(w http.ResponseWriter, r *http.Request) {
+	p, _ := PrincipalFrom(r.Context())
+	sess := sessionFrom(r.Context())
+	target := chi.URLParam(r, "userId")
+
+	var body struct {
+		Message string `json:"message"`
+	}
+	// The message is optional, so an empty body is not an error.
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil && !errors.Is(err, io.EOF) {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
+		return
+	}
+
+	if target == "" {
+		http.Error(w, `{"error":"userId is required"}`, http.StatusBadRequest)
+		return
+	}
+	if target == p.UserID {
+		http.Error(w, `{"error":"you cannot remove yourself — leave the room instead"}`, http.StatusBadRequest)
+		return
+	}
+	// The role, not the caller. requireFacilitator has already established
+	// that the caller holds the role, so this is unreachable today and the
+	// guard above catches the same request first; it stays so the rule
+	// survives any future route that admits a second privileged caller.
+	if target == sess.FacilitatorID {
+		http.Error(w, `{"error":"the facilitator cannot be removed — hand the role on first"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Truncated here so the same bounded value reaches all three consumers:
+	// the close frame, the local hub call and the cross-replica notify
+	// payload. pg_notify refuses a payload over 8000 bytes, and that failure
+	// is best-effort — an untruncated message would leave every other replica
+	// never hearing about the removal at all. The hub truncates again for its
+	// own close frame; that defence is independent of this one and neither
+	// relies on the other.
+	body.Message = hub.TruncateCloseReason(body.Message)
+
+	// An open round that is still waiting for the person being ejected could
+	// never complete: their vote can no longer arrive. Drop them from the
+	// expected voters and let the kind re-check completion in the same
+	// transaction, exactly as the spectator toggle does. The vote they had
+	// already cast stays, and still counts.
+	//
+	// The presence clear rides the same transaction. WithActiveSession commits
+	// internally, so doing it afterwards would leave a window where the round
+	// is durably pruned — and possibly already auto-revealed — for somebody
+	// who is in fact still connected. A retry re-runs the prune harmlessly but
+	// cannot undo a reveal that has already fired.
+	connected, err := a.presence.InSession(r.Context(), sess.ID)
+	if err != nil {
+		slog.Error("could not read presence for a participant removal", "session", sess.ID, "error", err)
+		connected = nil
+	}
+	connected = slices.DeleteFunc(connected, func(id string) bool { return id == target })
+	// Presence, the round prune and any auto-reveal share one transaction. Two
+	// transactions leave a window where the round has already been altered — and
+	// possibly revealed — for somebody still fully connected, and a retry cannot
+	// undo a reveal that has already fired. GoneTx's own contract is covered in
+	// internal/store; that this handler uses it rather than the pool has no
+	// regression test, because faking a mid-transaction failure from here would
+	// need a fault-injection hook on Options that nothing else wants.
+	err = a.sessions.WithActiveSession(r.Context(), sess.ID, p.UserID, false,
+		func(tx pgx.Tx, locked store.Session) error {
+			if err := a.presence.GoneTx(r.Context(), tx, locked.ID, target); err != nil {
+				return fmt.Errorf("clearing presence for the removed participant: %w", err)
+			}
+			if _, err := tx.Exec(r.Context(), `
+				delete from round_voters rv
+				using stories st
+				where rv.story_id = st.id and rv.user_id = $1 and st.session_id = $2`,
+				target, locked.ID); err != nil {
+				return fmt.Errorf("dropping the removed participant from open rounds: %w", err)
+			}
+			if changed, ok := a.kinds.RosterChanged(locked.Kind); ok {
+				return changed(r.Context(), tx, locked, connected)
+			}
+			return nil
+		})
+	if errors.Is(err, store.ErrSessionEnded) {
+		http.Error(w, `{"error":"this session has ended"}`, http.StatusConflict)
+		return
+	}
+	if err != nil {
+		slog.Error("could not remove a participant from the room",
+			"session", sess.ID, "user", target, "error", err)
+		http.Error(w, `{"error":"could not remove that person"}`, http.StatusInternalServerError)
+		return
+	}
+
+	a.hub.DisconnectSessionMember(sess.ID, target, body.Message)
+	a.notifyParticipantRemoved(r.Context(), sess.ID, target, body.Message)
+	// Belt and braces: dropping the connection above already fires
+	// OnPresenceChange, which broadcasts the new envelope on its own, so this
+	// is not the only path to it. It stays for the case where the person held
+	// no socket on this replica and nothing else here would announce the
+	// roster change.
 	a.broadcastState(r.Context(), sess.ID)
 	w.WriteHeader(http.StatusNoContent)
 }

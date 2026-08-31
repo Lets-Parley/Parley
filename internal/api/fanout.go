@@ -52,6 +52,19 @@ const revokeChannel = "parley_revoke"
 // every participant in any room they are in.
 const memberRevokeChannel = "parley_member_revoke"
 
+// participantRemoveChannel carries a facilitator's room removal between
+// replicas. Without it a removal is a no-op for anyone whose socket landed on
+// another pod: the presence row is written per replica, so the delete only
+// reaches the one that served the request, and no hub but that one holds the
+// socket. Unlike a membership revocation there is no membership row whose
+// absence a revalidation tick would later notice — the person is still a member
+// of the space — so nothing else would ever close it.
+//
+// The payload is "<instance> <session> <user> <message>", and the message is
+// last because it is the only field that may contain a space. It carries
+// nothing a participant in the room cannot already see.
+const participantRemoveChannel = "parley_participant_remove"
+
 // listenerBackoffMax caps the reconnect delay. A replica that cannot listen is
 // a replica whose clients silently stop receiving other people's votes, so it
 // retries hard rather than politely.
@@ -114,6 +127,19 @@ func (a *app) notifyMemberRevoke(ctx context.Context, spaceID, userID string) {
 	}
 }
 
+// notifyParticipantRemoved tells the other replicas to close the sockets this
+// person holds in one room. Best-effort for the same reason as the other
+// notifications: the removal itself has already happened here, and a failure
+// must not turn it into a 500. The bounded cost of a lost notification is a
+// socket on another replica living until its own presence row ages out.
+func (a *app) notifyParticipantRemoved(ctx context.Context, sessionID, userID, message string) {
+	payload := a.instanceID + " " + sessionID + " " + userID + " " + message
+	if _, err := a.pool.Exec(ctx, "select pg_notify($1, $2)", participantRemoveChannel, payload); err != nil {
+		slog.Error("could not notify other replicas of a participant removal",
+			"session", sessionID, "error", err)
+	}
+}
+
 // listen keeps a dedicated connection parked on LISTEN and rebroadcasts what it
 // hears to this replica's own clients.
 //
@@ -167,7 +193,7 @@ func (a *app) listenOnce(ctx context.Context) error {
 
 	// Both channels on the one dedicated connection: a second parked connection
 	// would double the idle backends for no gain.
-	for _, channel := range []string{notifyChannel, revokeChannel, memberRevokeChannel} {
+	for _, channel := range []string{notifyChannel, revokeChannel, memberRevokeChannel, participantRemoveChannel} {
 		if _, err := conn.Exec(ctx, "listen "+channel); err != nil {
 			return err
 		}
@@ -217,6 +243,22 @@ func (a *app) listenOnce(ctx context.Context) error {
 				continue
 			}
 			a.hub.DisconnectSpaceMember(spaceID, userID)
+		case participantRemoveChannel:
+			sessionID, rest, ok := strings.Cut(rest, " ")
+			if !ok {
+				slog.Warn("ignoring malformed participant removal notification")
+				continue
+			}
+			// The message is optional and may itself contain spaces, so this
+			// cut is allowed to find nothing.
+			userID, message, _ := strings.Cut(rest, " ")
+			if userID == "" {
+				slog.Warn("ignoring malformed participant removal notification")
+				continue
+			}
+			// This replica holds its own presence row for anyone connected
+			// here; closing the socket runs OnDisconnect, which clears it.
+			a.hub.DisconnectSessionMember(sessionID, userID, message)
 		}
 	}
 }

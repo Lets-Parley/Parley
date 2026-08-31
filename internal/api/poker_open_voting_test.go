@@ -552,3 +552,105 @@ func TestResetRecordsNoRosterForAClosedRound(t *testing.T) {
 		t.Fatalf("reset recorded %d voters for a closed round", n)
 	}
 }
+
+// Removing the person an open round is still waiting for has to stop the round
+// waiting for them: their vote can no longer arrive, and until the expected set
+// forgets them auto-reveal cannot fire at all. The vote they had already cast
+// is a different question, and stays.
+func TestRemovingTheLastOutstandingVoterCompletesAnOpenRound(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Open Removal Space")
+	mel := userID(t, srv, member)
+	joinRoom(t, srv, id, fac)
+	joinRoom(t, srv, id, member)
+	setConfig(t, srv, id, `{"autoReveal":true,"openVoting":true}`, fac)
+	story := addStory(t, srv, id, "Removal story", fac)
+	selectStory(t, srv, id, story, fac)
+
+	vote(t, srv, id, story, "3", fac)
+	if revealed(t, srv, id, fac) {
+		t.Fatal("open round revealed while a voter had not cast")
+	}
+	if resp, body := removeParticipant(t, srv, id, mel, `{}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("remove: got %d %v, want 204", resp.StatusCode, body)
+	}
+	if !revealed(t, srv, id, fac) {
+		t.Fatal("the round is still waiting for somebody who has been removed from it")
+	}
+}
+
+// The closed-voting half of the same rule. maybeAutoReveal ignores the
+// connected set entirely on the open branch, so the open test above says
+// nothing about the snapshot the handler passes in. Here the round completes
+// only if the person being removed is subtracted from that snapshot before the
+// kind re-checks completion.
+func TestRemovingTheLastOutstandingVoterCompletesAClosedRound(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Closed Removal Space")
+	mel := userID(t, srv, member)
+	joinRoom(t, srv, id, fac)
+	joinRoom(t, srv, id, member)
+	setAutoReveal(t, srv, id, true, fac)
+	waitForPresence(t, srv, id, mel, fac)
+
+	story := addStory(t, srv, id, "Closed removal story", fac)
+	selectStory(t, srv, id, story, fac)
+
+	vote(t, srv, id, story, "3", fac)
+	if revealed(t, srv, id, fac) {
+		t.Fatal("closed round revealed while a connected voter had not cast")
+	}
+	if resp, body := removeParticipant(t, srv, id, mel, `{}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("remove: got %d %v, want 204", resp.StatusCode, body)
+	}
+	if !revealed(t, srv, id, fac) {
+		t.Fatal("the closed round is still waiting for somebody who has been removed from it")
+	}
+}
+
+// The prune is scoped to one session as well as to one person. Somebody can be
+// an expected voter in several rooms at once, and being ejected from one of
+// them must not quietly stop every other round waiting for them.
+func TestRemovingSomebodyFromOneRoomLeavesAnotherRoundAlone(t *testing.T) {
+	srv := testServer(t)
+	fac, member, roomA := setupSession(t, srv, "Two Room Removal Space")
+	mel := userID(t, srv, member)
+	resp, sess := createSession(t, srv, "two-room-removal-space", "poker", "Room B", fac)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create the second session: %d %v", resp.StatusCode, sess)
+	}
+	roomB := sess["id"].(string)
+
+	stories := map[string]string{}
+	for _, room := range []string{roomA, roomB} {
+		joinRoom(t, srv, room, fac)
+		joinRoom(t, srv, room, member)
+		setConfig(t, srv, room, `{"autoReveal":true,"openVoting":true}`, fac)
+		story := addStory(t, srv, room, "Story in "+room, fac)
+		selectStory(t, srv, room, story, fac)
+		stories[room] = story
+		vote(t, srv, room, story, "3", fac)
+	}
+	waitForPresence(t, srv, roomA, mel, fac)
+
+	if resp, body := removeParticipant(t, srv, roomA, mel, `{}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("remove from room A: got %d %v, want 204", resp.StatusCode, body)
+	}
+	if !revealed(t, srv, roomA, fac) {
+		t.Fatal("room A is still waiting for somebody who has been removed from it")
+	}
+
+	pool := testDBPool(t)
+	var n int
+	if err := pool.QueryRow(context.Background(),
+		"select count(*) from round_voters where story_id = $1 and user_id = $2",
+		stories[roomB], mel).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("room B has %d round_voters rows for the removed person, want 1 — the prune reached another session", n)
+	}
+	if revealed(t, srv, roomB, fac) {
+		t.Fatal("room B revealed although it is still waiting for a vote it never got")
+	}
+}

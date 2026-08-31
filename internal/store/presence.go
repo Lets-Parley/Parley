@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -107,6 +108,20 @@ func (p *Presence) Join(ctx context.Context, sessionID, userID string) error {
 // immediately instead of waiting for the row to age out.
 func (p *Presence) Gone(ctx context.Context, sessionID, userID string) error {
 	_, err := p.Pool.Exec(ctx,
+		`delete from session_presence
+		 where session_id = $1 and user_id = $2 and replica_id = $3`,
+		sessionID, userID, p.ReplicaID)
+	return err
+}
+
+// GoneTx is Gone on the caller's transaction rather than the pool, so a
+// presence clear can commit atomically with whatever else that transaction is
+// doing. A facilitator removal needs that: pruning the open round and clearing
+// presence in two separate transactions leaves a window where the round has
+// already been altered — possibly auto-revealed — for somebody who is still
+// fully connected.
+func (p *Presence) GoneTx(ctx context.Context, tx pgx.Tx, sessionID, userID string) error {
+	_, err := tx.Exec(ctx,
 		`delete from session_presence
 		 where session_id = $1 and user_id = $2 and replica_id = $3`,
 		sessionID, userID, p.ReplicaID)

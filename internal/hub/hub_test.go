@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
 )
@@ -933,4 +934,146 @@ func TestDisconnectSessionClosesOnlyThatRoom(t *testing.T) {
 	if string(got) != "still-connected" {
 		t.Fatalf("unrelated broadcast = %q, want still-connected", got)
 	}
+}
+
+// attachTestConnAs is attachAuthenticatedTestConn with the user id spelled out.
+// The removal tests turn on who holds a socket, not just which room it is in.
+func attachTestConnAs(t *testing.T, h *Hub, sessionID, userID string) *websocket.Conn {
+	t.Helper()
+	attached := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		h.AttachAuthenticated(ws, sessionID, userID, nil, SessionAuth{})
+		close(attached)
+	}))
+	t.Cleanup(srv.Close)
+
+	ws, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-attached:
+	case <-time.After(time.Second):
+		t.Fatal("server did not attach websocket")
+	}
+	return ws
+}
+
+// expectRemoved asserts a socket was closed by a facilitator removal, carrying
+// the application close code and the message intact.
+func expectRemoved(t *testing.T, ws *websocket.Conn, label, reason string) {
+	t.Helper()
+	ws.SetReadDeadline(time.Now().Add(time.Second))
+	_, _, err := ws.ReadMessage()
+	closeErr, ok := err.(*websocket.CloseError)
+	if !ok {
+		t.Fatalf("%s: close = %v, want a close frame", label, err)
+	}
+	if closeErr.Code != CloseRemovedFromSession {
+		t.Fatalf("%s: close code = %d, want %d", label, closeErr.Code, CloseRemovedFromSession)
+	}
+	if closeErr.Text != reason {
+		t.Fatalf("%s: close reason = %q, want %q", label, closeErr.Text, reason)
+	}
+}
+
+func TestDisconnectSessionMemberClosesOnlyThatUsersSocketsInThatRoom(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+
+	// Two tabs, same person, same room. Both have to go.
+	tabA := attachTestConnAs(t, h, "room", "kicked")
+	defer tabA.Close()
+	tabB := attachTestConnAs(t, h, "room", "kicked")
+	defer tabB.Close()
+	// The same person, a different room — untouched.
+	elsewhere := attachTestConnAs(t, h, "other-room", "kicked")
+	defer elsewhere.Close()
+	// Somebody else in the same room — untouched.
+	bystander := attachTestConnAs(t, h, "room", "stayer")
+	defer bystander.Close()
+
+	const reason = "please rejoin after the demo"
+	h.DisconnectSessionMember("room", "kicked", reason)
+
+	expectRemoved(t, tabA, "first tab", reason)
+	expectRemoved(t, tabB, "second tab", reason)
+
+	h.Broadcast("room", []byte("still-here"))
+	h.Broadcast("other-room", []byte("still-here"))
+	for label, ws := range map[string]*websocket.Conn{"bystander": bystander, "other room": elsewhere} {
+		ws.SetReadDeadline(time.Now().Add(time.Second))
+		_, got, err := ws.ReadMessage()
+		if err != nil {
+			t.Fatalf("%s socket closed: %v", label, err)
+		}
+		if string(got) != "still-here" {
+			t.Fatalf("%s frame = %q, want still-here", label, got)
+		}
+	}
+}
+
+func TestDisconnectSessionMemberRequiresBothIds(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	ws := attachTestConnAs(t, h, "room", "user")
+	defer ws.Close()
+
+	h.DisconnectSessionMember("", "user", "")
+	h.DisconnectSessionMember("room", "", "")
+
+	h.Broadcast("room", []byte("still-here"))
+	ws.SetReadDeadline(time.Now().Add(time.Second))
+	if _, got, err := ws.ReadMessage(); err != nil || string(got) != "still-here" {
+		t.Fatalf("a wildcard removal closed a socket: %q %v", got, err)
+	}
+}
+
+func TestCloseReasonIsTruncatedOnARuneBoundary(t *testing.T) {
+	// Three-byte runes, so a naive byte slice at 123 lands mid-character.
+	long := strings.Repeat("あ", 60)
+	got := TruncateCloseReason(long)
+	if len(got) > 123 {
+		t.Fatalf("truncated reason is %d bytes, want at most 123", len(got))
+	}
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncated reason is not valid UTF-8: %q", got)
+	}
+	if want := strings.Repeat("あ", 41); got != want {
+		t.Fatalf("truncated reason = %q, want %q", got, want)
+	}
+	if short := "short enough"; TruncateCloseReason(short) != short {
+		t.Fatal("a reason within the limit was altered")
+	}
+
+	// Three-byte runes divide 123 exactly, so a naive byte cut lands on a
+	// boundary by luck. Four-byte runes do not, and catch the cut that three
+	// -byte ones let through.
+	emoji := TruncateCloseReason(strings.Repeat("\U0001F600", 40))
+	if len(emoji) > 123 {
+		t.Fatalf("truncated reason is %d bytes, want at most 123", len(emoji))
+	}
+	if !utf8.ValidString(emoji) {
+		t.Fatalf("truncated reason is not valid UTF-8: %q", emoji)
+	}
+	if want := strings.Repeat("\U0001F600", 30); emoji != want {
+		t.Fatalf("truncated reason = %q, want %q", emoji, want)
+	}
+}
+
+func TestDisconnectSessionMemberTruncatesTheReason(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	ws := attachTestConnAs(t, h, "room", "kicked")
+	defer ws.Close()
+
+	long := strings.Repeat("あ", 60)
+	h.DisconnectSessionMember("room", "kicked", long)
+	// gorilla rejects a control frame over 125 bytes outright, so an
+	// untruncated reason would arrive as no close frame at all.
+	expectRemoved(t, ws, "over-long reason", strings.Repeat("あ", 41))
 }

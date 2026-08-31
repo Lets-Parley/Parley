@@ -163,11 +163,14 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	"GET /api/sessions/{id}/export.csv":         {status: http.StatusForbidden},
 	"POST /api/sessions/{id}/facilitator/claim": {status: http.StatusForbidden},
 	"POST /api/sessions/{id}/facilitator":       {status: http.StatusForbidden},
-	"DELETE /api/sessions/{id}/":                {status: http.StatusForbidden},
-	"POST /api/sessions/{id}/reopen":            {status: http.StatusForbidden},
-	"GET /api/sessions/{id}/links":              {status: http.StatusForbidden},
-	"POST /api/sessions/{id}/links":             {status: http.StatusForbidden},
-	"DELETE /api/sessions/{id}/links/{linkId}":  {status: http.StatusForbidden},
+	// Removing someone from the room is the facilitator's, and a link guest
+	// can never hold that role — the claim route above refuses it too.
+	"POST /api/sessions/{id}/participants/{userId}/remove": {status: http.StatusForbidden},
+	"DELETE /api/sessions/{id}/":                           {status: http.StatusForbidden},
+	"POST /api/sessions/{id}/reopen":                       {status: http.StatusForbidden},
+	"GET /api/sessions/{id}/links":                         {status: http.StatusForbidden},
+	"POST /api/sessions/{id}/links":                        {status: http.StatusForbidden},
+	"DELETE /api/sessions/{id}/links/{linkId}":             {status: http.StatusForbidden},
 }
 
 // statusExercisedElsewhere marks a route whose answer is not an HTTP status.
