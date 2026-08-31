@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -126,13 +127,14 @@ func TestRejectedMembershipRecordsNoPresence(t *testing.T) {
 }
 
 // TestJoinFiresOnAttachNotOnPong pins that session belonging is recorded once
-// at attach. The pong path still refreshes presence (OnFacilitatorSeen) but
-// must not re-run the durable participant write.
+// at attach when that write succeeds. The pong path still refreshes presence
+// (OnFacilitatorSeen) but must not re-run the durable participant write after
+// a successful attach.
 func TestJoinFiresOnAttachNotOnPong(t *testing.T) {
 	h := New()
 	t.Cleanup(h.Shutdown)
 	var joins, seens atomic.Int32
-	h.OnJoin = func(string, string) { joins.Add(1) }
+	h.OnJoin = func(string, string) error { joins.Add(1); return nil }
 	h.OnFacilitatorSeen = func(string, string) { seens.Add(1) }
 	h.ValidateMembership = func(context.Context, string, string, string) (bool, error) {
 		return true, nil
@@ -166,7 +168,60 @@ func TestJoinFiresOnAttachNotOnPong(t *testing.T) {
 		t.Fatalf("OnFacilitatorSeen after pong = %d, want 2", n)
 	}
 	if n := joins.Load(); n != 1 {
-		t.Fatalf("OnJoin fired on pong (%d total); belonging must stay attach-only", n)
+		t.Fatalf("OnJoin fired on pong (%d total); belonging must stay attach-only after success", n)
+	}
+}
+
+// TestJoinRetriesOnPongAfterAttachFailure: a failed attach must not leave the
+// connection invisible to open-voting snapshots. Pong retries OnJoin until it
+// succeeds, then stops probing.
+func TestJoinRetriesOnPongAfterAttachFailure(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	var joins atomic.Int32
+	h.OnJoin = func(string, string) error {
+		n := joins.Add(1)
+		if n == 1 {
+			return fmt.Errorf("transient")
+		}
+		return nil
+	}
+	h.OnFacilitatorSeen = func(string, string) {}
+	h.ValidateMembership = func(context.Context, string, string, string) (bool, error) {
+		return true, nil
+	}
+
+	ws, attached := attachWithInitial(t, h, []byte("snapshot"), SessionAuth{SpaceID: "space"})
+	select {
+	case <-attached:
+	case <-time.After(3 * time.Second):
+		t.Fatal("AttachAuthenticated did not return")
+	}
+	ws.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, _, err := ws.ReadMessage(); err != nil {
+		t.Fatalf("reading the initial frame: %v", err)
+	}
+	if n := joins.Load(); n != 1 {
+		t.Fatalf("OnJoin on attach = %d, want 1", n)
+	}
+
+	if err := ws.WriteControl(websocket.PongMessage, []byte("ping"), time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && joins.Load() < 2 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := joins.Load(); n != 2 {
+		t.Fatalf("OnJoin after first pong = %d, want 2 (one retry)", n)
+	}
+
+	if err := ws.WriteControl(websocket.PongMessage, []byte("ping"), time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if n := joins.Load(); n != 2 {
+		t.Fatalf("OnJoin after successful retry = %d, want 2 (no further probes)", n)
 	}
 }
 

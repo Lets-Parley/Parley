@@ -6,7 +6,7 @@ description: The tables, the migrations, and the constraints that act as validat
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/db/migrations", "internal/db/migrate.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/db/migrations", "internal/db/migrate.go", "internal/store/presence.go", "internal/poker/routes.go", "internal/api/custody/store.go"]} />
 
 Eighteen migrations, embedded in the binary and applied at boot. Postgres only —
 there is no second driver and no plan for one.
@@ -201,10 +201,11 @@ kept afterwards — this is durable, and deliberately not the same question as
 `session_presence`, which is erased on disconnect and swept, and so only ever
 says "connected recently". It is narrower than `members` (a forty-member space
 runs five-person rounds) and wider (a link guest has no `members` row and still
-turns up). Written on WebSocket attach only, not on every pong. Capped at 200
-rows per session: attaching past the cap drops the oldest joiner so a long-lived
-room cannot grow the table — or the open-voting snapshots that copy it —
-without bound.
+turns up). Written on WebSocket attach (retried on pong only if that first write
+failed), not on every successful heartbeat. Capped at 200 rows per session:
+attaching past the cap drops the oldest joiner, but never the current
+facilitator, so a long-lived room cannot grow the table — or the open-voting
+snapshots that copy it — without bound.
 
 ### round_voters
 
@@ -215,18 +216,22 @@ without bound.
 
 Who an *open* round is waiting for, written when the story goes on the table
 and only for a session with `openVoting` on: up to 200 of the
-`session_participants` of that session (most recent first), minus anyone whose
-`members` row is a spectator. An open round is estimated asynchronously, so it
-cannot be gated on who happens to be connected when the last vote lands.
-Snapshotting is what makes it finishable — reading the set live would move the
-goalposts under a round in progress.
+`session_participants` of that session who can still cast (current
+non-spectator members, or live link guests; facilitator preferred, most recent
+first). An open round is estimated asynchronously, so it cannot be gated on who
+happens to be connected when the last vote lands. Snapshotting is what makes it
+finishable — reading the set live would move the goalposts under a round in
+progress. A later re-select or reset drops anyone no longer in
+`session_participants` or no longer eligible to cast, so cap churn cannot grow
+the pending set past the ceiling.
 
 The completion check asks whether every still-pending recorded voter has cast.
 Spectators stay in the table so sitting back down restores the wait, and are
 skipped live. Departed members and revoked guests are removed from the table
-when membership changes; expired guests are dropped on the next vote. Without
-that, removing a member — or revoking a link — after the snapshot would leave
-the round waiting forever on a vote that can never arrive. A closed round never
+when membership changes (space remove or org revoke); expired guests are
+dropped on the next vote. Without that, removing a member — or revoking a
+link — after the snapshot would leave the round waiting forever on a vote that
+can never arrive. A closed round never
 touches this table.
 
 ### stories, votes

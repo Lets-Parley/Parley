@@ -61,7 +61,7 @@ func TestJoinRecordsSessionParticipantOnce(t *testing.T) {
 
 // A long-lived room must not keep every historical joiner forever: once the
 // cap is hit, the oldest row gives way so snapshotVoters cannot copy an
-// unbounded roster.
+// unbounded roster. The session's facilitator is never the one dropped.
 func TestJoinPrunesOldestWhenOverCap(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
@@ -116,5 +116,59 @@ func TestJoinPrunesOldestWhenOverCap(t *testing.T) {
 	}
 	if !hasFifth {
 		t.Fatal("Join over the cap dropped the newcomer instead of the oldest")
+	}
+}
+
+// The facilitator is typically the oldest joined_at. Cap churn that dropped
+// them would omit them from the next open-voting snapshot while their socket
+// was still up, and the rest of the table could auto-reveal before they cast.
+func TestJoinKeepsFacilitatorWhenOverCap(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	sp, owner := newSpaceWithCreator(t, pool)
+	sess, err := (&Sessions{Pool: pool}).Create(ctx, sp.ID, "poker", "Sprint", []byte(`{"deck":"fibonacci"}`), owner.ID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &Presence{Pool: pool, ReplicaID: "r1", Window: time.Minute}
+
+	old := maxSessionParticipants
+	maxSessionParticipants = 3
+	t.Cleanup(func() { maxSessionParticipants = old })
+
+	if _, err := pool.Exec(ctx,
+		`insert into session_participants (session_id, user_id, joined_at)
+		 values ($1, $2, now() - interval '1 hour')`, sess.ID, owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		u, _ := newUser(t, pool, "P")
+		if _, err := pool.Exec(ctx,
+			`insert into session_participants (session_id, user_id, joined_at)
+			 values ($1, $2, now() - ($3 * interval '1 second'))`,
+			sess.ID, u.ID, 3-i); err != nil {
+			t.Fatal(err)
+		}
+	}
+	newest, _ := newUser(t, pool, "New")
+	if err := p.Join(ctx, sess.ID, newest.ID); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := pool.QueryRow(ctx,
+		"select count(*) from session_participants where session_id = $1", sess.ID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 3 {
+		t.Fatalf("after Join over the cap: %d participants, want 3", n)
+	}
+	var hasFac bool
+	if err := pool.QueryRow(ctx,
+		"select exists (select 1 from session_participants where session_id = $1 and user_id = $2)",
+		sess.ID, owner.ID).Scan(&hasFac); err != nil {
+		t.Fatal(err)
+	}
+	if !hasFac {
+		t.Fatal("Join over the cap dropped the facilitator")
 	}
 }

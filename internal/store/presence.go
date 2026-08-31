@@ -17,6 +17,11 @@ const MaxSessionParticipants = 200
 // to insert two hundred users to prove the prune.
 var maxSessionParticipants = MaxSessionParticipants
 
+// ParticipantCap is the live ceiling on session_participants (and thus on
+// open-voting snapshots). Production code reads this; tests may shrink it via
+// SetMaxSessionParticipantsForTest.
+func ParticipantCap() int { return maxSessionParticipants }
+
 // SetMaxSessionParticipantsForTest overrides the cap for the calling test and
 // returns the previous value so the test can restore it.
 func SetMaxSessionParticipantsForTest(n int) int {
@@ -24,10 +29,6 @@ func SetMaxSessionParticipantsForTest(n int) int {
 	maxSessionParticipants = n
 	return old
 }
-
-// MaxSessionParticipantsForTest reports the live cap, for tests that need to
-// restore after SetMaxSessionParticipantsForTest.
-func MaxSessionParticipantsForTest() int { return maxSessionParticipants }
 
 // Presence records who is holding a live connection to a session, across every
 // replica. It replaces the per-process view that was correct only while Parley
@@ -64,7 +65,10 @@ func (p *Presence) Seen(ctx context.Context, sessionID, userID string) error {
 // participant. Called on attach only.
 //
 // When the session is already at the cap, the oldest joiner is dropped so the
-// table — and every open-voting snapshot that copies it — stays bounded.
+// table — and every open-voting snapshot that copies it — stays bounded. The
+// current facilitator is never dropped: their socket can outlive a prune of
+// the oldest rows, and a later snapshot that omitted them would let the rest
+// of the table auto-reveal before they cast.
 func (p *Presence) Join(ctx context.Context, sessionID, userID string) error {
 	tx, err := p.Pool.Begin(ctx)
 	if err != nil {
@@ -81,11 +85,15 @@ func (p *Presence) Join(ctx context.Context, sessionID, userID string) error {
 		delete from session_participants
 		where ctid in (
 			select ctid from (
-				select ctid from session_participants
-				where session_id = $1
-				order by joined_at desc, user_id desc
-				offset $2
-			) old
+				select sp.ctid,
+					row_number() over (
+						order by (sp.user_id = s.facilitator_id) desc,
+						         sp.joined_at desc, sp.user_id desc) as rn
+				from session_participants sp
+				join sessions s on s.id = sp.session_id
+				where sp.session_id = $1
+			) ranked
+			where rn > $2
 		)`, sessionID, maxSessionParticipants); err != nil {
 		return fmt.Errorf("bounding session participants: %w", err)
 	}

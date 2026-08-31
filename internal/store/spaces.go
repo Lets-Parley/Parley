@@ -375,6 +375,16 @@ func (s *Spaces) RemoveMember(ctx context.Context, spaceID, userID string) error
 			userID, spaceID); err != nil {
 			return fmt.Errorf("dropping the member from open rounds: %w", err)
 		}
+		// session_participants outlives membership. A later selectStory/reset
+		// snapshots from that table; leaving the departed person there would
+		// put them back into round_voters and wedge every subsequent round.
+		if _, err := tx.Exec(ctx, `
+			delete from session_participants sp
+			using sessions s
+			where sp.session_id = s.id and sp.user_id = $1 and s.space_id = $2`,
+			userID, spaceID); err != nil {
+			return fmt.Errorf("dropping the member from session rosters: %w", err)
+		}
 		return nil
 	})
 }

@@ -534,8 +534,9 @@ func rosterChanged(ctx context.Context, tx pgx.Tx, sess store.Session, connected
 	return maybeAutoReveal(ctx, tx, connected, sess, storyID)
 }
 
-// snapshotVoters records who an open round is waiting for: the people who have
-// joined this session, minus the spectators, most recent first, capped so a
+// snapshotVoters records who an open round is waiting for: people who currently
+// belong to the session and can still cast — members who are not spectators,
+// or live link guests — most recent first, facilitator preferred, capped so a
 // long-lived room cannot grow the expected set without bound.
 //
 // Not the space's members. A forty-member space runs five-person rounds, and a
@@ -544,26 +545,62 @@ func rosterChanged(ctx context.Context, tx pgx.Tx, sess store.Session, connected
 // to the session is the narrower question, and it is durable, so somebody who
 // is away when the story goes on the table is still waited for.
 //
-// A link guest has no members row and so no spectator flag; it joined the
-// session like anybody else and is in the set on the same terms.
+// Membership is required at snapshot time: a departed member can linger in
+// session_participants until RemoveMember clears them, and copying them back
+// into round_voters would wedge every subsequent round.
 //
 // Re-selecting a story adds anybody new without disturbing the people already
 // recorded, so a vote already cast never falls outside the set that is waited
-// for. The cap still applies to the select, so an over-full room cannot keep
+// for. Rows that no longer belong to the session (capped out) or can no longer
+// cast are dropped on the same pass, so an over-full room cannot keep
 // appending forever via re-select either.
 func snapshotVoters(ctx context.Context, tx pgx.Tx, sess store.Session, storyID string) error {
-	_, err := tx.Exec(ctx, `
+	if _, err := tx.Exec(ctx, `
 		insert into round_voters (story_id, user_id)
 		select $2::uuid, p.user_id from session_participants p
 		where p.session_id = $3
+		and (
+			exists (
+				select 1 from members m
+				where m.space_id = $1 and m.user_id = p.user_id and not m.spectator)
+			or exists (
+				select 1 from users u
+				join session_links l on l.id = u.link_id
+				where u.id = p.user_id and l.session_id = $3
+				and l.revoked_at is null and l.expires_at > now())
+		)
+		order by (p.user_id = (select facilitator_id from sessions where id = $3)) desc,
+		         p.joined_at desc, p.user_id desc
+		limit $4
+		on conflict do nothing`, sess.SpaceID, storyID, sess.ID, store.ParticipantCap()); err != nil {
+		return fmt.Errorf("recording the round's voters: %w", err)
+	}
+	// Cap churn drops older joiners from session_participants; without this
+	// they would remain pending forever across re-select/reset.
+	if _, err := tx.Exec(ctx, `
+		delete from round_voters rv
+		where rv.story_id = $1
+		and not exists (
+			select 1 from session_participants p
+			where p.session_id = $2 and p.user_id = rv.user_id)`, storyID, sess.ID); err != nil {
+		return fmt.Errorf("dropping capped-out voters from the round: %w", err)
+	}
+	// Departed members and dead links must not survive a re-snapshot even if a
+	// stale participants row somehow remains. Spectators keep their members
+	// row, so sitting back down still restores the wait.
+	if _, err := tx.Exec(ctx, `
+		delete from round_voters rv
+		where rv.story_id = $1
 		and not exists (
 			select 1 from members m
-			where m.space_id = $1 and m.user_id = p.user_id and m.spectator)
-		order by p.joined_at desc, p.user_id desc
-		limit $4
-		on conflict do nothing`, sess.SpaceID, storyID, sess.ID, store.MaxSessionParticipantsForTest())
-	if err != nil {
-		return fmt.Errorf("recording the round's voters: %w", err)
+			where m.space_id = $2 and m.user_id = rv.user_id)
+		and not exists (
+			select 1 from users u
+			join session_links l on l.id = u.link_id
+			where u.id = rv.user_id and l.session_id = $3
+			and l.revoked_at is null and l.expires_at > now())`,
+		storyID, sess.SpaceID, sess.ID); err != nil {
+		return fmt.Errorf("dropping ineligible voters from the round: %w", err)
 	}
 	return nil
 }

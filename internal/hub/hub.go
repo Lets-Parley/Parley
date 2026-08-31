@@ -62,6 +62,11 @@ type Conn struct {
 	// (or about to reject), and a pong landing in that window must not write
 	// a presence row for a principal that is about to be torn down.
 	membershipConfirmed atomic.Bool
+	// joined flips true once OnJoin has succeeded for this connection. Attach
+	// is the normal write; a failed attach leaves this false so the pong path
+	// can retry until the durable participants row lands — without probing on
+	// every heartbeat after it has.
+	joined atomic.Bool
 	// broadcastReady flips true once this connection has been handed its
 	// initial frame. Until then it is registered — so teardown and presence
 	// bookkeeping see it — but broadcasts skip it: the shared guest payload
@@ -96,9 +101,11 @@ type Hub struct {
 
 	// OnPresenceChange fires (debounced) after connects/disconnects settle.
 	OnPresenceChange func(sessionID string)
-	// OnJoin fires once on attach after membership is confirmed, so the
-	// durable session_participants row is written there and not on every pong.
-	OnJoin func(sessionID, userID string)
+	// OnJoin records durable session belonging. It runs on attach after
+	// membership is confirmed, and again on pong only while that first write
+	// has not yet succeeded — so a transient failure cannot leave a connected
+	// user invisible to open-voting snapshots.
+	OnJoin func(sessionID, userID string) error
 	// OnFacilitatorSeen fires on connect and each pong so liveness reaches the DB.
 	OnFacilitatorSeen func(sessionID, userID string)
 	// ValidateSession checks session validity through the shared store.
@@ -533,7 +540,11 @@ func (h *Hub) AttachAuthenticated(ws *websocket.Conn, sessionID, userID string, 
 	}
 	c.membershipConfirmed.Store(true)
 	if h.OnJoin != nil {
-		h.OnJoin(sessionID, userID)
+		if err := h.OnJoin(sessionID, userID); err == nil {
+			c.joined.Store(true)
+		}
+	} else {
+		c.joined.Store(true)
 	}
 	if h.OnFacilitatorSeen != nil {
 		h.OnFacilitatorSeen(sessionID, userID)
@@ -727,7 +738,17 @@ func (h *Hub) reader(c *Conn) {
 	c.ws.SetReadDeadline(time.Now().Add(pongDeadline))
 	c.ws.SetPongHandler(func(string) error {
 		c.ws.SetReadDeadline(time.Now().Add(pongDeadline))
-		if c.authState.Load() == authAccepted && c.membershipConfirmed.Load() && h.OnFacilitatorSeen != nil {
+		if c.authState.Load() != authAccepted || !c.membershipConfirmed.Load() {
+			return nil
+		}
+		if !c.joined.Load() && h.OnJoin != nil {
+			h.track(func() {
+				if err := h.OnJoin(c.SessionID, c.UserID); err == nil {
+					c.joined.Store(true)
+				}
+			})
+		}
+		if h.OnFacilitatorSeen != nil {
 			h.track(func() { h.OnFacilitatorSeen(c.SessionID, c.UserID) })
 		}
 		return nil
