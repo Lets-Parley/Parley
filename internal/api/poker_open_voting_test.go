@@ -494,3 +494,61 @@ func TestOpeningAStoryRecordsExactlyTheParticipants(t *testing.T) {
 		}
 	}
 }
+
+// Reset starts a fresh round on the story already on the table, so it is a
+// round boundary and the roster has to be (re)taken there. The path that used
+// to lose it: the story is revealed, open voting is turned on — which
+// short-circuits on the revealed session and records nobody — and reset then
+// reopens the very same story with an empty roster. An open round with no
+// recorded voters can never complete, so auto-reveal was dead for it.
+func TestResetReopensAnOpenRoundThatCanStillComplete(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Reset Reopen Space")
+	joinRoom(t, srv, id, fac)
+	joinRoom(t, srv, id, member)
+	story := addStory(t, srv, id, "Reset story", fac)
+	selectStory(t, srv, id, story, fac)
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/reveal", "", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("reveal: %d", resp.StatusCode)
+	}
+	// Turned on while the story is revealed: patchConfig has nothing to open.
+	setConfig(t, srv, id, `{"autoReveal":true,"openVoting":true}`, fac)
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/reset", "", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("reset: %d", resp.StatusCode)
+	}
+
+	vote(t, srv, id, story, "3", fac)
+	if revealed(t, srv, id, fac) {
+		t.Fatal("the reopened round revealed with one of two votes")
+	}
+	vote(t, srv, id, story, "5", member)
+	if !revealed(t, srv, id, fac) {
+		t.Fatal("a round reopened by reset could not complete on its own")
+	}
+}
+
+// The closed path is untouched: reset must not start recording a roster for a
+// round nobody asked to be open, or the closed connected-set denominator would
+// be quietly replaced for it.
+func TestResetRecordsNoRosterForAClosedRound(t *testing.T) {
+	pool := testPool(t)
+	srv := testServerWith(t, pool, Options{AllowedOrigin: testOrigin})
+	fac, member, id := setupSession(t, srv, "Reset Closed Space")
+	joinRoom(t, srv, id, fac)
+	joinRoom(t, srv, id, member)
+	setAutoReveal(t, srv, id, true, fac)
+	story := addStory(t, srv, id, "Closed reset story", fac)
+	selectStory(t, srv, id, story, fac)
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/reset", "", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("reset: %d", resp.StatusCode)
+	}
+
+	var n int
+	if err := pool.QueryRow(context.Background(),
+		"select count(*) from round_voters where story_id = $1", story).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("reset recorded %d voters for a closed round", n)
+	}
+}

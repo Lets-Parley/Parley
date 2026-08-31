@@ -115,7 +115,10 @@ their guest link is revoked or expires, the round stops waiting for them —
 their vote could never arrive, and a round wedged on it would never complete.
 
 Turning open voting on mid-round records the list for the story already on the
-table, so that round can complete too.
+table, so that round can complete too. If the story has already been revealed
+there is no round to record, so **Reset** takes the list instead — a re-vote on
+a revealed story waits for whoever is in the room at that point, latecomers
+included.
 
 Open voting reveals nothing by itself. It only changes *who* the round is
 waiting for; whether the last vote opens the round is still auto-reveal's

@@ -630,15 +630,43 @@ func reveal(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	committed(w, r, ac)
 }
 
+// reset starts a fresh round on the story already on the table, so it is a
+// round boundary in its own right and the open round's roster is retaken here
+// — the same reason selectStory takes one. Without it a story that was
+// revealed before open voting was switched on reopens with nobody recorded,
+// and a round with an empty roster can never complete on its own.
+//
+// snapshotVoters is additive (on conflict do nothing), so a round that already
+// has a roster keeps every person in it and simply gains anybody who has
+// joined since; a vote already cast can never fall outside the set.
 func reset(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
-		func(tx pgx.Tx, _ store.Session) error {
+		func(tx pgx.Tx, sess store.Session) error {
 			if _, err := tx.Exec(r.Context(),
 				"delete from votes where story_id = (select current_story_id from sessions where id = $1)", ac.Session.ID); err != nil {
 				return err
 			}
-			_, err := tx.Exec(r.Context(), "update sessions set revealed = false, version = version + 1 where id = $1", ac.Session.ID)
-			return err
+			if _, err := tx.Exec(r.Context(), "update sessions set revealed = false, version = version + 1 where id = $1", ac.Session.ID); err != nil {
+				return err
+			}
+			var cfg Config
+			if err := json.Unmarshal(sess.Config, &cfg); err != nil {
+				return fmt.Errorf("reading poker config: %w", err)
+			}
+			if !cfg.OpenVoting {
+				// A closed round's denominator is who is connected, and it has
+				// no roster: recording one here would change that quietly.
+				return nil
+			}
+			var storyID string
+			if err := tx.QueryRow(r.Context(),
+				"select coalesce(current_story_id::text,'') from sessions where id = $1", ac.Session.ID).Scan(&storyID); err != nil {
+				return err
+			}
+			if storyID == "" {
+				return nil
+			}
+			return snapshotVoters(r.Context(), tx, sess, storyID)
 		})
 	if err != nil {
 		writeMutationError(r.Context(), w, err, "could not reset votes")
