@@ -478,7 +478,23 @@ func maybeAutoReveal(ctx context.Context, tx pgx.Tx, connected []string, sess st
 			join session_links l on l.id = u.link_id
 			where l.session_id = $4 and u.id::text = any($2)
 		), voters as (
-			select user_id from votes where story_id = $3
+			-- A vote left behind by somebody who has since sat out is not a
+			-- vote the round is still holding: it stands outside eligible for
+			-- good, so counting it would fail the "voters subset of eligible"
+			-- half below forever, and nobody sitting out afterwards could ever
+			-- complete the round.
+			--
+			-- Only a spectator's vote is dropped, and only because sitting out
+			-- is a deliberate withdrawal from the round. A vote from somebody
+			-- who has merely disconnected still counts, and still holds the
+			-- round shut through that same half: a disconnect is not consent,
+			-- and a table that has already part-voted must not be opened
+			-- merely because the last person still connected has cast.
+			select v.user_id from votes v
+			where v.story_id = $3
+			and not exists (
+				select 1 from members m
+				where m.space_id = $1 and m.user_id = v.user_id and m.spectator)
 		)
 		select exists (select 1 from eligible)
 		and not exists (select user_id from eligible except select user_id from voters)
@@ -489,6 +505,27 @@ func maybeAutoReveal(ctx context.Context, tx pgx.Tx, connected []string, sess st
 	}
 	_, err = tx.Exec(ctx, "update sessions set revealed = true where id = $1 and not revealed", sess.ID)
 	return err
+}
+
+// rosterChanged is the registry's seam for a change to who the session is
+// waiting on: the spectator toggle is a core route, so poker reacts to it here
+// rather than the core knowing what poker does with it. It runs inside the
+// toggle's own transaction, so the reveal check sees the flag it just wrote —
+// and the round completing is attributed to the person sitting out rather than
+// surfacing later, out of nowhere, on somebody else's next vote.
+func rosterChanged(ctx context.Context, tx pgx.Tx, sess store.Session, connected []string) error {
+	if sess.Revealed {
+		return nil
+	}
+	var storyID string
+	if err := tx.QueryRow(ctx,
+		"select coalesce(current_story_id::text,'') from sessions where id = $1", sess.ID).Scan(&storyID); err != nil {
+		return fmt.Errorf("reading the current story: %w", err)
+	}
+	if storyID == "" {
+		return nil
+	}
+	return maybeAutoReveal(ctx, tx, connected, sess, storyID)
 }
 
 // snapshotVoters records who an open round is waiting for: the people who have

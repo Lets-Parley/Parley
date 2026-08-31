@@ -13,6 +13,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lets-parley/parley/internal/store"
@@ -38,6 +39,15 @@ type Kind struct {
 	// Actions is the kind's dispatch table, keyed by the {action} segment of
 	// POST /sessions/{id}/actions/{action}.
 	Actions map[string]Action
+	// RosterChanged runs inside the transaction that changed who the session
+	// is waiting on — today, a spectator toggle, which is a core route because
+	// the flag is a property of a member rather than of a kind. Sharing that
+	// transaction is the point: a kind that reacted afterwards would read a
+	// roster somebody else could already have changed again.
+	//
+	// connected is the presence set, read before the transaction opened.
+	// A kind with nothing to do on a roster change leaves this nil.
+	RosterChanged func(ctx context.Context, tx pgx.Tx, sess store.Session, connected []string) error
 }
 
 // Registry holds the session kinds a server knows about. Build one at wiring
@@ -320,4 +330,13 @@ func (r *Registry) buildEnvelope(ctx context.Context, pool *pgxpool.Pool, presen
 		env.FacilitatorOffline = &t
 	}
 	return env, nil
+}
+
+// RosterChanged returns the kind's roster hook, if it has one.
+func (r *Registry) RosterChanged(kind string) (func(ctx context.Context, tx pgx.Tx, sess store.Session, connected []string) error, bool) {
+	k, ok := r.kinds[kind]
+	if !ok || k.RosterChanged == nil {
+		return nil, false
+	}
+	return k.RosterChanged, true
 }

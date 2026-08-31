@@ -1,0 +1,297 @@
+package api
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+)
+
+// sitOut flips the caller's own spectator flag, the way the room's own control
+// does.
+func sitOut(t *testing.T, srv *httptest.Server, sessionID string, on bool, c *http.Cookie) {
+	t.Helper()
+	body := `{"on":false}`
+	if on {
+		body = `{"on":true}`
+	}
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+sessionID+"/spectator", body, c); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("spectator %s: %d", body, resp.StatusCode)
+	}
+}
+
+// spectating reads the caller's own spectator flag back off the session
+// roster, which is where the toggle's one visible effect lands.
+func spectating(t *testing.T, srv *httptest.Server, sessionID string, c *http.Cookie) bool {
+	t.Helper()
+	_, me := doJSON(t, srv, "GET", "/api/me", "", c)
+	id, _ := me["id"].(string)
+	if id == "" {
+		t.Fatalf("no user id in the /api/me response: %v", me)
+	}
+	_, env := doJSON(t, srv, "GET", "/api/sessions/"+sessionID, "", c)
+	for _, p := range env["participants"].([]any) {
+		person := p.(map[string]any)
+		if person["userId"] == id {
+			return person["spectator"] == true
+		}
+	}
+	t.Fatalf("%s is not on the roster: %v", id, env["participants"])
+	return false
+}
+
+// addToSpace signs a third person up and puts them in the space.
+func addToSpace(t *testing.T, srv *httptest.Server, slug, name string, fac *http.Cookie) *http.Cookie {
+	t.Helper()
+	c := signup(t, srv, name)
+	_, sp := doJSON(t, srv, "GET", "/api/orgs/default/spaces/"+slug, "", fac)
+	code, _ := sp["passcode"].(string)
+	if resp := joinSpace(t, srv, slug, c, code); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("join %s: %d", name, resp.StatusCode)
+	}
+	return c
+}
+
+// The last person a closed round is waiting on sits out, and the round is
+// complete at that moment — not later, when somebody else happens to act.
+func TestSitOutCompletesAClosedRound(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Sit Out Closed Space")
+	setAutoReveal(t, srv, id, true, fac)
+	story := addStory(t, srv, id, "Closed sit-out story", fac)
+	selectStory(t, srv, id, story, fac)
+	joinRoom(t, srv, id, fac)
+	joinRoom(t, srv, id, member)
+	time.Sleep(2 * time.Second) // let presence settle
+
+	vote(t, srv, id, story, "3", fac)
+	if revealed(t, srv, id, fac) {
+		t.Fatal("closed round revealed with one of two votes")
+	}
+	sitOut(t, srv, id, true, member)
+	if !revealed(t, srv, id, fac) {
+		t.Fatal("the last outstanding voter sat out and the round stayed open")
+	}
+}
+
+// Sitting back down before the reveal puts you back in the set the round is
+// waiting for: the wait is restored, not merely paused.
+func TestReturningFromSittingOutRestoresTheClosedWait(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Sit Out Return Space")
+	other := addToSpace(t, srv, "sit-out-return-space", "Ora", fac)
+	setAutoReveal(t, srv, id, true, fac)
+	story := addStory(t, srv, id, "Closed return story", fac)
+	selectStory(t, srv, id, story, fac)
+	joinRoom(t, srv, id, fac)
+	joinRoom(t, srv, id, member)
+	joinRoom(t, srv, id, other)
+	time.Sleep(2 * time.Second)
+
+	vote(t, srv, id, story, "3", fac)
+	sitOut(t, srv, id, true, member)
+	if revealed(t, srv, id, fac) {
+		t.Fatal("round revealed while a third estimator had not cast")
+	}
+	sitOut(t, srv, id, false, member)
+	vote(t, srv, id, story, "5", other)
+	if revealed(t, srv, id, fac) {
+		t.Fatal("sitting back down did not restore the wait")
+	}
+	vote(t, srv, id, story, "8", member)
+	if !revealed(t, srv, id, fac) {
+		t.Fatal("the returning voter's own vote did not complete the round")
+	}
+}
+
+// The same, against an open round: the expected set is the snapshot taken when
+// the round opened, and sitting out takes you out of it.
+func TestSitOutCompletesAnOpenRound(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Sit Out Open Space")
+	other := addToSpace(t, srv, "sit-out-open-space", "Ora", fac)
+	joinRoom(t, srv, id, fac)
+	joinRoom(t, srv, id, member)
+	joinRoom(t, srv, id, other)
+	setConfig(t, srv, id, `{"autoReveal":true,"openVoting":true}`, fac)
+	story := addStory(t, srv, id, "Open sit-out story", fac)
+	selectStory(t, srv, id, story, fac)
+
+	vote(t, srv, id, story, "3", fac)
+	vote(t, srv, id, story, "5", other)
+	if revealed(t, srv, id, fac) {
+		t.Fatal("open round revealed while an expected voter had not cast")
+	}
+	sitOut(t, srv, id, true, member)
+	if !revealed(t, srv, id, fac) {
+		t.Fatal("the last expected voter sat out and the open round stayed open")
+	}
+}
+
+// And back again, against the snapshot.
+func TestReturningFromSittingOutRestoresTheOpenWait(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Sit Out Open Return Space")
+	joinRoom(t, srv, id, fac)
+	joinRoom(t, srv, id, member)
+	setConfig(t, srv, id, `{"autoReveal":true,"openVoting":true}`, fac)
+	story := addStory(t, srv, id, "Open return story", fac)
+	selectStory(t, srv, id, story, fac)
+
+	sitOut(t, srv, id, true, member)
+	sitOut(t, srv, id, false, member)
+	vote(t, srv, id, story, "3", fac)
+	if revealed(t, srv, id, fac) {
+		t.Fatal("sitting back down did not restore the open wait")
+	}
+	vote(t, srv, id, story, "5", member)
+	if !revealed(t, srv, id, fac) {
+		t.Fatal("the returning voter's own vote did not complete the open round")
+	}
+}
+
+// With auto-reveal off a toggle changes the roster and nothing else.
+func TestSitOutWithAutoRevealOffRevealsNothing(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Sit Out Manual Space")
+	story := addStory(t, srv, id, "Manual sit-out story", fac)
+	selectStory(t, srv, id, story, fac)
+	joinRoom(t, srv, id, fac)
+	joinRoom(t, srv, id, member)
+	time.Sleep(2 * time.Second)
+
+	vote(t, srv, id, story, "3", fac)
+	sitOut(t, srv, id, true, member)
+	if revealed(t, srv, id, fac) {
+		t.Fatal("a spectator toggle revealed a round with auto-reveal off")
+	}
+	// "Nothing but the roster" is only half the claim: the roster has to have
+	// changed. Without this the test passes just as happily against a toggle
+	// that writes nothing at all.
+	if !spectating(t, srv, id, member) {
+		t.Fatal("the toggle returned 204 without putting the member on the roster as a spectator")
+	}
+	sitOut(t, srv, id, false, member)
+	if spectating(t, srv, id, member) {
+		t.Fatal("sitting back down left the member on the roster as a spectator")
+	}
+}
+
+// The toggle is a core route shared with standup, and standup has no round to
+// reveal: it must keep meaning exactly what it meant.
+func TestStandupSpectatorToggleIsUnaffected(t *testing.T) {
+	srv := testServer(t)
+	cookies, ids, id := standupSpace(t, srv, "Sit Out Standup Space", "Amy Stone", "Ben Ito")
+	sitOut(t, srv, id, true, cookies[1])
+	if resp := setReadyAs(t, srv, id, cookies[1], true); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("spectator ready: %d", resp.StatusCode)
+	}
+	if e := entriesByUser(t, srv, id, cookies[0])[ids[1]]; e != nil {
+		t.Fatalf("the standup spectator gained an entry row: %v", e)
+	}
+	sitOut(t, srv, id, false, cookies[1])
+	if resp := setReadyAs(t, srv, id, cookies[1], true); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("returning ready: %d", resp.StatusCode)
+	}
+	if e := entriesByUser(t, srv, id, cookies[0])[ids[1]]; e == nil {
+		t.Fatal("sitting back down in standup did not restore the entry row")
+	}
+}
+
+// A vote cast by somebody who then sits out is stale, not a reason to hold the
+// round open: when the genuine last outstanding estimator sits out, the round
+// completes even though an earlier voter has since left the table.
+func TestSitOutCompletesAClosedRoundAfterAVoterSatOut(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Sit Out Stale Vote Space")
+	other := addToSpace(t, srv, "sit-out-stale-vote-space", "Ora", fac)
+	setAutoReveal(t, srv, id, true, fac)
+	story := addStory(t, srv, id, "Stale vote story", fac)
+	selectStory(t, srv, id, story, fac)
+	joinRoom(t, srv, id, fac)
+	joinRoom(t, srv, id, member)
+	joinRoom(t, srv, id, other)
+	time.Sleep(2 * time.Second) // let presence settle
+
+	vote(t, srv, id, story, "3", fac)
+	vote(t, srv, id, story, "5", member)
+	sitOut(t, srv, id, true, member)
+	if revealed(t, srv, id, fac) {
+		t.Fatal("round revealed while a third estimator had not cast")
+	}
+	sitOut(t, srv, id, true, other)
+	if !revealed(t, srv, id, fac) {
+		t.Fatal("the last outstanding voter sat out and the round stayed open behind a departed voter's vote")
+	}
+}
+
+// And the symmetric case: sitting out after voting and then sitting back down
+// leaves the round exactly where it was, with that vote counting again.
+func TestSittingBackDownAfterVotingCountsTheVoteAgain(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Sit Out Round Trip Space")
+	other := addToSpace(t, srv, "sit-out-round-trip-space", "Ora", fac)
+	setAutoReveal(t, srv, id, true, fac)
+	story := addStory(t, srv, id, "Round trip story", fac)
+	selectStory(t, srv, id, story, fac)
+	joinRoom(t, srv, id, fac)
+	joinRoom(t, srv, id, member)
+	joinRoom(t, srv, id, other)
+	time.Sleep(2 * time.Second)
+
+	vote(t, srv, id, story, "3", fac)
+	vote(t, srv, id, story, "5", member)
+	sitOut(t, srv, id, true, member)
+	sitOut(t, srv, id, false, member)
+	if revealed(t, srv, id, fac) {
+		t.Fatal("round revealed while a third estimator had not cast")
+	}
+	vote(t, srv, id, story, "8", other)
+	if !revealed(t, srv, id, fac) {
+		t.Fatal("the returned voter's earlier vote stopped counting")
+	}
+}
+
+// The flag write and the kind's reveal check share one transaction, so a hook
+// that fails takes the flag with it. Moving the hook into a transaction of its
+// own after the toggle committed is invisible to every other test here — the
+// reveal still lands, just a moment later and unprotected — so it is pinned by
+// its failure mode instead.
+//
+// The failure is induced through the data rather than through a test kind: the
+// registry is built inside Router and a test cannot reach it, and a seam cut
+// into production code purely to fail on demand would be worse than this. A
+// session config that is valid JSON but not a poker config makes poker's own
+// roster hook return an error on the next toggle.
+func TestSpectatorToggleRollsBackWhenTheKindsHookFails(t *testing.T) {
+	pool := testPool(t)
+	srv := testServerWith(t, pool, Options{AllowedOrigin: testOrigin})
+	fac, member, id := setupSession(t, srv, "Sit Out Atomic Space")
+	setAutoReveal(t, srv, id, true, fac)
+	story := addStory(t, srv, id, "Atomic story", fac)
+	selectStory(t, srv, id, story, fac)
+
+	_, me := doJSON(t, srv, "GET", "/api/me", "", member)
+	userID, _ := me["id"].(string)
+	if userID == "" {
+		t.Fatalf("no user id in the /api/me response: %v", me)
+	}
+	if _, err := pool.Exec(context.Background(),
+		"update sessions set config = '[]'::jsonb where id = $1", id); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+id+"/spectator", `{"on":true}`, member)
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("spectator toggle with a failing roster hook: got %d, want 500", resp.StatusCode)
+	}
+	var spectator bool
+	if err := pool.QueryRow(context.Background(),
+		"select spectator from members where user_id = $1", userID).Scan(&spectator); err != nil {
+		t.Fatal(err)
+	}
+	if spectator {
+		t.Fatal("the roster hook failed and the spectator flag was committed anyway — the two are not in one transaction")
+	}
+}
