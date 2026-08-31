@@ -1,6 +1,6 @@
 ---
 title: Planning poker
-description: Story queue, four decks, hidden votes, and statistics that suit the deck.
+description: Story queue, decks you can add to, hidden votes, and statistics that suit the deck.
 ---
 
 import Deck from "../../../components/Deck.astro";
@@ -11,6 +11,8 @@ import queueLight from "../../../assets/story-queue-light.png";
 import queueDark from "../../../assets/story-queue-dark.png";
 import hiddenLight from "../../../assets/hidden-votes-light.png";
 import hiddenDark from "../../../assets/hidden-votes-dark.png";
+import createLight from "../../../assets/create-session-light.png";
+import createDark from "../../../assets/create-session-dark.png";
 import tshirtLight from "../../../assets/tshirt-results-light.png";
 import tshirtDark from "../../../assets/tshirt-results-dark.png";
 
@@ -76,6 +78,13 @@ A saved deck is a template, not a reference. Starting a session copies the cards
 into that session, so renaming a deck, rewriting its cards or deleting it
 outright leaves every room already dealing them exactly as it was — no vote
 already cast can be invalidated by an edit here.
+
+<Screenshot
+  light={createLight}
+  dark={createDark}
+  alt="The New session dialog with Poker selected, the title Sprint 35 planning typed in, and six deck cards to choose from — Fibonacci, Modified Fib, T-shirt and Powers of 2, then the space's own Platform sizing, selected, and Bug triage — above an unchecked Auto-reveal when everyone has voted."
+  caption="The deck chooser at session create: the four built in, then whatever this space has saved. The choice is fixed for the life of the session."
+/>
 
 ## Hidden votes and auto-reveal
 
@@ -152,6 +161,11 @@ two are independent switches and all four combinations do what they say.
 
 Either way the room names the seats it is still waiting for, so an open round
 that has stalled shows who it has stalled on.
+
+Open voting has no control in the room yet. Auto-reveal is a checkbox in the
+create dialog and a switch in the room; open voting is set through the API —
+`PATCH /api/sessions/{id}/actions/config` with `{"openVoting": true}`, which
+only the facilitator may call. See the [API reference](/reference/api/).
 
 <Screenshot
   light={hiddenLight}
