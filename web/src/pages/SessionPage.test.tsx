@@ -569,10 +569,10 @@ describe("SessionPage transient session refetch failure", () => {
   it("keeps the room mounted and the standup draft intact when a refetch fails", async () => {
     // react-query keeps prior data when a background refetch rejects — isError
     // with data still present. The old gate treated any isError as no-seat and
-    // unmounted Room, wiping the draft. Seat the room under that shape and
-    // prove the draft fields still accept (and hold) unsaved text.
-    mockSessionError = true;
-    renderApp(routed, { route: "/session/sess-1" });
+    // unmounted Room, wiping the draft. Mount under success, type into the
+    // draft, then flip isError while data remains and re-render — proving the
+    // room does not unmount across that transition.
+    const { rerender } = renderApp(routed, { route: "/session/sess-1" });
 
     expect(await screen.findByText("Daily")).toBeTruthy();
     expect(screen.queryByText(/no seat at this table/i)).toBe(null);
@@ -580,6 +580,14 @@ describe("SessionPage transient session refetch failure", () => {
     const yesterday = screen.getAllByRole("textbox")[0] as HTMLTextAreaElement;
     fireEvent.change(yesterday, { target: { value: "half-typed blocker notes" } });
     expect(yesterday.value).toBe("half-typed blocker notes");
+
+    mockSessionError = true;
+    rerender(routed);
+
+    expect(screen.getByText("Daily")).toBeTruthy();
+    expect(screen.queryByText(/no seat at this table/i)).toBe(null);
+    const yesterdayAfter = screen.getAllByRole("textbox")[0] as HTMLTextAreaElement;
+    expect(yesterdayAfter.value).toBe("half-typed blocker notes");
   });
 
   it("still shows no seat when the session query has no data", async () => {
