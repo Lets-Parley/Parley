@@ -1,3 +1,4 @@
+import type { Box } from "./flip";
 import type { Disc, PileOnGeometry } from "./plan";
 
 /**
@@ -36,4 +37,16 @@ export function measurePileOn({
     throwers: throwers.map((el) => discIn(box, el)),
     emojiRadius,
   };
+}
+
+/** Where every seat in a rank container currently sits, keyed by its user id. */
+export function measureSeats(container: HTMLElement): Map<string, Box> {
+  const out = new Map<string, Box>();
+  for (const el of container.querySelectorAll<HTMLElement>("[data-seat-user]")) {
+    const id = el.dataset.seatUser;
+    if (!id) continue;
+    const r = el.getBoundingClientRect();
+    out.set(id, { left: r.left, top: r.top });
+  }
+  return out;
 }

@@ -1,5 +1,16 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { GRAVITY, offScreenTest, projectileAt, simulateThrow, solveContact, solveThrow } from "./physics";
+import {
+  DROP_RESTITUTION,
+  GRAVITY,
+  dropBounce,
+  offScreenTest,
+  projectileAt,
+  simulateThrow,
+  solveContact,
+  solveThrow,
+} from "./physics";
 
 describe("projectileAt", () => {
   it("is the closed form, not an integrator", () => {
@@ -106,5 +117,52 @@ describe("offScreenTest", () => {
     expect(gone({ x: 200, y: 50 })).toBe(true);
     expect(gone({ x: 50, y: 200 })).toBe(true);
     expect(gone({ x: 50, y: -50 })).toBe(true);
+  });
+});
+
+describe("dropBounce", () => {
+  it("keeps the same fall-to-total ratio at any distance", () => {
+    const near = dropBounce(40);
+    const far = dropBounce(400);
+    expect(near.fallMs / near.durationMs).toBeCloseTo(far.fallMs / far.durationMs, 12);
+    // 1 / (1 + 2r) is what @keyframes seat-drop hard-codes as its contact stop.
+    expect(near.fallMs / near.durationMs).toBeCloseTo(1 / (1 + 2 * DROP_RESTITUTION), 12);
+  });
+
+  it("grows the run as the square root of the distance", () => {
+    expect(dropBounce(400).durationMs / dropBounce(100).durationMs).toBeCloseTo(2, 10);
+    expect(dropBounce(40).fallMs).toBeCloseTo(Math.sqrt((2 * 40) / GRAVITY) * 1000, 10);
+  });
+
+  it("bounces to a fixed fraction of the fall", () => {
+    expect(dropBounce(200).apex).toBeCloseTo(DROP_RESTITUTION ** 2 * 200, 10);
+  });
+
+  it("is inert for a seat that has nowhere to fall", () => {
+    expect(dropBounce(0)).toEqual({ fallMs: 0, bounceMs: 0, durationMs: 0, apex: 0 });
+    expect(dropBounce(-10).durationMs).toBe(0);
+  });
+
+  /*
+   * The keyframe is static because the curve is scale-invariant, so the CSS
+   * and the restitution constant are a pair. Retune one without the other and
+   * the seat lands early or late at every size — this is the only thing that
+   * notices.
+   */
+  it("agrees with the contact stop written into @keyframes seat-drop", () => {
+    const css = readFileSync(resolve(process.cwd(), "src/tokens.css"), "utf8");
+    const at = css.indexOf("@keyframes seat-drop");
+    expect(at).toBeGreaterThan(-1);
+    const body = css.slice(at, css.indexOf("\n}", at));
+    // The first stop back at translateY(0) is the contact frame.
+    const contact = body.match(/([\d.]+)%\s*\{\s*transform:\s*translateY\(0\)/);
+    expect(contact).not.toBeNull();
+    const d = dropBounce(96);
+    expect(Number(contact![1]) / 100).toBeCloseTo(d.fallMs / d.durationMs, 3);
+    // Everything after contact is the hop, and its highest stop is r² of the
+    // fall — the other half of what pairs this keyframe to the restitution.
+    const hop = body.slice(body.indexOf(contact![0]) + contact![0].length);
+    const stops = [...hop.matchAll(/\* (-?[\d.]+)\)/g)].map((m) => Number(m[1]));
+    expect(Math.min(...stops)).toBeCloseTo(-(DROP_RESTITUTION ** 2), 6);
   });
 });

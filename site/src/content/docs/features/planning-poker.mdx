@@ -230,6 +230,23 @@ The two celebrations can never both run.
 Like the high-five it is pure decoration, and `prefers-reduced-motion: reduce`
 skips it entirely: no emoji is drawn at all.
 
+## When someone joins
+
+A seat that appears mid-meeting drops into its slot and takes one light bounce.
+The row opens first — the seats already on the table slide to their new
+positions, and only then does the new one fall into the gap they made, rather
+than landing on a row still rearranging itself under it.
+
+Several people arriving at once — the usual start of a standup — are staggered
+across a fixed budget rather than a fixed gap each, so a dozen joiners are all
+on the table inside half a second instead of queueing up one after another. A
+reconnection is not an arrival: coming back from a dropped network does not
+replay the whole room as though everybody had just walked in. Someone who
+genuinely leaves and comes back does drop in again.
+
+`prefers-reduced-motion: reduce` skips it entirely — the seat is simply there,
+with no movement and nothing scheduled.
+
 ## Ending the round
 
 After the reveal the facilitator can save the agreed value onto the story with

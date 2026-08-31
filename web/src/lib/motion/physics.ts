@@ -141,3 +141,35 @@ export function offScreenTest({
     );
   };
 }
+
+/**
+ * How much of its speed a seat keeps when it lands. Paired with
+ * `@keyframes seat-drop` in tokens.css: change this and the keyframe's stops
+ * have to be regenerated, which is what `physics.test.ts` guards.
+ */
+export const DROP_RESTITUTION = 0.35;
+
+/**
+ * The timings of a fall from rest through `d` px plus one bounce.
+ *
+ * No frames, deliberately. `fallT = √(2d/G)` and `bounceT = 2r·fallT`, so
+ * `fallT / totalT = 1/(1+2r)` and the apex is `r²·d` — the *shape* in
+ * normalised time is fixed by the restitution alone and the distance is only a
+ * scale factor. That is what lets the whole curve be one static CSS keyframe
+ * written against `calc(var(--drop-d) * k)`, with JS supplying nothing but the
+ * distance and the duration.
+ */
+export function dropBounce(
+  d: number,
+  restitution = DROP_RESTITUTION,
+): { fallMs: number; bounceMs: number; durationMs: number; apex: number } {
+  if (!(d > 0)) return { fallMs: 0, bounceMs: 0, durationMs: 0, apex: 0 };
+  const fallT = Math.sqrt((2 * d) / GRAVITY);
+  const bounceT = 2 * restitution * fallT;
+  return {
+    fallMs: fallT * 1000,
+    bounceMs: bounceT * 1000,
+    durationMs: (fallT + bounceT) * 1000,
+    apex: restitution * restitution * d,
+  };
+}
