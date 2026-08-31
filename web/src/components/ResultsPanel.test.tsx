@@ -10,6 +10,7 @@ const results = (over: Partial<Results> = {}): Results => ({
 });
 
 const fib = ["1", "2", "3", "5", "8", "13", "21", "34", "?", "coffee"];
+const modifiedFib = ["0", "½", "1", "2", "3", "5", "8", "13", "20", "40", "100", "?", "coffee"];
 
 describe("heroOf", () => {
   it("leads with the agreed number on consensus", () => {
@@ -65,6 +66,23 @@ describe("heroOf", () => {
     );
     expect(h).toMatchObject({ value: "4", label: "median" });
     expect(h.save).toBeUndefined();
+  });
+
+  it("resolves a half-point median to the ½ card on modified-fibonacci", () => {
+    // Votes of 0 and 1 put the median at 0.5. String(0.5) is "0.5", which is
+    // not a card — the deck face is "½", and that is what the server accepts.
+    const h = heroOf(
+      results({
+        histogram: [
+          { value: "0", count: 1 },
+          { value: "1", count: 1 },
+        ],
+        median: 0.5,
+        average: 0.5,
+      }),
+      modifiedFib,
+    );
+    expect(h).toMatchObject({ value: "½", save: "½", label: "median" });
   });
 
   it("never invents an average for an ordinal deck", () => {
