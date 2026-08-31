@@ -44,6 +44,19 @@ describe("Avatar", () => {
     expect(screen.getByRole("img", { name: "Dana Whitfield" }).textContent).toBe("DW");
   });
 
+  it("strips a bidi override from its accessible name", () => {
+    render(<Avatar name={"Eve\u202E"} hue={200} />);
+    expect(screen.getByRole("img", { name: "Eve" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Eve" }).getAttribute("aria-label")).not.toContain(
+      "\u202E",
+    );
+  });
+
+  it("keeps an Arabic name as its accessible label", () => {
+    render(<Avatar name="فاطمة" hue={200} />);
+    expect(screen.getByRole("img", { name: "فاطمة" })).toBeTruthy();
+  });
+
   it("marks the facilitator", () => {
     render(<Avatar name="Dana Whitfield" hue={200} facilitator />);
     expect(screen.getByRole("img", { name: "facilitator" })).toBeTruthy();

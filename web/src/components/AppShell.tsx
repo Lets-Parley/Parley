@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api, type Me, type Person, type SessionSummary } from "../lib/api";
+import { safeDisplayName } from "../lib/displayName";
 import { kindLabel } from "../lib/kinds";
 import type { ConnectionStatus } from "../lib/socket";
 import { useMediaQuery, useTheme } from "../lib/ui";
@@ -259,7 +260,9 @@ export function AppShell({
                         }
                       />
                     </span>
-                    <span className="truncate text-[13px] font-semibold text-ink-soft">{m.name}</span>
+                    <span className="truncate text-[13px] font-semibold text-ink-soft">
+                      {safeDisplayName(m.name)}
+                    </span>
                     <span className="sr-only">
                       {online.has(m.userId) ? "online" : "offline"}
                     </span>
@@ -366,8 +369,8 @@ export function AppShell({
             {stack.map((m, i) => (
               <button
                 key={m.userId}
-                title={m.name}
-                aria-label={m.name}
+                title={safeDisplayName(m.name)}
+                aria-label={safeDisplayName(m.name)}
                 onClick={() => setWho(m.userId)}
                 style={{ marginLeft: i ? -8 : 0 }}
                 className="rounded-full ring-2 ring-surface"
@@ -404,7 +407,7 @@ export function AppShell({
             onClick={() => setProfileOpen(true)}
             /* One name, said once: the chip announces it here, so the Avatar
                inside stays decorative and the visible span is not read again. */
-            aria-label={`${me.name} — your profile`}
+            aria-label={`${safeDisplayName(me.name)} — your profile`}
             className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-felt-deep py-1 pl-1 hover:bg-surface-hi sm:pr-3"
           >
             <Avatar
@@ -419,7 +422,7 @@ export function AppShell({
               aria-hidden
               className="hidden max-w-24 truncate text-[13px] font-bold sm:inline lg:max-w-48"
             >
-              {me.name}
+              {safeDisplayName(me.name)}
             </span>
           </button>
         )}
@@ -463,7 +466,7 @@ export function AppShell({
                   dim={!online.has(m.userId)}
                   decorative
                 />
-                <span className="truncate text-[13px] font-semibold">{m.name}</span>
+                <span className="truncate text-[13px] font-semibold">{safeDisplayName(m.name)}</span>
                 <span className="ml-auto shrink-0 font-mono text-[10px] text-ink-faint">
                   {online.has(m.userId) ? "online" : "offline"}
                 </span>
