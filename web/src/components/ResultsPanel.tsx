@@ -101,8 +101,8 @@ export function heroOf(
   };
 }
 
-export function ResultsPanel({ results }: { results: Results }) {
-  const hero = heroOf(results, []);
+export function ResultsPanel({ results, deck }: { results: Results; deck: string[] }) {
+  const hero = heroOf(results, deck);
   const max = Math.max(...results.histogram.map((r) => r.count), 1);
 
   return (

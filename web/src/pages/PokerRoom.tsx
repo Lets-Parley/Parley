@@ -362,7 +362,7 @@ export function PokerRoom({ env, me, guest = false }: { env: Envelope; me: Me; g
           </p>
         )}
 
-        {results && <ResultsPanel results={results} />}
+        {results && <ResultsPanel results={results} deck={st.deck.values} />}
 
         {current && !ended && (
           // Sticky so voting never needs a scroll: on a phone 15 seats take
