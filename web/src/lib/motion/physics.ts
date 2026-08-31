@@ -12,13 +12,25 @@
 export type Vec = { x: number; y: number };
 export type Size = { width: number; height: number };
 export type Frame = { offset: number; transform: string; opacity: number };
+/**
+ * Everything the simulation needs to know about the screen: the emoji's own
+ * box, the viewport it has to leave, and where the overlay sits inside it.
+ * Measured once in `measure.ts` — nothing here reads the DOM.
+ */
+export type Bounds = { box: Size; viewport: Size; offset: Vec };
 
 export const GRAVITY = 2600; // px/s²
 
 /** The fixed timestep the arcs are sampled at, matching a 60Hz frame. */
 const SAMPLE_S = 0.016;
-/** How long the emoji lingers at the point of impact before it is gone. */
+/** How long the emoji spends dissolving as it travels off, at the very end. */
 const FADE_MS = 180;
+/** How much of the normal component survives the bounce off the avatar. */
+const RESTITUTION = 0.45;
+/** How much of the scrape along the disc is lost to it. */
+const FRICTION = 0.2;
+/** A tumbling emoji is cut loose after this long even if it is somehow still on screen. */
+const FALL_CAP_MS = 900;
 
 export function projectileAt(p0: Vec, v: Vec, t: number): Vec {
   return { x: p0.x + v.x * t, y: p0.y + v.y * t + 0.5 * GRAVITY * t * t };
@@ -67,12 +79,40 @@ export function solveContact(p0: Vec, v: Vec, center: Vec, radius: number, tMax:
   return tMax;
 }
 
+/** Where the emoji is, and how it tumbles, the instant after it strikes the disc. */
+export function bounceOff({
+  hit,
+  v,
+  center,
+  spin,
+}: {
+  hit: Vec;
+  v: Vec;
+  center: Vec;
+  spin: number;
+}): { velocity: Vec; spin: number } {
+  // The contact normal points out of the disc, so a glancing blow and a
+  // head-on one part ways here rather than sharing one scripted recoil.
+  const span = Math.hypot(hit.x - center.x, hit.y - center.y) || 1;
+  const n = { x: (hit.x - center.x) / span, y: (hit.y - center.y) / span };
+  const vn = v.x * n.x + v.y * n.y;
+  const tang = { x: v.x - vn * n.x, y: v.y - vn * n.y };
+  return {
+    velocity: {
+      x: tang.x * (1 - FRICTION) - vn * n.x * RESTITUTION,
+      y: tang.y * (1 - FRICTION) - vn * n.y * RESTITUTION,
+    },
+    // Tangential scrape is what actually changes the tumble.
+    spin: spin * 0.6 + Math.hypot(tang.x, tang.y) * 0.35 * Math.sign(tang.x || 1),
+  };
+}
+
 /**
- * A whole throw: the flight, and a short fade at the point of contact.
+ * A whole throw: the flight, the bounce off the disc, and the fall away.
  *
- * The harness's bounce-and-fall is deliberately not here. Its contact normal,
- * tangential friction and spin transfer are half the complexity and buy a
- * detail nobody sees at 74px with a dozen emoji overlapping.
+ * Nothing is ever held still and dissolved — every frame from release to the
+ * last one comes out of the same closed form, and the fade only runs while the
+ * emoji is already travelling off the edge.
  */
 export function simulateThrow({
   p0,
@@ -80,20 +120,36 @@ export function simulateThrow({
   hitRadius,
   rise,
   spin,
+  bounds,
 }: {
   p0: Vec;
   center: Vec;
   hitRadius: number;
   rise: number;
   spin: number;
+  bounds: Bounds;
 }): { frames: Frame[]; durationMs: number; impactMs: number } {
   const { vx, vy, T } = solveThrow(p0, center, rise);
   const v0 = { x: vx, y: vy };
   const tHit = solveContact(p0, v0, center, hitRadius, T);
   const hit = projectileAt(p0, v0, tHit);
+  const vHit = { x: v0.x, y: v0.y + GRAVITY * tHit };
+  const { velocity: vBounce, spin: spinAfter } = bounceOff({ hit, v: vHit, center, spin });
+
+  // The fall ends when the emoji is actually gone, not on a guessed duration.
+  const gone = offScreenTest(bounds);
+  const left = (p: Vec) =>
+    gone({ x: p.x - bounds.box.width / 2, y: p.y - bounds.box.height / 2 });
+  let tFall = FALL_CAP_MS / 1000;
+  for (let t = SAMPLE_S; t <= FALL_CAP_MS / 1000; t += SAMPLE_S) {
+    if (left(projectileAt(hit, vBounce, t))) {
+      tFall = t;
+      break;
+    }
+  }
 
   const impactMs = tHit * 1000;
-  const durationMs = impactMs + FADE_MS;
+  const durationMs = impactMs + tFall * 1000;
   // Height above the launch-to-target chord, used only as a depth cue.
   const apexRise = Math.max(1, rise);
   const frames: Frame[] = [];
@@ -113,7 +169,13 @@ export function simulateThrow({
 
   for (let t = 0; t < tHit; t += SAMPLE_S) push(t, projectileAt(p0, v0, t), spin * t, 1);
   push(tHit, hit, spin * tHit, 1);
-  push(tHit + FADE_MS / 1000, hit, spin * tHit, 0);
+
+  const fadeFrom = Math.max(0, tFall - FADE_MS / 1000);
+  for (let t = SAMPLE_S; t < tFall; t += SAMPLE_S) {
+    const opacity = t <= fadeFrom ? 1 : Math.max(0, 1 - (t - fadeFrom) / (tFall - fadeFrom));
+    push(tHit + t, projectileAt(hit, vBounce, t), spin * tHit + spinAfter * t, opacity);
+  }
+  push(tHit + tFall, projectileAt(hit, vBounce, tFall), spin * tHit + spinAfter * tFall, 0);
   return { frames, durationMs, impactMs };
 }
 
@@ -123,15 +185,7 @@ export function simulateThrow({
  * its own width, and a beat gated on the rect fires while a corner is still
  * visible.
  */
-export function offScreenTest({
-  box,
-  viewport,
-  offset,
-}: {
-  box: Size;
-  viewport: Size;
-  offset: Vec;
-}): (p: Vec) => boolean {
+export function offScreenTest({ box, viewport, offset }: Bounds): (p: Vec) => boolean {
   const reach = Math.hypot(box.width, box.height) / 2;
   return (p) => {
     const cx = offset.x + p.x + box.width / 2;
