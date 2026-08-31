@@ -1,4 +1,4 @@
-import { simulateThrow, type Frame, type Vec } from "./physics";
+import { simulateThrow, type Bounds, type Frame, type Vec } from "./physics";
 
 /**
  * Playfully cross and classic heckling, never mocking — this fires
@@ -77,6 +77,8 @@ export type PileOnGeometry = {
   target: Disc;
   throwers: Disc[];
   emojiRadius: number;
+  /** Where the emoji has to get to before it counts as gone. */
+  bounds: Bounds;
 };
 
 export type PlannedThrow = {
@@ -105,13 +107,31 @@ function jitter(i: number, axis: number): number {
 }
 
 /** Every throw of one pile-on, solved but not yet handed to the DOM. */
+/**
+ * Where each throw is released, relative to the first.
+ *
+ * A fixed gap lands every impact on the same beat, which is what made the
+ * pile-on read as a machine gun rather than a room. The gaps are jittered
+ * around the budgeted stagger and then normalised back onto it, so the last
+ * emoji still leaves at exactly the same moment a uniform stagger would.
+ */
+function offsets(count: number, stagger: number): number[] {
+  const gaps = Array.from({ length: Math.max(0, count - 1) }, (_, i) => 0.6 + jitter(i, 5) * 0.8);
+  const total = gaps.reduce((a, b) => a + b, 0);
+  const scale = total > 0 ? (stagger * (count - 1)) / total : 0;
+  let at = 0;
+  return [0, ...gaps.map((g) => (at += g * scale))];
+}
+
 export function planPileOn({
   seatCount,
   target,
   throwers,
   emojiRadius,
+  bounds,
 }: PileOnGeometry): PileOnPlan {
   const { start, stagger } = pileOnBeats(seatCount, throwers.length);
+  const delays = offsets(throwers.length, stagger);
   const throws = throwers.map((from, i) => {
     const aim = { x: target.center.x - from.center.x, y: target.center.y - from.center.y };
     const aimLen = Math.hypot(aim.x, aim.y) || 1;
@@ -131,12 +151,13 @@ export function planPileOn({
       hitRadius: target.radius + emojiRadius,
       rise,
       spin,
+      bounds,
     });
     return {
       emoji: PILE_ON_EMOJI[Math.floor(jitter(i, 4) * PILE_ON_EMOJI.length)],
       originX: p0.x,
       originY: p0.y,
-      delayMs: start + i * stagger,
+      delayMs: start + delays[i],
       ...solved,
     };
   });
