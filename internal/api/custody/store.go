@@ -382,6 +382,27 @@ func (s *Store) RevokeOrgMember(ctx context.Context, scope Scope, userID string)
 			where sp.id = m.space_id and sp.org_id = $1 and m.user_id = $2`, scope.OrgID, userID); err != nil {
 			return fmt.Errorf("removing the member's spaces: %w", err)
 		}
+		// Same reason a space-level RemoveMember prunes these: the person can
+		// never cast again, and open-voting completion trusts round_voters
+		// without re-deriving membership on every vote. Leaving them in
+		// session_participants would also resurrect them on the next snapshot.
+		if _, err := tx.Exec(ctx, `
+			delete from round_voters rv
+			using stories st
+			join sessions s on s.id = st.session_id
+			join spaces sp on sp.id = s.space_id
+			where rv.story_id = st.id and rv.user_id = $1 and sp.org_id = $2`,
+			userID, scope.OrgID); err != nil {
+			return fmt.Errorf("dropping the member from open rounds: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			delete from session_participants sp
+			using sessions s
+			join spaces spc on spc.id = s.space_id
+			where sp.session_id = s.id and sp.user_id = $1 and spc.org_id = $2`,
+			userID, scope.OrgID); err != nil {
+			return fmt.Errorf("dropping the member from session rosters: %w", err)
+		}
 		// An upsert rather than an update: an admin may revoke somebody with
 		// no org_members row yet, where an update would affect zero rows and
 		// the next sign-in would insert a clean one.

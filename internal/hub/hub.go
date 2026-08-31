@@ -3,6 +3,7 @@ package hub
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,6 +24,10 @@ const (
 	presenceDebounce = 1500 * time.Millisecond
 	maxRevalidate    = 30 * time.Second
 	maxValidation    = 30 * time.Second
+	// maxJoinAttempts caps OnJoin calls per connection (attach plus pong
+	// retries). A persistent failure must not run a Join transaction on every
+	// heartbeat forever — that is the write #448 removed.
+	maxJoinAttempts = 3
 )
 
 const (
@@ -62,6 +67,18 @@ type Conn struct {
 	// (or about to reject), and a pong landing in that window must not write
 	// a presence row for a principal that is about to be torn down.
 	membershipConfirmed atomic.Bool
+	// joined flips true once OnJoin has succeeded for this connection. Attach
+	// is the normal write; a failed attach leaves this false so the pong path
+	// can retry until the durable participants row lands — without probing on
+	// every heartbeat after it has.
+	joined atomic.Bool
+	// joinAttempts counts OnJoin calls (attach plus pong retries). Once it
+	// reaches maxJoinAttempts the pong path stops, so a persistent failure
+	// cannot turn every heartbeat into a Join transaction.
+	joinAttempts atomic.Int32
+	// joinGaveUp flips true when retries stop — either the attempt bound was
+	// hit or eligibility was lost. Logging happens on the transition only.
+	joinGaveUp atomic.Bool
 	// broadcastReady flips true once this connection has been handed its
 	// initial frame. Until then it is registered — so teardown and presence
 	// bookkeeping see it — but broadcasts skip it: the shared guest payload
@@ -96,6 +113,13 @@ type Hub struct {
 
 	// OnPresenceChange fires (debounced) after connects/disconnects settle.
 	OnPresenceChange func(sessionID string)
+	// OnJoin records durable session belonging. It runs on attach after
+	// membership is confirmed, and again on pong only while that first write
+	// has not yet succeeded — bounded, and only while the holder is still
+	// eligible — so a transient failure cannot leave a connected user
+	// invisible to open-voting snapshots, and a removed user cannot be
+	// resurrected by a retry.
+	OnJoin func(sessionID, userID string) error
 	// OnFacilitatorSeen fires on connect and each pong so liveness reaches the DB.
 	OnFacilitatorSeen func(sessionID, userID string)
 	// ValidateSession checks session validity through the shared store.
@@ -529,6 +553,14 @@ func (h *Hub) AttachAuthenticated(ws *websocket.Conn, sessionID, userID string, 
 		return
 	}
 	c.membershipConfirmed.Store(true)
+	if h.OnJoin != nil {
+		c.joinAttempts.Add(1)
+		if err := h.OnJoin(sessionID, userID); err == nil {
+			c.joined.Store(true)
+		}
+	} else {
+		c.joined.Store(true)
+	}
 	if h.OnFacilitatorSeen != nil {
 		h.OnFacilitatorSeen(sessionID, userID)
 	}
@@ -615,6 +647,45 @@ func (h *Hub) confirmMembership(c *Conn) bool {
 		return false
 	}
 	return true
+}
+
+// retryJoin is the pong-path counterpart to the attach-time OnJoin write. It
+// re-checks eligibility before inserting — a removed member must never be
+// resurrected into session_participants by a still-open remote socket — and
+// stops after maxJoinAttempts so a persistent failure cannot write on every
+// heartbeat.
+func (h *Hub) retryJoin(c *Conn) {
+	if c.joined.Load() || c.joinGaveUp.Load() || h.OnJoin == nil {
+		return
+	}
+	if h.ValidateMembership != nil && c.SpaceID != "" {
+		ctx, cancel := context.WithTimeout(c.ctx, h.validationTimeout())
+		member, err := h.ValidateMembership(ctx, c.SessionID, c.SpaceID, c.UserID)
+		cancel()
+		if err != nil || !member {
+			if c.joinGaveUp.CompareAndSwap(false, true) {
+				slog.Error("abandoning session join retry: no longer eligible",
+					"session", c.SessionID, "user", c.UserID, "error", err)
+			}
+			return
+		}
+	}
+	for {
+		n := c.joinAttempts.Load()
+		if n >= maxJoinAttempts {
+			if c.joinGaveUp.CompareAndSwap(false, true) {
+				slog.Error("abandoning session join retry: attempts exhausted",
+					"session", c.SessionID, "user", c.UserID, "attempts", maxJoinAttempts)
+			}
+			return
+		}
+		if c.joinAttempts.CompareAndSwap(n, n+1) {
+			break
+		}
+	}
+	if err := h.OnJoin(c.SessionID, c.UserID); err == nil {
+		c.joined.Store(true)
+	}
 }
 
 func (h *Hub) validationTimeout() time.Duration {
@@ -721,7 +792,13 @@ func (h *Hub) reader(c *Conn) {
 	c.ws.SetReadDeadline(time.Now().Add(pongDeadline))
 	c.ws.SetPongHandler(func(string) error {
 		c.ws.SetReadDeadline(time.Now().Add(pongDeadline))
-		if c.authState.Load() == authAccepted && c.membershipConfirmed.Load() && h.OnFacilitatorSeen != nil {
+		if c.authState.Load() != authAccepted || !c.membershipConfirmed.Load() {
+			return nil
+		}
+		if !c.joined.Load() && !c.joinGaveUp.Load() && h.OnJoin != nil {
+			h.track(func() { h.retryJoin(c) })
+		}
+		if h.OnFacilitatorSeen != nil {
 			h.track(func() { h.OnFacilitatorSeen(c.SessionID, c.UserID) })
 		}
 		return nil
