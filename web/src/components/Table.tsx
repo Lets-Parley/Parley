@@ -1,8 +1,17 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { Person } from "../lib/api";
 import { cueLabel, cueVar, type CueState } from "../lib/cue";
 import { safeDisplayName } from "../lib/displayName";
 import { voteTally } from "../lib/derive";
+import {
+  EMOJI_RADIUS,
+  measurePileOn,
+  pileOnOutlier,
+  planPileOn,
+  playPileOn,
+  revealSettledAt,
+  staggerFor,
+} from "../lib/motion";
 import { Avatar } from "./Avatar";
 
 const ROTATIONS = [-2, 3, -1, 2, -3, 1, 2];
@@ -110,11 +119,10 @@ function scatter(pair: number, k: number, axis: number): number {
  * the first pair jumped while the last cards were still turning over.
  */
 export function celebrationBeats(seatCount: number, groupCount: number) {
-  const start = 620 + Math.max(0, seatCount - 1) * 40 + 450 + 60;
-  // Budgeted, not per-pair: a fixed stagger makes a full table run for four
-  // seconds and the last pair fires long after the eye has moved on.
-  const stagger = groupCount <= 1 ? 0 : Math.min(110, 420 / (groupCount - 1));
-  return { start, stagger };
+  // Both budgets live in lib/motion so the high-five and the pile-on cannot
+  // drift apart — two copies would disagree, and then one animation starts
+  // underneath the other.
+  return { start: revealSettledAt(seatCount), stagger: staggerFor(groupCount) };
 }
 
 type Celebration = { animation?: string; burst: boolean; beat: number; pair: number };
@@ -240,11 +248,35 @@ export function Table({
   // whole celebration — the particle nodes included — is skipped outright.
   const ranksRef = useRef<HTMLDivElement>(null);
   const [rows, setRows] = useState<number[]>([]);
-  const celebrate =
-    consensus &&
-    revealed &&
-    rows.length === seated.length &&
-    !(typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const reduced =
+    typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const celebrate = consensus && revealed && rows.length === seated.length && !reduced;
+
+  // Near-unanimity is the moment a room most wants a reaction and the one the
+  // table used to answer with silence. Consensus and near-consensus are
+  // mutually exclusive, so this is its own trigger rather than a reuse.
+  const pileOnRef = useRef<HTMLDivElement>(null);
+  const outlier = revealed
+    ? pileOnOutlier(
+        seated.flatMap((p) => {
+          const value = votes.get(p.userId);
+          return value === undefined ? [] : [{ userId: p.userId, value }];
+        }),
+      )
+    : null;
+
+  useEffect(() => {
+    const layer = pileOnRef.current;
+    if (!layer || !outlier || reduced) return;
+    const target = layer.parentElement?.querySelector(`[data-seat-user="${outlier}"] [data-avatar]`);
+    if (!target) return;
+    const throwers = Array.from(
+      layer.parentElement?.querySelectorAll("[data-seat-user] [data-avatar]") ?? [],
+    ).filter((el) => el !== target);
+    const geometry = measurePileOn({ layer, throwers, target, emojiRadius: EMOJI_RADIUS });
+    if (!geometry) return;
+    return playPileOn(layer, planPileOn(geometry));
+  }, [outlier, reduced, seated.length]);
 
   useLayoutEffect(() => {
     const el = ranksRef.current;
@@ -271,7 +303,7 @@ export function Table({
       <div
         data-testid="table-field"
         data-cue={cueState ?? "off"}
-        className="rounded-panel px-2 py-4"
+        className="relative rounded-panel px-2 py-4"
         style={{
           background: field,
           // Killed outright by tokens.css's prefers-reduced-motion rule. There
@@ -323,7 +355,7 @@ export function Table({
                 data-seat-user={p.userId}
                 className="relative flex w-[74px] shrink-0 flex-col items-center gap-2.5"
               >
-                <span className="block" style={{ animation: five.animation }}>
+                <span className="block" data-avatar style={{ animation: five.animation }}>
                   <Avatar
                     name={p.name}
                     hue={p.avatarHue}
@@ -394,6 +426,17 @@ export function Table({
             ))}
           </div>
         )}
+
+        {/* The thrown emoji live here rather than inside a seat: a seat is
+            `overflow: visible` but it also wraps, and an arc anchored in one
+            would be re-laid-out mid-flight. aria-hidden — the reveal and its
+            statistics already say everything this decorates. */}
+        <div
+          ref={pileOnRef}
+          aria-hidden
+          data-testid="pileon-layer"
+          className="pointer-events-none absolute inset-0 z-[4] overflow-visible"
+        />
       </div>
 
       {/* One live region for the whole table: the count and the cue read as a

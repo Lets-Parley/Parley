@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import { Table, faceOf, celebrationBeats, planCelebration } from "./Table";
+import { PILE_ON_EMOJI } from "../lib/motion";
 import { makePerson } from "../test/render";
 
 describe("faceOf", () => {
@@ -474,5 +475,75 @@ describe("the consensus high-five", () => {
     } finally {
       window.matchMedia = real;
     }
+  });
+});
+
+describe("the emoji pile-on", () => {
+  const room = ["ana", "ben", "cy", "dee", "eli"].map((id) =>
+    makePerson({ userId: id, name: `${id[0].toUpperCase()}${id.slice(1)} Vance` }),
+  );
+  const online = new Set(room.map((p) => p.userId));
+
+  function reveal(values: string[]) {
+    return render(
+      <Table
+        seated={room}
+        spectators={[]}
+        online={online}
+        votedUserIds={room.map((p) => p.userId)}
+        votes={new Map(room.map((p, i) => [p.userId, values[i]]))}
+        revealed
+        consensus={new Set(values).size === 1}
+        facilitatorId="ana"
+        meId="ana"
+      />,
+    );
+  }
+
+  const flying = () =>
+    Array.from(screen.getByTestId("pileon-layer").children, (c) => c.textContent);
+
+  it("throws one emoji from every other seat at the lone dissenter", () => {
+    reveal(["5", "5", "5", "5", "8"]);
+    const thrown = flying();
+    expect(thrown).toHaveLength(room.length - 1);
+    for (const emoji of thrown) expect(PILE_ON_EMOJI).toContain(emoji);
+  });
+
+  it("stays out of the way of the consensus high-five", () => {
+    reveal(["5", "5", "5", "5", "5"]);
+    expect(flying()).toHaveLength(0);
+    expect(screen.getAllByTestId("highfive-burst").length).toBeGreaterThan(0);
+  });
+
+  it("does not fire on a genuine split", () => {
+    reveal(["5", "5", "5", "8", "13"]);
+    expect(flying()).toHaveLength(0);
+  });
+
+  it("creates no overlay children under reduced motion, and schedules no frames", () => {
+    const raf = vi.spyOn(globalThis, "requestAnimationFrame");
+    vi.spyOn(window, "matchMedia").mockReturnValue({
+      matches: true,
+      media: "(prefers-reduced-motion: reduce)",
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    } as unknown as MediaQueryList);
+    reveal(["5", "5", "5", "5", "8"]);
+    expect(flying()).toHaveLength(0);
+    expect(raf).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it("cancels its cleanup timer and empties the overlay when the table unmounts", () => {
+    const clear = vi.spyOn(window, "clearTimeout");
+    const { unmount, container } = reveal(["5", "5", "5", "5", "8"]);
+    const layer = screen.getByTestId("pileon-layer");
+    expect(layer.children.length).toBeGreaterThan(0);
+    unmount();
+    expect(clear).toHaveBeenCalled();
+    expect(layer.children).toHaveLength(0);
+    expect(container.querySelector('[data-testid="pileon-layer"]')).toBeNull();
+    vi.restoreAllMocks();
   });
 });
