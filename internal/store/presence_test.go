@@ -172,3 +172,63 @@ func TestJoinKeepsFacilitatorWhenOverCap(t *testing.T) {
 		t.Fatal("Join over the cap dropped the facilitator")
 	}
 }
+
+// A facilitator removal clears presence in the same transaction that prunes
+// the open round and re-checks completion, because that transaction can commit
+// a reveal. If the presence clear did not share the transaction's fate, a
+// failure after the prune would leave the round altered — possibly revealed —
+// for somebody still fully connected, and no retry could undo it.
+func TestGoneTxSharesTheCallersTransaction(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	sp, u := newSpaceWithCreator(t, pool)
+	sess, err := (&Sessions{Pool: pool}).Create(ctx, sp.ID, "poker", "Sprint", []byte(`{"deck":"fibonacci"}`), u.ID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &Presence{Pool: pool, ReplicaID: "r1", Window: time.Minute}
+	present := func() int {
+		t.Helper()
+		var n int
+		if err := pool.QueryRow(ctx,
+			"select count(*) from session_presence where session_id = $1 and user_id = $2",
+			sess.ID, u.ID).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	if err := p.Seen(ctx, sess.ID, u.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// A transaction that fails after the clear leaves the person present.
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.GoneTx(ctx, tx, sess.ID, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := present(); n != 1 {
+		t.Fatalf("a rolled-back transaction left %d presence rows, want 1 — the clear did not share its fate", n)
+	}
+
+	// One that commits clears them.
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.GoneTx(ctx, tx, sess.ID, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := present(); n != 0 {
+		t.Fatalf("a committed GoneTx left %d presence rows, want 0", n)
+	}
+}

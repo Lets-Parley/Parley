@@ -265,11 +265,13 @@ func (a *app) handleRemoveParticipant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// One truncation, one value, three consumers: the close frame, the local
-	// hub call and the cross-replica notify payload all carry the identical
-	// string. pg_notify refuses a payload over 8000 bytes, and that failure is
-	// best-effort — an untruncated message would leave every other replica
-	// never hearing about the removal at all.
+	// Truncated here so the same bounded value reaches all three consumers:
+	// the close frame, the local hub call and the cross-replica notify
+	// payload. pg_notify refuses a payload over 8000 bytes, and that failure
+	// is best-effort — an untruncated message would leave every other replica
+	// never hearing about the removal at all. The hub truncates again for its
+	// own close frame; that defence is independent of this one and neither
+	// relies on the other.
 	body.Message = hub.TruncateCloseReason(body.Message)
 
 	// An open round that is still waiting for the person being ejected could
@@ -278,7 +280,11 @@ func (a *app) handleRemoveParticipant(w http.ResponseWriter, r *http.Request) {
 	// transaction, exactly as the spectator toggle does. The vote they had
 	// already cast stays, and still counts.
 	//
-	// Before the presence clear, so a failure here leaves nothing half-done.
+	// The presence clear rides the same transaction. WithActiveSession commits
+	// internally, so doing it afterwards would leave a window where the round
+	// is durably pruned — and possibly already auto-revealed — for somebody
+	// who is in fact still connected. A retry re-runs the prune harmlessly but
+	// cannot undo a reveal that has already fired.
 	connected, err := a.presence.InSession(r.Context(), sess.ID)
 	if err != nil {
 		slog.Error("could not read presence for a participant removal", "session", sess.ID, "error", err)
@@ -287,6 +293,9 @@ func (a *app) handleRemoveParticipant(w http.ResponseWriter, r *http.Request) {
 	connected = slices.DeleteFunc(connected, func(id string) bool { return id == target })
 	err = a.sessions.WithActiveSession(r.Context(), sess.ID, p.UserID, false,
 		func(tx pgx.Tx, locked store.Session) error {
+			if err := a.presence.GoneTx(r.Context(), tx, locked.ID, target); err != nil {
+				return fmt.Errorf("clearing presence for the removed participant: %w", err)
+			}
 			if _, err := tx.Exec(r.Context(), `
 				delete from round_voters rv
 				using stories st
@@ -304,20 +313,19 @@ func (a *app) handleRemoveParticipant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		slog.Error("could not drop a removed participant from the open round",
+		slog.Error("could not remove a participant from the room",
 			"session", sess.ID, "user", target, "error", err)
 		http.Error(w, `{"error":"could not remove that person"}`, http.StatusInternalServerError)
 		return
 	}
 
-	if err := a.presence.Gone(r.Context(), sess.ID, target); err != nil {
-		slog.Error("could not clear presence for a removed participant",
-			"session", sess.ID, "user", target, "error", err)
-		http.Error(w, `{"error":"could not remove that person"}`, http.StatusInternalServerError)
-		return
-	}
 	a.hub.DisconnectSessionMember(sess.ID, target, body.Message)
 	a.notifyParticipantRemoved(r.Context(), sess.ID, target, body.Message)
+	// Belt and braces: dropping the connection above already fires
+	// OnPresenceChange, which broadcasts the new envelope on its own, so this
+	// is not the only path to it. It stays for the case where the person held
+	// no socket on this replica and nothing else here would announce the
+	// roster change.
 	a.broadcastState(r.Context(), sess.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
