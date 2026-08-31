@@ -10,6 +10,7 @@ const results = (over: Partial<Results> = {}): Results => ({
 });
 
 const fib = ["1", "2", "3", "5", "8", "13", "21", "34", "?", "coffee"];
+const modifiedFib = ["0", "½", "1", "2", "3", "5", "8", "13", "20", "40", "100", "?", "coffee"];
 
 describe("heroOf", () => {
   it("leads with the agreed number on consensus", () => {
@@ -65,6 +66,23 @@ describe("heroOf", () => {
     );
     expect(h).toMatchObject({ value: "4", label: "median" });
     expect(h.save).toBeUndefined();
+  });
+
+  it("resolves a half-point median to the ½ card on modified-fibonacci", () => {
+    // Votes of 0 and 1 put the median at 0.5. String(0.5) is "0.5", which is
+    // not a card — the deck face is "½", and that is what the server accepts.
+    const h = heroOf(
+      results({
+        histogram: [
+          { value: "0", count: 1 },
+          { value: "1", count: 1 },
+        ],
+        median: 0.5,
+        average: 0.5,
+      }),
+      modifiedFib,
+    );
+    expect(h).toMatchObject({ value: "½", save: "½", label: "median" });
   });
 
   it("never invents an average for an ordinal deck", () => {
@@ -141,7 +159,7 @@ describe("heroOf", () => {
 
 describe("ResultsPanel", () => {
   it("celebrates a consensus round", () => {
-    render(<ResultsPanel results={results({ consensus: true, histogram: [{ value: "8", count: 3 }] })} />);
+    render(<ResultsPanel results={results({ consensus: true, histogram: [{ value: "8", count: 3 }] })} deck={fib} />);
     expect(screen.getByText("Consensus — nice.")).toBeTruthy();
     expect(screen.getByText("consensus")).toBeTruthy();
   });
@@ -156,6 +174,7 @@ describe("ResultsPanel", () => {
           ],
           median: 5.5,
         })}
+        deck={fib}
       />,
     );
     expect(screen.queryByText("Consensus — nice.")).toBeNull();
@@ -171,6 +190,7 @@ describe("ResultsPanel", () => {
           ],
           median: 3,
         })}
+        deck={fib}
       />,
     );
     expect(screen.getByText("3 ×1")).toBeTruthy();
@@ -187,9 +207,31 @@ describe("ResultsPanel", () => {
           ],
           median: 8,
         })}
+        deck={fib}
       />,
     );
     expect(screen.getByText("8 ×2 · most picked")).toBeTruthy();
     expect(screen.queryByText("3 ×1 · most picked")).toBeNull();
+  });
+
+  it("shows ½ for a half-point median when given the modified-fibonacci deck", () => {
+    // Without the deck, heroOf would String(0.5) and the panel would print "0.5"
+    // while Save (which already passes the deck) offered "½".
+    render(
+      <ResultsPanel
+        results={results({
+          histogram: [
+            { value: "0", count: 1 },
+            { value: "1", count: 1 },
+          ],
+          median: 0.5,
+          average: 0.5,
+        })}
+        deck={modifiedFib}
+      />,
+    );
+    expect(screen.getByText("½")).toBeTruthy();
+    expect(screen.queryByText("0.5")).toBeNull();
+    expect(screen.getByText("median")).toBeTruthy();
   });
 });

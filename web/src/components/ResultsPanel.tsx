@@ -7,6 +7,23 @@ function round(n: number): string {
 
 const specials = new Set(["?", "coffee"]);
 
+/** Numeric value of a card face, matching the server's cardValue. */
+function cardNumeric(v: string): number | undefined {
+  if (v === "\u00bd") return 0.5;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return undefined;
+  return n;
+}
+
+/** Deck face whose numeric equals the median, if any. */
+function faceForMedian(median: number, deck: string[]): string | undefined {
+  for (const face of deck) {
+    const n = cardNumeric(face);
+    if (n !== undefined && n === median) return face;
+  }
+  return undefined;
+}
+
 /**
  * The one number the room agreed on, and the shape of how it got there.
  *
@@ -61,10 +78,10 @@ export function heroOf(
       results.mode ? `mode ${faceOf(results.mode)}` : null,
       votes,
     ].filter(Boolean);
-    const median = String(results.median);
+    const face = faceForMedian(results.median, deck);
     return {
-      value: median,
-      save: deck.includes(median) ? median : undefined,
+      value: face ? faceOf(face) : String(results.median),
+      save: face,
       label: "median",
       sub: parts.join(" · "),
     };
@@ -84,8 +101,8 @@ export function heroOf(
   };
 }
 
-export function ResultsPanel({ results }: { results: Results }) {
-  const hero = heroOf(results, []);
+export function ResultsPanel({ results, deck }: { results: Results; deck: string[] }) {
+  const hero = heroOf(results, deck);
   const max = Math.max(...results.histogram.map((r) => r.count), 1);
 
   return (

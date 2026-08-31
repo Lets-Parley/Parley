@@ -55,6 +55,7 @@ const cases: [string, () => React.ReactElement][] = [
           range: "3–5",
           consensus: false,
         }}
+        deck={["1", "2", "3", "5", "8"]}
       />
     ),
   ],
