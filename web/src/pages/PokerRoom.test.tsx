@@ -598,6 +598,18 @@ describe("PokerRoom open voting", () => {
     expect(JSON.parse(String(init.body))).toEqual({ openVoting: true });
   });
 
+  it("PATCHes openVoting false when the facilitator turns it back off", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+    const env = envelope({ facilitatorConnected: true });
+    env.state.openVoting = true;
+    renderApp(<PokerRoom env={env} me={dana} />);
+    await userEvent.click(screen.getByRole("button", { name: "Open voting on" }));
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toEqual({ openVoting: false });
+  });
+
   it("offers Open voting on when the flag is already set", () => {
     const env = envelope({ facilitatorConnected: true });
     env.state.openVoting = true;
