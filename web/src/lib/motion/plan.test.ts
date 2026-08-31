@@ -245,6 +245,17 @@ describe("planKick", () => {
     expect(plan.boot.frames[plan.boot.frames.length - 1].opacity).toBe(0);
   });
 
+  // The other null: every rect is measurable, so the guards above pass, but
+  // the arc the geometry implies never reaches the disc inside the swing's
+  // window. A caller that cannot swing must draw nothing.
+  it("is null for a valid seat the swing cannot reach", () => {
+    const g = geometry();
+    // A huge avatar puts the boot's rest spot proportionally further out, and
+    // the pendulum it hangs off is too long to cross in time.
+    const plan = planKick({ ...g, avatar: { center: { x: 400, y: 120 }, radius: 400 } });
+    expect(plan).toBeNull();
+  });
+
   it("is null for geometry there is nothing to swing at", () => {
     // What an unmeasurable seat actually looks like: every rect zero, which is
     // also every rect a test environment with no layout returns.

@@ -909,6 +909,128 @@ describe("the kick", () => {
     expect(seatOf("priya")).not.toBeNull();
   });
 
+  // Issue #462's last criterion: a removal arriving mid pile-on or mid drop-in
+  // strands neither. Asserting the two overlay NODES differ never renders a
+  // pile-on at all, so it cannot see stranding — these run one and watch it
+  // survive a kick landing on somebody else's seat.
+  // jsdom implements no WAAPI at all, so the adapter's feature detection makes
+  // both animations no-op there. A stand-in gives the test something to watch:
+  // whose animation was started, and whether anything cancelled it.
+  function recordAnimations() {
+    const seen: { el: Element; cancelled: boolean }[] = [];
+    const proto = Element.prototype as unknown as { animate?: unknown };
+    const had = "animate" in proto;
+    const previous = proto.animate;
+    proto.animate = function (this: Element) {
+      const rec = { el: this, cancelled: false };
+      seen.push(rec);
+      return {
+        cancel: () => {
+          rec.cancelled = true;
+        },
+        finish: () => {},
+      } as unknown as Animation;
+    };
+    const restore = () => {
+      if (had) proto.animate = previous;
+      else delete proto.animate;
+    };
+    return { seen, restore };
+  }
+
+  it("strands no pile-on that is already in flight", () => {
+    vi.useFakeTimers();
+    const rects = withLayout();
+    const { seen, restore } = recordAnimations();
+    try {
+      // Priya is the lone dissenter, so the room throws at her seat. Four
+      // voters, which is the fewest a pile-on fires for.
+      const quartet = [...seatedTrio, makePerson({ userId: "quinn", name: "Quinn Alder" })];
+      const ui = (kicked: { userId: string; seq: number } | null) => (
+        <Table
+          seated={quartet}
+          spectators={[]}
+          online={new Set(["dana", "marcus", "priya", "quinn"])}
+          votedUserIds={["dana", "marcus", "priya", "quinn"]}
+          votes={new Map([["dana", "5"], ["marcus", "5"], ["quinn", "5"], ["priya", "13"]])}
+          revealed
+          consensus={false}
+          facilitatorId="dana"
+          meId="dana"
+          kicked={kicked}
+        />
+      );
+      const r = render(ui(null));
+      const pileon = screen.getByTestId("pileon-layer");
+      const before = pileon.children.length;
+      expect(before).toBeGreaterThan(0);
+      const inFlight = seen.filter((a) => pileon.contains(a.el));
+      expect(inFlight.length).toBe(before);
+
+      // ...let the throw partially run, then remove somebody else mid-flight.
+      act(() => vi.advanceTimersByTime(120));
+      r.rerender(ui({ userId: "marcus", seq: 1 }));
+
+      // The boot is in the air and the seat is still leaving, and the pile-on
+      // holds exactly what it held: nothing of the kick's was added to it, and
+      // nothing of its own was taken away or cancelled.
+      act(() => vi.advanceTimersByTime(400));
+      expect(pileon.children.length).toBe(before);
+      expect(inFlight.filter((a) => a.cancelled)).toHaveLength(0);
+      expect(inFlight.every((a) => pileon.contains(a.el))).toBe(true);
+    } finally {
+      restore();
+      rects.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("strands no drop-in that is still falling", () => {
+    vi.useFakeTimers();
+    const rects = withLayout();
+    const { seen, restore } = recordAnimations();
+    try {
+      const ui = (presence: string[], kicked: { userId: string; seq: number } | null) => (
+        <Table
+          seated={seatedTrio}
+          spectators={[]}
+          online={new Set(presence)}
+          status="live"
+          votedUserIds={[]}
+          votes={new Map()}
+          revealed={false}
+          consensus={false}
+          facilitatorId="dana"
+          meId="dana"
+          kicked={kicked}
+        />
+      );
+      const r = render(ui(["dana", "marcus"], null));
+      // Priya walks in and is still falling...
+      r.rerender(ui(["dana", "marcus", "priya"], null));
+      const falling = () => document.querySelector<HTMLElement>('[data-seat-user="priya"]')!;
+      const drop = falling().style.animation;
+      const distance = falling().style.getPropertyValue("--drop-d");
+      expect(drop).toContain("seat-drop");
+      expect(distance).not.toBe("");
+
+      // ...when Marcus is removed out from under her.
+      act(() => vi.advanceTimersByTime(60));
+      r.rerender(ui(["dana", "marcus", "priya"], { userId: "marcus", seq: 1 }));
+      act(() => vi.advanceTimersByTime(400));
+
+      // Her fall is untouched: the same animation, from the same distance, not
+      // restarted and not cancelled.
+      expect(falling().style.animation).toBe(drop);
+      expect(falling().style.getPropertyValue("--drop-d")).toBe(distance);
+      expect(seen.filter((a) => a.el === falling() && a.cancelled)).toHaveLength(0);
+    } finally {
+      restore();
+      rects.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps the pile-on's overlay to itself", () => {
     // Two layers, not one: a kick landing mid-pile-on tears down its own
     // overlay when it is done, and must not empty the other's.
