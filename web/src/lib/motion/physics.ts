@@ -240,6 +240,10 @@ export const KICK_TRANSFER = 0.95;
 export const BOOT_WINDUP_MS = 200;
 /** And keeps swinging this long after, minus what it gave away. */
 export const BOOT_FOLLOW_MS = 220;
+/** Then it is pulled back out, at most this long: it leaves as it arrived. */
+export const BOOT_RETRACT_MS = 200;
+/** How far past its rest angle the withdrawal may carry, in radians. */
+const BOOT_RETRACT_ARC = Math.PI / 3;
 /** A boot that has not reached the avatar by now never will. */
 const SWING_CAP_S = 1.2;
 /** A launched seat is cut loose after this long even if it is still on screen. */
@@ -290,6 +294,7 @@ export function swingBoot({
   pose = (deg: number) => `rotate(${(-deg).toFixed(1)}deg) scaleX(-1)`,
   windupMs = BOOT_WINDUP_MS,
   followMs = BOOT_FOLLOW_MS,
+  retractMs = BOOT_RETRACT_MS,
   transfer = KICK_TRANSFER,
 }: {
   pivot: Vec;
@@ -301,6 +306,7 @@ export function swingBoot({
   pose?: (deg: number) => string;
   windupMs?: number;
   followMs?: number;
+  retractMs?: number;
   transfer?: number;
 }): BootSwing | null {
   const dt = SAMPLE_S;
@@ -365,12 +371,31 @@ export function swingBoot({
     follow.push({ t, a: fa });
   }
 
+  // Withdrawal: the leg is pulled back out the way it came, at the speed it
+  // came in with, still on the same arc and still under gravity. This is the
+  // boot's ending — it is off the arc and gone under its own motion, and
+  // nothing waits on the seat. Cut short once it is a clear arc past its rest
+  // spot, so the withdrawal never carries it over the top of the circle.
+  const lead = windupMs / 1000;
+  const retract: { t: number; a: number }[] = [];
+  const last = follow.length > 0 ? follow[follow.length - 1] : { t: contact.t, a: contact.a };
+  let ra = last.a;
+  let rw = angularSpeed;
+  const retractStart = last.t;
+  for (let t = retractStart + dt; t <= retractStart + retractMs / 1000; t += dt) {
+    rw += -(GRAVITY / radius) * Math.sin(ra) * dt;
+    ra += rw * dt;
+    retract.push({ t, a: ra });
+    if (ra >= startAngle + BOOT_RETRACT_ARC) break;
+  }
+  const retractFrom = retractStart + lead;
+  const retractSpan = retract.length > 0 ? retract[retract.length - 1].t + lead - retractFrom : 0;
+
   // A wind-up hold in front, so the boot is seen where it stands before the
   // swing — which at this speed is only a handful of frames.
-  const lead = windupMs / 1000;
   const timeline = [
     { t: 0, a: startAngle },
-    ...[...samples, ...follow].map((s) => ({ t: s.t + lead, a: s.a })),
+    ...[...samples, ...follow, ...retract].map((s) => ({ t: s.t + lead, a: s.a })),
   ];
   const totalMs = timeline[timeline.length - 1].t * 1000;
   const origin = posAt(startAngle);
@@ -380,13 +405,14 @@ export function swingBoot({
     return `translate(${(p.x - origin.x).toFixed(2)}px, ${(p.y - origin.y).toFixed(2)}px) ${pose((ang * 180) / Math.PI)}`;
   };
   const frames: Frame[] = timeline.map(({ t, a: ang }) => {
-    const after = t > contactT ? (t - contactT) / (followMs / 1000) : 0;
+    // The opacity only ever runs over a glyph that is already travelling out:
+    // it starts when the withdrawal does and finishes with it, so the boot is
+    // never held still on the contact point and dissolved.
+    const away = retractSpan > 0 && t > retractFrom ? (t - retractFrom) / retractSpan : 0;
     return {
       offset: Math.min(1, Math.max(0, (t * 1000) / totalMs)),
       transform: frameAt(ang),
-      // The boot leaves as it came, on its own arc — the opacity only runs
-      // while it is already swinging away.
-      opacity: Math.max(0, 1 - after),
+      opacity: Math.max(0, 1 - away),
     };
   });
 

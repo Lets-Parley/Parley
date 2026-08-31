@@ -800,6 +800,28 @@ describe("the kick", () => {
     }
   });
 
+  // Observed in a browser: the glyph held its last frame for the best part of
+  // a second, because the overlay was only emptied once the SEAT had left.
+  it("takes the boot out on its own schedule, while the seat is still flying", () => {
+    vi.useFakeTimers();
+    const rects = withLayout();
+    try {
+      const { boot } = kickable();
+      boot();
+      expect(layer().textContent).toContain("🥾");
+
+      // Past the boot's own ending, but before the seat is gone.
+      act(() => vi.advanceTimersByTime(720));
+      expect(layer().textContent).not.toContain("🥾");
+      // The seat's flight and the row's reflow are untouched by that.
+      expect(layer().querySelector("[aria-hidden='true'] .truncate")).not.toBeNull();
+      expect(seatOf("priya")).not.toBeNull();
+    } finally {
+      rects.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("leaves no stray glyph when there is no geometry to swing through", () => {
     // jsdom's own rects: every one of them zero, so the swing has no arc.
     vi.useFakeTimers();

@@ -119,6 +119,10 @@ export function playKick(
     }, Math.round(plan.impactMs)),
   );
 
+  // The boot goes when the boot is done. Left in the overlay it would hold its
+  // last frame, visible, until the seat's flight released the layer.
+  timers.push(window.setTimeout(() => boot.remove(), Math.round(plan.bootEndMs)));
+
   timers.push(window.setTimeout(onExit, Math.round(plan.exitMs)));
   timers.push(window.setTimeout(() => layer.replaceChildren(), Math.round(plan.endMs)));
 

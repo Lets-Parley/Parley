@@ -219,6 +219,32 @@ describe("planKick", () => {
     expect(plan.endMs).toBeGreaterThanOrEqual(plan.exitMs + KICK_REFLOW_MS);
   });
 
+  // Observed in a browser: the boot's own animation ended, and because the
+  // overlay was not emptied until the SEAT had cleared the viewport the glyph
+  // held its last frame, still visible, for the best part of a second.
+  it("takes the boot away under its own motion, on its own schedule", () => {
+    const plan = planKick(geometry())!;
+    // Its lifetime is its own: it is gone long before the seat has left, and
+    // is never stretched to the seat's exit.
+    expect(plan.bootEndMs).toBeLessThan(plan.exitMs);
+    expect(plan.bootEndMs).toBeGreaterThanOrEqual(plan.boot.durationMs);
+
+    // And what it does last is travel. Every one of the closing frames moves
+    // the glyph a real distance, so nothing is ever held still and dissolved.
+    const at = (f: { transform: string }) => {
+      const m = /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/.exec(f.transform)!;
+      return { x: Number(m[1]), y: Number(m[2]) };
+    };
+    const tail = plan.boot.frames.slice(-6);
+    for (let i = 1; i < tail.length; i++) {
+      const a = at(tail[i - 1]);
+      const b = at(tail[i]);
+      expect(Math.hypot(b.x - a.x, b.y - a.y)).toBeGreaterThan(6);
+    }
+    // The fade rides on that travel and finishes with it.
+    expect(plan.boot.frames[plan.boot.frames.length - 1].opacity).toBe(0);
+  });
+
   it("is null for geometry there is nothing to swing at", () => {
     // What an unmeasurable seat actually looks like: every rect zero, which is
     // also every rect a test environment with no layout returns.

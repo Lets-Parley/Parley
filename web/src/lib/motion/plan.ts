@@ -285,6 +285,11 @@ export type KickPlan = {
   impactMs: number;
   /** The seat is fully gone. The row closes here and not a frame earlier. */
   exitMs: number;
+  /**
+   * The boot is off its arc and out of the picture. Its own ending, gated on
+   * its own motion: it is never held on screen waiting for the seat.
+   */
+  bootEndMs: number;
   /** Everything is over and the overlay can be emptied. */
   endMs: number;
 };
@@ -341,6 +346,7 @@ export function planKick({ avatar, seat, bootRadius, bounds }: KickGeometry): Ki
     spin,
     impactMs,
     exitMs,
+    bootEndMs: boot.durationMs,
     endMs: Math.max(boot.durationMs, exitMs + KICK_REFLOW_MS + KICK_TEARDOWN_MS),
   };
 }
