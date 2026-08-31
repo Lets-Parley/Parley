@@ -654,6 +654,39 @@ describe("Table drop-in", () => {
     expect(raf).not.toHaveBeenCalled();
   });
 
+  // The prune loop's comment claims the drop map "is bounded by the roster".
+  // Churn a seat in and out and then bring it back on a frame that seeds
+  // rather than diffs: with the pruning gone the stale entry survives the
+  // absence and paints a fall nobody triggered, which is the same leak as an
+  // unbounded map, made visible.
+  it("forgets a drop once its seat leaves the roster", () => {
+    const props = (seated: Parameters<typeof Table>[0]["seated"], presence: string[], status: "live" | "reconnecting" = "live") => (
+      <Table
+        seated={seated}
+        spectators={[]}
+        online={new Set(presence)}
+        status={status}
+        votedUserIds={[]}
+        votes={new Map()}
+        revealed={false}
+        consensus={false}
+        facilitatorId="dana"
+        meId="dana"
+      />
+    );
+    const pair = [dana, marcus];
+    const trio = [dana, marcus, priya];
+    const r = render(props(pair, ["dana", "marcus"]));
+    for (let i = 0; i < 10; i++) {
+      r.rerender(props(trio, ["dana", "marcus", "priya"]));
+      expect(seatEl("priya").style.animation).toContain("seat-drop");
+      r.rerender(props(pair, ["dana", "marcus"]));
+    }
+    // Back on a reconnect: nothing joined, so nothing may be falling.
+    r.rerender(props(trio, ["dana", "marcus", "priya"], "reconnecting"));
+    expect(seatEl("priya").style.animation).toBe("");
+  });
+
   it("does not animate the room back in after a reconnect", () => {
     const { arrive } = joinable();
     arrive(["dana", "marcus"], { status: "reconnecting" as const });

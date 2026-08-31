@@ -702,3 +702,33 @@ describe("PokerRoom waiting list", () => {
     expect(screen.queryByText(/Waiting on/)).toBeNull();
   });
 });
+
+/**
+ * The wiring, not the mechanism. Every other reconnect test constructs
+ * `status` by hand and hands it straight to Table or to useRosterDelta, so
+ * dropping `status={status}` from the page — where Table's default of "live"
+ * silently takes over — leaves all of them green while a rejoin reads as the
+ * whole room arriving at once.
+ */
+describe("PokerRoom reconnect wiring", () => {
+  it("forwards status to the table so a reconnect is not read as new arrivals", () => {
+    const roster = [
+      makePerson({ userId: "dana", name: "Dana Whitfield" }),
+      makePerson({ userId: "marcus", name: "Marcus Okonjo" }),
+      makePerson({ userId: "priya", name: "Priya Raman" }),
+    ];
+    const at = (presence: string[], status: "live" | "reconnecting") => (
+      <PokerRoom env={envelope({ participants: roster, presence })} me={me} status={status} />
+    );
+    // A blip, then the socket returns carrying a roster that also gained
+    // Priya. The assertion is on the returning frame rather than on the blip
+    // itself: with no roster change there is nothing to animate either way,
+    // so only a reconnect that brings somebody new tells the two apart.
+    const { rerender } = renderApp(at(["dana", "marcus"], "live"));
+    rerender(at(["dana", "marcus"], "reconnecting"));
+    rerender(at(["dana", "marcus", "priya"], "live"));
+    const seat = document.querySelector('[data-seat-user="priya"]') as HTMLElement;
+    expect(seat).toBeTruthy();
+    expect(seat.style.animation).toBe("");
+  });
+});
