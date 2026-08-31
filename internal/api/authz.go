@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -40,7 +41,12 @@ func (a *app) requireSessionMember(next http.Handler) http.Handler {
 		// Any other room is a 404, the same answer a stranger gets.
 		if !p.IsLinkGuest() {
 			member, err := a.spaces.IsMember(r.Context(), sess.SpaceID, p.UserID)
-			if err != nil || !member {
+			if err != nil {
+				slog.Error("checking session membership", "session", sess.ID, "error", err)
+				http.Error(w, `{"error":"could not load session"}`, http.StatusInternalServerError)
+				return
+			}
+			if !member {
 				http.Error(w, `{"error":"no such session"}`, http.StatusNotFound)
 				return
 			}

@@ -80,7 +80,12 @@ func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	member, err := a.spaces.IsMember(r.Context(), sp.ID, p.UserID)
-	if err != nil || !member {
+	if err != nil {
+		slog.Error("checking space membership", "space", sp.ID, "error", err)
+		http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+		return
+	}
+	if !member {
 		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
 		return
 	}

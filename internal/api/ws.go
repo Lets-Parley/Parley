@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/gorilla/websocket"
@@ -60,9 +61,17 @@ func (a *app) handleWS(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "no such session", http.StatusNotFound)
 			return
 		}
-	} else if member, err := a.spaces.IsMember(r.Context(), sess.SpaceID, p.UserID); err != nil || !member {
-		http.Error(w, "no such session", http.StatusNotFound)
-		return
+	} else {
+		member, err := a.spaces.IsMember(r.Context(), sess.SpaceID, p.UserID)
+		if err != nil {
+			slog.Error("checking session membership", "session", sess.ID, "error", err)
+			http.Error(w, "could not load session", http.StatusInternalServerError)
+			return
+		}
+		if !member {
+			http.Error(w, "no such session", http.StatusNotFound)
+			return
+		}
 	}
 
 	upgrader := websocket.Upgrader{
