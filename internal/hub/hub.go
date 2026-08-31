@@ -78,10 +78,12 @@ type Conn struct {
 	// can retry until the durable participants row lands — without probing on
 	// every heartbeat after it has.
 	joined atomic.Bool
-	// joinAttempts counts OnJoin calls (attach plus pong retries) inside the
-	// current joinRetryWindow. Once it reaches maxJoinAttempts the pong path
-	// stops until the window rolls, so a persistent failure cannot turn every
-	// heartbeat into a Join transaction.
+	// joinAttempts counts join attempts inside the current joinRetryWindow. An
+	// attempt is spent per pass through the retry path — the eligibility read
+	// included, whether or not it reaches OnJoin — so both database calls stay
+	// bounded. Once it reaches maxJoinAttempts the pong path stops until the
+	// window rolls, and a persistent failure cannot turn every heartbeat into
+	// database work.
 	joinAttempts atomic.Int32
 	// joinWindowStart is when the current attempt window opened, in Unix nanos.
 	joinWindowStart atomic.Int64
