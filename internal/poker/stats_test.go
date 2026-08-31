@@ -54,6 +54,28 @@ func TestHalfCardNumeric(t *testing.T) {
 	}
 }
 
+// powers-of-2 is the fourth built-in; without a Summarize assertion here a
+// broken numeric map for it would only show up in a live room.
+func TestPowersOf2Numeric(t *testing.T) {
+	deck, _ := DeckByName("powers-of-2")
+	res := Summarize(deck, []string{"2", "4", "4", "8", "?"})
+	if res.Average == nil || *res.Average != 4.5 {
+		t.Fatalf("average: %v (specials must be excluded)", res.Average)
+	}
+	if res.Median == nil || *res.Median != 4 {
+		t.Fatalf("median: %v", res.Median)
+	}
+	if res.Mode != nil || res.Range != nil {
+		t.Fatal("numeric decks must not report mode/range")
+	}
+	if len(res.Histogram) != 4 {
+		t.Fatalf("histogram rows: %d", len(res.Histogram))
+	}
+	if res.Consensus {
+		t.Fatal("no consensus here")
+	}
+}
+
 func TestSpecialsAreNeverConsensus(t *testing.T) {
 	deck, _ := DeckByName("fibonacci")
 	if Summarize(deck, []string{"?", "?", "?"}).Consensus {
