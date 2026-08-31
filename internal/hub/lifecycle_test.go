@@ -482,7 +482,7 @@ func TestJoinRetrySurvivesTransientEligibilityError(t *testing.T) {
 // snapshots until they happen to reconnect.
 func TestJoinRetryResumesAfterWindow(t *testing.T) {
 	restore := joinRetryWindow
-	joinRetryWindow = 400 * time.Millisecond
+	joinRetryWindow = 2 * time.Second
 	t.Cleanup(func() { joinRetryWindow = restore })
 
 	h := New()
@@ -516,7 +516,7 @@ func TestJoinRetryResumesAfterWindow(t *testing.T) {
 		t.Fatalf("OnJoin within one window = %d, want %d", n, maxJoinAttempts)
 	}
 
-	time.Sleep(joinRetryWindow + 100*time.Millisecond)
+	time.Sleep(joinRetryWindow + 200*time.Millisecond)
 	pong(t, ws)
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) && joins.Load() <= int32(maxJoinAttempts) {
@@ -531,5 +531,53 @@ func pong(t *testing.T, ws *websocket.Conn) {
 	t.Helper()
 	if err := ws.WriteControl(websocket.PongMessage, []byte("ping"), time.Now().Add(time.Second)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The attempt bound covers the eligibility re-check, not just the join write.
+// That check is itself a database read, so a persistently failing connection
+// that kept running it would still query on every heartbeat — the traffic the
+// bound exists to stop.
+func TestJoinRetryStopsCheckingEligibilityWhenExhausted(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	var joins, checks atomic.Int32
+	h.OnJoin = func(string, string) error {
+		joins.Add(1)
+		return fmt.Errorf("persistent")
+	}
+	h.OnFacilitatorSeen = func(string, string) {}
+	h.ValidateMembership = func(context.Context, string, string, string) (bool, error) {
+		checks.Add(1)
+		return true, nil
+	}
+
+	ws, attached := attachWithInitial(t, h, []byte("snapshot"), SessionAuth{SpaceID: "space"})
+	select {
+	case <-attached:
+	case <-time.After(3 * time.Second):
+		t.Fatal("AttachAuthenticated did not return")
+	}
+	ws.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, _, err := ws.ReadMessage(); err != nil {
+		t.Fatalf("reading the initial frame: %v", err)
+	}
+
+	for i := 0; i < maxJoinAttempts; i++ {
+		pong(t, ws)
+		time.Sleep(50 * time.Millisecond)
+	}
+	if n := joins.Load(); n != int32(maxJoinAttempts) {
+		t.Fatalf("OnJoin = %d, want %d before the extra pongs", n, maxJoinAttempts)
+	}
+	settled := checks.Load()
+
+	// Every further heartbeat must be free of database work.
+	for i := 0; i < 3; i++ {
+		pong(t, ws)
+		time.Sleep(50 * time.Millisecond)
+	}
+	if n := checks.Load(); n != settled {
+		t.Fatalf("ValidateMembership calls after the bound = %d, want %d; an exhausted connection must not read the database every heartbeat", n, settled)
 	}
 }

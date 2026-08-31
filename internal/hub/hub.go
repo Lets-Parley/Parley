@@ -24,9 +24,9 @@ const (
 	presenceDebounce = 1500 * time.Millisecond
 	maxRevalidate    = 30 * time.Second
 	maxValidation    = 30 * time.Second
-	// maxJoinAttempts caps OnJoin calls per connection (attach plus pong
-	// retries). A persistent failure must not run a Join transaction on every
-	// heartbeat forever — that is the write #448 removed.
+	// maxJoinAttempts caps join work (attach plus pong retries) per
+	// joinRetryWindow. A persistent failure must not run a Join transaction on
+	// every heartbeat forever — that is the write #448 removed.
 	maxJoinAttempts = 3
 )
 
@@ -665,9 +665,16 @@ func (h *Hub) confirmMembership(c *Conn) bool {
 // re-checks eligibility before inserting — a removed member must never be
 // resurrected into session_participants by a still-open remote socket — and
 // spends at most maxJoinAttempts per joinRetryWindow so a persistent failure
-// cannot write on every heartbeat.
+// cannot touch the database on every heartbeat.
 func (h *Hub) retryJoin(c *Conn) {
 	if c.joined.Load() || c.joinGaveUp.Load() || h.OnJoin == nil {
+		return
+	}
+	// Reserve the attempt before the eligibility re-check, not between it and
+	// OnJoin. The re-check is itself a database read, so gating only the write
+	// would leave a persistently failing connection querying on every pong —
+	// the per-heartbeat traffic this bound exists to stop.
+	if !c.consumeJoinAttempt() {
 		return
 	}
 	if h.ValidateMembership != nil && c.SpaceID != "" {
@@ -677,14 +684,13 @@ func (h *Hub) retryJoin(c *Conn) {
 		switch {
 		case err != nil:
 			// We could not tell whether they still belong, which is not the
-			// same as knowing they do not. Spend an attempt so a persistent
-			// failure stays bounded, but stay retryable: a database that comes
-			// back must be able to land this row, or a still-connected member
-			// sits outside every later open-voting snapshot.
-			if c.consumeJoinAttempt() {
-				slog.Warn("session join retry: could not determine eligibility",
-					"session", c.SessionID, "user", c.UserID, "error", err)
-			}
+			// same as knowing they do not. The attempt is spent either way, so
+			// a persistent failure stays bounded, but the connection stays
+			// retryable: a database that comes back must be able to land this
+			// row, or a still-connected member sits outside every later
+			// open-voting snapshot.
+			slog.Warn("session join retry: could not determine eligibility",
+				"session", c.SessionID, "user", c.UserID, "error", err)
 			return
 		case !member:
 			if c.joinGaveUp.CompareAndSwap(false, true) {
@@ -694,9 +700,6 @@ func (h *Hub) retryJoin(c *Conn) {
 			return
 		}
 	}
-	if !c.consumeJoinAttempt() {
-		return
-	}
 	if err := h.OnJoin(c.SessionID, c.UserID); err == nil {
 		c.joined.Store(true)
 	}
@@ -704,7 +707,8 @@ func (h *Hub) retryJoin(c *Conn) {
 
 // consumeJoinAttempt reserves one of this window's attempts, rolling the window
 // over first when it has elapsed. It reports whether an attempt was available;
-// false means the caller must not touch the database this heartbeat.
+// false means the caller must not touch the database at all this heartbeat —
+// neither the eligibility read nor the join write.
 func (c *Conn) consumeJoinAttempt() bool {
 	now := time.Now().UnixNano()
 	for {
