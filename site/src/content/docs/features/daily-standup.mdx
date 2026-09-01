@@ -92,6 +92,17 @@ Everyone stays clickable after the round finishes, skipped people included.
   caption="The rail carries the whole order at once — done, skipped, and up next — while the countdown runs for whoever is speaking."
 />
 
+## Handing the standup over
+
+The facilitator has a **Hand off** control in the header, next to End session.
+It opens the roster; picking a name moves the role there and then, with no
+waiting and nothing for the recipient to accept. Everyone in the room is told
+who is driving now.
+
+If the facilitator drops off instead, the same 60-second claim banner the poker
+room has appears here: once their grace period runs out, anyone at the standup
+can take the chair. Guests are offered neither control.
+
 ## Ending the standup
 
 The facilitator has an **End session** control in the header. It closes the
@@ -117,6 +128,5 @@ a channel afterwards.
   { name: "Configurable timer length", status: "not-built", detail: "The server supports a <code>secondsPerPerson</code> session setting and defaults it to 90, but nothing in the UI sets it. Treat 90 seconds as fixed." },
   { name: "Async standup", status: "not-built", detail: "Write ahead of time and let the round run without you; a scheduled digest is on the <a href='/project/roadmap/'>roadmap</a>." },
   { name: "Reordering the speaking order", status: "not-built", detail: "Fixed once the round starts. Skip moves past anyone who is not ready." },
-  { name: "Facilitator-offline claim", status: "not-built", detail: "The endpoint is kind-agnostic but the 60-second claim banner is only wired into the poker room. End and recreate the standup if its facilitator vanishes." },
   { name: "Chasing people who did not write anything", status: "out-of-scope", detail: "Parley has no notification channel and does not want one." },
 ]} />

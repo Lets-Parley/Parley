@@ -811,3 +811,67 @@ describe("the screen a removed person lands on", () => {
     expect(screen.queryByRole("heading", { name: /shown the door/i })).toBeNull();
   });
 });
+
+describe("PokerRoom facilitator handoff", () => {
+  const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 200 };
+  const live = (over: Partial<Envelope> = {}) =>
+    envelope({
+      facilitatorConnected: true,
+      participants: [
+        makePerson({ userId: "dana", name: "Dana Whitfield" }),
+        makePerson({ userId: "marcus", name: "Marcus Okonjo" }),
+        makePerson({ userId: "gabe", name: "Gabe Guest", guest: true }),
+      ],
+      ...over,
+    });
+
+  it("hands the chair to a named participant in one action", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+    renderApp(<PokerRoom env={live()} me={dana} />);
+
+    await userEvent.click(screen.getByRole("button", { name: /hand off/i }));
+    const roster = screen.getByRole("dialog");
+    await userEvent.click(within(roster).getByRole("button", { name: /Marcus Okonjo/ }));
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/sessions/sess-1/facilitator",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ userId: "marcus" }) }),
+    );
+  });
+
+  it("offers neither itself nor a link guest as a recipient", async () => {
+    renderApp(<PokerRoom env={live()} me={dana} />);
+    await userEvent.click(screen.getByRole("button", { name: /hand off/i }));
+    const roster = screen.getByRole("dialog");
+    expect(within(roster).queryByRole("button", { name: /Gabe Guest/ })).toBeNull();
+    expect(within(roster).queryByRole("button", { name: /Dana Whitfield/ })).toBeNull();
+  });
+
+  it("does not offer the handoff to an ordinary seat, a guest, or an ended room", () => {
+    renderApp(<PokerRoom env={live()} me={me} />);
+    expect(screen.queryByRole("button", { name: /hand off/i })).toBeNull();
+
+    renderApp(<PokerRoom env={live()} me={dana} guest />);
+    expect(screen.queryByRole("button", { name: /hand off/i })).toBeNull();
+
+    renderApp(
+      <PokerRoom env={live({ endedAt: "2026-08-18T10:00:10.000Z" })} me={dana} />,
+    );
+    expect(screen.queryByRole("button", { name: /hand off/i })).toBeNull();
+  });
+
+  it("announces the new facilitator to everyone in the room", async () => {
+    const { rerender } = renderApp(<PokerRoom env={live()} me={me} />);
+    rerender(<PokerRoom env={live({ facilitatorId: "marcus", version: 2 })} me={me} />);
+    expect(await screen.findByText("You're the facilitator now")).toBeTruthy();
+  });
+
+  it("names the new facilitator for the rest of the room", async () => {
+    const other: Me = { id: "priya", name: "Priya Raman", avatarHue: 10 };
+    const { rerender } = renderApp(<PokerRoom env={live()} me={other} />);
+    rerender(<PokerRoom env={live({ facilitatorId: "marcus", version: 2 })} me={other} />);
+    expect(await screen.findByText("Marcus Okonjo is the facilitator now")).toBeTruthy();
+  });
+});

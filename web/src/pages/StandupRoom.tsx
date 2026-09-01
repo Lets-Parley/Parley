@@ -4,6 +4,11 @@ import { safeDisplayName } from "../lib/displayName";
 import type { ConnectionStatus } from "../lib/socket";
 import { useToast } from "../lib/ui";
 import { Avatar } from "../components/Avatar";
+import {
+  FacilitatorClaim,
+  FacilitatorHandoff,
+  useFacilitatorAnnouncement,
+} from "../components/FacilitatorControls";
 import { ErrorRow, Modal, buttonDanger, buttonPrimary, buttonQuiet, inputClass } from "../components/Modal";
 import type { Fail } from "../components/Modal";
 import { cueFor, cueVar } from "../lib/cue";
@@ -158,6 +163,7 @@ export function StandupRoom({
   const st = env.state as unknown as StandupState;
   const say = useToast();
   const isFacilitator = !guest && env.facilitatorId === me.id;
+  useFacilitatorAnnouncement(env, me.id);
   const { draft, update, saveState, flush } = useOwnEntryDraft(env, me.id);
   // Where it failed, not just that it did. One string at the foot of the page
   // took failures from ready, start, next, skip and end alike — the same shape
@@ -397,6 +403,16 @@ export function StandupRoom({
         </a>
         )}
         {isFacilitator && !env.endedAt && (
+          <>
+          <FacilitatorHandoff
+            env={env}
+            onTransfer={(p) =>
+              run(
+                () => api("POST", `/api/sessions/${env.id}/facilitator`, { userId: p.userId }),
+                { where: "chrome" },
+              )
+            }
+          />
           <button
             className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop disabled:opacity-50"
             disabled={ending}
@@ -404,10 +420,22 @@ export function StandupRoom({
           >
             End session
           </button>
+          </>
         )}
         </span>
       </header>
       {failRow("chrome")}
+
+      {/* The stranded-facilitator card, identical to the poker room's: a
+          standup with nobody driving is stuck at exactly the same place. */}
+      <FacilitatorClaim
+        env={env}
+        isFacilitator={isFacilitator}
+        guest={guest}
+        onClaim={() =>
+          run(() => api("POST", `/api/sessions/${env.id}/facilitator/claim`), { where: "chrome" })
+        }
+      />
 
       {/* The round bar: how far in we are, who follows, and how long is left —
           the three facts the room reads, at the scale it reads them from. */}
