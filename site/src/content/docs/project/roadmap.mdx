@@ -10,9 +10,15 @@ repository, which is the source of truth; the
 
 ## Now
 
-Nothing is in flight right now. Signed links and the space-ownership work —
-renaming and deleting spaces and rooms, an editable profile, and one-click
-invites — all shipped in v%VERSION%. What comes next is below.
+Responsive support shipped in v%VERSION%.
+
+### A room you can hand over
+
+The facilitator role can be passed to a named person by the API, and no button
+anywhere calls it. In practice the role cannot be given away, only taken, and
+only after the current holder has been gone for a minute — and standup has
+neither control. Tracking:
+[#392](https://github.com/lets-parley/parley/issues/392)
 
 ## Next
 
@@ -27,32 +33,19 @@ not get to when the limit runs out.
 
 `parley export` writes every space, session, estimate, vote and standup entry to
 a single versioned archive, and `parley import` reconstitutes it elsewhere. Data
-ownership is a claim until it is a file you are holding.
+ownership is a claim until it is a file you are holding. Export lands first and
+on its own — it is half the work and most of the trust.
 
-### Somewhere for spaces to live
+### The estimate lands on the ticket
 
-Organizations put a level above spaces, so two teams can both name a room
-"Platform Team" and a new starter can find their team's standup without being
-sent a link. An organization admin gets custody without access: they can rename,
-archive and reassign any space, including private ones, but cannot read a vote,
-a standup entry or a note.
+A poker story can carry a Jira issue key, and the agreed estimate writes to the
+story point field when it is saved. That is the whole of the first slice — one
+write path that always works. Importing a board, syncing status, and filing from
+the room stay in **Exploring** under [#378](https://github.com/lets-parley/parley/issues/378);
+GitHub ([#383](https://github.com/lets-parley/parley/issues/383)) waits until
+Jira write-back is boring.
 
-Tracking: [#203](https://github.com/lets-parley/parley/issues/203)
-
-### An extensible core
-
-Adding a ceremony to Parley currently means touching the router, a database
-constraint, a registry populated at package initialisation, and a ternary in the
-frontend. This work makes session kinds a real extension point, so a
-retrospective or a story map is code someone adds rather than surgery on the
-core.
-
-It pays for itself on other grounds too: it fixes a migration-versioning bug,
-gives the two existing kinds one shared authorization path instead of two
-reimplementations, and stops an unknown session kind from silently rendering the
-wrong room.
-
-Tracking: [#8](https://github.com/lets-parley/parley/issues/8)
+Tracking: [#391](https://github.com/lets-parley/parley/issues/391)
 
 ## Later
 
@@ -64,8 +57,17 @@ approve. Plugin code would be sandboxed WebAssembly with no sockets and no
 database access, reaching everything through a host function that checks the
 grant first.
 
-Depends on the extensible core.
+The extensible core shipped ([#8](https://github.com/lets-parley/parley/issues/8));
+this is the layer on top of it.
+
 Tracking: [#9](https://github.com/lets-parley/parley/issues/9)
+
+### A parking lot with an owner and a clock
+
+"Let's take that offline" is the most-spoken and least-honoured sentence in any
+ceremony. A first-class parking lot refuses the deferral without a person and a
+date attached, then puts the item back in front of the room at the next session
+until somebody deals with it.
 
 ### The rest of the ceremonies
 
@@ -73,7 +75,7 @@ Retrospectives with grouping and dot voting, action items that outlive the
 meeting, user story mapping, a sprint board, async standups, team health checks.
 
 Some of these will arrive as plugins rather than core features, which is rather
-the point of the two entries above.
+the point of the plugin system above.
 
 ### A collaborative whiteboard
 
@@ -88,13 +90,33 @@ feature.
 
 Ideas under consideration, not committed to:
 
-- Boards that work offline and merge on reconnect
+- Boards that work offline and merge on reconnect — nearly free once a
+  conflict-free document engine exists
 - Retro synthesis and meeting recaps, with a bring-your-own model endpoint so
   nothing leaves the instance
-- Two-way issue sync with Jira, Linear and GitHub
+- The rest of two-way issue sync — importing a board, syncing status, filing
+  from the room — beyond the write-back now under Next
+  ([#378](https://github.com/lets-parley/parley/issues/378)); the same job for
+  GitHub, once Jira works ([#383](https://github.com/lets-parley/parley/issues/383));
+  Linear to follow
 - Replaying how a board or a ceremony actually evolved
+- Spaces a creator can open to anyone, no sign-in required, on an instance
+  that otherwise requires an identity provider
+- Vote with the work — estimate from the ticket itself, not a copied title
+- Stance, not a number — confidence or risk alongside points
+- A room that dies with the meeting — the session ends when the calendar event does
 - Audit logging, retention policies, and SSO group-to-role mapping
-- White-label theming
+- White-label theming, for anyone hosting Parley on someone else's behalf
+- Configurable timers for poker and standup — as one control rather than a
+  ceremony of its own ([#380](https://github.com/lets-parley/parley/issues/380))
+- Feature flags, once there is a third ceremony to turn off ([#381](https://github.com/lets-parley/parley/issues/381))
+- Slack: a card posted when a session ends ([#382](https://github.com/lets-parley/parley/issues/382))
+- Team health and mood over time — anonymity and minimum-n settled before
+  anything is built ([#384](https://github.com/lets-parley/parley/issues/384))
+- A shared board owned by a space ([#385](https://github.com/lets-parley/parley/issues/385))
+- Kudos, with no leaderboard ([#386](https://github.com/lets-parley/parley/issues/386))
+- Reactions and comments on a standup entry or a story ([#387](https://github.com/lets-parley/parley/issues/387))
+- Async standup: a window instead of a meeting ([#388](https://github.com/lets-parley/parley/issues/388))
 
 ## Things this documentation says are missing
 
