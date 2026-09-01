@@ -13,40 +13,25 @@ For implementation status, see the GitHub Project:
 
 Work in progress or expected in the current development cycle.
 
-Nothing is in flight right now — organizations shipped in v0.8.0. The next
-items are under **Next**.
+Responsive support shipped in v0.10.0.
+
+### A room you can hand over
+
+The API can already pass the facilitator role to a named person, and nothing in
+the frontend ever calls it. In practice the role cannot be given away, only
+taken, and only after the current holder has been gone for a minute. Standup has
+neither control. A facilitator who wants someone else to drive — or who is about
+to drop off the call — has no path that does not involve disappearing.
+
+Small, and a prerequisite: a session limit is a facilitator control, and standup
+has no facilitator surface to hang one on.
+
+- Status: Backlog
+- Tracking: [#392](https://github.com/lets-parley/parley/issues/392)
 
 ## Next
 
 Accepted work, likely to be picked up after current priorities.
-
-### Parley on a phone
-
-Standup is the ceremony people most often join from a corridor or a car park,
-and the poker table is a layout nobody has decided the 375px version of, so
-what it does there today is whatever the CSS happens to produce. A participant
-who cannot vote from a phone is a participant who does not join.
-
-Named breakpoints and a decided layout for every surface, touch-first controls
-with no hover-only affordances, and a check in CI so that the next change to a
-grid does not quietly undo it.
-
-- Status: Backlog
-- Tracking: [#379](https://github.com/lets-parley/parley/issues/379)
-
-### The estimate lands on the ticket
-
-A poker story can carry a Jira issue key, and the agreed estimate writes to the
-story point field when it is saved. That is the whole of the first slice.
-
-The wide version — importing a board, syncing status, filing issues from the
-room — is what the tools in this space already shipped, and it is also what
-their users still complain about. Breadth is not the gap. One write path that
-always works is. The same job for GitHub does not start until this one is
-boring.
-
-- Status: Backlog
-- Tracking: [#391](https://github.com/lets-parley/parley/issues/391), under [#378](https://github.com/lets-parley/parley/issues/378)
 
 ### Honest ceremonies
 
@@ -90,34 +75,24 @@ Export lands first and on its own — it is half the work and most of the trust.
 
 - Status: Backlog
 
+### The estimate lands on the ticket
+
+A poker story can carry a Jira issue key, and the agreed estimate writes to the
+story point field when it is saved. That is the whole of the first slice.
+
+The wide version — importing a board, syncing status, filing issues from the
+room — is what the tools in this space already shipped, and it is also what
+their users still complain about. Breadth is not the gap. One write path that
+always works is. The same job for GitHub does not start until this one is
+boring.
+
+- Status: Backlog
+- Tracking: [#391](https://github.com/lets-parley/parley/issues/391), under [#378](https://github.com/lets-parley/parley/issues/378)
+
+
 ## Later
 
 Accepted direction, not currently scheduled.
-
-### An extensible core
-
-Adding a ceremony to Parley currently means touching the router, a database
-constraint, a registry populated at package initialisation, and a ternary in the
-frontend. This makes session kinds a real extension point, so a retrospective or
-a story map is code someone adds rather than surgery on the core.
-
-Worth doing on its own merits: it also fixes a migration-versioning bug, gives
-the two existing kinds one shared authorization path instead of two
-reimplementations, and stops an unknown session kind from silently rendering the
-wrong room.
-
-It should also settle where storage sits. A session kind is currently handed a
-Postgres connection pool directly, which puts the database driver in the middle
-of the extension point this work exists to stabilise. Drawing that boundary now
-costs a little; drawing it after the interface is published costs a great deal
-more.
-
-This work is an unlock: it is the boundary that makes a plugin system and
-storage backends feasible without turning every feature into a cross-cutting
-rewrite.
-
-- Status: Backlog
-- Tracking: [#8](https://github.com/lets-parley/parley/issues/8)
 
 ### A plugin system
 
@@ -127,7 +102,8 @@ capability grants they approve. Plugin code is sandboxed WebAssembly with no
 sockets and no database access; everything it reaches goes through a host
 function that checks the grant first.
 
-Depends on [#8](https://github.com/lets-parley/parley/issues/8).
+The extensible core shipped ([#8](https://github.com/lets-parley/parley/issues/8));
+this is the layer on top of it.
 
 - Status: Backlog
 - Tracking: [#9](https://github.com/lets-parley/parley/issues/9)
@@ -140,9 +116,8 @@ person and a date attached, then puts the item back in front of the room at the
 next session until somebody deals with it.
 
 This is the first thing Parley would store that belongs to a team rather than to
-a single session, which makes it a fair test of whether the boundary drawn by
-[#8](https://github.com/lets-parley/parley/issues/8) is in the right place.
-Worth building after that work, not before.
+a single session, which makes it a fair test of whether the extension boundary
+drawn by the extensible core is in the right place.
 
 - Status: Backlog
 
@@ -177,9 +152,9 @@ it. A team of six estimating twice a week should not need a database container,
 a volume, and a backup plan before anyone can vote.
 
 Cheap once storage sits behind an interface, and expensive until it does — so
-this follows [#8](https://github.com/lets-parley/parley/issues/8) rather than
-racing it. Both backends would have to run the whole test suite in CI, or the
-two dialects drift and the less-used one quietly rots.
+this follows the plugin and storage-boundary work rather than racing it. Both
+backends would have to run the whole test suite in CI, or the two dialects drift
+and the less-used one quietly rots.
 
 - Status: Backlog
 
@@ -190,10 +165,10 @@ meeting, user story mapping, a sprint board, async standups, team health checks.
 The meetings a delivery team already runs, in the tool they already have open.
 
 Some of these will arrive as plugins rather than core features, which is rather
-the point of the two entries above.
+the point of the plugin system above.
 
 Several of the Exploring ideas below — issue sync, chat integrations, meeting
-recaps — are likely to become plugins once [#8](https://github.com/lets-parley/parley/issues/8) exists.
+recaps — are likely to become plugins once that system exists.
 
 - Status: Backlog
 
@@ -224,7 +199,6 @@ Ideas under consideration, not committed to.
 - Spaces a creator can open to anyone, no sign-in required, on an instance
   that otherwise requires an identity provider
 - Vote with the work — estimate from the ticket itself, not a copied title
-  (wants [#8](https://github.com/lets-parley/parley/issues/8))
 - Stance, not a number — confidence or risk alongside points
 - A room that dies with the meeting — the session ends when the calendar event does
 - Audit logging, retention policies, and SSO group-to-role mapping
@@ -248,6 +222,17 @@ Ideas under consideration, not committed to.
   and this is the version with the clock taken out ([#388](https://github.com/lets-parley/parley/issues/388))
 
 ## Completed
+
+### v0.10.0
+
+- Named breakpoints, touch-first controls with a 44px hit floor, safe-area
+  insets, and CI guardrails so a grid change does not quietly undo mobile layout
+  — poker and standup are usable from a phone for participants voting and taking
+  a turn
+- A facilitator can remove someone from a session; the removed person sees why
+  and lands on a dedicated screen rather than a dead socket
+- Thrown emoji pile onto a seat when someone joins, with motion that respects
+  reduced-motion preferences
 
 ### v0.9.0
 
@@ -324,6 +309,10 @@ Ideas under consideration, not committed to.
 
 ### v0.5.0 — Daybreak
 
+- The extensible core finished ([#8](https://github.com/lets-parley/parley/issues/8)):
+  one shared authorization path for every session kind, migration versions read
+  from filename prefixes rather than array position, and an unknown kind that
+  refuses instead of silently rendering the wrong room
 - The poker round reads as a table someone sits down at, with a waiting count
   the whole room can see and the agreed estimate in its own colour
 - The standup room is a room rather than a form with a timer in the corner: it
@@ -354,7 +343,9 @@ Ideas under consideration, not committed to.
   carry a text equivalent, the standup rail says whose turn it is out loud, the
   member card sits on a native `<dialog>`, and the light theme clears WCAG AA
 - Session kinds became a table with a foreign key instead of a `CHECK`
-  constraint, routed through a client-side registry
+  constraint, routed through instance-based server and client-side registries —
+  the first half of the extensible core
+  ([#8](https://github.com/lets-parley/parley/issues/8))
 
 ### v0.2.1 – v0.2.3
 
