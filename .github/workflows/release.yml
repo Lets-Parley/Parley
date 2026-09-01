@@ -240,7 +240,7 @@ jobs:
           printf '%s\n' "$amd64" | grep -Eqx 'sha256:[0-9a-f]{64}'
           echo "digest=$amd64" >> "$GITHUB_OUTPUT"
       - name: Generate the image SBOM
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           image: ${{ needs.validate.outputs.image }}@${{ steps.platform.outputs.digest }}
           registry-username: ${{ github.actor }}
@@ -250,7 +250,7 @@ jobs:
           upload-artifact: false
           upload-release-assets: false
       - name: Generate the image SBOM (CycloneDX)
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           image: ${{ needs.validate.outputs.image }}@${{ steps.platform.outputs.digest }}
           registry-username: ${{ github.actor }}
@@ -270,7 +270,7 @@ jobs:
           printf 'exclude:\n  - ./site/**\nsource:\n  name: %s\n  version: %s\n' \
             "github.com/${GITHUB_REPOSITORY}" "$TAG" > /tmp/syft-source.yaml
       - name: Generate the source SBOM
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           path: .
           config: /tmp/syft-source.yaml
@@ -279,7 +279,7 @@ jobs:
           upload-artifact: false
           upload-release-assets: false
       - name: Generate the source SBOM (CycloneDX)
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           path: .
           config: /tmp/syft-source.yaml
