@@ -130,10 +130,10 @@ sit at.
 - **CSV export** for any session: estimates, votes per person, standup entries.
   Cells that start with `=` are escaped, so an export can't run formulas in a
   spreadsheet.
-- **Facilitator takeover.** If the facilitator drops off, anyone at the table
-  can claim the role after a 60-second grace period, and the room is told who
-  did. The button is in the poker room today; standup rooms have the endpoint
-  but no control yet, as does explicit hand-off to a named person.
+- **Handing the room over.** The facilitator can pass the role to anyone on the
+  roster in one press, in poker and standup alike. If they drop off instead,
+  anyone at the table can claim it after a 60-second grace period. Either way
+  the room is told who is driving now.
 - **Light, dark, and system themes.**
 - **Boring to operate.** `/healthz` that never touches the database, `/readyz`
   that checks both Postgres and this replica's cross-replica listener, structured JSON logs, migrations applied at boot, and a refusal to

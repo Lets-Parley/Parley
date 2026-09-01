@@ -3,9 +3,13 @@ import { Link } from "react-router-dom";
 import { action, api, errorText, type Envelope, type Person, type Story } from "../lib/api";
 import { cueFor, useCueAccumulator, useRoundEpoch } from "../lib/cue";
 import type { RoomProps } from "../lib/kinds";
-import { GRACE_SECONDS, claimState, voteTally } from "../lib/derive";
-import { useCountdown, useToast } from "../lib/ui";
-import { Avatar } from "../components/Avatar";
+import { voteTally } from "../lib/derive";
+import { useToast } from "../lib/ui";
+import {
+  FacilitatorClaim,
+  FacilitatorHandoff,
+  useFacilitatorAnnouncement,
+} from "../components/FacilitatorControls";
 import { Hand } from "../components/Hand";
 import { ErrorRow, Modal, buttonDanger, buttonGo, buttonPrimary, buttonQuiet, type Fail } from "../components/Modal";
 import { ResultsPanel, heroOf } from "../components/ResultsPanel";
@@ -91,10 +95,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
   // The next thing worth pointing at, in queue order — skipping what is done.
   const nextUnestimated = st.stories.find((s) => s.id !== current?.id && !s.estimate);
 
-  // A guest may never take the chair, so it is never offered.
-  const { showClaim, graceLeft } = claimState(env, isFacilitator || guest);
-  const claimLeft = useCountdown(graceLeft);
-  const facilitator = env.participants.find((p) => p.userId === env.facilitatorId);
+  useFacilitatorAnnouncement(env, me.id);
 
   // Removed from THIS room, which is not the same as losing the space — the
   // socket said so with its own close code, and this is its own screen. It
@@ -240,12 +241,22 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
               </a>
               )}
               {isFacilitator && !ended && (
+                <>
+                <FacilitatorHandoff
+                  env={env}
+                  onTransfer={(p) =>
+                    run(() =>
+                      api("POST", `/api/sessions/${env.id}/facilitator`, { userId: p.userId }),
+                    )
+                  }
+                />
                 <button
                   className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop"
                   onClick={() => setConfirmEnd(true)}
                 >
                   End session
                 </button>
+                </>
               )}
             </span>
           </div>
@@ -286,56 +297,12 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
           </div>
         )}
 
-        {showClaim && facilitator && (
-          <div
-            className="flex flex-wrap items-center gap-4 rounded-panel border border-line bg-surface px-5 py-4 shadow-lift"
-            style={{ animation: "modal-drop 300ms var(--ease-settle)" }}
-          >
-            <span className="relative opacity-60">
-              <Avatar
-                name={facilitator.name}
-                hue={facilitator.avatarHue}
-                icon={facilitator.avatarIcon}
-                size="md"
-              />
-              <span className="absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full bg-brass ring-2 ring-surface" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-[15px] font-extrabold">
-                {safeDisplayName(facilitator.name)} — the facilitator — lost connection
-              </p>
-              <p className="mt-0.5 text-[13px] text-ink-soft">
-                {claimLeft && claimLeft > 0
-                  ? `If they aren't back in ${claimLeft}s, anyone at the table can take over.`
-                  : "The grace period is over — anyone can take over now."}
-              </p>
-            </div>
-            <div className="flex items-center gap-2.5">
-              {claimLeft !== null && claimLeft > 0 && <GraceRing left={claimLeft} total={GRACE_SECONDS} />}
-              <button
-                // Zero is the moment it becomes claimable, so test for null
-                // explicitly — a falsy check disables the button exactly when
-                // the grace period has run out.
-                disabled={claimLeft === null || claimLeft > 0}
-                onClick={async () => {
-                  if (await run(() => api("POST", `/api/sessions/${env.id}/facilitator/claim`))) {
-                    say("You're the facilitator now");
-                  }
-                }}
-                className={
-                  "rounded-full px-4 py-2.5 text-sm font-bold shadow-rest " +
-                  (claimLeft === 0
-                    ? "bg-brass text-accent-ink"
-                    : "cursor-default bg-felt-deep text-ink-faint")
-                }
-              >
-                {claimLeft === 0
-                  ? "Claim facilitator"
-                  : `Claim in 0:${String(claimLeft ?? 0).padStart(2, "0")}`}
-              </button>
-            </div>
-          </div>
-        )}
+        <FacilitatorClaim
+          env={env}
+          isFacilitator={isFacilitator}
+          guest={guest}
+          onClaim={() => run(() => api("POST", `/api/sessions/${env.id}/facilitator/claim`))}
+        />
 
         {current && !ended ? (
           <Table
@@ -573,28 +540,6 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
       say("Votes cleared — same story, fresh round");
     }
   }
-}
-
-/** The facilitator grace period, draining. */
-function GraceRing({ left, total }: { left: number; total: number }) {
-  const circumference = 88;
-  return (
-    <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden>
-      <circle cx="17" cy="17" r="14" fill="none" stroke="var(--color-line)" strokeWidth="3" />
-      <circle
-        cx="17"
-        cy="17"
-        r="14"
-        fill="none"
-        stroke="var(--color-brass)"
-        strokeWidth="3"
-        strokeLinecap="round"
-        strokeDasharray={circumference}
-        strokeDashoffset={Math.round(circumference - (left / total) * circumference)}
-        transform="rotate(-90 17 17)"
-      />
-    </svg>
-  );
 }
 
 /** Felt, a couple of cards, and one thing to do. */

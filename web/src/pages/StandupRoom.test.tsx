@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StandupRoom, Timer } from "./StandupRoom";
 import { makePerson, renderApp } from "../test/render";
@@ -1103,5 +1103,63 @@ describe("StandupRoom link guest", () => {
     // The ordinary participant affordance stays — a guest still gets to
     // mark itself ready for its own turn.
     expect(screen.getByRole("button", { name: "I'm ready" })).toBeTruthy();
+  });
+});
+
+describe("StandupRoom facilitator controls", () => {
+  const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 200 };
+
+  it("hands the chair to a named participant in one action", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+    renderApp(<StandupRoom env={envelope()} me={dana} />);
+
+    await userEvent.click(screen.getByRole("button", { name: /hand off/i }));
+    const roster = screen.getByRole("dialog");
+    await userEvent.click(within(roster).getByRole("button", { name: /Priya Raman/ }));
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/sessions/sess-1/facilitator",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ userId: "priya" }) }),
+    );
+    fetchSpy.mockRestore();
+  });
+
+  it("never offers the handoff to an ordinary seat or a link guest", () => {
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    expect(screen.queryByRole("button", { name: /hand off/i })).toBeNull();
+
+    renderApp(<StandupRoom env={envelope()} me={dana} guest />);
+    expect(screen.queryByRole("button", { name: /hand off/i })).toBeNull();
+  });
+
+  it("offers the chair once the stranded facilitator's grace period is over", () => {
+    renderApp(
+      <StandupRoom
+        env={envelope({
+          facilitatorConnected: false,
+          facilitatorOfflineSince: "2026-08-18T09:58:00.000Z",
+        })}
+        me={me}
+      />,
+    );
+    const btn = screen.getByRole("button", { name: /^Claim/ }) as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+  });
+
+  it("keeps the claim inert while the facilitator is still connected", () => {
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    expect(screen.queryByRole("button", { name: /^Claim/ })).toBeNull();
+  });
+
+  it("announces the new facilitator to everyone in the room", async () => {
+    const { rerender } = renderApp(<StandupRoom env={envelope()} me={me} />);
+    rerender(<StandupRoom env={envelope({ facilitatorId: "marcus", version: 2 })} me={me} />);
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("status").some((n) => n.textContent === "You're the facilitator now"),
+      ).toBe(true),
+    );
   });
 });
