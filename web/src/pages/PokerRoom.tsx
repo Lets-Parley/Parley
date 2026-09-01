@@ -103,8 +103,8 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
   if (status === "kicked") return <ShownTheDoor message={kickReason} env={env} guest={guest} />;
 
   return (
-    <div className="flex flex-wrap items-start gap-6 p-5 pl-[max(1.25rem,var(--safe-left))] pr-[max(1.25rem,var(--safe-right))] sm:p-7 sm:pl-[max(1.75rem,var(--safe-left))] sm:pr-[max(1.75rem,var(--safe-right))]">
-      <div className="flex min-w-0 w-full flex-1 flex-col gap-5 lg:basis-[560px]">
+    <div className="flex flex-col gap-6 lg:flex-row lg:flex-wrap lg:items-start p-5 pl-[max(1.25rem,var(--safe-left))] pr-[max(1.25rem,var(--safe-right))] sm:p-7 sm:pl-[max(1.75rem,var(--safe-left))] sm:pr-[max(1.75rem,var(--safe-right))]">
+      <div className="flex min-w-0 w-full flex-1 flex-col gap-5 pb-44 lg:pb-0 lg:basis-[560px]">
         {/* Story on the table, plus whoever is running the round. */}
         <header className="flex flex-wrap items-center gap-4 rounded-panel border border-line bg-surface px-5 py-4 shadow-rest">
           {current ? (
@@ -396,16 +396,10 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
         {results && <ResultsPanel results={results} deck={st.deck.values} />}
 
         {current && !ended && (
-          // Sticky so voting never needs a scroll: on a phone 15 seats take
-          // several ranks and the page becomes a scrolling document.
-          // ponytail: this works only because Hand is the LAST child of a
-          // column taller than the viewport. Reorder StoryQueue or anything
-          // else below it and the stickiness dies silently, with no test to
-          // catch it — the upgrade path is a real bottom-sheet portal.
-          // Observed firing, not theorised: below `lg` the aside stacks under
-          // the column, so near max scroll the hand unpins for the last stretch
-          // of document that sits outside its containing block.
-          <div className="sticky bottom-0 z-10 bg-felt pt-2 pb-[var(--safe-bottom)]">
+          // Fixed on a phone so the hand stays thumb-reachable while the
+          // story queue scrolls beneath the column; sticky inside lg where
+          // the aside sits beside us and the document tail is short.
+          <div className="fixed inset-x-0 bottom-0 z-10 bg-felt pt-2 pb-[var(--safe-bottom)] pl-[max(0px,var(--safe-left))] pr-[max(0px,var(--safe-right))] lg:static lg:inset-x-auto lg:z-auto lg:bg-transparent lg:pb-0 lg:sticky lg:bottom-0">
             <Hand
               values={st.deck.values}
               deckName={st.deck.name}

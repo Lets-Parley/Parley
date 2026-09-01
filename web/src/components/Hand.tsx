@@ -37,7 +37,10 @@ export function Hand({
           YOUR HAND · <span className="capitalize">{deckName}</span>
         </h2>
         <div className="flex items-center gap-3">
-          <span className="font-mono text-[10px] sr-only sm:not-sr-only" style={{ color: selected ? "var(--color-go)" : "var(--color-ink-faint)" }}>
+          <span
+            className="font-mono text-[10px]"
+            style={{ color: selected ? "var(--color-go)" : "var(--color-ink-faint)" }}
+          >
             {selected ? `picked ${faceOf(selected)}` : "pick a card"}
           </span>
           {canSpectate && (

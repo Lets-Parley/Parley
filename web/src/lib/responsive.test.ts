@@ -47,9 +47,10 @@ describe("responsive touch contract", () => {
     expect(css).toMatch(/@media \(hover: hover\) and \(pointer: fine\)[\s\S]*\.hand-card:hover:not\(:disabled\)/);
   });
 
-  it("does not force a wide flex basis on poker's main column below lg", () => {
+  it("pins the hand to the viewport on phones", () => {
     const poker = src("pages/PokerRoom.tsx");
-    expect(poker).toContain("lg:basis-[560px]");
-    expect(poker).not.toMatch(/[^:]basis-\[560px\]/);
+    expect(poker).toMatch(/fixed inset-x-0 bottom-0/);
+    expect(poker).toMatch(/lg:sticky lg:bottom-0/);
+    expect(poker).toMatch(/pb-44 lg:pb-0/);
   });
 });
