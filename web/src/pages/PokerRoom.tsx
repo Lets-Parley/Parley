@@ -104,7 +104,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
 
   return (
     <div className="flex flex-wrap items-start gap-6 p-5 sm:p-7">
-      <div className="flex min-w-0 flex-1 basis-[560px] flex-col gap-5">
+      <div className="flex min-w-0 w-full flex-1 flex-col gap-5 lg:basis-[560px]">
         {/* Story on the table, plus whoever is running the round. */}
         <header className="flex flex-wrap items-center gap-4 rounded-panel border border-line bg-surface px-5 py-4 shadow-rest">
           {current ? (

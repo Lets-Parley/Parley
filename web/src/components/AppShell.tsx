@@ -6,6 +6,7 @@ import { safeDisplayName } from "../lib/displayName";
 import { kindLabel } from "../lib/kinds";
 import type { ConnectionStatus } from "../lib/socket";
 import { useMediaQuery, useTheme } from "../lib/ui";
+import { SIDEBAR_RAIL_QUERY } from "../lib/breakpoints";
 import { Avatar } from "./Avatar";
 import { ProfileDialog } from "./ProfileDialog";
 import { ConnectionBanner } from "./ConnectionBanner";
@@ -167,7 +168,7 @@ export function AppShell({
   // Below md there is no room for a rail, so the same nav arrives as a sheet.
   // ponytail: one open flag for both presentations — resizing across the
   // breakpoint while it is open swaps rail for sheet, which is a shrug.
-  const wide = useMediaQuery("(min-width: 768px)");
+  const wide = useMediaQuery(SIDEBAR_RAIL_QUERY);
   const [sideOpen, setSideOpen] = useState(() => sidebarDefault && wide);
   const [who, setWho] = useState<string | null>(null);
   const [rosterOpen, setRosterOpen] = useState(false);
@@ -315,18 +316,18 @@ export function AppShell({
           against a 90-second turn. */}
       <a
         href="#main"
-        className="sr-only rounded-full bg-accent px-4 py-2 text-[13px] font-bold text-accent-ink focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50"
+        className="sr-only rounded-full bg-accent px-4 py-2 text-[13px] font-bold text-accent-ink focus:not-sr-only focus:absolute focus:left-3 focus:top-[max(0.75rem,var(--safe-top))] focus:z-50"
       >
         Skip to the table
       </a>
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-surface px-3 sm:gap-4 sm:px-5">
+      <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-line bg-surface pt-[var(--safe-top)] pl-[max(0.75rem,var(--safe-left))] pr-[max(0.75rem,var(--safe-right))] sm:gap-4 sm:pl-[max(1.25rem,var(--safe-left))] sm:pr-[max(1.25rem,var(--safe-right))]">
         {!guest && (
         <button
           onClick={() => setSideOpen((v) => !v)}
           title="Toggle sidebar"
           aria-expanded={sideOpen}
           aria-label="Toggle sidebar"
-          className="flex h-8 w-8 shrink-0 flex-col items-center justify-center gap-[3px] rounded-chip border border-line hover:bg-felt-deep"
+          className="flex h-11 w-11 shrink-0 flex-col items-center justify-center gap-[3px] rounded-chip border border-line hover:bg-felt-deep"
         >
           <span className="h-0.5 w-3.5 rounded-full bg-ink-soft" />
           <span className="h-0.5 w-3.5 rounded-full bg-ink-soft" />

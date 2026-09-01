@@ -570,7 +570,7 @@ export function StandupRoom({
             // meeting, with a room watching.
             <div
               data-testid="facilitator-bar"
-              className="sticky bottom-0 -mx-6 -mb-6 flex gap-2 rounded-b-panel bg-surface px-6 py-4"
+              className="sticky bottom-0 -mx-6 -mb-6 flex gap-2 rounded-b-panel bg-surface px-6 py-4 pb-[calc(1rem+var(--safe-bottom))]"
             >
               <button className={buttonPrimary} onClick={() => run(() => action(env.id, "next"))}>
                 Next

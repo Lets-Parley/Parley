@@ -92,3 +92,10 @@ describe("base cursor", () => {
     expect(base).not.toMatch(/(^|,|\s)button\s*[,{]/);
   });
 });
+
+describe("responsive tokens", () => {
+  it("limits hand-card lift to fine pointers", () => {
+    expect(css).toMatch(/@media \(hover: hover\) and \(pointer: fine\)/);
+    expect(css).toMatch(/\.hand-card:hover:not\(:disabled\)/);
+  });
+});

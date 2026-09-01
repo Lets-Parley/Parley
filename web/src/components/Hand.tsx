@@ -26,7 +26,11 @@ export function Hand({
   const headingId = useId();
 
   return (
-    <section aria-labelledby={headingId} className="mx-auto w-full max-w-[780px] rounded-panel bg-felt-deep px-4 pb-6 pt-4 shadow-well sm:px-6">
+    <section
+      aria-labelledby={headingId}
+      className="mx-auto w-full max-w-[780px] rounded-panel bg-felt-deep px-4 pt-4 shadow-well sm:px-6"
+      style={{ paddingBottom: "calc(1.5rem + var(--safe-bottom))" }}
+    >
       <div className="mb-3.5 flex items-center justify-between gap-3">
         <h2 id={headingId} className="font-mono text-[11px] tracking-[0.06em] text-ink-faint">
           YOUR HAND · <span className="capitalize">{deckName}</span>

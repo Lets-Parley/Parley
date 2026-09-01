@@ -102,11 +102,11 @@ export function StoryQueue({
             }
           >
             {isFacilitator && (
-              <span className="flex shrink-0 flex-col gap-0.5">
+              <span className="flex shrink-0 flex-row">
                 <button
                   aria-label={`Move ${nameOf(s)} up`}
                   disabled={i === 0}
-                  className="h-[14px] w-[18px] text-[9px] leading-none text-ink-faint hover:text-ink disabled:opacity-30"
+                  className="flex h-11 w-11 items-center justify-center text-[9px] leading-none text-ink-faint hover:text-ink disabled:opacity-30"
                   onClick={() => move(s, -1)}
                 >
                   ▲
@@ -114,7 +114,7 @@ export function StoryQueue({
                 <button
                   aria-label={`Move ${nameOf(s)} down`}
                   disabled={i === stories.length - 1}
-                  className="h-[14px] w-[18px] text-[9px] leading-none text-ink-faint hover:text-ink disabled:opacity-30"
+                  className="flex h-11 w-11 items-center justify-center text-[9px] leading-none text-ink-faint hover:text-ink disabled:opacity-30"
                   onClick={() => move(s, 1)}
                 >
                   ▼
