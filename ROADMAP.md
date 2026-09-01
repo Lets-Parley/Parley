@@ -13,21 +13,8 @@ For implementation status, see the GitHub Project:
 
 Work in progress or expected in the current development cycle.
 
-Responsive support shipped in v0.10.0.
-
-### A room you can hand over
-
-The API can already pass the facilitator role to a named person, and nothing in
-the frontend ever calls it. In practice the role cannot be given away, only
-taken, and only after the current holder has been gone for a minute. Standup has
-neither control. A facilitator who wants someone else to drive — or who is about
-to drop off the call — has no path that does not involve disappearing.
-
-Small, and a prerequisite: a session limit is a facilitator control, and standup
-has no facilitator surface to hang one on.
-
-- Status: Backlog
-- Tracking: [#392](https://github.com/lets-parley/parley/issues/392)
+Nothing is in flight right now — responsive support shipped in v0.10.0, and the
+facilitator handover landed behind it. The next items are under **Next**.
 
 ## Next
 
@@ -222,6 +209,12 @@ Ideas under consideration, not committed to.
   and this is the version with the clock taken out ([#388](https://github.com/lets-parley/parley/issues/388))
 
 ## Completed
+
+### Unreleased
+
+- A facilitator can hand the role to a named participant from the roster, in
+  poker and in standup alike, instead of the role only moving by going quiet for
+  a minute ([#392](https://github.com/lets-parley/parley/issues/392))
 
 ### v0.10.0
 
