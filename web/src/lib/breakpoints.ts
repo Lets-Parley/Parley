@@ -22,6 +22,9 @@ export const BREAKPOINTS = {
 /** WCAG 2.5.5 target size — also Apple HIG minimum for touch. */
 export const TOUCH_TARGET_MIN = 44;
 
+/** Tailwind utility class — min 44×44px hit area. */
+export const TOUCH_HIT = "touch-hit";
+
 export function minWidthQuery(px: number): string {
   return `(min-width: ${px}px)`;
 }

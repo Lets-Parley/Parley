@@ -87,7 +87,7 @@ export function SpaceSettingsPage() {
       <div
         ref={column}
         tabIndex={-1}
-        className="mx-auto max-w-[760px] px-6 py-9 outline-none sm:px-8"
+        className="mx-auto max-w-[760px] py-9 pl-[max(1.5rem,var(--safe-left))] pr-[max(1.5rem,var(--safe-right))] outline-none sm:pl-[max(2rem,var(--safe-left))] sm:pr-[max(2rem,var(--safe-right))]"
       >
         <Link
           to={spacePath(org, sp.slug)}

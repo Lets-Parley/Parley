@@ -279,3 +279,11 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   label:has(> input[type="checkbox"]),
   summary { cursor: pointer; }
 }
+
+/* WCAG 2.5.5 / HIG minimum — use on icon-only or undersized controls. */
+@layer utilities {
+  .touch-hit {
+    min-height: var(--touch-min);
+    min-width: var(--touch-min);
+  }
+}

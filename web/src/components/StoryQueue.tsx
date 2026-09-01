@@ -1,5 +1,6 @@
 import { useId, useState, type FormEvent } from "react";
 import { action, errorText, type Story } from "../lib/api";
+import { TOUCH_HIT } from "../lib/breakpoints";
 import { ErrorRow, buttonPrimary, buttonQuiet, inputClass, Modal, type Fail } from "./Modal";
 import { faceOf } from "./Table";
 
@@ -60,13 +61,13 @@ export function StoryQueue({
             <button
               onClick={onQuickRound}
               title="Ad-hoc round, no ticket needed"
-              className="text-xs font-bold text-accent hover:underline"
+              className={`${TOUCH_HIT} inline-flex items-center px-2 text-xs font-bold text-accent hover:underline`}
             >
               + Ad hoc
             </button>
             <button
               onClick={() => setComposing(true)}
-              className="text-xs font-bold text-accent hover:underline"
+              className={`${TOUCH_HIT} inline-flex items-center px-2 text-xs font-bold text-accent hover:underline`}
             >
               + Ticket
             </button>
@@ -106,7 +107,7 @@ export function StoryQueue({
                 <button
                   aria-label={`Move ${nameOf(s)} up`}
                   disabled={i === 0}
-                  className="flex h-11 w-11 items-center justify-center text-[9px] leading-none text-ink-faint hover:text-ink disabled:opacity-30"
+                  className={`${TOUCH_HIT} flex items-center justify-center text-[9px] leading-none text-ink-faint hover:text-ink disabled:opacity-30`}
                   onClick={() => move(s, -1)}
                 >
                   ▲
@@ -114,7 +115,7 @@ export function StoryQueue({
                 <button
                   aria-label={`Move ${nameOf(s)} down`}
                   disabled={i === stories.length - 1}
-                  className="flex h-11 w-11 items-center justify-center text-[9px] leading-none text-ink-faint hover:text-ink disabled:opacity-30"
+                  className={`${TOUCH_HIT} flex items-center justify-center text-[9px] leading-none text-ink-faint hover:text-ink disabled:opacity-30`}
                   onClick={() => move(s, 1)}
                 >
                   ▼
@@ -149,7 +150,7 @@ export function StoryQueue({
               s.id !== currentStoryId && (
                 <button
                   aria-label={`Deal ${nameOf(s)}`}
-                  className="shrink-0 rounded-full border border-line px-2.5 py-1 text-xs font-bold text-ink-soft hover:bg-felt-deep"
+                  className={`${TOUCH_HIT} shrink-0 inline-flex items-center rounded-full border border-line px-3 text-xs font-bold text-ink-soft hover:bg-felt-deep`}
                   onClick={() => run(() => action(sessionId, "select", { storyId: s.id }))}
                 >
                   Deal

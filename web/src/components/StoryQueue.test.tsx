@@ -42,8 +42,7 @@ describe("StoryQueue", () => {
   it("sizes reorder controls for touch", () => {
     renderQueue();
     const up = screen.getByRole("button", { name: "Move Set up CI up" });
-    expect(up.className).toMatch(/\bh-11\b/);
-    expect(up.className).toMatch(/\bw-11\b/);
+    expect(up.className).toContain("touch-hit");
   });
 
   it("gives the agreed-estimate chip a real accessible name", () => {

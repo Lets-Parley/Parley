@@ -379,7 +379,7 @@ export function StandupRoom({
     </ol>;
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-6 p-5 sm:p-7">
+    <div className="mx-auto flex max-w-4xl flex-col gap-6 p-5 pl-[max(1.25rem,var(--safe-left))] pr-[max(1.25rem,var(--safe-right))] sm:p-7 sm:pl-[max(1.75rem,var(--safe-left))] sm:pr-[max(1.75rem,var(--safe-right))]">
       {/* Not a panel. The session's name lives in the shell header and the
           countdown lives in the round bar, so a bordered, padded surface here
           would be chrome around two tertiary links. */}

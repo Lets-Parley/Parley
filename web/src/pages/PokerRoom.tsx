@@ -103,7 +103,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
   if (status === "kicked") return <ShownTheDoor message={kickReason} env={env} guest={guest} />;
 
   return (
-    <div className="flex flex-wrap items-start gap-6 p-5 sm:p-7">
+    <div className="flex flex-wrap items-start gap-6 p-5 pl-[max(1.25rem,var(--safe-left))] pr-[max(1.25rem,var(--safe-right))] sm:p-7 sm:pl-[max(1.75rem,var(--safe-left))] sm:pr-[max(1.75rem,var(--safe-right))]">
       <div className="flex min-w-0 w-full flex-1 flex-col gap-5 lg:basis-[560px]">
         {/* Story on the table, plus whoever is running the round. */}
         <header className="flex flex-wrap items-center gap-4 rounded-panel border border-line bg-surface px-5 py-4 shadow-rest">
@@ -405,7 +405,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
           // Observed firing, not theorised: below `lg` the aside stacks under
           // the column, so near max scroll the hand unpins for the last stretch
           // of document that sits outside its containing block.
-          <div className="sticky bottom-0 z-10 bg-felt pt-2 pb-1">
+          <div className="sticky bottom-0 z-10 bg-felt pt-2 pb-[var(--safe-bottom)]">
             <Hand
               values={st.deck.values}
               deckName={st.deck.name}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { BREAKPOINTS, TOUCH_TARGET_MIN, minWidthQuery } from "./breakpoints";
+import { BREAKPOINTS, TOUCH_HIT, TOUCH_TARGET_MIN, minWidthQuery } from "./breakpoints";
 
 const css = readFileSync(path.resolve(__dirname, "../tokens.css"), "utf-8");
 
@@ -21,6 +21,11 @@ describe("breakpoints contract", () => {
   it("documents a 44px touch floor in tokens.css", () => {
     expect(TOUCH_TARGET_MIN).toBe(44);
     expect(css).toMatch(/--touch-min:\s*44px/);
+    expect(css).toMatch(/\.touch-hit/);
+  });
+
+  it("exports the touch-hit utility class name", () => {
+    expect(TOUCH_HIT).toBe("touch-hit");
   });
 
   it("declares safe-area inset variables", () => {

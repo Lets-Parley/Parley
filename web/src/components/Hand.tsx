@@ -1,4 +1,5 @@
 import { useId, type CSSProperties } from "react";
+import { TOUCH_HIT } from "../lib/breakpoints";
 import { faceOf } from "./Table";
 
 // Your hand sits in a felt well at the bottom of the table. On a phone it
@@ -43,7 +44,7 @@ export function Hand({
             <button
               onClick={onToggleSpectate}
               className={
-                "rounded-full border border-line px-3 py-1 font-mono text-[10px] text-ink-soft " +
+                `${TOUCH_HIT} inline-flex items-center rounded-full border border-line px-4 font-mono text-[10px] text-ink-soft ` +
                 (spectating ? "bg-accent-soft" : "hover:bg-surface")
               }
             >

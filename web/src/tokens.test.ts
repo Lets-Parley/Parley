@@ -98,4 +98,8 @@ describe("responsive tokens", () => {
     expect(css).toMatch(/@media \(hover: hover\) and \(pointer: fine\)/);
     expect(css).toMatch(/\.hand-card:hover:not\(:disabled\)/);
   });
+
+  it("defines the touch-hit utility", () => {
+    expect(css).toMatch(/@layer utilities[\s\S]*\.touch-hit/);
+  });
 });

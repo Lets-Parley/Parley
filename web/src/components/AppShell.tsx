@@ -6,7 +6,7 @@ import { safeDisplayName } from "../lib/displayName";
 import { kindLabel } from "../lib/kinds";
 import type { ConnectionStatus } from "../lib/socket";
 import { useMediaQuery, useTheme } from "../lib/ui";
-import { SIDEBAR_RAIL_QUERY } from "../lib/breakpoints";
+import { SIDEBAR_RAIL_QUERY, TOUCH_HIT } from "../lib/breakpoints";
 import { Avatar } from "./Avatar";
 import { ProfileDialog } from "./ProfileDialog";
 import { ConnectionBanner } from "./ConnectionBanner";
@@ -327,7 +327,7 @@ export function AppShell({
           title="Toggle sidebar"
           aria-expanded={sideOpen}
           aria-label="Toggle sidebar"
-          className="flex h-11 w-11 shrink-0 flex-col items-center justify-center gap-[3px] rounded-chip border border-line hover:bg-felt-deep"
+          className={`${TOUCH_HIT} flex shrink-0 flex-col items-center justify-center gap-[3px] rounded-chip border border-line hover:bg-felt-deep`}
         >
           <span className="h-0.5 w-3.5 rounded-full bg-ink-soft" />
           <span className="h-0.5 w-3.5 rounded-full bg-ink-soft" />
@@ -392,7 +392,7 @@ export function AppShell({
               <button
                 onClick={() => setRosterOpen(true)}
                 aria-label={`Show all ${members?.length ?? 0} members`}
-                className="-ml-2 flex h-7 w-7 items-center justify-center rounded-full bg-felt-deep text-[10px] font-bold text-ink-soft ring-2 ring-surface hover:bg-surface-hi"
+                className={`-ml-2 ${TOUCH_HIT} flex items-center justify-center rounded-full bg-felt-deep text-[10px] font-bold text-ink-soft ring-2 ring-surface hover:bg-surface-hi`}
               >
                 +{overflow}
               </button>
@@ -444,7 +444,7 @@ export function AppShell({
           </nav>
         )}
 
-        <main id="main" className="relative min-w-0 flex-1">{children}</main>
+        <main id="main" className="relative min-w-0 flex-1 pl-[max(0px,var(--safe-left))] pr-[max(0px,var(--safe-right))]">{children}</main>
       </div>
 
       {sideOpen && !wide && !guest && (
