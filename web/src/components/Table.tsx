@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import type { Person } from "../lib/api";
 import { cueLabel, cueVar, type CueState } from "../lib/cue";
 import { safeDisplayName } from "../lib/displayName";
+import { TOUCH_HIT } from "../lib/breakpoints";
 import { voteTally } from "../lib/derive";
 import {
   BOOT_PX,
@@ -500,11 +501,13 @@ export function Table({
                     type="button"
                     aria-label={`Remove ${safeDisplayName(p.name)}`}
                     onClick={() => onRemove(p)}
-                    // Faint but always there rather than hover-only: a control that
-                    // exists only under a pointer does not exist on a tablet.
-                    className="absolute -right-1 -top-1 z-[5] flex h-5 w-5 items-center justify-center rounded-full border border-line bg-surface text-[11px] font-bold leading-none text-ink-faint opacity-60 shadow-rest transition hover:text-stop hover:opacity-100 focus-visible:opacity-100"
+                    // 44px hit area, 20px visible chrome — a full-size disc
+                    // overlapped neighbours on 74px seats.
+                    className={`absolute -right-2 -top-2 z-[5] ${TOUCH_HIT} flex items-center justify-center`}
                   >
-                    <span aria-hidden>×</span>
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full border border-line bg-surface text-[11px] font-bold leading-none text-ink-faint opacity-60 shadow-rest transition hover:text-stop hover:opacity-100">
+                      <span aria-hidden>×</span>
+                    </span>
                   </button>
                 )}
                 <span className="block" data-avatar style={{ animation: five.animation }}>

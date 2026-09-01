@@ -107,8 +107,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         <div
           role="status"
           aria-live="polite"
-          className="fixed bottom-6 left-1/2 z-[70] rounded-full border border-line bg-surface-hi px-6 py-3 text-sm font-bold shadow-lift"
-          style={{ transform: "translate(-50%,0)", animation: "toast-up 220ms var(--ease-spring)" }}
+          className="fixed left-1/2 z-[70] rounded-full border border-line bg-surface-hi px-6 py-3 text-sm font-bold shadow-lift"
+          style={{
+            bottom: "calc(1.5rem + var(--safe-bottom))",
+            transform: "translate(-50%,0)",
+            animation: "toast-up 220ms var(--ease-spring)",
+          }}
         >
           {msg}
         </div>

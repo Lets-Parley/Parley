@@ -62,6 +62,16 @@
   --dur-flip: 300ms;
   --dur-stagger: 70ms;
   --dur-toast: 220ms;
+
+  /* Viewport tiers — mirrored in web/src/lib/breakpoints.ts. */
+  --bp-sm: 640px;
+  --bp-md: 768px;
+  --bp-lg: 1024px;
+  --touch-min: 44px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 }
 
 /* Dark: night watch — deep navy hull, paper-warm text. */
@@ -179,7 +189,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   transform: rotate(var(--rot, 0deg));
   transition: transform var(--dur-lift) var(--ease-spring), box-shadow var(--dur-lift);
 }
-.hand-card:hover:not(:disabled) { transform: translateY(-6px) rotate(0deg); }
+@media (hover: hover) and (pointer: fine) {
+  .hand-card:hover:not(:disabled) { transform: translateY(-6px) rotate(0deg); }
+}
 .hand-card[aria-pressed="true"] { transform: translateY(-10px) rotate(0deg); }
 
 @keyframes flip-in { from { transform: rotateY(92deg) } to { transform: rotateY(0deg) } }
@@ -266,4 +278,12 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   label:has(> input[type="radio"]),
   label:has(> input[type="checkbox"]),
   summary { cursor: pointer; }
+}
+
+/* WCAG 2.5.5 / HIG minimum — use on icon-only or undersized controls. */
+@layer utilities {
+  .touch-hit {
+    min-height: var(--touch-min);
+    min-width: var(--touch-min);
+  }
 }

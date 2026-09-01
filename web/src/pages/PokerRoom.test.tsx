@@ -259,12 +259,12 @@ describe("PokerRoom hand placement", () => {
     // At 390px a 15-seat table is four ranks tall; the page scrolls and the
     // hand must not scroll away with it.
     const { container } = renderApp(<PokerRoom env={envelope()} me={me} />);
-    const hand = container.querySelector("section.sticky, .sticky > section");
-    expect(hand).toBeTruthy();
-    const sticky = container.querySelector(".sticky") as HTMLElement;
-    expect(sticky.className).toContain("bottom-0");
-    // ponytail: sticky works only while Hand is the last child of the column.
-    expect(sticky.parentElement?.lastElementChild).toBe(sticky);
+    const tray = container.querySelector(".fixed.bottom-0, .lg\\:sticky");
+    expect(tray).toBeTruthy();
+    expect(tray!.className).toContain("bottom-0");
+    expect(tray!.className).toContain("fixed");
+    expect(tray!.className).toContain("lg:sticky");
+    expect(tray!.parentElement?.lastElementChild).toBe(tray);
   });
 });
 

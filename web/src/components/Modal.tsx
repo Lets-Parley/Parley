@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useId, useRef } from "react";
+import { TOUCH_HIT } from "../lib/breakpoints";
 
 /**
  * Whether a pointer event landed outside the dialog's own box. A click on the
@@ -94,7 +95,7 @@ export function Modal({
         <button
           onClick={onClose}
           aria-label="Close"
-          className="absolute right-3.5 top-3 text-[13px] text-ink-faint hover:text-ink"
+          className={`${TOUCH_HIT} absolute right-2 top-2 flex items-center justify-center text-[13px] text-ink-faint hover:text-ink`}
         >
           ✕
         </button>

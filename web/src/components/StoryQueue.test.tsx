@@ -39,6 +39,12 @@ describe("StoryQueue", () => {
     expect(screen.queryByRole("button", { name: "Deal" })).toBeNull();
   });
 
+  it("sizes reorder controls for touch", () => {
+    renderQueue();
+    const up = screen.getByRole("button", { name: "Move Set up CI up" });
+    expect(up.className).toContain("touch-hit");
+  });
+
   it("gives the agreed-estimate chip a real accessible name", () => {
     renderQueue();
     expect(screen.getByRole("img", { name: "Agreed estimate 5" })).toBeTruthy();

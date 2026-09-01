@@ -67,7 +67,7 @@ accepted and actionable.
 
 <Capability rows={[
   { name: "Retrospectives, story mapping, and other ceremonies", status: "not-built", detail: "Poker and standup are the two session kinds. The rest is roadmap, and much of it is waiting on session kinds becoming a real extension point." },
-  { name: "A verified mobile layout", status: "not-built", detail: "Responsive, but never formally tested on a handset. Use a laptop or tablet for a session that matters." },
+  { name: "A verified mobile layout", status: "not-built", detail: "Foundation in progress (<a href=\"https://github.com/Lets-Parley/Parley/pull/475\">#475</a>): named breakpoints, touch targets on key controls, and safe-area insets on the shell and hand. Participant voting is the first-class mobile target; standup, settings, and facilitator workflows are not yet verified on a handset." },
   { name: "Custom decks", status: "built", detail: "Four built-in decks, plus any a space owner saves under Settings → Decks. A saved deck is a template: a session copies the cards when it is created, so editing or deleting a deck leaves existing rooms alone. Sharing a deck between spaces is not built. See <a href='/features/planning-poker/#decks-of-your-own'>Planning poker</a>." },
   { name: "Configurable standup timer", status: "not-built", detail: "The server takes a <code>secondsPerPerson</code> value but no UI sets it, so 90 seconds is effectively fixed." },
   { name: "Explicit facilitator handover in the UI", status: "not-built", detail: "The endpoint exists; no control calls it. The 60-second claim path is wired, and only in the poker room." },

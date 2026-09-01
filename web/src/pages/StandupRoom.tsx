@@ -379,7 +379,7 @@ export function StandupRoom({
     </ol>;
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-6 p-5 sm:p-7">
+    <div className="mx-auto flex max-w-4xl flex-col gap-6 p-5 pl-[max(1.25rem,var(--safe-left))] pr-[max(1.25rem,var(--safe-right))] sm:p-7 sm:pl-[max(1.75rem,var(--safe-left))] sm:pr-[max(1.75rem,var(--safe-right))]">
       {/* Not a panel. The session's name lives in the shell header and the
           countdown lives in the round bar, so a bordered, padded surface here
           would be chrome around two tertiary links. */}
@@ -461,16 +461,6 @@ export function StandupRoom({
             Jot down your update while everyone gathers. Your notes save automatically.
           </p>
           <EntryForm draft={draft} update={update} saveState={saveState} />
-          <button
-            // Filled navy on both this and Start put two primaries on one
-            // screen and left the round's actual action competing with a
-            // toggle. The label already says which way it is set.
-            className={buttonQuiet + " self-start"}
-            aria-pressed={iAmReady}
-            onClick={() => run(() => action(env.id, "ready", { ready: !iAmReady }), { where: "gathering" })}
-          >
-            {iAmReady ? "Ready — stand back down" : "I'm ready"}
-          </button>
           {/* Who the room is waiting on, in words — a dot or a tint alone would
               leave the only copy of this fact in colour. Only the people still
               writing are named: the other rows carried one bit each and said
@@ -501,11 +491,23 @@ export function StandupRoom({
             )}
           </div>
           {failRow("gathering")}
+          <div className="sticky bottom-0 -mx-5 -mb-5 mt-2 flex flex-col gap-2 border-t border-line bg-surface px-5 py-4 pb-[calc(1rem+var(--safe-bottom))]">
+          <button
+            // Filled navy on both this and Start put two primaries on one
+            // screen and left the round's actual action competing with a
+            // toggle. The label already says which way it is set.
+            className={buttonQuiet + " self-start"}
+            aria-pressed={iAmReady}
+            onClick={() => run(() => action(env.id, "ready", { ready: !iAmReady }), { where: "gathering" })}
+          >
+            {iAmReady ? "Ready — stand back down" : "I'm ready"}
+          </button>
           {isFacilitator && (
             <button className={buttonPrimary + " self-start"} onClick={() => run(() => action(env.id, "start"), { where: "gathering" })}>
               {`Start the round · ${readyCount} of ${speakers.length} ready`}
             </button>
           )}
+          </div>
         </section>
       )}
 
@@ -570,7 +572,7 @@ export function StandupRoom({
             // meeting, with a room watching.
             <div
               data-testid="facilitator-bar"
-              className="sticky bottom-0 -mx-6 -mb-6 flex gap-2 rounded-b-panel bg-surface px-6 py-4"
+              className="sticky bottom-0 -mx-6 -mb-6 flex gap-2 rounded-b-panel bg-surface px-6 py-4 pb-[calc(1rem+var(--safe-bottom))]"
             >
               <button className={buttonPrimary} onClick={() => run(() => action(env.id, "next"))}>
                 Next

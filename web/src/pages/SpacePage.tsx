@@ -17,6 +17,7 @@ import {
   labelClass,
 } from "../components/Modal";
 import { useCopy, useToast } from "../lib/ui";
+import { TOUCH_HIT } from "../lib/breakpoints";
 import { decksApi, spaceApi, spacePath } from "../lib/paths";
 import { inviteLink } from "../lib/invite";
 import {
@@ -351,7 +352,7 @@ export function SpacePage() {
       sessions={all}
       canManage={canManage}
     >
-      <div className="mx-auto max-w-[760px] px-6 py-9 sm:px-8">
+      <div className="mx-auto max-w-[760px] py-9 pl-[max(1.5rem,var(--safe-left))] pr-[max(1.5rem,var(--safe-right))] sm:pl-[max(2rem,var(--safe-left))] sm:pr-[max(2rem,var(--safe-right))]">
         <InviteStrip org={org} slug={sp.slug} passcode={sp.passcode ?? ""} />
 
         <div className="mb-5 flex items-center justify-between gap-4">
@@ -382,7 +383,7 @@ export function SpacePage() {
                   onClick={() => setKind(k.id)}
                   aria-pressed={kind === k.id}
                   className={
-                    "rounded-full px-3 py-1.5 text-xs font-bold " +
+                    `${TOUCH_HIT} inline-flex items-center rounded-full px-4 text-xs font-bold ` +
                     (kind === k.id ? "bg-surface text-ink shadow-rest" : "text-ink-soft")
                   }
                 >
@@ -392,7 +393,7 @@ export function SpacePage() {
             </div>
             <button
               onClick={() => setSort(sort === "Recent" ? "Active first" : sort === "Active first" ? "A\u2013Z" : "Recent")}
-              className="flex items-center gap-1.5 rounded-full border border-line bg-surface px-3.5 py-2 text-xs font-bold text-ink-soft hover:bg-surface-hi"
+              className={`${TOUCH_HIT} inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-4 text-xs font-bold text-ink-soft hover:bg-surface-hi`}
             >
               <span className="font-mono text-[10px] text-ink-faint">SORT</span>
               {sort}
@@ -404,7 +405,7 @@ export function SpacePage() {
                   setKind("");
                   setSort("Recent");
                 }}
-                className="px-1 py-2 text-xs font-bold text-accent"
+                className={`${TOUCH_HIT} inline-flex items-center px-3 text-xs font-bold text-accent`}
               >
                 Clear
               </button>

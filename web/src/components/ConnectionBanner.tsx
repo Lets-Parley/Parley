@@ -1,4 +1,5 @@
 import type { ConnectionStatus } from "../lib/socket";
+import { TOUCH_HIT } from "../lib/breakpoints";
 
 // Named failures only. Each banner says what happened, what it means for your
 // vote, and — when there's something to do — offers the one action.
@@ -36,7 +37,7 @@ export function ConnectionBanner({
            space this person is no longer in. */
         <a
           href="/"
-          className="rounded-full border border-line bg-surface px-3 py-1 text-xs font-bold hover:bg-surface-hi"
+          className={`${TOUCH_HIT} inline-flex items-center rounded-full border border-line bg-surface px-4 text-xs font-bold hover:bg-surface-hi`}
         >
           Back to Parley
         </a>
@@ -44,7 +45,7 @@ export function ConnectionBanner({
       {stale && !removed && onRetry && (
         <button
           onClick={onRetry}
-          className="rounded-full border border-line bg-surface px-3 py-1 text-xs font-bold hover:bg-surface-hi"
+          className={`${TOUCH_HIT} inline-flex items-center rounded-full border border-line bg-surface px-4 text-xs font-bold hover:bg-surface-hi`}
         >
           Retry now
         </button>
