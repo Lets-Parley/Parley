@@ -17,6 +17,13 @@ import { Logo, ThemeToggle } from "../components/AppShell";
 import { Avatar } from "../components/Avatar";
 import { buttonPrimary, buttonQuiet, inputClass, labelClass } from "../components/Modal";
 import { safeDisplayName } from "../lib/displayName";
+import {
+  CARD_DEAL_MS,
+  CARD_HOP_MS,
+  DEAL_STAGGER_MS,
+  flipStartsAt,
+  resultStampsAt,
+} from "../lib/motion";
 
 // Deliberately sessionStorage, not localStorage: an abandoned space name should
 // die with the tab rather than greet someone next week. The stamp narrows it
@@ -70,10 +77,11 @@ const HERO_RESULT = "5";
 
 function DealAndReveal() {
   // The deal is over before the flip starts; the number lands after the last
-  // card is face-up. One clock, read from the same beat sheet the table uses.
-  const DEAL_MS = 260;
-  const dealt = HERO_HAND.length * 90;
-  const flipBase = dealt + 420;
+  // card is face-up. Read from the same beat sheet the real table uses — these
+  // were hardcoded literals, which reintroduced exactly the four-clocks drift
+  // the beat sheet exists to prevent.
+  const dealt = HERO_HAND.length * DEAL_STAGGER_MS;
+  const flipBase = dealt + CARD_HOP_MS;
 
   return (
     <div aria-hidden className="flex flex-col items-center gap-5">
@@ -89,8 +97,8 @@ function DealAndReveal() {
                   "--rot": `${rot.toFixed(1)}deg`,
                   fontSize: "var(--text-num-card)",
                   animation:
-                    `deal-in ${DEAL_MS}ms linear ${i * 90}ms both, ` +
-                    `flip-in var(--dur-flip) linear ${flipBase + i * 70}ms both`,
+                    `deal-in ${CARD_DEAL_MS}ms linear ${i * DEAL_STAGGER_MS}ms both, ` +
+                    `flip-in var(--dur-flip) linear ${flipBase + flipStartsAt(i)}ms both`,
                 } as CSSProperties
               }
             >
@@ -107,7 +115,7 @@ function DealAndReveal() {
         style={{
           fontSize: "var(--text-num-result)",
           color: "var(--color-settled)",
-          animation: `stamp-in 350ms var(--ease-settle) ${flipBase + (HERO_HAND.length - 1) * 70 + 300 + 90}ms both`,
+          animation: `stamp-in 350ms var(--ease-settle) ${flipBase + resultStampsAt(HERO_HAND.length)}ms both`,
         }}
       >
         {HERO_RESULT}

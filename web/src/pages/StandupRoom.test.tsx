@@ -1235,7 +1235,48 @@ describe("StandupRoom carrying over", () => {
     expect(badge.textContent).toMatch(/stuck/i);
     // About the work, never about the person keeping it.
     expect(badge.textContent).not.toMatch(/\byou\b/i);
+    // Accent, not stop: stop is reserved for destructive and stop actions, and
+    // a commitment that keeps carrying is a live state of the work.
+    expect(badge.className).toMatch(/\btext-accent\b/);
+    expect(badge.className).not.toMatch(/\btext-stop\b/);
     expect(within(row("fresh thing")).queryByTestId("stuck-badge")).toBe(null);
+  });
+
+  it("never lets a departed member's stale entry push position past the count", async () => {
+    // st.entries keeps a row for everyone who ever had one; speakers counts
+    // only current, non-spectator participants. Reading the numerator from
+    // the first set and the denominator from the second could print "3 / 2".
+    // Priya is third in st.entries but has left, so she is not a speaker.
+    // With her as the current speaker the old numerator read 3 while the
+    // denominator counted the two who remain: "3 / 2".
+    renderApp(
+      <StandupRoom
+        env={envelope({
+          participants: [
+            makePerson({ userId: "dana", name: "Dana Whitfield" }),
+            makePerson({ userId: "marcus", name: "Marcus Okonjo" }),
+          ],
+          state: standupState("priya"),
+        })}
+        me={me}
+      />,
+    );
+    const progress = screen.getByTestId("round-progress");
+    const [num, denom] = (progress.textContent ?? "").match(/\d+/g)!.map(Number);
+    expect(denom).toBe(2);
+    expect(num).toBeLessThanOrEqual(denom);
+  });
+
+  it("holds the round clock through the whole page when the socket drops", async () => {
+    // The Timer's own held-clock branch is unit-tested; this pins the wiring
+    // that decides when to use it, which an inverted condition passed.
+    renderApp(<StandupRoom env={envelope()} me={me} status="reconnecting" />);
+    expect(screen.getByText(/clock held/i)).toBeTruthy();
+  });
+
+  it("runs the round clock normally while the socket is live", async () => {
+    renderApp(<StandupRoom env={envelope()} me={me} status="live" />);
+    expect(screen.queryByText(/clock held/i)).toBeNull();
   });
 
   it("keeps never-answered apart from answered no", async () => {
@@ -1251,6 +1292,19 @@ describe("StandupRoom carrying over", () => {
     const [path, init] = f.mock.calls[0] as [string, RequestInit];
     expect(path).toBe("/api/sessions/sess-1/actions/answer");
     expect(JSON.parse(init.body as string)).toEqual({ id: "c1", done: false });
+  });
+
+  it("keeps the pair answerable after you answer, instead of a dead sentence", async () => {
+    // Swapping the buttons for static text made a misclick in the ninety
+    // seconds before your turn unrecoverable for the rest of the sitting.
+    mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /no/i }));
+    await waitFor(() => expect(row("alpha").textContent).toMatch(/not yet/i));
+    const no = within(row("alpha")).getByRole("button", { name: /no/i });
+    const yes = within(row("alpha")).getByRole("button", { name: /yes/i });
+    expect(no.getAttribute("aria-pressed")).toBe("true");
+    expect(yes.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("sends done:true for yes, and never a userId", async () => {

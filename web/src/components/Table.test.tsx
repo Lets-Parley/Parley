@@ -177,6 +177,31 @@ describe("Table", () => {
     expect(seat("Priya").getByRole("img", { name: "away" })).toBeTruthy();
   });
 
+  it("keeps an away seat away at the reveal, instead of a blank face card", () => {
+    // Before the fix, `revealed` alone forced every seat to "face", so a seat
+    // whose owner had left the meeting turned over a blank card and became
+    // indistinguishable from a present person who abstained.
+    renderTable({
+      online: new Set(["dana", "marcus"]), // priya has gone
+      revealed: true,
+      votes: new Map([["dana", "5"]]),
+    });
+    expect(seat("Priya").getByRole("img", { name: "away" })).toBeTruthy();
+    expect(seat("Priya").queryByRole("img", { name: "no card" })).toBeNull();
+  });
+
+  it("still turns a present seat's empty card face-up at the reveal", () => {
+    // The other half of the same branch: absence is drawn as absence, but a
+    // present abstainer has a card to turn over and still turns it.
+    renderTable({
+      online: new Set(["dana", "marcus", "priya"]),
+      revealed: true,
+      votes: new Map([["dana", "5"]]),
+    });
+    expect(seat("Priya").getByRole("img", { name: "no card" })).toBeTruthy();
+    expect(seat("Priya").queryByRole("img", { name: "away" })).toBeNull();
+  });
+
   it("puts every revealed value into the seat's accessible name, tied to the right seat", () => {
     renderTable({
       revealed: true,
@@ -325,10 +350,16 @@ function seatEl(userId: string): HTMLElement {
 }
 
 describe("celebrationBeats", () => {
-  // The last card is still bouncing until hopStartsAt(n-1) + CARD_HOP_MS.
-  // Jumping before that puts the celebration on top of the reveal it is
-  // celebrating. Read from the beat sheet, never restated here.
+  /* Literal, for the same reason as lib/motion/plan.test.ts: asserting that
+     start (defined as cardsLand + 60) exceeds cardsLand is trivially true for
+     any value of CARD_HOP_MS, negative ones included. The numbers below are
+     (n-1)*70 + 780, worked out by hand. */
   it("waits out the slowest card at every table size", () => {
+    expect(celebrationBeats(1, 1).start).toBe(780);
+    expect(celebrationBeats(2, 1).start).toBe(850);
+    expect(celebrationBeats(6, 3).start).toBe(1130);
+    expect(celebrationBeats(15, 8).start).toBe(1760);
+    // ...and it is always after the last card has stopped bouncing.
     for (const n of [1, 2, 6, 15]) {
       const cardsLand = hopStartsAt(n - 1) + CARD_HOP_MS;
       expect(celebrationBeats(n, Math.ceil(n / 2)).start).toBeGreaterThan(cardsLand);

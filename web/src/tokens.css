@@ -31,8 +31,10 @@
   /* `line` is a hairline divider and is deliberately faint — but WCAG 2.2 AA
      1.4.11 wants 3:1 on the boundary that *identifies a control*, and a quiet
      button or an input has no other edge. `line-strong` is that boundary, and
-     nothing else: it clears 3:1 on all four grounds in its theme. */
-  --color-line-strong: #7D7A73;
+     nothing else: it clears 3.26:1 at worst against all four grounds in its
+     own theme. The margin over 3.0 is deliberate — a value sitting at 3.007
+     passes today and drops under the floor the moment a surface is nudged. */
+  --color-line-strong: #77746D;
   --color-accent:      #1D4E6E;
   --color-accent-ink:  #F4F8FB;
   --color-accent-soft: #D6E4EE;
@@ -95,7 +97,7 @@
     --color-ink-soft:    #A3B1C0;
     --color-ink-faint:   #8494A4;
     --color-line:        #2A3648;
-    --color-line-strong: #687585;
+    --color-line-strong: #6D7A8A;
     --color-accent:      #5FA8D3;
     --color-accent-ink:  #08131F;
     --color-accent-soft: #1C3247;
@@ -125,7 +127,7 @@
   --color-ink-soft:    #A3B1C0;
   --color-ink-faint:   #8494A4;
   --color-line:        #2A3648;
-  --color-line-strong: #687585;
+  --color-line-strong: #6D7A8A;
   --color-accent:      #5FA8D3;
   --color-accent-ink:  #08131F;
   --color-accent-soft: #1C3247;
