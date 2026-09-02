@@ -71,7 +71,8 @@
         "web/src/pages/PokerRoom.tsx",
         "web/src/components/Table.tsx",
         "web/src/components/Hand.tsx",
-        "web/src/components/MemberCard.tsx"
+        "web/src/components/MemberCard.tsx",
+        "web/src/components/Avatar.tsx"
       ]
     },
     {
