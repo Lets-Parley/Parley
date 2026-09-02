@@ -17,10 +17,15 @@ import path from "node:path";
  * real statement at the start of a line.
  */
 function imports(specifier: string): boolean {
-  return new RegExp(
-    String.raw`^\s*import\s+['"]` + specifier.replace(/[/\.]/g, "\$&") + String.raw`['"]`,
-    "m",
-  ).test(main);
+  // Matched line by line against a fixed pattern rather than by building a
+  // regex out of the specifier. Escaping a string into a pattern is its own
+  // small bug surface: the first version's replacement collapsed to a no-op,
+  // so every character stood for itself and `.` still matched anything. An
+  // exact string comparison cannot go wrong that way, and is stricter.
+  return main.split("\n").some((line) => {
+    const m = line.match(/^\s*import\s+['"]([^'"]+)['"]\s*;?\s*$/);
+    return m?.[1] === specifier;
+  });
 }
 
 const here = path.dirname(new URL(import.meta.url).pathname);
