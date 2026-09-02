@@ -25,11 +25,24 @@ const NOTHING: RosterDelta = { joined: [], left: [] };
  * 1500ms into one rebroadcast, so a meeting-start burst arrives as a single
  * diff of several ids; a client-side coalescer would only fight it.
  *
+ * The viewer's own id is never in `joined`. The page renders you seated over
+ * HTTP and the socket registers you afterwards, so your own id first appears
+ * in presence on a later envelope, when the differ already has a baseline and
+ * reads you as a newcomer to the seat you are sitting in. Excluding you is an
+ * invariant rather than a widened seeding window: a seat must never drop in on
+ * the screen of the person occupying it, whatever the envelope order, and a
+ * wider window would also swallow a genuine joiner arriving in the same
+ * rebroadcast. The `left` half is untouched — you can still be seen to go.
+ *
  * Adjusting a ref during render is the same idiom useRoundEpoch uses, and the
  * unchanged case returns the *previous* object so a seat already mid-drop is
  * never handed a freshly-built delta.
  */
-export function useRosterDelta(presence: string[], status: ConnectionStatus): RosterDelta {
+export function useRosterDelta(
+  presence: string[],
+  status: ConnectionStatus,
+  meId: string,
+): RosterDelta {
   const prev = useRef<{ ids: Set<string>; live: boolean; delta: RosterDelta } | null>(null);
   const p = prev.current;
   const ids = new Set(presence);
@@ -42,7 +55,7 @@ export function useRosterDelta(presence: string[], status: ConnectionStatus): Ro
     return NOTHING;
   }
 
-  const joined = presence.filter((id) => !p.ids.has(id));
+  const joined = presence.filter((id) => !p.ids.has(id) && id !== meId);
   const left = [...p.ids].filter((id) => !ids.has(id));
   const delta = joined.length > 0 || left.length > 0 ? { joined, left } : p.delta;
   prev.current = { ids, live, delta };

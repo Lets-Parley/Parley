@@ -3,9 +3,9 @@ import { renderHook } from "@testing-library/react";
 import type { ConnectionStatus } from "./socket";
 import { useRosterDelta } from "./rosterDelta";
 
-function roster(presence: string[], status: ConnectionStatus = "live") {
+function roster(presence: string[], status: ConnectionStatus = "live", meId = "__nobody__") {
   return renderHook(
-    ({ p, s }: { p: string[]; s: ConnectionStatus }) => useRosterDelta(p, s),
+    ({ p, s }: { p: string[]; s: ConnectionStatus }) => useRosterDelta(p, s, meId),
     { initialProps: { p: presence, s: status } },
   );
 }
@@ -60,5 +60,38 @@ describe("useRosterDelta", () => {
     expect(result.current.left).toEqual(["marcus"]);
     rerender({ p: ["dana", "marcus"], s: "live" });
     expect(result.current.joined).toEqual(["marcus"]);
+  });
+
+  // The page loads over HTTP and renders you seated before the socket has
+  // registered you. Presence therefore gains your OWN id on a later envelope,
+  // by which time the socket is live and the differ has a baseline — so the
+  // seat you are already sitting in reads as a newcomer and falls into it.
+  it("never drops the viewer into the seat they are already in", () => {
+    const { result, rerender } = roster(["marcus"], "reconnecting", "dana");
+    rerender({ p: ["marcus"], s: "live" });
+    rerender({ p: ["marcus", "dana"], s: "live" });
+    expect(result.current).toEqual({ joined: [], left: [] });
+  });
+
+  it("still drops in a real joiner arriving in the same burst as the viewer", () => {
+    const { result, rerender } = roster(["marcus"], "reconnecting", "dana");
+    rerender({ p: ["marcus"], s: "live" });
+    // hub.go merges presence changes inside 1500ms, so the viewer's own
+    // registration and somebody else's arrival land as one diff.
+    rerender({ p: ["marcus", "dana", "priya"], s: "live" });
+    expect(result.current.joined).toEqual(["priya"]);
+  });
+
+  it("leaves the departed half alone when the viewer goes quiet", () => {
+    const { result, rerender } = roster(["dana", "marcus"], "live", "dana");
+    rerender({ p: ["marcus"], s: "live" });
+    expect(result.current.left).toEqual(["dana"]);
+  });
+
+  it("does not re-drop the viewer's own seat when their presence lapses and returns", () => {
+    const { result, rerender } = roster(["dana", "marcus"], "live", "dana");
+    rerender({ p: ["marcus"], s: "live" });
+    rerender({ p: ["marcus", "dana"], s: "live" });
+    expect(result.current.joined).toEqual([]);
   });
 });

@@ -289,7 +289,7 @@ export function Table({
    */
   kicked?: { userId: string; seq: number } | null;
 }) {
-  const { joined } = useRosterDelta([...online], status);
+  const { joined } = useRosterDelta([...online], status, meId);
 
   // Who the kick has already carried off. Held here because nothing upstream
   // can: `seated` still contains them, and will until they are removed from
