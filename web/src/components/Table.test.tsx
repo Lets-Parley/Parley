@@ -71,25 +71,124 @@ describe("Table", () => {
     });
     // Both seats say "Dana" — the marker has to land on the impostor's seat
     // specifically, and must not also land on the real member's.
-    expect(seat("Dana", "guest").queryByText("· guest")).toBeTruthy();
-    expect(seat("Dana", "dana").queryByText("· guest")).toBeNull();
+    expect(seat("Dana", "guest").getByTestId("seat-tells").textContent).toBe("guest");
+    expect(seat("Dana", "dana").getByTestId("seat-tells").textContent).toBe("you");
   });
 
   // jsdom does no layout, so this cannot observe whether the marker is
   // visually clipped — it pins the structural property that keeps it safe
-  // from truncation instead: the marker must not live inside the element
-  // that carries the `truncate` class, or an ellipsis could eat it the way
-  // it ate the whole name-plus-marker line before this fix.
-  it("keeps the guest and you tells outside the truncating name element", () => {
+  // from truncation instead: the marker must not live inside, or contain, an
+  // element carrying the `truncate` class, or an ellipsis could eat it the
+  // way it ate the whole name-plus-marker line before this fix.
+  it("keeps the guest and you tells outside any truncating element", () => {
     const impostor = makePerson({ userId: "guest", name: "A Very Long Guest Display Name", guest: true });
     renderTable({ seated: [dana, impostor], online: new Set(["dana", "guest"]) });
 
-    const youMark = seat("Dana", "dana").getByText("· you");
-    const guestMark = seat("A", "guest").getByText("· guest");
-    const truncatingAncestor = (node: Element) => node.closest(".truncate");
+    for (const [firstName, userId] of [
+      ["Dana", "dana"],
+      ["A", "guest"],
+    ] as const) {
+      const tells = seat(firstName, userId).getByTestId("seat-tells");
+      expect(tells.textContent).not.toBe("");
+      expect(tells.closest(".truncate")).toBeNull();
+      expect(tells.querySelector(".truncate")).toBeNull();
+    }
+  });
 
-    expect(truncatingAncestor(youMark)).toBeNull();
-    expect(truncatingAncestor(guestMark)).toBeNull();
+  // A link guest looking at their own seat is BOTH "you" and "guest". Both
+  // tells used to sit inline beside the name inside a 74px seat, and measured
+  // in Chrome they take 29.7px + 41.2px + gaps = 74.9px — the whole seat — so
+  // the name was squeezed to zero width and "skippy" rendered as "s…".
+  // The tells now have their own row, which leaves the name the full width.
+  it("gives the name its own row when a seat is both you and a guest", () => {
+    const guestMe = makePerson({ userId: "me", name: "skippy", guest: true });
+    renderTable({
+      seated: [dana, guestMe],
+      online: new Set(["dana", "me"]),
+      meId: "me",
+    });
+
+    const mine = seat("skippy", "me");
+    const name = mine.getByText("skippy");
+    const tells = mine.getByTestId("seat-tells");
+
+    // Both tells survive, and the guest one especially: it is a defence, not
+    // a decoration — any name is available to a link guest.
+    expect(tells.textContent).toBe("you · guest");
+    // The name is not sharing its line with them any more. Asserted on the
+    // name's own row rather than on the tells row, so re-adding an inline
+    // copy of either tell beside the name fails this even while the separate
+    // row still exists.
+    const nameRow = name.parentElement;
+    if (!nameRow) throw new Error("the name has no row");
+    expect(nameRow.textContent).toBe("skippy");
+    expect(tells.contains(name)).toBe(false);
+    // And nothing in the tells row can be eaten by an ellipsis.
+    expect(tells.closest(".truncate")).toBeNull();
+    expect(tells.querySelector(".truncate")).toBeNull();
+  });
+
+  // Every seat reserves the tells row whether or not it has any tells. Left
+  // conditional, a seat with tells would be a line taller than one without
+  // and the two cards would no longer line up — the same misalignment as the
+  // avatar one below, one row further down.
+  it("reserves the tells row on every seat so the cards stay level", () => {
+    const guestMe = makePerson({ userId: "me", name: "skippy", guest: true });
+    renderTable({
+      seated: [dana, marcus, guestMe],
+      online: new Set(["dana", "marcus", "me"]),
+      meId: "me",
+    });
+    for (const [firstName, userId] of [
+      ["Dana", "dana"],
+      ["Marcus", "marcus"],
+      ["skippy", "me"],
+    ] as const) {
+      expect(seat(firstName, userId).getByTestId("seat-tells")).toBeTruthy();
+    }
+    expect(seat("Marcus", "marcus").getByTestId("seat-tells").textContent).toBe("");
+  });
+
+  /**
+   * Measured in Chrome against a faithful static repro of the seat, not
+   * guessed: with the avatar in a `block` wrapper, the portrait seat's wrapper
+   * came out 53px tall and the initials seat's 46px, and the initials card
+   * therefore sat 7px higher than the portrait one.
+   *
+   * The cause is the wrapper's line box, not the avatar. `Avatar` is an
+   * `inline-flex` box of a fixed pixel size either way, but its baseline moves
+   * with its content: with an `<img>` flex item the baseline is the box's
+   * bottom edge, so the line box adds the strut's descender *below* the whole
+   * 46px disc; with initials the baseline is the text baseline well inside the
+   * disc, and the descender fits in the space already there.
+   *
+   * jsdom does no layout, so this cannot observe those 7px. It pins the
+   * property that makes them impossible instead: the wrapper carries an
+   * explicit height equal to the avatar's, so nothing about the avatar's
+   * contents can change how much room it takes above the card.
+   */
+  it("pins the avatar wrapper to a fixed height on every seat", () => {
+    const portrait = makePerson({ userId: "dana", name: "Dana Whitfield", avatarIcon: "ada" });
+    const initials = makePerson({ userId: "me", name: "skippy" });
+    renderTable({
+      seated: [portrait, initials],
+      online: new Set(["dana", "me"]),
+      facilitatorId: "dana",
+      meId: "me",
+    });
+
+    const wrapperOf = (userId: string) => {
+      const el = document.querySelector(`[data-seat-user="${userId}"] [data-avatar]`);
+      if (!el) throw new Error(`no avatar wrapper for "${userId}"`);
+      return el as HTMLElement;
+    };
+    // The portrait seat really is rendering a portrait, or this asserts
+    // nothing about the case that broke.
+    expect(wrapperOf("dana").querySelector("img")).toBeTruthy();
+    expect(wrapperOf("me").querySelector("img")).toBeNull();
+
+    expect(wrapperOf("dana").style.height).toBe("46px");
+    expect(wrapperOf("me").style.height).toBe(wrapperOf("dana").style.height);
   });
 
   it("counts votes against who could still vote while hidden", () => {
@@ -152,7 +251,7 @@ describe("Table", () => {
   it("marks which seat is yours by first name", () => {
     renderTable();
     expect(screen.getByText("Dana")).toBeTruthy();
-    expect(screen.getByText("· you")).toBeTruthy();
+    expect(seat("Dana", "dana").getByTestId("seat-tells").textContent).toBe("you");
   });
 
   it("lists spectators separately and keeps them out of the count", () => {

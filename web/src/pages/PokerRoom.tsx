@@ -52,8 +52,9 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
   const tally = voteTally(seated, online, current?.votedUserIds ?? [], votes);
   // Who the round is still waiting for, by name. A count alone tells the room
   // that somebody is missing but not whether it is waiting on the one person
-  // who has already left for the day.
-  const waitingOn = seated.filter((p) => !tally.voted.has(p.userId)).map((p) => safeDisplayName(p.name));
+  // who has already left for the day. Taken straight from the tally so this
+  // line and the count above it cannot disagree about who is in the round.
+  const waitingOn = tally.waiting.map((p) => safeDisplayName(p.name));
 
   // The round boundary, found client-side. NOT env.version — the server bumps
   // that on every vote too. See useRoundEpoch.

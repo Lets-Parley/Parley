@@ -29,6 +29,7 @@ import {
 import { useRosterDelta } from "../lib/rosterDelta";
 import type { ConnectionStatus } from "../lib/socket";
 import { Avatar } from "./Avatar";
+import { avatarSizes } from "../lib/avatar";
 
 const ROTATIONS = [-2, 3, -1, 2, -3, 1, 2];
 
@@ -541,7 +542,16 @@ export function Table({
                     </span>
                   </button>
                 )}
-                <span className="block" data-avatar style={{ animation: five.animation }}>
+                {/* A flex box of the avatar's own height, not a `block` that
+                    lets the chip sit on a line box: the chip's baseline moves
+                    with its contents, so a portrait seat used to reserve 53px
+                    here where an initials seat reserved 46px and every seat
+                    below the portrait sat 7px lower. See `avatarSizes`. */}
+                <span
+                  className="flex items-center justify-center"
+                  data-avatar
+                  style={{ height: avatarSizes.lg, animation: five.animation }}
+                >
                   <Avatar
                     name={p.name}
                     hue={p.avatarHue}
@@ -552,22 +562,42 @@ export function Table({
                   />
                 </span>
                 {five.burst && <Burst pair={five.pair} beat={five.beat} />}
-                {/* The name truncates inside its own min-w-0 span so the
-                    " · you" / " · guest" tells sit outside the truncating
-                    element and can never be the part an ellipsis eats — the
-                    guest tell in particular is a defence, not a decoration. */}
-                <div className="flex max-w-full items-baseline gap-0.5 text-xs font-bold text-ink-soft">
-                  <span className="min-w-0 truncate">
-                    {safeDisplayName(p.name).split(/\s+/)[0]}
-                  </span>
-                  {p.userId === meId && (
-                    <span className="shrink-0 whitespace-nowrap font-normal text-ink-faint"> · you</span>
-                  )}
-                  {/* Any name is available to a link guest, so the seat says
-                      where it came from rather than trusting the name. */}
-                  {p.guest && (
-                    <span className="shrink-0 whitespace-nowrap font-normal text-ink-faint"> · guest</span>
-                  )}
+                {/* Name and tells are one block, so the column's gap-2.5 sits
+                    around the pair rather than between the two lines. */}
+                <div className="flex w-full flex-col items-center">
+                  {/* The name gets a line to itself and truncates inside it. */}
+                  <div className="flex max-w-full text-xs font-bold text-ink-soft">
+                    <span className="min-w-0 truncate">
+                      {safeDisplayName(p.name).split(/\s+/)[0]}
+                    </span>
+                  </div>
+                  {/* The tells get their own line, and every seat reserves it
+                      whether or not it has any.
+
+                      They used to sit inline beside the name as " · you" and
+                      " · guest", each `shrink-0` so an ellipsis could never
+                      eat them — right for one tell, and a trap for two. A
+                      link guest's own seat is both, and measured in Chrome
+                      the pair takes 74.9px of a 74px seat: the name was
+                      squeezed to zero width and "skippy" rendered as "s…".
+                      On their own line the pair measures 67px and the name
+                      keeps the full 74px.
+
+                      Reserved on every seat because a conditional row would
+                      make a seat with tells a line taller than one without,
+                      and the cards would stop lining up. The guest tell in
+                      particular stays whole and unshrinkable: any name is
+                      available to a link guest, so the seat says where it
+                      came from rather than trusting the name. It is a
+                      defence, not a decoration. */}
+                  <div
+                    data-testid="seat-tells"
+                    className="h-4 whitespace-nowrap text-xs font-normal leading-4 text-ink-faint"
+                  >
+                    {p.userId === meId && "you"}
+                    {p.userId === meId && p.guest && " · "}
+                    {p.guest && "guest"}
+                  </div>
                 </div>
                 <div className="flex h-[74px] items-start" style={{ perspective: "600px" }}>
                   <SeatCard

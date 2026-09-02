@@ -56,6 +56,28 @@ describe("voteTally", () => {
     const t = voteTally([dana], new Set(["dana", "marcus", "priya"]), [], new Map());
     expect(t.canVote).toBe(1);
   });
+
+  // The denominator and the "waiting on" line have to come out of the same
+  // rule. Naming an away seat under a "0 of 1 voted" tally makes the footer
+  // contradict the table it sits under, and the seat's own card already says
+  // that person is asleep.
+  it("leaves an away non-voter out of the waiting set, as the denominator does", () => {
+    const t = voteTally(seated, new Set(["marcus"]), [], new Map());
+    expect(t.canVote).toBe(1);
+    expect(t.waiting.map((p) => p.userId)).toEqual(["marcus"]);
+  });
+
+  it("does not wait on someone who voted and then dropped", () => {
+    const t = voteTally(seated, new Set(["dana"]), ["marcus"], new Map());
+    // Marcus is counted (he voted) but is not still being waited for.
+    expect(t.canVote).toBe(2);
+    expect(t.waiting.map((p) => p.userId)).toEqual(["dana"]);
+  });
+
+  it("waits on nobody once everyone who could vote has", () => {
+    const t = voteTally(seated, new Set(["dana", "marcus"]), ["dana", "marcus"], new Map());
+    expect(t.waiting).toEqual([]);
+  });
 });
 
 describe("claimState", () => {

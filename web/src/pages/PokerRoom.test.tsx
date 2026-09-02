@@ -704,6 +704,26 @@ describe("PokerRoom waiting list", () => {
     expect(screen.queryByText(/Waiting on/)).toBeNull();
   });
 
+  // The tally above this line already excludes away seats from its
+  // denominator — an away seat shows zzz and cannot vote. Naming one here
+  // made the footer contradict the table: "0 of 1 voted" over "Waiting on
+  // Dana Whitfield, Marcus Okonjo".
+  it("does not name an away seat the tally has already excluded", () => {
+    // Dana is not in `presence`, so she is away and outside the denominator.
+    const env = envelope();
+    renderApp(<PokerRoom env={env} me={me} />);
+    expect(screen.getByText("0 of 1 voted")).toBeTruthy();
+    const line = screen.getByText(/Waiting on/);
+    expect(line.textContent).toBe("Waiting on Marcus Okonjo");
+  });
+
+  it("says nothing once the only seat that could vote has", () => {
+    const env = envelope();
+    env.state.stories[0].votedUserIds = ["marcus"];
+    renderApp(<PokerRoom env={env} me={me} />);
+    expect(screen.queryByText(/Waiting on/)).toBeNull();
+  });
+
   it("says nothing once the round is revealed", () => {
     const env = envelope({ revealed: true });
     env.state.stories[0].votedUserIds = ["dana"];
