@@ -9,6 +9,15 @@ export type Commitment = {
   carried: number;
   /** Computed by the server so every screen agrees on what stalled means. */
   stuck: boolean;
+  /**
+   * True when this commitment was opened in the session on screen. It comes
+   * off the row (`opened_session_id`), not from `carried === 0`: a commitment
+   * opened weeks ago and never answered also has a carry count of zero, so the
+   * count cannot tell "just typed" from "carried in unanswered". Reading it
+   * from the wire also means it survives a reconnect, which a client-side
+   * "things I added since the page loaded" set would not.
+   */
+  openedHere: boolean;
 };
 
 /**
@@ -20,10 +29,14 @@ export type Commitment = {
 type Answer = boolean | null;
 
 /**
- * The carry-over list: what you said you would do, still open, asked the way
- * round that makes the answer mean something — "did that land?", where No is
- * the one that carries. Only your own rows are answerable; the wire carries
- * the whole room's, because one payload is broadcast to every socket.
+ * Your open commitments, in two lists, because they are owed two different
+ * things. What carried in from an earlier sitting is asked the way round that
+ * makes the answer mean something — "did that land?", where No is the one that
+ * carries. What you take on in this sitting is only listed back to you: it has
+ * carried from nowhere and there is nothing yet to answer.
+ *
+ * Only your own rows appear; the wire carries the whole room's, because one
+ * payload is broadcast to every socket.
  */
 export function Commitments({
   commitments,
@@ -41,6 +54,23 @@ export function Commitments({
   const [text, setText] = useState("");
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
   const mine = commitments.filter((c) => c.userId === meId);
+  // Two different questions, so two different lists. "Did that land?" only
+  // means something about work you took on at an earlier sitting; asked about
+  // a sentence typed ninety seconds ago it is nonsense, and answering "no"
+  // would bump the carry count towards a stuck badge it never earned.
+  const carriedOver = mine.filter((c) => !c.openedHere);
+  const takenOnNow = mine.filter((c) => c.openedHere);
+
+  const remove = (c: Commitment) => (
+    <button
+      type="button"
+      className={`${buttonQuiet} hover:!bg-stop hover:!text-accent-ink`}
+      aria-label={`Remove "${c.text}"`}
+      onClick={() => void onRemove(c.id)}
+    >
+      Remove
+    </button>
+  );
 
   return (
     <div data-testid="carrying-over" className="flex flex-col gap-3">
@@ -48,13 +78,13 @@ export function Commitments({
         <h3 className={`${labelClass} mb-1 mt-0`}>Carrying over</h3>
         <p className="text-sm text-ink-faint">What you took on last time. Did that land?</p>
       </div>
-      {mine.length === 0 ? (
+      {carriedOver.length === 0 ? (
         <p data-testid="carrying-over-empty" className="text-sm text-ink-faint">
           Nothing carrying over.
         </p>
       ) : (
-        <ul className="flex flex-col gap-2">
-          {mine.map((c) => {
+        <ul data-testid="carrying-over-list" className="flex flex-col gap-2">
+          {carriedOver.map((c) => {
             const answer = answers[c.id] ?? null;
             return (
               <li
@@ -105,18 +135,32 @@ export function Commitments({
                     <span className="text-sm font-semibold text-ink-soft">Not yet — it carries over.</span>
                   )}
                 </span>
-                <button
-                  type="button"
-                  className={`${buttonQuiet} hover:!bg-stop hover:!text-accent-ink`}
-                  aria-label={`Remove "${c.text}"`}
-                  onClick={() => void onRemove(c.id)}
-                >
-                  Remove
-                </button>
+                {remove(c)}
               </li>
             );
           })}
         </ul>
+      )}
+      {takenOnNow.length > 0 && (
+        <div data-testid="taking-on-now" className="flex flex-col gap-3">
+          <div>
+            <h3 className={`${labelClass} mb-1 mt-0`}>Taking on now</h3>
+            <p className="text-sm text-ink-faint">
+              What you are picking up this standup. Nothing to answer yet — it will be here next time.
+            </p>
+          </div>
+          <ul className="flex flex-col gap-2">
+            {takenOnNow.map((c) => (
+              <li
+                key={c.id}
+                className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-chip bg-felt-deep px-3 py-2"
+              >
+                <span className="min-w-0 flex-1 font-semibold">{c.text}</span>
+                {remove(c)}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       <form
         className="flex flex-wrap items-end gap-2"
