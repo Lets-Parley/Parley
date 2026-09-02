@@ -53,6 +53,8 @@ type WireCommitment struct {
 	// the count cannot tell "made just now" from "carried over unanswered".
 	// The client uses it to keep "did that land?" off something typed a
 	// minute ago, and because it comes off the row it survives a reconnect.
+	// Null — the opening room was deleted — is false: there is no origin room
+	// left for the commitment to have been opened in.
 	OpenedHere bool `json:"openedHere"`
 }
 
@@ -121,7 +123,8 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	// is no lookback across sessions: a commitment opened weeks ago and never
 	// answered is simply still open.
 	crows, err := pool.Query(ctx, `
-		select id::text, user_id::text, text, carried, opened_session_id = $2 as opened_here
+		select id::text, user_id::text, text, carried,
+		       coalesce(opened_session_id = $2, false) as opened_here
 		from standup_commitments
 		where space_id = $1 and closed_at is null
 		order by created_at, id`, sess.SpaceID, sess.ID)
