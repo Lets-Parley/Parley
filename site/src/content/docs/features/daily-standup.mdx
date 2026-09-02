@@ -1,6 +1,6 @@
 ---
 title: Daily standup
-description: Round-robin with a per-person timer, carry-forward, and a blockers roundup.
+description: Round-robin with a per-person timer, carry-forward, commitments that carry, and a blockers roundup.
 ---
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
@@ -11,7 +11,7 @@ import roundDark from "../../../assets/standup-round-dark.png";
 import blockersLight from "../../../assets/blockers-roundup-light.png";
 import blockersDark from "../../../assets/blockers-roundup-dark.png";
 
-<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "web/src/pages/StandupRoom.tsx"]} />
+<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx"]} />
 
 A standup session is three text fields per person — yesterday, today, blockers —
 and an order to speak in.
@@ -29,6 +29,34 @@ edit could land mid-sentence and eat your keystrokes. Your own field is local
 until you stop typing.
 
 Each field is capped at 2000 characters.
+
+## Commitments that carry
+
+Above the three fields is **Carrying over**: the things you said you would do
+and have not answered for yet. A commitment is one line you add beside the
+narrative — it is not part of "today", and it does not touch the three fields or
+the CSV export.
+
+It opens with one question: **did that land?**
+
+- **Yes** closes it. It leaves the list and does not come back.
+- **No** carries it into the next standup, and the count of how many times it has
+  carried goes up by one.
+
+You can withdraw a commitment you no longer intend to do; that removes it rather
+than answering it. Everything here is scoped to you — the answer, the removal and
+the add all act on your own commitments only, whoever is facilitating.
+
+A commitment still open after **two** No answers is marked **stuck**, in words on
+the row rather than in a colour. The badge is about the work: it says this piece
+of work has carried, not that a person is failing. There are no streaks, no
+percentages and nothing that adds up across people — the point is to notice a
+task that has quietly stalled, which a day-by-day narrative never falsifies.
+
+Absence does nothing. Skipping a standup, or a whole week of them, leaves your
+open commitments exactly as they were.
+
+A commitment is at most 500 characters.
 
 ## Saying you are ready
 
