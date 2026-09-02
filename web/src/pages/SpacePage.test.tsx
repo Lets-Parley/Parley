@@ -1208,10 +1208,14 @@ describe("SpacePage deck chooser", () => {
       const classes = [...chip.classList];
       // No fixed width in any form: a chip narrower than its word clips the
       // word, whether the width is a scale step (w-5), an arbitrary value
-      // (w-[999px]) or hidden behind a breakpoint (sm:w-5).
+      // (w-[999px]) or hidden behind a breakpoint (sm:w-5). This is
+      // deliberately blind to which width utility is used, so it also rejects
+      // content-sized ones like w-fit and w-auto. Those would be fine here;
+      // swap this assertion rather than working around it.
       expect(classes.filter((c) => /(^|:)w-/.test(c))).toEqual([]);
-      // The word still gets a gutter, and a one- or two-character sample
-      // still holds the 20px floor the shipped decks are drawn at.
+      // The word still gets a gutter, and a one-character sample still holds
+      // the 20px floor the shipped decks are drawn at. Two-character samples
+      // (16, XS, XL) clear the floor at ~22.5px.
       expect(classes).toContain("px-1");
       expect(classes).toContain("min-w-5");
       // And the row wraps forwards rather than overflowing the option.
