@@ -20,6 +20,9 @@ import {
   playPileOn,
   releaseFlip,
   revealSettledAt,
+  flipStartsAt,
+  hopStartsAt,
+  CARD_HOP_MS,
   staggerFor,
   type Box,
 } from "../lib/motion";
@@ -65,21 +68,34 @@ function SeatCard({
         role="img"
         aria-label={label}
         className="flex h-[70px] w-[50px] items-center justify-center rounded-chip bg-card-back shadow-rest"
-        style={{ transform: `rotate(${rot}deg)`, animation: "modal-drop 250ms var(--ease-spring)" }}
+        /* deal-in composes the resting angle into every stop. modal-drop used
+           to run here, and because it animates `transform` it overrode the
+           inline rotate() for its whole 250ms and then released — so every
+           card visibly kicked into its angle at the moment it landed. */
+        style={
+          { "--rot": `${rot}deg`, animation: "deal-in 260ms linear both" } as CSSProperties
+        }
       >
         <span className="h-3 w-3 rotate-45 border-2 border-pip opacity-55" />
       </span>
     );
   }
   if (state === "face") {
-    const flip = `flip-in var(--dur-flip) var(--ease-settle) ${index * 70}ms both`;
-    const hop = consensus ? `, card-hop 450ms var(--ease-spring) ${620 + index * 40}ms` : "";
+    // Both keyframes carry rotate(var(--rot)) in every stop, and the card keeps
+    // the same angle it was dealt at: a card that turns over square, or that
+    // loses its angle again when it bounces, reads as a shutter rather than as
+    // an object. Timings come from the beat sheet in lib/motion/plan.ts — the
+    // literals that used to live here had drifted out of step with it.
+    const flip = `flip-in var(--dur-flip) linear ${flipStartsAt(index)}ms both`;
+    const hop = consensus
+      ? `, card-hop ${CARD_HOP_MS}ms linear ${hopStartsAt(index)}ms`
+      : "";
     return (
       <span
         role="img"
         aria-label={label}
         className="flex h-[70px] w-[50px] items-center justify-center rounded-chip border border-line bg-surface font-mono text-2xl shadow-rest"
-        style={{ animation: flip + hop }}
+        style={{ "--rot": `${rot}deg`, animation: flip + hop } as CSSProperties}
       >
         {value ? faceOf(value) : "—"}
       </span>
@@ -480,7 +496,22 @@ export function Table({
         >
           {onTable.map((p, i) => {
             const away = !online.has(p.userId);
-            const state = revealed ? "face" : voted.has(p.userId) ? "back" : away ? "away" : "empty";
+            // After the reveal an away seat used to become a blank "face" card,
+            // making "left the meeting" and "never voted" the same object.
+            // Absence stays drawn as absence.
+            const state = revealed
+              ? // A present seat that never voted still turns an empty card
+                // over; an away one has nothing to turn. Without the second
+                // branch "left the meeting" and "abstained" became the same
+                // object at the moment the table is read.
+                !votes.has(p.userId) && away
+                ? "away"
+                : "face"
+              : voted.has(p.userId)
+                ? "back"
+                : away
+                  ? "away"
+                  : "empty";
             const five = plan[i] ?? { burst: false, beat: 0, pair: 0 };
             return (
               <div

@@ -30,6 +30,7 @@ const cases: [string, () => React.ReactElement][] = [
         selected="3"
         spectating={false}
         canSpectate
+        status="live"
         onPick={vi.fn()}
         onToggleSpectate={vi.fn()}
       />

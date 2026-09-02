@@ -356,7 +356,7 @@ export function SpacePage() {
         <InviteStrip org={org} slug={sp.slug} passcode={sp.passcode ?? ""} />
 
         <div className="mb-5 flex items-center justify-between gap-4">
-          <h2 className="text-[22px] font-extrabold tracking-tight">Recent sessions</h2>
+          <h2 className="text-[22px] font-bold tracking-tight">Recent sessions</h2>
           {offered.length > 0 && (
             <button className={buttonPrimary} onClick={() => setCreating(true)}>
               New session
@@ -535,10 +535,10 @@ function Gate({
     <main className="flex min-h-dvh flex-col items-center justify-center gap-4 p-8">
       <div className="flex items-center gap-2 opacity-80">
         <Logo />
-        <span className="text-base font-extrabold">Parley</span>
+        <span className="text-base font-bold">Parley</span>
       </div>
       <div className="w-full max-w-[420px] rounded-panel border border-line bg-surface px-10 py-9 text-center shadow-rest">
-        <h1 className="text-2xl font-extrabold tracking-tight">{name}</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{name}</h1>
         <p className="mt-2 inline-block rounded-chip bg-felt-deep px-2.5 py-1 font-mono text-[11px] text-ink-faint">
           {spacePath(org, slug)}
         </p>

@@ -104,8 +104,12 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
   if (status === "kicked") return <ShownTheDoor message={kickReason} env={env} guest={guest} />;
 
   return (
-    <div className="flex flex-col gap-6 lg:flex-row lg:flex-wrap lg:items-start p-5 pl-[max(1.25rem,var(--safe-left))] pr-[max(1.25rem,var(--safe-right))] sm:p-7 sm:pl-[max(1.75rem,var(--safe-left))] sm:pr-[max(1.75rem,var(--safe-right))]">
-      <div className="flex min-w-0 w-full flex-1 flex-col gap-5 pb-44 lg:pb-0 lg:basis-[560px]">
+    // pb-44 is on the page, not the left column: the story queue is a sibling
+    // of that column and stacks below it on a phone, so with the reserve on
+    // the column alone, tabbing into the queue put focus under the fixed hand
+    // tray (WCAG 2.2 AA 2.4.11).
+    <div className="flex flex-col gap-6 pb-44 lg:pb-0 lg:flex-row lg:flex-wrap lg:items-start p-5 pl-[max(1.25rem,var(--safe-left))] pr-[max(1.25rem,var(--safe-right))] sm:p-7 sm:pl-[max(1.75rem,var(--safe-left))] sm:pr-[max(1.75rem,var(--safe-right))]">
+      <div className="flex min-w-0 w-full flex-1 flex-col gap-5 lg:basis-[560px]">
         {/* Story on the table, plus whoever is running the round. */}
         <header className="flex flex-wrap items-center gap-4 rounded-panel border border-line bg-surface px-5 py-4 shadow-rest">
           {current ? (
@@ -120,7 +124,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
                   current
                 </span>
               </div>
-              <h2 className="mt-0.5 line-clamp-2 text-lg font-extrabold tracking-tight">
+              <h2 className="mt-0.5 line-clamp-2 text-lg font-bold tracking-tight">
                 {current.title || current.ref || "ad hoc round"}
               </h2>
               {current.notes && (
@@ -235,7 +239,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
               <a
                 href={`/api/sessions/${env.id}/export.csv`}
                 download
-                className="px-2 text-[13px] font-semibold text-ink-faint hover:text-accent"
+                className="inline-flex items-center px-2 py-2 text-[13px] font-semibold text-ink-faint hover:text-accent"
               >
                 Export CSV
               </a>
@@ -374,6 +378,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
               disabled={env.revealed}
               spectating={self?.spectator ?? false}
               canSpectate={!env.revealed && !guest}
+              status={status}
               onPick={(v) => (selected === v ? undefined : castVote(v))}
               onToggleSpectate={() =>
                 run(() =>

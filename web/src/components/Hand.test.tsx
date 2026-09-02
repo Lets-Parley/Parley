@@ -15,6 +15,7 @@ function renderHand(over: Partial<Parameters<typeof Hand>[0]> = {}) {
       selected={null}
       spectating={false}
       canSpectate
+      status="live"
       onPick={onPick}
       onToggleSpectate={onToggleSpectate}
       {...over}
@@ -34,6 +35,34 @@ describe("Hand", () => {
     const { onPick } = renderHand();
     await userEvent.click(screen.getByRole("button", { name: "5" }));
     expect(onPick).toHaveBeenCalledWith("5");
+  });
+
+  it("keeps the played card marked as committed once the reveal locks the hand", () => {
+    // The reveal flips aria-pressed to false for every card, which used to
+    // take the only mark of what you played down with it.
+    renderHand({ selected: "3", disabled: true });
+    const played = screen.getByRole("button", { name: "3" });
+    expect(played.getAttribute("data-played")).toBe("true");
+    expect(played.className).toMatch(/border-accent/);
+    // Rest, not lift: lift means hovered, selected, or modal.
+    expect(played.className).toMatch(/shadow-rest/);
+    expect(played.className).not.toMatch(/shadow-lift/);
+    expect(screen.getByRole("button", { name: "5" }).getAttribute("data-played")).toBeNull();
+  });
+
+  it("stops spent cards lifting under the cursor once the round is revealed", () => {
+    renderHand({ selected: "3", disabled: true });
+    for (const face of ["5", "2"]) {
+      expect(screen.getByRole("button", { name: face }).className).not.toMatch(/hover:shadow-lift/);
+    }
+  });
+
+  it("says it is holding, not confirming, while the socket is down", () => {
+    // An optimistic pick reads as confirmed in `go`. That is the right trade
+    // while the socket is up and a lie while it is down.
+    renderHand({ selected: "5", status: "reconnecting" });
+    expect(screen.getByText(/holding 5/i).textContent).toMatch(/reconnecting/i);
+    expect(screen.queryByText(/^picked/i)).toBeNull();
   });
 
   it("labels the hand region with its own heading", () => {

@@ -132,7 +132,7 @@ export function FacilitatorClaim({
         <span className="absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full bg-brass ring-2 ring-surface" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-[15px] font-extrabold">
+        <p className="text-[15px] font-bold">
           {safeDisplayName(facilitator.name)} — the facilitator — lost connection
         </p>
         <p className="mt-0.5 text-[13px] text-ink-soft">

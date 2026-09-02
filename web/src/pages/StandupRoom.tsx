@@ -108,7 +108,18 @@ function useOwnEntryDraft(env: Envelope, meId: string) {
   return { draft, update, saveState, flush };
 }
 
-export function Timer({ startedAt, seconds, serverTime }: { startedAt: string; seconds: number; serverTime: string }) {
+export function Timer({
+  startedAt,
+  seconds,
+  serverTime,
+  live,
+}: {
+  startedAt: string;
+  seconds: number;
+  serverTime: string;
+  /** False while the socket is down: the clock is held rather than guessed. */
+  live: boolean;
+}) {
   // Server clock offset estimated from the latest frame; the countdown is
   // display-only and identical on every screen. Captured once per frame
   // (not per render) so Date.now() actually advances against a fixed
@@ -128,8 +139,9 @@ export function Timer({ startedAt, seconds, serverTime }: { startedAt: string; s
   // Rule), so a turn running short escalates by weight and ink instead of
   // borrowing authority's hue — which also reads further across a room than a
   // hue shift does.
-  const tone =
-    remaining <= 0
+  const tone = !live
+    ? "font-medium text-ink-faint"
+    : remaining <= 0
       ? "font-bold text-stop"
       : remaining <= seconds * 0.25
         ? "font-bold text-ink"
@@ -148,6 +160,18 @@ export function Timer({ startedAt, seconds, serverTime }: { startedAt: string; s
       >
         {Math.floor(shown / 60)}:{String(shown % 60).padStart(2, "0")}
       </span>
+      {/* The largest element on a projected screen was also the one that kept
+          counting confidently against a frozen server frame. Held and faded,
+          with the reason under it: a stale reading shown as stale. Blanking it
+          would be as misleading as running it. */}
+      {!live && (
+        <span
+          aria-hidden="true"
+          className="mt-0.5 block font-mono text-[10px] uppercase tracking-[0.08em] text-accent"
+        >
+          reconnecting · clock held
+        </span>
+      )}
     </span>
   );
 }
@@ -216,7 +240,15 @@ export function StandupRoom({
   // wrapped chips you had to count, which is the wrong ask of a room that is
   // half-listening and fully time-boxed.
   const orderIndex = st.entries.findIndex((e) => e.userId === st.currentSpeakerId);
-  const position = orderIndex < 0 ? st.entries.length : orderIndex + 1;
+  // Numerator and denominator from the same set, and clamped. The numerator
+  // used to fall back to st.entries.length — every member with a row, including
+  // anyone since departed — while the denominator counts current non-spectator
+  // participants, so a mid-round leaver could make the round bar read "7 / 5".
+  const speakerIndex = speakers.findIndex((p) => p.userId === st.currentSpeakerId);
+  const position = Math.min(
+    speakerIndex < 0 ? speakers.length : speakerIndex + 1,
+    Math.max(speakers.length, 1),
+  );
   // A skipped seat gets no turn, so it is not the answer to "who is next".
   const nextUp = st.entries.slice(orderIndex + 1).find((e) => !e.skipped);
   // Daybreak, keyed to turns taken rather than votes cast: the same field the
@@ -311,10 +343,12 @@ export function StandupRoom({
 
   const skippedNames = st.entries.filter((e) => e.skipped).map((e) => nameOf(e.userId));
 
-  const blockersText = st.entries
+  // One derivation, two renderings: rows for the screen, joined text for the
+  // clipboard. They cannot drift because the string is built from the rows.
+  const blockerRows = st.entries
     .filter((e) => e.blockers.trim() && !e.skipped)
-    .map((e) => `${nameOf(e.userId)}: ${e.blockers.trim()}`)
-    .join("\n");
+    .map((e) => ({ userId: e.userId, name: nameOf(e.userId), text: e.blockers.trim() }));
+  const blockersText = blockerRows.map((r) => `${r.name}: ${r.text}`).join("\n");
 
   // The rail is the round, so it is housed in the round bar rather than left
   // loose between the chrome and the speaker card.
@@ -478,10 +512,29 @@ export function StandupRoom({
             )}
           </div>
           {speaking && st.speakerStartedAt && (
-            <Timer startedAt={st.speakerStartedAt} seconds={st.secondsPerPerson} serverTime={env.serverTime} />
+            <Timer
+              startedAt={st.speakerStartedAt}
+              seconds={st.secondsPerPerson}
+              serverTime={env.serverTime}
+              live={status === "live"}
+            />
           )}
           </div>
-          {rail}
+          {/* The rail is for browsing — "let me open Dana's update" — which is
+              mostly a gathering and wrap-up activity. During a live turn the
+              three facts above are what the room is reading, so the rail is
+              put below a hairline and under a quiet label: still there, still
+              reachable, no longer competing with the countdown. */}
+          {speaking ? (
+            <div className="mt-4 border-t border-line pt-3">
+              <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+                The round
+              </p>
+              {rail}
+            </div>
+          ) : (
+            rail
+          )}
         </section>
       )}
 
@@ -631,7 +684,18 @@ export function StandupRoom({
           <h2 className="font-display text-2xl font-semibold">Blockers roundup</h2>
           {blockersText ? (
             <>
-              <pre className="whitespace-pre-wrap rounded-chip bg-felt-deep p-4 font-mono text-sm shadow-well">{blockersText}</pre>
+              {/* The roundup is people talking about their work, so it is set in the
+          body voice and structured as the list it is. blockersText survives as
+          the clipboard payload only — the copy buffer wants plain text, the
+          screen does not, and a name is never monospace. */}
+      <ul className="flex flex-col gap-2.5 rounded-chip bg-felt-deep p-4">
+        {blockerRows.map((r) => (
+          <li key={r.userId} className="text-sm">
+            <span className="font-bold text-ink">{r.name}</span>
+            <span className="text-ink-soft"> — {r.text}</span>
+          </li>
+        ))}
+      </ul>
               <button
                 className={buttonPrimary + " self-start"}
                 onClick={async () => {
