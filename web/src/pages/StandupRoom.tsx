@@ -10,6 +10,7 @@ import {
   useFacilitatorAnnouncement,
 } from "../components/FacilitatorControls";
 import { ErrorRow, Modal, buttonDanger, buttonPrimary, buttonQuiet, inputClass } from "../components/Modal";
+import { Commitments, type Commitment } from "../components/Commitments";
 import type { Fail } from "../components/Modal";
 import { cueFor, cueVar } from "../lib/cue";
 import { EmptyTable } from "./PokerRoom";
@@ -29,6 +30,8 @@ type Where = "chrome" | "gathering" | "round";
 
 type StandupState = {
   entries: StandupEntry[];
+  /** Open commitments for the whole space; only the caller's are answerable. */
+  commitments: Commitment[];
   currentSpeakerId: string | null;
   speakerStartedAt: string | null;
   secondsPerPerson: number;
@@ -488,6 +491,15 @@ export function StandupRoom({
           <p className="text-ink-soft">
             Jot down your update while everyone gathers. Your notes save automatically.
           </p>
+          {/* Beside the narrative, not inside it: the three fields keep their
+              one draft, one autosave and one render loop. */}
+          <Commitments
+            commitments={st.commitments ?? []}
+            meId={me.id}
+            onAdd={(text) => run(() => action(env.id, "add", { text }), { where: "gathering" })}
+            onAnswer={(id, done) => run(() => action(env.id, "answer", { id, done }), { where: "gathering" })}
+            onRemove={(id) => run(() => action(env.id, "remove", { id }), { where: "gathering" })}
+          />
           <EntryForm draft={draft} update={update} saveState={saveState} />
           {/* Who the room is waiting on, in words — a dot or a tint alone would
               leave the only copy of this fact in colour. Only the people still

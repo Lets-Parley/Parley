@@ -5,6 +5,7 @@ import { StandupRoom, Timer } from "./StandupRoom";
 import { makePerson, renderApp } from "../test/render";
 import type { Envelope, Me } from "../lib/api";
 import type { StandupEntry } from "./StandupRoom";
+import type { Commitment } from "../components/Commitments";
 
 const START = "2026-08-18T10:00:00.000Z";
 
@@ -467,7 +468,7 @@ describe("StandupRoom ending the session", () => {
       <StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />,
     );
 
-    const yesterday = screen.getAllByRole("textbox")[0];
+    const yesterday = screen.getByLabelText("yesterday");
     fireEvent.change(yesterday, { target: { value: "the very last thing I typed" } });
     // No timer advance: the point is that ending does not wait out the debounce.
     await endNow();
@@ -505,7 +506,7 @@ describe("StandupRoom ending the session", () => {
     });
     renderApp(<StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />);
 
-    fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "held open" } });
+    fireEvent.change(screen.getByLabelText("yesterday"), { target: { value: "held open" } });
     act(() => {
       endButton()!.click();
     });
@@ -538,7 +539,7 @@ describe("StandupRoom ending the session", () => {
     });
     renderApp(<StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />);
 
-    fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "never made it" } });
+    fireEvent.change(screen.getByLabelText("yesterday"), { target: { value: "never made it" } });
     await endNow();
 
     expect(
@@ -562,14 +563,14 @@ describe("StandupRoom ending the session", () => {
     });
     renderApp(<StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />);
 
-    fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "first go" } });
+    fireEvent.change(screen.getByLabelText("yesterday"), { target: { value: "first go" } });
     await endNow();
     expect(screen.getByRole("alert").textContent).toMatch(/still open/i);
     expect(endButton()).toBeTruthy();
     expect((endButton() as HTMLButtonElement).disabled).toBe(false);
 
     failNext = false;
-    fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "second go" } });
+    fireEvent.change(screen.getByLabelText("yesterday"), { target: { value: "second go" } });
     await endNow();
     expect(
       fetchSpy.mock.calls.filter(([u, i]) => u === "/api/sessions/sess-1" && (i as RequestInit)?.method === "DELETE"),
@@ -588,7 +589,7 @@ describe("StandupRoom ending the session", () => {
     });
     renderApp(<StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />);
 
-    fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "one save" } });
+    fireEvent.change(screen.getByLabelText("yesterday"), { target: { value: "one save" } });
     // The second click used to land while the flush was still held. It cannot
     // any more: confirming unmounts the modal and disables End session for the
     // duration, so the race is closed structurally rather than only by the ref.
@@ -631,7 +632,7 @@ describe("StandupRoom ending the session", () => {
     });
     renderApp(<StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />);
 
-    fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "in flight" } });
+    fireEvent.change(screen.getByLabelText("yesterday"), { target: { value: "in flight" } });
     // Let the debounce fire, so the PUT is out and nothing is left pending.
     await act(async () => {
       vi.advanceTimersByTime(900);
@@ -1081,7 +1082,7 @@ describe("StandupRoom polish", () => {
     // It floated on bare felt while the round bar and the speaker card both
     // sat in panels.
     renderApp(<StandupRoom env={envelope({ phase: "gathering" })} me={me} />);
-    const form = screen.getAllByRole("textbox")[0];
+    const form = screen.getByLabelText("yesterday");
     const panel = form.closest("section")!;
     expect(panel.className).toContain("rounded-panel");
     expect(panel.className).toContain("bg-surface");
@@ -1161,5 +1162,109 @@ describe("StandupRoom facilitator controls", () => {
         screen.getAllByRole("status").some((n) => n.textContent === "You're the facilitator now"),
       ).toBe(true),
     );
+  });
+});
+
+/** A gathering standup carrying some open commitments. */
+function carrying(cs: Partial<Commitment>[], over: Partial<Envelope> = {}): Envelope {
+  const env = gathering(over);
+  const st = env.state as unknown as { commitments: Commitment[] };
+  st.commitments = cs.map((c, i) => ({
+    id: `c${i + 1}`,
+    userId: "marcus",
+    text: `commitment ${i + 1}`,
+    carried: 0,
+    stuck: false,
+    ...c,
+  }));
+  return env;
+}
+
+const section = () => screen.getByTestId("carrying-over");
+const row = (text: string) =>
+  screen.getAllByRole("listitem").find((li) => li.textContent?.includes(text))!;
+
+describe("StandupRoom carrying over", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("shows the section with an empty state on a first-ever standup", () => {
+    // No commitments key at all: the very first standup in a space renders the
+    // block with words in it rather than a blank gap above the fields.
+    renderApp(<StandupRoom env={gathering()} me={me} />);
+    expect(section().textContent).toMatch(/carrying over/i);
+    expect(screen.getByTestId("carrying-over-empty").textContent).toMatch(/nothing carrying over/i);
+  });
+
+  it("lists only your own commitments — somebody else's are not yours to answer", () => {
+    renderApp(
+      <StandupRoom
+        env={carrying([{ text: "mine" }, { userId: "dana", text: "dana's thing" }])}
+        me={me}
+      />,
+    );
+    expect(section().textContent).toMatch(/mine/);
+    expect(section().textContent).not.toMatch(/dana's thing/);
+  });
+
+  it("badges a commitment the server calls stuck, in words about the work", () => {
+    renderApp(
+      <StandupRoom
+        env={carrying([
+          { text: "stalled thing", carried: 2, stuck: true },
+          { text: "fresh thing", carried: 1, stuck: false },
+        ])}
+        me={me}
+      />,
+    );
+    const badge = within(row("stalled thing")).getByTestId("stuck-badge");
+    expect(badge.textContent).toMatch(/stuck/i);
+    // About the work, never about the person keeping it.
+    expect(badge.textContent).not.toMatch(/\byou\b/i);
+    expect(within(row("fresh thing")).queryByTestId("stuck-badge")).toBe(null);
+  });
+
+  it("keeps never-answered apart from answered no", async () => {
+    const f = mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }, { text: "beta" }])} me={me} />);
+    // Both start unanswered: neither says "not yet".
+    expect(row("alpha").textContent).not.toMatch(/not yet/i);
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /no/i }));
+    await waitFor(() => expect(row("alpha").textContent).toMatch(/not yet/i));
+    // Beta was never answered, so it must not be rendered as a No.
+    expect(row("beta").textContent).not.toMatch(/not yet/i);
+    expect(within(row("beta")).getByRole("button", { name: /no/i })).toBeDefined();
+    const [path, init] = f.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe("/api/sessions/sess-1/actions/answer");
+    expect(JSON.parse(init.body as string)).toEqual({ id: "c1", done: false });
+  });
+
+  it("sends done:true for yes, and never a userId", async () => {
+    const f = mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /yes/i }));
+    const [path, init] = f.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe("/api/sessions/sess-1/actions/answer");
+    expect(JSON.parse(init.body as string)).toEqual({ id: "c1", done: true });
+  });
+
+  it("adds a commitment through the add action and clears the box", async () => {
+    const f = mockFetch();
+    renderApp(<StandupRoom env={gathering()} me={me} />);
+    const box = screen.getByLabelText(/add a commitment/i) as HTMLInputElement;
+    await userEvent.type(box, "ship the thing");
+    await userEvent.click(within(section()).getByRole("button", { name: /^add$/i }));
+    const [path, init] = f.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe("/api/sessions/sess-1/actions/add");
+    expect(JSON.parse(init.body as string)).toEqual({ text: "ship the thing" });
+    await waitFor(() => expect(box.value).toBe(""));
+  });
+
+  it("removes a commitment through the remove action", async () => {
+    const f = mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /remove/i }));
+    const [path, init] = f.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe("/api/sessions/sess-1/actions/remove");
+    expect(JSON.parse(init.body as string)).toEqual({ id: "c1" });
   });
 });

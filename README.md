@@ -85,6 +85,10 @@ sit at.
   waiting in "yesterday" at the next one.
 - **Write ahead.** Fill your entry in before the meeting; it saves itself as you
   type, and an incoming update from someone else can't eat your keystrokes.
+- **Commitments that carry.** Add a line for what you will actually do; it waits
+  above your fields at the next standup and asks one question — did that land?
+  Yes closes it, No carries it on. Two No's and the commitment is flagged as
+  stuck, which is a fact about the work and not a mark against a name.
 - **Blockers roundup** at the end, ready to copy into a channel.
 
 ### Spaces
