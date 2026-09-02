@@ -61,7 +61,7 @@ describe("Hand", () => {
     // An optimistic pick reads as confirmed in `go`. That is the right trade
     // while the socket is up and a lie while it is down.
     renderHand({ selected: "5", status: "reconnecting" });
-    expect(screen.getByText(/holding ☕|holding 5/i).textContent).toMatch(/reconnecting/i);
+    expect(screen.getByText(/holding 5/i).textContent).toMatch(/reconnecting/i);
     expect(screen.queryByText(/^picked/i)).toBeNull();
   });
 

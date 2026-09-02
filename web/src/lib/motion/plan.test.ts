@@ -17,6 +17,8 @@ import {
   CARD_FLIP_MS,
   CARD_HOP_MS,
   FLIP_STAGGER_MS,
+  CARD_DEAL_MS,
+  DEAL_STAGGER_MS,
   staggerFor,
   KICK_REFLOW_MS,
   planKick,
@@ -103,6 +105,14 @@ describe("beats", () => {
       expect(resultStampsAt(n)).toBeGreaterThan(flipEndsAt(n));
       expect(resultStampsAt(n)).toBeLessThan(revealSettledAt(n));
     }
+  });
+
+  it("pins the deal timing the landing hero runs on", () => {
+    // These two are unique to the deal phase and are consumed only by the
+    // hero, so nothing else in the suite would notice them drifting to a
+    // two-and-a-half-second-per-card deal.
+    expect(CARD_DEAL_MS).toBe(260);
+    expect(DEAL_STAGGER_MS).toBe(90);
   });
 
   it("keeps the hop long enough to still be running when the result lands", () => {

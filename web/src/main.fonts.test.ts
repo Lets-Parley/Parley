@@ -12,19 +12,37 @@ import path from "node:path";
  *
  * These are source-level guards because the imports are side-effecting CSS
  * that jsdom does not execute. Crude, and still the cheapest thing that would
- * have caught it.
+ * have caught it — but a plain substring match would also be satisfied by the
+ * import sitting inside a comment or a string, so it has to be matched as a
+ * real statement at the start of a line.
  */
+function imports(specifier: string): boolean {
+  return new RegExp(
+    String.raw`^\s*import\s+['"]` + specifier.replace(/[/\.]/g, "\$&") + String.raw`['"]`,
+    "m",
+  ).test(main);
+}
+
 const here = path.dirname(new URL(import.meta.url).pathname);
 const main = readFileSync(path.join(here, "main.tsx"), "utf-8");
 const pkgRoot = path.join(here, "..", "node_modules", "@fontsource");
 
 describe("font faces the app actually asks for", () => {
   it("loads the bold Instrument Sans that every font-bold needs", () => {
-    expect(main).toContain("@fontsource/instrument-sans/700.css");
+    expect(imports("@fontsource/instrument-sans/700.css")).toBe(true);
   });
 
   it("loads the regular JetBrains Mono that card faces and labels use", () => {
-    expect(main).toContain("@fontsource/jetbrains-mono/400.css");
+    expect(imports("@fontsource/jetbrains-mono/400.css")).toBe(true);
+  });
+
+  it("is not satisfied by a commented-out or quoted import", () => {
+    // The hole a plain substring match would leave: this is the same class of
+    // mistake as a test that derives its expectation from the code under test.
+    expect(imports("@fontsource/instrument-sans/700.css")).toBe(true);
+    expect(
+      /^\s*\/\/\s*import\s+['"]@fontsource/m.test(main),
+    ).toBe(false);
   });
 
   it("never asks for a weight the packaged family does not ship", () => {
