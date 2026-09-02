@@ -112,7 +112,13 @@ The one thing it does fail on is a manifest it cannot read: an unparseable file
 or a missing `.assets` array exits nonzero rather than reporting an all-clear,
 because a report that says the set is fresh has to mean it looked. An asset with
 an empty `depicts` is called out for the same reason — nothing could ever mark
-it stale.
+it stale — and so is a `depicts` path that no longer exists at `HEAD`, which
+would otherwise read as fresh forever the moment somebody renamed or deleted the
+component.
+
+`depicts` entries are matched literally, not as globs: `web/src/pages/*.tsx` is
+reported as a path that does not exist rather than quietly standing in for a
+whole directory, so what the report prints is what it matched. List the files.
 
 When you re-shoot, update `shot_at` for the assets you replaced to the commit
 the new frames land in, and add a `depicts` entry for any new surface a shot

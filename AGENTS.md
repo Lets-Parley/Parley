@@ -326,9 +326,13 @@ migration and embedding mistakes that unit tests miss.
 31. Screenshots go stale silently. `site/src/assets/screenshots.json` maps each
     shipped screenshot to the `web/src` files it depicts and the commit it was
     last shot against; `scripts/check-screenshot-freshness.sh` reports the drift
-    and CI surfaces it on any pull request touching `web/src`. It is advisory
-    and never fails. If you re-shoot, move `shot_at`; if you add a shot, add it
-    to the manifest.
+    and CI surfaces it on any pull request touching `web/src`. The drift itself
+    is advisory and never fails; a manifest the checker cannot read does exit
+    nonzero, because a report that claims the set is fresh has to mean it
+    looked. `depicts` paths are literal and must exist at `HEAD` — an empty
+    list, or one naming a file that is gone, is reported rather than counted
+    clean. If you re-shoot, move `shot_at`; if you add a shot, add it to the
+    manifest.
 32. Dependabot watches only `site/`. Go modules and `web/` dependencies are
     bumped by hand, with tests.
 

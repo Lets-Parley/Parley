@@ -58,8 +58,8 @@ JQ
     echo "- $files: unknown commit $shot_at in the manifest"
     continue
   fi
-  # One pathspec per line, split on newlines only and with globbing off, so a
-  # depicted path containing a space stays a single pathspec rather than
+  # One path per line, split on newlines only and with globbing off, so a
+  # depicted path containing a space stays a single entry rather than
   # word-splitting into several that match far too much.
   set -f
   IFS='
@@ -68,6 +68,35 @@ JQ
   set -- $(jq -r --argjson i "$idx" '.assets[$i].depicts[]' "$manifest")
   unset IFS
   set +f
+
+  # A path that no longer exists at HEAD matches no commit, so it reads as fresh
+  # forever — which is precisely how a renamed or deleted component quietly
+  # stops reporting. Name it instead of counting it clean.
+  #
+  # Each surviving path becomes a `:(literal)` pathspec, so it means the path
+  # the report prints and nothing else. Without the magic, git would expand
+  # `*` and `?` itself — `set -f` only stops the shell — and an entry like
+  # `web/src/pages/*.tsx` would quietly match a whole directory while the
+  # report displayed it as one file.
+  missing=''
+  remaining=$#
+  while [ "$remaining" -gt 0 ]; do
+    path=$1
+    shift
+    remaining=$((remaining - 1))
+    if git cat-file -e "HEAD:$path" 2>/dev/null; then
+      set -- "$@" ":(literal)$path"
+    else
+      missing="${missing:+$missing }$path"
+    fi
+  done
+
+  if [ -n "$missing" ]; then
+    echo "- $files: depicts $missing, which no longer exists at HEAD — update its \`depicts\`"
+  fi
+  if [ "$#" -eq 0 ]; then
+    continue
+  fi
   count=$(git log --format=%H "$shot_at..HEAD" -- "$@" | grep -c . || true)
   if [ "$count" -gt 0 ]; then
     echo "- $files: shot at $(printf %.7s "$shot_at"), $count commit(s) since have touched $depicts"
