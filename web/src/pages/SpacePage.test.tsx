@@ -1194,6 +1194,27 @@ describe("SpacePage deck chooser", () => {
     }
   });
 
+  // #444: the sample chips were fixed-width boxes on a nowrap row, so a deck
+  // of long ordinal words ran together into "lowmediuhigh". At 375px — the
+  // narrowest viewport this UI supports — five 8-character chips cannot sit
+  // on one line, so the row has to wrap and each chip has to size to its word.
+  it("renders a deck of 8-character ordinal words legibly", async () => {
+    space.kinds = ["poker"];
+    decks = [{ ...house, name: "Sizes", cards: ["smallest", "mediumly", "largerly"] }];
+    try {
+      const dialog = await openDialog();
+      await dialog.findByRole("radio", { name: /Sizes/ });
+      const chip = dialog.getByText("smallest");
+      const cls = chip.className;
+      // No fixed width: a chip narrower than its word clips the word.
+      expect(/(^|\s)w-\d/.test(cls)).toBe(false);
+      // And the row wraps rather than overflowing the option.
+      expect(chip.parentElement!.className).toContain("flex-wrap");
+    } finally {
+      delete space.kinds;
+    }
+  });
+
   it("is reachable via Tab, not only programmatic focus", async () => {
     space.kinds = ["poker"];
     decks = [house];
