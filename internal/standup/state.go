@@ -47,6 +47,13 @@ type WireCommitment struct {
 	Text    string `json:"text"`
 	Carried int    `json:"carried"`
 	Stuck   bool   `json:"stuck"`
+	// OpenedHere is true when the commitment was opened in this very session.
+	// Read from opened_session_id rather than inferred from Carried: a
+	// commitment opened last week and never answered also has Carried 0, so
+	// the count cannot tell "made just now" from "carried over unanswered".
+	// The client uses it to keep "did that land?" off something typed a
+	// minute ago, and because it comes off the row it survives a reconnect.
+	OpenedHere bool `json:"openedHere"`
 }
 
 // stuckAfter is the number of "not yet" answers at which a commitment is
@@ -114,17 +121,17 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	// is no lookback across sessions: a commitment opened weeks ago and never
 	// answered is simply still open.
 	crows, err := pool.Query(ctx, `
-		select id::text, user_id::text, text, carried
+		select id::text, user_id::text, text, carried, opened_session_id = $2 as opened_here
 		from standup_commitments
 		where space_id = $1 and closed_at is null
-		order by created_at, id`, sess.SpaceID)
+		order by created_at, id`, sess.SpaceID, sess.ID)
 	if err != nil {
 		return nil, err
 	}
 	defer crows.Close()
 	for crows.Next() {
 		var c WireCommitment
-		if err := crows.Scan(&c.ID, &c.UserID, &c.Text, &c.Carried); err != nil {
+		if err := crows.Scan(&c.ID, &c.UserID, &c.Text, &c.Carried, &c.OpenedHere); err != nil {
 			return nil, err
 		}
 		c.Stuck = c.Carried >= stuckAfter

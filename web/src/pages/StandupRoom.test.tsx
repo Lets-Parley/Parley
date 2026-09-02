@@ -1190,6 +1190,7 @@ function carrying(cs: Partial<Commitment>[], over: Partial<Envelope> = {}): Enve
     text: `commitment ${i + 1}`,
     carried: 0,
     stuck: false,
+    openedHere: false,
     ...c,
   }));
   return env;
@@ -1510,5 +1511,53 @@ describe("StandupRoom carrying over", () => {
     fireEvent.click(yes);
     await waitFor(() => expect(row("alpha").textContent).toMatch(/landed/i));
     expect(f).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("StandupRoom gathering panel and fresh commitments", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  // The action bar is pulled out to the panel's edges with negative margins and
+  // paints its own bg-surface. Square corners there sit on top of the parent's
+  // rounded-panel and put a squared-off block back in both bottom corners.
+  it("carries the panel's bottom radius on the pulled-out action bar", () => {
+    renderApp(<StandupRoom env={gathering()} me={me} />);
+    const bar = screen.getByTestId("gathering-actions");
+    expect(bar.className).toContain("bg-surface");
+    expect(bar.className).toContain("-mb-5");
+    expect(bar.className).toContain("rounded-b-panel");
+  });
+
+  // A commitment opened in this very sitting has carried from nowhere, so
+  // "What you took on last time. Did that land?" is the wrong question about
+  // it — and answering No would move a carry count it never earned.
+  it("keeps a commitment made in this sitting out of the carry-over list", () => {
+    renderApp(
+      <StandupRoom
+        env={carrying([
+          { text: "from yesterday", openedHere: false },
+          { text: "typed just now", openedHere: true },
+        ])}
+        me={me}
+      />,
+    );
+    const over = screen.getByTestId("carrying-over-list");
+    expect(over.textContent).toMatch(/from yesterday/);
+    expect(over.textContent).not.toMatch(/typed just now/);
+
+    const now = screen.getByTestId("taking-on-now");
+    expect(now.textContent).toMatch(/typed just now/);
+    // No question is asked about it, so there is nothing to answer.
+    expect(within(row("typed just now")).queryByRole("button", { name: /^yes/i })).toBe(null);
+    expect(within(row("typed just now")).queryByRole("button", { name: /^no/i })).toBe(null);
+    // It is still yours to withdraw.
+    expect(within(row("typed just now")).getByRole("button", { name: /remove/i })).toBeDefined();
+  });
+
+  // With nothing carried in, the carry-over block must say so rather than
+  // quietly listing this sitting's new commitment under last time's heading.
+  it("says nothing is carrying over when everything open was made just now", () => {
+    renderApp(<StandupRoom env={carrying([{ text: "typed just now", openedHere: true }])} me={me} />);
+    expect(screen.getByTestId("carrying-over-empty").textContent).toMatch(/nothing carrying over/i);
   });
 });

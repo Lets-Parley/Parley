@@ -9,6 +9,15 @@ export type Commitment = {
   carried: number;
   /** Computed by the server so every screen agrees on what stalled means. */
   stuck: boolean;
+  /**
+   * True when this commitment was opened in the session on screen. It comes off
+   * the row (`opened_session_id`), not from `carried === 0`: a commitment
+   * opened weeks ago and never answered also has a carry count of zero, so the
+   * count cannot tell "just typed" from "carried in unanswered". Reading it off
+   * the wire also means it survives a reconnect, which a client-side "things I
+   * added since the page loaded" set would not.
+   */
+  openedHere: boolean;
 };
 
 /**
@@ -49,10 +58,22 @@ const buttonBare =
   "touch-hit inline-flex items-center justify-center whitespace-nowrap rounded-full px-3 py-2 text-[13px] font-semibold text-ink-faint transition hover:bg-felt-deep hover:text-ink disabled:opacity-50";
 
 /**
- * The carry-over list: what you said you would do, still open, asked the way
- * round that makes the answer mean something — "did that land?", where No is
- * the one that carries. Only your own rows are answerable; the wire carries
- * the whole room's, because one payload is broadcast to every socket.
+ * Both lists are peers under "Before your turn" (h2), so they take the same
+ * level and the same weight. One constant rather than two hand-rolled strings,
+ * so the two headings cannot drift apart.
+ */
+const sectionHeading = "text-[15px] font-bold text-ink";
+
+/**
+ * Your open commitments, in two lists, because they are owed two different
+ * things. What carried in from an earlier sitting is asked the way round that
+ * makes the answer mean something — "did that land?", where No is the one that
+ * carries. What you take on in this sitting is only listed back: it has carried
+ * from nowhere, so there is nothing yet to answer, and a No there would move a
+ * carry count towards a stuck state it never earned.
+ *
+ * Only your own rows appear; the wire carries the whole room's, because one
+ * payload is broadcast to every socket.
  */
 export function Commitments({
   commitments,
@@ -76,6 +97,10 @@ export function Commitments({
   const addRef = useRef<HTMLInputElement>(null);
   const countId = useId();
   const mine = useMemo(() => commitments.filter((c) => c.userId === meId), [commitments, meId]);
+  // Two different questions, so two different lists. Which list a row belongs
+  // to is the server's answer, never a guess from the carry count.
+  const carriedOver = useMemo(() => mine.filter((c) => !c.openedHere), [mine]);
+  const takenOnNow = useMemo(() => mine.filter((c) => c.openedHere), [mine]);
   const left = 500 - text.length;
 
   /**
@@ -107,12 +132,12 @@ export function Commitments({
   // each put back at the index it was holding rather than appended.
   const rows = useMemo(() => {
     const still = new Set(leaving.map((l) => l.c.id));
-    const out = mine.filter((c) => still.has(c.id) || !closed.has(c.id));
+    const out = carriedOver.filter((c) => still.has(c.id) || !closed.has(c.id));
     for (const l of leaving) {
       if (!out.some((c) => c.id === l.c.id)) out.splice(Math.min(l.at, out.length), 0, l.c);
     }
     return out;
-  }, [mine, leaving, closed]);
+  }, [carriedOver, leaving, closed]);
   const goneIds = new Set(leaving.map((l) => l.c.id));
 
   // A row that leaves — landed and let go, or removed — takes the focused
@@ -123,7 +148,7 @@ export function Commitments({
   return (
     <div data-testid="carrying-over" className="flex flex-col gap-3">
       <div>
-        <h3 className="text-[15px] font-bold text-ink">Carrying over</h3>
+        <h3 className={sectionHeading}>Carrying over</h3>
         {/* Only true once there was a last time. On a space's first standup the
             line asserted a history the empty state below immediately denied. */}
         {rows.length > 0 && (
@@ -135,7 +160,7 @@ export function Commitments({
           Nothing carrying over. Anything you take on here will be waiting for you next time.
         </p>
       ) : (
-        <ul className="flex flex-col gap-2">
+        <ul data-testid="carrying-over-list" className="flex flex-col gap-2">
           {rows.map((c, i) => (
             <CommitmentRow
               key={c.id}
@@ -149,6 +174,39 @@ export function Commitments({
             />
           ))}
         </ul>
+      )}
+      {/* Only when there is something in it: an empty "Taking on now" would be
+          a heading announcing nothing, directly above the field that is the
+          way to fill it. */}
+      {takenOnNow.length > 0 && (
+        <div data-testid="taking-on-now" className="flex flex-col gap-3">
+          <div>
+            <h3 className={sectionHeading}>Taking on now</h3>
+            <p className="text-sm text-ink-faint">
+              What you are picking up this standup. Nothing to answer yet — it will be here next
+              time.
+            </p>
+          </div>
+          <ul className="flex flex-col gap-2">
+            {takenOnNow.map((c) => (
+              <CommitmentRow
+                key={c.id}
+                c={c}
+                /* No question was asked, so there is no answer to offer. It is
+                   still yours to withdraw, with the same two-step confirm, the
+                   same focus handling and the same behaviour at 375px as a
+                   carried-over row. */
+                answerable={false}
+                leaving={false}
+                onAnswer={onAnswer}
+                onRemove={onRemove}
+                onNote={onNote}
+                onLanded={NOTHING_TO_LAND}
+                onLeave={catchFocus}
+              />
+            ))}
+          </ul>
+        </div>
       )}
       <form
         className="flex flex-wrap items-end gap-2"
@@ -213,8 +271,12 @@ export function Commitments({
  * would be a button that could only ever 404, so the yes path says what
  * happened, holds still long enough to be read, and leaves.
  */
+/** A row with no answer group can never land, so there is no beat to hold. */
+const NOTHING_TO_LAND = () => {};
+
 function CommitmentRow({
   c,
+  answerable = true,
   leaving,
   onAnswer,
   onRemove,
@@ -223,6 +285,12 @@ function CommitmentRow({
   onLeave,
 }: {
   c: Commitment;
+  /**
+   * False for a commitment opened in this sitting: "did that land?" is not a
+   * question anyone can answer about a sentence typed ninety seconds ago, so
+   * the row carries no answer group at all.
+   */
+  answerable?: boolean;
   /** Answered yes and on its way out: resolved, and no longer answerable. */
   leaving: boolean;
   onAnswer: (id: string, done: boolean) => Promise<boolean>;
@@ -247,6 +315,11 @@ function CommitmentRow({
   const ask = useRef<HTMLButtonElement>(null);
   const backOut = useRef(false);
   const textId = useId();
+  // The hairline is the seam between two groups of controls, not an edge of
+  // its own — `line`, not `line-strong`, because no control here is bounded by
+  // it. With no answer group beside it there is nothing to divide, so a row
+  // that cannot be answered draws none.
+  const divider = answerable ? "sm:border-l sm:border-line sm:pl-3" : "";
 
   // The row can be swept away by a broadcast at any moment. If it goes while it
   // holds focus, hand focus on rather than let it fall to <body>.
@@ -357,51 +430,53 @@ function CommitmentRow({
           colour: stop is reserved for destructive confirms, and a red control
           on every row would put back the reprimand this list exists without. */}
       <span className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 sm:ml-auto sm:shrink-0 sm:flex-nowrap sm:justify-end">
-        <span data-testid="answer-group" className="flex flex-wrap items-center gap-2">
-          {answer === null && !leaving ? (
-            <>
-              {/* Short labels with the commitment attached by description: the
-                  old aria-label read up to 500 characters of the person's own
-                  text before the operative word, three times per row. */}
-              <button
-                type="button"
-                className={buttonGo}
-                disabled={busy}
-                aria-describedby={textId}
-                onClick={() => answered(true)}
-              >
-                Yes
-              </button>
-              <button
-                type="button"
-                className={buttonQuiet}
-                disabled={busy}
-                aria-describedby={textId}
-                onClick={() => answered(false)}
-              >
-                No
-              </button>
-            </>
-          ) : (
-            <span className={`flex items-center gap-1 ${SETTLE}`}>
-              <span className="text-sm font-semibold text-ink-soft">
-                {answer === false ? "Not yet — it carries over." : "Landed."}
-              </span>
-              {/* Only the No path. A no leaves the commitment open, so taking
-                  it back is a real action; a yes has already closed it. */}
-              {answer === false && (
+        {answerable && (
+          <span data-testid="answer-group" className="flex flex-wrap items-center gap-2">
+            {answer === null && !leaving ? (
+              <>
+                {/* Short labels with the commitment attached by description: the
+                    old aria-label read up to 500 characters of the person's own
+                    text before the operative word, three times per row. */}
                 <button
                   type="button"
-                  className={buttonBare}
+                  className={buttonGo}
+                  disabled={busy}
                   aria-describedby={textId}
-                  onClick={() => setAnswer(null)}
+                  onClick={() => answered(true)}
                 >
-                  Change
+                  Yes
                 </button>
-              )}
-            </span>
-          )}
-        </span>
+                <button
+                  type="button"
+                  className={buttonQuiet}
+                  disabled={busy}
+                  aria-describedby={textId}
+                  onClick={() => answered(false)}
+                >
+                  No
+                </button>
+              </>
+            ) : (
+              <span className={`flex items-center gap-1 ${SETTLE}`}>
+                <span className="text-sm font-semibold text-ink-soft">
+                  {answer === false ? "Not yet — it carries over." : "Landed."}
+                </span>
+                {/* Only the No path. A no leaves the commitment open, so taking
+                    it back is a real action; a yes has already closed it. */}
+                {answer === false && (
+                  <button
+                    type="button"
+                    className={buttonBare}
+                    aria-describedby={textId}
+                    onClick={() => setAnswer(null)}
+                  >
+                    Change
+                  </button>
+                )}
+              </span>
+            )}
+          </span>
+        )}
         {/* Nothing to withdraw once it has landed: the row is on its way out. */}
         {/* The keys are load-bearing. Without them the two states render the
             same element types in the same position, React reconciles the button
@@ -413,7 +488,7 @@ function CommitmentRow({
           (confirming ? (
             <span
               key="confirm"
-              className="flex items-center gap-1 sm:border-l sm:border-line sm:pl-3"
+              className={`flex items-center gap-1 ${divider}`}
               /* Scoped to the row on purpose: a document listener here would
                  also swallow Escape from the page's native <dialog>, which
                  closes itself. The stop keeps this Escape from travelling on
@@ -458,7 +533,7 @@ function CommitmentRow({
           ) : (
             /* Destructive, with nothing on the server to undo it, so the first
                click only asks. */
-            <span key="ask" className="flex items-center sm:border-l sm:border-line sm:pl-3">
+            <span key="ask" className={`flex items-center ${divider}`}>
               <button
                 ref={ask}
                 type="button"

@@ -610,7 +610,15 @@ export function StandupRoom({
             )}
           </div>
           {failRow("gathering")}
-          <div className="sticky bottom-0 -mx-5 -mb-5 mt-2 flex flex-col gap-2 border-t border-line bg-surface px-5 py-4 pb-[calc(1rem+var(--safe-bottom))]">
+          {/* Pulled out to the panel's own edges, so it needs the panel's
+              bottom radius too: a square-cornered fill sitting on top of a
+              rounded-panel parent paints the corners back in. Not solved with
+              overflow-hidden on the section — this bar is sticky, and a
+              clipping ancestor kills that. */}
+          <div
+            data-testid="gathering-actions"
+            className="sticky bottom-0 -mx-5 -mb-5 mt-2 flex flex-col gap-2 rounded-b-panel border-t border-line bg-surface px-5 py-4 pb-[calc(1rem+var(--safe-bottom))]"
+          >
           <button
             // Filled navy on both this and Start put two primaries on one
             // screen and left the round's actual action competing with a
