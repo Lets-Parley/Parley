@@ -329,3 +329,34 @@ func TestCommitmentSaysWhetherItWasOpenedInThisSession(t *testing.T) {
 		t.Fatalf("carried = %v: the count alone cannot tell carried-over from just-made", c["carried"])
 	}
 }
+
+// Deleting the room a commitment was *opened* in must not destroy it. The
+// origin room is historical linkage, not ownership: an open commitment is
+// still on somebody's carry-over list, and losing it with the room is silent
+// data loss. Sibling of the closing-room case above.
+func TestDeletingTheOpeningRoomDoesNotDestroyACommitment(t *testing.T) {
+	srv := testServer(t)
+	fac, m1, _, id, slug := standupSetup(t, srv, "Commitment Opening Room Delete Space")
+	cid := addCommitment(t, srv, id, m1, "write the migration")
+
+	if resp, body := doJSON(t, srv, "DELETE",
+		"/api/orgs/default/spaces/"+slug+"/sessions/"+id, "", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete the opening room: %d %s", resp.StatusCode, body)
+	}
+
+	_, sess := createSession(t, srv, slug, "standup", "Daily Two", fac)
+	next := sess["id"].(string)
+	c := commitments(t, srv, next, m1)[cid]
+	if c == nil {
+		t.Fatal("deleting the opening room took the open commitment with it")
+	}
+	// Opened nowhere is not opened here: it renders as carried in, which is
+	// what it is — there is no origin room left to have made it in.
+	if c["openedHere"] != false {
+		t.Errorf("openedHere = %v, want false for a commitment whose opening room is gone", c["openedHere"])
+	}
+	// And it is still answerable.
+	if resp := answer(t, srv, next, m1, cid, true); resp.StatusCode != http.StatusNoContent {
+		t.Errorf("answering the orphaned commitment: got %d, want 204", resp.StatusCode)
+	}
+}

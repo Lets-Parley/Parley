@@ -19,8 +19,9 @@ export type Commitment = {
   stuck: boolean;
   /**
    * True when this commitment was opened in the session on screen. It comes off
-   * the row (`opened_session_id`), not from `carried === 0`: a commitment
-   * opened weeks ago and never answered also has a carry count of zero, so the
+   * the row (`opened_session_id`, which is null once that room has been
+   * deleted), not from `carried === 0`: a commitment opened weeks ago and
+   * never answered also has a carry count of zero, so the
    * count cannot tell "just typed" from "carried in unanswered". Reading it off
    * the wire also means it survives a reconnect, which a client-side "things I
    * added since the page loaded" set would not.
