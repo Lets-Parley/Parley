@@ -39,8 +39,9 @@ describe("Hand", () => {
 
   it("keeps the played card marked as committed once the reveal locks the hand", () => {
     // The reveal flips aria-pressed to false for every card, which used to
-    // take the only mark of what you played down with it.
-    renderHand({ selected: "3", disabled: true });
+    // take the only mark of what you played down with it. The mark rides on
+    // `played` — the room's record — not on the pick, which the reveal clears.
+    renderHand({ selected: null, played: "3", disabled: true });
     const played = screen.getByRole("button", { name: "3" });
     expect(played.getAttribute("data-played")).toBe("true");
     expect(played.className).toMatch(/border-accent/);

@@ -9,6 +9,7 @@ export function Hand({
   values,
   deckName,
   selected,
+  played,
   disabled,
   spectating,
   canSpectate,
@@ -19,6 +20,12 @@ export function Hand({
   values: string[];
   deckName: string;
   selected: string | null;
+  /**
+   * The card the room has on record for you, once the reveal makes votes
+   * public. It comes from the envelope rather than from `selected`, which is
+   * optimistic local state the reveal deliberately clears.
+   */
+  played?: string | null;
   disabled?: boolean;
   spectating: boolean;
   canSpectate: boolean;
@@ -83,25 +90,26 @@ export function Hand({
         <div className="grid grid-cols-5 justify-center gap-2 sm:flex sm:flex-wrap sm:gap-2.5">
           {values.map((v, i) => {
             const isSel = selected === v && !disabled;
-            // The reveal flips `disabled` on, which drops isSel — and with it
-            // the only mark showing which card you actually played. `played`
-            // survives that, so your own card stays committed instead of
-            // sinking back into the fan as an anonymous thirteenth. It rests
+            // The reveal flips `disabled` on, which drops isSel — and it also
+            // clears the optimistic pick, so `selected` cannot be the mark of
+            // what you played. The room's own record of your vote can, and it
+            // is still there after a reload. Your card stays committed instead
+            // of sinking back into the fan as an anonymous thirteenth. It rests
             // rather than lifting: lift means hovered, selected, or modal.
-            const played = selected === v;
+            const isPlayed = played === v;
             return (
               <button
                 key={v}
                 onClick={() => onPick(v)}
                 disabled={disabled}
                 aria-pressed={isSel}
-                data-played={played || undefined}
+                data-played={isPlayed || undefined}
                 className={
                   "hand-card flex h-16 items-center justify-center rounded-card border bg-surface font-mono text-ink shadow-rest " +
                   "sm:h-[90px] sm:w-16 " +
                   (isSel
                     ? "border-2 border-accent bg-accent-soft shadow-lift"
-                    : played
+                    : isPlayed
                       ? "border-2 border-accent bg-accent-soft shadow-rest"
                       : disabled
                         ? // A spent card is disabled, and a disabled control
