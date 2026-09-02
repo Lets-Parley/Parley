@@ -32,6 +32,7 @@ there is no second driver and no plan for one.
   { name: "0024_org_members_user_idx", value: "org_members (user_id) where revoked_at is null", note: "Partial index for \"which orgs is this user in\". Regular create index — migrate.go wraps each file in a transaction, so concurrently is unavailable" },
   { name: "0028_standup_commitments", value: "standup_commitments", note: "New table, so no backfill. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
   { name: "0029_commitment_carry_idempotency", value: "standup_commitments.carried_session_id", note: "Which standup last moved the carry count. Nullable with no backfill — an existing row reads as \"not answered in any session yet\", so its first answer counts normally. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
+  { name: "0030_commitment_origin_survives", value: "standup_commitments.opened_session_id", note: "Makes the column nullable and on delete set null, so deleting the room a commitment was opened in no longer deletes the commitment. Rewrites delete behaviour on rows that already exist — nothing is backfilled, but an existing row that used to vanish with its origin room now survives with a null. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
 ]} />
 
 ### How the runner behaves
