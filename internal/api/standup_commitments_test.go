@@ -232,3 +232,38 @@ func TestDeletingTheClosingRoomDoesNotReopenACommitment(t *testing.T) {
 		t.Errorf("answering the finished commitment again: got %d, want a 4xx", resp.StatusCode)
 	}
 }
+
+// openedHere is what separates "I just typed this" from "this carried over",
+// and it has to come off the row rather than be inferred from carried: a
+// commitment opened last week and never answered also has carried 0. Without
+// it the client cannot avoid asking "did that land?" about a sentence typed a
+// minute ago.
+func TestCommitmentSaysWhetherItWasOpenedInThisSession(t *testing.T) {
+	srv := testServer(t)
+	fac, m1, _, firstID, slug := standupSetup(t, srv, "Commitment Opened Here Space")
+	cid := addCommitment(t, srv, firstID, m1, "rewrite the importer")
+
+	if c := commitments(t, srv, firstID, m1)[cid]; c["openedHere"] != true {
+		t.Fatalf("a commitment made in this sitting: openedHere = %v, want true", c["openedHere"])
+	}
+
+	// Tomorrow's standup, same space. The commitment is still open, and now it
+	// genuinely has carried over — even though nobody ever answered "not yet",
+	// so carried is still 0.
+	if resp, _ := doJSON(t, srv, "DELETE", "/api/sessions/"+firstID, "", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("close first session: %d", resp.StatusCode)
+	}
+	_, sess := createSession(t, srv, slug, "standup", "Daily", fac)
+	nextID := sess["id"].(string)
+
+	c := commitments(t, srv, nextID, m1)[cid]
+	if c == nil {
+		t.Fatal("the open commitment did not reach the next session")
+	}
+	if c["openedHere"] != false {
+		t.Fatalf("a commitment carried in from an earlier session: openedHere = %v, want false", c["openedHere"])
+	}
+	if c["carried"] != float64(0) {
+		t.Fatalf("carried = %v: the count alone cannot tell carried-over from just-made", c["carried"])
+	}
+}
