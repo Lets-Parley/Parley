@@ -1302,7 +1302,43 @@ describe("StandupRoom carrying over", () => {
     await userEvent.click(within(row("alpha")).getByRole("button", { name: /^yes$/i }));
     await waitFor(() => expect(row("alpha").textContent).toMatch(/landed/i));
     expect(within(row("alpha")).queryByRole("button", { name: /^yes$/i })).toBe(null);
-    expect(within(row("alpha")).getByRole("button", { name: /change/i })).toBeDefined();
+    // No "Change" on the yes path: the server has already closed the
+    // commitment and will not reopen it, so a control offering to take the
+    // answer back could only produce a 404.
+    expect(within(row("alpha")).queryByRole("button", { name: /change/i })).toBe(null);
+  });
+
+  it("holds a landed row for a beat after the broadcast sweeps it away", async () => {
+    mockFetch();
+    const { rerender } = renderApp(
+      <StandupRoom env={carrying([{ text: "alpha" }, { text: "beta" }])} me={me} />,
+    );
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^yes$/i }));
+    await waitFor(() => expect(row("alpha").textContent).toMatch(/landed/i));
+    // Yes closes the commitment server-side, so the very next broadcast no
+    // longer carries it. Without the hold the acknowledgement is a flash.
+    rerender(<StandupRoom env={carrying([{ id: "c2", text: "beta" }])} me={me} />);
+    expect(row("alpha").textContent).toMatch(/landed/i);
+    // And it does leave: the hold is a beat, not a cache.
+    await waitFor(
+      () =>
+        expect(
+          screen.queryAllByRole("listitem").some((li) => li.textContent?.includes("alpha")),
+        ).toBe(false),
+      { timeout: 3000 },
+    );
+    // The row that stayed open is untouched by any of it.
+    expect(row("beta").textContent).toMatch(/beta/);
+  });
+
+  it("keeps Remove out of the answer pair, so it never reads as a third answer", () => {
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    const answers = within(row("alpha")).getByTestId("answer-group");
+    expect(within(answers).getByRole("button", { name: /^yes$/i })).toBeDefined();
+    expect(within(answers).getByRole("button", { name: /^no$/i })).toBeDefined();
+    expect(within(answers).queryByRole("button", { name: /^remove$/i })).toBe(null);
+    // Still on the row, just not in the group that answers the question.
+    expect(within(row("alpha")).getByRole("button", { name: /^remove$/i })).toBeDefined();
   });
 
   it("lets a mis-clicked answer be changed back", async () => {

@@ -267,6 +267,14 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 /* An answered commitment being set down, not deleted: it arrives from just
    above and stops, no overshoot. Reduced motion kills it below. */
 @keyframes set-down { from { transform: translateY(-4px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+/* A landed commitment leaving the carry-over list. It holds still long enough
+   to be read, then lifts away, so the person sees which row left rather than
+   the list silently reflowing under them. Reduced motion kills it below, and
+   the row simply disappears at the end of the same beat. */
+@keyframes let-go {
+  0%, 55% { opacity: 1; transform: translateY(0) }
+  100%    { opacity: 0; transform: translateY(-4px) }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
