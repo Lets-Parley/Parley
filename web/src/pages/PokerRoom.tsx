@@ -41,6 +41,10 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
   const spectators: Person[] = env.participants.filter((p) => p.spectator && online.has(p.userId));
   const votes = new Map((current?.votes ?? []).map((v) => [v.userId, v.value]));
   const results = env.revealed ? current?.results : undefined;
+  // The card you played, as the room has it. `selected` cannot answer this:
+  // it is optimistic state the reveal clears, and it is gone after a reload.
+  // The envelope's votes survive both, and a reset empties them.
+  const myVote = votes.get(me.id) ?? null;
   // Computed once so the render guard, the click handler and the label can
   // never disagree about which value is offered — three separate calls used
   // to drift out of sync and post an estimate the deck would reject.
@@ -375,6 +379,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
               values={st.deck.values}
               deckName={st.deck.name}
               selected={selected}
+              played={myVote}
               disabled={env.revealed}
               spectating={self?.spectator ?? false}
               canSpectate={!env.revealed && !guest}

@@ -884,3 +884,103 @@ describe("PokerRoom facilitator handoff", () => {
     expect(await screen.findByText("Marcus Okonjo is the facilitator now")).toBeTruthy();
   });
 });
+
+describe("PokerRoom · the card you played", () => {
+  /** The round after a reveal, with everyone's vote back from the server. */
+  function revealed(votes: { userId: string; value: string }[], over: Partial<Envelope> = {}) {
+    const base = envelope({ revealed: true, version: 2, ...over });
+    return {
+      ...base,
+      state: {
+        ...base.state,
+        stories: [
+          {
+            ...base.state.stories[0],
+            votedUserIds: votes.map((v) => v.userId),
+            votes,
+          },
+        ],
+      },
+    } as Envelope;
+  }
+
+  const card = (face: string) => screen.getByRole("button", { name: face });
+
+  it("marks the card you played once the round is revealed", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+    const { rerender } = renderApp(<PokerRoom env={envelope()} me={me} />);
+    await userEvent.click(card("3"));
+    rerender(
+      <PokerRoom
+        env={revealed([
+          { userId: "marcus", value: "3" },
+          { userId: "dana", value: "5" },
+        ])}
+        me={me}
+      />,
+    );
+    // The reveal clears the optimistic pick, so the mark has to come from the
+    // server's vote list or it comes from nowhere at all.
+    expect(card("3").getAttribute("data-played")).toBe("true");
+    expect(card("3").className).toMatch(/border-accent/);
+    expect(card("3").className).toMatch(/shadow-rest/);
+    expect(card("3").className).not.toMatch(/shadow-lift/);
+    for (const face of ["1", "2", "5", "8"]) {
+      expect(card(face).getAttribute("data-played")).toBeNull();
+    }
+    fetchSpy.mockRestore();
+  });
+
+  it("still knows your card on a fresh mount after the reveal", () => {
+    // A reload drops every scrap of local state. The vote is on the envelope,
+    // so the mark comes back with it.
+    renderApp(
+      <PokerRoom
+        env={revealed([
+          { userId: "marcus", value: "8" },
+          { userId: "dana", value: "5" },
+        ])}
+        me={me}
+      />,
+    );
+    expect(card("8").getAttribute("data-played")).toBe("true");
+    expect(card("5").getAttribute("data-played")).toBeNull();
+  });
+
+  it("marks nothing for someone who never voted", () => {
+    renderApp(<PokerRoom env={revealed([{ userId: "dana", value: "5" }])} me={me} />);
+    for (const face of ["1", "2", "3", "5", "8"]) {
+      expect(card(face).getAttribute("data-played")).toBeNull();
+    }
+  });
+
+  it("clears the mark when the round is reset", () => {
+    const { rerender } = renderApp(
+      <PokerRoom env={revealed([{ userId: "marcus", value: "3" }])} me={me} />,
+    );
+    expect(card("3").getAttribute("data-played")).toBe("true");
+    rerender(<PokerRoom env={envelope({ version: 3 })} me={me} />);
+    for (const face of ["1", "2", "3", "5", "8"]) {
+      expect(card(face).getAttribute("data-played")).toBeNull();
+    }
+  });
+
+  it("shows a spectator no hand to mark", () => {
+    const env = revealed([{ userId: "dana", value: "5" }]);
+    renderApp(
+      <PokerRoom
+        env={{
+          ...env,
+          participants: [
+            makePerson({ userId: "dana", name: "Dana Whitfield" }),
+            makePerson({ userId: "marcus", name: "Marcus Okonjo", spectator: true }),
+          ],
+        }}
+        me={me}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "5" })).toBeNull();
+  });
+});
