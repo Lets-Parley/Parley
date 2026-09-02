@@ -32,23 +32,33 @@ Standup already carries what you said you would do today into tomorrow's
 a stuck item can quietly stay stuck for a fortnight while every individual
 morning feels fine.
 
-Each turn opens with what you said last time and one question: still on this?
-An item answered "no" twice running gets flagged as stuck — the item, not the
-person. No streaks, no percentages, nothing that turns a facilitation aid into a
-performance record.
+A commitment is a line you add beside the narrative. It carries into the next
+session and opens with one question: did that land? Two sessions running without
+landing, and the commitment is flagged as stuck — the commitment, not the
+person, which is why it is a thing with its own identity rather than a mark
+against a name. No streaks, no percentages, nothing that turns a facilitation
+aid into a performance record.
 
 - Status: Backlog
+- Tracking: [#479](https://github.com/lets-parley/parley/issues/479)
 
 #### A meeting that ends
 
-A session can be given a limit — a length, a number of stories — and when it
-runs out the room says so and publishes what it did not get to. The unfinished
-list is the artifact, and it is meant to be uncomfortable: a refinement backlog
-written from evidence rather than from memory.
+A session can be given a limit, and when it runs out the room says so and
+publishes what it did not get to. The unfinished list is the artifact, and it is
+meant to be uncomfortable: a refinement backlog written from evidence rather
+than from memory.
 
 No tool that sells seats will ever ship this, which is reason enough.
 
+The limit itself is not scoped yet: there is no session clock, no way to
+broadcast a purely time-based event, and no facilitator control for it in
+standup. The half that needs none of those — a poker session listing the stories
+it never reached — is separated out and ready to build.
+
 - Status: Backlog
+- Tracking: [#482](https://github.com/lets-parley/parley/issues/482) for the
+  poker half; the limit is unscoped
 
 ### Take the whole instance with you
 
