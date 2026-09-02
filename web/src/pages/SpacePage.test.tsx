@@ -1205,11 +1205,17 @@ describe("SpacePage deck chooser", () => {
       const dialog = await openDialog();
       await dialog.findByRole("radio", { name: /Sizes/ });
       const chip = dialog.getByText("smallest");
-      const cls = chip.className;
-      // No fixed width: a chip narrower than its word clips the word.
-      expect(/(^|\s)w-\d/.test(cls)).toBe(false);
-      // And the row wraps rather than overflowing the option.
-      expect(chip.parentElement!.className).toContain("flex-wrap");
+      const classes = [...chip.classList];
+      // No fixed width in any form: a chip narrower than its word clips the
+      // word, whether the width is a scale step (w-5), an arbitrary value
+      // (w-[999px]) or hidden behind a breakpoint (sm:w-5).
+      expect(classes.filter((c) => /(^|:)w-/.test(c))).toEqual([]);
+      // The word still gets a gutter, and a one- or two-character sample
+      // still holds the 20px floor the shipped decks are drawn at.
+      expect(classes).toContain("px-1");
+      expect(classes).toContain("min-w-5");
+      // And the row wraps forwards rather than overflowing the option.
+      expect([...chip.parentElement!.classList]).toContain("flex-wrap");
     } finally {
       delete space.kinds;
     }
