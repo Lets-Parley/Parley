@@ -2,9 +2,16 @@
   "$schema-note": "Every shipped screenshot, the commit it was last shot against, and the web/src files whose UI it depicts. scripts/check-screenshot-freshness.sh reads this to report, per asset, how many commits since `shot_at` touched what it depicts. After a re-shoot, move `shot_at` to the commit the new frames land in. `depicts` is a pathspec list: keep it broad enough that a real visual change lands in it, and narrow enough that it is not every asset every time.",
   "assets": [
     {
-      "files": ["site/src/assets/landing-light.png", "site/src/assets/landing-dark.png"],
+      "files": [
+        "site/src/assets/landing-light.png",
+        "site/src/assets/landing-dark.png"
+      ],
       "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
-      "depicts": ["web/src/pages/Landing.tsx", "web/src/components/Hand.tsx", "web/src/tokens.css"]
+      "depicts": [
+        "web/src/pages/Landing.tsx",
+        "web/src/components/Hand.tsx",
+        "web/src/tokens.css"
+      ]
     },
     {
       "files": [
@@ -20,7 +27,9 @@
         "web/src/components/Hand.tsx",
         "web/src/components/ResultsPanel.tsx",
         "web/src/components/MemberCard.tsx",
+        "web/src/components/FacilitatorControls.tsx",
         "web/src/components/AppShell.tsx",
+        "web/src/components/ConnectionBanner.tsx",
         "web/src/tokens.css"
       ]
     },
@@ -31,11 +40,15 @@
         "web/src/pages/PokerRoom.tsx",
         "web/src/components/Table.tsx",
         "web/src/components/AppShell.tsx",
+        "web/src/components/ConnectionBanner.tsx",
         "web/src/tokens.css"
       ]
     },
     {
-      "files": ["site/src/assets/story-queue-light.png", "site/src/assets/story-queue-dark.png"],
+      "files": [
+        "site/src/assets/story-queue-light.png",
+        "site/src/assets/story-queue-dark.png"
+      ],
       "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
       "depicts": [
         "web/src/pages/PokerRoom.tsx",
@@ -44,7 +57,10 @@
       ]
     },
     {
-      "files": ["site/src/assets/hidden-votes-light.png", "site/src/assets/hidden-votes-dark.png"],
+      "files": [
+        "site/src/assets/hidden-votes-light.png",
+        "site/src/assets/hidden-votes-dark.png"
+      ],
       "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
       "depicts": [
         "web/src/pages/PokerRoom.tsx",
@@ -54,7 +70,10 @@
       ]
     },
     {
-      "files": ["site/src/assets/tshirt-results-light.png", "site/src/assets/tshirt-results-dark.png"],
+      "files": [
+        "site/src/assets/tshirt-results-light.png",
+        "site/src/assets/tshirt-results-dark.png"
+      ],
       "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
       "depicts": [
         "web/src/pages/PokerRoom.tsx",
@@ -63,7 +82,10 @@
       ]
     },
     {
-      "files": ["site/src/assets/guest-links-light.png", "site/src/assets/guest-links-dark.png"],
+      "files": [
+        "site/src/assets/guest-links-light.png",
+        "site/src/assets/guest-links-dark.png"
+      ],
       "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
       "depicts": [
         "web/src/components/LinkPanel.tsx",
@@ -72,7 +94,10 @@
       ]
     },
     {
-      "files": ["site/src/assets/create-session-light.png", "site/src/assets/create-session-dark.png"],
+      "files": [
+        "site/src/assets/create-session-light.png",
+        "site/src/assets/create-session-dark.png"
+      ],
       "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
       "depicts": [
         "web/src/pages/SpacePage.tsx",
@@ -90,13 +115,21 @@
       "depicts": [
         "web/src/pages/StandupRoom.tsx",
         "web/src/components/MemberCard.tsx",
-        "web/src/components/AppShell.tsx"
+        "web/src/components/FacilitatorControls.tsx",
+        "web/src/components/AppShell.tsx",
+        "web/src/components/ConnectionBanner.tsx"
       ]
     },
     {
-      "files": ["site/src/assets/blockers-roundup-light.png", "site/src/assets/blockers-roundup-dark.png"],
+      "files": [
+        "site/src/assets/blockers-roundup-light.png",
+        "site/src/assets/blockers-roundup-dark.png"
+      ],
       "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
-      "depicts": ["web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx"]
+      "depicts": [
+        "web/src/pages/StandupRoom.tsx",
+        "web/src/components/Commitments.tsx"
+      ]
     },
     {
       "files": [
@@ -109,21 +142,38 @@
         "web/src/pages/SpacePage.tsx",
         "web/src/components/KindChip.tsx",
         "web/src/components/Avatar.tsx",
-        "web/src/components/AppShell.tsx"
+        "web/src/components/AppShell.tsx",
+        "web/src/components/ConnectionBanner.tsx"
       ]
     },
     {
-      "files": ["site/src/assets/session-history-light.png", "site/src/assets/session-history-dark.png"],
+      "files": [
+        "site/src/assets/session-history-light.png",
+        "site/src/assets/session-history-dark.png"
+      ],
       "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
-      "depicts": ["web/src/pages/SpacePage.tsx", "web/src/components/KindChip.tsx"]
+      "depicts": [
+        "web/src/pages/SpacePage.tsx",
+        "web/src/components/KindChip.tsx"
+      ]
     },
     {
-      "files": ["site/src/assets/space-settings-light.png", "site/src/assets/space-settings-dark.png"],
+      "files": [
+        "site/src/assets/space-settings-light.png",
+        "site/src/assets/space-settings-dark.png"
+      ],
       "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
-      "depicts": ["web/src/pages/SpaceSettingsPage.tsx", "web/src/components/AppShell.tsx"]
+      "depicts": [
+        "web/src/pages/SpaceSettingsPage.tsx",
+        "web/src/components/AppShell.tsx",
+        "web/src/components/ConnectionBanner.tsx"
+      ]
     },
     {
-      "files": ["site/src/assets/avatar-picker-light.png", "site/src/assets/avatar-picker-dark.png"],
+      "files": [
+        "site/src/assets/avatar-picker-light.png",
+        "site/src/assets/avatar-picker-dark.png"
+      ],
       "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
       "depicts": [
         "web/src/components/ProfileDialog.tsx",
@@ -133,9 +183,15 @@
       ]
     },
     {
-      "files": ["site/src/assets/portrait-legibility-light.png", "site/src/assets/portrait-legibility-dark.png"],
-      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
-      "depicts": ["web/src/components/avatarIcons.tsx", "web/scripts/portrait-contact-sheet.mjs"]
+      "files": [
+        "site/src/assets/portrait-legibility-light.png",
+        "site/src/assets/portrait-legibility-dark.png"
+      ],
+      "shot_at": "94de95e5a04d5e7f9d0d46bbc428c5cc9499f818",
+      "depicts": [
+        "web/src/components/avatarIcons.tsx",
+        "web/scripts/portrait-contact-sheet.mjs"
+      ]
     }
   ]
 }
