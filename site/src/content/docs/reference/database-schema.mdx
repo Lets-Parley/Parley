@@ -279,8 +279,8 @@ logic, not the CSV export.
 
 What somebody said they would do, carried until they say it is done. Keyed by
 its own id and scoped to a `(space_id, user_id)`, with `text` ≤500 characters,
-`opened_session_id`, a nullable `closed_at`, a nullable `closed_session_id`, a
-`carried` count and a nullable `carried_session_id`.
+a nullable `opened_session_id`, a nullable `closed_at`, a nullable
+`closed_session_id`, a `carried` count and a nullable `carried_session_id`.
 
 The **open** rows for a space and person — those with a null `closed_at` — are
 the carry-over list, read directly by a partial index. Nothing walks previous
@@ -306,9 +306,15 @@ in any session yet.
 Open-versus-closed lives in `closed_at`, not in the foreign key. A foreign key
 cannot carry that state: `on delete cascade` would take a finished commitment
 away with the room, and `on delete set null` would put it back on the list.
-`closed_session_id` and `carried_session_id` are historical linkage only — they
-record which room an answer was given in, and deleting that room clears them
-without reopening anything or rewriting the count.
+All three session columns — `opened_session_id`, `closed_session_id` and
+`carried_session_id` — are historical linkage only, nullable and `on delete set
+null`. They record which room a commitment was opened or answered in, and
+deleting that room clears the column without reopening anything, rewriting the
+count, or taking the commitment with it. A commitment belongs to its
+`(space_id, user_id)`, not to the room it happened to be typed in: an open one
+with no origin room left is still on the carry-over list and still answerable,
+and it simply renders as carried in, because there is no room left for it to
+have been opened in.
 
 ## Constraints are the validation layer
 
