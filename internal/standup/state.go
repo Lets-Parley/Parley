@@ -116,7 +116,7 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	crows, err := pool.Query(ctx, `
 		select id::text, user_id::text, text, carried
 		from standup_commitments
-		where space_id = $1 and closed_session_id is null
+		where space_id = $1 and closed_at is null
 		order by created_at, id`, sess.SpaceID)
 	if err != nil {
 		return nil, err

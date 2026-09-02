@@ -278,21 +278,25 @@ logic, not the CSV export.
 
 What somebody said they would do, carried until they say it is done. Keyed by
 its own id and scoped to a `(space_id, user_id)`, with `text` ≤500 characters,
-`opened_session_id`, a nullable `closed_session_id` and a `carried` count.
+`opened_session_id`, a nullable `closed_at`, a nullable `closed_session_id` and
+a `carried` count.
 
-The **open** rows for a space and person — those with a null `closed_session_id`
-— are the carry-over list, read directly by a partial index. Nothing walks
-previous sessions to work out what is outstanding.
+The **open** rows for a space and person — those with a null `closed_at` — are
+the carry-over list, read directly by a partial index. Nothing walks previous
+sessions to work out what is outstanding.
 
-Answering "done" sets `closed_session_id` and the commitment leaves the list.
+Answering "done" stamps `closed_at` and the commitment leaves the list.
 Answering "not yet" increments `carried` and it stays. A commitment showing
 `carried` of 2 or more is **stuck**, which the server computes and puts on the
 wire. `carried` only moves when somebody answers: missing a standup entirely
 changes nothing, so a week away cannot manufacture a stalled commitment.
 
-`closed_session_id` is `on delete set null` rather than cascade, so deleting the
-session somebody happened to be in when they finished a commitment does not
-reopen it.
+Open-versus-closed lives in `closed_at`, not in the foreign key. A foreign key
+cannot carry that state: `on delete cascade` would take a finished commitment
+away with the room, and `on delete set null` would put it back on the list.
+`closed_session_id` is historical linkage only — it records which room the
+answer was given in, and deleting that room clears it without reopening
+anything.
 
 ## Constraints are the validation layer
 

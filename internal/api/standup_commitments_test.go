@@ -200,3 +200,35 @@ func TestCommitmentActionsAreNotFacilitatorOnly(t *testing.T) {
 		t.Fatalf("remove left the commitment on the list: %v", c)
 	}
 }
+
+// Deleting a room must not undo an answer. Open/closed is recorded on the
+// commitment itself, so the session row that happened to be open when
+// somebody said "done" can go away without the commitment coming back.
+func TestDeletingTheClosingRoomDoesNotReopenACommitment(t *testing.T) {
+	srv := testServer(t)
+	fac, m1, _, id, slug := standupSetup(t, srv, "Commitment Room Delete Space")
+	cid := addCommitment(t, srv, id, m1, "ship the importer")
+
+	// Answered in a second room, so the delete below hits the closing room
+	// rather than the one the commitment was opened in.
+	_, sess := createSession(t, srv, slug, "standup", "Daily Two", fac)
+	closing := sess["id"].(string)
+	if resp := answer(t, srv, closing, m1, cid, true); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("answer yes: %d", resp.StatusCode)
+	}
+
+	if resp, body := doJSON(t, srv, "DELETE",
+		"/api/orgs/default/spaces/"+slug+"/sessions/"+closing, "", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete the closing room: %d %s", resp.StatusCode, body)
+	}
+
+	_, sess = createSession(t, srv, slug, "standup", "Daily Three", fac)
+	next := sess["id"].(string)
+	if c := commitments(t, srv, next, m1)[cid]; c != nil {
+		t.Errorf("deleting the closing room put the finished commitment back on the list: %v", c)
+	}
+	// And it stays answered: nothing may answer it a second time.
+	if resp := answer(t, srv, next, m1, cid, true); resp.StatusCode < 400 || resp.StatusCode >= 500 {
+		t.Errorf("answering the finished commitment again: got %d, want a 4xx", resp.StatusCode)
+	}
+}

@@ -104,9 +104,10 @@ func answerCommitment(w http.ResponseWriter, r *http.Request, ac session.ActionC
 		func(tx pgx.Tx, sess store.Session) error {
 			tag, err := tx.Exec(r.Context(), `
 				update standup_commitments
-				set closed_session_id = case when $4 then $5::uuid else closed_session_id end,
+				set closed_at = case when $4 then now() else closed_at end,
+				    closed_session_id = case when $4 then $5::uuid else closed_session_id end,
 				    carried = carried + case when $4 then 0 else 1 end
-				where id = $1 and user_id = $2 and space_id = $3 and closed_session_id is null`,
+				where id = $1 and user_id = $2 and space_id = $3 and closed_at is null`,
 				body.ID, ac.UserID, sess.SpaceID, body.Done, sess.ID)
 			if err := notMine(tag, err); err != nil {
 				return err
@@ -136,7 +137,7 @@ func removeCommitment(w http.ResponseWriter, r *http.Request, ac session.ActionC
 		func(tx pgx.Tx, sess store.Session) error {
 			tag, err := tx.Exec(r.Context(), `
 				delete from standup_commitments
-				where id = $1 and user_id = $2 and space_id = $3 and closed_session_id is null`,
+				where id = $1 and user_id = $2 and space_id = $3 and closed_at is null`,
 				body.ID, ac.UserID, sess.SpaceID)
 			if err := notMine(tag, err); err != nil {
 				return err
