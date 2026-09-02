@@ -1358,6 +1358,33 @@ describe("StandupRoom carrying over", () => {
     expect(JSON.parse(init.body as string)).toEqual({ id: "c1" });
   });
 
+  it("gives a keyboard two real steps: Enter on Remove twice does not delete", async () => {
+    // The confirming and non-confirming states used to render the same element
+    // types with no key, so React reconciled in place: the focused button stayed
+    // the focused button while its accessible name silently mutated from Remove
+    // to "Remove it". Two Enter presses then deleted the commitment with no
+    // second step at all for anyone not watching the label change.
+    const f = mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    const remove = within(row("alpha")).getByRole("button", { name: /^remove$/i });
+    remove.focus();
+    await userEvent.keyboard("{Enter}");
+    // The safe choice leads, and it is where focus went — so a repeated Enter
+    // cannot land on the destructive one.
+    const labels = within(row("alpha"))
+      .getAllByRole("button")
+      .map((b) => b.textContent);
+    expect(labels.indexOf("Keep it")).toBeLessThan(labels.indexOf("Remove it"));
+    expect(document.activeElement?.textContent).toBe("Keep it");
+    // And the change is announced through the page's one polite region.
+    expect(screen.getByRole("status").textContent).toMatch(/remove this commitment/i);
+
+    await userEvent.keyboard("{Enter}");
+    expect(f).not.toHaveBeenCalled();
+    // Back to the first step, not deleted.
+    expect(within(row("alpha")).getByRole("button", { name: /^remove$/i })).toBeDefined();
+  });
+
   it("backs out of a remove without sending anything", async () => {
     const f = mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);

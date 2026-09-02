@@ -157,12 +157,16 @@ export function Commitments({
           const t = text.trim();
           if (!t || adding) return;
           setAdding(true);
-          void onAdd(t).then((ok) => {
-            setAdding(false);
-            if (!ok) return;
-            setText("");
-            onNote?.("Commitment added.");
-          });
+          void onAdd(t)
+            .then((ok) => {
+              if (!ok) return;
+              setText("");
+              onNote?.("Commitment added.");
+            })
+            // Without this a rejection would leave `adding` set and the Add
+            // button permanently disabled.
+            .catch(() => {})
+            .finally(() => setAdding(false));
         }}
       >
         <label className="flex min-w-48 flex-1 flex-col gap-1">
@@ -234,6 +238,9 @@ function CommitmentRow({
   // and the state only dims the control.
   const busyRef = useRef(false);
   const li = useRef<HTMLLIElement>(null);
+  // Focus is moved onto Keep it when the confirm opens, so the second step is a
+  // step for a keyboard too, and the control it lands on is the harmless one.
+  const keep = useRef<HTMLButtonElement>(null);
   const textId = useId();
 
   // The row can be swept away by a broadcast at any moment. If it goes while it
@@ -245,15 +252,24 @@ function CommitmentRow({
     [onLeave],
   );
 
+  // The catch is not decoration. The call site resolves rather than rejects
+  // today, but a rejection with no catch here would leave busyRef set and the
+  // control dead for the life of the row, with nothing on screen saying so.
+  useEffect(() => {
+    if (confirming) keep.current?.focus();
+  }, [confirming]);
+
   const send = (run: () => Promise<boolean>, after: (ok: boolean) => void) => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
-    void run().then((ok) => {
-      busyRef.current = false;
-      setBusy(false);
-      after(ok);
-    });
+    void run()
+      .then((ok) => after(ok))
+      .catch(() => {})
+      .finally(() => {
+        busyRef.current = false;
+        setBusy(false);
+      });
   };
 
   const answered = (done: boolean) =>
@@ -371,9 +387,28 @@ function CommitmentRow({
           )}
         </span>
         {/* Nothing to withdraw once it has landed: the row is on its way out. */}
+        {/* The keys are load-bearing. Without them the two states render the
+            same element types in the same position, React reconciles the button
+            in place, and the node holding keyboard focus simply changes its
+            accessible name from "Remove" to "Remove it" — so a second Enter
+            deletes the commitment with no second step at all. A distinct key
+            forces the remount, and focus is then moved deliberately below. */}
         {!leaving &&
           (confirming ? (
-            <span className="order-1 flex items-center gap-1 sm:order-2 sm:border-l sm:border-line sm:pl-3">
+            <span
+              key="confirm"
+              className="order-1 flex items-center gap-1 sm:order-2 sm:border-l sm:border-line sm:pl-3"
+            >
+              {/* Keep it leads: the safe choice is the one the keyboard reaches
+                  first, and the one focus lands on. */}
+              <button
+                ref={keep}
+                type="button"
+                className={buttonBare}
+                onClick={() => setConfirming(false)}
+              >
+                Keep it
+              </button>
               <button
                 type="button"
                 className={buttonBare}
@@ -394,19 +429,22 @@ function CommitmentRow({
               >
                 Remove it
               </button>
-              <button type="button" className={buttonBare} onClick={() => setConfirming(false)}>
-                Keep it
-              </button>
             </span>
           ) : (
             /* Destructive, with nothing on the server to undo it, so the first
                click only asks. */
-            <span className="order-1 flex items-center sm:order-2 sm:border-l sm:border-line sm:pl-3">
+            <span
+              key="ask"
+              className="order-1 flex items-center sm:order-2 sm:border-l sm:border-line sm:pl-3"
+            >
               <button
                 type="button"
                 className={buttonBare}
                 aria-describedby={textId}
-                onClick={() => setConfirming(true)}
+                onClick={() => {
+                  setConfirming(true);
+                  onNote?.("Remove this commitment? Confirm or keep it.");
+                }}
               >
                 Remove
               </button>
