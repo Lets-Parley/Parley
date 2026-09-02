@@ -1,0 +1,21 @@
+-- Which standup last moved a commitment's carry count.
+--
+-- carried is meant to read "this survived N standups", but the answer action
+-- had no idempotency: every "not yet" incremented, so a mis-click and its
+-- correction inside one sitting — No, Change, No — took a brand-new commitment
+-- straight to two and rendered it as stuck. That is the false accusation the
+-- whole feature exists to prevent.
+--
+-- Recording the session that last incremented makes a repeat answer in that
+-- same session a no-op for the counter, while a No in a later standup still
+-- counts.
+--
+-- Nullable with no backfill on purpose: an existing row has no recorded
+-- session, which is exactly "not yet answered in any session", so the first
+-- answer after this migration increments normally.
+--
+-- on delete set null, matching closed_session_id: the column is historical
+-- linkage, and deleting the room somebody happened to answer in must neither
+-- take the commitment with it nor rewrite its count.
+alter table standup_commitments
+    add column carried_session_id uuid null references sessions (id) on delete set null;

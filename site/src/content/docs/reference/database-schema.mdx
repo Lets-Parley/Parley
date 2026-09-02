@@ -31,6 +31,7 @@ there is no second driver and no plan for one.
   { name: "0023_org_custody", value: "spaces.archived_at, org_audit_log", note: "Org custody. Neither audit foreign key cascades, so the record outlives what it names — see below" },
   { name: "0024_org_members_user_idx", value: "org_members (user_id) where revoked_at is null", note: "Partial index for \"which orgs is this user in\". Regular create index — migrate.go wraps each file in a transaction, so concurrently is unavailable" },
   { name: "0028_standup_commitments", value: "standup_commitments", note: "New table, so no backfill. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
+  { name: "0029_commitment_carry_idempotency", value: "standup_commitments.carried_session_id", note: "Which standup last moved the carry count. Nullable with no backfill — an existing row reads as \"not answered in any session yet\", so its first answer counts normally. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
 ]} />
 
 ### How the runner behaves
@@ -278,25 +279,36 @@ logic, not the CSV export.
 
 What somebody said they would do, carried until they say it is done. Keyed by
 its own id and scoped to a `(space_id, user_id)`, with `text` ≤500 characters,
-`opened_session_id`, a nullable `closed_at`, a nullable `closed_session_id` and
-a `carried` count.
+`opened_session_id`, a nullable `closed_at`, a nullable `closed_session_id`, a
+`carried` count and a nullable `carried_session_id`.
 
 The **open** rows for a space and person — those with a null `closed_at` — are
 the carry-over list, read directly by a partial index. Nothing walks previous
 sessions to work out what is outstanding.
 
 Answering "done" stamps `closed_at` and the commitment leaves the list.
-Answering "not yet" increments `carried` and it stays. A commitment showing
-`carried` of 2 or more is **stuck**, which the server computes and puts on the
-wire. `carried` only moves when somebody answers: missing a standup entirely
-changes nothing, so a week away cannot manufacture a stalled commitment.
+Answering "not yet" carries it into the next standup and it stays. A commitment
+showing `carried` of 2 or more is **stuck**, which the server computes and puts
+on the wire. `carried` only moves when somebody answers: missing a standup
+entirely changes nothing, so a week away cannot manufacture a stalled
+commitment.
+
+`carried` moves at most **once per session**. The update compares the answering
+session against `carried_session_id` and only increments when they differ,
+stamping the column as it goes; a repeat "not yet" on the same commitment in the
+same room is a no-op for the count. Without that, one mis-click and its
+correction — No, Change, No — would take a commitment opened minutes ago to
+`carried` of 2 and render it as stuck. A "done" leaves `carried_session_id`
+alone: closing is not a carry. The column is nullable and never backfilled,
+because a row with no recorded session is exactly one that has not been answered
+in any session yet.
 
 Open-versus-closed lives in `closed_at`, not in the foreign key. A foreign key
 cannot carry that state: `on delete cascade` would take a finished commitment
 away with the room, and `on delete set null` would put it back on the list.
-`closed_session_id` is historical linkage only — it records which room the
-answer was given in, and deleting that room clears it without reopening
-anything.
+`closed_session_id` and `carried_session_id` are historical linkage only — they
+record which room an answer was given in, and deleting that room clears them
+without reopening anything or rewriting the count.
 
 ## Constraints are the validation layer
 

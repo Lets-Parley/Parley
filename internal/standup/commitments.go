@@ -85,8 +85,14 @@ func addCommitment(w http.ResponseWriter, r *http.Request, ac session.ActionCtx)
 }
 
 // answerCommitment records "done" or "not yet" against one open commitment of
-// the caller's. Yes closes it and it leaves the open list; no increments the
-// carry count and it stays.
+// the caller's. Yes closes it and it leaves the open list; no carries it into
+// the next standup and it stays.
+//
+// The carry count moves at most once per session. carried is read as "this
+// survived N standups", so a mis-click and its correction in one sitting — No,
+// Change, No — must be one carry, not two; without that, a commitment opened
+// minutes ago renders as stuck. carried_session_id is what makes the repeat a
+// no-op, and it is deliberately left alone by a yes: closing is not a carry.
 //
 // Both statements assert rows-affected. Without that, answering somebody
 // else's id — or one already closed — would match nothing and still return
@@ -106,7 +112,10 @@ func answerCommitment(w http.ResponseWriter, r *http.Request, ac session.ActionC
 				update standup_commitments
 				set closed_at = case when $4 then now() else closed_at end,
 				    closed_session_id = case when $4 then $5::uuid else closed_session_id end,
-				    carried = carried + case when $4 then 0 else 1 end
+				    carried = carried + case when $4 then 0
+				                             when carried_session_id is distinct from $5::uuid then 1
+				                             else 0 end,
+				    carried_session_id = case when $4 then carried_session_id else $5::uuid end
 				where id = $1 and user_id = $2 and space_id = $3 and closed_at is null`,
 				body.ID, ac.UserID, sess.SpaceID, body.Done, sess.ID)
 			if err := notMine(tag, err); err != nil {
