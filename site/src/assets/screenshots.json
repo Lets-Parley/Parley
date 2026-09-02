@@ -1,5 +1,5 @@
 {
-  "$schema-note": "Every shipped screenshot, the commit it was last shot against, and the web/src files whose UI it depicts. scripts/check-screenshot-freshness.sh reads this to report, per asset, how many commits since `shot_at` touched what it depicts. After a re-shoot, move `shot_at` to the commit the new frames land in. `depicts` is a pathspec list: keep it broad enough that a real visual change lands in it, and narrow enough that it is not every asset every time.",
+  "$schema-note": "Every shipped screenshot, the commit it was last shot against, and the web/src files whose UI it depicts. scripts/check-screenshot-freshness.sh reads this to report, per asset, how many commits since `shot_at` touched what it depicts. After a re-shoot, move `shot_at` to the commit the new frames land in. `depicts` is a list of literal paths, matched exactly \u2014 no globs, and a path that no longer exists at HEAD is reported rather than counted clean: keep it broad enough that a real visual change lands in it, and narrow enough that it is not every asset every time.",
   "assets": [
     {
       "files": [
@@ -30,11 +30,16 @@
         "web/src/components/FacilitatorControls.tsx",
         "web/src/components/AppShell.tsx",
         "web/src/components/ConnectionBanner.tsx",
-        "web/src/tokens.css"
+        "web/src/tokens.css",
+        "web/src/components/StoryQueue.tsx",
+        "web/src/components/Modal.tsx",
+        "web/src/components/Avatar.tsx"
       ]
     },
     {
-      "files": ["site/src/assets/themes-side-by-side.png"],
+      "files": [
+        "site/src/assets/themes-side-by-side.png"
+      ],
       "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
       "depicts": [
         "web/src/pages/PokerRoom.tsx",
@@ -117,7 +122,8 @@
         "web/src/components/MemberCard.tsx",
         "web/src/components/FacilitatorControls.tsx",
         "web/src/components/AppShell.tsx",
-        "web/src/components/ConnectionBanner.tsx"
+        "web/src/components/ConnectionBanner.tsx",
+        "web/src/components/Avatar.tsx"
       ]
     },
     {
@@ -128,7 +134,11 @@
       "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
       "depicts": [
         "web/src/pages/StandupRoom.tsx",
-        "web/src/components/Commitments.tsx"
+        "web/src/components/Commitments.tsx",
+        "web/src/components/Avatar.tsx",
+        "web/src/components/FacilitatorControls.tsx",
+        "web/src/components/AppShell.tsx",
+        "web/src/components/ConnectionBanner.tsx"
       ]
     },
     {
