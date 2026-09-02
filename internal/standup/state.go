@@ -32,11 +32,33 @@ type WireEntry struct {
 	Ready     bool    `json:"ready"`
 }
 
+// WireCommitment is one open commitment.
+//
+// UserID rather than a "mine" flag: a StateFunc builds one payload that is
+// broadcast to every socket in the room (see session.StateFunc), so it has no
+// viewer to compare against. The client owns that comparison, exactly as it
+// already does for WireEntry.
+//
+// Stuck is computed here rather than sent as a threshold for the client to
+// apply, so every screen agrees on what stalled means.
+type WireCommitment struct {
+	ID      string `json:"id"`
+	UserID  string `json:"userId"`
+	Text    string `json:"text"`
+	Carried int    `json:"carried"`
+	Stuck   bool   `json:"stuck"`
+}
+
+// stuckAfter is the number of "not yet" answers at which a commitment is
+// showing as stalled.
+const stuckAfter = 2
+
 type State struct {
-	Entries          []WireEntry `json:"entries"`
-	CurrentSpeakerID *string     `json:"currentSpeakerId"`
-	SpeakerStartedAt *time.Time  `json:"speakerStartedAt"`
-	SecondsPerPerson int         `json:"secondsPerPerson"`
+	Entries          []WireEntry      `json:"entries"`
+	Commitments      []WireCommitment `json:"commitments"`
+	CurrentSpeakerID *string          `json:"currentSpeakerId"`
+	SpeakerStartedAt *time.Time       `json:"speakerStartedAt"`
+	SecondsPerPerson int              `json:"secondsPerPerson"`
 }
 
 // Kind describes the standup session kind for the core registry.
@@ -54,7 +76,11 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	var cfg Config
 	json.Unmarshal(sess.Config, &cfg)
 
-	st := State{Entries: []WireEntry{}, SecondsPerPerson: cfg.secondsOrDefault()}
+	st := State{
+		Entries:          []WireEntry{},
+		Commitments:      []WireCommitment{},
+		SecondsPerPerson: cfg.secondsOrDefault(),
+	}
 
 	var speaker *string
 	var started *time.Time
@@ -80,5 +106,29 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 		}
 		st.Entries = append(st.Entries, e)
 	}
-	return st, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// The open set for the space IS the carry-over list, read directly. There
+	// is no lookback across sessions: a commitment opened weeks ago and never
+	// answered is simply still open.
+	crows, err := pool.Query(ctx, `
+		select id::text, user_id::text, text, carried
+		from standup_commitments
+		where space_id = $1 and closed_session_id is null
+		order by created_at, id`, sess.SpaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer crows.Close()
+	for crows.Next() {
+		var c WireCommitment
+		if err := crows.Scan(&c.ID, &c.UserID, &c.Text, &c.Carried); err != nil {
+			return nil, err
+		}
+		c.Stuck = c.Carried >= stuckAfter
+		st.Commitments = append(st.Commitments, c)
+	}
+	return st, crows.Err()
 }

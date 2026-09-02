@@ -26,6 +26,14 @@ func actions() map[string]session.Action {
 		"start": {Verb: http.MethodPost, Do: start, FacilitatorOnly: true},
 		"next":  {Verb: http.MethodPost, Do: next, FacilitatorOnly: true},
 		"skip":  {Verb: http.MethodPost, Do: skip, FacilitatorOnly: true},
+		// Commitments are their own actions rather than three more fields on
+		// putEntry: that is a whole-record upsert of yesterday/today/blockers,
+		// so a fourth field would be zeroed by every text autosave — the
+		// hazard spelled out above setReady. Like ready, none of them is
+		// FacilitatorOnly: a person answers their own commitments.
+		"add":    {Verb: http.MethodPost, Do: addCommitment},
+		"answer": {Verb: http.MethodPost, Do: answerCommitment},
+		"remove": {Verb: http.MethodPost, Do: removeCommitment},
 	}
 }
 

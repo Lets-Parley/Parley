@@ -30,6 +30,7 @@ there is no second driver and no plan for one.
   { name: "0018_session_links", value: "session_links, users.link_id", note: "Signed links. users.link_id is on delete set null, never cascade — see below" },
   { name: "0023_org_custody", value: "spaces.archived_at, org_audit_log", note: "Org custody. Neither audit foreign key cascades, so the record outlives what it names — see below" },
   { name: "0024_org_members_user_idx", value: "org_members (user_id) where revoked_at is null", note: "Partial index for \"which orgs is this user in\". Regular create index — migrate.go wraps each file in a transaction, so concurrently is unavailable" },
+  { name: "0028_standup_commitments", value: "standup_commitments", note: "New table, so no backfill. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
 ]} />
 
 ### How the runner behaves
@@ -272,6 +273,26 @@ Keyed `(session_id, user_id)`, with `yesterday`, `today` and `blockers` each
 `ready` is the advisory "I've finished writing" signal shown while everyone
 gathers. Nothing reads it but the screen: not the speaking order, not the skip
 logic, not the CSV export.
+
+### standup_commitments
+
+What somebody said they would do, carried until they say it is done. Keyed by
+its own id and scoped to a `(space_id, user_id)`, with `text` ≤500 characters,
+`opened_session_id`, a nullable `closed_session_id` and a `carried` count.
+
+The **open** rows for a space and person — those with a null `closed_session_id`
+— are the carry-over list, read directly by a partial index. Nothing walks
+previous sessions to work out what is outstanding.
+
+Answering "done" sets `closed_session_id` and the commitment leaves the list.
+Answering "not yet" increments `carried` and it stays. A commitment showing
+`carried` of 2 or more is **stuck**, which the server computes and puts on the
+wire. `carried` only moves when somebody answers: missing a standup entirely
+changes nothing, so a week away cannot manufacture a stalled commitment.
+
+`closed_session_id` is `on delete set null` rather than cascade, so deleting the
+session somebody happened to be in when they finished a commitment does not
+reopen it.
 
 ## Constraints are the validation layer
 

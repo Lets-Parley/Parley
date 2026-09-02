@@ -71,6 +71,15 @@ var linkGuestActionVerbs = map[string]map[string]linkGuestVerb{
 		"skip":    {facilitatorOnly: true, refused: true},
 		"standup": {body: `{"yesterday":"a","today":"b","blockers":""}`},
 		"ready":   {body: `{"ready":true}`},
+		// Commitments are a participate verb for the same reason an entry is:
+		// a guest speaks in the room it was let into, and every one of these
+		// scopes on the caller's own user id. answer and remove name a
+		// commitment the guest opened itself — one each, because the map is
+		// walked in whatever order Go feels like and a shared id would let
+		// remove decide whether answer sees a 404.
+		"add":    {body: `{"text":"a commitment"}`},
+		"answer": {body: `{"id":"{answerId}","done":false}`},
+		"remove": {body: `{"id":"{removeId}"}`},
 	},
 }
 
@@ -90,11 +99,17 @@ func TestLinkGuestActionVerbs(t *testing.T) {
 			srv := testServer(t)
 			fac, id, guest := mintAndRedeemKind(t, srv, "Verb Table "+kind.Name, kind.Name)
 			storyID := ""
+			answerID, removeID := "", ""
 			if kind.Name == "poker" {
 				storyID = addStory(t, srv, id, "Story", fac)
 				selectStory(t, srv, id, storyID, fac)
 			}
-			replace := strings.NewReplacer("{storyId}", storyID)
+			if kind.Name == "standup" {
+				answerID = addCommitment(t, srv, id, guest, "to answer")
+				removeID = addCommitment(t, srv, id, guest, "to remove")
+			}
+			replace := strings.NewReplacer(
+				"{storyId}", storyID, "{answerId}", answerID, "{removeId}", removeID)
 
 			want := linkGuestActionVerbs[kind.Name]
 			for name, act := range kind.Actions {

@@ -339,6 +339,9 @@ action against a closed session is **409**; reopen it first.
 <RouteTable rows={[
   { method: "PUT", path: "/api/sessions/{id}/actions/standup", auth: "member", purpose: "Upsert your own yesterday / today / blockers. Each ≤2000 characters." },
   { method: "PUT", path: "/api/sessions/{id}/actions/ready", auth: "member", purpose: "Set your own readiness with {ready}. Advisory only — nothing gates on it, and it does not affect the speaking order or the export." },
+  { method: "POST", path: "/api/sessions/{id}/actions/add", auth: "member", purpose: "Open a commitment of your own with {text}, 1–500 characters. It carries across standups in this space until you answer it." },
+  { method: "POST", path: "/api/sessions/{id}/actions/answer", auth: "member", purpose: "Answer one of your own open commitments with {id, done}. done true closes it and it leaves the list; false increments its carry count and it stays. An id that is not yours, or is already closed, is 404." },
+  { method: "POST", path: "/api/sessions/{id}/actions/remove", auth: "member", purpose: "Withdraw one of your own open commitments with {id}. An id that is not yours, or is already closed, is 404." },
   { method: "POST", path: "/api/sessions/{id}/actions/start", auth: "facilitator", purpose: "Snapshot the roster into a speaking order and prefill yesterday from the last standup." },
   { method: "POST", path: "/api/sessions/{id}/actions/next", auth: "facilitator", purpose: "Advance to the next speaker." },
   { method: "POST", path: "/api/sessions/{id}/actions/skip", auth: "facilitator", purpose: "Mark the current speaker skipped and advance." },
