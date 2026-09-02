@@ -860,11 +860,15 @@ function NewSessionModal({
                     onChange={() => setConfig({ ...config, [f.key]: d.value })}
                   />
                   <span className="block text-[13px] font-bold">{d.name}</span>
-                  <span className="mt-2 flex gap-1">
+                  {/* The chips size to their words and wrap: a custom deck may
+                      hold 8-character ordinals ("smallest", "largerly"), which
+                      a fixed-width chip on a nowrap row ran together into an
+                      unreadable smear at 375px. */}
+                  <span className="mt-2 flex flex-wrap gap-1">
                     {d.sample.map((v) => (
                       <span
                         key={v}
-                        className="flex h-7 w-5 items-center justify-center rounded-[4px] border border-line bg-surface font-mono text-[0.65rem]"
+                        className="flex h-7 min-w-5 items-center justify-center rounded-[4px] border border-line bg-surface px-1 font-mono text-[0.65rem]"
                       >
                         {v}
                       </span>
