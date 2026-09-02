@@ -663,6 +663,19 @@ describe("Table drop-in", () => {
     expect(seatEl("dana").style.animation).toBe("");
   });
 
+  // The room renders before the socket has registered you, so your own id
+  // arrives in a later presence envelope — and used to fall into the seat you
+  // were already sitting in, a second after the page settled.
+  it("never drops the viewer into their own seat, joiner in the same burst or not", () => {
+    const { arrive } = joinable({ meId: "dana" });
+    // The first envelope has everyone but the viewer; the rebroadcast carries
+    // the viewer's own registration and a genuine arrival together.
+    arrive(["marcus"]);
+    arrive(["marcus", "dana", "priya"]);
+    expect(seatEl("dana").style.animation).toBe("");
+    expect(seatEl("priya").style.animation).toContain("seat-drop");
+  });
+
   it("holds the joiner's animation steady across later envelopes", () => {
     const { arrive } = joinable();
     arrive();
