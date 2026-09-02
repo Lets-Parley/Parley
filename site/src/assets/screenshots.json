@@ -1,0 +1,208 @@
+{
+  "$schema-note": "Every shipped screenshot, the commit it was last shot against, and the web/src files whose UI it depicts. scripts/check-screenshot-freshness.sh reads this to report, per asset, how many commits since `shot_at` touched what it depicts. After a re-shoot, move `shot_at` to the commit the new frames land in. `depicts` is a list of literal paths, matched exactly \u2014 no globs, and a path that no longer exists at HEAD is reported rather than counted clean: keep it broad enough that a real visual change lands in it, and narrow enough that it is not every asset every time.",
+  "assets": [
+    {
+      "files": [
+        "site/src/assets/landing-light.png",
+        "site/src/assets/landing-dark.png"
+      ],
+      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "depicts": [
+        "web/src/pages/Landing.tsx",
+        "web/src/components/Hand.tsx",
+        "web/src/tokens.css"
+      ]
+    },
+    {
+      "files": [
+        "site/src/assets/poker.png",
+        "site/src/assets/poker-dark.png",
+        "docs/screenshot-poker.png",
+        "docs/screenshot-poker-dark.png"
+      ],
+      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "depicts": [
+        "web/src/pages/PokerRoom.tsx",
+        "web/src/components/Table.tsx",
+        "web/src/components/Hand.tsx",
+        "web/src/components/ResultsPanel.tsx",
+        "web/src/components/MemberCard.tsx",
+        "web/src/components/FacilitatorControls.tsx",
+        "web/src/components/AppShell.tsx",
+        "web/src/components/ConnectionBanner.tsx",
+        "web/src/tokens.css",
+        "web/src/components/StoryQueue.tsx",
+        "web/src/components/Modal.tsx",
+        "web/src/components/Avatar.tsx"
+      ]
+    },
+    {
+      "files": [
+        "site/src/assets/themes-side-by-side.png"
+      ],
+      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "depicts": [
+        "web/src/pages/PokerRoom.tsx",
+        "web/src/components/Table.tsx",
+        "web/src/components/AppShell.tsx",
+        "web/src/components/ConnectionBanner.tsx",
+        "web/src/tokens.css"
+      ]
+    },
+    {
+      "files": [
+        "site/src/assets/story-queue-light.png",
+        "site/src/assets/story-queue-dark.png"
+      ],
+      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "depicts": [
+        "web/src/pages/PokerRoom.tsx",
+        "web/src/components/StoryQueue.tsx",
+        "web/src/components/Table.tsx"
+      ]
+    },
+    {
+      "files": [
+        "site/src/assets/hidden-votes-light.png",
+        "site/src/assets/hidden-votes-dark.png"
+      ],
+      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "depicts": [
+        "web/src/pages/PokerRoom.tsx",
+        "web/src/components/Table.tsx",
+        "web/src/components/Hand.tsx",
+        "web/src/components/MemberCard.tsx",
+        "web/src/components/Avatar.tsx"
+      ]
+    },
+    {
+      "files": [
+        "site/src/assets/tshirt-results-light.png",
+        "site/src/assets/tshirt-results-dark.png"
+      ],
+      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "depicts": [
+        "web/src/pages/PokerRoom.tsx",
+        "web/src/components/ResultsPanel.tsx",
+        "web/src/components/Table.tsx"
+      ]
+    },
+    {
+      "files": [
+        "site/src/assets/guest-links-light.png",
+        "site/src/assets/guest-links-dark.png"
+      ],
+      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "depicts": [
+        "web/src/components/LinkPanel.tsx",
+        "web/src/components/Modal.tsx",
+        "web/src/pages/PokerRoom.tsx"
+      ]
+    },
+    {
+      "files": [
+        "site/src/assets/create-session-light.png",
+        "site/src/assets/create-session-dark.png"
+      ],
+      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "depicts": [
+        "web/src/pages/SpacePage.tsx",
+        "web/src/components/DecksPanel.tsx",
+        "web/src/components/Modal.tsx"
+      ]
+    },
+    {
+      "files": [
+        "site/src/assets/standup-round-light.png",
+        "site/src/assets/standup-round-dark.png",
+        "docs/screenshot-standup.png"
+      ],
+      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "depicts": [
+        "web/src/pages/StandupRoom.tsx",
+        "web/src/components/MemberCard.tsx",
+        "web/src/components/FacilitatorControls.tsx",
+        "web/src/components/AppShell.tsx",
+        "web/src/components/ConnectionBanner.tsx",
+        "web/src/components/Avatar.tsx"
+      ]
+    },
+    {
+      "files": [
+        "site/src/assets/blockers-roundup-light.png",
+        "site/src/assets/blockers-roundup-dark.png"
+      ],
+      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "depicts": [
+        "web/src/pages/StandupRoom.tsx",
+        "web/src/components/Commitments.tsx",
+        "web/src/components/Avatar.tsx",
+        "web/src/components/FacilitatorControls.tsx",
+        "web/src/components/AppShell.tsx",
+        "web/src/components/ConnectionBanner.tsx"
+      ]
+    },
+    {
+      "files": [
+        "site/src/assets/space-room-code-light.png",
+        "site/src/assets/space-room-code-dark.png",
+        "docs/screenshot-space.png"
+      ],
+      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "depicts": [
+        "web/src/pages/SpacePage.tsx",
+        "web/src/components/KindChip.tsx",
+        "web/src/components/Avatar.tsx",
+        "web/src/components/AppShell.tsx",
+        "web/src/components/ConnectionBanner.tsx"
+      ]
+    },
+    {
+      "files": [
+        "site/src/assets/session-history-light.png",
+        "site/src/assets/session-history-dark.png"
+      ],
+      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "depicts": [
+        "web/src/pages/SpacePage.tsx",
+        "web/src/components/KindChip.tsx"
+      ]
+    },
+    {
+      "files": [
+        "site/src/assets/space-settings-light.png",
+        "site/src/assets/space-settings-dark.png"
+      ],
+      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "depicts": [
+        "web/src/pages/SpaceSettingsPage.tsx",
+        "web/src/components/AppShell.tsx",
+        "web/src/components/ConnectionBanner.tsx"
+      ]
+    },
+    {
+      "files": [
+        "site/src/assets/avatar-picker-light.png",
+        "site/src/assets/avatar-picker-dark.png"
+      ],
+      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "depicts": [
+        "web/src/components/ProfileDialog.tsx",
+        "web/src/components/avatarIcons.tsx",
+        "web/src/components/Modal.tsx",
+        "web/src/pages/SpacePage.tsx"
+      ]
+    },
+    {
+      "files": [
+        "site/src/assets/portrait-legibility-light.png",
+        "site/src/assets/portrait-legibility-dark.png"
+      ],
+      "shot_at": "94de95e5a04d5e7f9d0d46bbc428c5cc9499f818",
+      "depicts": [
+        "web/src/components/avatarIcons.tsx",
+        "web/scripts/portrait-contact-sheet.mjs"
+      ]
+    }
+  ]
+}
