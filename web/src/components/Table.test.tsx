@@ -227,11 +227,21 @@ describe("Table", () => {
   });
 
   // Criterion 7. One live region, or two voices talk over each other.
-  it("keeps the cue and the count in a single status element", () => {
+  it("keeps the count in a single status element", () => {
     renderTable({ votedUserIds: ["dana"], cueState: "first-light" });
     const live = screen.getAllByRole("status");
     expect(live).toHaveLength(1);
-    expect(live[0].textContent).toBe("1 of 3 voted · first light");
+    expect(live[0].textContent).toBe("1 of 3 voted");
+  });
+
+  // The cue is a wash of colour, and its step names are internal codenames.
+  // Printing them told a user nothing the "n of m voted" line does not.
+  it("never spells the cue's codename out on screen", () => {
+    for (const state of ["overcast", "first-light", "daybreak", "day"] as const) {
+      const { container, unmount } = renderTable({ votedUserIds: ["dana"], cueState: state });
+      expect(container.textContent).not.toMatch(/overcast|first light|daybreak/i);
+      unmount();
+    }
   });
 
   it("says nothing about the light when the light is cut", () => {

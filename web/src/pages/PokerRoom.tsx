@@ -356,7 +356,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
           // Deliberately not a live region: the cue line above already
           // announces "n of m voted" on every change, and a second live
           // region reciting the same round twice is noise, not detail.
-          <p className="mt-3 text-[13px] text-ink-faint">
+          <p className="mt-3 text-center text-[13px] text-ink-faint">
             Waiting on{" "}
             {waitingOn.length > 5
               ? `${waitingOn.slice(0, 5).join(", ")} and ${waitingOn.length - 5} more`
