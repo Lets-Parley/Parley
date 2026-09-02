@@ -1206,7 +1206,7 @@ describe("StandupRoom carrying over", () => {
     expect(section().textContent).not.toMatch(/dana's thing/);
   });
 
-  it("badges a commitment the server calls stuck, in words about the work", () => {
+  it("says a commitment is stuck in prose about the work, with the count as data", () => {
     renderApp(
       <StandupRoom
         env={carrying([
@@ -1218,9 +1218,25 @@ describe("StandupRoom carrying over", () => {
     );
     const badge = within(row("stalled thing")).getByTestId("stuck-badge");
     expect(badge.textContent).toMatch(/stuck/i);
+    expect(badge.textContent).toMatch(/carried over/i);
     // About the work, never about the person keeping it.
     expect(badge.textContent).not.toMatch(/\byou\b/i);
+    // The numeral is the only data in the sentence, so it is mono and tabular
+    // while the words around it stay sans.
+    const count = within(badge).getByText("2");
+    expect(count.className).toMatch(/font-mono/);
+    expect(count.className).toMatch(/tabular-nums/);
     expect(within(row("fresh thing")).queryByTestId("stuck-badge")).toBe(null);
+  });
+
+  it("drops the last-time subtitle when there was no last time", () => {
+    renderApp(<StandupRoom env={gathering()} me={me} />);
+    expect(section().textContent).not.toMatch(/what you took on last time/i);
+  });
+
+  it("keeps the last-time subtitle once something is carrying over", () => {
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    expect(section().textContent).toMatch(/what you took on last time/i);
   });
 
   it("keeps never-answered apart from answered no", async () => {
@@ -1259,12 +1275,71 @@ describe("StandupRoom carrying over", () => {
     await waitFor(() => expect(box.value).toBe(""));
   });
 
-  it("removes a commitment through the remove action", async () => {
+  it("removes a commitment through the remove action, once it is confirmed", async () => {
     const f = mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /remove/i }));
+    // Destructive and unrecoverable, so the first click only asks.
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^remove$/i }));
+    expect(f).not.toHaveBeenCalled();
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /remove it/i }));
     const [path, init] = f.mock.calls[0] as [string, RequestInit];
     expect(path).toBe("/api/sessions/sess-1/actions/remove");
     expect(JSON.parse(init.body as string)).toEqual({ id: "c1" });
+  });
+
+  it("backs out of a remove without sending anything", async () => {
+    const f = mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^remove$/i }));
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /keep it/i }));
+    expect(f).not.toHaveBeenCalled();
+    expect(within(row("alpha")).getByRole("button", { name: /^remove$/i })).toBeDefined();
+  });
+
+  it("resolves a yes in place instead of leaving the button looking dead", async () => {
+    mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^yes$/i }));
+    await waitFor(() => expect(row("alpha").textContent).toMatch(/landed/i));
+    expect(within(row("alpha")).queryByRole("button", { name: /^yes$/i })).toBe(null);
+    expect(within(row("alpha")).getByRole("button", { name: /change/i })).toBeDefined();
+  });
+
+  it("lets a mis-clicked answer be changed back", async () => {
+    mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^no$/i }));
+    await waitFor(() => expect(row("alpha").textContent).toMatch(/not yet/i));
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /change/i }));
+    expect(row("alpha").textContent).not.toMatch(/not yet/i);
+    expect(within(row("alpha")).getByRole("button", { name: /^yes$/i })).toBeDefined();
+  });
+
+  it("keeps focus in the row after an answer instead of dropping it on the body", async () => {
+    mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^no$/i }));
+    await waitFor(() => expect(document.activeElement).toBe(row("alpha")));
+  });
+
+  it("announces an answer through the one polite region the page already has", async () => {
+    mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^yes$/i }));
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("status").some((n) => /landed/i.test(n.textContent ?? "")),
+      ).toBe(true),
+    );
+  });
+
+  it("sends one answer for a double click", async () => {
+    const f = mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    const yes = within(row("alpha")).getByRole("button", { name: /^yes$/i });
+    fireEvent.click(yes);
+    fireEvent.click(yes);
+    await waitFor(() => expect(row("alpha").textContent).toMatch(/landed/i));
+    expect(f).toHaveBeenCalledTimes(1);
   });
 });

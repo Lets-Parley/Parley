@@ -264,6 +264,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 @keyframes stamp-in { from { transform: scale(1.15); opacity: 0 } to { transform: scale(1); opacity: 1 } }
 @keyframes toast-up { from { transform: translate(-50%, 12px); opacity: 0 } to { transform: translate(-50%, 0); opacity: 1 } }
 @keyframes modal-drop { from { transform: translateY(-6px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+/* An answered commitment being set down, not deleted: it arrives from just
+   above and stops, no overshoot. Reduced motion kills it below. */
+@keyframes set-down { from { transform: translateY(-4px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
