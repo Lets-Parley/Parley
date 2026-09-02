@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { action, api, errorText, type Envelope, type Me } from "../lib/api";
 import { safeDisplayName } from "../lib/displayName";
 import type { ConnectionStatus } from "../lib/socket";
@@ -9,7 +9,7 @@ import {
   FacilitatorHandoff,
   useFacilitatorAnnouncement,
 } from "../components/FacilitatorControls";
-import { ErrorRow, Modal, buttonDanger, buttonPrimary, buttonQuiet, inputClass } from "../components/Modal";
+import { ErrorRow, Modal, buttonDanger, buttonPrimary, buttonQuiet, inputClass, labelText } from "../components/Modal";
 import { Commitments, type Commitment } from "../components/Commitments";
 import type { Fail } from "../components/Modal";
 import { cueFor, cueVar } from "../lib/cue";
@@ -205,6 +205,20 @@ export function StandupRoom({
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  // What the carry-over list just did, spoken through the page's one polite
+  // region rather than a live region of its own. It clears itself so the same
+  // sentence twice in a row is still announced twice.
+  const [commitmentNote, setCommitmentNote] = useState("");
+  const noteTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const noteCommitment = useCallback((msg: string) => {
+    clearTimeout(noteTimer.current);
+    setCommitmentNote("");
+    noteTimer.current = setTimeout(() => {
+      setCommitmentNote(msg);
+      noteTimer.current = setTimeout(() => setCommitmentNote(""), 4000);
+    }, 0);
+  }, []);
+  useEffect(() => () => clearTimeout(noteTimer.current), []);
   const people = new Map(env.participants.map((p) => [p.userId, p]));
   // The visual seat marks a guest with " · guest"; the text summaries below
   // (the live announcement, skipped names, blocker lines) are built from
@@ -274,11 +288,13 @@ export function StandupRoom({
   const announcement =
     status !== "live"
       ? ""
-      : done
-        ? "The standup has wrapped up."
-        : speaking && current
-          ? `${nameOf(current.userId)} is speaking now, ${position} of ${speakers.length}.`
-          : "";
+      : commitmentNote
+        ? commitmentNote
+        : done
+          ? "The standup has wrapped up."
+          : speaking && current
+            ? `${nameOf(current.userId)} is speaking now, ${position} of ${speakers.length}.`
+            : "";
 
   // Ending is a two-step await, so a second click can land between the flush
   // and the DELETE. The server ignores the duplicate, but nothing should fire a
@@ -541,9 +557,18 @@ export function StandupRoom({
 
       {!speaking && !done && (
         <section className="flex flex-col gap-4 rounded-panel border border-line bg-surface px-5 py-5 shadow-rest">
-          <p className="text-ink-soft">
-            Jot down your update while everyone gathers. Your notes save automatically.
-          </p>
+          {/* The section's own head. Without it the only heading in the
+              gathering phase was the carry-over list's h3, which both skipped a
+              level under the shell's h1 and let the subordinate block outrank
+              the update the person actually came here to write. */}
+          <div>
+            <h2 className="text-[19px] font-bold tracking-tight text-ink">
+              Before your turn
+            </h2>
+            <p className="text-ink-soft">
+              Jot down your update while everyone gathers. Your notes save automatically.
+            </p>
+          </div>
           {/* Beside the narrative, not inside it: the three fields keep their
               one draft, one autosave and one render loop. */}
           <Commitments
@@ -552,6 +577,7 @@ export function StandupRoom({
             onAdd={(text) => run(() => action(env.id, "add", { text }), { where: "gathering" })}
             onAnswer={(id, done) => run(() => action(env.id, "answer", { id, done }), { where: "gathering" })}
             onRemove={(id) => run(() => action(env.id, "remove", { id }), { where: "gathering" })}
+            onNote={noteCommitment}
           />
           <EntryForm draft={draft} update={update} saveState={saveState} />
           {/* Who the room is waiting on, in words — a dot or a tint alone would
@@ -800,9 +826,12 @@ function EntryForm({
 }) {
   return (
     <div className="flex flex-col gap-3">
+      <h3 className="text-[15px] font-bold text-ink">Your update</h3>
       {(["yesterday", "today", "blockers"] as const).map((f) => (
         <label key={f} className="flex flex-col gap-1">
-          <span className="text-xs font-bold uppercase tracking-wide text-ink-soft">{f}</span>
+          {/* The system's label spec, rather than a fourth hand-rolled sans
+              string that made field labels and section heads look alike. */}
+          <span className={labelText}>{f}</span>
           <textarea
             className={inputClass + " min-h-16 resize-y"}
             value={draft[f]}

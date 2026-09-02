@@ -1222,7 +1222,7 @@ describe("StandupRoom carrying over", () => {
     expect(section().textContent).not.toMatch(/dana's thing/);
   });
 
-  it("badges a commitment the server calls stuck, in words about the work", () => {
+  it("says a commitment is stuck in prose about the work, with the count as data", () => {
     renderApp(
       <StandupRoom
         env={carrying([
@@ -1234,13 +1234,29 @@ describe("StandupRoom carrying over", () => {
     );
     const badge = within(row("stalled thing")).getByTestId("stuck-badge");
     expect(badge.textContent).toMatch(/stuck/i);
+    expect(badge.textContent).toMatch(/carried over/i);
     // About the work, never about the person keeping it.
     expect(badge.textContent).not.toMatch(/\byou\b/i);
-    // Accent, not stop: stop is reserved for destructive and stop actions, and
-    // a commitment that keeps carrying is a live state of the work.
-    expect(badge.className).toMatch(/\btext-accent\b/);
+    // The numeral is the only data in the sentence, so it is mono and tabular
+    // while the words around it stay sans.
+    const count = within(badge).getByText("2");
+    expect(count.className).toMatch(/font-mono/);
+    expect(count.className).toMatch(/tabular-nums/);
+    // Not stop, and not any state hue at all: stop is reserved for destructive
+    // and stop actions, and this is quiet prose rather than a pill.
     expect(badge.className).not.toMatch(/\btext-stop\b/);
+    expect(badge.className).not.toMatch(/\btext-accent\b/);
     expect(within(row("fresh thing")).queryByTestId("stuck-badge")).toBe(null);
+  });
+
+  it("drops the last-time subtitle when there was no last time", () => {
+    renderApp(<StandupRoom env={gathering()} me={me} />);
+    expect(section().textContent).not.toMatch(/what you took on last time/i);
+  });
+
+  it("keeps the last-time subtitle once something is carrying over", () => {
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    expect(section().textContent).toMatch(/what you took on last time/i);
   });
 
   it("never lets a departed member's stale entry push position past the count", async () => {
@@ -1295,17 +1311,19 @@ describe("StandupRoom carrying over", () => {
     expect(JSON.parse(init.body as string)).toEqual({ id: "c1", done: false });
   });
 
-  it("keeps the pair answerable after you answer, instead of a dead sentence", async () => {
+  it("keeps a no recoverable, instead of a dead sentence", async () => {
     // Swapping the buttons for static text made a misclick in the ninety
-    // seconds before your turn unrecoverable for the rest of the sitting.
+    // seconds before your turn unrecoverable for the rest of the sitting. The
+    // way back is Change rather than a permanently live pair: a no leaves the
+    // commitment open, so re-answering it is a real action.
     mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /no/i }));
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^no$/i }));
     await waitFor(() => expect(row("alpha").textContent).toMatch(/not yet/i));
-    const no = within(row("alpha")).getByRole("button", { name: /no/i });
-    const yes = within(row("alpha")).getByRole("button", { name: /yes/i });
-    expect(no.getAttribute("aria-pressed")).toBe("true");
-    expect(yes.getAttribute("aria-pressed")).toBe("false");
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /change/i }));
+    expect(within(row("alpha")).getByRole("button", { name: /^yes$/i })).toBeDefined();
+    expect(within(row("alpha")).getByRole("button", { name: /^no$/i })).toBeDefined();
+    expect(row("alpha").textContent).not.toMatch(/not yet/i);
   });
 
   it("sends done:true for yes, and never a userId", async () => {
@@ -1329,13 +1347,170 @@ describe("StandupRoom carrying over", () => {
     await waitFor(() => expect(box.value).toBe(""));
   });
 
-  it("removes a commitment through the remove action", async () => {
+  it("removes a commitment through the remove action, once it is confirmed", async () => {
     const f = mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /remove/i }));
+    // Destructive and unrecoverable, so the first click only asks.
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^remove$/i }));
+    expect(f).not.toHaveBeenCalled();
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /remove it/i }));
     const [path, init] = f.mock.calls[0] as [string, RequestInit];
     expect(path).toBe("/api/sessions/sess-1/actions/remove");
     expect(JSON.parse(init.body as string)).toEqual({ id: "c1" });
+  });
+
+  it("gives a keyboard two real steps: Enter on Remove twice does not delete", async () => {
+    // The confirming and non-confirming states used to render the same element
+    // types with no key, so React reconciled in place: the focused button stayed
+    // the focused button while its accessible name silently mutated from Remove
+    // to "Remove it". Two Enter presses then deleted the commitment with no
+    // second step at all for anyone not watching the label change.
+    const f = mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    const remove = within(row("alpha")).getByRole("button", { name: /^remove$/i });
+    remove.focus();
+    await userEvent.keyboard("{Enter}");
+    // The safe choice leads, and it is where focus went — so a repeated Enter
+    // cannot land on the destructive one.
+    const labels = within(row("alpha"))
+      .getAllByRole("button")
+      .map((b) => b.textContent);
+    expect(labels.indexOf("Keep it")).toBeLessThan(labels.indexOf("Remove it"));
+    expect(document.activeElement?.textContent).toBe("Keep it");
+    // And the change is announced through the page's one polite region.
+    expect(screen.getByRole("status").textContent).toMatch(/remove this commitment/i);
+
+    await userEvent.keyboard("{Enter}");
+    expect(f).not.toHaveBeenCalled();
+    // Back to the first step, not deleted.
+    expect(within(row("alpha")).getByRole("button", { name: /^remove$/i })).toBeDefined();
+  });
+
+  it("dismisses the remove confirm on Escape", async () => {
+    const f = mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^remove$/i }));
+    expect(within(row("alpha")).getByRole("button", { name: /remove it/i })).toBeDefined();
+    await userEvent.keyboard("{Escape}");
+    expect(f).not.toHaveBeenCalled();
+    expect(within(row("alpha")).queryByRole("button", { name: /remove it/i })).toBe(null);
+    expect(within(row("alpha")).getByRole("button", { name: /^remove$/i })).toBeDefined();
+  });
+
+  it("returns focus to Remove after the confirm is cancelled", async () => {
+    mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    // Escape path: the confirm is a fresh node, so the restored Remove is too.
+    within(row("alpha"))
+      .getByRole("button", { name: /^remove$/i })
+      .focus();
+    await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(row("alpha")).getByRole("button", { name: /^remove$/i }),
+      ),
+    );
+    // And the Keep it path lands in the same place.
+    await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(row("alpha")).getByRole("button", { name: /^remove$/i }),
+      ),
+    );
+  });
+
+  it("backs out of a remove without sending anything", async () => {
+    const f = mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^remove$/i }));
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /keep it/i }));
+    expect(f).not.toHaveBeenCalled();
+    expect(within(row("alpha")).getByRole("button", { name: /^remove$/i })).toBeDefined();
+  });
+
+  it("resolves a yes in place instead of leaving the button looking dead", async () => {
+    mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^yes$/i }));
+    await waitFor(() => expect(row("alpha").textContent).toMatch(/landed/i));
+    expect(within(row("alpha")).queryByRole("button", { name: /^yes$/i })).toBe(null);
+    // No "Change" on the yes path: the server has already closed the
+    // commitment and will not reopen it, so a control offering to take the
+    // answer back could only produce a 404.
+    expect(within(row("alpha")).queryByRole("button", { name: /change/i })).toBe(null);
+  });
+
+  it("holds a landed row for a beat after the broadcast sweeps it away", async () => {
+    mockFetch();
+    const { rerender } = renderApp(
+      <StandupRoom env={carrying([{ text: "alpha" }, { text: "beta" }])} me={me} />,
+    );
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^yes$/i }));
+    await waitFor(() => expect(row("alpha").textContent).toMatch(/landed/i));
+    // Yes closes the commitment server-side, so the very next broadcast no
+    // longer carries it. Without the hold the acknowledgement is a flash.
+    rerender(<StandupRoom env={carrying([{ id: "c2", text: "beta" }])} me={me} />);
+    expect(row("alpha").textContent).toMatch(/landed/i);
+    // And it does leave: the hold is a beat, not a cache.
+    await waitFor(
+      () =>
+        expect(
+          screen.queryAllByRole("listitem").some((li) => li.textContent?.includes("alpha")),
+        ).toBe(false),
+      { timeout: 3000 },
+    );
+    // The row that stayed open is untouched by any of it.
+    expect(row("beta").textContent).toMatch(/beta/);
+  });
+
+  it("keeps Remove out of the answer pair, so it never reads as a third answer", () => {
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    const answers = within(row("alpha")).getByTestId("answer-group");
+    expect(within(answers).getByRole("button", { name: /^yes$/i })).toBeDefined();
+    expect(within(answers).getByRole("button", { name: /^no$/i })).toBeDefined();
+    expect(within(answers).queryByRole("button", { name: /^remove$/i })).toBe(null);
+    // Still on the row, just not in the group that answers the question.
+    expect(within(row("alpha")).getByRole("button", { name: /^remove$/i })).toBeDefined();
+  });
+
+  it("lets a mis-clicked answer be changed back", async () => {
+    mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^no$/i }));
+    await waitFor(() => expect(row("alpha").textContent).toMatch(/not yet/i));
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /change/i }));
+    expect(row("alpha").textContent).not.toMatch(/not yet/i);
+    expect(within(row("alpha")).getByRole("button", { name: /^yes$/i })).toBeDefined();
+  });
+
+  it("keeps focus in the row after an answer instead of dropping it on the body", async () => {
+    mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^no$/i }));
+    await waitFor(() => expect(document.activeElement).toBe(row("alpha")));
+  });
+
+  it("announces an answer through the one polite region the page already has", async () => {
+    mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^yes$/i }));
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("status").some((n) => /landed/i.test(n.textContent ?? "")),
+      ).toBe(true),
+    );
+  });
+
+  it("sends one answer for a double click", async () => {
+    const f = mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    const yes = within(row("alpha")).getByRole("button", { name: /^yes$/i });
+    fireEvent.click(yes);
+    fireEvent.click(yes);
+    await waitFor(() => expect(row("alpha").textContent).toMatch(/landed/i));
+    expect(f).toHaveBeenCalledTimes(1);
   });
 });
 

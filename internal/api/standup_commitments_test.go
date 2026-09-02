@@ -62,21 +62,29 @@ func TestCommitmentAnsweredYesLeavesTheList(t *testing.T) {
 	}
 }
 
-// No keeps it, and moves the carry count. Stuck turns on at two carries and
-// is false below that.
+// No keeps it, and moves the carry count — once per standup. Stuck turns on at
+// two carries and is false below that.
+//
+// Each No here is answered in its own session, because that is what carrying
+// over means: the count is a number of standups the work survived, not a
+// number of times a button was pressed.
 func TestCommitmentAnsweredNoCarriesAndSticks(t *testing.T) {
 	srv := testServer(t)
-	_, m1, _, id, _ := standupSetup(t, srv, "Commitment No Space")
-	cid := addCommitment(t, srv, id, m1, "chase the vendor")
+	fac, _, _, id, slug := standupSetup(t, srv, "Commitment No Space")
+	cid := addCommitment(t, srv, id, fac, "chase the vendor")
 
-	if c := commitments(t, srv, id, m1)[cid]; c["carried"] != float64(0) || c["stuck"] != false {
+	if c := commitments(t, srv, id, fac)[cid]; c["carried"] != float64(0) || c["stuck"] != false {
 		t.Fatalf("a fresh commitment: carried = %v, stuck = %v", c["carried"], c["stuck"])
 	}
 	for want := 1; want <= 2; want++ {
-		if resp := answer(t, srv, id, m1, cid, false); resp.StatusCode != http.StatusNoContent {
+		if want > 1 {
+			_, sess := createSession(t, srv, slug, "standup", "Daily", fac)
+			id = sess["id"].(string)
+		}
+		if resp := answer(t, srv, id, fac, cid, false); resp.StatusCode != http.StatusNoContent {
 			t.Fatalf("answer no: %d", resp.StatusCode)
 		}
-		c := commitments(t, srv, id, m1)[cid]
+		c := commitments(t, srv, id, fac)[cid]
 		if c == nil {
 			t.Fatal("answering no removed the commitment")
 		}
@@ -86,6 +94,60 @@ func TestCommitmentAnsweredNoCarriesAndSticks(t *testing.T) {
 		if wantStuck := want >= 2; c["stuck"] != wantStuck {
 			t.Fatalf("carried %d: stuck = %v, want %v", want, c["stuck"], wantStuck)
 		}
+	}
+}
+
+// A mis-click and its correction inside one sitting is not two standups. No,
+// Change, No again is a single carry — otherwise a brand-new commitment reads
+// as stuck before it has survived a single night, which is precisely the false
+// accusation this feature exists to avoid.
+func TestARepeatNoInTheSameSessionCarriesOnlyOnce(t *testing.T) {
+	srv := testServer(t)
+	_, m1, _, id, _ := standupSetup(t, srv, "Commitment Repeat Space")
+	cid := addCommitment(t, srv, id, m1, "revisit the estimate")
+
+	for i := 0; i < 3; i++ {
+		if resp := answer(t, srv, id, m1, cid, false); resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("answer no #%d: %d", i+1, resp.StatusCode)
+		}
+	}
+	c := commitments(t, srv, id, m1)[cid]
+	if c == nil {
+		t.Fatal("answering no removed the commitment")
+	}
+	if c["carried"] != float64(1) {
+		t.Fatalf("three no answers in one session: carried = %v, want 1", c["carried"])
+	}
+	if c["stuck"] != false {
+		t.Fatal("one sitting made a brand-new commitment look stuck")
+	}
+}
+
+// The idempotency is per session, not per commitment: the next standup's No
+// still counts, so a genuinely stalled commitment still becomes stuck.
+func TestANoInALaterSessionStillCarries(t *testing.T) {
+	srv := testServer(t)
+	fac, _, _, id, slug := standupSetup(t, srv, "Commitment Later Space")
+	cid := addCommitment(t, srv, id, fac, "unblock the migration")
+
+	if resp := answer(t, srv, id, fac, cid, false); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("first no: %d", resp.StatusCode)
+	}
+	_, sess := createSession(t, srv, slug, "standup", "Daily Two", fac)
+	next := sess["id"].(string)
+	if resp := answer(t, srv, next, fac, cid, false); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("second no: %d", resp.StatusCode)
+	}
+	c := commitments(t, srv, next, fac)[cid]
+	if c["carried"] != float64(2) || c["stuck"] != true {
+		t.Fatalf("a no in a later session: carried = %v, stuck = %v; want 2 and true", c["carried"], c["stuck"])
+	}
+	// And a yes still closes it, however many times it carried.
+	if resp := answer(t, srv, next, fac, cid, true); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("answer yes: %d", resp.StatusCode)
+	}
+	if c := commitments(t, srv, next, fac)[cid]; c != nil {
+		t.Fatalf("yes left the commitment on the open list: %v", c)
 	}
 }
 

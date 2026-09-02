@@ -41,7 +41,14 @@ It opens with one question: **did that land?**
 
 - **Yes** closes it. It leaves the list and does not come back.
 - **No** carries it into the next standup, and the count of how many times it has
-  carried goes up by one.
+  carried goes up by one — once per standup, however many times you answer. A
+  No, a **Change** and another No in the same sitting is one carry, not two.
+
+Both answers resolve the row in place rather than leaving the buttons looking
+dead. A **No** leaves the commitment open, so it keeps a **Change** next to it
+and a mis-click can be corrected without reloading the page. A **Yes** has
+already closed the commitment for good, so the row says **Landed.**, holds still
+long enough to read, and then leaves the list.
 
 A commitment you add during *this* standup is listed separately, under **Taking
 on now**. It has carried over from nowhere, so it is not asked "did that land?"
@@ -49,11 +56,15 @@ on now**. It has carried over from nowhere, so it is not asked "did that land?"
 standup, if it is still open.
 
 You can withdraw a commitment you no longer intend to do; that removes it rather
-than answering it. Everything here is scoped to you — the answer, the removal and
+than answering it, so **Remove** sits apart from the Yes/No pair instead of
+reading as a third answer. Removal cannot be undone, so it asks first — with the harmless **Keep it**
+leading and holding focus, so the second step is a real step for a keyboard as
+well as a mouse. Everything here is scoped to you — the answer, the removal and
 the add all act on your own commitments only, whoever is facilitating.
 
-A commitment still open after **two** No answers is marked **stuck**, in words on
-the row rather than in a colour. The badge is about the work: it says this piece
+A commitment still open after **two** standups' worth of No answers is marked
+**stuck**, in words on the row rather than in a colour — a plain sentence under
+the commitment, with the carry count as the only figure in it. It is about the work: it says this piece
 of work has carried, not that a person is failing. There are no streaks, no
 percentages and nothing that adds up across people — the point is to notice a
 task that has quietly stalled, which a day-by-day narrative never falsifies.
