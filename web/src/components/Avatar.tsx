@@ -1,7 +1,8 @@
+import { avatarSizes } from "../lib/avatar";
 import { safeDisplayName } from "../lib/displayName";
 import { avatarIcon } from "./avatarIcons";
 
-const sizes = { xs: 24, sm: 28, md: 38, lg: 46 } as const;
+const sizes = avatarSizes;
 
 export function initialsOf(name: string): string {
   const parts = safeDisplayName(name).trim().split(/\s+/).filter(Boolean);
