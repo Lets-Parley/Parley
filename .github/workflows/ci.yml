@@ -135,6 +135,8 @@ jobs:
         run: scripts/tests/release-workflow-test.sh
       - name: Test image pin checker
         run: scripts/tests/check-image-pins-test.sh
+      - name: Test screenshot freshness checker
+        run: scripts/tests/check-screenshot-freshness-test.sh
       - name: Check pinned image digests still resolve
         run: scripts/check-image-pins.sh .github/workflows/*.yml
 
@@ -774,6 +776,34 @@ jobs:
           # and the manifest is a standalone example, so they are allowed to
           # differ. Everything above is a security or stay-up setting where they
           # are not.
+
+  # Advisory, and deliberately absent from `gate` below: a screenshot that has
+  # fallen behind the UI is never a reason to block a code change. The shipped
+  # set once trailed four separate features because nothing tied site/src/assets
+  # to web/src; this reports the drift where the author of the change will see
+  # it. The checker's own logic is tested in the `dco` job, which does gate.
+  screenshot-freshness:
+    name: screenshot freshness (advisory)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Report screenshots depicting changed UI
+        run: |
+          set -eu
+          base='${{ github.event.pull_request.base.sha }}'
+          head='${{ github.event.pull_request.head.sha }}'
+          if [ -z "$(git diff --name-only "$base" "$head" -- web/src)" ]; then
+            echo "no web/src changes in this pull request" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo "### Screenshot freshness"
+            echo
+            scripts/check-screenshot-freshness.sh || echo "the freshness checker did not run"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # main's ruleset requires exactly one check from this workflow. Adding a job
   # above means adding it to `needs` here, and nothing else.

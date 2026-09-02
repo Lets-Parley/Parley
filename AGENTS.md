@@ -323,7 +323,13 @@ migration and embedding mistakes that unit tests miss.
     called. `env_keys_allowlist.txt` holds only keys no scan of `main.go` can
     find, and an entry the scan *can* find is an error so the list cannot
     accumulate. Finding zero keys is a fatal failure, never a pass.
-31. Dependabot watches only `site/`. Go modules and `web/` dependencies are
+31. Screenshots go stale silently. `site/src/assets/screenshots.json` maps each
+    shipped screenshot to the `web/src` files it depicts and the commit it was
+    last shot against; `scripts/check-screenshot-freshness.sh` reports the drift
+    and CI surfaces it on any pull request touching `web/src`. It is advisory
+    and never fails. If you re-shoot, move `shot_at`; if you add a shot, add it
+    to the manifest.
+32. Dependabot watches only `site/`. Go modules and `web/` dependencies are
     bumped by hand, with tests.
 
 ## Scope

@@ -92,6 +92,27 @@ nothing else — no router surgery, no constraint change, no frontend ternaries.
    glyph tests pick it up automatically and will hold it to the same legibility
    floor as the existing ones.
 
+## Screenshots
+
+The marketing and README screenshots live in `site/src/assets/` and `docs/`, and
+`site/src/assets/screenshots.json` records, per asset, the commit it was last
+shot against (`shot_at`) and the `web/src` files whose UI it depicts
+(`depicts`). Nothing else ties the two together, which is how the shipped set
+once ended up several releases behind: four features shipped, every pull request
+was green, and none had any reason to open the assets directory.
+
+`scripts/check-screenshot-freshness.sh` reads that manifest and counts, per
+asset, the commits since its stamp that touched what it depicts. CI runs it on
+any pull request touching `web/src` and writes the result to the job summary. It
+is advisory and cannot fail a build — a screenshot lagging the UI is not a
+reason to block a code change, and a count of one commit is usually noise. A
+count that keeps climbing is not.
+
+When you re-shoot, update `shot_at` for the assets you replaced to the commit
+the new frames land in, and add a `depicts` entry for any new surface a shot
+now covers. A new screenshot belongs in the manifest in the same pull request
+that adds it.
+
 ## Contributing
 
 Use [Discussions](https://github.com/lets-parley/parley/discussions) for support
