@@ -108,6 +108,12 @@ is advisory and cannot fail a build — a screenshot lagging the UI is not a
 reason to block a code change, and a count of one commit is usually noise. A
 count that keeps climbing is not.
 
+The one thing it does fail on is a manifest it cannot read: an unparseable file
+or a missing `.assets` array exits nonzero rather than reporting an all-clear,
+because a report that says the set is fresh has to mean it looked. An asset with
+an empty `depicts` is called out for the same reason — nothing could ever mark
+it stale.
+
 When you re-shoot, update `shot_at` for the assets you replaced to the commit
 the new frames land in, and add a `depicts` entry for any new surface a shot
 now covers. A new screenshot belongs in the manifest in the same pull request

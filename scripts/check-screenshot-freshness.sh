@@ -9,6 +9,10 @@
 # per asset, the commits since its `shot_at` stamp that touched the files it
 # depicts. The signal is the count, not the fact of one commit.
 #
+# A manifest this cannot read is the one thing it does exit nonzero for. The
+# point of the report is to be believed when it says the set is fresh, so it
+# must never say that because it failed to look.
+#
 # After a re-shoot, move `shot_at` to the commit the new frames land in.
 set -eu
 
@@ -19,28 +23,63 @@ if [ ! -f "$manifest" ]; then
   exit 0
 fi
 
-# tab-separated: files, shot_at, depicts — one line per asset, so a light/dark
-# pair shot together is reported once rather than twice.
-jq -r '.assets[] | [(.files | join(", ")), .shot_at, (.depicts | join(" "))] | @tsv' "$manifest" |
-while IFS="$(printf '\t')" read -r files shot_at depicts; do
+if ! count_assets=$(jq -e '
+  if (.assets | type) == "array" then (.assets | length)
+  else error("`.assets` is missing or is not an array")
+  end' "$manifest" 2>&1); then
+  echo "cannot read the screenshot manifest at $manifest:"
+  echo "$count_assets"
+  exit 1
+fi
+
+report=$(mktemp)
+trap 'rm -f "$report"' EXIT HUP INT TERM
+
+i=0
+while [ "$i" -lt "$count_assets" ]; do
+  # tab-separated: files, shot_at, how many paths this asset depicts, and those
+  # paths for display — one line per asset, so a light/dark pair shot together
+  # is reported once rather than twice.
+  IFS="$(printf '\t')" read -r files shot_at depicts_count depicts <<JQ
+$(jq -r --argjson i "$i" '.assets[$i] |
+  [(.files | join(", ")), .shot_at, (.depicts | length | tostring), (.depicts | join(" "))]
+  | @tsv' "$manifest")
+JQ
+  idx=$i
+  i=$((i + 1))
+
+  # An asset that depicts nothing can never be found stale, so it is a hole in
+  # the manifest rather than a fresh asset.
+  if [ "$depicts_count" -eq 0 ]; then
+    echo "- $files: depicts nothing, so nothing can ever mark it stale — fill in its \`depicts\`"
+    continue
+  fi
   if ! git cat-file -e "${shot_at}^{commit}" 2>/dev/null; then
     echo "- $files: unknown commit $shot_at in the manifest"
     continue
   fi
-  # shellcheck disable=SC2086 # depicts is a space-separated pathspec list
-  count=$(git log --format=%H "$shot_at..HEAD" -- $depicts | grep -c . || true)
+  # One pathspec per line, split on newlines only and with globbing off, so a
+  # depicted path containing a space stays a single pathspec rather than
+  # word-splitting into several that match far too much.
+  set -f
+  IFS='
+'
+  # shellcheck disable=SC2046 # deliberate: split the depicts list on newlines
+  set -- $(jq -r --argjson i "$idx" '.assets[$i].depicts[]' "$manifest")
+  unset IFS
+  set +f
+  count=$(git log --format=%H "$shot_at..HEAD" -- "$@" | grep -c . || true)
   if [ "$count" -gt 0 ]; then
     echo "- $files: shot at $(printf %.7s "$shot_at"), $count commit(s) since have touched $depicts"
   fi
-done >"${TMPDIR:-/tmp}/screenshot-freshness.$$"
+done >"$report"
 
-if [ -s "${TMPDIR:-/tmp}/screenshot-freshness.$$" ]; then
+if [ -s "$report" ]; then
   echo "These screenshots depict UI that has changed since they were shot:"
   echo
-  cat "${TMPDIR:-/tmp}/screenshot-freshness.$$"
+  cat "$report"
   echo
   echo "This is advisory. Re-shoot the affected assets if the change is visible."
 else
   echo "every screenshot is up to date against the code it depicts"
 fi
-rm -f "${TMPDIR:-/tmp}/screenshot-freshness.$$"
