@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { buttonGo, buttonPrimary, buttonQuiet, inputClass, labelText } from "./Modal";
 
 /** One open commitment, exactly as the session state sends it. */
@@ -305,6 +313,10 @@ function CommitmentRow({
   // Two clicks in the same tick both read stale state, so the ref is the guard
   // and the state only dims the control.
   const busyRef = useRef(false);
+  // A remove that succeeded leaves the row on screen until the broadcast drops
+  // it. Nothing about the confirm changes in that gap, so the guard stays
+  // latched rather than arming a second Remove it that could only 404.
+  const latched = useRef(false);
   const li = useRef<HTMLLIElement>(null);
   // Focus is moved onto Keep it when the confirm opens, so the second step is a
   // step for a keyboard too, and the control it lands on is the harmless one.
@@ -323,7 +335,12 @@ function CommitmentRow({
 
   // The row can be swept away by a broadcast at any moment. If it goes while it
   // holds focus, hand focus on rather than let it fall to <body>.
-  useEffect(
+  //
+  // Layout, not passive: React detaches the ref and takes the node out of the
+  // document before passive cleanup runs, so by then `li.current` is null and
+  // the active element is already <body> — the guard could never be true.
+  // Layout cleanup runs while the node is still attached and still holds focus.
+  useLayoutEffect(
     () => () => {
       if (li.current?.contains(document.activeElement)) onLeave();
     },
@@ -357,7 +374,7 @@ function CommitmentRow({
       .then((ok) => after(ok))
       .catch(() => {})
       .finally(() => {
-        busyRef.current = false;
+        busyRef.current = latched.current;
         setBusy(false);
       });
   };
@@ -522,6 +539,7 @@ function CommitmentRow({
                         setConfirming(false);
                         return;
                       }
+                      latched.current = true;
                       onNote?.("Commitment removed.");
                     },
                   )
