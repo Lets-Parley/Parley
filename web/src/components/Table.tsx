@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { Person } from "../lib/api";
-import { cueLabel, cueVar, type CueState } from "../lib/cue";
+import { cueVar, type CueState } from "../lib/cue";
 import { safeDisplayName } from "../lib/displayName";
 import { TOUCH_HIT } from "../lib/breakpoints";
 import { voteTally } from "../lib/derive";
@@ -635,16 +635,14 @@ export function Table({
         />
       </div>
 
-      {/* One live region for the whole table: the count and the cue read as a
-          single string, because two status nodes talk over each other. */}
+      {/* One live region for the whole table. The cue itself has no words: it
+          is a wash of colour over the field, and its steps are internal
+          codenames that meant nothing to anyone reading them. The count is the
+          plain-language form of the same fact, so it is the only voice here. */}
       <p role="status" className="mt-1.5 text-center font-mono text-[11px] text-ink-faint">
         {/* Pre-reveal the count is already on the field at 1.5rem, so it is
             spoken here and drawn there — never printed twice. */}
-        <span className={revealed ? undefined : "sr-only"}>
-          {count}
-          {cueState ? " · " : ""}
-        </span>
-        {cueState && <span>{cueLabel(cueState)}</span>}
+        <span className={revealed ? undefined : "sr-only"}>{count}</span>
       </p>
     </div>
   );

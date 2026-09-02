@@ -15,19 +15,8 @@ export const CUE_LIGHT_ENABLED = true;
 export const CUE_STATES = ["overcast", "first-light", "daybreak", "day"] as const;
 export type CueState = (typeof CUE_STATES)[number];
 
-const LABELS: Record<CueState, string> = {
-  overcast: "overcast",
-  "first-light": "first light",
-  daybreak: "daybreak",
-  day: "day",
-};
-
 export function cueRank(state: CueState): number {
   return CUE_STATES.indexOf(state);
-}
-
-export function cueLabel(state: CueState): string {
-  return LABELS[state];
 }
 
 /**
