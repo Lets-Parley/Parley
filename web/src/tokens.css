@@ -15,6 +15,10 @@
    — the toggle has to win in both directions. */
 
 :root {
+  /* The browser's half of the render — caret, scrollbars, UA controls — reads
+     this, not our tokens. Without it the dark theme ships light chrome. */
+  color-scheme: light;
+
   /* Light: chart paper */
   --color-felt:        #E9E7E1;
   --color-felt-deep:   #DBD8D0;
@@ -24,6 +28,11 @@
   --color-ink-soft:    #46596B;
   --color-ink-faint:   #4F5D6A;
   --color-line:        #C7C4BA;
+  /* `line` is a hairline divider and is deliberately faint — but WCAG 2.2 AA
+     1.4.11 wants 3:1 on the boundary that *identifies a control*, and a quiet
+     button or an input has no other edge. `line-strong` is that boundary, and
+     nothing else: it clears 3:1 on all four grounds in its theme. */
+  --color-line-strong: #7D7A73;
   --color-accent:      #1D4E6E;
   --color-accent-ink:  #F4F8FB;
   --color-accent-soft: #D6E4EE;
@@ -77,6 +86,7 @@
 /* Dark: night watch — deep navy hull, paper-warm text. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --color-felt:        #0E1726;
     --color-felt-deep:   #0A101B;
     --color-surface:     #162032;
@@ -85,6 +95,7 @@
     --color-ink-soft:    #A3B1C0;
     --color-ink-faint:   #8494A4;
     --color-line:        #2A3648;
+    --color-line-strong: #687585;
     --color-accent:      #5FA8D3;
     --color-accent-ink:  #08131F;
     --color-accent-soft: #1C3247;
@@ -105,6 +116,7 @@
 }
 
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --color-felt:        #0E1726;
   --color-felt-deep:   #0A101B;
   --color-surface:     #162032;
@@ -113,6 +125,7 @@
   --color-ink-soft:    #A3B1C0;
   --color-ink-faint:   #8494A4;
   --color-line:        #2A3648;
+  --color-line-strong: #687585;
   --color-accent:      #5FA8D3;
   --color-accent-ink:  #08131F;
   --color-accent-soft: #1C3247;
@@ -141,6 +154,7 @@
   --color-ink-soft: var(--color-ink-soft);
   --color-ink-faint: var(--color-ink-faint);
   --color-line: var(--color-line);
+  --color-line-strong: var(--color-line-strong);
   --color-accent: var(--color-accent);
   --color-accent-ink: var(--color-accent-ink);
   --color-accent-soft: var(--color-accent-soft);
@@ -179,6 +193,26 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   outline-offset: 1px;
 }
 
+/* The parts we did not draw still carry the design. Selection, the caret, the
+   placeholder and the scrollbar all ship with a UA default that belongs to no
+   palette; on chart paper an OS-blue selection is the loudest thing on screen. */
+::selection {
+  background: var(--color-accent-soft);
+  color: var(--color-ink);
+}
+::placeholder {
+  color: var(--color-ink-faint);
+  opacity: 1; /* Firefox dims placeholders by default, under AA. */
+}
+a {
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: from-font;
+}
+* {
+  scrollbar-color: var(--color-line-strong) transparent;
+  scrollbar-width: thin;
+}
+
 /* Vote counts and card values change in place; tabular figures stop them
    shimmering as digits swap. */
 .font-mono { font-variant-numeric: tabular-nums; }
@@ -187,15 +221,64 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
    CSS rather than inline styles so :hover can win over the resting fan angle. */
 .hand-card {
   transform: rotate(var(--rot, 0deg));
-  transition: transform var(--dur-lift) var(--ease-spring), box-shadow var(--dur-lift);
+  transition: transform var(--dur-lift) var(--ease-spring), box-shadow var(--dur-lift),
+    opacity var(--dur-lift) var(--ease-settle);
 }
 @media (hover: hover) and (pointer: fine) {
   .hand-card:hover:not(:disabled) { transform: translateY(-6px) rotate(0deg); }
 }
 .hand-card[aria-pressed="true"] { transform: translateY(-10px) rotate(0deg); }
+/* The reveal flips aria-pressed to false, but the card you put on the table is
+   still the one you played — it holds its committed position rather than
+   sinking back into the fan as an anonymous thirteenth. */
+.hand-card[data-played="true"] { transform: translateY(-10px) rotate(0deg); }
 
-@keyframes flip-in { from { transform: rotateY(92deg) } to { transform: rotateY(0deg) } }
-@keyframes card-hop { 0% { transform: translateY(0) } 40% { transform: translateY(-8px) } 100% { transform: translateY(0) } }
+/* --- The turn -----------------------------------------------------------
+   Three keyframes, one object. A card is dealt at an angle, is turned over
+   without losing that angle, and hops once on the felt still wearing it. Every
+   one of them composes `rotate(var(--rot))` into every stop, because an
+   animation that omits it silently overwrites the card's resting angle for its
+   whole duration and then snaps back at the last frame.
+
+   Timing lives in the stops, not in a bezier — same reasoning as seat-drop
+   below. A bezier imitating gravity reads as an ease; gravity in the stops
+   reads as weight. */
+
+/* Dealt from the dealer's side: in from up-left, under-rotated, arriving a
+   degree past its angle and settling back the way a card skids to a stop. */
+@keyframes deal-in {
+  0%   { transform: translate(-26px, -14px) rotate(calc(var(--rot, 0deg) - 14deg)) scale(0.94); opacity: 0;
+         animation-timing-function: cubic-bezier(.16, 1, .3, 1) }
+  55%  { opacity: 1 }
+  84%  { transform: translate(0, 0) rotate(calc(var(--rot, 0deg) + 1.5deg)) scale(1); opacity: 1;
+         animation-timing-function: cubic-bezier(.33, 0, .68, 1) }
+  100% { transform: translate(0, 0) rotate(var(--rot, 0deg)) scale(1); opacity: 1 }
+}
+
+/* The turn itself. Ease-IN to the balance point — a card tipped past vertical
+   accelerates rather than decelerating into the table — then a shallow
+   overshoot as the far edge slaps down. */
+@keyframes flip-in {
+  0%   { transform: rotateY(92deg) rotate(var(--rot, 0deg)) translateY(-3px);
+         animation-timing-function: cubic-bezier(.45, 0, .75, .35) }
+  62%  { transform: rotateY(34deg) rotate(var(--rot, 0deg)) translateY(-4px);
+         animation-timing-function: cubic-bezier(.2, .9, .35, 1) }
+  88%  { transform: rotateY(-4deg) rotate(var(--rot, 0deg)) translateY(0) }
+  100% { transform: rotateY(0deg) rotate(var(--rot, 0deg)) translateY(0) }
+}
+
+/* One ballistic hop with a real second contact, on the same restitution as
+   seat-drop (r = 0.35): contact at 1/(1+r) = 74.07%, second apex r^2 of the
+   first. Parabolic stops, linear timing. */
+@keyframes card-hop {
+  0%     { transform: rotate(var(--rot, 0deg)) translateY(0) }
+  18.5%  { transform: rotate(var(--rot, 0deg)) translateY(-6.75px) }
+  37%    { transform: rotate(var(--rot, 0deg)) translateY(-9px) }
+  55.6%  { transform: rotate(var(--rot, 0deg)) translateY(-6.75px) }
+  74.1%  { transform: rotate(var(--rot, 0deg)) translateY(0) }
+  87%    { transform: rotate(var(--rot, 0deg)) translateY(-1.1px) }
+  100%   { transform: rotate(var(--rot, 0deg)) translateY(0) }
+}
 @keyframes highfive-right {
   0%   { transform: translate(0,0) rotate(0deg) scale(1,1); animation-timing-function: cubic-bezier(.2,.7,.3,1) }
   14%  { transform: translate(-4px,6px) rotate(-5deg) scale(1.06,0.9); animation-timing-function: cubic-bezier(.15,.6,.45,1) }

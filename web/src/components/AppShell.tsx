@@ -133,7 +133,12 @@ export function ThemeToggle() {
     <button
       onClick={cycle}
       aria-label={`Theme: ${theme}. Switch to ${NEXT_THEME_WORD[theme]}.`}
-      className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-felt-deep py-1 pl-1.5 pr-2.5 hover:bg-surface-hi"
+      /* The label is hidden below sm, which left a ~22x30px target — and on
+         the landing page this is the only chrome control there is. TOUCH_HIT
+         is the repo's own utility for exactly this and this control was the
+         lone opt-out. line-strong because a transparent-ish pill's border is
+         the only thing identifying it (WCAG 2.2 AA 1.4.11). */
+      className={`${TOUCH_HIT} inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-line-strong bg-felt-deep px-3 hover:bg-surface-hi`}
     >
       <span
         aria-hidden
@@ -345,7 +350,7 @@ export function AppShell({
         <span className="hidden h-5 w-px bg-line sm:block" />
 
         <span className="flex min-w-0 flex-col justify-center leading-tight">
-          <h1 className="truncate text-[17px] font-extrabold tracking-tight sm:text-[19px]">
+          <h1 className="truncate text-[17px] font-bold tracking-tight sm:text-[19px]">
             {title ?? spaceName}
           </h1>
           {title && !guest && (

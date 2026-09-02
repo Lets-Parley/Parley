@@ -17,16 +17,23 @@ export type { BootSwing, Bounds, Frame, Size, Vec } from "./physics";
 export { flipDeltas, releaseFlip } from "./flip";
 export type { Box } from "./flip";
 export {
+  CARD_FLIP_MS,
+  CARD_HOP_MS,
   DROP_DISTANCE_PX,
   FLIP_MS,
+  FLIP_STAGGER_MS,
   KICK_REFLOW_MS,
   PILE_ON_EMOJI,
+  flipEndsAt,
+  flipStartsAt,
+  hopStartsAt,
   joinBeats,
   pileOnBeats,
   pileOnOutlier,
   planDropIn,
   planKick,
   planPileOn,
+  resultStampsAt,
   revealSettledAt,
   staggerFor,
 } from "./plan";

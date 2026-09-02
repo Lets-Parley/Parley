@@ -15,6 +15,7 @@ function renderHand(over: Partial<Parameters<typeof Hand>[0]> = {}) {
       selected={null}
       spectating={false}
       canSpectate
+      status="live"
       onPick={onPick}
       onToggleSpectate={onToggleSpectate}
       {...over}

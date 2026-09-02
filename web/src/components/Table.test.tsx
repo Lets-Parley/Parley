@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, render, screen, within } from "@testing-library/react";
 import { Table, faceOf, celebrationBeats, planCelebration } from "./Table";
-import { PILE_ON_EMOJI } from "../lib/motion";
+import { PILE_ON_EMOJI, hopStartsAt, CARD_HOP_MS } from "../lib/motion";
 import { makePerson } from "../test/render";
 
 describe("faceOf", () => {
@@ -325,11 +325,12 @@ function seatEl(userId: string): HTMLElement {
 }
 
 describe("celebrationBeats", () => {
-  // The cards are still turning over until 620 + (n-1)*40 + 450. Jumping
-  // before that puts the celebration on top of the reveal it is celebrating.
+  // The last card is still bouncing until hopStartsAt(n-1) + CARD_HOP_MS.
+  // Jumping before that puts the celebration on top of the reveal it is
+  // celebrating. Read from the beat sheet, never restated here.
   it("waits out the slowest card at every table size", () => {
     for (const n of [1, 2, 6, 15]) {
-      const cardsLand = 620 + (n - 1) * 40 + 450;
+      const cardsLand = hopStartsAt(n - 1) + CARD_HOP_MS;
       expect(celebrationBeats(n, Math.ceil(n / 2)).start).toBeGreaterThan(cardsLand);
     }
   });

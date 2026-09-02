@@ -1,5 +1,6 @@
 import { useId, type CSSProperties } from "react";
 import { TOUCH_HIT } from "../lib/breakpoints";
+import type { ConnectionStatus } from "../lib/socket";
 import { faceOf } from "./Table";
 
 // Your hand sits in a felt well at the bottom of the table. On a phone it
@@ -11,6 +12,7 @@ export function Hand({
   disabled,
   spectating,
   canSpectate,
+  status,
   onPick,
   onToggleSpectate,
 }: {
@@ -20,11 +22,17 @@ export function Hand({
   disabled?: boolean;
   spectating: boolean;
   canSpectate: boolean;
+  status: ConnectionStatus;
   onPick: (value: string) => void;
   onToggleSpectate: () => void;
 }) {
   const mid = (values.length - 1) / 2;
   const headingId = useId();
+  // The pick is optimistic — the card lifts before the round-trip. That is the
+  // right trade while the socket is up and a lie while it is down, so the
+  // status line says "holding" rather than confirming in `go` a vote that
+  // reached nobody. A live state is accent; go means a state actually changed.
+  const live = status === "live";
 
   return (
     <section
@@ -39,9 +47,19 @@ export function Hand({
         <div className="flex items-center gap-3">
           <span
             className="font-mono text-[10px]"
-            style={{ color: selected ? "var(--color-go)" : "var(--color-ink-faint)" }}
+            style={{
+              color: !selected
+                ? "var(--color-ink-faint)"
+                : live
+                  ? "var(--color-go)"
+                  : "var(--color-accent)",
+            }}
           >
-            {selected ? `picked ${faceOf(selected)}` : "pick a card"}
+            {!selected
+              ? "pick a card"
+              : live
+                ? `picked ${faceOf(selected)}`
+                : `holding ${faceOf(selected)} · reconnecting`}
           </span>
           {canSpectate && (
             <button
@@ -65,20 +83,38 @@ export function Hand({
         <div className="grid grid-cols-5 justify-center gap-2 sm:flex sm:flex-wrap sm:gap-2.5">
           {values.map((v, i) => {
             const isSel = selected === v && !disabled;
+            // The reveal flips `disabled` on, which drops isSel — and with it
+            // the only mark showing which card you actually played. `played`
+            // survives that, so your own card stays committed instead of
+            // sinking back into the fan as an anonymous thirteenth. It rests
+            // rather than lifting: lift means hovered, selected, or modal.
+            const played = selected === v;
             return (
               <button
                 key={v}
                 onClick={() => onPick(v)}
                 disabled={disabled}
                 aria-pressed={isSel}
+                data-played={played || undefined}
                 className={
                   "hand-card flex h-16 items-center justify-center rounded-card border bg-surface font-mono text-ink shadow-rest " +
                   "sm:h-[90px] sm:w-16 " +
                   (isSel
                     ? "border-2 border-accent bg-accent-soft shadow-lift"
-                    : "border-line hover:shadow-lift") +
+                    : played
+                      ? "border-2 border-accent bg-accent-soft shadow-rest"
+                      : disabled
+                        ? // A spent card is disabled, and a disabled control
+                          // holds its shadow at rest. hover:shadow-lift used to
+                          // stay on every card after the reveal, so the whole
+                          // hand still rose under the cursor.
+                          "border-ink-faint"
+                        : "border-line hover:shadow-lift") +
                   // opacity-45 composited the face down to 2.77:1 in the light theme;
-                  // 70% still reads as spent without falling under AA.
+                  // 70% still reads as spent without falling under AA. The
+                  // border goes to ink-faint underneath it because line at 70%
+                  // over felt-deep lands at 1.26:1 and the cards merge into one
+                  // grey slab.
                   (disabled ? " cursor-not-allowed opacity-70" : "")
                 }
                 style={

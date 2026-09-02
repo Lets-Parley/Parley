@@ -66,7 +66,7 @@ export function OrgDirectory() {
       </div>
 
       <header className="flex items-center gap-3">
-        <Link to="/" className="flex items-center gap-3 font-extrabold tracking-tight">
+        <Link to="/" className="flex items-center gap-3 font-bold tracking-tight">
           <Logo size={20} />
           Parley
         </Link>

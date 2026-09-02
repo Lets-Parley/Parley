@@ -10,6 +10,12 @@ import {
   planDropIn,
   planPileOn,
   revealSettledAt,
+  resultStampsAt,
+  flipEndsAt,
+  flipStartsAt,
+  hopStartsAt,
+  CARD_FLIP_MS,
+  CARD_HOP_MS,
   staggerFor,
   KICK_REFLOW_MS,
   planKick,
@@ -49,10 +55,28 @@ describe("pileOnOutlier", () => {
 });
 
 describe("beats", () => {
+  // Derived from the beat sheet rather than restating its numbers: these
+  // assertions used to carry a second copy of the timings, which is how the
+  // reveal ended up with four clocks that disagreed.
   it("shares one reveal-clearing expression with the high-five", () => {
-    expect(revealSettledAt(1)).toBe(620 + 450 + 60);
-    expect(revealSettledAt(6)).toBe(620 + 5 * 40 + 450 + 60);
+    expect(revealSettledAt(1)).toBe(hopStartsAt(0) + CARD_HOP_MS + 60);
+    expect(revealSettledAt(6)).toBe(hopStartsAt(5) + CARD_HOP_MS + 60);
     expect(revealSettledAt(0)).toBe(revealSettledAt(1));
+  });
+
+  it("lands every card face-up before the result stamps in", () => {
+    for (const n of [1, 2, 6, 15]) {
+      expect(resultStampsAt(n)).toBeGreaterThan(flipEndsAt(n));
+      // ...and before the table has finished settling, so the number is the
+      // closing beat of the reveal rather than an epilogue after it.
+      expect(resultStampsAt(n)).toBeLessThan(revealSettledAt(n));
+    }
+  });
+
+  it("hops each card exactly as it lands, never on a separate clock", () => {
+    for (const i of [0, 1, 7]) {
+      expect(hopStartsAt(i)).toBe(flipStartsAt(i) + CARD_FLIP_MS);
+    }
   });
 
   it("spends one budgeted stagger, however many throwers", () => {

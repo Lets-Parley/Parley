@@ -33,7 +33,7 @@ describe("StandupRoom Timer", () => {
     // Date.now() calls cancelled and the countdown showed the same number until
     // the next frame landed. Nothing here changes serverTime — only wall clock
     // moves — so a frozen clock fails this test.
-    render(<Timer startedAt={START} seconds={90} serverTime={START} />);
+    render(<Timer startedAt={START} seconds={90} serverTime={START} live />);
     expect(readClock().textContent).toBe("1:30");
 
     await advance(12_000);
@@ -43,15 +43,30 @@ describe("StandupRoom Timer", () => {
     expect(readClock().textContent).toBe("1:06");
   });
 
+  it("holds the clock and says so while the socket is down", async () => {
+    // The biggest element on a projected screen was also the one that kept
+    // counting confidently against a frozen server frame. A stale reading is
+    // shown as stale rather than blanked — a missing timer misleads as much as
+    // a wrong one.
+    const { rerender } = render(
+      <Timer startedAt={START} seconds={90} serverTime={START} live />,
+    );
+    await advance(12_000);
+    expect(readClock().textContent).toBe("1:18");
+
+    rerender(<Timer startedAt={START} seconds={90} serverTime={START} live={false} />);
+    expect(screen.getByText(/reconnecting/i)).toBeTruthy();
+  });
+
   it("re-syncs to the server clock when a new frame arrives", async () => {
-    const { rerender } = render(<Timer startedAt={START} seconds={90} serverTime={START} />);
+    const { rerender } = render(<Timer startedAt={START} seconds={90} serverTime={START} live />);
     await advance(10_000);
     expect(readClock().textContent).toBe("1:20");
 
     // The server says 40s have elapsed while our wall clock saw 10 — the frame
     // wins, because every screen in the room must show the same number.
     rerender(
-      <Timer startedAt={START} seconds={90} serverTime="2026-08-18T10:00:40.000Z" />,
+      <Timer startedAt={START} seconds={90} serverTime="2026-08-18T10:00:40.000Z" live />,
     );
     // The offset is refreshed in an effect, so the corrected number appears on
     // the next tick rather than in the same commit.
@@ -61,7 +76,7 @@ describe("StandupRoom Timer", () => {
 
   it("clamps the display at 0:00 but keeps the overrun tone", async () => {
     render(
-      <Timer startedAt={START} seconds={90} serverTime="2026-08-18T10:01:40.000Z" />,
+      <Timer startedAt={START} seconds={90} serverTime="2026-08-18T10:01:40.000Z" live />,
     );
     const el = readClock();
     // Display is clamped, tone is not — an overrun must still read as stopped
@@ -75,7 +90,7 @@ describe("StandupRoom Timer", () => {
     // Rule). A turn running short is urgency, not authority, so the warning
     // escalates by weight and ink rather than borrowing the facilitator's hue.
     render(
-      <Timer startedAt={START} seconds={90} serverTime="2026-08-18T10:01:10.000Z" />,
+      <Timer startedAt={START} seconds={90} serverTime="2026-08-18T10:01:10.000Z" live />,
     );
     const el = readClock();
     expect(el.textContent).toBe("0:20");
@@ -88,24 +103,24 @@ describe("StandupRoom Timer", () => {
   it("reads at the scale a projected room needs", () => {
     // It shipped at text-3xl in the corner of the header, after an Export CSV
     // link. This is the one number six people read from across a room.
-    render(<Timer startedAt={START} seconds={90} serverTime={START} />);
+    render(<Timer startedAt={START} seconds={90} serverTime={START} live />);
     expect(readClock().className).toContain("var(--text-num-result)");
   });
 
   it("is calm for the bulk of the turn", () => {
-    render(<Timer startedAt={START} seconds={90} serverTime={START} />);
+    render(<Timer startedAt={START} seconds={90} serverTime={START} live />);
     expect(readClock().className).toContain("text-ink-soft");
   });
 
   it("formats minutes and seconds, zero-padding the seconds", () => {
     render(
-      <Timer startedAt={START} seconds={125} serverTime="2026-08-18T10:00:02.000Z" />,
+      <Timer startedAt={START} seconds={125} serverTime="2026-08-18T10:00:02.000Z" live />,
     );
     expect(readClock().textContent).toBe("2:03");
   });
 
   it("stops its interval on unmount", async () => {
-    const { unmount } = render(<Timer startedAt={START} seconds={90} serverTime={START} />);
+    const { unmount } = render(<Timer startedAt={START} seconds={90} serverTime={START} live />);
     unmount();
     expect(vi.getTimerCount()).toBe(0);
   });

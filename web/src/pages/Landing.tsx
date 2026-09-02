@@ -49,6 +49,73 @@ function takePending(): string | null {
   return name;
 }
 
+/**
+ * One round of planning poker, resolving. Runs once on load and then rests.
+ *
+ * The hero used to be three cards held still — the product's signature object,
+ * doing nothing, with a hover lift inherited from `.hand-card` that promised an
+ * interaction these decorative spans never had. This is the same object doing
+ * the thing the page is asking a stranger to believe in: five cards are dealt
+ * face-down, they turn over, the majority stack settles, and the number the
+ * room agreed on stamps in.
+ *
+ * Every keyframe, easing and duration here already existed for the real table —
+ * deal-in, flip-in, stamp-in, the beat sheet in lib/motion/plan.ts — so the
+ * moment is the product performing itself rather than bespoke landing-page art.
+ * prefers-reduced-motion kills all of it globally in tokens.css and leaves the
+ * settled end state, which is the correct still frame.
+ */
+const HERO_HAND = ["3", "5", "5", "8", "5"];
+const HERO_RESULT = "5";
+
+function DealAndReveal() {
+  // The deal is over before the flip starts; the number lands after the last
+  // card is face-up. One clock, read from the same beat sheet the table uses.
+  const DEAL_MS = 260;
+  const dealt = HERO_HAND.length * 90;
+  const flipBase = dealt + 420;
+
+  return (
+    <div aria-hidden className="flex flex-col items-center gap-5">
+      <div className="flex items-end gap-1.5">
+        {HERO_HAND.map((v, i) => {
+          const rot = (i - (HERO_HAND.length - 1) / 2) * 1.6;
+          return (
+            <span
+              key={i}
+              className="relative flex h-[90px] w-16 items-center justify-center rounded-card border border-line bg-surface font-mono text-ink shadow-rest"
+              style={
+                {
+                  "--rot": `${rot.toFixed(1)}deg`,
+                  fontSize: "var(--text-num-card)",
+                  animation:
+                    `deal-in ${DEAL_MS}ms linear ${i * 90}ms both, ` +
+                    `flip-in var(--dur-flip) linear ${flipBase + i * 70}ms both`,
+                } as CSSProperties
+              }
+            >
+              {v}
+            </span>
+          );
+        })}
+      </div>
+      {/* The one number the room agreed on. `settled` is the token for a
+          decision at rest — not `go`, which is the act of confirming, and not
+          `accent`, which is a live state. */}
+      <span
+        className="font-mono leading-none tabular-nums"
+        style={{
+          fontSize: "var(--text-num-result)",
+          color: "var(--color-settled)",
+          animation: `stamp-in 350ms var(--ease-settle) ${flipBase + (HERO_HAND.length - 1) * 70 + 300 + 90}ms both`,
+        }}
+      >
+        {HERO_RESULT}
+      </span>
+    </div>
+  );
+}
+
 export function Landing() {
   const navigate = useNavigate();
   const me = useMe();
@@ -200,35 +267,41 @@ export function Landing() {
   const guestRoomId = me.data?.linkSessionId;
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-2xl flex-col items-center justify-center gap-7 p-6 text-center">
+    // text-center used to cascade from here into every paragraph, which is why
+    // three downstream blocks each carried a text-left to undo it. Prose reads
+    // left; only the lockup and the CTA row are centred, and they say so.
+    <main className="mx-auto flex min-h-dvh max-w-2xl flex-col items-center justify-center gap-7 p-6">
       {/* The page corner, not the column's — main is capped at 2xl, so an
           absolute corner would strand this in dead space on a wide screen. */}
-      <div className="fixed right-4 top-4">
+      <div
+        className="fixed"
+        style={{ top: "calc(1rem + var(--safe-top))", right: "calc(1rem + var(--safe-right))" }}
+      >
         <ThemeToggle />
       </div>
 
-      {/* Three cards off the top of a deck. The hand is the product's signature
-          object, and this is the one screen with the room to hold one up —
-          reusing the real hand-card geometry rather than drawing new art. */}
-      {!known && (
-        <div aria-hidden className="flex items-end gap-1.5">
-          {["3", "5", "8"].map((v, i) => (
-            <span
-              key={v}
-              className="hand-card flex h-[90px] w-16 items-center justify-center rounded-card border border-line bg-surface font-mono text-[2.2rem] text-ink shadow-rest"
-              style={{ "--rot": `${((i - 1) * 6).toFixed(0)}deg` } as CSSProperties}
-            >
-              {v}
-            </span>
-          ))}
-        </div>
-      )}
+      {!known && <DealAndReveal />}
 
-      <div className="flex items-center gap-3">
-        <Logo size={known ? 20 : 26} />
-        <h1 className={(known ? "text-2xl" : "text-4xl") + " font-extrabold tracking-tight"}>
-          Parley
-        </h1>
+      {/* The wordmark is a brand mark, not the document's heading. The only
+          h1 on the only page a stranger sees used to be the product's name,
+          which told them nothing and left the outline empty. */}
+      <div className="flex flex-col items-center gap-3">
+        <div className="flex items-center gap-3">
+          <Logo size={known ? 20 : 26} />
+          <span
+            className={
+              (known ? "text-2xl" : "text-3xl") +
+              " font-display font-bold tracking-[-0.02em]"
+            }
+          >
+            Parley
+          </span>
+        </div>
+        {!known && !guestRoomId && (
+          <h1 className="max-w-[18ch] text-balance text-center font-display text-[clamp(2rem,6vw,3.25rem)] font-bold leading-[1.05] tracking-[-0.02em]">
+            Name a table. Share the link. Start the round.
+          </h1>
+        )}
       </div>
 
       {/* A link guest is not deciding whether to sign up — they already have a
@@ -247,12 +320,14 @@ export function Landing() {
       {/* The pitch is for someone deciding. Someone with spaces already decided,
           and their list should not sit below an advertisement for it. */}
       {!known && !guestRoomId && (
-        <p className="max-w-md text-ink-soft text-pretty">
+        // The differentiator used to be replaced by "Sign in with your usual
+        // account" on any OIDC instance — so the deployments most likely to
+        // care that they own the data were the ones never told. The Sign in
+        // button below already carries that instruction.
+        <p className="max-w-[68ch] text-pretty text-ink-soft">
           Planning poker and daily standups for your team, at your table. A space
           is a room your team keeps — name one, share the link, start a round.
-          {mode.data?.mode === "oidc"
-            ? " Sign in with your usual account."
-            : " Self-hosted, no accounts, no fuss."}
+          Self-hosted: one binary, your database, no seat counts.
         </p>
       )}
 
@@ -301,7 +376,7 @@ export function Landing() {
       {!guestRoomId && noOrg && (
         <section
           aria-label="No org yet"
-          className="w-full max-w-md rounded-card border border-line bg-surface px-5 py-4 text-left"
+          className="w-full max-w-md rounded-card border border-line bg-surface px-5 py-4"
         >
           <h2 className="font-display text-xl">You're signed in, but not in an org yet</h2>
           <p className="mt-2 text-sm text-ink-soft text-pretty">
@@ -371,13 +446,13 @@ export function Landing() {
               {grouped.map((group) => (
                 <section key={group.slug} className="flex flex-col gap-2">
                   {grouped.length > 1 && (
-                    <h2 className="px-1 text-left font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+                    <h2 className="px-1 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
                       {group.name}
                     </h2>
                   )}
                   <ul
                     aria-label={`Your spaces in ${group.name}`}
-                    className="flex flex-col gap-2 rounded-panel border border-line bg-surface p-3 text-left shadow-rest"
+                    className="flex flex-col gap-2 rounded-panel border border-line bg-surface p-3 shadow-rest"
                   >
                     {group.spaces.map((sp) => (
                       <li key={sp.orgSlug + "/" + sp.slug}>
@@ -425,7 +500,7 @@ export function Landing() {
 
           <form
             onSubmit={submit}
-            className="flex w-full max-w-md flex-col gap-3 rounded-panel border border-line bg-surface p-5 text-left shadow-rest sm:flex-row sm:items-end"
+            className="flex w-full max-w-md flex-col gap-3 rounded-panel border border-line bg-surface p-5 shadow-rest sm:flex-row sm:items-end"
           >
             <div className="min-w-0 flex-1">
               <label htmlFor={fieldId} className={labelClass + " mt-0"}>
@@ -466,7 +541,7 @@ export function Landing() {
             </p>
           )}
 
-          <p className="max-w-md text-sm text-ink-faint text-pretty">
+          <p className="max-w-[68ch] text-pretty text-sm text-ink-faint">
             Got a link from a teammate? That link is your invite — just open it. A
             passcode alone won't do it; ask them for the link.
           </p>
@@ -494,6 +569,22 @@ export function Landing() {
           }}
         />
       )}
+
+      {/* A stranger had no way to learn more and no exit. These are the four
+          things that exist and are checkable — docs, source, licence,
+          releases. Nothing here claims adoption, customers or benchmarks,
+          because none exist. */}
+      <footer className="mt-2 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+        <a className="hover:text-ink" href="https://www.letsparley.io">
+          Documentation
+        </a>
+        <a className="hover:text-ink" href="https://github.com/lets-parley/parley">
+          Source · MIT
+        </a>
+        <a className="hover:text-ink" href="https://github.com/lets-parley/parley/releases">
+          Releases
+        </a>
+      </footer>
     </main>
   );
 }
