@@ -294,7 +294,16 @@ function CommitmentRow({
             before the words, which is the reprimand this feature exists to
             avoid — and the fact is about the work carrying, never a mark
             against whoever is keeping it. The numeral is the only data in the
-            line, so it alone is mono and tabular. */}
+            line, so it alone is mono and tabular.
+
+            No token carries this state, and that is the decision. `stop` is
+            reserved for destructive and stop actions, and a stuck commitment
+            is neither. `accent` would be defensible — it is a live state of
+            the work — but accent on every stuck row turns the list into a wall
+            of pills, and the state is not a call to act on the row. `settled`
+            is wrong in the other direction: settled is a decision at rest, and
+            this is the opposite of at rest. So it is quiet ink, and the words
+            carry the fact. */}
         {c.stuck && (
           <span
             data-testid="stuck-badge"

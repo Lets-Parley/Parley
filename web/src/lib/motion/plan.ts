@@ -34,16 +34,75 @@ const SPECIAL = new Set(["?", "coffee"]);
  */
 const MIN_VOTERS = 4;
 
+/* --- The reveal beat sheet ----------------------------------------------
+ *
+ * The turn is one authored moment, so it gets one clock. Every delay in it —
+ * the flip stagger, the hop, the result numeral, and everything that waits for
+ * the table to clear — is derived here and imported, because the previous
+ * arrangement had the same moment timed by four literals in four files
+ * (`70` and `620 + i*40` in Table, `560` in ResultsPanel, and this function)
+ * and they had already drifted apart: the 6.5rem result stamped in at 560ms
+ * while a table of six still had cards turning over until 650ms.
+ *
+ * If you are adding a beat to the reveal, add it here and import it. A literal
+ * millisecond value in a component is the bug this section exists to prevent.
+ */
+
+/** Between one card starting to turn and the next. */
+export const FLIP_STAGGER_MS = 70;
+/** One card's turn. Mirrors --dur-flip. */
+export const CARD_FLIP_MS = 300;
+/** One card's landing bounce. Mirrors the stops in the card-hop keyframe. */
+export const CARD_HOP_MS = 420;
+/** One card being dealt onto the felt. Mirrors the stops in the deal-in keyframe. */
+export const CARD_DEAL_MS = 260;
+/** Between one card being dealt and the next. Slower than the flip stagger: a
+ *  deal is one card at a time, a reveal is the whole table turning at once. */
+export const DEAL_STAGGER_MS = 90;
+/** A beat of air after the last card is face-up, before the number lands. */
+export const RESULT_BEAT_MS = 90;
+/** A beat of air after everything has stopped moving. */
+const SETTLE_BEAT_MS = 60;
+
+/** When the card in seat `index` starts to turn. */
+export function flipStartsAt(index: number): number {
+  return index * FLIP_STAGGER_MS;
+}
+
+/** When every card on a table of `seatCount` is face-up. */
+export function flipEndsAt(seatCount: number): number {
+  return flipStartsAt(Math.max(0, seatCount - 1)) + CARD_FLIP_MS;
+}
+
+/**
+ * When the card in seat `index` hops.
+ *
+ * Exactly as it lands, not on a separate clock — the hop *is* the landing, and
+ * a gap between the two reads as the card being nudged a second time.
+ */
+export function hopStartsAt(index: number): number {
+  return flipStartsAt(index) + CARD_FLIP_MS;
+}
+
+/**
+ * When the result numeral stamps in.
+ *
+ * After the last card is face-up, never during: the payoff of the moment does
+ * not land while the thing it is summarising is still moving.
+ */
+export function resultStampsAt(seatCount: number): number {
+  return flipEndsAt(seatCount) + RESULT_BEAT_MS;
+}
+
 /**
  * When the reveal has finished clearing the table.
  *
- * flip-in is staggered by seat index and card-hop runs 450ms from 620+i*40, so
- * anything that starts earlier runs underneath cards that are still turning
- * over. One expression, shared: two copies of it would drift, and then one
- * animation starts under the other.
+ * Anything that starts earlier runs underneath cards that are still turning
+ * over or still bouncing. One expression, shared: two copies of it would
+ * drift, and then one animation starts under the other.
  */
 export function revealSettledAt(seatCount: number): number {
-  return 620 + Math.max(0, seatCount - 1) * 40 + 450 + 60;
+  return hopStartsAt(Math.max(0, seatCount - 1)) + CARD_HOP_MS + SETTLE_BEAT_MS;
 }
 
 /**

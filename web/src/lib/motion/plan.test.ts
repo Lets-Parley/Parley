@@ -10,6 +10,15 @@ import {
   planDropIn,
   planPileOn,
   revealSettledAt,
+  resultStampsAt,
+  flipEndsAt,
+  flipStartsAt,
+  hopStartsAt,
+  CARD_FLIP_MS,
+  CARD_HOP_MS,
+  FLIP_STAGGER_MS,
+  CARD_DEAL_MS,
+  DEAL_STAGGER_MS,
   staggerFor,
   KICK_REFLOW_MS,
   planKick,
@@ -49,10 +58,69 @@ describe("pileOnOutlier", () => {
 });
 
 describe("beats", () => {
+  /* These expectations are LITERALS on purpose, worked out by hand from the
+     beat sheet's documented constants (stagger 70, flip 300, hop 420, result
+     beat 90, settle beat 60):
+
+       flipStartsAt(i)    = i*70
+       flipEndsAt(n)      = (n-1)*70 + 300
+       hopStartsAt(i)     = i*70 + 300
+       resultStampsAt(n)  = (n-1)*70 + 390
+       revealSettledAt(n) = (n-1)*70 + 780
+
+     Deriving them from the same symbols the implementation uses would make
+     every assertion here a tautology that passes for any value — including a
+     negative hop duration. If you change a constant in plan.ts, these numbers
+     are supposed to fail; recompute them deliberately rather than reaching for
+     the exported constant to make the red go away. */
+  it("puts each card's flip on the stagger", () => {
+    expect(flipStartsAt(0)).toBe(0);
+    expect(flipStartsAt(1)).toBe(70);
+    expect(flipStartsAt(7)).toBe(490);
+  });
+
+  it("hops each card exactly as it lands, never on a separate clock", () => {
+    expect(hopStartsAt(0)).toBe(300);
+    expect(hopStartsAt(1)).toBe(370);
+    expect(hopStartsAt(7)).toBe(790);
+    // The hop is the landing, so it starts where the flip ends.
+    for (const i of [0, 1, 7]) {
+      expect(hopStartsAt(i)).toBe(flipStartsAt(i) + CARD_FLIP_MS);
+    }
+  });
+
   it("shares one reveal-clearing expression with the high-five", () => {
-    expect(revealSettledAt(1)).toBe(620 + 450 + 60);
-    expect(revealSettledAt(6)).toBe(620 + 5 * 40 + 450 + 60);
+    expect(revealSettledAt(1)).toBe(780);
+    expect(revealSettledAt(6)).toBe(1130);
     expect(revealSettledAt(0)).toBe(revealSettledAt(1));
+  });
+
+  it("lands every card face-up before the result stamps in", () => {
+    expect(flipEndsAt(6)).toBe(650);
+    expect(resultStampsAt(6)).toBe(740);
+    expect(resultStampsAt(1)).toBe(390);
+    for (const n of [1, 2, 6, 15]) {
+      // The number is the closing beat of the reveal: after the last card is
+      // face-up, before the table has finished settling.
+      expect(resultStampsAt(n)).toBeGreaterThan(flipEndsAt(n));
+      expect(resultStampsAt(n)).toBeLessThan(revealSettledAt(n));
+    }
+  });
+
+  it("pins the deal timing the landing hero runs on", () => {
+    // These two are unique to the deal phase and are consumed only by the
+    // hero, so nothing else in the suite would notice them drifting to a
+    // two-and-a-half-second-per-card deal.
+    expect(CARD_DEAL_MS).toBe(260);
+    expect(DEAL_STAGGER_MS).toBe(90);
+  });
+
+  it("keeps the hop long enough to still be running when the result lands", () => {
+    // A literal guard on CARD_HOP_MS itself: without one, every relative
+    // assertion above survives a nonsense value.
+    expect(CARD_HOP_MS).toBe(420);
+    expect(CARD_FLIP_MS).toBe(300);
+    expect(FLIP_STAGGER_MS).toBe(70);
   });
 
   it("spends one budgeted stagger, however many throwers", () => {

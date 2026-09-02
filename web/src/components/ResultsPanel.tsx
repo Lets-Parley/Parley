@@ -1,5 +1,6 @@
 import type { Results } from "../lib/api";
 import { faceOf } from "./Table";
+import { resultStampsAt } from "../lib/motion";
 
 function round(n: number): string {
   return (Math.round(n * 10) / 10).toString();
@@ -104,17 +105,23 @@ export function heroOf(
 export function ResultsPanel({ results, deck }: { results: Results; deck: string[] }) {
   const hero = heroOf(results, deck);
   const max = Math.max(...results.histogram.map((r) => r.count), 1);
+  // The closing beat of the reveal, not a fifth effect racing the other four:
+  // the number lands once every card is face-up. The cards that turn over are
+  // exactly the ones counted here, so the histogram total is the seat count
+  // the beat sheet needs.
+  const stampAt = resultStampsAt(results.histogram.reduce((n, r) => n + r.count, 0));
 
   return (
     // The ground follows the field to DAY so a bright table is not immediately
-    // followed by a dark well. --shadow-well was tuned against a darker ground,
-    // so the border does the "pressed" work now rather than a heavier shadow.
+    // followed by a dark panel. A well is the page ground pressed inward and
+    // belongs to the hand tray alone; this panel arrives on top of the table,
+    // so it rests. The border does the edge work.
     // The stacks keep --color-surface, a token independent of this ground:
     // against DAY-white they would compute 1.08:1 and vanish. They are
     // aria-hidden decoration — the value and count are in the label below —
     // but decoration you cannot see is not decoration, it is a gap.
     <section
-      className="flex flex-wrap items-center justify-center gap-8 rounded-panel border border-line px-6 py-7 shadow-well sm:gap-10 sm:px-8"
+      className="flex flex-wrap items-center justify-center gap-8 rounded-panel border border-line px-6 py-7 shadow-rest sm:gap-10 sm:px-8"
       style={{ background: "var(--cue-day)" }}
     >
       <div>
@@ -123,7 +130,10 @@ export function ResultsPanel({ results, deck }: { results: Results; deck: string
         </div>
         <div
           className="font-mono leading-none text-ink"
-          style={{ fontSize: "var(--text-num-result)", animation: "stamp-in 350ms var(--ease-settle) 560ms both" }}
+          style={{
+            fontSize: "var(--text-num-result)",
+            animation: `stamp-in 350ms var(--ease-settle) ${stampAt}ms both`,
+          }}
         >
           {hero.value}
         </div>

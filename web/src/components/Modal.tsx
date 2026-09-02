@@ -88,7 +88,7 @@ export function Modal({
       }
       style={{ width: `min(92vw, ${width})`, animation: "modal-drop 280ms var(--ease-settle)" }}
     >
-      <h2 id={titleId} className="mb-1 text-[19px] font-extrabold tracking-tight">
+      <h2 id={titleId} className="mb-1 text-[19px] font-bold tracking-tight">
         {title}
       </h2>
       {onClose && (
@@ -109,13 +109,13 @@ export function Modal({
 export const buttonPrimary =
   "rounded-full bg-accent px-5 py-2.5 text-sm font-bold text-accent-ink shadow-rest transition hover:shadow-lift disabled:opacity-50 disabled:shadow-rest";
 export const buttonQuiet =
-  "rounded-full border border-line px-4 py-2 text-sm font-bold text-ink-soft transition hover:bg-felt-deep disabled:opacity-50";
+  "rounded-full border border-line-strong px-4 py-2 text-sm font-bold text-ink-soft transition hover:bg-felt-deep disabled:opacity-50";
 export const buttonDanger =
   "rounded-full bg-stop px-4 py-2.5 text-sm font-bold text-accent-ink shadow-rest transition hover:shadow-lift";
 export const buttonGo =
   "rounded-full bg-go px-4 py-2.5 text-sm font-bold text-accent-ink shadow-rest transition hover:shadow-lift";
 export const inputClass =
-  "w-full rounded-chip border border-line bg-surface-hi px-3.5 py-2.5 text-sm text-ink focus-visible:border-accent";
+  "w-full rounded-chip border border-line-strong bg-surface-hi px-3.5 py-2.5 text-sm text-ink focus-visible:border-accent";
 /* The label spec itself, with no spacing opinion — for labels that sit inside
    a flex column where the stack, not the margin, owns the rhythm. */
 export const labelText = "font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint";

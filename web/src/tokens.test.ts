@@ -103,3 +103,77 @@ describe("responsive tokens", () => {
     expect(css).toMatch(/@layer utilities[\s\S]*\.touch-hit/);
   });
 });
+
+/* --- Contrast, computed rather than asserted in a comment ------------------
+ *
+ * `line-strong` exists for exactly one reason: WCAG 2.2 AA 1.4.11 wants 3:1 on
+ * the boundary that identifies a control, and `line` — a deliberately faint
+ * hairline — measures 1.17–1.75 against the grounds those controls sit on. A
+ * number that lives only in a commit message is a number nothing defends, and
+ * the next person to warm up a surface by a few percent would take the token
+ * under the floor with nothing going red.
+ */
+function relativeLuminance(hex: string): number {
+  const channels = [1, 3, 5]
+    .map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+function contrastRatio(a: string, b: string): number {
+  const [hi, lo] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/** The value of a token as declared inside one block. */
+function tokenValue(blockText: string, token: string): string {
+  const m = blockText.match(new RegExp(`${token}\\s*:\\s*(#[0-9A-Fa-f]{6})`));
+  if (!m) throw new Error(`no value for ${token}`);
+  return m[1].toUpperCase();
+}
+
+/** Every ground a free-standing control is drawn on. */
+const CONTROL_GROUNDS = ["--color-felt", "--color-felt-deep", "--color-surface", "--color-surface-hi"];
+
+describe("control boundary contrast", () => {
+  for (const [themeName, block] of [
+    ["light", rootBlock],
+    ["dark", darkAttrBlock],
+  ] as const) {
+    it(`line-strong clears 3:1 on every control ground in the ${themeName} theme`, () => {
+      const boundary = tokenValue(block, "--color-line-strong");
+      for (const ground of CONTROL_GROUNDS) {
+        const ratio = contrastRatio(boundary, tokenValue(block, ground));
+        expect(
+          ratio,
+          `${boundary} on ${ground} (${themeName}) is ${ratio.toFixed(3)}:1`,
+        ).toBeGreaterThanOrEqual(3);
+      }
+    });
+  }
+
+  it("keeps a margin over the floor, so a surface tweak cannot silently break it", () => {
+    const worst = Math.min(
+      ...([rootBlock, darkAttrBlock].flatMap((block) =>
+        CONTROL_GROUNDS.map((ground) =>
+          contrastRatio(tokenValue(block, "--color-line-strong"), tokenValue(block, ground)),
+        ),
+      )),
+    );
+    expect(worst).toBeGreaterThanOrEqual(3.2);
+  });
+
+  it("documents why line itself cannot serve as a control boundary", () => {
+    // Not a regression guard — a record of the measurement that justifies the
+    // second token existing at all. If someone darkens `line` enough to pass
+    // on its own, this fails and the extra token can be reconsidered.
+    const worstLine = Math.min(
+      ...([rootBlock, darkAttrBlock].flatMap((block) =>
+        CONTROL_GROUNDS.map((ground) =>
+          contrastRatio(tokenValue(block, "--color-line"), tokenValue(block, ground)),
+        ),
+      )),
+    );
+    expect(worstLine).toBeLessThan(3);
+  });
+});
