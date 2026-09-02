@@ -1194,6 +1194,37 @@ describe("SpacePage deck chooser", () => {
     }
   });
 
+  // #444: the sample chips were fixed-width boxes on a nowrap row, so a deck
+  // of long ordinal words ran together into "lowmediuhigh". At 375px — the
+  // narrowest viewport this UI supports — five 8-character chips cannot sit
+  // on one line, so the row has to wrap and each chip has to size to its word.
+  it("renders a deck of 8-character ordinal words legibly", async () => {
+    space.kinds = ["poker"];
+    decks = [{ ...house, name: "Sizes", cards: ["smallest", "mediumly", "largerly"] }];
+    try {
+      const dialog = await openDialog();
+      await dialog.findByRole("radio", { name: /Sizes/ });
+      const chip = dialog.getByText("smallest");
+      const classes = [...chip.classList];
+      // No fixed width in any form: a chip narrower than its word clips the
+      // word, whether the width is a scale step (w-5), an arbitrary value
+      // (w-[999px]) or hidden behind a breakpoint (sm:w-5). This is
+      // deliberately blind to which width utility is used, so it also rejects
+      // content-sized ones like w-fit and w-auto. Those would be fine here;
+      // swap this assertion rather than working around it.
+      expect(classes.filter((c) => /(^|:)w-/.test(c))).toEqual([]);
+      // The word still gets a gutter, and a one-character sample still holds
+      // the 20px floor the shipped decks are drawn at. Two-character samples
+      // (16, XS, XL) clear the floor at ~22.5px.
+      expect(classes).toContain("px-1");
+      expect(classes).toContain("min-w-5");
+      // And the row wraps forwards rather than overflowing the option.
+      expect([...chip.parentElement!.classList]).toContain("flex-wrap");
+    } finally {
+      delete space.kinds;
+    }
+  });
+
   it("is reachable via Tab, not only programmatic focus", async () => {
     space.kinds = ["poker"];
     decks = [house];
