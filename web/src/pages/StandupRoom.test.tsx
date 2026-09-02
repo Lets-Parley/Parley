@@ -1385,6 +1385,41 @@ describe("StandupRoom carrying over", () => {
     expect(within(row("alpha")).getByRole("button", { name: /^remove$/i })).toBeDefined();
   });
 
+  it("dismisses the remove confirm on Escape", async () => {
+    const f = mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^remove$/i }));
+    expect(within(row("alpha")).getByRole("button", { name: /remove it/i })).toBeDefined();
+    await userEvent.keyboard("{Escape}");
+    expect(f).not.toHaveBeenCalled();
+    expect(within(row("alpha")).queryByRole("button", { name: /remove it/i })).toBe(null);
+    expect(within(row("alpha")).getByRole("button", { name: /^remove$/i })).toBeDefined();
+  });
+
+  it("returns focus to Remove after the confirm is cancelled", async () => {
+    mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    // Escape path: the confirm is a fresh node, so the restored Remove is too.
+    within(row("alpha"))
+      .getByRole("button", { name: /^remove$/i })
+      .focus();
+    await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(row("alpha")).getByRole("button", { name: /^remove$/i }),
+      ),
+    );
+    // And the Keep it path lands in the same place.
+    await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(row("alpha")).getByRole("button", { name: /^remove$/i }),
+      ),
+    );
+  });
+
   it("backs out of a remove without sending anything", async () => {
     const f = mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);

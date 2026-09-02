@@ -46,7 +46,7 @@ const LEAVING = "animate-[let-go_var(--dur-flip)_var(--ease-settle)_var(--dur-fl
  * beside Yes and No still reads as a third answer, whatever its weight.
  */
 const buttonBare =
-  "touch-hit inline-flex items-center justify-center rounded-full px-3 py-2 text-[13px] font-semibold text-ink-faint transition hover:bg-felt-deep hover:text-ink disabled:opacity-50";
+  "touch-hit inline-flex items-center justify-center whitespace-nowrap rounded-full px-3 py-2 text-[13px] font-semibold text-ink-faint transition hover:bg-felt-deep hover:text-ink disabled:opacity-50";
 
 /**
  * The carry-over list: what you said you would do, still open, asked the way
@@ -241,6 +241,11 @@ function CommitmentRow({
   // Focus is moved onto Keep it when the confirm opens, so the second step is a
   // step for a keyboard too, and the control it lands on is the harmless one.
   const keep = useRef<HTMLButtonElement>(null);
+  // Backing out of the confirm has to land somewhere. The Remove button is a
+  // fresh node every time — the keys below force that on purpose — so what is
+  // remembered is the intention to go back, not a reference to the old node.
+  const ask = useRef<HTMLButtonElement>(null);
+  const backOut = useRef(false);
   const textId = useId();
 
   // The row can be swept away by a broadcast at any moment. If it goes while it
@@ -256,8 +261,20 @@ function CommitmentRow({
   // today, but a rejection with no catch here would leave busyRef set and the
   // control dead for the life of the row, with nothing on screen saying so.
   useEffect(() => {
-    if (confirming) keep.current?.focus();
+    if (confirming) {
+      keep.current?.focus();
+    } else if (backOut.current) {
+      backOut.current = false;
+      ask.current?.focus();
+    }
   }, [confirming]);
+
+  // Keep it, or Escape. Either way the row goes back to its first step and the
+  // control that opened the confirm takes focus again.
+  const cancel = useCallback(() => {
+    backOut.current = true;
+    setConfirming(false);
+  }, []);
 
   const send = (run: () => Promise<boolean>, after: (ok: boolean) => void) => {
     if (busyRef.current) return;
@@ -334,14 +351,13 @@ function CommitmentRow({
           pills. Yes/No answer the question; Remove withdraws it. Stacked, the
           groups take opposite edges of the control line, so Remove never sits
           shoulder to shoulder with the answers at 375px where the row has
-          least room; from sm a hairline stands between them. Structure, not
+          least room, and where there is not even room for that the line wraps
+          and the withdraw action drops below the answers rather than ahead of
+          them; from sm a hairline stands between them. Structure, not
           colour: stop is reserved for destructive confirms, and a red control
           on every row would put back the reprimand this list exists without. */}
-      <span className="flex items-center justify-between gap-3 sm:ml-auto sm:shrink-0 sm:justify-end">
-        <span
-          data-testid="answer-group"
-          className="order-2 flex flex-wrap items-center gap-2 sm:order-1"
-        >
+      <span className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 sm:ml-auto sm:shrink-0 sm:flex-nowrap sm:justify-end">
+        <span data-testid="answer-group" className="flex flex-wrap items-center gap-2">
           {answer === null && !leaving ? (
             <>
               {/* Short labels with the commitment attached by description: the
@@ -397,7 +413,16 @@ function CommitmentRow({
           (confirming ? (
             <span
               key="confirm"
-              className="order-1 flex items-center gap-1 sm:order-2 sm:border-l sm:border-line sm:pl-3"
+              className="flex items-center gap-1 sm:border-l sm:border-line sm:pl-3"
+              /* Scoped to the row on purpose: a document listener here would
+                 also swallow Escape from the page's native <dialog>, which
+                 closes itself. The stop keeps this Escape from travelling on
+                 to any surface above the row. */
+              onKeyDown={(e) => {
+                if (e.key !== "Escape") return;
+                e.stopPropagation();
+                cancel();
+              }}
             >
               {/* Keep it leads: the safe choice is the one the keyboard reaches
                   first, and the one focus lands on. */}
@@ -405,7 +430,7 @@ function CommitmentRow({
                 ref={keep}
                 type="button"
                 className={buttonBare}
-                onClick={() => setConfirming(false)}
+                onClick={cancel}
               >
                 Keep it
               </button>
@@ -433,11 +458,9 @@ function CommitmentRow({
           ) : (
             /* Destructive, with nothing on the server to undo it, so the first
                click only asks. */
-            <span
-              key="ask"
-              className="order-1 flex items-center sm:order-2 sm:border-l sm:border-line sm:pl-3"
-            >
+            <span key="ask" className="flex items-center sm:border-l sm:border-line sm:pl-3">
               <button
+                ref={ask}
                 type="button"
                 className={buttonBare}
                 aria-describedby={textId}
