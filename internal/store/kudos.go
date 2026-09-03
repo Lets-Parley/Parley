@@ -62,15 +62,26 @@ func scanKudo(row pgx.Row) (Kudo, error) {
 //
 // sessionID may be empty, for a kudo given outside a room.
 func (s *Kudos) Create(ctx context.Context, spaceID, fromUserID, toUserID, text, sessionID string, limit int) (Kudo, error) {
-	if fromUserID == toUserID {
-		return Kudo{}, ErrSelfKudo
-	}
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return Kudo{}, err
 	}
 	defer tx.Rollback(ctx)
+	k, err := s.CreateIn(ctx, tx, spaceID, fromUserID, toUserID, text, sessionID, limit)
+	if err != nil {
+		return Kudo{}, err
+	}
+	return k, tx.Commit(ctx)
+}
 
+// CreateIn is Create inside a transaction the caller already holds, for a kudo
+// given as part of a larger write — the standup action gives one while it holds
+// the session row, and a second transaction of our own, waiting on the space
+// row from inside that one, is a lock cycle waiting to happen.
+func (s *Kudos) CreateIn(ctx context.Context, tx pgx.Tx, spaceID, fromUserID, toUserID, text, sessionID string, limit int) (Kudo, error) {
+	if fromUserID == toUserID {
+		return Kudo{}, ErrSelfKudo
+	}
 	if _, err := tx.Exec(ctx, "select id from spaces where id = $1 for update", spaceID); err != nil {
 		return Kudo{}, fmt.Errorf("locking the space: %w", err)
 	}
@@ -102,13 +113,9 @@ func (s *Kudos) Create(ctx context.Context, spaceID, fromUserID, toUserID, text,
 	if sessionID != "" {
 		session = sessionID
 	}
-	k, err := scanKudo(tx.QueryRow(ctx,
+	return scanKudo(tx.QueryRow(ctx,
 		"insert into kudos (space_id, from_user_id, to_user_id, text, session_id) values ($1, $2, $3, $4, $5) returning "+kudoCols,
 		spaceID, fromUserID, toUserID, text, session))
-	if err != nil {
-		return Kudo{}, err
-	}
-	return k, tx.Commit(ctx)
 }
 
 // ListForSpace returns a space's kudos, newest first, at most a hundred. There

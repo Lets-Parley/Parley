@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { action, api, errorText, type Envelope, type Me } from "../lib/api";
 import { safeDisplayName } from "../lib/displayName";
 import type { ConnectionStatus } from "../lib/socket";
@@ -26,12 +26,22 @@ export type StandupEntry = {
   ready: boolean;
 };
 /** Which cluster of controls a failure came from, so it reports there. */
-type Where = "chrome" | "gathering" | "round";
+type Where = "chrome" | "gathering" | "round" | "kudos";
+
+/** One kudo given in this room. Names are resolved from the participants. */
+export type SessionKudo = {
+  id: string;
+  fromUserId: string;
+  toUserId: string;
+  text: string;
+};
 
 type StandupState = {
   entries: StandupEntry[];
   /** Open commitments for the whole space; only the caller's are answerable. */
   commitments: Commitment[];
+  /** Kudos given in this session, oldest first. Empty for most rounds. */
+  kudos: SessionKudo[];
   currentSpeakerId: string | null;
   speakerStartedAt: string | null;
   secondsPerPerson: number;
@@ -205,6 +215,11 @@ export function StandupRoom({
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  // The closing beat. Draft state only: what has been given lives in the
+  // envelope, which every socket in the room already receives.
+  const [kudoTo, setKudoTo] = useState("");
+  const [kudoText, setKudoText] = useState("");
+  const [kudoBusy, setKudoBusy] = useState(false);
   // What the carry-over list just did, spoken through the page's one polite
   // region rather than a live region of its own. It clears itself so the same
   // sentence twice in a row is still announced twice.
@@ -358,6 +373,32 @@ export function StandupRoom({
     ) : null;
 
   const skippedNames = st.entries.filter((e) => e.skipped).map((e) => nameOf(e.userId));
+
+  // The closing beat. Guests may neither send nor receive — the action refuses
+  // both — so they are not offered as recipients and are not offered the form;
+  // they do still read what was given, because the envelope reaches every
+  // socket in the room and pretending otherwise would be a lie about a payload
+  // they can see.
+  const givenKudos = st.kudos ?? [];
+  const kudoCandidates = env.participants.filter((p) => !p.guest && p.userId !== me.id);
+  const canGiveKudos = !guest && kudoCandidates.length > 0;
+  // Runes, not UTF-16 units, matching maxKudoChars in the standup action: a
+  // maxLength of 280 would let an emoji-heavy kudo past the counter into a 400.
+  const kudoLeft = MAX_KUDO_RUNES - [...kudoText].length;
+
+  async function giveKudo(e: FormEvent) {
+    e.preventDefault();
+    const text = kudoText.trim();
+    if (!kudoTo || !text || kudoLeft < 0 || kudoBusy) return;
+    const recipient = nameOf(kudoTo);
+    setKudoBusy(true);
+    const ok = await run(() => action(env.id, "kudo", { to: kudoTo, text }), { where: "kudos" });
+    setKudoBusy(false);
+    if (!ok) return;
+    setKudoText("");
+    setKudoTo("");
+    say(`Kudos sent to ${recipient}.`);
+  }
 
   // One derivation, two renderings: rows for the screen, joined text for the
   // clipboard. They cannot drift because the string is built from the rows.
@@ -775,6 +816,79 @@ export function StandupRoom({
         </section>
       )}
 
+
+      {done && (givenKudos.length > 0 || canGiveKudos) && (
+        <section className="flex flex-col gap-3 rounded-panel bg-surface p-6 shadow-rest">
+          <h2 className="font-display text-2xl font-semibold">Kudos</h2>
+          {/* No count, per person or in the heading: a number beside a name is
+              a leaderboard however quietly it is drawn. */}
+          <p className="text-sm text-ink-soft text-pretty">
+            The round is done and you have just heard what everybody did. Thank somebody by name.
+          </p>
+          {canGiveKudos && (
+            <form className="flex flex-wrap items-end gap-2" onSubmit={giveKudo}>
+              <label className="flex flex-col gap-1">
+                <span className={labelText}>Thank</span>
+                {/* A native select: keyboard-operable, announced and
+                    mobile-native for free. */}
+                <select
+                  className={inputClass}
+                  value={kudoTo}
+                  onChange={(e) => setKudoTo(e.target.value)}
+                >
+                  <option value="">Choose somebody</option>
+                  {kudoCandidates.map((p) => (
+                    <option key={p.userId} value={p.userId}>
+                      {safeDisplayName(p.name)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex min-w-48 flex-1 flex-col gap-1">
+                <span className={labelText}>For what</span>
+                <input
+                  className={inputClass}
+                  value={kudoText}
+                  aria-describedby="standup-kudos-left"
+                  aria-invalid={kudoLeft < 0 || undefined}
+                  onChange={(e) => setKudoText(e.target.value)}
+                  placeholder="What did they do?"
+                />
+              </label>
+              <button
+                type="submit"
+                className={buttonPrimary}
+                disabled={!kudoTo || !kudoText.trim() || kudoLeft < 0 || kudoBusy}
+              >
+                Give kudos
+              </button>
+              <span
+                id="standup-kudos-left"
+                className={`w-full text-xs ${kudoLeft < 0 ? "text-stop" : "text-ink-faint"}`}
+              >
+                <span className="font-mono tabular-nums">{kudoLeft}</span> characters left
+              </span>
+            </form>
+          )}
+          {/* Absent, not empty-stated: a round where nobody thanked anybody has
+              nothing to say about it. */}
+          {givenKudos.length > 0 && (
+            <ul data-testid="standup-kudos" className="flex flex-col gap-2.5 rounded-chip bg-felt-deep p-4">
+              {givenKudos.map((k) => (
+                <li key={k.id} className="text-sm">
+                  <span className="text-ink-soft">
+                    <span className="font-bold text-ink">{nameOf(k.fromUserId)}</span> thanked{" "}
+                    <span className="font-bold text-ink">{nameOf(k.toUserId)}</span>
+                  </span>
+                  <span className="mt-0.5 block break-words text-ink">{k.text}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {failRow("kudos")}
+        </section>
+      )}
+
       <p role="status" aria-live="polite" className="sr-only">
         {announcement}
       </p>
@@ -807,6 +921,9 @@ export function StandupRoom({
     </div>
   );
 }
+
+/** Matches maxKudoChars in internal/standup/kudos.go and the check in 0033_kudos.sql. */
+const MAX_KUDO_RUNES = 280;
 
 /** One prompt per field. Two of the three used to sit there unlabelled. */
 const PROMPTS = {
