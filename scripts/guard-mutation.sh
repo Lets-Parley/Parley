@@ -56,6 +56,19 @@ mutate() {
         patch_once "$SRC/$file" "$find" "$replace"
     done
 
+    # A mutation that does not compile makes `go test` exit non-zero for a
+    # build reason, and the check below would score that as "caught" no matter
+    # what the named test asserts — the mutation would be vacuous and look
+    # like the strongest kind of pass. So the package has to still build
+    # before its test result means anything, and a mutation that breaks the
+    # build is a failure of this harness rather than a caught guard.
+    if ! go build "$PKG" >"$LOG" 2>&1; then
+        echo "MUTATION DID NOT COMPILE: $name — a build break is not a caught mutation."
+        sed -n '1,40p' "$LOG"
+        failures=$((failures + 1))
+        return
+    fi
+
     # -timeout keeps a mutation that removes a timeout from hanging the leg
     # forever; a hung run is still a red run, which is the answer we want.
     if go test "$PKG" -run "$tests" -count=1 -timeout 60s >"$LOG" 2>&1; then
@@ -86,7 +99,7 @@ mutate "the redirect budget" \
 
 mutate "the synchronous-hook fetch ban" \
     'TestASynchronousHookCannotFetchThroughTheHostFunction' \
-    hostfn.go 'if info.mode == ModeSync {' 'if false {' \
+    hostfn.go 'if info.mode != ModeAsync {' 'if false {' \
     fetch.go 'if sync {' 'if false {'
 
 mutate "the grant check" \
@@ -123,7 +136,19 @@ mutate "the compiled-module cache bound" \
 
 mutate "the pending-upgrade hold" \
     'TestAnUpgradeAskingForMoreParksAndTheOldGrantsStayInForce' \
-    grants.go 'if !current.Allows(g.Capability, g.Scope) {' 'if false {'
+    grants.go 'if !current.Allows(g.Capability, g.Scope) {' 'if current.Allows(g.Capability, g.Scope) && false {'
+
+mutate "the credential strip across a redirect to another host" \
+    'TestCredentialsDoNotFollowARedirectToAnotherHost' \
+    fetch.go 'if !sameHost && sensitiveHeaders[http.CanonicalHeaderKey(k)] {' 'if false {'
+
+mutate "the module cache's version check" \
+    'TestAnUpgradeIsRunFromTheNewBundleRatherThanTheCachedOne' \
+    host.go 'if entry, ok := h.cache[installID]; ok && entry.version == state.Install.Version {' 'if entry, ok := h.cache[installID]; ok {'
+
+mutate "the breaker's reset on success" \
+    'TestASuccessBetweenTwoFailuresKeepsTheBreakerClosed' \
+    breaker.go 'func (b *breaker) success() { b.failures = 0 }' 'func (b *breaker) success() {}'
 
 cp -a "$BACKUP"/. "$SRC"/
 

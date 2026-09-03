@@ -841,7 +841,7 @@ jobs:
   gate:
     name: required / gate
     if: always()
-    needs: [go, web, site, dependency-review, dco, docker, container-scan, chart, buildx-arg-passthrough]
+    needs: [go, web, site, dependency-review, dco, docker, container-scan, chart, buildx-arg-passthrough, guard-mutation]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every check
@@ -855,3 +855,4 @@ jobs:
           test "${{ needs.container-scan.result }}" = success
           test "${{ needs.buildx-arg-passthrough.result }}" = success
           test "${{ needs.chart.result }}" = success
+          test "${{ needs.guard-mutation.result }}" = success
