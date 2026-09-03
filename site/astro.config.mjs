@@ -65,6 +65,7 @@ export default defineConfig({
             "features/daily-standup",
             "features/spaces-and-room-codes",
             "features/guest-links",
+            "features/kudos",
             "features/exports",
             "features/themes",
           ],
