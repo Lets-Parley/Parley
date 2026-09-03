@@ -5,6 +5,7 @@ import {
   MAX_MESSAGES_PER_SECOND,
   CrashBreaker,
   createPluginBridge,
+  overMessageCap,
   redactSession,
 } from "./pluginBridge";
 
@@ -42,8 +43,13 @@ function envelope(over: Partial<Envelope> = {}): Envelope {
           // A server that regressed, a cache poisoned by a stale frame, a
           // future field: the bridge must not depend on this being absent.
           votes: [
+            // Neither value appears in the deck above. A vote value that
+            // collides with a deck value proves nothing when the assertion is
+            // "this string is absent from the payload": the deck is pushed
+            // whether or not the round is revealed, so the string would be
+            // there either way.
             { userId: "u1", value: "8" },
-            { userId: "u2", value: "3" },
+            { userId: "u2", value: "13" },
           ],
           results: { median: "5", spread: 5, consensus: false, counts: {} },
         },
@@ -67,13 +73,14 @@ describe("redactSession", () => {
     // And no vote value survives anywhere in the payload, whatever shape a
     // future field arrives in.
     expect(JSON.stringify(out)).not.toContain('"8"');
+    expect(JSON.stringify(out)).not.toContain('"13"');
   });
 
   it("releases votes once the round is revealed", () => {
     const out = redactSession(envelope({ revealed: true }), READ);
     expect(out!.state.stories[0].votes).toEqual([
       { userId: "u1", value: "8" },
-      { userId: "u2", value: "3" },
+      { userId: "u2", value: "13" },
     ]);
     expect(out!.state.stories[0].results).toBeTruthy();
   });
@@ -169,6 +176,27 @@ describe("createPluginBridge", () => {
     b.close();
   });
 
+  // The cap is documented in bytes, so it has to be measured in bytes. A
+  // string's .length counts UTF-16 code units, and CJK text is three bytes to
+  // the unit — measured that way the cap was three times the documented budget
+  // for exactly the text most likely to be large.
+  it("measures the message cap in bytes rather than UTF-16 code units", async () => {
+    // Just under the cap in code units, three times over it in UTF-8.
+    const cjk = "\u4e00".repeat(MAX_MESSAGE_BYTES - 100);
+    expect(cjk.length).toBeLessThan(MAX_MESSAGE_BYTES);
+    expect(overMessageCap(cjk)).toBe(true);
+    // ASCII of the same code-unit length is a byte apiece and stays under.
+    expect(overMessageCap("a".repeat(MAX_MESSAGE_BYTES - 100))).toBe(false);
+
+    const { b, failures, actions } = bridge();
+    b.handshake();
+    b.receive(JSON.stringify({ type: "act", action: "reveal", payload: { note: cjk } }));
+    await Promise.resolve();
+    expect(actions).toEqual([]);
+    expect(failures).toContain("oversize");
+    b.close();
+  });
+
   it("trips the breaker when a plugin floods the port", async () => {
     const { b, failures, actions } = bridge();
     b.handshake();
@@ -179,6 +207,44 @@ describe("createPluginBridge", () => {
     expect(failures).toContain("flood");
     expect(actions.length).toBeLessThanOrEqual(MAX_MESSAGES_PER_SECOND);
     b.close();
+  });
+
+  // The action name is a path segment. Left unscreened it is a path
+  // *expression*: dot segments are normalised by the same URL parser fetch
+  // uses, so "../../../me" leaves /api/sessions/{id}/actions/ entirely and
+  // POSTs to /api/me — renaming the user — on the user's own cookie, with no
+  // audit record, because pluginRouteAudit is only mounted under
+  // /api/sessions/{id}. Every unknown name defaults to POST, and the request
+  // is genuinely same-origin so the cross-site guard waves it through. The
+  // screen is here, on the host side, before the name is ever a URL.
+  it("refuses an action name that could climb out of the actions path", async () => {
+    const escapes = [
+      "../../../me",
+      "../../OTHER/actions/vote",
+      "../../../orgs/acme/spaces/eng/passcode",
+      "..%2f..%2fme",
+      "reveal/../../me",
+      "",
+      "reveal?x=1",
+      "reveal#x",
+    ];
+    for (const name of escapes) {
+      const { b, actions, failures } = bridge();
+      b.handshake();
+      b.receive(JSON.stringify({ type: "act", action: name, payload: {} }));
+      await Promise.resolve();
+      expect(actions, `action ${JSON.stringify(name)} reached the host`).toEqual([]);
+      expect(failures).toContain("malformed");
+      b.close();
+    }
+    // The control: an ordinary name still gets through, so the screen refuses
+    // the climb rather than refusing everything.
+    const ok = bridge();
+    ok.b.handshake();
+    ok.b.receive(JSON.stringify({ type: "act", action: "reveal", payload: {} }));
+    await Promise.resolve();
+    expect(ok.actions).toEqual([{ action: "reveal", payload: {} }]);
+    ok.b.close();
   });
 
   it("refuses an action the plugin was not granted", async () => {
@@ -210,6 +276,25 @@ describe("createPluginBridge", () => {
     b.close();
   });
 
+  // Coalescing is a correctness property, not only a throttle: the frame must
+  // end up holding the *newest* state. Keeping the oldest instead would leave
+  // a plugin rendering a round that has already moved on, with nothing to tell
+  // it so — and the change is one word, so it needs its own test.
+  it("coalesces two pushes in one interval onto the newer state", () => {
+    const sent: string[] = [];
+    const { b } = bridge({ send: (body: string) => sent.push(body) });
+    b.handshake();
+    b.sendState(envelope({ title: "Sprint 42" }));
+    b.sendState(envelope({ title: "Sprint 43" }));
+    vi.advanceTimersByTime(500);
+    const body = sent.join("");
+    expect(body).toContain("Sprint 43");
+    expect(body).not.toContain("Sprint 42");
+    // And exactly one push landed, which is the throttling half.
+    expect(sent.length).toBe(1);
+    b.close();
+  });
+
   it("pushes only the redacted projection into the frame", () => {
     const sent: string[] = [];
     const { b } = bridge({ send: (body: string) => sent.push(body) });
@@ -217,6 +302,7 @@ describe("createPluginBridge", () => {
     b.sendState(envelope({ revealed: false }));
     vi.advanceTimersByTime(500);
     expect(sent.join("")).not.toContain('"8"');
+    expect(sent.join("")).not.toContain('"13"');
     expect(sent.join("")).toContain("Log in with a passkey");
     b.close();
   });

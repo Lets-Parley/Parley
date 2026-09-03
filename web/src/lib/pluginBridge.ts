@@ -1,4 +1,4 @@
-import type { Envelope, Person, Results } from "./api";
+import { isActionName, type Envelope, type Person, type Results } from "./api";
 import { THEME_TOKENS, type ThemeToken } from "./theme";
 
 /**
@@ -29,15 +29,37 @@ import { THEME_TOKENS, type ThemeToken } from "./theme";
  */
 
 /**
- * The largest single message either side may send, in JSON characters.
+ * The largest single message either side may send, in bytes of UTF-8.
  *
  * 64 KiB is comfortably more than a session envelope for a room of fifty and
  * comfortably less than a payload that costs a frame to serialise. The cap is
  * on the encoded string because that is the thing that actually crosses, and
  * because measuring it is what stops a plugin wedging the host tab by handing
  * it a megabyte to parse on the main thread.
+ *
+ * Bytes, not JavaScript string length. A string's `.length` counts UTF-16 code
+ * units, and a CJK or emoji-heavy payload is up to three bytes per unit — so a
+ * cap read off `.length` was three times the documented budget for exactly the
+ * text most likely to be large.
  */
 export const MAX_MESSAGE_BYTES = 64 * 1024;
+
+const encoder = new TextEncoder();
+
+/**
+ * Whether a message is over the wire cap.
+ *
+ * The two length bounds settle almost every message without encoding it at
+ * all: a UTF-16 code unit is never fewer than one byte and never more than
+ * three, so a string longer than the cap is certainly over it and a string a
+ * third of the cap is certainly under. Only the band between them is encoded,
+ * which keeps the inbound check cheaper than the parse it exists to avoid.
+ */
+export function overMessageCap(body: string): boolean {
+  if (body.length > MAX_MESSAGE_BYTES) return true;
+  if (body.length * 3 <= MAX_MESSAGE_BYTES) return false;
+  return encoder.encode(body).length > MAX_MESSAGE_BYTES;
+}
 
 /**
  * The most messages a plugin may send per second.
@@ -245,7 +267,7 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
   const channel = new MessageChannel();
   let closed = false;
   let shook = false;
-  let pending: Envelope | null = null;
+  let pending: string | null = null;
   let pushTimer: ReturnType<typeof setTimeout> | null = null;
   const stamps: number[] = [];
 
@@ -266,7 +288,7 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
   function post(message: unknown, failure: BridgeFailure): void {
     if (closed) return;
     const body = JSON.stringify(message);
-    if (body.length > MAX_MESSAGE_BYTES) {
+    if (overMessageCap(body)) {
       opts.onFailure(failure);
       return;
     }
@@ -279,7 +301,7 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
       opts.onFailure("malformed");
       return;
     }
-    if (raw.length > MAX_MESSAGE_BYTES) {
+    if (overMessageCap(raw)) {
       // Dropped before parsing. Parsing is the expensive half, so a cap that
       // only ran afterwards would not bound anything.
       opts.onFailure("oversize");
@@ -311,6 +333,19 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
       opts.onFailure("malformed");
       return;
     }
+    // The name the frame sent becomes a path segment. Unscreened it is a path
+    // expression rather than a name: "../../../me" is normalised out of
+    // /api/sessions/{id}/actions/ by the same URL parser fetch uses, and the
+    // request that results carries the user's own cookie, is genuinely
+    // same-origin, and lands outside the only route group that audits plugin
+    // actions. So the name is screened here, before it reaches onAction, and
+    // a name that is not a plain action name is malformed input like any
+    // other — it is not a capability refusal, because no capability would
+    // have permitted it.
+    if (!isActionName(action)) {
+      opts.onFailure("malformed");
+      return;
+    }
     if (!opts.grants.includes(GRANT_SESSION_ACT)) {
       // The grant is checked here, on the host side, because this is the only
       // side that can be trusted to check it.
@@ -320,20 +355,17 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
     void opts.onAction(action, payload ?? {});
   }
 
-  /** Whether the redacted projection is over the wire cap. */
-  function tooLargeToPush(env: Envelope): boolean {
-    const body = JSON.stringify(redactSession(env, opts.grants) ?? {});
-    return body.length > MAX_MESSAGE_BYTES;
-  }
-
+  // The pending push is held as the finished body rather than as the envelope.
+  // Redacting and serialising is the expensive half, the size check needs the
+  // finished string anyway, and doing it once per sendState rather than once
+  // for the check and again at the flush is the difference between one pass
+  // over the envelope and three.
   function flush(): void {
     pushTimer = null;
-    if (!pending) return;
-    const env = pending;
+    const body = pending;
     pending = null;
-    const session = redactSession(env, opts.grants);
-    if (!session) return;
-    post({ type: "state", state: session }, "oversize-outbound");
+    if (body === null || closed) return;
+    send(body);
   }
 
   function close(): void {
@@ -360,14 +392,20 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
       opts.target.postMessage({ parley: "bridge" }, "*", [channel.port2]);
     },
     sendState(env: Envelope) {
-      pending = env;
-      // Coalescing: the newest state wins and at most one push lands per
-      // interval, so a busy room cannot become the frame's load.
-      if (tooLargeToPush(env)) {
+      if (closed) return;
+      const session = redactSession(env, opts.grants);
+      if (!session) return;
+      const body = JSON.stringify({ type: "state", state: session });
+      if (overMessageCap(body)) {
         opts.onFailure("oversize-outbound");
         pending = null;
         return;
       }
+      // Coalescing: the newest state wins and at most one push lands per
+      // interval, so a busy room cannot become the frame's load. Newest, not
+      // oldest — a frame left holding a superseded round has no way to know
+      // it is stale.
+      pending = body;
       if (pushTimer) return;
       pushTimer = setTimeout(flush, STATE_PUSH_INTERVAL_MS);
     },
