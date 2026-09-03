@@ -87,6 +87,19 @@ database-backed, so a skip is a green run that verified nothing.
   over the props-only components. A component that owns fetches asserts it in
   its own test, where the mock already exists. jsdom has no layout, so colour
   contrast and target size are not covered — those still need a real browser.
+- **A feature gated on an `api.Options` field is dead unless `main` sets it,
+  and no handler test can tell you that.** Every test in `internal/api`
+  constructs its own `Options`, so a handler is always exercised with the
+  field populated and always passes — while the shipped binary takes the
+  zero-value early return. `PLUGIN_DIR` shipped exactly this way: parsed,
+  logged, handed to the WASM runtime, and never put in the `api.Options`
+  literal, so the plugin UI answered 404 and an empty panel list in
+  production through two review rounds and sixteen green checks. When you add
+  an `Options` field, wire it in `cmd/parley/main.go`'s `apiOptions` and
+  cover it there: `cmd/parley/plugin_wiring_test.go` drives a real router
+  built from that mapping, and enumerates every exported field so the next
+  absent wire fails rather than ships. The same shape applies to any
+  configuration that reaches a subsystem through a struct literal in `main`.
 - Frontend behaviour changes need a test too, and the same rule applies: it
   must have been seen to fail first. Every defect this project has shipped in
   `web/` — the dead claim button, the member card, the frozen standup timer —

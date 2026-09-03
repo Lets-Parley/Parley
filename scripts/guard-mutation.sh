@@ -16,7 +16,7 @@ cd "$(dirname "$0")/.."
 # The guards no longer all live in one package: the plugin sandbox has a
 # frontend half now, so a tree here is either a Go package or the web app, and
 # `target` switches which one the mutations below are aimed at.
-TREES=(internal/plugin internal/api web/src)
+TREES=(internal/plugin internal/api web/src cmd/parley)
 BACKUP=$(mktemp -d)
 LOG=$(mktemp)
 
@@ -508,6 +508,19 @@ mutate "the message cap being measured in bytes" \
 mutate "the handshake timeout" \
     'src/lib/pluginBridge.test.ts::renders an explicit failure rather than a blank rectangle when the frame never answers' \
     lib/pluginBridge.ts 'opts.onFailure("handshake-timeout");' '// the frame is simply never given up on'
+
+# The last wire, and the one no handler test can see. Every guard above is
+# broken inside a package whose own tests construct the app directly — which is
+# exactly how the plugin UI shipped dead: main built api.Options and never set
+# PluginDir, so the frame route and the panel list took their empty-directory
+# early return in the real binary while every test that passed its own dir
+# stayed green. The mutation here cuts that wire, and the test that must go red
+# is the one that drives an app built from main's own option mapping.
+target cmd/parley
+
+mutate "main wiring the plugin directory into the HTTP layer" \
+    'TestMainsOptionsServeThePluginUI' \
+    main.go '		PluginDir: cfg.PluginDir,' ''
 
 restore_all
 

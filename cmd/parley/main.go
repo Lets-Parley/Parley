@@ -328,28 +328,8 @@ func main() {
 		pluginHost = runtime.Host
 	}
 
-	opts := api.Options{
-		// The signal context, so SIGTERM stops the cross-replica listener
-		// along with everything else rather than leaving it dialling.
-		Context:           ctx,
-		SecureCookies:     secureCookies,
-		AllowedOrigin:     cfg.BaseURL.Scheme + "://" + cfg.BaseURL.Host,
-		AuthMode:          cfg.AuthMode,
-		TrustProxyHeaders: cfg.TrustProxy,
-		Version:           version,
-		TrustedProxyCIDRs: cfg.TrustedProxyCIDRs,
-		Limits:            cfg.Limits,
-		BootstrapAdmin:    cfg.BootstrapAdmin,
-		// The administration surface reads the store even with no host
-		// running, so an operator on an instance without PLUGIN_DIR still sees
-		// what is installed and is told the host is not running.
-		Plugins:    plugins,
-		PluginHost: pluginHost,
-	}
-	if cfg.AuthMode == api.ModeOIDC {
-		// Discovery happens on the first sign-in rather than here: an identity
-		// provider that is down should not keep this server from starting.
-		opts.OIDC = auth.New(cfg.OIDC)
+	opts := apiOptions(ctx, cfg, secureCookies, plugins, pluginHost)
+	if opts.OIDC != nil {
 		// A one-time, non-gating diagnostic. A wrong issuer otherwise passes
 		// every automated check and only surfaces when a person tries to sign
 		// in, because discovery is deferred and /readyz deliberately ignores
@@ -376,6 +356,44 @@ func main() {
 		os.Exit(1)
 	}
 	log.Info("shut down cleanly")
+}
+
+// apiOptions maps a parsed config onto the options the HTTP layer is built
+// from. It is a separate function rather than a literal inside main because
+// main is the one caller that matters and the one caller no test can reach:
+// a field the HTTP layer gates a feature on — PluginDir was exactly this — is
+// dead in the shipped binary if this mapping omits it, and every handler test
+// that constructs api.Options itself will still pass. Extracted, the mapping
+// can be exercised directly, and an app built from it can be driven over HTTP.
+func apiOptions(ctx context.Context, cfg config, secureCookies bool, plugins *plugin.Store, pluginHost *plugin.Host) api.Options {
+	opts := api.Options{
+		// The signal context, so SIGTERM stops the cross-replica listener
+		// along with everything else rather than leaving it dialling.
+		Context:           ctx,
+		SecureCookies:     secureCookies,
+		AllowedOrigin:     cfg.BaseURL.Scheme + "://" + cfg.BaseURL.Host,
+		AuthMode:          cfg.AuthMode,
+		TrustProxyHeaders: cfg.TrustProxy,
+		Version:           version,
+		TrustedProxyCIDRs: cfg.TrustedProxyCIDRs,
+		Limits:            cfg.Limits,
+		BootstrapAdmin:    cfg.BootstrapAdmin,
+		// Without this the plugin UI frame route and the room's panel list
+		// both take their empty-directory early return, and the whole plugin
+		// UI feature is dead however well the WASM host is wired.
+		PluginDir: cfg.PluginDir,
+		// The administration surface reads the store even with no host
+		// running, so an operator on an instance without PLUGIN_DIR still sees
+		// what is installed and is told the host is not running.
+		Plugins:    plugins,
+		PluginHost: pluginHost,
+	}
+	if cfg.AuthMode == api.ModeOIDC {
+		// Discovery happens on the first sign-in rather than here: an identity
+		// provider that is down should not keep this server from starting.
+		opts.OIDC = auth.New(cfg.OIDC)
+	}
+	return opts
 }
 
 // bootFields is the boot line an operator reads to confirm what this process
