@@ -1,6 +1,7 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "./lib/ui";
+import { useThemePack } from "./lib/theme";
 import { Landing } from "./pages/Landing";
 import { OrgDirectory } from "./pages/OrgDirectory";
 import { SpacePage } from "./pages/SpacePage";
@@ -11,6 +12,9 @@ import { LinkPage } from "./pages/LinkPage";
 const queryClient = new QueryClient();
 
 export default function App() {
+  // Applied above every route, so an installed theme pack reaches the landing
+  // page too — and above the router, so it survives navigation.
+  useThemePack();
   return (
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
