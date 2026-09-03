@@ -58,6 +58,21 @@ type WireCommitment struct {
 	OpenedHere bool `json:"openedHere"`
 }
 
+// WireKudo is one kudo given in this session, for the closing beat.
+//
+// Ids and text only: names come off the envelope's participants, as they do
+// for every other slice of this state. There is deliberately no count and no
+// per-person total — see 0033_kudos.sql. This payload is broadcast to every
+// socket in the room, guests included, which is the accepted behaviour: a
+// guest reads what is said in the room it is in, and the wall around it stays
+// out of reach.
+type WireKudo struct {
+	ID         string `json:"id"`
+	FromUserID string `json:"fromUserId"`
+	ToUserID   string `json:"toUserId"`
+	Text       string `json:"text"`
+}
+
 // stuckAfter is the number of "not yet" answers at which a commitment is
 // showing as stalled.
 const stuckAfter = 2
@@ -65,6 +80,7 @@ const stuckAfter = 2
 type State struct {
 	Entries          []WireEntry      `json:"entries"`
 	Commitments      []WireCommitment `json:"commitments"`
+	Kudos            []WireKudo       `json:"kudos"`
 	CurrentSpeakerID *string          `json:"currentSpeakerId"`
 	SpeakerStartedAt *time.Time       `json:"speakerStartedAt"`
 	SecondsPerPerson int              `json:"secondsPerPerson"`
@@ -88,6 +104,7 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	st := State{
 		Entries:          []WireEntry{},
 		Commitments:      []WireCommitment{},
+		Kudos:            []WireKudo{},
 		SecondsPerPerson: cfg.secondsOrDefault(),
 	}
 
@@ -140,5 +157,26 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 		c.Stuck = c.Carried >= stuckAfter
 		st.Commitments = append(st.Commitments, c)
 	}
-	return st, crows.Err()
+	if err := crows.Err(); err != nil {
+		return nil, err
+	}
+
+	// This session's kudos only, oldest first — the order they were given in,
+	// which is how the closing beat reads. The wall reads the same rows the
+	// other way round for its own surface.
+	krows, err := pool.Query(ctx, `
+		select id::text, from_user_id::text, to_user_id::text, text
+		from kudos where session_id = $1 order by created_at, id`, sess.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer krows.Close()
+	for krows.Next() {
+		var k WireKudo
+		if err := krows.Scan(&k.ID, &k.FromUserID, &k.ToUserID, &k.Text); err != nil {
+			return nil, err
+		}
+		st.Kudos = append(st.Kudos, k)
+	}
+	return st, krows.Err()
 }

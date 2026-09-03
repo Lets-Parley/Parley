@@ -142,6 +142,7 @@ function standupState(currentSpeakerId: string | null = "dana"): Envelope["state
     currentSpeakerId,
     speakerStartedAt: START,
     secondsPerPerson: 90,
+    kudos: [],
   } as unknown as Envelope["state"];
 }
 
@@ -293,6 +294,7 @@ function filledState(currentSpeakerId: string | null = "dana"): Envelope["state"
     currentSpeakerId,
     speakerStartedAt: START,
     secondsPerPerson: 90,
+    kudos: [],
   } as unknown as Envelope["state"];
 }
 
@@ -396,7 +398,14 @@ describe("StandupRoom re-reading entries", () => {
       <StandupRoom env={envelope({ phase: "done", state: filledState(null) })} me={me} />,
     );
     act(() => seatButton("Marcus Okonjo").click());
-    expect(screen.queryAllByRole("textbox")).toHaveLength(0);
+    // Scoped to the update itself: the closing beat's kudos field is a textbox
+    // on this page too, and that one is meant to be there.
+    for (const field of ["yesterday", "today", "blockers"]) {
+      expect(screen.queryByLabelText(field)).toBeNull();
+    }
+    expect(
+      screen.queryAllByRole("textbox").filter((el) => el.tagName === "TEXTAREA"),
+    ).toHaveLength(0);
     expect(screen.getByText("my yesterday")).toBeTruthy();
   });
 
@@ -1559,5 +1568,150 @@ describe("StandupRoom gathering panel and fresh commitments", () => {
   it("says nothing is carrying over when everything open was made just now", () => {
     renderApp(<StandupRoom env={carrying([{ text: "typed just now", openedHere: true }])} me={me} />);
     expect(screen.getByTestId("carrying-over-empty").textContent).toMatch(/nothing carrying over/i);
+  });
+});
+
+
+/** The closing beat: kudos given in the room, and the form that gives them. */
+type WireKudo = { id: string; fromUserId: string; toUserId: string; text: string };
+function kudoState(kudos: WireKudo[]): Envelope["state"] {
+  const st = standupState(null) as unknown as { kudos: WireKudo[] };
+  st.kudos = kudos;
+  return st as unknown as Envelope["state"];
+}
+const doneEnv = (kudos: WireKudo[] = [], over: Partial<Envelope> = {}) =>
+  envelope({ phase: "done", state: kudoState(kudos), ...over });
+
+describe("StandupRoom kudos", () => {
+  it("gives a kudo through the round's own action", async () => {
+    // The whole page, driven the way a person drives it: pick a name, say what
+    // they did, submit. A test that hands the panel a kudo proves the markup
+    // renders, not that the room can produce one.
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+    renderApp(<StandupRoom env={doneEnv()} me={me} />);
+
+    await userEvent.selectOptions(screen.getByLabelText(/thank/i), "dana");
+    await userEvent.type(screen.getByLabelText(/for what/i), "unstuck the deploy");
+    await userEvent.click(screen.getByRole("button", { name: /give kudos/i }));
+
+    await waitFor(() =>
+      expect(
+        fetchSpy.mock.calls.filter(
+          ([url, init]) =>
+            url === "/api/sessions/sess-1/actions/kudo" &&
+            (init as RequestInit).method === "POST" &&
+            (init as RequestInit).body ===
+              JSON.stringify({ to: "dana", text: "unstuck the deploy" }),
+        ),
+      ).toHaveLength(1),
+    );
+    fetchSpy.mockRestore();
+  });
+
+  it("counts the kudo text in runes, not UTF-16 units", () => {
+    // The server counts runes too ([...text].length), and an emoji is a
+    // surrogate pair: one rune, two UTF-16 code units. fireEvent.change (not
+    // userEvent.type, which drives one keystroke per UTF-16 unit and is both
+    // slow and wrong here) sets the value in one shot so the pair lands intact.
+    renderApp(<StandupRoom env={doneEnv()} me={me} />);
+
+    const field = screen.getByLabelText(/for what/i);
+    fireEvent.change(field, { target: { value: "🎉" } });
+
+    expect(screen.getByText("279").textContent).toBe("279");
+  });
+
+  it("disables submission and marks the field invalid past 280 runes", () => {
+    renderApp(<StandupRoom env={doneEnv()} me={me} />);
+
+    const field = screen.getByLabelText(/for what/i);
+    fireEvent.change(field, { target: { value: "🎉".repeat(281) } });
+
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(
+      (screen.getByRole("button", { name: /give kudos/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it("shows a kudo another client gave, on the broadcast alone", () => {
+    // The second connected client: no refetch of its own, just the next
+    // envelope the room was pushed. The panel has to read the kudo out of
+    // state rather than out of a response it never saw.
+    const { rerender } = renderApp(<StandupRoom env={doneEnv()} me={me} />);
+    expect(screen.queryByTestId("standup-kudos")).toBeNull();
+
+    rerender(
+      <StandupRoom
+        env={doneEnv([{ id: "k1", fromUserId: "dana", toUserId: "priya", text: "unstuck the deploy" }], {
+          version: 2,
+        })}
+        me={me}
+      />,
+    );
+
+    const panel = screen.getByTestId("standup-kudos");
+    expect(panel.textContent).toContain("Dana Whitfield");
+    expect(panel.textContent).toContain("Priya Raman");
+    expect(panel.textContent).toContain("unstuck the deploy");
+  });
+
+  it("skips the closing panel entirely rather than empty-stating it", () => {
+    // A guest can neither send nor receive, so with nothing given there is
+    // nothing for it in the beat at all — and nowhere does a "no kudos yet"
+    // line appear for anybody.
+    renderApp(<StandupRoom env={doneEnv()} me={me} guest />);
+    expect(screen.queryByTestId("standup-kudos")).toBeNull();
+    expect(screen.queryByText(/no kudos/i)).toBeNull();
+  });
+
+  it("shows a guest the beat but never the form", () => {
+    // Said plainly: the envelope reaches every socket in the room, so a guest
+    // reads what was said in the room it is in. It just cannot say it.
+    renderApp(
+      <StandupRoom
+        env={doneEnv([{ id: "k1", fromUserId: "dana", toUserId: "priya", text: "unstuck the deploy" }])}
+        me={me}
+        guest
+      />,
+    );
+    expect(screen.getByTestId("standup-kudos").textContent).toContain("unstuck the deploy");
+    expect(screen.queryByRole("button", { name: /give kudos/i })).toBeNull();
+  });
+
+  it("does not offer a guest as a recipient", () => {
+    renderApp(
+      <StandupRoom
+        env={doneEnv([], {
+          participants: [
+            makePerson({ userId: "dana", name: "Dana Whitfield" }),
+            makePerson({ userId: "marcus", name: "Marcus Okonjo" }),
+            makePerson({ userId: "vic", name: "Visiting Vic", guest: true }),
+          ],
+        })}
+        me={me}
+      />,
+    );
+    const names = Array.from(
+      screen.getByLabelText(/thank/i).querySelectorAll("option"),
+    ).map((o) => o.textContent);
+    expect(names).toContain("Dana Whitfield");
+    expect(names).not.toContain("Visiting Vic");
+    // Nor yourself: the server answers 400.
+    expect(names).not.toContain("Marcus Okonjo");
+  });
+
+  it("keeps the beat out of the round until it is over", () => {
+    renderApp(
+      <StandupRoom
+        env={envelope({
+          phase: "speaking",
+          state: kudoState([{ id: "k1", fromUserId: "dana", toUserId: "priya", text: "unstuck the deploy" }]),
+        })}
+        me={me}
+      />,
+    );
+    expect(screen.queryByTestId("standup-kudos")).toBeNull();
   });
 });

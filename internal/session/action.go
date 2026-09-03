@@ -24,6 +24,10 @@ type ActionCtx struct {
 	Session    store.Session
 	UserID     string
 	StoryLimit int
+	// KudoLimit is the space's cap on kudos, alongside StoryLimit and read the
+	// same way: the limits live on the API app, and an action reaches them
+	// only through here.
+	KudoLimit int
 }
 
 // ActionFunc handles one action. It owns the response body and status.

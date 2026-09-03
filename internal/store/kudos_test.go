@@ -22,6 +22,32 @@ func TestKudoRejectsItsOwnSender(t *testing.T) {
 	}
 }
 
+// TestKudoRejectsItsOwnSender above goes through Create, which is CreateIn
+// plus a transaction it owns. That already pins the guard for the common
+// path, but the standup action calls CreateIn directly on a transaction it
+// holds for its own reasons (internal/standup/kudos.go), and that path has
+// no store-level test of its own. Assert the sentinel specifically, not just
+// a 400: the membership check also fails a self-kudo (the IN-list dedups a
+// repeated id down to one member), so a weaker assertion would not notice if
+// the early guard were ever removed.
+func TestKudoCreateInRefusesItsOwnSenderSpecifically(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	sess, members := newSession(t, pool, "Ada", "Bo")
+	kudos := &Kudos{Pool: pool}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+
+	_, err = kudos.CreateIn(ctx, tx, sess.SpaceID, members[0].ID, members[0].ID, "thanks, me", "", testKudoCap)
+	if !errors.Is(err, ErrSelfKudo) {
+		t.Fatalf("err = %v, want ErrSelfKudo specifically (not ErrNotAMember)", err)
+	}
+}
+
 func TestKudoRejectsANonMemberAndALinkGuest(t *testing.T) {
 	ctx := context.Background()
 	pool := testPool(t)
