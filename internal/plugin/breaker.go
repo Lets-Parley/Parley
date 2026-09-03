@@ -17,6 +17,13 @@ type breaker struct {
 	failures int
 	trips    int
 	openTill time.Time
+
+	// lastErr and reason are what the operator screen renders. The breaker's
+	// state has always been in memory; before this it was also *only* in the
+	// log, so a plugin the host had given up on looked, on any screen, exactly
+	// like a plugin with nothing to do.
+	lastErr string
+	reason  string
 }
 
 type breakerOutcome int

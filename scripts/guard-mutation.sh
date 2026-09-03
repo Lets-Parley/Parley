@@ -169,6 +169,20 @@ mutate "the breaker's reset on success" \
     'TestASuccessBetweenTwoFailuresKeepsTheBreakerClosed' \
     breaker.go 'func (b *breaker) success() { b.failures = 0 }' 'func (b *breaker) success() {}'
 
+# Uninstall destroys a plugin's key-value store and its unrecoverable encrypted
+# secrets. The refusal while sessions of a provided kind exist is the only thing
+# standing between an operator and rooms that name a kind nothing can run.
+mutate "the uninstall block on sessions of a provided kind" \
+    'TestUninstallIsRefusedWhileASessionOfAProvidedKindExists|TestAnEndedSessionStillBlocksAnUninstall' \
+    health.go 'if len(blocking) > 0 {' 'if false {'
+
+# The consent screen only means something if the sentence it shows and the rule
+# the guard applies are the same rule. An expansion that stops matching
+# hostAllowed is a screen inviting an operator to consent to something else.
+mutate "the honesty of the fetch-allowlist expansion" \
+    'TestExplanationsMatchTheGuard|TestAWildcardIsExpandedRatherThanEchoed' \
+    describe.go 'out.Allows = []string{"api." + base, "a.b." + base}' 'out.Allows = []string{base}'
+
 cp -a "$BACKUP"/. "$SRC"/
 
 echo
