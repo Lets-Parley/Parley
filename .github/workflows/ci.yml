@@ -51,7 +51,11 @@ jobs:
       - name: Test with race detector
         run: |
           set -o pipefail
-          go test -json -p 1 -race ./... | tee test-output.json | jq -j 'select(.Action=="output") | .Output'
+          # -timeout: Go's per-package default is 10m. internal/api is the slowest
+          # package (~225s here) and a slow runner has already pushed it past that
+          # once on a green diff. Nothing in the suite hangs; a genuine hang is still
+          # caught by the job's own timeout.
+          go test -json -timeout 20m -p 1 -race ./... | tee test-output.json | jq -j 'select(.Action=="output") | .Output'
         env:
           TEST_DATABASE_URL: postgres://test:test@127.0.0.1:5432/test
       - name: Reject skipped tests

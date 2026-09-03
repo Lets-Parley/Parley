@@ -22,6 +22,7 @@ import (
 	"github.com/lets-parley/parley/internal/auth"
 	"github.com/lets-parley/parley/internal/httprequest"
 	"github.com/lets-parley/parley/internal/hub"
+	"github.com/lets-parley/parley/internal/plugin"
 	"github.com/lets-parley/parley/internal/poker"
 	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/standup"
@@ -73,6 +74,13 @@ type app struct {
 	// packages, so a handler there has no type to reach session content
 	// through.
 	custody *custody.Handlers
+	// plugins and pluginHost are the operator's plugin administration surface.
+	// Both are nil on an instance with no plugin store wired, and pluginHost is
+	// nil whenever PLUGIN_DIR is unset — an instance with no plugins never
+	// instantiates a WASM runtime, so the screen reports that rather than
+	// pretending to know a health it cannot observe.
+	plugins    *plugin.Store
+	pluginHost *plugin.Host
 }
 
 type Options struct {
@@ -96,6 +104,13 @@ type Options struct {
 	// instance runs no plugins, and the plugin UI frame route is then not
 	// registered at all.
 	PluginDir string
+
+	// Plugins is the durable side of the plugin host, and PluginHost the
+	// running one. Both are optional; without Plugins the administration
+	// routes answer 503 rather than 404, so an operator is told plugins are
+	// off rather than that the page does not exist.
+	Plugins    *plugin.Store
+	PluginHost *plugin.Host
 
 	// Context bounds the cross-replica notification listener. Leave it nil
 	// outside of tests: the listener then lives as long as the process.
@@ -202,6 +217,8 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		passcodeAttempts: newAttemptLimiter(pool),
 		limits:           opts.Limits.withDefaults(),
 		instanceID:       newInstanceID(),
+		plugins:          opts.Plugins,
+		pluginHost:       opts.PluginHost,
 	}
 	a.custody = &custody.Handlers{
 		Store: &custody.Store{Pool: pool},
@@ -483,6 +500,12 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 				// back before it will run.
 				r.Delete("/", a.custody.PurgeOrg)
 				r.Route("/admin", a.custody.Mount)
+				// Plugin administration sits behind the same gate. It is the
+				// consent conversation — the only place a human sees what a
+				// plugin is asking for before it gets it — so the 403 for an
+				// ordinary member is here, in the middleware, and not in
+				// whether the client drew a nav link.
+				r.Route("/admin/plugins", a.mountPlugins)
 			})
 
 			r.Route("/spaces/{slug}/members/{userId}", func(r chi.Router) {

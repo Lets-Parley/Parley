@@ -104,6 +104,25 @@ export type Person = {
   role?: SpaceRole;
   at?: SeatRef;
 };
+/**
+ * One kudo, exactly as the wire sends it. There is no count and no total here
+ * on purpose: the epic forbids anything rankable, and a field the client could
+ * sum is the first step towards a leaderboard.
+ *
+ * `fromUserId` and `toUserId` are not guaranteed to resolve against the space's
+ * current roster — a kudo outlives the recipient leaving — so anything reading
+ * them must have an answer for a userId it cannot name.
+ */
+export type Kudo = {
+  id: string;
+  fromUserId: string;
+  toUserId: string;
+  text: string;
+  createdAt: string;
+  /** The room it was given in, or "" for one given outside a session. */
+  sessionId: string;
+};
+
 export type SpaceRole = "owner" | "member";
 export type SpaceView = {
   slug: string;

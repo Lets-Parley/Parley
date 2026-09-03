@@ -43,12 +43,20 @@ func topic(t *testing.T) string {
 	return fmt.Sprintf("test.%d.%d", time.Now().UnixNano(), installNo)
 }
 
+// testOrgID is the default org, the fixed id 0021_orgs.sql gave it. Installs
+// belong to an org since 0034, and the tests in this package are about the
+// host rather than about ownership, so they all file under the same one; the
+// cross-org attack is pinned in internal/api, where the org comes from the
+// request.
+const testOrgID = "00000000-0000-0000-0000-000000000001"
+
 // install creates an install with a name unique to this run.
 func install(t *testing.T, s *Store, grants ...Grant) Install {
 	t.Helper()
 	installNo++
 	name := fmt.Sprintf("%s-%d-%d", strings.ToLower(t.Name()), time.Now().UnixNano(), installNo)
 	got, err := s.Install(context.Background(), InstallRequest{
+		OrgID:      testOrgID,
 		Name:       name,
 		Version:    "1.0.0",
 		Grants:     grants,
@@ -416,6 +424,7 @@ func TestSecretsAreEncryptedAtRestAndRefuseToInstallWithoutAKey(t *testing.T) {
 
 	keyless := &Store{Pool: pool}
 	_, err := keyless.Install(ctx, InstallRequest{
+		OrgID:      testOrgID,
 		Name:       fmt.Sprintf("keyless-%d", time.Now().UnixNano()),
 		Version:    "1.0.0",
 		Grants:     []Grant{{Capability: CapabilitySecrets}},

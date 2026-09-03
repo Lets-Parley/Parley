@@ -79,9 +79,9 @@ func (s State) Scopes(capability string) []string {
 func (s *Store) State(ctx context.Context, installID string) (State, error) {
 	var out State
 	err := s.Pool.QueryRow(ctx, `
-		select id, name, version, enabled, kv_quota_bytes
+		select id, org_id, name, version, enabled, kv_quota_bytes
 		from plugin_installs where id = $1`, installID).
-		Scan(&out.Install.ID, &out.Install.Name, &out.Install.Version,
+		Scan(&out.Install.ID, &out.Install.OrgID, &out.Install.Name, &out.Install.Version,
 			&out.Install.Enabled, &out.Install.QuotaBytes)
 	if err != nil {
 		return State{}, fmt.Errorf("reading install %s: %w", installID, err)
@@ -102,11 +102,28 @@ func (s *Store) State(ctx context.Context, installID string) (State, error) {
 	return out, rows.Err()
 }
 
-// SetEnabled turns an install on or off.
+// SetEnabled turns an install on or off. It is the host's own path — the
+// breaker disabling a plugin that keeps failing — and takes no org, because
+// the host is acting on an install it is already running rather than on an id
+// somebody put in a URL. The operator's path is Admin.SetEnabled.
 func (s *Store) SetEnabled(ctx context.Context, installID string, enabled bool) error {
 	if _, err := s.Pool.Exec(ctx,
 		`update plugin_installs set enabled = $2 where id = $1`, installID, enabled); err != nil {
 		return fmt.Errorf("setting install %s enabled=%t: %w", installID, enabled, err)
+	}
+	return nil
+}
+
+// setEnabled is the operator's path, and carries the org a second time so that
+// breaking Admin.own alone does not open it.
+func (s *Store) setEnabled(ctx context.Context, orgID, installID string, enabled bool) error {
+	tag, err := s.Pool.Exec(ctx,
+		`update plugin_installs set enabled = $3 where id = $1 and org_id = $2`, installID, orgID, enabled)
+	if err != nil {
+		return fmt.Errorf("setting install %s enabled=%t: %w", installID, enabled, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNoSuchInstall
 	}
 	return nil
 }

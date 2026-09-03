@@ -11,7 +11,7 @@ import spaceDark from "../../../assets/space-room-code-dark.png";
 import settingsLight from "../../../assets/space-settings-light.png";
 import settingsDark from "../../../assets/space-settings-dark.png";
 
-<VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "internal/api/authz.go", "web/src/pages/OrgDirectory.tsx", "web/src/pages/SpacePage.tsx", "web/src/pages/SpaceSettingsPage.tsx", "web/src/components/DecksPanel.tsx", "web/src/pages/Landing.tsx"]} />
+<VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "internal/api/authz.go", "web/src/pages/OrgDirectory.tsx", "web/src/pages/SpacePage.tsx", "web/src/pages/SpaceSettingsPage.tsx", "web/src/components/DecksPanel.tsx", "web/src/components/Kudos.tsx", "web/src/pages/Landing.tsx"]} />
 
 A space is a team's room. It has a memorable URL — `/o/acme/s/platform-team` — a roster,
 and a history of every session run in it.
@@ -205,6 +205,23 @@ page re-reads the space every 30 seconds. Somebody who closes their laptop can
 therefore linger in the count for up to about two minutes. That is the design,
 not a bug — it is the price of never asking a database for a "last seen"
 timestamp and calling it presence.
+
+## Kudos
+
+Below the session list, every space has a **kudos wall**: pick somebody from the
+roster, say in a sentence what they did, and it appears at the top of the wall
+with their name on it. It needs no meeting — thanking a colleague on a Thursday
+afternoon does not wait for a ceremony to be open.
+
+Only the sender can withdraw a kudo, and nobody can edit one: a misdirected
+thank-you can be taken back, but text somebody has already read is never
+rewritten underneath them. A kudo also outlives the people in it — one given to
+somebody who has since left the space stays on the wall, because it is a record
+of something that happened rather than an attribute of a membership.
+
+There is no count, no total and no ordering by anything but time. That is a
+decision, not an omission: the moment a number sits beside a name, the wall
+becomes a scoreboard, and thanking people stops being free.
 
 ## What is not here
 

@@ -34,6 +34,7 @@ there is no second driver and no plan for one.
   { name: "0029_commitment_carry_idempotency", value: "standup_commitments.carried_session_id", note: "Which standup last moved the carry count. Nullable with no backfill — an existing row reads as \"not answered in any session yet\", so its first answer counts normally. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
   { name: "0030_commitment_origin_survives", value: "standup_commitments.opened_session_id", note: "Makes the column nullable and on delete set null, so deleting the room a commitment was opened in no longer deletes the commitment. Rewrites delete behaviour on rows that already exist — nothing is backfilled, but an existing row that used to vanish with its origin room now survives with a null. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
   { name: "0031_plugins", value: "plugin_installs, plugin_grants, plugin_secrets, plugin_kv, plugin_events, plugin_deliveries, plugin_jobs", note: "The plugin foundations. All new tables, so no backfill and nothing existing is rewritten. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
+  { name: "0034_plugin_installs_org", value: "plugin_installs.org_id, unique (org_id, name)", note: "Installs belong to an org. Added nullable, backfilled to the default org, then set not null — and deliberately with no retained DEFAULT, unlike spaces.org_id in 0021: an install is a rare deliberate operator action rather than something users create constantly, so a write that does not name an org must fail rather than land silently in the default org. Replaces the instance-wide unique (name), so two orgs can install the same plugin as two separate installs" },
 ]} />
 
 ### How the runner behaves
@@ -354,7 +355,7 @@ with it.
 
 | Table | What it holds |
 |---|---|
-| `plugin_installs` | What is installed: name, version, whether it is enabled, and its storage quota and counter |
+| `plugin_installs` | What is installed **in one org**: `org_id`, name, version, whether it is enabled, and its storage quota and counter. `unique (org_id, name)` |
 | `plugin_grants` | One row per capability an install may use, optionally narrowed by scope |
 | `plugin_secrets` | Encrypted credentials — nonce and ciphertext, and deliberately no plaintext column |
 | `plugin_kv` | Namespaced key-value storage. A plugin has no SQL, so this is the whole of its durable storage |
@@ -386,6 +387,18 @@ front of live work. `last_error` keeps the reason.
 deliveries have all reached a terminal state are pruned, along with their
 deliveries; an event still waiting on a delivery is never pruned however old it
 is. Adding retention once the table is large would mean a migration under load.
+
+**An install belongs to an org (`0034`).** `plugin_installs.org_id` is `not
+null` and cascades from `orgs`, and a plugin's name is unique *within* an org
+rather than across the instance — two orgs installing the same plugin get two
+installs, with two separate key-value stores and two separate sets of secrets.
+The column is what makes "this install is not yours" expressible at all: the
+admin gate in front of the operator routes resolves the org slug in the
+*caller's own* path, so it proves only that they administer *an* org. Every
+lookup the administration surface makes is therefore scoped to the org the
+request resolved to, and an install belonging to another org answers `404` —
+the same answer an id that was never issued gets, so the surface cannot be used
+to learn what another org has installed.
 
 **`plugin_installs.kv_bytes` is a counter, not a view.** Every key-value write
 adjusts it in the *same statement* as the write it accounts for, and that same

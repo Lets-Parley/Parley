@@ -317,7 +317,7 @@ func (h *Host) call(ctx context.Context, installID, fn string, input []byte, mod
 	if !state.Install.Enabled {
 		return nil, fmt.Errorf("%s: %w", state.Install.Name, ErrDisabled)
 	}
-	if !h.breakerFor(installID).allow(time.Now()) {
+	if !h.breakerAllows(installID) {
 		return nil, fmt.Errorf("%s: %w", state.Install.Name, ErrCircuitOpen)
 	}
 	if !h.acquire(installID) {
@@ -420,9 +420,11 @@ func (h *Host) release(installID string) {
 	}
 }
 
+// breakerFor must be called with h.mu held. Every field of a breaker is
+// touched under that lock: the administration surface reads the same state a
+// call path is writing, and a struct read from another goroutine while a call
+// is charging a failure is a data race however unlikely the interleaving.
 func (h *Host) breakerFor(installID string) *breaker {
-	h.mu.Lock()
-	defer h.mu.Unlock()
 	b, ok := h.breakers[installID]
 	if !ok {
 		b = &breaker{threshold: h.cfg.BreakerFailures, tripLimit: h.cfg.BreakerTripLimit}
@@ -431,32 +433,52 @@ func (h *Host) breakerFor(installID string) *breaker {
 	return b
 }
 
+func (h *Host) breakerAllows(installID string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.breakerFor(installID).allow(time.Now())
+}
+
 // record feeds the breaker and disables an install that has degraded too many
 // times. Disabling is durable: a plugin that has proved it cannot run does not
 // come back on the next restart.
 func (h *Host) record(ctx context.Context, installID, name string, callErr error) {
+	h.mu.Lock()
 	b := h.breakerFor(installID)
 	if callErr == nil {
 		b.success()
+		h.mu.Unlock()
 		return
 	}
 	// A refusal by the containment layer is the host working, not the plugin
 	// failing; charging it would let load disable a healthy plugin.
 	if errors.Is(callErr, ErrTooBusy) || errors.Is(callErr, ErrCircuitOpen) || errors.Is(callErr, ErrDisabled) {
+		h.mu.Unlock()
 		return
 	}
-	switch b.failure(time.Now(), h.cfg.BreakerCooldown) {
+	// Recorded before the switch, so the operator screen can name the failure
+	// whatever stage the breaker reached.
+	b.lastErr = callErr.Error()
+	outcome := b.failure(time.Now(), h.cfg.BreakerCooldown)
+	switch outcome {
 	case breakerDegraded:
+		b.reason = "it failed repeatedly, so calls to it are being refused until the cooldown expires"
 		if h.Log != nil {
 			h.Log.Warn("plugin degraded after repeated failures",
 				"install_id", installID, "plugin", name, "error", callErr)
 		}
 	case breakerExhausted:
-		if err := h.Disable(context.WithoutCancel(ctx), installID,
-			fmt.Sprintf("degraded %d times; last error: %v", h.cfg.BreakerTripLimit, callErr)); err != nil && h.Log != nil {
+		reason := fmt.Sprintf("it degraded %d times and the host gave up on it; last error: %v",
+			h.cfg.BreakerTripLimit, callErr)
+		b.reason = reason
+		// Unlocked before Disable, which evicts the module under the same lock.
+		h.mu.Unlock()
+		if err := h.Disable(context.WithoutCancel(ctx), installID, reason); err != nil && h.Log != nil {
 			h.Log.Error("could not disable a failing plugin", "install_id", installID, "error", err)
 		}
+		return
 	}
+	h.mu.Unlock()
 }
 
 // DirBundles loads bundles from a directory as "<name>-<version>.wasm". A

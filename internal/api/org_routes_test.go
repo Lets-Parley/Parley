@@ -302,7 +302,20 @@ var routeScoping = map[string]string{
 	// not a member of, which makes the org segment the entire authorization
 	// context. Purging the org is mounted at the org itself rather than under
 	// /admin because it is not an action on a space.
-	"DELETE /api/orgs/{org}/":                             "org-scoped",
+	"DELETE /api/orgs/{org}/": "org-scoped",
+	// Plugin administration. Plugins are installed on the instance, but the
+	// operator role that may administer them is an org role, so the tree hangs
+	// off the org for the same reason custody does: the org segment is the
+	// authorization context, and an ordinary member of it gets 403.
+	"GET /api/orgs/{org}/admin/plugins/":              "org-scoped",
+	"POST /api/orgs/{org}/admin/plugins/":             "org-scoped",
+	"POST /api/orgs/{org}/admin/plugins/preview":      "org-scoped",
+	"POST /api/orgs/{org}/admin/plugins/{id}/upgrade": "org-scoped",
+	"POST /api/orgs/{org}/admin/plugins/{id}/enabled": "org-scoped",
+	"DELETE /api/orgs/{org}/admin/plugins/{id}":       "org-scoped",
+	"POST /api/orgs/{org}/admin/plugins/themes":       "org-scoped",
+	"DELETE /api/orgs/{org}/admin/plugins/themes":     "org-scoped",
+
 	"GET /api/orgs/{org}/admin/spaces":                    "org-scoped",
 	"PATCH /api/orgs/{org}/admin/spaces/{slug}":           "org-scoped",
 	"DELETE /api/orgs/{org}/admin/spaces/{slug}":          "org-scoped",
