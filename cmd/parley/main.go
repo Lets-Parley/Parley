@@ -320,9 +320,11 @@ func main() {
 	// The host, and with it the outbox and job handlers. Without PLUGIN_DIR
 	// there is no host: the workers keep their nil handlers and drain nothing,
 	// so an instance with no plugins never instantiates a WASM runtime.
+	var pluginHost *plugin.Host
 	if runtime := plugin.NewRuntime(plugins, cfg.PluginDir, cfg.PluginLimits, log); runtime != nil {
 		defer runtime.Close()
 		runtime.Start(ctx)
+		pluginHost = runtime.Host
 	}
 
 	opts := api.Options{
@@ -337,6 +339,11 @@ func main() {
 		TrustedProxyCIDRs: cfg.TrustedProxyCIDRs,
 		Limits:            cfg.Limits,
 		BootstrapAdmin:    cfg.BootstrapAdmin,
+		// The administration surface reads the store even with no host
+		// running, so an operator on an instance without PLUGIN_DIR still sees
+		// what is installed and is told the host is not running.
+		Plugins:    plugins,
+		PluginHost: pluginHost,
 	}
 	if cfg.AuthMode == api.ModeOIDC {
 		// Discovery happens on the first sign-in rather than here: an identity

@@ -126,12 +126,22 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// ordering that produces it is pinned. This is the widest surface in the
 	// product: it lists every space in an org, private ones included, and
 	// purges the org. A link handed to a stranger must not reach a byte of it.
-	"DELETE /api/orgs/{org}/":                             {status: http.StatusUnauthorized},
-	"GET /api/orgs/{org}/admin/spaces":                    {status: http.StatusUnauthorized},
-	"PATCH /api/orgs/{org}/admin/spaces/{slug}":           {status: http.StatusUnauthorized},
-	"DELETE /api/orgs/{org}/admin/spaces/{slug}":          {status: http.StatusUnauthorized},
-	"POST /api/orgs/{org}/admin/spaces/{slug}/owners":     {status: http.StatusUnauthorized},
-	"POST /api/orgs/{org}/admin/spaces/{slug}/claim":      {status: http.StatusUnauthorized},
+	"DELETE /api/orgs/{org}/":                         {status: http.StatusUnauthorized},
+	"GET /api/orgs/{org}/admin/spaces":                {status: http.StatusUnauthorized},
+	"PATCH /api/orgs/{org}/admin/spaces/{slug}":       {status: http.StatusUnauthorized},
+	"DELETE /api/orgs/{org}/admin/spaces/{slug}":      {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/admin/spaces/{slug}/owners": {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/admin/spaces/{slug}/claim":  {status: http.StatusUnauthorized},
+	// Plugin administration, behind the same RequireUser gate: a link guest is
+	// not a user, so it never reaches the org-membership check behind it.
+	"GET /api/orgs/{org}/admin/plugins/":                  {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/admin/plugins/":                 {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/admin/plugins/preview":          {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/admin/plugins/{id}/upgrade":     {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/admin/plugins/{id}/enabled":     {status: http.StatusUnauthorized},
+	"DELETE /api/orgs/{org}/admin/plugins/{id}":           {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/admin/plugins/themes":           {status: http.StatusUnauthorized},
+	"DELETE /api/orgs/{org}/admin/plugins/themes":         {status: http.StatusUnauthorized},
 	"GET /api/orgs/{org}/admin/members":                   {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/admin/members/{userId}/role":    {status: http.StatusUnauthorized},
 	"DELETE /api/orgs/{org}/admin/members/{userId}":       {status: http.StatusUnauthorized},
