@@ -344,6 +344,13 @@ migration and embedding mistakes that unit tests miss.
     lease a second worker re-delivers a row that is still marked pending.
 33. Dependabot watches only `site/`. Go modules and `web/` dependencies are
     bumped by hand, with tests.
+34. `.dockerignore` patterns match source paths too, not just real secrets.
+    `**/secrets*` also matched `internal/plugin/secrets.go` and dropped it
+    from the Docker build context, so `plugin` lost symbols another file in
+    the package referenced. A red `docker build and smoke` alongside a green
+    `go` check on the same commit means a file got excluded from the image
+    build, not a real compile error — diff `.dockerignore` against the PR's
+    new filenames before chasing the symbol.
 
 ## Scope
 
