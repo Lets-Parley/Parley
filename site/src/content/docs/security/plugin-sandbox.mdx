@@ -175,12 +175,16 @@ part of the boundary rather than as copy:
   because `session_kinds` rows are retired rather than deleted, and an
   unretired kind whose provider is gone is a kind a *new* room can still be
   created with.
-- **Health is visible.** A plugin the circuit breaker has degraded or disabled
-  says so on the page, with its reason and its last error, instead of silently
-  doing nothing. The breaker's judgement stays in memory, where it belongs — a
-  persisted cooldown could not be cleared by a restart — and is read out through
-  the administration API; the durable half, whether an install is enabled, was
-  already in `plugin_installs`.
+- **Health is visible, and never asserted past what the server can see.** A
+  plugin the circuit breaker has degraded or disabled says so on the page, with
+  its reason and its last error, instead of silently doing nothing. The
+  breaker's judgement stays in memory, where it belongs — a persisted cooldown
+  could not be cleared by a restart — and is read out through the
+  administration API; the durable half, whether an install is enabled, was
+  already in `plugin_installs`. When no plugin host is running at all, an
+  enabled install reports `unknown` rather than `healthy`: nothing is running
+  to have checked it, and the page says so instead of implying a check that
+  never happened.
 - **An unscoped grant is never described in the singular.** An empty scope means
   "any", so `session:read` with no scope is read access to every session on the
   instance and `secrets` with no scope is every secret on it. The sentence says

@@ -206,6 +206,30 @@ describe("health", () => {
     expect(within(card).getByText(/dial tcp: connection refused/)).toBeTruthy();
   });
 
+  it("does not call an install healthy when no host is running to have observed it", async () => {
+    registry = {
+      hostRunning: false,
+      secretsAvailable: false,
+      installs: [
+        {
+          id: "p1",
+          name: "jira-sync",
+          version: "1.0.0",
+          enabled: true,
+          grants: [logGrant],
+          provides: [],
+          health: { state: "unknown", reason: "no plugin host is running on this instance" },
+        },
+      ],
+    };
+    render();
+    const card = (await screen.findByRole("heading", { name: /jira-sync/i })).closest("article")!;
+    expect(within(card).queryByText("Running")).toBeNull();
+    expect(within(card).queryByText("Disabled")).toBeNull();
+    expect(within(card).getByText("Not observable")).toBeTruthy();
+    expect(within(card).getByText(/no plugin host is running on this instance/)).toBeTruthy();
+  });
+
   it("explains which sessions block an uninstall rather than just refusing", async () => {
     registry = {
       hostRunning: true,

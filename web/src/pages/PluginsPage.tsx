@@ -621,11 +621,29 @@ function InstalledCard({
   );
 }
 
+// Kept on every card, even when the banner above has already said no health
+// is observable: a missing badge here reads as "fine", the same lie this
+// screen exists to not tell. Repeating "Not observable" on each card is a
+// little noisy, but it is honest at the one place an operator's eye actually
+// lands — the card for the plugin they're looking at — without them having to
+// remember a banner they scrolled past.
 function HealthBadge({ health }: { health: InstalledPlugin["health"] }) {
   const word =
-    health.state === "healthy" ? "Running" : health.state === "degraded" ? "Degraded" : "Disabled";
+    health.state === "healthy"
+      ? "Running"
+      : health.state === "degraded"
+        ? "Degraded"
+        : health.state === "unknown"
+          ? "Not observable"
+          : "Disabled";
   const tone =
-    health.state === "healthy" ? "text-go" : health.state === "degraded" ? "text-brass" : "text-stop";
+    health.state === "healthy"
+      ? "text-go"
+      : health.state === "degraded"
+        ? "text-brass"
+        : health.state === "unknown"
+          ? "text-ink-faint"
+          : "text-stop";
   return (
     <>
       <strong className={tone}>{word}</strong>

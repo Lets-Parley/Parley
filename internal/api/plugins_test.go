@@ -432,6 +432,55 @@ func TestApplyingAThemeIsAudited(t *testing.T) {
 }
 
 // The browser reads the wire, not the Go struct: a slice field that is nil at
+// With no plugin host running, the server cannot observe anything about an
+// enabled install's runtime health — so it must not assert HealthOK, which
+// reads to an operator as "this was checked and is fine". Disabled must stay
+// exactly as before: it is durable in plugin_installs.enabled and is known
+// without a host.
+func TestHealthWithoutAHostIsUnknownNotHealthy(t *testing.T) {
+	srv, _, _, admin, _ := pluginServer(t)
+
+	name := newPluginName(t)
+	resp, body := doJSON(t, srv, "POST", pluginsPath,
+		`{"grantsAccepted":true,"package":`+pluginPkg(name, "1.0.0")+`}`, admin)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("install = %d: %v", resp.StatusCode, body)
+	}
+	id, _ := body["id"].(string)
+
+	_, listBody := doJSON(t, srv, "GET", pluginsPath, "", admin)
+	installs, _ := listBody["installs"].([]any)
+	var enabledHealth map[string]any
+	for _, raw := range installs {
+		m, _ := raw.(map[string]any)
+		if m["id"] == id {
+			enabledHealth, _ = m["health"].(map[string]any)
+		}
+	}
+	if enabledHealth == nil {
+		t.Fatalf("the new install did not appear in the list: %v", listBody)
+	}
+	if enabledHealth["state"] == plugin.HealthOK {
+		t.Fatalf("an enabled install with no host running reports health %v — nothing is running to have observed that", enabledHealth)
+	}
+	if enabledHealth["state"] != plugin.HealthUnknown {
+		t.Fatalf("an enabled install with no host running reports health %v, want state %q", enabledHealth, plugin.HealthUnknown)
+	}
+	if enabledHealth["reason"] == "" {
+		t.Fatalf("an unknown health reports no reason: %v", enabledHealth)
+	}
+
+	// Disabled is unaffected: it is durable and known without a host.
+	resp, disableBody := doJSON(t, srv, "POST", pluginsPath+"/"+id+"/enabled", `{"enabled":false}`, admin)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("disable = %d: %v", resp.StatusCode, disableBody)
+	}
+	disabledHealth, _ := disableBody["health"].(map[string]any)
+	if disabledHealth["state"] != plugin.HealthDisabled || disabledHealth["reason"] != "an operator switched it off" {
+		t.Fatalf("a disabled install with no host reports health %v", disabledHealth)
+	}
+}
+
 // marshal time serializes as JSON null, and PluginsPage.tsx indexes straight
 // into every one of these with `.length`, which throws on null. Every place
 // the API declares an array — provides, and a preview's added/removed — must

@@ -19,7 +19,7 @@ export type DescribedGrant = {
 };
 
 export type PluginHealth = {
-  state: "healthy" | "degraded" | "disabled";
+  state: "healthy" | "degraded" | "disabled" | "unknown";
   reason: string;
   lastError?: string;
   recoversAt?: string;

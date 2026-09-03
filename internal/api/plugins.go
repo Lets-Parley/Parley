@@ -188,7 +188,17 @@ func (a *app) installView(ctx context.Context, adm *plugin.Admin, id string) (in
 		// session kinds — the common case, and the one that white-screened
 		// the page.
 		Provides: []string{},
-		Health:   plugin.Health{State: plugin.HealthOK},
+		// Enabled is durable in plugin_installs.enabled and is genuinely
+		// known without a host, so that case is decided below regardless of
+		// a.pluginHost. Everything else about an install's health is a
+		// running judgement the host holds in memory: with no host running,
+		// there is nothing to assert, so an enabled install defaults to
+		// HealthUnknown rather than the HealthOK a missing host cannot back
+		// up.
+		Health: plugin.Health{
+			State:  plugin.HealthUnknown,
+			Reason: "no plugin host is running on this instance",
+		},
 	}
 	if !state.Install.Enabled {
 		out.Health = plugin.Health{State: plugin.HealthDisabled, Reason: "an operator switched it off"}

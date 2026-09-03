@@ -19,6 +19,12 @@ const (
 	// HealthDisabled is durable, and is either an operator's decision or the
 	// breaker giving up. Which one it was is in Reason.
 	HealthDisabled = "disabled"
+	// HealthUnknown is what an enabled install reports when there is no
+	// plugin host running to ask. It is not "healthy" — nobody has looked —
+	// and it is not "degraded" or "disabled" either, since neither of those
+	// is known to be true. The breaker's judgement lives entirely in the
+	// host's memory, so with no host there is nothing to report.
+	HealthUnknown = "unknown"
 )
 
 // Health is what the administration surface says about one install.
