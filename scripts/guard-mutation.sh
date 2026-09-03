@@ -83,7 +83,13 @@ run_tests() {
         # exists from Node 26, and an older Node exits on an unknown option --
         # so the runner needs it and a developer box may refuse it. Probe once
         # rather than pick an environment to be correct in.
-        (cd web && NODE_OPTIONS=$WEB_NODE_OPTIONS npx vitest run "${spec%%::*}" -t "${spec#*::}") >"$LOG" 2>&1
+        # NO_COLOR: this harness reads vitest's summary line to tell a real
+        # run from one that matched no test. A terminal-less local pipe is
+        # already plain, but the runner gets colour, and the escapes land
+        # between "Tests" and the count -- so the check silently stopped
+        # matching in CI and every web guard reported as unscored.
+        (cd web && NO_COLOR=1 NODE_OPTIONS=$WEB_NODE_OPTIONS \
+            npx vitest run "${spec%%::*}" -t "${spec#*::}") >"$LOG" 2>&1
         return $?
     fi
     # -timeout keeps a mutation that removes a timeout from hanging the leg
