@@ -572,6 +572,15 @@ function spaceReads(): number {
     ).length;
 }
 
+// kudosReads counts reads of the kudos panel specifically — spaceReads above
+// excludes /kudos on purpose, so nothing else in this file would notice the
+// wall over-polling.
+function kudosReads(): number {
+  return vi
+    .mocked(api)
+    .mock.calls.filter((c) => c[0] === "GET" && String(c[1]).endsWith("/kudos")).length;
+}
+
 /**
  * Renaming and deleting, from the space down to one room. The controls are a
  * courtesy — the server enforces the same owner rule — so what is asserted
@@ -1332,6 +1341,7 @@ describe("SpacePage kudos wall", () => {
 
   afterEach(() => {
     view = space;
+    vi.useRealTimers();
   });
 
   async function open() {
@@ -1387,6 +1397,31 @@ describe("SpacePage kudos wall", () => {
     expect(await wall.findByTestId("kudos-empty")).toBeTruthy();
   });
 
+  it("renders kudos in the order the GET returns them, newest first", async () => {
+    kudos = [
+      {
+        id: "k11",
+        fromUserId: "dana",
+        toUserId: "marcus",
+        text: "Second kudo, given later.",
+        createdAt: "2026-09-03T10:00:00.000Z",
+        sessionId: "",
+      },
+      {
+        id: "k10",
+        fromUserId: "marcus",
+        toUserId: "dana",
+        text: "First kudo, given earlier.",
+        createdAt: "2026-09-03T09:00:00.000Z",
+        sessionId: "",
+      },
+    ];
+    const wall = await open();
+    await wall.findByTestId("kudo-k11");
+    const ids = wall.getAllByTestId(/^kudo-k\d+$/).map((el) => el.getAttribute("data-testid"));
+    expect(ids).toEqual(["kudo-k11", "kudo-k10"]);
+  });
+
   it("offers no withdraw control on somebody else's kudo", async () => {
     kudos = [
       {
@@ -1401,5 +1436,43 @@ describe("SpacePage kudos wall", () => {
     const wall = await open();
     const row = await wall.findByTestId("kudo-k8");
     expect(within(row).queryByRole("button", { name: /Withdraw/ })).toBe(null);
+  });
+
+  it("shows the server's error when giving a kudo is rejected", async () => {
+    const wall = await open();
+    // Only the kudo POST is made to fail; everything else keeps reading the
+    // normal fixtures, exactly like the server's real 409 cap response.
+    vi.mocked(api).mockImplementation(async (method: string, path: string, body?: unknown) => {
+      if (method === "POST" && path.endsWith("/kudos")) {
+        throw new ApiError(409, "This space has reached its kudos cap for today.");
+      }
+      return defaultApi(method, path, body);
+    });
+
+    await userEvent.selectOptions(wall.getByLabelText("To"), "dana");
+    await userEvent.type(wall.getByLabelText("For what"), "Shipped the fix.");
+    await userEvent.click(wall.getByRole("button", { name: "Give kudos" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toContain(
+        "This space has reached its kudos cap for today.",
+      ),
+    );
+    // The failed kudo never joined the wall.
+    expect(wall.queryByTestId("kudos-empty")).toBeTruthy();
+  });
+
+  it("reads the kudos wall once per mount and does not poll it on a timer", async () => {
+    vi.useFakeTimers();
+    vi.mocked(api).mockImplementation(defaultApi);
+    view = roster;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(kudosReads()).toBe(1);
+
+    // The space itself polls every 30s (see "re-reads the space on a timer"
+    // above); the kudos wall must not ride along with it.
+    await vi.advanceTimersByTimeAsync(30_100);
+    expect(kudosReads()).toBe(1);
   });
 });

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderApp, makePerson } from "../test/render";
 import { expectNoViolations } from "../test/axe";
@@ -120,6 +120,30 @@ describe("Kudos wall", () => {
     // Hand-written: 280 - 5.
     expect(screen.getByTestId("kudos-left").textContent).toContain("275");
     expect(screen.getByRole("button", { name: "Give kudos" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("counts an emoji as one rune, not the two UTF-16 units it occupies", async () => {
+    mount();
+    const field = await screen.findByLabelText("For what");
+    // Set directly: userEvent.type drives one keystroke per UTF-16 unit, which
+    // mis-simulates a real emoji keystroke and is what would mask this bug.
+    fireEvent.change(field, { target: { value: "🎉" } });
+    // Hand-written: 280 - 1 rune. A UTF-16-length count would read 278 (two units).
+    expect(screen.getByTestId("kudos-left").textContent).toContain("279");
+  });
+
+  it("disables submit only once the rune count, not the UTF-16 length, exceeds 280", async () => {
+    mount();
+    // A recipient is required too; select one so the count is the only thing
+    // this assertion is pinning.
+    await userEvent.selectOptions(await screen.findByLabelText("To"), "dana");
+    const field = screen.getByLabelText("For what");
+    // 280 emoji is exactly 280 runes but 560 UTF-16 units, so a UTF-16-length
+    // count would already have refused this as over the limit.
+    const text = "🎉".repeat(280);
+    fireEvent.change(field, { target: { value: text } });
+    expect(screen.getByTestId("kudos-left").textContent).toContain("0");
+    expect(screen.getByRole("button", { name: "Give kudos" }).hasAttribute("disabled")).toBe(false);
   });
 });
 
