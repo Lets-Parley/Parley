@@ -338,6 +338,12 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
     void opts.onAction(action, payload ?? {});
   }
 
+  /** Whether the redacted projection is over the wire cap. */
+  function tooLargeToPush(env: Envelope): boolean {
+    const body = JSON.stringify(redactSession(env, opts.grants) ?? {});
+    return body.length > MAX_MESSAGE_BYTES;
+  }
+
   function flush(): void {
     pushTimer = null;
     if (!pending) return;
@@ -375,10 +381,7 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
       pending = env;
       // Coalescing: the newest state wins and at most one push lands per
       // interval, so a busy room cannot become the frame's load.
-      if (
-        JSON.stringify(redactSession(env, opts.grants) ?? {}).length >
-        MAX_MESSAGE_BYTES
-      ) {
+      if (tooLargeToPush(env)) {
         opts.onFailure("oversize-outbound");
         pending = null;
         return;

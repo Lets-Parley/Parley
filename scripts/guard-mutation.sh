@@ -13,12 +13,34 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-PKG=./internal/plugin
-SRC=internal/plugin
+# The guards no longer all live in one package: the plugin sandbox has a
+# frontend half now, so a tree here is either a Go package or the web app, and
+# `target` switches which one the mutations below are aimed at.
+TREES=(internal/plugin internal/api web/src)
 BACKUP=$(mktemp -d)
 LOG=$(mktemp)
-trap 'cp -a "$BACKUP"/. "$SRC"/ 2>/dev/null || true; rm -rf "$BACKUP" "$LOG"' EXIT
-cp -a "$SRC"/. "$BACKUP"/
+
+restore_all() {
+    for tree in "${TREES[@]}"; do
+        cp -a "$BACKUP/${tree//\//_}"/. "$tree"/ 2>/dev/null || true
+    done
+}
+trap 'restore_all; rm -rf "$BACKUP" "$LOG"' EXIT
+for tree in "${TREES[@]}"; do
+    mkdir -p "$BACKUP/${tree//\//_}"
+    cp -a "$tree"/. "$BACKUP/${tree//\//_}"/
+done
+
+PKG=./internal/plugin
+SRC=internal/plugin
+RUNNER=go
+
+# target <tree> [go|web] — where the next mutations patch and how they are run.
+target() {
+    SRC=$1
+    RUNNER=${2:-go}
+    PKG=./$1
+}
 
 failures=0
 checked=0
@@ -42,7 +64,7 @@ mutate() {
     local name=$1 tests=$2
     shift 2
     checked=$((checked + 1))
-    cp -a "$BACKUP"/. "$SRC"/
+    cp -a "$BACKUP/${SRC//\//_}"/. "$SRC"/
 
     while [ "$#" -ge 3 ]; do
         local file=$1 find=$2 replace=$3
@@ -73,7 +95,17 @@ mutate() {
     # it is a lint as well as a type-check: its `unreachable` analyzer fails
     # three of the mutations below, which return early on purpose. A gate that
     # says "did not compile" must mean it.
-    if ! go test -run 'XXNONEXX' -count=1 "$PKG" >"$LOG" 2>&1; then
+    if [ "$RUNNER" = "web" ]; then
+        # vitest transpiles without type-checking, so a mutation that breaks
+        # the types would still run and would still be scored. tsc is the
+        # equivalent of the compile gate below.
+        if ! (cd web && npx tsc -b) >"$LOG" 2>&1; then
+            echo "MUTATION DID NOT COMPILE: $name — a build break is not a caught mutation."
+            sed -n '1,40p' "$LOG"
+            failures=$((failures + 1))
+            return
+        fi
+    elif ! go test -run 'XXNONEXX' -count=1 "$PKG" >"$LOG" 2>&1; then
         echo "MUTATION DID NOT COMPILE: $name — a build break is not a caught mutation."
         sed -n '1,40p' "$LOG"
         failures=$((failures + 1))
@@ -82,7 +114,8 @@ mutate() {
 
     # -timeout keeps a mutation that removes a timeout from hanging the leg
     # forever; a hung run is still a red run, which is the answer we want.
-    if go test "$PKG" -run "$tests" -count=1 -timeout 60s >"$LOG" 2>&1; then
+    if { [ "$RUNNER" = "web" ] && (cd web && npx vitest run "$tests") >"$LOG" 2>&1; } ||
+        { [ "$RUNNER" = "go" ] && go test "$PKG" -run "$tests" -count=1 -timeout 120s >"$LOG" 2>&1; }; then
         echo "SURVIVED: $name — the guard was broken and '$tests' still passed."
         sed -n '1,40p' "$LOG"
         failures=$((failures + 1))
@@ -169,7 +202,87 @@ mutate "the breaker's reset on success" \
     'TestASuccessBetweenTwoFailuresKeepsTheBreakerClosed' \
     breaker.go 'func (b *breaker) success() { b.failures = 0 }' 'func (b *breaker) success() {}'
 
-cp -a "$BACKUP"/. "$SRC"/
+
+# ---------------------------------------------------------------------------
+# The frontend half of the sandbox: the framed route's header carve-out, and
+# the bridge that is the only thing a plugin's UI can reach.
+# ---------------------------------------------------------------------------
+
+target internal/api
+
+mutate "the plugin frame's route-group carve-out" \
+    'TestThePluginFrameIsNotDeniedByXFrameOptions' \
+    router.go 'a.mountPluginFrame(root)
+	r := root.With(securityHeaders)' 'r := root.With(securityHeaders)
+	a.mountPluginFrame(r)'
+
+mutate "the framed document's connect-src 'none'" \
+    'TestThePluginFrameIsNotDeniedByXFrameOptions' \
+    pluginframe.go "connect-src 'none'; " "connect-src *; "
+
+mutate "the framed document's frame-ancestors" \
+    'TestThePluginFrameIsNotDeniedByXFrameOptions' \
+    pluginframe.go "frame-ancestors 'self'; " "frame-ancestors *; "
+
+mutate "the script-close-tag escape in the frame document" \
+    'TestAScriptCloseTagInAUIBundleCannotBreakOutOfTheFrameScript' \
+    pluginframe.go 'return strings.NewReplacer("</", `<\/`, "<!--", `<\!--`).Replace(js)' 'return js //nolint
+'
+
+mutate "the plugin UI bundle path screen" \
+    'TestThePluginFrameRefusesANameThatClimbsOutOfThePluginDirectory' \
+    pluginframe.go 'if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {
+			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)' 'if false {
+			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)'
+
+mutate "the audit's check that the named plugin is installed" \
+    'TestAnActionNamingAPluginThisInstanceDoesNotRunIsNotRecorded' \
+    pluginaudit.go '`select exists (select 1 from plugin_installs where name = $1 and enabled)`' '`select $1::text is not null`'
+
+mutate "the audit's success gate" \
+    'TestARefusedPluginActionIsNotRecorded' \
+    pluginaudit.go 'if rec.status < 200 || rec.status >= 300 {' 'if false {'
+
+target web/src web
+
+mutate "the frame sandbox attribute" \
+    'src/components/PluginPanel.test.tsx' \
+    lib/pluginBridge.ts 'export const PLUGIN_SANDBOX = "allow-scripts";' 'export const PLUGIN_SANDBOX = "allow-scripts allow-same-origin";'
+
+mutate "inerting a plugin frame under a modal" \
+    'src/components/PluginPanel.test.tsx' \
+    components/PluginPanel.tsx 'el.toggleAttribute("inert", modalOpen);' 'el.toggleAttribute("inert", false);'
+
+mutate "the reveal gate on vote values crossing the bridge" \
+    'src/lib/pluginBridge.test.ts' \
+    lib/pluginBridge.ts 'if (revealed && s.votes) {' 'if (s.votes) {' \
+    lib/pluginBridge.ts 'if (revealed && s.results) story.results = s.results;' 'if (s.results) story.results = s.results;'
+
+mutate "the session:read grant check" \
+    'src/lib/pluginBridge.test.ts' \
+    lib/pluginBridge.ts 'if (!grants.includes(GRANT_SESSION_READ)) return null;' 'if (grants.includes("no-such-grant")) return null;'
+
+mutate "the session:act grant check" \
+    'src/lib/pluginBridge.test.ts' \
+    lib/pluginBridge.ts 'if (!opts.grants.includes(GRANT_SESSION_ACT)) {' 'if (false) {'
+
+mutate "the inbound message size cap" \
+    'src/lib/pluginBridge.test.ts' \
+    lib/pluginBridge.ts 'if (raw.length > MAX_MESSAGE_BYTES) {' 'if (false) {'
+
+mutate "the inbound message rate cap" \
+    'src/lib/pluginBridge.test.ts' \
+    lib/pluginBridge.ts 'if (stamps.length >= MAX_MESSAGES_PER_SECOND) {' 'if (false) {'
+
+mutate "the outbound message size cap" \
+    'src/lib/pluginBridge.test.ts' \
+    lib/pluginBridge.ts 'return body.length > MAX_MESSAGE_BYTES;' 'return false && body.length > MAX_MESSAGE_BYTES;'
+
+mutate "the handshake timeout" \
+    'src/lib/pluginBridge.test.ts' \
+    lib/pluginBridge.ts 'opts.onFailure("handshake-timeout");' '// the frame is simply never given up on'
+
+restore_all
 
 echo
 if [ "$failures" -ne 0 ]; then

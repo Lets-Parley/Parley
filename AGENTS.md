@@ -380,7 +380,10 @@ issue first. For anything large, open an issue before writing code.
 
 35. **Plugin sandbox guards are covered by mutation, not by a passing test.**
     `scripts/guard-mutation.sh` is a CI leg: it breaks each guard in
-    `internal/plugin` on purpose and fails if the test covering it stays green.
+    `internal/plugin`, `internal/api` and `web/src` on purpose and fails if the
+    test covering it stays green. `target <tree> [go|web]` switches which tree
+    the mutations after it patch, and the web ones are gated on `tsc -b` rather
+    than a Go build.
     If you add a guard, add its mutation; if you move the line a mutation
     anchors on, the leg fails loudly with `MUTATION SETUP FAILED` rather than
     quietly passing. Several guards are enforced at two sites on purpose (the
@@ -388,13 +391,29 @@ issue first. For anything large, open an issue before writing code.
     the Extism manifest) — mutate every site at once or the leg reports a
     survivor that is really the second site holding.
 
-36. **Plugin capability grants are checked inside the host function, never at
+36. **The plugin UI frame's header carve-out is a chi route group, never a
+    path check.** `securityHeaders` sets `X-Frame-Options: DENY` for the whole
+    instance, and a framed document that carries it is blocked before its CSP
+    is read — so `/plugin-ui/…` is registered in its own group, which never
+    runs that middleware. Do not "simplify" this into a prefix check inside
+    `securityHeaders`: a prefix check is a matching rule, and matching rules
+    get evaded. `TestEveryNonPluginRouteStillSendsXFrameOptionsDeny` walks the
+    real routing tree, so a route that drifts into the group goes red.
+
+37. **Nothing reaches a plugin frame that `redactSession` did not build.** It
+    is a projection, not a filter: vote values are written into it only once
+    the round is revealed, so a pre-reveal value has no path into the payload.
+    Do not rewrite it as "copy the envelope, then delete what is hidden" — a
+    field the projection never writes cannot be forgotten, and a field a filter
+    does not know about is shipped.
+
+38. **Plugin capability grants are checked inside the host function, never at
     load time and never against the bundle.** `Store.State` is read on every
     call so a revoked grant stops working on the next call rather than the next
     restart. Do not add a cache in front of it without a way to invalidate it,
     and never read capabilities from anything the plugin author writes.
 
-37. **The plugin fetch guard resolves once, screens every record, and dials the
+39. **The plugin fetch guard resolves once, screens every record, and dials the
     address it screened — for every redirect hop.** Do not "simplify" it into
     an `http.Client` with `CheckRedirect`; following redirects with the
     standard client re-resolves the hostname and re-checks nothing, which is

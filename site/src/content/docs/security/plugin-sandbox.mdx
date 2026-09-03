@@ -107,6 +107,88 @@ reaches a hook from a cache that a job filled.
   { name: "Bounded module cache", status: "built", detail: "Compiled once at enable time, evicted least-recently-used past the bound, and evicted outright when a plugin is disabled rather than left resident." },
 ]} />
 
+## Plugin UI
+
+A plugin that draws something gets a rectangle, not the page.
+
+Its UI is served from `/plugin-ui/<name>/<version>` and embedded in an iframe
+with `sandbox="allow-scripts"` — and **nothing else**. `allow-same-origin` is
+the attribute that would undo the whole thing: with it the frame shares the
+app's origin, which means the session cookie, the API as the signed-in user,
+and a `fetch` it can monkey-patch. A grant it can bypass in three lines is
+decoration. Without it the frame has an opaque origin, and no second HTTP
+origin has to be deployed to get one.
+
+The framed document's policy is `default-src 'none'` with `connect-src 'none'`.
+Plugin UI cannot make a network request at all — no fetch, no socket, no
+beacon, no image. That is what makes a capability grant enforceable, because
+every byte the plugin sees has to come through the host, and it is also why an
+air-gapped install works.
+
+Because the frame can load nothing, the host assembles the document: the bridge
+bootstrap and the plugin's own bundle are inlined into it. A UI bundle lives
+beside its wasm as `<name>-<version>.ui.js`, and its name and version are
+screened for path separators exactly as the wasm bundle's are.
+
+### The header carve-out is a route group, not a path check
+
+Parley sends `X-Frame-Options: DENY` on every response, and a framed document
+that carries it is blocked by every browser before its CSP is read. So
+`securityHeaders` splits into two route-scoped profiles: the plugin frame lives
+in a chi route group with its own middleware, which never runs the DENY-setting
+one, and answers `frame-ancestors 'self'` instead.
+
+It is deliberately **not** a path-prefix check inside `securityHeaders`. A
+prefix check is a matching rule, and matching rules get evaded. A route group is
+reachable only by being registered in it — and a test walks the real routing
+tree and holds every other route to `DENY`, so the carve-out cannot widen
+without going red.
+
+### Authentication is by channel identity
+
+The frame's origin is the string `"null"`. So is every other opaque frame's, in
+this tab or any other, so `event.origin` proves nothing and checking it is not
+security. The port is the credential instead: the host creates one
+`MessageChannel` per frame, transfers one half in the handshake, and never reads
+`window.onmessage` again. A port is unforgeable and unicast, so a message
+arriving on it came from the frame it was handed to.
+
+### Redaction runs host-side, before anything crosses
+
+Session state is pushed from the react-query cache the room already keeps —
+there is no second websocket — and it is redacted first. The projection is
+built field by field rather than filtered: vote values are only ever *written*
+into it once the round is revealed, so a pre-reveal value has no path into the
+payload. There is nothing to strip and therefore nothing to forget to strip,
+which is the same discipline `poker.buildState` holds on the server. A plugin
+with no `session:read` grant is handed nothing at all, and the space and org a
+room belongs to never cross.
+
+### Actions are host-mediated
+
+A plugin proposes; the host performs, using the user's own cookie against the
+same route the user's own click would hit. The plugin never receives a
+credential and can only ask for what the user could already do — and the server
+re-authorises every call regardless of what was asked. `X-Parley-Plugin-Route`
+names the plugin so `org_audit_log` records which surface an action came from.
+It authorises nothing, and it is checked against the installs table before it is
+written: an unchecked header would let any visitor write arbitrary text into an
+org's audit log.
+
+### Bounds in both directions, and failure that shows
+
+<Capability rows={[
+  { name: "Message size cap", status: "built", detail: "64 KiB per message, both ways, measured on the encoded string and checked before parsing — parsing is the expensive half." },
+  { name: "Inbound rate cap", status: "built", detail: "30 messages a second from the frame. Real plugin UI sends one per gesture; exceeding it closes the port rather than throttling, because a plugin that floods is broken or hostile and both want the same answer." },
+  { name: "Outbound coalescing", status: "built", detail: "State pushes are coalesced to one every 100ms with the newest winning, so a busy room's traffic cannot become the frame's load." },
+  { name: "Explicit failure", status: "built", detail: "A handshake that never lands renders a card saying so, never a blank rectangle." },
+  { name: "Crash breaker", status: "built", detail: "Repeated failures stop the panel reloading that plugin; the window slides, and the reader can retry." },
+  { name: "Inert under modals", status: "built", detail: "Frames carry the platform's <code>inert</code> attribute while a host modal is open, so focus cannot tab underneath the overlay." },
+]} />
+
+Design tokens are pushed into the frame over the same port, so plugin UI
+re-themes with the app without being able to read the app.
+
 ## How these claims are kept honest
 
 Each guarantee above has a hostile fixture behind it — a WebAssembly guest that
