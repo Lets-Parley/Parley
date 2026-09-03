@@ -62,7 +62,18 @@ mutate() {
     # like the strongest kind of pass. So the package has to still build
     # before its test result means anything, and a mutation that breaks the
     # build is a failure of this harness rather than a caught guard.
-    if ! go build "$PKG" >"$LOG" 2>&1; then
+    #
+    # The gate builds the *test* binary rather than the package, because
+    # `go build` does not compile _test.go files: a mutation that broke only a
+    # test file built clean and was then scored "caught" for exactly the
+    # vacuous reason this gate exists to catch. `go test -run XXNONEXX` matches
+    # no test, so it compiles everything and runs nothing.
+    #
+    # `go vet` would type-check the test files too, and would be cheaper, but
+    # it is a lint as well as a type-check: its `unreachable` analyzer fails
+    # three of the mutations below, which return early on purpose. A gate that
+    # says "did not compile" must mean it.
+    if ! go test -run 'XXNONEXX' -count=1 "$PKG" >"$LOG" 2>&1; then
         echo "MUTATION DID NOT COMPILE: $name — a build break is not a caught mutation."
         sed -n '1,40p' "$LOG"
         failures=$((failures + 1))
@@ -137,6 +148,14 @@ mutate "the compiled-module cache bound" \
 mutate "the pending-upgrade hold" \
     'TestAnUpgradeAskingForMoreParksAndTheOldGrantsStayInForce' \
     grants.go 'if !current.Allows(g.Capability, g.Scope) {' 'if current.Allows(g.Capability, g.Scope) && false {'
+
+# A capability refusal downgraded to a malformed-input error is a policy
+# decision reported as a client bug: a guest retries a permanent denial
+# forever, and an operator reading the log looks for the wrong fault. The
+# sentinel, not just the fact of a refusal, is what the test has to pin.
+mutate "the sentinel on a capability refusal" \
+    'TestEveryCapabilityRefusalKeepsItsSentinel' \
+    hostfn.go 'CapabilityKV, req.Scope, ErrNotGranted' 'CapabilityKV, req.Scope, ErrBadRequest'
 
 mutate "the credential strip across a redirect to another host" \
     'TestCredentialsDoNotFollowARedirectToAnotherHost' \

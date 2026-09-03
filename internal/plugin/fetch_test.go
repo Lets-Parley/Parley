@@ -277,7 +277,9 @@ func TestCredentialsDoNotFollowARedirectToAnotherHost(t *testing.T) {
 		Headers: map[string]string{
 			"Authorization":       "Bearer TOPSECRET",
 			"Cookie":              "sid=abc",
+			"Cookie2":             "sid2=def",
 			"Proxy-Authorization": "Basic ZGVhZDpiZWVm",
+			"Www-Authenticate":    "Basic realm=\"plugin\"",
 			"X-Plugin-Trace":      "keep-me",
 		},
 	}, false)

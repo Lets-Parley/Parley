@@ -634,3 +634,137 @@ func TestARefusedApprovalNamesThePluginRatherThanItsID(t *testing.T) {
 		t.Fatalf("the refusal reads %q; it should name the plugin, as every other grant check does", err)
 	}
 }
+
+// Every host function that checks a capability must refuse with ErrNotGranted
+// and with nothing else.
+//
+// The sentinel is not tidiness. A guest that reads a refusal as "malformed
+// input" retries forever against what is actually a permanent policy denial,
+// and an operator reading the log sees a client bug where a capability
+// decision was made. Swapping any one of these branches to ErrBadRequest left
+// the whole suite green, so the identity of the refusal is pinned here, per
+// host function, rather than left to whichever test happened to run the call.
+func TestEveryCapabilityRefusalKeepsItsSentinel(t *testing.T) {
+	// No store, no bus, no queue: every one of these checks its grant before
+	// it reaches anything, and a refusal that needed a database would be a
+	// refusal made too late.
+	h := &Host{}
+	st := State{Install: Install{ID: "install", Name: "ungranted", Enabled: true}}
+	ctx := context.Background()
+
+	call := func(fn func(context.Context, State, *callInfo, json.RawMessage) (any, error), req any) (any, error) {
+		raw, err := json.Marshal(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return fn(ctx, st, &callInfo{installID: st.Install.ID, mode: ModeAsync}, raw)
+	}
+
+	for _, tc := range []struct {
+		name string
+		fn   func(context.Context, State, *callInfo, json.RawMessage) (any, error)
+		req  any
+	}{
+		{"parley_kv_get", h.kvGet, kvRequest{Scope: "cache", Key: "k"}},
+		{"parley_kv_set", h.kvSet, kvRequest{Scope: "cache", Key: "k", Value: []byte("v")}},
+		{"parley_fetch", h.fetch, FetchRequest{URL: "https://api.example.com/"}},
+		{"parley_secret_get", h.secretGet, map[string]string{"name": "token"}},
+		{"parley_log", h.logMessage, map[string]string{"level": "info", "message": "hello"}},
+		{"parley_emit", h.emit, map[string]any{"topic": "thing.happened"}},
+		{"parley_session_get", h.sessionGet, map[string]string{"session": "s"}},
+		{"parley_session_patch", h.sessionPatch, map[string]any{"session": "s", "patch": json.RawMessage(`{}`)}},
+		{"parley_job_enqueue", h.enqueue, map[string]any{"kind": "work"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := call(tc.fn, tc.req)
+			if err == nil {
+				t.Fatalf("%s returned %v with no grant at all; want a refusal", tc.name, out)
+			}
+			if !errors.Is(err, ErrNotGranted) {
+				t.Fatalf("%s refused with %v; want ErrNotGranted, the sentinel a guest reads as permanent", tc.name, err)
+			}
+			// A capability decision downgraded to a malformed-input error is
+			// the failure this test exists for, so it is named rather than
+			// left to fall out of the check above.
+			if errors.Is(err, ErrBadRequest) {
+				t.Fatalf("%s reported a capability refusal as ErrBadRequest: %v", tc.name, err)
+			}
+		})
+	}
+}
+
+// An approval consumes the pending rows as well as applying them.
+//
+// Applying the grants and leaving the pending rows behind passes every other
+// test in this package, and it is not harmless: the rows an operator has
+// already consumed stay readable, so a later approval — or a widened read of
+// that table — can resurrect capabilities from a decision that is over.
+func TestAnApprovedUpgradeLeavesNothingPendingBehind(t *testing.T) {
+	store := &Store{Pool: testPool(t)}
+	ctx := context.Background()
+	in := install(t, store, Grant{Capability: CapabilityKV})
+
+	if err := store.Upgrade(ctx, in.ID, "2.0.0", []Grant{
+		{Capability: CapabilityKV},
+		{Capability: CapabilityFetch, Scope: "api.example.com"},
+	}); !errors.Is(err, ErrUpgradePending) {
+		t.Fatalf("got %v, want ErrUpgradePending", err)
+	}
+	if err := store.ApproveUpgrade(ctx, in.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	var left int
+	if err := store.Pool.QueryRow(ctx,
+		`select count(*) from plugin_pending_grants where install_id = $1`, in.ID).Scan(&left); err != nil {
+		t.Fatal(err)
+	}
+	if left != 0 {
+		t.Fatalf("%d pending grant rows survived the approval; a consumed decision must leave none", left)
+	}
+
+	if _, ok, err := store.Pending(ctx, in.ID); err != nil || ok {
+		t.Fatalf("Pending reports %t (err %v) after an approval; want no pending upgrade", ok, err)
+	}
+}
+
+// One install's pending upgrade is one install's. The filter on the pending
+// read is the only thing that makes that true, and dropping it went red only
+// because unrelated rows happened to be in the shared test database — an
+// accident of ordering, not an assertion. This one names the expectation.
+func TestOneInstallsPendingUpgradeIsNotAnothers(t *testing.T) {
+	store := &Store{Pool: testPool(t)}
+	ctx := context.Background()
+	a := install(t, store, Grant{Capability: CapabilityKV})
+	b := install(t, store, Grant{Capability: CapabilityKV})
+
+	if err := store.Upgrade(ctx, a.ID, "2.0.0", []Grant{
+		{Capability: CapabilityFetch, Scope: "a.example.com"},
+	}); !errors.Is(err, ErrUpgradePending) {
+		t.Fatalf("install a: got %v, want ErrUpgradePending", err)
+	}
+	if err := store.Upgrade(ctx, b.ID, "3.0.0", []Grant{
+		{Capability: CapabilityFetch, Scope: "b.example.com"},
+	}); !errors.Is(err, ErrUpgradePending) {
+		t.Fatalf("install b: got %v, want ErrUpgradePending", err)
+	}
+
+	pending, ok, err := store.Pending(ctx, a.ID)
+	if err != nil || !ok {
+		t.Fatalf("install a has no pending upgrade: %v %t", err, ok)
+	}
+	// Hand-written, not derived from what was just asked for: install a asked
+	// for exactly one grant, and b's must not be in the answer.
+	want := PendingUpgrade{Version: "2.0.0", Grants: []Grant{
+		{Capability: "fetch", Scope: "a.example.com"},
+	}}
+	if pending.Version != want.Version {
+		t.Fatalf("install a's pending version is %q, want %q", pending.Version, want.Version)
+	}
+	if len(pending.Grants) != 1 {
+		t.Fatalf("install a's pending grants are %+v; want exactly its own one", pending.Grants)
+	}
+	if pending.Grants[0] != want.Grants[0] {
+		t.Fatalf("install a's pending grant is %+v, want %+v", pending.Grants[0], want.Grants[0])
+	}
+}
