@@ -169,6 +169,32 @@ mutate "the breaker's reset on success" \
     'TestASuccessBetweenTwoFailuresKeepsTheBreakerClosed' \
     breaker.go 'func (b *breaker) success() { b.failures = 0 }' 'func (b *breaker) success() {}'
 
+# Uninstall destroys a plugin's key-value store and its unrecoverable encrypted
+# secrets. The refusal while sessions of a provided kind exist is the only thing
+# standing between an operator and rooms that name a kind nothing can run.
+mutate "the uninstall block on sessions of a provided kind" \
+    'TestUninstallIsRefusedWhileASessionOfAProvidedKindExists|TestAnEndedSessionStillBlocksAnUninstall' \
+    health.go 'if len(blocking) > 0 {' 'if false {'
+
+# The consent screen only means something if the sentence it shows and the rule
+# the guard applies are the same rule. An expansion that stops matching
+# hostAllowed is a screen inviting an operator to consent to something else.
+mutate "the honesty of the fetch-allowlist expansion" \
+    'TestExplanationsMatchTheGuard|TestAWildcardIsExpandedRatherThanEchoed' \
+    describe.go 'out.Allows = []string{"api." + base, "a.b." + base}' 'out.Allows = []string{base}'
+
+# An install belongs to an org, and the org gate in front of the operator
+# routes only proves the caller administers *an* org. Scoping every lookup to
+# the org the request resolved to is the whole of what stops one org's admin
+# uninstalling another org's plugin — destroying its key-value store and its
+# unrecoverable encrypted secrets. It is enforced at three sites, so all three
+# are broken at once.
+mutate "the per-org scoping of an install lookup" \
+    'TestAnInstallOfAnotherOrgIsNotFound' \
+    orgscope.go '`select id from plugin_installs where id = $1 and org_id = $2`, installID, a.orgID).Scan(&got)' '`select id from plugin_installs where id = $1`, installID).Scan(&got)' \
+    grants.go '`update plugin_installs set enabled = $3 where id = $1 and org_id = $2`, installID, orgID, enabled)' '`update plugin_installs set enabled = $2 where id = $1`, installID, enabled)' \
+    health.go '`delete from plugin_installs where id = $1 and org_id = $2`, installID, orgID)' '`delete from plugin_installs where id = $1`, installID)'
+
 cp -a "$BACKUP"/. "$SRC"/
 
 echo

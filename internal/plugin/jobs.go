@@ -118,20 +118,26 @@ func (q *Queue) Drain(ctx context.Context) (int, error) {
 	for _, job := range claimed {
 		runErr := q.Run(ctx, job)
 		if runErr == nil {
-			if _, err := q.Pool.Exec(ctx,
+			tag, err := q.Pool.Exec(ctx,
 				`update plugin_jobs set state = 'done', last_error = null, updated_at = now() where id = $1`,
-				job.ID); err != nil {
+				job.ID)
+			if err != nil {
 				return len(claimed), fmt.Errorf("marking job %d done: %w", job.ID, err)
 			}
+			// An uninstall cascades plugin_jobs away underneath a worker that
+			// is already running one. Legitimate, but not silent.
+			q.warnVanished(tag.RowsAffected(), job)
 			continue
 		}
 		state, backoff := settle(job.Attempts, orDefaultInt(q.MaxAttempts, DefaultMaxAttempts), q.BaseBackoff)
-		if _, err := q.Pool.Exec(ctx, `
+		tag, err := q.Pool.Exec(ctx, `
 			update plugin_jobs
 			set state = $2, last_error = $3, run_at = now() + $4::interval, updated_at = now()
-			where id = $1`, job.ID, state, truncateError(runErr), backoff.String()); err != nil {
+			where id = $1`, job.ID, state, truncateError(runErr), backoff.String())
+		if err != nil {
 			return len(claimed), fmt.Errorf("recording job %d failure: %w", job.ID, err)
 		}
+		q.warnVanished(tag.RowsAffected(), job)
 		if state == "dead" && q.Log != nil {
 			q.Log.Warn("plugin job dead-lettered after repeated failures",
 				"job_id", job.ID, "kind", job.Kind, "attempts", job.Attempts, "error", runErr)
@@ -146,4 +152,14 @@ func (q *Queue) RunWorker(ctx context.Context, interval time.Duration) {
 		_, err := q.Drain(ctx)
 		return err
 	})
+}
+
+// warnVanished says so when the job row a worker was running is no longer
+// there — cascaded away by an uninstall while it ran.
+func (q *Queue) warnVanished(affected int64, job Job) {
+	if affected != 0 || q.Log == nil {
+		return
+	}
+	q.Log.Warn("plugin job vanished mid-run; its outcome was dropped",
+		"job_id", job.ID, "install_id", job.InstallID, "kind", job.Kind)
 }

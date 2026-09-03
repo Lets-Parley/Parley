@@ -8,6 +8,7 @@ import { SpacePage } from "./pages/SpacePage";
 import { SpaceSettingsPage } from "./pages/SpaceSettingsPage";
 import { SessionPage } from "./pages/SessionPage";
 import { LinkPage } from "./pages/LinkPage";
+import { PluginsPage } from "./pages/PluginsPage";
 
 const queryClient = new QueryClient();
 
@@ -29,6 +30,10 @@ export default function App() {
             <Route path="/o/:org" element={<OrgDirectory />} />
             {/* A space slug is unique inside an org, not across the
                 instance, so both halves are in the path — see lib/paths. */}
+            {/* The operator's plugin surface. It is under the org because
+                that is where the operator role lives; the server 403s an
+                ordinary member reaching the API behind it. */}
+            <Route path="/o/:org/admin/plugins" element={<PluginsPage />} />
             <Route path="/o/:org/s/:slug" element={<SpacePage />} />
             <Route path="/o/:org/s/:slug/settings" element={<SpaceSettingsPage />} />
             <Route path="/session/:id" element={<SessionPage />} />

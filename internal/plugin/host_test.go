@@ -39,7 +39,7 @@ func hosted(t *testing.T, guest []byte, cfg HostConfig, quota int64, grants ...G
 	installNo++
 	name := fmt.Sprintf("%s-%d-%d", strings.ToLower(strings.ReplaceAll(t.Name(), "/", "-")), time.Now().UnixNano(), installNo)
 	got, err := store.Install(context.Background(), InstallRequest{
-		Name: name, Version: "1.0.0", Grants: grants, QuotaBytes: quota,
+		OrgID: testOrgID, Name: name, Version: "1.0.0", Grants: grants, QuotaBytes: quota,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -311,9 +311,8 @@ func TestARepeatedlyFailingPluginIsDegradedAndThenDisabled(t *testing.T) {
 	// good — durably, not just in this process's memory. The cooldown is ended
 	// by moving the breaker's deadline into the past rather than by sleeping,
 	// so the test does not depend on how long anything took.
-	b := h.breakerFor(in.ID)
 	h.mu.Lock()
-	b.openTill = time.Time{}
+	h.breakerFor(in.ID).openTill = time.Time{}
 	h.mu.Unlock()
 	for range 2 {
 		_, _ = h.Call(ctx, in.ID, "run", nil, ModeAsync)

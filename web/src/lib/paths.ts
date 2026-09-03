@@ -50,3 +50,13 @@ export function orgSpacesApi(org: string, after = ""): string {
 export function kudosApi(org: string, slug: string): string {
   return `${spaceApi(org, slug)}/kudos`;
 }
+
+/** The SPA route for the operator's plugin administration surface. */
+export function pluginsPath(org: string): string {
+  return `/o/${org}/admin/plugins`;
+}
+
+/** The API for plugin administration in one org. Sub-resources append to it. */
+export function pluginsApi(org: string): string {
+  return `/api/orgs/${org}/admin/plugins`;
+}
