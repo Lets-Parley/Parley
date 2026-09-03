@@ -62,3 +62,46 @@ export type PluginPreview = {
   removed: DescribedGrant[];
   widens: boolean;
 };
+
+/**
+ * The server declares these fields as arrays and, as of the fix in
+ * internal/api/plugins.go, always marshals them as `[]` rather than `null`
+ * for an install or a diff with nothing in it — a Go test pins that at the
+ * wire. This is a second, independent line of defence on the read side: it
+ * costs one `?? []` per field, and it means a stray `null` reaching the
+ * browser (an older cached response, a future producer that forgets the
+ * same discipline) degrades to "shows nothing" rather than white-screening
+ * the page the way `install.provides.length` on a real `null` did.
+ */
+function orEmpty<T>(v: T[] | null | undefined): T[] {
+  return v ?? [];
+}
+
+export function normalizePluginRegistry(reg: PluginRegistry): PluginRegistry {
+  return {
+    ...reg,
+    installs: reg.installs.map((install) => ({
+      ...install,
+      grants: orEmpty(install.grants),
+      provides: orEmpty(install.provides),
+      pending: install.pending
+        ? {
+            ...install.pending,
+            grants: orEmpty(install.pending.grants),
+            added: orEmpty(install.pending.added),
+            removed: orEmpty(install.pending.removed),
+          }
+        : install.pending,
+    })),
+  };
+}
+
+export function normalizePluginPreview(preview: PluginPreview): PluginPreview {
+  return {
+    ...preview,
+    grants: orEmpty(preview.grants),
+    current: preview.current ? orEmpty(preview.current) : preview.current,
+    added: orEmpty(preview.added),
+    removed: orEmpty(preview.removed),
+  };
+}

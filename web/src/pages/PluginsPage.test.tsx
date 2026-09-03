@@ -5,6 +5,7 @@ import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
 import { expectNoViolations } from "../test/axe";
 import type { DescribedGrant, PluginPreview, PluginRegistry } from "../lib/plugins";
+import { ApiError } from "../lib/api";
 import { PluginsPage } from "./PluginsPage";
 
 /**
@@ -311,6 +312,84 @@ describe("themes", () => {
     await userEvent.setup().click(reset);
     expect(localStorage.getItem("parley:theme-pack")).toBe(null);
     expect(calls.some(([m, p]) => m === "DELETE" && p.endsWith("/themes"))).toBe(true);
+  });
+});
+
+describe("a payload shaped like the real API response", () => {
+  // The type says provides/added/removed are string[]/DescribedGrant[], so a
+  // fixture built by hand from the type is free to lie about what the server
+  // actually sends. The Go handler used to marshal an unset slice as JSON
+  // `null`, which `TestPluginJSONNeverSendsNullForADeclaredArray` (Go) now
+  // pins against the wire bytes — but the frontend needs its own guard, since
+  // nothing stops the two drifting apart again. This fixture is therefore
+  // built from a literal JSON string with `null` in exactly those fields,
+  // parsed with JSON.parse rather than constructed as a typed object, so
+  // TypeScript's `string[]` cannot quietly disallow the value the server
+  // really produced. mockRawResponse is what the fetch layer would decode,
+  // not what the component's props claim it receives.
+  function mockRawResponse(json: string) {
+    return JSON.parse(json) as unknown;
+  }
+
+  it("renders an install whose provides/grants arrived as null instead of an empty array", async () => {
+    registry = mockRawResponse(`{
+      "hostRunning": true,
+      "secretsAvailable": true,
+      "installs": [{
+        "id": "p1",
+        "name": "reporter",
+        "version": "1.0.0",
+        "enabled": true,
+        "grants": null,
+        "provides": null,
+        "health": { "state": "healthy", "reason": "" }
+      }]
+    }`) as PluginRegistry;
+
+    render();
+    // Before the fix this throws inside render: "Cannot read properties of
+    // null (reading 'length')" on install.provides.length, white-screening
+    // the whole page rather than showing this one card.
+    expect(await screen.findByRole("heading", { name: /reporter/i })).toBeTruthy();
+  });
+
+  it("renders an upgrade preview whose added/removed arrived as null", async () => {
+    preview = mockRawResponse(`{
+      "name": "reporter",
+      "version": "2.0.0",
+      "grants": [{ "capability": "log", "scope": "", "permits": "logs." }],
+      "upgrade": true,
+      "current": [],
+      "added": null,
+      "removed": null,
+      "widens": false
+    }`) as PluginPreview;
+
+    render();
+    const user = userEvent.setup();
+    await user.upload(await screen.findByLabelText(/plugin package file/i), packageFile());
+
+    // Before the fix this throws on preview.added.length while rendering the
+    // upgrade branch of the consent screen.
+    expect(
+      await screen.findByText(/This version asks for nothing beyond what you have already granted/i),
+    ).toBeTruthy();
+  });
+});
+
+describe("a viewer the server has refused", () => {
+  it("does not render the install controls when the register comes back 403", async () => {
+    const api = (await import("../lib/api")).api as unknown as {
+      mockImplementationOnce: (f: unknown) => void;
+    };
+    api.mockImplementationOnce(async () => {
+      throw new ApiError(403, "only an org admin can do that");
+    });
+
+    render();
+
+    expect(await screen.findByText(/only an org admin can do that/i)).toBeTruthy();
+    expect(screen.queryByLabelText(/plugin package file/i)).toBeNull();
   });
 });
 

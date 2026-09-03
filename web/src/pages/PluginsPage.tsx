@@ -1,8 +1,9 @@
 import { useId, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, errorText } from "../lib/api";
+import { api, ApiError, errorText } from "../lib/api";
 import type { DescribedGrant, InstalledPlugin, PluginPreview, PluginRegistry } from "../lib/plugins";
+import { normalizePluginPreview, normalizePluginRegistry } from "../lib/plugins";
 import { pluginsApi } from "../lib/paths";
 import {
   buttonDanger,
@@ -49,7 +50,7 @@ export function PluginsPage() {
 
   const registry = useQuery({
     queryKey: ["plugins", org],
-    queryFn: () => api<PluginRegistry>("GET", base),
+    queryFn: async () => normalizePluginRegistry(await api<PluginRegistry>("GET", base)),
     retry: false,
   });
   const refresh = () => qc.invalidateQueries({ queryKey: ["plugins", org] });
@@ -81,7 +82,14 @@ export function PluginsPage() {
           </p>
         )}
 
-        <InstallPanel org={org} onDone={refresh} onSay={say} />
+        {/* The server is the enforcer, not this check — a refused GET still
+            means every write below would 403 too. But showing a live file
+            input and an "install" button above a one-line refusal reads as
+            actionable when it cannot do anything, so a viewer the server has
+            already refused does not see controls that only exist to fail. */}
+        {!(registry.error instanceof ApiError && registry.error.status === 403) && (
+          <InstallPanel org={org} onDone={refresh} onSay={say} />
+        )}
 
         {registry.isLoading && <p className="mt-6 text-sm text-ink-faint">Reading the register…</p>}
         {registry.error && (
@@ -351,7 +359,7 @@ function InstallPanel({
       // The server describes what it will permit. Asking it, rather than
       // reading the manifest here, is what stops this screen and the guard
       // drifting apart.
-      setPreview(await api<PluginPreview>("POST", `${base}/preview`, parsed));
+      setPreview(normalizePluginPreview(await api<PluginPreview>("POST", `${base}/preview`, parsed)));
     } catch (e) {
       setProblem(errorText(e));
     }

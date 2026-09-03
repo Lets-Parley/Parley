@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -429,7 +431,81 @@ func TestApplyingAThemeIsAudited(t *testing.T) {
 	}
 }
 
+// The browser reads the wire, not the Go struct: a slice field that is nil at
+// marshal time serializes as JSON null, and PluginsPage.tsx indexes straight
+// into every one of these with `.length`, which throws on null. Every place
+// the API declares an array — provides, and a preview's added/removed — must
+// therefore come across as `[]`, never `null`, in the exact bytes a browser
+// receives. This is asserted against the raw response body, not a decoded Go
+// value: decoding through map[string]any would collapse "obviously missing"
+// and "explicitly null" into the same nil interface and hide the bug.
+func TestPluginJSONNeverSendsNullForADeclaredArray(t *testing.T) {
+	srv, _, _, admin, _ := pluginServer(t)
+
+	// An install that provides no session kinds is the ordinary case, not the
+	// exception — most plugins provide nothing — so this is what the page
+	// sees for essentially every install it lists.
+	name := newPluginName(t)
+	resp, body := doJSON(t, srv, "POST", pluginsPath,
+		`{"grantsAccepted":true,"package":`+pluginPkg(name, "1.0.0")+`}`, admin)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("install = %d: %v", resp.StatusCode, body)
+	}
+
+	raw := rawBody(t, srv, "GET", pluginsPath, "", admin)
+	if strings.Contains(raw, `"provides":null`) {
+		t.Fatalf("the install list marshals provides as null, which crashes install.provides.length in the browser: %s", raw)
+	}
+	if !strings.Contains(raw, `"provides":[]`) {
+		t.Fatalf("the install list does not carry provides as an empty array: %s", raw)
+	}
+
+	// A preview of a brand-new plugin — no prior install to diff against — has
+	// nothing pending. added/removed must still be arrays: the frontend type
+	// declares them non-optional, and the page reads preview.added.length
+	// unconditionally.
+	previewRaw := rawBody(t, srv, "POST", pluginsPath+"/preview", pluginPkg(newPluginName(t), "1.0.0"), admin)
+	if strings.Contains(previewRaw, `"added":null`) || strings.Contains(previewRaw, `"removed":null`) {
+		t.Fatalf("a fresh-install preview marshals added/removed as null, which crashes preview.added.length in the browser: %s", previewRaw)
+	}
+	if !strings.Contains(previewRaw, `"added":[]`) || !strings.Contains(previewRaw, `"removed":[]`) {
+		t.Fatalf("a fresh-install preview does not carry added/removed as empty arrays: %s", previewRaw)
+	}
+}
+
 /* ------------------------------------------------------------- helpers -- */
+
+// rawBody performs the request and hands back the response body exactly as
+// the wire carried it, unparsed — the thing a browser's JSON.parse actually
+// sees, as opposed to a Go map that cannot distinguish an absent key from an
+// explicit null.
+func rawBody(t *testing.T, srv *httptest.Server, method, path, body string, cookie *http.Cookie) string {
+	t.Helper()
+	var rd io.Reader = strings.NewReader(body)
+	req, err := http.NewRequest(method, srv.URL+path, rd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if cookie != nil {
+		req.AddCookie(cookie)
+	}
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode >= 300 {
+		t.Fatalf("%s %s = %d: %s", method, path, resp.StatusCode, b)
+	}
+	return string(b)
+}
 
 // assertAudited fails unless exactly this action was recorded against this
 // actor, and returns the detail so a test can assert on what it says.

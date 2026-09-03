@@ -99,8 +99,8 @@ type previewResponse struct {
 	Grants   []describedGrant `json:"grants"`
 	Upgrade  bool             `json:"upgrade"`
 	Current  []describedGrant `json:"current,omitempty"`
-	Added    []describedGrant `json:"added,omitempty"`
-	Removed  []describedGrant `json:"removed,omitempty"`
+	Added    []describedGrant `json:"added"`
+	Removed  []describedGrant `json:"removed"`
 	Widens   bool             `json:"widens"`
 	Provides []string         `json:"provides,omitempty"`
 }
@@ -183,7 +183,12 @@ func (a *app) installView(ctx context.Context, adm *plugin.Admin, id string) (in
 		Version: state.Install.Version,
 		Enabled: state.Install.Enabled,
 		Grants:  plugin.DescribeAll(sortGrants(state.Grants)),
-		Health:  plugin.Health{State: plugin.HealthOK},
+		// Provides is a declared array on the wire; start it as one rather
+		// than the nil append below leaves it as when a plugin provides no
+		// session kinds — the common case, and the one that white-screened
+		// the page.
+		Provides: []string{},
+		Health:   plugin.Health{State: plugin.HealthOK},
 	}
 	if !state.Install.Enabled {
 		out.Health = plugin.Health{State: plugin.HealthDisabled, Reason: "an operator switched it off"}
@@ -227,6 +232,12 @@ func (a *app) handlePreviewPlugin(w http.ResponseWriter, r *http.Request) {
 		Name:    pkg.Name,
 		Version: pkg.Version,
 		Grants:  plugin.DescribeAll(grants),
+		// Added and Removed are part of the surface's declared contract even
+		// when there is no upgrade to diff, so they start as the empty slice
+		// DescribeAll(nil) produces — never the nil that marshals to null and
+		// crashes a browser indexing into .length.
+		Added:   plugin.DescribeAll(nil),
+		Removed: plugin.DescribeAll(nil),
 	}
 	current, found, err := a.pluginAdmin(r).ByName(r.Context(), pkg.Name)
 	if err != nil {
