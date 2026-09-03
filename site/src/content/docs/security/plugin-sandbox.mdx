@@ -128,7 +128,13 @@ air-gapped install works.
 Because the frame can load nothing, the host assembles the document: the bridge
 bootstrap and the plugin's own bundle are inlined into it. A UI bundle lives
 beside its wasm as `<name>-<version>.ui.js`, and its name and version are
-screened for path separators exactly as the wasm bundle's are.
+screened for path separators exactly as the wasm bundle's are. Beneath that
+screen, the read itself is confined to the plugin directory by the OS, not
+just by a string check: both the UI bundle and the wasm bundle are opened
+through an `os.Root` rooted at the plugin directory, which refuses any path
+that climbs out of it and refuses to follow a symlink placed inside the
+directory that points outside it — traversal is structurally impossible
+rather than merely screened for.
 
 ### The header carve-out is a route group, not a path check
 

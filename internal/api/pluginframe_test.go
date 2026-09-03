@@ -251,6 +251,25 @@ func TestThePluginFrameRefusesANameThatClimbsOutOfThePluginDirectory(t *testing.
 	}
 	t.Cleanup(func() { os.Remove(outside) })
 
+	// os.Root, which readPluginUI is built on beneath the string screen,
+	// confines every read to the plugin directory's own tree — but a
+	// subdirectory of that tree is still inside it, so os.Root has nothing to
+	// say about "sub/escape" on its own. A real file at the path that field
+	// would resolve to makes the "/" screen the only thing standing between a
+	// bundle name reaching into a subdirectory and being refused outright.
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sub", "escape-1.0.0.ui.js"), []byte("window.__escaped = true;"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "demo-sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "demo-sub", "escape.ui.js"), []byte("window.__escaped = true;"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	// Routing alone would refuse most of these, but routing is not the guard:
 	// the screen is asserted where it lives, so it stays asserted if the route
 	// pattern ever changes.
@@ -276,6 +295,51 @@ func TestThePluginFrameRefusesANameThatClimbsOutOfThePluginDirectory(t *testing.
 		if resp.StatusCode == http.StatusOK {
 			t.Fatalf("name %q was served: %s", name, body)
 		}
+	}
+}
+
+// The string screen above only ever looks at the name and version — it has
+// nothing to say about a symlink an operator (or a compromised plugin
+// installer) planted inside the plugin directory itself. A bundle filename
+// with no separator and no ".." in either field still resolves, through a
+// symlink, to a file outside the directory. os.ReadFile would follow that
+// symlink without complaint; os.Root refuses to, because Root confines every
+// resolved path to the tree it was opened on, symlinks included. This proves
+// that confinement is real by holding the string screen's effect constant —
+// name and version both pass it — and varying only what readPluginUI is
+// built on.
+func TestReadPluginUIRefusesASymlinkThatEscapesThePluginDirectory(t *testing.T) {
+	dir := t.TempDir()
+	outsideDir := t.TempDir()
+	outside := filepath.Join(outsideDir, "secret.ui.js")
+	if err := os.WriteFile(outside, []byte("window.__escaped = true;"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	link := filepath.Join(dir, "demo-1.0.0.ui.js")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlinks unavailable in this environment: %v", err)
+	}
+
+	// Sanity check: the field values here are exactly the shape the string
+	// screen accepts — no slash, no backslash, no "..". If this test ever
+	// fails because the screen itself rejected them, it is testing the wrong
+	// thing.
+	for _, field := range []string{"demo", "1.0.0"} {
+		if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {
+			t.Fatalf("test setup is broken: %q would be caught by the string screen", field)
+		}
+	}
+
+	if _, err := readPluginUI(dir, "demo", "1.0.0"); err == nil {
+		t.Fatalf("a symlink inside the plugin directory was followed outside it")
+	}
+
+	// Confirm what a bare os.ReadFile would have done with the same symlink,
+	// so the assertion above is shown to be about os.Root and not some
+	// unrelated reason the read failed (a missing file, a permissions issue).
+	if body, err := os.ReadFile(link); err != nil || string(body) != "window.__escaped = true;" {
+		t.Fatalf("test setup is broken: a bare os.ReadFile did not follow the symlink (body=%q err=%v)", body, err)
 	}
 }
 

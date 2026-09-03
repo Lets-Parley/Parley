@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -90,15 +89,24 @@ func (a *app) handlePluginFrame(w http.ResponseWriter, r *http.Request) {
 // readPluginUI loads "<name>-<version>.ui.js" from the plugin directory. The
 // screening matches plugin.DirBundles: a name or version that could climb out
 // of the directory is refused rather than cleaned, because there is no
-// legitimate separator in either field.
+// legitimate separator in either field. Beneath that screen, the read itself
+// goes through an os.Root rooted at dir, so a name or version that slipped
+// past the screen — or a symlink planted inside dir that points outside it —
+// still cannot resolve to a file beyond the plugin directory: os.Root refuses
+// any ".." component and refuses to follow a symlink that would leave the
+// root, by construction rather than by pattern-matching.
 func readPluginUI(dir, name, version string) ([]byte, error) {
 	for _, field := range []string{name, version} {
 		if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {
 			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)
 		}
 	}
-	path := filepath.Join(dir, name+"-"+version+".ui.js")
-	body, err := os.ReadFile(path) //nolint:gosec // the components are screened above
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, fmt.Errorf("opening the plugin directory: %w", err)
+	}
+	defer root.Close()
+	body, err := root.ReadFile(name + "-" + version + ".ui.js")
 	if err != nil {
 		return nil, fmt.Errorf("reading the UI bundle for %s %s: %w", name, version, err)
 	}
