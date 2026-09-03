@@ -109,10 +109,15 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// middleware on the tree, so a link guest is turned away at the door with
 	// 401. Its capability is one room, and the deck templates of the space
 	// around that room are not part of it.
-	"GET /api/orgs/{org}/spaces/{slug}/decks/":                 {status: http.StatusUnauthorized},
-	"POST /api/orgs/{org}/spaces/{slug}/decks/":                {status: http.StatusUnauthorized},
-	"PATCH /api/orgs/{org}/spaces/{slug}/decks/{deckId}":       {status: http.StatusUnauthorized},
-	"DELETE /api/orgs/{org}/spaces/{slug}/decks/{deckId}":      {status: http.StatusUnauthorized},
+	"GET /api/orgs/{org}/spaces/{slug}/decks/":            {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/spaces/{slug}/decks/":           {status: http.StatusUnauthorized},
+	"PATCH /api/orgs/{org}/spaces/{slug}/decks/{deckId}":  {status: http.StatusUnauthorized},
+	"DELETE /api/orgs/{org}/spaces/{slug}/decks/{deckId}": {status: http.StatusUnauthorized},
+	// A space's kudos, on every verb. Guests neither send nor receive, and
+	// RequireUser turns one away before any space middleware could 404 it.
+	"GET /api/orgs/{org}/spaces/{slug}/kudos/":                 {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/spaces/{slug}/kudos/":                {status: http.StatusUnauthorized},
+	"DELETE /api/orgs/{org}/spaces/{slug}/kudos/{id}":          {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/spaces/{slug}/members/{userId}/role": {status: http.StatusNotFound},
 	"DELETE /api/orgs/{org}/spaces/{slug}/members/{userId}/":   {status: http.StatusNotFound},
 	"PATCH /api/orgs/{org}/spaces/{slug}/sessions/{id}/":       {status: http.StatusNotFound},
