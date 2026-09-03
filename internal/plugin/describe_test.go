@@ -87,3 +87,45 @@ func TestAnUnknownCapabilityIsRefusedInWords(t *testing.T) {
 		t.Fatalf("an unknown capability was described as %q; an operator must be told the host cannot explain it", d.Permits)
 	}
 }
+
+// An unscoped grant covers everything, and the sentence has to say so.
+//
+// State.Allows treats an empty scope as "any", so session:read with no scope
+// is read access to every session on the instance. Describing that with the
+// same singular sentence a scoped grant gets — "the live state of a session" —
+// understates by the whole width of the instance, and the wording *is* the
+// security boundary here: it is the only thing the operator sees before they
+// agree. The same goes for session:patch and secrets.
+func TestAnUnscopedGrantSaysSoAndAScopedOneNamesIt(t *testing.T) {
+	for _, tc := range []struct {
+		capability string
+		scope      string
+	}{
+		{CapabilitySessionRead, "room-42"},
+		{CapabilitySessionPatch, "room-42"},
+		{CapabilitySecrets, "stripe-key"},
+	} {
+		unscoped := Describe(Grant{Capability: tc.capability}).Permits
+		scoped := Describe(Grant{Capability: tc.capability, Scope: tc.scope}).Permits
+
+		if unscoped == scoped {
+			t.Errorf("%s reads the same whether it covers one thing or every thing on the instance: %q",
+				tc.capability, unscoped)
+			continue
+		}
+		if !strings.Contains(unscoped, "every") {
+			t.Errorf("the unscoped %s grant reads as %q and never says it covers everything",
+				tc.capability, unscoped)
+		}
+		if !strings.Contains(scoped, tc.scope) {
+			t.Errorf("the scoped %s grant reads as %q and does not name %q",
+				tc.capability, scoped, tc.scope)
+		}
+		// A scoped grant must not borrow the unscoped alarm: an operator who
+		// reads "every session" on a grant covering one has been told the
+		// wrong thing in the other direction.
+		if strings.Contains(scoped, "every session") || strings.Contains(scoped, "every secret") {
+			t.Errorf("the scoped %s grant claims instance-wide reach: %q", tc.capability, scoped)
+		}
+	}
+}

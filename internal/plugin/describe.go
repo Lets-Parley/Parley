@@ -16,6 +16,12 @@ import (
 //     is called. "fetch: api.example.com" tells an operator nothing; "can send
 //     anything it holds, including session data, to api.example.com" tells them
 //     what they are agreeing to.
+//   - An unscoped grant is never described in the singular. State.Allows treats
+//     an empty scope as "any", so a grant of session:read with no scope covers
+//     every session on the instance; a sentence reading "the live state of a
+//     session" describes something far smaller than what is being agreed to,
+//     and an understating description is a security defect rather than copy.
+//     TestAnUnscopedGrantSaysSoAndAScopedOneNamesIt asserts the distinction.
 //   - A wildcard allowlist entry is expanded into worked examples produced from
 //     hostAllowed itself, so the screen cannot drift away from the enforcement.
 //     TestExplanationsMatchTheGuard asserts every example against hostAllowed.
@@ -49,13 +55,25 @@ func Describe(g Grant) DescribedGrant {
 			out.Permits = fmt.Sprintf("Can store and read back data of its own on this server, under keys beginning %q. It cannot see what another plugin stored.", g.Scope)
 		}
 	case CapabilitySecrets:
-		out.Permits = "Can store and read back secrets — API tokens, passwords — encrypted on this server. Combined with any outbound access below, it can send them."
+		if g.Scope == "" {
+			out.Permits = "Can store and read back every secret on this instance — API tokens, passwords — encrypted on this server. Combined with any outbound access below, it can send them."
+		} else {
+			out.Permits = fmt.Sprintf("Can store and read back the secret %q, encrypted on this server. Combined with any outbound access below, it can send it.", g.Scope)
+		}
 	case CapabilityLog:
 		out.Permits = "Can write lines into this server's log, where they sit alongside Parley's own."
 	case CapabilitySessionRead:
-		out.Permits = "Can read the live state of a session: who is seated, what has been voted, what has been written in a standup."
+		if g.Scope == "" {
+			out.Permits = "Can read the live state of every session on this instance, in every space and every org: who is seated, what has been voted, what has been written in a standup."
+		} else {
+			out.Permits = fmt.Sprintf("Can read the live state of the %q session only: who is seated, what has been voted, what has been written in a standup.", g.Scope)
+		}
 	case CapabilitySessionPatch:
-		out.Permits = "Can change the live state of a session — move a room's phase, alter what is shown to everyone in it."
+		if g.Scope == "" {
+			out.Permits = "Can change the live state of every session on this instance, in every space and every org — move any room's phase, alter what is shown to everyone in it."
+		} else {
+			out.Permits = fmt.Sprintf("Can change the live state of the %q session only — move that room's phase, alter what is shown to everyone in it.", g.Scope)
+		}
 	case CapabilityJobs:
 		out.Permits = "Can schedule its own work to run later on this server, outside any request a person made."
 	case CapabilityEmit:
