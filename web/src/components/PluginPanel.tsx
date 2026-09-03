@@ -66,8 +66,7 @@ export function PluginPanel({
         setFailure(reason);
         // A handshake that never lands and a plugin that floods the port are
         // both this plugin failing, so both count towards its breaker.
-        if (reason === "handshake-timeout" || reason === "flood")
-          trip.crashed();
+        if (reason === "handshake-timeout" || reason === "flood") trip.crashed();
       },
     });
     bridge.current = b;
@@ -105,8 +104,8 @@ export function PluginPanel({
     return (
       <Card title={`${name} is switched off`}>
         <p>
-          It stopped responding several times in a row, so the panel is not
-          loading it again. Nothing else in this room is affected.
+          It stopped responding several times in a row, so the panel is not loading it again. Nothing else in
+          this room is affected.
         </p>
         <RetryButton onClick={retry} />
       </Card>
@@ -118,10 +117,7 @@ export function PluginPanel({
       <h2 className="text-sm font-semibold text-ink-soft">{name}</h2>
       {failure === "handshake-timeout" && (
         <Card title={`${name} did not start`}>
-          <p>
-            The panel loaded but the plugin never answered. It has not been
-            given any data.
-          </p>
+          <p>The panel loaded but the plugin never answered. It has not been given any data.</p>
           <RetryButton onClick={retry} />
         </Card>
       )}
@@ -147,18 +143,9 @@ export function PluginPanel({
   );
 }
 
-function Card({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div
-      role="status"
-      className="mt-2 rounded-lg border border-line bg-surface p-4 text-sm text-ink-soft"
-    >
+    <div role="status" className="mt-2 rounded-lg border border-line bg-surface p-4 text-sm text-ink-soft">
       <p className="font-medium text-ink">{title}</p>
       {children}
     </div>
@@ -167,10 +154,7 @@ function Card({
 
 function RetryButton({ onClick }: { onClick: () => void }) {
   return (
-    <button
-      className="mt-3 text-sm font-medium text-accent underline"
-      onClick={onClick}
-    >
+    <button className="mt-3 text-sm font-medium text-accent underline" onClick={onClick}>
       Try again
     </button>
   );

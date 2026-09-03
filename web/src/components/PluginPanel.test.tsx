@@ -2,11 +2,7 @@ import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, afterEach } from "vitest";
 import type { Envelope } from "../lib/api";
-import {
-  CrashBreaker,
-  PLUGIN_SANDBOX,
-  pluginFramePath,
-} from "../lib/pluginBridge";
+import { CrashBreaker, PLUGIN_SANDBOX, pluginFramePath } from "../lib/pluginBridge";
 import { PluginPanel } from "./PluginPanel";
 
 const env = {
@@ -61,9 +57,7 @@ describe("PluginPanel", () => {
 
   it("points the frame at the framed route, not at the app", () => {
     panel();
-    expect(screen.getByTitle("retro plugin panel").getAttribute("src")).toBe(
-      "/plugin-ui/retro/1.0.0",
-    );
+    expect(screen.getByTitle("retro plugin panel").getAttribute("src")).toBe("/plugin-ui/retro/1.0.0");
     expect(pluginFramePath("a/b", "1.0")).toBe("/plugin-ui/a%2Fb/1.0");
   });
 

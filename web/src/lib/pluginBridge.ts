@@ -65,18 +65,10 @@ export const HANDSHAKE_TIMEOUT_MS = 10_000;
 
 /** Why a bridge stopped trusting its frame. */
 export type BridgeFailure =
-  | "handshake-timeout"
-  | "oversize"
-  | "oversize-outbound"
-  | "flood"
-  | "ungranted"
-  | "malformed";
+  "handshake-timeout" | "oversize" | "oversize-outbound" | "flood" | "ungranted" | "malformed";
 
 /** A participant, as a plugin sees one. */
-export type PluginPerson = Pick<
-  Person,
-  "userId" | "name" | "avatarHue" | "spectator"
->;
+export type PluginPerson = Pick<Person, "userId" | "name" | "avatarHue" | "spectator">;
 
 /** One story, as a plugin sees it. Vote values appear only after the reveal. */
 export type PluginStory = {
@@ -124,10 +116,7 @@ export const GRANT_SESSION_ACT = "session:act";
  * a pre-reveal value has no path into the returned object — there is nothing
  * to strip and therefore nothing to forget to strip.
  */
-export function redactSession(
-  env: Envelope,
-  grants: readonly string[],
-): PluginSession | null {
+export function redactSession(env: Envelope, grants: readonly string[]): PluginSession | null {
   if (!grants.includes(GRANT_SESSION_READ)) return null;
   const revealed = env.revealed === true;
   return {
@@ -179,9 +168,7 @@ export function redactSession(
 }
 
 /** The design tokens as the frame receives them: name to colour, nothing else. */
-export function currentTokens(
-  root: HTMLElement = document.documentElement,
-): Record<string, string> {
+export function currentTokens(root: HTMLElement = document.documentElement): Record<string, string> {
   const computed = getComputedStyle(root);
   const tokens: Record<string, string> = {};
   for (const token of THEME_TOKENS as readonly ThemeToken[]) {
@@ -205,11 +192,7 @@ export class CrashBreaker {
   private readonly windowMs: number;
   private readonly now: () => number;
 
-  constructor(
-    limit = 3,
-    windowMs = 60_000,
-    now: () => number = () => Date.now(),
-  ) {
+  constructor(limit = 3, windowMs = 60_000, now: () => number = () => Date.now()) {
     this.limit = limit;
     this.windowMs = windowMs;
     this.now = now;
@@ -221,8 +204,7 @@ export class CrashBreaker {
 
   open(): boolean {
     const cutoff = this.now() - this.windowMs;
-    while (this.crashes.length && this.crashes[0] < cutoff)
-      this.crashes.shift();
+    while (this.crashes.length && this.crashes[0] < cutoff) this.crashes.shift();
     return this.crashes.length >= this.limit;
   }
 

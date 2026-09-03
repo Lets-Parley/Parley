@@ -51,9 +51,7 @@ function servePanels(panels: unknown[]) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
     if (url.endsWith("/api/plugins/panels")) {
-      return Promise.resolve(
-        new Response(JSON.stringify(panels), { status: 200 }),
-      );
+      return Promise.resolve(new Response(JSON.stringify(panels), { status: 200 }));
     }
     return Promise.resolve(new Response("{}", { status: 200 }));
   });
@@ -65,9 +63,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("plugin panels in a poker room", () => {
   it("frames an installed plugin's UI in the room", async () => {
-    servePanels([
-      { name: "retro", version: "1.0.0", grants: ["session:read"] },
-    ]);
+    servePanels([{ name: "retro", version: "1.0.0", grants: ["session:read"] }]);
     renderApp(<PokerRoom env={envelope()} me={me} />);
 
     const frame = await screen.findByTitle("retro plugin panel");
@@ -79,19 +75,13 @@ describe("plugin panels in a poker room", () => {
     servePanels([]);
     renderApp(<PokerRoom env={envelope()} me={me} />);
 
-    await waitFor(() =>
-      expect(
-        screen.getAllByText("Log in with a passkey").length,
-      ).toBeGreaterThan(0),
-    );
+    await waitFor(() => expect(screen.getAllByText("Log in with a passkey").length).toBeGreaterThan(0));
     expect(document.querySelector("iframe")).toBeNull();
   });
 
   it("marks plugin frames inert while a host modal is open", async () => {
     const user = userEvent.setup();
-    servePanels([
-      { name: "retro", version: "1.0.0", grants: ["session:read"] },
-    ]);
+    servePanels([{ name: "retro", version: "1.0.0", grants: ["session:read"] }]);
     // Revealed, because Reset only asks for confirmation on a revealed round.
     renderApp(<PokerRoom env={envelope({ revealed: true })} me={me} />);
 
@@ -101,9 +91,7 @@ describe("plugin panels in a poker room", () => {
     // take the frame out of the focus order, or a Tab from the dialog walks
     // into content the overlay has covered.
     await user.click(screen.getByRole("button", { name: "Reset" }));
-    expect(
-      screen.getByRole("heading", { name: "Reset this round?" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Reset this round?" })).toBeTruthy();
     await waitFor(() => expect(frame.hasAttribute("inert")).toBe(true));
 
     // And it is released again when the modal closes, so a plugin panel is

@@ -26,11 +26,8 @@ export class NetworkError extends TypeError {}
  */
 export function errorText(e: unknown): string {
   if (e instanceof ApiError) return e.message;
-  if (e instanceof NetworkError)
-    return "Can't reach the server — check your connection and try again.";
-  return e instanceof Error && e.message
-    ? e.message
-    : "Something went wrong. Try again.";
+  if (e instanceof NetworkError) return "Can't reach the server — check your connection and try again.";
+  return e instanceof Error && e.message ? e.message : "Something went wrong. Try again.";
 }
 
 export async function api<T = unknown>(
@@ -38,7 +35,7 @@ export async function api<T = unknown>(
   path: string,
   body?: unknown,
   /**
-   * Extra request headers. Used by the plugin bridge to name the plugin that
+   * Extra request headers. The plugin bridge uses it to name the plugin that
    * proposed an action, so a host-mediated call is attributable to the surface
    * it came from without the plugin ever holding a credential of its own.
    */
@@ -70,8 +67,7 @@ export async function api<T = unknown>(
   }
   if (!resp.ok) {
     const msg =
-      (data as { error?: string } | undefined)?.error ??
-      "Something went wrong talking to the server.";
+      (data as { error?: string } | undefined)?.error ?? "Something went wrong talking to the server.";
     throw new ApiError(resp.status, msg);
   }
   return data as T;
@@ -274,10 +270,5 @@ export function action<T = unknown>(
   body?: unknown,
   extraHeaders?: Record<string, string>,
 ): Promise<T> {
-  return api<T>(
-    actionVerbs[name] ?? "POST",
-    `/api/sessions/${sessionId}/actions/${name}`,
-    body,
-    extraHeaders,
-  );
+  return api<T>(actionVerbs[name] ?? "POST", `/api/sessions/${sessionId}/actions/${name}`, body, extraHeaders);
 }

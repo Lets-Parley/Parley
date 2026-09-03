@@ -43,9 +43,7 @@ export function PluginPanels({
           // re-authorises the call as the user regardless of what the plugin
           // asked for. The header names the plugin as the route so the action
           // is attributable.
-          onAction={(name, payload) =>
-            action(env.id, name, payload, { "X-Parley-Plugin-Route": p.name })
-          }
+          onAction={(name, payload) => action(env.id, name, payload, { "X-Parley-Plugin-Route": p.name })}
         />
       ))}
     </>
