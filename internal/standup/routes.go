@@ -34,6 +34,13 @@ func actions() map[string]session.Action {
 		"add":    {Verb: http.MethodPost, Do: addCommitment},
 		"answer": {Verb: http.MethodPost, Do: answerCommitment},
 		"remove": {Verb: http.MethodPost, Do: removeCommitment},
+		// Kudos are the closing beat of the round, and like the commitment
+		// actions a person gives their own — so no FacilitatorOnly. The
+		// membership check is inside Do rather than out here: dispatch applies
+		// only FacilitatorOnly and the ended-session guard, and the roster this
+		// file speaks to deliberately unions in link guests, who may neither
+		// send a kudo nor receive one.
+		"kudo": {Verb: http.MethodPost, Do: giveKudo},
 	}
 }
 

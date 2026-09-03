@@ -1,0 +1,114 @@
+---
+title: Kudos
+description: A short thank-you with somebody's name on it, and no leaderboard anywhere near it.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import Capability from "../../../components/Capability.astro";
+
+<VerifiedStamp source={["internal/db/migrations/0033_kudos.sql", "internal/store/kudos.go", "internal/api/kudos.go", "internal/standup/kudos.go", "web/src/components/Kudos.tsx", "web/src/pages/StandupRoom.tsx"]} />
+
+A **kudo** is one sentence thanking a named person for something they did. It
+appears on the space's kudos wall, under the session list, newest first. Anyone
+who is a member of the space can give one, to anyone else who is a member of
+the same space, at any time — it needs no meeting open and no facilitator's
+permission.
+
+There are two places to write one. The wall itself has a form: pick a name from
+the roster, say what they did, send. And a daily standup offers the same form
+as its closing beat, once the round is done and everybody has just heard what
+everybody else was working on, which is the moment a team is most likely to
+mean it. A kudo given in a room is not a different kind of thing — it is the
+same row in the same table, and it lands on the space wall immediately, still
+carrying the session it was given in.
+
+A kudo is capped at **280 characters**. The form counts down as you type, and
+it counts characters as a person reads them rather than as the browser stores
+them, so an emoji costs one. The server enforces the same limit and so does a
+database constraint, which means the number cannot quietly differ between the
+two surfaces.
+
+## Why there is no leaderboard
+
+Parley has no kudos count. Not per person, not per space, not per month. There
+is no total beside a name, no "most appreciated" list, and nothing anywhere
+that orders people by how many thank-yous they have collected.
+
+This is the point of the feature, not a gap in it. The moment a number sits
+next to a name, the wall stops being a place people thank each other and starts
+being a thing they are measured by. Somebody notices they are on nine and their
+teammate is on fourteen. Somebody's manager notices. From there, the kudos that
+keep being written are the ones that are worth writing, and the quiet honest
+ones — the ones from the person who says thank you twice a year and means it
+both times — are drowned out by volume.
+
+So the constraint is built low, where a future redesign has to argue with it
+rather than route around it. The `kudos` table has no count column and there is
+no aggregate endpoint; the only read the store offers is "this space's kudos,
+newest first", capped at the most recent hundred. The migration that creates
+the table says so in a comment, in as many words: adding a count column means
+arguing with that paragraph first. A UI rule can be relaxed in an afternoon by
+somebody who never heard the argument. A schema cannot.
+
+## Withdrawn, never edited
+
+The sender of a kudo can withdraw it, and the wall offers that only on your
+own. Nobody can edit one — not the sender, not the recipient, not an owner of
+the space. There is no edit endpoint to call.
+
+Those two rules together are one decision. A kudo sent to the wrong person, or
+sent in a fit of sarcasm at four in the afternoon, should be retractable, and
+it is. But text that somebody has already read should never be rewritten
+underneath them: the thank-you you remember receiving must not turn into
+something else while you are not looking. Take it back or leave it as it
+stands.
+
+Withdrawing is scoped to the sender at the server. Asking to delete somebody
+else's kudo is refused, and asking for one that belongs to a different space
+answers as though it does not exist.
+
+A kudo also outlives the people in it. One given to somebody who has since left
+the space stays on the wall, shown as being from or to "Someone who has left" —
+it is a record of something that happened, not an attribute of a current
+membership. It outlives the room, too: deleting the standup a kudo was given in
+leaves the kudo standing on the wall, for the same reason deleting a room does
+not retract the votes cast in it.
+
+## Guests
+
+A [guest link](/features/guest-links/) seats somebody in one room for a day and
+does not make them a member of the space. Guests neither send kudos nor receive
+them.
+
+That follows from what a guest is. The instance deliberately does not remember
+them: the link expires, the seat goes away, and by morning there is nobody for
+a thank-you to be addressed to. A kudo pointing at an expired guest would be a
+name on a wall with nothing behind it. So the roster picker never offers a
+guest as a recipient, and the API refuses on both sides — the space's kudos
+endpoints answer a guest's cookie with a 401, and the standup's kudo action
+carries its own membership check and answers a guest with a 403.
+
+What a guest **can** do is read the closing beat of the standup they are
+sitting in. When the round is done and members start thanking each other, the
+kudos appear in the room for everybody connected to it, guest included, and the
+guest gets no form to give one. This is deliberate and worth stating plainly: a
+guest hears what is said in the room they were invited into, the same way they
+hear everything else said in it. They cannot read the space's wall around it,
+which holds every kudo the team has ever given, and they never see one they
+were not in the room for.
+
+## What is not here
+
+<Capability rows={[
+  { name: "Counts, totals or rankings", status: "out-of-scope", detail: "The whole argument is above. There is no count column and no aggregate endpoint, by design." },
+  { name: "Editing a kudo", status: "out-of-scope", detail: "The sender can withdraw one instead. Text somebody has already read is never rewritten underneath them." },
+  { name: "Kudos to or from a guest", status: "out-of-scope", detail: "A <a href='/features/guest-links/'>guest link</a> is not a person the instance remembers, so a thank-you addressed to one would point at nobody by morning." },
+  { name: "Kudos across spaces", status: "not-built", detail: "Both people must hold a membership in the same space. A kudo belongs to the space it was given in." },
+  { name: "Notifying the recipient", status: "not-built", detail: "Parley sends no email and no push. A kudo is found by opening the wall, or by being in the room when it is given." },
+  { name: "Reacting to a kudo", status: "not-built", detail: "Nothing on a kudo is countable, and a reaction count is a count." },
+]} />
+
+The wall keeps the most recent hundred kudos, and a space holds at most
+`KUDO_LIMIT_PER_SPACE` of them — 500 by default. See
+[Limits and defaults](/reference/limits-and-defaults/) and
+[Configuration](/reference/configuration/).

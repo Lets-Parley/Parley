@@ -65,5 +65,6 @@ func (a *app) dispatch(w http.ResponseWriter, r *http.Request, name string) {
 		Session:    sess,
 		UserID:     p.UserID,
 		StoryLimit: a.limits.StoriesPerSession,
+		KudoLimit:  a.limits.KudosPerSpace,
 	})
 }

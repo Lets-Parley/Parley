@@ -11,7 +11,7 @@ import roundDark from "../../../assets/standup-round-dark.png";
 import blockersLight from "../../../assets/blockers-roundup-light.png";
 import blockersDark from "../../../assets/blockers-roundup-dark.png";
 
-<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx"]} />
+<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "internal/standup/kudos.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx"]} />
 
 A standup session is three text fields per person — yesterday, today, blockers —
 and an order to speak in.
@@ -169,11 +169,28 @@ a channel afterwards.
   caption="Only the people who wrote a blocker appear. The text is already formatted for the channel it is about to be pasted into."
 />
 
+## Kudos at the end
+
+Once the round is done, the closing panel offers one line: thank somebody by
+name for something they did. It is the moment a team is most likely to want to —
+everybody has just heard what everybody else did.
+
+A kudo given here is a kudo on the space's kudos wall unchanged: one record, one read path, and it stays there after the room is gone.
+At most 280 characters, and nothing about it is counted or ranked.
+
+Guests neither give nor receive one — the recipient list is the space's members —
+but a guest connected to the room **does** read the closing beat, because the
+room's state reaches every socket in it. A guest can read what is said in the
+room it was let into; the wall around it stays out of reach.
+
+If nobody thanked anybody, the panel simply does not appear.
+
 ## What is not here
 
 <Capability rows={[
   { name: "Configurable timer length", status: "not-built", detail: "The server supports a <code>secondsPerPerson</code> session setting and defaults it to 90, but nothing in the UI sets it. Treat 90 seconds as fixed." },
   { name: "Async standup", status: "not-built", detail: "Write ahead of time and let the round run without you; a scheduled digest is on the <a href='/project/roadmap/'>roadmap</a>." },
   { name: "Reordering the speaking order", status: "not-built", detail: "Fixed once the round starts. Skip moves past anyone who is not ready." },
+  { name: "Editing a kudo", status: "not-built", detail: "The sender can withdraw one from the space's wall. Nobody can rewrite text somebody has already read." },
   { name: "Chasing people who did not write anything", status: "out-of-scope", detail: "Parley has no notification channel and does not want one." },
 ]} />

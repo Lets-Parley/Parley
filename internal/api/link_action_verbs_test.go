@@ -80,6 +80,12 @@ var linkGuestActionVerbs = map[string]map[string]linkGuestVerb{
 		"add":    {body: `{"text":"a commitment"}`},
 		"answer": {body: `{"id":"{answerId}","done":false}`},
 		"remove": {body: `{"id":"{removeId}"}`},
+		// The one standup verb a guest may not call. No dispatcher flag — it is
+		// not the facilitator's, any member may thank anybody — and refused all
+		// the same, by the action's own membership check: a guest holds no
+		// members row, and kudos are neither sent nor received by one. The
+		// recipient here never gets looked at; the caller is turned away first.
+		"kudo": {refused: true, body: `{"to":"00000000-0000-0000-0000-000000000000","text":"thanks"}`},
 	},
 }
 
