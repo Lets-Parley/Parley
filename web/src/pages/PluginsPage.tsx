@@ -112,8 +112,10 @@ export function PluginsPage() {
  * A theme pack owns every colour token in the app, including the ones a button
  * is drawn with. A reset control painted in `--color-accent` on
  * `--color-surface` can be made invisible by the very pack it exists to undo,
- * so this one is drawn in literal hex with its own `colorScheme`, and it is the
- * first thing on the page rather than the last. It never reads a token.
+ * so this one is drawn in literal hex with its own `colorScheme`. It never
+ * reads a token, which is the whole of what makes it un-hideable: it sits in
+ * the theme panel, beside the control that applied the pack, so the undo is
+ * where the act was.
  */
 const escapeHatch: React.CSSProperties = {
   background: "#ffffff",
