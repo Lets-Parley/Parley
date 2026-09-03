@@ -23,7 +23,7 @@ makes a capability grant mean something.
 ## What a plugin gets
 
 <Capability rows={[
-  { name: "Key-value storage", status: "built", detail: "Namespaced by install and by the granted scope, with a byte quota charged in the same statement as the write. A key carrying the namespace separator is refused, not escaped." },
+  { name: "Key-value storage", status: "built", detail: "Namespaced by install and by the granted scope, with a byte quota charged in the same statement as the write. A key or scope carrying the namespace separator is refused, not escaped, and the two together are length-bounded." },
   { name: "Outbound HTTP", status: "built", detail: "https only, to an operator-approved allowlist, through the guard described below. Extism's own <code>http_request</code> is left with an empty allowed-hosts list, which disables it." },
   { name: "Secrets", status: "built", detail: "Read-only, per named secret, encrypted at rest with AES-GCM. Unavailable entirely unless <code>PLUGIN_SECRET_KEY</code> is set — there is no plaintext fallback." },
   { name: "Logging", status: "built", detail: "The plugin's text is an attribute of a <code>plugin log</code> line, never the message itself, so it cannot forge a line that reads as the server's own." },
@@ -70,11 +70,25 @@ Blocked ranges include loopback, `0.0.0.0/8`, RFC 1918 private space,
 carrier-grade NAT (`100.64/10`), link-local (`169.254/16`, which is where every
 major cloud parks its metadata service), IPv6 unique-local (`fc00::/7`, which
 covers `fd00:ec2::254`), multicast, and reserved space — plus the embedded IPv4
-address inside a 6to4 or NAT64 address.
+address inside a 6to4, NAT64, IPv4-mapped (`::ffff:169.254.169.254`) or
+IPv4-compatible (`::169.254.169.254`) address.
 
 Redirects are followed by hand, up to a bounded number of hops, and each hop
 repeats all four steps. A guard that checks the domain once and then follows
 redirects freely is the classic bypass; this one does not.
+
+### Credentials do not follow a redirect off the host
+
+A plugin's request headers are its own, but a redirect is the far end choosing
+where they go next. So `Authorization`, `Cookie`, `Cookie2`,
+`Proxy-Authorization` and `Www-Authenticate` are **dropped on any hop that
+lands on a different host** than the one the plugin named — the strip
+`net/http` performs when it follows redirects itself, made explicit here
+because this guard follows them by hand. Other headers travel unchanged.
+
+Without it, a single allowlist entry wide enough to cover two hosts is enough:
+the first host 302s to the second, and the credential an operator approved for
+one arrives at the other.
 
 ### Synchronous hooks cannot fetch at all
 
@@ -106,9 +120,12 @@ each fetch refusal. "The room survived" also passes when the fixture did
 nothing at all.
 
 And because a fixture that passes proves nothing on its own, `scripts/guard-mutation.sh`
-runs as its own CI leg: it breaks each guard on purpose — at every site, for the
+runs as its own required CI leg: it breaks each guard on purpose — at every site, for the
 guards deliberately enforced twice — and fails the build if the test covering it
-stays green.
+stays green. It also checks that each mutated package still *compiles* before
+running its test, because a mutation that breaks the build makes `go test` exit
+non-zero for a reason that has nothing to do with the assertion, and a harness
+that scores that as a catch is grading itself.
 
 ## Writing a plugin
 

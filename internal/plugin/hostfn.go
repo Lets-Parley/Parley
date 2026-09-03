@@ -30,9 +30,16 @@ const kvSeparator = "\x1f"
 
 // Errors host functions return through the envelope.
 var (
-	// ErrForgedKey is returned for a key that tries to climb out of its
-	// namespace.
+	// ErrForgedKey is returned for a key or a scope that tries to climb out of
+	// its namespace.
 	ErrForgedKey = errors.New("a plugin key may not contain the namespace separator")
+	// ErrKeyTooLong is returned for a key past the length bound. Without one a
+	// guest chooses how much of the kv table one row occupies.
+	ErrKeyTooLong = errors.New("the plugin key is too long")
+	// ErrBadRequest is returned when a host function's request is not the JSON
+	// it takes. It is a sentinel so a fixture can assert that a malformed
+	// request was refused rather than quietly read as an empty one.
+	ErrBadRequest = errors.New("the request is not the JSON this host function takes")
 	// ErrNoSessions is returned when the server has no session surface wired.
 	ErrNoSessions = errors.New("session access is not configured on this server")
 	// ErrNoQueue is returned when the server has no job queue wired.
@@ -175,20 +182,36 @@ func decode[T any](raw json.RawMessage, into *T) error {
 		return nil
 	}
 	if err := json.Unmarshal(raw, into); err != nil {
-		return fmt.Errorf("the request is not the JSON this host function takes: %w", err)
+		return fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
 	return nil
 }
 
+// maxKVKeyBytes bounds the scope and key a guest sends. The number is
+// arbitrary and generous; what matters is that there is one, because a guest
+// that picks the length picks how much of the table one row takes.
+const maxKVKeyBytes = 512
+
 // namespacedKey is the whole of the cross-install defence on the key side. The
 // install is a database column the guest never touches, so forging a key can
 // only ever reach another *scope*, and a key that tries is refused.
+//
+// Both halves are screened, not just the key: the scope arrives in the same
+// request the key does, so a scope carrying the separator lands one install's
+// writes in another of its own scopes exactly as a forged key would.
 func namespacedKey(scope, key string) (string, error) {
 	if strings.Contains(key, kvSeparator) {
 		return "", fmt.Errorf("%q: %w", key, ErrForgedKey)
 	}
+	if strings.Contains(scope, kvSeparator) {
+		return "", fmt.Errorf("scope %q: %w", scope, ErrForgedKey)
+	}
 	if key == "" {
 		return "", fmt.Errorf("the key is empty: %w", ErrForgedKey)
+	}
+	if len(scope)+len(key) > maxKVKeyBytes {
+		return "", fmt.Errorf("%d bytes of scope and key, past the %d-byte bound: %w",
+			len(scope)+len(key), maxKVKeyBytes, ErrKeyTooLong)
 	}
 	return scope + kvSeparator + key, nil
 }
@@ -238,8 +261,11 @@ func (h *Host) kvSet(ctx context.Context, st State, _ *callInfo, raw json.RawMes
 
 func (h *Host) fetch(ctx context.Context, st State, info *callInfo, raw json.RawMessage) (any, error) {
 	// The mode check comes first and no grant reaches it. A hook runs on the
-	// path a room's broadcast waits on; it may not wait on the network.
-	if info.mode == ModeSync {
+	// path a room's broadcast waits on; it may not wait on the network. The
+	// test is for the one mode that may fetch rather than against the one that
+	// may not, so a call that arrives with no mode at all is refused instead of
+	// being read as asynchronous.
+	if info.mode != ModeAsync {
 		return nil, ErrFetchSynchronousHook
 	}
 	var req FetchRequest
@@ -254,7 +280,7 @@ func (h *Host) fetch(ctx context.Context, st State, info *callInfo, raw json.Raw
 	if fetcher == nil {
 		fetcher = &Fetcher{}
 	}
-	return fetcher.Do(ctx, allow, req, false)
+	return fetcher.Do(ctx, allow, req, info.mode != ModeAsync)
 }
 
 func (h *Host) secretGet(ctx context.Context, st State, _ *callInfo, raw json.RawMessage) (any, error) {

@@ -71,8 +71,13 @@ var (
 type CallMode int
 
 const (
+	// modeUnknown is the zero value on purpose. A guard that rests on a mode
+	// has to refuse the mode it was never told, because the alternative is a
+	// call that arrives without one being handed the permissive answer by
+	// default — and the permissive answer here is the network.
+	modeUnknown CallMode = iota
 	// ModeAsync is a job or an outbox delivery. It may fetch, with the grant.
-	ModeAsync CallMode = iota
+	ModeAsync
 	// ModeSync is a hook on the path a room's state broadcast waits on. It may
 	// never fetch, whatever it has been granted: remote data reaches a hook
 	// from a cache a job filled.
@@ -373,13 +378,25 @@ func (h *Host) classify(ctx context.Context, started time.Time, err error) error
 	case strings.Contains(msg, "out of bounds memory access"),
 		strings.Contains(msg, "memory size"),
 		strings.Contains(msg, "max_memory"),
-		strings.Contains(msg, "exceeds"):
+		exceedsAMemoryBound(msg):
 		return fmt.Errorf("%w: %v", ErrGuestMemory, err)
 	case strings.Contains(msg, "unreachable"), strings.Contains(msg, "wasm error"),
 		strings.Contains(msg, "panic"):
 		return fmt.Errorf("%w: %v", ErrGuestPanic, err)
 	}
 	return err
+}
+
+// exceedsAMemoryBound is the memory arm's catch-all, narrowed. The bare word
+// "exceeds" also appears in runtime errors that have nothing to do with
+// memory, and the memory arm is tested first — so a trap whose message
+// happened to contain it was reported as ErrGuestMemory. The whole fixture
+// design rests on each mechanism reporting its own error, so an error a
+// fixture could earn by accident is worth closing.
+func exceedsAMemoryBound(msg string) bool {
+	m := strings.ToLower(msg)
+	return strings.Contains(m, "exceeds") &&
+		(strings.Contains(m, "memory") || strings.Contains(m, "pages"))
 }
 
 func (h *Host) acquire(installID string) bool {

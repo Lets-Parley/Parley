@@ -44,8 +44,9 @@ var (
 	ErrFetchNoAddress = errors.New("fetch refused: the host resolves to no usable address")
 	// ErrFetchTooManyRedirects is returned when the hop budget runs out.
 	ErrFetchTooManyRedirects = errors.New("fetch refused: too many redirects")
-	// ErrFetchSynchronousHook is returned when a synchronous hook tries to
-	// fetch. Grants do not enter into it: a hook runs on the path a room's
+	// ErrFetchSynchronousHook is returned when anything but an asynchronous
+	// call tries to fetch — a synchronous hook, or a call whose mode never
+	// arrived. Grants do not enter into it: a hook runs on the path a room's
 	// state broadcast waits on, so it may not wait on the network. Remote data
 	// reaches a hook from a cache a job filled.
 	ErrFetchSynchronousHook = errors.New("fetch refused: a synchronous hook cannot reach the network; read a cache a job filled")
@@ -123,12 +124,31 @@ func ValidateAllowPattern(pattern string) error {
 	if rest, ok := strings.CutPrefix(p, "*."); ok {
 		p = rest
 	}
-	if p == "" || strings.Contains(p, "*") || strings.Contains(p, "/") ||
-		strings.Contains(p, ":") || strings.HasPrefix(p, ".") || strings.HasSuffix(p, ".") ||
+	if p == "" || strings.HasPrefix(p, ".") || strings.HasSuffix(p, ".") ||
 		!strings.Contains(p, ".") {
 		return fmt.Errorf("%q: %w", pattern, ErrAllowPattern)
 	}
+	// The alphabet, not a list of the characters that have caused trouble so
+	// far. An entry outside it — a NUL, a space, a slash, a colon, a second
+	// wildcard — cannot be a hostname, so certifying it would bless a rule no
+	// host will ever match while reading like a rule that matches something.
+	for i := range len(p) {
+		c := p[i]
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.' {
+			continue
+		}
+		return fmt.Errorf("%q: %w", pattern, ErrAllowPattern)
+	}
 	return nil
+}
+
+func allZero(b []byte) bool {
+	for _, c := range b {
+		if c != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // hostAllowed reports whether host matches any pattern. A "*.example.com"
@@ -190,6 +210,11 @@ func blockedAddress(a netip.Addr) bool {
 		return blockedAddress(netip.AddrFrom4([4]byte{b[2], b[3], b[4], b[5]}))
 	case b[0] == 0x00 && b[1] == 0x64 && b[2] == 0xff && b[3] == 0x9b: // 64:ff9b::/96, NAT64
 		return blockedAddress(netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]}))
+	case allZero(b[:12]): // ::/96, IPv4-compatible — screen the embedded v4
+		// Unmap has already folded the ::ffff: form down to a v4 address, so
+		// what reaches here is the compatible form: "::169.254.169.254" is
+		// still the metadata service, and a stack that routes it gets there.
+		return blockedAddress(netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]}))
 	}
 	return false
 }
@@ -241,6 +266,7 @@ func (f *Fetcher) Do(ctx context.Context, allow []string, req FetchRequest, sync
 		method = http.MethodGet
 	}
 	target := req.URL
+	var firstHost string
 	for hop := 0; ; hop++ {
 		if hop > f.redirects() {
 			return nil, ErrFetchTooManyRedirects
@@ -262,7 +288,14 @@ func (f *Fetcher) Do(ctx context.Context, allow []string, req FetchRequest, sync
 			return nil, err
 		}
 
-		resp, err := f.send(ctx, method, u, pinned, req, hop == 0)
+		// Which host the plugin's credentials were addressed to. A redirect to
+		// any other one travels without them.
+		host := strings.ToLower(u.Hostname())
+		if hop == 0 {
+			firstHost = host
+		}
+
+		resp, err := f.send(ctx, method, u, pinned, req, hop == 0, host == firstHost)
 		if err != nil {
 			return nil, err
 		}
@@ -302,10 +335,27 @@ func redirectTarget(resp *http.Response) string {
 	return ""
 }
 
+// sensitiveHeaders are the headers net/http refuses to carry across a
+// redirect to another host. This guard follows redirects by hand, so it has to
+// make the same refusal itself: without it a plugin's credential for one host
+// is delivered to whatever host that one chooses to 302 to, which turns an
+// allowlist entry an operator approved into a way to reach a host they did
+// not.
+var sensitiveHeaders = map[string]bool{
+	"Authorization":       true,
+	"Cookie":              true,
+	"Cookie2":             true,
+	"Proxy-Authorization": true,
+	"Www-Authenticate":    true,
+}
+
 // send dials the screened address. The transport is built per hop and its
 // dialler ignores the hostname entirely: whatever the resolver would say now,
 // the connection goes to the address that was screened a moment ago.
-func (f *Fetcher) send(ctx context.Context, method string, u *url.URL, pinned netip.Addr, req FetchRequest, firstHop bool) (*http.Response, error) {
+//
+// sameHost is false once a redirect has moved the request off the host the
+// plugin named, and the credential headers are dropped when it is.
+func (f *Fetcher) send(ctx context.Context, method string, u *url.URL, pinned netip.Addr, req FetchRequest, firstHop, sameHost bool) (*http.Response, error) {
 	port := u.Port()
 	if port == "" {
 		port = "443"
@@ -336,6 +386,9 @@ func (f *Fetcher) send(ctx context.Context, method string, u *url.URL, pinned ne
 		return nil, fmt.Errorf("building the request: %w", err)
 	}
 	for k, v := range req.Headers {
+		if !sameHost && sensitiveHeaders[http.CanonicalHeaderKey(k)] {
+			continue
+		}
 		httpReq.Header.Set(k, v)
 	}
 

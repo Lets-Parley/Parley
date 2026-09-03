@@ -70,7 +70,10 @@ func TestFetchRefusesAHostThatIsNotOnTheAllowlist(t *testing.T) {
 
 func TestAnAllowlistEntryTakesAtMostOneLeadingWildcard(t *testing.T) {
 	good := []string{"example.com", "api.example.com", "*.example.com"}
-	bad := []string{"", "*", "*.", "api.*.example.com", "example.*", "exa*mple.com", "localhost", "https://example.com", "example.com:443"}
+	bad := []string{"", "*", "*.", "api.*.example.com", "example.*", "exa*mple.com", "localhost", "https://example.com", "example.com:443",
+		// Outside the hostname alphabet. An embedded NUL certifies an entry no
+		// host will ever match, which reads as a rule that matches something.
+		"x.com\x00.evil.tld", "exam ple.com", "exa\tmple.com", "ex_ample.com", "café.com"}
 	for _, p := range good {
 		if err := ValidateAllowPattern(p); err != nil {
 			t.Errorf("%q: got %v, want accepted", p, err)
@@ -104,6 +107,9 @@ func TestFetchRefusesPrivateLoopbackLinkLocalAndMetadataAddresses(t *testing.T) 
 		"224.0.0.1", "240.0.0.1", "255.255.255.255",
 		"::1", "::", "fe80::1", "fd00:ec2::254", "fc00::1", "ff02::1",
 		"::ffff:169.254.169.254", "::ffff:127.0.0.1", "2002:a9fe:a9fe::1", "64:ff9b::a9fe:a9fe",
+		// The IPv4-compatible form. Unmap does not fold these down, so they
+		// reach the v6 arm still looking like ordinary v6 addresses.
+		"::127.0.0.1", "::169.254.169.254", "::10.1.1.1",
 	}
 	for _, s := range blocked {
 		if !blockedAddress(netip.MustParseAddr(s)) {
@@ -249,5 +255,69 @@ func TestASynchronousHookCannotFetchEvenWithTheGrant(t *testing.T) {
 		FetchRequest{URL: "https://start.example.com:" + port + "/"}, true)
 	if !errors.Is(err, ErrFetchSynchronousHook) {
 		t.Fatalf("got %v, want ErrFetchSynchronousHook", err)
+	}
+}
+
+func TestCredentialsDoNotFollowARedirectToAnotherHost(t *testing.T) {
+	// The victim is what the plugin's headers were for; the attacker is where
+	// a 3xx sends them. Both are inside one allowlist entry, so nothing else
+	// in the guard stops this: only the header strip does.
+	var got http.Header
+	_, attackerPort := serve(t, func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+	})
+	var toAttacker string
+	_, victimPort := serve(t, func(w http.ResponseWriter, _ *http.Request) { redirect(w, toAttacker) })
+	toAttacker = "https://attacker.example.com:" + attackerPort + "/"
+
+	f := testFetcher(t, map[string]string{"api.example.com": "", "attacker.example.com": ""})
+	_, err := f.Do(context.Background(), []string{"*.example.com"}, FetchRequest{
+		URL: "https://api.example.com:" + victimPort + "/",
+		Headers: map[string]string{
+			"Authorization":       "Bearer TOPSECRET",
+			"Cookie":              "sid=abc",
+			"Proxy-Authorization": "Basic ZGVhZDpiZWVm",
+			"X-Plugin-Trace":      "keep-me",
+		},
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []string{"Authorization", "Cookie", "Cookie2", "Proxy-Authorization", "Www-Authenticate"} {
+		if v := got.Get(h); v != "" {
+			t.Errorf("the host on the far side of the redirect received %s: %q", h, v)
+		}
+	}
+	// A header that is not a credential still travels, because stripping
+	// everything would break a plugin that sets an Accept header.
+	if v := got.Get("X-Plugin-Trace"); v != "keep-me" {
+		t.Errorf("X-Plugin-Trace is %q; only the credential headers should be dropped", v)
+	}
+}
+
+func TestCredentialsSurviveARedirectBackToTheSameHost(t *testing.T) {
+	var got http.Header
+	var self string
+	_, port := serve(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/moved" {
+			redirect(w, self)
+			return
+		}
+		got = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+	})
+	self = "https://api.example.com:" + port + "/final"
+
+	f := testFetcher(t, map[string]string{"api.example.com": ""})
+	_, err := f.Do(context.Background(), []string{"api.example.com"}, FetchRequest{
+		URL:     "https://api.example.com:" + port + "/moved",
+		Headers: map[string]string{"Authorization": "Bearer TOPSECRET"},
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Get("Authorization") != "Bearer TOPSECRET" {
+		t.Fatalf("Authorization is %q on a same-host redirect; it should survive", got.Get("Authorization"))
 	}
 }
