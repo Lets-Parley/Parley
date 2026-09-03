@@ -148,3 +148,12 @@ func (s *Kudos) Delete(ctx context.Context, id, senderID string) error {
 	}
 	return nil
 }
+
+// Get reads one of a space's kudos. It exists for the API's delete path, which
+// has to tell "no such kudo" from "not yours to withdraw" — a distinction
+// ErrNoKudo deliberately refuses to make, and which is safe to make only once
+// the caller is already known to be a member of the space.
+func (s *Kudos) Get(ctx context.Context, spaceID, id string) (Kudo, error) {
+	return scanKudo(s.Pool.QueryRow(ctx,
+		"select "+kudoCols+" from kudos where id = $1 and space_id = $2", id, spaceID))
+}
