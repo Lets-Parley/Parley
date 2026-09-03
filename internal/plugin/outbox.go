@@ -128,11 +128,17 @@ func (o *Outbox) Drain(ctx context.Context) (int, error) {
 	for _, d := range claimed {
 		err := o.Deliver(ctx, d)
 		if err == nil {
-			if _, err := o.Pool.Exec(ctx,
+			tag, err := o.Pool.Exec(ctx,
 				`update plugin_deliveries set state = 'delivered', last_error = null, updated_at = now() where id = $1`,
-				d.ID); err != nil {
+				d.ID)
+			if err != nil {
 				return len(claimed), fmt.Errorf("marking delivery %d delivered: %w", d.ID, err)
 			}
+			// Uninstall is the first thing that can delete a plugin_installs
+			// row, and that cascades this delivery away underneath a worker
+			// already running it. The UPDATE then affects nothing, and without
+			// this the outcome is dropped in silence.
+			o.warnVanished(tag.RowsAffected(), d)
 			continue
 		}
 		if err := o.fail(ctx, d, err); err != nil {
@@ -223,4 +229,15 @@ func runLoop(ctx context.Context, interval time.Duration, log *slog.Logger, name
 		case <-ticker.C:
 		}
 	}
+}
+
+// warnVanished says so when the row a worker was working on is no longer
+// there. An uninstall cascades plugin_deliveries away, so a delivery can
+// disappear mid-flight; that is legitimate, but it must not be invisible.
+func (o *Outbox) warnVanished(affected int64, d Delivery) {
+	if affected != 0 || o.Log == nil {
+		return
+	}
+	o.Log.Warn("plugin delivery vanished mid-flight; its outcome was dropped",
+		"delivery_id", d.ID, "install_id", d.InstallID, "topic", d.Topic)
 }

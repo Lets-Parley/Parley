@@ -6,7 +6,7 @@ description: Every route, who may call it, and what it does.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import RouteTable from "../../../components/RouteTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/api/links.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/plugins.go"]} />
 
 There is no API token scheme. Everything authenticates with the `parley_session`
 cookie, so the API is usable from a script only by reusing a browser session's
@@ -200,6 +200,33 @@ demotes an incumbent owner.
   { method: "POST", path: "/api/orgs/{org}/admin/members/{userId}/restore", auth: "org admin", purpose: "Lift a revocation, so the next sign-in enrols them again if their claim still matches. Without it a mis-click would be permanent." },
   { method: "DELETE", path: "/api/orgs/{org}", auth: "org admin", purpose: "Purge the org: every space, every session, and the org row itself, in one transaction. Send {confirm} matching the org's own slug; without it the call is 400 and reports the exact space and session counts it would destroy, read inside the transaction that would have done it. Irreversible, and the audit records survive it. The default org cannot be purged." },
 ]} />
+
+### Plugin administration
+
+The operator's surface over what is installed and what it is allowed to do. It
+sits behind the same three-deep gate as custody — signed in, a member of the
+org, and an admin of it — so an ordinary member gets **403** on every route
+below, whatever the frontend chose to draw.
+
+Consent copy is written by the server, not the client: `permits`, `allows` and
+`refuses` on every described grant come from `internal/plugin`, beside the guard
+that enforces them, so the sentence an operator agrees to and the rule the host
+applies cannot drift apart.
+
+<RouteTable rows={[
+  { method: "GET", path: "/api/orgs/{org}/admin/plugins", auth: "org admin", purpose: "Everything installed in this org — and only this org: version, enabled, described grants, session kinds provided, any pending upgrade as a diff, and health. Also reports whether a plugin host is running at all (PLUGIN_DIR) and whether plugin secrets are available." },
+  { method: "POST", path: "/api/orgs/{org}/admin/plugins/preview", auth: "org admin", purpose: "Describe what an uploaded package would be permitted, without installing anything. Every fetch allowlist entry is expanded into worked examples produced by the guard's own matching. For a package whose name is already installed in this org it also returns the diff against the grants in force." },
+  { method: "POST", path: "/api/orgs/{org}/admin/plugins", auth: "org admin", purpose: "Install, or request an upgrade. Body is {package, grantsAccepted}; grantsAccepted must be true, so a client that never showed a consent screen cannot install by omission. 201 for a new install, 200 for an upgrade within the grants already approved, and 202 when the upgrade asks for more — in which case the version and the grants in force are unchanged and the request parks as pending." },
+  { method: "POST", path: "/api/orgs/{org}/admin/plugins/{id}/upgrade", auth: "org admin", purpose: "Approve a pending upgrade. Body must be {approve:true}; an empty body is 400 and changes nothing. This is the only thing that puts a wider grant set into force. 404 for an install this org does not own, or one that does not exist — the two are deliberately indistinguishable." },
+  { method: "POST", path: "/api/orgs/{org}/admin/plugins/{id}/enabled", auth: "org admin", purpose: "Switch a plugin off or back on with {enabled}. Reversible, and it destroys nothing; disabling also evicts the compiled module rather than leaving it resident. 404 for an install this org does not own." },
+  { method: "DELETE", path: "/api/orgs/{org}/admin/plugins/{id}", auth: "org admin", purpose: "Uninstall. Irreversible: it cascades to the plugin's grants, key-value store, deliveries, jobs and encrypted secrets. 409 while any session of a kind the plugin provides still exists, and the refusal names those kinds and their counts. The check, the retirement of the kinds it provided, the delete and the audit row are one transaction, so a refusal changes nothing and a completed uninstall cannot be unlogged. 404 for an install this org does not own." },
+  { method: "POST", path: "/api/orgs/{org}/admin/plugins/themes", auth: "org admin", purpose: "Record that a theme pack was applied. A pack never reaches the server — it is a value map applied in the browser — so this writes the audit row and nothing else, including whether the contrast gate was overridden." },
+  { method: "DELETE", path: "/api/orgs/{org}/admin/plugins/themes", auth: "org admin", purpose: "Record a reset to the built-in palette." },
+]} />
+
+Every install, upgrade request, upgrade approval, disable, re-enable, uninstall
+and theme change writes a row to the same `org_audit_log` an admin's custody
+actions land in, naming the acting user.
 
 :::caution[The purge cannot be undone]
 `DELETE /api/orgs/{org}` destroys every space, session, story, standup entry

@@ -733,6 +733,26 @@ describe("Landing across orgs", () => {
     ];
   };
 
+  // The plugin surface is only reachable at all if something links to it, and
+  // it must not be advertised to somebody the API will refuse.
+  it("offers the plugin surface for orgs the account administers, and no others", async () => {
+    twoOrgs();
+    renderApp(<Landing />);
+
+    const nav = within(await screen.findByRole("navigation", { name: "Administer an org" }));
+    expect(nav.getByRole("link", { name: /Plugins in Globex/ }).getAttribute("href")).toBe(
+      "/o/globex/admin/plugins",
+    );
+    expect(nav.queryByRole("link", { name: /Plugins in Acme/ })).toBe(null);
+  });
+
+  it("offers it to nobody when the account administers no org", async () => {
+    myOrgs = [{ slug: "acme", name: "Acme", role: "member" }];
+    renderApp(<Landing />);
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.queryByRole("navigation", { name: "Administer an org" })).toBe(null);
+  });
+
   // Two orgs can each hold a "platform-team", so the slug alone is ambiguous
   // and both links have to name their own org or one of them goes to the
   // wrong space.

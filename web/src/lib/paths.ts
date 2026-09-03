@@ -45,3 +45,13 @@ export function orgSpacesApi(org: string, after = ""): string {
   const base = `/api/orgs/${org}/spaces`;
   return after ? `${base}?after=${encodeURIComponent(after)}` : base;
 }
+
+/** The SPA route for the operator's plugin administration surface. */
+export function pluginsPath(org: string): string {
+  return `/o/${org}/admin/plugins`;
+}
+
+/** The API for plugin administration in one org. Sub-resources append to it. */
+export function pluginsApi(org: string): string {
+  return `/api/orgs/${org}/admin/plugins`;
+}
