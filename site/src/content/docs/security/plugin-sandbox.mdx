@@ -194,9 +194,28 @@ segments are resolved by the same URL parser `fetch` uses, so a proposed action
 of `../../../me` leaves `/api/sessions/{id}/actions/` entirely and lands
 somewhere the audit middleware is not even mounted, on the user's own cookie and
 genuinely same-origin. So a name is refused unless it is letters, digits,
-underscore and hyphen — screened in the bridge before it reaches the host, and
-again where the request is built, where both segments are percent-encoded rather
-than interpolated.
+underscore and hyphen, and no longer than 64 characters — screened in the bridge
+before it reaches the host, and again where the request is built, where both
+segments are percent-encoded rather than interpolated.
+
+### What `session:act` actually grants
+
+`session:act` is coarse on purpose, and an operator granting it should read it
+as **everything the granting user can do in this room, without a further
+gesture**. There is no per-action grant: a plugin holding `session:act` can
+reveal a round, advance a story, or take any other action the acting user is
+entitled to, at a moment of the plugin's choosing rather than the user's. When
+the acting user is the facilitator, that includes the facilitator's own
+controls.
+
+What bounds it is the server, not the plugin. Every proposed action is
+re-authorised host-side as if the user had clicked it: an action the kind does
+not register is a 404, the wrong verb a 405, a facilitator-only action from
+someone who is not the facilitator a 403, and anything at all in an ended
+session a 409. So a plugin can never *exceed* the acting user — the ceiling is
+that user's own authority, and it does not rise because a plugin asked. Grant
+`session:act` to a plugin you would be willing to let press the buttons you can
+press; withhold it from one you only want to look.
 
 ### A panel list is one org's, not the instance's
 

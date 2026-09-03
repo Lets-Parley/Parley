@@ -101,11 +101,15 @@ func TestEveryNonPluginRouteStillSendsTheSecurityHeaders(t *testing.T) {
 	probe := func(method, route, path, why string) {
 		req, err := http.NewRequest(method, srv.URL+path, strings.NewReader("{}"))
 		if err != nil {
-			return
+			t.Fatalf("%s %s (%s): building the request: %v — the floor below counts "+
+				"routes walked, so a route that was never probed must not pass quietly",
+				method, route, why, err)
 		}
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := srv.Client().Do(req)
 		if err != nil {
+			t.Errorf("%s %s (%s): %v — this route was counted toward the coverage "+
+				"floor but never actually answered", method, route, why, err)
 			return
 		}
 		resp.Body.Close()
@@ -192,36 +196,31 @@ func TestAScriptCloseTagInAUIBundleCannotBreakOutOfTheFrameScript(t *testing.T) 
 	}
 }
 
-// The frame's handshake listener is the one moment it reads the window, and a
-// window is postMessage-able by any frame on the page. Checking only
-// event.ports.length let a sibling plugin's frame race the host: whoever
-// answers first supplies the port, so plugin A could hand plugin B a channel A
-// controls, feed B forged session state and read every action B proposes.
-// Origin cannot settle it — every sandboxed frame reports "null" — so the
-// sender is screened structurally.
+// The frame's handshake is exercised where it can actually run: the bootstrap
+// is a real .js file this package embeds, and
+// web/src/lib/pluginFrameBootstrap.test.ts loads those same bytes into jsdom
+// and drives real message events at them — a sender that is not the embedder,
+// a message without the host's marker, a handshake with no port, and a second
+// handshake after the first. That is behaviour rather than text, which the
+// assertion that used to stand here was not: it checked that two condition
+// expressions were present and in order, so a guard whose body had been
+// emptied still passed it, while a rephrasing of the same condition failed.
 //
-// This asserts the shape of the bootstrap rather than running it: it is inline
-// JavaScript delivered inside a Go string, so neither test runner can execute
-// it. The ordering assertions are the substance — a screen that runs after the
-// port has already been taken is not a screen.
-func TestTheFrameBootstrapOnlyAcceptsAPortFromItsEmbedder(t *testing.T) {
-	js := pluginFrameBootstrap
+// What remains here is the seam between the two runners: the source the Go
+// handler serves has to be the source the vitest test executes.
+func TestTheFrameBootstrapServedIsTheSourceTheFrontendTests(t *testing.T) {
+	onDisk, err := os.ReadFile("pluginframe_bootstrap.js")
+	if err != nil {
+		t.Fatalf("reading the bootstrap source the frontend test loads: %v", err)
+	}
+	if string(onDisk) != pluginFrameBootstrap {
+		t.Fatalf("the embedded bootstrap and pluginframe_bootstrap.js have drifted apart")
+	}
 
-	source := strings.Index(js, "event.source !== window.parent")
-	marker := strings.Index(js, `event.data.parley !== "bridge"`)
-	take := strings.Index(js, "port = event.ports[0]")
-	if source < 0 {
-		t.Fatalf("the handshake does not check who sent the message:\n%s", js)
-	}
-	if marker < 0 {
-		t.Fatalf("the handshake does not require the host's own marker:\n%s", js)
-	}
-	if take < 0 {
-		t.Fatalf("the handshake no longer takes a port at all:\n%s", js)
-	}
-	if source > take || marker > take {
-		t.Fatalf("the handshake takes the port before screening the sender — a screen that runs "+
-			"after the port is in hand screens nothing:\n%s", js)
+	srv, _ := pluginFrameServer(t, "window.parley.ready();")
+	_, body := get(t, srv, "/plugin-ui/demo/1.0.0")
+	if !strings.Contains(body, escapeForScript(string(onDisk))) {
+		t.Fatalf("the frame does not serve the bootstrap the frontend test executes:\n%s", body)
 	}
 }
 

@@ -42,7 +42,14 @@ target() {
     PKG=./$1
 }
 
+# Two different kinds of bad news, counted apart. `failures` is findings about
+# the code: a guard was broken and its test stayed green. `harness_failures` is
+# this script's own bookkeeping coming apart — a missing anchor, a baseline
+# that was already red, a mutation that would not compile. Both exit 1, but
+# reporting them under one number told an operator "you have N uncovered
+# guards" when the truth was "this script cannot currently tell you anything".
 failures=0
+harness_failures=0
 checked=0
 
 patch_once() {
@@ -142,11 +149,11 @@ mutate() {
     # green. Everything below reads "went red" as "the guard is covered", and
     # that reading is only true of a test that was passing to begin with.
     if [ "$RUNNER" = "web" ] && ! web_spec_ok "$name" "$tests"; then
-        failures=$((failures + 1))
+        harness_failures=$((harness_failures + 1))
         return
     fi
     if ! baseline_ok "$name" "$tests"; then
-        failures=$((failures + 1))
+        harness_failures=$((harness_failures + 1))
         return
     fi
 
@@ -156,7 +163,7 @@ mutate() {
         if ! grep -qF -- "$find" "$SRC/$file"; then
             echo "MUTATION SETUP FAILED: $name — this anchor is no longer in $file:"
             echo "  $find"
-            failures=$((failures + 1))
+            harness_failures=$((harness_failures + 1))
             return
         fi
         patch_once "$SRC/$file" "$find" "$replace"
@@ -186,13 +193,13 @@ mutate() {
         if ! (cd web && npx tsc -b) >"$LOG" 2>&1; then
             echo "MUTATION DID NOT COMPILE: $name — a build break is not a caught mutation."
             sed -n '1,40p' "$LOG"
-            failures=$((failures + 1))
+            harness_failures=$((harness_failures + 1))
             return
         fi
     elif ! go test -run 'XXNONEXX' -count=1 "$PKG" >"$LOG" 2>&1; then
         echo "MUTATION DID NOT COMPILE: $name — a build break is not a caught mutation."
         sed -n '1,40p' "$LOG"
-        failures=$((failures + 1))
+        harness_failures=$((harness_failures + 1))
         return
     fi
 
@@ -347,14 +354,31 @@ mutate "the script-close-tag escape in the frame document" \
 # A sibling plugin's frame can postMessage to this one. Whoever answers the
 # handshake first supplies the port, so without a sender screen plugin A hands
 # plugin B a channel A controls — forged state in, B's action proposals out.
+# The condition is not the guard — returning is. An earlier version of this
+# mutation deleted the whole `if`, which the text-shaped test it named caught
+# for the wrong reason; emptying the bodies instead leaves both conditions
+# present and in order and makes the screen a no-op, which only a test that
+# runs the bootstrap can see. It runs from the web tree because that test is
+# vitest: the guard is a .js file the Go package embeds and jsdom executes.
+target internal/api web
+
 mutate "the frame handshake's sender screen" \
-    'TestTheFrameBootstrapOnlyAcceptsAPortFromItsEmbedder' \
-    pluginframe.go 'if (event.source !== window.parent) { return; }
-    if (!event.data || event.data.parley !== "bridge") { return; }' 'if (false) { return; }'
+    'src/lib/pluginFrameBootstrap.test.ts::refuses a port from anyone but its embedder' \
+    pluginframe_bootstrap.js 'if (event.source !== window.parent) { return; }' 'if (event.source !== window.parent) { /* defanged */ }'
+
+mutate "the frame handshake's marker screen" \
+    'src/lib/pluginFrameBootstrap.test.ts::refuses a port that does not carry the host'"'"'s own marker' \
+    pluginframe_bootstrap.js 'if (!event.data || event.data.parley !== "bridge") { return; }' 'if (!event.data || event.data.parley !== "bridge") { /* defanged */ }'
+
+mutate "the handshake happening only once" \
+    'src/lib/pluginFrameBootstrap.test.ts::takes the embedder'"'"'s port and then stops listening to the window' \
+    pluginframe_bootstrap.js 'window.removeEventListener("message", onHandshake);' '/* the frame goes on listening */'
+
+target internal/api
 
 mutate "the screen on a design token's value" \
     'TestTheFrameBootstrapScreensATokenValueAndNotOnlyItsName' \
-    pluginframe.go 'if (COLOR.test(value)) { root.style.setProperty("--color-" + key, value); }' 'root.style.setProperty("--color-" + key, value);'
+    pluginframe_bootstrap.js 'if (COLOR.test(value)) { root.style.setProperty("--color-" + key, value); }' 'root.style.setProperty("--color-" + key, value);'
 
 mutate "the plugin UI bundle path screen" \
     'TestThePluginFrameRefusesANameThatClimbsOutOfThePluginDirectory' \
@@ -469,8 +493,14 @@ mutate "the handshake timeout" \
 restore_all
 
 echo
+if [ "$harness_failures" -ne 0 ]; then
+    echo "$harness_failures of $checked guard mutations could not be scored at all —"
+    echo "  this harness's own bookkeeping is broken, not (necessarily) the guards."
+fi
 if [ "$failures" -ne 0 ]; then
     echo "$failures of $checked guard mutations survived. Each one is a guard with no test behind it."
+fi
+if [ "$failures" -ne 0 ] || [ "$harness_failures" -ne 0 ]; then
     exit 1
 fi
 echo "all $checked guard mutations were caught."

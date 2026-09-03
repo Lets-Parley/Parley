@@ -189,11 +189,24 @@ describe("action", () => {
       "reveal?x=1",
       "reveal#x",
       "",
+      // Alphabet-legal but not a name: an action is a short identifier, and a
+      // screen that bounds only the character set lets a novel become a URL.
+      "a".repeat(65),
+      "a".repeat(60000),
     ]) {
       f.mockClear();
       await expect(action("s1", name, {})).rejects.toThrow();
       expect(f, `action ${JSON.stringify(name)} reached the network`).not.toHaveBeenCalled();
     }
+  });
+
+  // The bound is on length, not on being long-ish: the longest name any kind
+  // actually registers has to keep working, and so does the edge of the range.
+  it("still builds a request from a long-but-plausible action name", async () => {
+    const f = fetchMock().mockResolvedValue(reply(204, "", true));
+    await action("s1", "a".repeat(64), {});
+    expect(f).toHaveBeenCalledOnce();
+    expect(String(f.mock.calls[0][0])).toContain(`/actions/${"a".repeat(64)}`);
   });
 
   // Belt to the screen's braces: even if a name somehow got through, it is

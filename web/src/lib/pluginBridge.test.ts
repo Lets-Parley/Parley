@@ -227,6 +227,9 @@ describe("createPluginBridge", () => {
       "",
       "reveal?x=1",
       "reveal#x",
+      // Alphabet-legal, but an action name is a short identifier, not a novel.
+      "a".repeat(65),
+      "a".repeat(60000),
     ];
     for (const name of escapes) {
       const { b, actions, failures } = bridge();

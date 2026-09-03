@@ -291,8 +291,14 @@ const actionVerbs: Record<string, string> = {
  * Letters, digits, underscore and hyphen is what every registered action on
  * every kind is spelled with, so screening to that set costs nothing and
  * leaves no separator, no dot and no query or fragment introducer behind.
+ *
+ * Length is bounded as well as alphabet. A 60,000-character name is legal
+ * against the alphabet alone and would go on to become a request URL; nothing
+ * worse than a server 404 or 431 comes of it, but "an action name" is a short
+ * identifier and a screen that says so is a screen that cannot be argued
+ * about. The longest action any kind registers is well inside 64.
  */
-const ACTION_NAME = /^[a-zA-Z0-9_-]+$/;
+const ACTION_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
 
 /** Whether a string is a plain action name rather than a path expression. */
 export function isActionName(name: string): boolean {
