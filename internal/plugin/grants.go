@@ -223,7 +223,13 @@ func (s *Store) ApproveUpgrade(ctx context.Context, installID string) error {
 	if !ok {
 		return fmt.Errorf("approving an upgrade for %s: there is nothing pending", installID)
 	}
-	if err := checkGrants(s.Cipher, installID, pending.Grants); err != nil {
+	current, err := s.State(ctx, installID)
+	if err != nil {
+		return err
+	}
+	// The plugin's name, as every other call site passes: an operator reading
+	// a refused approval wants to know which plugin it was, not which UUID.
+	if err := checkGrants(s.Cipher, current.Install.Name, pending.Grants); err != nil {
 		return err
 	}
 	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
