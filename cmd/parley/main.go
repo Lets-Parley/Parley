@@ -320,20 +320,9 @@ func main() {
 	// The host, and with it the outbox and job handlers. Without PLUGIN_DIR
 	// there is no host: the workers keep their nil handlers and drain nothing,
 	// so an instance with no plugins never instantiates a WASM runtime.
-	if cfg.PluginDir != "" {
-		bus := &plugin.Bus{Pool: pool}
-		queue := &plugin.Queue{Pool: pool, Log: log}
-		host := plugin.NewHost(plugins, cfg.PluginLimits)
-		host.Log = log
-		host.Bus = bus
-		host.Queue = queue
-		host.Bundles = plugin.DirBundles(cfg.PluginDir)
-		queue.Run = host.RunJob
-		defer host.Close(context.Background())
-
-		outbox := &plugin.Outbox{Pool: pool, Log: log, Deliver: host.DeliverEvent}
-		go outbox.Run(ctx, plugin.DefaultInterval)
-		go queue.RunWorker(ctx, plugin.DefaultInterval)
+	if runtime := plugin.NewRuntime(plugins, cfg.PluginDir, cfg.PluginLimits, log); runtime != nil {
+		defer runtime.Close()
+		runtime.Start(ctx)
 	}
 
 	opts := api.Options{
