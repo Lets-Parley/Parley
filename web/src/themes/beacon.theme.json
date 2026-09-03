@@ -1,0 +1,45 @@
+{
+  "manifest": 1,
+  "kind": "theme",
+  "id": "parley.beacon",
+  "name": "Beacon",
+  "version": "1.0.0",
+  "modes": {
+    "light": {
+      "felt": "#EFEEE9",
+      "felt-deep": "#DCDAD3",
+      "surface": "#F8F7F4",
+      "surface-hi": "#FFFFFF",
+      "ink": "#0A0F16",
+      "ink-soft": "#33414F",
+      "ink-faint": "#3D4B59",
+      "line": "#B9B6AD",
+      "line-strong": "#5F5C55",
+      "accent": "#12405C",
+      "accent-ink": "#FFFFFF",
+      "accent-soft": "#CFE0EC",
+      "brass": "#5C4308",
+      "settled": "#4A2F52",
+      "go": "#1C5245",
+      "stop": "#8F2419"
+    },
+    "dark": {
+      "felt": "#070C14",
+      "felt-deep": "#04070C",
+      "surface": "#101827",
+      "surface-hi": "#172133",
+      "ink": "#F2F1EC",
+      "ink-soft": "#B9C5D2",
+      "ink-faint": "#A3B0BE",
+      "line": "#2C3849",
+      "line-strong": "#8593A3",
+      "accent": "#8FC5E8",
+      "accent-ink": "#04070C",
+      "accent-soft": "#17293C",
+      "brass": "#EDC873",
+      "settled": "#DDB4E5",
+      "go": "#7FD8BF",
+      "stop": "#F58E80"
+    }
+  }
+}
