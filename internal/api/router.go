@@ -60,6 +60,8 @@ type app struct {
 	// orgs resolves the org a slug belongs to. Until an instance is divided,
 	// that is always the default org, cached behind defaultOrg.
 	orgs *store.Orgs
+	// pluginDir is Options.PluginDir; empty means no plugin UI is served.
+	pluginDir string
 	// bootstrapAdmin is the (issuer, subject) pair an operator granted admin
 	// of the default org from configuration.
 	bootstrapAdmin BootstrapAdmin
@@ -98,6 +100,10 @@ type Options struct {
 	TrustProxyHeaders bool
 	TrustedProxyCIDRs []netip.Prefix
 	Limits            Limits
+	// PluginDir is where installed plugin bundles live. Empty means this
+	// instance runs no plugins, and the plugin UI frame route is then not
+	// registered at all.
+	PluginDir string
 
 	// Plugins is the durable side of the plugin host, and PluginHost the
 	// running one. Both are optional; without Plugins the administration
@@ -204,6 +210,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		kinds:         kinds,
 		secureCookies: opts.SecureCookies,
 		allowedOrigin: opts.AllowedOrigin,
+		pluginDir:     opts.PluginDir,
 		authMode:      mode,
 		version:       cmp.Or(opts.Version, "dev"),
 
@@ -278,14 +285,36 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		}
 	}
 
-	r := chi.NewRouter()
+	root := chi.NewRouter()
 	// Forwarded addresses affect both open-mode identity creation and room-code
 	// throttles, so they are accepted only across an explicitly trusted chain.
 	if opts.TrustProxyHeaders {
-		r.Use(trustedProxyHeaders(opts.TrustedProxyCIDRs, slog.Default()))
+		root.Use(trustedProxyHeaders(opts.TrustedProxyCIDRs, slog.Default()))
 	}
-	r.Use(middleware.Recoverer)
-	r.Use(securityHeaders)
+	root.Use(middleware.Recoverer)
+
+	// securityHeaders splits into two route-scoped profiles. The plugin UI
+	// frame gets its own group, with its own middleware, because the global
+	// profile sets X-Frame-Options: DENY and a framed document that carries it
+	// is blocked before any CSP is read. Making the carve-out a group rather
+	// than a path check inside securityHeaders is the whole point: a group is
+	// reachable only by being registered in it, while a path check is a
+	// matching rule, and matching rules get evaded.
+	a.mountPluginFrame(root)
+	r := root.With(securityHeaders)
+
+	// chi answers a known path with an unknown method from its own
+	// method-not-allowed handler, which is not in the route tree and so runs
+	// no route group's middleware. Moving securityHeaders off root.Use and
+	// onto this group therefore sent every 405 out bare — no CSP, no nosniff,
+	// no X-Frame-Options — and a route walk that only exercises registered
+	// method+path pairs structurally cannot see it. Registering the handler
+	// through `r` is what puts it back behind the same profile: chi wraps an
+	// inline mux's handler in that mux's middleware and hangs it on the
+	// parent, which is exactly what r.NotFound below already relies on.
+	r.MethodNotAllowed(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
 
 	// Liveness must never touch the database: a DB blip restarting the process
 	// would drop every WebSocket in the room.
@@ -513,7 +542,19 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		// disclosed to anyone outside its space.
 		r.Route("/sessions/{id}", func(r chi.Router) {
 			r.Use(a.requireSessionMember)
+			// A plugin panel proposes; this performs, as the user. The
+			// header names the plugin so the change is attributable — it
+			// authorises nothing, and the gates above have already run.
+			r.Use(a.pluginRouteAudit)
 			r.Get("/", a.handleGetSession)
+			// What has UI to frame in this room. Open to anyone in it,
+			// guests included: it names installs and their grants, and a
+			// grant is not a secret — the host re-checks every one of them
+			// at the effect. It hangs off the room rather than off /api
+			// because the room is what fixes the org: the list is one
+			// tenant's install inventory, and a link guest has no org
+			// membership from which any other org could be resolved.
+			r.Get("/plugins/panels", a.handlePluginPanels)
 			// The export is the room's whole history in one file, including
 			// every meeting it has held. Membership is not enough for it once
 			// a link guest can be a caller here.
@@ -577,7 +618,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 
 	r.NotFound(spa)
 
-	return &Handler{Handler: r, hub: a.hub}
+	return &Handler{Handler: root, hub: a.hub}
 }
 
 func limitAPIRequestBody(next http.Handler) http.Handler {

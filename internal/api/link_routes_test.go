@@ -56,10 +56,15 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// spends the credential rather than reshaping it, and it is the only way
 	// a guest on a borrowed browser can stop the cookie outliving the visit.
 	// It deletes the caller's own session_tokens row and nothing else.
-	"POST /api/me":         {status: http.StatusForbidden},
-	"GET /api/me":          {status: http.StatusOK},
-	"DELETE /api/me":       {status: http.StatusNoContent},
-	"PATCH /api/me/avatar": {status: http.StatusForbidden},
+	"POST /api/me": {status: http.StatusForbidden},
+	"GET /api/me":  {status: http.StatusOK},
+
+	// The frame itself carries no session data at all — it is a static
+	// document assembled from what the operator installed. With no PLUGIN_DIR
+	// on this instance it is not there to serve.
+	"GET /plugin-ui/{name}/{version}": {status: http.StatusNotFound},
+	"DELETE /api/me":                  {status: http.StatusNoContent},
+	"PATCH /api/me/avatar":            {status: http.StatusForbidden},
 
 	// The legacy space-link shim. A link guest belongs to no org, so there is
 	// nothing for it to resolve against — and resolving it against somebody
@@ -154,6 +159,10 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 
 	// The bound room. Reading it and taking part in it is the whole grant.
 	"GET /api/sessions/{id}/": {status: http.StatusOK},
+	// A link guest sees the same plugin panels its own room does: the list
+	// names installs and grants, and a grant is not a secret. It is scoped to
+	// the room's org, which is the only org a guest has any relationship to.
+	"GET /api/sessions/{id}/plugins/panels": {status: http.StatusOK},
 	// The dispatcher is mounted for every method so that it, not chi, decides
 	// 404-vs-405. This table classifies route *patterns*, so {action} here is
 	// one representative name — voting, the participate capability — and every

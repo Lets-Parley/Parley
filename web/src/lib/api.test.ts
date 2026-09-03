@@ -172,4 +172,49 @@ describe("action", () => {
       expect(f.mock.calls[0][1]!.method).toBe(method);
     }
   });
+
+  // The name is a path segment, and an unscreened one is a path expression:
+  // dot segments are resolved by the same URL parser fetch uses, so a name of
+  // "../../../me" leaves the actions path entirely and POSTs to /api/me on the
+  // user's own cookie. The screen is here as well as in the bridge because
+  // this is the construction site: whatever reaches it, no request is built
+  // from a name that is not a plain action name.
+  it("builds no request at all from an action name that is not a plain name", async () => {
+    const f = fetchMock().mockResolvedValue(reply(204, "", true));
+    for (const name of [
+      "../../../me",
+      "../../OTHER/actions/vote",
+      "../../../orgs/acme/spaces/eng/passcode",
+      "reveal/../../me",
+      "reveal?x=1",
+      "reveal#x",
+      "",
+      // Alphabet-legal but not a name: an action is a short identifier, and a
+      // screen that bounds only the character set lets a novel become a URL.
+      "a".repeat(65),
+      "a".repeat(60000),
+    ]) {
+      f.mockClear();
+      await expect(action("s1", name, {})).rejects.toThrow();
+      expect(f, `action ${JSON.stringify(name)} reached the network`).not.toHaveBeenCalled();
+    }
+  });
+
+  // The bound is on length, not on being long-ish: the longest name any kind
+  // actually registers has to keep working, and so does the edge of the range.
+  it("still builds a request from a long-but-plausible action name", async () => {
+    const f = fetchMock().mockResolvedValue(reply(204, "", true));
+    await action("s1", "a".repeat(64), {});
+    expect(f).toHaveBeenCalledOnce();
+    expect(String(f.mock.calls[0][0])).toContain(`/actions/${"a".repeat(64)}`);
+  });
+
+  // Belt to the screen's braces: even if a name somehow got through, it is
+  // percent-encoded rather than interpolated raw, so it cannot be read as a
+  // path.
+  it("escapes the session id and the action name into their own path segments", async () => {
+    const f = fetchMock().mockResolvedValue(reply(204, "", true));
+    await action("a/b", "reveal", {});
+    expect(f.mock.calls[0][0]).toBe("/api/sessions/a%2Fb/actions/reveal");
+  });
 });

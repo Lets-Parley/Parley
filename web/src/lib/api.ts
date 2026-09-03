@@ -34,13 +34,22 @@ export async function api<T = unknown>(
   method: string,
   path: string,
   body?: unknown,
+  /**
+   * Extra request headers. The plugin bridge uses it to name the plugin that
+   * proposed an action, so a host-mediated call is attributable to the surface
+   * it came from without the plugin ever holding a credential of its own.
+   */
+  extraHeaders?: Record<string, string>,
 ): Promise<T> {
   let resp: Response;
   try {
     resp = await fetch(path, {
       method,
       credentials: "same-origin",
-      headers: body !== undefined ? { "Content-Type": "application/json" } : {},
+      headers: {
+        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...extraHeaders,
+      },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch (e) {
@@ -269,11 +278,57 @@ const actionVerbs: Record<string, string> = {
 };
 
 /**
+ * What a kind's action may be called.
+ *
+ * An action name becomes a path segment, and an unscreened one is not a name
+ * but a path *expression*: dot segments are resolved by the same URL parser
+ * `fetch` uses, so a name of `../../../me` leaves the actions path entirely
+ * and lands on `/api/me`. That matters because names do not all come from this
+ * app — a plugin panel proposes one across the bridge — and the resulting
+ * request carries the user's own cookie, is genuinely same-origin, and is
+ * audited only while it stays under /api/sessions/{id}.
+ *
+ * Letters, digits, underscore and hyphen is what every registered action on
+ * every kind is spelled with, so screening to that set costs nothing and
+ * leaves no separator, no dot and no query or fragment introducer behind.
+ *
+ * Length is bounded as well as alphabet. A 60,000-character name is legal
+ * against the alphabet alone and would go on to become a request URL; nothing
+ * worse than a server 404 or 431 comes of it, but "an action name" is a short
+ * identifier and a screen that says so is a screen that cannot be argued
+ * about. The longest action any kind registers is well inside 64.
+ */
+const ACTION_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
+
+/** Whether a string is a plain action name rather than a path expression. */
+export function isActionName(name: string): boolean {
+  return ACTION_NAME.test(name);
+}
+
+/**
  * Every kind-specific write goes through one server route:
  * /api/sessions/{id}/actions/{name}, sent with the verb that action declares.
  * Core routes a kind does not own — close, reopen, spectator, facilitator, the
  * CSV export — are not actions and keep their own paths.
+ *
+ * The name is screened before it is a URL, and both segments are encoded
+ * rather than interpolated. This is the construction site, so it holds the
+ * rule whatever the caller did: a name that is not a plain action name never
+ * becomes a request at all.
  */
-export function action<T = unknown>(sessionId: string, name: string, body?: unknown): Promise<T> {
-  return api<T>(actionVerbs[name] ?? "POST", `/api/sessions/${sessionId}/actions/${name}`, body);
+export function action<T = unknown>(
+  sessionId: string,
+  name: string,
+  body?: unknown,
+  extraHeaders?: Record<string, string>,
+): Promise<T> {
+  if (!isActionName(name)) {
+    return Promise.reject(new Error(`${JSON.stringify(name)} is not an action name`));
+  }
+  return api<T>(
+    actionVerbs[name] ?? "POST",
+    `/api/sessions/${encodeURIComponent(sessionId)}/actions/${encodeURIComponent(name)}`,
+    body,
+    extraHeaders,
+  );
 }

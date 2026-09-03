@@ -252,17 +252,22 @@ func TestEverySpaceLookupIsGated(t *testing.T) {
 // the SPA fallback is not in this table and does not need to be.
 var routeScoping = map[string]string{
 	// Infrastructure and identity: no space slug, nothing to scope.
-	"GET /healthz":         "non-slug",
-	"GET /version":         "non-slug",
-	"GET /readyz":          "non-slug",
-	"GET /auth/login":      "non-slug",
-	"GET /auth/callback":   "non-slug",
-	"GET /ws":              "non-slug",
-	"GET /api/auth":        "non-slug",
-	"POST /api/me":         "non-slug",
-	"GET /api/me":          "non-slug",
-	"DELETE /api/me":       "non-slug",
-	"PATCH /api/me/avatar": "non-slug",
+	"GET /healthz":       "non-slug",
+	"GET /version":       "non-slug",
+	"GET /readyz":        "non-slug",
+	"GET /auth/login":    "non-slug",
+	"GET /auth/callback": "non-slug",
+	"GET /ws":            "non-slug",
+	"GET /api/auth":      "non-slug",
+	"POST /api/me":       "non-slug",
+	"GET /api/me":        "non-slug",
+	// The frame is a static document and carries no org slug. The panel list
+	// does carry an org — the room's — but it resolves it from the session
+	// rather than from a slug in the path, which is what a link guest, who has
+	// no org membership at all, can be scoped by.
+	"GET /plugin-ui/{name}/{version}": "non-slug",
+	"DELETE /api/me":                  "non-slug",
+	"PATCH /api/me/avatar":            "non-slug",
 
 	// Cross-org by definition: they answer which orgs and spaces a cookie
 	// reaches, so they cannot name an org first.
@@ -341,6 +346,7 @@ var routeScoping = map[string]string{
 	// authorization that replaces org scoping here.
 	"POST /api/links/redeem":                               "anonymous-exempt",
 	"GET /api/sessions/{id}/":                              "anonymous-exempt",
+	"GET /api/sessions/{id}/plugins/panels":                "anonymous-exempt",
 	"DELETE /api/sessions/{id}/":                           "anonymous-exempt",
 	"GET /api/sessions/{id}/export.csv":                    "anonymous-exempt",
 	"POST /api/sessions/{id}/reopen":                       "anonymous-exempt",

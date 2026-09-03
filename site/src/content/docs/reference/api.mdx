@@ -378,6 +378,25 @@ action against a closed session is **409**; reopen it first.
   { method: "POST", path: "/api/sessions/{id}/actions/skip", auth: "facilitator", purpose: "Mark the current speaker skipped and advance." },
 ]} />
 
+## Plugin UI
+
+<RouteTable rows={[
+  { method: "GET", path: "/api/sessions/{id}/plugins/panels", auth: "member", purpose: "The room’s org’s enabled installs that ship UI, with their grants. Scoped to the room’s own org — another tenant’s installs are never enumerated. Empty on an instance with no plugins." },
+  { method: "GET", path: "/plugin-ui/{name}/{version}", auth: "public", purpose: "The sandboxed document a plugin's UI runs in. 404 when PLUGIN_DIR is unset or the plugin ships no UI bundle." },
+]} />
+
+`/plugin-ui/…` is the one route that does **not** send `X-Frame-Options: DENY` —
+being framed is its whole purpose. It lives in its own route group with its own
+header profile: `frame-ancestors 'self'` bounds who may embed it, and
+`default-src 'none'; connect-src 'none'` means the document cannot make a
+network request of any kind. See
+[the plugin sandbox](/security/plugin-sandbox/).
+
+Session actions accept an optional `X-Parley-Plugin-Route` header naming the
+plugin panel an action was proposed from. It **grants nothing** — the request is
+authorised as the signed-in user exactly as any other — and is recorded in
+`org_audit_log` only when it names a plugin this instance actually runs.
+
 ## WebSocket
 
 <RouteTable rows={[

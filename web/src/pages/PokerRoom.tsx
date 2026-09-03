@@ -13,6 +13,7 @@ import {
 import { Hand } from "../components/Hand";
 import { ErrorRow, Modal, buttonDanger, buttonGo, buttonPrimary, buttonQuiet, type Fail } from "../components/Modal";
 import { ResultsPanel, heroOf } from "../components/ResultsPanel";
+import { PluginPanels } from "../components/PluginPanels";
 import { StoryQueue } from "../components/StoryQueue";
 import { Table, faceOf } from "../components/Table";
 import { spacePath } from "../lib/paths";
@@ -406,6 +407,10 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
         onFail={(msg, retry) => setFail({ where: "queue", msg, retry })}
         onDismiss={() => setFail(null)}
       />
+
+      {/* Plugin UI, each in its own sandboxed frame. Frames are marked inert
+          while a modal is open so focus cannot tab underneath the overlay. */}
+      <PluginPanels env={env} modalOpen={Boolean(confirmEnd || confirmReset || confirmRemove)} />
 
       {confirmEnd && (
         <Modal title="End this session?" onClose={() => setConfirmEnd(false)}>
