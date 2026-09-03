@@ -141,8 +141,10 @@ func TestEveryNonPluginRouteStillSendsTheSecurityHeaders(t *testing.T) {
 	}
 	// The floor tracks the router rather than trailing far behind it: a walk
 	// that silently stopped covering two thirds of the tree would still have
-	// cleared a floor of 20.
-	if checked < 60 {
+	// cleared the floor of 20 this replaced. 77 routes are registered today,
+	// and the margin is for routes retired between here and the next time
+	// somebody reads this line, not for a walk that has stopped working.
+	if checked < 70 {
 		t.Fatalf("only walked %d routes — the walk is not covering the router", checked)
 	}
 }
