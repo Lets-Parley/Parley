@@ -1,0 +1,127 @@
+---
+title: Plugin sandbox
+description: What a Parley plugin can and cannot do, and the mechanism behind each claim.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import Capability from "../../../components/Capability.astro";
+
+<VerifiedStamp version="unreleased" source={["internal/plugin/host.go", "internal/plugin/hostfn.go", "internal/plugin/fetch.go", "internal/plugin/breaker.go", "internal/db/migrations/0031_plugins.sql", "internal/db/migrations/0032_plugin_pending_upgrade.sql", "scripts/guard-mutation.sh"]} />
+
+A Parley plugin is a WebAssembly module run in-process by
+[Extism](https://extism.org/) over [wazero](https://wazero.io/). Both are pure
+Go, so the single-container deploy and `CGO_ENABLED=0` survive a plugin being
+installed.
+
+The load-bearing consequence is the one worth understanding before you install
+anything: **a plugin has no sockets, no filesystem, and no SQL.** It cannot
+open a connection, read a file, or see the database pool. Everything it can do
+it does by calling a host function, and every host function checks a capability
+grant before it acts. That is not a workaround for a weak sandbox — it is what
+makes a capability grant mean something.
+
+## What a plugin gets
+
+<Capability rows={[
+  { name: "Key-value storage", status: "built", detail: "Namespaced by install and by the granted scope, with a byte quota charged in the same statement as the write. A key carrying the namespace separator is refused, not escaped." },
+  { name: "Outbound HTTP", status: "built", detail: "https only, to an operator-approved allowlist, through the guard described below. Extism's own <code>http_request</code> is left with an empty allowed-hosts list, which disables it." },
+  { name: "Secrets", status: "built", detail: "Read-only, per named secret, encrypted at rest with AES-GCM. Unavailable entirely unless <code>PLUGIN_SECRET_KEY</code> is set — there is no plaintext fallback." },
+  { name: "Logging", status: "built", detail: "The plugin's text is an attribute of a <code>plugin log</code> line, never the message itself, so it cannot forge a line that reads as the server's own." },
+  { name: "Event emission", status: "built", detail: "On <code>plugin.&lt;install name&gt;.&lt;topic&gt;</code> only. A plugin cannot publish an event that reads as one of the core's." },
+  { name: "Session read and patch", status: "built", detail: "Two separate capabilities. Reads return redacted, client-safe state; a patch is a proposal the core decides what to do with." },
+  { name: "Job enqueue", status: "built", detail: "Deferred work on the same at-least-once queue the core uses. Handlers must be idempotent." },
+  { name: "SQL", status: "not-built", detail: "Deliberately absent and not planned. A plugin that could reach the pool is a plugin with every other capability." },
+]} />
+
+## Grants are checked at the effect, not at load
+
+Every check happens **inside the host function, immediately before the effect**,
+against the install record read fresh from the database on that call. It is
+never read from the bundle's own manifest — the plugin writes that — and never
+cached at load time.
+
+The practical consequence: revoking a grant or disabling an install takes
+effect on the next call, not the next restart.
+
+An upgrade that asks for capabilities beyond what was approved does **not** get
+them by arriving. The requested version and its grants are parked as pending
+and the install keeps running on the version and the grants it already had,
+until an operator approves. An upgrade that asks for the same or less applies
+immediately.
+
+## The fetch guard
+
+Outbound HTTP is the highest-risk surface in the whole design, so the sequence
+is spelled out here in the order it runs, for **every hop including every
+redirect**:
+
+1. The scheme must be `https`.
+2. The host must match the install's allowlist. An entry is a hostname with at
+   most one leading `*.` label; `*.example.com` matches subdomains but not the
+   apex, and `api.*.example.com` or a bare `*` is refused at install time.
+3. The host is resolved once, and **every** returned A/AAAA record is screened.
+   One blocked record fails the whole request — a name that answers with a
+   public address alongside a metadata address is a rebinding attempt, not a
+   multi-homed service.
+4. The connection is made to **the screened address**, not to the hostname, so
+   what the resolver would say a moment later cannot change where the bytes go.
+
+Blocked ranges include loopback, `0.0.0.0/8`, RFC 1918 private space,
+carrier-grade NAT (`100.64/10`), link-local (`169.254/16`, which is where every
+major cloud parks its metadata service), IPv6 unique-local (`fc00::/7`, which
+covers `fd00:ec2::254`), multicast, and reserved space — plus the embedded IPv4
+address inside a 6to4 or NAT64 address.
+
+Redirects are followed by hand, up to a bounded number of hops, and each hop
+repeats all four steps. A guard that checks the domain once and then follows
+redirects freely is the classic bypass; this one does not.
+
+### Synchronous hooks cannot fetch at all
+
+No grant makes a fetch legal from a synchronous hook. A hook runs on the path a
+room's state broadcast waits on, so it may not wait on the network. Remote data
+reaches a hook from a cache that a job filled.
+
+## Containment
+
+<Capability rows={[
+  { name: "Per-call timeout", status: "built", detail: "Enforced both by the call context and by the Extism manifest. Default 2s; <code>PLUGIN_CALL_TIMEOUT</code>." },
+  { name: "Memory cap", status: "built", detail: "Enforced both by the wazero runtime page limit and by the manifest. Default 256 pages (16 MiB); <code>PLUGIN_MEMORY_PAGES</code>." },
+  { name: "Recover at every call site", status: "built", detail: "A trap in guest code ends the call, not the goroutine that scheduled it." },
+  { name: "In-flight call cap", status: "built", detail: "Total and per install. Per-call limits bound one call; without a concurrency cap a plugin still exhausts the process with many individually well-behaved calls." },
+  { name: "Circuit breaker", status: "built", detail: "Consecutive failures degrade a plugin for a cooldown; repeated degradation disables it durably, in the database, so it does not come back on the next restart." },
+  { name: "Bounded module cache", status: "built", detail: "Compiled once at enable time, evicted least-recently-used past the bound, and evicted outright when a plugin is disabled rather than left resident." },
+]} />
+
+## How these claims are kept honest
+
+Each guarantee above has a hostile fixture behind it — a WebAssembly guest that
+hangs, exhausts memory, traps, fetches a link-local address, follows a redirect
+to a host it was never granted, runs past its storage quota, or forges a key
+into another namespace.
+
+Each fixture asserts **its own mechanism**: a lower bound on elapsed time for
+the timeout, a memory-specific error for the cap, a specific blocked reason for
+each fetch refusal. "The room survived" also passes when the fixture did
+nothing at all.
+
+And because a fixture that passes proves nothing on its own, `scripts/guard-mutation.sh`
+runs as its own CI leg: it breaks each guard on purpose — at every site, for the
+guards deliberately enforced twice — and fails the build if the test covering it
+stays green.
+
+## Writing a plugin
+
+The guest can be written in any language with an official Extism PDK: **Rust,
+JavaScript, Go (via TinyGo), Haskell, AssemblyScript, C, Zig, and .NET.**
+
+Python is **not** a guest PDK — do not plan on it. The Go PDK targets TinyGo,
+so a guest cannot use goroutine-heavy or reflection-heavy parts of the standard
+library.
+
+## What is out of scope
+
+There is no central plugin registry and no signature verification: an operator
+places a bundle in `PLUGIN_DIR` and approves its grants, and that approval is
+the trust decision. There are no per-plugin Postgres schemas and no
+auth-provider plugins.

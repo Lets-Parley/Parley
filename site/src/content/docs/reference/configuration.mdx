@@ -166,8 +166,13 @@ Leaving it unset is fine and is what every deployment in these docs does.
 ## Plugins
 
 Parley's plugin foundations — the event outbox, the job queue and plugin
-storage — are present from v0.6 onwards. Until a plugin host is installed these
-two variables are the whole surface, and both are optional.
+storage — are present from v0.6 onwards, and the WebAssembly host that runs
+plugins on top of them arrives with `PLUGIN_DIR`. Every variable here is
+optional, and an instance with `PLUGIN_DIR` unset never instantiates a
+WebAssembly runtime at all.
+
+What a plugin can and cannot do, and the mechanism behind each claim, is in
+[Plugin sandbox](/security/plugin-sandbox/).
 
 <EnvVar name="PLUGIN_SECRET_KEY" badValue="Refuses to start if the value is not base64 that decodes to exactly 32 bytes">
 The key plugin secrets are encrypted with at rest, base64-encoded and exactly 32
@@ -188,6 +193,48 @@ on a single-container deploy.
 An event still waiting on a delivery is never pruned, however old it is.
 Deliveries that keep failing are dead-lettered after a bounded number of
 attempts, so a broken subscriber cannot pin the table open forever.
+</EnvVar>
+
+<EnvVar name="PLUGIN_DIR" badValue="Unset means no plugin host runs; a bundle that is missing fails that plugin's calls, not the boot">
+The directory plugin bundles are read from, named `<name>-<version>.wasm`.
+
+Leave it unset and no plugin host is created: the outbox and job workers keep
+their nil handlers, nothing is compiled, and no WebAssembly runtime exists in
+the process. Setting it is the decision to run plugin code.
+
+A name or version containing a path separator or `..` is refused rather than
+cleaned.
+</EnvVar>
+
+<EnvVar name="PLUGIN_CALL_TIMEOUT" default="2s" badValue="Refuses to start if the value is not a positive Go duration">
+How long one plugin call may run before it is stopped. Enforced twice — by the
+call's context and by the Extism manifest — because a hang on the path a room
+waits on is the failure that matters most.
+</EnvVar>
+
+<EnvVar name="PLUGIN_MEMORY_PAGES" default="256" badValue="Refuses to start if the value is not a positive integer">
+The memory cap for one plugin instance, in 64 KiB WebAssembly pages. The
+default is 16 MiB. Enforced both by the wazero runtime and by the manifest.
+</EnvVar>
+
+<EnvVar name="PLUGIN_MAX_CONCURRENT_CALLS" default="8" badValue="Refuses to start if the value is not a positive integer">
+How many plugin calls may be in flight across all installs at once. Calls past
+the cap are refused rather than queued.
+
+A per-call timeout and a memory cap bound one call. Without this cap a plugin
+still exhausts the process by making many calls that are each individually
+well-behaved.
+</EnvVar>
+
+<EnvVar name="PLUGIN_MAX_CALLS_PER_PLUGIN" default="2" badValue="Refuses to start if the value is not a positive integer">
+How many calls one install may have in flight, so one plugin cannot take the
+whole budget from the others.
+</EnvVar>
+
+<EnvVar name="PLUGIN_MODULE_CACHE_SIZE" default="16" badValue="Refuses to start if the value is not a positive integer">
+How many compiled plugin modules stay resident. A module is compiled once when
+its plugin is enabled, evicted least-recently-used past this bound, and evicted
+outright when its plugin is disabled.
 </EnvVar>
 
 ## Abuse and resource limits

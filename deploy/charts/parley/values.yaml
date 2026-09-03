@@ -277,6 +277,19 @@ logLevel: info
 #     literal here.
 #   * PLUGIN_EVENT_RETENTION — how long delivered plugin events are kept
 #     before they are pruned, a Go duration. Default 168h.
+#   * PLUGIN_DIR — directory plugin bundles are read from, as
+#     "<name>-<version>.wasm". Unset means no plugin host runs at all and no
+#     WebAssembly runtime is created; setting it is the decision to run plugin
+#     code. Mount the bundles read-only.
+#   * PLUGIN_CALL_TIMEOUT — how long one plugin call may run. Default 2s.
+#   * PLUGIN_MEMORY_PAGES — memory cap per plugin instance in 64 KiB pages.
+#     Default 256 (16 MiB).
+#   * PLUGIN_MAX_CONCURRENT_CALLS — in-flight plugin calls across all installs.
+#     Default 8.
+#   * PLUGIN_MAX_CALLS_PER_PLUGIN — in-flight calls one install may have.
+#     Default 2.
+#   * PLUGIN_MODULE_CACHE_SIZE — how many compiled plugin modules stay
+#     resident. Default 16.
 #   * PARLEY_CONFIG_FILE — path to a file of KEY=value lines merged under the
 #     environment. Rarely wanted in Kubernetes, where the environment is
 #     already the interface.
