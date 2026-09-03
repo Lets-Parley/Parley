@@ -150,11 +150,19 @@ const pluginFrameBootstrap = `(function () {
     }
   }
 
+  // A token value goes straight into a style declaration. connect-src 'none'
+  // means a CSS url() has nowhere to egress to, so this is not an exfiltration
+  // hole — but "the value is screened as well as the name" is a cheaper thing
+  // to keep true than "no CSS feature will ever make an unscreened declaration
+  // matter". Colour-shaped is all a design token here ever is.
+  var COLOR = /^(#[0-9a-fA-F]{3,8}|[a-z]{3,20}|(rgb|hsl)a?\([0-9a-fA-F.,%\/ +-]{1,64}\))$/;
+
   function applyTokens(t) {
     var root = document.documentElement;
     for (var key in t) {
       if (Object.prototype.hasOwnProperty.call(t, key) && /^[a-z-]+$/.test(key)) {
-        root.style.setProperty("--color-" + key, String(t[key]));
+        var value = String(t[key]);
+        if (COLOR.test(value)) { root.style.setProperty("--color-" + key, value); }
       }
     }
   }
@@ -183,6 +191,16 @@ const pluginFrameBootstrap = `(function () {
   }
 
   function onHandshake(event) {
+    // The port is the credential — but only once it is in hand. This listener
+    // is the single moment the frame reads the window, and any frame on the
+    // page can postMessage to it: a sibling plugin's frame, racing the host,
+    // could hand this one a channel it controls, then feed it forged state and
+    // read every action it proposes. Origin settles nothing, because every
+    // sandboxed frame reports "null", so the sender is checked structurally
+    // instead: it must be the embedder, and it must carry the host's own
+    // marker.
+    if (event.source !== window.parent) { return; }
+    if (!event.data || event.data.parley !== "bridge") { return; }
     if (!event.ports || event.ports.length !== 1) { return; }
     window.removeEventListener("message", onHandshake);
     port = event.ports[0];

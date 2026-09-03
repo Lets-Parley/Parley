@@ -10,15 +10,49 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// securityHeaderProfile is what every response outside the plugin frame group
+// must carry. It is a package-level var so the route walk in
+// pluginframe_test.go holds the whole profile rather than X-Frame-Options
+// alone: a carve-out that leaked only the CSP would have passed a check that
+// asked about one header.
+var securityHeaderProfile = map[string]string{
+	"Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'",
+	"X-Content-Type-Options":  "nosniff",
+	"X-Frame-Options":         "DENY",
+	"Referrer-Policy":         "strict-origin-when-cross-origin",
+}
+
+// A 405 is a response like any other, and it is the one chi produces from its
+// own default handler rather than from anything in the route tree — so it is
+// exactly the response a header middleware mounted on a route group stops
+// covering. It went out bare: no CSP, no nosniff, no X-Frame-Options.
+func TestSecurityHeadersOnAMethodNotAllowedResponse(t *testing.T) {
+	srv := testServer(t)
+
+	req, err := http.NewRequest("POST", srv.URL+"/healthz", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("POST /healthz: got %d, want 405", resp.StatusCode)
+	}
+	for header, value := range securityHeaderProfile {
+		if got := resp.Header.Get(header); got != value {
+			t.Errorf("405 response: %s header: got %q, want %q", header, got, value)
+		}
+	}
+}
+
 func TestSecurityHeadersOnEveryResponse(t *testing.T) {
 	srv := testServer(t)
 
-	want := map[string]string{
-		"Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'",
-		"X-Content-Type-Options":  "nosniff",
-		"X-Frame-Options":         "DENY",
-		"Referrer-Policy":         "strict-origin-when-cross-origin",
-	}
+	want := securityHeaderProfile
 
 	for _, path := range []string{"/healthz", "/api/me", "/no-such-page"} {
 		t.Run(path, func(t *testing.T) {

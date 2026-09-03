@@ -303,6 +303,19 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	a.mountPluginFrame(root)
 	r := root.With(securityHeaders)
 
+	// chi answers a known path with an unknown method from its own
+	// method-not-allowed handler, which is not in the route tree and so runs
+	// no route group's middleware. Moving securityHeaders off root.Use and
+	// onto this group therefore sent every 405 out bare — no CSP, no nosniff,
+	// no X-Frame-Options — and a route walk that only exercises registered
+	// method+path pairs structurally cannot see it. Registering the handler
+	// through `r` is what puts it back behind the same profile: chi wraps an
+	// inline mux's handler in that mux's middleware and hangs it on the
+	// parent, which is exactly what r.NotFound below already relies on.
+	r.MethodNotAllowed(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
+
 	// Liveness must never touch the database: a DB blip restarting the process
 	// would drop every WebSocket in the room.
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -370,10 +383,6 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		// room — so a browser with no local storage can recover instead of
 		// being stranded in the name gate. Writing identity stays shut.
 		r.Get("/me", a.handleGetMe)
-		// What has UI to frame. Open to anyone in a room, guests included: it
-		// names installs and their grants, and a grant is not a secret — the
-		// host re-checks every one of them at the effect.
-		r.Get("/plugins/panels", a.handlePluginPanels)
 		// Open to a link guest too, and the only write on its identity that
 		// is: it spends the credential rather than reshaping it. A guest on a
 		// borrowed browser otherwise has no way to stop the cookie outliving
@@ -538,6 +547,14 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			// authorises nothing, and the gates above have already run.
 			r.Use(a.pluginRouteAudit)
 			r.Get("/", a.handleGetSession)
+			// What has UI to frame in this room. Open to anyone in it,
+			// guests included: it names installs and their grants, and a
+			// grant is not a secret — the host re-checks every one of them
+			// at the effect. It hangs off the room rather than off /api
+			// because the room is what fixes the org: the list is one
+			// tenant's install inventory, and a link guest has no org
+			// membership from which any other org could be resolved.
+			r.Get("/plugins/panels", a.handlePluginPanels)
 			// The export is the room's whole history in one file, including
 			// every meeting it has held. Membership is not enough for it once
 			// a link guest can be a caller here.
