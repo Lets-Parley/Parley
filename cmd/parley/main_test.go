@@ -37,6 +37,7 @@ func TestLoadConfigUsesFiniteAbuseLimitDefaults(t *testing.T) {
 		SpacesPerIdentity:      50,
 		SessionsPerSpace:       500,
 		DecksPerSpace:          20,
+		KudosPerSpace:          500,
 		StoriesPerSession:      500,
 		LinksPerSession:        20,
 	}
