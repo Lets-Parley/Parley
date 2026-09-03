@@ -48,6 +48,12 @@ type config struct {
 	PluginSecretKey string
 	// PluginEventRetention is how long a fully-delivered plugin event is kept.
 	PluginEventRetention time.Duration
+	// PluginDir is the directory plugin bundles are read from. Empty means no
+	// plugin host runs at all, which is the default: an instance that has not
+	// been given plugins does not gain a WASM runtime by upgrading.
+	PluginDir string
+	// PluginLimits is the containment budget one plugin call gets.
+	PluginLimits plugin.HostConfig
 }
 
 type abuseLimits = api.Limits
@@ -152,6 +158,30 @@ func loadConfig() (config, error) {
 	retention, err := time.ParseDuration(envOr("PLUGIN_EVENT_RETENTION", "168h"))
 	if err != nil || retention <= 0 {
 		return cfg, fmt.Errorf("PLUGIN_EVENT_RETENTION %q is not a positive duration — use a Go duration such as 168h", os.Getenv("PLUGIN_EVENT_RETENTION"))
+	}
+
+	cfg.PluginDir = strings.TrimSpace(os.Getenv("PLUGIN_DIR"))
+	callTimeout, err := time.ParseDuration(envOr("PLUGIN_CALL_TIMEOUT", plugin.DefaultCallTimeout.String()))
+	if err != nil || callTimeout <= 0 {
+		return cfg, fmt.Errorf("PLUGIN_CALL_TIMEOUT %q is not a positive duration — use a Go duration such as 2s", os.Getenv("PLUGIN_CALL_TIMEOUT"))
+	}
+	cfg.PluginLimits.CallTimeout = callTimeout
+	for _, limit := range []struct {
+		name string
+		def  int
+		set  func(int)
+	}{
+		{"PLUGIN_MEMORY_PAGES", int(plugin.DefaultMemoryPages), func(v int) { cfg.PluginLimits.MemoryPages = uint32(v) }},
+		{"PLUGIN_MAX_CONCURRENT_CALLS", plugin.DefaultMaxConcurrent, func(v int) { cfg.PluginLimits.MaxConcurrentCalls = v }},
+		{"PLUGIN_MAX_CALLS_PER_PLUGIN", plugin.DefaultPerInstall, func(v int) { cfg.PluginLimits.MaxConcurrentPerInstall = v }},
+		{"PLUGIN_MODULE_CACHE_SIZE", plugin.DefaultCachedModules, func(v int) { cfg.PluginLimits.MaxCachedModules = v }},
+	} {
+		raw := envOr(limit.name, strconv.Itoa(limit.def))
+		value, err := strconv.Atoi(raw)
+		if err != nil || value <= 0 {
+			return cfg, fmt.Errorf("%s %q is not a positive integer", limit.name, raw)
+		}
+		limit.set(value)
 	}
 	cfg.PluginEventRetention = retention
 
@@ -287,6 +317,14 @@ func main() {
 	}
 	go plugins.RunRetention(ctx, cfg.PluginEventRetention, time.Hour, log)
 
+	// The host, and with it the outbox and job handlers. Without PLUGIN_DIR
+	// there is no host: the workers keep their nil handlers and drain nothing,
+	// so an instance with no plugins never instantiates a WASM runtime.
+	if runtime := plugin.NewRuntime(plugins, cfg.PluginDir, cfg.PluginLimits, log); runtime != nil {
+		defer runtime.Close()
+		runtime.Start(ctx)
+	}
+
 	opts := api.Options{
 		// The signal context, so SIGTERM stops the cross-replica listener
 		// along with everything else rather than leaving it dialling.
@@ -345,6 +383,11 @@ func bootFields(cfg config, secureCookies bool) []any {
 		"trust_proxy_headers", cfg.TrustProxy,
 		"plugin_secrets", cfg.PluginSecretKey != "",
 		"plugin_event_retention", cfg.PluginEventRetention.String(),
+		"plugin_dir", cfg.PluginDir,
+		"plugin_call_timeout", cfg.PluginLimits.CallTimeout.String(),
+		"plugin_memory_pages", cfg.PluginLimits.MemoryPages,
+		"plugin_max_concurrent_calls", cfg.PluginLimits.MaxConcurrentCalls,
+		"plugin_max_calls_per_plugin", cfg.PluginLimits.MaxConcurrentPerInstall,
 	}
 	// "trust_proxy_headers=true" alone does not tell an operator which hops
 	// were accepted, and a CIDR that failed to parse is exactly the mistake

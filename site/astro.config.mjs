@@ -100,6 +100,7 @@ export default defineConfig({
             "security/authorization",
             "security/organizations",
             "security/data-and-privacy",
+            "security/plugin-sandbox",
             "security/hardening-checklist",
             "security/supply-chain",
             "security/review-pack",

@@ -74,10 +74,8 @@ type InstallRequest struct {
 // Install records a plugin and its grants in one transaction, so a plugin is
 // never installed without the grants it was approved with.
 func (s *Store) Install(ctx context.Context, req InstallRequest) (Install, error) {
-	for _, g := range req.Grants {
-		if g.Capability == CapabilitySecrets && s.Cipher == nil {
-			return Install{}, fmt.Errorf("installing %q: %w", req.Name, ErrNoSecretKey)
-		}
+	if err := checkGrants(s.Cipher, req.Name, req.Grants); err != nil {
+		return Install{}, err
 	}
 
 	var out Install

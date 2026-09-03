@@ -21,7 +21,7 @@ Module `github.com/lets-parley/parley`, Go 1.26.3, chi + pgx + gorilla/websocket
 | `internal/hub/` | WebSocket fan-out and presence |
 | `internal/poker/`, `internal/standup/` | the two session kinds |
 | `internal/session/` | kind registry and the wire envelope |
-| `internal/plugin/` | plugin foundations: event bus, outbox worker, job queue, plugin storage |
+| `internal/plugin/` | the plugin host: Extism/wazero runtime, capability-checked host functions, the fetch guard, containment — plus the event bus, outbox worker, job queue and plugin storage it runs on |
 | `internal/store/` | Postgres queries |
 | `web/` | Vite + React app; `web/embed.go` embeds `web/dist` |
 | `site/` | Astro/Starlight docs, published to www.letsparley.io |
@@ -377,3 +377,25 @@ issue first. For anything large, open an issue before writing code.
 - [ROADMAP.md](ROADMAP.md) — what is planned now, next, and later
 - `.github/workflows/ci.yml` — the checks that must pass
 - `site/src/content/docs/` — user-facing documentation source
+
+35. **Plugin sandbox guards are covered by mutation, not by a passing test.**
+    `scripts/guard-mutation.sh` is a CI leg: it breaks each guard in
+    `internal/plugin` on purpose and fails if the test covering it stays green.
+    If you add a guard, add its mutation; if you move the line a mutation
+    anchors on, the leg fails loudly with `MUTATION SETUP FAILED` rather than
+    quietly passing. Several guards are enforced at two sites on purpose (the
+    call timeout and the memory cap are set both on the wazero runtime and in
+    the Extism manifest) — mutate every site at once or the leg reports a
+    survivor that is really the second site holding.
+
+36. **Plugin capability grants are checked inside the host function, never at
+    load time and never against the bundle.** `Store.State` is read on every
+    call so a revoked grant stops working on the next call rather than the next
+    restart. Do not add a cache in front of it without a way to invalidate it,
+    and never read capabilities from anything the plugin author writes.
+
+37. **The plugin fetch guard resolves once, screens every record, and dials the
+    address it screened — for every redirect hop.** Do not "simplify" it into
+    an `http.Client` with `CheckRedirect`; following redirects with the
+    standard client re-resolves the hostname and re-checks nothing, which is
+    the DNS-rebinding hole the whole file exists to close.

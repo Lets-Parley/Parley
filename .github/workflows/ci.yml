@@ -66,6 +66,36 @@ jobs:
       - name: Check known Go vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
 
+  guard-mutation:
+    name: plugin guard mutation
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      # A hostile fixture that passes proves nothing on its own: it also passes
+      # when the guard it was written for has been deleted. This leg breaks
+      # each sandbox guard on purpose and fails if the test covering it stays
+      # green. It runs on every PR rather than as a thing somebody remembers to
+      # do, because a one-time manual check is a check that happened once.
+      - name: Break each plugin sandbox guard and require its test to go red
+        run: ./scripts/guard-mutation.sh
+        env:
+          TEST_DATABASE_URL: postgres://test:test@127.0.0.1:5432/test
+
   web:
     name: web
     runs-on: ubuntu-24.04
@@ -811,7 +841,7 @@ jobs:
   gate:
     name: required / gate
     if: always()
-    needs: [go, web, site, dependency-review, dco, docker, container-scan, chart, buildx-arg-passthrough]
+    needs: [go, web, site, dependency-review, dco, docker, container-scan, chart, buildx-arg-passthrough, guard-mutation]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every check
@@ -825,3 +855,4 @@ jobs:
           test "${{ needs.container-scan.result }}" = success
           test "${{ needs.buildx-arg-passthrough.result }}" = success
           test "${{ needs.chart.result }}" = success
+          test "${{ needs.guard-mutation.result }}" = success
