@@ -252,17 +252,21 @@ func TestEverySpaceLookupIsGated(t *testing.T) {
 // the SPA fallback is not in this table and does not need to be.
 var routeScoping = map[string]string{
 	// Infrastructure and identity: no space slug, nothing to scope.
-	"GET /healthz":         "non-slug",
-	"GET /version":         "non-slug",
-	"GET /readyz":          "non-slug",
-	"GET /auth/login":      "non-slug",
-	"GET /auth/callback":   "non-slug",
-	"GET /ws":              "non-slug",
-	"GET /api/auth":        "non-slug",
-	"POST /api/me":         "non-slug",
-	"GET /api/me":          "non-slug",
-	"DELETE /api/me":       "non-slug",
-	"PATCH /api/me/avatar": "non-slug",
+	"GET /healthz":       "non-slug",
+	"GET /version":       "non-slug",
+	"GET /readyz":        "non-slug",
+	"GET /auth/login":    "non-slug",
+	"GET /auth/callback": "non-slug",
+	"GET /ws":            "non-slug",
+	"GET /api/auth":      "non-slug",
+	"POST /api/me":       "non-slug",
+	"GET /api/me":        "non-slug",
+	// Neither carries an org slug: what is installed is an instance-wide fact,
+	// and the frame is a static document.
+	"GET /api/plugins/panels":         "non-slug",
+	"GET /plugin-ui/{name}/{version}": "non-slug",
+	"DELETE /api/me":                  "non-slug",
+	"PATCH /api/me/avatar":            "non-slug",
 
 	// Cross-org by definition: they answer which orgs and spaces a cookie
 	// reaches, so they cannot name an org first.

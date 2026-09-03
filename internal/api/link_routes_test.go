@@ -56,10 +56,17 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// spends the credential rather than reshaping it, and it is the only way
 	// a guest on a borrowed browser can stop the cookie outliving the visit.
 	// It deletes the caller's own session_tokens row and nothing else.
-	"POST /api/me":         {status: http.StatusForbidden},
-	"GET /api/me":          {status: http.StatusOK},
-	"DELETE /api/me":       {status: http.StatusNoContent},
-	"PATCH /api/me/avatar": {status: http.StatusForbidden},
+	"POST /api/me": {status: http.StatusForbidden},
+	"GET /api/me":  {status: http.StatusOK},
+	// A link guest sees the same plugin panels the room does; the list names
+	// installs and grants, and a grant is not a secret.
+	"GET /api/plugins/panels": {status: http.StatusOK},
+	// The frame itself carries no session data at all — it is a static
+	// document assembled from what the operator installed. With no PLUGIN_DIR
+	// on this instance it is not there to serve.
+	"GET /plugin-ui/{name}/{version}": {status: http.StatusNotFound},
+	"DELETE /api/me":                  {status: http.StatusNoContent},
+	"PATCH /api/me/avatar":            {status: http.StatusForbidden},
 
 	// The legacy space-link shim. A link guest belongs to no org, so there is
 	// nothing for it to resolve against — and resolving it against somebody
