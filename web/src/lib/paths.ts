@@ -46,6 +46,11 @@ export function orgSpacesApi(org: string, after = ""): string {
   return after ? `${base}?after=${encodeURIComponent(after)}` : base;
 }
 
+/** The API for a space's kudos. Withdrawing one appends its id. */
+export function kudosApi(org: string, slug: string): string {
+  return `${spaceApi(org, slug)}/kudos`;
+}
+
 /** The SPA route for the operator's plugin administration surface. */
 export function pluginsPath(org: string): string {
   return `/o/${org}/admin/plugins`;

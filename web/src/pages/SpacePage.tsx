@@ -7,6 +7,7 @@ import { isFullAccount } from "../lib/links";
 import { openSessionLapsed } from "../lib/sessionMemory";
 import { AppShell, Logo } from "../components/AppShell";
 import { KindChip } from "../components/KindChip";
+import { Kudos } from "../components/Kudos";
 import { EmptyTable } from "./PokerRoom";
 import {
   Modal,
@@ -474,6 +475,9 @@ export function SpacePage() {
           </ul>
         )}
 
+        {/* Ceremony-independent on purpose: the wall sits on the space itself,
+            so thanking somebody never waits for a session to be open. */}
+        <Kudos org={org} slug={sp.slug} members={sp.members} meId={me.data?.id ?? ""} />
       </div>
 
       {managing && (
