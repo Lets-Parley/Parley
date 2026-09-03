@@ -13,8 +13,23 @@ For implementation status, see the GitHub Project:
 
 Work in progress or expected in the current development cycle.
 
-Nothing is in flight right now — responsive support shipped in v0.10.0, and the
-facilitator handover landed behind it. The next items are under **Next**.
+### Kudos, with no leaderboard
+
+A short note thanking somebody, attached to a person and visible to the team —
+on the space itself, and as the closing beat of a standup, where a team has just
+heard what everybody did and is most likely to mean it.
+
+The interesting part is the constraint. The moment kudos are counted and ranked
+they become a performance metric and the honest ones stop, so there is no count
+column, no aggregate endpoint, and nothing that orders people by anything. That
+is written into the schema rather than left to a UI decision.
+
+A sender can withdraw a kudo; nobody can edit one. Guests neither send nor
+receive: a signed-link guest is deliberately not somebody the instance
+remembers, so a thank-you addressed to one would point at nobody by morning.
+
+- Status: On Deck
+- Tracking: [#386](https://github.com/lets-parley/parley/issues/386)
 
 ## Next
 
@@ -212,7 +227,6 @@ Ideas under consideration, not committed to.
 - A shared board owned by a space. Deliberately not scheduled: the tools that
   ship one get asked for the work to live in the tracker instead
   ([#385](https://github.com/lets-parley/parley/issues/385))
-- Kudos, with no leaderboard ([#386](https://github.com/lets-parley/parley/issues/386))
 - Reactions and comments on a standup entry or a story — cheap once the storage
   boundary exists, and worth little before it ([#387](https://github.com/lets-parley/parley/issues/387))
 - Async standup: a window instead of a meeting. The live clock is the wedge,
