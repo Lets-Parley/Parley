@@ -164,6 +164,83 @@ describe("the contrast gate", () => {
   it("passes the first-party pack", () => {
     expect(contrastFailures(ok(beacon))).toEqual([]);
   });
+
+  it("holds exactly these pairs to exactly these thresholds", () => {
+    // Hand-written, not derived from GATED_PAIRS' own logic: this is the
+    // pinned contract, so a future edit that quietly drops a pair or
+    // loosens a threshold (e.g. 4.5 -> 3, the WCAG 1.4.11 non-text floor)
+    // shows up as a diff here even though the shape checks above still pass.
+    const expected: [string, string, number][] = [
+      ["ink", "felt", 4.5],
+      ["ink", "felt-deep", 4.5],
+      ["ink", "surface", 4.5],
+      ["ink", "surface-hi", 4.5],
+      ["ink-soft", "felt", 4.5],
+      ["ink-soft", "felt-deep", 4.5],
+      ["ink-soft", "surface", 4.5],
+      ["ink-soft", "surface-hi", 4.5],
+      ["ink-faint", "felt", 4.5],
+      ["ink-faint", "felt-deep", 4.5],
+      ["ink-faint", "surface", 4.5],
+      ["ink-faint", "surface-hi", 4.5],
+      ["ink", "accent-soft", 4.5],
+      ["accent-ink", "accent", 4.5],
+      ["accent-ink", "brass", 4.5],
+      ["line-strong", "felt", 3],
+      ["line-strong", "felt-deep", 3],
+      ["line-strong", "surface", 3],
+      ["line-strong", "surface-hi", 3],
+      ["accent", "felt", 3],
+      ["accent", "felt-deep", 3],
+      ["accent", "surface", 3],
+      ["accent", "surface-hi", 3],
+      ["go", "felt", 3],
+      ["go", "felt-deep", 3],
+      ["go", "surface", 3],
+      ["go", "surface-hi", 3],
+      ["stop", "felt", 3],
+      ["stop", "felt-deep", 3],
+      ["stop", "surface", 3],
+      ["stop", "surface-hi", 3],
+      ["settled", "felt", 3],
+      ["settled", "felt-deep", 3],
+      ["settled", "surface", 3],
+      ["settled", "surface-hi", 3],
+    ];
+
+    const actual = GATED_PAIRS.map(
+      (p) => [p.foreground, p.background, p.required] as [string, string, number],
+    );
+    const canon = (rows: [string, string, number][]) =>
+      rows.map((r) => r.join("|")).sort();
+
+    expect(actual.length).toBe(expected.length);
+    expect(canon(actual)).toEqual(canon(expected));
+  });
+
+  it("fails a pair sitting between the non-text floor and the text threshold", () => {
+    // #8A8A8A on #FFFFFF measures ~3.45:1 (verified independently) - short
+    // of the 4.5:1 body-text requirement but above the 3:1 non-text floor.
+    // If ink/felt's `required` were ever weakened from 4.5 to 3, this ratio
+    // would stop failing and this test would catch it.
+    const p = pack();
+    (p.modes as Record<string, Record<string, string>>).light.ink = "#8A8A8A";
+    (p.modes as Record<string, Record<string, string>>).light.felt = "#FFFFFF";
+    const built = ok(p);
+    const ratio = contrastRatio(
+      built.modes.light!.ink,
+      built.modes.light!.felt,
+    );
+    expect(ratio).toBeGreaterThan(3);
+    expect(ratio).toBeLessThan(4.5);
+
+    const failures = contrastFailures(built);
+    const inkOnFelt = failures.find(
+      (f) => f.foreground === "ink" && f.background === "felt",
+    );
+    expect(inkOnFelt).toBeDefined();
+    expect(inkOnFelt?.required).toBe(4.5);
+  });
 });
 
 describe("applying and removing a pack", () => {
