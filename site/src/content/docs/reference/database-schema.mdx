@@ -6,7 +6,7 @@ description: The tables, the migrations, and the constraints that act as validat
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/db/migrations", "internal/db/migrate.go", "internal/store/presence.go", "internal/poker/routes.go", "internal/api/custody/store.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/db/migrations", "internal/db/migrate.go", "internal/store/presence.go", "internal/poker/routes.go", "internal/api/custody/store.go", "internal/plugin"]} />
 
 Eighteen migrations, embedded in the binary and applied at boot. Postgres only —
 there is no second driver and no plan for one.
@@ -33,6 +33,7 @@ there is no second driver and no plan for one.
   { name: "0028_standup_commitments", value: "standup_commitments", note: "New table, so no backfill. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
   { name: "0029_commitment_carry_idempotency", value: "standup_commitments.carried_session_id", note: "Which standup last moved the carry count. Nullable with no backfill — an existing row reads as \"not answered in any session yet\", so its first answer counts normally. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
   { name: "0030_commitment_origin_survives", value: "standup_commitments.opened_session_id", note: "Makes the column nullable and on delete set null, so deleting the room a commitment was opened in no longer deletes the commitment. Rewrites delete behaviour on rows that already exist — nothing is backfilled, but an existing row that used to vanish with its origin room now survives with a null. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
+  { name: "0031_plugins", value: "plugin_installs, plugin_grants, plugin_secrets, plugin_kv, plugin_events, plugin_deliveries, plugin_jobs", note: "The plugin foundations. All new tables, so no backfill and nothing existing is rewritten. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
 ]} />
 
 ### How the runner behaves
@@ -316,6 +317,55 @@ count, or taking the commitment with it. A commitment belongs to its
 with no origin room left is still on the carry-over list and still answerable,
 and it simply renders as carried in, because there is no room left for it to
 have been opened in.
+
+### The plugin tables
+
+Seven tables, all added by `0031_plugins`, and all empty until a plugin host is
+installed. Every one of them is keyed on an install and cascades from it, so
+uninstalling a plugin takes its grants, secrets, storage, deliveries and jobs
+with it.
+
+| Table | What it holds |
+|---|---|
+| `plugin_installs` | What is installed: name, version, whether it is enabled, and its storage quota and counter |
+| `plugin_grants` | One row per capability an install may use, optionally narrowed by scope |
+| `plugin_secrets` | Encrypted credentials — nonce and ciphertext, and deliberately no plaintext column |
+| `plugin_kv` | Namespaced key-value storage. A plugin has no SQL, so this is the whole of its durable storage |
+| `plugin_events` | The transactional outbox: one row per thing that happened |
+| `plugin_deliveries` | One row per (event, subscriber), with its state, attempts and next-attempt time |
+| `plugin_jobs` | Deferred work. `run_at` is the whole scheduling vocabulary; cron triggering is not implemented |
+
+**Two delivery paths, on purpose.** Core subscribers are in-process and
+synchronous, so the state broadcast a room depends on stays instant. Plugin
+subscribers get a `plugin_deliveries` row written **inside the same transaction
+as the state change**, drained afterwards by a worker. That makes plugin
+delivery at-least-once, so **every plugin event handler must be idempotent** —
+handling an event twice must reach the same result as handling it once. The
+websocket hub is not a subscriber and stays a dumb fanout.
+
+**Claims use `for update skip locked`,** in both the outbox and the job queue,
+and a claim also pushes the row's next-attempt time out by a lease. The lock
+alone is not enough: it is released the moment the claiming transaction commits,
+and a second worker would then pick up a row still marked pending and deliver it
+again. A worker that dies mid-delivery releases its rows when the lease expires.
+Running a second replica is therefore configuration rather than a rewrite, even
+though one replica needs no leader election today.
+
+**A delivery that keeps failing is dead-lettered** after a bounded number of
+attempts, with exponential backoff in between, rather than retrying forever in
+front of live work. `last_error` keeps the reason.
+
+**Retention is in from day one.** Events past `PLUGIN_EVENT_RETENTION` whose
+deliveries have all reached a terminal state are pruned, along with their
+deliveries; an event still waiting on a delivery is never pruned however old it
+is. Adding retention once the table is large would mean a migration under load.
+
+**`plugin_installs.kv_bytes` is a counter, not a view.** Every key-value write
+adjusts it in the *same statement* as the write it accounts for, and that same
+statement's `where` clause is the quota check — so a refused write moves neither
+the data nor the counter, and the two cannot disagree. A reconciliation pass
+runs alongside retention and resets any counter that has drifted, because a
+counter nobody checks is a counter that can quietly grant unbounded storage.
 
 ## Constraints are the validation layer
 

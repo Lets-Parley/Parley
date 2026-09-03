@@ -21,6 +21,7 @@ Module `github.com/lets-parley/parley`, Go 1.26.3, chi + pgx + gorilla/websocket
 | `internal/hub/` | WebSocket fan-out and presence |
 | `internal/poker/`, `internal/standup/` | the two session kinds |
 | `internal/session/` | kind registry and the wire envelope |
+| `internal/plugin/` | plugin foundations: event bus, outbox worker, job queue, plugin storage |
 | `internal/store/` | Postgres queries |
 | `web/` | Vite + React app; `web/embed.go` embeds `web/dist` |
 | `site/` | Astro/Starlight docs, published to www.letsparley.io |
@@ -333,8 +334,23 @@ migration and embedding mistakes that unit tests miss.
     list, or one naming a file that is gone, is reported rather than counted
     clean. If you re-shoot, move `shot_at`; if you add a shot, add it to the
     manifest.
-32. Dependabot watches only `site/`. Go modules and `web/` dependencies are
+32. `internal/plugin` has two delivery paths and they are not interchangeable.
+    Core subscribers (`Bus.SubscribeCore`) are in-process and synchronous, so
+    the state broadcast stays instant. Plugin subscribers go through the
+    outbox and are **at-least-once**: any handler you write for that path must
+    be idempotent. Do not put plugin delivery in the websocket hub — it stays a
+    dumb fanout. Claims in the outbox and the job queue take a lease as well as
+    `for update skip locked`; the lock is released at commit, so without the
+    lease a second worker re-delivers a row that is still marked pending.
+33. Dependabot watches only `site/`. Go modules and `web/` dependencies are
     bumped by hand, with tests.
+34. `.dockerignore` patterns match source paths too, not just real secrets.
+    `**/secrets*` also matched `internal/plugin/secrets.go` and dropped it
+    from the Docker build context, so `plugin` lost symbols another file in
+    the package referenced. A red `docker build and smoke` alongside a green
+    `go` check on the same commit means a file got excluded from the image
+    build, not a real compile error — diff `.dockerignore` against the PR's
+    new filenames before chasing the symbol.
 
 ## Scope
 

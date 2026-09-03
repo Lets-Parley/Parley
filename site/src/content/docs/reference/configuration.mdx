@@ -6,11 +6,11 @@ description: Every environment variable, its default, and whether a bad value st
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import EnvVar from "../../../components/EnvVar.astro";
 
-<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "internal/api/client_address.go"]} />
+<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "cmd/parley/configfile.go", "internal/api/client_address.go"]} />
 
-Configuration is environment variables only. There is no config file and no
-command-line flag other than `-healthcheck`, which the container image uses for
-its own `HEALTHCHECK`.
+Configuration is environment variables, optionally backed by a file that fills
+the gaps (`PARLEY_CONFIG_FILE`, below). There is no command-line flag other than
+`-healthcheck`, which the container image uses for its own `HEALTHCHECK`.
 
 Parley is deliberately **fail-fast**: most variables stop the process on a bad
 value rather than falling back to a default, and every fatal exit prints a plain
@@ -146,6 +146,48 @@ Optional, and only useful on Kubernetes. Stamped on the presence rows this
 process writes, so a row that outlives its pod can be traced back to the pod
 that wrote it. Unset, Parley uses a random per-process id instead and nothing
 else changes. The chart fills it in from `metadata.name`.
+</EnvVar>
+
+<EnvVar name="PARLEY_CONFIG_FILE" badValue="Refuses to start if the file is missing or a line is not KEY=value">
+Path to an optional file of `KEY=value` lines, merged **under** the environment:
+a variable already set in the environment keeps its value and the file only
+fills the gaps, so a container's environment can always override a file baked
+into an image.
+
+The syntax is deliberately tiny — blank lines, `#` comments, and `KEY=value`
+with optional surrounding whitespace and optional quotes around the value. There
+is no interpolation, no `export`, and no multi-line value. Naming a file that
+does not exist, or a line without an `=`, stops the process: a typo'd path that
+quietly ran on defaults is the failure fail-fast exists to prevent.
+
+Leaving it unset is fine and is what every deployment in these docs does.
+</EnvVar>
+
+## Plugins
+
+Parley's plugin foundations — the event outbox, the job queue and plugin
+storage — are present from v0.6 onwards. Until a plugin host is installed these
+two variables are the whole surface, and both are optional.
+
+<EnvVar name="PLUGIN_SECRET_KEY" badValue="Refuses to start if the value is not base64 that decodes to exactly 32 bytes">
+The key plugin secrets are encrypted with at rest, base64-encoded and exactly 32
+bytes when decoded. Generate one with `openssl rand -base64 32`.
+
+Leave it unset and plugin secrets are simply unavailable: a plugin that asks for
+the `secrets` capability **fails to install** rather than storing its
+credentials in the clear. There is no plaintext column to fall back to.
+
+Rotating it makes every stored secret undecryptable — re-enter them.
+</EnvVar>
+
+<EnvVar name="PLUGIN_EVENT_RETENTION" default="168h" badValue="Refuses to start if the value is not a positive Go duration">
+How long a fully-delivered plugin event and its delivery rows are kept before a
+background pass prunes them. An outbox that never prunes is an unbounded table
+on a single-container deploy.
+
+An event still waiting on a delivery is never pruned, however old it is.
+Deliveries that keep failing are dead-lettered after a bounded number of
+attempts, so a broken subscriber cannot pin the table open forever.
 </EnvVar>
 
 ## Abuse and resource limits

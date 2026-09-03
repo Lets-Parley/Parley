@@ -2,18 +2,15 @@ package api
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strconv"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/lets-parley/parley/internal/db"
 	"github.com/lets-parley/parley/internal/dbtest"
 	"github.com/lets-parley/parley/internal/store"
 )
@@ -200,13 +197,7 @@ func noIndexScanPool(t *testing.T) *pgxpool.Pool {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	if _, err := pool.Exec(context.Background(), "drop schema public cascade; create schema public"); err != nil {
-		t.Fatal(err)
-	}
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	if err := db.Migrate(context.Background(), pool, log, db.MigrationsFS); err != nil {
-		t.Fatal(err)
-	}
+	resetSchema(t)
 	return pool
 }
 

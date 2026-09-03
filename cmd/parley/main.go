@@ -18,6 +18,7 @@ import (
 	"github.com/lets-parley/parley/internal/api"
 	"github.com/lets-parley/parley/internal/auth"
 	"github.com/lets-parley/parley/internal/db"
+	"github.com/lets-parley/parley/internal/plugin"
 	"github.com/lets-parley/parley/internal/store"
 )
 
@@ -41,11 +42,23 @@ type config struct {
 	TrustProxy        bool
 	TrustedProxyCIDRs []netip.Prefix
 	Limits            abuseLimits
+	// PluginSecretKey is the base64 32-byte key plugin secrets are encrypted
+	// with. Empty means secrets are unavailable, and a plugin that asks for
+	// them fails to install rather than storing them in the clear.
+	PluginSecretKey string
+	// PluginEventRetention is how long a fully-delivered plugin event is kept.
+	PluginEventRetention time.Duration
 }
 
 type abuseLimits = api.Limits
 
 func loadConfig() (config, error) {
+	// The file is merged first and only fills gaps: everything below reads the
+	// environment, and the environment still wins.
+	if err := applyConfigFile(); err != nil {
+		return config{}, err
+	}
+
 	cfg := config{
 		Port: envOr("PORT", "8080"),
 	}
@@ -129,6 +142,18 @@ func loadConfig() (config, error) {
 		}
 		limit.set(value)
 	}
+
+	cfg.PluginSecretKey = strings.TrimSpace(os.Getenv("PLUGIN_SECRET_KEY"))
+	if cfg.PluginSecretKey != "" {
+		if _, err := plugin.NewCipher(cfg.PluginSecretKey); err != nil {
+			return cfg, fmt.Errorf("PLUGIN_SECRET_KEY is not usable: %w", err)
+		}
+	}
+	retention, err := time.ParseDuration(envOr("PLUGIN_EVENT_RETENTION", "168h"))
+	if err != nil || retention <= 0 {
+		return cfg, fmt.Errorf("PLUGIN_EVENT_RETENTION %q is not a positive duration — use a Go duration such as 168h", os.Getenv("PLUGIN_EVENT_RETENTION"))
+	}
+	cfg.PluginEventRetention = retention
 
 	switch mode := strings.ToLower(envOr("AUTH_MODE", api.ModeOpen)); mode {
 	case api.ModeOpen:
@@ -246,6 +271,22 @@ func main() {
 		}
 	}
 
+	// The plugin foundations. Nothing runs a plugin yet — the outbox and job
+	// workers get their handlers from the plugin host — but retention and the
+	// quota reconciliation pass are the instance's own housekeeping and run
+	// from the start, so the tables cannot grow unbounded before the host
+	// arrives.
+	plugins := &plugin.Store{Pool: pool}
+	if cfg.PluginSecretKey != "" {
+		cipher, err := plugin.NewCipher(cfg.PluginSecretKey)
+		if err != nil {
+			log.Error("FATAL: PLUGIN_SECRET_KEY is not usable", "error", err)
+			os.Exit(1)
+		}
+		plugins.Cipher = cipher
+	}
+	go plugins.RunRetention(ctx, cfg.PluginEventRetention, time.Hour, log)
+
 	opts := api.Options{
 		// The signal context, so SIGTERM stops the cross-replica listener
 		// along with everything else rather than leaving it dialling.
@@ -302,6 +343,8 @@ func bootFields(cfg config, secureCookies bool) []any {
 		"port", cfg.Port,
 		"auth_mode", cfg.AuthMode,
 		"trust_proxy_headers", cfg.TrustProxy,
+		"plugin_secrets", cfg.PluginSecretKey != "",
+		"plugin_event_retention", cfg.PluginEventRetention.String(),
 	}
 	// "trust_proxy_headers=true" alone does not tell an operator which hops
 	// were accepted, and a CIDR that failed to parse is exactly the mistake
