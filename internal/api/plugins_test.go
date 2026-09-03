@@ -295,7 +295,7 @@ func TestUninstallIsRefusedAndExplainsWhichSessionsBlockIt(t *testing.T) {
 
 // The cross-tenant attack, pinned.
 //
-// plugin_installs carried no org until 0033 and `name` was unique across the
+// plugin_installs carried no org until 0034 and `name` was unique across the
 // instance, so every lookup resolved against every install on the box. The
 // admin gate in front of these routes resolves the {slug} in the caller's own
 // path, which proves only that they administer *an* org: an admin of a second

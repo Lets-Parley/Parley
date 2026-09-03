@@ -54,7 +54,7 @@ type Grant struct {
 	Scope      string
 }
 
-// Install is an installed plugin. It belongs to exactly one org: 0033 made
+// Install is an installed plugin. It belongs to exactly one org: 0034 made
 // that ownership a column, and it is what every administration lookup is
 // scoped to.
 type Install struct {
@@ -70,7 +70,7 @@ type Install struct {
 type InstallRequest struct {
 	// OrgID is the org the install belongs to. Admin.Install fills it in from
 	// the org the request resolved to; there is no default, because an install
-	// filed under the wrong org is the whole defect 0033 exists to close.
+	// filed under the wrong org is the whole defect 0034 exists to close.
 	OrgID      string
 	Name       string
 	Version    string

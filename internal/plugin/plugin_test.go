@@ -44,7 +44,7 @@ func topic(t *testing.T) string {
 }
 
 // testOrgID is the default org, the fixed id 0021_orgs.sql gave it. Installs
-// belong to an org since 0033, and the tests in this package are about the
+// belong to an org since 0034, and the tests in this package are about the
 // host rather than about ownership, so they all file under the same one; the
 // cross-org attack is pinned in internal/api, where the org comes from the
 // request.
