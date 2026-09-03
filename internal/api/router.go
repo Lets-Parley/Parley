@@ -35,6 +35,7 @@ type app struct {
 	spaces   *store.Spaces
 	sessions *store.Sessions
 	decks    *store.Decks
+	kudos    *store.Kudos
 	links    *store.Links
 	presence *store.Presence
 	hub      *hub.Hub
@@ -113,6 +114,7 @@ type Limits struct {
 	SpacesPerIdentity      int
 	SessionsPerSpace       int
 	DecksPerSpace          int
+	KudosPerSpace          int
 	StoriesPerSession      int
 	LinksPerSession        int
 }
@@ -135,6 +137,9 @@ func (l Limits) withDefaults() Limits {
 	}
 	if l.DecksPerSpace == 0 {
 		l.DecksPerSpace = 20
+	}
+	if l.KudosPerSpace == 0 {
+		l.KudosPerSpace = 500
 	}
 	if l.StoriesPerSession == 0 {
 		l.StoriesPerSession = 500
@@ -176,6 +181,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		spaces:   &store.Spaces{Pool: pool},
 		sessions: &store.Sessions{Pool: pool},
 		decks:    &store.Decks{Pool: pool},
+		kudos:    &store.Kudos{Pool: pool},
 		links:    &store.Links{Pool: pool},
 		presence: &store.Presence{
 			Pool:      pool,
@@ -423,6 +429,19 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 					r.Patch("/{deckId}", a.handleUpdateDeck)
 					r.Delete("/{deckId}", a.handleDeleteDeck)
 				})
+			})
+
+			// A space's kudos. Every verb is the member's: giving thanks
+			// is not housekeeping, and the wall is the space's own. A link
+			// guest is refused 401 by RequireUser before requireSpaceMember
+			// could 404 it — guests neither send nor receive.
+			r.Route("/spaces/{slug}/kudos", func(r chi.Router) {
+				r.Use(RequireUser)
+				r.Use(a.requireOrgMember)
+				r.Use(a.requireSpaceMember)
+				r.Get("/", a.handleListKudos)
+				r.Post("/", a.handleGiveKudo)
+				r.Delete("/{id}", a.handleWithdrawKudo)
 			})
 
 			// Managing the space itself is owner-only, and the middleware

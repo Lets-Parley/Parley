@@ -272,6 +272,11 @@ copies its cards from, so lowering this never affects a session already
 created.
 </EnvVar>
 
+<EnvVar name="KUDO_LIMIT_PER_SPACE" default="500" fatal>
+Maximum kudos one space's wall may hold. Over the cap a give is a 409; a member
+withdrawing one of their own frees a slot.
+</EnvVar>
+
 <EnvVar name="STORY_LIMIT_PER_SESSION" default="500" fatal>
 Maximum stories retained in one planning-poker session.
 </EnvVar>
