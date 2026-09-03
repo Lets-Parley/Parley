@@ -11,18 +11,18 @@ const me: Me = { id: "marcus", name: "Marcus Okonjo", avatarHue: 40 };
 /**
  * A fetch stub that answers the plugin-panel list itself.
  *
- * The room asks /api/plugins/panels for the plugins that ship UI. That request
+ * The room asks /api/sessions/{id}/plugins/panels for the plugins that ship UI. That request
  * is not what any test below is about, so it is answered with "none" here and
  * every mock keeps describing only the call it cares about.
  */
 /** The calls a test is about: everything except the plugin-panel list. */
 function roomCalls(spy: { mock: { calls: unknown[][] } }) {
-  return spy.mock.calls.filter((c) => !String(c[0]).includes("/api/plugins/panels"));
+  return spy.mock.calls.filter((c) => !String(c[0]).includes("/plugins/panels"));
 }
 
 function answering(response: Response) {
   return (input: RequestInfo | URL) => {
-    if (String(input).includes("/api/plugins/panels")) {
+    if (String(input).includes("/plugins/panels")) {
       return Promise.resolve(new Response("[]", { status: 200 }));
     }
     return Promise.resolve(response);

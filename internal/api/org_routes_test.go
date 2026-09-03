@@ -261,9 +261,10 @@ var routeScoping = map[string]string{
 	"GET /api/auth":      "non-slug",
 	"POST /api/me":       "non-slug",
 	"GET /api/me":        "non-slug",
-	// Neither carries an org slug: what is installed is an instance-wide fact,
-	// and the frame is a static document.
-	"GET /api/plugins/panels":         "non-slug",
+	// The frame is a static document and carries no org slug. The panel list
+	// does carry an org — the room's — but it resolves it from the session
+	// rather than from a slug in the path, which is what a link guest, who has
+	// no org membership at all, can be scoped by.
 	"GET /plugin-ui/{name}/{version}": "non-slug",
 	"DELETE /api/me":                  "non-slug",
 	"PATCH /api/me/avatar":            "non-slug",
@@ -345,6 +346,7 @@ var routeScoping = map[string]string{
 	// authorization that replaces org scoping here.
 	"POST /api/links/redeem":                               "anonymous-exempt",
 	"GET /api/sessions/{id}/":                              "anonymous-exempt",
+	"GET /api/sessions/{id}/plugins/panels":                "anonymous-exempt",
 	"DELETE /api/sessions/{id}/":                           "anonymous-exempt",
 	"GET /api/sessions/{id}/export.csv":                    "anonymous-exempt",
 	"POST /api/sessions/{id}/reopen":                       "anonymous-exempt",

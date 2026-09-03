@@ -58,9 +58,7 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// It deletes the caller's own session_tokens row and nothing else.
 	"POST /api/me": {status: http.StatusForbidden},
 	"GET /api/me":  {status: http.StatusOK},
-	// A link guest sees the same plugin panels the room does; the list names
-	// installs and grants, and a grant is not a secret.
-	"GET /api/plugins/panels": {status: http.StatusOK},
+
 	// The frame itself carries no session data at all — it is a static
 	// document assembled from what the operator installed. With no PLUGIN_DIR
 	// on this instance it is not there to serve.
@@ -161,6 +159,10 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 
 	// The bound room. Reading it and taking part in it is the whole grant.
 	"GET /api/sessions/{id}/": {status: http.StatusOK},
+	// A link guest sees the same plugin panels its own room does: the list
+	// names installs and grants, and a grant is not a secret. It is scoped to
+	// the room's org, which is the only org a guest has any relationship to.
+	"GET /api/sessions/{id}/plugins/panels": {status: http.StatusOK},
 	// The dispatcher is mounted for every method so that it, not chi, decides
 	// 404-vs-405. This table classifies route *patterns*, so {action} here is
 	// one representative name — voting, the participate capability — and every

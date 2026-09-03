@@ -67,30 +67,40 @@ func (a *app) recordPluginAction(r *http.Request, plugin string) {
 	// deliberately: a client that hangs up must not lose the record of a
 	// change the server has already made.
 	ctx := context.WithoutCancel(r.Context())
-	installed, err := a.pluginInstalled(ctx, plugin)
+	// The org is the room's, never the instance's default. This middleware
+	// runs inside /sessions/{id}, so the session is already resolved and is
+	// the only correct answer: defaulting it would file one tenant's action in
+	// another tenant's log, and would ask "is this plugin installed?" of the
+	// wrong org.
+	org, err := a.orgs.BySpaceID(ctx, sessionFrom(ctx).SpaceID)
+	if err != nil {
+		slog.Error("could not resolve the org for a plugin action", "error", err)
+		return
+	}
+	installed, err := a.pluginInstalled(ctx, org.ID, plugin)
 	if err != nil {
 		slog.Error("could not check the plugin named on an action", "plugin", plugin, "error", err)
 		return
 	}
 	if !installed {
-		slog.Warn("an action named a plugin this instance does not run", "plugin", plugin)
+		slog.Warn("an action named a plugin this org does not run", "plugin", plugin, "org", org.Slug)
 		return
 	}
 	p, _ := PrincipalFrom(ctx)
-	org, err := a.org(ctx)
-	if err != nil {
-		slog.Error("could not resolve the org for a plugin action", "error", err)
-		return
-	}
 	scope := custody.Scope{OrgID: org.ID, OrgSlug: org.Slug, ActorID: p.UserID}
 	if err := custody.RecordPluginAction(ctx, a.pool, scope, plugin, r.Method+" "+r.URL.Path); err != nil {
 		slog.Error("could not record a plugin action", "plugin", plugin, "error", err)
 	}
 }
 
-func (a *app) pluginInstalled(ctx context.Context, name string) (bool, error) {
+// pluginInstalled asks whether *this org* runs the named plugin. A name is
+// unique inside an org and not across the instance since 0034, so an unscoped
+// check would let a plugin any tenant installed vouch for an action in every
+// other tenant's room.
+func (a *app) pluginInstalled(ctx context.Context, orgID, name string) (bool, error) {
 	var exists bool
 	err := a.pool.QueryRow(ctx,
-		`select exists (select 1 from plugin_installs where name = $1 and enabled)`, name).Scan(&exists)
+		`select exists (select 1 from plugin_installs where name = $1 and org_id = $2 and enabled)`,
+		name, orgID).Scan(&exists)
 	return exists, err
 }

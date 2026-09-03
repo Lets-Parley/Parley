@@ -78,9 +78,15 @@ func TestThePluginFrameIsNotDeniedByXFrameOptions(t *testing.T) {
 
 // The carve-out is a route group, so the only way it can widen is if a route
 // moves into that group. This walks the real routing tree and holds every
-// other route to DENY, which is what makes "the carve-out cannot widen
-// unnoticed" a fact rather than a hope.
-func TestEveryNonPluginRouteStillSendsXFrameOptionsDeny(t *testing.T) {
+// other route to the whole header profile, which is what makes "the carve-out
+// cannot widen unnoticed" a fact rather than a hope.
+//
+// It checks all four headers rather than X-Frame-Options alone: a carve-out
+// that leaked only the CSP is still a carve-out. And it probes a *disallowed*
+// method on every route as well as the registered one, because chi answers
+// those from its own handler, outside the route tree — the one response a walk
+// over registered method+path pairs cannot otherwise reach.
+func TestEveryNonPluginRouteStillSendsTheSecurityHeaders(t *testing.T) {
 	srv, _ := pluginFrameServer(t, "")
 
 	h, ok := srv.Config.Handler.(*Handler)
@@ -92,6 +98,25 @@ func TestEveryNonPluginRouteStillSendsXFrameOptionsDeny(t *testing.T) {
 		t.Fatalf("the api handler is not a chi router")
 	}
 
+	probe := func(method, route, path, why string) {
+		req, err := http.NewRequest(method, srv.URL+path, strings.NewReader("{}"))
+		if err != nil {
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			return
+		}
+		resp.Body.Close()
+		for header, want := range securityHeaderProfile {
+			if got := resp.Header.Get(header); got != want {
+				t.Errorf("%s %s (%s): %s = %q, want %q — the plugin carve-out has widened",
+					method, route, why, header, got, want)
+			}
+		}
+	}
+
 	var checked int
 	walk := func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
 		if strings.HasPrefix(route, pluginFramePrefix) {
@@ -100,32 +125,37 @@ func TestEveryNonPluginRouteStillSendsXFrameOptionsDeny(t *testing.T) {
 		// Route params have no meaning to a header check; any value reaches
 		// the same middleware chain. Only the braced spans are substituted —
 		// rewriting bare substrings would silently retarget a literal segment
-		// at the catch-all, which sends DENY and would score a widened route
-		// as a pass.
+		// at the catch-all, which sends the headers and would score a widened
+		// route as a pass.
 		path := routeParam.ReplaceAllString(route, "x")
 		path = strings.ReplaceAll(path, "/*", "/x")
-		req, err := http.NewRequest(method, srv.URL+path, strings.NewReader("{}"))
-		if err != nil {
-			return nil
-		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := srv.Client().Do(req)
-		if err != nil {
-			return nil
-		}
-		resp.Body.Close()
 		checked++
-		if got := resp.Header.Get("X-Frame-Options"); got != "DENY" {
-			t.Errorf("%s %s: X-Frame-Options %q, want DENY — the plugin carve-out has widened", method, route, got)
-		}
+		probe(method, route, path, "registered method")
+		// A method this route does not answer on. chi resolves it to its own
+		// method-not-allowed handler, which is where the headers went missing.
+		probe(notThisMethod(method), route, path, "disallowed method")
 		return nil
 	}
 	if err := chi.Walk(router, walk); err != nil {
 		t.Fatalf("walking the routes: %v", err)
 	}
-	if checked < 20 {
+	// The floor tracks the router rather than trailing far behind it: a walk
+	// that silently stopped covering two thirds of the tree would still have
+	// cleared a floor of 20.
+	if checked < 60 {
 		t.Fatalf("only walked %d routes — the walk is not covering the router", checked)
 	}
+}
+
+// notThisMethod picks a verb the route under test is not registered for. The
+// pair is deliberately narrow: every route here answers on at most a handful
+// of verbs, and both of these are ones the API uses somewhere, so the request
+// travels the same middleware as a real one.
+func notThisMethod(method string) string {
+	if method == http.MethodDelete {
+		return http.MethodPatch
+	}
+	return http.MethodDelete
 }
 
 // The frame can make no network request at all, so the plugin's UI has to
@@ -157,6 +187,56 @@ func TestAScriptCloseTagInAUIBundleCannotBreakOutOfTheFrameScript(t *testing.T) 
 	}
 	if !strings.Contains(body, `<\/script>`) {
 		t.Fatalf("the close tag was not neutralised:\n%s", body)
+	}
+}
+
+// The frame's handshake listener is the one moment it reads the window, and a
+// window is postMessage-able by any frame on the page. Checking only
+// event.ports.length let a sibling plugin's frame race the host: whoever
+// answers first supplies the port, so plugin A could hand plugin B a channel A
+// controls, feed B forged session state and read every action B proposes.
+// Origin cannot settle it — every sandboxed frame reports "null" — so the
+// sender is screened structurally.
+//
+// This asserts the shape of the bootstrap rather than running it: it is inline
+// JavaScript delivered inside a Go string, so neither test runner can execute
+// it. The ordering assertions are the substance — a screen that runs after the
+// port has already been taken is not a screen.
+func TestTheFrameBootstrapOnlyAcceptsAPortFromItsEmbedder(t *testing.T) {
+	js := pluginFrameBootstrap
+
+	source := strings.Index(js, "event.source !== window.parent")
+	marker := strings.Index(js, `event.data.parley !== "bridge"`)
+	take := strings.Index(js, "port = event.ports[0]")
+	if source < 0 {
+		t.Fatalf("the handshake does not check who sent the message:\n%s", js)
+	}
+	if marker < 0 {
+		t.Fatalf("the handshake does not require the host's own marker:\n%s", js)
+	}
+	if take < 0 {
+		t.Fatalf("the handshake no longer takes a port at all:\n%s", js)
+	}
+	if source > take || marker > take {
+		t.Fatalf("the handshake takes the port before screening the sender — a screen that runs "+
+			"after the port is in hand screens nothing:\n%s", js)
+	}
+}
+
+// A design token's value is written into a style declaration. The name was
+// screened and the value was not. connect-src 'none' means a CSS url() has
+// nowhere to reach, so this was never an exfiltration hole — but the value is
+// only ever a colour, and screening it is cheaper to keep true than the
+// argument for why an unscreened declaration is safe.
+func TestTheFrameBootstrapScreensATokenValueAndNotOnlyItsName(t *testing.T) {
+	js := pluginFrameBootstrap
+
+	if !strings.Contains(js, "COLOR.test(value)") {
+		t.Fatalf("a token value reaches setProperty unscreened:\n%s", js)
+	}
+	// The name screen is still there too: this is an addition, not a swap.
+	if !strings.Contains(js, "/^[a-z-]+$/.test(key)") {
+		t.Fatalf("the token name screen is gone:\n%s", js)
 	}
 }
 
@@ -242,8 +322,9 @@ func TestPluginPanelsListsOnlyEnabledInstallsThatShipUI(t *testing.T) {
 		{"retro-off", "1.0.0", false},
 	} {
 		if _, err := pool.Exec(ctx,
-			`insert into plugin_installs (name, version, enabled, kv_quota_bytes) values ($1, $2, $3, 1024)`,
-			row.name, row.version, row.enabled); err != nil {
+			`insert into plugin_installs (org_id, name, version, enabled, kv_quota_bytes)
+			 values ($1, $2, $3, $4, 1024)`,
+			defaultOrgID(t, pool), row.name, row.version, row.enabled); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -253,17 +334,18 @@ func TestPluginPanelsListsOnlyEnabledInstallsThatShipUI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, body := get(t, srv, "/api/plugins/panels")
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("panels: got %d (%s)", resp.StatusCode, body)
+	dana := signup(t, srv, "Dana")
+	createSpace(t, srv, "Alpha Squad", dana)
+	sess := newPokerSession(t, srv, dana)
+
+	names := readPanels(t, srv, sess, dana)
+	if !contains(names, "retro") {
+		t.Fatalf("the installed plugin with UI is missing: %v", names)
 	}
-	if !strings.Contains(body, `"retro"`) {
-		t.Fatalf("the installed plugin with UI is missing: %s", body)
+	if contains(names, "headless") {
+		t.Fatalf("an install with no UI bundle was listed as a panel: %v", names)
 	}
-	if strings.Contains(body, "headless") {
-		t.Fatalf("an install with no UI bundle was listed as a panel: %s", body)
-	}
-	if strings.Contains(body, "retro-off") {
-		t.Fatalf("a disabled install was listed: %s", body)
+	if contains(names, "retro-off") {
+		t.Fatalf("a disabled install was listed: %v", names)
 	}
 }

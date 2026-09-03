@@ -380,7 +380,7 @@ action against a closed session is **409**; reopen it first.
 ## Plugin UI
 
 <RouteTable rows={[
-  { method: "GET", path: "/api/plugins/panels", auth: "member", purpose: "The enabled installs that ship UI, with their grants. Empty on an instance with no plugins." },
+  { method: "GET", path: "/api/sessions/{id}/plugins/panels", auth: "member", purpose: "The room’s org’s enabled installs that ship UI, with their grants. Scoped to the room’s own org — another tenant’s installs are never enumerated. Empty on an instance with no plugins." },
   { method: "GET", path: "/plugin-ui/{name}/{version}", auth: "public", purpose: "The sandboxed document a plugin's UI runs in. 404 when PLUGIN_DIR is unset or the plugin ships no UI bundle." },
 ]} />
 

@@ -50,7 +50,7 @@ function envelope(over: Partial<Envelope> = {}): Envelope {
 function servePanels(panels: unknown[]) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
-    if (url.endsWith("/api/plugins/panels")) {
+    if (url.includes("/plugins/panels")) {
       return Promise.resolve(new Response(JSON.stringify(panels), { status: 200 }));
     }
     return Promise.resolve(new Response("{}", { status: 200 }));
@@ -87,9 +87,11 @@ describe("plugin panels in a poker room", () => {
 
     const frame = await screen.findByTitle("retro plugin panel");
     expect(frame.hasAttribute("inert")).toBe(false);
-    // Reset the round is the facilitator's confirmation modal; opening it must
-    // take the frame out of the focus order, or a Tab from the dialog walks
-    // into content the overlay has covered.
+    // Reset the round is the facilitator's confirmation modal. What is
+    // asserted here is that opening it sets `inert` on the frame; jsdom does
+    // not implement what `inert` then does, so the focus behaviour it buys —
+    // a Tab from the dialog not walking into content the overlay has covered —
+    // is verified in a real browser rather than here.
     await user.click(screen.getByRole("button", { name: "Reset" }));
     expect(screen.getByRole("heading", { name: "Reset this round?" })).toBeTruthy();
     await waitFor(() => expect(frame.hasAttribute("inert")).toBe(true));

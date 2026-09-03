@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { action, api, type Envelope } from "../lib/api";
 import { PluginPanel } from "./PluginPanel";
 
-/** One installed plugin that ships UI, as /api/plugins/panels reports it. */
+/** One installed plugin that ships UI, as the room's panel list reports it. */
 export type Panel = { name: string; version: string; grants: string[] };
 
 /**
@@ -20,9 +20,12 @@ export function PluginPanels({
   /** True while any host modal is open — every frame is marked inert. */
   modalOpen?: boolean;
 }) {
+  // Keyed by the room, because the list is the room's org's own: the server
+  // resolves the tenant from the session rather than from the caller, so a
+  // cache shared across rooms would be a cache shared across orgs.
   const { data } = useQuery({
-    queryKey: ["plugin-panels"],
-    queryFn: () => api<Panel[]>("GET", "/api/plugins/panels"),
+    queryKey: ["plugin-panels", env.id],
+    queryFn: () => api<Panel[]>("GET", `/api/sessions/${encodeURIComponent(env.id)}/plugins/panels`),
     staleTime: Infinity,
     retry: false,
   });

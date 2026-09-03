@@ -80,6 +80,28 @@ func (o *Orgs) MembershipBySlug(ctx context.Context, slug, userID string) (Org, 
 	return org, *role, nil
 }
 
+// BySpaceID resolves the org that owns a space.
+//
+// It exists for the surfaces that are addressed by a room rather than by an
+// org: a link guest holds no org membership at all, so the only org it can be
+// told about is the one its own room belongs to, and that has to be read from
+// the room rather than defaulted.
+func (o *Orgs) BySpaceID(ctx context.Context, spaceID string) (Org, error) {
+	var org Org
+	err := o.Pool.QueryRow(ctx, `
+		select o.id, o.slug, o.name
+		from orgs o
+		join spaces s on s.org_id = o.id
+		where s.id = $1`, spaceID).Scan(&org.ID, &org.Slug, &org.Name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Org{}, ErrNoOrg
+	}
+	if err != nil {
+		return Org{}, fmt.Errorf("reading the org of space %s: %w", spaceID, err)
+	}
+	return org, nil
+}
+
 // Default resolves the org every caller belongs to until an instance grows a
 // second one.
 func (o *Orgs) Default(ctx context.Context) (Org, error) {
