@@ -70,7 +70,12 @@ with open(path, "w") as fh:
 run_tests() {
     local spec=$1
     if [ "$RUNNER" = "web" ]; then
-        (cd web && npx vitest run "${spec%%::*}" -t "${spec#*::}") >"$LOG" 2>&1
+        # NODE_OPTIONS=--no-webstorage matches web/package.json's own test
+        # script. Node ships a global localStorage from 22 on, and it shadows
+        # jsdom's, so without the flag every web test dies on an undefined
+        # storage. It fails locally on an older Node and is required on the
+        # runner, which is exactly the pair that hides this until CI.
+        (cd web && NODE_OPTIONS=--no-webstorage npx vitest run "${spec%%::*}" -t "${spec#*::}") >"$LOG" 2>&1
         return $?
     fi
     # -timeout keeps a mutation that removes a timeout from hanging the leg
