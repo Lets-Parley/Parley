@@ -193,6 +193,33 @@ There is deliberately no `check` on `cards`. The card rules live in Go, in
 `internal/poker`, and the deck routes and the session-create route run the same
 function — a second copy in SQL would be a copy that drifts.
 
+### kudos
+
+| Column | Type | Notes |
+|---|---|---|
+| `space_id` | uuid | References `spaces`, `on delete cascade` |
+| `from_user_id` | uuid | References `users`, `on delete cascade`. The sender, and the only person who can delete the row |
+| `to_user_id` | uuid | References `users`, `on delete cascade`. A `check` forbids it equalling the sender |
+| `text` | text | 1–280 characters |
+| `session_id` | uuid | Nullable, references `sessions`, **`on delete set null`** — deleting the room must not erase the thank-you |
+| `created_at` | timestamptz | Indexed with `space_id`, descending: the only read is one space's kudos, newest first |
+
+A note from one member of a space to another. One table serves both surfaces —
+the space's kudos wall and a standup's closing beat — so a kudo given in a room
+appears on the wall unchanged.
+
+**There is no leaderboard, and that is a schema constraint rather than a UI
+choice.** No count column, no aggregate, no per-person total. Storing a count is
+enough to invite a ranking, and a ranking turns thanks into a scoreboard people
+play, so the objection is written into the migration header where a count column
+would have to argue with it.
+
+Membership is not expressible in the schema. A link guest holds a `users` row
+but no `members` row, so the recipient foreign key would accept one; the
+membership check in `internal/store/kudos.go` is the only defence, and it is
+tested as such. Guests neither send nor receive. A kudo survives its recipient
+leaving the space.
+
 ### session_participants
 
 | Column | Type | Notes |
