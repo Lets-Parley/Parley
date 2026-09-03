@@ -284,8 +284,16 @@ func TestInFlightCallsAreCappedPerInstallAndInTotal(t *testing.T) {
 }
 
 func TestARepeatedlyFailingPluginIsDegradedAndThenDisabled(t *testing.T) {
+	// The cooldown is long enough that it cannot lapse while the test runs.
+	// A short one made the assertion below a race against the clock: the
+	// breaker opens for the cooldown from the moment of the second failure,
+	// and any scheduling delay between that and the third call — a database
+	// round trip, the race detector, a loaded runner — closed the window and
+	// let the call through, so the test read the guest's trap instead of the
+	// refusal it was written for. The cooldown's expiry is driven below
+	// instead of waited on.
 	h, in := hosted(t, guestPanic(), HostConfig{
-		BreakerFailures: 2, BreakerTripLimit: 2, BreakerCooldown: time.Millisecond,
+		BreakerFailures: 2, BreakerTripLimit: 2, BreakerCooldown: time.Hour,
 	}, 1024)
 	ctx := context.Background()
 
@@ -300,8 +308,13 @@ func TestARepeatedlyFailingPluginIsDegradedAndThenDisabled(t *testing.T) {
 	}
 
 	// Past the cooldown, two more failures exhaust it and it is disabled for
-	// good — durably, not just in this process's memory.
-	time.Sleep(5 * time.Millisecond)
+	// good — durably, not just in this process's memory. The cooldown is ended
+	// by moving the breaker's deadline into the past rather than by sleeping,
+	// so the test does not depend on how long anything took.
+	b := h.breakerFor(in.ID)
+	h.mu.Lock()
+	b.openTill = time.Time{}
+	h.mu.Unlock()
 	for range 2 {
 		_, _ = h.Call(ctx, in.ID, "run", nil, ModeAsync)
 	}
@@ -411,5 +424,213 @@ func TestAnUpgradeWithinTheApprovedCapabilitiesAppliesStraightAway(t *testing.T)
 	}
 	if state.Allows(CapabilityLog, "") {
 		t.Fatal("an upgrade that drops a capability should not keep it")
+	}
+}
+
+func TestAnUpgradeIsRunFromTheNewBundleRatherThanTheCachedOne(t *testing.T) {
+	// The compiled module is cached per install, and the cache key that makes
+	// it safe is the version. Without that check an upgraded install keeps
+	// serving the bundle it was running before — which is a security property,
+	// not only a correctness one: the new bundle is the one an operator
+	// approved, and the old one is code they have decided to stop running.
+	store := &Store{Pool: testPool(t)}
+	ctx := context.Background()
+	in := install(t, store, Grant{Capability: CapabilityKV})
+	state, err := store.State(ctx, in.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := state.Install.Name
+
+	src := bundles{name + "@1.0.0": guestNoop()}
+	h := NewHost(store, HostConfig{})
+	h.Log = quietLogger()
+	h.Bundles = src
+	t.Cleanup(func() { h.Close(ctx) })
+
+	// v1 is compiled and cached by this call.
+	if _, err := h.Call(ctx, in.ID, "run", nil, ModeAsync); err != nil {
+		t.Fatal(err)
+	}
+
+	// An upgrade within the already-approved capabilities, so it applies at
+	// once rather than parking for an operator.
+	if err := store.Upgrade(ctx, in.ID, "2.0.0", []Grant{{Capability: CapabilityKV}}); err != nil {
+		t.Fatal(err)
+	}
+	// v2 behaves differently, and only the new bundle can produce that.
+	src[name+"@2.0.0"] = guestPanic()
+
+	if _, err := h.Call(ctx, in.ID, "run", nil, ModeAsync); !errors.Is(err, ErrGuestPanic) {
+		t.Fatalf("got %v, want ErrGuestPanic — the call was served by the stale 1.0.0 module", err)
+	}
+}
+
+func TestACallThatArrivesWithNoModeIsRefusedTheNetwork(t *testing.T) {
+	// The zero CallMode is what a host function sees when a call reaches it
+	// with no callInfo attached — the fallback hostfn.go builds. The fetch ban
+	// rests on the mode, so the mode it was never told has to be the refusing
+	// one; a zero value that means "asynchronous" makes the ban fail open.
+	h, in := hosted(t, guestNoop(), HostConfig{},
+		1024, Grant{Capability: CapabilityFetch, Scope: "api.example.com"})
+	ctx := context.Background()
+	st, err := h.Store.State(ctx, in.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if callFrom(ctx) != nil {
+		t.Fatal("a context with no call attached should carry no callInfo")
+	}
+
+	req, _ := json.Marshal(FetchRequest{URL: "https://api.example.com/"})
+	_, err = h.fetch(ctx, st, &callInfo{installID: in.ID}, req)
+	if !errors.Is(err, ErrFetchSynchronousHook) {
+		t.Fatalf("got %v, want ErrFetchSynchronousHook for a call with no mode", err)
+	}
+}
+
+func TestAMalformedHostFunctionRequestIsRefusedRatherThanReadAsEmpty(t *testing.T) {
+	// Ignoring the decode error would leave the zero request behind, and the
+	// zero request is a read of the empty key in the default scope — a
+	// different operation from the one the guest sent, performed silently.
+	h, in := hosted(t, guestCallsHost("parley_kv_get"), HostConfig{},
+		4096, Grant{Capability: CapabilityKV})
+
+	_, report, err := h.CallWithReport(context.Background(), in.ID, "run",
+		[]byte(`{"key": "unterminated`), ModeAsync)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.Refused(ErrBadRequest) {
+		t.Fatalf("host errors %v; want ErrBadRequest", report.HostErrors)
+	}
+}
+
+func TestAGuestSuppliedScopeIsScreenedAndTheKeyIsBounded(t *testing.T) {
+	h, in := hosted(t, guestCallsHost("parley_kv_set"), HostConfig{},
+		1<<20, Grant{Capability: CapabilityKV})
+	ctx := context.Background()
+
+	// The scope arrives in the same request the key does, so screening only
+	// the key leaves the guest able to land a write in another of its scopes.
+	req, _ := json.Marshal(kvRequest{Scope: "cache" + kvSeparator + "secrets", Key: "k", Value: []byte("v")})
+	_, report, err := h.CallWithReport(ctx, in.ID, "run", req, ModeAsync)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.Refused(ErrForgedKey) {
+		t.Fatalf("host errors %v; want ErrForgedKey for a scope carrying the separator", report.HostErrors)
+	}
+
+	// And an unbounded key is an unbounded row: the guest picks the length.
+	req, _ = json.Marshal(kvRequest{Key: strings.Repeat("k", maxKVKeyBytes+1), Value: []byte("v")})
+	_, report, err = h.CallWithReport(ctx, in.ID, "run", req, ModeAsync)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.Refused(ErrKeyTooLong) {
+		t.Fatalf("host errors %v; want ErrKeyTooLong", report.HostErrors)
+	}
+}
+
+func TestASuccessBetweenTwoFailuresKeepsTheBreakerClosed(t *testing.T) {
+	// A breaker that only ever counts up degrades a plugin that fails once an
+	// hour, which is a working plugin. The reset on success is what makes the
+	// threshold mean "consecutive".
+	b := &breaker{threshold: 2, tripLimit: 2}
+	now := time.Now()
+
+	if got := b.failure(now, time.Hour); got != breakerHealthy {
+		t.Fatalf("the first failure gave %v, want breakerHealthy", got)
+	}
+	b.success()
+	if got := b.failure(now, time.Hour); got != breakerHealthy {
+		t.Fatalf("a failure after a success gave %v; the success must have reset the run", got)
+	}
+	// Two in a row, with nothing between them, do trip it.
+	if got := b.failure(now, time.Hour); got != breakerDegraded {
+		t.Fatalf("two consecutive failures gave %v, want breakerDegraded", got)
+	}
+}
+
+func TestOneCapabilityIsNeverAPrefixOfAnother(t *testing.T) {
+	// Matching capabilities by prefix happens to work today only because no
+	// two constants are prefixes of each other. "session:read" and
+	// "session:patch" are one rename away from making that false, and reading
+	// a session and rewriting one are not the same power.
+	read := State{Grants: []Grant{{Capability: CapabilitySessionRead}}}
+	if read.Allows(CapabilitySessionPatch, "") {
+		t.Error("a session:read grant must not permit session:patch")
+	}
+	patch := State{Grants: []Grant{{Capability: CapabilitySessionPatch}}}
+	if patch.Allows(CapabilitySessionRead, "") {
+		t.Error("a session:patch grant must not permit session:read")
+	}
+	if !read.Allows(CapabilitySessionRead, "") || !patch.Allows(CapabilitySessionPatch, "") {
+		t.Error("a grant must permit its own capability")
+	}
+	// The shape the prefix bug needs, spelled out: a shorter capability must
+	// not open a longer one that starts with it, in either direction.
+	short := State{Grants: []Grant{{Capability: "session"}}}
+	if short.Allows(CapabilitySessionRead, "") {
+		t.Error("a grant for \"session\" must not permit \"session:read\"")
+	}
+	if read.Allows("session", "") {
+		t.Error("a session:read grant must not permit a bare \"session\"")
+	}
+}
+
+func TestAnUnrelatedTrapIsNotReportedAsAMemoryFailure(t *testing.T) {
+	// Every fixture asserts its own mechanism by identity, so a mechanism a
+	// fixture could earn by accident undermines all of them. The memory arm
+	// used to match the bare word "exceeds", which appears in runtime errors
+	// that have nothing to do with memory.
+	h := &Host{cfg: HostConfig{}.withDefaults()}
+	ctx := context.Background()
+
+	trap := errors.New("wasm error: unreachable: the call stack exceeds its limit")
+	if err := h.classify(ctx, time.Now(), trap); !errors.Is(err, ErrGuestPanic) {
+		t.Errorf("got %v, want ErrGuestPanic — an unrelated \"exceeds\" is not a memory failure", err)
+	}
+	// The real memory failures still classify as they did.
+	for _, msg := range []string{
+		"out of bounds memory access",
+		"memory size exceeds the limit",
+		"module[main] memory[0] minimum size exceeds the max pages",
+	} {
+		if err := h.classify(ctx, time.Now(), errors.New(msg)); !errors.Is(err, ErrGuestMemory) {
+			t.Errorf("%q classified as %v, want ErrGuestMemory", msg, err)
+		}
+	}
+}
+
+func TestARefusedApprovalNamesThePluginRatherThanItsID(t *testing.T) {
+	store := &Store{Pool: testPool(t)}
+	ctx := context.Background()
+	in := install(t, store, Grant{Capability: CapabilityKV})
+	state, err := store.State(ctx, in.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// An allowlist entry the guard cannot enforce, parked as a pending grant
+	// directly: Upgrade would have refused it on the way in, and what is under
+	// test is the refusal on the way out.
+	if _, err := store.Pool.Exec(ctx,
+		`update plugin_installs set pending_version = '2.0.0' where id = $1`, in.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `
+		insert into plugin_pending_grants (install_id, capability, scope)
+		values ($1, $2, $3)`, in.ID, CapabilityFetch, "api.*.example.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	err = store.ApproveUpgrade(ctx, in.ID)
+	if !errors.Is(err, ErrAllowPattern) {
+		t.Fatalf("got %v, want ErrAllowPattern", err)
+	}
+	if !strings.Contains(err.Error(), state.Install.Name) {
+		t.Fatalf("the refusal reads %q; it should name the plugin, as every other grant check does", err)
 	}
 }

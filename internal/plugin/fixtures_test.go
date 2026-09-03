@@ -126,3 +126,19 @@ func guestCallsHost(name string) []byte {
 	body = append(body, i32Const(0)...)
 	return b.build(append(body, opEnd))
 }
+
+// guestPanicExporting traps immediately, under every one of the given export
+// names. The host calls "on_job" and "on_event" rather than "run", so a
+// fixture that exercises the worker wiring has to answer to those.
+func guestPanicExporting(names ...string) []byte {
+	types := []*wasm.FunctionType{{Results: []wasm.ValueType{wasm.ValueTypeI32}}}
+	m := &wasm.Module{TypeSection: types}
+	for i, name := range names {
+		m.FunctionSection = append(m.FunctionSection, 0)
+		m.CodeSection = append(m.CodeSection, &wasm.Code{Body: []byte{opUnreachable, opEnd}})
+		m.ExportSection = append(m.ExportSection, &wasm.Export{
+			Type: wasm.ExternTypeFunc, Name: name, Index: uint32(i),
+		})
+	}
+	return binary.EncodeModule(m)
+}
