@@ -133,6 +133,16 @@ An operator administers plugins at **`/o/{org}/admin/plugins`**, and the routes
 behind it are restricted to the org's admins server-side — a member who reaches
 the URL another way gets 403 from the API, not a blank screen.
 
+**An install belongs to one org, and the admin gate is not on its own enough to
+say so.** That gate resolves the org slug in the *caller's own* path, which
+proves only that they administer *an* org — so every lookup this surface makes
+is scoped to `plugin_installs.org_id` as well. An install belonging to another
+org answers `404`, deliberately the same answer an id that was never issued
+gets: `403` would confirm the id exists somewhere, which is enough to enumerate
+what other tenants run. A plugin's name is unique within an org rather than
+across the instance, so two orgs installing the same plugin get two installs,
+with two separate key-value stores and two separate sets of secrets.
+
 That page is where the grant model becomes real, so its wording is treated as
 part of the boundary rather than as copy:
 
@@ -156,17 +166,31 @@ part of the boundary rather than as copy:
 - **Uninstall is a distinct, irreversible act, never a disable.** It cascades to
   the plugin's key-value store and its encrypted secrets, which cannot be
   recovered, and it is refused while any session of a kind the plugin provides
-  still exists — the refusal names those kinds.
+  still exists — the refusal names those kinds. The refusal, the retirement of
+  those kinds, the delete and the audit row are **one transaction**: a check
+  and a delete on separate round trips left a window in which a room of a
+  provided kind could be created between them, and an audit insert that only
+  logged its own failure could leave the one irreversible action on this
+  surface with no record of who performed it. Retiring the kinds is part of it
+  because `session_kinds` rows are retired rather than deleted, and an
+  unretired kind whose provider is gone is a kind a *new* room can still be
+  created with.
 - **Health is visible.** A plugin the circuit breaker has degraded or disabled
   says so on the page, with its reason and its last error, instead of silently
   doing nothing. The breaker's judgement stays in memory, where it belongs — a
   persisted cooldown could not be cleared by a restart — and is read out through
   the administration API; the durable half, whether an install is enabled, was
   already in `plugin_installs`.
+- **An unscoped grant is never described in the singular.** An empty scope means
+  "any", so `session:read` with no scope is read access to every session on the
+  instance and `secrets` with no scope is every secret on it. The sentence says
+  exactly that, and a scoped grant names the one thing it covers instead —
+  wording that understates the reach of what is being agreed to is a defect in
+  the boundary, not in the copy.
 - **The theme reset is drawn in literal colours.** A theme pack owns every
   colour token in the app, so a reset control styled with those tokens can be
   made invisible by the pack it exists to undo. That one control uses no theme
-  variable at all, and it is at the top of the page rather than the bottom.
+  variable at all.
 
 ## Writing a plugin
 

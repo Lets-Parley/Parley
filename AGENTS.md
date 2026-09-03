@@ -412,9 +412,27 @@ issue first. For anything large, open an issue before writing code.
     single-keystroke action, and installing always carries an explicit
     `grantsAccepted`, which the server refuses to act without.
 
-39. **`Store.Uninstall` is not a louder `Disable`.** It cascades to a plugin's
+39. **`Admin.Uninstall` is not a louder `Disable`.** It cascades to a plugin's
     key-value store and its encrypted secrets, which are unrecoverable, so it
     stays a distinct function and is refused while any session of a kind the
     plugin provides still exists. Never route a disable through it, and never
     delete a `session_kinds` row to get past the refusal — the sessions naming
-    that kind are the reason the refusal exists.
+    that kind are the reason the refusal exists. The refusal check, the
+    retirement of the kinds it provided, the delete and the audit row are one
+    transaction; do not split them back into separate round trips, and do not
+    move the audit row onto the best-effort path the reversible actions use.
+
+40. **A plugin install belongs to an org, and the admin gate does not enforce
+    that.** `requireOrgAdmin` resolves the `{org}` in the *caller's own* path,
+    so it proves only that they administer *an* org — never that they
+    administer the one owning the id in the URL. Reach installs through
+    `plugin.Store.InOrg(orgID)`, never through `Store` methods directly and
+    never through a bare `select … from plugin_installs where id = $1`; the
+    `Store`'s own unscoped methods exist for the host, which is acting on a
+    plugin it is already running rather than on an id somebody typed. A
+    foreign install answers **404, never 403** — `403` confirms the id exists,
+    which is enough to enumerate what other tenants run.
+    `TestOneOrgsAdminCannotTouchAnothersPlugin` and the `guard-mutation.sh`
+    entry that strips the `org_id` filter from all three sites are what hold
+    that line. The same rule applies to anything else that becomes per-org: an
+    id in a URL is scoped by the request's org or it is not scoped at all.

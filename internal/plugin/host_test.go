@@ -39,7 +39,7 @@ func hosted(t *testing.T, guest []byte, cfg HostConfig, quota int64, grants ...G
 	installNo++
 	name := fmt.Sprintf("%s-%d-%d", strings.ToLower(strings.ReplaceAll(t.Name(), "/", "-")), time.Now().UnixNano(), installNo)
 	got, err := store.Install(context.Background(), InstallRequest{
-		Name: name, Version: "1.0.0", Grants: grants, QuotaBytes: quota,
+		OrgID: testOrgID, Name: name, Version: "1.0.0", Grants: grants, QuotaBytes: quota,
 	})
 	if err != nil {
 		t.Fatal(err)

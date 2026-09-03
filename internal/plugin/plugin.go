@@ -54,9 +54,12 @@ type Grant struct {
 	Scope      string
 }
 
-// Install is an installed plugin.
+// Install is an installed plugin. It belongs to exactly one org: 0033 made
+// that ownership a column, and it is what every administration lookup is
+// scoped to.
 type Install struct {
 	ID         string
+	OrgID      string
 	Name       string
 	Version    string
 	Enabled    bool
@@ -65,6 +68,10 @@ type Install struct {
 
 // InstallRequest is what a caller asks to install.
 type InstallRequest struct {
+	// OrgID is the org the install belongs to. Admin.Install fills it in from
+	// the org the request resolved to; there is no default, because an install
+	// filed under the wrong org is the whole defect 0033 exists to close.
+	OrgID      string
 	Name       string
 	Version    string
 	Grants     []Grant
@@ -81,11 +88,11 @@ func (s *Store) Install(ctx context.Context, req InstallRequest) (Install, error
 	var out Install
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(ctx, `
-			insert into plugin_installs (name, version, kv_quota_bytes)
-			values ($1, $2, $3)
-			returning id, name, version, enabled, kv_quota_bytes`,
-			req.Name, req.Version, req.QuotaBytes,
-		).Scan(&out.ID, &out.Name, &out.Version, &out.Enabled, &out.QuotaBytes); err != nil {
+			insert into plugin_installs (org_id, name, version, kv_quota_bytes)
+			values ($1, $2, $3, $4)
+			returning id, org_id, name, version, enabled, kv_quota_bytes`,
+			req.OrgID, req.Name, req.Version, req.QuotaBytes,
+		).Scan(&out.ID, &out.OrgID, &out.Name, &out.Version, &out.Enabled, &out.QuotaBytes); err != nil {
 			return fmt.Errorf("inserting install: %w", err)
 		}
 		for _, g := range req.Grants {

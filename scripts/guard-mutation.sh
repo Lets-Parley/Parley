@@ -183,6 +183,18 @@ mutate "the honesty of the fetch-allowlist expansion" \
     'TestExplanationsMatchTheGuard|TestAWildcardIsExpandedRatherThanEchoed' \
     describe.go 'out.Allows = []string{"api." + base, "a.b." + base}' 'out.Allows = []string{base}'
 
+# An install belongs to an org, and the org gate in front of the operator
+# routes only proves the caller administers *an* org. Scoping every lookup to
+# the org the request resolved to is the whole of what stops one org's admin
+# uninstalling another org's plugin — destroying its key-value store and its
+# unrecoverable encrypted secrets. It is enforced at three sites, so all three
+# are broken at once.
+mutate "the per-org scoping of an install lookup" \
+    'TestAnInstallOfAnotherOrgIsNotFound' \
+    orgscope.go '`select id from plugin_installs where id = $1 and org_id = $2`, installID, a.orgID).Scan(&got)' '`select id from plugin_installs where id = $1`, installID).Scan(&got)' \
+    grants.go '`update plugin_installs set enabled = $3 where id = $1 and org_id = $2`, installID, orgID, enabled)' '`update plugin_installs set enabled = $2 where id = $1`, installID, enabled)' \
+    health.go '`delete from plugin_installs where id = $1 and org_id = $2`, installID, orgID)' '`delete from plugin_installs where id = $1`, installID)'
+
 cp -a "$BACKUP"/. "$SRC"/
 
 echo

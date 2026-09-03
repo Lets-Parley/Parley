@@ -2,8 +2,11 @@ package plugin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // Health states an operator screen renders.
@@ -69,7 +72,19 @@ func (h *Host) Health(installID string, enabled bool) Health {
 	return out
 }
 
-// Uninstall removes an install and everything cascading from it.
+// TxHook is work a caller needs done inside the uninstall's own transaction.
+// It exists for exactly one caller: the audit row. An uninstall is the one
+// irreversible action on this surface, so "it happened and nothing recorded
+// it" is not an acceptable outcome of a failed insert — the row goes in with
+// the delete or the delete does not happen.
+type TxHook func(ctx context.Context, tx pgx.Tx) error
+
+// errBlocked aborts the uninstall transaction when a re-check inside it finds
+// a session that blocks. It never escapes: uninstall swaps it for the
+// BlockedError carrying what the operator has to deal with.
+var errBlocked = errors.New("uninstall blocked")
+
+// uninstall removes an install and everything cascading from it.
 //
 // It is a separate function from Disable and always will be: 0031_plugins.sql
 // cascades from plugin_installs to grants, key-value storage, deliveries, jobs
@@ -78,24 +93,59 @@ func (h *Host) Health(installID string, enabled bool) Health {
 // reversible switch for an irreversible delete.
 //
 // It refuses while any session of a kind this plugin provides exists. Those
-// sessions would otherwise be left naming a kind nothing can run — the same
-// reason session_kinds is retired rather than deleted.
-func (s *Store) Uninstall(ctx context.Context, installID string) error {
-	blocking, err := s.BlockingSessions(ctx, installID)
-	if err != nil {
-		return err
+// sessions would otherwise be left naming a kind nothing can run.
+//
+// Everything happens in one transaction, in this order, and the order is the
+// point:
+//
+//  1. Retire the kinds this install provides. session_kinds is retired rather
+//     than deleted so historical sessions keep a kind that resolves — but until
+//     now nothing performed the retirement, so after uninstalling a plugin with
+//     no live sessions a *new* room of its kind could still be created naming a
+//     provider that no longer existed.
+//  2. Re-check for blocking sessions. The check and the delete used to be two
+//     separate round trips on the pool with Go code between them, so a room of
+//     a provided kind created in the gap left a live session behind a completed
+//     uninstall. Retiring first shuts the door before looking through it:
+//     Sessions.Create refuses a retired kind, so a creation that begins after
+//     this statement commits cannot succeed.
+//  3. Delete the install, scoped to the org, and run the caller's hook.
+func (s *Store) uninstall(ctx context.Context, orgID, installID string, inTx TxHook) error {
+	var blocked *BlockedError
+	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `
+			update session_kinds set retired_at = now()
+			where retired_at is null
+			  and provider = (select name from plugin_installs where id = $1)`, installID); err != nil {
+			return fmt.Errorf("retiring the kinds %s provides: %w", installID, err)
+		}
+		blocking, err := blockingSessions(ctx, tx, installID)
+		if err != nil {
+			return err
+		}
+		if len(blocking) > 0 {
+			blocked = &BlockedError{Sessions: blocking}
+			return errBlocked
+		}
+		tag, err := tx.Exec(ctx,
+			`delete from plugin_installs where id = $1 and org_id = $2`, installID, orgID)
+		if err != nil {
+			return fmt.Errorf("uninstalling %s: %w", installID, err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNoSuchInstall
+		}
+		if inTx != nil {
+			return inTx(ctx, tx)
+		}
+		return nil
+	})
+	if blocked != nil {
+		// The retirement rolled back with it: a refused uninstall changes
+		// nothing at all.
+		return blocked
 	}
-	if len(blocking) > 0 {
-		return &BlockedError{Sessions: blocking}
-	}
-	tag, err := s.Pool.Exec(ctx, `delete from plugin_installs where id = $1`, installID)
-	if err != nil {
-		return fmt.Errorf("uninstalling %s: %w", installID, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("uninstalling %s: there is no such install", installID)
-	}
-	return nil
+	return err
 }
 
 // Forget drops everything this process was holding about an install that no
@@ -142,7 +192,17 @@ func (e *BlockedError) Error() string {
 // sessions. Provision is the session_kinds.provider column: a plugin provides
 // the kinds whose provider is its name.
 func (s *Store) BlockingSessions(ctx context.Context, installID string) ([]BlockingKind, error) {
-	rows, err := s.Pool.Query(ctx, `
+	return blockingSessions(ctx, s.Pool, installID)
+}
+
+// querier is whatever can run the blocking-session query: the pool for a read,
+// or the uninstall's own transaction for the re-check that decides the delete.
+type querier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+func blockingSessions(ctx context.Context, q querier, installID string) ([]BlockingKind, error) {
+	rows, err := q.Query(ctx, `
 		select k.kind, k.display, count(sess.id)
 		from plugin_installs p
 		join session_kinds k on k.provider = p.name

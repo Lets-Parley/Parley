@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -51,6 +52,7 @@ func shortInstall(t *testing.T, store *Store, prefix string) Install {
 	t.Helper()
 	installNo++
 	got, err := store.Install(context.Background(), InstallRequest{
+		OrgID:      testOrgID,
 		Name:       fmt.Sprintf("%s-%d-%d", prefix, time.Now().UnixNano(), installNo),
 		Version:    "1.0.0",
 		Grants:     []Grant{{Capability: CapabilityLog}},
@@ -71,7 +73,7 @@ func TestUninstallRemovesTheInstall(t *testing.T) {
 	ctx := context.Background()
 	in := install(t, store, Grant{Capability: CapabilityLog})
 
-	if err := store.Uninstall(ctx, in.ID); err != nil {
+	if err := store.InOrg(testOrgID).Uninstall(ctx, in.ID, nil); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
 	if _, err := store.State(ctx, in.ID); err == nil {
@@ -109,7 +111,7 @@ func TestUninstallIsRefusedWhileASessionOfAProvidedKindExists(t *testing.T) {
 
 	seedSession(t, pool, kind)
 
-	err = store.Uninstall(ctx, in.ID)
+	err = store.InOrg(testOrgID).Uninstall(ctx, in.ID, nil)
 	var blocked *BlockedError
 	if !errors.As(err, &blocked) {
 		t.Fatalf("uninstall = %v, want a BlockedError while a session of a provided kind exists", err)
@@ -149,7 +151,7 @@ func TestAnEndedSessionStillBlocksAnUninstall(t *testing.T) {
 	}
 
 	var blocked *BlockedError
-	if err := store.Uninstall(ctx, in.ID); !errors.As(err, &blocked) {
+	if err := store.InOrg(testOrgID).Uninstall(ctx, in.ID, nil); !errors.As(err, &blocked) {
 		t.Fatalf("uninstall = %v, want a BlockedError: an ended room still names the kind", err)
 	}
 }
@@ -192,5 +194,134 @@ func TestHealthSurfacesTheBreakerState(t *testing.T) {
 	// With no breaker entry at all, a disabled plugin is an operator's doing.
 	if got := h.Health("nobody", false); got.Reason != "an operator switched it off" {
 		t.Fatalf("reason = %q, want the operator wording", got.Reason)
+	}
+}
+
+// Uninstalling retires the kinds the plugin provided.
+//
+// health.go always said kinds are "retired rather than deleted", but nothing
+// performed the retirement: after uninstalling a plugin with no live sessions,
+// a *new* room of its kind could still be created naming a provider that no
+// longer existed. The retirement happens in the uninstall's own transaction,
+// which is also what closes the window between the blocking check and the
+// delete.
+func TestUninstallRetiresTheKindsThePluginProvided(t *testing.T) {
+	pool := testPool(t)
+	store := &Store{Pool: pool}
+	ctx := context.Background()
+	in := shortInstall(t, store, "retire")
+
+	kind := "retire-" + in.ID[:8]
+	if _, err := pool.Exec(ctx,
+		`insert into session_kinds (kind, provider, display) values ($1, $2, 'Retrospective')`,
+		kind, in.Name); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `delete from sessions where kind = $1`, kind)
+		_, _ = pool.Exec(context.Background(), `delete from session_kinds where kind = $1`, kind)
+	})
+
+	if err := store.InOrg(testOrgID).Uninstall(ctx, in.ID, nil); err != nil {
+		t.Fatalf("uninstalling a plugin with no rooms of its kind: %v", err)
+	}
+
+	var retired *time.Time
+	if err := pool.QueryRow(ctx,
+		`select retired_at from session_kinds where kind = $1`, kind).Scan(&retired); err != nil {
+		t.Fatalf("the kind row is gone; it is retired, never deleted: %v", err)
+	}
+	if retired == nil {
+		t.Fatal("the kind is still offerable after its provider was uninstalled: a new room could name a provider that does not exist")
+	}
+}
+
+// A refused uninstall changes nothing at all — including the retirement it
+// performs before it looks. The check and the delete are one transaction, so
+// a refusal rolls the whole thing back.
+func TestARefusedUninstallLeavesTheKindOfferable(t *testing.T) {
+	pool := testPool(t)
+	store := &Store{Pool: pool}
+	ctx := context.Background()
+	in := shortInstall(t, store, "rollback")
+
+	kind := "rollback-" + in.ID[:8]
+	if _, err := pool.Exec(ctx,
+		`insert into session_kinds (kind, provider, display) values ($1, $2, 'Retrospective')`,
+		kind, in.Name); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `delete from sessions where kind = $1`, kind)
+		_, _ = pool.Exec(context.Background(), `delete from session_kinds where kind = $1`, kind)
+	})
+	seedSession(t, pool, kind)
+
+	var blocked *BlockedError
+	if err := store.InOrg(testOrgID).Uninstall(ctx, in.ID, nil); !errors.As(err, &blocked) {
+		t.Fatalf("uninstall = %v, want a BlockedError", err)
+	}
+	var retired *time.Time
+	if err := pool.QueryRow(ctx,
+		`select retired_at from session_kinds where kind = $1`, kind).Scan(&retired); err != nil {
+		t.Fatal(err)
+	}
+	if retired != nil {
+		t.Fatal("a refused uninstall retired the kind anyway: the rollback did not cover it")
+	}
+}
+
+// The caller's work rides in the uninstall's transaction, so an uninstall
+// cannot complete with its audit row missing. A hook that fails takes the
+// delete down with it.
+func TestAFailingHookRollsTheUninstallBack(t *testing.T) {
+	pool := testPool(t)
+	store := &Store{Pool: pool}
+	ctx := context.Background()
+	in := shortInstall(t, store, "hook")
+
+	boom := errors.New("the audit row could not be written")
+	err := store.InOrg(testOrgID).Uninstall(ctx, in.ID, func(context.Context, pgx.Tx) error { return boom })
+	if !errors.Is(err, boom) {
+		t.Fatalf("uninstall = %v, want the hook's own error", err)
+	}
+	if _, err := store.State(ctx, in.ID); err != nil {
+		t.Fatalf("the install was destroyed even though the work that had to accompany it failed: %v", err)
+	}
+}
+
+// An install belonging to another org is not reachable at all, and answers the
+// same way an id that was never issued answers.
+func TestAnInstallOfAnotherOrgIsNotFound(t *testing.T) {
+	pool := testPool(t)
+	store := &Store{Pool: pool}
+	ctx := context.Background()
+	in := shortInstall(t, store, "owned")
+
+	var otherOrg string
+	if err := pool.QueryRow(ctx,
+		`insert into orgs (slug, name, claim_value) values ($1, $1, $1) returning id`,
+		fmt.Sprintf("org-%d", installNo)+in.ID[:8]).Scan(&otherOrg); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `delete from orgs where id = $1`, otherOrg) })
+
+	other := store.InOrg(otherOrg)
+	if _, err := other.State(ctx, in.ID); !errors.Is(err, ErrNoSuchInstall) {
+		t.Fatalf("reading another org's install = %v, want ErrNoSuchInstall", err)
+	}
+	if err := other.SetEnabled(ctx, in.ID, false); !errors.Is(err, ErrNoSuchInstall) {
+		t.Fatalf("disabling another org's install = %v, want ErrNoSuchInstall", err)
+	}
+	if err := other.Uninstall(ctx, in.ID, nil); !errors.Is(err, ErrNoSuchInstall) {
+		t.Fatalf("uninstalling another org's install = %v, want ErrNoSuchInstall", err)
+	}
+	if _, err := store.State(ctx, in.ID); err != nil {
+		t.Fatalf("the install did not survive another org's attempt on it: %v", err)
+	}
+	// An id nobody ever issued is refused the same way, so the surface cannot
+	// be used to tell the two apart.
+	if _, err := other.State(ctx, "3f1d2c4b-5a6e-4b7c-8d9e-0a1b2c3d4e5f"); !errors.Is(err, ErrNoSuchInstall) {
+		t.Fatalf("an id that does not exist = %v, want the same ErrNoSuchInstall a foreign one gets", err)
 	}
 }

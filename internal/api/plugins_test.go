@@ -57,6 +57,12 @@ func TestPluginAdminIsRefusedToAnOrdinaryMember(t *testing.T) {
 		{"POST", "/00000000-0000-0000-0000-000000000000/enabled", `{"enabled":false}`},
 		{"DELETE", "/00000000-0000-0000-0000-000000000000", ""},
 		{"POST", "/themes", `{"name":"x","version":"1.0.0"}`},
+		// mountPlugins registers eight routes and this table probes all
+		// eight. The theme reset is gated by the same middleware as the rest,
+		// so leaving it out was a coverage gap rather than a hole — but it is
+		// exactly the gap a refactor that moved one route out from under the
+		// gate would slip through unnoticed.
+		{"DELETE", "/themes", ""},
 	} {
 		got, err := requestStatus(srv, probe.method, pluginsPath+probe.path, probe.body, member)
 		if err != nil {
@@ -282,6 +288,130 @@ func TestUninstallIsRefusedAndExplainsWhichSessionsBlockIt(t *testing.T) {
 	}
 	if _, err := plugins.State(ctx, id); err != nil {
 		t.Fatalf("a refused uninstall deleted the install anyway: %v", err)
+	}
+}
+
+// The cross-tenant attack, pinned.
+//
+// plugin_installs carried no org until 0033 and `name` was unique across the
+// instance, so every lookup resolved against every install on the box. The
+// admin gate in front of these routes resolves the {slug} in the caller's own
+// path, which proves only that they administer *an* org: an admin of a second
+// org — never a member of the first — could list the first org's installs and
+// then uninstall one, destroying its key-value store and its unrecoverable
+// encrypted secrets, with the audit row landing in their own org's log.
+//
+// Every route that takes an install id must answer 404 for an id belonging to
+// somebody else, and 404 rather than 403, so the surface cannot be used to
+// learn which ids exist elsewhere.
+func TestOneOrgsAdminCannotTouchAnothersPlugin(t *testing.T) {
+	srv, pool, plugins, admin, _ := pluginServer(t)
+	ctx := context.Background()
+
+	// Org A's plugin, installed by org A's operator through the real surface.
+	name := newPluginName(t)
+	resp, body := doJSON(t, srv, "POST", pluginsPath,
+		`{"grantsAccepted":true,"package":`+pluginPkg(name, "1.0.0",
+			map[string]string{"capability": "log"})+`}`, admin)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("install = %d: %v", resp.StatusCode, body)
+	}
+	victimID, _ := body["id"].(string)
+	if victimID == "" {
+		t.Fatalf("the install came back with no id: %v", body)
+	}
+
+	// A second org, freshly created, and an admin of it who has never been a
+	// member of the first.
+	otherSlug := "other-" + randomSlugSuffix(t)
+	var otherOrg string
+	if err := pool.QueryRow(ctx,
+		"insert into orgs (slug, name, claim_value) values ($1, 'Other', $1) returning id",
+		otherSlug).Scan(&otherOrg); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "delete from orgs where id = $1", otherOrg) })
+	attacker, attackerID := signupWithID(t, srv, "Interloper")
+	if _, err := pool.Exec(ctx,
+		"delete from org_members where user_id = $1", attackerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx,
+		"insert into org_members (org_id, user_id, role) values ($1, $2, 'admin')",
+		otherOrg, attackerID); err != nil {
+		t.Fatal(err)
+	}
+	otherPath := "/api/orgs/" + otherSlug + "/admin/plugins"
+
+	// The list is the org's own, so the victim's install is not in it. This is
+	// the reconnaissance step the attack starts from.
+	resp, body = doJSON(t, srv, "GET", otherPath, "", attacker)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("the second org's own list = %d: %v", resp.StatusCode, body)
+	}
+	installs, _ := body["installs"].([]any)
+	for _, raw := range installs {
+		view, _ := raw.(map[string]any)
+		if view["id"] == victimID {
+			t.Fatalf("the second org's admin can see another org's install in their own list: %v", body)
+		}
+	}
+
+	// And every route that takes an id refuses the foreign one, with 404
+	// rather than 403.
+	for _, probe := range []struct{ method, path, body string }{
+		{"POST", "/" + victimID + "/upgrade", `{"approve":true}`},
+		{"POST", "/" + victimID + "/enabled", `{"enabled":false}`},
+		{"DELETE", "/" + victimID, ""},
+	} {
+		got, err := requestStatus(srv, probe.method, otherPath+probe.path, probe.body, attacker)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != http.StatusNotFound {
+			t.Errorf("%s %s against another org's install = %d, want 404",
+				probe.method, otherPath+probe.path, got)
+		}
+	}
+
+	// The install and its data survived all of it.
+	if _, err := plugins.State(ctx, victimID); err != nil {
+		t.Fatalf("another org's admin destroyed this install: %v", err)
+	}
+	var count int
+	if err := pool.QueryRow(ctx,
+		"select count(*) from plugin_installs where id = $1", victimID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("the victim org has %d rows for its install, want 1", count)
+	}
+
+	// The same plugin name in the second org is a different install, not a
+	// collision with the first org's: ownership is what "installed" means now.
+	resp, body = doJSON(t, srv, "POST", otherPath,
+		`{"grantsAccepted":true,"package":`+pluginPkg(name, "1.0.0",
+			map[string]string{"capability": "log"})+`}`, attacker)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("installing the same plugin name in a second org = %d, want 201: %v", resp.StatusCode, body)
+	}
+	if body["id"] == victimID {
+		t.Fatal("the second org's install is the first org's install")
+	}
+}
+
+// The approval route 404s an install that does not exist — as the operator,
+// not only as the member the authorization table already covers. It used to
+// 500 here, which reads as a server fault rather than a typo in a URL.
+func TestApprovingAnUpgradeOnAnUnknownInstallIsNotFound(t *testing.T) {
+	srv, _, _, admin, _ := pluginServer(t)
+	got, err := requestStatus(srv, "POST",
+		pluginsPath+"/3f1d2c4b-5a6e-4b7c-8d9e-0a1b2c3d4e5f/upgrade", `{"approve":true}`, admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != http.StatusNotFound {
+		t.Fatalf("approving an upgrade on an install that does not exist = %d, want 404", got)
 	}
 }
 

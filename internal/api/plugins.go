@@ -26,6 +26,14 @@ import (
 // reaches a handler. Hiding the nav link is a courtesy; this is the control,
 // and TestPluginAdminIsRefusedToAnOrdinaryMember is what says so.
 //
+// That gate resolves the {slug} in the caller's *own* path, so on its own it
+// proves only that they administer *an* org. Every lookup below therefore goes
+// through plugin.Admin, scoped to the org this request resolved to, and an
+// install belonging to another org answers 404 — the same answer as an id that
+// was never issued, so this surface cannot be used to discover what another
+// org has installed. TestOneOrgsAdminCannotTouchAnothersPlugin is what says
+// so, and guard-mutation.sh keeps it honest.
+//
 // The consent copy a screen renders is not written here either: it comes from
 // internal/plugin.Describe, next to the guards that enforce it, so the sentence
 // an operator agrees to and the rule the host applies cannot drift apart.
@@ -99,6 +107,22 @@ type previewResponse struct {
 
 func (a *app) pluginsAvailable() bool { return a.plugins != nil }
 
+// pluginAdmin scopes the store to the org this request resolved to. Nothing in
+// this file touches a.plugins directly for an install lookup.
+func (a *app) pluginAdmin(r *http.Request) *plugin.Admin {
+	return a.plugins.InOrg(orgFrom(r.Context()).ID)
+}
+
+// notFound is the answer to an install id this org does not own, and to one
+// that does not exist. They are deliberately the same answer.
+func notFoundInstall(w http.ResponseWriter, err error) bool {
+	if errors.Is(err, plugin.ErrNoSuchInstall) {
+		http.Error(w, `{"error":"no such plugin"}`, http.StatusNotFound)
+		return true
+	}
+	return false
+}
+
 // mountPlugins registers the administration tree. The caller supplies the
 // admin gate.
 func (a *app) mountPlugins(r chi.Router) {
@@ -123,32 +147,17 @@ func (a *app) handleListPlugins(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	rows, err := a.plugins.Pool.Query(r.Context(),
-		`select id from plugin_installs order by name`)
+	adm := a.pluginAdmin(r)
+	ids, err := adm.Installs(r.Context())
 	if err != nil {
 		slog.Error("listing plugin installs", "error", err)
-		http.Error(w, `{"error":"could not read the installed plugins"}`, http.StatusInternalServerError)
-		return
-	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			http.Error(w, `{"error":"could not read the installed plugins"}`, http.StatusInternalServerError)
-			return
-		}
-		ids = append(ids, id)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
 		http.Error(w, `{"error":"could not read the installed plugins"}`, http.StatusInternalServerError)
 		return
 	}
 
 	views := make([]installView, 0, len(ids))
 	for _, id := range ids {
-		view, err := a.installView(r.Context(), id)
+		view, err := a.installView(r.Context(), adm, id)
 		if err != nil {
 			slog.Error("reading a plugin install", "install_id", id, "error", err)
 			http.Error(w, `{"error":"could not read the installed plugins"}`, http.StatusInternalServerError)
@@ -163,8 +172,8 @@ func (a *app) handleListPlugins(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (a *app) installView(ctx context.Context, id string) (installView, error) {
-	state, err := a.plugins.State(ctx, id)
+func (a *app) installView(ctx context.Context, adm *plugin.Admin, id string) (installView, error) {
+	state, err := adm.State(ctx, id)
 	if err != nil {
 		return installView{}, err
 	}
@@ -182,14 +191,14 @@ func (a *app) installView(ctx context.Context, id string) (installView, error) {
 	if a.pluginHost != nil {
 		out.Health = a.pluginHost.Health(id, state.Install.Enabled)
 	}
-	blocking, err := a.plugins.BlockingSessions(ctx, id)
+	blocking, err := adm.BlockingSessions(ctx, id)
 	if err != nil {
 		return installView{}, err
 	}
 	for _, k := range blocking {
 		out.Provides = append(out.Provides, k.Display)
 	}
-	pending, ok, err := a.plugins.Pending(ctx, id)
+	pending, ok, err := adm.Pending(ctx, id)
 	if err != nil {
 		return installView{}, err
 	}
@@ -219,7 +228,7 @@ func (a *app) handlePreviewPlugin(w http.ResponseWriter, r *http.Request) {
 		Version: pkg.Version,
 		Grants:  plugin.DescribeAll(grants),
 	}
-	current, found, err := a.installByName(r.Context(), pkg.Name)
+	current, found, err := a.pluginAdmin(r).ByName(r.Context(), pkg.Name)
 	if err != nil {
 		http.Error(w, `{"error":"could not read the installed plugins"}`, http.StatusInternalServerError)
 		return
@@ -260,13 +269,14 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 	pkg := req.Package
 	grants := pkg.grants()
 
-	current, found, err := a.installByName(r.Context(), pkg.Name)
+	adm := a.pluginAdmin(r)
+	current, found, err := adm.ByName(r.Context(), pkg.Name)
 	if err != nil {
 		http.Error(w, `{"error":"could not read the installed plugins"}`, http.StatusInternalServerError)
 		return
 	}
 	if !found {
-		in, err := a.plugins.Install(r.Context(), plugin.InstallRequest{
+		in, err := adm.Install(r.Context(), plugin.InstallRequest{
 			Name: pkg.Name, Version: pkg.Version, Grants: grants,
 			QuotaBytes: pkg.quota(),
 		})
@@ -276,7 +286,7 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 		}
 		a.auditPlugin(r, "plugin.install",
 			fmt.Sprintf("installed %s %s with %d capabilities", pkg.Name, pkg.Version, len(grants)))
-		view, err := a.installView(r.Context(), in.ID)
+		view, err := a.installView(r.Context(), adm, in.ID)
 		if err != nil {
 			http.Error(w, `{"error":"could not read the installed plugins"}`, http.StatusInternalServerError)
 			return
@@ -285,14 +295,14 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = a.plugins.Upgrade(r.Context(), current.Install.ID, pkg.Version, grants)
+	err = adm.Upgrade(r.Context(), current.Install.ID, pkg.Version, grants)
 	switch {
 	case errors.Is(err, plugin.ErrUpgradePending):
 		// The install keeps its old version and its old grants. This is the
 		// success path for a widening upgrade, not a failure.
 		a.auditPlugin(r, "plugin.upgrade_requested",
 			fmt.Sprintf("%s requested %s with wider capabilities; it is waiting for approval", pkg.Name, pkg.Version))
-		view, viewErr := a.installView(r.Context(), current.Install.ID)
+		view, viewErr := a.installView(r.Context(), adm, current.Install.ID)
 		if viewErr != nil {
 			http.Error(w, `{"error":"could not read the installed plugins"}`, http.StatusInternalServerError)
 			return
@@ -305,7 +315,7 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 	}
 	a.auditPlugin(r, "plugin.upgrade",
 		fmt.Sprintf("upgraded %s to %s within the capabilities already granted", pkg.Name, pkg.Version))
-	view, err := a.installView(r.Context(), current.Install.ID)
+	view, err := a.installView(r.Context(), adm, current.Install.ID)
 	if err != nil {
 		http.Error(w, `{"error":"could not read the installed plugins"}`, http.StatusInternalServerError)
 		return
@@ -334,11 +344,12 @@ func (a *app) handleApproveUpgrade(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest)
 		return
 	}
-	if _, err := a.plugins.State(r.Context(), id); err != nil {
+	adm := a.pluginAdmin(r)
+	if _, err := adm.State(r.Context(), id); err != nil {
 		http.Error(w, `{"error":"no such plugin"}`, http.StatusNotFound)
 		return
 	}
-	pending, ok, err := a.plugins.Pending(r.Context(), id)
+	pending, ok, err := adm.Pending(r.Context(), id)
 	if err != nil {
 		a.pluginError(w, err, "could not read the pending upgrade")
 		return
@@ -347,13 +358,13 @@ func (a *app) handleApproveUpgrade(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"there is no upgrade waiting on this plugin"}`, http.StatusNotFound)
 		return
 	}
-	if err := a.plugins.ApproveUpgrade(r.Context(), id); err != nil {
+	if err := adm.ApproveUpgrade(r.Context(), id); err != nil {
 		a.pluginError(w, err, "could not approve that upgrade")
 		return
 	}
 	a.auditPlugin(r, "plugin.upgrade_approved",
 		fmt.Sprintf("approved %s and the %d capabilities it asked for", pending.Version, len(pending.Grants)))
-	view, err := a.installView(r.Context(), id)
+	view, err := a.installView(r.Context(), adm, id)
 	if err != nil {
 		http.Error(w, `{"error":"could not read the installed plugins"}`, http.StatusInternalServerError)
 		return
@@ -373,7 +384,8 @@ func (a *app) handleSetPluginEnabled(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"that is not a decision"}`, http.StatusBadRequest)
 		return
 	}
-	state, err := a.plugins.State(r.Context(), id)
+	adm := a.pluginAdmin(r)
+	state, err := adm.State(r.Context(), id)
 	if err != nil {
 		http.Error(w, `{"error":"no such plugin"}`, http.StatusNotFound)
 		return
@@ -387,7 +399,7 @@ func (a *app) handleSetPluginEnabled(w http.ResponseWriter, r *http.Request) {
 			err = a.pluginHost.Disable(r.Context(), id, "an operator switched it off")
 		}
 	} else {
-		err = a.plugins.SetEnabled(r.Context(), id, body.Enabled)
+		err = adm.SetEnabled(r.Context(), id, body.Enabled)
 	}
 	if err != nil {
 		a.pluginError(w, err, "could not change that plugin")
@@ -398,7 +410,7 @@ func (a *app) handleSetPluginEnabled(w http.ResponseWriter, r *http.Request) {
 		action, word = "plugin.enable", "re-enabled"
 	}
 	a.auditPlugin(r, action, word+" "+state.Install.Name)
-	view, err := a.installView(r.Context(), id)
+	view, err := a.installView(r.Context(), adm, id)
 	if err != nil {
 		http.Error(w, `{"error":"could not read the installed plugins"}`, http.StatusInternalServerError)
 		return
@@ -411,12 +423,23 @@ func (a *app) handleUninstallPlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := chi.URLParam(r, "id")
-	state, err := a.plugins.State(r.Context(), id)
+	adm := a.pluginAdmin(r)
+	state, err := adm.State(r.Context(), id)
 	if err != nil {
 		http.Error(w, `{"error":"no such plugin"}`, http.StatusNotFound)
 		return
 	}
-	err = a.plugins.Uninstall(r.Context(), id)
+	// The audit row for the one irreversible action on this surface goes in
+	// with the delete rather than after it. Install and the theme tier stay on
+	// the best-effort path — they can be repeated, and refusing an install
+	// because its log line failed would be worse than the log line — but an
+	// uninstall that completed unlogged is a destroyed key-value store and a
+	// destroyed set of secrets with no record of who did it.
+	detail := fmt.Sprintf("uninstalled %s %s, destroying its stored data and secrets",
+		state.Install.Name, state.Install.Version)
+	err = adm.Uninstall(r.Context(), id, func(ctx context.Context, tx pgx.Tx) error {
+		return a.auditPluginTx(ctx, tx, r, "plugin.uninstall", detail)
+	})
 	var blocked *plugin.BlockedError
 	if errors.As(err, &blocked) {
 		// 409, and the refusal carries the rooms that block it rather than
@@ -427,6 +450,9 @@ func (a *app) handleUninstallPlugin(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if notFoundInstall(w, err) {
+		return
+	}
 	if err != nil {
 		a.pluginError(w, err, "could not uninstall that plugin")
 		return
@@ -434,8 +460,6 @@ func (a *app) handleUninstallPlugin(w http.ResponseWriter, r *http.Request) {
 	if a.pluginHost != nil {
 		a.pluginHost.Forget(r.Context(), id)
 	}
-	a.auditPlugin(r, "plugin.uninstall",
-		fmt.Sprintf("uninstalled %s %s, destroying its stored data and secrets", state.Install.Name, state.Install.Version))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -490,19 +514,6 @@ func (a *app) readPackage(w http.ResponseWriter, r *http.Request) (pluginPackage
 	return pkg, true
 }
 
-func (a *app) installByName(ctx context.Context, name string) (plugin.State, bool, error) {
-	var id string
-	err := a.plugins.Pool.QueryRow(ctx, `select id from plugin_installs where name = $1`, name).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return plugin.State{}, false, nil
-	}
-	if err != nil {
-		return plugin.State{}, false, err
-	}
-	state, err := a.plugins.State(ctx, id)
-	return state, err == nil, err
-}
-
 // pluginError keeps a refusal the plugin package already worded — an
 // unenforceable allowlist entry, secrets with no key — as a 400 the operator
 // can act on, rather than flattening it into "something went wrong".
@@ -527,17 +538,35 @@ func (a *app) pluginError(w http.ResponseWriter, err error, fallback string) {
 func (a *app) auditPlugin(r *http.Request, action, detail string) {
 	org := orgFrom(r.Context())
 	p, _ := PrincipalFrom(r.Context())
-	var actor *string
-	if p.UserID != "" {
-		actor = &p.UserID
-	}
-	if _, err := a.pool.Exec(r.Context(), `
-		insert into org_audit_log (org_id, org_slug, actor_id, action, detail)
-		values ($1, $2, $3, $4, $5)`,
-		org.ID, org.Slug, actor, action, clip(detail, 500)); err != nil {
+	if _, err := a.pool.Exec(r.Context(), auditPluginSQL,
+		org.ID, org.Slug, auditActor(p), action, clip(detail, 500)); err != nil {
 		slog.Error("could not write a plugin audit record",
 			"action", action, "org", org.Slug, "actor", p.UserID, "error", err)
 	}
+}
+
+// auditPluginTx writes the same row inside a caller's transaction, so an
+// action that cannot be undone cannot complete unlogged. A failure here rolls
+// the action back rather than being logged and shrugged at.
+func (a *app) auditPluginTx(ctx context.Context, tx pgx.Tx, r *http.Request, action, detail string) error {
+	org := orgFrom(r.Context())
+	p, _ := PrincipalFrom(r.Context())
+	if _, err := tx.Exec(ctx, auditPluginSQL,
+		org.ID, org.Slug, auditActor(p), action, clip(detail, 500)); err != nil {
+		return fmt.Errorf("writing the %s audit record: %w", action, err)
+	}
+	return nil
+}
+
+const auditPluginSQL = `
+	insert into org_audit_log (org_id, org_slug, actor_id, action, detail)
+	values ($1, $2, $3, $4, $5)`
+
+func auditActor(p Principal) *string {
+	if p.UserID == "" {
+		return nil
+	}
+	return &p.UserID
 }
 
 func (p pluginPackage) quota() int64 {
