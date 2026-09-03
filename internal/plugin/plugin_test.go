@@ -449,6 +449,28 @@ func TestSecretsAreEncryptedAtRestAndRefuseToInstallWithoutAKey(t *testing.T) {
 	}
 }
 
+func TestPutSecretRefusesToWritePlaintextWithoutAKey(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := &Store{Pool: pool}
+	sub := install(t, store)
+
+	if err := store.PutSecret(ctx, sub.ID, "webhook", "hunter2"); !errors.Is(err, ErrNoSecretKey) {
+		t.Fatalf("PutSecret with no cipher configured returned %v, want ErrNoSecretKey", err)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `select count(*) from plugin_secrets where install_id = $1`, sub.ID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("a refused PutSecret still wrote %d row(s) to plugin_secrets", n)
+	}
+
+	if _, err := store.GetSecret(ctx, sub.ID, "webhook"); !errors.Is(err, ErrNoSecretKey) {
+		t.Fatalf("GetSecret with no cipher configured returned %v, want ErrNoSecretKey", err)
+	}
+}
+
 func TestJobsAreClaimedOnceAndDeadLetterAfterTheirAttempts(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()

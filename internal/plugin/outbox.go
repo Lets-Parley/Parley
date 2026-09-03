@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -64,6 +65,8 @@ type Outbox struct {
 	Batch       int
 	Lease       time.Duration
 	Log         *slog.Logger
+
+	noDeliverWarnOnce sync.Once
 }
 
 func (o *Outbox) maxAttempts() int { return orDefaultInt(o.MaxAttempts, DefaultMaxAttempts) }
@@ -111,6 +114,11 @@ func (o *Outbox) Claim(ctx context.Context, n int) ([]Delivery, error) {
 // left.
 func (o *Outbox) Drain(ctx context.Context) (int, error) {
 	if o.Deliver == nil {
+		o.noDeliverWarnOnce.Do(func() {
+			if o.Log != nil {
+				o.Log.Warn("plugin outbox has no Deliver handler configured; deliveries will accumulate undelivered")
+			}
+		})
 		return 0, nil
 	}
 	claimed, err := o.Claim(ctx, o.batch())

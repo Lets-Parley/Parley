@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -37,6 +38,8 @@ type Queue struct {
 	Batch       int
 	Lease       time.Duration
 	Log         *slog.Logger
+
+	noRunWarnOnce sync.Once
 }
 
 // Enqueue adds a job and returns its id.
@@ -101,6 +104,11 @@ func (q *Queue) Claim(ctx context.Context, n int) ([]Job, error) {
 // Drain claims a batch, runs each job, and records the outcome.
 func (q *Queue) Drain(ctx context.Context) (int, error) {
 	if q.Run == nil {
+		q.noRunWarnOnce.Do(func() {
+			if q.Log != nil {
+				q.Log.Warn("plugin job queue has no Run handler configured; jobs will accumulate unrun")
+			}
+		})
 		return 0, nil
 	}
 	claimed, err := q.Claim(ctx, orDefaultInt(q.Batch, DefaultBatch))
