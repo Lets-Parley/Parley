@@ -1610,6 +1610,31 @@ describe("StandupRoom kudos", () => {
     fetchSpy.mockRestore();
   });
 
+  it("counts the kudo text in runes, not UTF-16 units", () => {
+    // The server counts runes too ([...text].length), and an emoji is a
+    // surrogate pair: one rune, two UTF-16 code units. fireEvent.change (not
+    // userEvent.type, which drives one keystroke per UTF-16 unit and is both
+    // slow and wrong here) sets the value in one shot so the pair lands intact.
+    renderApp(<StandupRoom env={doneEnv()} me={me} />);
+
+    const field = screen.getByLabelText(/for what/i);
+    fireEvent.change(field, { target: { value: "🎉" } });
+
+    expect(screen.getByText("279").textContent).toBe("279");
+  });
+
+  it("disables submission and marks the field invalid past 280 runes", () => {
+    renderApp(<StandupRoom env={doneEnv()} me={me} />);
+
+    const field = screen.getByLabelText(/for what/i);
+    fireEvent.change(field, { target: { value: "🎉".repeat(281) } });
+
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(
+      (screen.getByRole("button", { name: /give kudos/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
   it("shows a kudo another client gave, on the broadcast alone", () => {
     // The second connected client: no refetch of its own, just the next
     // envelope the room was pushed. The panel has to read the kudo out of

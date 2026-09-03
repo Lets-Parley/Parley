@@ -143,8 +143,9 @@ func TestGiveKudoRefusesALinkGuest(t *testing.T) {
 	}
 }
 
-// A guest cannot receive one either, and that refusal is the store's.
-func TestGiveKudoRefusesAGuestRecipient(t *testing.T) {
+// A non-member outsider cannot receive one either, and that refusal is the
+// store's.
+func TestGiveKudoRefusesANonMemberRecipient(t *testing.T) {
 	pool := testPool(t)
 	sess, ids := seed(t, pool, `{}`, "Dana Whitfield")
 	ctx := context.Background()
@@ -157,6 +158,45 @@ func TestGiveKudoRefusesAGuestRecipient(t *testing.T) {
 	rec, _ := giveKudoCall(t, pool, sess, ids[0], `{"to":"`+outsiderID+`","text":"hello"}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("kudo to an outsider status = %d (%s), want 400", rec.Code, rec.Body.String())
+	}
+}
+
+// Nor can a real link guest — a users row with a link_id and a session_links
+// row, exactly what TestGiveKudoRefusesALinkGuest builds for the sender —
+// receive one on the other side of the transaction. Guests neither send nor
+// receive; the send half is proven above, this proves the receive half with
+// an actual guest rather than a plain outsider.
+func TestGiveKudoRefusesALinkGuestRecipient(t *testing.T) {
+	pool := testPool(t)
+	sess, ids := seed(t, pool, `{}`, "Dana Whitfield", "Ruth Okafor")
+	ctx := context.Background()
+	var linkID string
+	if err := pool.QueryRow(ctx, `
+		insert into session_links (session_id, created_by, token_hash, expires_at)
+		values ($1, $2, '\x00'::bytea, now() + interval '1 hour') returning id::text`,
+		sess.ID, ids[0]).Scan(&linkID); err != nil {
+		t.Fatal(err)
+	}
+	var guestID string
+	if err := pool.QueryRow(ctx,
+		"insert into users (name, link_id) values ('Visiting Vic', $1) returning id::text", linkID,
+	).Scan(&guestID); err != nil {
+		t.Fatal(err)
+	}
+
+	rec, broadcasts := giveKudoCall(t, pool, sess, ids[0], `{"to":"`+guestID+`","text":"nice round"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("kudo to a link guest status = %d (%s), want 400", rec.Code, rec.Body.String())
+	}
+	if broadcasts != 0 {
+		t.Fatalf("broadcasts = %d, want 0", broadcasts)
+	}
+	wall, err := (&store.Kudos{Pool: pool}).ListForSpace(ctx, sess.SpaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wall) != 0 {
+		t.Fatalf("wall has %d kudos, want none", len(wall))
 	}
 }
 
