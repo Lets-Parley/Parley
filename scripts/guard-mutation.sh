@@ -67,15 +67,23 @@ with open(path, "w") as fh:
 # "<file>::<test name>": the file so the run is cheap, and the name so the
 # harness can say *which* test caught a guard rather than "something in that
 # file did". A file alone is not accepted — see web_spec_ok.
+# --no-webstorage exists from Node 26 and is required there (its global
+# localStorage shadows jsdom's); an older Node exits on the unknown option.
+WEB_NODE_OPTIONS=""
+if node --no-webstorage -e "" >/dev/null 2>&1; then
+    WEB_NODE_OPTIONS="--no-webstorage"
+fi
+
 run_tests() {
     local spec=$1
     if [ "$RUNNER" = "web" ]; then
-        # NODE_OPTIONS=--no-webstorage matches web/package.json's own test
-        # script. Node ships a global localStorage from 22 on, and it shadows
-        # jsdom's, so without the flag every web test dies on an undefined
-        # storage. It fails locally on an older Node and is required on the
-        # runner, which is exactly the pair that hides this until CI.
-        (cd web && NODE_OPTIONS=--no-webstorage npx vitest run "${spec%%::*}" -t "${spec#*::}") >"$LOG" 2>&1
+        # web/package.json's test script sets NODE_OPTIONS=--no-webstorage:
+        # Node ships a global localStorage that shadows jsdom's, so without the
+        # flag every web test dies on an undefined storage. But the flag only
+        # exists from Node 26, and an older Node exits on an unknown option --
+        # so the runner needs it and a developer box may refuse it. Probe once
+        # rather than pick an environment to be correct in.
+        (cd web && NODE_OPTIONS=$WEB_NODE_OPTIONS npx vitest run "${spec%%::*}" -t "${spec#*::}") >"$LOG" 2>&1
         return $?
     fi
     # -timeout keeps a mutation that removes a timeout from hanging the leg
