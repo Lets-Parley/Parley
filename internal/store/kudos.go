@@ -17,9 +17,10 @@ var (
 	ErrNoKudo = errors.New("no such kudo")
 	// ErrSelfKudo is thanking yourself.
 	ErrSelfKudo = errors.New("a kudo cannot be sent to yourself")
-	// ErrNotAMember is a recipient who is not on the space's roster — an
-	// outsider, or a link guest, who holds a users row but no members row.
-	ErrNotAMember = errors.New("the recipient is not a member of this space")
+	// ErrNotAMember is a sender or a recipient who is not on the space's
+	// roster — an outsider, or a link guest, who holds a users row but no
+	// members row. Guests neither send nor receive.
+	ErrNotAMember = errors.New("sender and recipient must both be members of this space")
 )
 
 // Kudo is a note from one member of a space to another. There is deliberately
@@ -52,10 +53,12 @@ func scanKudo(row pgx.Row) (Kudo, error) {
 	return k, err
 }
 
-// Create records one kudo. The recipient's membership and the space's cap are
+// Create records one kudo. Both users' membership and the space's cap are
 // checked inside the insert's own transaction, behind a lock on the space row —
-// the shape Decks.Create uses — so racing sends cannot both pass the cap, and a
-// recipient cannot be waved through by leaving the space mid-insert.
+// the shape Decks.Create uses — so racing sends cannot both pass the cap, and
+// neither party can be waved through by leaving the space mid-insert. Guests
+// neither send nor receive: a link guest holds a users row but no members row,
+// so the foreign keys catch neither, and this check is the only defence.
 //
 // sessionID may be empty, for a kudo given outside a room.
 func (s *Kudos) Create(ctx context.Context, spaceID, fromUserID, toUserID, text, sessionID string, limit int) (Kudo, error) {
@@ -71,16 +74,18 @@ func (s *Kudos) Create(ctx context.Context, spaceID, fromUserID, toUserID, text,
 	if _, err := tx.Exec(ctx, "select id from spaces where id = $1 for update", spaceID); err != nil {
 		return Kudo{}, fmt.Errorf("locking the space: %w", err)
 	}
-	var member bool
+	// The self-kudo guard already ran, so the two ids differ and both being on
+	// the roster means exactly two rows.
+	var members int
 	if err := tx.QueryRow(ctx,
-		"select exists (select 1 from members where space_id = $1 and user_id = $2)",
-		spaceID, toUserID).Scan(&member); err != nil {
+		"select count(*) from members where space_id = $1 and user_id in ($2, $3)",
+		spaceID, fromUserID, toUserID).Scan(&members); err != nil {
 		if isMalformedUUID(err) {
 			return Kudo{}, ErrNotAMember
 		}
-		return Kudo{}, fmt.Errorf("checking the recipient's membership: %w", err)
+		return Kudo{}, fmt.Errorf("checking the sender's and recipient's membership: %w", err)
 	}
-	if !member {
+	if members != 2 {
 		return Kudo{}, ErrNotAMember
 	}
 	var count int

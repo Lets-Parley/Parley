@@ -148,3 +148,30 @@ func TestKudoTextIsBounded(t *testing.T) {
 		}
 	}
 }
+
+func TestKudoRejectsANonMemberAndALinkGuestAsSender(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	sess, members := newSession(t, pool, "Ada", "Bo")
+	kudos := &Kudos{Pool: pool}
+
+	// The sending half of the same invariant: guests neither send nor receive.
+	// The from_user_id foreign key points at users, not members, so it will not
+	// catch either of these — the membership check is the only defence.
+	outsider, _ := newUser(t, pool, "Outsider")
+	if _, err := kudos.Create(ctx, sess.SpaceID, outsider.ID, members[0].ID, "nice work", "", testKudoCap); !errors.Is(err, ErrNotAMember) {
+		t.Fatalf("kudo from a non-member: got %v, want ErrNotAMember", err)
+	}
+
+	clearIdentityBuckets(t, pool)
+	links := &Links{Pool: pool}
+	link, _ := newLink(t, links, sess.ID, members[0].ID, LinkLifetime)
+	_, guestToken := NewToken()
+	guest, err := (&Users{Pool: pool}).CreateForLink(ctx, "Gus", link.ID, guestToken, link.ExpiresAt, LinkRedemptionCap, "10.0.0.9", 10, 500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := kudos.Create(ctx, sess.SpaceID, guest.ID, members[0].ID, "thanks Ada", "", testKudoCap); !errors.Is(err, ErrNotAMember) {
+		t.Fatalf("kudo from a link guest: got %v, want ErrNotAMember", err)
+	}
+}

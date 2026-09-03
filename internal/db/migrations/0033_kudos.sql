@@ -9,15 +9,16 @@
 -- Adding a count column here means arguing with this paragraph first.
 --
 -- session_id is nullable and `on delete set null`, not cascade, for the reason
--- 0020_link_token_cascade.sql already argues about votes: deleting the room
+-- 0018_session_links.sql already argues about votes, and in the shape
+-- 0028_standup_commitments.sql already uses for closed_session_id: deleting the room
 -- must not erase the thank-you given in it. It lives here rather than in the
 -- standup phase because the standup surface needs the kudos of one session,
 -- and discovering that later would mean amending a shipped migration.
 --
 -- Membership is deliberately not expressible here. A link guest holds a users
--- row but no members row, so the recipient foreign key would happily accept
--- one; the membership check in internal/store/kudos.go is the only defence,
--- and it is tested as such.
+-- row but no members row, so the sender and recipient foreign keys would
+-- happily accept one; the membership check in internal/store/kudos.go is the
+-- only defence, and it is tested as such.
 create table kudos (
     id uuid primary key default gen_random_uuid(),
     space_id uuid not null references spaces (id) on delete cascade,
