@@ -399,3 +399,22 @@ issue first. For anything large, open an issue before writing code.
     an `http.Client` with `CheckRedirect`; following redirects with the
     standard client re-resolves the hostname and re-checks nothing, which is
     the DNS-rebinding hole the whole file exists to close.
+
+38. **The consent screen's wording is part of the plugin boundary, not copy.**
+    Every sentence a grant is described by lives in `internal/plugin/describe.go`,
+    beside the guard that enforces it, and a fetch allowlist entry is expanded
+    into worked examples generated from `hostAllowed` itself. Do not write
+    capability copy in `web/`: a screen that composes its own sentences will
+    drift from the rule the host applies, and an operator will be consenting to
+    something else. `TestExplanationsMatchTheGuard` and the
+    `guard-mutation.sh` leg that breaks the expansion are what hold that line.
+    Approval of a widening upgrade is never a default, autofocused or
+    single-keystroke action, and installing always carries an explicit
+    `grantsAccepted`, which the server refuses to act without.
+
+39. **`Store.Uninstall` is not a louder `Disable`.** It cascades to a plugin's
+    key-value store and its encrypted secrets, which are unrecoverable, so it
+    stays a distinct function and is refused while any session of a kind the
+    plugin provides still exists. Never route a disable through it, and never
+    delete a `session_kinds` row to get past the refusal — the sessions naming
+    that kind are the reason the refusal exists.

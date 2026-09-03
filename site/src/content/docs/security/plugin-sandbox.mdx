@@ -127,6 +127,47 @@ running its test, because a mutation that breaks the build makes `go test` exit
 non-zero for a reason that has nothing to do with the assertion, and a harness
 that scores that as a catch is grading itself.
 
+## The consent surface
+
+An operator administers plugins at **`/o/{org}/admin/plugins`**, and the routes
+behind it are restricted to the org's admins server-side — a member who reaches
+the URL another way gets 403 from the API, not a blank screen.
+
+That page is where the grant model becomes real, so its wording is treated as
+part of the boundary rather than as copy:
+
+- **A grant is named by what it permits in consequence.** "Can send anything it
+  holds — including session data it has read — to any subdomain of
+  `example.com`" rather than `fetch: *.example.com`.
+- **Every wildcard is expanded, in full, at install time.** The screen shows
+  worked examples of what an entry covers and what it deliberately does not
+  (`*.example.com` matches `api.example.com` but not `example.com` itself). The
+  examples are generated from the guard's own matching, and `guard-mutation.sh`
+  breaks the expansion on purpose to prove the test behind it is real — a
+  description a human cannot read is not consent, and one that disagrees with
+  the guard is worse.
+- **Installing is impossible without an explicit grant decision.** The install
+  request carries `grantsAccepted`, and the server refuses without it.
+- **An upgrade that widens capabilities renders as a diff and approval is never
+  the default action.** The plugin keeps running on the old version under the
+  old grants until an operator ticks the acknowledgement and presses a
+  deliberately secondary control; keeping the current capabilities is the
+  primary one.
+- **Uninstall is a distinct, irreversible act, never a disable.** It cascades to
+  the plugin's key-value store and its encrypted secrets, which cannot be
+  recovered, and it is refused while any session of a kind the plugin provides
+  still exists — the refusal names those kinds.
+- **Health is visible.** A plugin the circuit breaker has degraded or disabled
+  says so on the page, with its reason and its last error, instead of silently
+  doing nothing. The breaker's judgement stays in memory, where it belongs — a
+  persisted cooldown could not be cleared by a restart — and is read out through
+  the administration API; the durable half, whether an install is enabled, was
+  already in `plugin_installs`.
+- **The theme reset is drawn in literal colours.** A theme pack owns every
+  colour token in the app, so a reset control styled with those tokens can be
+  made invisible by the pack it exists to undo. That one control uses no theme
+  variable at all, and it is at the top of the page rather than the bottom.
+
 ## Writing a plugin
 
 The guest can be written in any language with an official Extism PDK: **Rust,
