@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,8 +10,10 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,24 +25,241 @@ import (
 	"github.com/lets-parley/parley/internal/store"
 )
 
-// testPool hands back an empty, migrated database. Every caller starts from a
-// dropped schema, so tests never inherit each other's rows.
+// testPool hands back an empty, migrated database. Every caller starts from an
+// empty schema, so tests never inherit each other's rows.
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := dbtest.DSN(t)
-	pool, err := pgxpool.New(context.Background(), dsn)
+	pool, err := pgxpool.New(context.Background(), dbtest.DSN(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	if _, err := pool.Exec(context.Background(), "drop schema public cascade; create schema public"); err != nil {
+	resetSchema(t)
+	return pool
+}
+
+// resetSchema returns the database to the state a test expects: the schema the
+// migrations build, holding exactly the rows they seed and nothing else.
+//
+// It used to drop the public schema and re-run every migration per test. That
+// is the clearest way to express "fresh", but it is also the single largest
+// fixed cost in this package: the migrations are deterministic, so all but the
+// first of those runs rebuild a schema identical to the one just discarded,
+// and this package asks for a database several hundred times. Migrating once
+// per test binary and emptying it between tests is the same guarantee — no
+// test can observe another's rows or identity values — for a fraction of the
+// wall clock.
+//
+// Emptying means truncate, then restore the rows the migrations themselves
+// inserted. Those are captured from the migrated database rather than listed
+// here, so a migration that seeds a new row is carried automatically instead
+// of quietly going missing from every test after this one.
+//
+// The reset runs on its own pool rather than the caller's, so a caller that is
+// watching its pool (counting round trips, forcing a plan) sees only its own
+// traffic.
+func resetSchema(t *testing.T) {
+	t.Helper()
+	schemaOnce.Do(func() { schema, schemaErr = migrateOnce(dbtest.DSN(t)) })
+	if schemaErr != nil {
+		t.Fatal(schemaErr)
+	}
+	if err := schema.reset(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+var (
+	schemaOnce sync.Once
+	schema     *testSchema
+	schemaErr  error
+)
+
+// testSchema is the migrated schema shared by every test in this binary, and
+// what it takes to put it back the way the migrations left it.
+type testSchema struct {
+	pool *pgxpool.Pool
+	// truncate empties every table but the migrations ledger, which is
+	// bookkeeping rather than test data: truncating it would tell a later
+	// Migrate call that nothing had ever been applied.
+	truncate string
+	// seeds holds the rows the migrations inserted, in an order that satisfies
+	// the foreign keys between them.
+	seeds []tableSeed
+}
+
+type tableSeed struct {
+	table string
+	rows  []byte
+}
+
+// reset empties the shared schema. A test is allowed to change the schema
+// itself — one drops org_members to stand in for a pre-migration database — so
+// a truncate that no longer matches the tables in front of it is not a failure
+// but a signal to rebuild. That path costs the full migration, and is paid only
+// by the test that follows such a test rather than by all of them.
+func (s *testSchema) reset(ctx context.Context) error {
+	if _, err := s.pool.Exec(ctx, s.truncate); err != nil {
+		if err := s.rebuild(ctx); err != nil {
+			return err
+		}
+		if _, err := s.pool.Exec(ctx, s.truncate); err != nil {
+			return err
+		}
+	}
+	for _, seed := range s.seeds {
+		conn, err := s.pool.Acquire(ctx)
+		if err != nil {
+			return err
+		}
+		_, err = conn.Conn().PgConn().CopyFrom(ctx,
+			bytes.NewReader(seed.rows), "copy "+seed.table+" from stdin")
+		conn.Release()
+		if err != nil {
+			return fmt.Errorf("restoring seed rows for %s: %w", seed.table, err)
+		}
+	}
+	return nil
+}
+
+// migrateOnce builds the schema every test in this binary shares. The pool it
+// returns outlives every test, so it is deliberately never closed: the process
+// exiting is its cleanup.
+func migrateOnce(dsn string) (*testSchema, error) {
+	pool, err := pgxpool.New(context.Background(), dsn)
+	if err != nil {
+		return nil, err
+	}
+	s := &testSchema{pool: pool}
+	if err := s.rebuild(context.Background()); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// rebuild migrates a fresh schema and re-learns how to empty it: which tables
+// exist, in what order they can be restored, and what the migrations seeded.
+func (s *testSchema) rebuild(ctx context.Context) error {
+	if _, err := s.pool.Exec(ctx, "drop schema public cascade; create schema public"); err != nil {
+		return err
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	if err := db.Migrate(context.Background(), pool, log, db.MigrationsFS); err != nil {
-		t.Fatal(err)
+	if err := db.Migrate(ctx, s.pool, log, db.MigrationsFS); err != nil {
+		return err
 	}
-	return pool
+	tables, err := migratedTables(ctx, s.pool)
+	if err != nil {
+		return err
+	}
+	if len(tables) == 0 {
+		return fmt.Errorf("the migrated schema has no tables")
+	}
+	seeds, err := captureSeeds(ctx, s.pool, tables)
+	if err != nil {
+		return err
+	}
+	// restart identity so a test cannot pass by matching an id that another
+	// test happened to leave the sequence sitting on.
+	s.truncate = "truncate table " + strings.Join(tables, ", ") + " restart identity cascade"
+	s.seeds = seeds
+	return nil
+}
+
+// migratedTables lists the tables to empty, ordered so that a table comes
+// after every table it references. Restoring seed rows in that order cannot
+// trip a foreign key.
+func migratedTables(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
+	rows, err := pool.Query(ctx, `
+		select quote_ident(c.relname),
+		       coalesce(array_agg(distinct quote_ident(r.relname))
+		                filter (where r.relname is not null and r.relname <> c.relname), '{}')
+		from pg_class c
+		join pg_namespace n on n.oid = c.relnamespace
+		left join pg_constraint fk on fk.conrelid = c.oid and fk.contype = 'f'
+		left join pg_class r on r.oid = fk.confrelid
+		where n.nspname = 'public' and c.relkind = 'r' and c.relname <> 'migrations'
+		group by c.relname`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	deps := map[string][]string{}
+	for rows.Next() {
+		var table string
+		var refs []string
+		if err := rows.Scan(&table, &refs); err != nil {
+			return nil, err
+		}
+		deps[table] = refs
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return topoSort(deps), nil
+}
+
+// topoSort orders tables so a table follows everything it references. A cycle
+// between tables cannot be ordered; its members are appended in name order so
+// the result still names every table, and a seed row inside such a cycle would
+// fail loudly at restore rather than be dropped silently here.
+func topoSort(deps map[string][]string) []string {
+	names := make([]string, 0, len(deps))
+	for name := range deps {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	var order []string
+	placed := map[string]bool{}
+	for len(order) < len(names) {
+		progressed := false
+		for _, name := range names {
+			if placed[name] {
+				continue
+			}
+			ready := true
+			for _, ref := range deps[name] {
+				if _, known := deps[ref]; known && !placed[ref] {
+					ready = false
+					break
+				}
+			}
+			if ready {
+				order = append(order, name)
+				placed[name] = true
+				progressed = true
+			}
+		}
+		if !progressed {
+			for _, name := range names {
+				if !placed[name] {
+					order = append(order, name)
+					placed[name] = true
+				}
+			}
+		}
+	}
+	return order
+}
+
+// captureSeeds copies out whatever the migrations left behind, so the reset can
+// put it back.
+func captureSeeds(ctx context.Context, pool *pgxpool.Pool, tables []string) ([]tableSeed, error) {
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Release()
+	var seeds []tableSeed
+	for _, table := range tables {
+		var buf bytes.Buffer
+		if _, err := conn.Conn().PgConn().CopyTo(ctx, &buf, "copy "+table+" to stdout"); err != nil {
+			return nil, fmt.Errorf("capturing seed rows for %s: %w", table, err)
+		}
+		if buf.Len() > 0 {
+			seeds = append(seeds, tableSeed{table: table, rows: buf.Bytes()})
+		}
+	}
+	return seeds, nil
 }
 
 func testServer(t *testing.T) *httptest.Server {

@@ -7,7 +7,6 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,7 +19,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/lets-parley/parley/internal/db"
 	"github.com/lets-parley/parley/internal/dbtest"
 	"github.com/lets-parley/parley/internal/principal"
 	"github.com/lets-parley/parley/internal/store"
@@ -623,12 +621,7 @@ func tracedTestPool(t *testing.T, tracer pgx.QueryTracer) *pgxpool.Pool {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	if _, err := pool.Exec(context.Background(), "drop schema public cascade; create schema public"); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Migrate(context.Background(), pool, slog.New(slog.NewTextHandler(os.Stderr, nil)), db.MigrationsFS); err != nil {
-		t.Fatal(err)
-	}
+	resetSchema(t)
 	return pool
 }
 
