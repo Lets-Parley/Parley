@@ -347,6 +347,10 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		// room — so a browser with no local storage can recover instead of
 		// being stranded in the name gate. Writing identity stays shut.
 		r.Get("/me", a.handleGetMe)
+		// What has UI to frame. Open to anyone in a room, guests included: it
+		// names installs and their grants, and a grant is not a secret — the
+		// host re-checks every one of them at the effect.
+		r.Get("/plugins/panels", a.handlePluginPanels)
 		// Open to a link guest too, and the only write on its identity that
 		// is: it spends the credential rather than reshaping it. A guest on a
 		// borrowed browser otherwise has no way to stop the cookie outliving
@@ -487,6 +491,10 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		// disclosed to anyone outside its space.
 		r.Route("/sessions/{id}", func(r chi.Router) {
 			r.Use(a.requireSessionMember)
+			// A plugin panel proposes; this performs, as the user. The
+			// header names the plugin so the change is attributable — it
+			// authorises nothing, and the gates above have already run.
+			r.Use(a.pluginRouteAudit)
 			r.Get("/", a.handleGetSession)
 			// The export is the room's whole history in one file, including
 			// every meeting it has held. Membership is not enough for it once

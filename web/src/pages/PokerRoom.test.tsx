@@ -8,6 +8,28 @@ import { expectNoViolations } from "../test/axe";
 
 const me: Me = { id: "marcus", name: "Marcus Okonjo", avatarHue: 40 };
 
+/**
+ * A fetch stub that answers the plugin-panel list itself.
+ *
+ * The room asks /api/plugins/panels for the plugins that ship UI. That request
+ * is not what any test below is about, so it is answered with "none" here and
+ * every mock keeps describing only the call it cares about.
+ */
+/** The calls a test is about: everything except the plugin-panel list. */
+function roomCalls(spy: { mock: { calls: unknown[][] } }) {
+  return spy.mock.calls.filter((c) => !String(c[0]).includes("/api/plugins/panels"));
+}
+
+function answering(response: Response) {
+  return (input: RequestInfo | URL) => {
+    if (String(input).includes("/api/plugins/panels")) {
+      return Promise.resolve(new Response("[]", { status: 200 }));
+    }
+    return Promise.resolve(response);
+  };
+}
+
+
 /** Dana is the facilitator; the viewer is Marcus, an ordinary seat. */
 function envelope(over: Partial<Envelope> = {}): Envelope {
   return {
@@ -85,7 +107,7 @@ describe("PokerRoom facilitator claim", () => {
   it("claims the chair on click", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+      .mockImplementation(answering({ status: 204, ok: true, text: async () => "" } as Response));
     renderApp(
       <PokerRoom env={envelope({ serverTime: "2026-08-18T10:01:00.000Z" })} me={me} />,
     );
@@ -276,7 +298,7 @@ describe("PokerRoom errors", () => {
     // hand — for a header action, a whole column away from the control.
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response(JSON.stringify({ error: "Nobody has voted yet." }), { status: 409 }));
+      .mockImplementation(answering(new Response(JSON.stringify({ error: "Nobody has voted yet." }), { status: 409 })));
     const env = envelope({ facilitatorConnected: true });
     env.state.stories[0].votedUserIds = ["marcus"];
     renderApp(<PokerRoom env={env} me={dana} />);
@@ -297,7 +319,7 @@ describe("PokerRoom errors", () => {
     // were hardcoded to "room".
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response(JSON.stringify({ error: "Could not add the round." }), { status: 500 }));
+      .mockImplementation(answering(new Response(JSON.stringify({ error: "Could not add the round." }), { status: 500 })));
     const env = envelope({ facilitatorConnected: true });
     renderApp(<PokerRoom env={env} me={dana} />);
 
@@ -312,9 +334,9 @@ describe("PokerRoom errors", () => {
   it("does not offer Try again for a failed vote", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(
+      .mockImplementation(answering(
         new Response(JSON.stringify({ error: "Could not record your vote." }), { status: 500 }),
-      );
+      ));
     renderApp(<PokerRoom env={envelope()} me={me} />);
 
     await userEvent.click(screen.getByRole("button", { name: "3" }));
@@ -327,7 +349,7 @@ describe("PokerRoom errors", () => {
   it("places the room's error row right after the header, before the table", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response(JSON.stringify({ error: "Nobody has voted yet." }), { status: 409 }));
+      .mockImplementation(answering(new Response(JSON.stringify({ error: "Nobody has voted yet." }), { status: 409 })));
     const env = envelope({ facilitatorConnected: true });
     env.state.stories[0].votedUserIds = ["marcus"];
     renderApp(<PokerRoom env={env} me={dana} />);
@@ -347,7 +369,7 @@ describe("PokerRoom errors", () => {
   it("clears the failure banner when the round moves on to a new story", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response(JSON.stringify({ error: "Nobody has voted yet." }), { status: 409 }));
+      .mockImplementation(answering(new Response(JSON.stringify({ error: "Nobody has voted yet." }), { status: 409 })));
     const env = envelope({ facilitatorConnected: true });
     env.state.stories[0].votedUserIds = ["marcus"];
     const { rerender } = renderApp(<PokerRoom env={env} me={dana} />);
@@ -377,19 +399,19 @@ describe("PokerRoom errors", () => {
   it("re-runs the failed call when Try again is clicked", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response(JSON.stringify({ error: "Nobody has voted yet." }), { status: 409 }));
+      .mockImplementation(answering(new Response(JSON.stringify({ error: "Nobody has voted yet." }), { status: 409 })));
     const env = envelope({ facilitatorConnected: true });
     env.state.stories[0].votedUserIds = ["marcus"];
     renderApp(<PokerRoom env={env} me={dana} />);
 
     screen.getByRole("button", { name: "Reveal" }).click();
     const alert = await screen.findByRole("alert");
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(roomCalls(fetchSpy).length).toBe(1);
 
     await userEvent.click(within(alert).getByRole("button", { name: "Try again" }));
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    const [firstPath] = fetchSpy.mock.calls[0] as [string, RequestInit];
-    const [secondPath] = fetchSpy.mock.calls[1] as [string, RequestInit];
+    expect(roomCalls(fetchSpy).length).toBe(2);
+    const [firstPath] = roomCalls(fetchSpy)[0] as [string, RequestInit];
+    const [secondPath] = roomCalls(fetchSpy)[1] as [string, RequestInit];
     expect(secondPath).toBe(firstPath);
     fetchSpy.mockRestore();
   });
@@ -434,7 +456,7 @@ describe("PokerRoom save offer", () => {
     // a caller that let just one of those calls drift from the deck could
     // post an estimate the backend would reject. Actually clicking exercises
     // the real onClick handler, not just the rendered label.
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.spyOn(globalThis, "fetch").mockImplementation(answering(new Response(JSON.stringify({ ok: true }), { status: 200 })));
     renderApp(<PokerRoom env={revealed(3)} me={dana} />);
     await userEvent.click(screen.getByRole("button", { name: "Save 3 to story" }));
     expect(await screen.findByText(/Estimate 3 saved to PLAT-412/)).toBeTruthy();
@@ -489,12 +511,12 @@ describe("PokerRoom end session", () => {
     renderApp(<PokerRoom env={envelope({ facilitatorConnected: true })} me={dana} />);
     screen.getByRole("button", { name: "End session" }).click();
     expect(await screen.findByText("End this session?")).toBeTruthy();
-    expect(del).not.toHaveBeenCalled();
+    expect(roomCalls(del).length).toBe(0);
     screen.getByRole("button", { name: "Keep playing" }).click();
     await waitFor(() =>
       expect(screen.queryByText("End this session?")).toBeNull(),
     );
-    expect(del).not.toHaveBeenCalled();
+    expect(roomCalls(del).length).toBe(0);
   });
 
   it("does not offer End session to a non-facilitator", () => {
@@ -535,7 +557,7 @@ describe("PokerRoom auto-reveal", () => {
   it("PATCHes config when the facilitator turns auto-reveal on", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+      .mockImplementation(answering({ status: 204, ok: true, text: async () => "" } as Response));
     const env = envelope({ facilitatorConnected: true });
     renderApp(<PokerRoom env={env} me={dana} />);
     await userEvent.click(screen.getByRole("button", { name: "Auto-reveal off" }));
@@ -543,7 +565,7 @@ describe("PokerRoom auto-reveal", () => {
       "/api/sessions/sess-1/actions/config",
       expect.objectContaining({ method: "PATCH" }),
     );
-    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    const init = roomCalls(fetchSpy)[0][1] as RequestInit;
     expect(JSON.parse(String(init.body))).toEqual({ autoReveal: true });
   });
 
@@ -586,7 +608,7 @@ describe("PokerRoom open voting", () => {
   it("PATCHes config when the facilitator turns open voting on", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+      .mockImplementation(answering({ status: 204, ok: true, text: async () => "" } as Response));
     const env = envelope({ facilitatorConnected: true });
     renderApp(<PokerRoom env={env} me={dana} />);
     await userEvent.click(screen.getByRole("button", { name: "Open voting off" }));
@@ -594,19 +616,19 @@ describe("PokerRoom open voting", () => {
       "/api/sessions/sess-1/actions/config",
       expect.objectContaining({ method: "PATCH" }),
     );
-    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    const init = roomCalls(fetchSpy)[0][1] as RequestInit;
     expect(JSON.parse(String(init.body))).toEqual({ openVoting: true });
   });
 
   it("PATCHes openVoting false when the facilitator turns it back off", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+      .mockImplementation(answering({ status: 204, ok: true, text: async () => "" } as Response));
     const env = envelope({ facilitatorConnected: true });
     env.state.openVoting = true;
     renderApp(<PokerRoom env={env} me={dana} />);
     await userEvent.click(screen.getByRole("button", { name: "Open voting on" }));
-    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    const init = roomCalls(fetchSpy)[0][1] as RequestInit;
     expect(JSON.parse(String(init.body))).toEqual({ openVoting: false });
   });
 
@@ -788,7 +810,7 @@ describe("removing someone from the room", () => {
   it("sends the optional message, capped at 80 characters", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+      .mockImplementation(answering({ status: 204, ok: true, text: async () => "" } as Response));
     const user = userEvent.setup();
     renderApp(<PokerRoom env={room()} me={fac} />);
     await user.click(screen.getByRole("button", { name: "Remove Marcus Okonjo" }));
@@ -815,7 +837,7 @@ describe("removing someone from the room", () => {
     renderApp(<PokerRoom env={room()} me={fac} />);
     await user.click(screen.getByRole("button", { name: "Remove Marcus Okonjo" }));
     await user.click(screen.getByRole("button", { name: /keep them/i }));
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(roomCalls(fetchSpy).length).toBe(0);
   });
 });
 
@@ -857,7 +879,7 @@ describe("PokerRoom facilitator handoff", () => {
   it("hands the chair to a named participant in one action", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+      .mockImplementation(answering({ status: 204, ok: true, text: async () => "" } as Response));
     renderApp(<PokerRoom env={live()} me={dana} />);
 
     await userEvent.click(screen.getByRole("button", { name: /hand off/i }));
@@ -929,7 +951,7 @@ describe("PokerRoom · the card you played", () => {
   it("marks the card you played once the round is revealed", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+      .mockImplementation(answering({ status: 204, ok: true, text: async () => "" } as Response));
     const { rerender } = renderApp(<PokerRoom env={envelope()} me={me} />);
     await userEvent.click(card("3"));
     rerender(

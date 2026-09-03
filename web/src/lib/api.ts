@@ -26,21 +26,33 @@ export class NetworkError extends TypeError {}
  */
 export function errorText(e: unknown): string {
   if (e instanceof ApiError) return e.message;
-  if (e instanceof NetworkError) return "Can't reach the server — check your connection and try again.";
-  return e instanceof Error && e.message ? e.message : "Something went wrong. Try again.";
+  if (e instanceof NetworkError)
+    return "Can't reach the server — check your connection and try again.";
+  return e instanceof Error && e.message
+    ? e.message
+    : "Something went wrong. Try again.";
 }
 
 export async function api<T = unknown>(
   method: string,
   path: string,
   body?: unknown,
+  /**
+   * Extra request headers. Used by the plugin bridge to name the plugin that
+   * proposed an action, so a host-mediated call is attributable to the surface
+   * it came from without the plugin ever holding a credential of its own.
+   */
+  extraHeaders?: Record<string, string>,
 ): Promise<T> {
   let resp: Response;
   try {
     resp = await fetch(path, {
       method,
       credentials: "same-origin",
-      headers: body !== undefined ? { "Content-Type": "application/json" } : {},
+      headers: {
+        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...extraHeaders,
+      },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch (e) {
@@ -58,7 +70,8 @@ export async function api<T = unknown>(
   }
   if (!resp.ok) {
     const msg =
-      (data as { error?: string } | undefined)?.error ?? "Something went wrong talking to the server.";
+      (data as { error?: string } | undefined)?.error ??
+      "Something went wrong talking to the server.";
     throw new ApiError(resp.status, msg);
   }
   return data as T;
@@ -255,6 +268,16 @@ const actionVerbs: Record<string, string> = {
  * Core routes a kind does not own — close, reopen, spectator, facilitator, the
  * CSV export — are not actions and keep their own paths.
  */
-export function action<T = unknown>(sessionId: string, name: string, body?: unknown): Promise<T> {
-  return api<T>(actionVerbs[name] ?? "POST", `/api/sessions/${sessionId}/actions/${name}`, body);
+export function action<T = unknown>(
+  sessionId: string,
+  name: string,
+  body?: unknown,
+  extraHeaders?: Record<string, string>,
+): Promise<T> {
+  return api<T>(
+    actionVerbs[name] ?? "POST",
+    `/api/sessions/${sessionId}/actions/${name}`,
+    body,
+    extraHeaders,
+  );
 }

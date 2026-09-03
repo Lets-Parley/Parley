@@ -628,3 +628,20 @@ func (s *Store) inTx(ctx context.Context, fn func(pgx.Tx) error) error {
 	}
 	return nil
 }
+
+// RecordPluginAction writes the audit record for an action a plugin panel
+// proposed and the user's own session performed.
+//
+// It is exported because the plugin bridge lives in the api package and this
+// package owns the only writer of org_audit_log: a second insert site is a
+// second shape of record, and the read path has to be able to assume one.
+//
+// The action is stored as "plugin.action" with the plugin's name first in the
+// detail, so the plugin is the route the record names — the actor stays the
+// user, because the user is who it was done as.
+func RecordPluginAction(ctx context.Context, pool *pgxpool.Pool, scope Scope, plugin, detail string) error {
+	s := &Store{Pool: pool}
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		return audit(ctx, tx, scope, SpaceRef{}, "plugin.action", plugin+" "+detail)
+	})
+}

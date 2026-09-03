@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -218,5 +219,51 @@ func TestAnUnknownPluginIsNotServedTheAppShell(t *testing.T) {
 	resp, body := get(t, srv, "/plugin-ui/nosuch/9.9.9")
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("unknown plugin: got %d, want 404 (body %q)", resp.StatusCode, body)
+	}
+}
+
+// The panel list is what makes the frame reachable from a room. An install
+// with no UI bundle is not a panel: framing it would render a 404.
+func TestPluginPanelsListsOnlyEnabledInstallsThatShipUI(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "retro-1.0.0.ui.js"), []byte("//"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pool := testPool(t)
+	srv := testServerWith(t, pool, Options{AllowedOrigin: testOrigin, PluginDir: dir})
+
+	ctx := context.Background()
+	for _, row := range []struct {
+		name, version string
+		enabled       bool
+	}{
+		{"retro", "1.0.0", true},
+		{"headless", "2.0.0", true},
+		{"retro-off", "1.0.0", false},
+	} {
+		if _, err := pool.Exec(ctx,
+			`insert into plugin_installs (name, version, enabled, kv_quota_bytes) values ($1, $2, $3, 1024)`,
+			row.name, row.version, row.enabled); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The disabled one also ships UI, so its absence is about `enabled` and
+	// not about the file.
+	if err := os.WriteFile(filepath.Join(dir, "retro-off-1.0.0.ui.js"), []byte("//"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, body := get(t, srv, "/api/plugins/panels")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("panels: got %d (%s)", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, `"retro"`) {
+		t.Fatalf("the installed plugin with UI is missing: %s", body)
+	}
+	if strings.Contains(body, "headless") {
+		t.Fatalf("an install with no UI bundle was listed as a panel: %s", body)
+	}
+	if strings.Contains(body, "retro-off") {
+		t.Fatalf("a disabled install was listed: %s", body)
 	}
 }
