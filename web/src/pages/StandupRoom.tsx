@@ -822,9 +822,11 @@ export function StandupRoom({
           <h2 className="font-display text-2xl font-semibold">Kudos</h2>
           {/* No count, per person or in the heading: a number beside a name is
               a leaderboard however quietly it is drawn. */}
-          <p className="text-sm text-ink-soft text-pretty">
-            The round is done and you have just heard what everybody did. Thank somebody by name.
-          </p>
+          {canGiveKudos && (
+            <p className="text-sm text-ink-soft text-pretty">
+              The round is done and you have just heard what everybody did. Thank somebody by name.
+            </p>
+          )}
           {canGiveKudos && (
             <form className="flex flex-wrap items-end gap-2" onSubmit={giveKudo}>
               <label className="flex flex-col gap-1">
