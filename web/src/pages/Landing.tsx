@@ -10,7 +10,7 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errorText, type Membership, type OrgMembership, type SpaceView } from "../lib/api";
-import { orgPath, spacePath } from "../lib/paths";
+import { orgPath, pluginsPath, spacePath } from "../lib/paths";
 import { useMe, useAuthMode, NameGate, clearSessionMemory } from "../components/NameGate";
 import { isFullAccount } from "../lib/links";
 import { Logo, ThemeToggle } from "../components/AppShell";
@@ -503,6 +503,29 @@ export function Landing() {
                   Browse {o.name}
                 </Link>
               ))}
+            </nav>
+          )}
+
+          {/* The operator's way in. It is a link rather than a hidden route
+              because the page has to be reachable when an installed theme has
+              made the rest of the app unreadable — and hiding it from a member
+              is a courtesy, not the control: the API 403s them either way. */}
+          {orgs.some((o) => o.role === "admin") && (
+            <nav
+              aria-label="Administer an org"
+              className="flex w-full max-w-md flex-wrap items-center justify-center gap-x-4 gap-y-1 text-sm"
+            >
+              {orgs
+                .filter((o) => o.role === "admin")
+                .map((o) => (
+                  <Link
+                    key={o.slug}
+                    to={pluginsPath(o.slug)}
+                    className="text-ink-soft underline hover:text-ink"
+                  >
+                    Plugins in {o.name}
+                  </Link>
+                ))}
             </nav>
           )}
 
