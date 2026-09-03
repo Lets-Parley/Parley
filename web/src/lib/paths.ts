@@ -45,3 +45,8 @@ export function orgSpacesApi(org: string, after = ""): string {
   const base = `/api/orgs/${org}/spaces`;
   return after ? `${base}?after=${encodeURIComponent(after)}` : base;
 }
+
+/** The API for a space's kudos. Withdrawing one appends its id. */
+export function kudosApi(org: string, slug: string): string {
+  return `${spaceApi(org, slug)}/kudos`;
+}

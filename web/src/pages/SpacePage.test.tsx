@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
 import { api, ApiError } from "../lib/api";
-import type { Deck, Me, SpaceView } from "../lib/api";
+import type { Deck, Kudo, Me, SpaceView } from "../lib/api";
 import { expectNoViolations } from "../test/axe";
 import { SpacePage } from "./SpacePage";
 import { rememberOpenSession } from "../lib/sessionMemory";
@@ -38,6 +38,9 @@ const space = {
 let view: SpaceView = space;
 // The space's saved decks, as the create dialog reads them.
 let decks: Deck[] = [];
+// The space's kudos, as the wall reads them. Newest first, the way the
+// handler answers.
+let kudos: Kudo[] = [];
 // Flipped on to make the next space read fail, which is how a background
 // refetch failure is reproduced.
 let failSpace = false;
@@ -46,10 +49,29 @@ vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
   return {
     ...actual,
-    api: vi.fn(async (_method: string, path: string) => {
+    api: vi.fn(async (method: string, path: string, body?: unknown) => {
       if (path === "/api/me") return me;
       if (path === "/api/auth") return { mode: "open" };
       if (path.endsWith("/decks")) return decks;
+      if (path.endsWith("/kudos") && method === "GET") return kudos;
+      if (path.endsWith("/kudos") && method === "POST") {
+        const b = body as { to: string; text: string };
+        const k = {
+          id: `k${kudos.length + 1}`,
+          fromUserId: me.id,
+          toUserId: b.to,
+          text: b.text,
+          createdAt: "2026-09-03T09:00:00.000Z",
+          sessionId: "",
+        };
+        kudos = [k, ...kudos];
+        return k;
+      }
+      if (path.includes("/kudos/") && method === "DELETE") {
+        kudos = kudos.filter((k) => !path.endsWith(`/kudos/${k.id}`));
+        return undefined;
+      }
+      if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) {
         if (failSpace) throw new Error("network");
         return view;
@@ -64,6 +86,7 @@ vi.mock("../lib/api", async () => {
 beforeEach(() => {
   vi.mocked(api).mockClear();
   decks = [];
+  kudos = [];
 });
 
 describe("SpacePage kind filter", () => {
@@ -218,6 +241,7 @@ describe("SpacePage create dialog", () => {
         return createReply;
       }
       if (path.endsWith("/decks")) return decks;
+      if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
@@ -270,6 +294,7 @@ describe("SpacePage create dialog", () => {
         };
       }
       if (path.endsWith("/decks")) return decks;
+      if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
@@ -313,6 +338,7 @@ describe("SpacePage create dialog", () => {
         };
       }
       if (path.endsWith("/decks")) return decks;
+      if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
@@ -531,11 +557,19 @@ describe("SpacePage session badge", () => {
 
 // spaceReads counts reads of the space itself. The "seen" POST rides the same
 // prefix and must not be mistaken for a refresh, and the page is rendered
-// without a Route here, so the slug in the path is empty.
+// without a Route here, so the slug in the path is empty. The panels hanging
+// off the page read their own sub-resources under the same prefix; those are
+// not the space, so they are excluded by suffix rather than counted as one.
 function spaceReads(): number {
   return vi
     .mocked(api)
-    .mock.calls.filter((c) => c[0] === "GET" && String(c[1]).startsWith("/api/orgs/acme/spaces/")).length;
+    .mock.calls.filter(
+      (c) =>
+        c[0] === "GET" &&
+        String(c[1]).startsWith("/api/orgs/acme/spaces/") &&
+        !String(c[1]).endsWith("/kudos") &&
+        !String(c[1]).endsWith("/decks"),
+    ).length;
 }
 
 /**
@@ -736,6 +770,7 @@ describe("SpacePage invite links across a sign-in round trip", () => {
       if (path === "/api/auth") return { mode: "oidc" };
       if (path === "/api/orgs/acme/spaces/platform-team/invite") return { handle: "HANDLE-1" };
       if (path.endsWith("/decks")) return decks;
+      if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
@@ -768,6 +803,7 @@ describe("SpacePage invite links across a sign-in round trip", () => {
       if (path === "/api/auth") return { mode: "oidc" };
       if (path === "/api/orgs/acme/spaces/platform-team/invite") throw new Error("That passcode doesn't match this space.");
       if (path.endsWith("/decks")) return decks;
+      if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
@@ -787,6 +823,7 @@ describe("SpacePage invite links across a sign-in round trip", () => {
       if (path === "/api/me") return null;
       if (path === "/api/auth") return { mode: "open" };
       if (path.endsWith("/decks")) return decks;
+      if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
@@ -937,6 +974,7 @@ describe("SpacePage invite links, a link guest", () => {
       }
       if (path === "/api/auth") return { mode: "open" };
       if (path.endsWith("/decks")) return decks;
+      if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
@@ -981,6 +1019,7 @@ describe("SpacePage expired-session remint", () => {
         return { id: "u-new", name: "Ada", avatarHue: 40 };
       }
       if (path.endsWith("/decks")) return decks;
+      if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) {
         if (path.endsWith("/seen") && method === "POST") return undefined;
         return view;
@@ -1014,6 +1053,7 @@ describe("SpacePage expired-session remint", () => {
         return { id: "u-new", name: "Ada", avatarHue: 40 };
       }
       if (path.endsWith("/decks")) return decks;
+      if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) {
         if (path.endsWith("/seen") && method === "POST") return undefined;
         return view;
@@ -1059,6 +1099,7 @@ describe("SpacePage expired-session remint", () => {
         return { id: "u-new", name: "Ada", avatarHue: 40 };
       }
       if (path.endsWith("/decks")) return decks;
+      if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) {
         if (path.endsWith("/seen") && method === "POST") return undefined;
         if (reminted) {
@@ -1115,6 +1156,7 @@ describe("SpacePage deck chooser", () => {
       if (path === "/api/me") return me;
       if (path === "/api/auth") return { mode: "open" };
       if (path.endsWith("/decks")) return decks;
+      if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }) as never);
@@ -1150,6 +1192,7 @@ describe("SpacePage deck chooser", () => {
         return { id: "new-3", kind: "poker", title: "Sprint", createdAt: "2026-08-18T12:00:00.000Z", endedAt: null, here: 0 };
       }
       if (path.endsWith("/decks")) return decks;
+      if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
@@ -1265,5 +1308,98 @@ describe("SpacePage deck chooser", () => {
     } finally {
       delete space.kinds;
     }
+  });
+});
+
+
+/**
+ * The wall driven through the page that owns it, not through the panel in
+ * isolation. Feeding a kudo straight into the component would prove it renders
+ * a list; it would not prove SpacePage can ever produce one.
+ */
+describe("SpacePage kudos wall", () => {
+  const roster = {
+    ...space,
+    members: [
+      { userId: "marcus", name: "Marcus Okonjo", avatarHue: 40, spectator: false, role: "member" },
+      { userId: "dana", name: "Dana Whitfield", avatarHue: 120, spectator: false, role: "owner" },
+    ],
+  } as unknown as SpaceView;
+
+  // Earlier describes swap the api implementation in; this one wants the
+  // module's own, so it puts it back rather than inheriting whatever ran last.
+  const defaultApi = vi.mocked(api).getMockImplementation()!;
+
+  afterEach(() => {
+    view = space;
+  });
+
+  async function open() {
+    vi.mocked(api).mockImplementation(defaultApi);
+    view = roster;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    return within(await screen.findByTestId("kudos"));
+  }
+
+  it("gives a kudo from the page and shows it on the wall", async () => {
+    const wall = await open();
+    expect(await wall.findByTestId("kudos-empty")).toBeTruthy();
+
+    await userEvent.selectOptions(wall.getByLabelText("To"), "dana");
+    await userEvent.type(wall.getByLabelText("For what"), "Unblocked the release.");
+    await userEvent.click(wall.getByRole("button", { name: "Give kudos" }));
+
+    const row = await wall.findByTestId("kudo-k1");
+    expect(row.textContent).toContain("Unblocked the release.");
+    expect(row.textContent).toContain("Dana Whitfield");
+    expect(wall.queryByTestId("kudos-empty")).toBe(null);
+    // Announced, not merely rendered.
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Kudos sent"));
+  });
+
+  it("never offers you as a recipient", async () => {
+    const wall = await open();
+    const names = within(wall.getByLabelText("To"))
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+    expect(names).toContain("Dana Whitfield");
+    expect(names).not.toContain("Marcus Okonjo");
+  });
+
+  it("withdraws your own kudo, in two steps", async () => {
+    kudos = [
+      {
+        id: "k9",
+        fromUserId: "marcus",
+        toUserId: "dana",
+        text: "Wrote the migration nobody wanted to.",
+        createdAt: "2026-09-03T09:00:00.000Z",
+        sessionId: "",
+      },
+    ];
+    const wall = await open();
+    const row = await wall.findByTestId("kudo-k9");
+
+    await userEvent.click(within(row).getByRole("button", { name: /^Withdraw:/ }));
+    await userEvent.click(within(row).getByRole("button", { name: "Withdraw it" }));
+
+    await waitFor(() => expect(wall.queryByTestId("kudo-k9")).toBe(null));
+    expect(await wall.findByTestId("kudos-empty")).toBeTruthy();
+  });
+
+  it("offers no withdraw control on somebody else's kudo", async () => {
+    kudos = [
+      {
+        id: "k8",
+        fromUserId: "dana",
+        toUserId: "marcus",
+        text: "Reviewed everything on a Friday.",
+        createdAt: "2026-09-03T09:00:00.000Z",
+        sessionId: "",
+      },
+    ];
+    const wall = await open();
+    const row = await wall.findByTestId("kudo-k8");
+    expect(within(row).queryByRole("button", { name: /Withdraw/ })).toBe(null);
   });
 });
