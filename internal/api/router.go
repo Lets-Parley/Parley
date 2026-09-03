@@ -58,6 +58,8 @@ type app struct {
 	// orgs resolves the org a slug belongs to. Until an instance is divided,
 	// that is always the default org, cached behind defaultOrg.
 	orgs *store.Orgs
+	// pluginDir is Options.PluginDir; empty means no plugin UI is served.
+	pluginDir string
 	// bootstrapAdmin is the (issuer, subject) pair an operator granted admin
 	// of the default org from configuration.
 	bootstrapAdmin BootstrapAdmin
@@ -89,6 +91,10 @@ type Options struct {
 	TrustProxyHeaders bool
 	TrustedProxyCIDRs []netip.Prefix
 	Limits            Limits
+	// PluginDir is where installed plugin bundles live. Empty means this
+	// instance runs no plugins, and the plugin UI frame route is then not
+	// registered at all.
+	PluginDir string
 
 	// Context bounds the cross-replica notification listener. Leave it nil
 	// outside of tests: the listener then lives as long as the process.
@@ -183,6 +189,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		kinds:         kinds,
 		secureCookies: opts.SecureCookies,
 		allowedOrigin: opts.AllowedOrigin,
+		pluginDir:     opts.PluginDir,
 		authMode:      mode,
 		version:       cmp.Or(opts.Version, "dev"),
 
@@ -255,14 +262,23 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		}
 	}
 
-	r := chi.NewRouter()
+	root := chi.NewRouter()
 	// Forwarded addresses affect both open-mode identity creation and room-code
 	// throttles, so they are accepted only across an explicitly trusted chain.
 	if opts.TrustProxyHeaders {
-		r.Use(trustedProxyHeaders(opts.TrustedProxyCIDRs, slog.Default()))
+		root.Use(trustedProxyHeaders(opts.TrustedProxyCIDRs, slog.Default()))
 	}
-	r.Use(middleware.Recoverer)
-	r.Use(securityHeaders)
+	root.Use(middleware.Recoverer)
+
+	// securityHeaders splits into two route-scoped profiles. The plugin UI
+	// frame gets its own group, with its own middleware, because the global
+	// profile sets X-Frame-Options: DENY and a framed document that carries it
+	// is blocked before any CSP is read. Making the carve-out a group rather
+	// than a path check inside securityHeaders is the whole point: a group is
+	// reachable only by being registered in it, while a path check is a
+	// matching rule, and matching rules get evaded.
+	a.mountPluginFrame(root)
+	r := root.With(securityHeaders)
 
 	// Liveness must never touch the database: a DB blip restarting the process
 	// would drop every WebSocket in the room.
@@ -535,7 +551,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 
 	r.NotFound(spa)
 
-	return &Handler{Handler: r, hub: a.hub}
+	return &Handler{Handler: root, hub: a.hub}
 }
 
 func limitAPIRequestBody(next http.Handler) http.Handler {
