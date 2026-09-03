@@ -141,8 +141,12 @@ one, and answers `frame-ancestors 'self'` instead.
 It is deliberately **not** a path-prefix check inside `securityHeaders`. A
 prefix check is a matching rule, and matching rules get evaded. A route group is
 reachable only by being registered in it — and a test walks the real routing
-tree and holds every other route to `DENY`, so the carve-out cannot widen
-without going red.
+tree and holds every other route to the whole header profile — on a method each
+route answers on *and* on one it does not — so the carve-out cannot widen
+without going red. The disallowed-method probe is there because chi answers a
+405 from its own handler, outside the route tree: moving a header middleware
+onto a route group stops covering that response, and a walk over registered
+method+path pairs alone cannot see it.
 
 ### Authentication is by channel identity
 
@@ -152,6 +156,13 @@ security. The port is the credential instead: the host creates one
 `MessageChannel` per frame, transfers one half in the handshake, and never reads
 `window.onmessage` again. A port is unforgeable and unicast, so a message
 arriving on it came from the frame it was handed to.
+
+Getting the port *into* the frame is the one moment the frame reads its window,
+and any frame on the page can post to a window. So the frame answers the
+handshake only when the sender is its own embedder and the message carries the
+host's marker. Without that, a sibling plugin's frame could race the host,
+capture another plugin's channel, feed it forged state and read every action it
+proposes.
 
 ### Redaction runs host-side, before anything crosses
 
@@ -171,14 +182,35 @@ same route the user's own click would hit. The plugin never receives a
 credential and can only ask for what the user could already do — and the server
 re-authorises every call regardless of what was asked. `X-Parley-Plugin-Route`
 names the plugin so `org_audit_log` records which surface an action came from.
-It authorises nothing, and it is checked against the installs table before it is
-written: an unchecked header would let any visitor write arbitrary text into an
-org's audit log.
+It authorises nothing, and it is checked against **this org's** installs before
+it is written: an unchecked header would let any visitor write arbitrary text
+into an org's audit log, and an unscoped check would let a plugin any tenant
+installed vouch for an action in every other tenant's room. The record names the
+acting user and lands in the room's own org, never the instance's default.
+
+The action name is screened too, and this is a guarantee in its own right. A
+name becomes a path segment, and an unscreened one is a path *expression*: dot
+segments are resolved by the same URL parser `fetch` uses, so a proposed action
+of `../../../me` leaves `/api/sessions/{id}/actions/` entirely and lands
+somewhere the audit middleware is not even mounted, on the user's own cookie and
+genuinely same-origin. So a name is refused unless it is letters, digits,
+underscore and hyphen — screened in the bridge before it reaches the host, and
+again where the request is built, where both segments are percent-encoded rather
+than interpolated.
+
+### A panel list is one org's, not the instance's
+
+What plugin UI a room shows is read from a route hung off the room, and the org
+is resolved from the room rather than defaulted. That a *grant* is safe to
+disclose — the host re-checks every one at the effect — says nothing about
+*enumeration*: which plugins a tenant has installed is that tenant's metadata,
+and this is the one plugin surface a link guest can reach. A guest sees its own
+room's org's panels and no others.
 
 ### Bounds in both directions, and failure that shows
 
 <Capability rows={[
-  { name: "Message size cap", status: "built", detail: "64 KiB per message, both ways, measured on the encoded string and checked before parsing — parsing is the expensive half." },
+  { name: "Message size cap", status: "built", detail: "64 KiB per message, both ways, measured in bytes of UTF-8 rather than JavaScript string length, and checked before parsing — parsing is the expensive half." },
   { name: "Inbound rate cap", status: "built", detail: "30 messages a second from the frame. Real plugin UI sends one per gesture; exceeding it closes the port rather than throttling, because a plugin that floods is broken or hostile and both want the same answer." },
   { name: "Outbound coalescing", status: "built", detail: "State pushes are coalesced to one every 100ms with the newest winning, so a busy room's traffic cannot become the frame's load." },
   { name: "Explicit failure", status: "built", detail: "A handshake that never lands renders a card saying so, never a blank rectangle." },

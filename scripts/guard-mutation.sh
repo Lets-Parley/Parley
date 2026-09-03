@@ -54,6 +54,78 @@ with open(path, "w") as fh:
     fh.write(body.replace(find, replace, 1))' "$1" "$2" "$3"
 }
 
+# run_tests <spec> — runs the named test(s) in the current tree.
+#
+# For a Go tree <spec> is a -run regexp. For the web tree it is
+# "<file>::<test name>": the file so the run is cheap, and the name so the
+# harness can say *which* test caught a guard rather than "something in that
+# file did". A file alone is not accepted — see web_spec_ok.
+run_tests() {
+    local spec=$1
+    if [ "$RUNNER" = "web" ]; then
+        (cd web && npx vitest run "${spec%%::*}" -t "${spec#*::}") >"$LOG" 2>&1
+        return $?
+    fi
+    # -timeout keeps a mutation that removes a timeout from hanging the leg
+    # forever; a hung run is still a red run, which is the answer we want.
+    go test "$PKG" -run "$spec" -count=1 -timeout 120s >"$LOG" 2>&1
+}
+
+# web_spec_ok <name> <spec> — the target of a web guard must actually exist.
+#
+# vitest exits 1 when it matches no test file, and this harness reads a
+# non-zero exit as "the mutation was caught". So renaming or deleting a guard's
+# target file used to turn that guard silently green: the strongest-looking
+# pass in the report was the one covering nothing at all. The Go branch never
+# had the hole — `go test -run NoSuchTest` exits 0, which reads as SURVIVED —
+# and this closes it on the web side, where the file is a path the harness can
+# simply check for.
+web_spec_ok() {
+    local name=$1 spec=$2
+    if [ "$spec" = "${spec%%::*}" ]; then
+        echo "HARNESS FAILED: $name — a web guard must name a test: '<file>::<test name>', got '$spec'."
+        return 1
+    fi
+    if [ ! -f "web/${spec%%::*}" ]; then
+        echo "HARNESS FAILED: $name — its target file web/${spec%%::*} does not exist."
+        echo "  A vanished target makes vitest exit 1, which this harness would otherwise score as 'caught'."
+        return 1
+    fi
+    return 0
+}
+
+# baseline_ok <name> <spec> — the named test must pass BEFORE the mutation.
+#
+# Without this the harness cannot tell "the guard is covered" from "the test
+# was renamed, deleted, or never ran". A test that is already red, or that
+# matches nothing, would go on to be red after the mutation too, and every one
+# of those is a green report over an uncovered guard. It runs against the
+# pristine tree, so a failure here is a fault in the harness's own bookkeeping
+# rather than a finding about the code.
+baseline_ok() {
+    local name=$1 spec=$2
+    if ! run_tests "$spec"; then
+        echo "HARNESS FAILED: $name — '$spec' does not pass before the mutation,"
+        echo "  so its going red afterwards would say nothing about the guard."
+        sed -n '1,40p' "$LOG"
+        return 1
+    fi
+    # A run that matched no test is the same hole wearing a green exit code:
+    # `go test -run NoSuchTest` exits 0 having run nothing at all, and vitest
+    # exits 0 having skipped every test in the file when -t matches no name.
+    # Both would then be "red" after the mutation for the same empty reason.
+    if [ "$RUNNER" = "go" ] && grep -q "no tests to run" "$LOG"; then
+        echo "HARNESS FAILED: $name — '$spec' matched no test in $PKG."
+        return 1
+    fi
+    if [ "$RUNNER" = "web" ] && ! grep -qE "Tests +[1-9][0-9]* passed" "$LOG"; then
+        echo "HARNESS FAILED: $name — '${spec#*::}' matched no test in web/${spec%%::*}."
+        sed -n '1,20p' "$LOG"
+        return 1
+    fi
+    return 0
+}
+
 # mutate <name> <test regexp> <file> <find> <replace> [<file> <find> <replace> ...]
 #
 # Several guards are enforced in more than one place on purpose. Breaking one
@@ -65,6 +137,18 @@ mutate() {
     shift 2
     checked=$((checked + 1))
     cp -a "$BACKUP/${SRC//\//_}"/. "$SRC"/
+
+    # Before anything is broken: the test this guard names has to exist and be
+    # green. Everything below reads "went red" as "the guard is covered", and
+    # that reading is only true of a test that was passing to begin with.
+    if [ "$RUNNER" = "web" ] && ! web_spec_ok "$name" "$tests"; then
+        failures=$((failures + 1))
+        return
+    fi
+    if ! baseline_ok "$name" "$tests"; then
+        failures=$((failures + 1))
+        return
+    fi
 
     while [ "$#" -ge 3 ]; do
         local file=$1 find=$2 replace=$3
@@ -112,10 +196,7 @@ mutate() {
         return
     fi
 
-    # -timeout keeps a mutation that removes a timeout from hanging the leg
-    # forever; a hung run is still a red run, which is the answer we want.
-    if { [ "$RUNNER" = "web" ] && (cd web && npx vitest run "$tests") >"$LOG" 2>&1; } ||
-        { [ "$RUNNER" = "go" ] && go test "$PKG" -run "$tests" -count=1 -timeout 120s >"$LOG" 2>&1; }; then
+    if run_tests "$tests"; then
         echo "SURVIVED: $name — the guard was broken and '$tests' still passed."
         sed -n '1,40p' "$LOG"
         failures=$((failures + 1))
@@ -241,6 +322,15 @@ mutate "the plugin frame's route-group carve-out" \
 	r := root.With(securityHeaders)' 'r := root.With(securityHeaders)
 	a.mountPluginFrame(r)'
 
+# chi answers a known path with an unknown method from its own handler, outside
+# the route tree — so a header middleware that moved from root.Use onto a route
+# group stopped covering every 405 on the instance. Registering it through the
+# group is what puts it back; registering it on root is the bug, and it
+# compiles.
+mutate "the security headers on a method-not-allowed response" \
+    'TestSecurityHeadersOnAMethodNotAllowedResponse|TestEveryNonPluginRouteStillSendsTheSecurityHeaders' \
+    router.go 'r.MethodNotAllowed(func(w http.ResponseWriter, _ *http.Request) {' 'root.MethodNotAllowed(func(w http.ResponseWriter, _ *http.Request) {'
+
 mutate "the framed document's connect-src 'none'" \
     'TestThePluginFrameIsNotDeniedByXFrameOptions' \
     pluginframe.go "connect-src 'none'; " "connect-src *; "
@@ -254,15 +344,49 @@ mutate "the script-close-tag escape in the frame document" \
     pluginframe.go 'return strings.NewReplacer("</", `<\/`, "<!--", `<\!--`).Replace(js)' 'return js //nolint
 '
 
+# A sibling plugin's frame can postMessage to this one. Whoever answers the
+# handshake first supplies the port, so without a sender screen plugin A hands
+# plugin B a channel A controls — forged state in, B's action proposals out.
+mutate "the frame handshake's sender screen" \
+    'TestTheFrameBootstrapOnlyAcceptsAPortFromItsEmbedder' \
+    pluginframe.go 'if (event.source !== window.parent) { return; }
+    if (!event.data || event.data.parley !== "bridge") { return; }' 'if (false) { return; }'
+
+mutate "the screen on a design token's value" \
+    'TestTheFrameBootstrapScreensATokenValueAndNotOnlyItsName' \
+    pluginframe.go 'if (COLOR.test(value)) { root.style.setProperty("--color-" + key, value); }' 'root.style.setProperty("--color-" + key, value);'
+
 mutate "the plugin UI bundle path screen" \
     'TestThePluginFrameRefusesANameThatClimbsOutOfThePluginDirectory' \
     pluginframe.go 'if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {
 			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)' 'if false {
 			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)'
 
+# The panel list is the one plugin surface a link guest can reach. The grants
+# in it are safe to disclose — the host re-checks each at the effect — but the
+# *enumeration* is tenant metadata: without the org predicate one link to one
+# standup lists every install on the instance.
+mutate "the org filter on the panel list" \
+    'TestPluginPanelsAreScopedToTheRoomsOwnOrg' \
+    pluginpanels.go 'where i.enabled and i.org_id = $1' 'where i.enabled and $1 is not null'
+
 mutate "the audit's check that the named plugin is installed" \
     'TestAnActionNamingAPluginThisInstanceDoesNotRunIsNotRecorded' \
-    pluginaudit.go '`select exists (select 1 from plugin_installs where name = $1 and enabled)`' '`select $1::text is not null`'
+    pluginaudit.go '`select exists (select 1 from plugin_installs where name = $1 and org_id = $2 and enabled)`' '`select $1::text is not null and $2::text is not null`'
+
+# The org predicate is the other half of the same check: without it a plugin
+# any tenant installed vouches for an action in every other tenant's room, and
+# a foreign plugin's name lands in this org's log.
+mutate "the org predicate on the audit's install check" \
+    'TestAPluginInstalledInAnotherOrgDoesNotSatisfyTheAuditCheck' \
+    pluginaudit.go 'where name = $1 and org_id = $2 and enabled)`' 'where name = $1 and ($2 = $2) and enabled)`'
+
+# A record naming the wrong person is worse than no record: it reads as
+# evidence. The actor is the caller, never the org's first member.
+mutate "the actor on a plugin action record" \
+    'TestAPluginActionIsAttributedToTheActingUser' \
+    pluginaudit.go 'p, _ := PrincipalFrom(ctx)' 'p, _ := PrincipalFrom(ctx)
+	p.UserID = sessionFrom(ctx).FacilitatorID'
 
 mutate "the audit's success gate" \
     'TestARefusedPluginActionIsNotRecorded' \
@@ -271,40 +395,75 @@ mutate "the audit's success gate" \
 target web/src web
 
 mutate "the frame sandbox attribute" \
-    'src/components/PluginPanel.test.tsx' \
+    'src/components/PluginPanel.test.tsx::sandboxes the frame without allow-same-origin' \
     lib/pluginBridge.ts 'export const PLUGIN_SANDBOX = "allow-scripts";' 'export const PLUGIN_SANDBOX = "allow-scripts allow-same-origin";'
 
 mutate "inerting a plugin frame under a modal" \
-    'src/components/PluginPanel.test.tsx' \
+    'src/components/PluginPanel.test.tsx::marks the frame inert while a host modal is open' \
     components/PluginPanel.tsx 'el.toggleAttribute("inert", modalOpen);' 'el.toggleAttribute("inert", false);'
 
 mutate "the reveal gate on vote values crossing the bridge" \
-    'src/lib/pluginBridge.test.ts' \
+    'src/lib/pluginBridge.test.ts::keeps hidden votes hidden before the reveal' \
     lib/pluginBridge.ts 'if (revealed && s.votes) {' 'if (s.votes) {' \
     lib/pluginBridge.ts 'if (revealed && s.results) story.results = s.results;' 'if (s.results) story.results = s.results;'
 
 mutate "the session:read grant check" \
-    'src/lib/pluginBridge.test.ts' \
+    'src/lib/pluginBridge.test.ts::hands a plugin with no session:read grant nothing at all' \
     lib/pluginBridge.ts 'if (!grants.includes(GRANT_SESSION_READ)) return null;' 'if (grants.includes("no-such-grant")) return null;'
 
 mutate "the session:act grant check" \
-    'src/lib/pluginBridge.test.ts' \
+    'src/lib/pluginBridge.test.ts::refuses an action the plugin was not granted' \
     lib/pluginBridge.ts 'if (!opts.grants.includes(GRANT_SESSION_ACT)) {' 'if (false) {'
 
 mutate "the inbound message size cap" \
-    'src/lib/pluginBridge.test.ts' \
-    lib/pluginBridge.ts 'if (raw.length > MAX_MESSAGE_BYTES) {' 'if (false) {'
+    'src/lib/pluginBridge.test.ts::drops an oversize message from the plugin instead of processing it' \
+    lib/pluginBridge.ts 'if (overMessageCap(raw)) {' 'if (false) {'
 
 mutate "the inbound message rate cap" \
-    'src/lib/pluginBridge.test.ts' \
+    'src/lib/pluginBridge.test.ts::trips the breaker when a plugin floods the port' \
     lib/pluginBridge.ts 'if (stamps.length >= MAX_MESSAGES_PER_SECOND) {' 'if (false) {'
 
 mutate "the outbound message size cap" \
-    'src/lib/pluginBridge.test.ts' \
-    lib/pluginBridge.ts 'return body.length > MAX_MESSAGE_BYTES;' 'return false && body.length > MAX_MESSAGE_BYTES;'
+    'src/lib/pluginBridge.test.ts::bounds what the host pushes into the frame too' \
+    lib/pluginBridge.ts 'if (overMessageCap(body)) {
+        opts.onFailure("oversize-outbound");' 'if (false) {
+        opts.onFailure("oversize-outbound");'
+
+# The action name is a path segment, and an unscreened one is a path
+# expression: "../../../me" is normalised out of the actions path by the same
+# URL parser fetch uses, and the request that results carries the user's own
+# cookie, is same-origin, and lands outside the only route group that audits
+# plugin actions. Screened in the bridge, before it can be a URL...
+mutate "the action-name screen on the bridge" \
+    'src/lib/pluginBridge.test.ts::refuses an action name that could climb out of the actions path' \
+    lib/pluginBridge.ts 'if (!isActionName(action)) {' 'if (!isActionName(action) && false) {'
+
+# ...and again at the construction site, which is the one place every caller
+# passes through however it got the name.
+mutate "the action-name screen at the request construction site" \
+    'src/lib/api.test.ts::builds no request at all from an action name that is not a plain name' \
+    lib/api.ts 'if (!isActionName(name)) {' 'if (false) {'
+
+mutate "the path-segment encoding of an action request" \
+    'src/lib/api.test.ts::escapes the session id and the action name into their own path segments' \
+    lib/api.ts '`/api/sessions/${encodeURIComponent(sessionId)}/actions/${encodeURIComponent(name)}`' '`/api/sessions/${sessionId}/actions/${name}`'
+
+# Coalescing has to keep the *newest* state: a frame left holding a superseded
+# round has no way to know it is stale.
+mutate "the coalescer keeping the newest state" \
+    'src/lib/pluginBridge.test.ts::coalesces two pushes in one interval onto the newer state' \
+    lib/pluginBridge.ts 'pending = body;
+      if (pushTimer) return;' 'if (pending === null) pending = body;
+      if (pushTimer) return;'
+
+# The cap is documented in bytes; .length counts UTF-16 code units, and CJK is
+# three bytes to the unit.
+mutate "the message cap being measured in bytes" \
+    'src/lib/pluginBridge.test.ts::measures the message cap in bytes rather than UTF-16 code units' \
+    lib/pluginBridge.ts 'if (body.length * 3 <= MAX_MESSAGE_BYTES) return false;' 'if (body.length <= MAX_MESSAGE_BYTES) return false;'
 
 mutate "the handshake timeout" \
-    'src/lib/pluginBridge.test.ts' \
+    'src/lib/pluginBridge.test.ts::renders an explicit failure rather than a blank rectangle when the frame never answers' \
     lib/pluginBridge.ts 'opts.onFailure("handshake-timeout");' '// the frame is simply never given up on'
 
 restore_all
