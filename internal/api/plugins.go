@@ -343,6 +343,10 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 	}
 	a.auditPlugin(r, "plugin.upgrade",
 		fmt.Sprintf("upgraded %s to %s within the capabilities already granted", pkg.Name, pkg.Version))
+	if err := a.offerPluginKinds(r.Context(), current.Install.ID); err != nil {
+		a.pluginError(w, err, "could not offer that plugin's ceremony")
+		return
+	}
 	view, err := a.installView(r.Context(), adm, current.Install.ID)
 	if err != nil {
 		http.Error(w, `{"error":"could not read the installed plugins"}`, http.StatusInternalServerError)
@@ -392,6 +396,10 @@ func (a *app) handleApproveUpgrade(w http.ResponseWriter, r *http.Request) {
 	}
 	a.auditPlugin(r, "plugin.upgrade_approved",
 		fmt.Sprintf("approved %s and the %d capabilities it asked for", pending.Version, len(pending.Grants)))
+	if err := a.offerPluginKinds(r.Context(), id); err != nil {
+		a.pluginError(w, err, "could not offer that plugin's ceremony")
+		return
+	}
 	view, err := a.installView(r.Context(), adm, id)
 	if err != nil {
 		http.Error(w, `{"error":"could not read the installed plugins"}`, http.StatusInternalServerError)
@@ -555,6 +563,13 @@ func (a *app) readPackage(w http.ResponseWriter, r *http.Request) (pluginPackage
 		return pluginPackage{}, false
 	}
 	return pkg, true
+}
+
+func (a *app) offerPluginKinds(ctx context.Context, installID string) error {
+	if a.pluginHost == nil {
+		return nil
+	}
+	return a.pluginHost.OfferKinds(ctx, installID)
 }
 
 // pluginError keeps a refusal the plugin package already worded — an

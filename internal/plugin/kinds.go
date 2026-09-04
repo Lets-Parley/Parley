@@ -320,13 +320,17 @@ func (h *Host) RetireKinds(defs []KindDef) {
 // is a contained call into the guest.
 func (h *Host) PluginKind(st State, def KindDef) session.Kind {
 	in := st.Install
+	installID := in.ID
 	k := session.Kind{
-		Name:  def.Kind,
-		OrgID: in.OrgID,
-		Plugin: &session.PluginUI{
-			Name:    in.Name,
-			Version: in.Version,
-			Grants:  grantCapabilities(st.Grants),
+		Name:   def.Kind,
+		OrgID:  in.OrgID,
+		Plugin: pluginUI(st),
+		LivePlugin: func(ctx context.Context) (*session.PluginUI, error) {
+			live, err := h.Store.State(ctx, installID)
+			if err != nil {
+				return nil, err
+			}
+			return pluginUI(live), nil
 		},
 		// A plugin's config document is whatever the plugin makes of it. The
 		// core has no struct to decode it into and inventing one would only
@@ -429,6 +433,15 @@ func readActionBody(r *http.Request) (json.RawMessage, error) {
 		return nil, fmt.Errorf("the action body is not JSON")
 	}
 	return json.RawMessage(raw), nil
+}
+
+// pluginUI is the install projection the room iframe redacts against.
+func pluginUI(st State) *session.PluginUI {
+	return &session.PluginUI{
+		Name:    st.Install.Name,
+		Version: st.Install.Version,
+		Grants:  grantCapabilities(st.Grants),
+	}
 }
 
 // grantCapabilities is the grant list the room iframe redacts against: each

@@ -3,7 +3,8 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
-import { api, ApiError } from "../lib/api";
+import { api, ApiError, action } from "../lib/api";
+import { createPluginBridge } from "../lib/pluginBridge";
 import type { Envelope, Me } from "../lib/api";
 import { SessionPage } from "./SessionPage";
 import { rememberOpenSession } from "../lib/sessionMemory";
@@ -64,6 +65,15 @@ vi.mock("../lib/api", async () => {
       if (path.endsWith("/links")) return { links: [] };
       throw new Error(`unexpected api call: ${path}`);
     }),
+    action: vi.fn(async () => undefined),
+  };
+});
+
+vi.mock("../lib/pluginBridge", async () => {
+  const actual = await vi.importActual<typeof import("../lib/pluginBridge")>("../lib/pluginBridge");
+  return {
+    ...actual,
+    createPluginBridge: vi.fn(actual.createPluginBridge),
   };
 });
 
@@ -121,6 +131,8 @@ beforeEach(() => {
   apiMeResponse = me;
   localStorage.clear();
   sessionStorage.clear();
+  vi.mocked(createPluginBridge).mockClear();
+  vi.mocked(action).mockClear();
   // The expired-session case swaps api's implementation; put the default back
   // so later cases are not stranded behind a closed-over signedIn=false.
   vi.mocked(api).mockImplementation(async (_method: string, path: string) => {
@@ -195,9 +207,19 @@ describe("SessionPage wiring", () => {
     const frame = await screen.findByTitle("retro plugin panel");
     expect(frame.getAttribute("src")).toBe("/plugin-ui/retro/1.0.0");
     expect(frame.className.split(/\s+/)).not.toContain("h-64");
-    expect(frame.className).toMatch(/h-full|min-h-/);
+    expect(frame.className.split(/\s+/)).toContain("h-full");
+    expect(screen.getByLabelText(/retro room/i).className).toContain("h-[calc(100dvh-3.5rem)]");
     expect(screen.queryByText(/doesn't know how to open/i)).toBeNull();
     expect(screen.queryByTestId("kind-unavailable")).toBeNull();
+
+    await waitFor(() => expect(vi.mocked(createPluginBridge)).toHaveBeenCalled());
+    const bridgeOpts = vi.mocked(createPluginBridge).mock.calls.at(-1)![0];
+    expect(bridgeOpts.grants).toContain("session:read");
+
+    await bridgeOpts.onAction("gather", { col: "went-well" });
+    expect(vi.mocked(action)).toHaveBeenCalledWith("sess-1", "gather", { col: "went-well" }, {
+      "X-Parley-Plugin-Route": "retro",
+    });
   });
 
   // A ceremony whose plugin has been switched off is not the same thing as a

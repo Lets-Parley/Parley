@@ -98,17 +98,22 @@ describe("redactSession", () => {
   // A plugin-owned ceremony's StateFunc already built client-safe state. The
   // poker projection would wipe it into empty stories; this path must pass
   // that document through after the envelope fields are projected.
+  function pluginKindEnvelope(): Envelope {
+    return {
+      ...envelope(),
+      kind: "acme-retro",
+      state: { columns: ["went-well"], hidden: "ok-from-statefunc" },
+    } as unknown as Envelope;
+  }
+
   it("passes a plugin kind's state through rather than rewriting it as poker", () => {
-    const out = redactSession(
-      {
-        ...envelope(),
-        kind: "acme-retro",
-        state: { columns: ["went-well"], hidden: "ok-from-statefunc" },
-      } as unknown as Envelope,
-      READ,
-    );
+    const out = redactSession(pluginKindEnvelope(), READ);
     expect(out!.state).toEqual({ columns: ["went-well"], hidden: "ok-from-statefunc" });
     expect(JSON.stringify(out)).not.toContain("alpha-squad");
+  });
+
+  it("hands a plugin kind with no session:read grant nothing at all", () => {
+    expect(redactSession(pluginKindEnvelope(), [])).toBeNull();
   });
 });
 

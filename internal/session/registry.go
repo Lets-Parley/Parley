@@ -59,6 +59,10 @@ type Kind struct {
 	// Plugin is the install that provides this ceremony, as the room iframe
 	// needs it. Core kinds leave it nil.
 	Plugin *PluginUI
+	// LivePlugin, when set, is read on every envelope so a grant change takes
+	// effect without waiting for the kind to be re-offered. OfferKinds still
+	// rebuilds Plugin so the registered snapshot matches what is in force.
+	LivePlugin func(ctx context.Context) (*PluginUI, error)
 }
 
 // PluginUI is the install behind a plugin-provided kind: what to frame, and
@@ -183,6 +187,19 @@ func (r *Registry) names(keep func(Kind) bool) []string {
 func (r *Registry) Known(kind string) bool {
 	_, ok := r.read()[kind]
 	return ok
+}
+
+// KindPlugin is the install a plugin-provided kind currently names on the
+// wire. Core kinds and unknown names return nil. The returned value is a copy
+// so a caller cannot mutate the live registry.
+func (r *Registry) KindPlugin(kind string) *PluginUI {
+	k, ok := r.read()[kind]
+	if !ok || k.Plugin == nil {
+		return nil
+	}
+	out := *k.Plugin
+	out.Grants = append([]string(nil), k.Plugin.Grants...)
+	return &out
 }
 
 // KnownInOrg is the create-time lookup: whether this org may make a session of
@@ -430,6 +447,11 @@ func (r *Registry) buildEnvelope(ctx context.Context, pool *pgxpool.Pool, presen
 	}
 	if known {
 		env.Plugin = k.Plugin
+		if k.LivePlugin != nil {
+			if p, err := k.LivePlugin(ctx); err == nil {
+				env.Plugin = p
+			}
+		}
 	}
 	if !facConnected {
 		t := sess.FacilitatorSeenAt.UTC()

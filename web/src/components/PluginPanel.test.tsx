@@ -67,7 +67,8 @@ describe("PluginPanel", () => {
     panel({ slot: "room" });
     const room = screen.getAllByTitle("retro plugin panel").at(-1)!;
     expect(room.className.split(/\s+/)).not.toContain("h-64");
-    expect(room.className).toMatch(/h-full|min-h-/);
+    expect(room.className.split(/\s+/)).toContain("h-full");
+    expect(screen.getByLabelText(/retro room/i).className).toContain("h-[calc(100dvh-3.5rem)]");
   });
 
   it("marks the frame inert while a host modal is open, and clears it after", () => {
