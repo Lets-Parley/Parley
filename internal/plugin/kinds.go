@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -51,6 +53,70 @@ type KindDef struct {
 	Kind    string      `json:"kind"`
 	Display string      `json:"display"`
 	Actions []ActionDef `json:"actions"`
+}
+
+// ErrBadKindDef is a manifest declaring a ceremony the host will not accept.
+// It is a refusal at install, which is the point: a name or a verb that only
+// fails later shows up as a ceremony that installs, enables, and then cannot
+// be used, which reads as a Parley bug rather than as a bad manifest.
+var ErrBadKindDef = fmt.Errorf("that session kind declaration is not valid")
+
+// kindNamePattern is what a kind or action name may be. It is the same shape a
+// URL segment and a database key both want, and it is deliberately narrower
+// than anything downstream needs: session_kinds.kind is a parameterised value
+// and an action name is a map key, so this is not a defence against injection
+// but against a manifest naming a ceremony nobody can type or read.
+var kindNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$`)
+
+// actionVerbs is the closed set an action may answer. GET and HEAD are absent
+// because the cross-site guard exempts them and every action is a write —
+// session.Registry refuses those two as well, and this refuses everything else
+// at the same time. The check is on the canonical upper-case form: a manifest
+// writing "get" used to slip past a comparison against http.MethodGet and then
+// never match the dispatcher's exact comparison either, leaving a dead action
+// rather than an exposed one.
+var actionVerbs = map[string]bool{
+	http.MethodPost: true, http.MethodPut: true,
+	http.MethodPatch: true, http.MethodDelete: true,
+}
+
+// canonicalKinds screens and normalises what a manifest declares, returning a
+// copy. The install path calls it before the transaction opens, so a refused
+// manifest writes nothing at all.
+func canonicalKinds(defs []KindDef) ([]KindDef, error) {
+	out := make([]KindDef, 0, len(defs))
+	seen := map[string]bool{}
+	for _, def := range defs {
+		if !kindNamePattern.MatchString(def.Kind) {
+			return nil, fmt.Errorf("%w: the kind name %q must be 1-64 characters of a-z, 0-9 and dashes", ErrBadKindDef, def.Kind)
+		}
+		if seen[def.Kind] {
+			return nil, fmt.Errorf("%w: the kind %q is declared twice", ErrBadKindDef, def.Kind)
+		}
+		seen[def.Kind] = true
+		if n := len(def.Display); n == 0 || n > 64 {
+			return nil, fmt.Errorf("%w: the display name of %q must be 1-64 characters", ErrBadKindDef, def.Kind)
+		}
+		actions := make([]ActionDef, 0, len(def.Actions))
+		names := map[string]bool{}
+		for _, a := range def.Actions {
+			if !kindNamePattern.MatchString(a.Name) {
+				return nil, fmt.Errorf("%w: the action name %q of %q must be 1-64 characters of a-z, 0-9 and dashes", ErrBadKindDef, a.Name, def.Kind)
+			}
+			if names[a.Name] {
+				return nil, fmt.Errorf("%w: %q declares the action %q twice", ErrBadKindDef, def.Kind, a.Name)
+			}
+			names[a.Name] = true
+			a.Verb = strings.ToUpper(a.Verb)
+			if !actionVerbs[a.Verb] {
+				return nil, fmt.Errorf("%w: the action %q of %q answers %q, and an action may only answer POST, PUT, PATCH or DELETE", ErrBadKindDef, a.Name, def.Kind, a.Verb)
+			}
+			actions = append(actions, a)
+		}
+		def.Actions = actions
+		out = append(out, def)
+	}
+	return out, nil
 }
 
 // KindRegistry is the router's session-kind registry, as the host uses it. It
@@ -125,6 +191,25 @@ func (s *Store) ProvidedKinds(ctx context.Context, installID string) ([]KindDef,
 		out = append(out, def)
 	}
 	return out, rows.Err()
+}
+
+// ProvidesKind reports whether this install is the one that provides a kind.
+// It is the ownership half of the session surface's boundary: the org check
+// says the room is in the install's org, and this says the room is running the
+// install's own ceremony. A core kind is provider 'core' with a NULL org and so
+// matches no install at all, which is the answer that matters — a plugin must
+// never be able to reach into a poker room.
+func (s *Store) ProvidesKind(ctx context.Context, installID, kind string) (bool, error) {
+	var ok bool
+	err := s.Pool.QueryRow(ctx, `
+		select exists (
+			select 1 from plugin_installs p
+			join session_kinds k on k.provider = p.name and k.org_id = p.org_id
+			where p.id = $1 and k.kind = $2)`, installID, kind).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("checking whether %s provides the kind %q: %w", installID, kind, err)
+	}
+	return ok, nil
 }
 
 // OfferKinds registers everything an install provides, so that enabling a

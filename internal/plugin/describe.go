@@ -18,10 +18,19 @@ import (
 //     what they are agreeing to.
 //   - An unscoped grant is never described in the singular. State.Allows treats
 //     an empty scope as "any", so a grant of session:read with no scope covers
-//     every session on the instance; a sentence reading "the live state of a
-//     session" describes something far smaller than what is being agreed to,
-//     and an understating description is a security defect rather than copy.
-//     TestAnUnscopedGrantSaysSoAndAScopedOneNamesIt asserts the distinction.
+//     every session id the plugin may reach; a sentence reading "the live state
+//     of a session" describes something far smaller than what is being agreed
+//     to, and an understating description is a security defect rather than
+//     copy. TestAnUnscopedGrantSaysSoAndAScopedOneNamesIt asserts the
+//     distinction.
+//   - What the session grants reach is bounded by the host and not by the
+//     scope, so the copy says so. api.pluginSessions refuses any room whose
+//     kind this install does not provide, which is why "every session on this
+//     instance, in every space and every org" — what these two sentences used
+//     to promise, accurately, before that guard existed — is now overstating
+//     rather than understating. Overstating is its own defect: an operator who
+//     reads a grant as broader than it is cannot tell a plugin that needs the
+//     access from one that is asking for the world.
 //   - A wildcard allowlist entry is expanded into worked examples produced from
 //     hostAllowed itself, so the screen cannot drift away from the enforcement.
 //     TestExplanationsMatchTheGuard asserts every example against hostAllowed.
@@ -64,15 +73,15 @@ func Describe(g Grant) DescribedGrant {
 		out.Permits = "Can write lines into this server's log, where they sit alongside Parley's own."
 	case CapabilitySessionRead:
 		if g.Scope == "" {
-			out.Permits = "Can read the live state of every session on this instance, in every space and every org: who is seated, what has been voted, what has been written in a standup."
+			out.Permits = "Can read the live state of every room running a ceremony this plugin itself provides, in any space in this org: who is seated, and whatever that ceremony records. It cannot read a planning poker or standup room, or any other plugin's rooms."
 		} else {
-			out.Permits = fmt.Sprintf("Can read the live state of the %q session only: who is seated, what has been voted, what has been written in a standup.", g.Scope)
+			out.Permits = fmt.Sprintf("Can read the live state of the %q session only, and then only if that room runs a ceremony this plugin provides: who is seated, and whatever that ceremony records.", g.Scope)
 		}
 	case CapabilitySessionPatch:
 		if g.Scope == "" {
-			out.Permits = "Can change the live state of every session on this instance, in every space and every org — move any room's phase, alter what is shown to everyone in it."
+			out.Permits = "Can change the live state of every room running a ceremony this plugin itself provides, in any space in this org — move that room's phase, reveal or hide what it is showing everyone in it. It cannot touch a planning poker or standup room, or any other plugin's rooms."
 		} else {
-			out.Permits = fmt.Sprintf("Can change the live state of the %q session only — move that room's phase, alter what is shown to everyone in it.", g.Scope)
+			out.Permits = fmt.Sprintf("Can change the live state of the %q session only, and then only if that room runs a ceremony this plugin provides — move that room's phase, reveal or hide what it is showing everyone in it.", g.Scope)
 		}
 	case CapabilityJobs:
 		out.Permits = "Can schedule its own work to run later on this server, outside any request a person made."

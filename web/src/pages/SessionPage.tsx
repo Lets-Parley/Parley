@@ -194,6 +194,17 @@ export function SessionPage() {
             kickReason={session.kickReason}
             kicked={session.kicked}
           />
+        ) : env.kindUnavailable ? (
+          // The ceremony's plugin is switched off. Say so plainly: the room is
+          // still here and comes back the moment somebody switches it on.
+          <p
+            data-testid="kind-unavailable"
+            className="p-8 text-center text-ink-soft text-pretty"
+          >
+            This ceremony isn't running. The plugin that provides
+            “{env.kind}” has been switched off — the room and everything in it
+            are still here, and come back when an admin switches it on again.
+          </p>
         ) : (
           // Falling through to a room here would point one kind's controls at
           // another kind's state, so an unknown kind gets no room at all.

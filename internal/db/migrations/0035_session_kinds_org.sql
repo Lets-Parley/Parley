@@ -14,11 +14,28 @@
 -- with the installing org's id, so "whose kind is this" has an answer for every
 -- row that needs one and no answer invented for the rows that do not.
 --
--- ON DELETE CASCADE rather than RESTRICT, unlike sessions.kind: deleting an org
--- takes its spaces and so its sessions with it, and a kind row left behind
--- would name an owner that no longer exists.
+-- ON DELETE CASCADE rather than RESTRICT, unlike sessions.kind. It is not that
+-- an org delete sweeps the kind rows up on its way past: spaces.org_id is
+-- RESTRICT and sessions.kind is RESTRICT, so an org that still holds a space
+-- cannot be deleted at all and the cascade never runs. It is reachable only
+-- for an org with nothing left in it, and there RESTRICT would be the wrong
+-- answer — a retired kind row nobody references would block the delete
+-- forever, and a kind row naming an owner that no longer exists is worse than
+-- no row. So: the outcome is that an org holding rooms aborts the delete, and
+-- an emptied org takes its own kind rows with it.
 alter table session_kinds
     add column org_id uuid references orgs (id) on delete cascade;
+
+-- Every row needs an owner except the instance's own. NULL is reserved for the
+-- core kinds, and it has to be reserved rather than merely conventional: every
+-- org-matched query below and in internal/plugin joins on org_id, and SQL
+-- equality never matches NULL, so a plugin row that slipped in without an org
+-- would be un-retirable, would not block its install's uninstall, and would
+-- stay on offer to every org on the instance. Nothing writes such a row today.
+-- The constraint is what keeps that true.
+alter table session_kinds
+    add constraint session_kinds_org_required
+    check (org_id is not null or provider = 'core');
 
 -- Every offerable-kinds read is "what may this org create", so it is the org
 -- that is filtered on.

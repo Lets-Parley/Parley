@@ -135,10 +135,132 @@ func TestAnInstallCannotClaimAnotherOrgsKindName(t *testing.T) {
 	}
 }
 
+// Two orgs may run plugins of the same name, so the kind name — which is
+// instance-wide, because sessions.kind is a foreign key to it — is the thing
+// they can collide on. The second org is refused rather than quietly taking
+// over the first org's rooms.
+//
+// The provider name is deliberately identical on both sides. seedKinds' upsert
+// predicate ANDs the provider with the org, so a rival install with a
+// *different* provider name is refused by the provider half alone and proves
+// nothing about the org half: delete the org predicate and such a test stays
+// green. This is the variant where the org is the only thing that differs, and
+// so the only thing that can be doing the refusing.
+func TestTwoOrgsRunningTheSamePluginNameDoNotShareAKind(t *testing.T) {
+	pool := testPool(t)
+	s := &Store{Pool: pool}
+	ctx := context.Background()
+	kind := kindName(t)
+	installNo++
+	name := fmt.Sprintf("plug-%d-%d", time.Now().UnixNano(), installNo)
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, "delete from session_kinds where kind = $1", kind) })
+
+	if _, err := s.Install(ctx, InstallRequest{
+		OrgID: testOrgID, Name: name, Version: "1.0.0", QuotaBytes: 1024,
+		Kinds: []KindDef{{Kind: kind, Display: "Retrospective"}},
+	}); err != nil {
+		t.Fatalf("the first org installing its own ceremony: %v", err)
+	}
+
+	other := newOrg(t, pool)
+	_, err := s.Install(ctx, InstallRequest{
+		OrgID: other, Name: name, Version: "1.0.0", QuotaBytes: 1024,
+		Kinds: []KindDef{{Kind: kind, Display: "Mine Now"}},
+	})
+	if !errors.Is(err, ErrKindTaken) {
+		t.Fatalf("a same-named plugin in another org claiming the kind: got %v, want ErrKindTaken", err)
+	}
+	var owner, display string
+	if err := pool.QueryRow(ctx,
+		"select org_id::text, display from session_kinds where kind = $1", kind).Scan(&owner, &display); err != nil {
+		t.Fatal(err)
+	}
+	if owner != testOrgID {
+		t.Fatalf("the kind now belongs to %s, want the org that installed it", owner)
+	}
+	if display != "Retrospective" {
+		t.Fatalf("display = %q: the rival install overwrote the owning org's row", display)
+	}
+}
+
+// A manifest is untrusted, and a declaration the host will not honour is
+// refused at install rather than at enable. The verb is the case that matters
+// most: it is upper-cased before it is screened, because a manifest writing
+// "get" used to pass session.Registry's comparison against http.MethodGet and
+// then never match the dispatcher's exact comparison either — an action that
+// installed, enabled and could never be called.
+func TestAManifestDeclaringAKindTheHostWillNotHonourIsRefusedAtInstall(t *testing.T) {
+	pool := testPool(t)
+	s := &Store{Pool: pool}
+	ctx := context.Background()
+	good := kindName(t)
+
+	for _, tc := range []struct {
+		name string
+		def  KindDef
+	}{
+		{"an empty kind name", KindDef{Kind: "", Display: "Retrospective"}},
+		{"a kind name with a path segment in it", KindDef{Kind: "retro/../poker", Display: "Retrospective"}},
+		{"a kind name shouting in capitals", KindDef{Kind: "Retro", Display: "Retrospective"}},
+		{"a kind name longer than the column", KindDef{Kind: strings.Repeat("a", 65), Display: "Retrospective"}},
+		{"an empty display name", KindDef{Kind: good, Display: ""}},
+		{"a display name longer than the column", KindDef{Kind: good, Display: strings.Repeat("a", 65)}},
+		{"a lower-case get, which reads as a verb the registry would refuse", KindDef{
+			Kind: good, Display: "Retrospective",
+			Actions: []ActionDef{{Name: "peek", Verb: "get"}}}},
+		{"a verb that is not a verb", KindDef{
+			Kind: good, Display: "Retrospective",
+			Actions: []ActionDef{{Name: "gather", Verb: "YOINK"}}}},
+		{"an empty action name", KindDef{
+			Kind: good, Display: "Retrospective",
+			Actions: []ActionDef{{Name: "", Verb: http.MethodPost}}}},
+		{"the same kind twice", KindDef{Kind: good, Display: "Retrospective"}},
+	} {
+		defs := []KindDef{tc.def}
+		if tc.name == "the same kind twice" {
+			defs = append(defs, tc.def)
+		}
+		installNo++
+		name := fmt.Sprintf("plug-%d-%d", time.Now().UnixNano(), installNo)
+		_, err := s.Install(ctx, InstallRequest{
+			OrgID: testOrgID, Name: name, Version: "1.0.0", QuotaBytes: 1024, Kinds: defs,
+		})
+		if !errors.Is(err, ErrBadKindDef) {
+			t.Errorf("%s: got %v, want ErrBadKindDef", tc.name, err)
+		}
+		// Nothing at all was written: the screen runs before the transaction.
+		var installs int
+		if err := pool.QueryRow(ctx,
+			"select count(*) from plugin_installs where name = $1", name).Scan(&installs); err != nil {
+			t.Fatal(err)
+		}
+		if installs != 0 {
+			t.Errorf("%s: a refused manifest left an install behind", tc.name)
+		}
+	}
+
+	// And a well-formed manifest whose verb merely needs canonicalising is
+	// accepted, with the canonical form stored — so the screen is a
+	// normalisation and not only a refusal.
+	kind := kindName(t)
+	in := installWithKinds(t, s, testOrgID, KindDef{
+		Kind: kind, Display: "Retrospective",
+		Actions: []ActionDef{{Name: "gather", Verb: "post"}},
+	})
+	defs, err := s.ProvidedKinds(ctx, in.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(defs) != 1 || len(defs[0].Actions) != 1 || defs[0].Actions[0].Verb != http.MethodPost {
+		t.Fatalf("the stored actions are %+v, want the verb canonicalised to POST", defs)
+	}
+}
+
 // A GET action is refused whoever declares it: the cross-site guard exempts
 // GET and HEAD, so an action answering one would be a write with no protection
-// at all. The refusal lives in session.Registry and so covers a kind that
-// arrives from a manifest exactly as it covers one written in Go.
+// at all. There are two layers and both matter — the install screen refuses the
+// manifest, and session.Registry refuses the registration for a kind that
+// somehow reached it anyway.
 func TestAPluginCannotDeclareAnActionThatAnswersGET(t *testing.T) {
 	pool := testPool(t)
 	s := &Store{Pool: pool}
@@ -148,13 +270,25 @@ func TestAPluginCannotDeclareAnActionThatAnswersGET(t *testing.T) {
 	h.Kinds = kinds
 
 	kind := kindName(t)
-	in := installWithKinds(t, s, testOrgID, KindDef{
+	installNo++
+	name := fmt.Sprintf("plug-%d-%d", time.Now().UnixNano(), installNo)
+	_, err := s.Install(ctx, InstallRequest{
+		OrgID: testOrgID, Name: name, Version: "1.0.0", QuotaBytes: 1024,
+		Kinds: []KindDef{{Kind: kind, Display: "Retrospective",
+			Actions: []ActionDef{{Name: "peek", Verb: http.MethodGet}}}},
+	})
+	if !errors.Is(err, ErrBadKindDef) {
+		t.Fatalf("installing a manifest with a GET action: got %v, want ErrBadKindDef", err)
+	}
+
+	// The registry's own refusal, which is the layer that covers a kind
+	// written in Go as well as one that arrived from a manifest.
+	err = kinds.Register(h.PluginKind(Install{ID: "x", OrgID: testOrgID}, KindDef{
 		Kind: kind, Display: "Retrospective",
 		Actions: []ActionDef{{Name: "peek", Verb: http.MethodGet}},
-	})
-	err := h.OfferKinds(ctx, in.ID)
+	}))
 	if err == nil {
-		t.Fatal("a plugin declared an action answering GET and it was registered")
+		t.Fatal("a kind with an action answering GET was registered")
 	}
 	if !strings.Contains(err.Error(), "cross-site guard") {
 		t.Fatalf("the refusal is %q and does not say why", err)

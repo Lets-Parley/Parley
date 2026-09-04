@@ -234,6 +234,18 @@ type Envelope struct {
 	Participants []Person  `json:"participants"`
 	ServerTime   time.Time `json:"serverTime"`
 	State        any       `json:"state"`
+	// KindUnavailable says the room's ceremony is not currently registered —
+	// its plugin is disabled, or the process has not offered it yet. State is
+	// then null, because the only code that can build it is not running.
+	//
+	// The room still loads. A session outlives the install that offered its
+	// kind by design (sessions.kind is a foreign key to a row that is retired
+	// rather than deleted), so "the plugin is off" has to be a state the room
+	// renders and not a 500: an operator switching a plugin off mid-meeting
+	// would otherwise break every room of that kind, including the history of
+	// rooms that have already ended, and switching it back on has to put them
+	// straight back.
+	KindUnavailable bool `json:"kindUnavailable,omitempty"`
 }
 
 // Person is a roster entry carried in the envelope so clients can render
@@ -355,13 +367,17 @@ func (r *Registry) buildEnvelope(ctx context.Context, pool *pgxpool.Pool, presen
 	if err != nil {
 		return Envelope{}, err
 	}
-	k, ok := r.read()[sess.Kind]
-	if !ok {
-		return Envelope{}, fmt.Errorf("unknown session kind %q", sess.Kind)
-	}
-	state, err := k.State(ctx, pool, sess)
-	if err != nil {
-		return Envelope{}, err
+	// A kind that is not registered is a degraded room rather than an error.
+	// See Envelope.KindUnavailable: nothing here is destructive, the session
+	// row is untouched, and re-registering the kind restores the room exactly
+	// as it was.
+	k, known := r.read()[sess.Kind]
+	var state any
+	if known {
+		state, err = k.State(ctx, pool, sess)
+		if err != nil {
+			return Envelope{}, err
+		}
 	}
 	slug, orgSlug, people, err := roster(ctx, pool, sess.SpaceID, sess.ID, pastGuests)
 	if err != nil {
@@ -395,6 +411,7 @@ func (r *Registry) buildEnvelope(ctx context.Context, pool *pgxpool.Pool, presen
 		Participants:         people,
 		ServerTime:           time.Now().UTC(),
 		State:                state,
+		KindUnavailable:      !known,
 	}
 	if !facConnected {
 		t := sess.FacilitatorSeenAt.UTC()

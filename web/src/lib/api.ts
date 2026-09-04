@@ -261,6 +261,12 @@ export type Envelope = {
   participants: Person[];
   serverTime: string;
   state: PokerState;
+  /**
+   * The room's ceremony is not currently running — its plugin is switched off.
+   * The room and its history are intact and come back when it is switched on
+   * again, so this is a state to render rather than an error to raise.
+   */
+  kindUnavailable?: boolean;
 };
 
 /**

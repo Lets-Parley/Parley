@@ -347,6 +347,21 @@ mutate "retiring a disabled plugin's session kinds" \
     'TestEnablingAnInstallOffersItsKindAndDisablingRetiresIt' \
     host.go 'h.RetireKinds(defs)' '_ = defs'
 
+# A kind name is instance-wide, so two orgs running plugins of the same name
+# collide on it. Without the org half of the upsert predicate the second org's
+# install silently takes over the first org's kind row — and with it every room
+# already created against it.
+mutate "the org half of the session-kind upsert predicate" \
+    'TestTwoOrgsRunningTheSamePluginNameDoNotShareAKind' \
+    kinds.go 'and session_kinds.org_id is not distinct from excluded.org_id' 'and true'
+
+# A manifest's action verb is canonicalised and then screened against a closed
+# set. Without the screen a manifest declaring anything at all installs, and the
+# action it declares is either dead or reaches the dispatcher unscreened.
+mutate "the closed set of verbs an action may answer" \
+    'TestAManifestDeclaringAKindTheHostWillNotHonourIsRefusedAtInstall' \
+    kinds.go 'if !actionVerbs[a.Verb] {' 'if false {'
+
 target internal/api
 
 mutate "the plugin frame's route-group carve-out" \
@@ -448,6 +463,14 @@ mutate "the audit's success gate" \
 mutate "the org boundary on a plugin's view of a room" \
     'TestAPluginCannotReadOrPatchAnotherOrgsRoom' \
     pluginsessions.go 'func sameOrg(sessionOrgID, installOrgID string) bool { return sessionOrgID == installOrgID }' 'func sameOrg(sessionOrgID, installOrgID string) bool { return true } //nolint'
+
+# The org boundary is necessary and is not sufficient. Revealing a poker room is
+# a facilitator-only action; without this check a plugin patches {"revealed":
+# true} at a poker room in its own org and turns every hidden vote in it into a
+# readable one, having never been the facilitator of anything.
+mutate "the kind-ownership boundary on a plugin's view of a room" \
+    'TestAPluginCannotReadOrRevealAPokerRoomItDoesNotProvide' \
+    pluginsessions.go 'func ownsKind(installProvidesTheKind bool) bool { return installProvidesTheKind }' 'func ownsKind(installProvidesTheKind bool) bool { return true } //nolint'
 
 mutate "the ended-room guard on a plugin patch" \
     'TestAPluginPatchIsBoundedAndRefusedOnAnEndedRoom' \

@@ -88,9 +88,17 @@ func (s *Store) Install(ctx context.Context, req InstallRequest) (Install, error
 	if err := checkGrants(s.Cipher, req.Name, req.Grants); err != nil {
 		return Install{}, err
 	}
+	// Screened before the transaction opens, so a manifest declaring a name or
+	// a verb the host will not accept is refused at install rather than
+	// installing a ceremony that can never be dispatched.
+	kinds, err := canonicalKinds(req.Kinds)
+	if err != nil {
+		return Install{}, err
+	}
+	req.Kinds = kinds
 
 	var out Install
-	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(ctx, `
 			insert into plugin_installs (org_id, name, version, kv_quota_bytes)
 			values ($1, $2, $3, $4)

@@ -62,70 +62,232 @@ func defaultOrg(t *testing.T, pool *pgxpool.Pool) string {
 	return org.ID
 }
 
-// A plugin reads a room through the same envelope a browser is sent, so the
-// kind's own redaction is what it gets. Poker's pre-reveal state names who has
-// voted and never what they voted, and that is the line this pins: a plugin
-// with session:read granted still cannot see a vote value before the reveal.
-func TestAPluginCannotReadAVoteValueBeforeTheReveal(t *testing.T) {
+// The room a plugin can reach is a room of its own ceremony. A poker room is
+// provider 'core' with no org, so no install provides it — and this is the
+// finding that made the check exist: patching {"revealed": true} at a poker
+// room is the facilitator-only reveal, reached without being the facilitator,
+// and it turns every hidden vote in the room into a readable one.
+//
+// So this asserts the refusal *and* the consequence: after the refused patch
+// the room is still hidden, and the votes are still not there to read.
+func TestAPluginCannotReadOrRevealAPokerRoomItDoesNotProvide(t *testing.T) {
 	srv, pool, plugins, host := hostServer(t)
 	ctx := context.Background()
-	in := installIn(t, plugins, defaultOrg(t, pool))
+	// An install of this org, holding a ceremony of its own — so what shuts it
+	// out of the poker room is the poker room's kind and not a missing org or
+	// a plugin that provides nothing at all.
+	kind := "retro" + randomKindSuffix(t)
+	in := installIn(t, plugins, defaultOrg(t, pool), plugin.KindDef{Kind: kind, Display: "Retrospective"})
 
-	fac, member, id := setupSession(t, srv, "Plugin Reads A Room")
-	voterID := userID(t, srv, member)
+	fac, member, id := setupSession(t, srv, "Plugin Eyes A Poker Room")
 	story := addStory(t, srv, id, "Login page", fac)
 	selectStory(t, srv, id, story, fac)
 	if resp := vote(t, srv, id, story, "13", member); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("vote: %d", resp.StatusCode)
 	}
 
-	if host.Sessions == nil {
-		t.Fatal("the host has no session surface, so parley_session_get answers ErrNoSessions")
+	if err := host.Sessions.Patch(ctx, in.ID, id, []byte(`{"revealed":true}`)); err == nil {
+		t.Fatal("a plugin revealed a poker room it does not provide")
 	}
-	state, err := host.Sessions.Read(ctx, in.ID, id)
-	if err != nil {
-		t.Fatalf("reading a room of its own org: %v", err)
+	if err := host.Sessions.Patch(ctx, in.ID, id, []byte(`{"phase":"mine"}`)); err == nil {
+		t.Fatal("a plugin moved the phase of a poker room it does not provide")
 	}
-	// Pre-reveal poker emits who has voted and omits the votes entirely, so
-	// the absence of the votes array is the redaction itself rather than a
-	// value that happens not to appear.
-	if strings.Contains(string(state), `"votes"`) {
-		t.Fatalf("a pre-reveal vote value is readable by a plugin: %s", state)
-	}
-	if !strings.Contains(string(state), `"votedUserIds":["`+voterID+`"]`) {
-		t.Fatalf("the plugin was not given the room's state at all: %s", state)
+	if _, err := host.Sessions.Read(ctx, in.ID, id); err == nil {
+		t.Fatal("a plugin read a poker room it does not provide")
 	}
 
-	// After the reveal the same read shows it, which is what says the check
-	// above is about the reveal and not about the read failing.
-	if resp, body := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/reveal", "", fac); resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("reveal: %d %v", resp.StatusCode, body)
-	}
-	revealed, err := host.Sessions.Read(ctx, in.ID, id)
+	// The consequence, not just the return value: the reveal did not happen,
+	// so the votes are still hidden from everybody who can see the room.
+	sess, err := (&store.Sessions{Pool: pool}).ByID(ctx, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(revealed), `"value":"13"`) {
-		t.Fatalf("the vote is still hidden after the reveal, so the check above proves nothing: %s", revealed)
+	if sess.Revealed {
+		t.Fatal("the refused patch revealed the room anyway")
+	}
+	resp, body := doJSON(t, srv, "GET", "/api/sessions/"+id, "", member)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("reading the room back: %d", resp.StatusCode)
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"value":"13"`) {
+		t.Fatalf("the vote is readable after the refused reveal: %s", raw)
 	}
 }
 
-// An install belongs to one org and so does everything it may touch. A room in
-// another org answers the same "no such session" as one that does not exist.
+// A plugin reads a room of its own ceremony through the same envelope a
+// browser is sent, built by the session registry. That is what makes the
+// surface a projection rather than a filter: whatever the kind's own State
+// decided is client-safe is what a plugin gets, and there is no second path
+// that reaches storage directly.
+func TestAPluginReadsItsOwnRoomThroughTheRegistryEnvelope(t *testing.T) {
+	srv, pool, plugins, host := hostServer(t)
+	ctx := context.Background()
+	orgID := defaultOrg(t, pool)
+	kind := "retro" + randomKindSuffix(t)
+	in := installIn(t, plugins, orgID, plugin.KindDef{Kind: kind, Display: "Retrospective"})
+
+	// The kind's State is the only thing that decides the payload. It emits a
+	// public column and deliberately never emits the secret one, which is the
+	// redaction this asserts: a plugin gets the projection, not the row.
+	registerStubKind(t, host, kind, in.OrgID, func() any {
+		return map[string]any{"columns": []string{"went-well"}}
+	})
+
+	fac := signup(t, srv, "Fay")
+	_, sp := createSpace(t, srv, "Own Ceremony Room", fac)
+	resp, body := createSession(t, srv, sp["slug"].(string), kind, "Retro", fac)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("creating a room of the plugin's own kind: %d %v", resp.StatusCode, body)
+	}
+	id := body["id"].(string)
+
+	state, err := host.Sessions.Read(ctx, in.ID, id)
+	if err != nil {
+		t.Fatalf("reading a room of its own ceremony: %v", err)
+	}
+	if !strings.Contains(string(state), `"columns":["went-well"]`) {
+		t.Fatalf("the plugin was not given its own room's state: %s", state)
+	}
+	if err := host.Sessions.Patch(ctx, in.ID, id, []byte(`{"phase":"gathering"}`)); err != nil {
+		t.Fatalf("patching a room of its own ceremony: %v", err)
+	}
+}
+
+// registerStubKind puts a kind into the live registry without a guest behind
+// it. Nothing here runs WASM, so a plugin-provided kind's State has to come
+// from somewhere: this is that somewhere, and it stands in for the guest call
+// h.PluginKind would make.
+func registerStubKind(t *testing.T, host *plugin.Host, kind, orgID string, state func() any) {
+	t.Helper()
+	if err := host.Kinds.Register(session.Kind{
+		Name:      kind,
+		OrgID:     orgID,
+		NewConfig: func() any { return new(json.RawMessage) },
+		State: func(context.Context, *pgxpool.Pool, store.Session) (any, error) {
+			return state(), nil
+		},
+		Actions: map[string]session.Action{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = host.Kinds.Unregister(kind) })
+}
+
+// Switching a plugin off takes its ceremony away while rooms of it are still
+// open. Those rooms outlive the install by design — sessions.kind is a foreign
+// key to a row that is retired rather than deleted — so the room has to load in
+// a degraded state and come back untouched when the plugin is switched on
+// again. Erroring instead would mean an operator disabling a plugin broke every
+// room of its kind, including the history of rooms that had already ended.
+func TestARoomOfADisabledPluginsKindStillLoadsAndComesBack(t *testing.T) {
+	srv, pool, plugins, host := hostServer(t)
+	ctx := context.Background()
+	orgID := defaultOrg(t, pool)
+	kind := "retro" + randomKindSuffix(t)
+	in := installIn(t, plugins, orgID, plugin.KindDef{Kind: kind, Display: "Retrospective"})
+	registerStubKind(t, host, kind, in.OrgID, func() any {
+		return map[string]any{"columns": []string{"went-well"}}
+	})
+
+	fac := signup(t, srv, "Fay")
+	_, sp := createSpace(t, srv, "Disabled Ceremony Room", fac)
+	resp, body := createSession(t, srv, sp["slug"].(string), kind, "Retro", fac)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("creating a room of a plugin-provided kind: %d %v", resp.StatusCode, body)
+	}
+	id := body["id"].(string)
+
+	// The real disable path: it reads what the install provides and retires
+	// exactly those kinds out of the live registry.
+	if err := host.Disable(ctx, in.ID, "an operator switched it off"); err != nil {
+		t.Fatalf("disabling the plugin: %v", err)
+	}
+	if host.Kinds.(*session.Registry).Known(kind) {
+		t.Fatal("the disable left the ceremony registered, so the rest of this proves nothing")
+	}
+
+	resp, body = doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("a room whose plugin is switched off: got %d, want 200", resp.StatusCode)
+	}
+	if body["kindUnavailable"] != true {
+		t.Fatalf("the room does not say its ceremony is unavailable: %v", body)
+	}
+	if body["state"] != nil {
+		t.Fatalf("a room with no ceremony running carried a state payload: %v", body["state"])
+	}
+	if body["title"] != "Retro" {
+		t.Fatalf("the degraded room lost the session's own data: %v", body)
+	}
+
+	// And switching it back on restores the room exactly as it was. The
+	// registration stands in for OfferKinds, which would build a guest-backed
+	// kind and there is no guest here.
+	registerStubKind(t, host, kind, in.OrgID, func() any {
+		return map[string]any{"columns": []string{"went-well"}}
+	})
+	resp, body = doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("a room whose plugin is switched back on: %d", resp.StatusCode)
+	}
+	if body["kindUnavailable"] != nil {
+		t.Fatalf("the room still reports its ceremony unavailable: %v", body)
+	}
+	raw, err := json.Marshal(body["state"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"columns":["went-well"]`) {
+		t.Fatalf("the restored room did not get its ceremony's state back: %s", raw)
+	}
+}
+
+// An install belongs to one org and so does everything it may touch.
+//
+// Isolating that from the kind-ownership check takes some care, and the care is
+// the point: through the API the two overlap, because a room can only ever be
+// created of a kind its own org is offered. So the room here is one of the
+// install's *own* ceremony — ownership satisfied — and its space is then moved
+// into another org underneath it, which is the only shape where the org check
+// is the thing doing the refusing. Break sameOrg and this test goes red; break
+// ownsKind and it does not, which is what says the two guards are tested apart.
 func TestAPluginCannotReadOrPatchAnotherOrgsRoom(t *testing.T) {
 	srv, pool, plugins, host := hostServer(t)
 	ctx := context.Background()
-	other := newOrgRow(t, pool)
-	in := installIn(t, plugins, other)
+	orgID := defaultOrg(t, pool)
+	kind := "retro" + randomKindSuffix(t)
+	in := installIn(t, plugins, orgID, plugin.KindDef{Kind: kind, Display: "Retrospective"})
+	registerStubKind(t, host, kind, in.OrgID, func() any { return map[string]any{} })
 
-	fac, _, id := setupSession(t, srv, "Another Orgs Room")
-	_ = fac
+	fac := signup(t, srv, "Fay")
+	_, sp := createSpace(t, srv, "Room That Moves Org", fac)
+	resp, body := createSession(t, srv, sp["slug"].(string), kind, "Retro", fac)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("creating a room of the plugin's own kind: %d %v", resp.StatusCode, body)
+	}
+	id := body["id"].(string)
+
+	// Reachable before the move, so the refusals below are about the org and
+	// not about a room the plugin could never touch in the first place.
+	if _, err := host.Sessions.Read(ctx, in.ID, id); err != nil {
+		t.Fatalf("reading its own room before the move: %v", err)
+	}
+
+	other := newOrgRow(t, pool)
+	if _, err := pool.Exec(ctx,
+		"update spaces set org_id = $1 where slug = $2", other, sp["slug"]); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := host.Sessions.Read(ctx, in.ID, id); err == nil {
-		t.Fatal("a plugin installed in another org read this org's room")
+		t.Fatal("a plugin read a room that is not in its org")
 	}
 	if err := host.Sessions.Patch(ctx, in.ID, id, []byte(`{"phase":"mine"}`)); err == nil {
-		t.Fatal("a plugin installed in another org patched this org's room")
+		t.Fatal("a plugin patched a room that is not in its org")
 	}
 }
 
@@ -134,8 +296,18 @@ func TestAPluginCannotReadOrPatchAnotherOrgsRoom(t *testing.T) {
 func TestAPluginPatchIsBoundedAndRefusedOnAnEndedRoom(t *testing.T) {
 	srv, pool, plugins, host := hostServer(t)
 	ctx := context.Background()
-	in := installIn(t, plugins, defaultOrg(t, pool))
-	fac, _, id := setupSession(t, srv, "Plugin Patches A Room")
+	orgID := defaultOrg(t, pool)
+	kind := "retro" + randomKindSuffix(t)
+	in := installIn(t, plugins, orgID, plugin.KindDef{Kind: kind, Display: "Retrospective"})
+	registerStubKind(t, host, kind, in.OrgID, func() any { return map[string]any{} })
+
+	fac := signup(t, srv, "Fay")
+	_, sp := createSpace(t, srv, "Plugin Patches A Room", fac)
+	resp, body := createSession(t, srv, sp["slug"].(string), kind, "Retro", fac)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("creating a room of the plugin's own kind: %d %v", resp.StatusCode, body)
+	}
+	id := body["id"].(string)
 
 	if err := host.Sessions.Patch(ctx, in.ID, id, []byte(`{"endedAt":"2020-01-01T00:00:00Z"}`)); err == nil {
 		t.Fatal("a plugin closed a room through a field the patch document does not have")

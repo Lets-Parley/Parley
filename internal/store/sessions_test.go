@@ -262,9 +262,14 @@ func TestSessionOfARetiredKindStillLoads(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 
+	sp := newSpace(t, pool)
 	kind := "retro-" + randSuffix(t)
-	if _, err := pool.Exec(ctx,
-		"insert into session_kinds (kind, provider, display) values ($1, 'test', 'Retro')", kind); err != nil {
+	// A kind that is not the core's belongs to an org — session_kinds_org_required
+	// says so — so the row carries the org of the space the room lands in.
+	if _, err := pool.Exec(ctx, `
+		insert into session_kinds (kind, provider, display, org_id)
+		values ($1, 'test', 'Retro', (select org_id from spaces where id = $2))`,
+		kind, sp.ID); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -280,7 +285,6 @@ func TestSessionOfARetiredKindStillLoads(t *testing.T) {
 		}
 	})
 
-	sp := newSpace(t, pool)
 	u, _ := newUser(t, pool, "Priya Raman")
 	sessions := &Sessions{Pool: pool}
 	sess, err := sessions.Create(ctx, sp.ID, kind, "Retro", []byte(`{}`), u.ID, 500)

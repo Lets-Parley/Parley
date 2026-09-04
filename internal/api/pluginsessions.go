@@ -26,15 +26,27 @@ import (
 //     org (0034) and so does the kind it provides (0035); a session id from
 //     another org answers the same "no such session" as one that does not
 //     exist, so the surface cannot be used to discover other orgs' rooms.
+//   - A plugin can only reach rooms running a ceremony it provides. The org
+//     boundary alone is not enough and it is worth being blunt about why: the
+//     human reveal is a facilitator-only action, and a plugin patching
+//     {"revealed": true} on a poker room in its own org would walk straight
+//     past that check and turn every hidden vote in the room into a readable
+//     one. A grant does not save it either — an unscoped session:patch means
+//     "any session id", so consent could not narrow this even if an operator
+//     wanted to. The boundary has to be structural, so it is: an install
+//     reaches its own ceremonies and nothing else, and a core kind (provider
+//     'core', no org) is provided by no install and so is closed to every
+//     plugin on the instance.
 type pluginSessions struct{ app *app }
 
-// errForeignSession is the refusal for a session outside the install's org,
-// and for one that does not exist. They are deliberately the same answer.
+// errForeignSession is the refusal for a session outside the install's org, for
+// one running a kind the install does not provide, and for one that does not
+// exist. They are deliberately the same answer.
 var errForeignSession = errors.New("no such session")
 
-// sessionInOrg resolves a session the install is allowed to touch. It is the
+// ownSession resolves a session the install is allowed to touch. It is the
 // guard: both host functions call it before anything else.
-func (p *pluginSessions) sessionInOrg(ctx context.Context, installID, sessionID string) (store.Session, error) {
+func (p *pluginSessions) ownSession(ctx context.Context, installID, sessionID string) (store.Session, error) {
 	state, err := p.app.plugins.State(ctx, installID)
 	if err != nil {
 		return store.Session{}, err
@@ -53,6 +65,13 @@ func (p *pluginSessions) sessionInOrg(ctx context.Context, installID, sessionID 
 	if !sameOrg(org.ID, state.Install.OrgID) {
 		return store.Session{}, errForeignSession
 	}
+	provides, err := p.app.plugins.ProvidesKind(ctx, installID, sess.Kind)
+	if err != nil {
+		return store.Session{}, err
+	}
+	if !ownsKind(provides) {
+		return store.Session{}, errForeignSession
+	}
 	return sess, nil
 }
 
@@ -62,10 +81,16 @@ func (p *pluginSessions) sessionInOrg(ctx context.Context, installID, sessionID 
 // rooms.
 func sameOrg(sessionOrgID, installOrgID string) bool { return sessionOrgID == installOrgID }
 
+// ownsKind is the kind-ownership boundary, kept as its own function for the
+// same two reasons sameOrg is: one place to break, one place to read. The
+// argument is Store.ProvidesKind's answer — whether the session_kinds row for
+// this room names this install as its provider.
+func ownsKind(installProvidesTheKind bool) bool { return installProvidesTheKind }
+
 // Read returns the room's state as the browser gets it: redacted by the kind's
 // own StateFunc, which is the only place that decides what is client-safe.
 func (p *pluginSessions) Read(ctx context.Context, installID, sessionID string) ([]byte, error) {
-	sess, err := p.sessionInOrg(ctx, installID, sessionID)
+	sess, err := p.ownSession(ctx, installID, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +118,7 @@ type sessionPatch struct {
 const maxPhase = 64
 
 func (p *pluginSessions) Patch(ctx context.Context, installID, sessionID string, patch []byte) error {
-	sess, err := p.sessionInOrg(ctx, installID, sessionID)
+	sess, err := p.ownSession(ctx, installID, sessionID)
 	if err != nil {
 		return err
 	}
