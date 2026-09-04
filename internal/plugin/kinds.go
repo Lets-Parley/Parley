@@ -160,6 +160,30 @@ func seedKinds(ctx context.Context, tx pgx.Tx, orgID, provider string, kinds []K
 	return nil
 }
 
+// syncKinds writes the kinds this version provides and retires any this
+// provider previously offered that the new package no longer declares. It
+// belongs in the same transaction as the version bump: an upgrade that
+// records a new version without the new kinds is a silent drop.
+func syncKinds(ctx context.Context, tx pgx.Tx, orgID, provider string, kinds []KindDef) error {
+	if err := seedKinds(ctx, tx, orgID, provider, kinds); err != nil {
+		return err
+	}
+	names := make([]string, len(kinds))
+	for i, k := range kinds {
+		names[i] = k.Kind
+	}
+	if _, err := tx.Exec(ctx, `
+		update session_kinds set retired_at = now()
+		where retired_at is null
+		  and provider = $1
+		  and org_id is not distinct from $2
+		  and not (kind = any($3::text[]))`,
+		provider, orgID, names); err != nil {
+		return fmt.Errorf("retiring kinds %s no longer provides: %w", provider, err)
+	}
+	return nil
+}
+
 // ErrKindTaken is returned when a plugin declares a session kind whose name
 // already belongs to somebody else — another org's install, or the core.
 var ErrKindTaken = fmt.Errorf("that session kind name is already taken on this instance")

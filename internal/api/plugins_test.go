@@ -37,9 +37,16 @@ func newPluginName(t *testing.T) string {
 }
 
 func pluginPkg(name, version string, caps ...map[string]string) string {
+	return pluginPkgWith(name, version, nil, caps...)
+}
+
+func pluginPkgWith(name, version string, kinds []plugin.KindDef, caps ...map[string]string) string {
 	body := map[string]any{
 		"manifest": 1, "kind": "plugin", "name": name, "version": version,
 		"capabilities": caps,
+	}
+	if kinds != nil {
+		body["kinds"] = kinds
 	}
 	out, _ := json.Marshal(body)
 	return string(out)
@@ -519,6 +526,231 @@ func TestPluginJSONNeverSendsNullForADeclaredArray(t *testing.T) {
 	}
 	if !strings.Contains(previewRaw, `"added":[]`) || !strings.Contains(previewRaw, `"removed":[]`) {
 		t.Fatalf("a fresh-install preview does not carry added/removed as empty arrays: %s", previewRaw)
+	}
+}
+
+// A package that declares a session kind is installed with that kind on the
+// record, so ProvidedKinds can read it back. That is the hole the HTTP path
+// had: InstallRequest.Kinds existed and the store wrote it, but the upload
+// never carried the field through.
+func TestInstallPackageDeclaringAKindPersistsIt(t *testing.T) {
+	srv, _, plugins, admin, _ := pluginServer(t)
+	name := newPluginName(t)
+	kind := fmt.Sprintf("board-%d", time.Now().UnixNano())
+	pkg := pluginPkgWith(name, "1.0.0", []plugin.KindDef{{
+		Kind: kind, Display: "Board",
+		Actions: []plugin.ActionDef{{Name: "add-card", Verb: "POST"}},
+	}})
+
+	resp, body := doJSON(t, srv, "POST", pluginsPath,
+		`{"grantsAccepted":true,"package":`+pkg+`}`, admin)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("install = %d: %v", resp.StatusCode, body)
+	}
+	id, _ := body["id"].(string)
+	if id == "" {
+		t.Fatalf("the install came back with no id: %v", body)
+	}
+	got, err := plugins.ProvidedKinds(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Kind != kind || got[0].Display != "Board" {
+		t.Fatalf("ProvidedKinds = %#v, want the declared kind %q", got, kind)
+	}
+	if len(got[0].Actions) != 1 || got[0].Actions[0].Name != "add-card" || got[0].Actions[0].Verb != http.MethodPost {
+		t.Fatalf("the persisted actions = %#v, want add-card POST", got[0].Actions)
+	}
+}
+
+// A re-upload is the same POST as a first install, so the kinds it declares
+// have to land the same way: the upgrade path used to bump the version and
+// drop the field.
+func TestUpgradePackageDeclaringKindsPersistsThem(t *testing.T) {
+	srv, _, plugins, admin, _ := pluginServer(t)
+	name := newPluginName(t)
+	first := fmt.Sprintf("board-%d", time.Now().UnixNano())
+	next := fmt.Sprintf("stand-%d", time.Now().UnixNano())
+	v1 := pluginPkgWith(name, "1.0.0", []plugin.KindDef{{
+		Kind: first, Display: "Board",
+		Actions: []plugin.ActionDef{{Name: "add-card", Verb: "POST"}},
+	}})
+	resp, body := doJSON(t, srv, "POST", pluginsPath,
+		`{"grantsAccepted":true,"package":`+v1+`}`, admin)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("install = %d: %v", resp.StatusCode, body)
+	}
+	id, _ := body["id"].(string)
+
+	v2 := pluginPkgWith(name, "2.0.0", []plugin.KindDef{{
+		Kind: next, Display: "Standup",
+		Actions: []plugin.ActionDef{{Name: "tick", Verb: "POST"}},
+	}})
+	resp, body = doJSON(t, srv, "POST", pluginsPath,
+		`{"grantsAccepted":true,"package":`+v2+`}`, admin)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("upgrade = %d: %v", resp.StatusCode, body)
+	}
+	got, err := plugins.ProvidedKinds(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Kind != next || got[0].Display != "Standup" {
+		t.Fatalf("after upgrade ProvidedKinds = %#v, want only %q", got, next)
+	}
+}
+
+func TestUpgradePackageWithEmptyKindsRetiresTheOldOnes(t *testing.T) {
+	srv, _, plugins, admin, _ := pluginServer(t)
+	name := newPluginName(t)
+	kind := fmt.Sprintf("board-%d", time.Now().UnixNano())
+	v1 := pluginPkgWith(name, "1.0.0", []plugin.KindDef{{
+		Kind: kind, Display: "Board",
+		Actions: []plugin.ActionDef{{Name: "add-card", Verb: "POST"}},
+	}})
+	resp, body := doJSON(t, srv, "POST", pluginsPath,
+		`{"grantsAccepted":true,"package":`+v1+`}`, admin)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("install = %d: %v", resp.StatusCode, body)
+	}
+	id, _ := body["id"].(string)
+
+	v2 := pluginPkgWith(name, "2.0.0", []plugin.KindDef{})
+	resp, body = doJSON(t, srv, "POST", pluginsPath,
+		`{"grantsAccepted":true,"package":`+v2+`}`, admin)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("upgrade = %d: %v", resp.StatusCode, body)
+	}
+	got, err := plugins.ProvidedKinds(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("after an empty-kinds upgrade ProvidedKinds = %#v, want none", got)
+	}
+}
+
+func TestUpgradePackageWithABadKindIsRefused(t *testing.T) {
+	srv, _, plugins, admin, _ := pluginServer(t)
+	name := newPluginName(t)
+	kind := fmt.Sprintf("board-%d", time.Now().UnixNano())
+	v1 := pluginPkgWith(name, "1.0.0", []plugin.KindDef{{
+		Kind: kind, Display: "Board",
+		Actions: []plugin.ActionDef{{Name: "add-card", Verb: "POST"}},
+	}})
+	resp, body := doJSON(t, srv, "POST", pluginsPath,
+		`{"grantsAccepted":true,"package":`+v1+`}`, admin)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("install = %d: %v", resp.StatusCode, body)
+	}
+	id, _ := body["id"].(string)
+
+	v2 := pluginPkgWith(name, "2.0.0", []plugin.KindDef{{
+		Kind: "NOT_A_KIND", Display: "Broken",
+	}})
+	resp, body = doJSON(t, srv, "POST", pluginsPath,
+		`{"grantsAccepted":true,"package":`+v2+`}`, admin)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("a bad-kind upgrade = %d, want 400: %v", resp.StatusCode, body)
+	}
+	got, err := plugins.ProvidedKinds(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Kind != kind {
+		t.Fatalf("a refused upgrade changed ProvidedKinds to %#v", got)
+	}
+}
+
+// The consent screen is built from preview JSON. A package that declares a
+// ceremony has to show that ceremony there, not only "asks for no capabilities".
+func TestPreviewOfAPackageDeclaringAKindListsIt(t *testing.T) {
+	srv, _, _, admin, _ := pluginServer(t)
+	name := newPluginName(t)
+	kind := fmt.Sprintf("board-%d", time.Now().UnixNano())
+	pkg := pluginPkgWith(name, "1.0.0", []plugin.KindDef{{
+		Kind: kind, Display: "Board",
+		Actions: []plugin.ActionDef{{Name: "add-card", Verb: "POST"}},
+	}})
+	resp, body := doJSON(t, srv, "POST", pluginsPath+"/preview", pkg, admin)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("preview = %d: %v", resp.StatusCode, body)
+	}
+	kinds, _ := body["kinds"].([]any)
+	if len(kinds) != 1 {
+		t.Fatalf("preview kinds = %#v, want the declared kind", body["kinds"])
+	}
+	row, _ := kinds[0].(map[string]any)
+	if row["kind"] != kind || row["display"] != "Board" {
+		t.Fatalf("preview kind = %#v, want %q / Board", row, kind)
+	}
+}
+
+func TestPreviewWithoutKindsMarshalsAnEmptyArray(t *testing.T) {
+	srv, _, _, admin, _ := pluginServer(t)
+	raw := rawBody(t, srv, "POST", pluginsPath+"/preview", pluginPkg(newPluginName(t), "1.0.0"), admin)
+	if strings.Contains(raw, `"kinds":null`) {
+		t.Fatalf("preview marshals kinds as null: %s", raw)
+	}
+	if !strings.Contains(raw, `"kinds":[]`) {
+		t.Fatalf("preview does not carry kinds as an empty array: %s", raw)
+	}
+}
+
+// A kind name the host will not accept is a 400 at install, not a 201 that
+// silently drops the declaration — or a 500 that looks like Parley broke.
+func TestInstallPackageWithABadKindNameIsRefused(t *testing.T) {
+	srv, pool, _, admin, _ := pluginServer(t)
+	for _, tc := range []struct {
+		name string
+		def  plugin.KindDef
+	}{
+		{"an illegal kind name", plugin.KindDef{Kind: "NOT_A_KIND", Display: "Broken"}},
+		{"a missing display", plugin.KindDef{Kind: fmt.Sprintf("ok-%d", time.Now().UnixNano()), Display: ""}},
+		{"a GET action", plugin.KindDef{
+			Kind: fmt.Sprintf("ok-%d", time.Now().UnixNano()), Display: "Broken",
+			Actions: []plugin.ActionDef{{Name: "peek", Verb: http.MethodGet}},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			name := newPluginName(t)
+			pkg := pluginPkgWith(name, "1.0.0", []plugin.KindDef{tc.def})
+			resp, body := doJSON(t, srv, "POST", pluginsPath,
+				`{"grantsAccepted":true,"package":`+pkg+`}`, admin)
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("%s = %d, want 400: %v", tc.name, resp.StatusCode, body)
+			}
+			var n int
+			if err := pool.QueryRow(context.Background(),
+				`select count(*) from plugin_installs where name = $1`, name).Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			if n != 0 {
+				t.Fatalf("%s: the refused package was still installed (%d rows)", tc.name, n)
+			}
+		})
+	}
+}
+
+func TestInstallPackageClaimingATakenKindIsRefused(t *testing.T) {
+	srv, pool, _, admin, _ := pluginServer(t)
+	name := newPluginName(t)
+	pkg := pluginPkgWith(name, "1.0.0", []plugin.KindDef{{
+		Kind: "poker", Display: "Poker clone",
+		Actions: []plugin.ActionDef{{Name: "vote", Verb: "POST"}},
+	}})
+	resp, body := doJSON(t, srv, "POST", pluginsPath,
+		`{"grantsAccepted":true,"package":`+pkg+`}`, admin)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("claiming the core kind poker = %d, want 400: %v", resp.StatusCode, body)
+	}
+	var n int
+	if err := pool.QueryRow(context.Background(),
+		`select count(*) from plugin_installs where name = $1`, name).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("the refused package was still installed (%d rows)", n)
 	}
 }
 
