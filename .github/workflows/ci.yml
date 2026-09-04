@@ -213,7 +213,9 @@ jobs:
         with:
           node-version: 26
       - name: Test and build the retrospective plugin
-        run: make -C plugins/retrospective
+        run: |
+          make -C plugins/retrospective
+          git diff --exit-code -- plugins/retrospective/dist/retrospective-0.1.0.ui.js
 
   docker:
     name: docker build and smoke
@@ -886,7 +888,7 @@ jobs:
   gate:
     name: required / gate
     if: always()
-    needs: [go, web, site, dependency-review, dco, docker, container-scan, chart, buildx-arg-passthrough, guard-mutation, core-untouched]
+    needs: [go, web, site, dependency-review, dco, docker, container-scan, chart, buildx-arg-passthrough, guard-mutation, core-untouched, plugin-ceremonies]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every check
@@ -902,3 +904,4 @@ jobs:
           test "${{ needs.chart.result }}" = success
           test "${{ needs.guard-mutation.result }}" = success
           test "${{ needs.core-untouched.result }}" = success
+          test "${{ needs.plugin-ceremonies.result }}" = success

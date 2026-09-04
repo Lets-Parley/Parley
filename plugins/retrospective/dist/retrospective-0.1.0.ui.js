@@ -100,9 +100,9 @@
         var checked = selected[card.id] ? " checked" : "";
         html += '<article style="border:1px solid var(--color-line,#ddd);border-radius:6px;padding:8px;margin:0 0 8px">';
         html += '<label><input type="checkbox" data-act="select" data-id="' + esc(card.id) + '"' + checked + "> " + esc(card.text) + "</label>";
-        if (card.authorId) html += '<div style="color:var(--color-ink-soft,#555);font-size:0.85rem">' + esc(card.authorId) + "</div>";
+        if (board.revealed && card.authorId) html += '<div style="color:var(--color-ink-soft,#555);font-size:0.85rem">' + esc(card.authorId) + "</div>";
         html += '<div><button type="button" data-act="vote" data-id="' + esc(card.id) + '">vote</button> ';
-        html += "<span>" + (card.voteCount || 0) + "</span></div></article>";
+        html += "<span>" + esc(card.voteCount || 0) + "</span></div></article>";
       }
       html += "</div>";
       html += '<div style="display:flex;gap:6px;margin-top:8px">';

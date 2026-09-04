@@ -19,18 +19,28 @@ test("an empty board has three columns and no cards", () => {
 
 test("redactBoard hides authorship until reveal", () => {
   const board = emptyBoard();
-  applyAction(board, {
+  const card = applyAction(board, {
     action: "add-card",
     user: "alice",
     body: { columnId: "went-well", text: "shipped the export" },
   });
+  applyAction(board, { action: "vote", user: "carol", body: { cardId: card.id } });
   const hidden = redactBoard(board);
+  const hiddenJSON = JSON.stringify(hidden);
   assert.equal(hidden.cards[0].text, "shipped the export");
   assert.equal("authorId" in hidden.cards[0], false);
+  assert.equal("votes" in hidden.cards[0], false);
+  assert.equal(hidden.cards[0].voteCount, 1);
+  assert.equal(hiddenJSON.includes("alice"), false);
+  assert.equal(hiddenJSON.includes("carol"), false);
+  assert.equal(hiddenJSON.includes("votes"), false);
 
   board.revealed = true;
   const shown = redactBoard(board);
   assert.equal(shown.cards[0].authorId, "alice");
+  assert.equal("votes" in shown.cards[0], false);
+  assert.equal(shown.cards[0].voteCount, 1);
+  assert.equal(JSON.stringify(shown).includes("carol"), false);
 });
 
 test("grouping and dot voting live on the same document", () => {
