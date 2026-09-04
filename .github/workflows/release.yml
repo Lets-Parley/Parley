@@ -171,6 +171,19 @@ jobs:
       # transparency log. Staged here as a plain artifact, not a release asset:
       # this job holds packages:write for the registry push, and the job that
       # attaches release assets deliberately never holds that scope.
+      - name: Validate the Sigstore bundle before staging it
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          set -eu
+          # attest-build-provenance can hand back an empty or malformed file
+          # with no non-zero exit of its own. Nothing downstream checks the
+          # bundle's content before it is uploaded as a release asset, so
+          # catch it here: non-empty, valid JSON, and shaped like the single-
+          # bundle form the action writes (mediaType/verificationMaterial/
+          # dsseEnvelope), not the JSONL form `gh attestation download` uses.
+          test -s "$BUNDLE_PATH"
+          jq -e '.mediaType and .verificationMaterial and .dsseEnvelope' "$BUNDLE_PATH" >/dev/null
       - name: Stage the Sigstore bundle for offline verification
         env:
           BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
@@ -360,6 +373,17 @@ jobs:
         with:
           name: release-sigstore-bundle-${{ needs.validate.outputs.tag }}
           path: bundle
+      - name: Validate the downloaded bundle before attaching it
+        env:
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -eu
+          # Re-check after the artifact round-trip, independent of the
+          # publish job's own check above: a corrupted download or a bundle
+          # that was tampered with between jobs must not reach the release.
+          test -s "bundle/parley-$TAG.sigstore.json"
+          jq -e '.mediaType and .verificationMaterial and .dsseEnvelope' \
+            "bundle/parley-$TAG.sigstore.json" >/dev/null
       - name: Attach the Sigstore bundle
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -450,6 +474,25 @@ jobs:
             > /tmp/chart.yaml
           grep -q "^appVersion: \"\?${VERSION}\"\?$" /tmp/chart.yaml \
             || { echo "chart $VERSION does not name appVersion $VERSION"; cat /tmp/chart.yaml; exit 1; }
+      - name: Resolve the attached Sigstore bundle
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -eu
+          # The image and chart lines above are resolved from the registry,
+          # not merely trusted because their upload jobs succeeded — this line
+          # must earn the same treatment rather than being a hard-coded
+          # printf, or a bundle upload failure would still print "attached".
+          size=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[] | select(.name == "parley-'"$TAG"'.sigstore.json") | .size')
+          if [ -z "$size" ]; then
+            echo "no parley-$TAG.sigstore.json asset found on release $TAG"; exit 1
+          fi
+          if [ "$size" -eq 0 ]; then
+            echo "parley-$TAG.sigstore.json asset is 0 bytes"; exit 1
+          fi
+          echo "sigstore bundle asset size: $size"
       - name: Record the receipt on the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
