@@ -122,7 +122,7 @@ export type PluginSession = {
   state: unknown;
 };
 
-function pokerState(env: Envelope, revealed: boolean): {
+function pokerState(env: Envelope): {
   currentStoryId: string | null;
   deck: { name: string; values: string[]; ordinal: boolean };
   stories: PluginStory[];
@@ -142,13 +142,13 @@ function pokerState(env: Envelope, revealed: boolean): {
         status: s.status,
         votedUserIds: [...s.votedUserIds],
       };
-      if (revealed && s.votes) {
+      if (env.revealed && s.votes) {
         story.votes = s.votes.map((v) => ({
           userId: v.userId,
           value: v.value,
         }));
       }
-      if (revealed && s.results) story.results = s.results;
+      if (env.revealed && s.results) story.results = s.results;
       return story;
     }),
   };
@@ -194,7 +194,7 @@ export function redactSession(env: Envelope, grants: readonly string[]): PluginS
     // Poker shares its envelope with nested panels, so hidden votes have to
     // be projected here. A plugin-owned kind's StateFunc already decided what
     // is client-safe; rewriting that as poker stories would empty the room.
-    state: env.kind === "poker" ? pokerState(env, revealed) : (env.state ?? {}),
+    state: env.kind === "poker" ? pokerState(env) : (env.state ?? {}),
   };
 }
 
