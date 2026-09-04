@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -39,6 +41,12 @@ type Kind struct {
 	// Actions is the kind's dispatch table, keyed by the {action} segment of
 	// POST /sessions/{id}/actions/{action}.
 	Actions map[string]Action
+	// OrgID scopes the kind to one org. Empty means instance-wide, which is
+	// what a core kind is; a kind a plugin provides carries the org of the
+	// install that provides it, because an install belongs to one org and a
+	// kind that outran its install's ownership would let one org's plugin
+	// offer rooms to every other org on the instance.
+	OrgID string
 	// RosterChanged runs inside the transaction that changed who the session
 	// is waiting on — today, a spectator toggle, which is a core route because
 	// the flag is a property of a member rather than of a kind. Sharing that
@@ -50,16 +58,39 @@ type Kind struct {
 	RosterChanged func(ctx context.Context, tx pgx.Tx, sess store.Session, connected []string) error
 }
 
-// Registry holds the session kinds a server knows about. Build one at wiring
-// time, register every kind into it, and hand it to the router; it is not
-// written to after that, so it carries no lock.
+// Registry holds the session kinds a server knows about. The core kinds are
+// registered at wiring time; a kind a plugin provides is registered when its
+// install is enabled and unregistered when it is disabled or uninstalled, so
+// the map is written to while rooms are dispatching against it.
+//
+// The synchronisation is copy-on-write behind an atomic pointer rather than a
+// mutex on the read path. Registration is rare — an operator enabling an
+// install — and reads happen on every dispatch, every session create and every
+// envelope build, so the shape that costs a reader nothing but an atomic load
+// is the right one. Writers serialise on mu and publish a whole new map; a
+// reader either sees the map before the write or the map after it, never a map
+// mid-update.
 type Registry struct {
-	kinds map[string]Kind
+	mu    sync.Mutex
+	kinds atomic.Pointer[map[string]Kind]
 }
 
 func NewRegistry() *Registry {
-	return &Registry{kinds: map[string]Kind{}}
+	r := &Registry{}
+	m := map[string]Kind{}
+	r.kinds.Store(&m)
+	return r
 }
+
+// read is the whole read path: one atomic load. The map it returns is never
+// written to again, so a caller may range over it while a writer publishes a
+// replacement.
+func (r *Registry) read() map[string]Kind { return *r.kinds.Load() }
+
+// visible reports whether a kind is offered to an org. A kind with no OrgID is
+// instance-wide — that is what the core kinds are — and a kind a plugin
+// provides belongs to the org whose install provides it.
+func visible(k Kind, orgID string) bool { return k.OrgID == "" || k.OrgID == orgID }
 
 // Register wires a session kind into the dispatcher. A duplicate name is a
 // wiring mistake and returns an error rather than overwriting the first
@@ -68,7 +99,9 @@ func (r *Registry) Register(k Kind) error {
 	if k.Name == "" {
 		return fmt.Errorf("registering a session kind: name is empty")
 	}
-	if _, ok := r.kinds[k.Name]; ok {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.read()[k.Name]; ok {
 		return fmt.Errorf("registering session kind %q: already registered", k.Name)
 	}
 	// The cross-site guard exempts GET, on the assumption that a GET changes
@@ -80,38 +113,76 @@ func (r *Registry) Register(k Kind) error {
 			return fmt.Errorf("registering session kind %q: action %q answers %s, but actions are writes and the cross-site guard exempts %s", k.Name, name, a.Verb, a.Verb)
 		}
 	}
-	r.kinds[k.Name] = k
+	next := r.clone()
+	next[k.Name] = k
+	r.kinds.Store(&next)
 	return nil
+}
+
+// clone copies the live map for a writer. The caller holds mu.
+func (r *Registry) clone() map[string]Kind {
+	cur := r.read()
+	next := make(map[string]Kind, len(cur)+1)
+	for name, k := range cur {
+		next[name] = k
+	}
+	return next
 }
 
 // Unregister removes a kind, erroring if it was never registered.
 func (r *Registry) Unregister(name string) error {
-	if _, ok := r.kinds[name]; !ok {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.read()[name]; !ok {
 		return fmt.Errorf("unregistering session kind %q: not registered", name)
 	}
-	delete(r.kinds, name)
+	next := r.clone()
+	delete(next, name)
+	r.kinds.Store(&next)
 	return nil
 }
 
 // Names returns the registered kind names, sorted. Callers use it to build
 // messages that stay true whatever set of kinds is registered.
-func (r *Registry) Names() []string {
-	names := make([]string, 0, len(r.kinds))
-	for name := range r.kinds {
-		names = append(names, name)
+func (r *Registry) Names() []string { return r.names(func(Kind) bool { return true }) }
+
+// NamesInOrg is Names narrowed to what one org may create: the instance-wide
+// kinds plus the ones this org's own installs provide.
+func (r *Registry) NamesInOrg(orgID string) []string {
+	return r.names(func(k Kind) bool { return visible(k, orgID) })
+}
+
+func (r *Registry) names(keep func(Kind) bool) []string {
+	kinds := r.read()
+	names := make([]string, 0, len(kinds))
+	for name, k := range kinds {
+		if keep(k) {
+			names = append(names, name)
+		}
 	}
 	sort.Strings(names)
 	return names
 }
 
+// Known reports whether a kind is registered at all, whichever org provides
+// it. It is the lookup for a session that already exists — a room outlives the
+// install that offered its kind, so loading one must not depend on the org
+// scope that decides whether a *new* one may be created.
 func (r *Registry) Known(kind string) bool {
-	_, ok := r.kinds[kind]
+	_, ok := r.read()[kind]
 	return ok
+}
+
+// KnownInOrg is the create-time lookup: whether this org may make a session of
+// this kind.
+func (r *Registry) KnownInOrg(orgID, kind string) bool {
+	k, ok := r.read()[kind]
+	return ok && visible(k, orgID)
 }
 
 // ParseConfig validates a raw config document against the kind's struct.
 func (r *Registry) ParseConfig(kind string, raw []byte) ([]byte, error) {
-	k, ok := r.kinds[kind]
+	k, ok := r.read()[kind]
 	if !ok {
 		return nil, fmt.Errorf("unknown session kind %q", kind)
 	}
@@ -163,6 +234,18 @@ type Envelope struct {
 	Participants []Person  `json:"participants"`
 	ServerTime   time.Time `json:"serverTime"`
 	State        any       `json:"state"`
+	// KindUnavailable says the room's ceremony is not currently registered —
+	// its plugin is disabled, or the process has not offered it yet. State is
+	// then null, because the only code that can build it is not running.
+	//
+	// The room still loads. A session outlives the install that offered its
+	// kind by design (sessions.kind is a foreign key to a row that is retired
+	// rather than deleted), so "the plugin is off" has to be a state the room
+	// renders and not a 500: an operator switching a plugin off mid-meeting
+	// would otherwise break every room of that kind, including the history of
+	// rooms that have already ended, and switching it back on has to put them
+	// straight back.
+	KindUnavailable bool `json:"kindUnavailable,omitempty"`
 }
 
 // Person is a roster entry carried in the envelope so clients can render
@@ -284,13 +367,17 @@ func (r *Registry) buildEnvelope(ctx context.Context, pool *pgxpool.Pool, presen
 	if err != nil {
 		return Envelope{}, err
 	}
-	k, ok := r.kinds[sess.Kind]
-	if !ok {
-		return Envelope{}, fmt.Errorf("unknown session kind %q", sess.Kind)
-	}
-	state, err := k.State(ctx, pool, sess)
-	if err != nil {
-		return Envelope{}, err
+	// A kind that is not registered is a degraded room rather than an error.
+	// See Envelope.KindUnavailable: nothing here is destructive, the session
+	// row is untouched, and re-registering the kind restores the room exactly
+	// as it was.
+	k, known := r.read()[sess.Kind]
+	var state any
+	if known {
+		state, err = k.State(ctx, pool, sess)
+		if err != nil {
+			return Envelope{}, err
+		}
 	}
 	slug, orgSlug, people, err := roster(ctx, pool, sess.SpaceID, sess.ID, pastGuests)
 	if err != nil {
@@ -324,6 +411,7 @@ func (r *Registry) buildEnvelope(ctx context.Context, pool *pgxpool.Pool, presen
 		Participants:         people,
 		ServerTime:           time.Now().UTC(),
 		State:                state,
+		KindUnavailable:      !known,
 	}
 	if !facConnected {
 		t := sess.FacilitatorSeenAt.UTC()
@@ -334,7 +422,7 @@ func (r *Registry) buildEnvelope(ctx context.Context, pool *pgxpool.Pool, presen
 
 // RosterChanged returns the kind's roster hook, if it has one.
 func (r *Registry) RosterChanged(kind string) (func(ctx context.Context, tx pgx.Tx, sess store.Session, connected []string) error, bool) {
-	k, ok := r.kinds[kind]
+	k, ok := r.read()[kind]
 	if !ok || k.RosterChanged == nil {
 		return nil, false
 	}

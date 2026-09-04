@@ -119,10 +119,13 @@ var errBlocked = errors.New("uninstall blocked")
 func (s *Store) uninstall(ctx context.Context, orgID, installID string, inTx TxHook) error {
 	var blocked *BlockedError
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		// Scoped to the org as well as the provider: two orgs may run plugins
+		// of the same name, and one org uninstalling must not retire the
+		// other's ceremony.
 		if _, err := tx.Exec(ctx, `
 			update session_kinds set retired_at = now()
 			where retired_at is null
-			  and provider = (select name from plugin_installs where id = $1)`, installID); err != nil {
+			  and (provider, org_id) = (select name, org_id from plugin_installs where id = $1)`, installID); err != nil {
 			return fmt.Errorf("retiring the kinds %s provides: %w", installID, err)
 		}
 		blocking, err := blockingSessions(ctx, tx, installID)
@@ -195,8 +198,9 @@ func (e *BlockedError) Error() string {
 }
 
 // BlockingSessions lists the kinds this install provides that still have
-// sessions. Provision is the session_kinds.provider column: a plugin provides
-// the kinds whose provider is its name.
+// sessions. Provision is the provider column matched with the org: a plugin
+// provides the kinds whose provider is its name *and* whose org is its own, so
+// another org's rooms never block this org's uninstall.
 func (s *Store) BlockingSessions(ctx context.Context, installID string) ([]BlockingKind, error) {
 	return blockingSessions(ctx, s.Pool, installID)
 }
@@ -211,7 +215,7 @@ func blockingSessions(ctx context.Context, q querier, installID string) ([]Block
 	rows, err := q.Query(ctx, `
 		select k.kind, k.display, count(sess.id)
 		from plugin_installs p
-		join session_kinds k on k.provider = p.name
+		join session_kinds k on k.provider = p.name and k.org_id = p.org_id
 		left join sessions sess on sess.kind = k.kind
 		where p.id = $1
 		group by k.kind, k.display

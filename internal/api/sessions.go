@@ -67,8 +67,8 @@ func (a *app) broadcastLocal(ctx context.Context, sessionID string) {
 
 // unknownKindMessage names the kinds the server actually has registered, so
 // adding a kind cannot leave the message behind.
-func unknownKindMessage(kinds *session.Registry) string {
-	return "kind must be one of " + strings.Join(kinds.Names(), ", ")
+func unknownKindMessage(kinds *session.Registry, orgID string) string {
+	return "kind must be one of " + strings.Join(kinds.NamesInOrg(orgID), ", ")
 }
 
 func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
@@ -108,8 +108,11 @@ func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"title must be 1-200 characters"}`, http.StatusBadRequest)
 		return
 	}
-	if !a.kinds.Known(body.Kind) {
-		http.Error(w, `{"error":"`+unknownKindMessage(a.kinds)+`"}`, http.StatusBadRequest)
+	// Org-scoped, not merely registered: a kind a plugin provides belongs to
+	// the org that installed it, and another org must not be able to name it.
+	// The store refuses it too — this is the message, that is the guard.
+	if !a.kinds.KnownInOrg(orgFrom(r.Context()).ID, body.Kind) {
+		http.Error(w, `{"error":"`+unknownKindMessage(a.kinds, orgFrom(r.Context()).ID)+`"}`, http.StatusBadRequest)
 		return
 	}
 	config, err := a.kinds.ParseConfig(body.Kind, body.Config)
@@ -121,6 +124,10 @@ func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	sess, err := a.sessions.Create(r.Context(), sp.ID, body.Kind, title, config, p.UserID, a.limits.SessionsPerSpace)
 	if errors.Is(err, store.ErrKindRetired) {
 		http.Error(w, `{"error":"that session kind has been retired"}`, http.StatusBadRequest)
+		return
+	}
+	if errors.Is(err, store.ErrKindElsewhere) {
+		http.Error(w, `{"error":"`+unknownKindMessage(a.kinds, orgFrom(r.Context()).ID)+`"}`, http.StatusBadRequest)
 		return
 	}
 	if errors.Is(err, store.ErrQuotaExceeded) {

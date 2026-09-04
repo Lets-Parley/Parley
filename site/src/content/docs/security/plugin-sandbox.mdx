@@ -246,6 +246,106 @@ room's org's panels and no others.
 Design tokens are pushed into the frame over the same port, so plugin UI
 re-themes with the app without being able to read the app.
 
+## A plugin that owns a ceremony
+
+A plugin can provide a whole session kind: its manifest declares the ceremony
+and its actions, the kind is registered when the install is enabled and
+unregistered when it is disabled or uninstalled, and rooms of it are created,
+dispatched and closed by exactly the paths a core kind uses. That is a wider
+surface than a panel, and it is bounded in five places.
+
+### A ceremony belongs to the org that installed it
+
+An install belongs to one org, and so does the kind it provides. Another org is
+never offered the kind, is refused when it names it — the same
+`kind must be one of …` an org gets for a kind that does not exist — and its
+rooms never block the owning org's uninstall. The refusal is enforced twice:
+in the registry the create handler checks, and in the insert itself, which
+carries the space's own org in its predicate so a kind cannot be claimed
+between the check and the write. The two core kinds belong to no org and stay
+available to every one of them.
+
+### A plugin reaches its own ceremonies and nothing else
+
+**The session host functions refuse any room whose kind this install does not
+provide.** Being in the install's org is necessary and is not sufficient, and
+the reason is worth stating rather than implying: revealing a planning poker
+room is a facilitator-only action, so a plugin patching `{"revealed": true}`
+on a poker room in its own org would step around that check and turn every
+hidden vote in the room into a readable one. A grant cannot narrow that, since
+an unscoped `session:patch` means "any session id" and a scoped one is chosen
+by whoever writes the manifest. So the boundary is structural instead: every
+call resolves the room's `session_kinds` row and requires that its `provider`
+is this install's name **and** its `org_id` this install's org. The two core
+kinds are `provider = 'core'` with no org, so they are provided by no install
+and are closed to every plugin on the instance — a plugin can neither read a
+poker room nor reveal one.
+
+`session_kinds.org_id` is `NOT NULL` for everything but the core rows, enforced
+by a check constraint, because every one of those org-matched predicates is an
+equality and SQL equality never matches `NULL`: a plugin row without an org
+would be un-retirable, would not block its install's uninstall, and would stay
+on offer to every org.
+
+### Reading a room is reading the envelope
+
+`parley_session_get` returns the same envelope a browser is sent, built by the
+session registry, so the kind's own `StateFunc` has already decided what is
+client-safe. That is a projection rather than a filter: whatever the kind's
+`State` decided is client-safe is the whole of what a plugin gets, and there is
+no second path that reaches storage directly.
+`TestAPluginReadsItsOwnRoomThroughTheRegistryEnvelope` asserts that a read
+returns the registry's envelope and nothing beside it.
+
+The stronger claim about a poker room is now the ownership boundary above
+rather than the redaction:
+`TestAPluginCannotReadOrRevealAPokerRoomItDoesNotProvide` patches
+`{"revealed": true}` at a poker room mid-vote and asserts both that the call is
+refused and that the room's votes are still hidden afterwards — the redaction is
+never even reached, because the room is not the plugin's to read.
+
+### Patching a room is a closed document
+
+`parley_session_patch` accepts a phase and a reveal, and nothing else. Unknown
+fields are refused rather than ignored, an ended room refuses every patch as it
+refuses every action, and a plugin can only patch a room of its own ceremony in
+its own org. What a plugin owns beyond that lives in its own key-value store.
+
+### An action of a plugin kind is dispatched like any other
+
+The dispatcher runs one ladder for every kind: an unknown action is `404`, the
+wrong verb `405` naming the verb that works, a facilitator-only action asked by
+a member `403`, and anything at all on an ended room `409`. A kind arriving
+from a manifest is registered through the same `Register` a core kind is, which
+refuses an action answering `GET` or `HEAD` — the cross-site guard exempts
+those verbs, so such an action would be a write with no protection at all.
+
+The manifest is screened before any of that, at install: a kind name and an
+action name must be 1–64 characters of `a-z`, `0-9` and dashes, and a verb is
+upper-cased and then has to be one of `POST`, `PUT`, `PATCH` or `DELETE`. The
+normalisation is the point of the whitelist as much as the whitelist is: a
+manifest writing `"get"` used to pass the registry's comparison against `GET`
+and then never match the dispatcher's exact comparison either, which is a dead
+action rather than an exposed one — confusing, and confusion in a security
+surface is worth spending a refusal on.
+
+### Switching a ceremony off degrades its rooms, and never breaks them
+
+Disabling a plugin unregisters its kind at once. The rooms stay: a session
+outlives the install that offered its kind by design, so a room whose ceremony
+is not registered comes back from the API with `kindUnavailable` and a null
+state, and the page says the ceremony is not running. Nothing is deleted,
+nothing is rewritten, and enabling the plugin again restores every one of those
+rooms exactly as they were.
+`TestARoomOfADisabledPluginsKindStillLoadsAndComesBack` disables a plugin with
+a live room, loads the room, and enables it again.
+
+The registry is written while rooms are dispatching against it, so it is
+copy-on-write behind an atomic pointer: a reader takes an atomic load and never
+a lock, and a registration publishes a whole new map rather than mutating the
+one readers hold. A `-race` test registers and unregisters a kind in a loop
+while another goroutine dispatches against it.
+
 ## How these claims are kept honest
 
 Each guarantee above has a hostile fixture behind it — a WebAssembly guest that
@@ -325,11 +425,17 @@ part of the boundary rather than as copy:
   to have checked it, and the page says so instead of implying a check that
   never happened.
 - **An unscoped grant is never described in the singular.** An empty scope means
-  "any", so `session:read` with no scope is read access to every session on the
-  instance and `secrets` with no scope is every secret on it. The sentence says
-  exactly that, and a scoped grant names the one thing it covers instead —
-  wording that understates the reach of what is being agreed to is a defect in
-  the boundary, not in the copy.
+  "any", so `session:read` with no scope is read access to every session id the
+  plugin may reach and `secrets` with no scope is every secret on the instance.
+  The sentence says exactly that, and a scoped grant names the one thing it
+  covers instead — wording that understates the reach of what is being agreed to
+  is a defect in the boundary, not in the copy. The session sentences say what
+  bounds them too: what `session:read` and `session:patch` reach is decided by
+  the host's kind-ownership check and not by the scope, so the copy names the
+  plugin's own ceremonies rather than promising every session on the instance.
+  Overstating is its own defect — an operator who reads every grant as total
+  cannot tell the plugin that needs the access from the one asking for the
+  world.
 - **The theme reset is drawn in literal colours.** A theme pack owns every
   colour token in the app, so a reset control styled with those tokens can be
   made invisible by the pack it exists to undo. That one control uses no theme

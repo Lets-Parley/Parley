@@ -144,7 +144,11 @@ type Host struct {
 	Fetcher  *Fetcher
 	Bundles  Bundles
 	Sessions Sessions
-	Log      *slog.Logger
+	// Kinds is the router's session-kind registry. Nil means this host offers
+	// no plugin-provided ceremonies, which is what a server with no registry
+	// wired gets — not a silent half-registration.
+	Kinds KindRegistry
+	Log   *slog.Logger
 
 	cfg HostConfig
 
@@ -180,6 +184,12 @@ func (h *Host) Enable(ctx context.Context, installID string) error {
 	h.mu.Lock()
 	delete(h.breakers, installID)
 	h.mu.Unlock()
+	// The ceremony this install provides goes on offer with it. Registration
+	// happens before the compile so that a bundle that will not compile still
+	// leaves the kind offered or not offered consistently with `enabled`.
+	if err := h.OfferKinds(ctx, installID); err != nil {
+		return err
+	}
 	_, err := h.module(ctx, installID)
 	return err
 }
@@ -187,9 +197,17 @@ func (h *Host) Enable(ctx context.Context, installID string) error {
 // Disable switches an install off and evicts its compiled module, rather than
 // leaving a disabled plugin's code resident.
 func (h *Host) Disable(ctx context.Context, installID, reason string) error {
+	// The kinds are read before the install is switched off, because a
+	// disabled install is still the provider of its rows and this is the last
+	// moment the two are certainly consistent.
+	defs, err := h.Store.ProvidedKinds(ctx, installID)
+	if err != nil {
+		return err
+	}
 	if err := h.Store.SetEnabled(ctx, installID, false); err != nil {
 		return err
 	}
+	h.RetireKinds(defs)
 	h.evict(ctx, installID)
 	if h.Log != nil {
 		h.Log.Warn("plugin disabled", "install_id", installID, "reason", reason)

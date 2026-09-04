@@ -254,8 +254,8 @@ func TestUninstallIsRefusedAndExplainsWhichSessionsBlockIt(t *testing.T) {
 
 	kind := "retro" + id[:8]
 	if _, err := pool.Exec(ctx,
-		`insert into session_kinds (kind, provider, display) values ($1, $2, 'Retrospective')`,
-		kind, name); err != nil {
+		`insert into session_kinds (kind, provider, display, org_id) values ($1, $2, 'Retrospective', $3)`,
+		kind, name, defaultOrg(t, pool)); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {

@@ -256,16 +256,36 @@ func TestAGrantRevokedMidLifeStopsWorkingOnTheNextCall(t *testing.T) {
 	}
 }
 
+// TestInFlightCallsAreCappedPerInstallAndInTotal used to race two "holder"
+// calls against four expected refusals: it launched all six goroutines
+// together and assumed all reached acquire() while the holders still held
+// their slots. On a loaded runner the holders' guest could time out and
+// release before the other four were even scheduled, so the refusal count
+// depended on wall-clock scheduling rather than the cap.
+//
+// The precondition — two slots already in flight for this install — is set
+// up directly through the same acquire() the call path uses, instead of by
+// racing real concurrent calls against a timeout. That still exercises the
+// exact guard under test (a mutation that guts acquire()'s condition is
+// still caught, since acquire() is what this test calls), while making the
+// four calls that must be refused genuinely deterministic: the cap is
+// already at capacity before any of them starts.
 func TestInFlightCallsAreCappedPerInstallAndInTotal(t *testing.T) {
-	h, in := hosted(t, guestHang(), HostConfig{
-		CallTimeout: 2 * time.Second, MaxConcurrentCalls: 4, MaxConcurrentPerInstall: 2,
+	h, in := hosted(t, guestNoop(), HostConfig{
+		MaxConcurrentCalls: 4, MaxConcurrentPerInstall: 2,
 	}, 1024)
-	ctx := context.Background()
 
+	if !h.acquire(in.ID) || !h.acquire(in.ID) {
+		t.Fatal("expected to be able to hold the install's two slots directly")
+	}
+	defer h.release(in.ID)
+	defer h.release(in.ID)
+
+	ctx := context.Background()
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var busy int
-	for range 6 {
+	for range 4 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -278,8 +298,8 @@ func TestInFlightCallsAreCappedPerInstallAndInTotal(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if busy < 4 {
-		t.Fatalf("%d of 6 concurrent calls were refused; with a per-install cap of 2 at least 4 should be", busy)
+	if busy != 4 {
+		t.Fatalf("%d of 4 calls were refused while 2 slots were held; with a per-install cap of 2 all 4 should be", busy)
 	}
 }
 

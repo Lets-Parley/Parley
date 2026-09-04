@@ -199,7 +199,16 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 			// The create dialog offers exactly these: a kind retired in place
 			// keeps its row for the sessions that already use it, but must
 			// not be offered for a new one.
-			kinds, err := a.sessions.OfferableKinds(r.Context())
+			// The org comes from the space rather than the context: this
+			// route resolves its org from the path slug, so there is no
+			// org in the request context to read. Which org is asking
+			// matters now that a kind can belong to one.
+			org, err := a.orgs.BySpaceID(r.Context(), sp.ID)
+			if err != nil {
+				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+				return
+			}
+			kinds, err := a.sessions.OfferableKinds(r.Context(), org.ID)
 			if err != nil {
 				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
 				return

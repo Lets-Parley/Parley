@@ -178,6 +178,20 @@ describe("SessionPage wiring", () => {
     renderApp(<SessionPage />);
     expect(await screen.findByText(/doesn't know how to open/i)).toBeTruthy();
   });
+
+  // A ceremony whose plugin has been switched off is not the same thing as a
+  // kind this build never heard of, and saying the wrong one sends an admin
+  // looking for an upgrade instead of for the switch they flipped. The room
+  // and its history are intact either way, so the copy says so.
+  it("says the ceremony is switched off when its plugin is disabled", async () => {
+    mockKind = "acme.retro";
+    mockData = { ...envelope, kind: "acme.retro", state: null, kindUnavailable: true } as unknown as Envelope;
+    renderApp(<SessionPage />);
+    const said = await screen.findByTestId("kind-unavailable");
+    expect(said.textContent).toMatch(/isn't running/i);
+    expect(said.textContent).toMatch(/switches it on again/i);
+    expect(screen.queryByText(/doesn't know how to open/i)).toBeNull();
+  });
 });
 
 /**
