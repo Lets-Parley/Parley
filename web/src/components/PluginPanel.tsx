@@ -23,6 +23,8 @@ export type PluginPanelProps = {
    * platform attribute, not a hand-rolled focus trap.
    */
   modalOpen?: boolean;
+  /** Nested poker panel vs the session's whole room. */
+  slot?: "panel" | "room";
   /** Injected in tests; one breaker per plugin in the app. */
   breaker?: CrashBreaker;
 };
@@ -45,6 +47,7 @@ export function PluginPanel({
   env,
   onAction,
   modalOpen = false,
+  slot = "panel",
   breaker,
 }: PluginPanelProps) {
   const frame = useRef<HTMLIFrameElement | null>(null);
@@ -53,6 +56,7 @@ export function PluginPanel({
   const [attempt, setAttempt] = useState(0);
   const trip = breaker ?? breakerFor(name);
   const tripped = trip.open();
+  const room = slot === "room";
 
   useEffect(() => {
     if (tripped) return;
@@ -113,8 +117,11 @@ export function PluginPanel({
   }
 
   return (
-    <section aria-label={`${name} panel`} className="mt-6">
-      <h2 className="text-sm font-semibold text-ink-soft">{name}</h2>
+    <section
+      aria-label={room ? `${name} room` : `${name} panel`}
+      className={room ? "flex h-[calc(100dvh-3.5rem)] min-h-0 flex-col" : "mt-6"}
+    >
+      {!room && <h2 className="text-sm font-semibold text-ink-soft">{name}</h2>}
       {failure === "handshake-timeout" && (
         <Card title={`${name} did not start`}>
           <p>The panel loaded but the plugin never answered. It has not been given any data.</p>
@@ -130,9 +137,9 @@ export function PluginPanel({
         // referrerPolicy keeps the room URL out of a frame that has no
         // business knowing which room it is in beyond what the bridge tells it.
         referrerPolicy="no-referrer"
-        className={`h-64 w-full rounded-lg border border-line bg-surface ${
-          failure === "handshake-timeout" ? "hidden" : ""
-        }`}
+        className={`${
+          room ? "min-h-0 h-full w-full" : "h-64 w-full rounded-lg border border-line bg-surface"
+        } ${failure === "handshake-timeout" ? "hidden" : ""}`}
         onLoad={() => {
           bridge.current?.handshake();
           bridge.current?.sendTokens(currentTokens());

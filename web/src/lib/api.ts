@@ -267,6 +267,12 @@ export type Envelope = {
    * again, so this is a state to render rather than an error to raise.
    */
   kindUnavailable?: boolean;
+  /**
+   * The install that provides this ceremony. Present for a plugin-owned kind
+   * that is currently offered; the room frames `/plugin-ui/{name}/{version}`
+   * from it. Absent for poker and standup.
+   */
+  plugin?: { name: string; version: string; grants: string[] };
 };
 
 /**

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -261,7 +262,7 @@ func (h *Host) OfferKinds(ctx context.Context, installID string) error {
 	}
 	for _, def := range defs {
 		_ = h.Kinds.Unregister(def.Kind)
-		if err := h.Kinds.Register(h.PluginKind(state.Install, def)); err != nil {
+		if err := h.Kinds.Register(h.PluginKind(state, def)); err != nil {
 			return fmt.Errorf("offering the session kind %q: %w", def.Kind, err)
 		}
 	}
@@ -317,10 +318,20 @@ func (h *Host) RetireKinds(defs []KindDef) {
 
 // PluginKind builds the live kind for one declared ceremony. Every part of it
 // is a contained call into the guest.
-func (h *Host) PluginKind(in Install, def KindDef) session.Kind {
+func (h *Host) PluginKind(st State, def KindDef) session.Kind {
+	in := st.Install
+	installID := in.ID
 	k := session.Kind{
-		Name:  def.Kind,
-		OrgID: in.OrgID,
+		Name:   def.Kind,
+		OrgID:  in.OrgID,
+		Plugin: pluginUI(st),
+		LivePlugin: func(ctx context.Context) (*session.PluginUI, error) {
+			live, err := h.Store.State(ctx, installID)
+			if err != nil {
+				return nil, err
+			}
+			return pluginUI(live), nil
+		},
 		// A plugin's config document is whatever the plugin makes of it. The
 		// core has no struct to decode it into and inventing one would only
 		// describe the plugins that exist today, so it is kept as JSON and
@@ -422,6 +433,32 @@ func readActionBody(r *http.Request) (json.RawMessage, error) {
 		return nil, fmt.Errorf("the action body is not JSON")
 	}
 	return json.RawMessage(raw), nil
+}
+
+// pluginUI is the install projection the room iframe redacts against.
+func pluginUI(st State) *session.PluginUI {
+	return &session.PluginUI{
+		Name:    st.Install.Name,
+		Version: st.Install.Version,
+		Grants:  grantCapabilities(st.Grants),
+	}
+}
+
+// grantCapabilities is the grant list the room iframe redacts against: each
+// capability once, sorted, scopes dropped. The host still re-checks on every
+// call; this is only so the browser can redact *more*.
+func grantCapabilities(grants []Grant) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, g := range grants {
+		if seen[g.Capability] {
+			continue
+		}
+		seen[g.Capability] = true
+		out = append(out, g.Capability)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // maxActionBody bounds what a room can hand a plugin in one action. It matches

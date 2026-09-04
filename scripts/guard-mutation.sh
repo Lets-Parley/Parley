@@ -537,8 +537,8 @@ mutate "inerting a plugin frame under a modal" \
 
 mutate "the reveal gate on vote values crossing the bridge" \
     'src/lib/pluginBridge.test.ts::keeps hidden votes hidden before the reveal' \
-    lib/pluginBridge.ts 'if (revealed && s.votes) {' 'if (s.votes) {' \
-    lib/pluginBridge.ts 'if (revealed && s.results) story.results = s.results;' 'if (s.results) story.results = s.results;'
+    lib/pluginBridge.ts 'if (env.revealed && s.votes) {' 'if (s.votes) {' \
+    lib/pluginBridge.ts 'if (env.revealed && s.results) story.results = s.results;' 'if (s.results) story.results = s.results;'
 
 mutate "the session:read grant check" \
     'src/lib/pluginBridge.test.ts::hands a plugin with no session:read grant nothing at all' \

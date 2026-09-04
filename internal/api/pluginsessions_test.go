@@ -329,6 +329,210 @@ func TestARoomOfADisabledPluginsKindStillLoadsAndComesBack(t *testing.T) {
 	}
 }
 
+// The browser frames a plugin kind from the envelope, not from a second fetch.
+// Name, version and grants have to travel with the ceremony so SessionPage can
+// point the sandbox at /plugin-ui and redact against the grants in force.
+func TestAPluginKindEnvelopeNamesTheInstall(t *testing.T) {
+	srv, pool, plugins, host := hostServer(t)
+	orgID := defaultOrg(t, pool)
+	kind := "retro" + randomKindSuffix(t)
+	in := installCeremony(t, plugins, orgID, newPluginName(t), kind,
+		plugin.Grant{Capability: plugin.CapabilitySessionRead},
+	)
+	registerPluginKindWithStubState(t, host, plugins, in, kind)
+
+	fac := signup(t, srv, "Fay")
+	_, sp := createSpace(t, srv, "Named Ceremony Room", fac)
+	resp, body := createSession(t, srv, sp["slug"].(string), kind, "Retro", fac)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("creating a room of a plugin-provided kind: %d %v", resp.StatusCode, body)
+	}
+	id := body["id"].(string)
+	resp, body = doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("reading the room: %d %v", resp.StatusCode, body)
+	}
+	plug, _ := body["plugin"].(map[string]any)
+	if plug == nil {
+		t.Fatalf("the envelope named no install: %v", body)
+	}
+	if plug["name"] != in.Name || plug["version"] != "1.0.0" {
+		t.Fatalf("plugin on the envelope is %v, want %s@1.0.0", plug, in.Name)
+	}
+	grants, _ := plug["grants"].([]any)
+	if len(grants) != 1 || grants[0] != "session:read" {
+		t.Fatalf("grants on the envelope are %v", plug["grants"])
+	}
+}
+
+func offeredPluginGrants(t *testing.T, host *plugin.Host, kind string) string {
+	t.Helper()
+	p := host.Kinds.(*session.Registry).KindPlugin(kind)
+	if p == nil {
+		return ""
+	}
+	return strings.Join(p.Grants, ",")
+}
+
+func installCeremony(t *testing.T, plugins *plugin.Store, orgID, name, kind string, grants ...plugin.Grant) plugin.Install {
+	t.Helper()
+	in, err := plugins.Install(context.Background(), plugin.InstallRequest{
+		OrgID: orgID, Name: name, Version: "1.0.0", QuotaBytes: 1 << 20,
+		Grants: grants, Kinds: []plugin.KindDef{{Kind: kind, Display: "Retrospective"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = plugins.Pool.Exec(ctx, "delete from sessions where kind = $1", kind)
+		_, _ = plugins.Pool.Exec(ctx, "delete from session_kinds where kind = $1", kind)
+	})
+	return in
+}
+
+func registerPluginKindWithStubState(t *testing.T, host *plugin.Host, plugins *plugin.Store, in plugin.Install, kind string) {
+	t.Helper()
+	st, err := plugins.State(context.Background(), in.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := host.PluginKind(st, plugin.KindDef{Kind: kind, Display: "Retrospective"})
+	k.State = func(_ context.Context, _ *pgxpool.Pool, _ store.Session) (any, error) {
+		return map[string]any{"columns": []string{"went-well"}}, nil
+	}
+	if err := host.Kinds.Register(k); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = host.Kinds.Unregister(kind) })
+}
+
+// A narrowing upgrade replaces the grants in force. The kind registered at
+// enable still names the old set unless OfferKinds runs again, and the room
+// iframe redacts against that snapshot.
+func TestANarrowingUpgradeRebuildsTheKindPluginGrants(t *testing.T) {
+	srv, pool, plugins, host := hostServer(t)
+	ctx := context.Background()
+	orgID := defaultOrg(t, pool)
+	admin, adminID := signupWithID(t, srv, "Operator")
+	makeOrgAdmin(t, pool, adminID)
+	kind := "retro" + randomKindSuffix(t)
+	name := newPluginName(t)
+	in := installCeremony(t, plugins, orgID, name, kind,
+		plugin.Grant{Capability: plugin.CapabilitySessionRead},
+		plugin.Grant{Capability: plugin.CapabilityLog},
+	)
+	if err := host.OfferKinds(ctx, in.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := offeredPluginGrants(t, host, kind); got != "log,session:read" {
+		t.Fatalf("before the upgrade the kind names %q", got)
+	}
+
+	resp, body := doJSON(t, srv, "POST", pluginsPath,
+		`{"grantsAccepted":true,"package":`+pluginPkg(name, "1.1.0",
+			map[string]string{"capability": "session:read"})+`}`, admin)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("narrowing upgrade = %d: %v", resp.StatusCode, body)
+	}
+	if got := offeredPluginGrants(t, host, kind); got != "session:read" {
+		t.Fatalf("after a narrowing upgrade the kind still names %q, want session:read", got)
+	}
+}
+
+// Approving a wider grant set is the other write that changes what the
+// sandbox may be told it holds.
+func TestApprovingAnUpgradeRebuildsTheKindPluginGrants(t *testing.T) {
+	srv, pool, plugins, host := hostServer(t)
+	ctx := context.Background()
+	orgID := defaultOrg(t, pool)
+	admin, adminID := signupWithID(t, srv, "Operator")
+	makeOrgAdmin(t, pool, adminID)
+	kind := "retro" + randomKindSuffix(t)
+	name := newPluginName(t)
+	in := installCeremony(t, plugins, orgID, name, kind,
+		plugin.Grant{Capability: plugin.CapabilityLog},
+	)
+	if err := host.OfferKinds(ctx, in.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := offeredPluginGrants(t, host, kind); got != "log" {
+		t.Fatalf("before approval the kind names %q", got)
+	}
+
+	resp, body := doJSON(t, srv, "POST", pluginsPath,
+		`{"grantsAccepted":true,"package":`+pluginPkg(name, "2.0.0",
+			map[string]string{"capability": "log"},
+			map[string]string{"capability": "session:read"})+`}`, admin)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("widening upgrade = %d, want 202: %v", resp.StatusCode, body)
+	}
+	if got := offeredPluginGrants(t, host, kind); got != "log" {
+		t.Fatalf("a pending upgrade changed the kind's grants to %q", got)
+	}
+
+	resp, body = doJSON(t, srv, "POST", pluginsPath+"/"+in.ID+"/upgrade", `{"approve":true}`, admin)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("approve = %d: %v", resp.StatusCode, body)
+	}
+	if got := offeredPluginGrants(t, host, kind); got != "log,session:read" {
+		t.Fatalf("after approval the kind still names %q, want log,session:read", got)
+	}
+}
+
+func envelopePluginGrants(body map[string]any) string {
+	plug, _ := body["plugin"].(map[string]any)
+	raw, _ := plug["grants"].([]any)
+	out := make([]string, 0, len(raw))
+	for _, g := range raw {
+		s, _ := g.(string)
+		out = append(out, s)
+	}
+	return strings.Join(out, ",")
+}
+
+// Nested panels read Store.State; the full-room path must not keep a stale
+// Kind.Plugin snapshot after the grants in force have changed.
+func TestASessionEnvelopeReflectsLiveGrantsAfterANarrowingUpgrade(t *testing.T) {
+	srv, pool, plugins, host := hostServer(t)
+	ctx := context.Background()
+	orgID := defaultOrg(t, pool)
+	kind := "retro" + randomKindSuffix(t)
+	in := installCeremony(t, plugins, orgID, newPluginName(t), kind,
+		plugin.Grant{Capability: plugin.CapabilitySessionRead},
+		plugin.Grant{Capability: plugin.CapabilityLog},
+	)
+	registerPluginKindWithStubState(t, host, plugins, in, kind)
+
+	fac := signup(t, srv, "Fay")
+	_, sp := createSpace(t, srv, "Live Grant Room", fac)
+	resp, body := createSession(t, srv, sp["slug"].(string), kind, "Retro", fac)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("creating a room of a plugin-provided kind: %d %v", resp.StatusCode, body)
+	}
+	id := body["id"].(string)
+	resp, body = doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("reading the room: %d %v", resp.StatusCode, body)
+	}
+	if got := envelopePluginGrants(body); got != "log,session:read" {
+		t.Fatalf("before the upgrade the envelope names %q", got)
+	}
+
+	if err := plugins.Upgrade(ctx, in.ID, "1.1.0", []plugin.Grant{
+		{Capability: plugin.CapabilitySessionRead},
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	resp, body = doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("reading the room after the upgrade: %d %v", resp.StatusCode, body)
+	}
+	if got := envelopePluginGrants(body); got != "session:read" {
+		t.Fatalf("after a narrowing upgrade the envelope still names %q", got)
+	}
+}
+
 // An install belongs to one org and so does everything it may touch.
 //
 // Isolating that from the kind-ownership check takes some care, and the care is

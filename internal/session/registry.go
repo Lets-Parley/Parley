@@ -56,6 +56,22 @@ type Kind struct {
 	// connected is the presence set, read before the transaction opened.
 	// A kind with nothing to do on a roster change leaves this nil.
 	RosterChanged func(ctx context.Context, tx pgx.Tx, sess store.Session, connected []string) error
+	// Plugin is the install that provides this ceremony, as the room iframe
+	// needs it. Core kinds leave it nil.
+	Plugin *PluginUI
+	// LivePlugin, when set, is read on every envelope so a grant change takes
+	// effect without waiting for the kind to be re-offered. OfferKinds still
+	// rebuilds Plugin so the registered snapshot matches what is in force.
+	LivePlugin func(ctx context.Context) (*PluginUI, error)
+}
+
+// PluginUI is the install behind a plugin-provided kind: what to frame, and
+// the grants the browser redacts against. The host still re-checks every
+// grant at the effect.
+type PluginUI struct {
+	Name    string   `json:"name"`
+	Version string   `json:"version"`
+	Grants  []string `json:"grants"`
 }
 
 // Registry holds the session kinds a server knows about. The core kinds are
@@ -173,6 +189,19 @@ func (r *Registry) Known(kind string) bool {
 	return ok
 }
 
+// KindPlugin is the install a plugin-provided kind currently names on the
+// wire. Core kinds and unknown names return nil. The returned value is a copy
+// so a caller cannot mutate the live registry.
+func (r *Registry) KindPlugin(kind string) *PluginUI {
+	k, ok := r.read()[kind]
+	if !ok || k.Plugin == nil {
+		return nil
+	}
+	out := *k.Plugin
+	out.Grants = append([]string(nil), k.Plugin.Grants...)
+	return &out
+}
+
 // KnownInOrg is the create-time lookup: whether this org may make a session of
 // this kind.
 func (r *Registry) KnownInOrg(orgID, kind string) bool {
@@ -246,6 +275,9 @@ type Envelope struct {
 	// rooms that have already ended, and switching it back on has to put them
 	// straight back.
 	KindUnavailable bool `json:"kindUnavailable,omitempty"`
+	// Plugin names the install that provides this ceremony so the client can
+	// frame it. Absent for core kinds and for a room whose kind is unregistered.
+	Plugin *PluginUI `json:"plugin,omitempty"`
 }
 
 // Person is a roster entry carried in the envelope so clients can render
@@ -412,6 +444,14 @@ func (r *Registry) buildEnvelope(ctx context.Context, pool *pgxpool.Pool, presen
 		ServerTime:           time.Now().UTC(),
 		State:                state,
 		KindUnavailable:      !known,
+	}
+	if known {
+		env.Plugin = k.Plugin
+		if k.LivePlugin != nil {
+			if p, err := k.LivePlugin(ctx); err == nil {
+				env.Plugin = p
+			}
+		}
 	}
 	if !facConnected {
 		t := sess.FacilitatorSeenAt.UTC()
