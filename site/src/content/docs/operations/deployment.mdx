@@ -37,6 +37,37 @@ Three of its defaults are deliberate and worth knowing before you change them:
   crosses a major release leaves the data directory unreadable. See
   [Upgrading](/operations/upgrading/).
 
+### Container hardening
+
+`docker-compose.yml` carries the same container-hardening keys as the
+[Kubernetes manifest](/operations/kubernetes/): both services set `cap_drop:
+[ALL]` and `security_opt: [no-new-privileges:true]`, and the `app` service also
+sets `read_only: true` — Parley never writes to disk itself (the frontend and
+migrations are embedded, exports stream to the response), so no tmpfs mount is
+needed for it.
+
+`db` stays writable. The official `postgres` image's entrypoint starts as root
+to `chown` the data and socket directories, then drops privileges to the
+`postgres` user; that handoff needs `CAP_CHOWN`, `CAP_SETUID`, `CAP_SETGID` and
+`CAP_DAC_OVERRIDE`, which the compose file adds back with `cap_add` after the
+blanket drop. `read_only: true` on `db` is possible with tmpfs mounts for
+`/tmp`, `/var/run/postgresql` and `/var/run` on top of the already-writable
+data volume, but the compose file leaves it commented out rather than shipping
+a tmpfs list unverified against every distro that image ships for — uncomment
+it once you have confirmed it against your `postgres:16-alpine` pull.
+
+### Log rotation
+
+Both services set `logging: { driver: json-file, options: { max-size: 10m,
+max-file: 3 } }`. Docker's default `json-file` driver is unbounded — on a
+single self-hosted server nothing else rotates it, and an unbounded log will
+eventually fill the disk. `max-size`/`max-file` cap it at 30 MB per service.
+
+Podman does not use `json-file` by default — it logs to `journald` instead, and
+these two options are silently ignored there. Rotation on Podman is controlled
+by `journald`'s own `SystemMaxUse` (see `journald.conf`), not by anything in
+this compose file.
+
 ## The image
 
 `ghcr.io/lets-parley/parley`, multi-arch for `linux/amd64` and `linux/arm64`,

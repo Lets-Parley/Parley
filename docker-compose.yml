@@ -34,6 +34,23 @@ services:
       db:
         condition: service_healthy
     restart: unless-stopped
+    # Mirrors deploy/k8s/deployment.yaml's securityContext. Parley never
+    # writes to disk itself — the frontend and migrations are embedded and
+    # exports stream to the response — so read_only needs no tmpfs mount.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    # docker's json-file driver is unbounded by default; cap it so a busy
+    # single-server host doesn't fill its disk with container logs. Podman
+    # uses journald by default instead, where rotation is controlled by
+    # journald.conf's SystemMaxUse, not these options — see
+    # docs/operations/observability.mdx.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   db:
     # Pinned major version: an unpinned image upgraded across a Postgres major
@@ -51,6 +68,32 @@ services:
       timeout: 3s
       retries: 10
     restart: unless-stopped
+    cap_drop: [ALL]
+    # The official postgres entrypoint starts as root, chowns PGDATA and the
+    # socket directory, then drops to the postgres user via gosu — dropping
+    # ALL with no cap_add makes that chown/setuid fail and the container exits
+    # immediately (verified: cap_drop: [ALL] alone fails "chmod: Operation
+    # not permitted" / "failed switching to 'postgres'"). These four are the
+    # minimum that let the entrypoint finish that handoff.
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE]
+    security_opt:
+      - no-new-privileges:true
+    # read_only: true is possible here too, but Postgres needs writable /tmp,
+    # /var/run/postgresql (its unix socket) and /var/run for the entrypoint's
+    # PID/lock files, on top of the already-writable data volume. Left off by
+    # default rather than shipping an unverified tmpfs list for every distro
+    # this image runs on; uncomment and add the tmpfs mounts once you've
+    # confirmed them against the specific postgres:16-alpine build in use:
+    # read_only: true
+    # tmpfs:
+    #   - /tmp
+    #   - /var/run/postgresql
+    #   - /var/run
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   parley-data:

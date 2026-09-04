@@ -86,7 +86,7 @@ request paths, user names, or session content at any level.
 ## What is missing, and what to do instead
 
 <Capability rows={[
-  { name: "Structured JSON logs", status: "built", detail: "stdout, one level, no rotation needed." },
+  { name: "Structured JSON logs", status: "built", detail: "stdout, one level, no rotation needed by the process itself — the single-server compose file caps the on-disk driver instead, see <a href='/operations/deployment/#log-rotation'>Deployment</a>." },
   { name: "Liveness and readiness endpoints", status: "built", detail: "<code>/healthz</code> and <code>/readyz</code> — see <a href='/operations/architecture/'>Architecture</a>." },
   { name: "Metrics endpoint", status: "not-built", detail: "There is no <code>/metrics</code>. Blackbox-probe <code>/readyz</code> for availability, and take request rate and latency from your reverse proxy, which already sees every request." },
   { name: "Distributed tracing", status: "not-built", detail: "Single process, single database — a trace would have two spans. Proxy access logs give you the same latency picture." },
