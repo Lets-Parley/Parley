@@ -96,6 +96,37 @@ func TestReadyBeforeStartPreservesTheCarryForward(t *testing.T) {
 	}
 }
 
+// ensureReadyEntryRow uses the same prefill as start. A later standup in the
+// space must not win just because someone clicked ready before the round began.
+func TestReadyBeforeStartIgnoresALaterSession(t *testing.T) {
+	srv := testServer(t)
+	cookies, ids, oldID := standupSpace(t, srv, "Ready Later Space", "Amy Stone", "Ben Ito")
+	fac, ben := cookies[0], cookies[1]
+
+	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+oldID+"/actions/standup",
+		`{"today":"from old"}`, ben); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("old entry: %d", resp.StatusCode)
+	}
+
+	_, oldEnv := doJSON(t, srv, "GET", "/api/sessions/"+oldID, "", fac)
+	slug := oldEnv["spaceSlug"].(string)
+	_, current := createSession(t, srv, slug, "standup", "Current", fac)
+	currentID := current["id"].(string)
+	_, future := createSession(t, srv, slug, "standup", "Future", fac)
+	futureID := future["id"].(string)
+	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+futureID+"/actions/standup",
+		`{"today":"from future"}`, ben); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("future entry: %d", resp.StatusCode)
+	}
+
+	if resp := setReadyAs(t, srv, currentID, ben, true); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("ready: %d", resp.StatusCode)
+	}
+	if got := entriesByUser(t, srv, currentID, fac)[ids[1]]["yesterday"]; got != "from old" {
+		t.Fatalf("yesterday after ready = %q, want %q (not the later session)", got, "from old")
+	}
+}
+
 // Readiness is per-person. Whatever shape the SQL takes, a session-wide UPDATE
 // would light everybody up at once.
 func TestReadyOnlyMarksTheCaller(t *testing.T) {
