@@ -16,6 +16,10 @@ var (
 	ErrNotFacilitator = errors.New("not facilitator")
 	ErrSessionEnded   = errors.New("session ended")
 	ErrKindRetired    = errors.New("session kind retired")
+	// ErrKindElsewhere is returned when a space's org is not the org the kind
+	// belongs to. A kind a plugin provides belongs to the org that installed
+	// it; a core kind belongs to no org and so is never this.
+	ErrKindElsewhere = errors.New("session kind belongs to another org")
 )
 
 // FacilitatorGrace is how long a facilitator must be unseen before any member
@@ -74,14 +78,24 @@ func (s *Sessions) Create(ctx context.Context, spaceID, kind, title string, conf
 	// would otherwise still get a session. A kind with no session_kinds row at
 	// all satisfies the guard and is left to the foreign key, which names the
 	// missing row far better than a retired-kind refusal would.
+	// The org half rides along with it for the same reason: a kind that
+	// belongs to another org's install must not be creatable here, and reading
+	// the ownership separately would let an install land between the read and
+	// the insert.
 	sess, err := scanSession(tx.QueryRow(ctx,
 		"insert into sessions (space_id, kind, title, config, facilitator_id) "+
 			"select $1, $2, $3, $4, $5 "+
-			"where not exists (select 1 from session_kinds where kind = $2 and retired_at is not null) "+
+			"where not exists (select 1 from session_kinds k where k.kind = $2 and ("+
+			"  k.retired_at is not null"+
+			"  or (k.org_id is not null and k.org_id <> (select org_id from spaces where id = $1))"+
+			")) "+
 			"returning "+sessionCols,
 		spaceID, kind, title, config, facilitatorID))
 	if errors.Is(err, ErrNoSession) {
-		return Session{}, ErrKindRetired
+		// Both refusals look identical from here — one statement, no row — so
+		// the reason is read back for the message only. The refusal already
+		// happened; this cannot turn it into an acceptance.
+		return Session{}, refusedKind(ctx, tx, spaceID, kind)
 	}
 	if err != nil {
 		return Session{}, err
@@ -89,12 +103,42 @@ func (s *Sessions) Create(ctx context.Context, spaceID, kind, title string, conf
 	return sess, tx.Commit(ctx)
 }
 
-// OfferableKinds lists the seeded kinds that have not been retired, in name
+// refusedKind says which guard the insert's predicate refused on. It runs in
+// the same transaction, after the refusal, so what it reads is the snapshot
+// the refusal was made against.
+func refusedKind(ctx context.Context, tx pgx.Tx, spaceID, kind string) error {
+	var retired bool
+	err := tx.QueryRow(ctx,
+		"select k.retired_at is not null from session_kinds k where k.kind = $1", kind).Scan(&retired)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// No row at all cannot reach here — the predicate lets it through to
+		// the foreign key — but a kind deleted underneath us would, and
+		// "retired" is the truthful answer for a kind that is gone.
+		return ErrKindRetired
+	}
+	if err != nil {
+		return fmt.Errorf("reading why session kind %q was refused: %w", kind, err)
+	}
+	if retired {
+		return ErrKindRetired
+	}
+	return ErrKindElsewhere
+}
+
+// OfferableKinds lists the kinds this org may create: the instance-wide ones
+// plus the ones its own installs provide, minus anything retired, in name
 // order. Retiring a kind keeps its row — existing sessions still resolve
 // through the foreign key — so this is what stops it being offered again.
-func (s *Sessions) OfferableKinds(ctx context.Context) ([]string, error) {
-	rows, err := s.Pool.Query(ctx,
-		"select kind from session_kinds where retired_at is null order by kind")
+func (s *Sessions) OfferableKinds(ctx context.Context, orgID string) ([]string, error) {
+	// A kind whose install is switched off stops being offered at once: the
+	// row survives a disable, because a disable is reversible, so it is the
+	// install's own enabled flag that decides.
+	rows, err := s.Pool.Query(ctx, `
+		select k.kind from session_kinds k
+		left join plugin_installs p on p.name = k.provider and p.org_id = k.org_id
+		where k.retired_at is null
+		  and (k.org_id is null or (k.org_id = $1 and p.enabled))
+		order by k.kind`, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("listing offerable session kinds: %w", err)
 	}

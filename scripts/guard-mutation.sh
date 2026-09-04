@@ -340,6 +340,13 @@ mutate "the per-org scoping of an install lookup" \
 # the bridge that is the only thing a plugin's UI can reach.
 # ---------------------------------------------------------------------------
 
+# A disabled plugin's ceremony has to stop being offered at once. Without the
+# retirement the registry keeps handing it out, and a room of a kind nothing
+# can run is created against a plugin an operator has switched off.
+mutate "retiring a disabled plugin's session kinds" \
+    'TestEnablingAnInstallOffersItsKindAndDisablingRetiresIt' \
+    host.go 'h.RetireKinds(defs)' '_ = defs'
+
 target internal/api
 
 mutate "the plugin frame's route-group carve-out" \
@@ -434,6 +441,21 @@ mutate "the actor on a plugin action record" \
 mutate "the audit's success gate" \
     'TestARefusedPluginActionIsNotRecorded' \
     pluginaudit.go 'if rec.status < 200 || rec.status >= 300 {' 'if false {'
+
+# The live session surface: the first time WASM code can read a room. Its two
+# guards are the org boundary and the closed patch document, and neither is
+# visible to any test that calls the host functions with no server behind them.
+mutate "the org boundary on a plugin's view of a room" \
+    'TestAPluginCannotReadOrPatchAnotherOrgsRoom' \
+    pluginsessions.go 'func sameOrg(sessionOrgID, installOrgID string) bool { return sessionOrgID == installOrgID }' 'func sameOrg(sessionOrgID, installOrgID string) bool { return true } //nolint'
+
+mutate "the ended-room guard on a plugin patch" \
+    'TestAPluginPatchIsBoundedAndRefusedOnAnEndedRoom' \
+    pluginsessions.go 'where id = $1 and ended_at is null`, sess.ID, doc.Phase, doc.Revealed)' 'where id = $1`, sess.ID, doc.Phase, doc.Revealed)'
+
+mutate "the closed patch document" \
+    'TestAPluginPatchIsBoundedAndRefusedOnAnEndedRoom' \
+    pluginsessions.go 'dec.DisallowUnknownFields()' '// every field a plugin sends is accepted'
 
 target web/src web
 

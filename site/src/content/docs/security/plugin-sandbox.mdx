@@ -246,6 +246,59 @@ room's org's panels and no others.
 Design tokens are pushed into the frame over the same port, so plugin UI
 re-themes with the app without being able to read the app.
 
+## A plugin that owns a ceremony
+
+A plugin can provide a whole session kind: its manifest declares the ceremony
+and its actions, the kind is registered when the install is enabled and
+unregistered when it is disabled or uninstalled, and rooms of it are created,
+dispatched and closed by exactly the paths a core kind uses. That is a wider
+surface than a panel, and it is bounded in four places.
+
+### A ceremony belongs to the org that installed it
+
+An install belongs to one org, and so does the kind it provides. Another org is
+never offered the kind, is refused when it names it — the same
+`kind must be one of …` an org gets for a kind that does not exist — and its
+rooms never block the owning org's uninstall. The refusal is enforced twice:
+in the registry the create handler checks, and in the insert itself, which
+carries the space's own org in its predicate so a kind cannot be claimed
+between the check and the write. The two core kinds belong to no org and stay
+available to every one of them.
+
+### Reading a room is reading the envelope
+
+`parley_session_get` returns the same envelope a browser is sent, built by the
+session registry, so the kind's own `StateFunc` has already decided what is
+client-safe. That is a projection rather than a filter: poker's pre-reveal
+state emits **who** has voted and never **what**, so there is no hidden field
+for a plugin to reach past. A plugin therefore cannot learn anything a member
+of the room could not, and
+`TestAPluginCannotReadAVoteValueBeforeTheReveal` reads a room mid-vote through
+the host function and asserts the votes are absent — then reveals and asserts
+they are there, so the first half cannot pass by accident.
+
+### Patching a room is a closed document
+
+`parley_session_patch` accepts a phase and a reveal, and nothing else. Unknown
+fields are refused rather than ignored, an ended room refuses every patch as it
+refuses every action, and a plugin can only patch a room in its own org. What a
+plugin owns beyond that lives in its own key-value store.
+
+### An action of a plugin kind is dispatched like any other
+
+The dispatcher runs one ladder for every kind: an unknown action is `404`, the
+wrong verb `405` naming the verb that works, a facilitator-only action asked by
+a member `403`, and anything at all on an ended room `409`. A kind arriving
+from a manifest is registered through the same `Register` a core kind is, which
+refuses an action answering `GET` or `HEAD` — the cross-site guard exempts
+those verbs, so such an action would be a write with no protection at all.
+
+The registry is written while rooms are dispatching against it, so it is
+copy-on-write behind an atomic pointer: a reader takes an atomic load and never
+a lock, and a registration publishes a whole new map rather than mutating the
+one readers hold. A `-race` test registers and unregisters a kind in a loop
+while another goroutine dispatches against it.
+
 ## How these claims are kept honest
 
 Each guarantee above has a hostile fixture behind it — a WebAssembly guest that

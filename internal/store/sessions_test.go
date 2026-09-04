@@ -321,3 +321,85 @@ func TestSessionRejectsAnUnknownKind(t *testing.T) {
 		t.Fatalf("creating a session of an unregistered kind: got %v, want a foreign_key_violation (23503)", err)
 	}
 }
+
+// A kind a plugin provides belongs to the org whose install provides it.
+// Org B must not be able to create a room of org A's kind, and must not be
+// offered it either — installs became per-org in 0034 and kinds followed in
+// 0035.
+func TestAKindOwnedByAnotherOrgCannotBeCreated(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	sessions := &Sessions{Pool: pool}
+
+	orgA := defaultOrgID(t, pool)
+	orgB := newOrg(t, pool)
+	// A kind an org owns comes from an install, and is only offered while
+	// that install is enabled, so the fixture is the pair.
+	provider := "prov-" + randSuffix(t)
+	if _, err := pool.Exec(ctx,
+		"insert into plugin_installs (org_id, name, version, kv_quota_bytes) values ($1, $2, '1.0.0', 1024)",
+		orgA, provider); err != nil {
+		t.Fatal(err)
+	}
+	kind := "retro-" + randSuffix(t)
+	if _, err := pool.Exec(ctx,
+		"insert into session_kinds (kind, provider, display, org_id) values ($1, $2, 'Retro', $3)",
+		kind, provider, orgA); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanup := context.Background()
+		if _, err := pool.Exec(cleanup, "delete from sessions where kind = $1", kind); err != nil {
+			t.Errorf("cleaning up sessions of kind %q: %v", kind, err)
+			return
+		}
+		if _, err := pool.Exec(cleanup, "delete from session_kinds where kind = $1", kind); err != nil {
+			t.Errorf("cleaning up session_kinds row: %v", err)
+			return
+		}
+		if _, err := pool.Exec(cleanup, "delete from plugin_installs where name = $1", provider); err != nil {
+			t.Errorf("cleaning up the install: %v", err)
+		}
+	})
+
+	spA := newSpace(t, pool)
+	spB := newSpaceInOrg(t, pool, orgB)
+	u, _ := newUser(t, pool, "Priya Raman")
+
+	if _, err := sessions.Create(ctx, spA.ID, kind, "Retro", []byte(`{}`), u.ID, 500); err != nil {
+		t.Fatalf("the owning org cannot create a room of its own kind: %v", err)
+	}
+	_, err := sessions.Create(ctx, spB.ID, kind, "Retro", []byte(`{}`), u.ID, 500)
+	if !errors.Is(err, ErrKindElsewhere) {
+		t.Fatalf("creating another org's kind: got %v, want ErrKindElsewhere", err)
+	}
+
+	offeredA, err := sessions.OfferableKinds(ctx, orgA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offeredB, err := sessions.OfferableKinds(ctx, orgB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(offeredA, kind) {
+		t.Errorf("org A is offered %v, want it to include its own kind %q", offeredA, kind)
+	}
+	if contains(offeredB, kind) {
+		t.Errorf("org B is offered %v, which includes another org's kind %q", offeredB, kind)
+	}
+	for _, core := range []string{"poker", "standup"} {
+		if !contains(offeredB, core) {
+			t.Errorf("org B is offered %v, want the instance-wide kind %q", offeredB, core)
+		}
+	}
+}
+
+func contains(xs []string, want string) bool {
+	for _, x := range xs {
+		if x == want {
+			return true
+		}
+	}
+	return false
+}

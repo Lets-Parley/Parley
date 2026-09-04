@@ -467,3 +467,27 @@ func TestSpaceNeverMarshalsItsSecrets(t *testing.T) {
 		}
 	}
 }
+
+// newOrg makes a second org, which the migrations do not: everything ships
+// with one, and a cross-org test needs another one to be excluded from.
+func newOrg(t *testing.T, pool *pgxpool.Pool) string {
+	t.Helper()
+	slug := "org-" + randSuffix(t)
+	var id string
+	if err := pool.QueryRow(context.Background(),
+		"insert into orgs (slug, name, claim_value) values ($1, $2, $1) returning id::text", slug, slug).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// newSpaceInOrg is newSpace in an org the caller names.
+func newSpaceInOrg(t *testing.T, pool *pgxpool.Pool, orgID string) Space {
+	t.Helper()
+	creator, _ := newUser(t, pool, "Creator "+randSuffix(t))
+	sp, err := (&Spaces{Pool: pool}).Create(context.Background(), orgID, t.Name(), "sp-"+randSuffix(t), "", creator.ID, VisibilityOrg, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sp
+}

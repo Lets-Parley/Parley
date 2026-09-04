@@ -242,6 +242,27 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	if listenCtx == nil {
 		listenCtx = context.Background()
 	}
+	// The plugin host is built before this function is called, because main
+	// needs it for the job and outbox workers, so the two halves it needs from
+	// here are handed over now: the registry a ceremony plugin registers its
+	// kind into, and the live session surface parley_session_get and
+	// parley_session_patch answer through. Without these the host functions
+	// return ErrNoSessions and an enabled ceremony plugin offers nothing —
+	// a feature that is dead unless it is wired, which is why this is here and
+	// not in main.
+	if opts.PluginHost != nil {
+		opts.PluginHost.Kinds = kinds
+		opts.PluginHost.Sessions = &pluginSessions{app: a}
+		if pool != nil {
+			// Whatever was enabled when the process last ran is enabled now:
+			// a restart must not silently retire every plugin ceremony on the
+			// instance.
+			if err := opts.PluginHost.OfferEnabledKinds(listenCtx); err != nil {
+				slog.Error("could not offer the session kinds of the enabled plugins", "error", err)
+			}
+		}
+	}
+
 	// Router tolerates a nil pool — /version answers without a database, and
 	// tests use that. Nothing below here may assume otherwise.
 	if pool != nil {

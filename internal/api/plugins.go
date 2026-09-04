@@ -458,6 +458,17 @@ func (a *app) handleUninstallPlugin(w http.ResponseWriter, r *http.Request) {
 	// destroyed set of secrets with no record of who did it.
 	detail := fmt.Sprintf("uninstalled %s %s, destroying its stored data and secrets",
 		state.Install.Name, state.Install.Version)
+	// Read before the delete: afterwards the install is gone and there is
+	// nothing left to ask which kinds were its. The registry is only told once
+	// the uninstall has actually happened.
+	var provided []plugin.KindDef
+	if a.pluginHost != nil {
+		provided, err = a.plugins.ProvidedKinds(r.Context(), id)
+		if err != nil {
+			http.Error(w, `{"error":"could not uninstall that plugin"}`, http.StatusInternalServerError)
+			return
+		}
+	}
 	err = adm.Uninstall(r.Context(), id, func(ctx context.Context, tx pgx.Tx) error {
 		return a.auditPluginTx(ctx, tx, r, "plugin.uninstall", detail)
 	})
@@ -477,6 +488,10 @@ func (a *app) handleUninstallPlugin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		a.pluginError(w, err, "could not uninstall that plugin")
 		return
+	}
+	if a.pluginHost != nil {
+		// The ceremony stops being offered with the install that provided it.
+		a.pluginHost.RetireKinds(provided)
 	}
 	if a.pluginHost != nil {
 		a.pluginHost.Forget(r.Context(), id)

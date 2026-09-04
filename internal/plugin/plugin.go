@@ -76,6 +76,10 @@ type InstallRequest struct {
 	Version    string
 	Grants     []Grant
 	QuotaBytes int64
+	// Kinds are the session kinds the package declares it provides. They are
+	// written in the install's own transaction, so a plugin is never installed
+	// without them and never leaves rows behind a failed install.
+	Kinds []KindDef
 }
 
 // Install records a plugin and its grants in one transaction, so a plugin is
@@ -94,6 +98,9 @@ func (s *Store) Install(ctx context.Context, req InstallRequest) (Install, error
 			req.OrgID, req.Name, req.Version, req.QuotaBytes,
 		).Scan(&out.ID, &out.OrgID, &out.Name, &out.Version, &out.Enabled, &out.QuotaBytes); err != nil {
 			return fmt.Errorf("inserting install: %w", err)
+		}
+		if err := seedKinds(ctx, tx, req.OrgID, req.Name, req.Kinds); err != nil {
+			return err
 		}
 		for _, g := range req.Grants {
 			if _, err := tx.Exec(ctx, `

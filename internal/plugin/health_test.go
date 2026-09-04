@@ -91,8 +91,8 @@ func TestUninstallIsRefusedWhileASessionOfAProvidedKindExists(t *testing.T) {
 
 	kind := "retro-" + in.ID[:8]
 	if _, err := pool.Exec(ctx,
-		`insert into session_kinds (kind, provider, display) values ($1, $2, 'Retrospective')`,
-		kind, in.Name); err != nil {
+		`insert into session_kinds (kind, provider, display, org_id) values ($1, $2, 'Retrospective', $3)`,
+		kind, in.Name, testOrgID); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -137,8 +137,8 @@ func TestAnEndedSessionStillBlocksAnUninstall(t *testing.T) {
 
 	kind := "ended-" + in.ID[:8]
 	if _, err := pool.Exec(ctx,
-		`insert into session_kinds (kind, provider, display) values ($1, $2, 'Retrospective')`,
-		kind, in.Name); err != nil {
+		`insert into session_kinds (kind, provider, display, org_id) values ($1, $2, 'Retrospective', $3)`,
+		kind, in.Name, testOrgID); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -213,8 +213,8 @@ func TestUninstallRetiresTheKindsThePluginProvided(t *testing.T) {
 
 	kind := "retire-" + in.ID[:8]
 	if _, err := pool.Exec(ctx,
-		`insert into session_kinds (kind, provider, display) values ($1, $2, 'Retrospective')`,
-		kind, in.Name); err != nil {
+		`insert into session_kinds (kind, provider, display, org_id) values ($1, $2, 'Retrospective', $3)`,
+		kind, in.Name, testOrgID); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -247,8 +247,8 @@ func TestARefusedUninstallLeavesTheKindOfferable(t *testing.T) {
 
 	kind := "rollback-" + in.ID[:8]
 	if _, err := pool.Exec(ctx,
-		`insert into session_kinds (kind, provider, display) values ($1, $2, 'Retrospective')`,
-		kind, in.Name); err != nil {
+		`insert into session_kinds (kind, provider, display, org_id) values ($1, $2, 'Retrospective', $3)`,
+		kind, in.Name, testOrgID); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {

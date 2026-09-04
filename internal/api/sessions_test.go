@@ -779,7 +779,7 @@ func TestUnknownKindMessageNamesEveryRegisteredKind(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	msg := unknownKindMessage(kinds)
+	msg := unknownKindMessage(kinds, "any-org")
 	if msg != "kind must be one of poker, retro, standup" {
 		t.Fatalf("unknown-kind message %q is not in sorted order", msg)
 	}

@@ -123,7 +123,8 @@ migration and embedding mistakes that unit tests miss.
 - Logging is `log/slog` JSON to stdout; config is read via `os.Getenv` and the
   local `envOr` helper, validated once in `loadConfig()`.
 - Session kinds are registered into a `session.Registry` in `api.Router`, each
-  built by its package's `Kind()` constructor (`poker.Kind()`, `standup.Kind()`).
+  built by its package's `Kind()` constructor (`poker.Kind()`, `standup.Kind()`)
+  — plus, at runtime, the kinds every enabled plugin install provides.
   Kind configs decode with `DisallowUnknownFields`, and a `StateFunc` must return
   only redacted, client-safe data — it is broadcast to every participant. The
   full three-step checklist for adding a kind — register it, seed its
@@ -468,3 +469,18 @@ issue first. For anything large, open an issue before writing code.
     entry that strips the `org_id` filter from all three sites are what hold
     that line. The same rule applies to anything else that becomes per-org: an
     id in a URL is scoped by the request's org or it is not scoped at all.
+
+41. **A session kind can arrive at runtime, and it belongs to an org.** The
+    registry is no longer written only at wiring time: enabling a plugin
+    install registers the kinds it provides and disabling or uninstalling one
+    unregisters them, so `session.Registry` is copy-on-write behind an atomic
+    pointer. Read it with `read()`; never index the map directly and never add
+    a write path that mutates the live map instead of publishing a copy. A
+    kind's `OrgID` is empty only for the core kinds, which are instance-wide —
+    a plugin-provided kind carries the installing org, and the create path is
+    `KnownInOrg`, not `Known`. `Known` stays org-blind on purpose: a room
+    outlives the install that offered its kind, and loading one must not depend
+    on whether a new one could be created. `Host.Sessions` reads a room through
+    the same envelope the browser is sent, so the kind's own `StateFunc` is the
+    only thing deciding what a plugin may see; never build a plugin's view of a
+    room out of store rows.
