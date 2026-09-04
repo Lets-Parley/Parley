@@ -1,13 +1,59 @@
 ---
 title: Backups
-description: Dump it, restore it, and the one command that deletes everything.
+description: Dump it, encrypt it, restore it, and the one command that deletes everything.
 ---
+
+Nothing in Parley backs itself up. `pg_dump` is the whole story; there is no
+built-in scheduler, no retention policy, and no encryption unless you add one.
+
+## Back up before every upgrade
+
+Take a dump immediately before every `docker compose up -d` or `helm upgrade`
+that changes Parley's version, not just before major ones. Migrations run
+automatically at boot, and [some are forward-only with no down
+path](/operations/upgrading/#upgrading-to-v050-organizations) — the backup
+taken a second before the new version starts is the only way back if a
+migration does something you didn't expect.
+
+## Dump it
 
 ```sh
 docker compose exec db pg_dump -U parley parley > parley-backup.sql
 ```
 
-Restore into a fresh stack:
+## Encrypt the dump
+
+A dump contains every space's passcode in readable form, and no credential
+that impersonates a person — see the [security model](/security/overview/).
+That's still enough to enter any space that has one, so treat the file as a
+secret from the moment it exists, both at rest and wherever it travels
+(object storage, a laptop, an offsite copy).
+
+With [`age`](https://github.com/FiloSottile/age):
+
+```sh
+docker compose exec db pg_dump -U parley parley | age -r age1yourpublickeyhere > parley-backup.sql.age
+
+# restore
+age -d -i key.txt parley-backup.sql.age > parley-backup.sql
+```
+
+With `gpg`, symmetric encryption needs no key management for a single operator:
+
+```sh
+docker compose exec db pg_dump -U parley parley | gpg --symmetric --cipher-algo AES256 -o parley-backup.sql.gpg
+
+# restore
+gpg --decrypt parley-backup.sql.gpg > parley-backup.sql
+```
+
+Either way, keep the passphrase or private key off the machine that holds the
+dump — an encrypted backup sitting next to its own key protects against
+nothing.
+
+## Restore it
+
+Into a fresh stack:
 
 ```sh
 docker compose up -d db
@@ -20,5 +66,48 @@ docker compose up -d
 history, all of it. Plain `docker compose down` is safe.
 :::
 
-A dump contains every space's passcode in readable form, and no credential
-that impersonates a person. See the [security model](/security/overview/).
+## On Kubernetes
+
+`pg_dump` still does the job, but nothing runs it for you. Schedule it as a
+`CronJob` in the same namespace that execs into (or connects directly to) the
+Postgres pod/service and writes the encrypted dump to object storage — the
+[Kubernetes](/operations/kubernetes/) page and your Postgres operator's own
+docs (CloudNativePG, Zalando, Crunchy) are the right starting point, since the
+exact command depends on which one manages your database. If you run your own
+Postgres StatefulSet rather than an operator, the CronJob runs the same
+`pg_dump | age` pipeline above from a pod instead of a laptop.
+
+## Run a restore drill
+
+A backup you have never restored is a hope, not a backup. Periodically:
+
+1. Spin up a scratch stack (a second Compose project or a throwaway
+   namespace).
+2. Restore the most recent dump into it.
+3. Confirm the app boots against it and a space you recognize is there.
+4. Tear the scratch stack down.
+
+Do this after any schema-changing upgrade, not just on a calendar — that's the
+moment a restore is most likely to surface a problem while it's still cheap to
+find one.
+
+## What this shape actually recovers
+
+A `pg_dump` backup has a bluntly honest RPO/RTO, worth stating rather than
+assuming:
+
+- **RPO (how much you can lose)** is the interval between dumps. A backup
+  taken once a day means up to a day of standups, estimates, and roster
+  changes are gone if you have to restore. Dump more often if that's not
+  acceptable — nothing in this shape requires daily.
+- **RTO (how long you're down)** is the time to restore the dump plus the time
+  for Parley to come back up: for a single-server install, minutes for a
+  `psql` restore of a database sized for a few teams, plus the compose
+  restart. It grows with database size and gets worse if the restore target
+  isn't already provisioned — provisioning a fresh Postgres instance under
+  pressure is not the moment to discover your IaC is stale.
+
+Point-in-time recovery, replication, and continuous WAL archiving are real
+options if this RPO isn't good enough, but they are a Postgres operations
+topic in their own right and outside what this page covers — they layer on
+top of the same `parley` database this page backs up.
