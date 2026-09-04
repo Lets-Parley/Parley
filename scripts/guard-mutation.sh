@@ -355,6 +355,36 @@ mutate "the org half of the session-kind upsert predicate" \
     'TestTwoOrgsRunningTheSamePluginNameDoNotShareAKind' \
     kinds.go 'and session_kinds.org_id is not distinct from excluded.org_id' 'and true'
 
+# The other half of the same predicate, and the one both org tests are blind
+# to: they differ in provider as well, so either half alone refuses them. Drop
+# the provider check and an install can take over a kind row its own org's
+# other plugin provides — its display, its whole dispatch table, its retirement.
+mutate "the provider half of the session-kind upsert predicate" \
+    'TestAnInstallCannotTakeOverAKindItsOwnOrgAlreadyProvides' \
+    kinds.go 'where session_kinds.provider = excluded.provider' 'where true'
+
+# Two kinds in one manifest are the same kind when their names match. Keyed on
+# the display name instead, the screen is still a screen — of the wrong field —
+# and every other fixture in the tree stays green.
+mutate "the field the duplicate-kind screen compares" \
+    'TestDuplicateDetectionComparesTheKindNameAndNotTheDisplayName' \
+    kinds.go 'if seen[def.Kind] {' 'if seen[def.Display] {' \
+    kinds.go 'seen[def.Kind] = true' 'seen[def.Display] = true'
+
+# And the same sentence one level down: an unscreened duplicate action name is
+# a dispatch table with one of the two entries silently winning.
+mutate "the duplicate-action-name screen" \
+    'TestAKindDeclaringOneActionNameTwiceIsRefused' \
+    kinds.go 'if names[a.Name] {' 'if false {'
+
+# ProvidesKind is the ownership half of the plugin session surface's boundary.
+# Without the retirement and the enabled flag it answers "yes" for a retired
+# kind of a switched-off install, and the boundary is then leaning on the
+# enabled check that happens to sit two layers up in hostfn.go.
+mutate "the retirement and enabled filters on the kind-ownership answer" \
+    'TestASwitchedOffInstallAndARetiredKindProvideNothing' \
+    kinds.go 'where p.id = $1 and k.kind = $2 and k.retired_at is null and p.enabled)' 'where p.id = $1 and k.kind = $2)'
+
 # A manifest's action verb is canonicalised and then screened against a closed
 # set. Without the screen a manifest declaring anything at all installs, and the
 # action it declares is either dead or reaches the dispatcher unscreened.
@@ -471,6 +501,21 @@ mutate "the org boundary on a plugin's view of a room" \
 mutate "the kind-ownership boundary on a plugin's view of a room" \
     'TestAPluginCannotReadOrRevealAPokerRoomItDoesNotProvide' \
     pluginsessions.go 'func ownsKind(installProvidesTheKind bool) bool { return installProvidesTheKind }' 'func ownsKind(installProvidesTheKind bool) bool { return true } //nolint'
+
+# Both boundaries above are decided from an answer the store gives, and the
+# guard is what happens when it cannot give one: the refusal is returned, never
+# downgraded to "yes". Nothing else in the package can see it — every fixture
+# has a database that answers — so swallowing the error leaves the entire
+# internal/api suite green, this test included until it existed.
+mutate "the fail-closed answer to an unresolvable kind-ownership question" \
+    'TestAnUnanswerableOwnershipQuestionRefusesRatherThanGrants' \
+    pluginsessions.go 'provides, err := p.providesKind(ctx, installID, sess.Kind)
+	if err != nil {
+		return store.Session{}, err
+	}' 'provides, err := p.providesKind(ctx, installID, sess.Kind)
+	if err != nil {
+		provides = true
+	}'
 
 mutate "the ended-room guard on a plugin patch" \
     'TestAPluginPatchIsBoundedAndRefusedOnAnEndedRoom' \

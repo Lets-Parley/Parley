@@ -37,7 +37,24 @@ import (
 //     reaches its own ceremonies and nothing else, and a core kind (provider
 //     'core', no org) is provided by no install and so is closed to every
 //     plugin on the instance.
-type pluginSessions struct{ app *app }
+type pluginSessions struct {
+	app *app
+	// provideKind is Store.ProvidesKind, and it is a field so that a test can
+	// make it fail. The ownership check is fail-closed — a database error
+	// resolving "does this install provide this kind" is returned rather than
+	// read as "yes" — and that is a property of the *failure* path, which no
+	// fixture reaches while the database is answering. Left nil, which is what
+	// production leaves it, the call below goes straight to the store.
+	provideKind func(ctx context.Context, installID, kind string) (bool, error)
+}
+
+// providesKind asks whether this install provides this kind, through the seam.
+func (p *pluginSessions) providesKind(ctx context.Context, installID, kind string) (bool, error) {
+	if p.provideKind != nil {
+		return p.provideKind(ctx, installID, kind)
+	}
+	return p.app.plugins.ProvidesKind(ctx, installID, kind)
+}
 
 // errForeignSession is the refusal for a session outside the install's org, for
 // one running a kind the install does not provide, and for one that does not
@@ -65,7 +82,11 @@ func (p *pluginSessions) ownSession(ctx context.Context, installID, sessionID st
 	if !sameOrg(org.ID, state.Install.OrgID) {
 		return store.Session{}, errForeignSession
 	}
-	provides, err := p.app.plugins.ProvidesKind(ctx, installID, sess.Kind)
+	// Fail closed: an error here is an unanswered question, and the only safe
+	// answer to "does this install provide this ceremony" when nobody knows is
+	// no. Defaulting to yes would turn a database blip into a plugin holding
+	// the facilitator's reveal on every room in its org.
+	provides, err := p.providesKind(ctx, installID, sess.Kind)
 	if err != nil {
 		return store.Session{}, err
 	}

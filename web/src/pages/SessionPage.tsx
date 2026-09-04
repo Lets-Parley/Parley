@@ -185,18 +185,17 @@ export function SessionPage() {
             </button>
           </p>
         )}
-        {Room ? (
-          <Room
-            env={env}
-            me={identity}
-            status={session.status}
-            guest={!!guest}
-            kickReason={session.kickReason}
-            kicked={session.kicked}
-          />
-        ) : env.kindUnavailable ? (
+        {env.kindUnavailable ? (
           // The ceremony's plugin is switched off. Say so plainly: the room is
           // still here and comes back the moment somebody switches it on.
+          //
+          // This is asked first, before a Room component is looked for. The
+          // server has already said this room's ceremony is not running and has
+          // sent no state to run it with, so a component that happened to be
+          // registered under the name would be a room's controls pointed at
+          // nothing. Today only core kinds have a Room and a core kind is never
+          // unavailable, so the two branches cannot both be live — which is the
+          // reason to fix the order now rather than after they can.
           <p
             data-testid="kind-unavailable"
             className="p-8 text-center text-ink-soft text-pretty"
@@ -205,6 +204,15 @@ export function SessionPage() {
             “{env.kind}” has been switched off — the room and everything in it
             are still here, and come back when an admin switches it on again.
           </p>
+        ) : Room ? (
+          <Room
+            env={env}
+            me={identity}
+            status={session.status}
+            guest={!!guest}
+            kickReason={session.kickReason}
+            kicked={session.kicked}
+          />
         ) : (
           // Falling through to a room here would point one kind's controls at
           // another kind's state, so an unknown kind gets no room at all.

@@ -199,13 +199,20 @@ func (s *Store) ProvidedKinds(ctx context.Context, installID string) ([]KindDef,
 // install's own ceremony. A core kind is provider 'core' with a NULL org and so
 // matches no install at all, which is the answer that matters — a plugin must
 // never be able to reach into a poker room.
+//
+// The retirement and the enabled flag are part of the answer, exactly as they
+// are in ProvidedKinds above and in Sessions.OfferableKinds. A switched-off
+// install provides nothing and a retired kind is nobody's ceremony any more.
+// Saying otherwise here would leave the ownership boundary leaning on a guard
+// that lives two layers up in hostfn.go instead of on the one sentence this
+// function exists to answer.
 func (s *Store) ProvidesKind(ctx context.Context, installID, kind string) (bool, error) {
 	var ok bool
 	err := s.Pool.QueryRow(ctx, `
 		select exists (
 			select 1 from plugin_installs p
 			join session_kinds k on k.provider = p.name and k.org_id = p.org_id
-			where p.id = $1 and k.kind = $2)`, installID, kind).Scan(&ok)
+			where p.id = $1 and k.kind = $2 and k.retired_at is null and p.enabled)`, installID, kind).Scan(&ok)
 	if err != nil {
 		return false, fmt.Errorf("checking whether %s provides the kind %q: %w", installID, kind, err)
 	}

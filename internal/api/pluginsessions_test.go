@@ -130,11 +130,18 @@ func TestAPluginReadsItsOwnRoomThroughTheRegistryEnvelope(t *testing.T) {
 	kind := "retro" + randomKindSuffix(t)
 	in := installIn(t, plugins, orgID, plugin.KindDef{Kind: kind, Display: "Retrospective"})
 
-	// The kind's State is the only thing that decides the payload. It emits a
-	// public column and deliberately never emits the secret one, which is the
-	// redaction this asserts: a plugin gets the projection, not the row.
-	registerStubKind(t, host, kind, in.OrgID, func() any {
-		return map[string]any{"columns": []string{"went-well"}}
+	// The kind's State is the only thing that decides the payload, and this one
+	// has something to hide: the authors of the notes are emitted only once the
+	// room is revealed, exactly as poker's vote values are. That is what makes
+	// the assertion below a redaction assertion rather than a shape assertion —
+	// the field exists, the plugin owns this ceremony, and it still does not get
+	// it until the state function says so.
+	registerStubKind(t, host, kind, in.OrgID, func(sess store.Session) any {
+		out := map[string]any{"columns": []string{"went-well"}}
+		if sess.Revealed {
+			out["authors"] = []string{"Fay"}
+		}
+		return out
 	})
 
 	fac := signup(t, srv, "Fay")
@@ -152,8 +159,84 @@ func TestAPluginReadsItsOwnRoomThroughTheRegistryEnvelope(t *testing.T) {
 	if !strings.Contains(string(state), `"columns":["went-well"]`) {
 		t.Fatalf("the plugin was not given its own room's state: %s", state)
 	}
+	if strings.Contains(string(state), "authors") {
+		t.Fatalf("the plugin was handed a field its kind redacts before the reveal: %s", state)
+	}
 	if err := host.Sessions.Patch(ctx, in.ID, id, []byte(`{"phase":"gathering"}`)); err != nil {
 		t.Fatalf("patching a room of its own ceremony: %v", err)
+	}
+
+	// And the projection tracks the room rather than the caller: once the room
+	// is revealed the same read carries the field, so what was withheld above
+	// was withheld by the state function and not by a plugin-shaped filter.
+	if err := host.Sessions.Patch(ctx, in.ID, id, []byte(`{"revealed":true}`)); err != nil {
+		t.Fatalf("revealing a room of its own ceremony: %v", err)
+	}
+	state, err = host.Sessions.Read(ctx, in.ID, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(state), `"authors":["Fay"]`) {
+		t.Fatalf("the revealed room still withholds the field: %s", state)
+	}
+}
+
+// The kind-ownership check is fail-closed, and that is a property of its
+// failure path: when the store cannot answer "does this install provide this
+// ceremony", the surface refuses rather than assuming it does.
+//
+// Nothing else in this file can see it. Every fixture here has a database that
+// answers, so swallowing the error and defaulting to "yes" leaves the whole
+// package green — including every test above, which is why pluginSessions has
+// a seam for the answer at all. The seam is nil in production; a test is the
+// only thing that ever sets it.
+func TestAnUnanswerableOwnershipQuestionRefusesRatherThanGrants(t *testing.T) {
+	srv, pool, plugins, host := hostServer(t)
+	ctx := context.Background()
+	orgID := defaultOrg(t, pool)
+	kind := "retro" + randomKindSuffix(t)
+	in := installIn(t, plugins, orgID, plugin.KindDef{Kind: kind, Display: "Retrospective"})
+	registerStubKind(t, host, kind, in.OrgID, func(store.Session) any {
+		return map[string]any{"columns": []string{"went-well"}}
+	})
+
+	fac := signup(t, srv, "Fay")
+	_, sp := createSpace(t, srv, "Room The Store Cannot Vouch For", fac)
+	resp, body := createSession(t, srv, sp["slug"].(string), kind, "Retro", fac)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("creating a room of the plugin's own kind: %d %v", resp.StatusCode, body)
+	}
+	id := body["id"].(string)
+
+	// Reachable while the store answers, so the refusals below are about the
+	// failure and not about a room this plugin could never touch.
+	if _, err := host.Sessions.Read(ctx, in.ID, id); err != nil {
+		t.Fatalf("reading its own room while the store is answering: %v", err)
+	}
+
+	surface, ok := host.Sessions.(*pluginSessions)
+	if !ok {
+		t.Fatalf("the host's session surface is %T, not the one this test can reach into", host.Sessions)
+	}
+	boom := errors.New("the ownership question could not be answered")
+	surface.provideKind = func(context.Context, string, string) (bool, error) { return false, boom }
+	t.Cleanup(func() { surface.provideKind = nil })
+
+	if _, err := host.Sessions.Read(ctx, in.ID, id); !errors.Is(err, boom) {
+		t.Fatalf("reading a room whose ownership could not be resolved: got %v, want the store's error", err)
+	}
+	if err := host.Sessions.Patch(ctx, in.ID, id, []byte(`{"revealed":true}`)); !errors.Is(err, boom) {
+		t.Fatalf("patching a room whose ownership could not be resolved: got %v, want the store's error", err)
+	}
+
+	// The consequence, not only the return value: the reveal the patch asked
+	// for did not happen.
+	sess, err := (&store.Sessions{Pool: pool}).ByID(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Revealed {
+		t.Fatal("a patch that could not be authorised revealed the room anyway")
 	}
 }
 
@@ -161,14 +244,14 @@ func TestAPluginReadsItsOwnRoomThroughTheRegistryEnvelope(t *testing.T) {
 // it. Nothing here runs WASM, so a plugin-provided kind's State has to come
 // from somewhere: this is that somewhere, and it stands in for the guest call
 // h.PluginKind would make.
-func registerStubKind(t *testing.T, host *plugin.Host, kind, orgID string, state func() any) {
+func registerStubKind(t *testing.T, host *plugin.Host, kind, orgID string, state func(store.Session) any) {
 	t.Helper()
 	if err := host.Kinds.Register(session.Kind{
 		Name:      kind,
 		OrgID:     orgID,
 		NewConfig: func() any { return new(json.RawMessage) },
-		State: func(context.Context, *pgxpool.Pool, store.Session) (any, error) {
-			return state(), nil
+		State: func(_ context.Context, _ *pgxpool.Pool, sess store.Session) (any, error) {
+			return state(sess), nil
 		},
 		Actions: map[string]session.Action{},
 	}); err != nil {
@@ -189,7 +272,7 @@ func TestARoomOfADisabledPluginsKindStillLoadsAndComesBack(t *testing.T) {
 	orgID := defaultOrg(t, pool)
 	kind := "retro" + randomKindSuffix(t)
 	in := installIn(t, plugins, orgID, plugin.KindDef{Kind: kind, Display: "Retrospective"})
-	registerStubKind(t, host, kind, in.OrgID, func() any {
+	registerStubKind(t, host, kind, in.OrgID, func(store.Session) any {
 		return map[string]any{"columns": []string{"went-well"}}
 	})
 
@@ -227,7 +310,7 @@ func TestARoomOfADisabledPluginsKindStillLoadsAndComesBack(t *testing.T) {
 	// And switching it back on restores the room exactly as it was. The
 	// registration stands in for OfferKinds, which would build a guest-backed
 	// kind and there is no guest here.
-	registerStubKind(t, host, kind, in.OrgID, func() any {
+	registerStubKind(t, host, kind, in.OrgID, func(store.Session) any {
 		return map[string]any{"columns": []string{"went-well"}}
 	})
 	resp, body = doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
@@ -261,7 +344,7 @@ func TestAPluginCannotReadOrPatchAnotherOrgsRoom(t *testing.T) {
 	orgID := defaultOrg(t, pool)
 	kind := "retro" + randomKindSuffix(t)
 	in := installIn(t, plugins, orgID, plugin.KindDef{Kind: kind, Display: "Retrospective"})
-	registerStubKind(t, host, kind, in.OrgID, func() any { return map[string]any{} })
+	registerStubKind(t, host, kind, in.OrgID, func(store.Session) any { return map[string]any{} })
 
 	fac := signup(t, srv, "Fay")
 	_, sp := createSpace(t, srv, "Room That Moves Org", fac)
@@ -299,7 +382,7 @@ func TestAPluginPatchIsBoundedAndRefusedOnAnEndedRoom(t *testing.T) {
 	orgID := defaultOrg(t, pool)
 	kind := "retro" + randomKindSuffix(t)
 	in := installIn(t, plugins, orgID, plugin.KindDef{Kind: kind, Display: "Retrospective"})
-	registerStubKind(t, host, kind, in.OrgID, func() any { return map[string]any{} })
+	registerStubKind(t, host, kind, in.OrgID, func(store.Session) any { return map[string]any{} })
 
 	fac := signup(t, srv, "Fay")
 	_, sp := createSpace(t, srv, "Plugin Patches A Room", fac)

@@ -53,6 +53,13 @@ function loadBootstrap(): void {
 }
 
 /**
+ * How long a refusal is given to prove itself. Only the negative cases wait
+ * it out — an accepted port answers as soon as its hello arrives — so it is
+ * long enough to survive a loaded machine rather than tuned to be quick.
+ */
+const SETTLE_MS = 250;
+
+/**
  * Offers the frame a port and reports whether it took it. Acceptance is
  * observable from the far end: the bootstrap's first act on a port it has
  * accepted is to send {"type":"hello"}.
@@ -68,9 +75,23 @@ async function offerPort(opts: {
     channel.port2.close();
   });
   let accepted = false;
+  // Waiting for the hello, rather than for a fixed number of turns. A
+  // MessagePort has its own task queue, so "one macrotask" was an assumption
+  // about scheduling and not a fact about delivery — and this test failed once
+  // inside a full harness run, which is a red required mutation leg for every
+  // PR afterwards. An acceptance now resolves the moment the hello lands; only
+  // a refusal, which is a negative and has nothing to wait for, spends the
+  // whole budget below.
+  let helloLanded: () => void;
+  const hello = new Promise<void>((resolve) => {
+    helloLanded = resolve;
+  });
   channel.port2.onmessage = (e: MessageEvent) => {
     const message = JSON.parse(String(e.data)) as { type?: string };
-    if (message.type === "hello") accepted = true;
+    if (message.type === "hello") {
+      accepted = true;
+      helloLanded();
+    }
   };
   channel.port2.start();
 
@@ -82,8 +103,10 @@ async function offerPort(opts: {
     }),
   );
 
-  // The hello crosses the channel asynchronously, so give the port a turn.
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await Promise.race([
+    hello,
+    new Promise((resolve) => setTimeout(resolve, SETTLE_MS)),
+  ]);
   return accepted;
 }
 

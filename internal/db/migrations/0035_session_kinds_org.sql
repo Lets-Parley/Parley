@@ -33,9 +33,19 @@ alter table session_kinds
 -- would be un-retirable, would not block its install's uninstall, and would
 -- stay on offer to every org on the instance. Nothing writes such a row today.
 -- The constraint is what keeps that true.
+--
+-- It is a biconditional rather than an implication, and the direction that is
+-- easy to leave out is the one that matters most: "org_id is not null or
+-- provider = 'core'" still admits a row with provider 'core' and a NULL org
+-- written by anybody at all, which is an instance-wide ceremony minted outside
+-- the core — on offer to every org, owned by none, and un-retirable by the
+-- install that wrote it. NULL means the instance and 'core' means the instance,
+-- so the constraint says exactly that: each one holds if and only if the other
+-- does. poker and standup satisfy it (provider 'core', no org) and every
+-- plugin-provided row satisfies it the other way.
 alter table session_kinds
     add constraint session_kinds_org_required
-    check (org_id is not null or provider = 'core');
+    check ((provider = 'core') = (org_id is null));
 
 -- Every offerable-kinds read is "what may this org create", so it is the org
 -- that is filtered on.
