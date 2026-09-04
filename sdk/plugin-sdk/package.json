@@ -1,0 +1,20 @@
+{
+  "name": "@parley/plugin-sdk",
+  "version": "1.0.0",
+  "description": "Capability-aware guest SDK and developer loop for Parley plugins",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.js"
+    }
+  },
+  "bin": {
+    "parley-plugin": "./src/cli.js"
+  },
+  "files": ["src"],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "license": "MIT"
+}

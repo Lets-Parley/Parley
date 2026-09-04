@@ -1,0 +1,15 @@
+{
+  "name": "@parley/plugin-ui",
+  "version": "1.0.0",
+  "description": "Optional CSS primitives on Parley host tokens so a plugin looks native by adding a class",
+  "type": "module",
+  "exports": {
+    ".": "./parley.css",
+    "./parley.css": "./parley.css"
+  },
+  "files": ["parley.css"],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,51 @@
+---
+title: Plugin wire protocol
+description: Version 1 of the plugin host functions and guest hooks, frozen, including what must not be frozen away.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+
+<VerifiedStamp version="unreleased" source={["sdk/abi/v1.json", "internal/plugin/hostfn.go", "internal/plugin/kv.go", "internal/plugin/kinds.go"]} />
+
+The plugin wire protocol is **frozen at version 1**. The schema lives in
+`sdk/abi/v1.json`. A guest talks to the host through Extism host functions; the
+host talks back by calling exported hooks. JSON envelopes (`ok`, `error`,
+`data`) wrap every host-function result.
+
+Manifest `manifest` is `1` as well. That number is the package format, not a
+second protocol.
+
+## Guest PDKs
+
+A guest can be written in any language with an official Extism PDK: **Rust,
+JavaScript, Go (TinyGo), Haskell, AssemblyScript, C, Zig, and .NET.**
+
+Python is **not** a guest PDK — do not plan on it. The Go PDK targets TinyGo,
+so a guest cannot use goroutine-heavy or reflection-heavy parts of the standard
+library.
+
+## Storage model (from the retrospective, PR 527)
+
+Grouping and dot-vote work as **one key-value document per session**. There is
+no list or prefix API on `kv`. Relational storage is not required for a
+ceremony plugin.
+
+## What must not be frozen away
+
+`parley_kv_set` today writes a whole value. A **bounded write** — compare-and-swap
+on `kv_set`, an `expected` field the host checks before replacing the document —
+is deliberately **not** closed by freezing v1. Concurrent guests racing on one
+session document need it. Adding that field is a compatible extension of
+protocol 1, not a v2.
+
+## Host functions
+
+`parley_kv_get`, `parley_kv_set`, `parley_fetch`, `parley_secret_get`,
+`parley_log`, `parley_emit`, `parley_session_get`, `parley_session_patch`,
+`parley_job_enqueue`. Each checks the grant inside the host function against
+the install record, not against the bundle.
+
+## Guest exports
+
+`on_session_state`, `on_session_action`, `on_event`, `on_job`. Event and job
+handlers must be idempotent: delivery is at-least-once.

@@ -67,6 +67,12 @@ jobs:
             | .Package + (if .Test then "." + .Test else " (whole package)" end)
           ' test-output.json)
           test -z "$skipped" || { echo "$skipped" >&2; exit 1; }
+      - name: Test plugin SDK
+        run: node --test sdk/plugin-sdk/test/*.test.mjs sdk/plugin-ui/test/*.test.mjs
+      - name: Test plugindev-tagged routes
+        run: go test -timeout 20m -p 1 -race -tags plugindev ./internal/api
+        env:
+          TEST_DATABASE_URL: postgres://test:test@127.0.0.1:5432/test
       - name: Check known Go vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
 

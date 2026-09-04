@@ -1,0 +1,26 @@
+.parley-panel {
+  background: var(--color-surface);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-panel, 20px);
+  box-shadow: var(--shadow-rest);
+  padding: 1rem;
+}
+
+.parley-btn {
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-chip, 8px);
+  font: inherit;
+  padding: 0.4rem 0.8rem;
+}
+
+.parley-input {
+  background: var(--color-surface-hi);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-chip, 8px);
+  font: inherit;
+  padding: 0.35rem 0.6rem;
+}

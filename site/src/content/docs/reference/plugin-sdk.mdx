@@ -1,0 +1,57 @@
+---
+title: Plugin SDK
+description: Publishing a plugin with @parley/plugin-sdk, optional UI classes, the developer commands, and what each capability grant actually permits.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+
+<VerifiedStamp version="unreleased" source={["sdk/plugin-sdk/src/host.js", "sdk/plugin-sdk/src/cli.js", "sdk/plugin-ui/parley.css", "internal/api/plugindev.go", "internal/plugin/describe.go"]} />
+
+`@parley/plugin-sdk` is the guest library: capability-aware methods that fail
+fast in the guest when a grant is missing, then still call the Extism bridge,
+which remains the enforcing check. `@parley/plugin-ui` is optional CSS: add a
+class (`parley-btn`, `parley-panel`, `parley-input`) and the rule uses the host
+colour tokens (`--color-accent`, `--color-surface`, `--color-ink`).
+
+```sh
+node sdk/plugin-sdk/src/cli.js scaffold ./my-plugin
+node sdk/plugin-sdk/src/cli.js build ./my-plugin
+node sdk/plugin-sdk/src/cli.js verify ./my-plugin
+```
+
+`dev` POSTs the package to `POST /api/orgs/{org}/admin/plugins/dev-register`.
+That route is compiled only with `-tags plugindev`. It is not gated on an
+environment variable: a variable would still ship the handler in every
+production binary. Docker and CI build without the tag.
+
+The guest wrapper `generateGuestHookTypes` prints TypeScript signatures for
+`on_session_state`, `on_session_action`, `on_event` and `on_job` from
+`sdk/abi/v1.json`.
+
+The wire protocol is frozen at version 1; see [Plugin wire protocol](/reference/plugin-protocol/).
+
+## Manifest
+
+A plugin package is JSON with `manifest: 1`, `kind: "plugin"`, `name`,
+`version` (`major.minor.patch`), optional `quotaBytes`, `capabilities` (each
+`capability` plus optional `scope`), and `kinds` for ceremonies the plugin
+provides. Installing through the operator API still requires `grantsAccepted:
+true`. Consent sentences are not written in the frontend; they come from
+`internal/plugin/describe.go`, next to the guards that enforce them.
+
+## What each grant actually permits
+
+Quoted from `Describe` in `internal/plugin/describe.go`:
+
+- **fetch** (scope is an allowlist host): "Can send anything it holds — including session data it has read — to " plus the expanded host summary.
+- **kv** (unscoped): "Can store and read back data of its own on this server, under any key. It cannot see what another plugin stored."
+- **kv** (scoped): "Can store and read back data of its own on this server, under keys beginning \<scope\>. It cannot see what another plugin stored."
+- **secrets** (unscoped): "Can store and read back every secret on this instance — API tokens, passwords — encrypted on this server. Combined with any outbound access below, it can send them."
+- **log**: "Can write lines into this server's log, where they sit alongside Parley's own."
+- **session:read** (unscoped): "Can read the live state of every room running a ceremony this plugin itself provides, in any space in this org: who is seated, and whatever that ceremony records. It cannot read a planning poker or standup room, or any other plugin's rooms."
+- **session:patch** (unscoped): "Can change the live state of every room running a ceremony this plugin itself provides, in any space in this org — move that room's phase, reveal or hide what it is showing everyone in it. It cannot touch a planning poker or standup room, or any other plugin's rooms."
+- **jobs**: "Can schedule its own work to run later on this server, outside any request a person made."
+- **emit**: "Can publish events of its own, which other plugins receive as though Parley had raised them."
+- **events** (unscoped): "Is sent a copy of every event Parley raises, payload included."
+
+An unknown capability is described as: "Parley does not recognise the capability … and cannot say what it permits. Do not grant it."

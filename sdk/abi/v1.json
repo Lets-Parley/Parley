@@ -1,0 +1,78 @@
+{
+  "protocol": 1,
+  "frozen": true,
+  "hostFunctions": [
+    {
+      "name": "parley_kv_get",
+      "capability": "kv",
+      "request": { "scope": "string", "key": "string" }
+    },
+    {
+      "name": "parley_kv_set",
+      "capability": "kv",
+      "request": { "scope": "string", "key": "string", "value": "bytes" },
+      "notFrozenAway": ["expected"]
+    },
+    {
+      "name": "parley_fetch",
+      "capability": "fetch",
+      "request": { "url": "string", "method": "string", "body": "bytes" }
+    },
+    {
+      "name": "parley_secret_get",
+      "capability": "secrets",
+      "request": { "name": "string" }
+    },
+    {
+      "name": "parley_log",
+      "capability": "log",
+      "request": { "level": "string", "message": "string" }
+    },
+    {
+      "name": "parley_emit",
+      "capability": "emit",
+      "request": { "topic": "string", "payload": "json" }
+    },
+    {
+      "name": "parley_session_get",
+      "capability": "session:read",
+      "request": { "session": "string" }
+    },
+    {
+      "name": "parley_session_patch",
+      "capability": "session:patch",
+      "request": { "session": "string", "patch": "json" }
+    },
+    {
+      "name": "parley_job_enqueue",
+      "capability": "jobs",
+      "request": { "kind": "string", "payload": "json", "delay_ms": "number" }
+    }
+  ],
+  "hooks": [
+    {
+      "export": "on_session_state",
+      "typeName": "OnSessionState",
+      "input": "{ session: string }",
+      "output": "unknown"
+    },
+    {
+      "export": "on_session_action",
+      "typeName": "OnSessionAction",
+      "input": "{ session: string; action: string; user: string; body?: unknown }",
+      "output": "unknown"
+    },
+    {
+      "export": "on_event",
+      "typeName": "OnEvent",
+      "input": "{ topic: string; payload?: unknown }",
+      "output": "void"
+    },
+    {
+      "export": "on_job",
+      "typeName": "OnJob",
+      "input": "{ kind: string; payload?: unknown }",
+      "output": "void"
+    }
+  ]
+}

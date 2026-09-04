@@ -27,6 +27,7 @@ running packages in parallel makes them fight over the schema.
 | `internal/db/migrations` | numbered SQL, applied at boot |
 | `web` | Vite + React frontend, embedded into the binary |
 | `plugins` | Ceremony plugins that must not change the host (`plugins/retrospective`) |
+| `sdk` | `@parley/plugin-sdk`, `@parley/plugin-ui`, and the frozen ABI |
 | `site` | this documentation site |
 
 Session kinds are self-contained packages. Adding one touches three places and
