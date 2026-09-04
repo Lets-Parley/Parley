@@ -98,8 +98,9 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
     }
   }
 
-  // The next thing worth pointing at, in queue order — skipping what is done.
-  const nextUnestimated = st.stories.find((s) => s.id !== current?.id && !s.estimate);
+  // Leftover list and Next story share !estimate; Next still skips current.
+  const unfinished = st.stories.filter((s) => !s.estimate);
+  const nextUnestimated = unfinished.find((s) => s.id !== current?.id);
 
   useFacilitatorAnnouncement(env, me.id);
 
@@ -303,6 +304,25 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
                 </button>
               )}
             </div>
+            )}
+            {unfinished.length > 0 ? (
+              <div className="mt-5 text-left">
+                <h2
+                  id="poker-unfinished"
+                  className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint"
+                >
+                  Not estimated
+                </h2>
+                <ul aria-labelledby="poker-unfinished" className="mt-2 flex flex-col gap-1">
+                  {unfinished.map((s) => (
+                    <li key={s.id} className="text-[13px] font-semibold">
+                      {s.title || s.ref || "ad hoc round"}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="mt-5 text-[13px] text-ink-soft">Every story was estimated.</p>
             )}
           </div>
         )}

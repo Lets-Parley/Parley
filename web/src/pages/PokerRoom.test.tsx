@@ -274,6 +274,185 @@ describe("PokerRoom ended session", () => {
     expect(screen.queryByTestId("table-field")).toBeNull();
     expect(screen.queryByText(/YOUR HAND/)).toBeNull();
   });
+
+  function endedWith(
+    stories: Envelope["state"]["stories"],
+    currentStoryId: string | null = stories[0]?.id ?? null,
+  ) {
+    const env = envelope({ endedAt: "2026-08-18T10:00:10.000Z" });
+    env.state.stories = stories;
+    env.state.currentStoryId = currentStoryId;
+    return env;
+  }
+
+  it("lists unestimated stories in queue order, not alphabetically", () => {
+    renderApp(
+      <PokerRoom
+        env={endedWith([
+          {
+            id: "s1",
+            ref: "PLAT-1",
+            title: "Zebra",
+            notes: "",
+            position: 1,
+            estimate: null,
+            status: "pending",
+            votedUserIds: [],
+          },
+          {
+            id: "s2",
+            ref: "PLAT-2",
+            title: "Already saved",
+            notes: "",
+            position: 2,
+            estimate: "5",
+            status: "estimated",
+            votedUserIds: [],
+          },
+          {
+            id: "s3",
+            ref: "PLAT-3",
+            title: "Apple",
+            notes: "",
+            position: 3,
+            estimate: null,
+            status: "pending",
+            votedUserIds: [],
+          },
+        ])}
+        me={me}
+      />,
+    );
+    const items = within(screen.getByRole("list", { name: "Not estimated" })).getAllByRole(
+      "listitem",
+    );
+    expect(items.map((li) => li.textContent)).toEqual(["Zebra", "Apple"]);
+  });
+
+  it("includes a story left mid-vote, even while it is still current", () => {
+    renderApp(
+      <PokerRoom
+        env={endedWith(
+          [
+            {
+              id: "s1",
+              ref: "PLAT-1",
+              title: "Saved first",
+              notes: "",
+              position: 1,
+              estimate: "3",
+              status: "estimated",
+              votedUserIds: ["marcus"],
+            },
+            {
+              id: "s2",
+              ref: "PLAT-2",
+              title: "Left on the table",
+              notes: "",
+              position: 2,
+              estimate: null,
+              status: "voting",
+              votedUserIds: ["marcus"],
+            },
+          ],
+          "s2",
+        )}
+        me={me}
+      />,
+    );
+    const items = within(screen.getByRole("list", { name: "Not estimated" })).getAllByRole(
+      "listitem",
+    );
+    expect(items.map((li) => li.textContent)).toEqual(["Left on the table"]);
+  });
+
+  it("lists leftovers by missing estimate, not by status", () => {
+    renderApp(
+      <PokerRoom
+        env={endedWith([
+          {
+            id: "s1",
+            ref: "PLAT-1",
+            title: "Number saved, status still voting",
+            notes: "",
+            position: 1,
+            estimate: "5",
+            status: "voting",
+            votedUserIds: [],
+          },
+          {
+            id: "s2",
+            ref: "PLAT-2",
+            title: "No number, status already estimated",
+            notes: "",
+            position: 2,
+            estimate: null,
+            status: "estimated",
+            votedUserIds: [],
+          },
+        ])}
+        me={me}
+      />,
+    );
+    const items = within(screen.getByRole("list", { name: "Not estimated" })).getAllByRole(
+      "listitem",
+    );
+    expect(items.map((li) => li.textContent)).toEqual(["No number, status already estimated"]);
+  });
+
+  it("shows a done state when every story was estimated, not an empty list", () => {
+    renderApp(
+      <PokerRoom
+        env={endedWith([
+          {
+            id: "s1",
+            ref: "PLAT-1",
+            title: "First",
+            notes: "",
+            position: 1,
+            estimate: "5",
+            status: "estimated",
+            votedUserIds: [],
+          },
+          {
+            id: "s2",
+            ref: "PLAT-2",
+            title: "Second",
+            notes: "",
+            position: 2,
+            estimate: "8",
+            status: "estimated",
+            votedUserIds: [],
+          },
+        ])}
+        me={me}
+      />,
+    );
+    expect(screen.queryByRole("heading", { name: "Not estimated" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "Not estimated" })).toBeNull();
+    expect(screen.getByText("Every story was estimated.")).toBeTruthy();
+  });
+
+  it("has no axe violations on the unfinished list", async () => {
+    const { container } = renderApp(
+      <PokerRoom
+        env={endedWith([
+          {
+            id: "s1",
+            ref: "PLAT-1",
+            title: "Unfinished",
+            notes: "",
+            position: 1,
+            estimate: null,
+            status: "pending",
+            votedUserIds: [],
+          },
+        ])}
+        me={me}
+      />,
+    );
+    await expectNoViolations(container);
+  });
 });
 
 describe("PokerRoom hand placement", () => {

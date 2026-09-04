@@ -16,7 +16,7 @@ import createDark from "../../../assets/create-session-dark.png";
 import tshirtLight from "../../../assets/tshirt-results-light.png";
 import tshirtDark from "../../../assets/tshirt-results-dark.png";
 
-<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts"]} />
+<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx"]} />
 
 A poker session is a queue of work and a table of people. The facilitator puts
 one item on the table, everybody votes face-down, and the round opens when the
@@ -309,6 +309,13 @@ single winner — the save control does not appear rather than inventing somethi
 to write.
 
 Reset clears the votes on the current story and starts it again.
+
+## When the session ends
+
+Ending the session keeps the results in the space. Anything in the queue that
+never received an estimate — including a story left mid-vote — is listed on the
+ended panel, in queue order, so the leftover is a backlog rather than a memory.
+A session that estimated every story says so, instead of showing an empty list.
 
 ## What is not here
 
