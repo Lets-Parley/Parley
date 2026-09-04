@@ -229,6 +229,31 @@ func TestPluginCSVSanitizesAFormulaCell(t *testing.T) {
 	}
 }
 
+func TestPluginCSVSanitizesAFormulaHeader(t *testing.T) {
+	k := pluginKindForCSV(t)
+	rows, err := k.CSV(session.Envelope{
+		ID: "s1", Kind: k.Name, Title: "Retro", Phase: "open",
+		State: json.RawMessage(`{"=HYPERLINK":"ok"}`),
+	})
+	if err != nil {
+		t.Fatalf("plugin CSV: %v", err)
+	}
+	found := false
+	for _, row := range rows {
+		for _, cell := range row {
+			if cell == "'=HYPERLINK" {
+				found = true
+			}
+			if cell == "=HYPERLINK" {
+				t.Fatalf("plugin CSV left a formula cell unsanitized: %v", rows)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("plugin CSV missing the sanitized formula header: %v", rows)
+	}
+}
+
 // A kind name is instance-wide because sessions.kind references it. An install
 // that declares a name another org's install already provides is refused
 // rather than quietly taking over that org's rooms.

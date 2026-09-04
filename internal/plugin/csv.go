@@ -21,7 +21,10 @@ func exportCSV(env session.Envelope) ([][]string, error) {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	header := append([]string{"id", "kind", "title", "phase"}, keys...)
+	header := []string{"id", "kind", "title", "phase"}
+	for _, k := range keys {
+		header = append(header, session.SanitizeCell(k))
+	}
 	row := []string{
 		session.SanitizeCell(env.ID),
 		session.SanitizeCell(env.Kind),
