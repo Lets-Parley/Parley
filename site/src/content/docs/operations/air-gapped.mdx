@@ -174,29 +174,28 @@ Put your CA bundle in a ConfigMap:
 kubectl create configmap parley-ca --from-file=ca.pem=/path/to/your-ca.pem
 ```
 
-The chart's `extraEnv` gets you `SSL_CERT_FILE` for the OIDC leg immediately:
+The chart's `extraVolumes`/`extraVolumeMounts` mount the ConfigMap into the
+container, and `extraEnv` gets you `SSL_CERT_FILE` pointing at it for the OIDC
+leg:
 
 ```yaml
+extraVolumes:
+  - name: parley-ca
+    configMap:
+      name: parley-ca
+extraVolumeMounts:
+  - name: parley-ca
+    mountPath: /etc/parley/ca
+    readOnly: true
 extraEnv:
   - name: SSL_CERT_FILE
     value: /etc/parley/ca/ca.pem
 ```
 
-`extraEnv` is the only mount-adjacent hook the chart currently exposes — it has
-no `extraVolumes`/`extraVolumeMounts` for mounting the ConfigMap itself, so
-`SSL_CERT_FILE` above cannot yet point at a file the pod actually has on disk.
-**This is a real gap, not a documentation gap**: until the chart grows a way to
-mount an arbitrary ConfigMap into the container, a private CA for the OIDC leg
-on Kubernetes needs either a custom image layer that bakes the CA in at
-`/etc/ssl/certs/`, or a chart change adding `extraVolumes`/`extraVolumeMounts`.
-Track that against the chart, not this page.
-
 For Postgres, append `sslmode=verify-full&sslrootcert=/etc/parley/ca/ca.pem`
 to the `DATABASE_URL` stored in the secret the chart reads from
 (`database.existingSecret` / `database.secretKey`) — the same
-mount limitation applies: the path only resolves once the CA file is actually
-present in the container, which today means baking it into the image or
-waiting on the chart's volume support.
+`parley-ca` mount above already puts the file where that path expects it.
 
 ### Docker Compose
 

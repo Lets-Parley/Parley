@@ -998,6 +998,55 @@ jobs:
           ! grep -qi 'no egress' /tmp/egress-notes-on.txt \
             || { echo "still warned about missing egress once it is enabled"; exit 1; }
 
+      # helm test's readyz pod hard-coded curlimages/curl from Docker Hub with
+      # no override, so an air-gapped cluster with no path to Hub failed `helm
+      # test` even on an install pulled entirely from a private registry.
+      # tests.image.digest must take over the reference and ignore tag.
+      - name: renders the test pod against a private registry
+        run: |
+          set -eu
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x \
+            --set tests.image.repository=registry.internal.example.com/curl \
+            --set tests.image.tag=8.11.1 \
+            --show-only templates/tests/readyz.yaml > /tmp/test-image.yaml
+          grep -q 'image: registry.internal.example.com/curl:8.11.1' /tmp/test-image.yaml \
+            || { echo "test pod did not pick up tests.image.repository/tag"; exit 1; }
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x \
+            --set tests.image.repository=registry.internal.example.com/curl \
+            --set tests.image.tag=8.11.1 \
+            --set tests.image.digest=sha256:0000000000000000000000000000000000000000000000000000000000000 \
+            --show-only templates/tests/readyz.yaml > /tmp/test-image-digest.yaml
+          grep -q 'image: registry.internal.example.com/curl@sha256:0000000000000000000000000000000000000000000000000000000000000' /tmp/test-image-digest.yaml \
+            || { echo "tests.image.digest did not take over the image reference"; exit 1; }
+          ! grep -q ':8.11.1' /tmp/test-image-digest.yaml \
+            || { echo "tag still appears once a digest is set"; exit 1; }
+
+      # extraEnv gets SSL_CERT_FILE into the container, but operations/air-gapped.mdx's
+      # private-CA ConfigMap has to actually be mounted for that path to resolve —
+      # that needs extraVolumes/extraVolumeMounts, spliced verbatim the same way
+      # extraEnv is.
+      - name: mounts an extra volume when asked
+        run: |
+          set -eu
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x \
+            --set 'extraVolumes[0].name=parley-ca' \
+            --set 'extraVolumes[0].configMap.name=parley-ca' \
+            --set 'extraVolumeMounts[0].name=parley-ca' \
+            --set 'extraVolumeMounts[0].mountPath=/etc/parley/ca' \
+            --set 'extraVolumeMounts[0].readOnly=true' > /tmp/extravol.yaml
+          grep -q 'name: parley-ca' /tmp/extravol.yaml \
+            || { echo "extraVolumes/extraVolumeMounts did not render"; exit 1; }
+          grep -q 'mountPath: /etc/parley/ca' /tmp/extravol.yaml \
+            || { echo "extraVolumeMounts did not reach the container"; exit 1; }
+          # No extraVolumes set at all must not render an empty volumes: key.
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x > /tmp/novol.yaml
+          ! grep -q 'volumes:' /tmp/novol.yaml \
+            || { echo "rendered a volumes: key with no extraVolumes set"; exit 1; }
+
   # Advisory, and deliberately absent from `gate` below: a screenshot that has
   # fallen behind the UI is never a reason to block a code change. The shipped
   # set once trailed four separate features because nothing tied site/src/assets

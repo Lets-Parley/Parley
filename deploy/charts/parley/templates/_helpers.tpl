@@ -110,3 +110,18 @@ and be rejected there, with no useful message.
 {{- fail (printf "replicaCount must be a whole number, got %v" .Values.replicaCount) -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+The `helm test` pod's image reference. Mirrors image.repository/tag: a digest
+pin (tests.image.digest) takes over the reference entirely and tag is
+ignored, otherwise repository:tag is used. Kept separate from
+parley.imageTag because the test image ships no appVersion default — an
+operator with no path to Docker Hub must always be able to override it.
+*/}}
+{{- define "parley.testImage" -}}
+{{- if .Values.tests.image.digest -}}
+{{- printf "%s@%s" .Values.tests.image.repository .Values.tests.image.digest -}}
+{{- else -}}
+{{- printf "%s:%s" .Values.tests.image.repository .Values.tests.image.tag -}}
+{{- end -}}
+{{- end -}}
