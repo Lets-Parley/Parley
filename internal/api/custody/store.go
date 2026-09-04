@@ -632,9 +632,11 @@ func (s *Store) inTx(ctx context.Context, fn func(pgx.Tx) error) error {
 // RecordPluginAction writes the audit record for an action a plugin panel
 // proposed and the user's own session performed.
 //
-// It is exported because the plugin bridge lives in the api package and this
-// package owns the only writer of org_audit_log: a second insert site is a
-// second shape of record, and the read path has to be able to assume one.
+// It is exported because the plugin bridge lives in the api package. This is
+// no longer the only writer of org_audit_log: internal/api/plugins.go writes
+// its own row for the operator-facing plugin audit trail (auditPlugin,
+// auditPluginTx), with a different column shape (no space_id/space_slug) from
+// the insert below. A reader of org_audit_log has to handle both shapes.
 //
 // The action is stored as "plugin.action" with the plugin's name first in the
 // detail, so the plugin is the route the record names — the actor stays the

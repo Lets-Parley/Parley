@@ -10,7 +10,9 @@ Parley is a self-hosted planning-poker and standup tool that ships as **one Go
 binary plus Postgres**. The React frontend is compiled into the binary with
 `go:embed`, so there is no Node runtime in production.
 
-Module `github.com/lets-parley/parley`, Go 1.26.3, chi + pgx + gorilla/websocket.
+Module `github.com/lets-parley/parley`, Go 1.26.6 (`go.mod`); the container build
+uses the newer `golang:1.27` toolchain image (`Dockerfile`) deliberately, not a
+drift — chi + pgx + gorilla/websocket.
 
 | Path | Contents |
 | --- | --- |
