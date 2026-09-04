@@ -10,12 +10,14 @@ import {
   type PluginBridge,
 } from "../lib/pluginBridge";
 
+export type PluginSlot = "panel" | "room" | "toolbar" | "nav" | "export-menu";
+
 export type PluginPanelProps = {
   name: string;
   version: string;
   /** What this install was granted. The bridge redacts against it. */
   grants: readonly string[];
-  env: Envelope;
+  env?: Envelope;
   onAction: (action: string, payload: unknown) => Promise<unknown>;
   /**
    * True while a host modal is open. The frame is marked `inert` so focus
@@ -23,8 +25,8 @@ export type PluginPanelProps = {
    * platform attribute, not a hand-rolled focus trap.
    */
   modalOpen?: boolean;
-  /** Nested poker panel vs the session's whole room. */
-  slot?: "panel" | "room";
+  /** Nested poker panel vs the session's whole room vs host chrome. */
+  slot?: PluginSlot;
   /** Injected in tests; one breaker per plugin in the app. */
   breaker?: CrashBreaker;
 };
@@ -84,9 +86,9 @@ export function PluginPanel({
 
   // State is pushed from the react-query cache the room already keeps. There
   // is no second websocket, and nothing crosses that redactSession did not
-  // build.
+  // build. Chrome with no session (org nav) has nothing to push.
   useEffect(() => {
-    bridge.current?.sendState(env);
+    if (env) bridge.current?.sendState(env);
   }, [env]);
 
   useEffect(() => {
@@ -118,10 +120,10 @@ export function PluginPanel({
 
   return (
     <section
-      aria-label={room ? `${name} room` : `${name} panel`}
-      className={room ? "flex h-[calc(100dvh-3.5rem)] min-h-0 flex-col" : "mt-6"}
+      aria-label={ariaLabel(name, slot)}
+      className={room ? "flex h-[calc(100dvh-3.5rem)] min-h-0 flex-col" : chromeClass(slot)}
     >
-      {!room && <h2 className="text-sm font-semibold text-ink-soft">{name}</h2>}
+      {slot === "panel" && <h2 className="text-sm font-semibold text-ink-soft">{name}</h2>}
       {failure === "handshake-timeout" && (
         <Card title={`${name} did not start`}>
           <p>The panel loaded but the plugin never answered. It has not been given any data.</p>
@@ -131,23 +133,46 @@ export function PluginPanel({
       <iframe
         key={attempt}
         ref={frame}
-        title={`${name} plugin panel`}
+        title={frameTitle(name, slot)}
         src={pluginFramePath(name, version)}
         sandbox={PLUGIN_SANDBOX}
         // referrerPolicy keeps the room URL out of a frame that has no
         // business knowing which room it is in beyond what the bridge tells it.
         referrerPolicy="no-referrer"
-        className={`${
-          room ? "min-h-0 h-full w-full" : "h-64 w-full rounded-lg border border-line bg-surface"
-        } ${failure === "handshake-timeout" ? "hidden" : ""}`}
+        className={`${frameClass(slot)} ${failure === "handshake-timeout" ? "hidden" : ""}`}
         onLoad={() => {
           bridge.current?.handshake();
           bridge.current?.sendTokens(currentTokens());
-          bridge.current?.sendState(env);
+          if (env) bridge.current?.sendState(env);
         }}
       />
     </section>
   );
+}
+
+function ariaLabel(name: string, slot: PluginSlot): string {
+  if (slot === "room") return `${name} room`;
+  if (slot === "panel") return `${name} panel`;
+  return `${name} ${slot}`;
+}
+
+function frameTitle(name: string, slot: PluginSlot): string {
+  if (slot === "panel" || slot === "room") return `${name} plugin panel`;
+  return `${name} plugin ${slot}`;
+}
+
+function chromeClass(slot: PluginSlot): string {
+  if (slot === "panel") return "mt-6";
+  if (slot === "nav") return "mt-3";
+  return "shrink-0";
+}
+
+function frameClass(slot: PluginSlot): string {
+  if (slot === "room") return "min-h-0 h-full w-full";
+  if (slot === "toolbar") return "h-9 w-9 rounded-chip border border-line bg-surface";
+  if (slot === "nav") return "h-24 w-full rounded-lg border border-line bg-surface";
+  if (slot === "export-menu") return "h-9 w-28 rounded-chip border border-line bg-surface";
+  return "h-64 w-full rounded-lg border border-line bg-surface";
 }
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {

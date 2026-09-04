@@ -3,7 +3,12 @@ import { action, api, type Envelope } from "../lib/api";
 import { PluginPanel } from "./PluginPanel";
 
 /** One installed plugin that ships UI, as the room's panel list reports it. */
-export type Panel = { name: string; version: string; grants: string[] };
+export type Panel = { name: string; version: string; grants: string[]; slots?: string[] };
+
+/** Whether this install asked to appear in a given piece of chrome. */
+export function panelHasSlot(p: Panel, slot: string): boolean {
+  return (p.slots ?? ["panel"]).includes(slot);
+}
 
 /**
  * Every plugin panel a room should show.
@@ -30,9 +35,11 @@ export function PluginPanels({
     retry: false,
   });
   if (!data?.length) return null;
+  const nested = data.filter((p) => panelHasSlot(p, "panel"));
+  if (!nested.length) return null;
   return (
     <>
-      {data.map((p) => (
+      {nested.map((p) => (
         <PluginPanel
           key={p.name}
           name={p.name}

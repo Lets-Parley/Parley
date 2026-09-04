@@ -6,7 +6,7 @@ description: What a Parley plugin can and cannot do, and the mechanism behind ea
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/plugin/host.go", "internal/plugin/hostfn.go", "internal/plugin/fetch.go", "internal/plugin/breaker.go", "internal/plugin/kinds.go", "internal/session/registry.go", "internal/api/plugins.go", "internal/db/migrations/0031_plugins.sql", "internal/db/migrations/0032_plugin_pending_upgrade.sql", "web/src/pages/SessionPage.tsx", "web/src/lib/pluginBridge.ts", "scripts/guard-mutation.sh"]} />
+<VerifiedStamp version="unreleased" source={["internal/plugin/host.go", "internal/plugin/hostfn.go", "internal/plugin/fetch.go", "internal/plugin/breaker.go", "internal/plugin/kinds.go", "internal/session/registry.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/db/migrations/0031_plugins.sql", "internal/db/migrations/0032_plugin_pending_upgrade.sql", "web/src/pages/SessionPage.tsx", "web/src/lib/pluginBridge.ts", "web/src/components/PluginPanel.tsx", "scripts/guard-mutation.sh"]} />
 
 A Parley plugin is a WebAssembly module run in-process by
 [Extism](https://extism.org/) over [wazero](https://wazero.io/). Both are pure
@@ -230,7 +230,14 @@ is resolved from the room rather than defaulted. That a *grant* is safe to
 disclose — the host re-checks every one at the effect — says nothing about
 *enumeration*: which plugins a tenant has installed is that tenant's metadata,
 and this is the one plugin surface a link guest can reach. A guest sees its own
-room's org's panels and no others.
+room's org's panels and no others. Nav chrome is omitted for a link guest;
+export-menu chrome is kept only when that room's kind already exports. Org
+nav listing lives on `GET /api/orgs/{org}/plugins/panels` and is behind
+`RequireUser`, so a guest never reaches it.
+
+Toolbar, nav and export-menu slots use the same sandboxed iframe and
+MessageChannel as a nested panel or a full-room ceremony — opaque origin, no
+`allow-same-origin`, host-mediated actions. Notifications are not a slot.
 
 ### Bounds in both directions, and failure that shows
 

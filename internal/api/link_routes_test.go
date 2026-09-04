@@ -93,8 +93,9 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// requireOrgMember, because RequireUser is mounted first. That ordering is
 	// the whole guarantee: this route lists every org-visible space in the
 	// org, so a link handed to a stranger must never reach it.
-	"GET /api/orgs/{org}/spaces":        {status: http.StatusUnauthorized},
-	"GET /api/orgs/{org}/spaces/{slug}": {status: http.StatusForbidden},
+	"GET /api/orgs/{org}/spaces":         {status: http.StatusUnauthorized},
+	"GET /api/orgs/{org}/plugins/panels": {status: http.StatusUnauthorized},
+	"GET /api/orgs/{org}/spaces/{slug}":  {status: http.StatusForbidden},
 	// Minting an invite handle is anonymous by design, so a link guest reaches
 	// it with a principal in hand — and gets nothing. A link is a capability
 	// on one room; a handle is a capability on the space around it, which is

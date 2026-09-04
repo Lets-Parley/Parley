@@ -277,6 +277,7 @@ var routeScoping = map[string]string{
 
 	// Every space route hangs off an org.
 	"GET /api/orgs/{org}/spaces":                               "org-scoped",
+	"GET /api/orgs/{org}/plugins/panels":                       "org-scoped",
 	"GET /api/orgs/{org}/spaces/{slug}":                        "org-scoped",
 	"PATCH /api/orgs/{org}/spaces/{slug}/visibility":           "org-scoped",
 	"POST /api/orgs/{org}/spaces/{slug}/invite":                "org-scoped",

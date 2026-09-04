@@ -76,6 +76,7 @@ vi.mock("../lib/api", async () => {
         if (failSpace) throw new Error("network");
         return view;
       }
+      if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
     }),
   };
@@ -243,6 +244,7 @@ describe("SpacePage create dialog", () => {
       if (path.endsWith("/decks")) return decks;
       if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
+      if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
     try {
@@ -296,6 +298,7 @@ describe("SpacePage create dialog", () => {
       if (path.endsWith("/decks")) return decks;
       if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
+      if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
     try {
@@ -340,6 +343,7 @@ describe("SpacePage create dialog", () => {
       if (path.endsWith("/decks")) return decks;
       if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
+      if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
     try {
@@ -781,6 +785,7 @@ describe("SpacePage invite links across a sign-in round trip", () => {
       if (path.endsWith("/decks")) return decks;
       if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
+      if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
     window.history.replaceState(null, "", "/o/acme/s/platform-team#c=TEAM49");
@@ -814,6 +819,7 @@ describe("SpacePage invite links across a sign-in round trip", () => {
       if (path.endsWith("/decks")) return decks;
       if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
+      if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
     window.history.replaceState(null, "", "/o/acme/s/platform-team#c=WRONG1");
@@ -834,6 +840,7 @@ describe("SpacePage invite links across a sign-in round trip", () => {
       if (path.endsWith("/decks")) return decks;
       if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
+      if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
     window.history.replaceState(null, "", "/o/acme/s/platform-team#c=TEAM49");
@@ -985,6 +992,7 @@ describe("SpacePage invite links, a link guest", () => {
       if (path.endsWith("/decks")) return decks;
       if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
+      if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
     window.history.replaceState(null, "", "/o/acme/s/platform-team#c=TEAM49");
@@ -1033,6 +1041,7 @@ describe("SpacePage expired-session remint", () => {
         if (path.endsWith("/seen") && method === "POST") return undefined;
         return view;
       }
+      if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${method} ${path}`);
     });
 
@@ -1067,6 +1076,7 @@ describe("SpacePage expired-session remint", () => {
         if (path.endsWith("/seen") && method === "POST") return undefined;
         return view;
       }
+      if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${method} ${path}`);
     });
 
@@ -1119,6 +1129,7 @@ describe("SpacePage expired-session remint", () => {
         }
         return view;
       }
+      if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${method} ${path}`);
     });
 
@@ -1167,6 +1178,7 @@ describe("SpacePage deck chooser", () => {
       if (path.endsWith("/decks")) return decks;
       if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
+      if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
     }) as never);
   });
@@ -1203,6 +1215,7 @@ describe("SpacePage deck chooser", () => {
       if (path.endsWith("/decks")) return decks;
       if (path.endsWith("/kudos")) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
+      if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
     }) as typeof defaultApi);
     try {

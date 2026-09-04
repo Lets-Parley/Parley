@@ -50,6 +50,37 @@ test("verify refuses a Python guest PDK claim", () => {
   }
 });
 
+test("verify refuses an unknown UI slot", () => {
+  const dir = mkdtempSync(join(tmpdir(), "parley-plugin-"));
+  try {
+    run("scaffold", dir);
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    pkg.slots = ["notifications"];
+    writeFileSync(join(dir, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
+    const verified = run("verify", dir);
+    assert.notEqual(verified.status, 0);
+    assert.match(verified.stderr + verified.stdout, /export-menu/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("build writes declared chrome slots beside the UI bundle", () => {
+  const dir = mkdtempSync(join(tmpdir(), "parley-plugin-"));
+  try {
+    run("scaffold", dir);
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    pkg.slots = ["toolbar", "nav", "export-menu"];
+    writeFileSync(join(dir, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
+    const built = run("build", dir);
+    assert.equal(built.status, 0, built.stderr + built.stdout);
+    const slots = JSON.parse(readFileSync(join(dir, "dist", `${pkg.name}-${pkg.version}.slots.json`), "utf8"));
+    assert.deepEqual(slots, ["toolbar", "nav", "export-menu"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("verify refuses any Python source, not only guest.py", () => {
   const dir = mkdtempSync(join(tmpdir(), "parley-plugin-"));
   try {
