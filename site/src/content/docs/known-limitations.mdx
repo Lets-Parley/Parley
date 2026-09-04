@@ -19,7 +19,7 @@ accepted and actionable.
 
 <Capability rows={[
   { name: "Operator administration UI", status: "not-built", detail: "Installing a plugin, approving a pending upgrade, and disabling one are store operations with no screen behind them yet. An operator drives them from the database until that lands." },
-  { name: "Plugin UI", status: "not-built", detail: "A plugin cannot put anything on the page. Everything it does is server-side: storage, jobs, events, and guarded HTTP." },
+  { name: "Plugin UI", status: "built", detail: "A plugin can draw a panel, served from <code>/plugin-ui/&lt;name&gt;/&lt;version&gt;</code> and rendered in a sandboxed iframe with no network access of its own — see <a href='/security/plugin-sandbox/'>Plugin sandbox</a>." },
   { name: "A plugin registry or signature verification", status: "not-built", detail: "An operator places a bundle in <code>PLUGIN_DIR</code> and approves its grants; that approval is the whole trust decision. There is nothing to verify a bundle against." },
   { name: "Python plugins", status: "not-built", detail: "Python is not an official Extism guest PDK. Rust, JavaScript, Go (TinyGo), Haskell, AssemblyScript, C, Zig and .NET are." },
   { name: "SQL for plugins", status: "not-built", detail: "Deliberately absent and not planned. A plugin that could reach the pool would have every other capability by implication." },
