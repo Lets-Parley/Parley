@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -199,4 +200,80 @@ func TestStandupCarryForward(t *testing.T) {
 		}
 	}
 	t.Fatal("Ben not in the snapshot")
+}
+
+// A later standup in the same space must not become "yesterday". Without a
+// created_at bound, order by created_at desc picks whichever session is newest
+// — including one opened after this one.
+func TestStandupCarryForwardIgnoresALaterSession(t *testing.T) {
+	srv := testServer(t)
+	fac, m1, _, oldID, slug := standupSetup(t, srv, "Carry Later Space")
+
+	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+oldID+"/actions/standup",
+		`{"today":"from old"}`, m1); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("old entry: %d", resp.StatusCode)
+	}
+
+	_, current := createSession(t, srv, slug, "standup", "Current", fac)
+	currentID := current["id"].(string)
+	_, future := createSession(t, srv, slug, "standup", "Future", fac)
+	futureID := future["id"].(string)
+	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+futureID+"/actions/standup",
+		`{"today":"from future"}`, m1); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("future entry: %d", resp.StatusCode)
+	}
+
+	conns := connectAll(t, srv, currentID, fac, m1)
+	defer closeAll(conns)()
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+currentID+"/actions/start", "", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("start: %d", resp.StatusCode)
+	}
+
+	_, me := doJSON(t, srv, "GET", "/api/me", "", m1)
+	got := entriesByUser(t, srv, currentID, fac)[me["id"].(string)]["yesterday"]
+	if got != "from old" {
+		t.Fatalf("yesterday = %q, want %q (not the later session)", got, "from old")
+	}
+}
+
+// Sessions created in one transaction share now(), so created_at alone is not
+// a unique order. Among strictly-earlier sessions that collide, the higher id
+// wins.
+func TestStandupCarryForwardPicksHigherIdWhenCreatedAtTies(t *testing.T) {
+	srv := testServer(t)
+	fac, m1, _, firstID, slug := standupSetup(t, srv, "Carry Tie Space")
+	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+firstID+"/actions/standup",
+		`{"today":"from first"}`, m1); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("first entry: %d", resp.StatusCode)
+	}
+	_, second := createSession(t, srv, slug, "standup", "Second", fac)
+	secondID := second["id"].(string)
+	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+secondID+"/actions/standup",
+		`{"today":"from second"}`, m1); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("second entry: %d", resp.StatusCode)
+	}
+
+	if _, err := testDBPool(t).Exec(context.Background(),
+		`update sessions set created_at = timestamptz '2020-01-01' where id in ($1, $2)`,
+		firstID, secondID); err != nil {
+		t.Fatal(err)
+	}
+
+	_, current := createSession(t, srv, slug, "standup", "Current", fac)
+	currentID := current["id"].(string)
+	conns := connectAll(t, srv, currentID, fac, m1)
+	defer closeAll(conns)()
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+currentID+"/actions/start", "", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("start: %d", resp.StatusCode)
+	}
+
+	want := "from first"
+	if secondID > firstID {
+		want = "from second"
+	}
+	_, me := doJSON(t, srv, "GET", "/api/me", "", m1)
+	got := entriesByUser(t, srv, currentID, fac)[me["id"].(string)]["yesterday"]
+	if got != want {
+		t.Fatalf("yesterday = %q, want %q (higher id of the tied earlier pair)", got, want)
+	}
 }
