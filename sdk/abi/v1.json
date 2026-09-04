@@ -46,7 +46,8 @@
     {
       "name": "parley_job_enqueue",
       "capability": "jobs",
-      "request": { "kind": "string", "payload": "json", "delay_ms": "number" }
+      "request": { "kind": "string", "payload": "json", "delay_ms": "number", "cron": "string" },
+      "notFrozenAway": ["cron"]
     }
   ],
   "hooks": [

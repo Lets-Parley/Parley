@@ -335,6 +335,13 @@ mutate "the per-org scoping of an install lookup" \
     grants.go '`update plugin_installs set enabled = $3 where id = $1 and org_id = $2`, installID, orgID, enabled)' '`update plugin_installs set enabled = $2 where id = $1`, installID, enabled)' \
     health.go '`delete from plugin_installs where id = $1 and org_id = $2`, installID, orgID)' '`delete from plugin_installs where id = $1`, installID)'
 
+# A garbage cron stored as a pending job is a silent no-op: Claim waits on
+# run_at, and a row that never becomes due looks successful to the guest.
+mutate "invalid cron refused at schedule time" \
+    'TestAnInvalidCronIsRefusedAndStoresNothing|TestParseCronRefusesGarbageRatherThanStoringASilentNoOp' \
+    hostfn.go 'next, err := nextCron(req.Cron, runAt)' 'next, err := nextCron(req.Cron, runAt); err = nil' \
+    cron.go 'if len(fields) != 5 {' 'if false && len(fields) != 5 {'
+
 # ---------------------------------------------------------------------------
 # The frontend half of the sandbox: the framed route's header carve-out, and
 # the bridge that is the only thing a plugin's UI can reach.

@@ -13,8 +13,9 @@ import (
 
 // Job is one unit of deferred work.
 //
-// run_at is the whole scheduling vocabulary: cron triggering is deliberately
-// not here yet.
+// run_at is still how the queue decides what is due. A five-field cron on
+// parley_job_enqueue is converted into the next run_at at schedule time; the
+// claim path is unchanged.
 type Job struct {
 	ID        int64
 	InstallID string

@@ -367,7 +367,7 @@ with it.
 | `plugin_kv` | Namespaced key-value storage. A plugin has no SQL, so this is the whole of its durable storage |
 | `plugin_events` | The transactional outbox: one row per thing that happened |
 | `plugin_deliveries` | One row per (event, subscriber), with its state, attempts and next-attempt time |
-| `plugin_jobs` | Deferred work. `run_at` is the whole scheduling vocabulary; cron triggering is not implemented |
+| `plugin_jobs` | Deferred work. The claim still keys off `run_at`. A five-field cron on `parley_job_enqueue` is converted to the next `run_at` at schedule time; invalid expressions are refused rather than stored |
 
 **Two delivery paths, on purpose.** Core subscribers are in-process and
 synchronous, so the state broadcast a room depends on stays instant. Plugin
