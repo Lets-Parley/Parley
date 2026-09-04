@@ -398,6 +398,7 @@ func (h *Host) enqueue(ctx context.Context, st State, _ *callInfo, raw json.RawM
 		Kind    string          `json:"kind"`
 		Payload json.RawMessage `json:"payload,omitempty"`
 		DelayMS int64           `json:"delay_ms,omitempty"`
+		Cron    string          `json:"cron,omitempty"`
 	}
 	if err := decode(raw, &req); err != nil {
 		return nil, err
@@ -408,8 +409,18 @@ func (h *Host) enqueue(ctx context.Context, st State, _ *callInfo, raw json.RawM
 	if h.Queue == nil {
 		return nil, ErrNoQueue
 	}
+	if req.Cron != "" && req.DelayMS > 0 {
+		return nil, fmt.Errorf("%w: cron and delay_ms cannot both be set", ErrInvalidCron)
+	}
 	runAt := time.Now()
-	if req.DelayMS > 0 {
+	switch {
+	case req.Cron != "":
+		next, err := nextCron(req.Cron, runAt)
+		if err != nil {
+			return nil, err
+		}
+		runAt = next
+	case req.DelayMS > 0:
 		runAt = runAt.Add(time.Duration(req.DelayMS) * time.Millisecond)
 	}
 	id, err := h.Queue.Enqueue(ctx, Job{

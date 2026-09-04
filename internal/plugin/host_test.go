@@ -693,6 +693,7 @@ func TestEveryCapabilityRefusalKeepsItsSentinel(t *testing.T) {
 		{"parley_session_get", h.sessionGet, map[string]string{"session": "s"}},
 		{"parley_session_patch", h.sessionPatch, map[string]any{"session": "s", "patch": json.RawMessage(`{}`)}},
 		{"parley_job_enqueue", h.enqueue, map[string]any{"kind": "work"}},
+		{"parley_job_enqueue_cron", h.enqueue, map[string]any{"kind": "work", "cron": "0 9 * * *"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			out, err := call(tc.fn, tc.req)

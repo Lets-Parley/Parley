@@ -5,7 +5,7 @@ description: Version 1 of the plugin host functions and guest hooks, frozen, inc
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp version="unreleased" source={["sdk/abi/v1.json", "internal/plugin/hostfn.go", "internal/plugin/kv.go", "internal/plugin/kinds.go"]} />
+<VerifiedStamp version="unreleased" source={["sdk/abi/v1.json", "internal/plugin/hostfn.go", "internal/plugin/cron.go", "internal/plugin/kv.go", "internal/plugin/kinds.go"]} />
 
 The plugin wire protocol is **frozen at version 1**. The schema lives in
 `sdk/abi/v1.json`. A guest talks to the host through Extism host functions; the
@@ -44,6 +44,13 @@ protocol 1, not a v2.
 `parley_log`, `parley_emit`, `parley_session_get`, `parley_session_patch`,
 `parley_job_enqueue`. Each checks the grant inside the host function against
 the install record, not against the bundle.
+
+`parley_job_enqueue` takes `kind`, optional `payload`, and either `delay_ms`
+or a five-field `cron` (minute hour day-of-month month day-of-week, numbers
+only). A cron is converted to the next `run_at` at schedule time; the existing
+job claim still runs the work. `cron` is a compatible extension of protocol 1,
+not a v2. An invalid expression is refused with an error that names the cron,
+and no row is stored.
 
 ## Guest exports
 
