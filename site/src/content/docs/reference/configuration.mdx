@@ -6,7 +6,7 @@ description: Every environment variable, its default, and whether a bad value st
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import EnvVar from "../../../components/EnvVar.astro";
 
-<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "cmd/parley/configfile.go", "internal/api/client_address.go"]} />
+<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "cmd/parley/configfile.go", "internal/db/tls.go", "internal/api/client_address.go"]} />
 
 Configuration is environment variables, optionally backed by a file that fills
 the gaps (`PARLEY_CONFIG_FILE`, below). There is no command-line flag other than
@@ -29,10 +29,15 @@ between them — roughly a minute — and then exits with
 `FATAL: could not connect to Postgres`, so racing a database container is fine
 but an unreachable one is a CrashLoopBackOff.
 
-**Add `?sslmode=require` if your Postgres requires TLS.** Managed Postgres
-usually does, and the driver does not assume it. Without it the handshake is
-refused, and the visible symptom is a minute of retries and a restart rather than
-anything mentioning TLS. Use `verify-full` with a CA where you can.
+**TLS to the database is a control, and Parley refuses to run without it.**
+The driver's own default is `sslmode=prefer`, which negotiates TLS if the server
+offers it and silently falls back to plaintext if it does not — so an absent
+`sslmode`, or `disable`, `allow` or `prefer`, stops the process unless
+`DATABASE_ALLOW_PLAINTEXT=true`. `require`, `verify-ca` and `verify-full` are
+accepted; the boot line echoes the resolved mode as `db_sslmode`. For CUI or any
+data you would not put on the wire, the default is
+`?sslmode=verify-full&sslrootcert=/path/to/ca.pem` — `require` encrypts but
+never checks the server's certificate, and is warned about at boot.
 
 What Parley expects on the other end:
 
@@ -50,6 +55,21 @@ On Kubernetes this whole string is the value of **one** secret key — default
 `database-url`, set by `database.secretKey`. A secret split into `username` /
 `password` / `host` keys leaves the pod in `CreateContainerConfigError`. See
 [Kubernetes](/operations/kubernetes/#the-secrets-parley-reads-exactly).
+</EnvVar>
+
+<EnvVar name="DATABASE_ALLOW_PLAINTEXT" default="false" fatal>
+Accept a `DATABASE_URL` whose `sslmode` is absent, `disable`, `allow` or
+`prefer` — that is, one that may talk to Postgres in the clear. Must parse as a
+boolean; anything else stops the process.
+
+Only reach for it when the database is on a link you already trust end to end:
+the bundled `docker-compose.yml` sets it because both containers sit on one
+host-local bridge network. On Kubernetes, across a VPC, or against managed
+Postgres, set `sslmode` on the connection string instead.
+
+The libpq environment fallbacks `PGSSLMODE` and `PGSSLROOTCERT` are honoured
+where the connection string says nothing, exactly as the driver honours them —
+so a `PGSSLMODE=verify-full` deployment is not falsely refused.
 </EnvVar>
 
 <EnvVar name="BASE_URL" default="http://localhost:8080" fatal derives="Cookie Secure flag · WebSocket and cross-site origin check · OIDC redirect URI">

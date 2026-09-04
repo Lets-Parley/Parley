@@ -293,6 +293,12 @@ logLevel: info
 #   * PARLEY_CONFIG_FILE — path to a file of KEY=value lines merged under the
 #     environment. Rarely wanted in Kubernetes, where the environment is
 #     already the interface.
+#   * DATABASE_ALLOW_PLAINTEXT — accept a DATABASE_URL that may talk to
+#     Postgres unencrypted. Boot refuses an sslmode that is absent, disable,
+#     allow or prefer without it. Prefer putting
+#     ?sslmode=verify-full&sslrootcert=... on the database-url secret over
+#     setting this. PGSSLMODE and PGSSLROOTCERT are honoured as libpq
+#     fallbacks when the connection string says nothing.
 #
 # PORT is deliberately not one of them. Probes and containerPort target 8080;
 # the Service maps service.port (default 80) to that target. Setting PORT here

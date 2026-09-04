@@ -243,7 +243,8 @@ jobs:
             sleep 1
           done
           docker run -d --name parley-ci-app --network parley-ci -p 8080:8080 \
-            -e DATABASE_URL=postgres://parley:smoke@parley-ci-db:5432/parley parley:ci
+            -e DATABASE_URL=postgres://parley:smoke@parley-ci-db:5432/parley \
+            -e DATABASE_ALLOW_PLAINTEXT=true parley:ci
           for i in $(seq 1 30); do
             curl -fsS http://127.0.0.1:8080/readyz && break
             sleep 1

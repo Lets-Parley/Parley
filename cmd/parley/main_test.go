@@ -14,7 +14,10 @@ func TestVersionDefaultsToDev(t *testing.T) {
 
 func baseConfigEnv(t *testing.T) {
 	t.Helper()
-	t.Setenv("DATABASE_URL", "postgres://example.test/parley")
+	t.Setenv("DATABASE_URL", "postgres://example.test/parley?sslmode=verify-full")
+	t.Setenv("DATABASE_ALLOW_PLAINTEXT", "")
+	t.Setenv("PGSSLMODE", "")
+	t.Setenv("PGSSLROOTCERT", "")
 	t.Setenv("TRUST_PROXY_HEADERS", "false")
 	t.Setenv("TRUSTED_PROXY_CIDRS", "")
 	t.Setenv("IDENTITY_IP_HOURLY_LIMIT", "")
