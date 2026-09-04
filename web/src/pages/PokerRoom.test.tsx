@@ -366,6 +366,40 @@ describe("PokerRoom ended session", () => {
     expect(items.map((li) => li.textContent)).toEqual(["Left on the table"]);
   });
 
+  it("lists leftovers by missing estimate, not by status", () => {
+    renderApp(
+      <PokerRoom
+        env={endedWith([
+          {
+            id: "s1",
+            ref: "PLAT-1",
+            title: "Number saved, status still voting",
+            notes: "",
+            position: 1,
+            estimate: "5",
+            status: "voting",
+            votedUserIds: [],
+          },
+          {
+            id: "s2",
+            ref: "PLAT-2",
+            title: "No number, status already estimated",
+            notes: "",
+            position: 2,
+            estimate: null,
+            status: "estimated",
+            votedUserIds: [],
+          },
+        ])}
+        me={me}
+      />,
+    );
+    const items = within(screen.getByRole("list", { name: "Not estimated" })).getAllByRole(
+      "listitem",
+    );
+    expect(items.map((li) => li.textContent)).toEqual(["No number, status already estimated"]);
+  });
+
   it("shows a done state when every story was estimated, not an empty list", () => {
     renderApp(
       <PokerRoom
