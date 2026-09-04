@@ -342,6 +342,13 @@ mutate "invalid cron refused at schedule time" \
     hostfn.go 'next, err := nextCron(req.Cron, runAt)' 'next, err := nextCron(req.Cron, runAt); err = nil' \
     cron.go 'if len(fields) != 5 {' 'if false && len(fields) != 5 {'
 
+# Returning an error after inserting is still a store: Claim waits on run_at
+# and the guest retries a schedule the host already accepted. The old test
+# only checked that enqueue returned *an* error.
+mutate "cron and delay together refused without storing" \
+    'TestCronAndDelayTogetherAreRefused' \
+    hostfn.go 'if req.Cron != "" && req.DelayMS > 0 {' 'if req.Cron != "" && req.DelayMS > 0 { _, _ = h.Queue.Enqueue(ctx, Job{InstallID: st.Install.ID, Kind: req.Kind, Payload: req.Payload, RunAt: time.Now()});'
+
 # ---------------------------------------------------------------------------
 # The frontend half of the sandbox: the framed route's header carve-out, and
 # the bridge that is the only thing a plugin's UI can reach.

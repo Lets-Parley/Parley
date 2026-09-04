@@ -106,7 +106,50 @@ func TestCronAndDelayTogetherAreRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.enqueue(ctx, st, &callInfo{installID: in.ID, mode: ModeAsync}, raw); err == nil {
-		t.Fatal("enqueue accepted cron and delay_ms together; they are two clocks")
+	out, err := h.enqueue(ctx, st, &callInfo{installID: in.ID, mode: ModeAsync}, raw)
+	if err == nil {
+		t.Fatalf("enqueue stored %v for cron and delay_ms together; they are two clocks", out)
+	}
+	if !errors.Is(err, ErrInvalidCron) {
+		t.Fatalf("got %v, want ErrInvalidCron so a guest sees a schedule error rather than a silent no-op", err)
+	}
+
+	var n int
+	if err := store.Pool.QueryRow(ctx, `select count(*) from plugin_jobs where install_id = $1`, in.ID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("a refused cron-and-delay still wrote %d plugin_jobs row(s)", n)
+	}
+}
+
+func TestACronEnqueueStillRequiresTheJobsGrant(t *testing.T) {
+	store := &Store{Pool: testPool(t)}
+	ctx := context.Background()
+	in := install(t, store)
+	st, err := store.State(ctx, in.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &Host{Store: store, Queue: &Queue{Pool: store.Pool}}
+
+	raw, err := json.Marshal(map[string]any{"kind": "work", "cron": "0 9 * * *"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := h.enqueue(ctx, st, &callInfo{installID: in.ID, mode: ModeAsync}, raw)
+	if err == nil {
+		t.Fatalf("enqueue stored %v with no jobs grant; want a refusal", out)
+	}
+	if !errors.Is(err, ErrNotGranted) {
+		t.Fatalf("got %v, want ErrNotGranted so a cron schedule is not a way around the jobs grant", err)
+	}
+
+	var n int
+	if err := store.Pool.QueryRow(ctx, `select count(*) from plugin_jobs where install_id = $1`, in.ID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("an ungranted cron enqueue still wrote %d plugin_jobs row(s)", n)
 	}
 }
