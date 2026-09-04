@@ -1,0 +1,56 @@
+---
+title: Retrospective (plugin)
+description: A retrospective ceremony delivered entirely as a plugin — columns, cards, hidden authorship, grouping, dot voting, and action items.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import Capability from "../../../components/Capability.astro";
+
+<VerifiedStamp source={["plugins/retrospective/package.json", "plugins/retrospective/board.js", "plugins/retrospective/guest.js", "plugins/retrospective/ui.js", "plugins/retrospective/Makefile"]} />
+
+A retrospective in Parley is not a core session kind. It is a plugin: the
+package under `plugins/retrospective/` declares the kind, the Wasm guest stores
+the board, and the iframe UI fills the room. Enabling the install is what puts
+**Retrospective** on the create dialog; there is no `KindDef` for it in the
+shipped frontend.
+
+## What the room does
+
+- Three columns to start: went well, to improve, puzzles.
+- Anyone can add a card. The author is stored, and **hidden from the wire
+  state until the facilitator reveals**.
+- Cards in the same column can be grouped.
+- Each person may put one dot on a card (a second click does not stack).
+- Action items are a list on the same board, with an optional owner.
+
+CSV export is the host's: it flattens the guest's `on_session_state` document
+(`revealed`, `columns`, `cards`, `groups`, `actionItems`) next to
+`id,kind,title,phase`. Authorship that has not been revealed is not in that
+document, so it is not in the file.
+
+## Installing it
+
+Build with `make dist` in `plugins/retrospective`, copy
+`retrospective-0.1.0.wasm` and `retrospective-0.1.0.ui.js` into `PLUGIN_DIR`,
+and upload `package.json` as the install package. The grants it asks for are
+`kv` (scope `board`), `session:read`, and `session:act`. Consent copy for those
+comes from the host, not from this page.
+
+Disable mid-session and the room shows the existing "kind unavailable" state;
+enable it again and the kind returns. Uninstall is refused while any
+retrospective session still exists. Those two rules are host behaviour.
+
+## One document per session
+
+The plugin key-value store can get and set a key. It cannot list keys or scan a
+prefix. Grouping and vote tallies therefore live on **one namespaced document**
+per room. Writes are read-modify-write and last-write-wins; compare-and-swap is
+not on this package.
+
+The UI never fetches. `connect-src 'none'` is the frame's policy; every byte it
+sees arrives over the MessageChannel bridge, including design tokens.
+
+<Capability rows={[
+  { name: "Core kind in the binary", status: "not-built", detail: "On purpose. A retrospective that needed a commit under internal/ or web/src would mean the extension points were not enough." },
+  { name: "Compare-and-swap on the board document", status: "not-built", detail: "Last-write-wins is enough to express grouping and dots. CAS belongs with the wire-protocol freeze, not this ceremony." },
+]} />

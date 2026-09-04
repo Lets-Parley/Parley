@@ -26,6 +26,7 @@ Module `github.com/lets-parley/parley`, Go 1.26.3, chi + pgx + gorilla/websocket
 | `web/` | Vite + React app; `web/embed.go` embeds `web/dist` |
 | `site/` | Astro/Starlight docs, published to www.letsparley.io |
 | `deploy/k8s/` | Kubernetes manifest |
+| `plugins/` | Ceremony plugins that must not touch the host (`plugins/retrospective/` is the proof) |
 
 ## Development
 

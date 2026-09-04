@@ -39,7 +39,8 @@ Members only. Served as an attachment named after the session title, sanitised.
 A plugin ceremony has no fixed columns. The file is `id,kind,title,phase` plus
 one column per top-level field of the kind's wire `state` document — the same
 projection the room already broadcasts, never raw storage. Nested values are
-JSON.
+JSON. The retrospective plugin's document is `revealed`, `columns`, `cards`,
+`groups`, `actionItems`; card `authorId` is omitted until reveal.
 
 ## It exports only what you could already see
 
