@@ -1,3 +1,5 @@
+//go:build !plugindev
+
 package api
 
 import (
