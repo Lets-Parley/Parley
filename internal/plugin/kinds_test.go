@@ -129,6 +129,32 @@ func TestEnablingAnInstallOffersItsKindAndDisablingRetiresIt(t *testing.T) {
 	}
 }
 
+// The room iframe needs the install's name, version and grants on the kind so
+// BuildEnvelope can put them on the wire. A StateFunc that only returns
+// ceremony state leaves SessionPage with no frame URL.
+func TestPluginKindProjectsTheInstallOntoTheKind(t *testing.T) {
+	h := NewHost(&Store{}, HostConfig{})
+	kind := kindName(t)
+	k := h.PluginKind(State{
+		Install: Install{ID: "x", OrgID: testOrgID, Name: "retro", Version: "2.0.0"},
+		Grants: []Grant{
+			{Capability: CapabilitySessionRead},
+			{Capability: CapabilitySessionRead, Scope: "ignored-dup"},
+			{Capability: CapabilityLog},
+		},
+	}, KindDef{Kind: kind, Display: "Retrospective"})
+	if k.Plugin == nil {
+		t.Fatal("a plugin-provided kind carried no install for the room frame")
+	}
+	if k.Plugin.Name != "retro" || k.Plugin.Version != "2.0.0" {
+		t.Fatalf("the install on the kind is %+v", k.Plugin)
+	}
+	got := strings.Join(k.Plugin.Grants, ",")
+	if got != "log,session:read" {
+		t.Fatalf("grants on the kind are %v, want log,session:read", k.Plugin.Grants)
+	}
+}
+
 // A kind name is instance-wide because sessions.kind references it. An install
 // that declares a name another org's install already provides is refused
 // rather than quietly taking over that org's rooms.
@@ -505,7 +531,7 @@ func TestAPluginCannotDeclareAnActionThatAnswersGET(t *testing.T) {
 
 	// The registry's own refusal, which is the layer that covers a kind
 	// written in Go as well as one that arrived from a manifest.
-	err = kinds.Register(h.PluginKind(Install{ID: "x", OrgID: testOrgID}, KindDef{
+	err = kinds.Register(h.PluginKind(State{Install: Install{ID: "x", OrgID: testOrgID}}, KindDef{
 		Kind: kind, Display: "Retrospective",
 		Actions: []ActionDef{{Name: "peek", Verb: http.MethodGet}},
 	}))

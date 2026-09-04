@@ -179,18 +179,46 @@ describe("SessionPage wiring", () => {
     expect(await screen.findByText(/doesn't know how to open/i)).toBeTruthy();
   });
 
+  // A plugin-provided kind is not in KINDS on purpose — the ceremony lives in
+  // the sandbox, not as a compiled Room. The envelope names the install so
+  // this page can frame it without a second websocket or a hardcoded KindDef.
+  it("frames a plugin-provided kind in the full-room slot", async () => {
+    mockKind = "acme-retro";
+    mockData = {
+      ...envelope,
+      kind: "acme-retro",
+      kindUnavailable: false,
+      plugin: { name: "retro", version: "1.0.0", grants: ["session:read"] },
+      state: { columns: ["went-well"] },
+    } as unknown as Envelope;
+    renderApp(<SessionPage />);
+    const frame = await screen.findByTitle("retro plugin panel");
+    expect(frame.getAttribute("src")).toBe("/plugin-ui/retro/1.0.0");
+    expect(frame.className.split(/\s+/)).not.toContain("h-64");
+    expect(frame.className).toMatch(/h-full|min-h-/);
+    expect(screen.queryByText(/doesn't know how to open/i)).toBeNull();
+    expect(screen.queryByTestId("kind-unavailable")).toBeNull();
+  });
+
   // A ceremony whose plugin has been switched off is not the same thing as a
   // kind this build never heard of, and saying the wrong one sends an admin
   // looking for an upgrade instead of for the switch they flipped. The room
   // and its history are intact either way, so the copy says so.
   it("says the ceremony is switched off when its plugin is disabled", async () => {
     mockKind = "acme.retro";
-    mockData = { ...envelope, kind: "acme.retro", state: null, kindUnavailable: true } as unknown as Envelope;
+    mockData = {
+      ...envelope,
+      kind: "acme.retro",
+      state: null,
+      kindUnavailable: true,
+      plugin: { name: "retro", version: "1.0.0", grants: ["session:read"] },
+    } as unknown as Envelope;
     renderApp(<SessionPage />);
     const said = await screen.findByTestId("kind-unavailable");
     expect(said.textContent).toMatch(/isn't running/i);
     expect(said.textContent).toMatch(/switches it on again/i);
     expect(screen.queryByText(/doesn't know how to open/i)).toBeNull();
+    expect(screen.queryByTitle("retro plugin panel")).toBeNull();
   });
 });
 

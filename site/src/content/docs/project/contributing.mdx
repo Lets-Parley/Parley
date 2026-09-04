@@ -111,6 +111,13 @@ The kinds a plugin provides are declared on the uploaded package as `kinds`
 (`kind`, `display`, `actions`). The install route persists them on first install
 and on upgrade; a name or verb the host will not accept is 400 and writes nothing.
 
+An offered plugin kind is not a `KindDef` in `web/src/lib/kinds.ts`. The
+envelope names the install (`plugin.name`, `plugin.version`, `plugin.grants`) and
+`SessionPage` frames it in the full-room slot with the same sandboxed iframe and
+MessageChannel a nested poker panel uses. Nested panels stay `h-64` inside
+Poker; a plugin-owned ceremony fills the room chrome. `kindUnavailable` is still
+asked first: a disabled plugin is a switched-off ceremony, not an unknown kind.
+
 ## Screenshots
 
 The marketing and README screenshots live in `site/src/assets/` and `docs/`, and

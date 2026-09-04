@@ -61,6 +61,15 @@ describe("PluginPanel", () => {
     expect(pluginFramePath("a/b", "1.0")).toBe("/plugin-ui/a%2Fb/1.0");
   });
 
+  it("sizes a nested panel to h-64 and a full-room slot to fill the chrome", () => {
+    panel();
+    expect(screen.getByTitle("retro plugin panel").className.split(/\s+/)).toContain("h-64");
+    panel({ slot: "room" });
+    const room = screen.getAllByTitle("retro plugin panel").at(-1)!;
+    expect(room.className.split(/\s+/)).not.toContain("h-64");
+    expect(room.className).toMatch(/h-full|min-h-/);
+  });
+
   it("marks the frame inert while a host modal is open, and clears it after", () => {
     const view = panel({ modalOpen: false });
     const frame = screen.getByTitle("retro plugin panel");

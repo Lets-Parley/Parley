@@ -329,6 +329,56 @@ func TestARoomOfADisabledPluginsKindStillLoadsAndComesBack(t *testing.T) {
 	}
 }
 
+// The browser frames a plugin kind from the envelope, not from a second fetch.
+// Name, version and grants have to travel with the ceremony so SessionPage can
+// point the sandbox at /plugin-ui and redact against the grants in force.
+func TestAPluginKindEnvelopeNamesTheInstall(t *testing.T) {
+	srv, pool, plugins, host := hostServer(t)
+	orgID := defaultOrg(t, pool)
+	kind := "retro" + randomKindSuffix(t)
+	in := installIn(t, plugins, orgID, plugin.KindDef{Kind: kind, Display: "Retrospective"})
+	if err := host.Kinds.Register(session.Kind{
+		Name:      kind,
+		OrgID:     in.OrgID,
+		NewConfig: func() any { return new(json.RawMessage) },
+		State: func(_ context.Context, _ *pgxpool.Pool, _ store.Session) (any, error) {
+			return map[string]any{"columns": []string{"went-well"}}, nil
+		},
+		Plugin: &session.PluginUI{
+			Name:    in.Name,
+			Version: in.Version,
+			Grants:  []string{"session:read"},
+		},
+		Actions: map[string]session.Action{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = host.Kinds.Unregister(kind) })
+
+	fac := signup(t, srv, "Fay")
+	_, sp := createSpace(t, srv, "Named Ceremony Room", fac)
+	resp, body := createSession(t, srv, sp["slug"].(string), kind, "Retro", fac)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("creating a room of a plugin-provided kind: %d %v", resp.StatusCode, body)
+	}
+	id := body["id"].(string)
+	resp, body = doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("reading the room: %d %v", resp.StatusCode, body)
+	}
+	plug, _ := body["plugin"].(map[string]any)
+	if plug == nil {
+		t.Fatalf("the envelope named no install: %v", body)
+	}
+	if plug["name"] != in.Name || plug["version"] != "1.0.0" {
+		t.Fatalf("plugin on the envelope is %v, want %s@1.0.0", plug, in.Name)
+	}
+	grants, _ := plug["grants"].([]any)
+	if len(grants) != 1 || grants[0] != "session:read" {
+		t.Fatalf("grants on the envelope are %v", plug["grants"])
+	}
+}
+
 // An install belongs to one org and so does everything it may touch.
 //
 // Isolating that from the kind-ownership check takes some care, and the care is

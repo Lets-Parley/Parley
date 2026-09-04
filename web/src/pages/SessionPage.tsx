@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type Me, type SpaceView } from "../lib/api";
+import { action, api, type Me, type SpaceView } from "../lib/api";
 import { forgetLinkGuest, linkGuestFor } from "../lib/links";
 import { useSession } from "../lib/useSession";
 import { useMe, NameGate } from "../components/NameGate";
@@ -10,6 +10,7 @@ import { LinkPanel } from "../components/LinkPanel";
 import { Modal, buttonQuiet } from "../components/Modal";
 import { getKind } from "../lib/kinds";
 import { spaceApi } from "../lib/paths";
+import { PluginPanel } from "../components/PluginPanel";
 
 /** Drop member-only fields after an identity remint — see SpacePage. */
 function strangerSpace(prev: SpaceView): SpaceView {
@@ -139,6 +140,7 @@ export function SessionPage() {
 
   const env = session.data;
   const Room = getKind(env.kind)?.Room;
+  const pluginUI = env.plugin;
   // A guest is never the facilitator, so the panel is never offered to one —
   // and the server refuses it either way.
   const isFacilitator = !guest && env.facilitatorId === identity.id;
@@ -193,9 +195,8 @@ export function SessionPage() {
           // server has already said this room's ceremony is not running and has
           // sent no state to run it with, so a component that happened to be
           // registered under the name would be a room's controls pointed at
-          // nothing. Today only core kinds have a Room and a core kind is never
-          // unavailable, so the two branches cannot both be live — which is the
-          // reason to fix the order now rather than after they can.
+          // nothing. A plugin kind's iframe is the same: without a live kind
+          // there is no install to frame.
           <p
             data-testid="kind-unavailable"
             className="p-8 text-center text-ink-soft text-pretty"
@@ -212,6 +213,17 @@ export function SessionPage() {
             guest={!!guest}
             kickReason={session.kickReason}
             kicked={session.kicked}
+          />
+        ) : pluginUI ? (
+          <PluginPanel
+            slot="room"
+            name={pluginUI.name}
+            version={pluginUI.version}
+            grants={pluginUI.grants}
+            env={env}
+            onAction={(name, payload) =>
+              action(env.id, name, payload, { "X-Parley-Plugin-Route": pluginUI.name })
+            }
           />
         ) : (
           // Falling through to a room here would point one kind's controls at

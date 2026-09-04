@@ -5,8 +5,10 @@ description: Everything Parley does today — planning poker, daily standup, spa
 
 import SectionIndex from "../../../components/SectionIndex.astro";
 
-Parley runs two ceremonies today: planning poker and a daily standup. Both live
-inside a space, both are live over a WebSocket, and both export to CSV.
+Parley runs two built-in ceremonies today: planning poker and a daily standup.
+Both live inside a space, both are live over a WebSocket, and both export to
+CSV. An enabled plugin can add another ceremony; it occupies the same full-room
+slot as those two, in a sandboxed frame, rather than a nested panel.
 
 What is in this section is what exists, checked against the source rather than
 the plan. Where something is deliberately absent it says so and points at the

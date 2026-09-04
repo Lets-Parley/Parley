@@ -56,6 +56,18 @@ type Kind struct {
 	// connected is the presence set, read before the transaction opened.
 	// A kind with nothing to do on a roster change leaves this nil.
 	RosterChanged func(ctx context.Context, tx pgx.Tx, sess store.Session, connected []string) error
+	// Plugin is the install that provides this ceremony, as the room iframe
+	// needs it. Core kinds leave it nil.
+	Plugin *PluginUI
+}
+
+// PluginUI is the install behind a plugin-provided kind: what to frame, and
+// the grants the browser redacts against. The host still re-checks every
+// grant at the effect.
+type PluginUI struct {
+	Name    string   `json:"name"`
+	Version string   `json:"version"`
+	Grants  []string `json:"grants"`
 }
 
 // Registry holds the session kinds a server knows about. The core kinds are
@@ -246,6 +258,9 @@ type Envelope struct {
 	// rooms that have already ended, and switching it back on has to put them
 	// straight back.
 	KindUnavailable bool `json:"kindUnavailable,omitempty"`
+	// Plugin names the install that provides this ceremony so the client can
+	// frame it. Absent for core kinds and for a room whose kind is unregistered.
+	Plugin *PluginUI `json:"plugin,omitempty"`
 }
 
 // Person is a roster entry carried in the envelope so clients can render
@@ -412,6 +427,9 @@ func (r *Registry) buildEnvelope(ctx context.Context, pool *pgxpool.Pool, presen
 		ServerTime:           time.Now().UTC(),
 		State:                state,
 		KindUnavailable:      !known,
+	}
+	if known {
+		env.Plugin = k.Plugin
 	}
 	if !facConnected {
 		t := sess.FacilitatorSeenAt.UTC()

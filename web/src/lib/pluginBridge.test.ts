@@ -64,7 +64,7 @@ const READ = ["session:read"] as const;
 describe("redactSession", () => {
   it("keeps hidden votes hidden before the reveal", () => {
     const out = redactSession(envelope({ revealed: false }), READ);
-    const story = out!.state.stories[0];
+    const story = (out!.state as { stories: { votes?: unknown; results?: unknown; votedUserIds: string[] }[] }).stories[0];
     expect(story.votes).toBeUndefined();
     expect(story.results).toBeUndefined();
     // Who voted is not what they voted: the count is the whole point of the
@@ -78,11 +78,12 @@ describe("redactSession", () => {
 
   it("releases votes once the round is revealed", () => {
     const out = redactSession(envelope({ revealed: true }), READ);
-    expect(out!.state.stories[0].votes).toEqual([
+    const story = (out!.state as { stories: { votes?: unknown; results?: unknown }[] }).stories[0];
+    expect(story.votes).toEqual([
       { userId: "u1", value: "8" },
       { userId: "u2", value: "13" },
     ]);
-    expect(out!.state.stories[0].results).toBeTruthy();
+    expect(story.results).toBeTruthy();
   });
 
   it("hands a plugin with no session:read grant nothing at all", () => {
@@ -91,6 +92,22 @@ describe("redactSession", () => {
 
   it("does not leak the space or org a session lives in", () => {
     const out = redactSession(envelope({ revealed: true }), READ);
+    expect(JSON.stringify(out)).not.toContain("alpha-squad");
+  });
+
+  // A plugin-owned ceremony's StateFunc already built client-safe state. The
+  // poker projection would wipe it into empty stories; this path must pass
+  // that document through after the envelope fields are projected.
+  it("passes a plugin kind's state through rather than rewriting it as poker", () => {
+    const out = redactSession(
+      {
+        ...envelope(),
+        kind: "acme-retro",
+        state: { columns: ["went-well"], hidden: "ok-from-statefunc" },
+      } as unknown as Envelope,
+      READ,
+    );
+    expect(out!.state).toEqual({ columns: ["went-well"], hidden: "ok-from-statefunc" });
     expect(JSON.stringify(out)).not.toContain("alpha-squad");
   });
 });

@@ -115,12 +115,44 @@ export type PluginSession = {
   endedAt: string | null;
   presence: string[];
   participants: PluginPerson[];
-  state: {
-    currentStoryId: string | null;
-    deck: { name: string; values: string[]; ordinal: boolean };
-    stories: PluginStory[];
-  };
+  /**
+   * Poker panels get the poker projection. A plugin-owned kind gets the
+   * document its StateFunc already built — still only after session:read.
+   */
+  state: unknown;
 };
+
+function pokerState(env: Envelope, revealed: boolean): {
+  currentStoryId: string | null;
+  deck: { name: string; values: string[]; ordinal: boolean };
+  stories: PluginStory[];
+} {
+  return {
+    currentStoryId: env.state?.currentStoryId ?? null,
+    deck: {
+      name: env.state?.deck?.name ?? "",
+      values: [...(env.state?.deck?.values ?? [])],
+      ordinal: env.state?.deck?.ordinal ?? false,
+    },
+    stories: (env.state?.stories ?? []).map((s) => {
+      const story: PluginStory = {
+        id: s.id,
+        title: s.title,
+        estimate: s.estimate,
+        status: s.status,
+        votedUserIds: [...s.votedUserIds],
+      };
+      if (revealed && s.votes) {
+        story.votes = s.votes.map((v) => ({
+          userId: v.userId,
+          value: v.value,
+        }));
+      }
+      if (revealed && s.results) story.results = s.results;
+      return story;
+    }),
+  };
+}
 
 /** The grant that lets a plugin see session state at all. */
 export const GRANT_SESSION_READ = "session:read";
@@ -159,33 +191,10 @@ export function redactSession(env: Envelope, grants: readonly string[]): PluginS
       avatarHue: p.avatarHue,
       spectator: p.spectator,
     })),
-    state: {
-      currentStoryId: env.state?.currentStoryId ?? null,
-      deck: {
-        name: env.state?.deck?.name ?? "",
-        values: [...(env.state?.deck?.values ?? [])],
-        ordinal: env.state?.deck?.ordinal ?? false,
-      },
-      stories: (env.state?.stories ?? []).map((s) => {
-        const story: PluginStory = {
-          id: s.id,
-          title: s.title,
-          estimate: s.estimate,
-          status: s.status,
-          // Who voted, never what they voted. The count is what a pre-reveal
-          // UI is for, and it gives nothing away.
-          votedUserIds: [...s.votedUserIds],
-        };
-        if (revealed && s.votes) {
-          story.votes = s.votes.map((v) => ({
-            userId: v.userId,
-            value: v.value,
-          }));
-        }
-        if (revealed && s.results) story.results = s.results;
-        return story;
-      }),
-    },
+    // Poker shares its envelope with nested panels, so hidden votes have to
+    // be projected here. A plugin-owned kind's StateFunc already decided what
+    // is client-safe; rewriting that as poker stories would empty the room.
+    state: env.kind === "poker" ? pokerState(env, revealed) : (env.state ?? {}),
   };
 }
 
