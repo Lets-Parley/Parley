@@ -23,6 +23,24 @@ test("kvSet still calls the bridge when the grant is present", () => {
   assert.equal(out.name, "parley_kv_set");
 });
 
+test("kvSet with only a board grant refuses a request with no scope", () => {
+  let calls = 0;
+  const host = createHost([{ capability: "kv", scope: "board" }], () => {
+    calls += 1;
+  });
+  assert.throws(() => host.kvSet({ key: "s1", value: "x" }), /kv/);
+  assert.equal(calls, 0);
+});
+
+test("kvSet with only a board grant refuses an empty request scope", () => {
+  let calls = 0;
+  const host = createHost([{ capability: "kv", scope: "board" }], () => {
+    calls += 1;
+  });
+  assert.throws(() => host.kvSet({ scope: "", key: "s1", value: "x" }), /kv/);
+  assert.equal(calls, 0);
+});
+
 test("fetch fails fast without a fetch grant", () => {
   let calls = 0;
   const host = createHost([{ capability: "kv" }], () => {

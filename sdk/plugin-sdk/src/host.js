@@ -1,9 +1,9 @@
 function granted(grants, capability, scope) {
+  const req = scope === undefined || scope === null ? "" : scope;
   return grants.some((g) => {
     if (g.capability !== capability) return false;
-    if (!g.scope) return true;
-    if (scope === undefined || scope === "") return true;
-    return g.scope === scope;
+    const grant = g.scope || "";
+    return grant === "" || grant === req;
   });
 }
 

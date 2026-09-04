@@ -49,3 +49,16 @@ test("verify refuses a Python guest PDK claim", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("verify refuses any Python source, not only guest.py", () => {
+  const dir = mkdtempSync(join(tmpdir(), "parley-plugin-"));
+  try {
+    run("scaffold", dir);
+    writeFileSync(join(dir, "helper.py"), "print('no')\n");
+    const verified = run("verify", dir);
+    assert.notEqual(verified.status, 0);
+    assert.match(verified.stderr + verified.stdout, /python/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

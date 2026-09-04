@@ -100,7 +100,7 @@ function verify(root) {
   if (pkg.manifest !== 1) throw new Error("the manifest version must be 1");
   if (pkg.kind !== "plugin") throw new Error('the kind must be "plugin"');
   const names = readdirSync(root);
-  if (names.includes("guest.py")) {
+  if (names.some((n) => n.endsWith(".py"))) {
     throw new Error("Python is not an Extism guest PDK");
   }
   if (!existsSync(join(root, "guest.js")) && !existsSync(join(root, "guest.go")) &&
