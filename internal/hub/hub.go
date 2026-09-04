@@ -10,6 +10,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/lets-parley/parley/internal/recovery"
 )
 
 // CloseRemovedFromSession is the close code a socket gets when the room's
@@ -122,6 +124,7 @@ type Conn struct {
 	stop           chan struct{}
 	writerDone     chan struct{}
 	writeMessage   func(messageType int, data []byte) error
+	readMessage    func() (messageType int, p []byte, err error)
 }
 
 func (c *Conn) Close() {
@@ -166,6 +169,13 @@ type Hub struct {
 	// OnDisconnect fires once a user has no connections left on this hub, so a
 	// room stops showing them without waiting for their presence row to age out.
 	OnDisconnect func(sessionID, userID string)
+
+	// wrapReader replaces a new connection's read pump source. It exists so a
+	// test can make one socket's reads panic without racing the reader
+	// goroutine for the field: it is consulted while the connection is still
+	// private to AttachAuthenticated, before the reader starts. Production
+	// leaves it nil and every connection reads from its websocket.
+	wrapReader func(c *Conn, next func() (int, []byte, error)) func() (int, []byte, error)
 
 	timersMu sync.Mutex
 	timers   map[string]*time.Timer
@@ -260,6 +270,11 @@ type initialStateEvent struct {
 // space its session belongs to. It closes the socket the same way a revoked
 // token does.
 var ErrNotMember = errors.New("no longer a member of this space")
+
+// errValidationPanicked is what a recovered panic in revalidation looks like to
+// the owner loop: a failed validation, so the connection goes rather than
+// keeping access it can no longer prove.
+var errValidationPanicked = errors.New("session validation panicked")
 
 // SessionAuth identifies the session token that authenticated a WebSocket and
 // the space whose membership keeps it alive.
@@ -486,6 +501,11 @@ func (h *Hub) track(fn func()) {
 	h.bgMu.Unlock()
 	go func() {
 		defer h.bg.Done()
+		// Every hub callback into application code — validation, membership,
+		// presence, join — runs through here, so this is the one place a
+		// panicking callback has to be contained. Losing the callback is the
+		// whole cost; the hub and every other socket carry on.
+		defer recovery.Handle("hub callback")
 		fn()
 	}()
 }
@@ -586,8 +606,12 @@ func (h *Hub) AttachAuthenticated(ws *websocket.Conn, sessionID, userID string, 
 		expiresAt: auth.ExpiresAt,
 		ctx:       ctx, cancel: cancel, stop: make(chan struct{}), writerDone: make(chan struct{}),
 		writeMessage: ws.WriteMessage,
+		readMessage:  ws.ReadMessage,
 	}
 	c.closeCode.Store(websocket.CloseNormalClosure)
+	if h.wrapReader != nil {
+		c.readMessage = h.wrapReader(c, c.readMessage)
+	}
 	accepted := make(chan bool)
 	if !h.submit(registerEvent{conn: c, accepted: accepted}) {
 		cancel()
@@ -662,6 +686,19 @@ func (h *Hub) revalidate(ctx context.Context, c *Conn) {
 }
 
 func (h *Hub) validate(c *Conn) {
+	// Fail closed. A panic here comes out of application-supplied code
+	// (ValidateSession, ValidateMembership), and track's recovery would
+	// otherwise make it indistinguishable from "still valid": the goroutine
+	// ends, nothing restarts it, and a member revoked afterwards keeps the
+	// socket forever. Recovering here instead turns the panic into a failed
+	// validation, which drops the connection exactly as a revoked token does,
+	// and leaves the revalidation loop itself ticking.
+	defer func() {
+		if r := recover(); r != nil {
+			recovery.Log(r, "hub revalidation", "session", c.SessionID, "user", c.UserID)
+			h.submit(revalidationEvent{conn: c, err: errValidationPanicked})
+		}
+	}()
 	ctx, cancel := context.WithTimeout(c.ctx, h.validationTimeout())
 	defer cancel()
 	expiresAt, err := h.ValidateSession(ctx, c.tokenID)
@@ -802,6 +839,10 @@ func (h *Hub) detach(c *Conn) {
 }
 
 func (h *Hub) writer(c *Conn) {
+	// First, so it runs last: the deferred cleanup below still runs while
+	// panicking, and this recovers once the socket is closed and detached.
+	// One socket's write pump dying costs that socket and nothing else.
+	defer recovery.Handle("hub write pump", "session", c.SessionID, "user", c.UserID)
 	ticker := time.NewTicker(pingInterval)
 	defer ticker.Stop()
 	defer close(c.writerDone)
@@ -886,6 +927,7 @@ func (c *Conn) markRemoved() {
 }
 
 func (h *Hub) reader(c *Conn) {
+	defer recovery.Handle("hub read pump", "session", c.SessionID, "user", c.UserID)
 	defer h.detach(c)
 	c.ws.SetReadLimit(4096)
 	c.ws.SetReadDeadline(time.Now().Add(pongDeadline))
@@ -905,7 +947,7 @@ func (h *Hub) reader(c *Conn) {
 	for {
 		// Clients mutate over REST; inbound messages are ignored, but the read
 		// loop drives pong handling and disconnect detection.
-		if _, _, err := c.ws.ReadMessage(); err != nil {
+		if _, _, err := c.readMessage(); err != nil {
 			return
 		}
 	}

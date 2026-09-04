@@ -1077,3 +1077,186 @@ func TestDisconnectSessionMemberTruncatesTheReason(t *testing.T) {
 	// untruncated reason would arrive as no close frame at all.
 	expectRemoved(t, ws, "over-long reason", strings.Repeat("あ", 41))
 }
+
+// connFor returns the registered connection a given user holds in a room, so a
+// test can aim a fault at one specific socket and still know which client
+// handle is the one that should die.
+func connFor(t *testing.T, h *Hub, sessionID, userID string) *Conn {
+	t.Helper()
+	for c := range h.rooms[sessionID] {
+		if c.UserID == userID {
+			return c
+		}
+	}
+	t.Fatalf("no connection for %q in %q", userID, sessionID)
+	return nil
+}
+
+// expectClosed asserts a socket is gone, whatever the close looked like on the
+// wire: a read on a detached connection cannot succeed.
+func expectClosed(t *testing.T, ws *websocket.Conn, label string) {
+	t.Helper()
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, msg, err := ws.ReadMessage(); err == nil {
+		t.Fatalf("%s: read succeeded (%q) on a socket that should be closed", label, msg)
+	}
+}
+
+// A panic in a socket's write pump must not take the process with it, and must
+// cost only that socket: every release before v0.2.2 died of exactly this.
+func TestPanicInAWritePumpClosesOnlyThatSocket(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	doomed := attachTestConnAs(t, h, "panic-room", "doomed")
+	defer doomed.Close()
+	survivor := attachTestConnAs(t, h, "panic-room", "survivor")
+	defer survivor.Close()
+
+	conn := connFor(t, h, "panic-room", "doomed")
+	conn.writeMessage = func(messageType int, data []byte) error {
+		if messageType == websocket.TextMessage {
+			panic("write pump exploded")
+		}
+		return nil
+	}
+
+	h.Broadcast("panic-room", []byte("state"))
+
+	// The survivor — not "either socket" — has to be the one that carries on,
+	// and the doomed socket has to actually be gone. Accepting the frame on
+	// whichever socket answers first would pass even if the panic had cost the
+	// wrong connection, or cost nothing at all.
+	h.Broadcast("panic-room", []byte("after-panic"))
+	survivor.SetReadDeadline(time.Now().Add(2 * time.Second))
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if time.Now().After(deadline) {
+			t.Fatal("no frame arrived on the survivor after a write pump panicked")
+		}
+		_, msg, err := survivor.ReadMessage()
+		if err != nil {
+			t.Fatalf("the surviving socket died with the panicking one: %v", err)
+		}
+		if string(msg) == "after-panic" {
+			break
+		}
+	}
+	expectClosed(t, doomed, "socket whose write pump panicked")
+}
+
+// The read pump's recovery is the other half: a panic there must detach that
+// socket and leave every other one in the room reading.
+func TestPanicInAReadPumpDetachesOnlyThatSocket(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	// Installed before any connection exists, so the reader goroutine never
+	// races the test for the hook.
+	h.wrapReader = func(c *Conn, next func() (int, []byte, error)) func() (int, []byte, error) {
+		if c.UserID != "doomed" {
+			return next
+		}
+		return func() (int, []byte, error) {
+			panic("read pump exploded")
+		}
+	}
+	doomed := attachTestConnAs(t, h, "read-panic-room", "doomed")
+	defer doomed.Close()
+	survivor := attachTestConnAs(t, h, "read-panic-room", "survivor")
+	defer survivor.Close()
+
+	expectClosed(t, doomed, "socket whose read pump panicked")
+
+	h.Broadcast("read-panic-room", []byte("after-read-panic"))
+	survivor.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, msg, err := survivor.ReadMessage()
+	if err != nil {
+		t.Fatalf("the surviving socket died with the panicking one: %v", err)
+	}
+	if string(msg) != "after-read-panic" {
+		t.Fatalf("survivor read %q, want %q", msg, "after-read-panic")
+	}
+}
+
+// Revalidation must fail closed. A panic inside application-supplied validation
+// used to be recovered by track and simply end the goroutine that owned the
+// revalidation loop — leaving that socket never re-validated again, so a member
+// revoked afterwards kept their connection indefinitely. The recovered path
+// must not grant more access than the un-panicked one.
+func TestPanicInRevalidationClosesThatSocket(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	h.RevalidationInterval = 20 * time.Millisecond
+	h.ValidateSession = func(context.Context, string) (time.Time, error) {
+		// A zero expiry on purpose: armExpiry does nothing with one, so the
+		// periodic tick is the only thing standing between a revoked member
+		// and a permanent socket.
+		return time.Time{}, nil
+	}
+	// Armed only once both sockets are up, so the panic lands on a periodic
+	// tick rather than on the on-attach confirmation, which runs on the
+	// request goroutine and is a different guard entirely.
+	var armed atomic.Bool
+	h.ValidateMembership = func(_ context.Context, _, _, userID string) (bool, error) {
+		if userID == "doomed" && armed.Load() {
+			panic("membership check exploded")
+		}
+		return true, nil
+	}
+
+	doomed := attachMemberTestConn(t, h, "revalidate-panic-room", "doomed", SessionAuth{
+		TokenID: "doomed-token", SpaceID: "space-1",
+	})
+	defer doomed.Close()
+	survivor := attachMemberTestConn(t, h, "revalidate-panic-room", "survivor", SessionAuth{
+		TokenID: "survivor-token", SpaceID: "space-1",
+	})
+	defer survivor.Close()
+
+	armed.Store(true)
+
+	doomed.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, _, err := doomed.ReadMessage()
+	if err == nil {
+		t.Fatal("a connection whose revalidation panicked kept its websocket")
+	}
+	if closeErr, ok := err.(*websocket.CloseError); !ok || closeErr.Code != websocket.ClosePolicyViolation {
+		t.Fatalf("close after a panicking revalidation = %v, want policy violation", err)
+	}
+
+	// And only that socket: the panic is one connection's, not the room's.
+	h.Broadcast("revalidate-panic-room", []byte("after-revalidation-panic"))
+	survivor.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, msg, readErr := survivor.ReadMessage()
+	if readErr != nil {
+		t.Fatalf("the surviving socket died with the panicking one: %v", readErr)
+	}
+	if string(msg) != "after-revalidation-panic" {
+		t.Fatalf("survivor read %q, want %q", msg, "after-revalidation-panic")
+	}
+}
+
+// Every hub callback into application code runs through track, so that is where
+// a panicking callback has to be contained.
+func TestPanicInATrackedCallbackKeepsTheHubServing(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	ws := attachTestConn(t, h, "tracked-room")
+	defer ws.Close()
+
+	done := make(chan struct{})
+	h.track(func() {
+		defer close(done)
+		panic("callback exploded")
+	})
+	<-done
+
+	h.Broadcast("tracked-room", []byte("still-live"))
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, msg, err := ws.ReadMessage()
+	if err != nil {
+		t.Fatalf("read after a callback panicked: %v", err)
+	}
+	if string(msg) != "still-live" {
+		t.Fatalf("got %q, want %q", msg, "still-live")
+	}
+}
