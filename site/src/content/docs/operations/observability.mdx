@@ -96,12 +96,46 @@ request paths, user names, or session content at any level.
   { name: "Error reporting integration", status: "out-of-scope", detail: "Panics are recovered and logged; scrape them from stdout." },
 ]} />
 
+## Background goroutines
+
+Parley does run a handful of background goroutines, started from
+`cmd/parley/main.go` and `internal/api/router.go`. None of them expose a
+metric; the way to tell a stuck one from a healthy one is its log line.
+
+- **Session notification listener** (`router.go`, `a.listen`) — holds a
+  dedicated Postgres connection open for `LISTEN`/`NOTIFY` fan-out between
+  replicas. Healthy: silent. Stuck: repeated `"session notification listener
+  dropped, reconnecting"` at `ERROR` with a growing `backoff`, which means the
+  replica cannot re-establish its listen connection to Postgres.
+- **Presence sweeper** (`router.go`, `a.sweepPresence`) — clears stale
+  presence rows on a fixed interval. Stuck: `"could not sweep stale presence
+  rows"` at `ERROR` on every tick.
+- **Plugin retention** (`cmd/parley/main.go`, `plugins.RunRetention`) — prunes
+  old plugin events and reconciles quota counters hourly. Healthy: an
+  occasional `"plugin retention pass"` `INFO` line when it actually prunes or
+  corrects something. Stuck: `"plugin retention failed; will retry on the
+  next tick"` at `ERROR`.
+- **Plugin outbox worker** (`internal/plugin/outbox.go`, started from
+  `runtime.Start` when `PLUGIN_DIR` is set) — drains `plugin_deliveries` and
+  hands events to installed plugins. Stuck: `"plugin outbox failed; will
+  retry on the next tick"` at `ERROR`, or `"plugin outbox has no Deliver
+  handler configured; deliveries will accumulate undelivered"` at `WARN` if
+  the plugin host never wired a handler.
+- **Plugin job worker** (`internal/plugin/jobs.go`, started alongside the
+  outbox worker) — claims and runs queued plugin jobs. Stuck: `"plugin job
+  queue failed; will retry on the next tick"` at `ERROR`, or `"plugin job
+  queue has no Run handler configured; jobs will accumulate unrun"` at `WARN`.
+
+The plugin outbox and job workers only start when `PLUGIN_DIR` is configured;
+an instance with no plugins never runs them.
+
 ## Is that enough?
 
-For this shape of service, mostly yes. Parley has no background workers, no
-queues and no scheduled jobs. The two questions that
-matter operationally are *is the process up* and *can it reach Postgres*, and
-both are answered by probing `/readyz` from outside.
+For this shape of service, mostly yes. The two questions that matter
+operationally are *is the process up* and *can it reach Postgres*, and both
+are answered by probing `/readyz` from outside — a stuck background goroutine
+still lets `/readyz` pass, so a person also has to be watching the log lines
+above.
 
 What you genuinely lose without metrics is capacity planning — you cannot see
 WebSocket connection counts or room sizes without querying the database for
