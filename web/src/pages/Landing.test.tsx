@@ -146,6 +146,14 @@ describe("Landing, signed in with spaces", () => {
     expect(within(links[1]).queryByText(/passcode/i)).toBeNull();
   });
 
+  it("opts the space-name field out of payment autofill", async () => {
+    renderApp(<Landing />);
+
+    const field = await screen.findByPlaceholderText(/Platform Team/);
+    expect(field.getAttribute("name")).toBe("space-name");
+    expect(field.getAttribute("autocomplete")).toBe("off");
+  });
+
   it("keeps creating a space available alongside the list", async () => {
     renderApp(<Landing />);
 

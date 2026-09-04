@@ -539,6 +539,8 @@ export function Landing() {
               </label>
               <input
                 id={fieldId}
+                name="space-name"
+                autoComplete="off"
                 className={inputClass}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
