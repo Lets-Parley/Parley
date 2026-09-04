@@ -260,7 +260,7 @@ existence is never disclosed.
 
 <RouteTable rows={[
   { method: "GET", path: "/api/sessions/{id}", auth: "member", purpose: "The session envelope, redacted for the caller." },
-  { method: "GET", path: "/api/sessions/{id}/export.csv", auth: "member", purpose: "CSV of the session, rendered from the same redacted view." },
+  { method: "GET", path: "/api/sessions/{id}/export.csv", auth: "member", purpose: "CSV of the session, rendered from the same redacted view. A plugin kind exports that view's state fields; a kind with no exporter is 404." },
   { method: "POST", path: "/api/sessions/{id}/facilitator/claim", auth: "member", purpose: "Claim the facilitator role after the 60s grace period. Any member." },
   { method: "POST", path: "/api/sessions/{id}/facilitator", auth: "facilitator", purpose: "Hand the role to {userId}. Distinct from the claim route above." },
   { method: "POST", path: "/api/sessions/{id}/participants/{userId}/remove", auth: "facilitator", purpose: "Remove {userId} from this session only — their presence row goes and their sockets for this room close with code 4001. Space membership is untouched, so they stay in the space roster and may rejoin. An open round stops waiting for them; a vote they had already cast stays and still counts. Optional body {message}, shown to them on the way out and truncated to 123 bytes on a rune boundary. Removing yourself or the facilitator is 400." },

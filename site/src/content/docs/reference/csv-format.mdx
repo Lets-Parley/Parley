@@ -5,7 +5,7 @@ description: Exact columns per session kind, and the formula-injection escaping.
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp source={["internal/poker/csv.go", "internal/standup/csv.go", "internal/session/csv.go"]} />
+<VerifiedStamp source={["internal/poker/csv.go", "internal/standup/csv.go", "internal/plugin/csv.go", "internal/session/csv.go"]} />
 
 ```
 GET /api/sessions/{id}/export.csv
@@ -33,6 +33,13 @@ Members only. Served as an attachment named after the session title, sanitised.
 | `today` | Their entry |
 | `blockers` | Their entry |
 | `skipped` | Whether they were marked absent |
+
+## Plugin-provided kinds
+
+A plugin ceremony has no fixed columns. The file is `id,kind,title,phase` plus
+one column per top-level field of the kind's wire `state` document — the same
+projection the room already broadcasts, never raw storage. Nested values are
+JSON.
 
 ## It exports only what you could already see
 

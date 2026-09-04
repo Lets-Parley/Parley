@@ -7,6 +7,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/lets-parley/parley/internal/plugin"
+	"github.com/lets-parley/parley/internal/store"
 )
 
 // A kind retired in place must still export: the row that seeds the export
@@ -48,6 +53,43 @@ func fetchCSV(t *testing.T, srv *httptest.Server, id string, c *http.Cookie) (*h
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	return resp, string(body)
+}
+
+// A plugin-provided kind must export from the same redacted wire state the
+// room already carries — including formula-escaping a cell the plugin wrote.
+func TestPluginKindCSVExport(t *testing.T) {
+	srv, pool, plugins, host := hostServer(t)
+	orgID := defaultOrg(t, pool)
+	kind := "retro" + randomKindSuffix(t)
+	in := installCeremony(t, plugins, orgID, newPluginName(t), kind)
+	st, err := plugins.State(context.Background(), in.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := host.PluginKind(st, plugin.KindDef{Kind: kind, Display: "Retrospective"})
+	k.State = func(_ context.Context, _ *pgxpool.Pool, _ store.Session) (any, error) {
+		return map[string]any{"note": "=HYPERLINK evil"}, nil
+	}
+	if err := host.Kinds.Register(k); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = host.Kinds.Unregister(kind) })
+
+	fac := signup(t, srv, "Fay")
+	_, sp := createSpace(t, srv, "Plugin Export Space", fac)
+	resp, body := createSession(t, srv, sp["slug"].(string), kind, "Plugin Retro", fac)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("creating a plugin-kind room: %d %v", resp.StatusCode, body)
+	}
+	id := body["id"].(string)
+
+	resp, csv := fetchCSV(t, srv, id, fac)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("plugin kind export: got %d, want 200; body %q", resp.StatusCode, csv)
+	}
+	if !strings.Contains(csv, "'=HYPERLINK evil") {
+		t.Fatalf("plugin export missing sanitized formula cell:\n%s", csv)
+	}
 }
 
 func TestCSVExport(t *testing.T) {

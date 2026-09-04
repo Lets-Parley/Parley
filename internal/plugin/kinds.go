@@ -316,8 +316,10 @@ func (h *Host) RetireKinds(defs []KindDef) {
 	}
 }
 
-// PluginKind builds the live kind for one declared ceremony. Every part of it
-// is a contained call into the guest.
+// PluginKind builds the live kind for one declared ceremony. State and
+// actions are contained calls into the guest; CSV is rendered from the
+// envelope those calls already projected, so it cannot see more than they
+// could.
 func (h *Host) PluginKind(st State, def KindDef) session.Kind {
 	in := st.Install
 	installID := in.ID
@@ -340,6 +342,8 @@ func (h *Host) PluginKind(st State, def KindDef) session.Kind {
 		State: func(ctx context.Context, _ *pgxpool.Pool, sess store.Session) (any, error) {
 			return h.kindState(ctx, in.ID, def.Kind, sess)
 		},
+		// The envelope State is already the guest's client-safe projection.
+		CSV:     exportCSV,
 		Actions: map[string]session.Action{},
 	}
 	for _, a := range def.Actions {
