@@ -19,3 +19,10 @@ test("kv_set keeps a compare-and-swap field open rather than freezing it away", 
   assert.ok(kvSet);
   assert.ok(kvSet.notFrozenAway.includes("expected"));
 });
+
+test("job_enqueue keeps cron as a compatible extension of protocol 1", () => {
+  const enqueue = abi.hostFunctions.find((fn) => fn.name === "parley_job_enqueue");
+  assert.ok(enqueue);
+  assert.equal(enqueue.request.cron, "string");
+  assert.ok(enqueue.notFrozenAway.includes("cron"));
+});
