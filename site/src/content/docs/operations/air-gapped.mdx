@@ -52,7 +52,10 @@ Standing up a throwaway registry to rehearse this:
 podman run -d -p 5000:5000 docker.io/library/registry:2
 ```
 
-Pulling the current release and pushing it into that registry:
+Pulling the current release and pushing it into that registry (TLS
+verification is off only because the rehearsal registry is plain HTTP on
+localhost; a real internal registry with a CA-trusted cert must drop
+`--tls-verify=false`):
 
 ```console
 $ podman pull ghcr.io/lets-parley/parley:0.10.0
