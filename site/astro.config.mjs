@@ -118,6 +118,8 @@ export default defineConfig({
             "reference/database-schema",
             "reference/csv-format",
             "reference/limits-and-defaults",
+            "reference/plugin-sdk",
+            "reference/plugin-protocol",
           ],
         },
         { label: "Known limitations", link: "/known-limitations/" },

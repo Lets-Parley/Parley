@@ -6,7 +6,7 @@ description: Every route, who may call it, and what it does.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import RouteTable from "../../../components/RouteTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/plugins.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/plugins.go", "internal/api/plugindev.go"]} />
 
 There is no API token scheme. Everything authenticates with the `parley_session`
 cookie, so the API is usable from a script only by reusing a browser session's
@@ -223,6 +223,11 @@ applies cannot drift apart.
   { method: "POST", path: "/api/orgs/{org}/admin/plugins/themes", auth: "org admin", purpose: "Record that a theme pack was applied. A pack never reaches the server — it is a value map applied in the browser — so this writes the audit row and nothing else, including whether the contrast gate was overridden." },
   { method: "DELETE", path: "/api/orgs/{org}/admin/plugins/themes", auth: "org admin", purpose: "Record a reset to the built-in palette." },
 ]} />
+
+`POST /api/orgs/{org}/admin/plugins/dev-register` exists only in a binary built
+with `-tags plugindev`. It is absent from the default build — not hidden behind
+an environment variable — so it cannot become a verification-bypassing install
+path in production. See [Plugin SDK](/reference/plugin-sdk/).
 
 Every install, upgrade request, upgrade approval, disable, re-enable, uninstall
 and theme change writes a row to the same `org_audit_log` an admin's custody

@@ -140,6 +140,9 @@ func (a *app) mountPlugins(r chi.Router) {
 	// easy. These write the audit row and nothing else.
 	r.Post("/themes", a.handleAuditThemeInstall)
 	r.Delete("/themes", a.handleAuditThemeReset)
+	for _, extra := range extraPluginMounts {
+		extra(a, r)
+	}
 }
 
 func (a *app) handleListPlugins(w http.ResponseWriter, r *http.Request) {
