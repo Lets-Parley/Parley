@@ -37,9 +37,16 @@ func newPluginName(t *testing.T) string {
 }
 
 func pluginPkg(name, version string, caps ...map[string]string) string {
+	return pluginPkgWith(name, version, nil, caps...)
+}
+
+func pluginPkgWith(name, version string, kinds []plugin.KindDef, caps ...map[string]string) string {
 	body := map[string]any{
 		"manifest": 1, "kind": "plugin", "name": name, "version": version,
 		"capabilities": caps,
+	}
+	if kinds != nil {
+		body["kinds"] = kinds
 	}
 	out, _ := json.Marshal(body)
 	return string(out)
@@ -519,6 +526,64 @@ func TestPluginJSONNeverSendsNullForADeclaredArray(t *testing.T) {
 	}
 	if !strings.Contains(previewRaw, `"added":[]`) || !strings.Contains(previewRaw, `"removed":[]`) {
 		t.Fatalf("a fresh-install preview does not carry added/removed as empty arrays: %s", previewRaw)
+	}
+}
+
+// A package that declares a session kind is installed with that kind on the
+// record, so ProvidedKinds can read it back. That is the hole the HTTP path
+// had: InstallRequest.Kinds existed and the store wrote it, but the upload
+// never carried the field through.
+func TestInstallPackageDeclaringAKindPersistsIt(t *testing.T) {
+	srv, _, plugins, admin, _ := pluginServer(t)
+	name := newPluginName(t)
+	kind := fmt.Sprintf("board-%d", time.Now().UnixNano())
+	pkg := pluginPkgWith(name, "1.0.0", []plugin.KindDef{{
+		Kind: kind, Display: "Board",
+		Actions: []plugin.ActionDef{{Name: "add-card", Verb: "POST"}},
+	}})
+
+	resp, body := doJSON(t, srv, "POST", pluginsPath,
+		`{"grantsAccepted":true,"package":`+pkg+`}`, admin)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("install = %d: %v", resp.StatusCode, body)
+	}
+	id, _ := body["id"].(string)
+	if id == "" {
+		t.Fatalf("the install came back with no id: %v", body)
+	}
+	got, err := plugins.ProvidedKinds(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Kind != kind || got[0].Display != "Board" {
+		t.Fatalf("ProvidedKinds = %#v, want the declared kind %q", got, kind)
+	}
+	if len(got[0].Actions) != 1 || got[0].Actions[0].Name != "add-card" || got[0].Actions[0].Verb != http.MethodPost {
+		t.Fatalf("the persisted actions = %#v, want add-card POST", got[0].Actions)
+	}
+}
+
+// A kind name the host will not accept is a 400 at install, not a 201 that
+// silently drops the declaration — or a 500 that looks like Parley broke.
+func TestInstallPackageWithABadKindNameIsRefused(t *testing.T) {
+	srv, pool, _, admin, _ := pluginServer(t)
+	name := newPluginName(t)
+	pkg := pluginPkgWith(name, "1.0.0", []plugin.KindDef{{
+		Kind: "NOT_A_KIND", Display: "Broken",
+	}})
+
+	resp, body := doJSON(t, srv, "POST", pluginsPath,
+		`{"grantsAccepted":true,"package":`+pkg+`}`, admin)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("a package with a bad kind name = %d, want 400: %v", resp.StatusCode, body)
+	}
+	var n int
+	if err := pool.QueryRow(context.Background(),
+		`select count(*) from plugin_installs where name = $1`, name).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("the refused package was still installed (%d rows)", n)
 	}
 }
 

@@ -41,12 +41,13 @@ import (
 // pluginPackage is the file an operator uploads for the code tier. It is
 // untrusted input that *requests* capabilities; nothing in it grants anything.
 type pluginPackage struct {
-	Manifest     int            `json:"manifest"`
-	Kind         string         `json:"kind"`
-	Name         string         `json:"name"`
-	Version      string         `json:"version"`
-	Capabilities []pluginCapReq `json:"capabilities"`
-	QuotaBytes   int64          `json:"quotaBytes"`
+	Manifest     int              `json:"manifest"`
+	Kind         string           `json:"kind"`
+	Name         string           `json:"name"`
+	Version      string           `json:"version"`
+	Capabilities []pluginCapReq   `json:"capabilities"`
+	QuotaBytes   int64            `json:"quotaBytes"`
+	Kinds        []plugin.KindDef `json:"kinds"`
 }
 
 type pluginCapReq struct {
@@ -299,7 +300,7 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 	if !found {
 		in, err := adm.Install(r.Context(), plugin.InstallRequest{
 			Name: pkg.Name, Version: pkg.Version, Grants: grants,
-			QuotaBytes: pkg.quota(),
+			QuotaBytes: pkg.quota(), Kinds: pkg.Kinds,
 		})
 		if err != nil {
 			a.pluginError(w, err, "could not install that plugin")
@@ -551,10 +552,11 @@ func (a *app) readPackage(w http.ResponseWriter, r *http.Request) (pluginPackage
 }
 
 // pluginError keeps a refusal the plugin package already worded — an
-// unenforceable allowlist entry, secrets with no key — as a 400 the operator
-// can act on, rather than flattening it into "something went wrong".
+// unenforceable allowlist entry, secrets with no key, a session kind the host
+// will not accept — as a 400 the operator can act on, rather than flattening
+// it into "something went wrong".
 func (a *app) pluginError(w http.ResponseWriter, err error, fallback string) {
-	if errors.Is(err, plugin.ErrNoSecretKey) || errors.Is(err, plugin.ErrAllowPattern) {
+	if errors.Is(err, plugin.ErrNoSecretKey) || errors.Is(err, plugin.ErrAllowPattern) || errors.Is(err, plugin.ErrBadKindDef) {
 		http.Error(w, `{"error":`+jsonString(err.Error())+`}`, http.StatusBadRequest)
 		return
 	}

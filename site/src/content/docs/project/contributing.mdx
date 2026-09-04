@@ -107,6 +107,10 @@ the plugin onto it. Folding it in quietly is exactly what the check exists to
 prevent, because a plugin system that keeps needing core commits is a plugin
 system that does not work yet.
 
+The kinds a plugin provides are declared on the uploaded package as `kinds`
+(`kind`, `display`, `actions`). The install route persists them; a name or verb
+the host will not accept is 400 and writes nothing.
+
 ## Screenshots
 
 The marketing and README screenshots live in `site/src/assets/` and `docs/`, and

@@ -6,7 +6,7 @@ description: What a Parley plugin can and cannot do, and the mechanism behind ea
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/plugin/host.go", "internal/plugin/hostfn.go", "internal/plugin/fetch.go", "internal/plugin/breaker.go", "internal/db/migrations/0031_plugins.sql", "internal/db/migrations/0032_plugin_pending_upgrade.sql", "scripts/guard-mutation.sh"]} />
+<VerifiedStamp version="unreleased" source={["internal/plugin/host.go", "internal/plugin/hostfn.go", "internal/plugin/fetch.go", "internal/plugin/breaker.go", "internal/api/plugins.go", "internal/db/migrations/0031_plugins.sql", "internal/db/migrations/0032_plugin_pending_upgrade.sql", "scripts/guard-mutation.sh"]} />
 
 A Parley plugin is a WebAssembly module run in-process by
 [Extism](https://extism.org/) over [wazero](https://wazero.io/). Both are pure
@@ -248,11 +248,11 @@ re-themes with the app without being able to read the app.
 
 ## A plugin that owns a ceremony
 
-A plugin can provide a whole session kind: its manifest declares the ceremony
-and its actions, the kind is registered when the install is enabled and
-unregistered when it is disabled or uninstalled, and rooms of it are created,
-dispatched and closed by exactly the paths a core kind uses. That is a wider
-surface than a panel, and it is bounded in five places.
+A plugin can provide a whole session kind: the uploaded package declares the
+ceremony in `kinds` (`kind`, `display`, `actions`), the kind is registered when
+the install is enabled and unregistered when it is disabled or uninstalled, and
+rooms of it are created, dispatched and closed by exactly the paths a core kind
+uses. That is a wider surface than a panel, and it is bounded in five places.
 
 ### A ceremony belongs to the org that installed it
 
