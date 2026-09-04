@@ -186,6 +186,24 @@ jobs:
       - name: Check pinned image digests still resolve
         run: scripts/check-image-pins.sh .github/workflows/*.yml
 
+  # A ceremony delivered as a plugin is the plugin system's whole claim, and it
+  # is the one claim nobody was checking. This leg checks it: a pull request that
+  # touches plugins/ may not also change the host. It runs on every pull request
+  # rather than on the one that first needed it, because a guarantee that held
+  # once is not a guarantee.
+  core-untouched:
+    name: core untouched by plugins
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Check the changes being merged
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        run: scripts/check-core-untouched.sh "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}" "${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}"
+      - name: Test the core-untouched checker
+        run: scripts/tests/check-core-untouched-test.sh
+
   docker:
     name: docker build and smoke
     runs-on: ubuntu-24.04
@@ -857,7 +875,7 @@ jobs:
   gate:
     name: required / gate
     if: always()
-    needs: [go, web, site, dependency-review, dco, docker, container-scan, chart, buildx-arg-passthrough, guard-mutation]
+    needs: [go, web, site, dependency-review, dco, docker, container-scan, chart, buildx-arg-passthrough, guard-mutation, core-untouched]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every check
@@ -872,3 +890,4 @@ jobs:
           test "${{ needs.buildx-arg-passthrough.result }}" = success
           test "${{ needs.chart.result }}" = success
           test "${{ needs.guard-mutation.result }}" = success
+          test "${{ needs.core-untouched.result }}" = success
