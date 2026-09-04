@@ -92,6 +92,21 @@ nothing else — no router surgery, no constraint change, no frontend ternaries.
    glyph tests pick it up automatically and will hold it to the same legibility
    floor as the existing ones.
 
+## Ceremonies delivered as plugins
+
+A plugin can provide a whole ceremony rather than a panel, and the point of that
+is that it works against the extension points as they are. `scripts/check-core-untouched.sh`
+holds the line: a pull request that touches `plugins/` may not also change
+`internal/`, `cmd/` or `web/src`. It runs as the `core untouched by plugins` CI
+leg on every pull request.
+
+Core work on its own is unaffected — the rule only fires on the combination. If a
+ceremony plugin genuinely needs the host to change, that is a finding about the
+extension points: land the core change as its own pull request first, then rebase
+the plugin onto it. Folding it in quietly is exactly what the check exists to
+prevent, because a plugin system that keeps needing core commits is a plugin
+system that does not work yet.
+
 ## Screenshots
 
 The marketing and README screenshots live in `site/src/assets/` and `docs/`, and

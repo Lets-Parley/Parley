@@ -484,3 +484,15 @@ issue first. For anything large, open an issue before writing code.
     the same envelope the browser is sent, so the kind's own `StateFunc` is the
     only thing deciding what a plugin may see; never build a plugin's view of a
     room out of store rows.
+
+42. **A ceremony delivered as a plugin may not bring a core commit with it.**
+    `scripts/check-core-untouched.sh` is a CI leg: a pull request that touches
+    `plugins/` fails if it also touches `internal/`, `cmd/` or `web/src`. The
+    rule is one-directional — ordinary core work is untouched by it — because
+    what it is testing is the claim the plugin system rests on, that the
+    extension points are enough. If a plugin needs the host to change, that is a
+    finding about the extension points and lands as its own pull request first;
+    it is never folded into the plugin's. Do not widen the allowed set to get a
+    branch green. The frontend is in the set on purpose: a ceremony that can only
+    be rendered by editing `web/src/lib/kinds.ts` has been merged into Parley,
+    not extended onto it.
