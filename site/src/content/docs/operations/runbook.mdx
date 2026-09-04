@@ -141,3 +141,32 @@ where pid in (select pid from pg_locks where locktype = 'advisory');
 Parley releases the lock on every exit path by closing the connection that holds
 it, so a survivor here is a backend the database never reaped. See
 [Scaling and limits](/operations/scaling-and-limits/).
+
+### A revocation during a listener reconnect
+
+A token revocation (logout, session kick) notifies other replicas over
+`pg_notify`, and Postgres does not queue a notification for a session that
+is not currently listening. If a replica's session-notification listener is
+mid-reconnect — see [Observability](/operations/observability/) for the log
+line — when the revocation fires, that replica simply never sees it. This is
+expected, not a bug to chase: the affected socket stays connected until its
+next revalidate poll, at most `hub`'s `maxRevalidate` (30 seconds), which
+closes it as if the notification had arrived. If a revoked session outlives 30
+seconds on some replica, look for a listener stuck reconnecting on that
+replica rather than a broken revocation path.
+
+### A migration is half-applied
+
+Each migration file's DDL and its row in the `migrations` table commit
+together in one transaction (`internal/db/migrate.go`), so a pod killed
+mid-migration rolls that file back entirely — the next pod to take the
+advisory lock finds it still unapplied and reruns it cleanly, rather than
+finding a half-built schema. `internal/db/migrations` deliberately avoids
+`create index concurrently` for exactly this reason: it cannot run inside a
+transaction, so a migration that needed it would fall outside this
+guarantee (see the comment in `0024_org_members_user_idx.sql`). What *can*
+leave the fleet stuck is a migration that fails partway through on one
+replica and never rolls forward — check `select version, name, applied_at
+from migrations order by version desc limit 5` against the actual schema
+before assuming a stalled boot is anything other than the advisory lock
+being held by a slow, still-running migration on another pod.
