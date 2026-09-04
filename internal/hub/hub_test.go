@@ -1077,3 +1077,78 @@ func TestDisconnectSessionMemberTruncatesTheReason(t *testing.T) {
 	// untruncated reason would arrive as no close frame at all.
 	expectRemoved(t, ws, "over-long reason", strings.Repeat("あ", 41))
 }
+
+// A panic in a socket's write pump must not take the process with it, and must
+// cost only that socket: every release before v0.2.2 died of exactly this.
+func TestPanicInAWritePumpClosesOnlyThatSocket(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	doomed := attachTestConn(t, h, "panic-room")
+	defer doomed.Close()
+	survivor := attachTestConn(t, h, "panic-room")
+	defer survivor.Close()
+
+	var conn *Conn
+	for c := range h.rooms["panic-room"] {
+		conn = c
+		break
+	}
+	if conn == nil {
+		t.Fatal("attached connection not found")
+	}
+	conn.writeMessage = func(messageType int, data []byte) error {
+		if messageType == websocket.TextMessage {
+			panic("write pump exploded")
+		}
+		return nil
+	}
+
+	h.Broadcast("panic-room", []byte("state"))
+
+	// The other socket in the same room still gets its frames, which is only
+	// observable if the process is still running at all.
+	for _, ws := range []*websocket.Conn{doomed, survivor} {
+		ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	}
+	h.Broadcast("panic-room", []byte("after-panic"))
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		_, msg, err := survivor.ReadMessage()
+		if err != nil {
+			_, msg, err = doomed.ReadMessage()
+			if err != nil {
+				t.Fatalf("neither socket in the room survived the panic: %v", err)
+			}
+		}
+		if string(msg) == "after-panic" {
+			return
+		}
+	}
+	t.Fatal("no frame arrived after a write pump panicked")
+}
+
+// Every hub callback into application code runs through track, so that is where
+// a panicking callback has to be contained.
+func TestPanicInATrackedCallbackKeepsTheHubServing(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	ws := attachTestConn(t, h, "tracked-room")
+	defer ws.Close()
+
+	done := make(chan struct{})
+	h.track(func() {
+		defer close(done)
+		panic("callback exploded")
+	})
+	<-done
+
+	h.Broadcast("tracked-room", []byte("still-live"))
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, msg, err := ws.ReadMessage()
+	if err != nil {
+		t.Fatalf("read after a callback panicked: %v", err)
+	}
+	if string(msg) != "still-live" {
+		t.Fatalf("got %q, want %q", msg, "still-live")
+	}
+}

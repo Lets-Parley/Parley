@@ -5,11 +5,14 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/lets-parley/parley/internal/recovery"
 )
 
 // notifyChannel carries session ids between replicas. The payload is only an id
@@ -179,9 +182,19 @@ func (a *app) broadcastKick(sessionID, userID string) {
 // to one backend session, so a pooled connection handed back out would take the
 // subscription with it — and holding one parked would deadlock pool.Close.
 func (a *app) listen(ctx context.Context) {
+	a.listenLoop(ctx, a.listenOnce)
+}
+
+// errListenerPanic is what a recovered panic looks like to the reconnect loop:
+// a dropped listener, reconnected on the usual backoff.
+var errListenerPanic = errors.New("the session notification listener panicked")
+
+// listenLoop is listen with its one subscription pass injected, so a test can
+// make the pass panic without a database.
+func (a *app) listenLoop(ctx context.Context, once func(context.Context) error) {
 	backoff := time.Second
 	for ctx.Err() == nil {
-		err := a.listenOnce(ctx)
+		err := guardedListen(ctx, once)
 		if err != nil && ctx.Err() == nil {
 			a.listenerUp.Store(false)
 			slog.Error("session notification listener dropped, reconnecting",
@@ -198,6 +211,19 @@ func (a *app) listen(ctx context.Context) {
 		}
 		backoff = time.Second
 	}
+}
+
+// guardedListen contains a panic in the subscription pass. Without it the
+// listener is a bare goroutine, so a malformed payload from another replica
+// would end this process rather than this connection.
+func guardedListen(ctx context.Context, once func(context.Context) error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			recovery.Log(r, "session notification listener")
+			err = errListenerPanic
+		}
+	}()
+	return once(ctx)
 }
 
 func (a *app) listenOnce(ctx context.Context) error {

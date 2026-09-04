@@ -99,6 +99,44 @@ The send-buffer rule is the important one. One laptop on bad hotel wifi must
 never be able to freeze everyone else's board, so a connection that cannot keep
 up is dropped and told to reconnect.
 
+## Panics in background goroutines
+
+An HTTP handler that panics returns 500 and nothing else happens: `chi`'s
+recoverer catches it. That covers requests only, and most of what a replica does
+is not a request. Every long-lived goroutine therefore recovers its own panics.
+
+<SpecTable caption="What recovers, and what a recovered panic costs" rows={[
+  { name: "Socket write pump", value: "one socket", note: "The connection is closed and detached; every other socket in the room is untouched" },
+  { name: "Socket read pump", value: "one socket", note: "Same — the connection detaches on the way out" },
+  { name: "Hub callbacks", value: "one callback", note: "Validation, membership, presence and join callbacks all run here; the hub keeps serving" },
+  { name: "Fanout listener", value: "one subscription", note: "Treated as a dropped listener: /readyz goes 503 and it reconnects on the usual backoff" },
+  { name: "Presence sweeper", value: "one pass", note: "The next tick sweeps again" },
+  { name: "Plugin retention, outbox and job workers", value: "one pass", note: "Logged like any failed pass and retried on the next tick" },
+]} />
+
+A recovered panic is logged at `error` with the goroutine that raised it and a
+full stack, so it looks like this (pretty-printed here; the real line is one
+JSON object):
+
+```json
+{
+  "time": "2026-01-01T12:00:00Z",
+  "level": "ERROR",
+  "msg": "recovered a panic in a background goroutine",
+  "goroutine": "hub write pump",
+  "panic": "runtime error: invalid memory address or nil pointer dereference",
+  "stack": "goroutine 42 [running]:\nruntime/debug.Stack()\n...",
+  "session": "01J...",
+  "user": "01J..."
+}
+```
+
+:::caution[This is a crash that did not happen, not a handled condition]
+`recovered a panic in a background goroutine` always means a bug. The replica
+stays up so the rest of the rooms keep working, but the line deserves an issue
+with its stack attached. Alert on it rather than filtering it out.
+:::
+
 ## Health endpoints
 
 <SpecTable rows={[

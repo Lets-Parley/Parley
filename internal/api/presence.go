@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lets-parley/parley/internal/hub"
+	"github.com/lets-parley/parley/internal/recovery"
 )
 
 // presenceSweepInterval is how often stale rows are cleared. Half the freshness
@@ -31,16 +32,31 @@ func replicaID() string {
 // closing their sockets. A pod that is OOMKilled or SIGKILLed never runs the
 // disconnect path, so without this its people stay in the room forever.
 func (a *app) sweepPresence(ctx context.Context) {
-	ticker := time.NewTicker(presenceSweepInterval)
+	a.sweepLoop(ctx, presenceSweepInterval, func(ctx context.Context) error {
+		return a.presence.Sweep(ctx)
+	})
+}
+
+// sweepLoop is sweepPresence with its pass injected, so a test can make the
+// pass panic without a database.
+func (a *app) sweepLoop(ctx context.Context, every time.Duration, sweep func(context.Context) error) {
+	ticker := time.NewTicker(every)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := a.presence.Sweep(ctx); err != nil && ctx.Err() == nil {
-				slog.Error("could not sweep stale presence rows", "error", err)
-			}
+			sweepOnce(ctx, sweep)
 		}
+	}
+}
+
+// sweepOnce contains a panicking pass. Without this the sweeper is a bare
+// goroutine, so one bad row would end the process rather than one pass.
+func sweepOnce(ctx context.Context, sweep func(context.Context) error) {
+	defer recovery.Handle("presence sweeper")
+	if err := sweep(ctx); err != nil && ctx.Err() == nil {
+		slog.Error("could not sweep stale presence rows", "error", err)
 	}
 }

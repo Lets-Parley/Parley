@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/lets-parley/parley/internal/recovery"
 )
 
 // Defaults shared by the outbox and the job queue.
@@ -220,7 +222,7 @@ func runLoop(ctx context.Context, interval time.Duration, log *slog.Logger, name
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		if err := step(ctx); err != nil && ctx.Err() == nil && log != nil {
+		if err := guardedStep(ctx, name, step); err != nil && ctx.Err() == nil && log != nil {
 			log.Error(name+" failed; will retry on the next tick", "error", err)
 		}
 		select {
@@ -229,6 +231,20 @@ func runLoop(ctx context.Context, interval time.Duration, log *slog.Logger, name
 		case <-ticker.C:
 		}
 	}
+}
+
+// guardedStep contains a panicking pass. runLoop is the retention pass and both
+// the outbox and job workers, each a bare goroutine: without this, one panic in
+// any of them ends the process instead of the pass, and the next tick retries
+// exactly as it does after an error.
+func guardedStep(ctx context.Context, name string, step func(context.Context) error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			recovery.Log(r, name)
+			err = fmt.Errorf("%s panicked: %v", name, r)
+		}
+	}()
+	return step(ctx)
 }
 
 // warnVanished says so when the row a worker was working on is no longer

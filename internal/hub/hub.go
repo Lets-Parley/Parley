@@ -10,6 +10,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/lets-parley/parley/internal/recovery"
 )
 
 // CloseRemovedFromSession is the close code a socket gets when the room's
@@ -486,6 +488,11 @@ func (h *Hub) track(fn func()) {
 	h.bgMu.Unlock()
 	go func() {
 		defer h.bg.Done()
+		// Every hub callback into application code — validation, membership,
+		// presence, join — runs through here, so this is the one place a
+		// panicking callback has to be contained. Losing the callback is the
+		// whole cost; the hub and every other socket carry on.
+		defer recovery.Handle("hub callback")
 		fn()
 	}()
 }
@@ -802,6 +809,10 @@ func (h *Hub) detach(c *Conn) {
 }
 
 func (h *Hub) writer(c *Conn) {
+	// First, so it runs last: the deferred cleanup below still runs while
+	// panicking, and this recovers once the socket is closed and detached.
+	// One socket's write pump dying costs that socket and nothing else.
+	defer recovery.Handle("hub write pump", "session", c.SessionID, "user", c.UserID)
 	ticker := time.NewTicker(pingInterval)
 	defer ticker.Stop()
 	defer close(c.writerDone)
@@ -886,6 +897,7 @@ func (c *Conn) markRemoved() {
 }
 
 func (h *Hub) reader(c *Conn) {
+	defer recovery.Handle("hub read pump", "session", c.SessionID, "user", c.UserID)
 	defer h.detach(c)
 	c.ws.SetReadLimit(4096)
 	c.ws.SetReadDeadline(time.Now().Add(pongDeadline))
