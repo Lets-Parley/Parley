@@ -29,11 +29,16 @@ spec:
   podSelector:
     matchLabels:
       {{- include "parley.selectorLabels" . | nindent 6 }}
-  # Ingress alone. Parley makes outbound connections to Postgres, to the OIDC
-  # issuer and to DNS, and an egress policy written blind here would break all
-  # three.
+  # Ingress alone by default. Parley makes outbound connections to Postgres, to
+  # the OIDC issuer and to DNS, and an egress policy written blind here would
+  # break all three — networkPolicy.egress.enabled opts into a policy scoped
+  # to exactly those peers, built from values rather than guessed.
+  {{- $egressOn := eq (include "parley.isTrue" .Values.networkPolicy.egress.enabled) "true" }}
   policyTypes:
     - Ingress
+    {{- if $egressOn }}
+    - Egress
+    {{- end }}
   ingress:
     # namespaceSelector and podSelector in one `from` element are ANDed: the
     # peer must be a matching pod *in* that namespace. Two list elements would
@@ -51,4 +56,38 @@ spec:
     {{- with .Values.networkPolicy.extraIngress }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+  {{- if $egressOn }}
+  {{- if not .Values.networkPolicy.egress.postgres.cidr }}
+  {{- fail "networkPolicy.egress.enabled is true but networkPolicy.egress.postgres.cidr is empty. Parley cannot reach its own database without an egress rule for it, so the chart refuses rather than ship a policy that locks the pod out of Postgres. Set networkPolicy.egress.postgres.cidr and .port." }}
+  {{- end }}
+  egress:
+    # Nothing on Kubernetes resolves without this. kube-dns/CoreDNS runs in
+    # kube-system on every distribution the chart supports.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: "kube-system"
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.egress.postgres.cidr | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.egress.postgres.port }}
+    {{- if .Values.networkPolicy.egress.idp.cidr }}
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.egress.idp.cidr | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.egress.idp.port }}
+    {{- end }}
+    {{- with .Values.networkPolicy.egress.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
 {{- end }}

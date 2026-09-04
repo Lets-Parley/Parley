@@ -195,6 +195,10 @@ set:
 - **`networkPolicy.enabled`** — off by default. Turn it on whenever proxy trust
   is on; it is what makes a pod-CIDR `trustedProxyCIDRs` safe. See
   [below](#the-pod-cidr-is-a-client-reachable-network).
+- **`networkPolicy.egress.enabled`** — off by default, ingress-only being the
+  norm. For a cluster that requires default-deny egress, this adds egress
+  rules for exactly the three peers Parley uses: DNS, Postgres, and the IdP.
+  See [below](#egress-is-off-by-default-too-for-the-same-reason).
 - **`auth.mode`** (`open` or `oidc`) and `auth.oidc.*`. With `oidc` you must set
   either `auth.oidc.existingSecret` (confidential client; the secret is read
   from a Secret you create, never from values) or `auth.oidc.publicClient=true`
@@ -372,6 +376,8 @@ them:
 - **Ingress TLS under an `http://` base URL.**
 - **A malformed `extraEnv`** — a map instead of a list, or an entry with no
   `name`. See [above](#setting-variables-the-chart-has-no-knob-for).
+- **`networkPolicy.egress.enabled` with no `networkPolicy.egress.postgres.cidr`**
+  — see [above](#egress-is-off-by-default-too-for-the-same-reason).
 
 The chart also sets `automountServiceAccountToken: false` on both the
 ServiceAccount and the pod: Parley makes no Kubernetes API calls, so the token
@@ -558,3 +564,42 @@ blessing. Set:
 - **ingress-nginx** — `proxy-real-ip-cidr` in the ConfigMap, same list. Leave
   `use-forwarded-headers` however you like; Parley reads the chain right-to-left
   and an appended hop is not a problem.
+
+### Egress is off by default too, for the same reason
+
+The NetworkPolicy above is ingress-only. Parley makes exactly three kinds of
+outbound connection — DNS, Postgres, and (with `auth.mode: oidc`) the identity
+provider — and a default-deny egress policy written without knowing all three
+breaks the app: DNS failures look like a hung request, and a blocked Postgres
+or IdP connection looks like an outage.
+
+A cluster that requires default-deny egress (a CUI boundary, an air-gapped
+environment) still needs a real policy, so `networkPolicy.egress` builds one
+from exactly the peers Parley talks to, rather than asking you to hand-write
+one and get DNS wrong:
+
+```sh
+helm upgrade parley oci://ghcr.io/lets-parley/charts/parley --reuse-values \
+    --set networkPolicy.enabled=true \
+    --set networkPolicy.egress.enabled=true \
+    --set networkPolicy.egress.postgres.cidr=10.0.1.5/32 \
+    --set networkPolicy.egress.postgres.port=5432 \
+    --set networkPolicy.egress.idp.cidr=10.0.2.5/32 \
+    --set networkPolicy.egress.idp.port=443
+```
+
+DNS to `kube-system` (UDP and TCP, port 53) is always included once egress is
+enabled — nothing else on the cluster resolves. The Postgres peer is
+**required**: the chart refuses to render `networkPolicy.egress.enabled: true`
+with no `networkPolicy.egress.postgres.cidr`, because a pod that cannot reach
+its own database is worse than no policy at all. The IdP peer is optional —
+leave it unset when `auth.mode` is not `oidc`, or before you know the
+provider's address — and is simply left out of the rendered policy rather than
+rendered as an empty, match-nothing rule. `networkPolicy.egress.extraEgress`
+takes any further `NetworkPolicyEgressRule` verbatim, the same escape hatch as
+`extraIngress`.
+
+Off by default for the same two reasons as the ingress half: a CNI that
+ignores NetworkPolicies would give a false sense of safety, and CI already
+asserts the render and the refusal above — see
+[below](#it-refuses-to-render-a-deployment-that-cannot-work).

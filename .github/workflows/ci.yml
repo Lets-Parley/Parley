@@ -860,6 +860,85 @@ jobs:
           # differ. Everything above is a security or stay-up setting where they
           # are not.
 
+      # Parley knows exactly three egress peers: DNS, Postgres and the IdP. An
+      # egress policy written blind breaks all three, so this is opt-in and
+      # only renders rules the operator actually gave values for.
+      - name: renders egress only for the peers given, with DNS always present
+        run: |
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set networkPolicy.enabled=true \
+            --set networkPolicy.egress.enabled=true \
+            --set networkPolicy.egress.postgres.cidr=10.0.1.5/32 \
+            --set networkPolicy.egress.postgres.port=5432 \
+            --set networkPolicy.egress.idp.cidr=10.0.2.5/32 \
+            --set networkPolicy.egress.idp.port=443 > /tmp/egress.yaml
+          grep -A2 'policyTypes:' /tmp/egress.yaml | grep -q -- '- Egress' \
+            || { echo "egress.enabled=true did not add Egress to policyTypes"; exit 1; }
+          grep -q 'kubernetes.io/metadata.name: "kube-system"' /tmp/egress.yaml \
+            || { echo "no DNS egress rule to kube-system"; exit 1; }
+          grep -q 'port: 53' /tmp/egress.yaml
+          grep -q 'protocol: UDP' /tmp/egress.yaml
+          grep -q 'cidr: "10.0.1.5/32"' /tmp/egress.yaml \
+            || { echo "no Postgres egress peer"; exit 1; }
+          grep -q 'port: 5432' /tmp/egress.yaml
+          grep -q 'cidr: "10.0.2.5/32"' /tmp/egress.yaml \
+            || { echo "no IdP egress peer"; exit 1; }
+          grep -q 'port: 443' /tmp/egress.yaml
+          # With no IdP peer given, that rule must not render at all — an
+          # empty ipBlock cidr would be worse than no rule.
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set networkPolicy.enabled=true \
+            --set networkPolicy.egress.enabled=true \
+            --set networkPolicy.egress.postgres.cidr=10.0.1.5/32 \
+            --set networkPolicy.egress.postgres.port=5432 > /tmp/egress-no-idp.yaml
+          ! grep -q 'cidr: "10.0.2.5/32"' /tmp/egress-no-idp.yaml
+      - name: refuses egress with no Postgres peer
+        run: |
+          # Every install talks to Postgres. Rendering a default-deny egress
+          # policy with no Postgres rule would lock the pod out of its own
+          # database, so the chart refuses outright instead of shipping a
+          # policy that CrashLoopBackOffs the moment it applies.
+          ! helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set networkPolicy.enabled=true \
+            --set networkPolicy.egress.enabled=true 2>/tmp/egress-no-pg.err
+          grep -q 'egress.postgres' /tmp/egress-no-pg.err \
+            || { echo "refused for the wrong reason: $(cat /tmp/egress-no-pg.err)"; exit 1; }
+      - name: writes no egress rules unless egress is enabled
+        run: |
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set networkPolicy.enabled=true > /tmp/no-egress.yaml
+          ! grep -A2 'policyTypes:' /tmp/no-egress.yaml | grep -q -- '- Egress' \
+            || { echo "Egress in policyTypes with networkPolicy.egress.enabled=false"; exit 1; }
+      - name: warns in NOTES when egress is off
+        run: |
+          rm -rf /tmp/egress-notes-chart
+          cp -r deploy/charts/parley /tmp/egress-notes-chart
+          mv /tmp/egress-notes-chart/templates/NOTES.txt /tmp/egress-notes-chart/notes-source.txt
+          printf '%s\n' \
+            'apiVersion: v1' \
+            'kind: ConfigMap' \
+            'metadata:' \
+            '  name: notes-probe' \
+            'data:' \
+            '  notes: |' \
+            '{{ tpl (.Files.Get "notes-source.txt") . | indent 4 }}' \
+            > /tmp/egress-notes-chart/templates/notes-probe.yaml
+          helm template parley /tmp/egress-notes-chart \
+            --show-only templates/notes-probe.yaml \
+            --set database.existingSecret=x --set networkPolicy.enabled=true \
+            > /tmp/egress-notes-off.txt
+          grep -qi 'egress' /tmp/egress-notes-off.txt \
+            || { echo "no egress warning in NOTES when it is off"; exit 1; }
+          helm template parley /tmp/egress-notes-chart \
+            --show-only templates/notes-probe.yaml \
+            --set database.existingSecret=x --set networkPolicy.enabled=true \
+            --set networkPolicy.egress.enabled=true \
+            --set networkPolicy.egress.postgres.cidr=10.0.1.5/32 \
+            --set networkPolicy.egress.postgres.port=5432 \
+            > /tmp/egress-notes-on.txt
+          ! grep -qi 'no egress' /tmp/egress-notes-on.txt \
+            || { echo "still warned about missing egress once it is enabled"; exit 1; }
+
   # Advisory, and deliberately absent from `gate` below: a screenshot that has
   # fallen behind the UI is never a reason to block a code change. The shipped
   # set once trailed four separate features because nothing tied site/src/assets

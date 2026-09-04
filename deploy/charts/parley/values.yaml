@@ -249,6 +249,30 @@ networkPolicy:
   # defeats the whole default-deny policy above. Always scope each entry with
   # a `from` of namespaceSelector/podSelector/ipBlock peers.
   extraIngress: []
+  # Off by default, and only usable once networkPolicy.enabled is true: a
+  # default-deny egress policy written blind breaks DNS, Postgres and the
+  # identity provider, so this only ever renders rules for the three peers
+  # Parley actually talks to, each named explicitly from values.
+  #
+  # DNS to kube-system is always included once egress is enabled — nothing
+  # else resolves. Postgres is required: the chart refuses to render egress
+  # with no Postgres peer, because a pod that cannot reach its own database
+  # is worse than no policy at all. The IdP peer is optional — password- or
+  # session-only deployments make no outbound OIDC calls — and is simply
+  # left out of the policy when unset.
+  egress:
+    enabled: false
+    postgres:
+      # IP/CIDR of the Postgres server, e.g. a managed database's endpoint.
+      cidr: ""
+      port: 5432
+    idp:
+      # IP/CIDR of the OIDC issuer, when auth.mode is oidc.
+      cidr: ""
+      port: 443
+    # Appended verbatim to spec.egress, for anything else Parley legitimately
+    # needs to reach outbound. Each entry is a full NetworkPolicyEgressRule.
+    extraEgress: []
 
 # LOG_LEVEL — one of debug, info, warn, error. Anything else stops the process.
 logLevel: info
