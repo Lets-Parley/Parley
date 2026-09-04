@@ -217,12 +217,62 @@ Add the two lines above to the `app` service in the project's
 
 ## Offline provenance verification
 
-**Coming.** A follow-up phase in this hardening epic adds an offline-verifiable
-Sigstore bundle to each release (asset name
-`parley-vX.Y.Z.sigstore.json`) and documents `gh attestation verify --bundle`
-against it, so verification will no longer require a live call to GitHub's
-transparency log. Until that lands, verifying an image's provenance ([Supply
-chain](/security/supply-chain/)) needs a network path to GitHub.
+Every release attaches `parley-vX.Y.Z.sigstore.json`, from a job holding no
+registry write. It carries the same signed provenance statement as the GitHub
+build-provenance attestation ([Supply chain](/security/supply-chain/)), in a
+form `gh attestation verify --bundle` can check with no live call to GitHub's
+API or transparency log.
+
+Save the bundle from the release and a trusted root while still online, then
+carry both across the air gap:
+
+```sh
+gh attestation trusted-root > trusted_root.jsonl   # do this once, online
+```
+
+Offline, verify the image you mirrored in by digest — not by tag, since
+resolving a tag is itself a registry call:
+
+```sh
+digest=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+gh attestation verify \
+  "oci://ghcr.io/lets-parley/parley@$digest" \
+  --owner lets-parley \
+  --bundle parley-vX.Y.Z.sigstore.json \
+  --custom-trusted-root trusted_root.jsonl
+```
+
+This was run against the real `v0.10.0` release (`gh attestation download
+oci://ghcr.io/lets-parley/parley:0.10.0 --owner Lets-Parley` to fetch that
+release's bundle) and printed:
+
+```
+Loaded digest sha256:fa4e330933f55903e3d610efe0136cd3c98ad95ec0bc9d960eb59f939f60df35 for oci://ghcr.io/lets-parley/parley@sha256:fa4e330933f55903e3d610efe0136cd3c98ad95ec0bc9d960eb59f939f60df35
+Loaded 1 attestations from sha256:fa4e330933f55903e3d610efe0136cd3c98ad95ec0bc9d960eb59f939f60df35.jsonl
+
+The following policy criteria will be enforced:
+- Predicate type must match:................ https://slsa.dev/provenance/v1
+- Source Repository Owner URI must match:... https://github.com/Lets-Parley
+- Subject Alternative Name must match regex: (?i)^https://github\.com/Lets-Parley/
+- OIDC Issuer must match:................... https://token.actions.githubusercontent.com
+
+✓ Verification succeeded!
+
+The following 1 attestation matched the policy criteria
+
+- Attestation #1
+  - Build repo:..... Lets-Parley/Parley
+  - Build workflow:. .github/workflows/release.yml@refs/tags/v0.10.0
+  - Signer repo:.... Lets-Parley/Parley
+  - Signer workflow: .github/workflows/release.yml@refs/tags/v0.10.0
+```
+
+That command downloaded an existing image's attestation rather than a release
+asset, since the workflow that attaches the bundle as a release asset shipped
+after v0.10.0 was cut — the release-asset form carries the identical bundle,
+just fetched from the release page instead of `gh attestation download`. The
+first release published after this change lands is the first to carry
+`parley-vX.Y.Z.sigstore.json` as a release asset.
 
 ## Building the docs site offline
 

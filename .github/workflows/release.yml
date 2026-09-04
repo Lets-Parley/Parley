@@ -159,11 +159,29 @@ jobs:
             "$IMAGE@$actual"
           echo "digest=$actual" >> "$GITHUB_OUTPUT"
       - name: Attest published digest
+        id: attest
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ needs.validate.outputs.image }}
           subject-digest: ${{ steps.publish.outputs.digest }}
           push-to-registry: true
+      # The Sigstore bundle attest-build-provenance writes locally is the same
+      # signed statement pushed to the registry above, just in a form
+      # `gh attestation verify --bundle` can check with no call to GitHub's
+      # transparency log. Staged here as a plain artifact, not a release asset:
+      # this job holds packages:write for the registry push, and the job that
+      # attaches release assets deliberately never holds that scope.
+      - name: Stage the Sigstore bundle for offline verification
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: cp "$BUNDLE_PATH" "/tmp/parley-$TAG.sigstore.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-sigstore-bundle-${{ needs.validate.outputs.tag }}
+          path: /tmp/parley-${{ needs.validate.outputs.tag }}.sigstore.json
+          if-no-files-found: error
+          retention-days: 7
 
   chart:
     needs: [validate, publish]
@@ -327,6 +345,31 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --clobber
 
+  # Holds contents:write to attach the release asset and nothing else — no
+  # packages:write, no registry credential — the same separation the sbom /
+  # sbom-assets pair keeps. The bundle was already produced and pushed to the
+  # registry by the publish job above; this job only republishes it as a
+  # release asset an operator can save before going offline.
+  attestation-assets:
+    needs: [validate, publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-sigstore-bundle-${{ needs.validate.outputs.tag }}
+          path: bundle
+      - name: Attach the Sigstore bundle
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          gh release upload "$TAG" \
+            "bundle/parley-$TAG.sigstore.json" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
   release-assets:
     needs: [validate, publish, chart]
     runs-on: ubuntu-24.04
@@ -372,7 +415,7 @@ jobs:
   # receipt that only repeats `needs` would confirm the workflow's opinion of
   # itself, which is the failure mode being fixed.
   publish-receipt:
-    needs: [validate, publish, chart, release-assets]
+    needs: [validate, publish, chart, release-assets, attestation-assets]
     runs-on: ubuntu-24.04
     # No registry credential, deliberately. The sbom jobs above split reading
     # the registry from writing to the release precisely so no single job holds
@@ -450,8 +493,9 @@ jobs:
             printf '**Artifacts published and resolvable from the registry:**\n\n'
             printf -- '- image `ghcr.io/%s/parley:%s` @ `%s`\n' \
               "$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')" "$VERSION" "$DIGEST"
-            printf -- '- chart `oci://ghcr.io/%s/charts/parley` version `%s`\n\n' \
+            printf -- '- chart `oci://ghcr.io/%s/charts/parley` version `%s`\n' \
               "$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')" "$VERSION"
+            printf -- '- offline-verifiable Sigstore bundle `parley-%s.sigstore.json` attached to this release\n\n' "$TAG"
             printf 'Checked by resolving both from the registry, not by trusting the jobs that made them. If this block is absent from a release, do not deploy it without checking by hand — a red run means the artifacts may be missing, incomplete, or fine, and the badge alone does not say which.\n'
           } > /tmp/body.md
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file /tmp/body.md
