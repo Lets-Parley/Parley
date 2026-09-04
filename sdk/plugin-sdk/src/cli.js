@@ -102,7 +102,7 @@ function verify(root) {
 	const allowed = new Set(["panel", "room", "toolbar", "nav", "export-menu"]);
 	for (const slot of pkg.slots || []) {
 		if (!allowed.has(slot)) {
-			throw new Error("a UI slot must be panel, room, toolbar, nav or export-menu");
+			throw new Error(`${slot} is not a UI slot; must be panel, room, toolbar, nav or export-menu`);
 		}
 	}
   const names = readdirSync(root);

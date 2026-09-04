@@ -59,7 +59,7 @@ test("verify refuses an unknown UI slot", () => {
     writeFileSync(join(dir, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
     const verified = run("verify", dir);
     assert.notEqual(verified.status, 0);
-    assert.match(verified.stderr + verified.stdout, /export-menu/i);
+    assert.match(verified.stderr + verified.stdout, /notifications/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

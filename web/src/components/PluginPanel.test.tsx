@@ -61,13 +61,30 @@ describe("PluginPanel", () => {
     expect(pluginFramePath("a/b", "1.0")).toBe("/plugin-ui/a%2Fb/1.0");
   });
 
+  it("sandboxes toolbar and nav chrome without allow-same-origin", () => {
+    panel({ slot: "toolbar" });
+    const toolbar = screen.getByTitle("retro plugin toolbar");
+    expect(toolbar.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(toolbar.getAttribute("sandbox")).not.toContain("allow-same-origin");
+    panel({ slot: "nav" });
+    const nav = screen.getByTitle("retro plugin nav");
+    expect(nav.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(nav.getAttribute("sandbox")).not.toContain("allow-same-origin");
+  });
+
   it("sizes chrome slots smaller than a nested panel", () => {
     panel({ slot: "toolbar" });
-    expect(screen.getByTitle("retro plugin toolbar").className.split(/\s+/)).toContain("h-9");
+    const toolbar = screen.getByTitle("retro plugin toolbar").className.split(/\s+/);
+    expect(toolbar).toContain("h-9");
+    expect(toolbar).not.toContain("h-64");
     panel({ slot: "nav" });
-    expect(screen.getByTitle("retro plugin nav").className.split(/\s+/)).toContain("h-24");
+    const nav = screen.getByTitle("retro plugin nav").className.split(/\s+/);
+    expect(nav).toContain("h-24");
+    expect(nav).not.toContain("h-64");
     panel({ slot: "export-menu" });
-    expect(screen.getByTitle("retro plugin export-menu").className.split(/\s+/)).toContain("h-9");
+    const exportMenu = screen.getByTitle("retro plugin export-menu").className.split(/\s+/);
+    expect(exportMenu).toContain("h-9");
+    expect(exportMenu).not.toContain("h-64");
   });
 
   it("sizes a nested panel to h-64 and a full-room slot to fill the chrome", () => {
