@@ -86,6 +86,7 @@ export default defineConfig({
             "operations/scaling-and-limits",
             "operations/backups-and-recovery",
             "operations/upgrading",
+            "operations/air-gapped",
             "operations/runbook",
           ],
         },

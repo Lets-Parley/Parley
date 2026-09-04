@@ -1,0 +1,239 @@
+---
+title: Air-gapped and private-CA installs
+description: Mirroring the image and chart into a private registry, trusting an enterprise CA for the identity provider and Postgres, and what still needs the internet.
+---
+
+Parley has no runtime dependency on the internet. It does not phone home, does
+not fetch anything at startup beyond what you configure (the OIDC provider's
+discovery document, if you use one, and your database), and the frontend is
+compiled into the binary — there is no CDN it reaches for. Everything below
+exists to get the image, the chart, and the docs *into* an air-gapped network
+once, and to make Parley trust a private certificate authority once it is
+there.
+
+## What needs the internet, and when
+
+- **Nothing at runtime**, once the image is on your registry and the chart is
+  installed. Parley does not call out anywhere it wasn't told to.
+- **A one-time download**, from a machine that does have internet access, of:
+  the image (by digest), the Helm chart, and — once available — the release's
+  Sigstore attestation bundle for offline verification.
+
+If your identity provider or Postgres server is itself reachable only inside
+the air-gapped network, that's normal and expected: Parley talks to both over
+the network you give it, not the internet.
+
+## Mirror the image by digest
+
+Pick the digest from the release page or the registry, not a mutable tag — see
+[Supply chain](/security/supply-chain/) for why. The commands below use
+`skopeo copy`, which needs no local Docker/Podman daemon and preserves the
+manifest digest across registries:
+
+```sh
+digest=sha256:<the digest from the release>
+skopeo copy \
+  --multi-arch all \
+  docker://ghcr.io/lets-parley/parley@$digest \
+  docker://internal-registry.example.com/parley/parley@$digest
+```
+
+`skopeo` was not available in the environment this page's commands were
+verified in, so the copy shown below uses `podman push` against a local
+`registry:2` container instead — the effect (an exact-digest copy landing on a
+second registry) is the same, but `skopeo copy --multi-arch all` is the
+correct tool when it's installed, since a plain `podman push` of a tag
+re-resolves to whatever platform the local Podman is running rather than
+copying every architecture in the index.
+
+Standing up a throwaway registry to rehearse this:
+
+```sh
+podman run -d -p 5000:5000 docker.io/library/registry:2
+```
+
+Pulling the current release and pushing it into that registry:
+
+```console
+$ podman pull ghcr.io/lets-parley/parley:0.10.0
+Trying to pull ghcr.io/lets-parley/parley:0.10.0...
+Copying blob sha256:7c12895b777b done
+...
+Writing manifest to image destination
+f7e938e196cc44b62cbb7449e4ac236c83f09395d60562b30af011952cbfd22b
+
+$ podman push --tls-verify=false ghcr.io/lets-parley/parley:0.10.0 \
+    127.0.0.1:5000/lets-parley/parley:0.10.0
+Copying blob sha256:af5aa97ebe6c done
+...
+Writing manifest to image destination
+
+$ curl -s -H "Accept: application/vnd.oci.image.manifest.v1+json" \
+    -D - -o /dev/null \
+    http://127.0.0.1:5000/v2/lets-parley/parley/manifests/0.10.0 \
+    | grep Docker-Content-Digest
+Docker-Content-Digest: sha256:8d5819191dfbb5f6617040800143ee37730464c02aa769306e4ba9897d346bb3
+```
+
+That digest is the manifest for the platform the pulling host resolved (a
+single-architecture manifest, the same way the image SBOM in
+[Supply chain](/security/supply-chain/) is generated against one resolved
+platform manifest out of the published index) — it is a real, reproducible
+mirror, but confirm you copied every platform you need before relying on it in
+production; `skopeo copy --multi-arch all` is the way to guarantee that.
+
+## Point the chart at your mirror
+
+The chart never hardcodes a registry. Point `image.repository` at your mirror
+and set `image.tag` to the exact version you copied (or pin
+`image.repository` to include the digest, e.g.
+`internal-registry.example.com/parley/parley@sha256:...`, and leave `image.tag`
+empty):
+
+```yaml
+image:
+  repository: internal-registry.example.com/parley/parley
+  tag: "0.10.0"
+  pullSecrets:
+    - name: internal-registry-creds
+```
+
+`image.pullSecrets` renders as the Deployment's `imagePullSecrets` — create the
+secret yourself (`kubectl create secret docker-registry`) before installing.
+
+## Mirror the chart
+
+Check whether a given release actually published to the OCI registry before
+assuming `helm pull oci://...` works — Parley's release workflow does push the
+chart to `oci://ghcr.io/lets-parley/charts` (`helm push` after `helm registry
+login`), so for any release built by that workflow:
+
+```sh
+helm pull oci://ghcr.io/lets-parley/charts/parley --version <chart-version>
+helm push parley-<chart-version>.tgz oci://internal-registry.example.com/charts
+```
+
+If you're installing from a source checkout instead (or the OCI push failed
+for a particular release — check the release notes on
+[Supply chain](/security/supply-chain/)), package it yourself and skip the
+`helm pull`:
+
+```sh
+helm package deploy/charts/parley --destination /tmp
+helm push /tmp/parley-*.tgz oci://internal-registry.example.com/charts
+```
+
+Verified against the local registry from above (plain HTTP, hence
+`--plain-http`; a real internal registry behind TLS drops that flag):
+
+```console
+$ helm package deploy/charts/parley --destination /tmp
+Successfully packaged chart and saved it to: /tmp/parley-0.0.0.tgz
+
+$ helm push /tmp/parley-0.0.0.tgz oci://127.0.0.1:5000/charts --plain-http
+Pushed: 127.0.0.1:5000/charts/parley:0.0.0
+Digest: sha256:94ac52d6546fe09399e27816377f14c37fcd00c504c054673c2f2235ba6902be
+
+$ helm pull oci://127.0.0.1:5000/charts/parley --version 0.0.0 --plain-http \
+    --destination ./pulled
+Pulled: 127.0.0.1:5000/charts/parley:0.0.0
+Digest: sha256:94ac52d6546fe09399e27816377f14c37fcd00c504c054673c2f2235ba6902be
+```
+
+(`0.0.0` is the placeholder chart version checked into the repository; a
+released chart carries the real version and appVersion the release workflow
+stamps in.)
+
+Install from the mirrored chart the same way you would from any local `.tgz`:
+
+```sh
+helm install parley oci://internal-registry.example.com/charts/parley \
+  --version <chart-version> \
+  -f my-values.yaml
+```
+
+## Trusting a private CA
+
+`internal/auth/oidc.go` uses Go's default HTTP client for OIDC discovery and
+token exchange, and the image is distroless with only the public Mozilla root
+set baked in. An internal Keycloak, Dex, or any identity provider behind an
+enterprise CA fails TLS verification with no further configuration. Go's
+standard library honours `SSL_CERT_FILE` (and `SSL_CERT_DIR`) to add trust
+roots without rebuilding the image, and pgx (Parley's Postgres driver) honours
+`sslrootcert` on the connection string for the same reason on the database
+leg.
+
+### Kubernetes
+
+Put your CA bundle in a ConfigMap:
+
+```sh
+kubectl create configmap parley-ca --from-file=ca.pem=/path/to/your-ca.pem
+```
+
+The chart's `extraEnv` gets you `SSL_CERT_FILE` for the OIDC leg immediately:
+
+```yaml
+extraEnv:
+  - name: SSL_CERT_FILE
+    value: /etc/parley/ca/ca.pem
+```
+
+`extraEnv` is the only mount-adjacent hook the chart currently exposes — it has
+no `extraVolumes`/`extraVolumeMounts` for mounting the ConfigMap itself, so
+`SSL_CERT_FILE` above cannot yet point at a file the pod actually has on disk.
+**This is a real gap, not a documentation gap**: until the chart grows a way to
+mount an arbitrary ConfigMap into the container, a private CA for the OIDC leg
+on Kubernetes needs either a custom image layer that bakes the CA in at
+`/etc/ssl/certs/`, or a chart change adding `extraVolumes`/`extraVolumeMounts`.
+Track that against the chart, not this page.
+
+For Postgres, append `sslmode=verify-full&sslrootcert=/etc/parley/ca/ca.pem`
+to the `DATABASE_URL` stored in the secret the chart reads from
+(`database.existingSecret` / `database.secretKey`) — the same
+mount limitation applies: the path only resolves once the CA file is actually
+present in the container, which today means baking it into the image or
+waiting on the chart's volume support.
+
+### Docker Compose
+
+Compose has no such gap — bind-mount the CA file directly:
+
+```yaml
+services:
+  app:
+    volumes:
+      - ./ca.pem:/etc/parley/ca/ca.pem:ro
+    environment:
+      SSL_CERT_FILE: /etc/parley/ca/ca.pem
+      DATABASE_URL: postgres://parley:${POSTGRES_PASSWORD}@db:5432/parley?sslmode=verify-full&sslrootcert=/etc/parley/ca/ca.pem
+```
+
+Add the two lines above to the `app` service in the project's
+`docker-compose.yml` and drop `ca.pem` next to it.
+
+## Offline provenance verification
+
+**Coming.** A follow-up phase in this hardening epic adds an offline-verifiable
+Sigstore bundle to each release (asset name
+`parley-vX.Y.Z.sigstore.json`) and documents `gh attestation verify --bundle`
+against it, so verification will no longer require a live call to GitHub's
+transparency log. Until that lands, verifying an image's provenance ([Supply
+chain](/security/supply-chain/)) needs a network path to GitHub.
+
+## Building the docs site offline
+
+`site/` is a static Astro/Starlight site with no runtime backend. Building it
+needs npm packages once, then nothing:
+
+```sh
+cd site
+npm ci        # needs internet (or an npm mirror) the first time
+npm run build # fully offline afterward; output is static HTML in site/dist
+```
+
+Serve `site/dist` with any static file server on the air-gapped network. The
+landing page ([site/src/content/docs/index.mdx](https://github.com/lets-parley/parley/blob/main/site/src/content/docs/index.mdx))
+links out to GitHub and other external sites — those links are dead offline
+by design; they are not removed because the same built site is also served
+publicly.
