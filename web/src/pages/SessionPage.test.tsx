@@ -63,6 +63,7 @@ vi.mock("../lib/api", async () => {
       if (path === "/api/auth") return { mode: "open" };
       if (path.startsWith("/api/orgs/acme/spaces/")) return { name: "Platform Team", members: [], sessions: [] };
       if (path.endsWith("/links")) return { links: [] };
+      if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
     }),
     action: vi.fn(async () => undefined),
@@ -140,6 +141,7 @@ beforeEach(() => {
     if (path === "/api/auth") return { mode: "open" };
     if (path.startsWith("/api/orgs/acme/spaces/")) return { name: "Platform Team", members: [], sessions: [] };
     if (path.endsWith("/links")) return { links: [] };
+    if (path.includes("/plugins/panels")) return [];
     throw new Error(`unexpected api call: ${path}`);
   });
 });
@@ -582,6 +584,7 @@ describe("SessionPage expired-session overlay", () => {
         return { slug: "platform-team", name: "Platform Team", protected: false, members: [], sessions: [] };
       }
       if (path.endsWith("/links")) return { links: [] };
+      if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
     });
 

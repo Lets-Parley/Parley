@@ -116,6 +116,8 @@ type Props = {
    */
   guest?: boolean;
   actions?: ReactNode;
+  /** Plugin UI for the space nav. Never shown to a link guest. */
+  navExtra?: ReactNode;
   children: ReactNode;
 };
 
@@ -168,6 +170,7 @@ export function AppShell({
   canManage = false,
   guest = false,
   actions,
+  navExtra,
   children,
 }: Props) {
   // Below md there is no room for a rail, so the same nav arrives as a sheet.
@@ -309,6 +312,8 @@ export function AppShell({
           </Link>
         </section>
       )}
+
+      {!guest && navExtra}
 
       <BuildStamp />
     </>

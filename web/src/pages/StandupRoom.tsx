@@ -14,6 +14,7 @@ import { Commitments, type Commitment } from "../components/Commitments";
 import type { Fail } from "../components/Modal";
 import { cueFor, cueVar } from "../lib/cue";
 import { EmptyTable } from "./PokerRoom";
+import { PluginChrome } from "../components/PluginChrome";
 
 export type StandupEntry = {
   userId: string;
@@ -496,6 +497,7 @@ export function StandupRoom({
           Export CSV
         </a>
         )}
+        <PluginChrome slot="export-menu" env={env} />
         {isFacilitator && !env.endedAt && (
           <>
           <FacilitatorHandoff

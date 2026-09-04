@@ -11,6 +11,7 @@ import { Modal, buttonQuiet } from "../components/Modal";
 import { getKind } from "../lib/kinds";
 import { spaceApi } from "../lib/paths";
 import { PluginPanel } from "../components/PluginPanel";
+import { PluginChrome } from "../components/PluginChrome";
 
 /** Drop member-only fields after an identity remint — see SpacePage. */
 function strangerSpace(prev: SpaceView): SpaceView {
@@ -161,12 +162,17 @@ export function SessionPage() {
         sessions={space.data?.sessions}
         activeSessionId={env.id}
         sidebarDefault={false}
+        navExtra={!guest && env.orgSlug ? <PluginChrome slot="nav" orgSlug={env.orgSlug} /> : null}
         actions={
-          isFacilitator && (
-            <button className={buttonQuiet} onClick={() => setLinksOpen(true)}>
-              Guest links
-            </button>
-          )
+          <>
+            <PluginChrome slot="toolbar" env={env} />
+            {!Room && <PluginChrome slot="export-menu" env={env} />}
+            {isFacilitator && (
+              <button className={buttonQuiet} onClick={() => setLinksOpen(true)}>
+                Guest links
+              </button>
+            )}
+          </>
         }
       >
         {guest && (

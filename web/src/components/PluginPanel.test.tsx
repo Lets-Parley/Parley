@@ -61,6 +61,15 @@ describe("PluginPanel", () => {
     expect(pluginFramePath("a/b", "1.0")).toBe("/plugin-ui/a%2Fb/1.0");
   });
 
+  it("sizes chrome slots smaller than a nested panel", () => {
+    panel({ slot: "toolbar" });
+    expect(screen.getByTitle("retro plugin toolbar").className.split(/\s+/)).toContain("h-9");
+    panel({ slot: "nav" });
+    expect(screen.getByTitle("retro plugin nav").className.split(/\s+/)).toContain("h-24");
+    panel({ slot: "export-menu" });
+    expect(screen.getByTitle("retro plugin export-menu").className.split(/\s+/)).toContain("h-9");
+  });
+
   it("sizes a nested panel to h-64 and a full-room slot to fill the chrome", () => {
     panel();
     expect(screen.getByTitle("retro plugin panel").className.split(/\s+/)).toContain("h-64");

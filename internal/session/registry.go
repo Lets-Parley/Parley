@@ -189,6 +189,13 @@ func (r *Registry) Known(kind string) bool {
 	return ok
 }
 
+// HasExport reports whether a kind can render CSV. A guest is only offered
+// export-menu plugin chrome when this is true.
+func (r *Registry) HasExport(kind string) bool {
+	k, ok := r.read()[kind]
+	return ok && k.CSV != nil
+}
+
 // KindPlugin is the install a plugin-provided kind currently names on the
 // wire. Core kinds and unknown names return nil. The returned value is a copy
 // so a caller cannot mutate the live registry.

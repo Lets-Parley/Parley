@@ -455,6 +455,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 				// link to one standup would become a listing of every
 				// org-visible space on the instance.
 				r.Get("/spaces", a.handleListOrgSpaces)
+				r.Get("/plugins/panels", a.handleOrgPluginPanels)
 				r.Post("/spaces/{slug}/join", a.handleJoinSpace)
 				r.Post("/spaces/{slug}/seen", a.handleMarkSpaceSeen)
 				r.Post("/spaces/{slug}/passcode", a.handleSetPasscode)

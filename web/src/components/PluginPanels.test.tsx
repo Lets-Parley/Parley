@@ -79,6 +79,33 @@ describe("plugin panels in a poker room", () => {
     expect(document.querySelector("iframe")).toBeNull();
   });
 
+  it("does not nest a plugin that only declared toolbar chrome", async () => {
+    servePanels([{ name: "bar", version: "1.0.0", grants: ["session:read"], slots: ["toolbar"] }]);
+    renderApp(<PokerRoom env={envelope()} me={me} />);
+    await waitFor(() => expect(screen.getAllByText("Log in with a passkey").length).toBeGreaterThan(0));
+    expect(screen.queryByTitle("bar plugin panel")).toBeNull();
+  });
+
+  it("frames export-menu chrome next to Export CSV and not as a nested panel", async () => {
+    servePanels([
+      { name: "ship", version: "1.0.0", grants: ["session:read"], slots: ["export-menu"] },
+    ]);
+    renderApp(<PokerRoom env={envelope()} me={me} />);
+    const frame = await screen.findByTitle("ship plugin export-menu");
+    expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(frame.getAttribute("sandbox")).not.toContain("allow-same-origin");
+    expect(screen.queryByTitle("ship plugin panel")).toBeNull();
+  });
+
+  it("frames export-menu chrome for a link guest when the list includes it", async () => {
+    servePanels([
+      { name: "ship", version: "1.0.0", grants: ["session:read"], slots: ["export-menu"] },
+    ]);
+    renderApp(<PokerRoom env={envelope()} me={me} guest />);
+    expect(await screen.findByTitle("ship plugin export-menu")).toBeTruthy();
+    expect(screen.queryByText("Export CSV")).toBeNull();
+  });
+
   it("marks plugin frames inert while a host modal is open", async () => {
     const user = userEvent.setup();
     servePanels([{ name: "retro", version: "1.0.0", grants: ["session:read"] }]);

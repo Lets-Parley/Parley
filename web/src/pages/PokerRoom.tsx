@@ -14,6 +14,7 @@ import { Hand } from "../components/Hand";
 import { ErrorRow, Modal, buttonDanger, buttonGo, buttonPrimary, buttonQuiet, type Fail } from "../components/Modal";
 import { ResultsPanel, heroOf } from "../components/ResultsPanel";
 import { PluginPanels } from "../components/PluginPanels";
+import { PluginChrome } from "../components/PluginChrome";
 import { StoryQueue } from "../components/StoryQueue";
 import { Table, faceOf } from "../components/Table";
 import { spacePath } from "../lib/paths";
@@ -251,6 +252,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
                 Export CSV
               </a>
               )}
+              <PluginChrome slot="export-menu" env={env} />
               {isFacilitator && !ended && (
                 <>
                 <FacilitatorHandoff

@@ -60,3 +60,8 @@ export function pluginsPath(org: string): string {
 export function pluginsApi(org: string): string {
   return `/api/orgs/${org}/admin/plugins`;
 }
+
+/** Installed plugin UI chrome for one org — nav slots, members only. */
+export function orgPluginPanelsApi(org: string): string {
+  return `/api/orgs/${org}/plugins/panels`;
+}
