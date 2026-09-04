@@ -60,6 +60,22 @@ spec:
   {{- if not .Values.networkPolicy.egress.postgres.cidr }}
   {{- fail "networkPolicy.egress.enabled is true but networkPolicy.egress.postgres.cidr is empty. Parley cannot reach its own database without an egress rule for it, so the chart refuses rather than ship a policy that locks the pod out of Postgres. Set networkPolicy.egress.postgres.cidr and .port." }}
   {{- end }}
+  {{- /*
+    A default route on an egress peer looks scoped but is not: it allows the
+    pod to reach every address on the internet on that one port, which is the
+    same hole as no egress policy at all wearing a narrow-looking value. Same
+    literal-string match as trustedProxyCIDRs in deployment.yaml — Helm has no
+    IP parser, so this catches the common spellings at render time; it is not
+    the authoritative check.
+  */ -}}
+  {{- if has (trim .Values.networkPolicy.egress.postgres.cidr) (list "0.0.0.0/0" "::/0" "::0/0" "0::0/0") }}
+  {{- fail (printf "networkPolicy.egress.postgres.cidr is %s, a default route. That lets the pod reach every address on the internet on the Postgres port — the opposite of a scoped egress policy — and the chart refuses to render it. Set the actual Postgres server's CIDR." (trim .Values.networkPolicy.egress.postgres.cidr)) }}
+  {{- end }}
+  {{- if .Values.networkPolicy.egress.idp.cidr }}
+  {{- if has (trim .Values.networkPolicy.egress.idp.cidr) (list "0.0.0.0/0" "::/0" "::0/0" "0::0/0") }}
+  {{- fail (printf "networkPolicy.egress.idp.cidr is %s, a default route. That lets the pod reach every address on the internet on the IdP port — the opposite of a scoped egress policy — and the chart refuses to render it. Set the actual IdP's CIDR." (trim .Values.networkPolicy.egress.idp.cidr)) }}
+  {{- end }}
+  {{- end }}
   egress:
     # Nothing on Kubernetes resolves without this. kube-dns/CoreDNS runs in
     # kube-system on every distribution the chart supports.
@@ -78,6 +94,15 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.networkPolicy.egress.postgres.port }}
+    {{- /*
+      The IdP peer is optional: skip the rule entirely when unset rather than
+      render ipBlock: {cidr: ""}, which Kubernetes rejects at apply time. Do
+      not drop this guard to "simplify" the template — it is the only thing
+      standing between an unset idp.cidr and an invalid manifest; see the
+      "renders egress only for the peers given" CI step in ci.yml, which
+      renders with the Postgres peer only and asserts no `cidr: ""` and no
+      IdP port leak into the output.
+    */ -}}
     {{- if .Values.networkPolicy.egress.idp.cidr }}
     - to:
         - ipBlock:

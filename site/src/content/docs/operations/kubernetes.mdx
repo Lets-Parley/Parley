@@ -599,6 +599,11 @@ rendered as an empty, match-nothing rule. `networkPolicy.egress.extraEgress`
 takes any further `NetworkPolicyEgressRule` verbatim, the same escape hatch as
 `extraIngress`.
 
+A default route (`0.0.0.0/0`, `::/0`) on `postgres.cidr` or `idp.cidr` looks
+scoped but defeats the whole point — it lets the pod reach every address on
+the internet on that one port — so the chart refuses to render it, the same
+refusal `trustedProxyCIDRs` gets.
+
 Off by default for the same two reasons as the ingress half: a CNI that
 ignores NetworkPolicies would give a false sense of safety, and CI already
 asserts the render and the refusal above — see

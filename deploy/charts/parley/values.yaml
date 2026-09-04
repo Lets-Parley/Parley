@@ -272,6 +272,12 @@ networkPolicy:
       port: 443
     # Appended verbatim to spec.egress, for anything else Parley legitimately
     # needs to reach outbound. Each entry is a full NetworkPolicyEgressRule.
+    #
+    # WARNING: an entry with no `to` key allows egress to ANY destination on
+    # the ports it lists — that is Kubernetes NetworkPolicy semantics, not a
+    # bug in this chart. `extraEgress: [{}]` (or any rule missing `to`)
+    # silently defeats the whole scoped-egress policy above. Always scope
+    # each entry with a `to` of namespaceSelector/podSelector/ipBlock peers.
     extraEgress: []
 
 # LOG_LEVEL — one of debug, info, warn, error. Anything else stops the process.
