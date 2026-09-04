@@ -1,14 +1,15 @@
 ---
 title: Features
-description: Everything Parley does today — planning poker, daily standup, spaces, guest links, kudos, exports and themes.
+description: Everything Parley does today — planning poker, daily standup, a retrospective plugin, spaces, guest links, kudos, exports and themes.
 ---
 
 import SectionIndex from "../../../components/SectionIndex.astro";
 
-Parley runs two built-in ceremonies today: planning poker and a daily standup.
+Parley ships two built-in ceremonies: planning poker and a daily standup.
 Both live inside a space, both are live over a WebSocket, and both export to
-CSV. An enabled plugin can add another ceremony; it occupies the same full-room
-slot as those two, in a sandboxed frame, rather than a nested panel.
+CSV. An enabled plugin can add another ceremony in the same full-room slot,
+in a sandboxed frame. The retrospective is that proof: it occupies the room
+without a core commit.
 
 What is in this section is what exists, checked against the source rather than
 the plan. Where something is deliberately absent it says so and points at the
@@ -18,6 +19,7 @@ place.
 <SectionIndex items={[
   { title: "Planning poker", href: "/features/planning-poker/", blurb: "Story queue, decks you can add to, hidden votes, and statistics that suit the deck." },
   { title: "Daily standup", href: "/features/daily-standup/", blurb: "Round-robin with a timer, carry-forward, and a blockers roundup." },
+  { title: "Retrospective (plugin)", href: "/features/retrospective/", blurb: "Columns, cards, hidden authorship, grouping, dots, and action items — installed, not compiled in." },
   { title: "Spaces and passcodes", href: "/features/spaces-and-room-codes/", blurb: "A memorable link, a six-character code, and a roster that shows who is where." },
   { title: "Guest links", href: "/features/guest-links/", blurb: "One URL that seats one person in one room, for a day, and nothing else." },
   { title: "Kudos", href: "/features/kudos/", blurb: "A short thank-you with somebody's name on it, and no leaderboard anywhere near it." },

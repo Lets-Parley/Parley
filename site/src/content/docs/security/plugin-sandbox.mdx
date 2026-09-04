@@ -254,6 +254,10 @@ the install is enabled and unregistered when it is disabled or uninstalled, and
 rooms of it are created, dispatched and closed by exactly the paths a core kind
 uses. That is a wider surface than a panel, and it is bounded in five places.
 
+The shipped proof is the [retrospective plugin](/features/retrospective/):
+columns, cards, hidden authorship, grouping, dot voting and action items, with
+no commit under `internal/` or `web/src`.
+
 The room itself is the same sandboxed iframe a nested poker panel uses, filling
 the session chrome rather than an `h-64` strip. The envelope carries the
 install (`plugin.name`, `plugin.version`, `plugin.grants`) so the browser can

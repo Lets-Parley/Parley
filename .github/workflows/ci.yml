@@ -204,6 +204,19 @@ jobs:
       - name: Test the core-untouched checker
         run: scripts/tests/check-core-untouched-test.sh
 
+  plugin-ceremonies:
+    name: plugin ceremonies
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 26
+      - name: Test and build the retrospective plugin
+        run: |
+          make -C plugins/retrospective
+          git diff --exit-code -- plugins/retrospective/dist/retrospective-0.1.0.ui.js
+
   docker:
     name: docker build and smoke
     runs-on: ubuntu-24.04
@@ -875,7 +888,7 @@ jobs:
   gate:
     name: required / gate
     if: always()
-    needs: [go, web, site, dependency-review, dco, docker, container-scan, chart, buildx-arg-passthrough, guard-mutation, core-untouched]
+    needs: [go, web, site, dependency-review, dco, docker, container-scan, chart, buildx-arg-passthrough, guard-mutation, core-untouched, plugin-ceremonies]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every check
@@ -891,3 +904,4 @@ jobs:
           test "${{ needs.chart.result }}" = success
           test "${{ needs.guard-mutation.result }}" = success
           test "${{ needs.core-untouched.result }}" = success
+          test "${{ needs.plugin-ceremonies.result }}" = success
