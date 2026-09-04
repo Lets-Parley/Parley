@@ -1036,16 +1036,32 @@ jobs:
             --set 'extraVolumes[0].configMap.name=parley-ca' \
             --set 'extraVolumeMounts[0].name=parley-ca' \
             --set 'extraVolumeMounts[0].mountPath=/etc/parley/ca' \
-            --set 'extraVolumeMounts[0].readOnly=true' > /tmp/extravol.yaml
-          grep -q 'name: parley-ca' /tmp/extravol.yaml \
-            || { echo "extraVolumes/extraVolumeMounts did not render"; exit 1; }
+            --set 'extraVolumeMounts[0].readOnly=true' \
+            --show-only templates/deployment.yaml > /tmp/extravol.yaml
+          # Assert the pod-level volumes: block exists and names the volume,
+          # separately from the container's volumeMounts: block — a render
+          # with the pod-level volumes stripped but the volumeMount kept must
+          # still fail this check.
+          grep -A3 '^      volumes:' /tmp/extravol.yaml | grep -q 'name: parley-ca' \
+            || { echo "extraVolumes did not render a pod-level volumes: entry"; exit 1; }
+          grep -A3 'volumeMounts:' /tmp/extravol.yaml | grep -q 'name: parley-ca' \
+            || { echo "extraVolumeMounts did not reach the container"; exit 1; }
           grep -q 'mountPath: /etc/parley/ca' /tmp/extravol.yaml \
             || { echo "extraVolumeMounts did not reach the container"; exit 1; }
-          # No extraVolumes set at all must not render an empty volumes: key.
+          # No extraVolumes set at all must not render an empty volumes: or
+          # volumeMounts: key.
           helm template parley deploy/charts/parley \
-            --set database.existingSecret=x > /tmp/novol.yaml
+            --set database.existingSecret=x \
+            --show-only templates/deployment.yaml > /tmp/novol.yaml
+          # Assert the Deployment actually rendered before asserting volumes:
+          # is absent — a negated grep on a broken/empty render would pass
+          # this check for the wrong reason.
+          grep -q 'kind: Deployment' /tmp/novol.yaml \
+            || { echo "deployment.yaml did not render at all"; exit 1; }
           ! grep -q 'volumes:' /tmp/novol.yaml \
             || { echo "rendered a volumes: key with no extraVolumes set"; exit 1; }
+          ! grep -q 'volumeMounts:' /tmp/novol.yaml \
+            || { echo "rendered a volumeMounts: key with no extraVolumeMounts set"; exit 1; }
 
   # Advisory, and deliberately absent from `gate` below: a screenshot that has
   # fallen behind the UI is never a reason to block a code change. The shipped
