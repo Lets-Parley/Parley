@@ -49,7 +49,7 @@ type Action struct {
 // name without colliding: the lookup is scoped by the session's own kind, so
 // there is no shared action namespace to collide in.
 func (r *Registry) Action(kind, name string) (Action, bool) {
-	k, ok := r.kinds[kind]
+	k, ok := r.read()[kind]
 	if !ok {
 		return Action{}, false
 	}

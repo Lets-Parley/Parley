@@ -11,7 +11,7 @@ import (
 type CSVFunc func(env Envelope) ([][]string, error)
 
 func (r *Registry) CSVRows(env Envelope) ([][]string, error) {
-	k, ok := r.kinds[env.Kind]
+	k, ok := r.read()[env.Kind]
 	if !ok || k.CSV == nil {
 		return nil, fmt.Errorf("no export for session kind %q", env.Kind)
 	}
