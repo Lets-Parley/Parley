@@ -57,6 +57,10 @@ spec:
           ports:
             - containerPort: 8080
           env:
+            # Boot refuses a connection string that can fall back to
+            # plaintext: put ?sslmode=verify-full&sslrootcert=... on the
+            # secret's database-url value. DATABASE_ALLOW_PLAINTEXT=true is
+            # the escape hatch, and is wrong across a cluster network.
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:

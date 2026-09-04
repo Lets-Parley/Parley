@@ -62,8 +62,9 @@ it is one.
 
 - **`database unreachable`** — Postgres is not answering this pod within 3
   seconds. Check the database, the `NetworkPolicy` or security group between
-  them, and that `DATABASE_URL` carries `?sslmode=require` if your Postgres
-  demands TLS.
+  them, and that the `sslmode` on `DATABASE_URL` matches what your Postgres
+  offers — boot echoes the resolved mode as `db_sslmode`, and refuses a
+  plaintext-capable one unless `DATABASE_ALLOW_PLAINTEXT=true`.
 - **`not listening for session changes`** — Postgres is fine, but *this replica*
   has lost the `LISTEN` it hears other replicas on. It reconnects with backoff
   on its own and logs each attempt, so a pod that clears on its own after a

@@ -133,6 +133,16 @@ Parley needs no extensions beyond `pgcrypto`, which migration `0001` creates;
 on PostgreSQL 13+ that only requires `CREATE` on the database (`GRANT CREATE ON
 DATABASE parley TO parley;`), not ownership or superuser.
 
+Encrypt the connection. Parley refuses to start on a `DATABASE_URL` whose
+`sslmode` is absent, `disable`, `allow` or `prefer` unless
+`DATABASE_ALLOW_PLAINTEXT=true`, because the driver's default silently falls
+back to plaintext and every passcode and story note then crosses the network in
+the clear. For CUI the default is
+`?sslmode=verify-full&sslrootcert=/path/to/ca.pem`: `require` encrypts but never
+checks the server's certificate, so a redirected connection can be impersonated
+— boot warns when you use it without a root certificate. The boot line echoes
+the resolved mode as `db_sslmode`; read it rather than assume.
+
 Consider setting a `statement_timeout` on the role — Parley sets none.
 
 ## 6. Run the container as it ships

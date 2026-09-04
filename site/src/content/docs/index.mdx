@@ -64,7 +64,7 @@ platform team required:
   <TabItem label="Prebuilt image">
     ```sh
     docker run -d --name parley -p 8080:8080 \
-      -e DATABASE_URL='postgres://parley:secret@db:5432/parley' \
+      -e DATABASE_URL='postgres://parley:secret@db:5432/parley?sslmode=verify-full&sslrootcert=/etc/ssl/certs/ca.pem' \
       -e BASE_URL='https://parley.example.com' \
       ghcr.io/lets-parley/parley:%VERSION%
     ```

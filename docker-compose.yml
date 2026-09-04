@@ -6,6 +6,12 @@ services:
     # build: .   # uncomment (and comment out image:) to build from source
     environment:
       DATABASE_URL: postgres://parley:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/parley
+      # Boot refuses a plaintext Postgres connection. It is allowed here, and
+      # only here, because app and db share this compose file's bridge network
+      # on one host: nothing off the host can see that traffic. Any other
+      # topology — a managed database, another node, a VPC — must drop this and
+      # put ?sslmode=verify-full&sslrootcert=... on DATABASE_URL instead.
+      DATABASE_ALLOW_PLAINTEXT: ${DATABASE_ALLOW_PLAINTEXT:-true}
       BASE_URL: ${BASE_URL:-http://localhost:8080}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       # Leave false while the port is published straight to clients. Set it to

@@ -28,11 +28,17 @@ var version = "dev"
 
 type config struct {
 	DatabaseURL string
-	Port        string
-	BaseURL     *url.URL
-	LogLevel    slog.Level
-	AuthMode    string
-	OIDC        auth.Config
+	// DBSSLMode is the sslmode DATABASE_URL resolves to, echoed on the boot
+	// line so an operator can confirm the database session is encrypted.
+	DBSSLMode string
+	// DBRootCert is the sslrootcert the server certificate is verified
+	// against. Empty with sslmode=require means no verification at all.
+	DBRootCert string
+	Port       string
+	BaseURL    *url.URL
+	LogLevel   slog.Level
+	AuthMode   string
+	OIDC       auth.Config
 	// DefaultOrgClaim, when set, points the default org at an identity-provider
 	// group so a fresh instance has something for a claim to match.
 	DefaultOrgClaim string
@@ -72,6 +78,22 @@ func loadConfig() (config, error) {
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
 	if cfg.DatabaseURL == "" {
 		return cfg, fmt.Errorf("DATABASE_URL is not set — set it to a Postgres connection string, e.g. postgres://parley:secret@localhost:5432/parley")
+	}
+
+	// pgx defaults sslmode to "prefer", which negotiates TLS if the server
+	// offers it and quietly drops to plaintext if it does not. Refuse that
+	// rather than let a deployment discover it was unencrypted all along.
+	sslMode, rootCert, err := db.TLSSettings(cfg.DatabaseURL)
+	if err != nil {
+		return cfg, err
+	}
+	cfg.DBSSLMode, cfg.DBRootCert = sslMode, rootCert
+	allowPlaintext, err := strconv.ParseBool(envOr("DATABASE_ALLOW_PLAINTEXT", "false"))
+	if err != nil {
+		return cfg, fmt.Errorf("DATABASE_ALLOW_PLAINTEXT %q is not a boolean — use true or false", os.Getenv("DATABASE_ALLOW_PLAINTEXT"))
+	}
+	if err := db.CheckTLS(cfg.DBSSLMode, allowPlaintext); err != nil {
+		return cfg, err
 	}
 
 	rawBase := envOr("BASE_URL", "http://localhost:8080")
@@ -272,6 +294,7 @@ func main() {
 			"scopes", strings.Join(cfg.OIDC.Scopes, " "),
 		)
 	}
+	warnAboutDatabaseTLS(cfg, log)
 	if secureCookies {
 		log.Warn("BASE_URL is https: the app must actually be reached over HTTPS, or browsers will silently drop the session cookie and logins will appear to succeed but never persist")
 	}
@@ -398,6 +421,16 @@ func apiOptions(ctx context.Context, cfg config, secureCookies bool, plugins *pl
 
 // bootFields is the boot line an operator reads to confirm what this process
 // actually parsed, as opposed to what they meant to configure.
+// warnAboutDatabaseTLS names the modes that look encrypted and are not the
+// whole control. sslmode=require negotiates TLS and then accepts whatever
+// certificate is offered, so anyone who can redirect the connection can be
+// Postgres.
+func warnAboutDatabaseTLS(cfg config, log *slog.Logger) {
+	if cfg.DBSSLMode == "require" && cfg.DBRootCert == "" {
+		log.Warn("DATABASE_URL uses sslmode=require without sslrootcert: the connection is encrypted but the database server's certificate is never checked, so a redirected connection can be impersonated. Use sslmode=verify-full with sslrootcert pointing at your CA")
+	}
+}
+
 func bootFields(cfg config, secureCookies bool) []any {
 	fields := []any{
 		"version", version,
@@ -406,6 +439,7 @@ func bootFields(cfg config, secureCookies bool) []any {
 		"allowed_ws_origin", cfg.BaseURL.Scheme + "://" + cfg.BaseURL.Host,
 		"port", cfg.Port,
 		"auth_mode", cfg.AuthMode,
+		"db_sslmode", cfg.DBSSLMode,
 		"trust_proxy_headers", cfg.TrustProxy,
 		"plugin_secrets", cfg.PluginSecretKey != "",
 		"plugin_event_retention", cfg.PluginEventRetention.String(),

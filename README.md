@@ -198,7 +198,7 @@ Skip compose entirely and point the image at your own database:
 
 ```sh
 docker run -d --name parley -p 8080:8080 \
-  -e DATABASE_URL='postgres://parley:secret@db:5432/parley' \
+  -e DATABASE_URL='postgres://parley:secret@db:5432/parley?sslmode=verify-full&sslrootcert=/etc/ssl/certs/ca.pem' \
   -e BASE_URL='https://parley.example.com' \
   ghcr.io/lets-parley/parley:0.10.0
 ```
@@ -212,6 +212,7 @@ client.
 | Variable | Required | Default | Meaning |
 |---|---|---|---|
 | `DATABASE_URL` | yes | — | Postgres connection string |
+| `DATABASE_ALLOW_PLAINTEXT` | no | `false` | Accept a `DATABASE_URL` that may talk to Postgres unencrypted. Boot refuses `sslmode` absent / `disable` / `allow` / `prefer` without it; use `?sslmode=verify-full&sslrootcert=…` instead wherever the link is not host-local |
 | `BASE_URL` | no | `http://localhost:8080` | The address users reach Parley at. Drives cookie `Secure` and the WebSocket origin check. |
 | `PORT` | no | `8080` | Listen port |
 | `LOG_LEVEL` | no | `info` | `debug` / `info` / `warn` / `error` |
