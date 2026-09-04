@@ -26,21 +26,26 @@ fi
 base=$1
 head=$2
 
-if ! changed=$(git diff --name-only "$base" "$head"); then
-  echo "cannot resolve revision range $base..$head" >&2
+# Three-dot is the pull request: commits reachable from HEAD that are not
+# reachable from the merge-base with BASE. Two-dot would also list files that
+# only moved on BASE after the branch point. --no-renames lists both endpoints
+# of a git mv, so a core file relocated into plugins/ still counts as core.
+if ! changed=$(git diff --name-only --no-renames "$base"..."$head"); then
+  echo "cannot resolve revision range $base...$head" >&2
   exit 2
 fi
 
 plugin_changes=$(printf '%s\n' "$changed" | grep '^plugins/' || true)
 if [ -z "$plugin_changes" ]; then
-  echo "no plugin changes in $base..$head; the core-untouched rule does not apply"
+  echo "no plugin changes in $base...$head; the core-untouched rule does not apply"
   exit 0
 fi
 
 # Anchored prefixes, never substrings: a matching rule that can be satisfied by
 # a path containing "cmd/" somewhere is a rule that gets evaded.
+# web/embed.go is the production binary's go:embed of dist — host, not docs.
 core_changes=$(printf '%s\n' "$changed" | grep -E \
-  '^(internal/|cmd/|web/src/|go\.mod$|go\.sum$)' || true)
+  '^(internal/|cmd/|web/src/|web/embed\.go$|go\.mod$|go\.sum$)' || true)
 
 if [ -n "$core_changes" ]; then
   echo "this pull request delivers a plugin and also changes the host:" >&2

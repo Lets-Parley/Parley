@@ -50,7 +50,8 @@ grep -q "internal/session/registry.go" "$test_repo/mixed.out"
 # Every core tree is core. A guard that only knew about the one tree somebody
 # happened to edit would wave the next one through.
 for path in internal/api/plugins.go internal/store/sessions.go internal/db/migrations/0100_y.sql \
-  internal/plugin/kinds.go cmd/parley/main.go web/src/lib/kinds.ts; do
+  internal/plugin/kinds.go cmd/parley/main.go web/src/lib/kinds.ts \
+  go.mod go.sum web/embed.go; do
   before=$(git -C "$test_repo" rev-parse HEAD)
   after=$(commit_paths "feat: reach into $path" plugins/retro/guest/main.go "$path")
   if (cd "$test_repo" && "$checker" "$before" "$after") >"$test_repo/each.out" 2>&1; then
@@ -80,6 +81,45 @@ if (cd "$test_repo" && "$checker" "$before" "$deleted") >"$test_repo/deleted.out
   exit 1
 fi
 grep -q "internal/api/router.go" "$test_repo/deleted.out"
+
+# Rename detection would hide a core file git-mv'd into plugins/. Both
+# endpoints of the rename are a core change; the old path must be named.
+before=$(git -C "$test_repo" rev-parse HEAD)
+mkdir -p "$test_repo/internal/api" "$test_repo/plugins/stolen"
+echo host >>"$test_repo/internal/api/router.go"
+git -C "$test_repo" add internal/api/router.go
+git -C "$test_repo" commit -q -m "chore: restore a core file to move"
+before=$(git -C "$test_repo" rev-parse HEAD)
+git -C "$test_repo" mv internal/api/router.go plugins/stolen/router.go
+echo stolen >>"$test_repo/plugins/retro/guest/main.go"
+git -C "$test_repo" add -A
+git -C "$test_repo" commit -q -m "feat: move a core file into plugins"
+moved=$(git -C "$test_repo" rev-parse HEAD)
+if (cd "$test_repo" && "$checker" "$before" "$moved") >"$test_repo/moved.out" 2>&1; then
+  echo "git mv of a core file into plugins/ unexpectedly passed" >&2
+  exit 1
+fi
+grep -q "internal/api/router.go" "$test_repo/moved.out"
+
+# Two-dot includes core commits that landed on main after the branch point.
+# Three-dot is the pull request: only what the head introduced.
+fork=$(git -C "$test_repo" rev-parse HEAD)
+git -C "$test_repo" checkout -q -b plugin-pr
+plugin_head=$(commit_paths "feat: plugin only on the branch" plugins/retro.go)
+git -C "$test_repo" checkout -q -B main "$fork"
+main_tip=$(commit_paths "fix: core only on main" internal/api/router.go)
+if ! (cd "$test_repo" && "$checker" "$main_tip" "$plugin_head") >"$test_repo/diverged.out" 2>&1; then
+  echo "a plugin branch whose merge-base with main has no core change unexpectedly failed" >&2
+  cat "$test_repo/diverged.out" >&2
+  exit 1
+fi
+git -C "$test_repo" checkout -q -B mixed-pr "$fork"
+mixed_head=$(commit_paths "feat: plugin plus host on the branch" plugins/other.go cmd/parley/main.go)
+if (cd "$test_repo" && "$checker" "$main_tip" "$mixed_head") >"$test_repo/mixed-three.out" 2>&1; then
+  echo "a three-dot range that edits plugin and host unexpectedly passed" >&2
+  exit 1
+fi
+grep -q "cmd/parley/main.go" "$test_repo/mixed-three.out"
 
 # A range that cannot be resolved is an error, never a pass: a checker that
 # reports clean because it could not look is worse than no checker.
