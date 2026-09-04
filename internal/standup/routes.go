@@ -120,6 +120,17 @@ const rosterUsers = `
 	select u.id from users u join session_links l on l.id = u.link_id
 	where l.session_id = $1`
 
+// yesterdayPrefill is this person's "today" from the most recent standup in
+// the space created strictly before this one. $4 is this session's created_at;
+// id desc breaks a shared timestamp so the choice cannot flake.
+const yesterdayPrefill = `coalesce((
+	select prev.today from standup_entries prev
+	join sessions ps on ps.id = prev.session_id
+	where prev.user_id = m.user_id and ps.space_id = $2 and ps.id <> $1
+	  and ps.created_at < $4
+	order by ps.created_at desc, ps.id desc limit 1
+), '')`
+
 // roundStarted reports whether the speaking order is already fixed. A standup
 // sits at the empty phase until start() moves it to "speaking" and then "done".
 func roundStarted(phase string) bool {
@@ -139,9 +150,9 @@ func roundStarted(phase string) bool {
 //   - position is not null with no default, so it is computed the way putEntry
 //     computes it;
 //   - start() prefills "yesterday" from this person's "today" in the space's
-//     previous standup with `on conflict do nothing`, so a row created here
-//     would silently swallow that carry-forward — it is carried forward here
-//     instead, by the same query start uses;
+//     most recent earlier standup with `on conflict do nothing`, so a row
+//     created here would silently swallow that carry-forward — it is carried
+//     forward here instead, by the same query start uses;
 //   - spectators are excluded, matching start, so one cannot gain a seat in the
 //     rail or a blank line in the CSV by clicking ready.
 //
@@ -152,17 +163,12 @@ func ensureReadyEntryRow(r *http.Request, tx pgx.Tx, sess store.Session, userID 
 	_, err := tx.Exec(r.Context(), `
 		insert into standup_entries (session_id, user_id, yesterday, position)
 		select $1, m.user_id,
-		       coalesce((
-		           select prev.today from standup_entries prev
-		           join sessions ps on ps.id = prev.session_id
-		           where prev.user_id = m.user_id and ps.space_id = $2 and ps.id <> $1
-		           order by ps.created_at desc limit 1
-		       ), ''),
+		       `+yesterdayPrefill+`,
 		       (select coalesce(max(position), 0) + 1 from standup_entries where session_id = $1)
 		from (`+rosterUsers+`) m
 		where m.user_id = $3
 		on conflict (session_id, user_id) do nothing`,
-		sess.ID, sess.SpaceID, userID)
+		sess.ID, sess.SpaceID, userID, sess.CreatedAt)
 	return err
 }
 
@@ -210,7 +216,7 @@ func setReady(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 
 // start (re)snapshots the round-robin roster and puts the session at the top
 // of it. Carry-forward: each person's "yesterday" is prefilled with the "today"
-// they wrote in this space's most recent previous standup.
+// they wrote in this space's most recent earlier standup.
 //
 // Rows can already exist when this runs — somebody filled their update in
 // early, or start is being run again now that a latecomer has connected — so
@@ -240,17 +246,12 @@ func start(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 			if _, err := tx.Exec(r.Context(), `
 		insert into standup_entries (session_id, user_id, yesterday, position)
 		select $1, m.user_id,
-		       coalesce((
-		           select prev.today from standup_entries prev
-		           join sessions ps on ps.id = prev.session_id
-		           where prev.user_id = m.user_id and ps.space_id = $2 and ps.id <> $1
-		           order by ps.created_at desc limit 1
-		       ), ''),
+		       `+yesterdayPrefill+`,
 		       0
 		from (`+rosterUsers+`) m
 		where m.user_id::text = any($3)
 		on conflict (session_id, user_id) do nothing`,
-				sess.ID, sess.SpaceID, connected); err != nil {
+				sess.ID, sess.SpaceID, connected, sess.CreatedAt); err != nil {
 				return err
 			}
 
