@@ -100,7 +100,7 @@ any faster than the join door can.
   { name: "HttpOnly", value: "yes", note: "" },
   { name: "SameSite", value: "Lax", note: "Part of the cross-site request defence" },
   { name: "Secure", value: "when BASE_URL is https", note: "This is why BASE_URL must be right" },
-  { name: "Max-Age", value: "90 days", note: "Fixed from issue — see below. A guest-link session gets no Max-Age at all: see below" },
+  { name: "Max-Age", value: "90 days by default", note: "The smaller of SESSION_IDLE_TTL and SESSION_MAX_TTL, fixed from issue — see below. A guest-link session gets no Max-Age at all: see below" },
 ]} />
 
 <SpecTable caption="parley_signin — the sign-in flow cookie, oidc mode only" rows={[
@@ -133,14 +133,24 @@ was signed.
 Two different clocks, and they do not agree. This catches people out, so it is
 worth stating precisely:
 
-- **Server side**, a token expires after **90 days of inactivity**, and every
-  write — plus every WebSocket connect — pushes that window out. A `GET` does
-  not: the cross-site guard waves `GET` through, so a refreshing `GET` would
-  let any third-party page hold a victim's session open forever. An active
-  token never ages out; reading, and only reading, for ninety days does not
-  count as activity.
-- **Browser side**, the cookie is written with a **fixed 90-day `Max-Age` from
-  the moment it was issued**, and it is never rewritten on subsequent requests.
+- **Server side**, a token expires after `SESSION_IDLE_TTL` of inactivity —
+  **90 days** unless you set it — and every write, plus every WebSocket
+  connect, pushes that window out. A `GET` does not: the cross-site guard waves
+  `GET` through, so a refreshing `GET` would let any third-party page hold a
+  victim's session open forever. Reading, and only reading, does not count as
+  activity.
+- **Also server side**, `SESSION_MAX_TTL` — again 90 days by default — is an
+  absolute cap measured from the moment the token was issued. **No amount of
+  activity extends it**, so a token that leaked and is being used constantly
+  still stops working. Rows past either lifetime are deleted by an hourly
+  background pass rather than left to accumulate.
+- **Browser side**, the cookie is written with a **fixed `Max-Age` from the
+  moment it was issued** — the smaller of the two lifetimes — and it is never
+  rewritten on subsequent requests.
+
+Both lifetimes are configured per instance; see
+[`SESSION_IDLE_TTL` and `SESSION_MAX_TTL`](/reference/configuration/). A CUI
+deployment typically wants idle in hours and the absolute cap in days.
 
 A [guest link](/features/guest-links/) session is the deliberate exception. Its
 cookie carries **no `Max-Age` and no `Expires`**, so it is a session cookie: the
@@ -168,9 +178,10 @@ deliberately does not tear the seat down on `pagehide` — that fires on an
 ordinary reload and on mobile backgrounding too, and would strand a guest who
 did nothing but refresh.
 
-The browser is therefore the binding constraint. Somebody who uses Parley every
-single day is **still signed out 90 days after signing in**, because the cookie
-expires even though the token behind it is perfectly healthy.
+On the defaults the two run out together. Somebody who uses Parley every single
+day is **still signed out 90 days after signing in**, because the absolute cap
+elapses and the cookie expires alongside it, however healthy the activity
+record looks.
 
 Under an identity provider they sign in again and carry on; nothing is lost.
 In **open mode** there is nothing to sign back into: taking a seat again mints
@@ -197,7 +208,7 @@ to every replica immediately, and the periodic check is only the backstop.
   { name: "Rename", value: "rotates the token", note: "In one transaction" },
   { name: "Sign out everywhere UI", value: "not supported", note: "Delete the user's rows from session_tokens in SQL; shared-store detection and removal can take nearly 60s, then transport closure follows" },
   { name: "Administrative revocation UI", value: "not supported", note: "A space owner can remove someone from that space, which closes their sockets for it — but it revokes no token and reaches no other space. Instance-wide revocation is SQL; shared-store detection and removal can take nearly 60s" },
-  { name: "Expired token cleanup", value: "never runs", note: "Rows stop resolving but are not swept" },
+  { name: "Expired token cleanup", value: "hourly", note: "Deletes rows past either lifetime" },
 ]} />
 
 If you need to force everybody out of an instance right now, delete every row in

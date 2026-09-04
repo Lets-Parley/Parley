@@ -608,7 +608,7 @@ func TestLinkGuestSocketEnvelopeHidesTheSpace(t *testing.T) {
 // restart, not just a tab close.
 func TestOrdinaryAccountCookieStillPersists(t *testing.T) {
 	w := httptest.NewRecorder()
-	setSessionCookie(w, "tok", false)
+	(&app{}).setSessionCookie(w, "tok")
 	res := w.Result()
 	for _, c := range res.Cookies() {
 		if c.Name == sessionCookie {

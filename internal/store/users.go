@@ -8,14 +8,24 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/lets-parley/parley/internal/recovery"
 )
 
-// Tokens idle longer than this are invalid and eligible for deletion.
-const tokenIdleExpiry = 90 * 24 * time.Hour
+// DefaultSessionIdleTTL and DefaultSessionMaxTTL are the lifetimes an
+// instance runs with when SESSION_IDLE_TTL and SESSION_MAX_TTL are unset. Idle
+// is the window a quiet session survives; max is the absolute cap measured
+// from the moment the token was issued, which no amount of activity extends —
+// a stolen token that keeps being used still dies.
+const (
+	DefaultSessionIdleTTL = 90 * 24 * time.Hour
+	DefaultSessionMaxTTL  = 90 * 24 * time.Hour
+)
 
 var ErrNoUser = errors.New("no user for token")
 
@@ -45,6 +55,25 @@ type User struct {
 
 type Users struct {
 	Pool *pgxpool.Pool
+	// IdleTTL and MaxTTL are the session lifetimes this instance enforces.
+	// Zero means the default, so a Users built without them behaves as it did
+	// before the knobs existed.
+	IdleTTL time.Duration
+	MaxTTL  time.Duration
+}
+
+func (s *Users) idleTTL() time.Duration {
+	if s.IdleTTL <= 0 {
+		return DefaultSessionIdleTTL
+	}
+	return s.IdleTTL
+}
+
+func (s *Users) maxTTL() time.Duration {
+	if s.MaxTTL <= 0 {
+		return DefaultSessionMaxTTL
+	}
+	return s.MaxTTL
 }
 
 type TokenSession struct {
@@ -198,16 +227,18 @@ func (s *Users) ByToken(ctx context.Context, tokenHash []byte) (User, error) {
 const linkSessionExpr = `coalesce((select l.session_id::text from session_links l
 	          where l.id = (select link_id from users where id = user_id)), '')`
 
-// tokenExpiryExpr is the earlier of the rolling idle window and the token's own
-// absolute expiry, which only a redeemed link sets. Null means no absolute
-// expiry, so the idle window stands alone.
-const tokenExpiryExpr = `least(last_used_at + $2::interval, coalesce(expires_at, 'infinity'::timestamptz))`
+// tokenExpiryExpr is the earliest of the rolling idle window, the absolute
+// lifetime measured from issue, and the token's own expiry, which only a
+// redeemed link sets. Null there means no per-token expiry, so the two
+// instance-wide lifetimes stand alone.
+const tokenExpiryExpr = `least(last_used_at + $2::interval, created_at + $3::interval, coalesce(expires_at, 'infinity'::timestamptz))`
 
 // tokenLiveClause is the whole definition of a usable token, and both
 // ResolveToken and TokenExpiry must apply it: an absolute expiry that only one
 // of them honoured would leave a lapsed link either answering requests or
 // holding a socket.
 const tokenLiveClause = `token_hash = $1 and last_used_at > now() - $2::interval
+		  and created_at > now() - $3::interval
 		  and (expires_at is null or expires_at > now())`
 
 const resolveTokenColumns = `user_id,
@@ -240,7 +271,7 @@ func (s *Users) ResolveToken(ctx context.Context, tokenHash []byte, touch bool) 
 
 	var u User
 	var expiresAt time.Time
-	err := s.Pool.QueryRow(ctx, sql, tokenHash, tokenIdleExpiry).
+	err := s.Pool.QueryRow(ctx, sql, tokenHash, s.idleTTL(), s.maxTTL()).
 		Scan(&u.ID, &u.Name, &u.Issuer, &u.AvatarIcon, &u.LinkSessionID, &expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return TokenSession{}, ErrNoUser
@@ -257,12 +288,63 @@ func (s *Users) TokenExpiry(ctx context.Context, tokenHash []byte) (time.Time, e
 		select `+tokenExpiryExpr+`
 		from session_tokens
 		where `+tokenLiveClause,
-		tokenHash, tokenIdleExpiry,
+		tokenHash, s.idleTTL(), s.maxTTL(),
 	).Scan(&expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return time.Time{}, ErrNoUser
 	}
 	return expiresAt, err
+}
+
+// SweepExpiredTokens deletes the token rows this instance's lifetimes have
+// already made unusable. Without it the table only grows: a row stops
+// resolving the moment it lapses, but nothing ever removes it, so a busy
+// instance accumulates dead credential hashes indefinitely.
+//
+// The predicate is the complement of tokenLiveClause, and must stay that way:
+// a sweep looser than the resolve rule would delete sessions people are still
+// using.
+func (s *Users) SweepExpiredTokens(ctx context.Context) (int64, error) {
+	tag, err := s.Pool.Exec(ctx, `
+		delete from session_tokens
+		where last_used_at <= now() - $1::interval
+		   or created_at <= now() - $2::interval
+		   or (expires_at is not null and expires_at <= now())`,
+		s.idleTTL(), s.maxTTL())
+	if err != nil {
+		return 0, fmt.Errorf("sweeping expired session tokens: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// RunSessionSweep sweeps expired session tokens on a ticker until ctx is done.
+// A panic in the pass is recovered and retried on the next tick rather than
+// taking the process down with it.
+func (s *Users) RunSessionSweep(ctx context.Context, every time.Duration, log *slog.Logger) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		s.sweepOnce(ctx, log)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func (s *Users) sweepOnce(ctx context.Context, log *slog.Logger) {
+	defer recovery.Handle("session token sweep")
+	deleted, err := s.SweepExpiredTokens(ctx)
+	if err != nil {
+		if ctx.Err() == nil && log != nil {
+			log.Error("session token sweep failed; will retry on the next tick", "error", err)
+		}
+		return
+	}
+	if deleted > 0 && log != nil {
+		log.Info("session token sweep", "tokens_deleted", deleted)
+	}
 }
 
 // Rename updates the user's name and rotates their token: the old token row is
