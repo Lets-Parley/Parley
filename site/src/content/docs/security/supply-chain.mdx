@@ -100,17 +100,36 @@ Verification checks the digest, repository identity, workflow identity, signed
 provenance, and transparency-log evidence. Pull and deploy the same digest, not
 a mutable tag.
 
-Running without a path to GitHub? See
-[Air-gapped and private-CA installs](/operations/air-gapped/) for mirroring the
-image and chart into a private registry — that page's "Offline provenance
-verification" section also tracks the coming Sigstore bundle that lets this
-check run without a live call to GitHub's transparency log.
+### Offline verification
+
+The command above calls the GitHub API and cannot run air-gapped. Every
+release also attaches `parley-vX.Y.Z.sigstore.json`: the same signed
+provenance statement as a Sigstore bundle, checkable with `--bundle` and no
+network call. Fetch a trusted root once while still online, then verify from
+the bundle and the digest alone:
+
+```sh
+gh attestation trusted-root > trusted_root.jsonl   # do this once, online
+digest=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+gh attestation verify \
+  "oci://ghcr.io/lets-parley/parley@$digest" \
+  --owner lets-parley \
+  --bundle parley-vX.Y.Z.sigstore.json \
+  --custom-trusted-root trusted_root.jsonl
+```
+
+Address the image by digest (`@sha256:...`), not by tag: a tag reference
+resolves through the registry, which is exactly the network call this command
+is meant to avoid. See
+[Air-gapped and private-CA installs](/operations/air-gapped/) for the full
+offline workflow, including mirroring the image and chart into a private
+registry.
 
 <Capability rows={[
   { name: "Locked dependency sets", status: "built", detail: "Go checksums and npm lockfiles are reviewed in pull requests and updated weekly." },
   { name: "Minimal runtime image", status: "built", detail: "Digest-pinned, non-root distroless static image with no shell or package manager." },
   { name: "SBOM (SPDX + CycloneDX)", status: "built", detail: "Per release: image and source SBOMs are attached in both SPDX JSON and CycloneDX JSON formats. They are unsigned assets. Per-platform SBOM attestations are also attached to the published image by BuildKit." },
-  { name: "Build provenance", status: "built", detail: "Maximum BuildKit provenance plus a GitHub artifact attestation bound to the final GHCR digest." },
+  { name: "Build provenance", status: "built", detail: "Maximum BuildKit provenance plus a GitHub artifact attestation bound to the final GHCR digest, also attached to the release as an offline-verifiable Sigstore bundle." },
   { name: "Vulnerability scanning", status: "built", detail: "govulncheck, CodeQL, dependency review, npm audits, and container scanning run in CI." },
 ]} />
 
