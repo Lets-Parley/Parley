@@ -100,6 +100,12 @@ Verification checks the digest, repository identity, workflow identity, signed
 provenance, and transparency-log evidence. Pull and deploy the same digest, not
 a mutable tag.
 
+Running without a path to GitHub? See
+[Air-gapped and private-CA installs](/operations/air-gapped/) for mirroring the
+image and chart into a private registry — that page's "Offline provenance
+verification" section also tracks the coming Sigstore bundle that lets this
+check run without a live call to GitHub's transparency log.
+
 <Capability rows={[
   { name: "Locked dependency sets", status: "built", detail: "Go checksums and npm lockfiles are reviewed in pull requests and updated weekly." },
   { name: "Minimal runtime image", status: "built", detail: "Digest-pinned, non-root distroless static image with no shell or package manager." },
