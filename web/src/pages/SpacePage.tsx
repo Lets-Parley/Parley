@@ -6,6 +6,7 @@ import { useAuthMode, useMe, NameGate } from "../components/NameGate";
 import { isFullAccount } from "../lib/links";
 import { openSessionLapsed } from "../lib/sessionMemory";
 import { AppShell, Logo } from "../components/AppShell";
+import { PluginChrome } from "../components/PluginChrome";
 import { KindChip } from "../components/KindChip";
 import { Kudos } from "../components/Kudos";
 import { EmptyTable } from "./PokerRoom";
@@ -352,6 +353,7 @@ export function SpacePage() {
       presence={(sp.members ?? []).filter((m) => m.at).map((m) => m.userId)}
       sessions={all}
       canManage={canManage}
+      navExtra={<PluginChrome slot="nav" orgSlug={org} />}
     >
       <div className="mx-auto max-w-[760px] py-9 pl-[max(1.5rem,var(--safe-left))] pr-[max(1.5rem,var(--safe-right))] sm:pl-[max(2rem,var(--safe-left))] sm:pr-[max(2rem,var(--safe-right))]">
         <InviteStrip org={org} slug={sp.slug} passcode={sp.passcode ?? ""} />

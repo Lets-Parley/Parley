@@ -6,7 +6,7 @@ description: Every route, who may call it, and what it does.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import RouteTable from "../../../components/RouteTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/plugins.go", "internal/api/plugindev.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/api/plugindev.go"]} />
 
 There is no API token scheme. Everything authenticates with the `parley_session`
 cookie, so the API is usable from a script only by reusing a browser session's
@@ -386,7 +386,8 @@ action against a closed session is **409**; reopen it first.
 ## Plugin UI
 
 <RouteTable rows={[
-  { method: "GET", path: "/api/sessions/{id}/plugins/panels", auth: "member", purpose: "The room’s org’s enabled installs that ship UI, with their grants. Scoped to the room’s own org — another tenant’s installs are never enumerated. Empty on an instance with no plugins." },
+  { method: "GET", path: "/api/sessions/{id}/plugins/panels", auth: "member", purpose: "The room’s org’s enabled installs that ship UI, with their grants and declared slots (panel, room, toolbar, nav, export-menu). A missing slots sidecar is the nested panel. A link guest never sees nav; export-menu is included only when this kind already exports. Scoped to the room’s own org. Empty on an instance with no plugins." },
+  { method: "GET", path: "/api/orgs/{org}/plugins/panels", auth: "member", purpose: "Nav-slot plugin UI for this org. RequireUser then requireOrgMember — a link guest is 401. Only installs that declared nav are listed." },
   { method: "GET", path: "/plugin-ui/{name}/{version}", auth: "public", purpose: "The sandboxed document a plugin's UI runs in. 404 when PLUGIN_DIR is unset or the plugin ships no UI bundle." },
 ]} />
 

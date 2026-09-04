@@ -96,6 +96,24 @@ func TestPluginAdminIsOpenToTheOperator(t *testing.T) {
 	}
 }
 
+func TestPreviewRefusesAnUnknownUISlot(t *testing.T) {
+	srv, _, _, admin, _ := pluginServer(t)
+	pkg := `{"manifest":1,"kind":"plugin","name":"slotty","version":"1.0.0","slots":["notifications"],"capabilities":[]}`
+	resp, body := doJSON(t, srv, "POST", pluginsPath+"/preview", pkg, admin)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("preview of a notifications slot = %d: %v, want 400", resp.StatusCode, body)
+	}
+}
+
+func TestPreviewAcceptsToolbarNavAndExportMenuSlots(t *testing.T) {
+	srv, _, _, admin, _ := pluginServer(t)
+	pkg := `{"manifest":1,"kind":"plugin","name":"slotty","version":"1.0.0","slots":["toolbar","nav","export-menu"],"capabilities":[]}`
+	resp, body := doJSON(t, srv, "POST", pluginsPath+"/preview", pkg, admin)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("preview of chrome slots = %d: %v", resp.StatusCode, body)
+	}
+}
+
 // The consent screen's copy comes from the server, so the wildcard an operator
 // agrees to is expanded by the code that enforces it.
 func TestPreviewExpandsTheAllowlistAndNamesConsequences(t *testing.T) {

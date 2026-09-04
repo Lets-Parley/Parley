@@ -56,6 +56,7 @@ vi.mock("../lib/api", async () => {
         if (createFails) throw new Error("Could not create the space.");
         return createResult;
       }
+      if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
     }),
   };

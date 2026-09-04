@@ -7,6 +7,19 @@ import type { Envelope, Me } from "../lib/api";
 import type { StandupEntry } from "./StandupRoom";
 import type { Commitment } from "../components/Commitments";
 
+function roomCalls(spy: { mock: { calls: unknown[][] } }) {
+  return spy.mock.calls.filter((c) => !String(c[0]).includes("/plugins/panels"));
+}
+
+function answering(response: Response) {
+  return (input: RequestInfo | URL) => {
+    if (String(input).includes("/plugins/panels")) {
+      return Promise.resolve(new Response("[]", { status: 200 }));
+    }
+    return Promise.resolve(response.clone());
+  };
+}
+
 const START = "2026-08-18T10:00:00.000Z";
 
 function readClock() {
@@ -461,7 +474,7 @@ describe("StandupRoom ending the session", () => {
   it("deletes the session", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+      .mockImplementation(answering(new Response(null, { status: 204 })));
     renderApp(<StandupRoom env={envelope({ facilitatorId: "marcus" })} me={me} />);
     await endNow();
     expect(fetchSpy).toHaveBeenCalledWith(
@@ -487,7 +500,7 @@ describe("StandupRoom ending the session", () => {
     // facilitator typed in the final second, as an unretryable "Could not save".
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+      .mockImplementation(answering(new Response(null, { status: 204 })));
     renderApp(
       <StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />,
     );
@@ -523,6 +536,7 @@ describe("StandupRoom ending the session", () => {
     });
     const ok = { status: 204, ok: true, text: async () => "" } as Response;
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      if (String(url).includes("/plugins/panels")) return new Response("[]", { status: 200 });
       if (String(url).endsWith("/actions/standup") && (init as RequestInit)?.method === "PUT") {
         await held;
       }
@@ -556,6 +570,7 @@ describe("StandupRoom ending the session", () => {
     // so a failed last save must stop the DELETE rather than close over it.
     // "Could not save" and "Session closed" must never both be true.
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      if (String(url).includes("/plugins/panels")) return new Response("[]", { status: 200 });
       if (String(url).endsWith("/actions/standup") && (init as RequestInit)?.method === "PUT") {
         throw new Error("network down");
       }
@@ -580,6 +595,7 @@ describe("StandupRoom ending the session", () => {
     // the advice would be a lie.
     let failNext = true;
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      if (String(url).includes("/plugins/panels")) return new Response("[]", { status: 200 });
       if (String(url).endsWith("/actions/standup") && (init as RequestInit)?.method === "PUT" && failNext) {
         throw new Error("network down");
       }
@@ -606,6 +622,7 @@ describe("StandupRoom ending the session", () => {
     let release: () => void = () => {};
     const held = new Promise<void>((r) => (release = r));
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      if (String(url).includes("/plugins/panels")) return new Response("[]", { status: 200 });
       if (String(url).endsWith("/actions/standup") && (init as RequestInit)?.method === "PUT") {
         await held;
       }
@@ -648,6 +665,7 @@ describe("StandupRoom ending the session", () => {
     });
     let puts = 0;
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      if (String(url).includes("/plugins/panels")) return new Response("[]", { status: 200 });
       if (String(url).endsWith("/actions/standup") && (init as RequestInit)?.method === "PUT") {
         puts += 1;
         if (puts === 1) await held;
@@ -705,8 +723,8 @@ function gathering(over: Partial<Envelope> = {}, entries?: Partial<StandupEntry>
 const startButton = () => screen.getByRole("button", { name: /start the round/i });
 
 function mockFetch() {
-  return vi.spyOn(globalThis, "fetch").mockResolvedValue(
-    new Response(null, { status: 204 }),
+  return vi.spyOn(globalThis, "fetch").mockImplementation(
+    answering(new Response(null, { status: 204 })),
   );
 }
 
@@ -717,8 +735,8 @@ describe("StandupRoom readiness", () => {
     const f = mockFetch();
     renderApp(<StandupRoom env={gathering()} me={me} />);
     await userEvent.click(screen.getByRole("button", { name: /i'm ready/i }));
-    expect(f).toHaveBeenCalledTimes(1);
-    const [path, init] = f.mock.calls[0] as [string, RequestInit];
+    expect(roomCalls(f)).toHaveLength(1);
+    const [path, init] = roomCalls(f)[0] as [string, RequestInit];
     expect(path).toBe("/api/sessions/sess-1/actions/ready");
     expect(init.method).toBe("PUT");
     expect(JSON.parse(init.body as string)).toEqual({ ready: true });
@@ -737,7 +755,7 @@ describe("StandupRoom readiness", () => {
       />,
     );
     await userEvent.click(screen.getByRole("button", { name: /ready/i }));
-    const [, init] = f.mock.calls[0] as [string, RequestInit];
+    const [, init] = roomCalls(f)[0] as [string, RequestInit];
     expect(JSON.parse(init.body as string)).toEqual({ ready: false });
   });
 
@@ -966,13 +984,15 @@ describe("StandupRoom hardening", () => {
   it("asks before ending the standup for everyone", async () => {
     // It fired a DELETE from a bare 13px label in the chrome, a cursor-width
     // from Export CSV, with nothing in between.
-    const del = vi.spyOn(globalThis, "fetch");
+    const del = vi.spyOn(globalThis, "fetch").mockImplementation(
+      answering(new Response("nope", { status: 500 })),
+    );
     renderApp(<StandupRoom env={envelope()} me={dana} />);
     screen.getByRole("button", { name: "End session" }).click();
     expect(await screen.findByText("End this standup?")).toBeTruthy();
-    expect(del).not.toHaveBeenCalled();
+    expect(roomCalls(del)).toHaveLength(0);
     await userEvent.click(screen.getByRole("button", { name: "Keep going" }));
-    expect(del).not.toHaveBeenCalled();
+    expect(roomCalls(del)).toHaveLength(0);
     del.mockRestore();
   });
 
@@ -1048,7 +1068,9 @@ describe("StandupRoom polish", () => {
     // #223 and this page kept it.
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response(JSON.stringify({ error: "Could not move to the next turn." }), { status: 500 }));
+      .mockImplementation(
+        answering(new Response(JSON.stringify({ error: "Could not move to the next turn." }), { status: 500 })),
+      );
     renderApp(<StandupRoom env={envelope()} me={dana} />);
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     const alert = await screen.findByRole("alert");
@@ -1060,7 +1082,9 @@ describe("StandupRoom polish", () => {
   it("offers Try again on a failed turn advance, and lets it be dismissed", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response(JSON.stringify({ error: "Could not move to the next turn." }), { status: 500 }));
+      .mockImplementation(
+        answering(new Response(JSON.stringify({ error: "Could not move to the next turn." }), { status: 500 })),
+      );
     renderApp(<StandupRoom env={envelope()} me={dana} />);
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     const alert = await screen.findByRole("alert");
@@ -1137,7 +1161,7 @@ describe("StandupRoom facilitator controls", () => {
   it("hands the chair to a named participant in one action", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+      .mockImplementation(answering(new Response(null, { status: 204 })));
     renderApp(<StandupRoom env={envelope()} me={dana} />);
 
     await userEvent.click(screen.getByRole("button", { name: /hand off/i }));
@@ -1315,7 +1339,7 @@ describe("StandupRoom carrying over", () => {
     // Beta was never answered, so it must not be rendered as a No.
     expect(row("beta").textContent).not.toMatch(/not yet/i);
     expect(within(row("beta")).getByRole("button", { name: /no/i })).toBeDefined();
-    const [path, init] = f.mock.calls[0] as [string, RequestInit];
+    const [path, init] = roomCalls(f)[0] as [string, RequestInit];
     expect(path).toBe("/api/sessions/sess-1/actions/answer");
     expect(JSON.parse(init.body as string)).toEqual({ id: "c1", done: false });
   });
@@ -1339,7 +1363,7 @@ describe("StandupRoom carrying over", () => {
     const f = mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
     await userEvent.click(within(row("alpha")).getByRole("button", { name: /yes/i }));
-    const [path, init] = f.mock.calls[0] as [string, RequestInit];
+    const [path, init] = roomCalls(f)[0] as [string, RequestInit];
     expect(path).toBe("/api/sessions/sess-1/actions/answer");
     expect(JSON.parse(init.body as string)).toEqual({ id: "c1", done: true });
   });
@@ -1350,7 +1374,7 @@ describe("StandupRoom carrying over", () => {
     const box = screen.getByLabelText(/add a commitment/i) as HTMLInputElement;
     await userEvent.type(box, "ship the thing");
     await userEvent.click(within(section()).getByRole("button", { name: /^add$/i }));
-    const [path, init] = f.mock.calls[0] as [string, RequestInit];
+    const [path, init] = roomCalls(f)[0] as [string, RequestInit];
     expect(path).toBe("/api/sessions/sess-1/actions/add");
     expect(JSON.parse(init.body as string)).toEqual({ text: "ship the thing" });
     await waitFor(() => expect(box.value).toBe(""));
@@ -1361,9 +1385,9 @@ describe("StandupRoom carrying over", () => {
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
     // Destructive and unrecoverable, so the first click only asks.
     await userEvent.click(within(row("alpha")).getByRole("button", { name: /^remove$/i }));
-    expect(f).not.toHaveBeenCalled();
+    expect(roomCalls(f)).toHaveLength(0);
     await userEvent.click(within(row("alpha")).getByRole("button", { name: /remove it/i }));
-    const [path, init] = f.mock.calls[0] as [string, RequestInit];
+    const [path, init] = roomCalls(f)[0] as [string, RequestInit];
     expect(path).toBe("/api/sessions/sess-1/actions/remove");
     expect(JSON.parse(init.body as string)).toEqual({ id: "c1" });
   });
@@ -1390,7 +1414,7 @@ describe("StandupRoom carrying over", () => {
     expect(screen.getByRole("status").textContent).toMatch(/remove this commitment/i);
 
     await userEvent.keyboard("{Enter}");
-    expect(f).not.toHaveBeenCalled();
+    expect(roomCalls(f)).toHaveLength(0);
     // Back to the first step, not deleted.
     expect(within(row("alpha")).getByRole("button", { name: /^remove$/i })).toBeDefined();
   });
@@ -1401,7 +1425,7 @@ describe("StandupRoom carrying over", () => {
     await userEvent.click(within(row("alpha")).getByRole("button", { name: /^remove$/i }));
     expect(within(row("alpha")).getByRole("button", { name: /remove it/i })).toBeDefined();
     await userEvent.keyboard("{Escape}");
-    expect(f).not.toHaveBeenCalled();
+    expect(roomCalls(f)).toHaveLength(0);
     expect(within(row("alpha")).queryByRole("button", { name: /remove it/i })).toBe(null);
     expect(within(row("alpha")).getByRole("button", { name: /^remove$/i })).toBeDefined();
   });
@@ -1435,7 +1459,7 @@ describe("StandupRoom carrying over", () => {
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
     await userEvent.click(within(row("alpha")).getByRole("button", { name: /^remove$/i }));
     await userEvent.click(within(row("alpha")).getByRole("button", { name: /keep it/i }));
-    expect(f).not.toHaveBeenCalled();
+    expect(roomCalls(f)).toHaveLength(0);
     expect(within(row("alpha")).getByRole("button", { name: /^remove$/i })).toBeDefined();
   });
 
@@ -1519,7 +1543,7 @@ describe("StandupRoom carrying over", () => {
     fireEvent.click(yes);
     fireEvent.click(yes);
     await waitFor(() => expect(row("alpha").textContent).toMatch(/landed/i));
-    expect(f).toHaveBeenCalledTimes(1);
+    expect(roomCalls(f)).toHaveLength(1);
   });
 });
 
@@ -1589,7 +1613,7 @@ describe("StandupRoom kudos", () => {
     // renders, not that the room can produce one.
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue({ status: 204, ok: true, text: async () => "" } as Response);
+      .mockImplementation(answering(new Response(null, { status: 204 })));
     renderApp(<StandupRoom env={doneEnv()} me={me} />);
 
     await userEvent.selectOptions(screen.getByLabelText(/thank/i), "dana");

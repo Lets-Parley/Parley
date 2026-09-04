@@ -48,6 +48,7 @@ type pluginPackage struct {
 	Capabilities []pluginCapReq   `json:"capabilities"`
 	QuotaBytes   int64            `json:"quotaBytes"`
 	Kinds        []plugin.KindDef `json:"kinds"`
+	Slots        []string         `json:"slots"`
 }
 
 type pluginCapReq struct {
@@ -667,6 +668,11 @@ func (p pluginPackage) validate() (string, bool) {
 		return "the version must be major.minor.patch", false
 	case len(p.Capabilities) > 64:
 		return "a plugin may not request more than 64 capabilities", false
+	}
+	for _, s := range p.Slots {
+		if !allowedUISlots[s] {
+			return "a UI slot must be panel, room, toolbar, nav or export-menu", false
+		}
 	}
 	for _, c := range p.Capabilities {
 		if strings.TrimSpace(c.Capability) == "" {

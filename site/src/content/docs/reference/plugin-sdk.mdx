@@ -5,7 +5,7 @@ description: Publishing a plugin with @parley/plugin-sdk, optional UI classes, t
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp version="unreleased" source={["sdk/plugin-sdk/src/host.js", "sdk/plugin-sdk/src/cli.js", "sdk/plugin-ui/parley.css", "internal/api/plugindev.go", "internal/plugin/describe.go"]} />
+<VerifiedStamp version="unreleased" source={["sdk/plugin-sdk/src/host.js", "sdk/plugin-sdk/src/cli.js", "sdk/plugin-ui/parley.css", "internal/api/plugindev.go", "internal/api/plugins.go", "internal/plugin/describe.go"]} />
 
 `@parley/plugin-sdk` is the guest library: capability-aware methods that fail
 fast in the guest when a grant is missing, then still call the Extism bridge,
@@ -34,8 +34,13 @@ The wire protocol is frozen at version 1; see [Plugin wire protocol](/reference/
 
 A plugin package is JSON with `manifest: 1`, `kind: "plugin"`, `name`,
 `version` (`major.minor.patch`), optional `quotaBytes`, `capabilities` (each
-`capability` plus optional `scope`), and `kinds` for ceremonies the plugin
-provides. Installing through the operator API still requires `grantsAccepted:
+`capability` plus optional `scope`), `kinds` for ceremonies the plugin
+provides, and optional `slots` for UI chrome: `panel`, `room`, `toolbar`,
+`nav`, and `export-menu`. An unknown slot is refused at preview and install.
+A plugin that does not declare a slot appears nowhere in that chrome; a UI
+bundle with no sidecar still occupies the nested `panel` so existing installs
+keep working. `parley-plugin build` writes `<name>-<version>.slots.json`
+beside the UI bundle. Installing through the operator API still requires `grantsAccepted:
 true`. Consent sentences are not written in the frontend; they come from
 `internal/plugin/describe.go`, next to the guards that enforce them.
 

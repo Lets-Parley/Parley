@@ -479,6 +479,14 @@ mutate "the org filter on the panel list" \
     'TestPluginPanelsAreScopedToTheRoomsOwnOrg' \
     pluginpanels.go 'where i.enabled and i.org_id = $1' 'where i.enabled and $1 is not null'
 
+mutate "link guests never receiving org nav plugin chrome" \
+    'TestGuestChromeSlotsOmitNavAndExportWhenTheKindCannot|TestLinkGuestPluginPanelsOmitNavAndKeepExportOnAPokerRoom' \
+    pluginpanels.go 'if guest && s == "nav" {
+			continue
+		}' 'if false && guest && s == "nav" {
+			continue
+		}'
+
 mutate "the audit's check that the named plugin is installed" \
     'TestAnActionNamingAPluginThisInstanceDoesNotRunIsNotRecorded' \
     pluginaudit.go '`select exists (select 1 from plugin_installs where name = $1 and org_id = $2 and enabled)`' '`select $1::text is not null and $2::text is not null`'

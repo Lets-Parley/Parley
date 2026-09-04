@@ -97,8 +97,14 @@ function readPkg(root) {
 
 function verify(root) {
   const pkg = readPkg(root);
-  if (pkg.manifest !== 1) throw new Error("the manifest version must be 1");
-  if (pkg.kind !== "plugin") throw new Error('the kind must be "plugin"');
+	if (pkg.manifest !== 1) throw new Error("the manifest version must be 1");
+	if (pkg.kind !== "plugin") throw new Error('the kind must be "plugin"');
+	const allowed = new Set(["panel", "room", "toolbar", "nav", "export-menu"]);
+	for (const slot of pkg.slots || []) {
+		if (!allowed.has(slot)) {
+			throw new Error(`${slot} is not a UI slot; must be panel, room, toolbar, nav or export-menu`);
+		}
+	}
   const names = readdirSync(root);
   if (names.some((n) => n.endsWith(".py"))) {
     throw new Error("Python is not an Extism guest PDK");
@@ -117,6 +123,9 @@ function build(root) {
   const stem = `${pkg.name}-${pkg.version}`;
   if (existsSync(join(root, "ui.js"))) {
     writeFileSync(join(dist, stem + ".ui.js"), readFileSync(join(root, "ui.js")));
+  }
+  if (Array.isArray(pkg.slots)) {
+    writeFileSync(join(dist, stem + ".slots.json"), JSON.stringify(pkg.slots) + "\n");
   }
 }
 

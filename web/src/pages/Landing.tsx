@@ -14,6 +14,7 @@ import { orgPath, pluginsPath, spacePath } from "../lib/paths";
 import { useMe, useAuthMode, NameGate, clearSessionMemory } from "../components/NameGate";
 import { isFullAccount } from "../lib/links";
 import { Logo, ThemeToggle } from "../components/AppShell";
+import { PluginChrome } from "../components/PluginChrome";
 import { Avatar } from "../components/Avatar";
 import { buttonPrimary, buttonQuiet, inputClass, labelClass } from "../components/Modal";
 import { safeDisplayName } from "../lib/displayName";
@@ -447,6 +448,12 @@ export function Landing() {
                 </button>
               ))}
             </nav>
+          )}
+
+          {fullAccount && (orgFilter || orgs.length === 1) && (
+            <div className="w-full max-w-md">
+              <PluginChrome slot="nav" orgSlug={orgFilter ?? orgs[0]?.slug} />
+            </div>
           )}
 
           {known && (
