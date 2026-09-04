@@ -9,7 +9,7 @@ import Screenshot from "../../../components/Screenshot.astro";
 import historyLight from "../../../assets/session-history-light.png";
 import historyDark from "../../../assets/session-history-dark.png";
 
-<VerifiedStamp source={["internal/api/export.go", "internal/poker/csv.go", "internal/standup/csv.go"]} />
+<VerifiedStamp source={["internal/api/export.go", "internal/poker/csv.go", "internal/standup/csv.go", "internal/plugin/csv.go"]} />
 
 Any session exports to CSV from a link in its own room, or directly:
 
@@ -37,6 +37,9 @@ people voted; `detail` spells out who voted what, and is only present for the
 current story once it has been revealed.
 
 **Standup** — `name, yesterday, today, blockers, skipped`.
+
+**Plugin-provided kinds** — `id,kind,title,phase` plus one column per top-level
+field of the ceremony's wire state.
 
 Full column semantics are in the [CSV reference](/reference/csv-format/).
 

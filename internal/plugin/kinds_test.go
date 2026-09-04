@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -152,6 +153,79 @@ func TestPluginKindProjectsTheInstallOntoTheKind(t *testing.T) {
 	got := strings.Join(k.Plugin.Grants, ",")
 	if got != "log,session:read" {
 		t.Fatalf("grants on the kind are %v, want log,session:read", k.Plugin.Grants)
+	}
+}
+
+func pluginKindForCSV(t *testing.T) session.Kind {
+	t.Helper()
+	h := NewHost(&Store{}, HostConfig{})
+	return h.PluginKind(State{
+		Install: Install{ID: "x", OrgID: testOrgID, Name: "retro", Version: "1.0.0"},
+	}, KindDef{Kind: kindName(t), Display: "Retrospective"})
+}
+
+// A plugin-provided ceremony has to export: the HTTP path maps a missing
+// Kind.CSV to 404 "this session kind has no export", and Host.PluginKind
+// used to leave CSV nil, so every plugin room answered that way.
+func TestPluginKindHasCSV(t *testing.T) {
+	if pluginKindForCSV(t).CSV == nil {
+		t.Fatal("a plugin-provided kind has no CSV exporter")
+	}
+}
+
+func TestCSVRowsSucceedsForARegisteredPluginKind(t *testing.T) {
+	k := pluginKindForCSV(t)
+	r := session.NewRegistry()
+	if err := r.Register(k); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := r.CSVRows(session.Envelope{
+		ID: "s1", Kind: k.Name, Title: "Retro", Phase: "open",
+		State: map[string]any{"note": "hello"},
+	})
+	if err != nil {
+		t.Fatalf("CSVRows for a registered plugin kind: %v", err)
+	}
+	if len(rows) < 2 {
+		t.Fatalf("plugin CSV = %v, want a header and a data row", rows)
+	}
+	found := false
+	for i, h := range rows[0] {
+		if h == "note" && rows[1][i] == "hello" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("plugin CSV missing the wire state's note=hello: %v", rows)
+	}
+}
+
+func TestPluginCSVSanitizesAFormulaCell(t *testing.T) {
+	k := pluginKindForCSV(t)
+	if k.CSV == nil {
+		t.Fatal("a plugin-provided kind has no CSV exporter")
+	}
+	rows, err := k.CSV(session.Envelope{
+		ID: "s1", Kind: k.Name, Title: "Retro", Phase: "open",
+		State: json.RawMessage(`{"note":"=HYPERLINK"}`),
+	})
+	if err != nil {
+		t.Fatalf("plugin CSV: %v", err)
+	}
+	found := false
+	for _, row := range rows {
+		for _, cell := range row {
+			if cell == "'=HYPERLINK" {
+				found = true
+			}
+			if cell == "=HYPERLINK" {
+				t.Fatalf("plugin CSV left a formula cell unsanitized: %v", rows)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("plugin CSV missing the sanitized formula cell: %v", rows)
 	}
 }
 
