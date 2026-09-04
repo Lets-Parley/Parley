@@ -25,7 +25,10 @@ func TestTLSSettingsResolvesTheEffectiveMode(t *testing.T) {
 		{"keyword value form", "host=db user=parley sslmode=verify-ca sslrootcert=/ca.pem", "verify-ca", "/ca.pem"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			mode, root := TLSSettings(tc.url)
+			mode, root, err := TLSSettings(tc.url)
+			if err != nil {
+				t.Fatalf("TLSSettings(%q): %v", tc.url, err)
+			}
 			if mode != tc.wantMode || root != tc.wantRoot {
 				t.Fatalf("TLSSettings(%q) = %q, %q; want %q, %q", tc.url, mode, root, tc.wantMode, tc.wantRoot)
 			}
@@ -39,14 +42,46 @@ func TestTLSSettingsHonoursThePGEnvironment(t *testing.T) {
 	t.Setenv("PGSSLMODE", "verify-full")
 	t.Setenv("PGSSLROOTCERT", "/etc/ssl/ca.pem")
 
-	mode, root := TLSSettings("postgres://db/parley")
+	mode, root, err := TLSSettings("postgres://db/parley")
+	if err != nil {
+		t.Fatalf("TLSSettings: %v", err)
+	}
 	if mode != "verify-full" || root != "/etc/ssl/ca.pem" {
 		t.Fatalf("TLSSettings = %q, %q; want verify-full, /etc/ssl/ca.pem", mode, root)
 	}
 
 	// The connection string still wins over the environment, as libpq does it.
-	if mode, _ := TLSSettings("postgres://db/parley?sslmode=disable"); mode != "disable" {
-		t.Fatalf("sslmode in the URL = %q, want disable — the environment overrode the connection string", mode)
+	if mode, _, err := TLSSettings("postgres://db/parley?sslmode=disable"); err != nil || mode != "disable" {
+		t.Fatalf("sslmode in the URL = %q, %v; want disable — the environment overrode the connection string", mode, err)
+	}
+
+	// Same precedence for the root certificate: an operator who names a CA on
+	// the connection string is verifying against that CA, not against whatever
+	// PGSSLROOTCERT happens to hold.
+	if _, root, err := TLSSettings("postgres://db/parley?sslrootcert=/etc/ssl/url-ca.pem"); err != nil || root != "/etc/ssl/url-ca.pem" {
+		t.Fatalf("sslrootcert in the URL = %q, %v; want /etc/ssl/url-ca.pem — the environment overrode the connection string", root, err)
+	}
+}
+
+// pgx keeps the FIRST value of a duplicated URL parameter; a plain reader keeps
+// the last. "?sslmode=disable&sslmode=verify-full" would therefore pass this
+// check on verify-full and connect in the clear, so the ambiguity is refused.
+func TestTLSSettingsRefusesADuplicatedParameter(t *testing.T) {
+	t.Setenv("PGSSLMODE", "")
+	t.Setenv("PGSSLROOTCERT", "")
+
+	const ambiguous = "postgres://u:p@h:5432/db?sslmode=disable&sslmode=verify-full&sslrootcert=/ca.pem"
+	mode, root, err := TLSSettings(ambiguous)
+	if err == nil {
+		t.Fatalf("TLSSettings(%q) = %q, %q, nil — a duplicated sslmode was resolved instead of refused", ambiguous, mode, root)
+	}
+	if !strings.Contains(err.Error(), "sslmode") {
+		t.Errorf("error %q does not name the duplicated key", err)
+	}
+
+	// The keyword/value form has the same ambiguity.
+	if _, _, err := TLSSettings("host=db sslmode=disable sslmode=verify-full"); err == nil {
+		t.Error("a duplicated sslmode in the keyword/value form was accepted")
 	}
 }
 

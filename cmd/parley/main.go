@@ -83,7 +83,11 @@ func loadConfig() (config, error) {
 	// pgx defaults sslmode to "prefer", which negotiates TLS if the server
 	// offers it and quietly drops to plaintext if it does not. Refuse that
 	// rather than let a deployment discover it was unencrypted all along.
-	cfg.DBSSLMode, cfg.DBRootCert = db.TLSSettings(cfg.DatabaseURL)
+	sslMode, rootCert, err := db.TLSSettings(cfg.DatabaseURL)
+	if err != nil {
+		return cfg, err
+	}
+	cfg.DBSSLMode, cfg.DBRootCert = sslMode, rootCert
 	allowPlaintext, err := strconv.ParseBool(envOr("DATABASE_ALLOW_PLAINTEXT", "false"))
 	if err != nil {
 		return cfg, fmt.Errorf("DATABASE_ALLOW_PLAINTEXT %q is not a boolean — use true or false", os.Getenv("DATABASE_ALLOW_PLAINTEXT"))

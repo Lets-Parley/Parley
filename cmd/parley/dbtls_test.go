@@ -108,3 +108,19 @@ func TestRequireWithoutARootCertIsWarnedAbout(t *testing.T) {
 		}
 	}
 }
+
+// The dangerous shape: the check would read the last sslmode and see
+// verify-full while the driver reads the first and connects in the clear. Boot
+// must stop instead of picking an end.
+func TestLoadConfigRefusesADuplicatedConnectionParameter(t *testing.T) {
+	baseConfigEnv(t)
+	t.Setenv("DATABASE_URL", "postgres://u:p@h:5432/db?sslmode=disable&sslmode=verify-full&sslrootcert=/ca.pem")
+
+	_, err := loadConfig()
+	if err == nil {
+		t.Fatal("boot accepted a DATABASE_URL with a duplicated sslmode")
+	}
+	if !strings.Contains(err.Error(), "sslmode") {
+		t.Fatalf("error %q does not name the duplicated key", err)
+	}
+}
