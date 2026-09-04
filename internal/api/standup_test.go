@@ -277,3 +277,41 @@ func TestStandupCarryForwardPicksHigherIdWhenCreatedAtTies(t *testing.T) {
 		t.Fatalf("yesterday = %q, want %q (higher id of the tied earlier pair)", got, want)
 	}
 }
+
+// A peer that shares this session's created_at is not earlier. An inclusive
+// bound would let order-by pick it as "yesterday".
+func TestStandupCarryForwardIgnoresAPeerTiedWithThisSession(t *testing.T) {
+	srv := testServer(t)
+	fac, m1, _, oldID, slug := standupSetup(t, srv, "Carry Peer Tie Space")
+	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+oldID+"/actions/standup",
+		`{"today":"from old"}`, m1); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("old entry: %d", resp.StatusCode)
+	}
+	_, current := createSession(t, srv, slug, "standup", "Current", fac)
+	currentID := current["id"].(string)
+	_, peer := createSession(t, srv, slug, "standup", "Peer", fac)
+	peerID := peer["id"].(string)
+	if resp, _ := doJSON(t, srv, "PUT", "/api/sessions/"+peerID+"/actions/standup",
+		`{"today":"from peer"}`, m1); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("peer entry: %d", resp.StatusCode)
+	}
+	if _, err := testDBPool(t).Exec(context.Background(),
+		`update sessions set created_at = timestamptz '2020-01-01' where id = $1`, oldID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := testDBPool(t).Exec(context.Background(),
+		`update sessions set created_at = timestamptz '2020-01-02' where id in ($1, $2)`,
+		currentID, peerID); err != nil {
+		t.Fatal(err)
+	}
+	conns := connectAll(t, srv, currentID, fac, m1)
+	defer closeAll(conns)()
+	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+currentID+"/actions/start", "", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("start: %d", resp.StatusCode)
+	}
+	_, me := doJSON(t, srv, "GET", "/api/me", "", m1)
+	got := entriesByUser(t, srv, currentID, fac)[me["id"].(string)]["yesterday"]
+	if got != "from old" {
+		t.Fatalf("yesterday = %q, want %q (peer sharing this session's created_at is not earlier)", got, "from old")
+	}
+}
