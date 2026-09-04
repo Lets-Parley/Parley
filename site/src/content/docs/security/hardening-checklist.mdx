@@ -100,7 +100,23 @@ response:
 
 And these it does not, all of which belong at the proxy if you want them:
 `Strict-Transport-Security`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`,
-`Cross-Origin-Embedder-Policy`, `Cross-Origin-Resource-Policy`.
+`Cross-Origin-Embedder-Policy`, `Cross-Origin-Resource-Policy`. Copy-paste
+blocks for both Caddy and nginx, with a `curl -sI` line to confirm they landed,
+are on [Reverse proxy](/operations/reverse-proxy/#headers-the-proxy-owns).
+
+One of the five needs a choice, not just a copy. `Cross-Origin-Embedder-Policy:
+require-corp` is the value usually recommended alongside COOP for full
+cross-origin isolation, but it blocks loading any cross-origin subresource
+that does not send back `Cross-Origin-Resource-Policy`, and the plugin UI
+iframe (`/plugin-ui/<name>/<version>`, sandboxed with
+`sandbox="allow-scripts"` — see [plugin
+sandbox](/security/plugin-sandbox/#plugin-ui)) is exactly that kind of
+embed. The proxy snippets here use `Cross-Origin-Embedder-Policy:
+credentialless` instead: it gets you the same cross-origin-isolated globals
+(`SharedArrayBuffer`, high-resolution timers) without requiring every embed to
+opt in via CORP, and it does not break the plugin frame. If you need
+`require-corp` for a reason specific to your deployment, verify the plugin UI
+still renders before you ship it — do not carry it over as a default.
 
 Two notes on the CSP, so you can assess it rather than pattern-match it. There is
 no explicit `frame-ancestors` or `object-src`, but `default-src 'self'` is the
@@ -137,13 +153,40 @@ Encrypt the connection. Parley refuses to start on a `DATABASE_URL` whose
 `sslmode` is absent, `disable`, `allow` or `prefer` unless
 `DATABASE_ALLOW_PLAINTEXT=true`, because the driver's default silently falls
 back to plaintext and every passcode and story note then crosses the network in
-the clear. For CUI the default is
-`?sslmode=verify-full&sslrootcert=/path/to/ca.pem`: `require` encrypts but never
-checks the server's certificate, so a redirected connection can be impersonated
-— boot warns when you use it without a root certificate. The boot line echoes
-the resolved mode as `db_sslmode`; read it rather than assume.
+the clear. For CUI, use `?sslmode=verify-full&sslrootcert=/path/to/ca.pem` on
+`DATABASE_URL`: `verify-full` is the only mode that both encrypts and checks
+the server's certificate against the CA in `sslrootcert` (`require` encrypts
+but skips the check, so a redirected connection can be impersonated, and
+`verify-ca` checks the CA but not the hostname); Parley warns at boot if you
+use `require` without pointing `sslrootcert` anywhere. `PGSSLMODE` and
+`PGSSLROOTCERT` are accepted as a fallback when `DATABASE_URL` sets neither.
+The boot line echoes the resolved mode as `db_sslmode` — read it rather than
+assume, and if `DATABASE_URL` ever sets `sslmode` twice Parley refuses to
+start rather than guess which value the driver would have honored.
 
-Consider setting a `statement_timeout` on the role — Parley sets none.
+Set a `statement_timeout` on the role — Parley sets none, so an unbounded
+query or a client that stalls mid-transaction otherwise holds a connection
+indefinitely:
+
+```sql
+ALTER ROLE parley SET statement_timeout = '30s';
+```
+
+Also cap the role's own connections, so one runaway Parley process (or an
+attacker who gets code execution in it) cannot exhaust every connection slot
+Postgres has:
+
+```sql
+ALTER ROLE parley CONNECTION LIMIT 50;
+```
+
+Size the limit above Parley's own pool ceiling — see [Scaling and
+limits](/operations/scaling-and-limits/) — plus headroom for `pg_dump` during a
+backup.
+
+If you bake secrets into a [`PARLEY_CONFIG_FILE`](/reference/configuration/)
+rather than passing them as environment variables, `chmod 600` it — it is a
+plaintext `DATABASE_URL` and passcode-adjacent secrets sitting on disk.
 
 ## 6. Run the container as it ships
 

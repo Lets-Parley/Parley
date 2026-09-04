@@ -41,6 +41,13 @@ you are about to put in front of it. The rest of the Compose defaults, and why
 they are what they are, are covered in
 [Deployment](/operations/deployment/#docker-compose).
 
+`.env` is plaintext on disk; if that is not acceptable for your host, use
+[Docker secrets](https://docs.docker.com/compose/how-tos/use-secrets/) for the
+Postgres image (`POSTGRES_PASSWORD_FILE`, which it reads natively) and mount
+Parley's own `DATABASE_URL` via a secrets-backed
+[`PARLEY_CONFIG_FILE`](/reference/configuration/) instead of the plain
+environment.
+
 ## 2. Put a proxy in front
 
 Parley does not terminate TLS and does not want to. A proxy handles the
