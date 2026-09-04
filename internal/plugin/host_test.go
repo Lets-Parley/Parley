@@ -385,7 +385,7 @@ func TestAnUpgradeAskingForMoreParksAndTheOldGrantsStayInForce(t *testing.T) {
 	err := store.Upgrade(ctx, in.ID, "2.0.0", []Grant{
 		{Capability: CapabilityKV},
 		{Capability: CapabilityFetch, Scope: "api.example.com"},
-	})
+	}, nil)
 	if !errors.Is(err, ErrUpgradePending) {
 		t.Fatalf("got %v, want ErrUpgradePending", err)
 	}
@@ -431,7 +431,7 @@ func TestAnUpgradeWithinTheApprovedCapabilitiesAppliesStraightAway(t *testing.T)
 		Grant{Capability: CapabilityKV},
 		Grant{Capability: CapabilityLog})
 
-	if err := store.Upgrade(ctx, in.ID, "1.1.0", []Grant{{Capability: CapabilityKV}}); err != nil {
+	if err := store.Upgrade(ctx, in.ID, "1.1.0", []Grant{{Capability: CapabilityKV}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	state, err := store.State(ctx, in.ID)
@@ -474,7 +474,7 @@ func TestAnUpgradeIsRunFromTheNewBundleRatherThanTheCachedOne(t *testing.T) {
 
 	// An upgrade within the already-approved capabilities, so it applies at
 	// once rather than parking for an operator.
-	if err := store.Upgrade(ctx, in.ID, "2.0.0", []Grant{{Capability: CapabilityKV}}); err != nil {
+	if err := store.Upgrade(ctx, in.ID, "2.0.0", []Grant{{Capability: CapabilityKV}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	// v2 behaves differently, and only the new bundle can produce that.
@@ -726,7 +726,7 @@ func TestAnApprovedUpgradeLeavesNothingPendingBehind(t *testing.T) {
 	if err := store.Upgrade(ctx, in.ID, "2.0.0", []Grant{
 		{Capability: CapabilityKV},
 		{Capability: CapabilityFetch, Scope: "api.example.com"},
-	}); !errors.Is(err, ErrUpgradePending) {
+	}, nil); !errors.Is(err, ErrUpgradePending) {
 		t.Fatalf("got %v, want ErrUpgradePending", err)
 	}
 	if err := store.ApproveUpgrade(ctx, in.ID); err != nil {
@@ -759,12 +759,12 @@ func TestOneInstallsPendingUpgradeIsNotAnothers(t *testing.T) {
 
 	if err := store.Upgrade(ctx, a.ID, "2.0.0", []Grant{
 		{Capability: CapabilityFetch, Scope: "a.example.com"},
-	}); !errors.Is(err, ErrUpgradePending) {
+	}, nil); !errors.Is(err, ErrUpgradePending) {
 		t.Fatalf("install a: got %v, want ErrUpgradePending", err)
 	}
 	if err := store.Upgrade(ctx, b.ID, "3.0.0", []Grant{
 		{Capability: CapabilityFetch, Scope: "b.example.com"},
-	}); !errors.Is(err, ErrUpgradePending) {
+	}, nil); !errors.Is(err, ErrUpgradePending) {
 		t.Fatalf("install b: got %v, want ErrUpgradePending", err)
 	}
 

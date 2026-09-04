@@ -121,11 +121,11 @@ func (a *Admin) Install(ctx context.Context, req InstallRequest) (Install, error
 }
 
 // Upgrade moves one of this org's installs to a new version.
-func (a *Admin) Upgrade(ctx context.Context, installID, version string, want []Grant) error {
+func (a *Admin) Upgrade(ctx context.Context, installID, version string, want []Grant, kinds []KindDef) error {
 	if err := a.own(ctx, installID); err != nil {
 		return err
 	}
-	return a.s.Upgrade(ctx, installID, version, want)
+	return a.s.Upgrade(ctx, installID, version, want, kinds)
 }
 
 // Pending returns the upgrade waiting on this org's operator.

@@ -392,6 +392,11 @@ function InstallPanel({
             {preview.name} {preview.version}
             {preview.upgrade && " — an upgrade"}
           </h3>
+          {preview.kinds.length > 0 && (
+            <p className="mt-2 text-sm text-ink-soft">
+              Provides: {preview.kinds.map((k) => k.display).join(", ")}
+            </p>
+          )}
           {preview.upgrade ? (
             <>
               <p className="mt-2 text-sm text-ink-soft text-pretty">

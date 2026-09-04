@@ -51,6 +51,12 @@ export type PluginRegistry = {
   installs: InstalledPlugin[];
 };
 
+/** One session kind a package declares, as preview and install both carry it. */
+export type PluginKindDef = {
+  kind: string;
+  display: string;
+};
+
 /** What the server says an uploaded package would be permitted, before anything is installed. */
 export type PluginPreview = {
   name: string;
@@ -61,6 +67,7 @@ export type PluginPreview = {
   added: DescribedGrant[];
   removed: DescribedGrant[];
   widens: boolean;
+  kinds: PluginKindDef[];
 };
 
 /**
@@ -103,5 +110,6 @@ export function normalizePluginPreview(preview: PluginPreview): PluginPreview {
     current: preview.current ? orEmpty(preview.current) : preview.current,
     added: orEmpty(preview.added),
     removed: orEmpty(preview.removed),
+    kinds: orEmpty(preview.kinds),
   };
 }

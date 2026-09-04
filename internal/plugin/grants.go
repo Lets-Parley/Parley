@@ -141,13 +141,27 @@ type PendingUpgrade struct {
 // recorded as pending and returns ErrUpgradePending: the running version and
 // the grants in force are left exactly as they were, because the alternative
 // is a plugin granting itself capabilities by shipping a release.
-func (s *Store) Upgrade(ctx context.Context, installID, version string, want []Grant) error {
+//
+// kinds is the session kinds this version provides. A nil slice leaves the
+// kinds already on the record alone (callers that are not carrying a package);
+// a non-nil slice — including empty — is canonicalised and written in the same
+// transaction as the version (or pending_version) bump.
+func (s *Store) Upgrade(ctx context.Context, installID, version string, want []Grant, kinds []KindDef) error {
 	current, err := s.State(ctx, installID)
 	if err != nil {
 		return err
 	}
 	if err := checkGrants(s.Cipher, current.Install.Name, want); err != nil {
 		return err
+	}
+	// Screened before the transaction, matching Install: a bad declaration
+	// must not bump the version and then fail the kinds write.
+	var screened []KindDef
+	if kinds != nil {
+		screened, err = canonicalKinds(kinds)
+		if err != nil {
+			return err
+		}
 	}
 
 	widens := false
@@ -171,17 +185,28 @@ func (s *Store) Upgrade(ctx context.Context, installID, version string, want []G
 				installID, version); err != nil {
 				return fmt.Errorf("upgrading %s: %w", installID, err)
 			}
-			return replaceGrants(ctx, tx, installID, want)
+			if err := replaceGrants(ctx, tx, installID, want); err != nil {
+				return err
+			}
+		} else {
+			if _, err := tx.Exec(ctx,
+				`update plugin_installs set pending_version = $2 where id = $1`, installID, version); err != nil {
+				return fmt.Errorf("recording the pending upgrade for %s: %w", installID, err)
+			}
+			for _, g := range want {
+				if _, err := tx.Exec(ctx, `
+					insert into plugin_pending_grants (install_id, capability, scope)
+					values ($1, $2, $3) on conflict do nothing`, installID, g.Capability, g.Scope); err != nil {
+					return fmt.Errorf("recording a pending grant for %s: %w", installID, err)
+				}
+			}
 		}
-		if _, err := tx.Exec(ctx,
-			`update plugin_installs set pending_version = $2 where id = $1`, installID, version); err != nil {
-			return fmt.Errorf("recording the pending upgrade for %s: %w", installID, err)
-		}
-		for _, g := range want {
-			if _, err := tx.Exec(ctx, `
-				insert into plugin_pending_grants (install_id, capability, scope)
-				values ($1, $2, $3) on conflict do nothing`, installID, g.Capability, g.Scope); err != nil {
-				return fmt.Errorf("recording a pending grant for %s: %w", installID, err)
+		if kinds != nil {
+			// Kinds are not capabilities: they land even while a widening
+			// grant set waits for approval, so a re-upload cannot silently
+			// drop a ceremony the package still declares.
+			if err := syncKinds(ctx, tx, current.Install.OrgID, current.Install.Name, screened); err != nil {
+				return err
 			}
 		}
 		return nil

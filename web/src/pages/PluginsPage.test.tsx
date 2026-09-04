@@ -85,6 +85,7 @@ beforeEach(() => {
     added: [],
     removed: [],
     widens: true,
+    kinds: [],
   };
 });
 
@@ -118,6 +119,25 @@ describe("the consent conversation", () => {
     const install = calls.find(([m, p]) => m === "POST" && p === "/api/orgs/acme/admin/plugins");
     expect(install).toBeTruthy();
     expect((install![2] as { grantsAccepted: boolean }).grantsAccepted).toBe(true);
+  });
+
+  it("names the session kinds a package declares even when it asks for no capabilities", async () => {
+    preview = {
+      name: "retro",
+      version: "1.0.0",
+      grants: [],
+      upgrade: false,
+      added: [],
+      removed: [],
+      widens: false,
+      kinds: [{ kind: "retro", display: "Retrospective" }],
+    };
+    render();
+    const user = userEvent.setup();
+    await user.upload(await screen.findByLabelText(/plugin package file/i), packageFile("retro"));
+
+    expect(await screen.findByText("This plugin asks for no capabilities at all.")).toBeTruthy();
+    expect(screen.getByText(/Provides:\s*Retrospective/)).toBeTruthy();
   });
 });
 

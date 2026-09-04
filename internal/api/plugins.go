@@ -104,6 +104,7 @@ type previewResponse struct {
 	Removed  []describedGrant `json:"removed"`
 	Widens   bool             `json:"widens"`
 	Provides []string         `json:"provides,omitempty"`
+	Kinds    []plugin.KindDef `json:"kinds"`
 }
 
 func (a *app) pluginsAvailable() bool { return a.plugins != nil }
@@ -239,6 +240,10 @@ func (a *app) handlePreviewPlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	grants := pkg.grants()
+	kinds := pkg.Kinds
+	if kinds == nil {
+		kinds = []plugin.KindDef{}
+	}
 	out := previewResponse{
 		Name:    pkg.Name,
 		Version: pkg.Version,
@@ -249,6 +254,7 @@ func (a *app) handlePreviewPlugin(w http.ResponseWriter, r *http.Request) {
 		// crashes a browser indexing into .length.
 		Added:   plugin.DescribeAll(nil),
 		Removed: plugin.DescribeAll(nil),
+		Kinds:   kinds,
 	}
 	current, found, err := a.pluginAdmin(r).ByName(r.Context(), pkg.Name)
 	if err != nil {
@@ -317,7 +323,7 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = adm.Upgrade(r.Context(), current.Install.ID, pkg.Version, grants)
+	err = adm.Upgrade(r.Context(), current.Install.ID, pkg.Version, grants, pkg.Kinds)
 	switch {
 	case errors.Is(err, plugin.ErrUpgradePending):
 		// The install keeps its old version and its old grants. This is the
@@ -553,10 +559,10 @@ func (a *app) readPackage(w http.ResponseWriter, r *http.Request) (pluginPackage
 
 // pluginError keeps a refusal the plugin package already worded — an
 // unenforceable allowlist entry, secrets with no key, a session kind the host
-// will not accept — as a 400 the operator can act on, rather than flattening
-// it into "something went wrong".
+// will not accept, a kind name already taken — as a 400 the operator can act
+// on, rather than flattening it into "something went wrong".
 func (a *app) pluginError(w http.ResponseWriter, err error, fallback string) {
-	if errors.Is(err, plugin.ErrNoSecretKey) || errors.Is(err, plugin.ErrAllowPattern) || errors.Is(err, plugin.ErrBadKindDef) {
+	if errors.Is(err, plugin.ErrNoSecretKey) || errors.Is(err, plugin.ErrAllowPattern) || errors.Is(err, plugin.ErrBadKindDef) || errors.Is(err, plugin.ErrKindTaken) {
 		http.Error(w, `{"error":`+jsonString(err.Error())+`}`, http.StatusBadRequest)
 		return
 	}
