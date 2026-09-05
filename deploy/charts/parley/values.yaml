@@ -351,6 +351,10 @@ logLevel: info
 # leaves the probes on 8080 and fails readiness. service.port only changes the
 # cluster-facing Service port, not the process listen port.
 #
+# BIND_ADDR is not a chart value. Kubernetes pods bind all interfaces;
+# NetworkPolicy is the control. Setting it here would hide the process from
+# probes and the Service.
+#
 # DATABASE_URL, BASE_URL, LOG_LEVEL, AUTH_MODE, POD_NAME, the OIDC settings
 # and the proxy-trust pair are set from the values above; setting one here as
 # well means the container carries the name twice, and Kubernetes takes the

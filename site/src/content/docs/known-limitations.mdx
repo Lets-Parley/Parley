@@ -41,7 +41,7 @@ accepted and actionable.
   { name: "Backups", status: "not-built", detail: "Nothing backs itself up. Schedule <code>pg_dump</code>." },
   { name: "Data retention or cleanup", status: "not-built", detail: "Application records are never deleted automatically. Expired <code>session_tokens</code> rows are the exception: an hourly pass deletes them." },
   { name: "Down-migrations or rollback", status: "not-built", detail: "Migrations are forward-only and the binary refuses to start against a newer schema. Roll back by restoring a backup taken before the upgrade." },
-  { name: "A bind-address setting", status: "not-built", detail: "The process listens on all interfaces; only <code>PORT</code> is configurable. Use a container port binding, a firewall, or a proxy." },
+  { name: "A bind-address setting", status: "built", detail: "<code>BIND_ADDR</code> prepends a bare host or IP address (IPv4 or IPv6 literal) to <code>PORT</code>. Empty (the default) still listens on every interface. It is not a Helm chart value — Kubernetes pods bind all interfaces and NetworkPolicy is the control. See <a href='/reference/configuration/#BIND_ADDR'>Configuration</a>." },
   { name: "Configuration reload", status: "not-built", detail: "Everything is read once at boot. Restart to change anything." },
 ]} />
 
