@@ -45,6 +45,10 @@ type app struct {
 
 	secureCookies bool
 	allowedOrigin string
+	// sessionIdleTTL and sessionMaxTTL are the session lifetimes this instance
+	// enforces; the cookie's Max-Age is the shorter of the two.
+	sessionIdleTTL time.Duration
+	sessionMaxTTL  time.Duration
 	// authMode is ModeOpen or ModeOIDC; oidc is non-nil only in the latter.
 	authMode string
 	version  string
@@ -100,6 +104,10 @@ type Options struct {
 	TrustProxyHeaders bool
 	TrustedProxyCIDRs []netip.Prefix
 	Limits            Limits
+	// SessionIdleTTL and SessionMaxTTL are the session lifetimes, from
+	// SESSION_IDLE_TTL and SESSION_MAX_TTL. Zero means the store's default.
+	SessionIdleTTL time.Duration
+	SessionMaxTTL  time.Duration
 	// PluginDir is where installed plugin bundles live. Empty means this
 	// instance runs no plugins, and the plugin UI frame route is then not
 	// registered at all.
@@ -132,6 +140,11 @@ type Limits struct {
 	KudosPerSpace          int
 	StoriesPerSession      int
 	LinksPerSession        int
+	// WSMaxPerToken bounds the live WebSockets one session token may hold on
+	// one replica. A client with several tabs is ordinary; a client with a
+	// hundred sockets is spending goroutines, send buffers and a revalidation
+	// query every 30s that nobody asked for.
+	WSMaxPerToken int
 }
 
 func (l Limits) withDefaults() Limits {
@@ -162,6 +175,9 @@ func (l Limits) withDefaults() Limits {
 	if l.LinksPerSession == 0 {
 		l.LinksPerSession = 20
 	}
+	if l.WSMaxPerToken == 0 {
+		l.WSMaxPerToken = 8
+	}
 	return l
 }
 
@@ -190,8 +206,12 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		mode = ModeOpen
 	}
 	a := &app{
-		pool:     pool,
-		users:    &store.Users{Pool: pool},
+		pool: pool,
+		users: &store.Users{
+			Pool:    pool,
+			IdleTTL: opts.SessionIdleTTL,
+			MaxTTL:  opts.SessionMaxTTL,
+		},
 		orgs:     &store.Orgs{Pool: pool},
 		spaces:   &store.Spaces{Pool: pool},
 		sessions: &store.Sessions{Pool: pool},
@@ -206,13 +226,15 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			// slow to reply — the opposite of what presence is for.
 			Window: 2 * hub.PongDeadline,
 		},
-		hub:           hub.New(),
-		kinds:         kinds,
-		secureCookies: opts.SecureCookies,
-		allowedOrigin: opts.AllowedOrigin,
-		pluginDir:     opts.PluginDir,
-		authMode:      mode,
-		version:       cmp.Or(opts.Version, "dev"),
+		hub:            hub.New(),
+		kinds:          kinds,
+		secureCookies:  opts.SecureCookies,
+		allowedOrigin:  opts.AllowedOrigin,
+		sessionIdleTTL: opts.SessionIdleTTL,
+		sessionMaxTTL:  opts.SessionMaxTTL,
+		pluginDir:      opts.PluginDir,
+		authMode:       mode,
+		version:        cmp.Or(opts.Version, "dev"),
 
 		passcodeAttempts: newAttemptLimiter(pool),
 		limits:           opts.Limits.withDefaults(),
@@ -220,6 +242,9 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		plugins:          opts.Plugins,
 		pluginHost:       opts.PluginHost,
 	}
+	// Set before anything is served: ReserveToken reads it from the handler
+	// goroutine and nothing has a socket yet.
+	a.hub.MaxPerToken = a.limits.WSMaxPerToken
 	a.custody = &custody.Handlers{
 		Store: &custody.Store{Pool: pool},
 		// An org revoke drops every space the person held in that org, so the

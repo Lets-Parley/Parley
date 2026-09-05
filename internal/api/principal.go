@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"net/http"
 
@@ -114,15 +115,23 @@ func setLinkSessionCookie(w http.ResponseWriter, value string, secure bool) {
 	})
 }
 
-func setSessionCookie(w http.ResponseWriter, value string, secure bool) {
+// setSessionCookie writes the ordinary session cookie with a Max-Age equal to
+// the shorter of the two session lifetimes. The cookie must not outlive the
+// token behind it: a browser still presenting a cookie the server stopped
+// honouring reads to the person as a session that silently broke.
+func (a *app) setSessionCookie(w http.ResponseWriter, value string) {
+	ttl := cmp.Or(a.sessionIdleTTL, store.DefaultSessionIdleTTL)
+	if maxTTL := cmp.Or(a.sessionMaxTTL, store.DefaultSessionMaxTTL); maxTTL < ttl {
+		ttl = maxTTL
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
 		Value:    value,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   secure,
-		MaxAge:   int((90 * 24 * 3600)),
+		Secure:   a.secureCookies,
+		MaxAge:   int(ttl.Seconds()),
 	})
 }
 

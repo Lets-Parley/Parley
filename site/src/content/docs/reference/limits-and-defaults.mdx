@@ -59,6 +59,7 @@ integers and are validated at boot.
   { name: "Presence debounce", value: "1.5s", note: "" },
   { name: "Session revalidation interval", value: "≤30s", note: "Shared-store revocation and expiry; does not refresh activity. Logout is fanned out to every replica immediately, so this is the fallback rather than the mechanism" },
   { name: "Session validation timeout", value: "≤30s", note: "Failure closes with policy code 1008" },
+  { name: "Sockets per session token", value: "8", note: "WS_MAX_PER_TOKEN; per replica. Past the cap the upgrade is refused with a 429 before a socket exists, and closing one frees the slot. Several tabs are ordinary use; a second device has its own token and its own budget" },
 ]} />
 
 ## Database pool
@@ -74,10 +75,11 @@ integers and are validated at boot.
 
 <SpecTable rows={[
   { name: "Session token", value: "32 random bytes", note: "SHA-256 at rest" },
-  { name: "Server-side token expiry", value: "90 days idle", note: "Refreshed by any write or WebSocket connect; a GET never refreshes it" },
-  { name: "Session cookie Max-Age", value: "90 days", note: "Fixed from issue and never refreshed — the effective ceiling" },
+  { name: "Server-side token idle expiry", value: "90 days", note: "SESSION_IDLE_TTL. Refreshed by any write or WebSocket connect; a GET never refreshes it" },
+  { name: "Server-side token absolute expiry", value: "90 days", note: "SESSION_MAX_TTL, measured from issue. No activity extends it" },
+  { name: "Session cookie Max-Age", value: "90 days", note: "The smaller of the two lifetimes, so the cookie never outlives the token" },
   { name: "Sign-in flow cookie", value: "600s", note: "oidc mode only" },
-  { name: "Expired token cleanup", value: "never", note: "Rows stop resolving but are not swept" },
+  { name: "Expired token cleanup", value: "hourly", note: "A background pass deletes rows past either lifetime" },
 ]} />
 
 ## Rules of play
@@ -95,6 +97,7 @@ integers and are validated at boot.
   { name: "Stories per session", value: "500", note: "STORY_LIMIT_PER_SESSION" },
   { name: "Session participants", value: "200", note: "Hard ceiling on who belongs to one session; attaching past the cap drops the oldest joiner but never the current facilitator. Open-voting snapshots copy at most this many eligible participants (facilitator preferred, then most recent) into the round's expected set" },
   { name: "Live signed links per room", value: "20", note: "LINK_LIMIT_PER_SESSION" },
+  { name: "WebSockets per session token", value: "8", note: "WS_MAX_PER_TOKEN; counted per replica, refused with a 429 before the upgrade" },
   { name: "Room-code alphabet", value: "25 characters", note: "Confusable letters removed; ~244M combinations" },
   { name: "Facilitator claim grace", value: "60s", note: "Server-measured; claim is one conditional UPDATE" },
   { name: "Standup seconds per person", value: "90", note: "A session-config value, but no UI sets it" },

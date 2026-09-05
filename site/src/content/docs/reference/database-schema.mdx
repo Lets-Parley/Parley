@@ -77,7 +77,7 @@ anonymous row can share the empty pair while federated identities stay unique.
 |---|---|---|
 | `token_hash` | bytea | SHA-256 of the bearer token, as raw bytes — it is the primary key. The token itself is never stored |
 | `user_id` | uuid | Cascades on user delete |
-| `created_at`, `last_used_at` | timestamptz | `last_used_at` drives the 90-day idle window. Refreshed by any write or WebSocket connect, never by a `GET` |
+| `created_at`, `last_used_at` | timestamptz | `last_used_at` drives the `SESSION_IDLE_TTL` idle window, refreshed by any write or WebSocket connect and never by a `GET`; `created_at` drives the `SESSION_MAX_TTL` absolute cap, which nothing extends |
 
 ### spaces
 
