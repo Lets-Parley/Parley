@@ -81,6 +81,9 @@ type attemptLimiter struct {
 	// stays so a test can hand a limiter a deliberately wrong clock and prove
 	// the shared budget does not move with it.
 	now func() time.Time
+	// onThrottled fires when a guess is refused because the budget is spent,
+	// not when the database itself cannot count. Nil is a no-op.
+	onThrottled func()
 }
 
 func newAttemptLimiter(pool *pgxpool.Pool) *attemptLimiter {
@@ -122,6 +125,9 @@ func (l *attemptLimiter) take(ctx context.Context, key string) bool {
 		returning attempts`,
 		attemptDigest(key), passcodeAttemptLimit, window).Scan(&attempts)
 	if errors.Is(err, pgx.ErrNoRows) {
+		if l.onThrottled != nil {
+			l.onThrottled()
+		}
 		return false
 	}
 	if err != nil {

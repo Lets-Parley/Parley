@@ -243,6 +243,24 @@ networkPolicy:
   # reaches the pod — a Prometheus scraper, a second controller, a mesh sidecar.
   # Each entry is a full NetworkPolicyIngressRule.
   #
+  # A scraper for /metrics is the usual reason. NetworkPolicy cannot filter by
+  # path, and this chart has no second metrics port, so the rule admits the
+  # scraper's pods to port 8080 as a whole. Keep /metrics off the public
+  # ingress (the chart's Ingress routes `/` Prefix) and scope `from` — an
+  # entry with no `from` admits everyone.
+  #
+  #     extraIngress:
+  #       - from:
+  #           - namespaceSelector:
+  #               matchLabels:
+  #                 kubernetes.io/metadata.name: monitoring
+  #             podSelector:
+  #               matchLabels:
+  #                 app.kubernetes.io/name: prometheus
+  #         ports:
+  #           - protocol: TCP
+  #             port: http
+  #
   # WARNING: an entry with no `from` key allows ingress from ANY source on the
   # ports it lists — that is Kubernetes NetworkPolicy semantics, not a bug in
   # this chart. `extraIngress: [{}]` (or any rule missing `from`) silently
@@ -298,6 +316,14 @@ session:
 
 # LOG_LEVEL — one of debug, info, warn, error. Anything else stops the process.
 logLevel: info
+
+# METRICS_ENABLED. Off by default. When true, Parley serves an unauthenticated
+# Prometheus exposition at /metrics on the same port as the app. Keep it off
+# any public ingress — the chart's Ingress path is `/` Prefix, so it would
+# otherwise publish the endpoint — and admit only the scraper's pods via
+# networkPolicy.extraIngress. See operations/observability.mdx.
+metrics:
+  enabled: false
 
 # Environment variables appended verbatim to the container, for the settings
 # this chart does not give a value of its own. Each entry is a full EnvVar, so
@@ -357,10 +383,10 @@ logLevel: info
 # NetworkPolicy is the control. Setting it here would hide the process from
 # probes and the Service.
 #
-# DATABASE_URL, BASE_URL, LOG_LEVEL, AUTH_MODE, POD_NAME, the OIDC settings
-# and the proxy-trust pair are set from the values above; setting one here as
-# well means the container carries the name twice, and Kubernetes takes the
-# last one, which is this list.
+# DATABASE_URL, BASE_URL, LOG_LEVEL, AUTH_MODE, POD_NAME, the OIDC settings,
+# METRICS_ENABLED and the proxy-trust pair are set from the values above;
+# setting one here as well means the container carries the name twice, and
+# Kubernetes takes the last one, which is this list.
 extraEnv: []
 
 # extraVolumes/extraVolumeMounts are spliced verbatim into the pod spec and

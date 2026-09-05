@@ -46,7 +46,9 @@ Postgres and is still **write-only** there — no read API or screen
 plus sign-in, sign-out, space create and delete, passcode rotate and remove,
 member add, remove and role change, and guest-link mint and revoke, each emit
 one structured `security event` JSON line on stdout. There is still no
-retention or erasure tooling, and no metrics. The hardened release pipeline
+retention or erasure tooling. `/metrics` is off by default; when on it is
+unauthenticated, so it belongs off any public ingress
+([Observability](/operations/observability/#metrics)). The hardened release pipeline
 publishes an SPDX SBOM and verifiable digest-bound provenance for releases it
 produces; v0.1.0 through v0.2.1 were not backfilled.
 

@@ -85,6 +85,7 @@ type app struct {
 	// pretending to know a health it cannot observe.
 	plugins    *plugin.Store
 	pluginHost *plugin.Host
+	metrics    *metrics
 }
 
 type Options struct {
@@ -119,6 +120,10 @@ type Options struct {
 	// off rather than that the page does not exist.
 	Plugins    *plugin.Store
 	PluginHost *plugin.Host
+
+	// MetricsEnabled mounts an unauthenticated Prometheus exposition at
+	// /metrics. Off by default: the route does not exist unless this is set.
+	MetricsEnabled bool
 
 	// Context bounds the cross-replica notification listener. Leave it nil
 	// outside of tests: the listener then lives as long as the process.
@@ -330,6 +335,10 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			slog.Error("could not clear presence", "session", sessionID, "user", userID, "error", err)
 		}
 	}
+	if opts.MetricsEnabled {
+		a.metrics = newMetrics(pool, a.hub)
+		a.passcodeAttempts.onThrottled = a.metrics.incPasscodeThrottled
+	}
 
 	root := chi.NewRouter()
 	// Request IDs are accepted from a trusted proxy before RemoteAddr is
@@ -374,6 +383,12 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
+
+	// Unauthenticated, off by default, and outside /api so it carries none of
+	// the session or CSRF middleware. Keep it off any public ingress.
+	if a.metrics != nil {
+		r.Method(http.MethodGet, "/metrics", a.metrics.handler())
+	}
 
 	// Same reasoning, plus one more: "am I running the patched build?" has to be
 	// answerable before Postgres is up, so this touches neither the database

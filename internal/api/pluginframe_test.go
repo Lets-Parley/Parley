@@ -28,7 +28,7 @@ func pluginFrameServer(t *testing.T, ui string) (*httptest.Server, string) {
 		}
 	}
 	pool := testPool(t)
-	srv := testServerWith(t, pool, Options{AllowedOrigin: testOrigin, PluginDir: dir})
+	srv := testServerWith(t, pool, Options{AllowedOrigin: testOrigin, PluginDir: dir, MetricsEnabled: true})
 	return srv, dir
 }
 

@@ -135,6 +135,8 @@ spec:
             {{- end }}
             - name: LOG_LEVEL
               value: {{ .Values.logLevel | quote }}
+            - name: METRICS_ENABLED
+              value: {{ include "parley.isTrue" .Values.metrics.enabled | quote }}
             - name: SESSION_IDLE_TTL
               value: {{ .Values.session.idleTTL | quote }}
             - name: SESSION_MAX_TTL

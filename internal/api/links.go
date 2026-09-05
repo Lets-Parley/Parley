@@ -126,6 +126,7 @@ func (a *app) handleRedeemLink(w http.ResponseWriter, r *http.Request) {
 		store.LinkRedemptionCap, clientKey(r), a.limits.LinkRedemptionIPHourly, a.limits.IdentityGlobalHourly)
 	var limited *store.IdentityRateLimitError
 	if errors.As(err, &limited) {
+		a.metrics.incIdentityThrottled()
 		w.Header().Set("Retry-After", strconv.Itoa(limited.RetryAfter))
 		http.Error(w, `{"error":"too many identities created — try again after the current hour"}`, http.StatusTooManyRequests)
 		return

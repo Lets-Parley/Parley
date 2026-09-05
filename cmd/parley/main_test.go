@@ -27,6 +27,37 @@ func baseConfigEnv(t *testing.T) {
 	t.Setenv("STORY_LIMIT_PER_SESSION", "")
 }
 
+func TestLoadConfigMetricsEnabledDefaultsOff(t *testing.T) {
+	baseConfigEnv(t)
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MetricsEnabled {
+		t.Fatal("METRICS_ENABLED defaulted on")
+	}
+}
+
+func TestLoadConfigMetricsEnabled(t *testing.T) {
+	baseConfigEnv(t)
+	t.Setenv("METRICS_ENABLED", "true")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.MetricsEnabled {
+		t.Fatal("METRICS_ENABLED=true was not parsed")
+	}
+}
+
+func TestLoadConfigRejectsANonBooleanMetricsFlag(t *testing.T) {
+	baseConfigEnv(t)
+	t.Setenv("METRICS_ENABLED", "yes")
+	if _, err := loadConfig(); err == nil {
+		t.Fatal("a non-boolean METRICS_ENABLED was accepted")
+	}
+}
+
 func TestLoadConfigUsesFiniteAbuseLimitDefaults(t *testing.T) {
 	baseConfigEnv(t)
 	cfg, err := loadConfig()
