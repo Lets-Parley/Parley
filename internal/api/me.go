@@ -168,7 +168,7 @@ func (a *app) handlePostMe(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":"could not update name"}`, http.StatusInternalServerError)
 			return
 		}
-		setSessionCookie(w, plain, a.secureCookies)
+		a.setSessionCookie(w, plain)
 		writeJSON(w, http.StatusOK, toMeResponse(u))
 		return
 	}
@@ -193,7 +193,7 @@ func (a *app) handlePostMe(w http.ResponseWriter, r *http.Request) {
 	logSecEvent(r, secEvent{
 		Event: "auth.signin", ActorUserID: u.ID, ActorSubject: "open", Target: u.ID,
 	})
-	setSessionCookie(w, plain, a.secureCookies)
+	a.setSessionCookie(w, plain)
 	writeJSON(w, http.StatusCreated, toMeResponse(u))
 }
 

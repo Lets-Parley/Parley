@@ -135,6 +135,10 @@ spec:
             {{- end }}
             - name: LOG_LEVEL
               value: {{ .Values.logLevel | quote }}
+            - name: SESSION_IDLE_TTL
+              value: {{ .Values.session.idleTTL | quote }}
+            - name: SESSION_MAX_TTL
+              value: {{ .Values.session.maxTTL | quote }}
             # Stamped on this pod's presence rows. Not required — Parley falls
             # back to a random per-process id — but it makes a row that outlives
             # its pod traceable to the pod that wrote it.
@@ -196,6 +200,14 @@ spec:
             periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

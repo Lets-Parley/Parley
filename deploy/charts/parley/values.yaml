@@ -280,6 +280,22 @@ networkPolicy:
     # each entry with a `to` of namespaceSelector/podSelector/ipBlock peers.
     extraEgress: []
 
+# Session lifetime. Both are Go durations, and anything that is not a positive
+# duration stops the process.
+#
+#   * SESSION_IDLE_TTL — how long a session survives without activity. A write
+#     or a WebSocket connect renews it; a GET never does.
+#   * SESSION_MAX_TTL — the absolute lifetime from the moment the token was
+#     issued. No activity extends it, so a stolen token eventually dies.
+#
+# The session cookie's Max-Age is the smaller of the two, and rows past either
+# are deleted by an hourly background pass. Hardened deployments usually want
+# idleTTL in hours (8h) and maxTTL in days (24h or 72h); the defaults are the
+# 90 days Parley has always used.
+session:
+  idleTTL: 2160h
+  maxTTL: 2160h
+
 # LOG_LEVEL — one of debug, info, warn, error. Anything else stops the process.
 logLevel: info
 
@@ -340,6 +356,22 @@ logLevel: info
 # well means the container carries the name twice, and Kubernetes takes the
 # last one, which is this list.
 extraEnv: []
+
+# extraVolumes/extraVolumeMounts are spliced verbatim into the pod spec and
+# the container, the same way extraEnv is. They exist for the private-CA case
+# operations/air-gapped.mdx describes: mount a ConfigMap holding the CA bundle
+# and point SSL_CERT_FILE (via extraEnv above) at the mounted path.
+#
+#     extraVolumes:
+#       - name: parley-ca
+#         configMap:
+#           name: parley-ca
+#     extraVolumeMounts:
+#       - name: parley-ca
+#         mountPath: /etc/parley/ca
+#         readOnly: true
+extraVolumes: []
+extraVolumeMounts: []
 
 service:
   type: ClusterIP
@@ -435,3 +467,15 @@ podLabels: {}
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# `helm test` runs a pod that curls /readyz through the Service. curlimages/curl
+# is pulled from Docker Hub with no override, so an air-gapped cluster with no
+# path to Hub fails `helm test` even though the install itself came from a
+# private registry. Point these at a mirrored copy.
+tests:
+  image:
+    repository: curlimages/curl
+    # Same moving-tag guard as image.tag above: leave digest empty to use this
+    # tag, or set digest to pin exactly and ignore tag entirely.
+    tag: "8.11.1"
+    digest: ""

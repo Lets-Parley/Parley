@@ -70,7 +70,7 @@ That is a rule the API keeps — no `GET` under `/api` writes to the database.
 Anything that records state, down to stamping when a member last opened a
 space, is a `POST`, so it passes through the check above. That includes the
 bookkeeping a request does on its own behalf: resolving the session cookie
-renews the 90-day idle window on a write, but a `GET` resolves it read-only,
+renews the `SESSION_IDLE_TTL` idle window on a write, but a `GET` resolves it read-only,
 because otherwise one `<img src>` per visit would let a third-party page hold a
 victim's session open forever. Registering an action whose verb is `GET` is
 refused at startup rather than left to review.

@@ -173,7 +173,7 @@ func (a *app) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 		Event: "auth.signin", ActorUserID: u.ID, ActorSubject: ident.Subject, Target: u.ID,
 	})
 
-	setSessionCookie(w, plain, a.secureCookies)
+	a.setSessionCookie(w, plain)
 	// Checked again on the way out. The cookie is base64 JSON, not a signature,
 	// so whatever comes back out of it is input from the browser — clean when
 	// it was written is no promise it is clean when it is read.
