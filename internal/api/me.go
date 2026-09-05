@@ -214,9 +214,14 @@ func (a *app) handleDeleteMe(w http.ResponseWriter, r *http.Request) {
 			// logout has already succeeded in the database, and revalidate is
 			// the backstop if the notification is lost.
 			a.notifyRevoke(r.Context(), hash)
+			// DELETE /api/me sits outside RequireUser so a guest can spend its
+			// cookie. The line is only written when a session_tokens row was
+			// actually deleted: no cookie, or one we cannot hash, is silent,
+			// otherwise anyone could flood the audit trail with empty actor
+			// fields.
+			logSecEvent(r, secEvent{Event: "auth.signout"})
 		}
 	}
-	logSecEvent(r, secEvent{Event: "auth.signout"})
 	clearSessionCookie(w, a.secureCookies)
 	w.WriteHeader(http.StatusNoContent)
 }
