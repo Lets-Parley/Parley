@@ -132,6 +132,16 @@ func TestHTTPServerUsesBoundedTimeouts(t *testing.T) {
 	}
 }
 
+func TestHTTPServerListenAddrUsesBind(t *testing.T) {
+	h := http.NotFoundHandler()
+	if got := newHTTPServer("10.0.0.5", "8080", h).Addr; got != "10.0.0.5:8080" {
+		t.Fatalf("Addr = %q, want 10.0.0.5:8080", got)
+	}
+	if got := newHTTPServer("::1", "8080", h).Addr; got != "[::1]:8080" {
+		t.Fatalf("Addr = %q, want [::1]:8080", got)
+	}
+}
+
 // oidcEnv is baseConfigEnv plus the minimum an OIDC instance needs, so a test
 // can vary one org-mapping variable at a time.
 func oidcEnv(t *testing.T) {

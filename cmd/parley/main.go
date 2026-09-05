@@ -577,6 +577,10 @@ func newHTTPServer(bind, port string, handler http.Handler) *http.Server {
 	}
 }
 
+func healthcheckURL(bind, port string) string {
+	return healthcheckTarget(bind, port)
+}
+
 func runHealthcheck() int {
 	port := envOr("PORT", "8080")
 	bind := envOr("BIND_ADDR", "")
@@ -585,7 +589,7 @@ func runHealthcheck() int {
 		return 1
 	}
 	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get(healthcheckTarget(bind, port))
+	resp, err := client.Get(healthcheckURL(bind, port))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "not ready:", err)
 		return 1

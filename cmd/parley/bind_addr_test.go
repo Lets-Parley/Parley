@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net"
+	"net/http"
 	"strings"
 	"testing"
 )
@@ -91,4 +93,53 @@ func TestBootFieldsEchoBindAddr(t *testing.T) {
 	if !strings.Contains(joined, "bind_addr=127.0.0.1") {
 		t.Errorf("boot fields %q missing bind_addr=127.0.0.1", joined)
 	}
+}
+
+func TestHealthcheckURLFollowsBindAddr(t *testing.T) {
+	if got := healthcheckURL("10.0.0.5", "8080"); got != "http://10.0.0.5:8080/readyz" {
+		t.Fatalf("healthcheckURL(10.0.0.5, 8080) = %q, want http://10.0.0.5:8080/readyz", got)
+	}
+	if got := healthcheckURL("::1", "8080"); got != "http://[::1]:8080/readyz" {
+		t.Fatalf("healthcheckURL(::1, 8080) = %q, want http://[::1]:8080/readyz", got)
+	}
+}
+
+func TestRunHealthcheckProbesBindAddr(t *testing.T) {
+	if code := probeReadyzOn(t, "127.0.0.1"); code != 0 {
+		t.Fatalf("runHealthcheck() = %d, want 0", code)
+	}
+}
+
+func TestRunHealthcheckProbesIPv6BindAddr(t *testing.T) {
+	if code := probeReadyzOn(t, "::1"); code != 0 {
+		t.Fatalf("runHealthcheck() = %d, want 0", code)
+	}
+}
+
+func probeReadyzOn(t *testing.T, bind string) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", net.JoinHostPort(bind, "0"))
+	if err != nil {
+		if bind == "::1" {
+			t.Skipf("IPv6 loopback is not available: %v", err)
+		}
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/readyz" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("BIND_ADDR", bind)
+	t.Setenv("PORT", port)
+	return runHealthcheck()
 }
