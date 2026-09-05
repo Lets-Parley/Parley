@@ -307,11 +307,17 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	}
 
 	root := chi.NewRouter()
+	// Request IDs are accepted from a trusted proxy before RemoteAddr is
+	// rewritten, so the peer we check is the socket, not the forwarded client.
+	root.Use(acceptTrustedRequestID(opts.TrustedProxyCIDRs))
+	root.Use(middleware.RequestID)
+	root.Use(echoRequestID)
 	// Forwarded addresses affect both open-mode identity creation and room-code
 	// throttles, so they are accepted only across an explicitly trusted chain.
 	if opts.TrustProxyHeaders {
 		root.Use(trustedProxyHeaders(opts.TrustedProxyCIDRs, slog.Default()))
 	}
+	root.Use(withClientAddr)
 	root.Use(middleware.Recoverer)
 
 	// securityHeaders splits into two route-scoped profiles. The plugin UI

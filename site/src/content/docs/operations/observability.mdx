@@ -6,12 +6,13 @@ description: What Parley emits, what it does not, and where to get the rest.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["cmd/parley/main.go", "internal/api/router.go", "internal/api/client_address.go"]} />
+<VerifiedStamp source={["cmd/parley/main.go", "internal/api/router.go", "internal/api/client_address.go", "internal/api/secevent.go"]} />
 
 This is a short page, and honestly so.
 
 Parley writes **structured JSON logs to stdout** and emits nothing else. There is
-no metrics endpoint, no tracing and no request IDs. There is no HTTP access log
+no metrics endpoint and no tracing. Every response carries an `X-Request-Id`
+(generated, or the inbound value from a trusted proxy). There is no HTTP access log
 either — the one exception is an opt-in `LOG_LEVEL=debug` line that reports how
 each request's client address was resolved, described below. It is a proxy
 diagnostic, not an access log and not an audit trail: no method, path, status,
@@ -80,8 +81,57 @@ WebSocket refusing to connect, sign-in redirecting to the wrong host — is visi
 in that one line. Read it first, before reading anything else.
 
 Beyond boot and database errors, the application logs deliberately little: a
-handful of lines around the sign-in flow, and session errors. Parley never logs
-request paths, user names, or session content at any level.
+handful of lines around the sign-in flow, session errors, and one **security
+event** line per action listed below. Parley never logs request paths, user
+names, cookies, tokens, passcodes, or session content at any level.
+
+## Security events
+
+Each of the following actions writes one `INFO` line with a fixed schema.
+Ship stdout the way you already do; that is the audit trail. `org_audit_log`
+still records custody and plugin-admin actions in Postgres for an operator who
+queries it ([#399](https://github.com/Lets-Parley/Parley/issues/399) is a reader
+for that table), and those same writes also emit this line.
+
+```json
+{"level":"INFO","msg":"security event","event":"space.create",
+ "actor_user_id":"…","actor_subject":"open","org":"default","space":"platform-team",
+ "target":"platform-team","outcome":"ok","client_addr":"203.0.113.7",
+ "request_id":"edge-1/abc-000001"}
+```
+
+| Field | Meaning |
+|---|---|
+| `event` | The action. See the table below. |
+| `actor_user_id` | The signed-in user's id, empty only when there is no principal. |
+| `actor_subject` | The identity-provider subject in `oidc` mode; `open` for an anonymous account; `guest` for a redeemed signed link. Never an email. |
+| `org` | Org slug when the route is org-scoped. |
+| `space` | Space slug when the action names one. |
+| `target` | The thing acted on (a slug, a user id, a link id, a plugin action). Never a token, passcode, cookie or body. |
+| `outcome` | `ok` when the action completed. |
+| `client_addr` | The same address the rest of Parley uses for the client — after `TRUST_PROXY_HEADERS` rewrite, never the raw socket when a trusted proxy is in front. |
+| `request_id` | The `X-Request-Id` this request carried or was assigned. |
+
+| `event` | When |
+|---|---|
+| `auth.signin` | Open-mode identity creation, or a completed OIDC callback |
+| `auth.signout` | `DELETE /api/me` |
+| `space.create` | A space is created |
+| `space.delete` | An owner deletes a space |
+| `space.passcode.rotate` | A member issues a new passcode |
+| `space.passcode.remove` | A member opens the space |
+| `space.member.add` | Someone joins a space |
+| `space.member.remove` | An owner removes a member |
+| `space.member.role` | An owner promotes or demotes a member |
+| `link.mint` | A facilitator mints a guest link |
+| `link.revoke` | A facilitator revokes a guest link |
+| `space.claim`, `space.delete`, `space.add_owner`, `org.purge` | The matching `org_audit_log` write |
+| `plugin.install`, `plugin.upgrade`, `plugin.upgrade_requested`, `plugin.upgrade_approved`, `plugin.enable`, `plugin.disable`, `plugin.uninstall`, `plugin.action`, `theme.install`, `theme.reset` | The matching `org_audit_log` write |
+
+An inbound `X-Request-Id` is honoured only when the socket peer is inside
+`TRUSTED_PROXY_CIDRS` and the value is at most 128 bytes of printable ASCII
+(no newlines). Anything else is discarded and Parley generates an id. The
+response always echoes the id that was used.
 
 ## What is missing, and what to do instead
 
@@ -90,9 +140,9 @@ request paths, user names, or session content at any level.
   { name: "Liveness and readiness endpoints", status: "built", detail: "<code>/healthz</code> and <code>/readyz</code> — see <a href='/operations/architecture/'>Architecture</a>." },
   { name: "Metrics endpoint", status: "not-built", detail: "There is no <code>/metrics</code>. Blackbox-probe <code>/readyz</code> for availability, and take request rate and latency from your reverse proxy, which already sees every request." },
   { name: "Distributed tracing", status: "not-built", detail: "Single process, single database — a trace would have two spans. Proxy access logs give you the same latency picture." },
-  { name: "Request IDs", status: "not-built", detail: "Have your proxy inject and log one. Parley will not echo it, so correlate on timestamp and path at the proxy." },
+  { name: "Request IDs", status: "built", detail: "Every response echoes <code>X-Request-Id</code>. An inbound id is honoured only from a peer in <code>TRUSTED_PROXY_CIDRS</code>, capped at 128 printable ASCII characters. Correlate proxy access logs with security-event lines on that field." },
   { name: "HTTP access log", status: "not-built", detail: "<code>middleware.Logger</code> is not mounted. Use the proxy's access log — it is the same data, and you already ship it. <code>LOG_LEVEL=debug</code> logs only how the client address was resolved: no method, path or status." },
-  { name: "Audit log", status: "not-built", detail: "None exists. If you need to know who did what, the database rows carry <code>user_id</code> and timestamps; query them directly. The <code>LOG_LEVEL=debug</code> client-address line is not one: it names no user, is not retained, and is not queryable." },
+  { name: "Audit log", status: "built", detail: "One stdout JSON <code>security event</code> line per sign-in, sign-out, space create and delete, passcode rotate and remove, member add, remove and role change, guest-link mint and revoke, and every <code>org_audit_log</code> write. Schema: <code>event</code>, <code>actor_user_id</code>, <code>actor_subject</code>, <code>org</code>, <code>space</code>, <code>target</code>, <code>outcome</code>, <code>client_addr</code>, <code>request_id</code>. Cookies, tokens, passcodes and request bodies are never logged. The Postgres table remains write-only — no read API or screen (<a href='https://github.com/Lets-Parley/Parley/issues/399'>#399</a>)." },
   { name: "Error reporting integration", status: "out-of-scope", detail: "Panics are recovered and logged; scrape them from stdout." },
 ]} />
 

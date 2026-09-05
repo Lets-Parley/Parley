@@ -51,6 +51,7 @@ func resolvePrincipal(users *store.Users, federatedOnly bool) func(http.Handler)
 								TokenID: string(hash), TokenExpiresAt: sess.ExpiresAt,
 								AvatarIcon:    sess.User.AvatarIcon,
 								LinkSessionID: sess.User.LinkSessionID,
+								Subject:       sess.User.Subject,
 							}))
 						}
 					}

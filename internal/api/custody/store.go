@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/lets-parley/parley/internal/principal"
 )
 
 var (
@@ -611,6 +615,25 @@ func audit(ctx context.Context, tx pgx.Tx, scope Scope, sp SpaceRef, action, det
 		scope.OrgID, scope.OrgSlug, spaceID, sp.Slug, actorID, action, detail); err != nil {
 		return fmt.Errorf("writing an audit record: %w", err)
 	}
+	subject := "open"
+	if p, ok := principal.From(ctx); ok {
+		subject = p.AuditSubject()
+	}
+	target := detail
+	if target == "" {
+		target = sp.Slug
+	}
+	slog.InfoContext(ctx, "security event",
+		"event", action,
+		"actor_user_id", scope.ActorID,
+		"actor_subject", subject,
+		"org", scope.OrgSlug,
+		"space", sp.Slug,
+		"target", target,
+		"outcome", "ok",
+		"client_addr", principal.ClientAddr(ctx),
+		"request_id", middleware.GetReqID(ctx),
+	)
 	return nil
 }
 

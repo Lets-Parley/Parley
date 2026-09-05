@@ -190,6 +190,9 @@ func (a *app) handlePostMe(w http.ResponseWriter, r *http.Request) {
 	if err := a.grantDefaultOrgMembership(r.Context(), Principal{UserID: u.ID, LinkSessionID: u.LinkSessionID}); err != nil {
 		slog.Error("could not map org membership", "user_id", u.ID, "error", err)
 	}
+	logSecEvent(r, secEvent{
+		Event: "auth.signin", ActorUserID: u.ID, ActorSubject: "open", Target: u.ID,
+	})
 	setSessionCookie(w, plain, a.secureCookies)
 	writeJSON(w, http.StatusCreated, toMeResponse(u))
 }
@@ -213,6 +216,7 @@ func (a *app) handleDeleteMe(w http.ResponseWriter, r *http.Request) {
 			a.notifyRevoke(r.Context(), hash)
 		}
 	}
+	logSecEvent(r, secEvent{Event: "auth.signout"})
 	clearSessionCookie(w, a.secureCookies)
 	w.WriteHeader(http.StatusNoContent)
 }

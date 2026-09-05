@@ -169,7 +169,9 @@ func (a *app) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	if err := a.mapOrgMembership(r.Context(), u.ID, ident); err != nil {
 		slog.Error("could not map org membership", "user_id", u.ID, "error", err)
 	}
-	slog.Info("sign-in", "user_id", u.ID, "issuer", ident.Issuer)
+	logSecEvent(r, secEvent{
+		Event: "auth.signin", ActorUserID: u.ID, ActorSubject: ident.Subject, Target: u.ID,
+	})
 
 	setSessionCookie(w, plain, a.secureCookies)
 	// Checked again on the way out. The cookie is base64 JSON, not a signature,

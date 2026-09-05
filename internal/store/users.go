@@ -34,6 +34,8 @@ type User struct {
 	// Issuer is empty for an anonymous account and names the identity provider
 	// for a federated one.
 	Issuer string `json:"-"`
+	// Subject is the identity-provider subject for a federated account.
+	Subject string `json:"-"`
 	// AvatarIcon is an opaque client-side id; empty means the person has not
 	// chosen one and the derived hue stands alone.
 	AvatarIcon string `json:"avatarIcon"`
@@ -213,6 +215,7 @@ const tokenLiveClause = `token_hash = $1 and last_used_at > now() - $2::interval
 const resolveTokenColumns = `user_id,
 	          (select name from users where id = user_id),
 	          (select issuer from users where id = user_id),
+	          (select subject from users where id = user_id),
 	          (select avatar_icon from users where id = user_id),
 	          ` + linkSessionExpr + `,
 	          ` + tokenExpiryExpr
@@ -241,7 +244,7 @@ func (s *Users) ResolveToken(ctx context.Context, tokenHash []byte, touch bool) 
 	var u User
 	var expiresAt time.Time
 	err := s.Pool.QueryRow(ctx, sql, tokenHash, tokenIdleExpiry).
-		Scan(&u.ID, &u.Name, &u.Issuer, &u.AvatarIcon, &u.LinkSessionID, &expiresAt)
+		Scan(&u.ID, &u.Name, &u.Issuer, &u.Subject, &u.AvatarIcon, &u.LinkSessionID, &expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return TokenSession{}, ErrNoUser
 	}

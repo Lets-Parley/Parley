@@ -40,9 +40,12 @@ disclosing what exists to strangers* (also strong). Governance sits beside
 that: a space can have several owners (membership management and the space
 itself — not the passcode), and an org admin has
 [custody without access](/security/organizations/) over every space in the org.
-`org_audit_log` records a handful of custody actions but is **write-only**
-today — no read API or screen
-([#399](https://github.com/Lets-Parley/Parley/issues/399)). There is still no
+`org_audit_log` records a handful of custody and plugin-admin actions in
+Postgres and is still **write-only** there — no read API or screen
+([#399](https://github.com/Lets-Parley/Parley/issues/399)). The same writes,
+plus sign-in, sign-out, space create and delete, passcode rotate and remove,
+member add, remove and role change, and guest-link mint and revoke, each emit
+one structured `security event` JSON line on stdout. There is still no
 retention or erasure tooling, and no metrics. The hardened release pipeline
 publishes an SPDX SBOM and verifiable digest-bound provenance for releases it
 produces; v0.1.0 through v0.2.1 were not backfilled.
@@ -50,9 +53,10 @@ produces; v0.1.0 through v0.2.1 were not backfilled.
 If your requirement is "a team of engineers estimates stories without a
 third-party SaaS", it fits well. If your requirement is "attributable,
 auditable access to work-planning data from a product UI", it does not fit yet
-without an SSO proxy in front and SQL of your own: custody events land in
-`org_audit_log` for an operator to query, and ordinary votes and entries are
-rows with `user_id` and timestamps, not a review console.
+without an SSO proxy in front and a log shipper of your own: security-relevant
+actions land as JSON on stdout (and custody events also in `org_audit_log`),
+and ordinary votes and entries are rows with `user_id` and timestamps, not a
+review console.
 
 ## Data inventory
 
@@ -86,7 +90,7 @@ Full detail: [Data and privacy](/security/data-and-privacy/).
   { name: "Transport security", status: "not-built", detail: "Parley never terminates TLS and does not send HSTS. Terminate at a proxy and add HSTS there." },
   { name: "Space owner role", status: "built", detail: "<code>members.role</code> is <code>owner</code> or <code>member</code>, constrained in the database since migration <code>0015</code>. A space can have several owners and is never left without at least one. Only an owner may promote, demote, or remove a member, rename or delete the space, or rename or delete a session in it; a member gets 403 and an outsider 404. It stops short of the door: any member may still rotate or remove the passcode, and in-meeting controls — stories, reveals, closing a session — are facilitator-only rather than owner-only." },
   { name: "Org admin custody", status: "built", detail: "An org admin manages every space in the org — including private ones — without reading votes, standups or rosters. On visibility, custody may only narrow (`org` → `private`; `private` → `org` stays the owner's). Custody may also archive or un-archive — un-archive restores org-visible spaces to the directory. Ownership is granted, never transferred; claiming an abandoned space is the one path that becomes access and is audit-logged. See <a href='/security/organizations/'>Organizations</a>. There is no instance-wide operator account; cross-instance administration remains SQL." },
-  { name: "Audit logging", status: "built", detail: "<code>org_audit_log</code> records <code>space.claim</code>, <code>space.delete</code>, <code>space.add_owner</code> and <code>org.purge</code>. It is write-only today — no read API or screen (<a href='https://github.com/Lets-Parley/Parley/issues/399'>#399</a>); query Postgres. Owner-driven space or session deletes are not in that log. <code>LOG_LEVEL=debug</code> client-address lines are not an audit trail." },
+  { name: "Audit logging", status: "built", detail: "One stdout JSON <code>security event</code> line per sign-in, sign-out, space create and delete, passcode rotate and remove, member add, remove and role change, guest-link mint and revoke, and every <code>org_audit_log</code> write. Schema: <code>event, actor_user_id, actor_subject, org, space, target, outcome, client_addr, request_id</code>. Cookies, tokens, passcodes and bodies are never logged. The Postgres table remains write-only — no read API or screen (<a href='https://github.com/Lets-Parley/Parley/issues/399'>#399</a>). See <a href='/operations/observability/'>Observability</a>." },
   { name: "Retention and erasure", status: "not-built", detail: "Application records are not automatically deleted. Token authorization expires, but its row remains. Write erasure SQL against the documented schema; deleting a user who facilitated a session is blocked by a foreign key." },
   { name: "General ingress rate limiting", status: "not-built", detail: "Identity creation and room-code guesses are throttled, and resources have configurable caps. Apply request and WebSocket limits at your ingress too. Note the client itself is now a steady low-rate caller: an open space page re-reads the space every 30 seconds, about 2 requests per minute per tab, so size any limit above that." },
   { name: "Metrics and tracing", status: "not-built", detail: "JSON logs only. Blackbox-probe /readyz and take request metrics from your proxy." },
@@ -125,11 +129,13 @@ network; public deployments need an additional access and abuse-control layer.
   seconds; transport closure then follows subject to the active-write and
   close-frame deadlines.
 - *Can we prove who estimated what?* In `oidc` mode, yes, from the database.
-  Votes and entries carry `user_id` and timestamps. Custody actions
-  (`space.claim`, `space.delete`, `space.add_owner`, `org.purge`) land in
+  Votes and entries carry `user_id` and timestamps. Who signed in, created or
+  deleted a space, rotated a passcode, changed membership, or minted a guest
+  link is on stdout as a `security event` line (and custody actions also land in
   `org_audit_log`, which is write-only today — no product UI
-  ([#399](https://github.com/Lets-Parley/Parley/issues/399)); query Postgres.
-  See [Organizations](/security/organizations/).
+  ([#399](https://github.com/Lets-Parley/Parley/issues/399))). See
+  [Observability](/operations/observability/) and
+  [Organizations](/security/organizations/).
 - *What happens on a breach of the database?* Everything is disclosed, including
   every passcode. Session tokens are hashed, so they are not directly reusable.
 - *Is there a disclosure process?* Yes — use
@@ -139,3 +145,13 @@ network; public deployments need an additional access and abuse-control layer.
   Note that **every release before v0.2.2 can be crashed remotely by a
   disconnecting client**, and **v0.1.0 additionally has a throttle bypass**.
   None were retagged; v0.2.2 is the floor and v%VERSION% is the current release.
+
+## NIST SP 800-171 3.3 (Audit and Accountability)
+
+Parley is not a complete 800-171 system. These two controls are the ones this
+page can speak to from what the process itself emits.
+
+| Control | What Parley does | What you still do |
+|---|---|---|
+| **3.3.1** Create, protect, and retain information system audit records to the extent needed to enable monitoring, analysis, investigation, and reporting of unlawful, unauthorized, or inappropriate information system activity | One JSON `security event` line on stdout per sign-in, sign-out, space create and delete, passcode rotate and remove, member add, remove and role change, guest-link mint and revoke, and every `org_audit_log` write. The line names `event`, `actor_user_id`, `actor_subject`, `org`, `space`, `target`, `outcome`, `client_addr` and `request_id`. Cookies, tokens, passcodes and request bodies are never in it. | Ship and retain stdout. Parley does not rotate, encrypt, or store those lines itself. The Postgres `org_audit_log` table has no read API ([#399](https://github.com/Lets-Parley/Parley/issues/399)). |
+| **3.3.2** Ensure that the actions of individual information system users can be uniquely traced to those users so they can be held accountable for their actions | `actor_user_id` is the Parley user id. `actor_subject` is the identity-provider subject in `oidc` mode, `open` for an anonymous account, and `guest` for a redeemed signed link. Correlate with the echoed `X-Request-Id`. | `oidc` mode is what makes the subject an IdP identity rather than `open`. Vote and standup content is still only in the database rows, not on this line. |

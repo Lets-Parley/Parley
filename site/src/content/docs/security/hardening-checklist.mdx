@@ -6,7 +6,7 @@ description: The ordered list of things to get right before you expose Parley to
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/security.go", "internal/api/client_address.go", "internal/api/authz.go", "internal/api/me.go", "internal/poker/routes.go", "cmd/parley/main.go", "deploy/k8s/deployment.yaml", "deploy/charts/parley/templates/networkpolicy.yaml", ".github/workflows/release.yml", "internal/api/custody/store.go", "internal/db/migrations/0023_org_custody.sql"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/security.go", "internal/api/client_address.go", "internal/api/authz.go", "internal/api/me.go", "internal/poker/routes.go", "cmd/parley/main.go", "deploy/k8s/deployment.yaml", "deploy/charts/parley/templates/networkpolicy.yaml", ".github/workflows/release.yml", "internal/api/custody/store.go", "internal/api/secevent.go", "internal/db/migrations/0023_org_custody.sql"]} />
 
 In order. The first three are the ones that actually bite.
 
@@ -235,12 +235,15 @@ successful hardened release. Releases v0.1.0 through v0.2.1 were not backfilled.
   [Organizations](/security/organizations/). Cross-instance administration is
   still SQL. A member writes only their own rows: their poker vote, their
   standup entry, and their standup readiness signal.
-- **The org audit log is write-only.** `org_audit_log` records `space.claim`,
-  `space.delete`, `space.add_owner` and `org.purge`. There is no API route or
-  screen that reads it —
+- **The org audit log table is write-only.** `org_audit_log` records `space.claim`,
+  `space.delete`, `space.add_owner`, `org.purge` and plugin-admin actions. There
+  is no API route or screen that reads it —
   [tracked as #399](https://github.com/Lets-Parley/Parley/issues/399) —
-  so reviewing it means querying Postgres. Do not describe it to a team as
-  something they can open in the product. `LOG_LEVEL=debug` is unrelated: one
-  diagnostic line per request with the socket peer, the `X-Forwarded-For`
+  so reviewing that table means querying Postgres. Do not describe it to a team
+  as something they can open in the product. The same writes, plus sign-in,
+  membership, passcode and guest-link events, each emit one stdout JSON
+  `security event` line; see
+  [Observability](/operations/observability/). `LOG_LEVEL=debug` is unrelated:
+  one diagnostic line per request with the socket peer, the `X-Forwarded-For`
   chain and the resolved client address, and nothing else; no cookie, token or
   header is ever logged. It proves proxy configuration, not who did what.

@@ -6,7 +6,7 @@ description: Every environment variable, its default, and whether a bad value st
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import EnvVar from "../../../components/EnvVar.astro";
 
-<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "cmd/parley/configfile.go", "internal/db/tls.go", "internal/api/client_address.go"]} />
+<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "cmd/parley/configfile.go", "internal/db/tls.go", "internal/api/client_address.go", "internal/api/secevent.go"]} />
 
 Configuration is environment variables, optionally backed by a file that fills
 the gaps (`PARLEY_CONFIG_FILE`, below). There is no command-line flag other than
@@ -129,7 +129,10 @@ allowlist of every immediate and intermediate proxy hop, such as
 Parley walks `X-Forwarded-For` right-to-left through those trusted hops and uses
 the first untrusted address. It never reads the leftmost value, so a proxy that
 *appends* to the header rather than overwriting it is fine. It ignores malformed
-chains and forwarded headers from an untrusted immediate peer.
+chains and forwarded headers from an untrusted immediate peer. The same
+allowlist is what may supply an inbound `X-Request-Id`; a peer outside it, or a
+value that is not 128 bytes of printable ASCII, is discarded and Parley
+generates an id. See [Observability](/operations/observability/).
 
 `0.0.0.0/0` and `::/0` are refused at startup. No real topology has an
 all-of-the-internet proxy hop, and a default route here is "trust the header

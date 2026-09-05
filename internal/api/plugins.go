@@ -605,7 +605,9 @@ func (a *app) auditPlugin(r *http.Request, action, detail string) {
 		org.ID, org.Slug, auditActor(p), action, clip(detail, 500)); err != nil {
 		slog.Error("could not write a plugin audit record",
 			"action", action, "org", org.Slug, "actor", p.UserID, "error", err)
+		return
 	}
+	logSecEvent(r, secEvent{Event: action, Target: clip(detail, 500), Org: org.Slug})
 }
 
 // auditPluginTx writes the same row inside a caller's transaction, so an
@@ -618,6 +620,7 @@ func (a *app) auditPluginTx(ctx context.Context, tx pgx.Tx, r *http.Request, act
 		org.ID, org.Slug, auditActor(p), action, clip(detail, 500)); err != nil {
 		return fmt.Errorf("writing the %s audit record: %w", action, err)
 	}
+	logSecEvent(r, secEvent{Event: action, Target: clip(detail, 500), Org: org.Slug})
 	return nil
 }
 

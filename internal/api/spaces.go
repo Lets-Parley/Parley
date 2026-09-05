@@ -127,6 +127,7 @@ func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 		"id": sp.ID, "slug": sp.Slug, "name": sp.Name, "orgSlug": org.Slug,
 		"passcode": sp.Passcode, "protected": sp.Passcode != "",
 	})
+	logSecEvent(r, secEvent{Event: "space.create", Target: sp.Slug, Org: org.Slug, Space: sp.Slug})
 }
 
 // handleListMySpaces lists the spaces the caller belongs to, most recently
@@ -342,6 +343,7 @@ func (a *app) handleJoinSpace(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"could not join space"}`, http.StatusInternalServerError)
 		return
 	}
+	logSecEvent(r, secEvent{Event: "space.member.add", Target: p.UserID, Space: sp.Slug})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -385,6 +387,11 @@ func (a *app) handleSetPasscode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"could not update the passcode"}`, http.StatusInternalServerError)
 		return
 	}
+	event, target := "space.passcode.rotate", "rotate"
+	if next == "" {
+		event, target = "space.passcode.remove", "remove"
+	}
+	logSecEvent(r, secEvent{Event: event, Target: target, Space: sp.Slug})
 	writeJSON(w, http.StatusOK, map[string]any{"passcode": next, "protected": next != ""})
 }
 
@@ -412,6 +419,7 @@ func (a *app) handleSetMemberRole(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		http.Error(w, `{"error":"could not change that member's role"}`, http.StatusInternalServerError)
 	default:
+		logSecEvent(r, secEvent{Event: "space.member.role", Target: chi.URLParam(r, "userId")})
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -438,6 +446,7 @@ func (a *app) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		http.Error(w, `{"error":"could not remove that member"}`, http.StatusInternalServerError)
 	default:
+		logSecEvent(r, secEvent{Event: "space.member.remove", Target: userID})
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -509,6 +518,7 @@ func (a *app) handleDeleteSpace(w http.ResponseWriter, r *http.Request) {
 	for _, sess := range sessions {
 		a.broadcastState(r.Context(), sess.ID)
 	}
+	logSecEvent(r, secEvent{Event: "space.delete", Target: sp.Slug, Space: sp.Slug})
 	w.WriteHeader(http.StatusNoContent)
 }
 
