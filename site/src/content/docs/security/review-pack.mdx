@@ -92,6 +92,7 @@ Full detail: [Data and privacy](/security/data-and-privacy/).
   { name: "Metrics and tracing", status: "not-built", detail: "JSON logs only. Blackbox-probe /readyz and take request metrics from your proxy." },
   { name: "SBOM and provenance", status: "built", detail: "Releases produced by the hardened workflow include an SPDX SBOM, maximum build provenance, and a GitHub attestation bound to the final GHCR digest. Releases v0.1.0 through v0.2.1 were not backfilled." },
   { name: "Encryption at rest", status: "not-built", detail: "Use an encrypted volume or your database provider's encryption." },
+  { name: "FIPS 140-3 cryptography (800-171 3.13.11)", status: "built", detail: "The <code>-fips</code> image links Go Cryptographic Module v1.0.0 (<a href='https://csrc.nist.gov/projects/cryptographic-module-validation-program/certificate/5247'>CMVP certificate #5247</a>) and runs with <code>GODEBUG=fips140=on</code> — not <code>only</code>, because RFC 6455 SHA-1 for the WebSocket accept key panics under <code>only</code>. It covers the cryptography Parley performs: token hashing, plugin-secret AES-GCM, TLS it initiates to Postgres and the IdP. Browser TLS is the reverse proxy's; Postgres server-side TLS and the IdP are theirs. See <a href='/security/cryptography/'>Cryptography</a>." },
 ]} />
 
 ## Accepted risks

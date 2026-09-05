@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	cryptofips "crypto/fips140"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -431,6 +432,19 @@ func warnAboutDatabaseTLS(cfg config, log *slog.Logger) {
 	}
 }
 
+// fips140Mode is the GODEBUG setting the process is actually running with.
+// crypto/fips140.Enabled is true for both "on" and "only"; Enforced is the
+// difference, and an operator reading the boot line needs the word, not a bool.
+func fips140Mode() string {
+	if !cryptofips.Enabled() {
+		return "off"
+	}
+	if cryptofips.Enforced() {
+		return "only"
+	}
+	return "on"
+}
+
 func bootFields(cfg config, secureCookies bool) []any {
 	fields := []any{
 		"version", version,
@@ -440,6 +454,7 @@ func bootFields(cfg config, secureCookies bool) []any {
 		"port", cfg.Port,
 		"auth_mode", cfg.AuthMode,
 		"db_sslmode", cfg.DBSSLMode,
+		"fips140", fips140Mode(),
 		"trust_proxy_headers", cfg.TrustProxy,
 		"plugin_secrets", cfg.PluginSecretKey != "",
 		"plugin_event_retention", cfg.PluginEventRetention.String(),

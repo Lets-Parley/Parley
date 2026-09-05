@@ -6,7 +6,9 @@ image:
   repository: ghcr.io/lets-parley/parley
   # Leave empty to track the chart's appVersion, which always names a published
   # release. Setting it explicitly is fine; setting it to a *moving* tag is not,
-  # and the chart refuses to render if you try — see the note below.
+  # and the chart refuses to render if you try — see the note below. The FIPS
+  # variant is the versioned tag with a `-fips` suffix (`0.10.0-fips`);
+  # `latest-fips` is refused the same way `latest` is.
   #
   # This guard is a convenience, not the safety net. A digest pin
   # (repository@sha256:...) that resolves to an older image sails straight

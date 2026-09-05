@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"log/slog"
 	"net/netip"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 
@@ -38,6 +40,44 @@ func TestBootFieldsNameTheParsedTrustedProxyCIDRs(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("boot line %s is missing %q", out, want)
 		}
+	}
+}
+
+// An operator of the -fips image has no other way to confirm the process is
+// actually in FIPS 140-3 mode, so the boot line has to name it. The value is
+// the GODEBUG setting (off / on / only), never a boolean — "on" and "only"
+// are both "enabled" and the difference is load-bearing.
+func TestBootFieldsReportFIPS140Mode(t *testing.T) {
+	cfg := bootConfig(t)
+
+	var buf bytes.Buffer
+	slog.New(slog.NewJSONHandler(&buf, nil)).Info("boot settings", bootFields(cfg, true)...)
+
+	var payload map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
+		t.Fatalf("boot line is not JSON: %v\n%s", err, buf.String())
+	}
+	got, ok := payload["fips140"].(string)
+	if !ok {
+		t.Fatalf("boot line %s is missing fips140 as a string", buf.String())
+	}
+	switch got {
+	case "off", "on", "only":
+	default:
+		t.Fatalf("fips140 = %q, want off, on, or only", got)
+	}
+
+	// Hand-parsed from GODEBUG, not from the helper under test. Last fips140=
+	// wins, matching how the runtime reads the variable.
+	wantFromEnv := ""
+	for _, part := range strings.Split(os.Getenv("GODEBUG"), ",") {
+		key, val, found := strings.Cut(strings.TrimSpace(part), "=")
+		if found && key == "fips140" {
+			wantFromEnv = val
+		}
+	}
+	if wantFromEnv != "" && got != wantFromEnv {
+		t.Errorf("fips140 = %q, want %q from GODEBUG", got, wantFromEnv)
 	}
 }
 

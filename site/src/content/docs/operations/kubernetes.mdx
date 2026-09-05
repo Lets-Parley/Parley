@@ -183,7 +183,9 @@ set:
 - **`baseURL`** — the address users type, exactly. Wrong, and the session cookie
   is silently dropped.
 - **`image.tag`** — empty tracks the chart's `appVersion`, which always names a
-  published release. Pin it only to move off that.
+  published release. Pin it only to move off that. The FIPS image is the same
+  chart with `--set image.tag=<version>-fips`; `latest-fips` is refused the
+  same way `latest` is. See [Cryptography](/security/cryptography/).
 - **`ingress.enabled`**, `ingress.className`, `ingress.host`, `ingress.tls` —
   off by default. The chart ships the `proxy-read-timeout` annotations
   WebSockets need **for ingress-nginx**; every other controller ignores them and
@@ -362,7 +364,7 @@ Each of these fails at `helm template` time with a message saying why, rather
 than producing a release that never becomes healthy. CI asserts every one of
 them:
 
-- **A moving image tag** — `latest`, `LATEST`, `Main`, or one with trailing
+- **A moving image tag** — `latest`, `latest-fips`, `LATEST`, `Main`, or one with trailing
   whitespace. Rolling back onto an image older than the migrations that have
   already run makes Parley refuse to start.
 - **A tag that is not a valid image tag at all**, including one shaped to break

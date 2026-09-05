@@ -17,7 +17,8 @@ Actions, and Docker images every week and groups each ecosystem's updates.
 The Docker build uses digest-pinned Node, Go, and distroless base images. It
 copies dependency manifests before source and copies only the source directories
 needed by each stage. The runtime remains a static Go binary in the non-root
-distroless image, with no shell or package manager.
+distroless image, with no shell or package manager. A `-fips` image is
+published beside it; see [Cryptography](/security/cryptography/).
 
 ## Pull-request gates
 
@@ -25,10 +26,12 @@ The stable `required / gate` status is emitted for every pull request, including
 documentation-only changes. It requires:
 
 - Go formatting, vet, race-enabled tests against Postgres, and `govulncheck`
+- the same Go suite under `GOFIPS140=v1.0.0` and `GODEBUG=fips140=on`
 - web lint, build, and dependency audit
 - documentation build and dependency audit
 - dependency review and Developer Certificate of Origin sign-offs
 - a container build, empty-database smoke test, and vulnerability scan
+- a `--target fips` image build and smoke that asserts the boot line reports `fips140=on`
 
 CodeQL analyzes Go and TypeScript in a separate workflow. Workflow permissions
 default to read-only. Pages publishing, security result upload, package

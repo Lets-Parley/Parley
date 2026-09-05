@@ -76,6 +76,60 @@ jobs:
       - name: Check known Go vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
 
+  # The -fips image is a different Go build (GOFIPS140 selects the frozen
+  # module) running with GODEBUG=fips140=on. only is not used: RFC 6455 SHA-1
+  # for the WebSocket accept key panics under it. A suite that only ran on
+  # the default toolchain would not see a non-approved algorithm in a path
+  # the module actually takes. GOFIPS140=v1.0.0 is the freeze that holds
+  # CMVP certificate #5247; v1.26.0 is in-process and is not this pin.
+  go-fips:
+    name: go fips140
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build embedded frontend
+        working-directory: web
+        run: npm ci && npm run build
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Database-test opt-out must be unset
+        run: test -z "${PARLEY_SKIP_DB_TESTS:-}"
+      - name: Test under the frozen FIPS module
+        run: |
+          set -o pipefail
+          go test -json -timeout 20m -p 1 ./... | tee test-output.json | jq -j 'select(.Action=="output") | .Output'
+        env:
+          TEST_DATABASE_URL: postgres://test:test@127.0.0.1:5432/test
+          GOFIPS140: v1.0.0
+          GODEBUG: fips140=on
+      - name: Reject skipped tests
+        run: |
+          skipped=$(jq -rs '
+            [.[] | select(.Action=="output" and .Test == null and (.Output | test("no test files"))) | .Package] as $empty
+            | .[] | select(.Action=="skip")
+            | select(.Test != null or (.Package as $p | $empty | index($p) | not))
+            | .Package + (if .Test then "." + .Test else " (whole package)" end)
+          ' test-output.json)
+          test -z "$skipped" || { echo "$skipped" >&2; exit 1; }
+
   guard-mutation:
     name: plugin guard mutation
     runs-on: ubuntu-24.04
@@ -185,6 +239,8 @@ jobs:
         run: scripts/tests/check-dco-test.sh
       - name: Test release workflow policy
         run: scripts/tests/release-workflow-test.sh
+      - name: Test Dockerfile FIPS target
+        run: scripts/tests/dockerfile-fips-test.sh
       - name: Test image pin checker
         run: scripts/tests/check-image-pins-test.sh
       - name: Test screenshot freshness checker
@@ -267,6 +323,12 @@ jobs:
             curl -fsS http://127.0.0.1:8080/version >&2 || true
             exit 1
           fi
+          # The default image is not the FIPS variant. A Dockerfile that left
+          # `AS fips` as the last stage would still answer /version, and every
+          # operator pulling the untagged build would get fips140=on.
+          docker logs parley-ci-app > /tmp/parley-ci-boot.txt 2>&1
+          grep -q '"fips140":"off"' /tmp/parley-ci-boot.txt \
+            || { echo "default image boot line is missing fips140=off"; cat /tmp/parley-ci-boot.txt >&2; exit 1; }
       - name: Export image
         run: docker save parley:ci | gzip > parley-ci.tar.gz
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -275,6 +337,44 @@ jobs:
           path: parley-ci.tar.gz
           retention-days: 1
           if-no-files-found: error
+
+  docker-fips:
+    name: docker fips build and smoke
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build FIPS image
+        run: docker build --pull --target fips --build-arg VERSION=ci-test --tag parley:ci-fips .
+      - name: Smoke test FIPS first run
+        run: |
+          set -eu
+          trap 'docker rm -f parley-ci-fips-app parley-ci-fips-db >/dev/null 2>&1 || true; docker network rm parley-ci-fips >/dev/null 2>&1 || true' EXIT
+          docker network create parley-ci-fips
+          docker run -d --name parley-ci-fips-db --network parley-ci-fips \
+            -e POSTGRES_USER=parley -e POSTGRES_PASSWORD=smoke -e POSTGRES_DB=parley \
+            postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
+          for i in $(seq 1 30); do
+            docker exec parley-ci-fips-db pg_isready -U parley && break
+            sleep 1
+          done
+          docker run -d --name parley-ci-fips-app --network parley-ci-fips -p 8081:8080 \
+            -e DATABASE_URL=postgres://parley:smoke@parley-ci-fips-db:5432/parley \
+            -e DATABASE_ALLOW_PLAINTEXT=true parley:ci-fips
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8081/readyz && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8081/readyz
+          curl -fsS http://127.0.0.1:8081/ | grep -qi '<div id="root">'
+          reported=$(curl -fsS http://127.0.0.1:8081/version | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+          if [ "$reported" != "ci-test" ]; then
+            echo "expected /version to report ci-test, got: ${reported:-<unparsable>}" >&2
+            curl -fsS http://127.0.0.1:8081/version >&2 || true
+            exit 1
+          fi
+          docker logs parley-ci-fips-app > /tmp/parley-ci-fips-boot.txt 2>&1
+          grep -q '"fips140":"on"' /tmp/parley-ci-fips-boot.txt \
+            || { echo "FIPS image boot line is missing fips140=on"; cat /tmp/parley-ci-fips-boot.txt >&2; exit 1; }
 
   buildx-arg-passthrough:
     name: build-push-action arg passthrough
@@ -612,6 +712,8 @@ jobs:
           ! helm template parley deploy/charts/parley \
             --set database.existingSecret=x --set image.tag=LATEST 2>/dev/null
           ! helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set image.tag=latest-fips 2>/dev/null
+          ! helm template parley deploy/charts/parley \
             --set database.existingSecret=x --set image.tag=Main 2>/dev/null
           ! helm template parley deploy/charts/parley \
             --set database.existingSecret=x --set-string 'image.tag=latest ' 2>/dev/null
@@ -624,7 +726,7 @@ jobs:
           ! helm template parley deploy/charts/parley \
             --set database.existingSecret=x -f /tmp/inject.yaml 2>/dev/null
           # And the tags people actually use must keep working.
-          for t in 0.2.1 v0.2.1 0.2.1-rc1 main-abc1234 sha-abc123 latest-stable; do
+          for t in 0.2.1 v0.2.1 0.2.1-rc1 0.2.1-fips main-abc1234 sha-abc123 latest-stable; do
             helm template parley deploy/charts/parley \
               --set database.existingSecret=x --set-string "image.tag=$t" >/dev/null \
               || { echo "falsely rejected legitimate tag: $t"; exit 1; }
@@ -1097,17 +1199,19 @@ jobs:
   gate:
     name: required / gate
     if: always()
-    needs: [go, web, site, dependency-review, dco, docker, container-scan, chart, buildx-arg-passthrough, guard-mutation, core-untouched, plugin-ceremonies]
+    needs: [go, go-fips, web, site, dependency-review, dco, docker, docker-fips, container-scan, chart, buildx-arg-passthrough, guard-mutation, core-untouched, plugin-ceremonies]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every check
         run: |
           test "${{ needs.go.result }}" = success
+          test "${{ needs.go-fips.result }}" = success
           test "${{ needs.web.result }}" = success
           test "${{ needs.site.result }}" = success
           test "${{ needs.dependency-review.result }}" = success
           test "${{ needs.dco.result }}" = success
           test "${{ needs.docker.result }}" = success
+          test "${{ needs.docker-fips.result }}" = success
           test "${{ needs.container-scan.result }}" = success
           test "${{ needs.buildx-arg-passthrough.result }}" = success
           test "${{ needs.chart.result }}" = success

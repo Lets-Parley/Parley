@@ -18,9 +18,9 @@ grep -Fq 'release_commit: ${{ steps.release.outputs.release_commit }}' "$workflo
 # out some other ref leaves the count untouched. chart deliberately checks out
 # the tag, so a blanket per-job assertion would need an allow-list.
 checkout_count=$(grep -Fc 'ref: ${{ needs.validate.outputs.release_commit }}' "$workflow")
-test "$checkout_count" -eq 4
+test "$checkout_count" -eq 7
 tag_resolution_count=$(grep -Fc 'git rev-parse "$TAG^{commit}"' "$workflow")
-test "$tag_resolution_count" -eq 2
+test "$tag_resolution_count" -eq 3
 grep -Fq 'STAGING_TAG: staging-${{ github.run_id }}-${{ github.run_attempt }}' "$workflow"
 grep -Fq -- '--preserve-digests --all' "$workflow"
 grep -Fq 'oci-archive:/release/parley-image.tar "docker://$IMAGE:$STAGING_TAG"' "$workflow"
@@ -189,7 +189,7 @@ grep -Fq -e "--json body --jq '.body // \"\"'" "$workflow"
 # catch. The count assertion at the end closes the other direction: a fifth
 # format added without an upload trips it.
 sbom_output_count=$(grep -Fc 'output-file: /tmp/parley-' "$workflow")
-test "$sbom_output_count" -eq 4
+test "$sbom_output_count" -eq 8
 for sbom_suffix in .spdx.json -source.spdx.json .cdx.json -source.cdx.json; do
   sbom_path="/tmp/parley-\${{ needs.validate.outputs.tag }}$sbom_suffix"
   # Twice: once as the generator's output-file, once in the artifact path list.
@@ -202,12 +202,48 @@ for sbom_suffix in .spdx.json -source.spdx.json .cdx.json -source.cdx.json; do
     echo "SBOM $sbom_suffix is never attached to the release" >&2
     exit 1
   fi
+  # -source sits after -fips: parley-$TAG-fips-source.spdx.json, not
+  # parley-$TAG-source-fips.spdx.json. Concatenating the existing suffix
+  # onto `-fips` produces that order for every format.
+  fips_path="/tmp/parley-\${{ needs.validate.outputs.tag }}-fips${sbom_suffix}"
+  fips_refs=$(grep -Fc -- "$fips_path" "$workflow")
+  if test "$fips_refs" -lt 2; then
+    echo "FIPS SBOM $sbom_suffix is generated but never uploaded as an artifact ($fips_path)" >&2
+    exit 1
+  fi
+done
+for fips_attach in \
+  '"sbom/parley-$TAG-fips.spdx.json"' \
+  '"sbom/parley-$TAG-fips-source.spdx.json"' \
+  '"sbom/parley-$TAG-fips.cdx.json"' \
+  '"sbom/parley-$TAG-fips-source.cdx.json"'; do
+  if ! grep -Fq -- "$fips_attach" "$workflow"; then
+    echo "FIPS SBOM $fips_attach is never attached to the release" >&2
+    exit 1
+  fi
 done
 
 # Both formats are actually requested of the action. Matching only the file
 # names above would stay green if a step kept its .cdx.json output-file while
 # quietly emitting SPDX into it.
-test "$(grep -Fc 'format: spdx-json' "$workflow")" -eq 2
-test "$(grep -Fc 'format: cyclonedx-json' "$workflow")" -eq 2
+test "$(grep -Fc 'format: spdx-json' "$workflow")" -eq 4
+test "$(grep -Fc 'format: cyclonedx-json' "$workflow")" -eq 4
+
+# The FIPS variant is a parallel pipeline, not a shortcut past staging
+# verification, attestation, or the SBOM. latest-fips is promoted because
+# latest is.
+grep -Fq 'build-fips:' "$workflow"
+grep -Fq 'publish-fips:' "$workflow"
+grep -Fq 'sbom-fips:' "$workflow"
+grep -Fq 'target: fips' "$workflow"
+grep -Fq -- '--tag "$IMAGE:$VERSION-fips"' "$workflow"
+grep -Fq -- '--tag "$IMAGE:latest-fips"' "$workflow"
+test "$(grep -Fc 'test "$actual" = "$expected"' "$workflow")" -eq 2
+grep -Fq 'oci-archive:/release/parley-image-fips.tar "docker://$IMAGE:$STAGING_TAG"' "$workflow"
+if grep -F 'oci-archive:/release/parley-image-fips.tar "docker://$IMAGE:$VERSION-fips"' "$workflow"; then
+  echo "FIPS OCI artifact is copied directly to the final version tag" >&2
+  exit 1
+fi
+grep -Fq 'test "$resolved_fips" = "$FIPS_DIGEST" \' "$workflow"
 
 echo "release workflow checks passed"
