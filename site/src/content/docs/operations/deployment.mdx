@@ -79,7 +79,8 @@ libc to patch, running as a non-root user. The Go binary is static
 (`CGO_ENABLED=0`).
 
 The image declares its own `HEALTHCHECK`, which runs `parley -healthcheck`
-against `/readyz` over loopback every 15 seconds.
+against `/readyz` every 15 seconds. That probe uses loopback when `BIND_ADDR`
+is empty, `127.0.0.1`, or `localhost`; otherwise it probes `BIND_ADDR`.
 
 Pin a version rather than tracking `latest` if you want reproducible deploys.
 Beginning with the first release produced by the hardened workflow, release

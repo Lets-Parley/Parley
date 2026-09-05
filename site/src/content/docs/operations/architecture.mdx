@@ -169,7 +169,9 @@ already struggling.
 :::
 
 The container image's own `HEALTHCHECK` runs `parley -healthcheck`, which fetches
-`/readyz` over loopback with a 3-second timeout and exits 0 or 1.
+`/readyz` with a 3-second timeout and exits 0 or 1. It probes loopback when
+`BIND_ADDR` is empty, `127.0.0.1`, or `localhost`; otherwise it probes
+`BIND_ADDR`.
 
 ## Shutdown
 
