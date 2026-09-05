@@ -346,6 +346,14 @@ Maximum live signed links one room may hold at once. Revoked and expired links
 are never deleted but stop counting, so revoking one frees a slot.
 </EnvVar>
 
+<EnvVar name="WS_MAX_PER_TOKEN" default="8" fatal>
+Maximum live WebSocket connections one session token may hold on one replica.
+Several browser tabs are ordinary use; past the cap the upgrade is refused with
+a 429 before the socket is created. The count is per replica and per token, so
+a person with two devices has two budgets, and closing a tab frees a slot
+immediately.
+</EnvVar>
+
 ## Sign-in
 
 <EnvVar name="AUTH_MODE" default="open" fatal>

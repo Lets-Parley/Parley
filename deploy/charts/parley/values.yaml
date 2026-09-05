@@ -315,7 +315,9 @@ logLevel: info
 #     IDENTITY_IP_HOURLY_LIMIT, IDENTITY_GLOBAL_HOURLY_LIMIT,
 #     LINK_REDEMPTION_IP_HOURLY_LIMIT, SPACE_LIMIT_PER_IDENTITY,
 #     SESSION_LIMIT_PER_SPACE, DECK_LIMIT_PER_SPACE, KUDO_LIMIT_PER_SPACE,
-#     STORY_LIMIT_PER_SESSION and LINK_LIMIT_PER_SESSION. See the configuration reference for what each
+#     STORY_LIMIT_PER_SESSION, LINK_LIMIT_PER_SESSION and WS_MAX_PER_TOKEN —
+#     the last one bounding live WebSockets per session token per replica.
+#     See the configuration reference for what each
 #     one counts before you raise it.
 #   * PLUGIN_SECRET_KEY — base64, exactly 32 bytes decoded, the key plugin
 #     secrets are encrypted with. Unset means plugin secrets are unavailable
