@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lets-parley/parley/internal/api"
 	"github.com/lets-parley/parley/internal/auth"
 	"github.com/lets-parley/parley/internal/db"
@@ -363,11 +364,7 @@ func main() {
 	// Expired session tokens on the same hourly cadence. A row stops
 	// resolving the moment it lapses, but without this nothing ever deletes
 	// it, and the table only grows.
-	go (&store.Users{
-		Pool:    pool,
-		IdleTTL: cfg.SessionIdleTTL,
-		MaxTTL:  cfg.SessionMaxTTL,
-	}).RunSessionSweep(ctx, time.Hour, log)
+	go sessionSweeper(pool, cfg).RunSessionSweep(ctx, time.Hour, log)
 
 	// The host, and with it the outbox and job handlers. Without PLUGIN_DIR
 	// there is no host: the workers keep their nil handlers and drain nothing,
@@ -555,4 +552,17 @@ func runHealthcheck() int {
 		return 1
 	}
 	return 0
+}
+
+// sessionSweeper is the store the background sweep runs through. It exists as
+// its own function only so a test can assert that the SESSION_IDLE_TTL and
+// SESSION_MAX_TTL an operator set actually reach it: a sweep left on the
+// package defaults would keep deleting on a ninety-day rule however short the
+// configured session is, and nothing else in the process would say so.
+func sessionSweeper(pool *pgxpool.Pool, cfg config) *store.Users {
+	return &store.Users{
+		Pool:    pool,
+		IdleTTL: cfg.SessionIdleTTL,
+		MaxTTL:  cfg.SessionMaxTTL,
+	}
 }

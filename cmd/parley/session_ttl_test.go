@@ -86,3 +86,25 @@ func TestAPIOptionsCarryTheSessionLifetimes(t *testing.T) {
 		t.Errorf("api.Options got idle=%s max=%s, want 8h0m0s and 72h0m0s", opts.SessionIdleTTL, opts.SessionMaxTTL)
 	}
 }
+
+// The end of the wiring: what an operator puts in the environment has to reach
+// the store that actually enforces and deletes. loadConfig parsing the values
+// and apiOptions carrying them, both asserted above, still leave the sweep
+// free to run on the package defaults.
+func TestSessionSweeperCarriesTheEnvironmentLifetimes(t *testing.T) {
+	baseConfigEnv(t)
+	t.Setenv("SESSION_IDLE_TTL", "8h")
+	t.Setenv("SESSION_MAX_TTL", "72h")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sweeper := sessionSweeper(nil, cfg)
+	if sweeper.IdleTTL != 8*time.Hour {
+		t.Errorf("the sweep store's IdleTTL = %s, want 8h0m0s", sweeper.IdleTTL)
+	}
+	if sweeper.MaxTTL != 72*time.Hour {
+		t.Errorf("the sweep store's MaxTTL = %s, want 72h0m0s", sweeper.MaxTTL)
+	}
+}
