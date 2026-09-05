@@ -264,6 +264,10 @@ looks locked down — prefer `auth.mode` and `database.existingSecret`.
 `service.port` only changes the cluster-facing Service port, not the process
 listen port.
 
+`BIND_ADDR` is not a chart value either. Pods bind all interfaces;
+NetworkPolicy is the control. Setting it in `extraEnv` would hide the process
+from probes and the Service.
+
 **`extraVolumes`/`extraVolumeMounts`** are the volume-side counterpart, spliced
 into the pod spec and the container the same way `extraEnv` is. This is how a
 ConfigMap or Secret ends up mounted on disk — a private CA bundle, for

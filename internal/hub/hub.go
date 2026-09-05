@@ -120,11 +120,14 @@ type Conn struct {
 	// Dropping those frames costs nothing, since the initial frame lands
 	// afterwards and would have overwritten them.
 	broadcastReady atomic.Bool
-	removed        atomic.Bool
-	stop           chan struct{}
-	writerDone     chan struct{}
-	writeMessage   func(messageType int, data []byte) error
-	readMessage    func() (messageType int, p []byte, err error)
+	// tokenReserved marks that this connection holds a slot in the hub's
+	// per-token socket count. It is cleared exactly once, on teardown.
+	tokenReserved atomic.Bool
+	removed       atomic.Bool
+	stop          chan struct{}
+	writerDone    chan struct{}
+	writeMessage  func(messageType int, data []byte) error
+	readMessage   func() (messageType int, p []byte, err error)
 }
 
 func (c *Conn) Close() {
@@ -148,6 +151,16 @@ type Hub struct {
 	// rather than a walk of rooms so a Prometheus scrape can read it without
 	// taking the event loop or adding a mutex around Hub.run.
 	conns atomic.Int64
+
+	// MaxPerToken bounds the live sockets one session token may hold on this
+	// replica. Zero means unbounded. It is read by ReserveToken, which the
+	// handler calls before upgrading, so it must be set before serving.
+	MaxPerToken int
+	// tokensMu guards tokens, which counts live sockets per session token.
+	// It is its own lock rather than the owner loop's business: the count is
+	// claimed from the HTTP handler goroutine, before a connection exists.
+	tokensMu sync.Mutex
+	tokens   map[string]int
 
 	// OnPresenceChange fires (debounced) after connects/disconnects settle.
 	OnPresenceChange func(sessionID string)
@@ -288,6 +301,10 @@ type SessionAuth struct {
 	ExpiresAt time.Time
 	// Guest marks a link guest, whose frames are redacted of space-level data.
 	Guest bool
+	// TokenReserved says the caller already claimed a per-token socket slot
+	// with ReserveToken. The connection then owns that slot and gives it back
+	// on teardown.
+	TokenReserved bool
 }
 
 func New() *Hub {
@@ -297,6 +314,7 @@ func New() *Hub {
 		rooms:   make(map[string]map[*Conn]struct{}),
 		pending: make(map[*Conn]registerEvent),
 		timers:  make(map[string]*time.Timer),
+		tokens:  make(map[string]int),
 	}
 	go h.run()
 	return h
@@ -615,11 +633,15 @@ func (h *Hub) AttachAuthenticated(ws *websocket.Conn, sessionID, userID string, 
 		readMessage:  ws.ReadMessage,
 	}
 	c.closeCode.Store(websocket.CloseNormalClosure)
+	c.tokenReserved.Store(auth.TokenReserved)
 	if h.wrapReader != nil {
 		c.readMessage = h.wrapReader(c, c.readMessage)
 	}
 	accepted := make(chan bool)
 	if !h.submit(registerEvent{conn: c, accepted: accepted}) {
+		// The hub is shutting down, so this connection never reaches
+		// markRemoved: hand its slot back here instead.
+		c.releaseTokenSlot()
 		cancel()
 		ws.Close()
 		return
@@ -911,7 +933,51 @@ func (c *Conn) finishWrite() {
 	c.writeState.CompareAndSwap(writeActiveRemoved, writeRemoved)
 }
 
+// ReserveToken claims a socket slot for a session token, reporting whether the
+// token is still under MaxPerToken. Callers reserve before upgrading, so a
+// client over the cap is refused a plain HTTP response rather than a socket
+// that closes on it. Every successful reservation must be given back, which
+// AttachAuthenticated arranges by handing the reservation to the connection.
+func (h *Hub) ReserveToken(tokenID string) bool {
+	if h.MaxPerToken <= 0 || tokenID == "" {
+		return true
+	}
+	h.tokensMu.Lock()
+	defer h.tokensMu.Unlock()
+	if h.tokens[tokenID] >= h.MaxPerToken {
+		return false
+	}
+	h.tokens[tokenID]++
+	return true
+}
+
+// ReleaseToken gives back one slot claimed by ReserveToken.
+func (h *Hub) ReleaseToken(tokenID string) {
+	if h.MaxPerToken <= 0 || tokenID == "" {
+		return
+	}
+	h.tokensMu.Lock()
+	defer h.tokensMu.Unlock()
+	if n := h.tokens[tokenID] - 1; n > 0 {
+		h.tokens[tokenID] = n
+	} else {
+		delete(h.tokens, tokenID)
+	}
+}
+
+// releaseTokenSlot returns this connection's reservation, once. It sits on the
+// single teardown funnel so every close path pays it: a normal close, a read
+// or write pump failure, a pong timeout, a revoke from the fanout listener, a
+// failed 30s revalidation and the panic recoveries all reach markRemoved.
+func (c *Conn) releaseTokenSlot() {
+	if c.hub == nil || !c.tokenReserved.CompareAndSwap(true, false) {
+		return
+	}
+	c.hub.ReleaseToken(c.tokenID)
+}
+
 func (c *Conn) markRemoved() {
+	c.releaseTokenSlot()
 	c.authState.Store(authRemoved)
 	for {
 		switch c.writeState.Load() {

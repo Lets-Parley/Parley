@@ -137,6 +137,10 @@ spec:
               value: {{ .Values.logLevel | quote }}
             - name: METRICS_ENABLED
               value: {{ include "parley.isTrue" .Values.metrics.enabled | quote }}
+            - name: SESSION_IDLE_TTL
+              value: {{ .Values.session.idleTTL | quote }}
+            - name: SESSION_MAX_TTL
+              value: {{ .Values.session.maxTTL | quote }}
             # Stamped on this pod's presence rows. Not required — Parley falls
             # back to a random per-process id — but it makes a row that outlives
             # its pod traceable to the pod that wrote it.

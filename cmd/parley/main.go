@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -15,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lets-parley/parley/internal/api"
 	"github.com/lets-parley/parley/internal/auth"
 	"github.com/lets-parley/parley/internal/db"
@@ -35,10 +37,13 @@ type config struct {
 	// against. Empty with sslmode=require means no verification at all.
 	DBRootCert string
 	Port       string
-	BaseURL    *url.URL
-	LogLevel   slog.Level
-	AuthMode   string
-	OIDC       auth.Config
+	// BindAddr is a bare host or IP prepended to PORT. Empty listens on every
+	// interface. IPv6 literals are accepted; a host:port form is not.
+	BindAddr string
+	BaseURL  *url.URL
+	LogLevel slog.Level
+	AuthMode string
+	OIDC     auth.Config
 	// DefaultOrgClaim, when set, points the default org at an identity-provider
 	// group so a fresh instance has something for a claim to match.
 	DefaultOrgClaim string
@@ -52,6 +57,11 @@ type config struct {
 	// with. Empty means secrets are unavailable, and a plugin that asks for
 	// them fails to install rather than storing them in the clear.
 	PluginSecretKey string
+	// SessionIdleTTL is how long a quiet session survives; SessionMaxTTL is
+	// the absolute lifetime from the moment the token was issued, which no
+	// amount of activity extends.
+	SessionIdleTTL time.Duration
+	SessionMaxTTL  time.Duration
 	// PluginEventRetention is how long a fully-delivered plugin event is kept.
 	PluginEventRetention time.Duration
 	// PluginDir is the directory plugin bundles are read from. Empty means no
@@ -75,7 +85,11 @@ func loadConfig() (config, error) {
 	}
 
 	cfg := config{
-		Port: envOr("PORT", "8080"),
+		Port:     envOr("PORT", "8080"),
+		BindAddr: envOr("BIND_ADDR", ""),
+	}
+	if err := validateBindAddr(cfg.BindAddr); err != nil {
+		return cfg, err
 	}
 
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
@@ -165,6 +179,7 @@ func loadConfig() (config, error) {
 		{"KUDO_LIMIT_PER_SPACE", 500, func(v int) { cfg.Limits.KudosPerSpace = v }},
 		{"STORY_LIMIT_PER_SESSION", 500, func(v int) { cfg.Limits.StoriesPerSession = v }},
 		{"LINK_LIMIT_PER_SESSION", 20, func(v int) { cfg.Limits.LinksPerSession = v }},
+		{"WS_MAX_PER_TOKEN", 8, func(v int) { cfg.Limits.WSMaxPerToken = v }},
 	}
 	for _, limit := range limits {
 		raw := envOr(limit.name, strconv.Itoa(limit.fallback))
@@ -173,6 +188,21 @@ func loadConfig() (config, error) {
 			return cfg, fmt.Errorf("%s %q is not a positive integer", limit.name, raw)
 		}
 		limit.set(value)
+	}
+
+	for _, ttl := range []struct {
+		name string
+		def  string
+		set  func(time.Duration)
+	}{
+		{"SESSION_IDLE_TTL", "2160h", func(d time.Duration) { cfg.SessionIdleTTL = d }},
+		{"SESSION_MAX_TTL", "2160h", func(d time.Duration) { cfg.SessionMaxTTL = d }},
+	} {
+		value, err := time.ParseDuration(envOr(ttl.name, ttl.def))
+		if err != nil || value <= 0 {
+			return cfg, fmt.Errorf("%s %q is not a positive duration — use a Go duration such as 2160h", ttl.name, os.Getenv(ttl.name))
+		}
+		ttl.set(value)
 	}
 
 	cfg.PluginSecretKey = strings.TrimSpace(os.Getenv("PLUGIN_SECRET_KEY"))
@@ -349,6 +379,10 @@ func main() {
 		plugins.Cipher = cipher
 	}
 	go plugins.RunRetention(ctx, cfg.PluginEventRetention, time.Hour, log)
+	// Expired session tokens on the same hourly cadence. A row stops
+	// resolving the moment it lapses, but without this nothing ever deletes
+	// it, and the table only grows.
+	go sessionSweeper(pool, cfg).RunSessionSweep(ctx, time.Hour, log)
 
 	// The host, and with it the outbox and job handlers. Without PLUGIN_DIR
 	// there is no host: the workers keep their nil handlers and drain nothing,
@@ -372,7 +406,7 @@ func main() {
 
 	handler := api.Router(pool, opts)
 	defer handler.Shutdown()
-	srv := newHTTPServer(cfg.Port, handler)
+	srv := newHTTPServer(cfg.BindAddr, cfg.Port, handler)
 
 	go func() {
 		<-ctx.Done()
@@ -409,6 +443,8 @@ func apiOptions(ctx context.Context, cfg config, secureCookies bool, plugins *pl
 		Version:           version,
 		TrustedProxyCIDRs: cfg.TrustedProxyCIDRs,
 		Limits:            cfg.Limits,
+		SessionIdleTTL:    cfg.SessionIdleTTL,
+		SessionMaxTTL:     cfg.SessionMaxTTL,
 		BootstrapAdmin:    cfg.BootstrapAdmin,
 		// Without this the plugin UI frame route and the room's panel list
 		// both take their empty-directory early return, and the whole plugin
@@ -448,17 +484,21 @@ func bootFields(cfg config, secureCookies bool) []any {
 		"cookie_secure", secureCookies,
 		"allowed_ws_origin", cfg.BaseURL.Scheme + "://" + cfg.BaseURL.Host,
 		"port", cfg.Port,
+		"bind_addr", cfg.BindAddr,
 		"auth_mode", cfg.AuthMode,
 		"db_sslmode", cfg.DBSSLMode,
 		"trust_proxy_headers", cfg.TrustProxy,
 		"metrics_enabled", cfg.MetricsEnabled,
 		"plugin_secrets", cfg.PluginSecretKey != "",
+		"session_idle_ttl", cfg.SessionIdleTTL.String(),
+		"session_max_ttl", cfg.SessionMaxTTL.String(),
 		"plugin_event_retention", cfg.PluginEventRetention.String(),
 		"plugin_dir", cfg.PluginDir,
 		"plugin_call_timeout", cfg.PluginLimits.CallTimeout.String(),
 		"plugin_memory_pages", cfg.PluginLimits.MemoryPages,
 		"plugin_max_concurrent_calls", cfg.PluginLimits.MaxConcurrentCalls,
 		"plugin_max_calls_per_plugin", cfg.PluginLimits.MaxConcurrentPerInstall,
+		"ws_max_per_token", cfg.Limits.WSMaxPerToken,
 	}
 	// "trust_proxy_headers=true" alone does not tell an operator which hops
 	// were accepted, and a CIDR that failed to parse is exactly the mistake
@@ -509,9 +549,68 @@ func probeIdentityProvider(ctx context.Context, log *slog.Logger, provider ident
 	)
 }
 
-func newHTTPServer(port string, handler http.Handler) *http.Server {
+func validateBindAddr(bind string) error {
+	if bind == "" {
+		return nil
+	}
+	if net.ParseIP(bindHost(bind)) != nil {
+		return nil
+	}
+	if _, _, err := net.SplitHostPort(bind); err == nil {
+		return fmt.Errorf("BIND_ADDR %q must be a host or IP without a port — the port is PORT", bind)
+	}
+	if !validHostname(bind) {
+		return fmt.Errorf("BIND_ADDR %q must be a host or IP without a port — the port is PORT", bind)
+	}
+	return nil
+}
+
+// bindHost returns the host BIND_ADDR names. Bracketed IPv6 literals (`[::1]`)
+// are accepted by stripping the brackets so JoinHostPort can re-apply them.
+func bindHost(bind string) string {
+	if len(bind) >= 2 && bind[0] == '[' && bind[len(bind)-1] == ']' {
+		inner := bind[1 : len(bind)-1]
+		if net.ParseIP(inner) != nil {
+			return inner
+		}
+	}
+	return bind
+}
+
+func validHostname(s string) bool {
+	if len(s) == 0 || len(s) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(s, ".") {
+		if len(label) == 0 || len(label) > 63 {
+			return false
+		}
+		for i, r := range label {
+			isAlphaNum := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+			isInnerHyphen := r == '-' && i > 0 && i < len(label)-1
+			if !isAlphaNum && !isInnerHyphen {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func listenAddr(bind, port string) string {
+	return net.JoinHostPort(bindHost(bind), port)
+}
+
+func healthcheckTarget(bind, port string) string {
+	host := bindHost(bind)
+	if bind == "" || host == "127.0.0.1" || strings.EqualFold(bind, "localhost") {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port) + "/readyz"
+}
+
+func newHTTPServer(bind, port string, handler http.Handler) *http.Server {
 	return &http.Server{
-		Addr:              ":" + port,
+		Addr:              listenAddr(bind, port),
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -520,10 +619,19 @@ func newHTTPServer(port string, handler http.Handler) *http.Server {
 	}
 }
 
+func healthcheckURL(bind, port string) string {
+	return healthcheckTarget(bind, port)
+}
+
 func runHealthcheck() int {
 	port := envOr("PORT", "8080")
+	bind := envOr("BIND_ADDR", "")
+	if err := validateBindAddr(bind); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get("http://127.0.0.1:" + port + "/readyz")
+	resp, err := client.Get(healthcheckURL(bind, port))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "not ready:", err)
 		return 1
@@ -534,4 +642,17 @@ func runHealthcheck() int {
 		return 1
 	}
 	return 0
+}
+
+// sessionSweeper is the store the background sweep runs through. It exists as
+// its own function only so a test can assert that the SESSION_IDLE_TTL and
+// SESSION_MAX_TTL an operator set actually reach it: a sweep left on the
+// package defaults would keep deleting on a ninety-day rule however short the
+// configured session is, and nothing else in the process would say so.
+func sessionSweeper(pool *pgxpool.Pool, cfg config) *store.Users {
+	return &store.Users{
+		Pool:    pool,
+		IdleTTL: cfg.SessionIdleTTL,
+		MaxTTL:  cfg.SessionMaxTTL,
+	}
 }

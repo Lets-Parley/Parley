@@ -168,7 +168,7 @@ func (a *app) handlePostMe(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":"could not update name"}`, http.StatusInternalServerError)
 			return
 		}
-		setSessionCookie(w, plain, a.secureCookies)
+		a.setSessionCookie(w, plain)
 		writeJSON(w, http.StatusOK, toMeResponse(u))
 		return
 	}
@@ -191,7 +191,7 @@ func (a *app) handlePostMe(w http.ResponseWriter, r *http.Request) {
 	if err := a.grantDefaultOrgMembership(r.Context(), Principal{UserID: u.ID, LinkSessionID: u.LinkSessionID}); err != nil {
 		slog.Error("could not map org membership", "user_id", u.ID, "error", err)
 	}
-	setSessionCookie(w, plain, a.secureCookies)
+	a.setSessionCookie(w, plain)
 	writeJSON(w, http.StatusCreated, toMeResponse(u))
 }
 

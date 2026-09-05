@@ -92,11 +92,23 @@ Get it wrong and the symptoms look unrelated to configuration: boards stuck at
 </EnvVar>
 
 <EnvVar name="PORT" default="8080">
-The listening port.
+The listening port. Combined with `BIND_ADDR` (empty by default) this is the
+listen address: `:8080` on every interface, or `127.0.0.1:8080` if you set
+`BIND_ADDR=127.0.0.1`.
+</EnvVar>
 
-There is no bind-address setting — the process always listens on **all
-interfaces**. Restrict reachability with a container port binding, a firewall or
-a proxy.
+<EnvVar name="BIND_ADDR" fatal>
+A bare host or IP address to bind, with no port — the port is `PORT`. Empty
+(the default) listens on every interface. Set `127.0.0.1` to keep a bare-binary
+install on loopback. IPv6 literals are accepted (`BIND_ADDR=::1` listens on
+`[::1]:PORT`). A host:port form is refused.
+
+This is not a Helm chart value. Kubernetes pods bind all interfaces;
+[NetworkPolicy](/operations/kubernetes/) is the control. Setting it in
+`extraEnv` would hide the process from probes and the Service.
+
+`-healthcheck` still probes `127.0.0.1` when this is empty, `127.0.0.1`, or
+`localhost`; otherwise it probes `BIND_ADDR`.
 </EnvVar>
 
 <EnvVar name="LOG_LEVEL" default="info" fatal>
@@ -199,6 +211,28 @@ does not exist, or a line without an `=`, stops the process: a typo'd path that
 quietly ran on defaults is the failure fail-fast exists to prevent.
 
 Leaving it unset is fine and is what every deployment in these docs does.
+</EnvVar>
+
+<EnvVar name="SESSION_IDLE_TTL" default="2160h" badValue="Refuses to start if the value is not a positive Go duration">
+How long a session survives without activity. Any write or WebSocket connect
+renews the window; a `GET` never does, so a third-party page cannot keep a
+victim's session alive with an `<img src>`.
+
+CUI and other hardened deployments usually want this in hours rather than days
+— `8h` ends a session left open overnight.
+</EnvVar>
+
+<EnvVar name="SESSION_MAX_TTL" default="2160h" badValue="Refuses to start if the value is not a positive Go duration">
+The absolute lifetime of a session, measured from the moment its token was
+issued. No amount of activity extends it: a stolen token that keeps being used
+still stops working when this elapses, and the person has to sign in again.
+
+Set it shorter than `SESSION_IDLE_TTL` and it is the cap that ends every
+session. The cookie's `Max-Age` is the smaller of the two, so the browser never
+holds a cookie the server has stopped honouring.
+
+Rows past either lifetime are deleted by a background pass that runs hourly, so
+lapsed credential hashes do not accumulate.
 </EnvVar>
 
 ## Plugins
@@ -324,6 +358,14 @@ Maximum live signed links one room may hold at once. Revoked and expired links
 are never deleted but stop counting, so revoking one frees a slot.
 </EnvVar>
 
+<EnvVar name="WS_MAX_PER_TOKEN" default="8" fatal>
+Maximum live WebSocket connections one session token may hold on one replica.
+Several browser tabs are ordinary use; past the cap the upgrade is refused with
+a 429 before the socket is created. The count is per replica and per token, so
+a person with two devices has two budgets, and closing a tab frees a slot
+immediately.
+</EnvVar>
+
 ## Sign-in
 
 <EnvVar name="AUTH_MODE" default="open" fatal>
@@ -416,11 +458,11 @@ Worth stating, because they are natural guesses:
 
 - **`ALLOWED_ORIGIN`** — there isn't one. The allowed origin is derived from
   `BASE_URL`.
-- **Pool size, statement timeout, session lifetime, room-code throttle tuning**
-  — fixed. See [Limits and defaults](/reference/limits-and-defaults/).
+- **Pool size, statement timeout, room-code throttle tuning** — fixed. See
+  [Limits and defaults](/reference/limits-and-defaults/). Session lifetime is
+  *not* on this list: see `SESSION_IDLE_TTL` and `SESSION_MAX_TTL` above.
 - **TLS certificate paths** — Parley never terminates TLS. Use a
   [reverse proxy](/operations/reverse-proxy/).
-- **A bind address** — see `PORT` above.
 
 ## TEST_DATABASE_URL
 

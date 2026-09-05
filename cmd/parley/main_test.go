@@ -74,6 +74,7 @@ func TestLoadConfigUsesFiniteAbuseLimitDefaults(t *testing.T) {
 		KudosPerSpace:          500,
 		StoriesPerSession:      500,
 		LinksPerSession:        20,
+		WSMaxPerToken:          8,
 	}
 	if cfg.Limits != want {
 		t.Fatalf("limits = %+v, want %+v", cfg.Limits, want)
@@ -89,6 +90,7 @@ func TestLoadConfigRejectsNonPositiveAbuseLimits(t *testing.T) {
 		"SESSION_LIMIT_PER_SPACE",
 		"STORY_LIMIT_PER_SESSION",
 		"LINK_LIMIT_PER_SESSION",
+		"WS_MAX_PER_TOKEN",
 	} {
 		for _, value := range []string{"0", "-1", "many"} {
 			t.Run(name+"="+value, func(t *testing.T) {
@@ -157,9 +159,19 @@ func TestLoadConfigParsesTrustedProxyCIDRs(t *testing.T) {
 }
 
 func TestHTTPServerUsesBoundedTimeouts(t *testing.T) {
-	srv := newHTTPServer("8080", http.NotFoundHandler())
+	srv := newHTTPServer("", "8080", http.NotFoundHandler())
 	if srv.ReadHeaderTimeout != 10*time.Second || srv.ReadTimeout != 30*time.Second || srv.WriteTimeout != 30*time.Second || srv.IdleTimeout != 120*time.Second {
 		t.Fatalf("timeouts = header %s read %s write %s idle %s", srv.ReadHeaderTimeout, srv.ReadTimeout, srv.WriteTimeout, srv.IdleTimeout)
+	}
+}
+
+func TestHTTPServerListenAddrUsesBind(t *testing.T) {
+	h := http.NotFoundHandler()
+	if got := newHTTPServer("10.0.0.5", "8080", h).Addr; got != "10.0.0.5:8080" {
+		t.Fatalf("Addr = %q, want 10.0.0.5:8080", got)
+	}
+	if got := newHTTPServer("::1", "8080", h).Addr; got != "[::1]:8080" {
+		t.Fatalf("Addr = %q, want [::1]:8080", got)
 	}
 }
 
