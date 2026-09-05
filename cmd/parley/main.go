@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lets-parley/parley/internal/api"
 	"github.com/lets-parley/parley/internal/auth"
 	"github.com/lets-parley/parley/internal/db"
@@ -56,6 +57,11 @@ type config struct {
 	// with. Empty means secrets are unavailable, and a plugin that asks for
 	// them fails to install rather than storing them in the clear.
 	PluginSecretKey string
+	// SessionIdleTTL is how long a quiet session survives; SessionMaxTTL is
+	// the absolute lifetime from the moment the token was issued, which no
+	// amount of activity extends.
+	SessionIdleTTL time.Duration
+	SessionMaxTTL  time.Duration
 	// PluginEventRetention is how long a fully-delivered plugin event is kept.
 	PluginEventRetention time.Duration
 	// PluginDir is the directory plugin bundles are read from. Empty means no
@@ -178,6 +184,21 @@ func loadConfig() (config, error) {
 			return cfg, fmt.Errorf("%s %q is not a positive integer", limit.name, raw)
 		}
 		limit.set(value)
+	}
+
+	for _, ttl := range []struct {
+		name string
+		def  string
+		set  func(time.Duration)
+	}{
+		{"SESSION_IDLE_TTL", "2160h", func(d time.Duration) { cfg.SessionIdleTTL = d }},
+		{"SESSION_MAX_TTL", "2160h", func(d time.Duration) { cfg.SessionMaxTTL = d }},
+	} {
+		value, err := time.ParseDuration(envOr(ttl.name, ttl.def))
+		if err != nil || value <= 0 {
+			return cfg, fmt.Errorf("%s %q is not a positive duration — use a Go duration such as 2160h", ttl.name, os.Getenv(ttl.name))
+		}
+		ttl.set(value)
 	}
 
 	cfg.PluginSecretKey = strings.TrimSpace(os.Getenv("PLUGIN_SECRET_KEY"))
@@ -348,6 +369,10 @@ func main() {
 		plugins.Cipher = cipher
 	}
 	go plugins.RunRetention(ctx, cfg.PluginEventRetention, time.Hour, log)
+	// Expired session tokens on the same hourly cadence. A row stops
+	// resolving the moment it lapses, but without this nothing ever deletes
+	// it, and the table only grows.
+	go sessionSweeper(pool, cfg).RunSessionSweep(ctx, time.Hour, log)
 
 	// The host, and with it the outbox and job handlers. Without PLUGIN_DIR
 	// there is no host: the workers keep their nil handlers and drain nothing,
@@ -408,6 +433,8 @@ func apiOptions(ctx context.Context, cfg config, secureCookies bool, plugins *pl
 		Version:           version,
 		TrustedProxyCIDRs: cfg.TrustedProxyCIDRs,
 		Limits:            cfg.Limits,
+		SessionIdleTTL:    cfg.SessionIdleTTL,
+		SessionMaxTTL:     cfg.SessionMaxTTL,
 		BootstrapAdmin:    cfg.BootstrapAdmin,
 		// Without this the plugin UI frame route and the room's panel list
 		// both take their empty-directory early return, and the whole plugin
@@ -451,6 +478,8 @@ func bootFields(cfg config, secureCookies bool) []any {
 		"db_sslmode", cfg.DBSSLMode,
 		"trust_proxy_headers", cfg.TrustProxy,
 		"plugin_secrets", cfg.PluginSecretKey != "",
+		"session_idle_ttl", cfg.SessionIdleTTL.String(),
+		"session_max_ttl", cfg.SessionMaxTTL.String(),
 		"plugin_event_retention", cfg.PluginEventRetention.String(),
 		"plugin_dir", cfg.PluginDir,
 		"plugin_call_timeout", cfg.PluginLimits.CallTimeout.String(),
@@ -600,4 +629,17 @@ func runHealthcheck() int {
 		return 1
 	}
 	return 0
+}
+
+// sessionSweeper is the store the background sweep runs through. It exists as
+// its own function only so a test can assert that the SESSION_IDLE_TTL and
+// SESSION_MAX_TTL an operator set actually reach it: a sweep left on the
+// package defaults would keep deleting on a ninety-day rule however short the
+// configured session is, and nothing else in the process would say so.
+func sessionSweeper(pool *pgxpool.Pool, cfg config) *store.Users {
+	return &store.Users{
+		Pool:    pool,
+		IdleTTL: cfg.SessionIdleTTL,
+		MaxTTL:  cfg.SessionMaxTTL,
+	}
 }

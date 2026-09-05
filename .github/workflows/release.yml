@@ -159,11 +159,42 @@ jobs:
             "$IMAGE@$actual"
           echo "digest=$actual" >> "$GITHUB_OUTPUT"
       - name: Attest published digest
+        id: attest
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ needs.validate.outputs.image }}
           subject-digest: ${{ steps.publish.outputs.digest }}
           push-to-registry: true
+      # The Sigstore bundle attest-build-provenance writes locally is the same
+      # signed statement pushed to the registry above, just in a form
+      # `gh attestation verify --bundle` can check with no call to GitHub's
+      # transparency log. Staged here as a plain artifact, not a release asset:
+      # this job holds packages:write for the registry push, and the job that
+      # attaches release assets deliberately never holds that scope.
+      - name: Validate the Sigstore bundle before staging it
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          set -eu
+          # attest-build-provenance can hand back an empty or malformed file
+          # with no non-zero exit of its own. Nothing downstream checks the
+          # bundle's content before it is uploaded as a release asset, so
+          # catch it here: non-empty, valid JSON, and shaped like the single-
+          # bundle form the action writes (mediaType/verificationMaterial/
+          # dsseEnvelope), not the JSONL form `gh attestation download` uses.
+          test -s "$BUNDLE_PATH"
+          jq -e '.mediaType and .verificationMaterial and .dsseEnvelope' "$BUNDLE_PATH" >/dev/null
+      - name: Stage the Sigstore bundle for offline verification
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: cp "$BUNDLE_PATH" "/tmp/parley-$TAG.sigstore.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-sigstore-bundle-${{ needs.validate.outputs.tag }}
+          path: /tmp/parley-${{ needs.validate.outputs.tag }}.sigstore.json
+          if-no-files-found: error
+          retention-days: 7
 
   chart:
     needs: [validate, publish]
@@ -327,6 +358,42 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --clobber
 
+  # Holds contents:write to attach the release asset and nothing else — no
+  # packages:write, no registry credential — the same separation the sbom /
+  # sbom-assets pair keeps. The bundle was already produced and pushed to the
+  # registry by the publish job above; this job only republishes it as a
+  # release asset an operator can save before going offline.
+  attestation-assets:
+    needs: [validate, publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-sigstore-bundle-${{ needs.validate.outputs.tag }}
+          path: bundle
+      - name: Validate the downloaded bundle before attaching it
+        env:
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -eu
+          # Re-check after the artifact round-trip, independent of the
+          # publish job's own check above: a corrupted download or a bundle
+          # that was tampered with between jobs must not reach the release.
+          test -s "bundle/parley-$TAG.sigstore.json"
+          jq -e '.mediaType and .verificationMaterial and .dsseEnvelope' \
+            "bundle/parley-$TAG.sigstore.json" >/dev/null
+      - name: Attach the Sigstore bundle
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          gh release upload "$TAG" \
+            "bundle/parley-$TAG.sigstore.json" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
   release-assets:
     needs: [validate, publish, chart]
     runs-on: ubuntu-24.04
@@ -372,7 +439,7 @@ jobs:
   # receipt that only repeats `needs` would confirm the workflow's opinion of
   # itself, which is the failure mode being fixed.
   publish-receipt:
-    needs: [validate, publish, chart, release-assets]
+    needs: [validate, publish, chart, release-assets, attestation-assets]
     runs-on: ubuntu-24.04
     # No registry credential, deliberately. The sbom jobs above split reading
     # the registry from writing to the release precisely so no single job holds
@@ -407,6 +474,25 @@ jobs:
             > /tmp/chart.yaml
           grep -q "^appVersion: \"\?${VERSION}\"\?$" /tmp/chart.yaml \
             || { echo "chart $VERSION does not name appVersion $VERSION"; cat /tmp/chart.yaml; exit 1; }
+      - name: Resolve the attached Sigstore bundle
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -eu
+          # The image and chart lines above are resolved from the registry,
+          # not merely trusted because their upload jobs succeeded — this line
+          # must earn the same treatment rather than being a hard-coded
+          # printf, or a bundle upload failure would still print "attached".
+          size=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[] | select(.name == "parley-'"$TAG"'.sigstore.json") | .size')
+          if [ -z "$size" ]; then
+            echo "no parley-$TAG.sigstore.json asset found on release $TAG"; exit 1
+          fi
+          if [ "$size" -eq 0 ]; then
+            echo "parley-$TAG.sigstore.json asset is 0 bytes"; exit 1
+          fi
+          echo "sigstore bundle asset size: $size"
       - name: Record the receipt on the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -450,8 +536,9 @@ jobs:
             printf '**Artifacts published and resolvable from the registry:**\n\n'
             printf -- '- image `ghcr.io/%s/parley:%s` @ `%s`\n' \
               "$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')" "$VERSION" "$DIGEST"
-            printf -- '- chart `oci://ghcr.io/%s/charts/parley` version `%s`\n\n' \
+            printf -- '- chart `oci://ghcr.io/%s/charts/parley` version `%s`\n' \
               "$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')" "$VERSION"
+            printf -- '- offline-verifiable Sigstore bundle `parley-%s.sigstore.json` attached to this release\n\n' "$TAG"
             printf 'Checked by resolving both from the registry, not by trusting the jobs that made them. If this block is absent from a release, do not deploy it without checking by hand — a red run means the artifacts may be missing, incomplete, or fine, and the badge alone does not say which.\n'
           } > /tmp/body.md
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file /tmp/body.md

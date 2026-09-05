@@ -83,6 +83,9 @@ against `/readyz` every 15 seconds. That probe uses loopback when `BIND_ADDR`
 is empty, `127.0.0.1`, or `localhost`; otherwise it probes `BIND_ADDR`.
 
 Pin a version rather than tracking `latest` if you want reproducible deploys.
+`latest` exists for quick evaluation only — it moves with every release, so
+using it in a durable install means an unplanned upgrade on the next pull,
+with no way to tell which version is actually running.
 Beginning with the first release produced by the hardened workflow, release
 assets include digest-qualified Compose and Kubernetes manifests, an image and a
 source SPDX SBOM, and verifiable provenance for the published digest. Releases

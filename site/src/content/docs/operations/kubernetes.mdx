@@ -262,6 +262,11 @@ listen port.
 NetworkPolicy is the control. Setting it in `extraEnv` would hide the process
 from probes and the Service.
 
+**`extraVolumes`/`extraVolumeMounts`** are the volume-side counterpart, spliced
+into the pod spec and the container the same way `extraEnv` is. This is how a
+ConfigMap or Secret ends up mounted on disk — a private CA bundle, for
+example; see [Air-gapped installs](/operations/air-gapped/#trusting-a-private-ca).
+
 A malformed entry — a map instead of a list, or an entry with no `name` — fails
 at `helm template` time with a named error rather than rendering a manifest the
 API server will reject later. See

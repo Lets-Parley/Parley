@@ -56,10 +56,10 @@ process makes one call per sign-in, not three.
 ## Retention and erasure
 
 <Capability rows={[
-  { name: "Retention policy", status: "not-built", detail: "Application records are not automatically deleted. Session authorization expires after 90 idle days, but its database row remains until you prune it." },
+  { name: "Retention policy", status: "not-built", detail: "Application records are not automatically deleted. Session tokens are the exception: they expire on the configured lifetimes and their rows are swept hourly." },
   { name: "Account deletion", status: "not-built", detail: "There is no endpoint. <code>DELETE /api/me</code> ends a session, it does not delete the account. Deleting a <code>users</code> row must be done in SQL, and see the caveat below — it is not a clean cascade." },
   { name: "Per-space export or erasure", status: "not-built", detail: "Export sessions to <a href='/features/exports/'>CSV</a> individually; erase with SQL against the documented <a href='/reference/database-schema/'>schema</a>." },
-  { name: "Expired token cleanup", status: "not-built", detail: "Tokens stop resolving after 90 idle days but rows are never swept, so <code>session_tokens</code> grows without bound. It is small — one row per sign-in — but if you run Parley for years, prune it on a schedule." },
+  { name: "Expired token cleanup", status: "built", detail: "An hourly background pass deletes <code>session_tokens</code> rows past either <code>SESSION_IDLE_TTL</code> or <code>SESSION_MAX_TTL</code>, so the table does not grow without bound." },
   { name: "Encryption at rest", status: "not-built", detail: "Parley encrypts nothing itself. Use an encrypted volume or your database provider's encryption." },
   { name: "Telemetry", status: "out-of-scope", detail: "There is none, and adding it is not planned." },
 ]} />
