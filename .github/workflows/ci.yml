@@ -112,6 +112,8 @@ jobs:
           cache: true
       - name: Database-test opt-out must be unset
         run: test -z "${PARLEY_SKIP_DB_TESTS:-}"
+      - name: FIPS WebSocket SHA-1 test must be in the suite
+        run: go test -list 'TestFIPSModeDoesNotEnforceBecauseWebSocketSHA1' ./internal/api/ | grep -q TestFIPSMode
       - name: Test under the frozen FIPS module
         run: |
           set -o pipefail
@@ -353,14 +355,14 @@ jobs:
           docker run -d --name parley-ci-fips-db --network parley-ci-fips \
             -e POSTGRES_USER=parley -e POSTGRES_PASSWORD=smoke -e POSTGRES_DB=parley \
             postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             docker exec parley-ci-fips-db pg_isready -U parley && break
             sleep 1
           done
           docker run -d --name parley-ci-fips-app --network parley-ci-fips -p 8081:8080 \
             -e DATABASE_URL=postgres://parley:smoke@parley-ci-fips-db:5432/parley \
             -e DATABASE_ALLOW_PLAINTEXT=true parley:ci-fips
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             curl -fsS http://127.0.0.1:8081/readyz && break
             sleep 1
           done
@@ -711,8 +713,11 @@ jobs:
         run: |
           ! helm template parley deploy/charts/parley \
             --set database.existingSecret=x --set image.tag=LATEST 2>/dev/null
-          ! helm template parley deploy/charts/parley \
-            --set database.existingSecret=x --set image.tag=latest-fips 2>/dev/null
+          if helm template parley deploy/charts/parley \
+            --set database.existingSecret=x --set image.tag=latest-fips 2>/dev/null; then
+            echo "accepted latest-fips" >&2
+            exit 1
+          fi
           ! helm template parley deploy/charts/parley \
             --set database.existingSecret=x --set image.tag=Main 2>/dev/null
           ! helm template parley deploy/charts/parley \
