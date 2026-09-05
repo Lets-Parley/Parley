@@ -22,10 +22,16 @@ deliberate — see the plugin-iframe note under [hardening checklist step
 ## Caddy
 
 Caddy handles WebSockets and TLS automatically; add the five headers with
-`header`:
+`header`. The `handle /metrics*` block keeps `/metrics` off the public
+hostname if you later turn `METRICS_ENABLED` on — scrape the process from
+inside the network instead:
 
 ```
 parley.example.com {
+    handle /metrics* {
+        respond 404
+    }
+
     reverse_proxy 127.0.0.1:8080
 
     header {
@@ -52,7 +58,8 @@ a nested `add_header` **replaces** every header inherited from an outer
 context rather than adding to it — put these in a `location` block instead and
 they silently drop whatever was set on `server`. Each uses `always`, or nginx
 omits it on any response that is not a plain 2xx/3xx — exactly the responses
-you most want a security header on:
+you most want a security header on. `location /metrics` returns 404 so the
+unauthenticated exposition never reaches the public hostname:
 
 ```nginx
 server {
@@ -67,6 +74,10 @@ server {
     add_header Cross-Origin-Opener-Policy "same-origin" always;
     add_header Cross-Origin-Embedder-Policy "credentialless" always;
     add_header Cross-Origin-Resource-Policy "same-origin" always;
+
+    location /metrics {
+        return 404;
+    }
 
     location / {
         proxy_pass http://127.0.0.1:8080;
@@ -173,3 +184,18 @@ tells an internet scanner exactly which CVEs apply to you — restrict it to
 your monitoring network at the proxy, for example
 `location = /version { allow 10.0.0.0/8; deny all; proxy_pass http://127.0.0.1:8080; }`
 in nginx.
+
+`/metrics` is the same shape, and louder: with `METRICS_ENABLED=true` it is an
+unauthenticated Prometheus exposition on the app port, and the chart's Ingress
+routes `path: /` Prefix, so it is published unless something in front denies
+it. The Caddy `handle /metrics*` and nginx `location /metrics` blocks above
+return 404 for that path. On ingress-nginx, a server-snippet does the same
+job:
+
+```yaml
+nginx.ingress.kubernetes.io/server-snippet: |
+  location /metrics { return 404; }
+```
+
+Scrape the Service from inside the cluster instead. See
+[Observability](/operations/observability/#metrics).

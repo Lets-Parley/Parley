@@ -30,9 +30,12 @@ type linkRouteExpectation struct {
 var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// Infrastructure, identical for everyone and carrying nothing about any
 	// room. These are the only non-4xx entries outside the bound session.
+	// /metrics is unauthenticated when mounted; a link guest sees the same
+	// exposition anyone who can reach the process does.
 	"GET /healthz":       {status: http.StatusOK},
 	"GET /version":       {status: http.StatusOK},
 	"GET /readyz":        {status: http.StatusOK},
+	"GET /metrics":       {status: http.StatusOK},
 	"GET /api/auth":      {status: http.StatusOK},
 	"GET /auth/login":    {status: http.StatusNotFound},
 	"GET /auth/callback": {status: http.StatusNotFound},
@@ -202,7 +205,7 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 const statusExercisedElsewhere = -1
 
 func TestLinkGuestRouteTable(t *testing.T) {
-	srv := testServer(t)
+	srv := testServerWith(t, testPool(t), Options{AllowedOrigin: testOrigin, MetricsEnabled: true})
 	fac, id, guest := mintAndRedeem(t, srv, "Route Table Space")
 
 	// A story, selected, so the participate action the table exercises is a

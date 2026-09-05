@@ -51,3 +51,15 @@ func TestBootFieldsOmitTrustedProxyCIDRsWhenProxyTrustIsOff(t *testing.T) {
 		t.Errorf("boot line %s names trusted_proxy_cidrs with proxy trust off", buf.String())
 	}
 }
+
+func TestBootFieldsNameMetricsEnabled(t *testing.T) {
+	cfg := bootConfig(t)
+	cfg.MetricsEnabled = true
+
+	var buf bytes.Buffer
+	slog.New(slog.NewJSONHandler(&buf, nil)).Info("boot settings", bootFields(cfg, true)...)
+
+	if !strings.Contains(buf.String(), `"metrics_enabled":true`) {
+		t.Errorf("boot line %s is missing metrics_enabled=true", buf.String())
+	}
+}

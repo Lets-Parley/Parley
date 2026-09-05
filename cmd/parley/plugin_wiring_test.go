@@ -109,6 +109,60 @@ func TestMainsOptionsServeThePluginUI(t *testing.T) {
 	}
 }
 
+// MetricsEnabled is the same class of wire PluginDir was: every handler test
+// can set api.Options itself and pass, while main's mapping leaves the field
+// false and the binary serves no /metrics. Drive the real apiOptions path.
+func TestMainsOptionsMountMetrics(t *testing.T) {
+	base, _ := url.Parse("http://example.test")
+	cfg := config{
+		BaseURL:        base,
+		AuthMode:       api.ModeOpen,
+		MetricsEnabled: true,
+	}
+	opts := apiOptions(t.Context(), cfg, false, nil, nil)
+	handler := api.Router(nil, opts)
+	srv := httptest.NewServer(handler)
+	t.Cleanup(func() {
+		handler.Shutdown()
+		srv.Close()
+	})
+
+	resp, err := srv.Client().Get(srv.URL + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /metrics through apiOptions: got %d, want 200", resp.StatusCode)
+	}
+	if !strings.Contains(string(body), "parley_ws_connections") {
+		t.Fatal("apiOptions did not mount the Prometheus exposition")
+	}
+}
+
+func TestMainsOptionsLeaveMetricsUnmounted(t *testing.T) {
+	base, _ := url.Parse("http://example.test")
+	cfg := config{BaseURL: base, AuthMode: api.ModeOpen}
+	opts := apiOptions(t.Context(), cfg, false, nil, nil)
+	handler := api.Router(nil, opts)
+	srv := httptest.NewServer(handler)
+	t.Cleanup(func() {
+		handler.Shutdown()
+		srv.Close()
+	})
+
+	resp, err := srv.Client().Get(srv.URL + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode == http.StatusOK && strings.Contains(string(body), "# HELP") {
+		t.Fatal("GET /metrics through apiOptions with MetricsEnabled unset returned a Prometheus exposition")
+	}
+}
+
 // migratedPool hands back a pool against a migrated test database.
 func migratedPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
@@ -256,6 +310,7 @@ func TestEveryOptionMainCanSetIsActuallySet(t *testing.T) {
 		SessionIdleTTL: time.Hour,
 		SessionMaxTTL:  time.Hour,
 		PluginDir:      t.TempDir(),
+		MetricsEnabled: true,
 	}
 	opts := apiOptions(t.Context(), cfg, true, &plugin.Store{}, &plugin.Host{})
 

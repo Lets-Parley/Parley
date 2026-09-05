@@ -387,6 +387,30 @@ jobs:
           grep -q 'value: profile email groups' /tmp/extraenv.yaml
           # And the chart's own variables are still there beside it.
           grep -q 'name: DATABASE_URL' /tmp/extraenv.yaml
+
+      # /metrics is unauthenticated, so the chart must actually emit
+      # METRICS_ENABLED from metrics.enabled — values.yaml and the docs page
+      # are not a substitute; config_documented_test cannot see the template.
+      - name: wires METRICS_ENABLED from metrics.enabled
+        run: |
+          set -eu
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=parley \
+            --set metrics.enabled=true \
+            --show-only templates/deployment.yaml > /tmp/metrics-on.yaml
+          grep -q 'name: METRICS_ENABLED' /tmp/metrics-on.yaml \
+            || { echo "metrics.enabled=true did not set METRICS_ENABLED"; exit 1; }
+          grep -A1 'name: METRICS_ENABLED' /tmp/metrics-on.yaml | grep -q 'value: "true"' \
+            || { echo "METRICS_ENABLED was not true when metrics.enabled=true"; exit 1; }
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=parley \
+            --show-only templates/deployment.yaml > /tmp/metrics-off.yaml
+          grep -q 'kind: Deployment' /tmp/metrics-off.yaml \
+            || { echo "deployment.yaml did not render at all"; exit 1; }
+          if grep -q 'name: METRICS_ENABLED' /tmp/metrics-off.yaml; then
+            grep -A1 'name: METRICS_ENABLED' /tmp/metrics-off.yaml | grep -q 'value: "false"' \
+              || { echo "METRICS_ENABLED is on by default"; exit 1; }
+          fi
       - name: refuses an extra environment variable with no name
         run: |
           ! helm template parley deploy/charts/parley \
