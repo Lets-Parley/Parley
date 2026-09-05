@@ -171,6 +171,11 @@ migration and embedding mistakes that unit tests miss.
 9. Docker (not podman), distroless nonroot final image, container healthcheck is
    the binary itself (`/parley -healthcheck`). Postgres is pinned to
    `16-alpine` on purpose — an unplanned major upgrade breaks the data directory.
+   The default image is the last `FROM` in the Dockerfile. The FIPS variant is
+   `--target fips` (`GOFIPS140=v1.0.0`, `GODEBUG=fips140=on`). Do not append a
+   stage after the default runtime or `docker build` without `--target` becomes
+   the FIPS image and every CI job pays for it. `fips140=only` is not used:
+   RFC 6455 SHA-1 for the WebSocket accept key panics under it.
 10. Docs pages carry a `VerifiedStamp` recording the version and source file they
     were transcribed from. Changing a default, limit, or security property means
     updating the `site/` page **and** its stamp in the same PR.

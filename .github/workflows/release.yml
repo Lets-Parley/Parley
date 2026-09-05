@@ -102,6 +102,48 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # Parallel FIPS variant. Same provenance, same digest check, a different
+  # compile: --target fips links GOFIPS140=v1.0.0 and the image runs with
+  # GODEBUG=fips140=on (only panics on the RFC 6455 WebSocket SHA-1). It must not share a staging tag or an artifact name
+  # with the default image, or a digest mix-up would promote the wrong bytes.
+  build-fips:
+    needs: validate
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.release_commit }}
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Build immutable OCI artifact
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          target: fips
+          platforms: linux/amd64,linux/arm64
+          push: false
+          tags: ${{ needs.validate.outputs.image }}:${{ needs.validate.outputs.version }}-fips
+          build-args: |
+            VERSION=${{ needs.validate.outputs.version }}
+          outputs: type=oci,dest=/tmp/parley-image-fips.tar
+          provenance: mode=max
+          sbom: true
+      - name: Record expected digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: printf '%s\n' "$DIGEST" > /tmp/image-digest.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-image-${{ needs.validate.outputs.tag }}-fips
+          path: |
+            /tmp/parley-image-fips.tar
+            /tmp/image-digest.txt
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
     needs: [validate, build]
     runs-on: ubuntu-24.04
@@ -193,6 +235,88 @@ jobs:
         with:
           name: release-sigstore-bundle-${{ needs.validate.outputs.tag }}
           path: /tmp/parley-${{ needs.validate.outputs.tag }}.sigstore.json
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-fips:
+    needs: [validate, build-fips]
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    outputs:
+      digest: ${{ steps.publish.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.release_commit }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-image-${{ needs.validate.outputs.tag }}-fips
+          path: release
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish verified FIPS image
+        id: publish
+        env:
+          TAG: ${{ needs.validate.outputs.tag }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          MAJOR_MINOR: ${{ needs.validate.outputs.major_minor }}
+          VALIDATED_COMMIT: ${{ needs.validate.outputs.release_commit }}
+          IMAGE: ${{ needs.validate.outputs.image }}
+          STAGING_TAG: staging-${{ github.run_id }}-${{ github.run_attempt }}-fips
+        run: |
+          set -eu
+          docker run --rm \
+            --volume "$PWD/release:/release:ro" \
+            --volume "$HOME/.docker/config.json:/auth.json:ro" \
+            "$SKOPEO_IMAGE" copy --authfile /auth.json --preserve-digests --all \
+            oci-archive:/release/parley-image-fips.tar "docker://$IMAGE:$STAGING_TAG"
+          expected=$(cat release/image-digest.txt)
+          actual=$(docker run --rm \
+            --volume "$HOME/.docker/config.json:/auth.json:ro" \
+            "$SKOPEO_IMAGE" inspect --authfile /auth.json \
+            --format '{{.Digest}}' "docker://$IMAGE:$STAGING_TAG")
+          test "$actual" = "$expected"
+          git fetch --force --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
+          current_commit=$(git rev-parse "$TAG^{commit}")
+          test "$current_commit" = "$VALIDATED_COMMIT"
+          docker buildx imagetools create \
+            --tag "$IMAGE:$VERSION-fips" \
+            --tag "$IMAGE:$MAJOR_MINOR-fips" \
+            --tag "$IMAGE:latest-fips" \
+            "$IMAGE@$actual"
+          echo "digest=$actual" >> "$GITHUB_OUTPUT"
+      - name: Attest published digest
+        id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ needs.validate.outputs.image }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+      - name: Validate the Sigstore bundle before staging it
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          set -eu
+          test -s "$BUNDLE_PATH"
+          jq -e '.mediaType and .verificationMaterial and .dsseEnvelope' "$BUNDLE_PATH" >/dev/null
+      - name: Stage the Sigstore bundle for offline verification
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: cp "$BUNDLE_PATH" "/tmp/parley-$TAG-fips.sigstore.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-sigstore-bundle-${{ needs.validate.outputs.tag }}-fips
+          path: /tmp/parley-${{ needs.validate.outputs.tag }}-fips.sigstore.json
           if-no-files-found: error
           retention-days: 7
 
@@ -329,6 +453,94 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  sbom-fips:
+    needs: [validate, publish-fips]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.release_commit }}
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve the published amd64 manifest
+        id: platform
+        env:
+          IMAGE: ${{ needs.validate.outputs.image }}
+          DIGEST: ${{ needs.publish-fips.outputs.digest }}
+        run: |
+          set -eu
+          raw=$(docker run --rm \
+            --volume "$HOME/.docker/config.json:/auth.json:ro" \
+            "$SKOPEO_IMAGE" inspect --authfile /auth.json --raw \
+            "docker://$IMAGE@$DIGEST")
+          amd64=$(printf '%s' "$raw" | jq -r '.manifests[]
+            | select(.platform.architecture == "amd64" and .platform.os == "linux")
+            | .digest')
+          test "$(printf '%s' "$amd64" | grep -c .)" -eq 1
+          printf '%s\n' "$amd64" | grep -Eqx 'sha256:[0-9a-f]{64}'
+          echo "digest=$amd64" >> "$GITHUB_OUTPUT"
+      - name: Generate the image SBOM
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          image: ${{ needs.validate.outputs.image }}@${{ steps.platform.outputs.digest }}
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          format: spdx-json
+          output-file: /tmp/parley-${{ needs.validate.outputs.tag }}-fips.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Generate the image SBOM (CycloneDX)
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          image: ${{ needs.validate.outputs.image }}@${{ steps.platform.outputs.digest }}
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          format: cyclonedx-json
+          output-file: /tmp/parley-${{ needs.validate.outputs.tag }}-fips.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Write the source scan config
+        env:
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -eu
+          printf 'exclude:\n  - ./site/**\nsource:\n  name: %s\n  version: %s\n' \
+            "github.com/${GITHUB_REPOSITORY}" "$TAG-fips" > /tmp/syft-source.yaml
+      - name: Generate the source SBOM
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          path: .
+          config: /tmp/syft-source.yaml
+          format: spdx-json
+          output-file: /tmp/parley-${{ needs.validate.outputs.tag }}-fips-source.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Generate the source SBOM (CycloneDX)
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          path: .
+          config: /tmp/syft-source.yaml
+          format: cyclonedx-json
+          output-file: /tmp/parley-${{ needs.validate.outputs.tag }}-fips-source.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-sbom-${{ needs.validate.outputs.tag }}-fips
+          path: |
+            /tmp/parley-${{ needs.validate.outputs.tag }}-fips.spdx.json
+            /tmp/parley-${{ needs.validate.outputs.tag }}-fips-source.spdx.json
+            /tmp/parley-${{ needs.validate.outputs.tag }}-fips.cdx.json
+            /tmp/parley-${{ needs.validate.outputs.tag }}-fips-source.cdx.json
+          if-no-files-found: error
+          retention-days: 7
+
   # Deliberately not a dependency of release-assets: a failed SBOM must not keep
   # the deployment manifests off the release. That coupling is what left v0.4.0
   # with no artifacts at all.
@@ -355,6 +567,29 @@ jobs:
             "sbom/parley-$TAG-source.spdx.json" \
             "sbom/parley-$TAG.cdx.json" \
             "sbom/parley-$TAG-source.cdx.json" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
+  sbom-assets-fips:
+    needs: [validate, sbom-fips]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-sbom-${{ needs.validate.outputs.tag }}-fips
+          path: sbom
+      - name: Attach the FIPS SBOMs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          gh release upload "$TAG" \
+            "sbom/parley-$TAG-fips.spdx.json" \
+            "sbom/parley-$TAG-fips-source.spdx.json" \
+            "sbom/parley-$TAG-fips.cdx.json" \
+            "sbom/parley-$TAG-fips-source.cdx.json" \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
 
@@ -391,6 +626,34 @@ jobs:
         run: |
           gh release upload "$TAG" \
             "bundle/parley-$TAG.sigstore.json" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
+  attestation-assets-fips:
+    needs: [validate, publish-fips]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-sigstore-bundle-${{ needs.validate.outputs.tag }}-fips
+          path: bundle
+      - name: Validate the downloaded bundle before attaching it
+        env:
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -eu
+          test -s "bundle/parley-$TAG-fips.sigstore.json"
+          jq -e '.mediaType and .verificationMaterial and .dsseEnvelope' \
+            "bundle/parley-$TAG-fips.sigstore.json" >/dev/null
+      - name: Attach the FIPS Sigstore bundle
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          gh release upload "$TAG" \
+            "bundle/parley-$TAG-fips.sigstore.json" \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
 
@@ -439,7 +702,7 @@ jobs:
   # receipt that only repeats `needs` would confirm the workflow's opinion of
   # itself, which is the failure mode being fixed.
   publish-receipt:
-    needs: [validate, publish, chart, release-assets, attestation-assets]
+    needs: [validate, publish, publish-fips, chart, release-assets, attestation-assets, attestation-assets-fips]
     runs-on: ubuntu-24.04
     # No registry credential, deliberately. The sbom jobs above split reading
     # the registry from writing to the release precisely so no single job holds
@@ -456,6 +719,7 @@ jobs:
         env:
           VERSION: ${{ needs.validate.outputs.version }}
           DIGEST: ${{ needs.publish.outputs.digest }}
+          FIPS_DIGEST: ${{ needs.publish-fips.outputs.digest }}
           RAW_OWNER: ${{ github.repository_owner }}
         run: |
           set -eu
@@ -470,6 +734,10 @@ jobs:
             "docker://${image}:${VERSION}")
           test "$resolved" = "$DIGEST" \
             || { echo "tag $VERSION resolves to $resolved, not the published $DIGEST"; exit 1; }
+          resolved_fips=$(docker run --rm "$SKOPEO_IMAGE" inspect --format '{{.Digest}}' \
+            "docker://${image}:${VERSION}-fips")
+          test "$resolved_fips" = "$FIPS_DIGEST" \
+            || { echo "tag $VERSION-fips resolves to $resolved_fips, not the published $FIPS_DIGEST"; exit 1; }
           helm show chart "oci://ghcr.io/${owner}/charts/parley" --version "$VERSION" \
             > /tmp/chart.yaml
           grep -q "^appVersion: \"\?${VERSION}\"\?$" /tmp/chart.yaml \
@@ -493,12 +761,22 @@ jobs:
             echo "parley-$TAG.sigstore.json asset is 0 bytes"; exit 1
           fi
           echo "sigstore bundle asset size: $size"
+          fips_size=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[] | select(.name == "parley-'"$TAG"'-fips.sigstore.json") | .size')
+          if [ -z "$fips_size" ]; then
+            echo "no parley-$TAG-fips.sigstore.json asset found on release $TAG"; exit 1
+          fi
+          if [ "$fips_size" -eq 0 ]; then
+            echo "parley-$TAG-fips.sigstore.json asset is 0 bytes"; exit 1
+          fi
+          echo "fips sigstore bundle asset size: $fips_size"
       - name: Record the receipt on the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.validate.outputs.tag }}
           VERSION: ${{ needs.validate.outputs.version }}
           DIGEST: ${{ needs.publish.outputs.digest }}
+          FIPS_DIGEST: ${{ needs.publish-fips.outputs.digest }}
         run: |
           set -eu
           # `.body // ""` because a release created with no notes returns a JSON
@@ -536,9 +814,12 @@ jobs:
             printf '**Artifacts published and resolvable from the registry:**\n\n'
             printf -- '- image `ghcr.io/%s/parley:%s` @ `%s`\n' \
               "$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')" "$VERSION" "$DIGEST"
+            printf -- '- image `ghcr.io/%s/parley:%s-fips` @ `%s`\n' \
+              "$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')" "$VERSION" "$FIPS_DIGEST"
             printf -- '- chart `oci://ghcr.io/%s/charts/parley` version `%s`\n' \
               "$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')" "$VERSION"
-            printf -- '- offline-verifiable Sigstore bundle `parley-%s.sigstore.json` attached to this release\n\n' "$TAG"
+            printf -- '- offline-verifiable Sigstore bundle `parley-%s.sigstore.json` attached to this release\n' "$TAG"
+            printf -- '- offline-verifiable Sigstore bundle `parley-%s-fips.sigstore.json` attached to this release\n\n' "$TAG"
             printf 'Checked by resolving both from the registry, not by trusting the jobs that made them. If this block is absent from a release, do not deploy it without checking by hand — a red run means the artifacts may be missing, incomplete, or fine, and the badge alone does not say which.\n'
           } > /tmp/body.md
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file /tmp/body.md

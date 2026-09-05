@@ -1,0 +1,112 @@
+---
+title: Cryptography
+description: Every algorithm Parley uses, the FIPS image, and what it does not cover.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+
+<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "Dockerfile", "internal/plugin/secrets.go", "internal/store/users.go", "internal/api/passcode.go", "internal/api/auth.go", "internal/api/fanout.go", "internal/api/ws.go", "internal/auth/oidc.go", "internal/db/db.go", ".github/workflows/release.yml"]} />
+
+Parley does not terminate browser TLS. The cryptography it actually performs is
+a short list: hashing session tokens, encrypting plugin secrets at rest, talking
+TLS to Postgres and to an identity provider, and drawing random bytes from
+`crypto/rand`. This page is that inventory, plus what the `-fips` image does
+with it.
+
+## The FIPS image
+
+Each release publishes `ghcr.io/lets-parley/parley:<version>-fips` beside the
+default image, and `latest-fips` beside `latest`. The chart refuses `latest-fips`
+the same way it refuses `latest`; pin `<version>-fips`.
+
+The FIPS variant is a separate Dockerfile target (`docker build --target fips`)
+so a default build does not compile it. It is built with `GOFIPS140=v1.0.0` —
+the freeze of the [Go Cryptographic Module](https://go.dev/doc/security/fips140)
+that holds [CMVP certificate #5247](https://csrc.nist.gov/projects/cryptographic-module-validation-program/certificate/5247)
+(Active, FIPS 140-3 overall level 1, sunset 4/26/2031, vendor Geomys LLC). The
+image sets `GODEBUG=fips140=on`, not `only`. The boot line reports `fips140` as
+`off`, `on`, or `only`, so an operator can tell which mode the process is in.
+
+`GOFIPS140=latest` on the toolchain this image is built with (Go 1.27) selects
+the in-tree module and reports version `latest`. That is not a CMVP-validated
+freeze. Module **v1.26.0** exists on the same toolchain and is listed as
+Pending Review on the CMVP Modules In Process list as of 2026-04-28; it is not
+this pin. Do not move `GOFIPS140` off `v1.0.0` until a newer freeze has a
+completed certificate you have looked up.
+
+`fips140=on` puts approved algorithms through the validated module and refuses
+unapproved TLS (X25519, ChaCha20-Poly1305). `fips140=only` additionally panics
+on any non-approved algorithm. Parley cannot use `only`: RFC 6455 computes
+`Sec-WebSocket-Accept` with SHA-1, `gorilla/websocket` does that in
+`computeAcceptKey`, and `handleWS` has no other upgrade path. Under `only`
+every room panics on connect. SHA-1 here is not confidentiality — it is the
+handshake checksum the RFC requires — and Go documents `only` as a best-effort
+testing mode, not a production requirement of the Security Policy. EdDSA
+(Ed25519) is approved in this module — certificate #5247 lists EDDSA — so an
+IdP that signs ID tokens with it is fine. RS256 and ES256 are approved too.
+
+NIST 800-171 3.13.11 asks for FIPS-validated cryptography to protect CUI
+confidentiality on the legs you own. Pulling `-fips` is how Parley meets that
+on the legs it owns. It is not a certificate that the rest of the deployment
+is FIPS.
+
+## What the FIPS image covers
+
+| Leg | Covered? |
+| --- | --- |
+| Session-token hashing, plugin-secret AES-GCM, `crypto/rand` | Yes — inside the process, through the validated module |
+| TLS Parley initiates to Postgres | Yes — `crypto/tls` in FIPS mode, if the server offers an approved handshake |
+| TLS Parley initiates to the IdP (OIDC discovery, token exchange) | Yes, same caveat |
+| TLS a plugin fetch initiates | Yes, same caveat |
+| Browser to Parley (HTTPS at the reverse proxy) | **No.** The proxy terminates TLS. Parley never listens with a certificate. |
+| Postgres's own TLS, storage encryption, backups | **No.** Those are the database's. |
+| The identity provider's TLS and token-signing module | **No.** Parley verifies what the IdP signed; it does not issue those keys. |
+
+If Postgres or the IdP will only handshake with X25519 or ChaCha20-Poly1305,
+the FIPS image will refuse the connection: `crypto/tls` in FIPS 140-3 mode
+does not negotiate unapproved key exchange or cipher suites. Offer P-256 /
+P-384 on those peers.
+
+## Inventory
+
+There is no local password authentication, so there is no bcrypt, argon2, or
+PBKDF. Passcodes are stored in plaintext on purpose — see
+[Data and privacy](/security/data-and-privacy/). Cookies are the raw session
+token, not a signed blob. Cross-site defence is Origin / Sec-Fetch-Site and a
+JSON content-type check, not a CSRF token.
+
+| What | Algorithm | Where | Key material |
+| --- | --- | --- | --- |
+| Session tokens | SHA-256 of 32 random bytes | `internal/store/users.go:55-70` (`NewToken`, `HashToken`) | The 32 bytes are the cookie; only the hash is stored |
+| Identity-creation throttle | SHA-256 of the client address | `internal/store/users.go:100` | Not a key; a one-way digest so the address is not in the table |
+| Passcode throttle | SHA-256 of the client+space key | `internal/api/passcode.go:92-95` | Same: equality only, not a secret |
+| Passcode generation | `crypto/rand` rejection sampling | `internal/api/passcode.go:26-45` | None |
+| Passcode compare | `crypto/subtle` constant-time | `internal/api/passcode.go:58-59` | The passcode itself, stored plaintext |
+| Plugin secrets at rest | AES-256-GCM | `internal/plugin/secrets.go:29-36` | `PLUGIN_SECRET_KEY`, a base64 32-byte key. Refused if any other length. Nonce from `crypto/rand` at `secrets.go:40-45`. |
+| OIDC state, nonce, PKCE verifier | `crypto/rand` (24 bytes) | `internal/api/auth.go:39-44` | Held in the unsigned `parley_signin` cookie for one attempt |
+| OIDC state compare | `crypto/subtle` constant-time | `internal/api/auth.go:147` | The state value from that cookie |
+| OIDC nonce compare | `crypto/subtle` constant-time | `internal/auth/oidc.go:169` | The nonce from that cookie |
+| OIDC PKCE | SHA-256 (`S256`) | `internal/auth/oidc.go:141-143` | The verifier, hashed by `golang.org/x/oauth2` |
+| OIDC ID-token verify | The IdP's algorithm, via go-oidc / go-jose | `internal/auth/oidc.go` | The IdP's JWKS. Tests and the documented providers use RS256. EdDSA is approved in the module. |
+| Replica instance id | `crypto/rand` (8 bytes) | `internal/api/fanout.go:80-86` | Not a key |
+| Postgres | TLS 1.2/1.3 via pgx → `crypto/tls` | `internal/db/db.go:12-23`, sslmode from `internal/db/tls.go` | The database server's certificate; `sslrootcert` when `verify-full` |
+| IdP HTTP | TLS via `net/http` → `crypto/tls` | `internal/auth/oidc.go` discovery and token exchange | The IdP's certificate, system roots (or `SSL_CERT_FILE`) |
+| Plugin outbound fetch | TLS, https only | `internal/plugin/fetch.go` | The remote's certificate. Test-only `tls.Config` is not compiled into a knob. |
+| WebSocket accept key | SHA-1 (RFC 6455 §1.3) | `internal/api/ws.go:83` via gorilla/websocket | Not a secret. Why the image is `on`, not `only`. |
+
+`hash/fnv` in `internal/store/users.go:321-325` (`AvatarHue`) is not
+cryptography. It picks a colour. It is not in `crypto/` and FIPS 140-3 mode
+does not touch it.
+
+`crypto/md5`, `golang.org/x/crypto/chacha20`, `ed25519`, `x25519`, bcrypt and
+argon2 do not appear in `cmd/` or `internal/`. SHA-1 appears only as the
+WebSocket accept key, in gorilla/websocket, not in Parley source.
+
+## Building it yourself
+
+```sh
+docker build --target fips --build-arg VERSION=dev --tag parley:fips .
+```
+
+The binary's boot line must contain `"fips140":"on"`. A default
+`docker build` (no `--target`) is the non-FIPS image and reports `"fips140":"off"`.

@@ -81,7 +81,7 @@ protects the database.
 {{- fail (printf "image.tag %q is not a valid image tag: expected up to 128 characters of letters, digits, dot, dash or underscore, starting alphanumeric." $tag) -}}
 {{- end -}}
 {{- $moving := $tag | toString | lower | trim -}}
-{{- if has $moving (list "latest" "main" "master" "dev" "edge" "nightly") -}}
+{{- if has $moving (list "latest" "latest-fips" "main" "master" "dev" "edge" "nightly") -}}
 {{- fail (printf "image.tag %q is a moving tag. Pin a published version instead, e.g. --set image.tag=%s. Rolling back onto an image older than the migrations that have already run makes Parley refuse to start." $tag .Chart.AppVersion) -}}
 {{- end -}}
 {{- $tag -}}

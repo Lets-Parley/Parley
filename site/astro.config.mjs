@@ -105,6 +105,7 @@ export default defineConfig({
             "security/data-and-privacy",
             "security/plugin-sandbox",
             "security/hardening-checklist",
+            "security/cryptography",
             "security/supply-chain",
             "security/review-pack",
           ],

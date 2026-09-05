@@ -76,7 +76,8 @@ published from exact semantic-version GitHub Releases and anonymously pullable.
 It is built in three stages and the final one is
 `gcr.io/distroless/static-debian12:nonroot` — no shell, no package manager, no
 libc to patch, running as a non-root user. The Go binary is static
-(`CGO_ENABLED=0`).
+(`CGO_ENABLED=0`). The FIPS variant is a fourth, separate target
+(`--target fips`) so a default build does not compile it.
 
 The image declares its own `HEALTHCHECK`, which runs `parley -healthcheck`
 against `/readyz` every 15 seconds. That probe uses loopback when `BIND_ADDR`
@@ -86,6 +87,14 @@ Pin a version rather than tracking `latest` if you want reproducible deploys.
 `latest` exists for quick evaluation only — it moves with every release, so
 using it in a durable install means an unplanned upgrade on the next pull,
 with no way to tell which version is actually running.
+
+A `-fips` tag is published beside every version (`0.10.0-fips`, and
+`latest-fips` beside `latest`). It is the same binary built with
+`GOFIPS140=v1.0.0` and run with `GODEBUG=fips140=on` (`only` panics on the
+RFC 6455 WebSocket SHA-1). The chart refuses
+`latest-fips` the same way it refuses `latest`; pin the versioned tag. See
+[Cryptography](/security/cryptography/) for the inventory, the CMVP status of
+the module, and what that image does not cover (browser TLS is the proxy's).
 Beginning with the first release produced by the hardened workflow, release
 assets include digest-qualified Compose and Kubernetes manifests, an image and a
 source SPDX SBOM, and verifiable provenance for the published digest. Releases
