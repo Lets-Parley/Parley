@@ -156,6 +156,7 @@ func TestLimitsWithDefaults(t *testing.T) {
 		KudosPerSpace:          500,
 		StoriesPerSession:      500,
 		LinksPerSession:        20,
+		WSMaxPerToken:          8,
 	}
 	if got != want {
 		t.Fatalf("Limits{}.withDefaults() = %+v, want %+v", got, want)

@@ -250,6 +250,7 @@ func TestEveryOptionMainCanSetIsActuallySet(t *testing.T) {
 			IdentityIPHourly: 1, IdentityGlobalHourly: 1, LinkRedemptionIPHourly: 1,
 			SpacesPerIdentity: 1, SessionsPerSpace: 1, DecksPerSpace: 1,
 			KudosPerSpace: 1, StoriesPerSession: 1, LinksPerSession: 1,
+			WSMaxPerToken: 1,
 		},
 		PluginDir: t.TempDir(),
 	}

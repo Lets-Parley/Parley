@@ -162,6 +162,7 @@ func loadConfig() (config, error) {
 		{"KUDO_LIMIT_PER_SPACE", 500, func(v int) { cfg.Limits.KudosPerSpace = v }},
 		{"STORY_LIMIT_PER_SESSION", 500, func(v int) { cfg.Limits.StoriesPerSession = v }},
 		{"LINK_LIMIT_PER_SESSION", 20, func(v int) { cfg.Limits.LinksPerSession = v }},
+		{"WS_MAX_PER_TOKEN", 8, func(v int) { cfg.Limits.WSMaxPerToken = v }},
 	}
 	for _, limit := range limits {
 		raw := envOr(limit.name, strconv.Itoa(limit.fallback))
@@ -448,6 +449,7 @@ func bootFields(cfg config, secureCookies bool) []any {
 		"plugin_memory_pages", cfg.PluginLimits.MemoryPages,
 		"plugin_max_concurrent_calls", cfg.PluginLimits.MaxConcurrentCalls,
 		"plugin_max_calls_per_plugin", cfg.PluginLimits.MaxConcurrentPerInstall,
+		"ws_max_per_token", cfg.Limits.WSMaxPerToken,
 	}
 	// "trust_proxy_headers=true" alone does not tell an operator which hops
 	// were accepted, and a CIDR that failed to parse is exactly the mistake
