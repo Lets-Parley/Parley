@@ -69,6 +69,26 @@ groups, and bootstrapping the first admin — and
 [Organizations](/security/organizations/) covers what the person administering
 an org can then see, which is worth being able to answer before somebody asks.
 
+## Upgrading to the release that adds session lifetimes
+
+This release introduces `SESSION_MAX_TTL`, an absolute cap on how long a
+session may live measured from the moment it was issued, and nothing renews it.
+Before it, expiry was purely idle: a token that kept being used never died.
+
+**Some people will be signed out by the upgrade.** Every existing token whose
+`created_at` is older than `SESSION_MAX_TTL` — 90 days by default — stops
+resolving at the next request, however recently it was used, and the new
+hourly sweep deletes the row. On an instance that has been running for more
+than 90 days that is everyone who has not signed in since. They sign in again;
+nothing is lost. It is still worth saying so in advance, because to the person
+it happens to it looks like the upgrade broke their login.
+
+If you would rather not do that in the same change as the version bump, set
+`SESSION_MAX_TTL` to something longer than the instance has existed for the
+first rollout, then lower it once people have been told. Both lifetimes are
+documented under
+[Configuration](/reference/configuration/).
+
 ## Postgres
 
 Parley supports PostgreSQL 13 and newer, with no upper bound — the compose file
