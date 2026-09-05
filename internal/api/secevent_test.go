@@ -9,12 +9,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/lets-parley/parley/internal/plugin"
 	"github.com/lets-parley/parley/internal/store"
 )
+
+var securityEventKeys = []string{
+	"event", "actor_user_id", "actor_subject", "org", "space",
+	"target", "outcome", "client_addr", "request_id",
+}
 
 // Hand-written secrets planted on every instrumented request. The log line
 // must name the event and must never repeat any of these.
@@ -146,8 +152,16 @@ func TestSecurityEventsOmitSecretsAndCoverTheSchema(t *testing.T) {
 	pool := testPool(t)
 	srv := testServerWith(t, pool, Options{AllowedOrigin: testOrigin, Plugins: &plugin.Store{Pool: pool}})
 
-	ada, adaID := signupWithID(t, srv, "Ada")
-	mel, melID := signupWithID(t, srv, "Mel")
+	adaRes := secDo(t, srv, http.MethodPost, "/api/me", `{"name":"Ada"}`, nil)
+	if adaRes.status != http.StatusCreated {
+		t.Fatalf("signup Ada: got %d (%s)", adaRes.status, adaRes.body)
+	}
+	ada, adaID := adaRes.cookie, adaRes.json["id"].(string)
+	melRes := secDo(t, srv, http.MethodPost, "/api/me", `{"name":"Mel"}`, nil)
+	if melRes.status != http.StatusCreated {
+		t.Fatalf("signup Mel: got %d (%s)", melRes.status, melRes.body)
+	}
+	mel, melID := melRes.cookie, melRes.json["id"].(string)
 
 	created := secDo(t, srv, http.MethodPost, "/api/spaces", `{"name":"Audit Room"}`, ada)
 	if created.status != http.StatusCreated {
@@ -233,14 +247,7 @@ func TestSecurityEventsOmitSecretsAndCoverTheSchema(t *testing.T) {
 		"theme.reset",
 	} {
 		line := securityEventLine(t, logs, event)
-		for _, key := range []string{
-			"event", "actor_user_id", "actor_subject", "org", "space",
-			"target", "outcome", "client_addr", "request_id",
-		} {
-			if _, ok := line[key]; !ok {
-				t.Errorf("%s: missing field %q in %v", event, key, line)
-			}
-		}
+		assertSecurityEventSchema(t, event, line)
 		if line["outcome"] != "ok" {
 			t.Errorf("%s: outcome = %v, want ok", event, line["outcome"])
 		}
@@ -249,11 +256,7 @@ func TestSecurityEventsOmitSecretsAndCoverTheSchema(t *testing.T) {
 		}
 	}
 
-	for _, secret := range []string{baitCookie, baitPasscode, baitStory, ada.Value, code, linkToken} {
-		if secret != "" && strings.Contains(logs, secret) {
-			t.Errorf("security-event log leaked %q:\n%s", secret, logs)
-		}
-	}
+	assertSecurityEventOmitsSecrets(t, logs, ada.Value, code, linkToken)
 }
 
 func TestOIDCSignInLogsTheProviderSubject(t *testing.T) {
@@ -265,11 +268,82 @@ func TestOIDCSignInLogsTheProviderSubject(t *testing.T) {
 	idp := newFakeIdP(t)
 	idp.subject = "oidc-subject-42"
 	srv := oidcServer(t, idp)
-	signInOIDC(t, srv, idp)
+	signInOIDCWithBait(t, srv, idp)
 
 	line := securityEventLine(t, buf.String(), "auth.signin")
 	if line["actor_subject"] != "oidc-subject-42" {
 		t.Fatalf("actor_subject = %v, want oidc-subject-42", line["actor_subject"])
+	}
+	assertSecurityEventSchema(t, "auth.signin", line)
+	assertSecurityEventOmitsSecrets(t, buf.String())
+}
+
+func TestOIDCLaterRequestLogsTheFederatedSubject(t *testing.T) {
+	var buf bytes.Buffer
+	restore := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(restore) })
+
+	idp := newFakeIdP(t)
+	idp.subject = "idp-sub"
+	srv, pool := oidcServerPool(t, idp)
+	cookie := signInOIDCWithBait(t, srv, idp)
+	if _, err := pool.Exec(context.Background(),
+		"insert into org_members (org_id, user_id, role) select id, $1, $2 from orgs where slug = $3",
+		userIDOf(t, srv, cookie), store.OrgRoleMember, store.DefaultOrgSlug); err != nil {
+		t.Fatal(err)
+	}
+
+	created := secDo(t, srv, http.MethodPost, "/api/spaces", `{"name":"IdP Room"}`, cookie)
+	if created.status != http.StatusCreated {
+		t.Fatalf("create space: got %d (%s)", created.status, created.body)
+	}
+
+	line := securityEventLine(t, buf.String(), "space.create")
+	if line["actor_subject"] != "idp-sub" {
+		t.Fatalf("space.create actor_subject = %v, want idp-sub via AuditSubject, not the callback override", line["actor_subject"])
+	}
+}
+
+func TestSignOutEmitsASecurityEventOnlyWhenASessionIsDeleted(t *testing.T) {
+	var buf bytes.Buffer
+	restore := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(restore) })
+
+	srv := testServer(t)
+
+	if got := secDo(t, srv, http.MethodDelete, "/api/me", "", nil); got.status != http.StatusNoContent {
+		t.Fatalf("unauthenticated sign-out: got %d (%s)", got.status, got.body)
+	}
+	if hasSecurityEvent(buf.String(), "auth.signout") {
+		t.Fatalf("unauthenticated DELETE /api/me emitted a security-event line:\n%s", buf.String())
+	}
+
+	ada, adaID := signupWithID(t, srv, "Ada")
+	if got := secDo(t, srv, http.MethodDelete, "/api/me", "", ada); got.status != http.StatusNoContent {
+		t.Fatalf("authenticated sign-out: got %d (%s)", got.status, got.body)
+	}
+	line := securityEventLine(t, buf.String(), "auth.signout")
+	if line["actor_user_id"] != adaID {
+		t.Errorf("actor_user_id = %v, want %s", line["actor_user_id"], adaID)
+	}
+}
+
+func TestGuestSignOutLogsGuestSubject(t *testing.T) {
+	var buf bytes.Buffer
+	restore := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(restore) })
+
+	srv := testServer(t)
+	_, _, guest := mintAndRedeem(t, srv, "Guest Audit")
+	if got := secDo(t, srv, http.MethodDelete, "/api/me", "", guest); got.status != http.StatusNoContent {
+		t.Fatalf("guest sign-out: got %d (%s)", got.status, got.body)
+	}
+	line := securityEventLine(t, buf.String(), "auth.signout")
+	if line["actor_subject"] != "guest" {
+		t.Fatalf("actor_subject = %v, want guest", line["actor_subject"])
 	}
 }
 
@@ -279,14 +353,24 @@ func TestCustodyAuditWritesASecurityEvent(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
 	t.Cleanup(func() { slog.SetDefault(restore) })
 
-	srv, pool, admin, adminID := custodyServer(t)
+	const postProxyClient = "203.0.113.9"
+	pool := testPool(t)
+	srv := testServerWith(t, pool, Options{
+		AllowedOrigin:     testOrigin,
+		TrustProxyHeaders: true,
+		TrustedProxyCIDRs: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")},
+	})
+	admin, adminID := signupWithID(t, srv, "Admin")
+	makeOrgAdmin(t, pool, adminID)
 	slug, _, _, _ := privateSpace(t, srv)
 	if _, err := pool.Exec(context.Background(),
 		"delete from members m using spaces sp where sp.id = m.space_id and sp.slug = $1", slug); err != nil {
 		t.Fatal(err)
 	}
-	if resp, body := doJSON(t, srv, http.MethodPost, "/api/orgs/"+store.DefaultOrgSlug+"/admin/spaces/"+slug+"/claim", "", admin); resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("claim: got %d (%v)", resp.StatusCode, body)
+
+	claim := secDoForwarded(t, srv, http.MethodPost, "/api/orgs/"+store.DefaultOrgSlug+"/admin/spaces/"+slug+"/claim", "", admin, postProxyClient)
+	if claim.status != http.StatusNoContent {
+		t.Fatalf("claim: got %d (%s)", claim.status, claim.body)
 	}
 
 	line := securityEventLine(t, buf.String(), "space.claim")
@@ -299,15 +383,29 @@ func TestCustodyAuditWritesASecurityEvent(t *testing.T) {
 	if line["outcome"] != "ok" {
 		t.Errorf("outcome = %v, want ok", line["outcome"])
 	}
+	if line["client_addr"] != postProxyClient {
+		t.Errorf("client_addr = %v, want %s", line["client_addr"], postProxyClient)
+	}
+	if rid, _ := line["request_id"].(string); rid == "" {
+		t.Error("request_id is empty")
+	}
+	assertSecurityEventSchema(t, "space.claim", line)
+	assertSecurityEventOmitsSecrets(t, buf.String())
 }
 
 type secResult struct {
 	status int
 	body   string
 	json   map[string]any
+	cookie *http.Cookie
 }
 
 func secDo(t *testing.T, srv *httptest.Server, method, path, body string, cookie *http.Cookie) secResult {
+	t.Helper()
+	return secDoForwarded(t, srv, method, path, body, cookie, "")
+}
+
+func secDoForwarded(t *testing.T, srv *httptest.Server, method, path, body string, cookie *http.Cookie, forwardedFor string) secResult {
 	t.Helper()
 	payload := body
 	bait := `"bait_passcode":"` + baitPasscode + `","title":"` + baitStory + `"`
@@ -322,6 +420,9 @@ func secDo(t *testing.T, srv *httptest.Server, method, path, body string, cookie
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if forwardedFor != "" {
+		req.Header.Set("X-Forwarded-For", forwardedFor)
+	}
 	if cookie != nil {
 		req.AddCookie(cookie)
 	}
@@ -334,7 +435,67 @@ func secDo(t *testing.T, srv *httptest.Server, method, path, body string, cookie
 	resp.Body.Close()
 	out := secResult{status: resp.StatusCode, body: string(raw)}
 	json.Unmarshal(raw, &out.json)
+	for _, c := range resp.Cookies() {
+		if c.Name == sessionCookie && c.Value != "" {
+			out.cookie = c
+		}
+	}
 	return out
+}
+
+func signInOIDCWithBait(t *testing.T, srv *httptest.Server, idp *fakeIdP) *http.Cookie {
+	t.Helper()
+	authURL, flow := startSignin(t, srv, "")
+	idp.nonce = authURL.Query().Get("nonce")
+	payload := `{"bait_passcode":"` + baitPasscode + `","title":"` + baitStory + `"}`
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/auth/callback?code=abc&state="+url.QueryEscape(authURL.Query().Get("state")), strings.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(flow)
+	req.AddCookie(&http.Cookie{Name: "bait", Value: baitCookie})
+	resp, err := noRedirect().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	return sessionCookieOf(t, resp)
+}
+
+func assertSecurityEventSchema(t *testing.T, event string, line map[string]any) {
+	t.Helper()
+	for _, key := range securityEventKeys {
+		if _, ok := line[key]; !ok {
+			t.Errorf("%s: missing field %q in %v", event, key, line)
+		}
+	}
+}
+
+func assertSecurityEventOmitsSecrets(t *testing.T, logs string, extras ...string) {
+	t.Helper()
+	secrets := append([]string{baitCookie, baitPasscode, baitStory}, extras...)
+	for _, secret := range secrets {
+		if secret != "" && strings.Contains(logs, secret) {
+			t.Errorf("security-event log leaked %q:\n%s", secret, logs)
+		}
+	}
+}
+
+func hasSecurityEvent(logs, event string) bool {
+	for _, raw := range strings.Split(logs, "\n") {
+		if raw == "" {
+			continue
+		}
+		var line map[string]any
+		if err := json.Unmarshal([]byte(raw), &line); err != nil {
+			continue
+		}
+		if line["msg"] == "security event" && line["event"] == event {
+			return true
+		}
+	}
+	return false
 }
 
 func securityEventLine(t *testing.T, logs, event string) map[string]any {
