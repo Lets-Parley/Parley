@@ -97,9 +97,12 @@ including every space's passcode.
 
 **Denial of service.** Parley rate-limits room-code guessing and open-mode
 identity creation, and caps spaces per identity, sessions per space, and stories
-per session. It does not provide a general request or WebSocket connection rate
-limiter. A public deployment needs ingress abuse controls; open mode itself is
-trusted-network-only.
+per session. One session token may also hold only `WS_MAX_PER_TOKEN` live
+WebSockets per replica — 8 by default — so a single authenticated client cannot
+spend unbounded goroutines, send buffers and revalidation queries; past the cap
+the upgrade is refused with a 429 before a socket is created. There is still no
+general request rate limiter. A public deployment needs ingress abuse controls;
+open mode itself is trusted-network-only.
 
 **Anyone who has your session cookie.** There is no binding to an address or a
 device and no UI to list or administratively revoke sessions. Deleting a token
@@ -118,8 +121,8 @@ The 30-second check remains the fallback for a notification lost in transit.
   { name: "Any member can rotate or open a space", status: "out-of-scope", detail: "The passcode route checks membership, not role, on purpose: any member can already read the current code off the space page and hand it on, so gating rotation behind ownership would restrict tidying up a leak without restricting the leak. Membership roles do exist — see <a href='/security/authorization/'>Authorization</a> — but they gate membership management, not the code." },
   { name: "Anonymous participation by default", status: "out-of-scope", detail: "It is the product for a trusted network: a link and a name, no account. Public deployments need a passcode or external SSO/auth proxy plus ingress abuse controls." },
   { name: "The sign-in flow cookie is unsigned", status: "out-of-scope", detail: "It is base64 JSON, not a signature. It only ever carries values that are re-validated on use — the redirect target is re-sanitised after the round trip, and state and nonce are compared in constant time against the identity provider's response." },
-  { name: "No general ingress rate limiter", status: "not-built", detail: "Room-code guesses, open-mode identity creation, and resource counts are bounded. Rate-limit requests and connections at your reverse proxy or ingress too. Budget for the client's own polling first: an open space page re-reads the space every 30 seconds — roughly 2 requests per minute per tab — so a limit tighter than that breaks the page rather than an attacker." },
-  { name: "Org audit log is write-only", status: "built", detail: "<code>org_audit_log</code> records custody and plugin-admin actions in Postgres with no read API or screen yet — <a href='https://github.com/Lets-Parley/Parley/issues/399'>#399</a>. The same writes, plus sign-in, membership, passcode and guest-link events, each emit one stdout JSON <code>security event</code> line; see <a href='/operations/observability/'>Observability</a>. Ordinary row timestamps and <code>LOG_LEVEL=debug</code> client-address lines are not that trail: debug names no user, is not retained, and is not queryable." },
+  { name: "No general ingress rate limiter", status: "not-built", detail: "Room-code guesses, open-mode identity creation, resource counts, and WebSockets per session token (WS_MAX_PER_TOKEN, 8 per replica) are bounded. Rate-limit requests and connections at your reverse proxy or ingress too. Budget for the client's own polling first: an open space page re-reads the space every 30 seconds — roughly 2 requests per minute per tab — so a limit tighter than that breaks the page rather than an attacker." },
+  { name: "Org audit log is write-only", status: "built", detail: "<code>org_audit_log</code> records custody and plugin-admin actions in Postgres (<code>space.claim</code>, <code>space.delete</code>, <code>space.add_owner</code> and <code>org.purge</code>) with no read API or screen yet — <a href='https://github.com/Lets-Parley/Parley/issues/399'>#399</a> — so review means querying Postgres; see <a href='/security/organizations/'>Organizations</a>. The same writes, plus sign-in, membership, passcode and guest-link events, each emit one stdout JSON <code>security event</code> line; see <a href='/operations/observability/'>Observability</a>. Ordinary row timestamps and <code>LOG_LEVEL=debug</code> client-address lines are not that trail: debug names no user, is not retained, and is not queryable." },
 ]} />
 
 ## Reporting a vulnerability

@@ -315,7 +315,9 @@ logLevel: info
 #     IDENTITY_IP_HOURLY_LIMIT, IDENTITY_GLOBAL_HOURLY_LIMIT,
 #     LINK_REDEMPTION_IP_HOURLY_LIMIT, SPACE_LIMIT_PER_IDENTITY,
 #     SESSION_LIMIT_PER_SPACE, DECK_LIMIT_PER_SPACE, KUDO_LIMIT_PER_SPACE,
-#     STORY_LIMIT_PER_SESSION and LINK_LIMIT_PER_SESSION. See the configuration reference for what each
+#     STORY_LIMIT_PER_SESSION, LINK_LIMIT_PER_SESSION and WS_MAX_PER_TOKEN —
+#     the last one bounding live WebSockets per session token per replica.
+#     See the configuration reference for what each
 #     one counts before you raise it.
 #   * PLUGIN_SECRET_KEY — base64, exactly 32 bytes decoded, the key plugin
 #     secrets are encrypted with. Unset means plugin secrets are unavailable
@@ -350,6 +352,10 @@ logLevel: info
 # the Service maps service.port (default 80) to that target. Setting PORT here
 # leaves the probes on 8080 and fails readiness. service.port only changes the
 # cluster-facing Service port, not the process listen port.
+#
+# BIND_ADDR is not a chart value. Kubernetes pods bind all interfaces;
+# NetworkPolicy is the control. Setting it here would hide the process from
+# probes and the Service.
 #
 # DATABASE_URL, BASE_URL, LOG_LEVEL, AUTH_MODE, POD_NAME, the OIDC settings
 # and the proxy-trust pair are set from the values above; setting one here as

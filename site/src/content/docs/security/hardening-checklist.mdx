@@ -28,6 +28,10 @@ Confirm it from the boot log rather than from your intent:
 "allowed_ws_origin":"https://parley.example.com"
 ```
 
+On a bare binary, set [`BIND_ADDR`](/reference/configuration/#BIND_ADDR) to
+`127.0.0.1` if the process should stay on loopback. Kubernetes pods leave it
+unset; NetworkPolicy is the control.
+
 ## 2. Set TRUST_PROXY_HEADERS to match your topology
 
 `true` if and only if a proxy you control sets `X-Forwarded-For` itself. When it
@@ -221,9 +225,6 @@ successful hardened release. Releases v0.1.0 through v0.2.1 were not backfilled.
 
 ## What you cannot harden
 
-- **There is no bind-address setting.** The process listens on all interfaces;
-  only `PORT` is configurable. Use a firewall, a container port binding, or a
-  proxy.
 - **There is no instance-wide operator account.** Space ownership is per space
   (a space can have several owners) and stops at that boundary: only an owner
   may promote, demote, or remove a member, but any member may still change or

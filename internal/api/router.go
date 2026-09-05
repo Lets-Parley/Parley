@@ -140,6 +140,11 @@ type Limits struct {
 	KudosPerSpace          int
 	StoriesPerSession      int
 	LinksPerSession        int
+	// WSMaxPerToken bounds the live WebSockets one session token may hold on
+	// one replica. A client with several tabs is ordinary; a client with a
+	// hundred sockets is spending goroutines, send buffers and a revalidation
+	// query every 30s that nobody asked for.
+	WSMaxPerToken int
 }
 
 func (l Limits) withDefaults() Limits {
@@ -169,6 +174,9 @@ func (l Limits) withDefaults() Limits {
 	}
 	if l.LinksPerSession == 0 {
 		l.LinksPerSession = 20
+	}
+	if l.WSMaxPerToken == 0 {
+		l.WSMaxPerToken = 8
 	}
 	return l
 }
@@ -234,6 +242,9 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		plugins:          opts.Plugins,
 		pluginHost:       opts.PluginHost,
 	}
+	// Set before anything is served: ReserveToken reads it from the handler
+	// goroutine and nothing has a socket yet.
+	a.hub.MaxPerToken = a.limits.WSMaxPerToken
 	a.custody = &custody.Handlers{
 		Store: &custody.Store{Pool: pool},
 		// An org revoke drops every space the person held in that org, so the
