@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -35,10 +36,12 @@ type config struct {
 	// against. Empty with sslmode=require means no verification at all.
 	DBRootCert string
 	Port       string
-	BaseURL    *url.URL
-	LogLevel   slog.Level
-	AuthMode   string
-	OIDC       auth.Config
+	// BindAddr is a bare host or IP prepended to PORT. Empty listens on every interface.
+	BindAddr string
+	BaseURL  *url.URL
+	LogLevel slog.Level
+	AuthMode string
+	OIDC     auth.Config
 	// DefaultOrgClaim, when set, points the default org at an identity-provider
 	// group so a fresh instance has something for a claim to match.
 	DefaultOrgClaim string
@@ -72,7 +75,11 @@ func loadConfig() (config, error) {
 	}
 
 	cfg := config{
-		Port: envOr("PORT", "8080"),
+		Port:     envOr("PORT", "8080"),
+		BindAddr: envOr("BIND_ADDR", ""),
+	}
+	if err := validateBindAddr(cfg.BindAddr); err != nil {
+		return cfg, err
 	}
 
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
@@ -363,7 +370,7 @@ func main() {
 
 	handler := api.Router(pool, opts)
 	defer handler.Shutdown()
-	srv := newHTTPServer(cfg.Port, handler)
+	srv := newHTTPServer(cfg.BindAddr, cfg.Port, handler)
 
 	go func() {
 		<-ctx.Done()
@@ -438,6 +445,7 @@ func bootFields(cfg config, secureCookies bool) []any {
 		"cookie_secure", secureCookies,
 		"allowed_ws_origin", cfg.BaseURL.Scheme + "://" + cfg.BaseURL.Host,
 		"port", cfg.Port,
+		"bind_addr", cfg.BindAddr,
 		"auth_mode", cfg.AuthMode,
 		"db_sslmode", cfg.DBSSLMode,
 		"trust_proxy_headers", cfg.TrustProxy,
@@ -498,9 +506,56 @@ func probeIdentityProvider(ctx context.Context, log *slog.Logger, provider ident
 	)
 }
 
-func newHTTPServer(port string, handler http.Handler) *http.Server {
+func validateBindAddr(bind string) error {
+	if bind == "" {
+		return nil
+	}
+	if strings.Contains(bind, ":") {
+		return fmt.Errorf("BIND_ADDR %q must be a host or IP without a port — the port is PORT", bind)
+	}
+	if net.ParseIP(bind) != nil {
+		return nil
+	}
+	if !validHostname(bind) {
+		return fmt.Errorf("BIND_ADDR %q must be a host or IP without a port — the port is PORT", bind)
+	}
+	return nil
+}
+
+func validHostname(s string) bool {
+	if len(s) == 0 || len(s) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(s, ".") {
+		if len(label) == 0 || len(label) > 63 {
+			return false
+		}
+		for i, r := range label {
+			isAlphaNum := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+			isInnerHyphen := r == '-' && i > 0 && i < len(label)-1
+			if !isAlphaNum && !isInnerHyphen {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func listenAddr(bind, port string) string {
+	return bind + ":" + port
+}
+
+func healthcheckTarget(bind, port string) string {
+	host := bind
+	if bind == "" || bind == "127.0.0.1" || strings.EqualFold(bind, "localhost") {
+		host = "127.0.0.1"
+	}
+	return "http://" + host + ":" + port + "/readyz"
+}
+
+func newHTTPServer(bind, port string, handler http.Handler) *http.Server {
 	return &http.Server{
-		Addr:              ":" + port,
+		Addr:              listenAddr(bind, port),
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -511,8 +566,13 @@ func newHTTPServer(port string, handler http.Handler) *http.Server {
 
 func runHealthcheck() int {
 	port := envOr("PORT", "8080")
+	bind := envOr("BIND_ADDR", "")
+	if err := validateBindAddr(bind); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get("http://127.0.0.1:" + port + "/readyz")
+	resp, err := client.Get(healthcheckTarget(bind, port))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "not ready:", err)
 		return 1

@@ -258,6 +258,10 @@ looks locked down — prefer `auth.mode` and `database.existingSecret`.
 `service.port` only changes the cluster-facing Service port, not the process
 listen port.
 
+`BIND_ADDR` is not a chart value either. Pods bind all interfaces;
+NetworkPolicy is the control. Setting it in `extraEnv` would hide the process
+from probes and the Service.
+
 A malformed entry — a map instead of a list, or an entry with no `name` — fails
 at `helm template` time with a named error rather than rendering a manifest the
 API server will reject later. See
