@@ -280,6 +280,22 @@ networkPolicy:
     # each entry with a `to` of namespaceSelector/podSelector/ipBlock peers.
     extraEgress: []
 
+# Session lifetime. Both are Go durations, and anything that is not a positive
+# duration stops the process.
+#
+#   * SESSION_IDLE_TTL — how long a session survives without activity. A write
+#     or a WebSocket connect renews it; a GET never does.
+#   * SESSION_MAX_TTL — the absolute lifetime from the moment the token was
+#     issued. No activity extends it, so a stolen token eventually dies.
+#
+# The session cookie's Max-Age is the smaller of the two, and rows past either
+# are deleted by an hourly background pass. Hardened deployments usually want
+# idleTTL in hours (8h) and maxTTL in days (24h or 72h); the defaults are the
+# 90 days Parley has always used.
+session:
+  idleTTL: 2160h
+  maxTTL: 2160h
+
 # LOG_LEVEL — one of debug, info, warn, error. Anything else stops the process.
 logLevel: info
 

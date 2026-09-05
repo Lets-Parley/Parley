@@ -189,6 +189,28 @@ quietly ran on defaults is the failure fail-fast exists to prevent.
 Leaving it unset is fine and is what every deployment in these docs does.
 </EnvVar>
 
+<EnvVar name="SESSION_IDLE_TTL" default="2160h" badValue="Refuses to start if the value is not a positive Go duration">
+How long a session survives without activity. Any write or WebSocket connect
+renews the window; a `GET` never does, so a third-party page cannot keep a
+victim's session alive with an `<img src>`.
+
+CUI and other hardened deployments usually want this in hours rather than days
+— `8h` ends a session left open overnight.
+</EnvVar>
+
+<EnvVar name="SESSION_MAX_TTL" default="2160h" badValue="Refuses to start if the value is not a positive Go duration">
+The absolute lifetime of a session, measured from the moment its token was
+issued. No amount of activity extends it: a stolen token that keeps being used
+still stops working when this elapses, and the person has to sign in again.
+
+Set it shorter than `SESSION_IDLE_TTL` and it is the cap that ends every
+session. The cookie's `Max-Age` is the smaller of the two, so the browser never
+holds a cookie the server has stopped honouring.
+
+Rows past either lifetime are deleted by a background pass that runs hourly, so
+lapsed credential hashes do not accumulate.
+</EnvVar>
+
 ## Plugins
 
 Parley's plugin foundations — the event outbox, the job queue and plugin
@@ -404,8 +426,9 @@ Worth stating, because they are natural guesses:
 
 - **`ALLOWED_ORIGIN`** — there isn't one. The allowed origin is derived from
   `BASE_URL`.
-- **Pool size, statement timeout, session lifetime, room-code throttle tuning**
-  — fixed. See [Limits and defaults](/reference/limits-and-defaults/).
+- **Pool size, statement timeout, room-code throttle tuning** — fixed. See
+  [Limits and defaults](/reference/limits-and-defaults/). Session lifetime is
+  *not* on this list: see `SESSION_IDLE_TTL` and `SESSION_MAX_TTL` above.
 - **TLS certificate paths** — Parley never terminates TLS. Use a
   [reverse proxy](/operations/reverse-proxy/).
 - **A bind address** — see `PORT` above.
