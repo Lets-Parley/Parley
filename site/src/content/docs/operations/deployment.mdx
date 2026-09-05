@@ -82,6 +82,9 @@ The image declares its own `HEALTHCHECK`, which runs `parley -healthcheck`
 against `/readyz` over loopback every 15 seconds.
 
 Pin a version rather than tracking `latest` if you want reproducible deploys.
+`latest` exists for quick evaluation only — it moves with every release, so
+using it in a durable install means an unplanned upgrade on the next pull,
+with no way to tell which version is actually running.
 Beginning with the first release produced by the hardened workflow, release
 assets include digest-qualified Compose and Kubernetes manifests, an image and a
 source SPDX SBOM, and verifiable provenance for the published digest. Releases

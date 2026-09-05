@@ -2,6 +2,10 @@
 # Parley means it reached Postgres, finished migrations, and is holding the
 # Postgres LISTEN it hears other replicas on: /readyz checks both, and fails if
 # either is down (/healthz deliberately checks neither).
+#
+# The image comes from tests.image, not a bare literal: an air-gapped cluster
+# with no path to Docker Hub needs to point this at a mirrored copy, the same
+# way image.repository does for the app itself.
 apiVersion: v1
 kind: Pod
 metadata:
@@ -15,7 +19,7 @@ spec:
   restartPolicy: Never
   containers:
     - name: readyz
-      image: curlimages/curl:8.11.1
+      image: {{ include "parley.testImage" . }}
       securityContext:
         runAsNonRoot: true
         # Explicit uid, not just runAsNonRoot: the kubelet verifies this from
