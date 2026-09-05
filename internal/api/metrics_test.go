@@ -1,10 +1,13 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -109,6 +112,41 @@ func TestMetricsWebSocketConnections(t *testing.T) {
 		t.Fatalf("after closing one socket, want parley_ws_connections 1, got:\n%s", body)
 	}
 	_ = two
+}
+
+func TestMetricsListenerReconnect(t *testing.T) {
+	a := &app{metrics: newMetrics(nil, nil)}
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", a.metrics.handler())
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		var once atomic.Bool
+		a.listenLoop(ctx, func(context.Context) error {
+			if once.CompareAndSwap(false, true) {
+				return errors.New("dropped")
+			}
+			cancel()
+			return nil
+		})
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("listener loop did not reconnect after one error")
+	}
+
+	_, body := getMetrics(t, srv)
+	if !metricLine(body, "parley_listener_reconnects_total", "1") {
+		t.Fatalf("after one listener reconnect, want parley_listener_reconnects_total 1, got:\n%s", body)
+	}
 }
 
 func TestMetricsPasscodeThrottle(t *testing.T) {
