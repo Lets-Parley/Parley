@@ -199,6 +199,11 @@ set:
   norm. For a cluster that requires default-deny egress, this adds egress
   rules for exactly the three peers Parley uses: DNS, Postgres, and the IdP.
   See [below](#egress-is-off-by-default-too-for-the-same-reason).
+- **`metrics.enabled`** — off by default. `METRICS_ENABLED=true` serves
+  `/metrics` on the app port, unauthenticated. The Ingress path is `/` Prefix,
+  so leaving it routed publishes the exposition. Admit the scraper's pods with
+  `networkPolicy.extraIngress` and keep the path off the public hostname; see
+  [Observability](/operations/observability/#metrics).
 - **`auth.mode`** (`open` or `oidc`) and `auth.oidc.*`. With `oidc` you must set
   either `auth.oidc.existingSecret` (confidential client; the secret is read
   from a Secret you create, never from values) or `auth.oidc.publicClient=true`
@@ -211,13 +216,13 @@ which is the source of truth.
 
 **Booleans have to arrive as booleans.** `trustProxyHeaders`,
 `networkPolicy.enabled`, `ingress.enabled`, `serviceAccount.create`,
-`podDisruptionBudget.enabled` and `auth.oidc.publicClient` are all read through
-a helper that treats only the literal string `true` as true, because a Go
-template treats *any* non-empty string — including `"false"` — as truthy, and
-`--set-string`, ArgoCD parameter overrides and CI templating pipelines all emit
-strings. The coercion means `"false"` behaves correctly; it also means `"True"`,
-`"yes"` and a typo all read as false, without complaint. Pass real YAML
-booleans in a values file where you can.
+`podDisruptionBudget.enabled`, `metrics.enabled` and `auth.oidc.publicClient`
+are all read through a helper that treats only the literal string `true` as
+true, because a Go template treats *any* non-empty string — including
+`"false"` — as truthy, and `--set-string`, ArgoCD parameter overrides and CI
+templating pipelines all emit strings. The coercion means `"false"` behaves
+correctly; it also means `"True"`, `"yes"` and a typo all read as false,
+without complaint. Pass real YAML booleans in a values file where you can.
 
 ### Setting variables the chart has no knob for
 
@@ -240,9 +245,10 @@ re-list them.
 
 **Last entry wins.** Kubernetes takes the last env entry when a name repeats, and
 `extraEnv` is last. Chart-owned names that override this way include
-`DATABASE_URL`, `BASE_URL`, `LOG_LEVEL`, `AUTH_MODE`, `POD_NAME`, the `OIDC_*`
-set, and the proxy-trust pair (`TRUST_PROXY_HEADERS` /
-`TRUSTED_PROXY_CIDRS`). Prefer the named values for those. Setting them here
+`DATABASE_URL`, `BASE_URL`, `LOG_LEVEL`, `AUTH_MODE`, `POD_NAME`,
+`METRICS_ENABLED`, the `OIDC_*` set, and the proxy-trust pair
+(`TRUST_PROXY_HEADERS` / `TRUSTED_PROXY_CIDRS`). Prefer the named values for
+those. Setting them here
 also skips the `helm template` refuses and NOTES NetworkPolicy warnings that
 read only the named values — so `TRUST_PROXY_HEADERS=true` in `extraEnv` can
 enable proxy trust while `trustProxyHeaders` stays false.

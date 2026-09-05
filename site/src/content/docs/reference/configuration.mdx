@@ -104,6 +104,18 @@ One of `debug`, `info`, `warn`, `error`. Anything else stops the process rather
 than silently defaulting. Output is JSON on stdout.
 </EnvVar>
 
+<EnvVar name="METRICS_ENABLED" default="false" fatal>
+Whether to serve an unauthenticated Prometheus exposition at `/metrics`. Must
+parse as a boolean; anything else stops the process.
+
+Off by default. When on, the route is public to anyone who can reach the
+process — there is no session check and no second listen port. Scrape it from
+the cluster network, keep it off any public ingress, and admit only the
+scraper's pods with `networkPolicy.extraIngress`. NetworkPolicy cannot filter
+by path, so the rule admits those pods to port 8080 as a whole. See
+[Observability](/operations/observability/).
+</EnvVar>
+
 <EnvVar name="TRUST_PROXY_HEADERS" default="false" fatal>
 Whether to derive a client address from `X-Forwarded-For`. Must parse as a
 boolean.

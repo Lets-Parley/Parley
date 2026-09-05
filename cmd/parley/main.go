@@ -60,6 +60,9 @@ type config struct {
 	PluginDir string
 	// PluginLimits is the containment budget one plugin call gets.
 	PluginLimits plugin.HostConfig
+	// MetricsEnabled mounts an unauthenticated Prometheus exposition at
+	// /metrics. Off by default.
+	MetricsEnabled bool
 }
 
 type abuseLimits = api.Limits
@@ -207,6 +210,12 @@ func loadConfig() (config, error) {
 		limit.set(value)
 	}
 	cfg.PluginEventRetention = retention
+
+	metricsEnabled, err := strconv.ParseBool(envOr("METRICS_ENABLED", "false"))
+	if err != nil {
+		return cfg, fmt.Errorf("METRICS_ENABLED %q is not a boolean — use true or false", os.Getenv("METRICS_ENABLED"))
+	}
+	cfg.MetricsEnabled = metricsEnabled
 
 	switch mode := strings.ToLower(envOr("AUTH_MODE", api.ModeOpen)); mode {
 	case api.ModeOpen:
@@ -408,8 +417,9 @@ func apiOptions(ctx context.Context, cfg config, secureCookies bool, plugins *pl
 		// The administration surface reads the store even with no host
 		// running, so an operator on an instance without PLUGIN_DIR still sees
 		// what is installed and is told the host is not running.
-		Plugins:    plugins,
-		PluginHost: pluginHost,
+		Plugins:        plugins,
+		PluginHost:     pluginHost,
+		MetricsEnabled: cfg.MetricsEnabled,
 	}
 	if cfg.AuthMode == api.ModeOIDC {
 		// Discovery happens on the first sign-in rather than here: an identity
@@ -441,6 +451,7 @@ func bootFields(cfg config, secureCookies bool) []any {
 		"auth_mode", cfg.AuthMode,
 		"db_sslmode", cfg.DBSSLMode,
 		"trust_proxy_headers", cfg.TrustProxy,
+		"metrics_enabled", cfg.MetricsEnabled,
 		"plugin_secrets", cfg.PluginSecretKey != "",
 		"plugin_event_retention", cfg.PluginEventRetention.String(),
 		"plugin_dir", cfg.PluginDir,

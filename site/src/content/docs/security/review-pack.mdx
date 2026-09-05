@@ -43,7 +43,9 @@ itself — not the passcode), and an org admin has
 `org_audit_log` records a handful of custody actions but is **write-only**
 today — no read API or screen
 ([#399](https://github.com/Lets-Parley/Parley/issues/399)). There is still no
-retention or erasure tooling, and no metrics. The hardened release pipeline
+retention or erasure tooling. `/metrics` is off by default; when on it is
+unauthenticated, so it belongs off any public ingress
+([Observability](/operations/observability/#metrics)). The hardened release pipeline
 publishes an SPDX SBOM and verifiable digest-bound provenance for releases it
 produces; v0.1.0 through v0.2.1 were not backfilled.
 

@@ -255,6 +255,7 @@ var routeScoping = map[string]string{
 	"GET /healthz":       "non-slug",
 	"GET /version":       "non-slug",
 	"GET /readyz":        "non-slug",
+	"GET /metrics":       "non-slug",
 	"GET /auth/login":    "non-slug",
 	"GET /auth/callback": "non-slug",
 	"GET /ws":            "non-slug",
@@ -376,7 +377,7 @@ var routeScoping = map[string]string{
 // would say nothing about whether a session route acquired an org segment it
 // must never have.
 func TestEveryRouteIsScopeClassified(t *testing.T) {
-	routes, ok := Router(nil, Options{}).Handler.(chi.Routes)
+	routes, ok := Router(nil, Options{MetricsEnabled: true}).Handler.(chi.Routes)
 	if !ok {
 		t.Fatal("router is not walkable")
 	}

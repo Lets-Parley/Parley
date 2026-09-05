@@ -6,16 +6,20 @@ description: What Parley emits, what it does not, and where to get the rest.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["cmd/parley/main.go", "internal/api/router.go", "internal/api/client_address.go"]} />
+<VerifiedStamp source={["cmd/parley/main.go", "internal/api/router.go", "internal/api/metrics.go", "internal/api/client_address.go"]} />
 
 This is a short page, and honestly so.
 
-Parley writes **structured JSON logs to stdout** and emits nothing else. There is
-no metrics endpoint, no tracing and no request IDs. There is no HTTP access log
-either — the one exception is an opt-in `LOG_LEVEL=debug` line that reports how
-each request's client address was resolved, described below. It is a proxy
-diagnostic, not an access log and not an audit trail: no method, path, status,
-user or credential appears in it, and nothing is retained or queryable.
+Parley writes **structured JSON logs to stdout**. There is no tracing and no
+request IDs, and no HTTP access log — the one exception is an opt-in
+`LOG_LEVEL=debug` line that reports how each request's client address was
+resolved, described below. It is a proxy diagnostic, not an access log and not
+an audit trail: no method, path, status, user or credential appears in it, and
+nothing is retained or queryable.
+
+A Prometheus exposition at `/metrics` is **off by default**. Turn it on with
+`METRICS_ENABLED=true` when you need capacity numbers a blackbox probe cannot
+see. The endpoint is unauthenticated; keep it off any public ingress.
 
 ## Logs
 
@@ -28,7 +32,7 @@ The single most useful line is emitted at boot:
 ```json
 {"time":"...","level":"INFO","msg":"boot settings","base_url":"https://parley.example.com",
  "cookie_secure":true,"allowed_ws_origin":"https://parley.example.com","port":"8080",
- "auth_mode":"oidc","trust_proxy_headers":true,"trusted_proxy_cidrs":["10.42.0.0/16"]}
+ "auth_mode":"oidc","trust_proxy_headers":true,"metrics_enabled":false,"trusted_proxy_cidrs":["10.42.0.0/16"]}
 ```
 
 `trusted_proxy_cidrs` appears only when `TRUST_PROXY_HEADERS=true`, and lists
@@ -88,7 +92,7 @@ request paths, user names, or session content at any level.
 <Capability rows={[
   { name: "Structured JSON logs", status: "built", detail: "stdout, one level, no rotation needed by the process itself — the single-server compose file caps the on-disk driver instead, see <a href='/operations/deployment/#log-rotation'>Deployment</a>." },
   { name: "Liveness and readiness endpoints", status: "built", detail: "<code>/healthz</code> and <code>/readyz</code> — see <a href='/operations/architecture/'>Architecture</a>." },
-  { name: "Metrics endpoint", status: "not-built", detail: "There is no <code>/metrics</code>. Blackbox-probe <code>/readyz</code> for availability, and take request rate and latency from your reverse proxy, which already sees every request." },
+  { name: "Metrics endpoint", status: "built", detail: "<code>/metrics</code> is off by default. <code>METRICS_ENABLED=true</code> mounts an unauthenticated Prometheus exposition on the same port as the app — Go runtime, pgxpool stats, WebSocket count, listener reconnects, and the passcode and identity throttles. Keep it off a public ingress; scrape from the cluster network. The metrics themselves are listed below." },
   { name: "Distributed tracing", status: "not-built", detail: "Single process, single database — a trace would have two spans. Proxy access logs give you the same latency picture." },
   { name: "Request IDs", status: "not-built", detail: "Have your proxy inject and log one. Parley will not echo it, so correlate on timestamp and path at the proxy." },
   { name: "HTTP access log", status: "not-built", detail: "<code>middleware.Logger</code> is not mounted. Use the proxy's access log — it is the same data, and you already ship it. <code>LOG_LEVEL=debug</code> logs only how the client address was resolved: no method, path or status." },
@@ -99,14 +103,16 @@ request paths, user names, or session content at any level.
 ## Background goroutines
 
 Parley does run a handful of background goroutines, started from
-`cmd/parley/main.go` and `internal/api/router.go`. None of them expose a
-metric; the way to tell a stuck one from a healthy one is its log line.
+`cmd/parley/main.go` and `internal/api/router.go`. With `METRICS_ENABLED=true`,
+the listener's reconnects are also a counter; the others are still judged by
+their log line.
 
 - **Session notification listener** (`router.go`, `a.listen`) — holds a
   dedicated Postgres connection open for `LISTEN`/`NOTIFY` fan-out between
   replicas. Healthy: silent. Stuck: repeated `"session notification listener
   dropped, reconnecting"` at `ERROR` with a growing `backoff`, which means the
   replica cannot re-establish its listen connection to Postgres.
+  `parley_listener_reconnects_total` counts each of those drops.
 - **Presence sweeper** (`router.go`, `a.sweepPresence`) — clears stale
   presence rows on a fixed interval. Stuck: `"could not sweep stale presence
   rows"` at `ERROR` on every tick.
@@ -129,16 +135,84 @@ metric; the way to tell a stuck one from a healthy one is its log line.
 The plugin outbox and job workers only start when `PLUGIN_DIR` is configured;
 an instance with no plugins never runs them.
 
+## `/metrics`
+
+Off until `METRICS_ENABLED=true`. Then `GET /metrics` returns Prometheus text
+format, with no session cookie and no CSRF check — the same posture as
+`/healthz`. Anyone who can reach the process can scrape it.
+
+The chart's Ingress uses `path: /` with `pathType: Prefix`, so turning metrics
+on without a further deny publishes `/metrics` on the public hostname. Do not
+do that. Scrape the Service from inside the cluster, and keep the path off the
+ingress with a proxy deny (see [Reverse proxy](/operations/reverse-proxy/)) or
+by not routing it.
+
+There is no dedicated metrics port. A NetworkPolicy cannot filter by path, so
+the way to admit a scraper is to admit *its pods* to port 8080 and nobody
+else's. With `networkPolicy.enabled=true`:
+
+```yaml
+networkPolicy:
+  extraIngress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: http
+```
+
+An `extraIngress` entry with no `from` admits every source on that port and
+defeats the default-deny policy. Always name the scraper.
+
+### Process and pool
+
+| Metric | Kind | What it is |
+| --- | --- | --- |
+| `go_goroutines` | gauge | Go runtime goroutines, from the standard Go collector. The rest of that collector (`go_memstats_*`, `go_gc_*`, `go_sched_*`, …) is exported too. |
+| `parley_pgxpool_total_conns` | gauge | Connections the pool currently holds. |
+| `parley_pgxpool_idle_conns` | gauge | Idle connections in the pool. |
+| `parley_pgxpool_acquired_conns` | gauge | Connections currently checked out. |
+| `parley_pgxpool_max_conns` | gauge | Configured pool cap. |
+| `parley_pgxpool_constructing_conns` | gauge | Connections the pool is opening. |
+| `parley_pgxpool_acquires_total` | counter | Successful acquires. |
+| `parley_pgxpool_acquire_seconds_total` | counter | Time spent waiting for a connection. |
+| `parley_pgxpool_canceled_acquires_total` | counter | Acquires canceled before a connection was available. |
+| `parley_pgxpool_empty_acquires_total` | counter | Acquires that waited because the pool was empty. |
+| `parley_pgxpool_empty_acquire_wait_seconds_total` | counter | Time spent waiting on an empty pool. |
+| `parley_pgxpool_new_conns_total` | counter | New connections the pool has opened. |
+| `parley_pgxpool_max_lifetime_destroys_total` | counter | Connections closed for exceeding max lifetime. |
+| `parley_pgxpool_max_idle_destroys_total` | counter | Connections closed for exceeding max idle time. |
+
+Pool numbers are read from `pgxpool.Stat()` on scrape, not sampled on a timer.
+They describe this replica's pool only.
+
+### Application
+
+| Metric | Kind | What it is |
+| --- | --- | --- |
+| `parley_ws_connections` | gauge | WebSocket connections this process currently holds. Per replica, not cluster-wide. |
+| `parley_listener_reconnects_total` | counter | Times this replica's `LISTEN` connection dropped and began reconnecting. |
+| `parley_passcode_throttled_total` | counter | Times a room-code, invite-handle or link-token guess was refused because the caller's budget was spent. |
+| `parley_identity_throttled_total` | counter | Times open-mode identity creation or link redemption was refused by the hourly identity quota. |
+
+Request rate and latency still come from the reverse proxy, which already sees
+every request. `/readyz` remains the blackbox availability probe.
+
 ## Is that enough?
 
-For this shape of service, mostly yes. The two questions that matter
-operationally are *is the process up* and *can it reach Postgres*, and both
-are answered by probing `/readyz` from outside — a stuck background goroutine
-still lets `/readyz` pass, so a person also has to be watching the log lines
-above.
+For this shape of service, mostly yes. Availability is still *is the process
+up* and *can it reach Postgres*, answered by probing `/readyz` from outside —
+a stuck background goroutine still lets `/readyz` pass, so a person also has
+to be watching the log lines above, or `parley_listener_reconnects_total` for
+the fan-out listener.
 
-What you genuinely lose without metrics is capacity planning — you cannot see
-WebSocket connection counts or room sizes without querying the database for
-members and sessions. If you are running Parley for a team, that is not a real
-gap. If you are running it for an organisation, it is, and it is worth saying so
-before you find out.
+What `/metrics` adds is the capacity picture that used to require querying the
+database: WebSocket count on this replica, pool saturation, and whether the
+room-code or identity throttles are firing. If you are running Parley for a
+team, you can leave it off. If you are running it for an organisation, turn it
+on and scrape it from inside the cluster.

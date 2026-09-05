@@ -135,6 +135,8 @@ spec:
             {{- end }}
             - name: LOG_LEVEL
               value: {{ .Values.logLevel | quote }}
+            - name: METRICS_ENABLED
+              value: {{ include "parley.isTrue" .Values.metrics.enabled | quote }}
             # Stamped on this pod's presence rows. Not required — Parley falls
             # back to a random per-process id — but it makes a row that outlives
             # its pod traceable to the pod that wrote it.

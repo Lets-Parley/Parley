@@ -197,6 +197,7 @@ func (a *app) listenLoop(ctx context.Context, once func(context.Context) error) 
 		err := guardedListen(ctx, once)
 		if err != nil && ctx.Err() == nil {
 			a.listenerUp.Store(false)
+			a.metrics.incListenerReconnects()
 			slog.Error("session notification listener dropped, reconnecting",
 				"error", err, "backoff", backoff.String())
 			select {

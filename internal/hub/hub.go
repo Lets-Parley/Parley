@@ -144,6 +144,10 @@ type Hub struct {
 	bgStopped bool
 	rooms     map[string]map[*Conn]struct{}
 	pending   map[*Conn]registerEvent
+	// conns is the live socket count this process holds. It is an atomic
+	// rather than a walk of rooms so a Prometheus scrape can read it without
+	// taking the event loop or adding a mutex around Hub.run.
+	conns atomic.Int64
 
 	// OnPresenceChange fires (debounced) after connects/disconnects settle.
 	OnPresenceChange func(sessionID string)
@@ -468,6 +472,7 @@ func (h *Hub) register(e registerEvent) {
 		h.rooms[e.conn.SessionID] = room
 	}
 	room[e.conn] = struct{}{}
+	h.conns.Add(1)
 	h.armExpiry(e.conn)
 	e.accepted <- true
 }
@@ -568,6 +573,7 @@ func (h *Hub) remove(c *Conn, closeCode int, closeReason string) <-chan struct{}
 	close(c.stop)
 	close(c.send)
 	delete(room, c)
+	h.conns.Add(-1)
 	if len(room) == 0 {
 		delete(h.rooms, c.SessionID)
 	}
@@ -966,6 +972,11 @@ func (h *Hub) BroadcastGuest(sessionID string, msg, guestMsg []byte) {
 	if h.submit(broadcastEvent{sessionID: sessionID, msg: msg, guestMsg: guestMsg, done: done}) {
 		<-done
 	}
+}
+
+// Len is the number of WebSocket connections this process currently holds.
+func (h *Hub) Len() int {
+	return int(h.conns.Load())
 }
 
 // Sessions returns the ids of every room this hub currently holds a connection
