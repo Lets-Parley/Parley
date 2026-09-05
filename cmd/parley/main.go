@@ -36,7 +36,8 @@ type config struct {
 	// against. Empty with sslmode=require means no verification at all.
 	DBRootCert string
 	Port       string
-	// BindAddr is a bare host or IP prepended to PORT. Empty listens on every interface.
+	// BindAddr is a bare host or IP prepended to PORT. Empty listens on every
+	// interface. IPv6 literals are accepted; a host:port form is not.
 	BindAddr string
 	BaseURL  *url.URL
 	LogLevel slog.Level
@@ -510,16 +511,28 @@ func validateBindAddr(bind string) error {
 	if bind == "" {
 		return nil
 	}
-	if strings.Contains(bind, ":") {
-		return fmt.Errorf("BIND_ADDR %q must be a host or IP without a port — the port is PORT", bind)
-	}
-	if net.ParseIP(bind) != nil {
+	if net.ParseIP(bindHost(bind)) != nil {
 		return nil
+	}
+	if _, _, err := net.SplitHostPort(bind); err == nil {
+		return fmt.Errorf("BIND_ADDR %q must be a host or IP without a port — the port is PORT", bind)
 	}
 	if !validHostname(bind) {
 		return fmt.Errorf("BIND_ADDR %q must be a host or IP without a port — the port is PORT", bind)
 	}
 	return nil
+}
+
+// bindHost returns the host BIND_ADDR names. Bracketed IPv6 literals (`[::1]`)
+// are accepted by stripping the brackets so JoinHostPort can re-apply them.
+func bindHost(bind string) string {
+	if len(bind) >= 2 && bind[0] == '[' && bind[len(bind)-1] == ']' {
+		inner := bind[1 : len(bind)-1]
+		if net.ParseIP(inner) != nil {
+			return inner
+		}
+	}
+	return bind
 }
 
 func validHostname(s string) bool {
@@ -542,15 +555,15 @@ func validHostname(s string) bool {
 }
 
 func listenAddr(bind, port string) string {
-	return bind + ":" + port
+	return net.JoinHostPort(bindHost(bind), port)
 }
 
 func healthcheckTarget(bind, port string) string {
-	host := bind
-	if bind == "" || bind == "127.0.0.1" || strings.EqualFold(bind, "localhost") {
+	host := bindHost(bind)
+	if bind == "" || host == "127.0.0.1" || strings.EqualFold(bind, "localhost") {
 		host = "127.0.0.1"
 	}
-	return "http://" + host + ":" + port + "/readyz"
+	return "http://" + net.JoinHostPort(host, port) + "/readyz"
 }
 
 func newHTTPServer(bind, port string, handler http.Handler) *http.Server {

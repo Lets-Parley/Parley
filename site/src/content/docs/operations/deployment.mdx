@@ -93,7 +93,7 @@ v0.1.0 through v0.2.1 were not backfilled; see [Supply chain](/security/supply-c
 it a `DATABASE_URL` and it runs.
 
 `PORT` sets the port. Set [`BIND_ADDR`](/reference/configuration/#BIND_ADDR) to
-a bare host or IPv4 address (no port) when the bare binary should listen on one
+a bare host or IP address (no port) when the bare binary should listen on one
 interface — `127.0.0.1` keeps it on loopback. Empty, the default, still listens
 on every interface. Kubernetes pods should leave it unset;
 [NetworkPolicy](/operations/kubernetes/) is the control.

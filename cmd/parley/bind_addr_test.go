@@ -13,6 +13,8 @@ func TestListenAddrJoinsBindAndPort(t *testing.T) {
 		{"127.0.0.1", "8080", "127.0.0.1:8080"},
 		{"10.0.0.5", "9090", "10.0.0.5:9090"},
 		{"localhost", "8080", "localhost:8080"},
+		{"::1", "8080", "[::1]:8080"},
+		{"[::1]", "8080", "[::1]:8080"},
 	}
 	for _, tc := range cases {
 		if got := listenAddr(tc.bind, tc.port); got != tc.want {
@@ -22,30 +24,38 @@ func TestListenAddrJoinsBindAndPort(t *testing.T) {
 }
 
 func TestLoadConfigRefusesBindAddrWithAPort(t *testing.T) {
-	baseConfigEnv(t)
-	t.Setenv("BIND_ADDR", "1.2.3.4:80")
-	_, err := loadConfig()
-	if err == nil {
-		t.Fatal("BIND_ADDR=1.2.3.4:80 was accepted")
-	}
-	msg := err.Error()
-	if !strings.Contains(msg, "BIND_ADDR") {
-		t.Errorf("error %q does not name BIND_ADDR", msg)
-	}
-	if !strings.Contains(msg, "PORT") {
-		t.Errorf("error %q does not name PORT", msg)
+	for _, bind := range []string{"1.2.3.4:80", "[::1]:80"} {
+		t.Run(bind, func(t *testing.T) {
+			baseConfigEnv(t)
+			t.Setenv("BIND_ADDR", bind)
+			_, err := loadConfig()
+			if err == nil {
+				t.Fatalf("BIND_ADDR=%s was accepted", bind)
+			}
+			msg := err.Error()
+			if !strings.Contains(msg, "BIND_ADDR") {
+				t.Errorf("error %q does not name BIND_ADDR", msg)
+			}
+			if !strings.Contains(msg, "PORT") {
+				t.Errorf("error %q does not name PORT", msg)
+			}
+		})
 	}
 }
 
 func TestLoadConfigAcceptsABareBindAddr(t *testing.T) {
-	baseConfigEnv(t)
-	t.Setenv("BIND_ADDR", "127.0.0.1")
-	cfg, err := loadConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.BindAddr != "127.0.0.1" {
-		t.Fatalf("BindAddr = %q, want 127.0.0.1", cfg.BindAddr)
+	for _, bind := range []string{"127.0.0.1", "::1", "[::1]"} {
+		t.Run(bind, func(t *testing.T) {
+			baseConfigEnv(t)
+			t.Setenv("BIND_ADDR", bind)
+			cfg, err := loadConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.BindAddr != bind {
+				t.Fatalf("BindAddr = %q, want %q", cfg.BindAddr, bind)
+			}
+		})
 	}
 }
 
@@ -57,6 +67,8 @@ func TestHealthcheckTargetSelectsLoopbackOrBind(t *testing.T) {
 		{"127.0.0.1", "8080", "http://127.0.0.1:8080/readyz"},
 		{"localhost", "9090", "http://127.0.0.1:9090/readyz"},
 		{"10.0.0.5", "8080", "http://10.0.0.5:8080/readyz"},
+		{"::1", "8080", "http://[::1]:8080/readyz"},
+		{"[::1]", "8080", "http://[::1]:8080/readyz"},
 	}
 	for _, tc := range cases {
 		if got := healthcheckTarget(tc.bind, tc.port); got != tc.want {
