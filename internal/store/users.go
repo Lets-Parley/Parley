@@ -304,18 +304,39 @@ func (s *Users) TokenExpiry(ctx context.Context, tokenHash []byte) (time.Time, e
 // The predicate is the complement of tokenLiveClause, and must stay that way:
 // a sweep looser than the resolve rule would delete sessions people are still
 // using.
+//
+// The delete is batched because the first pass on an instance that has been
+// running since before these lifetimes existed can match the whole table: one
+// unbounded statement would hold row locks over every dead session and write
+// the lot in a single transaction. Batches of sweepBatchSize keep each
+// transaction short, and the loop runs until a pass comes back short, so a
+// backlog of any size still drains in one call.
 func (s *Users) SweepExpiredTokens(ctx context.Context) (int64, error) {
-	tag, err := s.Pool.Exec(ctx, `
-		delete from session_tokens
-		where last_used_at <= now() - $1::interval
-		   or created_at <= now() - $2::interval
-		   or (expires_at is not null and expires_at <= now())`,
-		s.idleTTL(), s.maxTTL())
-	if err != nil {
-		return 0, fmt.Errorf("sweeping expired session tokens: %w", err)
+	var total int64
+	for {
+		tag, err := s.Pool.Exec(ctx, `
+			delete from session_tokens
+			where ctid = any (array(
+				select ctid from session_tokens
+				where last_used_at <= now() - $1::interval
+				   or created_at <= now() - $2::interval
+				   or (expires_at is not null and expires_at <= now())
+				limit $3))`,
+			s.idleTTL(), s.maxTTL(), sweepBatchSize)
+		if err != nil {
+			return total, fmt.Errorf("sweeping expired session tokens: %w", err)
+		}
+		total += tag.RowsAffected()
+		if tag.RowsAffected() < sweepBatchSize {
+			return total, nil
+		}
 	}
-	return tag.RowsAffected(), nil
 }
+
+// sweepBatchSize is how many rows one sweep statement may delete. Small
+// enough that a pass is a short transaction, large enough that a realistic
+// backlog drains in a handful of round trips.
+const sweepBatchSize = 1000
 
 // RunSessionSweep sweeps expired session tokens on a ticker until ctx is done.
 // A panic in the pass is recovered and retried on the next tick rather than
@@ -349,6 +370,13 @@ func (s *Users) sweepOnce(ctx context.Context, log *slog.Logger) {
 
 // Rename updates the user's name and rotates their token: the old token row is
 // replaced by newTokenHash in one transaction.
+//
+// The new row inherits the old row's created_at and expires_at rather than
+// taking fresh ones. Renaming is not re-authentication, so it must not restart
+// the absolute SESSION_MAX_TTL clock: a row minted with created_at = now() on
+// every rename would let whoever holds a stolen token keep it alive forever by
+// POSTing /me in a loop, and would likewise wipe the redeemed link's own
+// expiry. Only the secret changes; both deadlines carry forward.
 func (s *Users) Rename(ctx context.Context, userID, name string, oldTokenHash, newTokenHash []byte) (User, error) {
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
@@ -363,12 +391,18 @@ func (s *Users) Rename(ctx context.Context, userID, name string, oldTokenHash, n
 	).Scan(&u.ID, &u.Name, &u.AvatarIcon); err != nil {
 		return User{}, err
 	}
-	if _, err := tx.Exec(ctx,
-		"delete from session_tokens where token_hash = $1", oldTokenHash); err != nil {
+	// The aggregates make this one row whatever the old hash matched, so a
+	// rename presented with an unknown or already-swept token still opens a
+	// session, on a fresh clock, exactly as it did before.
+	if _, err := tx.Exec(ctx, `
+		insert into session_tokens (token_hash, user_id, created_at, expires_at)
+		select $1, $2, coalesce(min(created_at), now()), min(expires_at)
+		from session_tokens where token_hash = $3`,
+		newTokenHash, u.ID, oldTokenHash); err != nil {
 		return User{}, err
 	}
 	if _, err := tx.Exec(ctx,
-		"insert into session_tokens (token_hash, user_id) values ($1, $2)", newTokenHash, u.ID); err != nil {
+		"delete from session_tokens where token_hash = $1", oldTokenHash); err != nil {
 		return User{}, err
 	}
 	return u, tx.Commit(ctx)
