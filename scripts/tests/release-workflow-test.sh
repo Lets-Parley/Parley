@@ -1,15 +1,66 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # shellcheck disable=SC2016
-set -eu
+set -euo pipefail
 
 repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 workflow="$repo_root/.github/workflows/release.yml"
 
 line_number() {
   pattern=$1
-  line=$(grep -nF -- "$pattern" "$workflow" | head -n 1 | cut -d: -f1)
+  line=$(awk -v p="$pattern" 'index($0, p) { print NR; exit }' "$workflow")
   test -n "$line"
   printf '%s\n' "$line"
+}
+
+# A job is the block from `  name:` until the next top-level job key.
+job_block() {
+  job=$1
+  awk -v job="$job" '
+    $0 == "  " job ":" { in_job = 1; print; next }
+    in_job && /^  [a-zA-Z_-]+:/ { exit }
+    in_job { print }
+  ' "$workflow"
+}
+
+job_needs() {
+  job=$1
+  awk -v job="$job" '
+    $0 == "  " job ":" { in_job = 1; next }
+    in_job && /^  [a-zA-Z_-]+:/ { exit }
+    in_job && /^    needs:/ { in_needs = 1; print; next }
+    in_needs && /^      - / { print; next }
+    in_needs { exit }
+  ' "$workflow"
+}
+
+require_needs() {
+  job=$1
+  dep=$2
+  needs=$(job_needs "$job")
+  test -n "$needs"
+  if ! printf '%s\n' "$needs" | grep -Fq "$dep"; then
+    echo "$job needs does not include $dep" >&2
+    echo "$needs" >&2
+    exit 1
+  fi
+}
+
+# Assert the whole guarded statement, not its prefix. A comparison line
+# must be EXACTLY the comparison and its line continuation; anything
+# appended (`|| true`, `&& :`) neuters the check while leaving both the
+# substring and the following failure branch intact.
+digest_guard() {
+  comparison=$1
+  # Pass through ENVIRON so `$resolved` in the needle is not expanded by the shell.
+  DIGEST_GUARD_WANT="$comparison" awk '
+    BEGIN { want = ENVIRON["DIGEST_GUARD_WANT"] }
+    { line = $0; sub(/^[[:space:]]+/, "", line); sub(/[[:space:]]+$/, "", line) }
+    line == want { seen = NR; next }
+    seen == NR - 1 {
+      if (line ~ /^\|\| \{ echo .*exit 1; \}$/) ok = 1
+    }
+    END { print ok+0 }
+  ' "$workflow"
 }
 
 grep -Fq 'release_commit: ${{ steps.release.outputs.release_commit }}' "$workflow"
@@ -124,20 +175,9 @@ grep -Fq 'helm show chart' "$workflow"
 # that turns the digest check into a no-op while leaving the substring the guard
 # looks for — the check would stay green while every release got a receipt it had
 # not earned. So require the comparison to be followed by a failing branch.
-# The comparison line must be EXACTLY the comparison and its line continuation:
-# anything appended to it (`|| true`, `&& :`) neuters the check while leaving
-# both the substring and the following failure branch intact, so neither a
-# prefix grep nor a look-at-the-next-line check catches it. Trailing whitespace
-# is trimmed first so the assertion is about tokens, not formatting.
-digest_guard=$(awk '
-  { line = $0; sub(/^[[:space:]]+/, "", line); sub(/[[:space:]]+$/, "", line) }
-  line == "test \"$resolved\" = \"$DIGEST\" \\" { seen = NR; next }
-  seen == NR - 1 {
-    if (line ~ /^\|\| \{ echo .*exit 1; \}$/) ok = 1
-  }
-  END { print ok+0 }
-' "$workflow")
-test "$digest_guard" -eq 1
+# Trailing whitespace is trimmed first so the assertion is about tokens, not
+# formatting.
+test "$(digest_guard 'test "$resolved" = "$DIGEST" \')" -eq 1
 
 # Every gh release read/write outside a checkout needs --repo, for the same
 # reason the uploads do. `gh release edit` and `gh release view` were added
@@ -231,11 +271,33 @@ test "$(grep -Fc 'format: cyclonedx-json' "$workflow")" -eq 4
 
 # The FIPS variant is a parallel pipeline, not a shortcut past staging
 # verification, attestation, or the SBOM. latest-fips is promoted because
-# latest is.
-grep -Fq 'build-fips:' "$workflow"
-grep -Fq 'publish-fips:' "$workflow"
-grep -Fq 'sbom-fips:' "$workflow"
-grep -Fq 'target: fips' "$workflow"
+# latest is. Job names alone are not enough: publish-fips with
+# `needs: [validate]` (build-fips dropped) still greps as present.
+build_fips_block=$(job_block build-fips)
+test -n "$build_fips_block"
+publish_fips_block=$(job_block publish-fips)
+test -n "$publish_fips_block"
+sbom_fips_block=$(job_block sbom-fips)
+test -n "$sbom_fips_block"
+attestation_assets_fips_block=$(job_block attestation-assets-fips)
+test -n "$attestation_assets_fips_block"
+
+require_needs publish-fips build-fips
+require_needs sbom-fips publish-fips
+require_needs attestation-assets-fips publish-fips
+
+active_build_fips=$(printf '%s\n' "$build_fips_block" | grep -v '^[[:space:]]*#')
+printf '%s\n' "$active_build_fips" | grep -Eq '^[[:space:]]+target: fips$' \
+  || { echo "build-fips is missing a non-comment target: fips" >&2; exit 1; }
+
+printf '%s\n' "$publish_fips_block" | grep -v '^[[:space:]]*#' \
+  | grep -Fq 'uses: actions/attest-build-provenance' \
+  || { echo "publish-fips is missing actions/attest-build-provenance" >&2; exit 1; }
+
+printf '%s\n' "$attestation_assets_fips_block" | grep -v '^[[:space:]]*#' \
+  | grep -Fq 'parley-$TAG-fips.sigstore.json' \
+  || { echo "attestation-assets-fips does not upload the FIPS Sigstore bundle" >&2; exit 1; }
+
 grep -Fq -- '--tag "$IMAGE:$VERSION-fips"' "$workflow"
 grep -Fq -- '--tag "$IMAGE:latest-fips"' "$workflow"
 test "$(grep -Fc 'test "$actual" = "$expected"' "$workflow")" -eq 2
@@ -244,6 +306,7 @@ if grep -F 'oci-archive:/release/parley-image-fips.tar "docker://$IMAGE:$VERSION
   echo "FIPS OCI artifact is copied directly to the final version tag" >&2
   exit 1
 fi
-grep -Fq 'test "$resolved_fips" = "$FIPS_DIGEST" \' "$workflow"
+test "$(digest_guard 'test "$resolved_fips" = "$FIPS_DIGEST" \')" -eq 1 \
+  || { echo "FIPS digest comparison is missing the failing || { ... exit 1; } continuation" >&2; exit 1; }
 
 echo "release workflow checks passed"
