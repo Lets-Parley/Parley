@@ -504,3 +504,14 @@ issue first. For anything large, open an issue before writing code.
     branch green. The frontend is in the set on purpose: a ceremony that can only
     be rendered by editing `web/src/lib/kinds.ts` has been merged into Parley,
     not extended onto it.
+43. **An inbound `X-Request-Id` is honoured only from a socket peer in
+    `TrustedProxyCIDRs`.** `acceptTrustedRequestID` runs before
+    `trustedProxyHeaders` rewrites `RemoteAddr`, so the peer checked is the TCP
+    peer, not the forwarded client. Do not move it after the rewrite, and do not
+    treat `TrustProxyHeaders` as sufficient on its own. Cap the value at 128
+    printable ASCII characters so a hostile header cannot inject a newline into
+    logs. `echoRequestID` exists because chi's `middleware.RequestID` does not
+    set the response header. Security-event lines are `logSecEvent` in
+    `internal/api/secevent.go` (and the matching `slog` call in
+    `internal/api/custody/store.go`); do not log cookies, tokens, passcodes or
+    bodies onto that line.

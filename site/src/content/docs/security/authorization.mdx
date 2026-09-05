@@ -6,7 +6,7 @@ description: Membership, facilitator rights, and what the server checks on every
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/authz.go", "internal/api/principal.go", "internal/store/spaces.go", "internal/store/orgs.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/store/sessions.go", "internal/store/links.go", "internal/api/custody/store.go", "internal/db/migrations/0023_org_custody.sql"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/authz.go", "internal/api/principal.go", "internal/store/spaces.go", "internal/store/orgs.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/store/sessions.go", "internal/store/links.go", "internal/api/custody/store.go", "internal/api/secevent.go", "internal/db/migrations/0023_org_custody.sql"]} />
 
 Parley has five authorization concepts and no more: **you are a member of the
 org**, **you are a member of the space**, **you own the space**, **you are the
@@ -371,7 +371,7 @@ toggle, not a permission an administrator grants.
   { name: "Roles beyond owner and member", status: "not-built", detail: "Ownership covers membership management and the space itself — renaming and deleting the space and its sessions. It does not cover the door: the server still lets any member, owner or not, rotate the passcode or open the space, though the controls that do so are offered only to owners, on the space settings page." },
   { name: "Per-user or per-team space access", status: "not-built", detail: "A passcode is the only gate. Signing in with OIDC proves who you are but grants nothing by itself." },
   { name: "Removing a session participant", status: "not-built", detail: "A facilitator can hand the role to another member, but there is no eject-from-this-session-only control. Remove them from the space instead, or rotate the passcode." },
-  { name: "Undo, or an audit trail, for an owner deletion", status: "not-built", detail: "An owner can delete a space or a session, and it is gone — no soft delete, no archive, and no row in <code>org_audit_log</code> (that table covers org-admin custody actions only, and is write-only — <a href='https://github.com/Lets-Parley/Parley/issues/399'>#399</a>). Restore from a <a href='/operations/backups-and-recovery/'>backup</a> if you need one back." },
+  { name: "Undo, or an audit trail, for an owner deletion", status: "not-built", detail: "An owner can delete a space or a session, and it is gone — no soft delete, no archive. A space delete emits a stdout <code>security event</code> line; a session delete does not, and neither writes <code>org_audit_log</code> (that table covers org-admin custody actions only, and is write-only — <a href='https://github.com/Lets-Parley/Parley/issues/399'>#399</a>). Restore from a <a href='/operations/backups-and-recovery/'>backup</a> if you need one back." },
   { name: "Spectating as a link guest", status: "not-built", detail: "Spectator mode is a flag on a space membership, and a link guest has none, so the toggle is refused rather than silently accepted." },
   { name: "Upgrading a link identity into an account", status: "not-built", detail: "A link guest cannot rename itself or sign in. When the link expires the identity stops working; what they contributed stays." },
 ]} />

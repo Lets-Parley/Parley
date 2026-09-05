@@ -36,6 +36,7 @@ func (a *app) handleCreateSessionLink(w http.ResponseWriter, r *http.Request) {
 		"token":     plain,
 		"expiresAt": link.ExpiresAt,
 	})
+	logSecEvent(r, secEvent{Event: "link.mint", Target: link.ID})
 }
 
 func (a *app) handleListSessionLinks(w http.ResponseWriter, r *http.Request) {
@@ -67,6 +68,7 @@ func (a *app) handleRevokeSessionLink(w http.ResponseWriter, r *http.Request) {
 		a.hub.DisconnectToken(string(hash))
 		a.notifyRevoke(r.Context(), hash)
 	}
+	logSecEvent(r, secEvent{Event: "link.revoke", Target: chi.URLParam(r, "linkId")})
 	w.WriteHeader(http.StatusNoContent)
 }
 

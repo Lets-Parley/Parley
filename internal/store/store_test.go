@@ -176,6 +176,24 @@ func TestByTokenResolvesAndRejects(t *testing.T) {
 	}
 }
 
+func TestByTokenReturnsTheFederatedSubject(t *testing.T) {
+	pool := testPool(t)
+	users := &Users{Pool: pool}
+	ctx := context.Background()
+
+	_, hash := NewToken()
+	if _, err := users.UpsertFederated(ctx, "https://idp.example/"+randSuffix(t), "idp-sub", "Dana", hash); err != nil {
+		t.Fatal(err)
+	}
+	got, err := users.ByToken(ctx, hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Subject != "idp-sub" {
+		t.Fatalf("Subject = %q, want idp-sub", got.Subject)
+	}
+}
+
 func TestByTokenRefusesIdleExpiredToken(t *testing.T) {
 	pool := testPool(t)
 	users := &Users{Pool: pool}

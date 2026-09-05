@@ -191,6 +191,9 @@ func (a *app) handlePostMe(w http.ResponseWriter, r *http.Request) {
 	if err := a.grantDefaultOrgMembership(r.Context(), Principal{UserID: u.ID, LinkSessionID: u.LinkSessionID}); err != nil {
 		slog.Error("could not map org membership", "user_id", u.ID, "error", err)
 	}
+	logSecEvent(r, secEvent{
+		Event: "auth.signin", ActorUserID: u.ID, ActorSubject: "open", Target: u.ID,
+	})
 	a.setSessionCookie(w, plain)
 	writeJSON(w, http.StatusCreated, toMeResponse(u))
 }
@@ -212,6 +215,12 @@ func (a *app) handleDeleteMe(w http.ResponseWriter, r *http.Request) {
 			// logout has already succeeded in the database, and revalidate is
 			// the backstop if the notification is lost.
 			a.notifyRevoke(r.Context(), hash)
+			// DELETE /api/me sits outside RequireUser so a guest can spend its
+			// cookie. The line is only written when a session_tokens row was
+			// actually deleted: no cookie, or one we cannot hash, is silent,
+			// otherwise anyone could flood the audit trail with empty actor
+			// fields.
+			logSecEvent(r, secEvent{Event: "auth.signout"})
 		}
 	}
 	clearSessionCookie(w, a.secureCookies)

@@ -46,10 +46,11 @@ type capturedResponse struct {
 
 // perRequestHeaders are excluded from the comparison because they legitimately
 // differ between any two requests, whatever the outcome: Date is a clock
-// reading. Everything else — Content-Type, Content-Length, the security
-// headers — must match, since a difference in any of them is as much of an
-// existence oracle as a difference in the status line.
-var perRequestHeaders = map[string]bool{"Date": true}
+// reading, X-Request-Id is assigned per request. Everything else —
+// Content-Type, Content-Length, the security headers — must match, since a
+// difference in any of them is as much of an existence oracle as a difference
+// in the status line.
+var perRequestHeaders = map[string]bool{"Date": true, "X-Request-Id": true}
 
 func captureResponse(t *testing.T, resp *http.Response) capturedResponse {
 	t.Helper()
