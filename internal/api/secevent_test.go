@@ -1,11 +1,9 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -110,10 +108,7 @@ func TestRequestIDRejectsAHostileInboundId(t *testing.T) {
 }
 
 func TestRequestIDUsesThePostProxyClientAddressOnSecurityEvents(t *testing.T) {
-	var buf bytes.Buffer
-	restore := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
-	t.Cleanup(func() { slog.SetDefault(restore) })
+	buf := captureDefaultJSON(t)
 
 	pool := testPool(t)
 	srv := testServerWith(t, pool, Options{
@@ -144,10 +139,7 @@ func TestRequestIDUsesThePostProxyClientAddressOnSecurityEvents(t *testing.T) {
 }
 
 func TestSecurityEventsOmitSecretsAndCoverTheSchema(t *testing.T) {
-	var buf bytes.Buffer
-	restore := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
-	t.Cleanup(func() { slog.SetDefault(restore) })
+	buf := captureDefaultJSON(t)
 
 	pool := testPool(t)
 	srv := testServerWith(t, pool, Options{AllowedOrigin: testOrigin, Plugins: &plugin.Store{Pool: pool}})
@@ -260,10 +252,7 @@ func TestSecurityEventsOmitSecretsAndCoverTheSchema(t *testing.T) {
 }
 
 func TestOIDCSignInLogsTheProviderSubject(t *testing.T) {
-	var buf bytes.Buffer
-	restore := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
-	t.Cleanup(func() { slog.SetDefault(restore) })
+	buf := captureDefaultJSON(t)
 
 	idp := newFakeIdP(t)
 	idp.subject = "oidc-subject-42"
@@ -279,10 +268,7 @@ func TestOIDCSignInLogsTheProviderSubject(t *testing.T) {
 }
 
 func TestOIDCLaterRequestLogsTheFederatedSubject(t *testing.T) {
-	var buf bytes.Buffer
-	restore := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
-	t.Cleanup(func() { slog.SetDefault(restore) })
+	buf := captureDefaultJSON(t)
 
 	idp := newFakeIdP(t)
 	idp.subject = "idp-sub"
@@ -306,10 +292,7 @@ func TestOIDCLaterRequestLogsTheFederatedSubject(t *testing.T) {
 }
 
 func TestSignOutEmitsASecurityEventOnlyWhenASessionIsDeleted(t *testing.T) {
-	var buf bytes.Buffer
-	restore := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
-	t.Cleanup(func() { slog.SetDefault(restore) })
+	buf := captureDefaultJSON(t)
 
 	srv := testServer(t)
 
@@ -331,10 +314,7 @@ func TestSignOutEmitsASecurityEventOnlyWhenASessionIsDeleted(t *testing.T) {
 }
 
 func TestGuestSignOutLogsGuestSubject(t *testing.T) {
-	var buf bytes.Buffer
-	restore := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
-	t.Cleanup(func() { slog.SetDefault(restore) })
+	buf := captureDefaultJSON(t)
 
 	srv := testServer(t)
 	_, _, guest := mintAndRedeem(t, srv, "Guest Audit")
@@ -348,10 +328,7 @@ func TestGuestSignOutLogsGuestSubject(t *testing.T) {
 }
 
 func TestCustodyAuditWritesASecurityEvent(t *testing.T) {
-	var buf bytes.Buffer
-	restore := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
-	t.Cleanup(func() { slog.SetDefault(restore) })
+	buf := captureDefaultJSON(t)
 
 	const postProxyClient = "203.0.113.9"
 	pool := testPool(t)

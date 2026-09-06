@@ -380,12 +380,32 @@ func (s *Users) sweepOnce(ctx context.Context, log *slog.Logger) {
 // every rename would let whoever holds a stolen token keep it alive forever by
 // POSTing /me in a loop, and would likewise wipe the redeemed link's own
 // expiry. Only the secret changes; both deadlines carry forward.
+//
+// The old row is selected for update on both token_hash and user_id. If it is
+// already gone — a concurrent rename deleted it, a sweep collected it — the
+// transaction fails rather than inserting a session on a fresh clock.
 func (s *Users) Rename(ctx context.Context, userID, name string, oldTokenHash, newTokenHash []byte) (User, error) {
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return User{}, err
 	}
 	defer tx.Rollback(ctx)
+
+	var createdAt time.Time
+	var expiresAt *time.Time
+	err = tx.QueryRow(ctx, `
+		select created_at, expires_at
+		from session_tokens
+		where token_hash = $1 and user_id = $2
+		for update`,
+		oldTokenHash, userID,
+	).Scan(&createdAt, &expiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrNoUser
+	}
+	if err != nil {
+		return User{}, err
+	}
 
 	var u User
 	if err := tx.QueryRow(ctx,
@@ -394,18 +414,14 @@ func (s *Users) Rename(ctx context.Context, userID, name string, oldTokenHash, n
 	).Scan(&u.ID, &u.Name, &u.AvatarIcon); err != nil {
 		return User{}, err
 	}
-	// The aggregates make this one row whatever the old hash matched, so a
-	// rename presented with an unknown or already-swept token still opens a
-	// session, on a fresh clock, exactly as it did before.
 	if _, err := tx.Exec(ctx, `
 		insert into session_tokens (token_hash, user_id, created_at, expires_at)
-		select $1, $2, coalesce(min(created_at), now()), min(expires_at)
-		from session_tokens where token_hash = $3`,
-		newTokenHash, u.ID, oldTokenHash); err != nil {
+		values ($1, $2, $3, $4)`,
+		newTokenHash, u.ID, createdAt, expiresAt); err != nil {
 		return User{}, err
 	}
 	if _, err := tx.Exec(ctx,
-		"delete from session_tokens where token_hash = $1", oldTokenHash); err != nil {
+		"delete from session_tokens where token_hash = $1 and user_id = $2", oldTokenHash, userID); err != nil {
 		return User{}, err
 	}
 	return u, tx.Commit(ctx)
