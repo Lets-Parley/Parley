@@ -298,6 +298,44 @@ printf '%s\n' "$attestation_assets_fips_block" | grep -v '^[[:space:]]*#' \
   | grep -Fq 'parley-$TAG-fips.sigstore.json' \
   || { echo "attestation-assets-fips does not upload the FIPS Sigstore bundle" >&2; exit 1; }
 
+# The default (non-FIPS) bundle job is a sibling, not a prefix of the FIPS
+# one. A check that only greps -fips stays green if this job is deleted.
+attestation_assets_block=$(job_block attestation-assets)
+test -n "$attestation_assets_block"
+require_needs attestation-assets publish
+
+printf '%s\n' "$attestation_assets_block" | grep -v '^[[:space:]]*#' \
+  | grep -Fq 'parley-$TAG.sigstore.json' \
+  || { echo "attestation-assets does not upload the default Sigstore bundle" >&2; exit 1; }
+
+# Holds contents:write to attach the release asset and nothing else — no
+# packages:write, no registry credential. Matching only "contents: write"
+# would stay green if packages: write were added beside it.
+attestation_assets_perms=$(printf '%s\n' "$attestation_assets_block" | awk '
+  /^    permissions:/ { in_perm = 1; next }
+  in_perm && /^    [a-zA-Z_-]+:/ { exit }
+  in_perm { print }
+')
+test -n "$attestation_assets_perms"
+active_attestation_assets_perms=$(printf '%s\n' "$attestation_assets_perms" | grep -v '^[[:space:]]*#')
+printf '%s\n' "$active_attestation_assets_perms" | grep -Eq '^[[:space:]]+contents: write$' \
+  || { echo "attestation-assets is missing contents: write" >&2; exit 1; }
+if printf '%s\n' "$active_attestation_assets_perms" | grep -Eq 'packages:'; then
+  echo "attestation-assets must not hold registry permission" >&2
+  exit 1
+fi
+perm_keys=$(printf '%s\n' "$active_attestation_assets_perms" | grep -cE '^[[:space:]]+[a-zA-Z0-9_-]+:' || true)
+if test "$perm_keys" -ne 1; then
+  echo "attestation-assets must hold contents: write only, found $perm_keys permission keys" >&2
+  printf '%s\n' "$active_attestation_assets_perms" >&2
+  exit 1
+fi
+
+# The receipt must name the default bundle. The -fips line is a different
+# printf; deleting this one used to leave the script green.
+grep -Fq 'parley-%s.sigstore.json' "$workflow" \
+  || { echo "publish receipt does not list parley-\$TAG.sigstore.json" >&2; exit 1; }
+
 grep -Fq -- '--tag "$IMAGE:$VERSION-fips"' "$workflow"
 grep -Fq -- '--tag "$IMAGE:latest-fips"' "$workflow"
 test "$(grep -Fc 'test "$actual" = "$expected"' "$workflow")" -eq 2

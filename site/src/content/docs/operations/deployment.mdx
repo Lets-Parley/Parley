@@ -82,6 +82,9 @@ libc to patch, running as a non-root user. The Go binary is static
 The image declares its own `HEALTHCHECK`, which runs `parley -healthcheck`
 against `/readyz` every 15 seconds. That probe uses loopback when `BIND_ADDR`
 is empty, `127.0.0.1`, or `localhost`; otherwise it probes `BIND_ADDR`.
+`docker-compose.yml` repeats the same probe on the `app` service so
+`docker compose up --wait` waits for a healthy container, not merely a
+running one.
 
 Pin a version rather than tracking `latest` if you want reproducible deploys.
 `latest` exists for quick evaluation only — it moves with every release, so

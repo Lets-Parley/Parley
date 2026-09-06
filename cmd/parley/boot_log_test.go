@@ -103,3 +103,17 @@ func TestBootFieldsNameMetricsEnabled(t *testing.T) {
 		t.Errorf("boot line %s is missing metrics_enabled=true", buf.String())
 	}
 }
+
+// An operator setting WS_MAX_PER_TOKEN has no other way to confirm the
+// process took it, so the boot line has to name it.
+func TestBootFieldsNameWSMaxPerToken(t *testing.T) {
+	cfg := bootConfig(t)
+	cfg.Limits.WSMaxPerToken = 3
+
+	var buf bytes.Buffer
+	slog.New(slog.NewJSONHandler(&buf, nil)).Info("boot settings", bootFields(cfg, true)...)
+
+	if !strings.Contains(buf.String(), `"ws_max_per_token":3`) {
+		t.Errorf("boot line %s is missing ws_max_per_token=3", buf.String())
+	}
+}
