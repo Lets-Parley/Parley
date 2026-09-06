@@ -3,14 +3,14 @@ module github.com/lets-parley/parley
 go 1.26.6
 
 require (
-	github.com/coreos/go-oidc/v3 v3.20.0
+	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/extism/go-sdk v1.7.1
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/tetratelabs/wabin v0.0.0-20230304001439-f6f874872834
-	github.com/tetratelabs/wazero v1.9.0
+	github.com/tetratelabs/wazero v1.12.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sync v0.22.0
 )
