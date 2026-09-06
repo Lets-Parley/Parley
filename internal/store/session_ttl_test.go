@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -310,6 +312,124 @@ func TestRenameCarriesTheTokenExpiryForward(t *testing.T) {
 	}
 	if _, err := users.ResolveToken(ctx, mustHash(t, newPlain), true); !errors.Is(err, ErrNoUser) {
 		t.Errorf("a rename dropped the token's own expires_at: err = %v, want ErrNoUser", err)
+	}
+}
+
+// A rename whose old hash is already gone must not mint a replacement on a
+// fresh clock. That is the coalesce(min(created_at), now()) hole: zero matching
+// rows made min() null and the insert succeeded with created_at = now(), which
+// is how a stolen token could outlive SESSION_MAX_TTL by POSTing /me in a loop.
+func TestRenameWithUnknownTokenHashInsertsNothing(t *testing.T) {
+	pool := testPool(t)
+	users := &Users{Pool: pool}
+	ctx := context.Background()
+
+	u, oldPlain := newUser(t, pool, "Known "+randSuffix(t))
+	oldHash := mustHash(t, oldPlain)
+	_, unknownHash := NewToken()
+	_, newHash := NewToken()
+
+	if _, err := users.Rename(ctx, u.ID, "Hijacked "+randSuffix(t), unknownHash, newHash); !errors.Is(err, ErrNoUser) {
+		t.Fatalf("rename with an unknown token hash: err = %v, want ErrNoUser", err)
+	}
+
+	var count int
+	if err := pool.QueryRow(ctx,
+		"select count(*) from session_tokens where user_id = $1", u.ID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("rename with an unknown hash left %d token rows, want 1", count)
+	}
+	var inserted int
+	if err := pool.QueryRow(ctx,
+		"select count(*) from session_tokens where token_hash = $1", newHash).Scan(&inserted); err != nil {
+		t.Fatal(err)
+	}
+	if inserted != 0 {
+		t.Errorf("rename with an unknown hash inserted the new token")
+	}
+
+	got, err := users.ByToken(ctx, oldHash)
+	if err != nil {
+		t.Fatalf("the original token was disturbed: %v", err)
+	}
+	if got.ID != u.ID {
+		t.Errorf("the original token now resolves to %s, want %s", got.ID, u.ID)
+	}
+	if got.Name != u.Name {
+		t.Errorf("a failed rename still wrote the name: got %q, want %q", got.Name, u.Name)
+	}
+}
+
+// Two POST /api/me requests carrying the same cookie both pass resolvePrincipal,
+// then serialize on the users row. The first rename deletes the old hash; the
+// second used to insert with min(created_at) over zero rows, i.e. now(). The
+// surviving row must keep the original created_at, and the loser must not mint
+// a second session.
+func TestConcurrentRenamesKeepTheOriginalCreatedAt(t *testing.T) {
+	pool := testPool(t)
+	users := &Users{Pool: pool}
+	ctx := context.Background()
+
+	u, oldPlain := newUser(t, pool, "Racer "+randSuffix(t))
+	oldHash := mustHash(t, oldPlain)
+	ageToken(t, users, oldPlain, 3, 0)
+
+	var original time.Time
+	if err := pool.QueryRow(ctx,
+		"select created_at from session_tokens where token_hash = $1", oldHash).Scan(&original); err != nil {
+		t.Fatal(err)
+	}
+
+	start := make(chan struct{})
+	outcomes := make(chan error, 2)
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		_, newHash := NewToken()
+		name := fmt.Sprintf("Renamed %d %s", i, randSuffix(t))
+		wg.Add(1)
+		go func(name string, newHash []byte) {
+			defer wg.Done()
+			<-start
+			_, err := users.Rename(ctx, u.ID, name, oldHash, newHash)
+			outcomes <- err
+		}(name, newHash)
+	}
+	close(start)
+	wg.Wait()
+	close(outcomes)
+
+	succeeded := 0
+	for err := range outcomes {
+		switch {
+		case err == nil:
+			succeeded++
+		case errors.Is(err, ErrNoUser):
+		default:
+			t.Fatalf("concurrent rename: unexpected error: %v", err)
+		}
+	}
+	if succeeded != 1 {
+		t.Fatalf("concurrent renames succeeded %d times, want 1", succeeded)
+	}
+
+	var count int
+	var createdAt time.Time
+	if err := pool.QueryRow(ctx, `
+		select count(*), min(created_at)
+		from session_tokens where user_id = $1`, u.ID).Scan(&count, &createdAt); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("user has %d token rows after concurrent rename, want 1", count)
+	}
+	delta := createdAt.Sub(original)
+	if delta < 0 {
+		delta = -delta
+	}
+	if delta > time.Second {
+		t.Errorf("surviving token created_at = %s, want the original %s", createdAt, original)
 	}
 }
 
