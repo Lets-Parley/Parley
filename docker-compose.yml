@@ -34,6 +34,12 @@ services:
       db:
         condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/parley", "-healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     # Mirrors deploy/k8s/deployment.yaml's securityContext. Parley never
     # writes to disk itself — the frontend and migrations are embedded and
     # exports stream to the response — so read_only needs no tmpfs mount.

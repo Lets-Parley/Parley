@@ -1,6 +1,10 @@
 package hub
 
-import "testing"
+import (
+	"os"
+	"testing"
+	"time"
+)
 
 // TestTokenSlotReleasedAfterPanicWithoutAttach pins the handler contract:
 // chi's Recoverer swallows a panic between ReserveToken and AttachAuthenticated
@@ -72,5 +76,65 @@ func TestReserveTokenZeroMeansUnbounded(t *testing.T) {
 		if !h.ReserveToken(token) {
 			t.Fatalf("reservation %d of 32 was refused at MaxPerToken=0", i+1)
 		}
+	}
+}
+
+// TestTokenSlotReleasedOnDisconnectToken pins the revoke path. Client close
+// and a failed upgrade already reclaim a slot in the API tests; DisconnectToken
+// is the other half of a day of use — logout, link expiry, fan-out revoke —
+// and it would silently leak the count if markRemoved stopped calling
+// releaseTokenSlot.
+func TestTokenSlotReleasedOnDisconnectToken(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	h.MaxPerToken = 1
+	const token = "tok"
+	if !h.ReserveToken(token) {
+		t.Fatal("the reservation was refused")
+	}
+	ws := attachAuthenticatedTestConn(t, h, "room", SessionAuth{
+		TokenID: token, TokenReserved: true,
+	})
+	defer ws.Close()
+
+	h.DisconnectToken(token)
+
+	if !h.ReserveToken(token) {
+		t.Fatal("slot still held after DisconnectToken")
+	}
+}
+
+// TestTokenSlotReleasedOnPongTimeout pins the read-deadline path. The reader
+// treats a deadline the same way it treats a peer close: return, detach,
+// markRemoved. wrapReader injects that error without waiting PongDeadline, so
+// deleting the release from markRemoved fails here rather than only after a
+// 50s hang.
+func TestTokenSlotReleasedOnPongTimeout(t *testing.T) {
+	h := New()
+	t.Cleanup(h.Shutdown)
+	h.MaxPerToken = 1
+	const token = "tok"
+	h.wrapReader = func(_ *Conn, _ func() (int, []byte, error)) func() (int, []byte, error) {
+		return func() (int, []byte, error) {
+			return 0, nil, os.ErrDeadlineExceeded
+		}
+	}
+	if !h.ReserveToken(token) {
+		t.Fatal("the reservation was refused")
+	}
+	ws := attachAuthenticatedTestConn(t, h, "room", SessionAuth{
+		TokenID: token, TokenReserved: true,
+	})
+	defer ws.Close()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if h.ReserveToken(token) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("slot still held after the pong-timeout teardown")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

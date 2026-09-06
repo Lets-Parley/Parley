@@ -241,6 +241,8 @@ jobs:
         run: scripts/tests/check-dco-test.sh
       - name: Test release workflow policy
         run: scripts/tests/release-workflow-test.sh
+      - name: Test CI docker smoke uses hardened compose
+        run: scripts/tests/ci-workflow-test.sh
       - name: Test Dockerfile FIPS target
         run: scripts/tests/dockerfile-fips-test.sh
       - name: Test image pin checker
@@ -291,22 +293,13 @@ jobs:
       - name: Smoke test first run
         run: |
           set -eu
-          trap 'docker rm -f parley-ci-app parley-ci-db >/dev/null 2>&1 || true; docker network rm parley-ci >/dev/null 2>&1 || true' EXIT
-          docker network create parley-ci
-          docker run -d --name parley-ci-db --network parley-ci \
-            -e POSTGRES_USER=parley -e POSTGRES_PASSWORD=smoke -e POSTGRES_DB=parley \
-            postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
-          for i in $(seq 1 30); do
-            docker exec parley-ci-db pg_isready -U parley && break
-            sleep 1
-          done
-          docker run -d --name parley-ci-app --network parley-ci -p 8080:8080 \
-            -e DATABASE_URL=postgres://parley:smoke@parley-ci-db:5432/parley \
-            -e DATABASE_ALLOW_PLAINTEXT=true parley:ci
-          for i in $(seq 1 30); do
-            curl -fsS http://127.0.0.1:8080/readyz && break
-            sleep 1
-          done
+          export POSTGRES_PASSWORD=smoke
+          trap 'docker compose -p parley-ci -f docker-compose.yml -f docker-compose.ci.yml down -v >/dev/null 2>&1 || true' EXIT
+          # The operator compose file, not docker run: read_only, cap_drop and
+          # no-new-privileges have to be on the container that answers /readyz.
+          # --wait fails this step if the image HEALTHCHECK never passes.
+          # Overlay swaps the published tag for the image this job just built.
+          docker compose -p parley-ci -f docker-compose.yml -f docker-compose.ci.yml up -d --wait --wait-timeout 120
           curl -fsS http://127.0.0.1:8080/readyz
           curl -fsS http://127.0.0.1:8080/ | grep -qi '<div id="root">'
           # The released image must report the version it was built from. A
@@ -328,7 +321,7 @@ jobs:
           # The default image is not the FIPS variant. A Dockerfile that left
           # `AS fips` as the last stage would still answer /version, and every
           # operator pulling the untagged build would get fips140=on.
-          docker logs parley-ci-app > /tmp/parley-ci-boot.txt 2>&1
+          docker compose -p parley-ci -f docker-compose.yml -f docker-compose.ci.yml logs app > /tmp/parley-ci-boot.txt 2>&1
           grep -q '"fips140":"off"' /tmp/parley-ci-boot.txt \
             || { echo "default image boot line is missing fips140=off"; cat /tmp/parley-ci-boot.txt >&2; exit 1; }
       - name: Export image

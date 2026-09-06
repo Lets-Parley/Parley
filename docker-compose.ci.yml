@@ -1,0 +1,7 @@
+# CI overlay: smoke the just-built image through the operator compose file
+# so read_only / cap_drop / no-new-privileges actually apply. Not for
+# production — operators use docker-compose.yml as shipped.
+services:
+  app:
+    image: parley:ci
+    pull_policy: never
