@@ -22,6 +22,7 @@ import (
 
 	"github.com/lets-parley/parley/internal/db"
 	"github.com/lets-parley/parley/internal/hub"
+	"github.com/lets-parley/parley/internal/principal"
 	"github.com/lets-parley/parley/internal/store"
 )
 
@@ -419,6 +420,170 @@ func TestRenamePreservesIDAndRotatesToken(t *testing.T) {
 	}
 	if resp4, me := getMe(t, srv, newCookie); resp4.StatusCode != http.StatusOK || me["name"] != "Grace" {
 		t.Fatalf("new token invalid after rename: %d %v", resp4.StatusCode, me)
+	}
+}
+
+// Two POSTs on one cookie both enter handlePostMe already resolved — the same
+// window two tabs hit after resolvePrincipal — then serialize on Rename. The
+// loser must not look like a server fault: 401, cookie cleared, winner intact.
+func TestConcurrentRenameLoserGets401AndClearsCookie(t *testing.T) {
+	pool := testPool(t)
+	users := &store.Users{Pool: pool}
+	a := &app{users: users, authMode: ModeOpen}
+
+	plain, hash := store.NewToken()
+	u, err := users.Create(context.Background(), "Ada", hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = r.WithContext(principal.With(r.Context(), Principal{UserID: u.ID}))
+		a.handlePostMe(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	cookie := &http.Cookie{Name: sessionCookie, Value: plain}
+	type outcome struct {
+		status  int
+		body    map[string]any
+		cookies []*http.Cookie
+		err     error
+	}
+	start := make(chan struct{})
+	outcomes := make(chan outcome, 2)
+	var wg sync.WaitGroup
+	for _, name := range []string{"Grace", "Mel"} {
+		wg.Add(1)
+		go func(name string) {
+			defer wg.Done()
+			<-start
+			req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/me", strings.NewReader(`{"name":"`+name+`"}`))
+			if err != nil {
+				outcomes <- outcome{err: err}
+				return
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.AddCookie(cookie)
+			resp, err := srv.Client().Do(req)
+			if err != nil {
+				outcomes <- outcome{err: err}
+				return
+			}
+			var body map[string]any
+			json.NewDecoder(resp.Body).Decode(&body)
+			resp.Body.Close()
+			outcomes <- outcome{status: resp.StatusCode, body: body, cookies: resp.Cookies()}
+		}(name)
+	}
+	close(start)
+	wg.Wait()
+	close(outcomes)
+
+	var winner, loser *outcome
+	for o := range outcomes {
+		if o.err != nil {
+			t.Fatal(o.err)
+		}
+		o := o
+		switch o.status {
+		case http.StatusOK:
+			if winner != nil {
+				t.Fatal("both concurrent renames succeeded")
+			}
+			winner = &o
+		case http.StatusUnauthorized:
+			if loser != nil {
+				t.Fatal("both concurrent renames were unauthorized")
+			}
+			loser = &o
+		default:
+			t.Fatalf("concurrent rename status = %d, want 200 or 401 (body %v)", o.status, o.body)
+		}
+	}
+	if winner == nil || loser == nil {
+		t.Fatal("want one 200 and one 401 from concurrent renames")
+	}
+	if loser.body["error"] != "session ended" {
+		t.Fatalf("loser error = %v, want session ended (distinct from a store fault)", loser.body["error"])
+	}
+	cleared := false
+	for _, c := range loser.cookies {
+		if c.Name == sessionCookie && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Fatal("loser did not clear the session cookie")
+	}
+
+	var newCookie *http.Cookie
+	for _, c := range winner.cookies {
+		if c.Name == sessionCookie {
+			newCookie = c
+			break
+		}
+	}
+	if newCookie == nil || newCookie.Value == "" || newCookie.Value == plain {
+		t.Fatal("winner did not rotate the session cookie")
+	}
+	if winner.body["id"] != u.ID {
+		t.Fatalf("winner minted a new user: %v vs %s", winner.body["id"], u.ID)
+	}
+
+	newHash, err := store.HashToken(newCookie.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := users.ByToken(context.Background(), newHash)
+	if err != nil {
+		t.Fatalf("winner token does not resolve: %v", err)
+	}
+	if got.ID != u.ID {
+		t.Fatalf("winner token resolved to %s, want %s", got.ID, u.ID)
+	}
+	if got.Name != "Grace" && got.Name != "Mel" {
+		t.Fatalf("winner name = %q, want Grace or Mel", got.Name)
+	}
+
+	oldHash, err := store.HashToken(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := users.ByToken(context.Background(), oldHash); err != store.ErrNoUser {
+		t.Fatalf("old token still valid after the winner rotated: %v", err)
+	}
+}
+
+func TestRenameStoreFailureStillReturns500(t *testing.T) {
+	pool, err := pgxpool.New(context.Background(), "postgres://unused:unused@127.0.0.1/unused")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Close()
+
+	a := &app{users: &store.Users{Pool: pool}, authMode: ModeOpen}
+	plain, _ := store.NewToken()
+	req := httptest.NewRequest(http.MethodPost, "/api/me", strings.NewReader(`{"name":"Grace"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: plain})
+	req = req.WithContext(principal.With(req.Context(), Principal{UserID: "00000000-0000-0000-0000-000000000001"}))
+	rec := httptest.NewRecorder()
+
+	a.handlePostMe(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("rename store failure = %d, want 500", rec.Code)
+	}
+	var body map[string]any
+	json.NewDecoder(rec.Body).Decode(&body)
+	if body["error"] != "could not update name" {
+		t.Fatalf("rename store failure body = %v, want could not update name", body)
+	}
+	for _, cookie := range rec.Result().Cookies() {
+		if cookie.Name == sessionCookie && cookie.MaxAge < 0 {
+			t.Fatal("store failure cleared the session cookie")
+		}
 	}
 }
 

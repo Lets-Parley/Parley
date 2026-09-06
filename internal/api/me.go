@@ -164,6 +164,14 @@ func (a *app) handlePostMe(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		u, err := a.users.Rename(r.Context(), p.UserID, name, oldHash, hash)
+		if errors.Is(err, store.ErrNoUser) {
+			// The token this cookie carries was rotated away — usually by a
+			// concurrent rename on another tab. Nothing is broken server-side,
+			// so 500 would page a monitor; 401 tells the client the session ended.
+			clearSessionCookie(w, a.secureCookies)
+			http.Error(w, `{"error":"session ended"}`, http.StatusUnauthorized)
+			return
+		}
 		if err != nil {
 			http.Error(w, `{"error":"could not update name"}`, http.StatusInternalServerError)
 			return
