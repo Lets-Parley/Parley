@@ -3,6 +3,10 @@ title: Air-gapped and private-CA installs
 description: Mirroring the image and chart into a private registry, trusting an enterprise CA for the identity provider and Postgres, and what still needs the internet.
 ---
 
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+
+<VerifiedStamp source={["docker-compose.yml", "deploy/charts/parley/values.yaml", "deploy/charts/parley/templates/_helpers.tpl", "cmd/parley/main.go", "internal/auth/oidc.go"]} />
+
 Parley has no runtime dependency on the internet. It does not phone home, does
 not fetch anything at startup beyond what you configure (the OIDC provider's
 discovery document, if you use one, and your database), and the frontend is
@@ -10,6 +14,10 @@ compiled into the binary — there is no CDN it reaches for. Everything below
 exists to get the image, the chart, and the docs *into* an air-gapped network
 once, and to make Parley trust a private certificate authority once it is
 there.
+
+An operator following **this page only** can bring up both legs: Compose
+against a mirrored image, and Helm against a mirrored chart, each talking to
+an internal IdP and a TLS Postgres over a private CA.
 
 ## What needs the internet, and when
 
@@ -85,24 +93,59 @@ platform manifest out of the published index) — it is a real, reproducible
 mirror, but confirm you copied every platform you need before relying on it in
 production; `skopeo copy --multi-arch all` is the way to guarantee that.
 
-## Point the chart at your mirror
+## Compose from the mirror
 
-The chart never hardcodes a registry. Point `image.repository` at your mirror
-and set `image.tag` to the exact version you copied (or pin
-`image.repository` to include the digest, e.g.
-`internal-registry.example.com/parley/parley@sha256:...`, and leave `image.tag`
-empty):
+The shipped `docker-compose.yml` still names `ghcr.io`. On the air-gapped
+side, log in to the registry you just filled and retarget `image:` at that
+mirror **by digest** — a tag on an internal registry is as mutable as a tag
+on GHCR.
 
-```yaml
-image:
-  repository: internal-registry.example.com/parley/parley
-  tag: "0.10.0"
-  pullSecrets:
-    - name: internal-registry-creds
+```sh
+podman login internal-registry.example.com
+# or: docker login internal-registry.example.com
 ```
 
-`image.pullSecrets` renders as the Deployment's `imagePullSecrets` — create the
-secret yourself (`kubectl create secret docker-registry`) before installing.
+`internal/auth/oidc.go` uses Go's default HTTP client for OIDC discovery and
+token exchange, and the image is distroless with only the public Mozilla root
+set baked in. An internal Keycloak, Dex, or any identity provider behind an
+enterprise CA fails TLS verification with no further configuration. Go's
+standard library honours `SSL_CERT_FILE` (and `SSL_CERT_DIR`) to add trust
+roots without rebuilding the image, and pgx (Parley's Postgres driver) honours
+`sslrootcert` on the connection string for the same reason on the database
+leg.
+
+Bind-mount the CA file, set `AUTH_MODE=oidc` with the issuer and client id,
+and point `DATABASE_URL` at Postgres that actually presents a certificate:
+
+```yaml
+services:
+  app:
+    image: internal-registry.example.com/parley/parley@sha256:<the digest from the mirror>
+    volumes:
+      - ./ca.pem:/etc/parley/ca/ca.pem:ro
+    environment:
+      SSL_CERT_FILE: /etc/parley/ca/ca.pem
+      BASE_URL: https://parley.example.com
+      AUTH_MODE: oidc
+      OIDC_ISSUER: https://idp.internal.example.com/realms/parley
+      OIDC_CLIENT_ID: parley
+      DATABASE_URL: postgres://parley:${POSTGRES_PASSWORD}@postgres.internal.example.com:5432/parley?sslmode=verify-full&sslrootcert=/etc/parley/ca/ca.pem
+```
+
+Drop `ca.pem` next to the compose file. A confidential-client registration
+also needs `OIDC_CLIENT_SECRET`; a public client (PKCE, no secret) does not.
+Register `<BASE_URL>/auth/callback` with the provider.
+
+**The bundled `db` service cannot satisfy `verify-full`.** The
+`db` service in the project's `docker-compose.yml` is the official
+`postgres:16-alpine` image. It listens in the clear on the compose bridge; it
+has no TLS certificate and no way to present one your CA signed. A
+`DATABASE_URL` of `postgres://…@db:5432/…?sslmode=verify-full` will fail to
+connect. Point at an external Postgres you already run with TLS — the same
+class of database the Helm chart assumes — and do not start `db`. The shipped
+compose file sets `DATABASE_ALLOW_PLAINTEXT` only because that bundled
+plaintext `db` shares a one-host bridge network; do not carry that variable
+into an install that is verifying the database.
 
 ## Mirror the chart
 
@@ -147,38 +190,49 @@ Digest: sha256:94ac52d6546fe09399e27816377f14c37fcd00c504c054673c2f2235ba6902be
 released chart carries the real version and appVersion the release workflow
 stamps in.)
 
-Install from the mirrored chart the same way you would from any local `.tgz`:
+## Install the mirrored chart
+
+The chart never hardcodes a registry, and it will not render without
+`database.existingSecret` — `_helpers.tpl` fails the install rather than
+produce a Deployment pointing at a secret named `""`. Create the pull secret,
+the CA ConfigMap, and the database secret first:
 
 ```sh
-helm install parley oci://internal-registry.example.com/charts/parley \
-  --version <chart-version> \
-  -f my-values.yaml
-```
+kubectl create secret docker-registry internal-registry-creds \
+  --docker-server=internal-registry.example.com \
+  --docker-username=<user> --docker-password=<token>
 
-## Trusting a private CA
-
-`internal/auth/oidc.go` uses Go's default HTTP client for OIDC discovery and
-token exchange, and the image is distroless with only the public Mozilla root
-set baked in. An internal Keycloak, Dex, or any identity provider behind an
-enterprise CA fails TLS verification with no further configuration. Go's
-standard library honours `SSL_CERT_FILE` (and `SSL_CERT_DIR`) to add trust
-roots without rebuilding the image, and pgx (Parley's Postgres driver) honours
-`sslrootcert` on the connection string for the same reason on the database
-leg.
-
-### Kubernetes
-
-Put your CA bundle in a ConfigMap:
-
-```sh
 kubectl create configmap parley-ca --from-file=ca.pem=/path/to/your-ca.pem
+
+kubectl create secret generic parley \
+  --from-literal=database-url='postgres://parley:secret@postgres.internal.example.com:5432/parley?sslmode=verify-full&sslrootcert=/etc/parley/ca/ca.pem'
 ```
 
-The chart's `extraVolumes`/`extraVolumeMounts` mount the ConfigMap into the
-container, and `extraEnv` gets you `SSL_CERT_FILE` pointing at it for the OIDC
-leg:
+The values file below is complete: the mirrored image, `baseURL`, the required
+database secret, OIDC (the chart default `auth.mode` is `open`, so without
+these keys the install never talks to an IdP), and the CA mounts. The chart
+refuses to render `auth.mode: oidc` unless you set exactly one of
+`auth.oidc.publicClient` or `auth.oidc.existingSecret`.
 
 ```yaml
+image:
+  repository: internal-registry.example.com/parley/parley
+  tag: "%VERSION%"
+  pullSecrets:
+    - name: internal-registry-creds
+
+baseURL: https://parley.example.com
+
+database:
+  existingSecret: parley
+
+auth:
+  mode: oidc
+  oidc:
+    issuer: https://idp.internal.example.com/realms/parley
+    clientID: parley
+    publicClient: true
+
 extraVolumes:
   - name: parley-ca
     configMap:
@@ -192,27 +246,31 @@ extraEnv:
     value: /etc/parley/ca/ca.pem
 ```
 
-For Postgres, append `sslmode=verify-full&sslrootcert=/etc/parley/ca/ca.pem`
-to the `DATABASE_URL` stored in the secret the chart reads from
-(`database.existingSecret` / `database.secretKey`) — the same
-`parley-ca` mount above already puts the file where that path expects it.
+Save that as `my-values.yaml`. Log in to the mirrored chart registry, then
+install:
 
-### Docker Compose
-
-Compose has no such gap — bind-mount the CA file directly:
-
-```yaml
-services:
-  app:
-    volumes:
-      - ./ca.pem:/etc/parley/ca/ca.pem:ro
-    environment:
-      SSL_CERT_FILE: /etc/parley/ca/ca.pem
-      DATABASE_URL: postgres://parley:${POSTGRES_PASSWORD}@db:5432/parley?sslmode=verify-full&sslrootcert=/etc/parley/ca/ca.pem
+```sh
+helm registry login internal-registry.example.com
+helm install parley oci://internal-registry.example.com/charts/parley \
+  --version <chart-version> \
+  -f my-values.yaml
 ```
 
-Add the two lines above to the `app` service in the project's
-`docker-compose.yml` and drop `ca.pem` next to it.
+A confidential-client registration replaces `publicClient: true` with
+`auth.oidc.existingSecret` naming a Secret that holds the client secret
+(never put the secret in values). Register `<baseURL>/auth/callback` with the
+provider.
+
+`image.pullSecrets` renders as the Deployment's `imagePullSecrets`. The
+chart's `extraVolumes`/`extraVolumeMounts` mount the ConfigMap into the
+container, and `extraEnv` sets `SSL_CERT_FILE` for the OIDC leg. The same
+`parley-ca` mount is the file `sslrootcert=/etc/parley/ca/ca.pem` on
+`DATABASE_URL` expects. The chart has no `image.digest` field for the app
+image (unlike `tests.image.digest` on the `helm test` pod); pin the mirrored
+repository and a published tag as above, or put the digest in
+`image.repository` (`internal-registry.example.com/parley/parley@sha256:…`)
+and still set `image.tag` to a real tag — an empty tag falls through to the
+chart `appVersion`, and the rendered reference is `repository:tag`.
 
 ## Offline provenance verification
 
