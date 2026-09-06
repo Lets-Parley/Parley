@@ -6,7 +6,7 @@ description: Everything Parley does not do, in one place, with the workaround wh
 import VerifiedStamp from "../../components/VerifiedStamp.astro";
 import Capability from "../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/db/db.go", "cmd/parley/main.go", "ROADMAP.md", "internal/api", "internal/hub/hub.go", "internal/poker/routes.go", ".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/dependabot.yml"]} />
+<VerifiedStamp version="unreleased" source={["internal/db/db.go", "cmd/parley/main.go", "ROADMAP.md", "internal/api", "internal/api/metrics.go", "internal/hub/hub.go", "internal/poker/routes.go", ".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/dependabot.yml"]} />
 
 Every gap in the product, collected, so that the rest of this documentation is
 worth believing. Read it before you deploy, not after.
@@ -37,7 +37,8 @@ accepted and actionable.
 ## Operations
 
 <Capability rows={[
-  { name: "Metrics, tracing, access log", status: "not-built", detail: "There is no <code>/metrics</code>, no tracing, and no HTTP access log. Blackbox-probe <code>/readyz</code>, and take request metrics and access logs from your reverse proxy. Every response does echo <code>X-Request-Id</code> — see <a href='/operations/observability/'>Observability</a>. <code>LOG_LEVEL=debug</code> adds one per-request line naming the socket peer, the <code>X-Forwarded-For</code> chain and the resolved client address — a proxy-diagnosis aid, not an access log: it records no method, path, status or user, and is not retained." },
+  { name: "Metrics", status: "built", detail: "<code>/metrics</code> is off by default. <code>METRICS_ENABLED=true</code> mounts an unauthenticated Prometheus exposition on the same port as the app. Keep it off a public ingress; scrape from the cluster network. See <a href='/operations/observability/'>Observability</a>." },
+  { name: "Tracing and HTTP access log", status: "not-built", detail: "There is no tracing and no HTTP access log. Blackbox-probe <code>/readyz</code>, and take request metrics and access logs from your reverse proxy. Every response does echo <code>X-Request-Id</code> — see <a href='/operations/observability/'>Observability</a>. <code>LOG_LEVEL=debug</code> adds one per-request line naming the socket peer, the <code>X-Forwarded-For</code> chain and the resolved client address — a proxy-diagnosis aid, not an access log: it records no method, path, status or user, and is not retained." },
   { name: "Backups", status: "not-built", detail: "Nothing backs itself up. Schedule <code>pg_dump</code>." },
   { name: "Data retention or cleanup", status: "not-built", detail: "Application records are never deleted automatically. Expired <code>session_tokens</code> rows are the exception: an hourly pass deletes them." },
   { name: "Down-migrations or rollback", status: "not-built", detail: "Migrations are forward-only and the binary refuses to start against a newer schema. Roll back by restoring a backup taken before the upgrade." },

@@ -6,7 +6,7 @@ description: Docker Compose, a bare binary, and the settings that matter in both
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["docker-compose.yml", "Dockerfile", ".github/workflows/release.yml", "cmd/parley/main.go"]} />
+<VerifiedStamp version="unreleased" source={["docker-compose.yml", "Dockerfile", "deploy/k8s/deployment.yaml", ".github/workflows/release.yml", "cmd/parley/main.go"]} />
 
 Three supported shapes: Compose, [Kubernetes](/operations/kubernetes/), or the
 binary on its own. All three are the same process with the same configuration —
@@ -39,12 +39,19 @@ Three of its defaults are deliberate and worth knowing before you change them:
 
 ### Container hardening
 
-`docker-compose.yml` carries the same container-hardening keys as the
-[Kubernetes manifest](/operations/kubernetes/): both services set `cap_drop:
-[ALL]` and `security_opt: [no-new-privileges:true]`, and the `app` service also
-sets `read_only: true` — Parley never writes to disk itself (the frontend and
-migrations are embedded, exports stream to the response), so no tmpfs mount is
-needed for it.
+Compose and the [Kubernetes manifest](/operations/kubernetes/) do **not** carry
+the same hardening. Shared keys are `cap_drop: [ALL]` (both Compose services)
+and a read-only root on the app — Parley never writes to disk itself (the
+frontend and migrations are embedded, exports stream to the response), so no
+tmpfs mount is needed for it. The rest is per-runtime:
+
+- **Kubernetes-only:** `seccompProfile: RuntimeDefault` and `runAsNonRoot:
+  true` (plus `allowPrivilegeEscalation: false`). The restricted Pod Security
+  Standard reads the manifest, never the image, so the distroless `nonroot`
+  USER does not satisfy `runAsNonRoot` on its own.
+- **Compose-only:** `security_opt: [no-new-privileges:true]` on both services,
+  and log rotation via the `json-file` driver (`max-size: 10m`, `max-file: 3`).
+  Kubernetes leaves container-log rotation to the node agent.
 
 `db` stays writable. The official `postgres` image's entrypoint starts as root
 to `chown` the data and socket directories, then drops privileges to the

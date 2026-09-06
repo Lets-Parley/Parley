@@ -42,10 +42,13 @@ is why it is spelled out at length below.
   *blocking*, so a second Parley — or any application reusing the same id — in
   the same database holds the pod at boot with no error at all, just a pod that
   never becomes ready.
-- **`sslmode`, if your Postgres requires TLS.** Managed Postgres usually does,
-  and the driver does not assume it. Append `?sslmode=require` (or `verify-full`
-  with a CA) to the URI. Without it the connection is refused at handshake and
-  Parley retries six times with doubling backoff — about a minute of
+- **A verifying `sslmode` on `DATABASE_URL`.** Parley refuses to start if
+  `sslmode` is absent, `disable`, `allow` or `prefer` unless
+  `DATABASE_ALLOW_PLAINTEXT=true` — those modes can talk to Postgres in the
+  clear. Use `?sslmode=verify-full&sslrootcert=/path/to/ca.pem`. `require`
+  encrypts but never checks the server's certificate; `verify-ca` checks the
+  CA but not the hostname. A URI the server cannot complete a TLS handshake
+  with still retries six times with doubling backoff — about a minute of
   `postgres not reachable yet, retrying` — before
   `FATAL: could not connect to Postgres` and a restart.
 - **A quick sanity check** from anywhere that can reach the database (set
@@ -53,7 +56,7 @@ is why it is spelled out at length below.
 
   ```sh
   read -rs PGPASSWORD && export PGPASSWORD
-  psql 'postgres://parley@host:5432/parley?sslmode=require' \
+  psql 'postgres://parley@host:5432/parley?sslmode=verify-full&sslrootcert=/path/to/ca.pem' \
     -c "select has_database_privilege('parley', 'parley', 'CREATE')" \
     -c 'select version()'
   ```
@@ -81,7 +84,7 @@ browser that started the sign-in, so the flow is complete without one.
 
 ```sh
 kubectl create secret generic parley \
-  --from-literal=database-url='postgres://parley:secret@host:5432/parley?sslmode=require'
+  --from-literal=database-url='postgres://parley:secret@host:5432/parley?sslmode=verify-full&sslrootcert=/path/to/ca.pem'
 
 # only with auth.mode=oidc
 kubectl create secret generic parley-oidc \
@@ -426,12 +429,13 @@ because a DB blip must not restart the pod and drop every WebSocket.
 
 Parley ships no database for Kubernetes. The
 [prerequisites above](#before-you-install-the-database) apply identically here —
-PostgreSQL 13 or newer, a database and owning role you created, `sslmode` if TLS
-is required, and one secret key holding the whole URI:
+PostgreSQL 13 or newer, a database and owning role you created, a verifying
+`sslmode` on the URI (or `DATABASE_ALLOW_PLAINTEXT` if you have already
+accepted plaintext), and one secret key holding the whole URI:
 
 ```sh
 kubectl create secret generic parley \
-  --from-literal=database-url='postgres://parley:secret@host:5432/parley?sslmode=require'
+  --from-literal=database-url='postgres://parley:secret@host:5432/parley?sslmode=verify-full&sslrootcert=/path/to/ca.pem'
 kubectl apply -f deploy/k8s/deployment.yaml
 ```
 

@@ -6,7 +6,7 @@ description: What Parley emits, what it does not, and where to get the rest.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["cmd/parley/main.go", "internal/api/router.go", "internal/api/metrics.go", "internal/api/client_address.go", "internal/api/secevent.go"]} />
+<VerifiedStamp source={["cmd/parley/main.go", "internal/api/router.go", "internal/api/metrics.go", "internal/api/client_address.go", "internal/api/secevent.go", "internal/store/users.go"]} />
 
 This is a short page, and honestly so.
 
@@ -171,6 +171,11 @@ their log line.
   occasional `"plugin retention pass"` `INFO` line when it actually prunes or
   corrects something. Stuck: `"plugin retention failed; will retry on the
   next tick"` at `ERROR`.
+- **Session token sweeper** (`cmd/parley/main.go`, `sessionSweeper`) — deletes
+  expired `session_tokens` on the same hourly cadence. A row stops resolving
+  the moment it lapses; the sweep is what actually removes it. Stuck:
+  `"session token sweep failed"` at `ERROR` (`"session token sweep failed;
+  will retry on the next tick"`).
 - **Plugin outbox worker** (`internal/plugin/outbox.go`, started from
   `runtime.Start` when `PLUGIN_DIR` is set) — drains `plugin_deliveries` and
   hands events to installed plugins. Stuck: `"plugin outbox failed; will
