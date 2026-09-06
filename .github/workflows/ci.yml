@@ -1147,6 +1147,22 @@ jobs:
           ! grep -q ':8.11.1' /tmp/test-image-digest.yaml \
             || { echo "tag still appears once a digest is set"; exit 1; }
 
+      # image.digest must take over the app image the same way tests.image.digest
+      # takes over the helm test pod: repository@digest, no :tag suffix.
+      - name: renders the app image by digest without a tag
+        run: |
+          set -eu
+          helm template parley deploy/charts/parley \
+            --set database.existingSecret=x \
+            --set image.repository=registry.internal.example.com/parley/parley \
+            --set image.tag=0.10.0 \
+            --set image.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+            --show-only templates/deployment.yaml > /tmp/app-image-digest.yaml
+          grep -q 'image: "registry.internal.example.com/parley/parley@sha256:0000000000000000000000000000000000000000000000000000000000000000"' /tmp/app-image-digest.yaml \
+            || { echo "image.digest did not take over the app image reference"; exit 1; }
+          ! grep -q ':0.10.0' /tmp/app-image-digest.yaml \
+            || { echo "tag still appears once image.digest is set"; exit 1; }
+
       # extraEnv gets SSL_CERT_FILE into the container, but operations/air-gapped.mdx's
       # private-CA ConfigMap has to actually be mounted for that path to resolve —
       # that needs extraVolumes/extraVolumeMounts, spliced verbatim the same way

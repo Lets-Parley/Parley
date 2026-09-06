@@ -11,11 +11,16 @@ image:
   # `latest-fips` is refused the same way `latest` is.
   #
   # This guard is a convenience, not the safety net. A digest pin
-  # (repository@sha256:...) that resolves to an older image sails straight
+  # (image.digest, below) that resolves to an older image sails straight
   # through it. The real protection is in Parley itself: rolling back onto an
   # image older than the migrations that have already run makes it refuse to
   # start, by design, rather than corrupt the schema.
   tag: ""
+  # Leave empty to render repository:tag. Set to sha256:... to render
+  # repository@digest and ignore tag entirely, the same way tests.image.digest
+  # takes over the helm test pod. Default empty so existing renders stay
+  # repository:tag.
+  digest: ""
   pullPolicy: IfNotPresent
   pullSecrets: []
 

@@ -112,6 +112,19 @@ and be rejected there, with no useful message.
 {{- end -}}
 
 {{/*
+The app image reference. A digest pin (image.digest) takes over the
+reference entirely and tag is ignored, otherwise repository:tag is used —
+the same takeover parley.testImage uses for the helm test pod.
+*/}}
+{{- define "parley.image" -}}
+{{- if .Values.image.digest -}}
+{{- printf "%s@%s" .Values.image.repository .Values.image.digest -}}
+{{- else -}}
+{{- printf "%s:%s" .Values.image.repository (include "parley.imageTag" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 The `helm test` pod's image reference. Mirrors image.repository/tag: a digest
 pin (tests.image.digest) takes over the reference entirely and tag is
 ignored, otherwise repository:tag is used. Kept separate from
