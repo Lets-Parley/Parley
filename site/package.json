@@ -9,10 +9,10 @@
     "postbuild": "node scripts/check-skip-link.mjs"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.41.10",
+    "@astrojs/starlight": "^0.41.11",
     "@fontsource/instrument-sans": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
-    "astro": "^7.2.9",
+    "astro": "^7.2.10",
     "sharp": "^0.35.3"
   }
 }
