@@ -119,7 +119,8 @@ Save the overlay next to the shipped compose file as `air-gapped.yml`. Compose
 merges the two: `ports` (`127.0.0.1:8080:8080`) and the rest of `app` come
 from `docker-compose.yml`; the overlay replaces `image`, resets `depends_on`
 so the bundled `db` is not pulled in as a dependency (`!reset` needs Compose
-v2.24 or newer), drops `DATABASE_ALLOW_PLAINTEXT`, and parks `db` behind a
+v2.24 or newer), drops `DATABASE_ALLOW_PLAINTEXT` with `!reset null` so a
+value in the operator's own shell cannot leak back in, and parks `db` behind a
 profile so a plain `up -d` never starts it.
 
 `${POSTGRES_PASSWORD}` is interpolated from a `.env` file in that directory
@@ -139,7 +140,7 @@ services:
     volumes:
       - ./ca.pem:/etc/parley/ca/ca.pem:ro
     environment:
-      DATABASE_ALLOW_PLAINTEXT: null
+      DATABASE_ALLOW_PLAINTEXT: !reset null
       SSL_CERT_FILE: /etc/parley/ca/ca.pem
       BASE_URL: https://parley.example.com
       AUTH_MODE: oidc
