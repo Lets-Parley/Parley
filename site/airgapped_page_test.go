@@ -70,6 +70,13 @@ func TestAirGappedPageCompletesComposeAndOIDCInstalls(t *testing.T) {
 		if !strings.Contains(compose, "@sha256:") {
 			t.Error("compose image is not pinned by digest")
 		}
+		// A bare `KEY: null` is "declared by a single key": Compose resolves it
+		// from the project environment, so an operator with the variable set in
+		// their own shell would have plaintext Postgres allowed back in. Only
+		// `!reset null` removes it unconditionally.
+		if !strings.Contains(compose, "DATABASE_ALLOW_PLAINTEXT: !reset null") {
+			t.Error("overlay does not drop DATABASE_ALLOW_PLAINTEXT with !reset null")
+		}
 		if !strings.Contains(compose, "depends_on: !reset") {
 			t.Error("compose overlay does not reset depends_on — merged up would still start db")
 		}
