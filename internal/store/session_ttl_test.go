@@ -271,7 +271,9 @@ func TestRenameDoesNotRestartTheAbsoluteLifetime(t *testing.T) {
 	// One hour short of the 4h cap.
 	ageToken(t, users, oldPlain, 3, 0)
 
-	newPlain := "renamed-" + randSuffix(t)
+	// NewToken, not a hand-built string: mustHash base64-decodes the plaintext,
+	// and a slug of the wrong length is not valid base64.
+	newPlain, _ := NewToken()
 	if _, err := users.Rename(ctx, u.ID, "Renamed "+randSuffix(t), mustHash(t, oldPlain), mustHash(t, newPlain)); err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +308,7 @@ func TestRenameCarriesTheTokenExpiryForward(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	newPlain := "link-renamed-" + randSuffix(t)
+	newPlain, _ := NewToken()
 	if _, err := users.Rename(ctx, u.ID, "Link Renamed "+randSuffix(t), mustHash(t, oldPlain), mustHash(t, newPlain)); err != nil {
 		t.Fatal(err)
 	}
