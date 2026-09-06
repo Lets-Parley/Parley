@@ -186,6 +186,10 @@ set:
   published release. Pin it only to move off that. The FIPS image is the same
   chart with `--set image.tag=<version>-fips`; `latest-fips` is refused the
   same way `latest` is. See [Cryptography](/security/cryptography/).
+- **`image.digest`** — empty keeps `repository:tag`. Set it to `sha256:…` to
+  render `repository@digest` and ignore the tag, the same way
+  `tests.image.digest` pins the `helm test` pod. See
+  [Air-gapped installs](/operations/air-gapped/).
 - **`ingress.enabled`**, `ingress.className`, `ingress.host`, `ingress.tls` —
   off by default. The chart ships the `proxy-read-timeout` annotations
   WebSockets need **for ingress-nginx**; every other controller ignores them and

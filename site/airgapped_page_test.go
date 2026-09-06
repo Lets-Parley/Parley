@@ -64,8 +64,17 @@ func TestAirGappedPageCompletesComposeAndOIDCInstalls(t *testing.T) {
 		if strings.Contains(compose, "ghcr.io") {
 			t.Error("compose still names ghcr.io — retarget image: at the mirrored registry")
 		}
+		if !strings.Contains(compose, "image: internal-registry.example.com") {
+			t.Error("compose image: does not name the mirrored registry")
+		}
 		if !strings.Contains(compose, "@sha256:") {
 			t.Error("compose image is not pinned by digest")
+		}
+		if !strings.Contains(compose, "depends_on: !reset") {
+			t.Error("compose overlay does not reset depends_on — merged up would still start db")
+		}
+		if !strings.Contains(body, "docker compose -f docker-compose.yml -f air-gapped.yml") {
+			t.Error("page never shows docker compose -f docker-compose.yml -f air-gapped.yml")
 		}
 	})
 
@@ -86,6 +95,8 @@ func TestAirGappedPageCompletesComposeAndOIDCInstalls(t *testing.T) {
 			"mode: oidc",
 			"issuer:",
 			"clientID:",
+			"publicClient:",
+			"digest:",
 		} {
 			if !strings.Contains(values, need) {
 				t.Errorf("helm values fence is missing %q — helm install -f my-values.yaml must be a complete file", need)
@@ -110,8 +121,17 @@ func TestAirGappedPageCompletesComposeAndOIDCInstalls(t *testing.T) {
 		if strings.Contains(compose, "sslmode=verify-full") && (strings.Contains(compose, "@db:") || strings.Contains(compose, "@db/")) {
 			t.Error("compose DATABASE_URL uses sslmode=verify-full against the bundled db service, which does not speak TLS")
 		}
-		if !strings.Contains(body, "cannot satisfy") || !strings.Contains(body, "verify-full") {
+		if !strings.Contains(body, "cannot satisfy `verify-full`") {
 			t.Error("page does not state that the bundled db service cannot satisfy verify-full")
+		}
+		if !strings.Contains(body, "bundled-plaintext") {
+			t.Error("page does not park the bundled db behind a profile so up -d will not start it")
+		}
+	})
+
+	t.Run("confidential client names oidc-client-secret", func(t *testing.T) {
+		if !strings.Contains(body, "--from-literal=oidc-client-secret") {
+			t.Error("page never shows kubectl create secret with the chart's oidc-client-secret key")
 		}
 	})
 }
