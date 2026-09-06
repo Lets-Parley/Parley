@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bytes"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -11,8 +10,8 @@ import (
 
 func logThrough(t *testing.T, level slog.Level, trustedCIDRs []string, remote string, headers map[string]string) string {
 	t.Helper()
-	var buf bytes.Buffer
-	log := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: level}))
+	buf := newLogCapture()
+	log := slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: level}))
 	h := trustedProxyHeaders(prefixes(trustedCIDRs...), log)(keyHandler())
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = remote

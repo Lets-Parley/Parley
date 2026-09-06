@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"log/slog"
 	"net/http"
@@ -480,9 +479,9 @@ func TestBootstrapAdminDoesNotResurrectARevokedMember(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var logged bytes.Buffer
+	logged := newLogCapture()
 	restore := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	slog.SetDefault(slog.New(slog.NewTextHandler(logged, &slog.HandlerOptions{Level: slog.LevelWarn})))
 	t.Cleanup(func() { slog.SetDefault(restore) })
 
 	signIn(t, srv, idp)

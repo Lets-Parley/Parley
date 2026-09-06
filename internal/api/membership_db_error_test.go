@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"log/slog"
 	"net/http"
@@ -47,17 +46,17 @@ func (c *armableCancelOnQuery) TraceQueryStart(ctx context.Context, _ *pgx.Conn,
 
 func (c *armableCancelOnQuery) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
 
-func membershipFaultServer(t *testing.T) (*httptest.Server, *armableCancelOnQuery, *bytes.Buffer) {
+func membershipFaultServer(t *testing.T) (*httptest.Server, *armableCancelOnQuery, *logCapture) {
 	t.Helper()
 	tracer := &armableCancelOnQuery{match: isMemberSQL}
-	var logs bytes.Buffer
+	logs := newLogCapture()
 	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	slog.SetDefault(slog.New(slog.NewTextHandler(logs, nil)))
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
 	pool := tracedTestPool(t, tracer)
 	srv := testServerWith(t, pool, Options{AllowedOrigin: testOrigin})
-	return srv, tracer, &logs
+	return srv, tracer, logs
 }
 
 // A database fault during requireSessionMember must surface as a logged 5xx,
