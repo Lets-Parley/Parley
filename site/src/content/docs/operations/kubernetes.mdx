@@ -44,25 +44,29 @@ is why it is spelled out at length below.
   never becomes ready.
 - **A verifying `sslmode` on `DATABASE_URL`.** Parley refuses to start if
   `sslmode` is absent, `disable`, `allow` or `prefer` unless
-  `DATABASE_ALLOW_PLAINTEXT=true` — those modes can talk to Postgres in the
-  clear. Use `?sslmode=verify-full&sslrootcert=/path/to/ca.pem`. `require`
-  encrypts but never checks the server's certificate; `verify-ca` checks the
-  CA but not the hostname. A URI the server cannot complete a TLS handshake
-  with still retries six times with doubling backoff — about a minute of
-  `postgres not reachable yet, retrying` — before
+  `DATABASE_ALLOW_PLAINTEXT=true` — those modes can talk to Postgres in the clear.
+  Use `?sslmode=verify-full&sslrootcert=/etc/parley/ca/ca.pem`. That
+  path is inside the container; mount the CA there with the ConfigMap in
+  [Air-gapped](/operations/air-gapped/#kubernetes). `require` still boots
+  (it encrypts but never checks the server's certificate); `verify-ca` checks
+  the CA but not the hostname. A URI the server cannot complete a TLS
+  handshake with still retries six times with doubling backoff — about a
+  minute of `postgres not reachable yet, retrying` — before
   `FATAL: could not connect to Postgres` and a restart.
 - **A quick sanity check** from anywhere that can reach the database (set
   `PGPASSWORD` in the environment rather than putting it on the command line):
 
   ```sh
   read -rs PGPASSWORD && export PGPASSWORD
-  psql 'postgres://parley@host:5432/parley?sslmode=verify-full&sslrootcert=/path/to/ca.pem' \
+  # sslrootcert is the CA file on the machine running psql, not a container path
+  psql 'postgres://parley@host:5432/parley?sslmode=verify-full&sslrootcert=./ca.pem' \
     -c "select has_database_privilege('parley', 'parley', 'CREATE')" \
     -c 'select version()'
   ```
 
   A `t` result confirms the role can install `pgcrypto`. If that succeeds,
-  Parley will migrate.
+  Parley will migrate. The URI you store in the secret uses the in-pod path
+  `/etc/parley/ca/ca.pem` after the ConfigMap mount below.
 
 ### The secrets Parley reads, exactly
 
@@ -84,12 +88,17 @@ browser that started the sign-in, so the flow is complete without one.
 
 ```sh
 kubectl create secret generic parley \
-  --from-literal=database-url='postgres://parley:secret@host:5432/parley?sslmode=verify-full&sslrootcert=/path/to/ca.pem'
+  --from-literal=database-url='postgres://parley:secret@host:5432/parley?sslmode=verify-full&sslrootcert=/etc/parley/ca/ca.pem'
 
 # only with auth.mode=oidc
 kubectl create secret generic parley-oidc \
   --from-literal=oidc-client-secret='...'
 ```
+
+`sslrootcert=/etc/parley/ca/ca.pem` is inside the container. The chart does
+not mount a CA by default — add the ConfigMap from
+[Air-gapped](/operations/air-gapped/#kubernetes). `require` still boots if
+you have not mounted one yet.
 
 #### External secret operators
 
@@ -435,9 +444,14 @@ accepted plaintext), and one secret key holding the whole URI:
 
 ```sh
 kubectl create secret generic parley \
-  --from-literal=database-url='postgres://parley:secret@host:5432/parley?sslmode=verify-full&sslrootcert=/path/to/ca.pem'
+  --from-literal=database-url='postgres://parley:secret@host:5432/parley?sslmode=verify-full&sslrootcert=/etc/parley/ca/ca.pem'
 kubectl apply -f deploy/k8s/deployment.yaml
 ```
+
+`sslrootcert=/etc/parley/ca/ca.pem` is a path inside the container. The
+plain manifest mounts no CA; add the ConfigMap volume from
+[Air-gapped](/operations/air-gapped/#kubernetes) or the handshake fails.
+`require` is still a legal boot mode if you have not mounted a CA yet.
 
 ## Rollouts
 

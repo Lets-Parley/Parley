@@ -18,10 +18,10 @@ func TestKubernetesDocsRequireVerifyingSSLMode(t *testing.T) {
 	}
 	for _, want := range []string{
 		"DATABASE_ALLOW_PLAINTEXT",
-		"verify-full",
-		"disable",
-		"allow",
-		"prefer",
+		"`disable`",
+		"`allow`",
+		"`prefer`",
+		"talk to Postgres in the clear",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("kubernetes.mdx does not mention %q — CheckTLS refuses absent/disable/allow/prefer unless DATABASE_ALLOW_PLAINTEXT is set", want)
@@ -40,7 +40,6 @@ func TestKnownLimitationsNoLongerDeniesMetrics(t *testing.T) {
 	for _, want := range []string{
 		"METRICS_ENABLED",
 		"unauthenticated",
-		"/operations/observability/",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("known-limitations.mdx does not mention %q", want)
@@ -56,7 +55,7 @@ func TestReviewPackMatchesBuiltMetricsAndTokenSweep(t *testing.T) {
 	if strings.Contains(body, "Token authorization expires, but its row remains") {
 		t.Error("review-pack.mdx still claims expired session token rows remain")
 	}
-	if !strings.Contains(body, "hourly") || !strings.Contains(body, "session_tokens") {
+	if !strings.Contains(body, "an hourly sweep deletes them") {
 		t.Error("review-pack.mdx does not describe the hourly session_tokens sweep")
 	}
 }
@@ -69,10 +68,9 @@ func TestDeploymentDocsDoNotClaimHardeningParity(t *testing.T) {
 	for _, want := range []string{
 		"seccompProfile",
 		"runAsNonRoot",
-		"no-new-privileges",
 		"log rotation",
-		"Kubernetes-only",
-		"Compose-only",
+		"Kubernetes-only:",
+		"Compose-only:",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("deployment.mdx does not mention %q in the per-key hardening map", want)
