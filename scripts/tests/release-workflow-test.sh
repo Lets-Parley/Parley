@@ -333,7 +333,7 @@ fi
 
 # The receipt must name the default bundle. The -fips line is a different
 # printf; deleting this one used to leave the script green.
-grep -Fq 'parley-%s.sigstore.json' "$workflow" \
+grep -v '^[[:space:]]*#' "$workflow" | grep -Fq 'parley-%s.sigstore.json' \
   || { echo "publish receipt does not list parley-\$TAG.sigstore.json" >&2; exit 1; }
 
 grep -Fq -- '--tag "$IMAGE:$VERSION-fips"' "$workflow"
