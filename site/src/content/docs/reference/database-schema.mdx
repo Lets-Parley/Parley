@@ -6,7 +6,7 @@ description: The tables, the migrations, and the constraints that act as validat
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/db/migrations", "internal/db/migrate.go", "internal/store/presence.go", "internal/poker/routes.go", "internal/api/custody/store.go", "internal/plugin"]} />
+<VerifiedStamp version="unreleased" source={["internal/db/migrations", "internal/db/migrate.go", "internal/store/presence.go", "internal/poker/routes.go", "internal/api/custody/store.go", "internal/plugin", "internal/store/users.go"]} />
 
 Eighteen migrations, embedded in the binary and applied at boot. Postgres only —
 there is no second driver and no plan for one.
@@ -36,6 +36,7 @@ there is no second driver and no plan for one.
   { name: "0031_plugins", value: "plugin_installs, plugin_grants, plugin_secrets, plugin_kv, plugin_events, plugin_deliveries, plugin_jobs", note: "The plugin foundations. All new tables, so no backfill and nothing existing is rewritten. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
   { name: "0034_plugin_installs_org", value: "plugin_installs.org_id, unique (org_id, name)", note: "Installs belong to an org. Added nullable, backfilled to the default org, then set not null — and deliberately with no retained DEFAULT, unlike spaces.org_id in 0021: an install is a rare deliberate operator action rather than something users create constantly, so a write that does not name an org must fail rather than land silently in the default org. Replaces the instance-wide unique (name), so two orgs can install the same plugin as two separate installs" },
   { name: "0035_session_kinds_org", value: "session_kinds.org_id, session_kinds.actions", note: "A session kind belongs to an org, or to the instance. Nullable, and null means instance-wide: the two core kinds belong to no org and stay available to every one of them, which is the whole backfill. A plugin-provided row carries the installing org, so one org's ceremony is not on offer to the instance and its rooms cannot block another org's uninstall. actions carries the dispatch table a manifest declared, so it survives a restart" },
+  { name: "0036_session_tokens_sweep_idx", value: "session_tokens (last_used_at), (created_at), (expires_at) where expires_at is not null", note: "Btree indexes for the hourly session-token sweep. Regular create index — migrate.go wraps each file in a transaction, so concurrently is unavailable. last_used_at is rewritten on every session touch, so this index prevents HOT updates of that column; created_at and expires_at are immutable after insert. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
 ]} />
 
 ### How the runner behaves
@@ -78,6 +79,11 @@ anonymous row can share the empty pair while federated identities stay unique.
 | `token_hash` | bytea | SHA-256 of the bearer token, as raw bytes — it is the primary key. The token itself is never stored |
 | `user_id` | uuid | Cascades on user delete |
 | `created_at`, `last_used_at` | timestamptz | `last_used_at` drives the `SESSION_IDLE_TTL` idle window, refreshed by any write or WebSocket connect and never by a `GET`; `created_at` drives the `SESSION_MAX_TTL` absolute cap, which nothing extends |
+| `expires_at` | timestamptz | Null for ordinary sessions. A redeemed guest link sets it; the token dies at that instant regardless of idle activity |
+
+The hourly sweep that deletes expired rows is indexed on `last_used_at`, on
+`created_at`, and partially on `expires_at where expires_at is not null`. The
+`user_id` index from `0002_identity` is unchanged.
 
 ### spaces
 
