@@ -161,7 +161,23 @@ export function SessionPage() {
         // shell every space member put people in the header who had never
         // opened the meeting — the same confusion the table just stopped
         // causing, one row higher up.
-        members={env.participants}
+        //
+        // `at` is stitched on here because only the space endpoint fills it,
+        // and the shell's member card reads it to answer "can I go sit with
+        // them?". Without it the card told you somebody was "not in a session
+        // right now" while you were both looking at them across this table.
+        // Presence is the right source for it: the room already knows who has
+        // a socket open, and a seat with no socket genuinely is not here.
+        //
+        // Rebuilt each render rather than memoised: it is one map over a
+        // roster the shell is about to walk twice anyway, and useMemo cannot
+        // go here in any case — the early returns above it are conditional,
+        // and a hook after them is a hook that does not always run.
+        members={env.participants.map((p) =>
+          env.presence.includes(p.userId)
+            ? { ...p, at: { sessionId: env.id, title: env.title } }
+            : p,
+        )}
         presence={env.presence}
         sessions={space.data?.sessions}
         activeSessionId={env.id}

@@ -88,6 +88,22 @@ export function ConnectionDot({ status }: { status: ConnectionStatus }) {
   );
 }
 
+/**
+ * The seat tell a roster row wears when it was seated by a signed link. A link
+ * carries any display name its holder picks, a member's included (see roster
+ * in internal/session/registry.go), so the row has to say where the seat came
+ * from rather than trust the name. Table.tsx has always said this on the seat;
+ * the header has to as well now it renders the room's roster rather than the
+ * space's, which a guest could never appear in. Same wording as the seat's, so
+ * the two places do not describe the same person differently.
+ */
+const GUEST_TELL = "\u00b7 guest";
+
+/** GUEST_TELL for a label, where a nested element cannot carry it. */
+function rosterLabel(m: Person) {
+  return m.guest ? `${safeDisplayName(m.name)} ${GUEST_TELL}` : safeDisplayName(m.name);
+}
+
 type Props = {
   orgSlug: string;
   spaceSlug: string;
@@ -273,6 +289,11 @@ export function AppShell({
                     <span className="truncate text-[13px] font-semibold text-ink-soft">
                       {safeDisplayName(m.name)}
                     </span>
+                    {m.guest && (
+                      <span className="shrink-0 text-[13px] font-normal text-ink-faint">
+                        {GUEST_TELL}
+                      </span>
+                    )}
                     <span className="sr-only">
                       {online.has(m.userId) ? "online" : "offline"}
                     </span>
@@ -381,8 +402,8 @@ export function AppShell({
             {stack.map((m, i) => (
               <button
                 key={m.userId}
-                title={safeDisplayName(m.name)}
-                aria-label={safeDisplayName(m.name)}
+                title={rosterLabel(m)}
+                aria-label={rosterLabel(m)}
                 onClick={() => setWho(m.userId)}
                 style={{ marginLeft: i ? -8 : 0 }}
                 className="rounded-full ring-2 ring-surface"
@@ -479,6 +500,11 @@ export function AppShell({
                   decorative
                 />
                 <span className="truncate text-[13px] font-semibold">{safeDisplayName(m.name)}</span>
+                {m.guest && (
+                  <span className="shrink-0 text-[13px] font-normal text-ink-faint">
+                    {GUEST_TELL}
+                  </span>
+                )}
                 <span className="ml-auto shrink-0 font-mono text-[10px] text-ink-faint">
                   {online.has(m.userId) ? "online" : "offline"}
                 </span>

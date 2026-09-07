@@ -197,6 +197,23 @@ describe("SessionPage wiring", () => {
     expect(header().queryByRole("button", { name: "Priya Rao" })).toBeNull();
   });
 
+  // Person.at is populated by the space endpoint alone. Feeding the shell the
+  // envelope's roster instead therefore stripped every seat's `at`, and the
+  // card went on to say "not in a session right now" about somebody visibly
+  // sitting at the table the reader is looking at.
+  it("says a seated person is at this table, not that they are nowhere", async () => {
+    mockData = { ...envelope, presence: ["marcus", "dana"] };
+    renderApp(<SessionPage />);
+    const header = () => within(document.querySelector("header")!);
+    await waitFor(() => expect(header().getByRole("button", { name: "Dana Whitfield" })).toBeTruthy());
+    await userEvent.click(header().getByRole("button", { name: "Dana Whitfield" }));
+
+    const card = within(screen.getByRole("dialog", { name: "Dana Whitfield" }));
+    expect(card.getByText("at this table now")).toBeTruthy();
+    // And the offer to travel says so too: there is nowhere else to go.
+    expect(card.getByText("Already at this table")).toBeTruthy();
+  });
+
   it("passes the live connection status through to the room, so a stale link stays silent", async () => {
     renderApp(<SessionPage />);
     // StandupRoom's announcer defaults to "live" when no status prop is wired

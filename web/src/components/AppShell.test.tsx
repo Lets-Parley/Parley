@@ -205,6 +205,30 @@ describe("what the sidebar admits it is hiding", () => {
     expect(screen.queryByRole("link", { name: /All \d+ sessions/ })).toBeNull();
   });
 
+  // registry.go: "Nothing stops a guest choosing a member's display name, so
+  // the roster has to say which seat is which." The table has always honoured
+  // that. The header did not have to while it was fed space members — a link
+  // guest is never one — but it is fed the room's roster now, so an unlabelled
+  // twin is an impersonation the header renders for free.
+  it("tells a link guest from the member whose name they took", async () => {
+    stubAuthMode("open");
+    const twin = makePerson({ userId: "imposter", name: "Dana Whitfield", guest: true });
+    renderShell({ members: [roster[0], twin, ...roster.slice(1, 5)] });
+
+    const header = within(document.querySelector("header")!);
+    expect(header.getByRole("button", { name: "Dana Whitfield" })).toBeTruthy();
+    expect(header.getByRole("button", { name: "Dana Whitfield \u00b7 guest" })).toBeTruthy();
+
+    const list = screen.getByRole("heading", { name: /Members/ }).parentElement!;
+    expect(within(list).getAllByRole("button", { name: /Dana Whitfield/ }).length).toBe(2);
+    expect(within(list).getAllByRole("button", { name: /Dana Whitfield.*guest/i }).length).toBe(1);
+
+    await userEvent.click(screen.getByRole("button", { name: "Show all 6 members" }));
+    const modal = within(screen.getByRole("dialog", { name: "Members" }));
+    expect(modal.getAllByText(/Dana Whitfield/).length).toBe(2);
+    expect(modal.getAllByText(/guest/i).length).toBe(1);
+  });
+
   it("makes the overflow badge open the roster it is counting", async () => {
     stubAuthMode("open");
     renderShell({ members: roster });
