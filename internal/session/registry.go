@@ -311,11 +311,26 @@ type Person struct {
 // attach and left alone by ordinary leaving or a presence sweep — so a seat
 // survives someone closing the tab. It is not immortal: joining prunes the
 // session back to MaxSessionParticipants (the facilitator ranked first so it
-// is never the one dropped), RemoveMember deletes a kicked person's row, and
-// org-level revocation deletes rows for anyone whose membership was pulled.
-// Anything the room has on record for somebody seats them too, so an export
-// can never lose the name attached to a vote or a standup entry that the
-// participants row missed. The facilitator is seated regardless: a room whose
+// is never the one dropped, which is also why the roster can carry one seat
+// more than the cap, and why a late arrival can unseat somebody who is still
+// in the meeting), RemoveMember deletes a kicked person's row, and org-level
+// revocation deletes rows for anyone whose membership was pulled.
+//
+// Anything the room has on record for somebody seats them too, and that is
+// its own branch rather than a condition on the members join: a voter who has
+// since been removed from the space has no members row left to be seated by,
+// and an export must never carry an estimate with no name against it.
+//
+// The record branch shares the members join's spectator expression on purpose.
+// UNION dedupes whole rows, not people, so the same person reached by two
+// branches with two different spectator flags would take two seats — two
+// avatars, and two places in every vote denominator. Both branches read the
+// member's own flag (absent, for somebody no longer a member, it is false), so
+// the rows they produce for one person are identical and collapse to one. Link
+// guests are excluded from it for the same reason: they have their own branch
+// and a `guest` flag the record branch cannot match.
+//
+// The facilitator is seated regardless: a room whose
 // owner has not attached yet must not render as empty, and RedactForGuest
 // already treats them as always present. A guest has no members row and so no
 // spectator flag — it votes like anybody else in the room, the same reading
@@ -338,20 +353,24 @@ func roster(ctx context.Context, pool *pgxpool.Pool, spaceID, sessionID string, 
 		select m.user_id::text, u.name, m.spectator, false, u.avatar_icon
 		from members m
 		join users u on u.id = m.user_id
-		left join session_participants sp
+		join session_participants sp
 		  on sp.user_id = m.user_id and sp.session_id = $2
 		where m.space_id = $1
-		  and (sp.user_id is not null
-		       or exists (select 1 from votes v join stories st on st.id = v.story_id
-		                  where st.session_id = $2 and v.user_id = m.user_id)
-		       or exists (select 1 from standup_entries se
-		                  where se.session_id = $2 and se.user_id = m.user_id))
 		union
 		select u.id::text, u.name, coalesce(m.spectator, false), false, u.avatar_icon
 		from sessions s
 		join users u on u.id = s.facilitator_id
 		left join members m on m.user_id = u.id and m.space_id = $1
 		where s.id = $2
+		union
+		select u.id::text, u.name, coalesce(m.spectator, false), false, u.avatar_icon
+		from users u
+		left join members m on m.user_id = u.id and m.space_id = $1
+		where u.link_id is null
+		  and (exists (select 1 from votes v join stories st on st.id = v.story_id
+		               where st.session_id = $2 and v.user_id = u.id)
+		       or exists (select 1 from standup_entries se
+		                  where se.session_id = $2 and se.user_id = u.id))
 		union
 		select u.id::text, u.name, false, true, u.avatar_icon
 		from users u join session_links l on l.id = u.link_id
