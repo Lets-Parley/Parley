@@ -1204,4 +1204,21 @@ describe("PokerRoom · the card you played", () => {
     );
     expect(screen.queryByRole("button", { name: "5" })).toBeNull();
   });
+
+  it("keeps an offline spectator on the rail", () => {
+    renderApp(
+      <PokerRoom
+        env={envelope({
+          presence: ["marcus"],
+          participants: [
+            makePerson({ userId: "dana", name: "Dana Whitfield" }),
+            makePerson({ userId: "marcus", name: "Marcus Okonjo" }),
+            makePerson({ userId: "priya", name: "Priya Rao", spectator: true }),
+          ],
+        })}
+        me={me}
+      />,
+    );
+    expect(screen.getByTestId("spectator-rail").textContent).toContain("Priya Rao");
+  });
 });
