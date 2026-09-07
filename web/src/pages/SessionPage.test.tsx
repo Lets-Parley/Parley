@@ -81,7 +81,13 @@ vi.mock("../lib/pluginBridge", async () => {
 
 // Who the SPACE says its members are — deliberately not the same list as the
 // room's roster, so a case can prove the shell is fed the room's.
-let mockSpaceMembers: { userId: string; name: string; avatarHue: number; spectator: boolean }[] = [];
+let mockSpaceMembers: {
+  userId: string;
+  name: string;
+  avatarHue: number;
+  spectator: boolean;
+  at?: { sessionId: string; title: string };
+}[] = [];
 
 // What GET /api/me answers. Swapped per-case: a link guest whose storage is
 // gone recovers its identity from exactly this route.
@@ -145,7 +151,8 @@ beforeEach(() => {
   vi.mocked(api).mockImplementation(async (_method: string, path: string) => {
     if (path === "/api/me") return apiMeResponse;
     if (path === "/api/auth") return { mode: "open" };
-    if (path.startsWith("/api/orgs/acme/spaces/")) return { name: "Platform Team", members: [], sessions: [] };
+    if (path.startsWith("/api/orgs/acme/spaces/"))
+      return { name: "Platform Team", members: mockSpaceMembers, sessions: [] };
     if (path.endsWith("/links")) return { links: [] };
     if (path.includes("/plugins/panels")) return [];
     throw new Error(`unexpected api call: ${path}`);
@@ -212,6 +219,38 @@ describe("SessionPage wiring", () => {
     expect(card.getByText("at this table now")).toBeTruthy();
     // And the offer to travel says so too: there is nowhere else to go.
     expect(card.getByText("Already at this table")).toBeTruthy();
+  });
+
+  // A seated member who is not present in *this* room but is present in
+  // another one must not fall back to "not in a session right now" either —
+  // the space's own roster already knows where they are, and that fallback
+  // is exactly what the fix restores for a name not covered by presence.
+  it("says a member seated in another session is there, from the space roster's own at", async () => {
+    mockData = {
+      ...envelope,
+      participants: [
+        ...envelope.participants,
+        { userId: "priya", name: "Priya Rao", avatarHue: 220, spectator: false },
+      ],
+    };
+    mockSpaceMembers = [
+      { userId: "dana", name: "Dana Whitfield", avatarHue: 120, spectator: false },
+      {
+        userId: "priya",
+        name: "Priya Rao",
+        avatarHue: 220,
+        spectator: false,
+        at: { sessionId: "sess-2", title: "Sprint Planning" },
+      },
+    ];
+    renderApp(<SessionPage />);
+    const header = () => within(document.querySelector("header")!);
+    await waitFor(() => expect(header().getByRole("button", { name: "Priya Rao" })).toBeTruthy());
+    await userEvent.click(header().getByRole("button", { name: "Priya Rao" }));
+
+    const card = within(screen.getByRole("dialog", { name: "Priya Rao" }));
+    expect(card.getAllByText(/Sprint Planning/).length).toBeGreaterThan(0);
+    expect(card.getByRole("button", { name: /Go to/ })).toBeTruthy();
   });
 
   it("passes the live connection status through to the room, so a stale link stays silent", async () => {
