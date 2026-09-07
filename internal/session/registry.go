@@ -315,11 +315,12 @@ type Person struct {
 // org-level revocation deletes rows for anyone whose membership was pulled.
 // Anything the room has on record for somebody seats them too, so an export
 // can never lose the name attached to a vote or a standup entry that the
-// participants row missed. The facilitator is seated regardless: a room whose owner has
-// not attached yet must not render as empty, and RedactForGuest already treats
-// them as always present. A guest has no members row and so no spectator flag — it votes like anybody else in the room, the
-// same reading maybeAutoReveal takes of the denominator — so it is seated as a
-// participant, never a spectator.
+// participants row missed. The facilitator is seated regardless: a room whose
+// owner has not attached yet must not render as empty, and RedactForGuest
+// already treats them as always present. A guest has no members row and so no
+// spectator flag — it votes like anybody else in the room, the same reading
+// maybeAutoReveal takes of the denominator — so it is seated as a participant,
+// never a spectator.
 //
 // pastGuests widens the guest half from the live links to every link the room
 // ever carried. The wire roster wants the live ones: a revoked or expired link
