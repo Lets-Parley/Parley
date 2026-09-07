@@ -157,7 +157,33 @@ export function SessionPage() {
         guest={!!guest}
         status={session.status}
         onRetry={() => qc.invalidateQueries({ queryKey: ["session", id] })}
-        members={space.data?.members}
+        // In a room the roster is the room's, not the space's. Handing the
+        // shell every space member put people in the header who had never
+        // opened the meeting — the same confusion the table just stopped
+        // causing, one row higher up.
+        //
+        // `at` is stitched on here because only the space endpoint fills it,
+        // and the shell's member card reads it to answer "can I go sit with
+        // them?". Without it the card told you somebody was "not in a session
+        // right now" while you were both looking at them across this table.
+        // Presence is the right source for someone seated here: the room
+        // already knows who has a socket open, and a seat with no socket
+        // genuinely is not here. For someone seated elsewhere, the space's
+        // roster is the fallback: it is where a different session already
+        // stitched its own `at` on for this person. A link guest is never in
+        // space.data.members — it has no membership row — so this fallback
+        // never fabricates a seat for one.
+        //
+        // Rebuilt each render rather than memoised: it is one map over a
+        // roster the shell is about to walk twice anyway, and useMemo cannot
+        // go here in any case — the early returns above it are conditional,
+        // and a hook after them is a hook that does not always run.
+        members={env.participants.map((p) => ({
+          ...p,
+          at: env.presence.includes(p.userId)
+            ? { sessionId: env.id, title: env.title }
+            : space.data?.members?.find((s) => s.userId === p.userId)?.at,
+        }))}
         presence={env.presence}
         sessions={space.data?.sessions}
         activeSessionId={env.id}

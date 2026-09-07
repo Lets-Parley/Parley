@@ -85,6 +85,24 @@ func dialWS(t *testing.T, srv *httptest.Server, sessionID string, cookie *http.C
 	return websocket.DefaultDialer.Dial(url, h)
 }
 
+// attend makes somebody turn up in the room the way a real client does: a
+// socket that connects, is seen, and then goes away again. The roster seats the
+// people who have been in the room rather than the whole space, so a test about
+// a member's seat has to make that member arrive. The socket is closed before
+// the assertion, which leaves them seated but not present — the same state as
+// somebody who has left for the day.
+func attend(t *testing.T, srv *httptest.Server, sessionID, origin string, cookie *http.Cookie) {
+	t.Helper()
+	ws, _, err := dialWS(t, srv, sessionID, cookie, origin)
+	if err != nil {
+		t.Fatalf("attend: %v", err)
+	}
+	if _, ok := readEnvelope(t, ws, 3*time.Second); !ok {
+		t.Fatal("attend: no envelope on the socket")
+	}
+	ws.Close()
+}
+
 func readEnvelope(t *testing.T, ws *websocket.Conn, timeout time.Duration) (map[string]any, bool) {
 	t.Helper()
 	ws.SetReadDeadline(time.Now().Add(timeout))

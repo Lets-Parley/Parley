@@ -40,7 +40,9 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
 
   const online = new Set(env.presence);
   const seated: Person[] = env.participants.filter((p) => !p.spectator);
-  const spectators: Person[] = env.participants.filter((p) => p.spectator && online.has(p.userId));
+  // Both halves follow one rule now: the server's roster is already only the
+  // people who have been in this room, so neither is filtered by presence.
+  const spectators: Person[] = env.participants.filter((p) => p.spectator);
   const votes = new Map((current?.votes ?? []).map((v) => [v.userId, v.value]));
   const results = env.revealed ? current?.results : undefined;
   // The card you played, as the room has it. `selected` cannot answer this:

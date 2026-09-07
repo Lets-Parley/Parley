@@ -46,7 +46,12 @@ func redeem(t *testing.T, srv *httptest.Server, token, name string) (*http.Respo
 // link minted for it, and a guest holding the cookie it bought.
 func mintAndRedeem(t *testing.T, srv *httptest.Server, spaceName string) (fac *http.Cookie, sessionID string, guest *http.Cookie) {
 	t.Helper()
-	fac, _, sessionID = setupSession(t, srv, spaceName)
+	var member *http.Cookie
+	fac, member, sessionID = setupSession(t, srv, spaceName)
+	// The space member turns up in the room and leaves, so these tests still
+	// have a seated member to assert about now that a roster is the people who
+	// have been here rather than everybody in the space.
+	attend(t, srv, sessionID, testOrigin, member)
 	_, minted := mintLink(t, srv, sessionID, fac)
 	token, _ := minted["token"].(string)
 	if token == "" {
