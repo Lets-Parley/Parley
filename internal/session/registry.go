@@ -303,9 +303,16 @@ type Person struct {
 	AvatarIcon string `json:"avatarIcon"`
 }
 
-// roster names everybody the room can render: the space's members, plus the
-// guests who joined this one session by signed link. A guest has no members
-// row and so no spectator flag — it votes like anybody else in the room, the
+// roster names everybody the room can render: the space's members who have
+// actually turned up in this session, plus the guests who joined it by signed
+// link. Seating the whole space instead put people at the table who had never
+// opened the room, which read to everyone else as "they are in this meeting".
+// session_participants is the durable record of arrival — written once on
+// attach and never swept — so a seat survives leaving. Anything the room has
+// on record for somebody seats them too, so an export can never lose the name
+// attached to a vote or a standup entry that the participants row missed. The facilitator is seated regardless: a room whose owner has
+// not attached yet must not render as empty, and RedactForGuest already treats
+// them as always present. A guest has no members row and so no spectator flag — it votes like anybody else in the room, the
 // same reading maybeAutoReveal takes of the denominator — so it is seated as a
 // participant, never a spectator.
 //
@@ -323,8 +330,22 @@ func roster(ctx context.Context, pool *pgxpool.Pool, spaceID, sessionID string, 
 	}
 	rows, err := pool.Query(ctx, `
 		select m.user_id::text, u.name, m.spectator, false, u.avatar_icon
-		from members m join users u on u.id = m.user_id
+		from members m
+		join users u on u.id = m.user_id
+		left join session_participants sp
+		  on sp.user_id = m.user_id and sp.session_id = $2
 		where m.space_id = $1
+		  and (sp.user_id is not null
+		       or exists (select 1 from votes v join stories st on st.id = v.story_id
+		                  where st.session_id = $2 and v.user_id = m.user_id)
+		       or exists (select 1 from standup_entries se
+		                  where se.session_id = $2 and se.user_id = m.user_id))
+		union
+		select u.id::text, u.name, coalesce(m.spectator, false), false, u.avatar_icon
+		from sessions s
+		join users u on u.id = s.facilitator_id
+		left join members m on m.user_id = u.id and m.space_id = $1
+		where s.id = $2
 		union
 		select u.id::text, u.name, false, true, u.avatar_icon
 		from users u join session_links l on l.id = u.link_id

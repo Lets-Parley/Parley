@@ -38,7 +38,10 @@ func redeemAs(t *testing.T, srv *httptest.Server, token, name string) *http.Cook
 // member who is nowhere near the meeting.
 func TestLinkGuestsSitAtTheTable(t *testing.T) {
 	srv := testServerWith(t, testPool(t), Options{AllowedOrigin: testOrigin})
-	fac, _, id := setupSession(t, srv, "Guest Roster Space")
+	fac, mel, id := setupSession(t, srv, "Guest Roster Space")
+	// Mel has been in the room and gone; the guests' copies still must not
+	// name her, which is presence doing the redacting, not the roster.
+	attend(t, srv, id, testOrigin, mel)
 	_, minted := mintLink(t, srv, id, fac)
 	token := minted["token"].(string)
 	gus := redeemAs(t, srv, token, "Gus")

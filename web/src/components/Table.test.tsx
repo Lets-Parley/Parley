@@ -217,14 +217,13 @@ describe("Table", () => {
     expect(screen.getByText("1 vote on the table")).toBeTruthy();
   });
 
-  it("shows an offline seat as away rather than as not yet voted", () => {
+  it("draws no absence: a seat whose owner has left looks like any other", () => {
+    // Seats are the people who have been in this room, so "offline" is not a
+    // state a seat can be in — the room used to mark them zzz, which read to
+    // everybody else as a person who was somehow both here and not.
     renderTable({ online: new Set(["dana", "marcus"]) });
-    expect(screen.getAllByText("zzz")).toHaveLength(1);
-  });
-
-  it("shows no away card for a seat that voted before dropping", () => {
-    renderTable({ online: new Set(["dana", "marcus"]), votedUserIds: ["priya"] });
     expect(screen.queryByText("zzz")).toBeNull();
+    expect(seat("Priya").getByRole("img", { name: "no card yet" })).toBeTruthy();
   });
 
   it("shows card faces only once revealed", () => {
@@ -270,23 +269,19 @@ describe("Table", () => {
     renderTable({ online: new Set(["dana", "marcus"]), votedUserIds: ["dana"] });
     // dana: seated + online + voted -> back ("voted")
     // marcus: seated + online + not voted -> empty ("no card yet")
-    // priya: seated + offline -> away ("away")
+    // priya: seated + offline -> empty, the same as any seat yet to vote
     expect(seat("Dana").getByRole("img", { name: "voted" })).toBeTruthy();
     expect(seat("Marcus").getByRole("img", { name: "no card yet" })).toBeTruthy();
-    expect(seat("Priya").getByRole("img", { name: "away" })).toBeTruthy();
+    expect(seat("Priya").getByRole("img", { name: "no card yet" })).toBeTruthy();
   });
 
-  it("keeps an away seat away at the reveal, instead of a blank face card", () => {
-    // Before the fix, `revealed` alone forced every seat to "face", so a seat
-    // whose owner had left the meeting turned over a blank card and became
-    // indistinguishable from a present person who abstained.
+  it("turns a departed seat's card over at the reveal like everybody else's", () => {
     renderTable({
       online: new Set(["dana", "marcus"]), // priya has gone
       revealed: true,
       votes: new Map([["dana", "5"]]),
     });
-    expect(seat("Priya").getByRole("img", { name: "away" })).toBeTruthy();
-    expect(seat("Priya").queryByRole("img", { name: "no card" })).toBeNull();
+    expect(seat("Priya").getByRole("img", { name: "no card" })).toBeTruthy();
   });
 
   it("still turns a present seat's empty card face-up at the reveal", () => {
@@ -298,7 +293,6 @@ describe("Table", () => {
       votes: new Map([["dana", "5"]]),
     });
     expect(seat("Priya").getByRole("img", { name: "no card" })).toBeTruthy();
-    expect(seat("Priya").queryByRole("img", { name: "away" })).toBeNull();
   });
 
   it("puts every revealed value into the seat's accessible name, tied to the right seat", () => {
@@ -352,9 +346,7 @@ describe("Table", () => {
   // Criterion 8. A helper that finds something is not a helper that scopes.
   it("scopes each seat to its own marks and nobody else's", () => {
     renderTable({ online: new Set(["dana", "marcus"]), votedUserIds: ["dana"] });
-    expect(seat("Priya").getByRole("img", { name: "away" })).toBeTruthy();
-    expect(seat("Dana").queryByRole("img", { name: "away" })).toBeNull();
-    expect(seat("Marcus").queryByRole("img", { name: "away" })).toBeNull();
+    expect(seat("Priya").getByRole("img", { name: "no card yet" })).toBeTruthy();
     expect(seat("Dana").queryByRole("img", { name: "no card yet" })).toBeNull();
   });
 

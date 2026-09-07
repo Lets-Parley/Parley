@@ -44,7 +44,7 @@ function SeatCard({
   index,
   consensus,
 }: {
-  state: "back" | "face" | "empty" | "away";
+  state: "back" | "face" | "empty";
   value?: string;
   index: number;
   consensus: boolean;
@@ -59,9 +59,7 @@ function SeatCard({
         ? value
           ? `voted ${value}`
           : "no card"
-        : state === "away"
-          ? "away"
-          : "no card yet";
+        : "no card yet";
 
   if (state === "back") {
     return (
@@ -99,17 +97,6 @@ function SeatCard({
         style={{ "--rot": `${rot}deg`, animation: flip + hop } as CSSProperties}
       >
         {value ? faceOf(value) : "—"}
-      </span>
-    );
-  }
-  if (state === "away") {
-    return (
-      <span
-        role="img"
-        aria-label={label}
-        className="flex h-[70px] w-[50px] items-center justify-center rounded-chip border-2 border-dashed border-line font-mono text-[11px] text-ink-faint"
-      >
-        zzz
       </span>
     );
   }
@@ -496,23 +483,9 @@ export function Table({
           className="mx-auto flex flex-wrap items-start justify-center gap-x-3 gap-y-9"
         >
           {onTable.map((p, i) => {
-            const away = !online.has(p.userId);
-            // After the reveal an away seat used to become a blank "face" card,
-            // making "left the meeting" and "never voted" the same object.
-            // Absence stays drawn as absence.
-            const state = revealed
-              ? // A present seat that never voted still turns an empty card
-                // over; an away one has nothing to turn. Without the second
-                // branch "left the meeting" and "abstained" became the same
-                // object at the moment the table is read.
-                !votes.has(p.userId) && away
-                ? "away"
-                : "face"
-              : voted.has(p.userId)
-                ? "back"
-                : away
-                  ? "away"
-                  : "empty";
+            // Seats are the people who have been in this room, so a seat is
+            // never drawn as absent: it turns its card over like any other.
+            const state = revealed ? "face" : voted.has(p.userId) ? "back" : "empty";
             const five = plan[i] ?? { burst: false, beat: 0, pair: 0 };
             return (
               <div
@@ -558,7 +531,6 @@ export function Table({
                     icon={p.avatarIcon}
                     size="lg"
                     facilitator={p.userId === facilitatorId}
-                    dim={away}
                   />
                 </span>
                 {five.burst && <Burst pair={five.pair} beat={five.beat} />}
