@@ -367,10 +367,10 @@ func roster(ctx context.Context, pool *pgxpool.Pool, spaceID, sessionID string, 
 		from users u
 		left join members m on m.user_id = u.id and m.space_id = $1
 		where u.link_id is null
-		  and (exists (select 1 from votes v join stories st on st.id = v.story_id
-		               where st.session_id = $2 and v.user_id = u.id)
-		       or exists (select 1 from standup_entries se
-		                  where se.session_id = $2 and se.user_id = u.id))
+		  and u.id in (select v.user_id from votes v join stories st on st.id = v.story_id
+		               where st.session_id = $2
+		               union
+		               select se.user_id from standup_entries se where se.session_id = $2)
 		union
 		select u.id::text, u.name, false, true, u.avatar_icon
 		from users u join session_links l on l.id = u.link_id
