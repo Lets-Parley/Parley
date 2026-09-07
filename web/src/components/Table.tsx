@@ -268,21 +268,23 @@ export function Table({
   /**
    * Somebody was removed from the room, as its own event.
    *
-   * It cannot be inferred from the envelope. `participants` is the SPACE's
-   * roster, not the session's, so a removed person is still in it and simply
-   * stops being present — which is exactly what closing a laptop looks like.
-   * Booting every seat that goes quiet would boot half the room; hence a
-   * frame that says a removal happened, and a sequence number so a second
-   * removal of the same person is a second event.
+   * It cannot be inferred from the envelope. `participants` is now the room's
+   * own roster and a removed person does leave it — RemoveMember deletes their
+   * session_participants row — but the next envelope is what carries that, and
+   * until it lands the seat is merely quiet, which is exactly what closing a
+   * laptop looks like. Booting every seat that goes silent would boot half the
+   * room; hence a frame that says a removal happened, and a sequence number so
+   * a second removal of the same person is a second event.
    */
   kicked?: { userId: string; seq: number } | null;
 }) {
   const { joined } = useRosterDelta([...online], status, meId);
 
   // Who the kick has already carried off. Held here because nothing upstream
-  // can: `seated` still contains them, and will until they are removed from
-  // the space itself. Cleared when their presence comes back — a rejoin gets
-  // its seat, and its drop-in, like anybody else arriving.
+  // can in the frame that carries the kick: `seated` still contains them until
+  // the next envelope, which is rebuilt without their participants row. Cleared
+  // when their presence comes back — a rejoin gets its seat, and its drop-in,
+  // like anybody else arriving.
   //
   // The roster delta's `left` is deliberately NOT the trigger: it fires for
   // every dropped connection in the room, and a boot per closed laptop is not

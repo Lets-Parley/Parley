@@ -70,6 +70,16 @@ func (p *Presence) Seen(ctx context.Context, sessionID, userID string) error {
 // current facilitator is never dropped: their socket can outlive a prune of
 // the oldest rows, and a later snapshot that omitted them would let the rest
 // of the table auto-reveal before they cast.
+//
+// Two consequences, now that this table is also the room's roster rather than
+// only the snapshot's source. The prune can unseat somebody who is still in
+// the meeting: the (cap+1)-th arrival silently takes the oldest attendee's
+// seat, and the room stops drawing a person who never left. And because the
+// facilitator is unioned onto the roster whether or not they hold a row, the
+// wire roster can be one longer than the cap. Both are only reachable at a
+// table of MaxSessionParticipants people; neither is a reason to keep the
+// table unbounded, since an unbounded one grows every open round's snapshot
+// without limit.
 func (p *Presence) Join(ctx context.Context, sessionID, userID string) error {
 	tx, err := p.Pool.Begin(ctx)
 	if err != nil {
