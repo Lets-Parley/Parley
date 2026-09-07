@@ -157,7 +157,11 @@ export function SessionPage() {
         guest={!!guest}
         status={session.status}
         onRetry={() => qc.invalidateQueries({ queryKey: ["session", id] })}
-        members={space.data?.members}
+        // In a room the roster is the room's, not the space's. Handing the
+        // shell every space member put people in the header who had never
+        // opened the meeting — the same confusion the table just stopped
+        // causing, one row higher up.
+        members={env.participants}
         presence={env.presence}
         sessions={space.data?.sessions}
         activeSessionId={env.id}
