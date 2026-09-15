@@ -23,7 +23,14 @@ export class NotificationAudio {
       this.context = new AudioContextClass();
     }
     try {
-      if (this.context.state !== "running") await this.context.resume();
+      // Without a user gesture resume() stays pending rather than rejecting, so
+      // a short wait reports blocked instead of hanging every later cue.
+      if (this.context.state !== "running") {
+        await Promise.race([
+          this.context.resume(),
+          new Promise((resolve) => setTimeout(resolve, 250)),
+        ]);
+      }
       return this.context.state === "running";
     } catch {
       return false;

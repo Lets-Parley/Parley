@@ -195,3 +195,24 @@ describe("useSession", () => {
     expect(result.current.data).not.toMatchObject({ title: "after leaving" });
   });
 });
+
+describe("useSession identity", () => {
+  it("keeps the socket when the first id loads and rebuilds it on a new id", () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () => ({ status: 200, ok: true, text: async () => JSON.stringify(envelope(5)) }) as Response,
+    );
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    );
+    const before = hub.stopped;
+    const { rerender } = renderHook(
+      ({ who }: { who: string }) => useSession("sess-1", true, undefined, who),
+      { wrapper, initialProps: { who: "" } },
+    );
+    rerender({ who: "u1" });
+    expect(hub.stopped).toBe(before);
+    rerender({ who: "u2" });
+    expect(hub.stopped).toBe(before + 1);
+  });
+});

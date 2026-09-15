@@ -22,6 +22,15 @@ export function useSession(
   // removals of the same person — a rejoin and a second boot — are two events
   // rather than one object React sees as unchanged.
   const [kicked, setKicked] = useState<{ userId: string; seq: number } | null>(null);
+  // Rebuild the socket only when one known identity replaces another. The
+  // first id arriving after /api/me loads is not a change of identity.
+  const [identity, setIdentity] = useState({ key: identityKey, generation: 0 });
+  if (identity.key !== identityKey) {
+    setIdentity({
+      key: identityKey,
+      generation: identity.key && identityKey ? identity.generation + 1 : identity.generation,
+    });
+  }
 
   const query = useQuery({
     queryKey: ["session", id],
@@ -79,7 +88,7 @@ export function useSession(
       },
     });
     return stop;
-  }, [id, qc, active, identityKey]);
+  }, [id, qc, active, identity.generation]);
 
   return { ...query, status, kickReason, kicked };
 }

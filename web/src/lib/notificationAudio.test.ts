@@ -80,6 +80,17 @@ describe("NotificationAudio", () => {
     expect(await new NotificationAudio().activate()).toBe(false);
   });
 
+  it("reports blocked when resume never settles without a gesture", async () => {
+    vi.useFakeTimers();
+    const { context, oscillators } = fakeAudio("suspended");
+    context.resume.mockImplementation(() => new Promise<void>(() => {}));
+    const playing = new NotificationAudio().play("poker-start");
+    await vi.advanceTimersByTimeAsync(250);
+    expect(await playing).toBe(false);
+    expect(oscillators).toHaveLength(0);
+    vi.useRealTimers();
+  });
+
   it("does not schedule a cue after it is stopped during activation", async () => {
     const { context, oscillators } = fakeAudio("suspended");
     let resume!: () => void;
