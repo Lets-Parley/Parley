@@ -14,7 +14,8 @@ type Principal struct {
 	TokenExpiresAt time.Time
 	// The chosen avatar, carried from the row resolvePrincipal already reads
 	// so /api/me answers from the principal without a second query.
-	AvatarIcon string
+	AvatarIcon         string
+	NotificationSounds bool
 	// LinkSessionID names the one room this identity may take part in, and is
 	// empty for every ordinary account. A non-empty value is a capability, not
 	// a membership: it grants participate-only access to that room and nothing

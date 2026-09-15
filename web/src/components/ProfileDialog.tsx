@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, errorText, type Me } from "../lib/api";
 import { useToast } from "../lib/ui";
@@ -6,6 +6,8 @@ import { Avatar } from "./Avatar";
 import { avatarIconIds, avatarIconLabels } from "./avatarIcons";
 import { buttonPrimary, buttonQuiet, ErrorRow, inputClass, labelClass, Modal } from "./Modal";
 import { useAuthMode, clearSessionMemory } from "./NameGate";
+import { notificationAudio } from "../lib/notificationAudio";
+import { saveNotificationSounds } from "../lib/notificationSettings";
 
 /**
  * Everything about you that this server holds: your name and the mark on your
@@ -38,15 +40,25 @@ export function ProfileDialog({ me, onClose }: { me: Me; onClose: () => void }) 
   const nameFieldId = useId();
   const [picked, setPicked] = useState(me.avatarIcon ?? "");
   const [name, setName] = useState(me.name);
+  const [sounds, setSounds] = useState(me.notificationSounds ?? false);
+  const [audioBlocked, setAudioBlocked] = useState(false);
+  const audioRequest = useRef(0);
   /** What the server holds. Save is dimmed while the form still matches it. */
-  const [stored, setStored] = useState({ icon: me.avatarIcon ?? "", name: me.name });
+  const [stored, setStored] = useState({
+    icon: me.avatarIcon ?? "",
+    name: me.name,
+    sounds: me.notificationSounds ?? false,
+  });
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
 
   const trimmed = name.trim();
   // An empty name is not a change to offer — the server would refuse it, and
   // dimming Save says so before the round trip.
-  const dirty = picked !== stored.icon || (!oidc && trimmed !== stored.name && trimmed !== "");
+  const dirty =
+    picked !== stored.icon ||
+    sounds !== stored.sounds ||
+    (!oidc && trimmed !== stored.name && trimmed !== "");
 
   // Local sign-out: the cookie and its token row go, the identity provider's
   // own session is left alone. Someone on a shared machine must sign out there
@@ -61,16 +73,37 @@ export function ProfileDialog({ me, onClose }: { me: Me; onClose: () => void }) 
   }
 
   async function save() {
+    const request = ++audioRequest.current;
+    const activation =
+      sounds && sounds !== stored.sounds ? notificationAudio.activate() : undefined;
+    if (!sounds && sounds !== stored.sounds) notificationAudio.stop();
     setSaving(true);
     try {
+      if (sounds !== stored.sounds) {
+        await saveNotificationSounds(qc, sounds);
+        setStored((current) => ({ ...current, sounds }));
+        if (sounds) {
+          void activation?.then(async (ready) => {
+            if (request !== audioRequest.current) return;
+            setAudioBlocked(!ready);
+            if (ready) await notificationAudio.play("poker-start");
+          });
+        } else {
+          setAudioBlocked(false);
+        }
+      }
       if (picked !== stored.icon) {
-        await api("PATCH", "/api/me/avatar", { icon: picked });
+        const updated = await api<Me>("PATCH", "/api/me/avatar", { icon: picked });
+        qc.setQueryData(["me"], updated);
+        setStored((current) => ({ ...current, icon: picked }));
       }
       // Last, because it rotates the session cookie: a failure after that
       // point would leave the retry button holding a token the server has
       // already replaced.
       if (!oidc && trimmed !== stored.name) {
-        await api("POST", "/api/me", { name: trimmed });
+        const updated = await api<Me>("POST", "/api/me", { name: trimmed });
+        qc.setQueryData(["me"], updated);
+        setStored((current) => ({ ...current, name: trimmed }));
       }
       // Only three keys carry an avatar: me, the space roster and the session
       // envelope. An unfiltered invalidateQueries() would refetch every mounted
@@ -79,7 +112,7 @@ export function ProfileDialog({ me, onClose }: { me: Me; onClose: () => void }) 
       await Promise.all(
         [["me"], ["space"], ["session"]].map((queryKey) => qc.invalidateQueries({ queryKey })),
       );
-      setStored({ icon: picked, name: trimmed });
+      setStored({ icon: picked, name: trimmed, sounds });
       setFailed(null);
       say("Profile saved");
     } catch (e) {
@@ -92,12 +125,7 @@ export function ProfileDialog({ me, onClose }: { me: Me; onClose: () => void }) 
   }
 
   return (
-    <Modal
-      // No mark stored yet means this is the first pass, not an edit of one.
-      title={stored.icon ? "Your profile" : "Create your avatar"}
-      onClose={onClose}
-      width="26rem"
-    >
+    <Modal title="Your profile" onClose={onClose} width="26rem">
       <div className="mt-3 flex flex-col items-center gap-2">
         {/* Previewed against the name being typed, so the initials fallback
             shows what it will actually say. */}
@@ -130,6 +158,33 @@ export function ProfileDialog({ me, onClose }: { me: Me; onClose: () => void }) 
             maxLength={64}
           />
         </div>
+      )}
+
+      <label className="mt-4 flex items-center gap-2 text-sm font-semibold">
+        <input
+          type="checkbox"
+          checked={sounds}
+          onChange={(event) => {
+            audioRequest.current++;
+            setSounds(event.target.checked);
+            if (!event.target.checked) notificationAudio.stop();
+          }}
+        />
+        Notification sounds
+      </label>
+      {sounds && audioBlocked && (
+        <button
+          type="button"
+          className={buttonQuiet + " mt-2 px-3 py-1.5 text-[12px]"}
+          onClick={() =>
+            void notificationAudio.activate().then(async (ready) => {
+              setAudioBlocked(!ready);
+              if (ready) await notificationAudio.play("poker-start");
+            })
+          }
+        >
+          Enable audio in this tab
+        </button>
       )}
 
       <fieldset className="mt-4 border-0 p-0">

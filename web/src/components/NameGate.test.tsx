@@ -108,7 +108,35 @@ function MeThenGate() {
   return <p>signed in as {me.data.name}</p>;
 }
 
+function MeSounds() {
+  const me = useMe();
+  return <p>{me.data?.notificationSounds ? "sounds on" : "sounds off"}</p>;
+}
+
 describe("useMe session-memory wiring", () => {
+  it("refreshes the identity on focus and a cross-tab settings message", async () => {
+    const channels: Array<{ onmessage: (() => void) | null }> = [];
+    vi.stubGlobal("BroadcastChannel", class {
+      onmessage: (() => void) | null = null;
+      constructor() { channels.push(this); }
+      close() {}
+    });
+    let enabled = false;
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      id: "u1", name: "Ada", avatarHue: 20, notificationSounds: enabled,
+    }), { status: 200 })));
+    renderApp(<MeSounds />);
+    expect(await screen.findByText("sounds off")).toBeTruthy();
+
+    enabled = true;
+    window.dispatchEvent(new Event("focus"));
+    expect(await screen.findByText("sounds on")).toBeTruthy();
+
+    enabled = false;
+    channels[0].onmessage?.();
+    expect(await screen.findByText("sounds off")).toBeTruthy();
+  });
+
   it('notes "session ended" from GET /api/me so NameGate shows the expired copy', async () => {
     // Empty localStorage: only the 401 body can mark the seat as ended.
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

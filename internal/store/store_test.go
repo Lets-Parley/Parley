@@ -254,6 +254,9 @@ func TestUpsertFederatedIsOneUserPerSubject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := users.SetNotificationSounds(ctx, first.ID, true); err != nil {
+		t.Fatal(err)
+	}
 
 	// Same subject, new name: the same user, renamed from the provider.
 	_, h2 := NewToken()
@@ -266,6 +269,9 @@ func TestUpsertFederatedIsOneUserPerSubject(t *testing.T) {
 	}
 	if second.Name != "Marcus Okonjo" {
 		t.Fatalf("name = %q, want the refreshed name from the provider", second.Name)
+	}
+	if !second.NotificationSounds {
+		t.Fatal("a subsequent federated sign-in reset notification sounds")
 	}
 
 	// Both tokens are live: signing in on a second device must not evict the first.

@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, errorText, type Me } from "../lib/api";
 import {
@@ -8,6 +8,7 @@ import {
   rememberOpenSession,
 } from "../lib/sessionMemory";
 import { Modal, buttonPrimary, inputClass, labelClass } from "./Modal";
+import { listenForNotificationChanges } from "../lib/notificationSettings";
 
 /**
  * Which sign-in flow this server uses. Asked once and cached: it is fixed at
@@ -28,7 +29,8 @@ export function useAuthMode() {
  * knows it is refused.
  */
 export function useMe(enabled = true) {
-  return useQuery({
+  const qc = useQueryClient();
+  const query = useQuery({
     enabled,
     queryKey: ["me"],
     queryFn: async () => {
@@ -50,6 +52,18 @@ export function useMe(enabled = true) {
     staleTime: Infinity,
     retry: false,
   });
+  useEffect(() => {
+    if (!enabled) return;
+    const refresh = () =>
+      void qc.refetchQueries({ queryKey: ["me"], exact: true, type: "active" });
+    window.addEventListener("focus", refresh);
+    const stopListening = listenForNotificationChanges(refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      stopListening();
+    };
+  }, [enabled, qc]);
+  return query;
 }
 
 // Asks for a display name the first time one is needed, then gets out of the

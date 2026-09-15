@@ -181,6 +181,20 @@ describe("ProfileDialog first run", () => {
 });
 
 describe("ProfileDialog saving", () => {
+  it("saves notification sounds through the same profile Save action", async () => {
+    const fetchMock = mockFetch();
+    renderApp(<ProfileDialog me={me} onClose={() => {}} />);
+    const sounds = screen.getByRole("checkbox", { name: "Notification sounds" });
+    expect((sounds as HTMLInputElement).checked).toBe(false);
+    await userEvent.click(sounds);
+    await userEvent.click(save());
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
+    const [path, init] = writes(fetchMock)[0] as unknown as [string, RequestInit];
+    expect(path).toBe("/api/me/settings");
+    expect(JSON.parse(init.body as string)).toEqual({ notificationSounds: true });
+    expect(await screen.findByRole("button", { name: "Enable audio in this tab" })).toBeTruthy();
+  });
+
   it("dims Save until something changes, and wakes it the moment it does", async () => {
     mockFetch();
     renderApp(<ProfileDialog me={me} onClose={() => {}} />);
@@ -270,6 +284,34 @@ describe("ProfileDialog saving", () => {
     expect(writes(fetchMock)).toHaveLength(2);
   });
 
+  it("records a successful sounds save before retrying a later avatar failure", async () => {
+    let avatarAttempts = 0;
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path === "/api/auth") return new Response(JSON.stringify({ mode: "open" }), { status: 200 });
+      if (path === "/api/me/settings") {
+        return new Response(JSON.stringify({ ...me, notificationSounds: true }), { status: 200 });
+      }
+      if (path === "/api/me/avatar" && avatarAttempts++ === 0) {
+        return new Response(JSON.stringify({ error: "avatar failed" }), { status: 500 });
+      }
+      return new Response(JSON.stringify({ ...me, avatarIcon: "ada", notificationSounds: true }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp(<ProfileDialog me={me} onClose={() => {}} />);
+    await userEvent.click(screen.getByRole("checkbox", { name: "Notification sounds" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Ada" }));
+    await userEvent.click(save());
+    await screen.findByText("avatar failed");
+
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(writes(fetchMock).map(([path]) => path)).toEqual([
+      "/api/me/settings",
+      "/api/me/avatar",
+      "/api/me/avatar",
+    ]);
+  });
+
   it("writes nothing when the dialog is dismissed instead of saved", async () => {
     const fetchMock = mockFetch();
     const onClose = vi.fn();
@@ -310,12 +352,12 @@ describe("ProfileDialog invalidation", () => {
 });
 
 describe("ProfileDialog copy", () => {
-  it("greets a first-time user with Create, and a returning one with their profile", () => {
+  it("always names the dialog Your profile so settings are discoverable", () => {
     mockFetch();
     const { unmount } = renderApp(
       <ProfileDialog me={{ ...me, avatarIcon: undefined }} onClose={() => {}} />,
     );
-    expect(screen.getByRole("heading", { name: "Create your avatar" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Your profile" })).toBeTruthy();
     unmount();
 
     renderApp(<ProfileDialog me={{ ...me, avatarIcon: "zeke" }} onClose={() => {}} />);
@@ -435,17 +477,22 @@ describe("ProfileDialog renaming", () => {
 
   // The avatar goes first: renaming rotates the session cookie, so a failure
   // after that point would leave the retry holding a replaced token.
-  it("writes the avatar before the name when both changed", async () => {
+  it("writes sounds and the avatar before the name when all changed", async () => {
     const fetchMock = mockFetch("open");
     renderApp(<ProfileDialog me={me} onClose={() => {}} />);
     const field = await screen.findByRole("textbox", { name: "Display name" });
     await userEvent.clear(field);
     await userEvent.type(field, "Dana W.");
     await userEvent.click(screen.getByRole("radio", { name: "Ada" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Notification sounds" }));
 
     await userEvent.click(save());
-    await waitFor(() => expect(writes(fetchMock)).toHaveLength(2));
-    expect(writes(fetchMock).map(([path]) => path)).toEqual(["/api/me/avatar", "/api/me"]);
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(3));
+    expect(writes(fetchMock).map(([path]) => path)).toEqual([
+      "/api/me/settings",
+      "/api/me/avatar",
+      "/api/me",
+    ]);
     expect(probes(fetchMock)).toHaveLength(1);
   });
 

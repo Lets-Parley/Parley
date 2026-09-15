@@ -32,6 +32,7 @@ type State struct {
 	Deck           wireDeck    `json:"deck"`
 	AutoReveal     bool        `json:"autoReveal"`
 	OpenVoting     bool        `json:"openVoting"`
+	RoundVersion   int64       `json:"roundVersion"`
 	CurrentStoryID *string     `json:"currentStoryId"`
 	Stories        []WireStory `json:"stories"`
 }
@@ -64,8 +65,8 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 
 	var currentID string
 	if err := pool.QueryRow(ctx,
-		"select coalesce(current_story_id::text, '') from sessions where id = $1", sess.ID,
-	).Scan(&currentID); err != nil {
+		"select coalesce(current_story_id::text, ''), poker_round_version from sessions where id = $1", sess.ID,
+	).Scan(&currentID, &st.RoundVersion); err != nil {
 		return nil, err
 	}
 	if currentID != "" {

@@ -31,6 +31,47 @@ func selectStory(t *testing.T, srv *httptest.Server, sessionID, storyID string, 
 	}
 }
 
+func TestPokerRoundVersionAdvancesOnlyAtRoundBoundaries(t *testing.T) {
+	srv := testServer(t)
+	fac, _, id := setupSession(t, srv, "Round version space")
+	story := addStory(t, srv, id, "Story", fac)
+	roundVersion := func() float64 {
+		_, body := doJSON(t, srv, http.MethodGet, "/api/sessions/"+id, "", fac)
+		state := body["state"].(map[string]any)
+		return state["roundVersion"].(float64)
+	}
+
+	if got := roundVersion(); got != 0 {
+		t.Fatalf("initial roundVersion = %v, want 0", got)
+	}
+	selectStory(t, srv, id, story, fac)
+	if got := roundVersion(); got != 1 {
+		t.Fatalf("after select = %v, want 1", got)
+	}
+	selectStory(t, srv, id, story, fac)
+	if got := roundVersion(); got != 2 {
+		t.Fatalf("after reselect = %v, want 2", got)
+	}
+	if resp, _ := doJSON(t, srv, http.MethodPost, "/api/sessions/"+id+"/actions/reset", "", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("empty reset: got %d", resp.StatusCode)
+	}
+	if got := roundVersion(); got != 3 {
+		t.Fatalf("after empty reset = %v, want 3", got)
+	}
+	if resp, _ := doJSON(t, srv, http.MethodPost, "/api/sessions/"+id+"/actions/vote", `{"storyId":"`+story+`","value":"3"}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("vote: got %d", resp.StatusCode)
+	}
+	if got := roundVersion(); got != 3 {
+		t.Fatalf("after vote = %v, want 3", got)
+	}
+	if resp, _ := doJSON(t, srv, http.MethodPost, "/api/sessions/"+id+"/actions/reveal", "", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("reveal: got %d", resp.StatusCode)
+	}
+	if got := roundVersion(); got != 3 {
+		t.Fatalf("after reveal = %v, want 3", got)
+	}
+}
+
 func vote(t *testing.T, srv *httptest.Server, sessionID, storyID, value string, c *http.Cookie) *http.Response {
 	t.Helper()
 	resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+sessionID+"/actions/vote",

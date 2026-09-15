@@ -16,11 +16,24 @@ import createDark from "../../../assets/create-session-dark.png";
 import tshirtLight from "../../../assets/tshirt-results-light.png";
 import tshirtDark from "../../../assets/tshirt-results-dark.png";
 
-<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx"]} />
+<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx"]} />
 
 A poker session is a queue of work and a table of people. The facilitator puts
 one item on the table, everybody votes face-down, and the round opens when the
 facilitator calls it — or, if they opt in, when the last person votes.
+
+## Notification sounds
+
+Notification sounds are off by default. Turn them on from **Your profile** or
+the **Sounds off** button in a poker room; both controls save the same account
+preference. A rising two-note cue marks a selected or reset story, and a higher
+two-note cue marks a manual or automatic reveal. The cue still plays while the
+tab is in the background.
+
+Browsers may require one interaction before allowing audio. If that happens,
+the preference remains on and the room offers **Enable audio in this tab**.
+Muted rooms keep following live state without replaying missed cues when sound
+is enabled again. Signed-link guests do not have this account setting.
 
 ## The story queue
 

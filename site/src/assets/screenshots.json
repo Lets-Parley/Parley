@@ -29,6 +29,8 @@
         "web/src/components/MemberCard.tsx",
         "web/src/components/FacilitatorControls.tsx",
         "web/src/components/AppShell.tsx",
+        "web/src/components/NotificationSoundButton.tsx",
+        "web/src/pages/SessionPage.tsx",
         "web/src/components/ConnectionBanner.tsx",
         "web/src/tokens.css",
         "web/src/components/StoryQueue.tsx",
@@ -45,6 +47,8 @@
         "web/src/pages/PokerRoom.tsx",
         "web/src/components/Table.tsx",
         "web/src/components/AppShell.tsx",
+        "web/src/components/NotificationSoundButton.tsx",
+        "web/src/pages/SessionPage.tsx",
         "web/src/components/ConnectionBanner.tsx",
         "web/src/tokens.css"
       ]
@@ -120,6 +124,8 @@
       "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
       "depicts": [
         "web/src/pages/StandupRoom.tsx",
+        "web/src/components/NotificationSoundButton.tsx",
+        "web/src/pages/SessionPage.tsx",
         "web/src/components/MemberCard.tsx",
         "web/src/components/FacilitatorControls.tsx",
         "web/src/components/AppShell.tsx",
@@ -135,6 +141,8 @@
       "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
       "depicts": [
         "web/src/pages/StandupRoom.tsx",
+        "web/src/components/NotificationSoundButton.tsx",
+        "web/src/pages/SessionPage.tsx",
         "web/src/components/Commitments.tsx",
         "web/src/components/Avatar.tsx",
         "web/src/components/FacilitatorControls.tsx",

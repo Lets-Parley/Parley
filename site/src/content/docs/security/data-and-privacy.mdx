@@ -6,7 +6,7 @@ description: Every field of personal data Parley stores, and what it deliberatel
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["internal/db/migrations", "internal/store/users.go"]} />
+<VerifiedStamp source={["internal/db/migrations", "internal/store/users.go", "web/src/lib/notificationAudio.ts"]} />
 
 Parley stores very little about people, mostly because it never asks. In its
 default mode there is no account, no email address and no password.
@@ -20,6 +20,7 @@ default mode there is no account, no email address and no password.
 | `users` | `issuer`, `subject` | Only for federated sign-in: which provider vouched for you, and your opaque id there. Empty for anonymous users |
 | `users` | `avatar_icon` | The avatar you picked, as one short opaque id (≤32 characters). Empty until you choose one. Public — shown to everyone in a room. Removed with the account: it is a column on the `users` row, not a separate record |
 | `users` | `avatar_accessory` | Retired in v0.5.1: no longer written or read, and dropped by a later migration |
+| `users` | `notification_sounds` | Whether this user enabled local notification sounds. False by default and never included in rosters or session payloads |
 | `users` | `created_at` | Timestamp |
 | `session_tokens` | `token_hash` | SHA-256 of the bearer token. The token itself is never stored |
 | `session_tokens` | `user_id`, `created_at`, `last_used_at` | Which account, and when it was last seen |
@@ -46,6 +47,10 @@ Postgres, and it is what a database dump mostly contains.
 
 Nothing, unless you configure it. Parley has no telemetry, no analytics, no
 crash reporting and no update check.
+
+Notification cues are synthesized in the browser with Web Audio. They use no
+audio files and make no network request. The server stores only the on/off
+preference.
 
 In the default `open` mode it makes no outbound network calls at all. With
 `AUTH_MODE=oidc` it calls the identity provider you named and nothing else:
