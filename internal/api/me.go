@@ -20,8 +20,9 @@ type meResponse struct {
 	Name string `json:"name"`
 	// AvatarHue is always the derived integer, never null: clients do
 	// arithmetic on it.
-	AvatarHue  int    `json:"avatarHue"`
-	AvatarIcon string `json:"avatarIcon"`
+	AvatarHue          int    `json:"avatarHue"`
+	AvatarIcon         string `json:"avatarIcon"`
+	NotificationSounds bool   `json:"notificationSounds"`
 	// LinkSessionID and LinkExpiresAt are set only for a link guest, and name
 	// the one room it may take part in and the moment its seat runs out. Both
 	// are omitted for an ordinary account, so their presence is what tells a
@@ -45,7 +46,7 @@ func avatarHue(userID string) int { return store.AvatarHue(userID) }
 func toMeResponse(u store.User) meResponse {
 	return meResponse{
 		ID: u.ID, Name: u.Name, AvatarHue: avatarHue(u.ID),
-		AvatarIcon: u.AvatarIcon,
+		AvatarIcon: u.AvatarIcon, NotificationSounds: u.NotificationSounds,
 	}
 }
 
@@ -82,12 +83,41 @@ func (a *app) handleGetMe(w http.ResponseWriter, r *http.Request) {
 	}
 	me := toMeResponse(store.User{
 		ID: p.UserID, Name: p.Display, AvatarIcon: p.AvatarIcon,
+		NotificationSounds: p.NotificationSounds,
 	})
 	if p.IsLinkGuest() {
+		me.NotificationSounds = false
 		me.LinkSessionID = p.LinkSessionID
 		me.LinkExpiresAt = p.TokenExpiresAt.UTC().Format(time.RFC3339)
 	}
 	writeJSON(w, http.StatusOK, me)
+}
+
+func (a *app) handlePatchMeSettings(w http.ResponseWriter, r *http.Request) {
+	p, ok := PrincipalFrom(r.Context())
+	if !ok {
+		http.Error(w, `{"error":"not signed in"}`, http.StatusUnauthorized)
+		return
+	}
+	var body struct {
+		NotificationSounds *bool `json:"notificationSounds"`
+	}
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
+		return
+	}
+	if body.NotificationSounds == nil {
+		http.Error(w, `{"error":"notificationSounds must be a boolean"}`, http.StatusBadRequest)
+		return
+	}
+	if err := a.users.SetNotificationSounds(r.Context(), p.UserID, *body.NotificationSounds); err != nil {
+		http.Error(w, `{"error":"could not save settings"}`, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, toMeResponse(store.User{
+		ID: p.UserID, Name: p.Display, AvatarIcon: p.AvatarIcon,
+		NotificationSounds: *body.NotificationSounds,
+	}))
 }
 
 // handlePatchMeAvatar writes the caller's chosen avatar.
@@ -125,6 +155,7 @@ func (a *app) handlePatchMeAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, toMeResponse(store.User{
 		ID: p.UserID, Name: p.Display, AvatarIcon: body.Icon,
+		NotificationSounds: p.NotificationSounds,
 	}))
 }
 

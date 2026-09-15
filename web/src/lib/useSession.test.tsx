@@ -33,7 +33,7 @@ const envelope = (version: number, title = `v${version}`) => ({
   title,
 });
 
-function mount(initial = envelope(5)) {
+function mount(initial = envelope(5), onTransition?: (prev: unknown, next: unknown) => void) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const fetched: unknown[] = [initial];
   vi.spyOn(globalThis, "fetch").mockImplementation(
@@ -48,7 +48,7 @@ function mount(initial = envelope(5)) {
     <QueryClientProvider client={qc}>{children}</QueryClientProvider>
   );
   return {
-    ...renderHook(({ active }: { active: boolean }) => useSession("sess-1", active), {
+    ...renderHook(({ active }: { active: boolean }) => useSession("sess-1", active, onTransition), {
       wrapper,
       initialProps: { active: true },
     }),
@@ -96,6 +96,34 @@ describe("useSession", () => {
     );
   });
 
+  it("uses the first frame on each connection as a silent transition baseline", async () => {
+    const onTransition = vi.fn();
+    const { result } = mount(envelope(1), onTransition);
+    await waitFor(() => expect(result.current.data).toBeTruthy());
+    hub.onState(envelope(2));
+    expect(onTransition).not.toHaveBeenCalled();
+    hub.onState(envelope(3));
+    expect(onTransition).toHaveBeenCalledOnce();
+    hub.onStatus("reconnecting");
+    hub.onStatus("live");
+    hub.onState(envelope(4));
+    expect(onTransition).toHaveBeenCalledOnce();
+    hub.onState(envelope(5));
+    expect(onTransition).toHaveBeenCalledTimes(2);
+  });
+
+  it("delivers every accepted live transition directly and suppresses duplicates", async () => {
+    const onTransition = vi.fn();
+    const { result } = mount(envelope(1), onTransition);
+    await waitFor(() => expect(result.current.data).toBeTruthy());
+    hub.onState(envelope(2));
+    hub.onState(envelope(3));
+    hub.onState(envelope(4));
+    hub.onState(envelope(4, "duplicate"));
+    hub.onState(envelope(3, "older"));
+    expect(onTransition.mock.calls.map(([, next]) => next.version)).toEqual([3, 4]);
+  });
+
   it("does not let a refetch regress the board behind a newer frame", async () => {
     const { result, qc, fetched } = mount();
     await waitFor(() => expect(result.current.data).toBeTruthy());
@@ -136,6 +164,15 @@ describe("useSession", () => {
     await waitFor(() => expect(result.current.status).toBe("stale"));
   });
 
+  it("refreshes identity after reconnect even though me is infinitely fresh", async () => {
+    const { result, qc } = mount();
+    await waitFor(() => expect(result.current.data).toBeTruthy());
+    const refetch = vi.spyOn(qc, "refetchQueries");
+    hub.onStatus("reconnecting");
+    hub.onStatus("live");
+    expect(refetch).toHaveBeenCalledWith({ queryKey: ["me"], exact: true, type: "active" });
+  });
+
   it("lets go of the socket on unmount", async () => {
     const { result, unmount } = mount();
     await waitFor(() => expect(result.current.data).toBeTruthy());
@@ -156,5 +193,26 @@ describe("useSession", () => {
     // socket that is supposed to be gone.
     hub.onState(envelope(6, "after leaving"));
     expect(result.current.data).not.toMatchObject({ title: "after leaving" });
+  });
+});
+
+describe("useSession identity", () => {
+  it("keeps the socket when the first id loads and rebuilds it on a new id", () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () => ({ status: 200, ok: true, text: async () => JSON.stringify(envelope(5)) }) as Response,
+    );
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    );
+    const before = hub.stopped;
+    const { rerender } = renderHook(
+      ({ who }: { who: string }) => useSession("sess-1", true, undefined, who),
+      { wrapper, initialProps: { who: "" } },
+    );
+    rerender({ who: "u1" });
+    expect(hub.stopped).toBe(before);
+    rerender({ who: "u2" });
+    expect(hub.stopped).toBe(before + 1);
   });
 });

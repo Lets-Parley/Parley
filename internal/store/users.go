@@ -39,8 +39,9 @@ func (e *IdentityRateLimitError) Error() string { return ErrIdentityRateLimited.
 func (e *IdentityRateLimitError) Unwrap() error { return ErrIdentityRateLimited }
 
 type User struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	NotificationSounds bool   `json:"-"`
 	// Issuer is empty for an anonymous account and names the identity provider
 	// for a federated one.
 	Issuer string `json:"-"`
@@ -204,9 +205,9 @@ func (s *Users) UpsertFederated(ctx context.Context, issuer, subject, name strin
 		insert into users (name, issuer, subject) values ($1, $2, $3)
 		on conflict (issuer, subject) where issuer <> ''
 		do update set name = excluded.name
-		returning id, name, avatar_icon`,
+		returning id, name, avatar_icon, notification_sounds`,
 		name, issuer, subject,
-	).Scan(&u.ID, &u.Name, &u.AvatarIcon); err != nil {
+	).Scan(&u.ID, &u.Name, &u.AvatarIcon, &u.NotificationSounds); err != nil {
 		return User{}, err
 	}
 	if _, err := tx.Exec(ctx,
@@ -248,6 +249,7 @@ const resolveTokenColumns = `user_id,
 	          (select issuer from users where id = user_id),
 	          (select subject from users where id = user_id),
 	          (select avatar_icon from users where id = user_id),
+	          (select notification_sounds from users where id = user_id),
 	          ` + linkSessionExpr + `,
 	          ` + tokenExpiryExpr
 
@@ -275,7 +277,7 @@ func (s *Users) ResolveToken(ctx context.Context, tokenHash []byte, touch bool) 
 	var u User
 	var expiresAt time.Time
 	err := s.Pool.QueryRow(ctx, sql, tokenHash, s.idleTTL(), s.maxTTL()).
-		Scan(&u.ID, &u.Name, &u.Issuer, &u.Subject, &u.AvatarIcon, &u.LinkSessionID, &expiresAt)
+		Scan(&u.ID, &u.Name, &u.Issuer, &u.Subject, &u.AvatarIcon, &u.NotificationSounds, &u.LinkSessionID, &expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return TokenSession{}, ErrNoUser
 	}
@@ -409,9 +411,9 @@ func (s *Users) Rename(ctx context.Context, userID, name string, oldTokenHash, n
 
 	var u User
 	if err := tx.QueryRow(ctx,
-		"update users set name = $2 where id = $1 returning id, name, avatar_icon",
+		"update users set name = $2 where id = $1 returning id, name, avatar_icon, notification_sounds",
 		userID, name,
-	).Scan(&u.ID, &u.Name, &u.AvatarIcon); err != nil {
+	).Scan(&u.ID, &u.Name, &u.AvatarIcon, &u.NotificationSounds); err != nil {
 		return User{}, err
 	}
 	if _, err := tx.Exec(ctx, `
@@ -425,6 +427,11 @@ func (s *Users) Rename(ctx context.Context, userID, name string, oldTokenHash, n
 		return User{}, err
 	}
 	return u, tx.Commit(ctx)
+}
+
+func (s *Users) SetNotificationSounds(ctx context.Context, userID string, enabled bool) error {
+	_, err := s.Pool.Exec(ctx, "update users set notification_sounds = $2 where id = $1", userID, enabled)
+	return err
 }
 
 // SetAvatar stores the chosen icon and reports whether the row actually

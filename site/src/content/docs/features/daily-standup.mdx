@@ -11,10 +11,23 @@ import roundDark from "../../../assets/standup-round-dark.png";
 import blockersLight from "../../../assets/blockers-roundup-light.png";
 import blockersDark from "../../../assets/blockers-roundup-dark.png";
 
-<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "internal/standup/kudos.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx"]} />
+<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "internal/standup/kudos.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx"]} />
 
 A standup session is three text fields per person — yesterday, today, blockers —
 and an order to speak in.
+
+## Notification sounds
+
+Notification sounds are off by default. Turn them on from **Your profile** or
+the **Sounds off** button in a standup room; both controls save the same account
+preference. Distinct cues mark the start of the round, the start of your own
+turn, and the finish. Ending a standup early also plays the finish cue. The cue
+still plays while the tab is in the background.
+
+Browsers may require one interaction before allowing audio. If that happens,
+the preference remains on and the room offers **Enable audio in this tab**.
+Muted rooms keep following live state without replaying missed cues when sound
+is enabled again. Signed-link guests do not have this account setting.
 
 ## Writing ahead
 
@@ -193,5 +206,5 @@ If nobody thanked anybody, the panel simply does not appear.
   { name: "Async standup", status: "not-built", detail: "Write ahead of time and let the round run without you; a scheduled digest is on the <a href='/project/roadmap/'>roadmap</a>." },
   { name: "Reordering the speaking order", status: "not-built", detail: "Fixed once the round starts. Skip moves past anyone who is not ready." },
   { name: "Editing a kudo", status: "not-built", detail: "The sender can withdraw one from the space's wall. Nobody can rewrite text somebody has already read." },
-  { name: "Chasing people who did not write anything", status: "out-of-scope", detail: "Parley has no notification channel and does not want one." },
+  { name: "Chasing people who did not write anything", status: "out-of-scope", detail: "Parley does not send reminder notifications." },
 ]} />

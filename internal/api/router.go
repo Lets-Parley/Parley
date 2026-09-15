@@ -461,6 +461,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		// avatar is not choosing a name, so the provider owning names in OIDC
 		// mode does not reach it. It answers 401 itself.
 		r.With(rejectLinkPrincipal).Patch("/me/avatar", a.handlePatchMeAvatar)
+		r.With(rejectLinkPrincipal).Patch("/me/settings", a.handlePatchMeSettings)
 
 		r.Group(func(r chi.Router) {
 			r.Use(RequireUser)

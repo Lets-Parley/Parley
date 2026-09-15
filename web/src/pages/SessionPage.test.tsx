@@ -8,6 +8,8 @@ import { createPluginBridge } from "../lib/pluginBridge";
 import type { Envelope, Me } from "../lib/api";
 import { SessionPage } from "./SessionPage";
 import { rememberOpenSession } from "../lib/sessionMemory";
+import { useSession } from "../lib/useSession";
+import { notificationAudio } from "../lib/notificationAudio";
 
 const me: Me = { id: "marcus", name: "Marcus Okonjo", avatarHue: 40 };
 
@@ -89,6 +91,14 @@ let mockSpaceMembers: {
   at?: { sessionId: string; title: string };
 }[] = [];
 
+vi.mock("../lib/notificationAudio", () => ({
+  notificationAudio: {
+    activate: vi.fn(async () => true),
+    play: vi.fn(async () => true),
+    stop: vi.fn(),
+  },
+}));
+
 // What GET /api/me answers. Swapped per-case: a link guest whose storage is
 // gone recovers its identity from exactly this route.
 let apiMeResponse: Me = me;
@@ -114,7 +124,7 @@ let mockSessionError = false;
 let mockSessionHasData = true;
 
 vi.mock("../lib/useSession", () => ({
-  useSession: () => ({
+  useSession: vi.fn(() => ({
     data: !mockSessionHasData
       ? undefined
       : (mockData ??
@@ -129,7 +139,7 @@ vi.mock("../lib/useSession", () => ({
     isError: mockSessionError,
     status: "stale",
     refetch: () => {},
-  }),
+  })),
 }));
 
 beforeEach(() => {
@@ -146,6 +156,7 @@ beforeEach(() => {
   sessionStorage.clear();
   vi.mocked(createPluginBridge).mockClear();
   vi.mocked(action).mockClear();
+  vi.mocked(notificationAudio.play).mockClear();
   // The expired-session case swaps api's implementation; put the default back
   // so later cases are not stranded behind a closed-over signedIn=false.
   vi.mocked(api).mockImplementation(async (_method: string, path: string) => {
@@ -160,6 +171,56 @@ beforeEach(() => {
 });
 
 describe("SessionPage wiring", () => {
+  it("plays classified transitions while the tab is hidden", async () => {
+    apiMeResponse = { ...me, notificationSounds: true };
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    renderApp(<SessionPage />);
+    await screen.findByRole("button", { name: "Mute notification sounds" });
+    const onTransition = vi.mocked(useSession).mock.calls.at(-1)?.[2];
+    expect(onTransition).toBeTypeOf("function");
+    onTransition?.(
+      envelope,
+      {
+        ...envelope,
+        version: 2,
+        state: { ...envelope.state, currentSpeakerId: "marcus" },
+      } as unknown as Envelope,
+    );
+    await waitFor(() => expect(notificationAudio.play).toHaveBeenCalledWith("standup-turn"));
+  });
+
+  it("puts the saved sound preference in the header for built-in sessions", async () => {
+    renderApp(<SessionPage />);
+    const button = await screen.findByRole("button", { name: "Unmute notification sounds" });
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    await userEvent.click(button);
+    await waitFor(() =>
+      expect(vi.mocked(api)).toHaveBeenCalledWith("PATCH", "/api/me/settings", {
+        notificationSounds: true,
+      }),
+    );
+  });
+
+  it("restores the saved header state and reports a failed change", async () => {
+    vi.mocked(api).mockImplementation(async (method: string, path: string) => {
+      if (method === "PATCH" && path === "/api/me/settings") {
+        throw new ApiError(500, "settings failed");
+      }
+      if (path === "/api/me") return apiMeResponse;
+      if (path === "/api/auth") return { mode: "open" };
+      if (path.startsWith("/api/orgs/acme/spaces/")) {
+        return { name: "Platform Team", members: [], sessions: [] };
+      }
+      throw new Error(`unexpected api call: ${path}`);
+    });
+    renderApp(<SessionPage />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Unmute notification sounds" }),
+    );
+    expect(await screen.findByText("settings failed")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Unmute notification sounds" })).toBeTruthy();
+  });
+
   // The sidebar's space lookup is org-scoped now, and the org comes from the
   // socket envelope. Pin the URL it is actually asked for: a slug on its own
   // addresses nothing.

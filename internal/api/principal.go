@@ -49,10 +49,12 @@ func resolvePrincipal(users *store.Users, federatedOnly bool) func(http.Handler)
 						if !federatedOnly || sess.User.Issuer != "" || sess.User.LinkSessionID != "" {
 							r = r.WithContext(principal.With(r.Context(), Principal{
 								UserID: sess.User.ID, Display: sess.User.Name,
-								TokenID: string(hash), TokenExpiresAt: sess.ExpiresAt,
-								AvatarIcon:    sess.User.AvatarIcon,
-								LinkSessionID: sess.User.LinkSessionID,
-								Subject:       sess.User.Subject,
+								TokenID:            string(hash),
+								TokenExpiresAt:     sess.ExpiresAt,
+								AvatarIcon:         sess.User.AvatarIcon,
+								NotificationSounds: sess.User.NotificationSounds,
+								LinkSessionID:      sess.User.LinkSessionID,
+								Subject:            sess.User.Subject,
 							}))
 						}
 					}

@@ -68,6 +68,7 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	"GET /plugin-ui/{name}/{version}": {status: http.StatusNotFound},
 	"DELETE /api/me":                  {status: http.StatusNoContent},
 	"PATCH /api/me/avatar":            {status: http.StatusForbidden},
+	"PATCH /api/me/settings":          {status: http.StatusForbidden},
 
 	// The legacy space-link shim. A link guest belongs to no org, so there is
 	// nothing for it to resolve against — and resolving it against somebody

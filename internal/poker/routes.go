@@ -272,7 +272,8 @@ func selectStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
 		func(tx pgx.Tx, sess store.Session) error {
 			tag, err := tx.Exec(r.Context(), `
-				update sessions set current_story_id = $2, revealed = false, version = version + 1
+				update sessions set current_story_id = $2, revealed = false,
+				poker_round_version = poker_round_version + 1, version = version + 1
 				where id = $1 and exists (select 1 from stories where id = $2 and session_id = $1)`,
 				ac.Session.ID, body.StoryID)
 			if err != nil {
@@ -733,7 +734,7 @@ func reset(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 				"delete from votes where story_id = (select current_story_id from sessions where id = $1)", ac.Session.ID); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(r.Context(), "update sessions set revealed = false, version = version + 1 where id = $1", ac.Session.ID); err != nil {
+			if _, err := tx.Exec(r.Context(), "update sessions set revealed = false, poker_round_version = poker_round_version + 1, version = version + 1 where id = $1", ac.Session.ID); err != nil {
 				return err
 			}
 			var cfg Config

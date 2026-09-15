@@ -35,12 +35,16 @@ func TestLinkGuestCanReadOwnIdentity(t *testing.T) {
 	// other session. Any field added here must be one the guest already sees.
 	allowed := map[string]bool{
 		"id": true, "name": true, "avatarHue": true, "avatarIcon": true,
-		"linkSessionId": true, "linkExpiresAt": true,
+		"notificationSounds": true,
+		"linkSessionId":      true, "linkExpiresAt": true,
 	}
 	for k := range body {
 		if !allowed[k] {
 			t.Errorf("GET /api/me leaks %q to a link guest", k)
 		}
+	}
+	if body["notificationSounds"] != false {
+		t.Errorf("notificationSounds = %v, want false for a link guest", body["notificationSounds"])
 	}
 }
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { action, api, type Me, type SpaceView } from "../lib/api";
@@ -12,6 +12,9 @@ import { getKind } from "../lib/kinds";
 import { spaceApi } from "../lib/paths";
 import { PluginPanel } from "../components/PluginPanel";
 import { PluginChrome } from "../components/PluginChrome";
+import { NotificationSoundButton } from "../components/NotificationSoundButton";
+import { notificationAudio } from "../lib/notificationAudio";
+import { notificationCue } from "../lib/notifications";
 
 /** Drop member-only fields after an identity remint — see SpacePage. */
 function strangerSpace(prev: SpaceView): SpaceView {
@@ -44,7 +47,23 @@ export function SessionPage() {
   // browser keeps. What the guest already said — votes, standup entries, CSV
   // attribution — stays in the room.
   const [left, setLeft] = useState(false);
-  const session = useSession(id, !left);
+  const liveIdentity = guest?.me ?? me.data ?? null;
+  const [audioBlocked, setAudioBlocked] = useState(false);
+  const onTransition = useCallback(
+    (previous: import("../lib/api").Envelope, next: import("../lib/api").Envelope) => {
+      if (!liveIdentity?.notificationSounds) return;
+      const cue = notificationCue(previous, next, liveIdentity.id);
+      if (cue) {
+        void notificationAudio.play(cue).then((ready) => setAudioBlocked(!ready));
+      }
+    },
+    [liveIdentity],
+  );
+  const session = useSession(id, !left, onTransition, liveIdentity?.id ?? "");
+  useEffect(() => {
+    if (!liveIdentity?.notificationSounds || left) notificationAudio.stop();
+    return () => notificationAudio.stop();
+  }, [id, liveIdentity?.id, liveIdentity?.notificationSounds, left]);
   const slug = session.data?.spaceSlug;
   const org = session.data?.orgSlug;
   const [linksOpen, setLinksOpen] = useState(false);
@@ -75,7 +94,6 @@ export function SessionPage() {
     retry: false,
   });
 
-  const liveIdentity = guest?.me ?? me.data ?? null;
   // Hold the last known seat across a mid-room 401 so the expired-session
   // NameGate can overlay the room instead of unmounting half-typed standup
   // text or an estimate in progress. Adjusting state during render is the
@@ -191,6 +209,13 @@ export function SessionPage() {
         navExtra={!guest && env.orgSlug ? <PluginChrome slot="nav" orgSlug={env.orgSlug} /> : null}
         actions={
           <>
+            {(env.kind === "poker" || env.kind === "standup") && !guest && (
+              <NotificationSoundButton
+                me={identity}
+                blocked={audioBlocked}
+                onBlockedChange={setAudioBlocked}
+              />
+            )}
             <PluginChrome slot="toolbar" env={env} />
             {!Room && <PluginChrome slot="export-menu" env={env} />}
             {isFacilitator && (

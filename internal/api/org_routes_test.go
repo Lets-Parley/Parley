@@ -269,6 +269,7 @@ var routeScoping = map[string]string{
 	"GET /plugin-ui/{name}/{version}": "non-slug",
 	"DELETE /api/me":                  "non-slug",
 	"PATCH /api/me/avatar":            "non-slug",
+	"PATCH /api/me/settings":          "non-slug",
 
 	// Cross-org by definition: they answer which orgs and spaces a cookie
 	// reaches, so they cannot name an org first.

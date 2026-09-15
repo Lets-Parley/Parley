@@ -79,6 +79,8 @@ export type Me = {
   name: string;
   avatarHue: number;
   avatarIcon?: string;
+  /** Saved preference; absent on older servers means disabled. */
+  notificationSounds?: boolean;
   /**
    * Set only for a link guest: the one room this identity may take part in,
    * and when its seat runs out. Absent for an ordinary account, so their
