@@ -14,6 +14,7 @@ import { PluginPanel } from "../components/PluginPanel";
 import { PluginChrome } from "../components/PluginChrome";
 import { NotificationSoundButton } from "../components/NotificationSoundButton";
 import { notificationAudio } from "../lib/notificationAudio";
+import { useImpactSounds } from "../lib/useImpactSounds";
 import { notificationCue } from "../lib/notifications";
 
 /** Drop member-only fields after an identity remint — see SpacePage. */
@@ -61,13 +62,10 @@ export function SessionPage() {
   );
   const session = useSession(id, !left, onTransition, liveIdentity?.id ?? "");
   useEffect(() => {
-    notificationAudio.enabled = !!liveIdentity?.notificationSounds && !left;
-    if (!notificationAudio.enabled) notificationAudio.stop();
-    return () => {
-      notificationAudio.enabled = false;
-      notificationAudio.stop();
-    };
+    if (!liveIdentity?.notificationSounds || left) notificationAudio.stop();
+    return () => notificationAudio.stop();
   }, [id, liveIdentity?.id, liveIdentity?.notificationSounds, left]);
+  useImpactSounds(!!liveIdentity?.notificationSounds && !left);
   const slug = session.data?.spaceSlug;
   const org = session.data?.orgSlug;
   const [linksOpen, setLinksOpen] = useState(false);
