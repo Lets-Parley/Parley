@@ -102,6 +102,23 @@ boring.
 - Tracking: [#391](https://github.com/lets-parley/parley/issues/391), under [#378](https://github.com/lets-parley/parley/issues/378)
 
 
+### Async standup
+
+A standup that opens on a schedule, in the team's timezone, and stays open for a
+window instead of a meeting. Each person answers when they can. Blockers come
+first in what everyone reads, and yesterday's commitments come back as done,
+still on it, or dropped.
+
+It carries the honest-ceremonies rule over. An open standup shows who has
+answered. Across days, a team sees only its own aggregate trend, and only once
+at least four people are counted. There is no per-person rate, no late badge
+and no nagging. People hear that a standup is open through a calendar feed and
+a signed webhook, not email.
+
+- Status: Backlog
+- Tracking: [#388](https://github.com/lets-parley/parley/issues/388)
+
+
 ## Later
 
 Accepted direction, not currently scheduled.
@@ -173,7 +190,7 @@ and the less-used one quietly rots.
 ### The rest of the ceremonies
 
 Retrospectives with grouping and dot voting, action items that outlive the
-meeting, user story mapping, a sprint board, async standups, team health checks.
+meeting, user story mapping, a sprint board, team health checks.
 The meetings a delivery team already runs, in the tool they already have open.
 
 Some of these will arrive as plugins rather than core features, which is rather
@@ -229,8 +246,6 @@ Ideas under consideration, not committed to.
   ([#385](https://github.com/lets-parley/parley/issues/385))
 - Reactions and comments on a standup entry or a story — cheap once the storage
   boundary exists, and worth little before it ([#387](https://github.com/lets-parley/parley/issues/387))
-- Async standup: a window instead of a meeting. The live clock is the wedge,
-  and this is the version with the clock taken out ([#388](https://github.com/lets-parley/parley/issues/388))
 
 ## Completed
 
