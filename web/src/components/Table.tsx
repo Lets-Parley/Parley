@@ -30,6 +30,7 @@ import { useRosterDelta } from "../lib/rosterDelta";
 import type { ConnectionStatus } from "../lib/socket";
 import { Avatar } from "./Avatar";
 import { avatarSizes } from "../lib/avatar";
+import { notificationAudio } from "../lib/notificationAudio";
 
 const ROTATIONS = [-2, 3, -1, 2, -3, 1, 2];
 
@@ -232,6 +233,16 @@ function Burst({ pair, beat }: { pair: number; beat: number }) {
   );
 }
 
+/**
+ * When the overlay's animations actually began, on the page clock — the
+ * frame timeline's time, not the moment `animate()` returned, which is what
+ * timing sound from the call gets wrong. Undefined where nothing is animating.
+ */
+function animationStart(layer: HTMLElement): Promise<number> | undefined {
+  const first = layer.firstElementChild?.getAnimations?.()[0];
+  return first?.ready.then((a) => Number(a.startTime ?? performance.now()));
+}
+
 export function Table({
   seated,
   spectators,
@@ -346,7 +357,20 @@ export function Table({
     ).filter((el) => el !== target);
     const geometry = measurePileOn({ layer, throwers, target, emojiRadius: EMOJI_RADIUS });
     if (!geometry) return;
-    return playPileOn(layer, planPileOn(geometry));
+    let seed = 0;
+    for (const ch of outlier) seed = (seed * 31 + ch.charCodeAt(0)) | 0;
+    const plan = planPileOn(geometry, seed);
+    const stopMotion = playPileOn(layer, plan);
+    // Heard only by viewers with sounds on; a seat change mid-reveal replays
+    // the volley, and its sound with it.
+    const stopSound = notificationAudio.hits(
+      plan.throws.map((t) => ({ emoji: t.emoji, atMs: t.delayMs + t.impactMs })),
+      animationStart(layer),
+    );
+    return () => {
+      stopMotion();
+      stopSound();
+    };
   }, [outlier, reduced, onTable.length]);
 
   // The kick. Everything is solved before a node exists, and the row is gated
@@ -378,13 +402,21 @@ export function Table({
       close();
       return;
     }
-    return playKick(layer, plan, seat, {
+    const stopMotion = playKick(layer, plan, seat, {
       onContact: () => setFlying(victim),
       onExit: () => {
         setFlying(null);
         close();
       },
     });
+    const stopSound = notificationAudio.hits(
+      [{ emoji: "🥾", atMs: plan.impactMs }],
+      animationStart(layer),
+    );
+    return () => {
+      stopMotion();
+      stopSound();
+    };
     // Keyed on the sequence number: the same person removed twice is two kicks.
   }, [kickSeq, victim, reduced]);
 

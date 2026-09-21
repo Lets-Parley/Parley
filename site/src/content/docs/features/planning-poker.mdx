@@ -16,7 +16,7 @@ import createDark from "../../../assets/create-session-dark.png";
 import tshirtLight from "../../../assets/tshirt-results-light.png";
 import tshirtDark from "../../../assets/tshirt-results-dark.png";
 
-<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx"]} />
+<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
 
 A poker session is a queue of work and a table of people. The facilitator puts
 one item on the table, everybody votes face-down, and the round opens when the
@@ -29,6 +29,12 @@ the **Sounds off** button in a poker room; both controls save the same account
 preference. A rising two-note cue marks a selected or reset story, and a higher
 two-note cue marks a manual or automatic reveal. The cue still plays while the
 tab is in the background.
+
+When a reveal sends a volley of emoji at the one dissenting voter, each throw
+makes a sound as it lands: food squashes, bread thumps, and everything else
+pops. Removing someone from the table thumps as the boot connects. Impact
+sounds follow the animation, so they are skipped under reduced
+motion and while the tab is in the background.
 
 Browsers may require one interaction before allowing audio. If that happens,
 the preference remains on and the room offers **Enable audio in this tab**.

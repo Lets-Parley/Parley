@@ -61,8 +61,12 @@ export function SessionPage() {
   );
   const session = useSession(id, !left, onTransition, liveIdentity?.id ?? "");
   useEffect(() => {
-    if (!liveIdentity?.notificationSounds || left) notificationAudio.stop();
-    return () => notificationAudio.stop();
+    notificationAudio.enabled = !!liveIdentity?.notificationSounds && !left;
+    if (!notificationAudio.enabled) notificationAudio.stop();
+    return () => {
+      notificationAudio.enabled = false;
+      notificationAudio.stop();
+    };
   }, [id, liveIdentity?.id, liveIdentity?.notificationSounds, left]);
   const slug = session.data?.spaceSlug;
   const org = session.data?.orgSlug;
