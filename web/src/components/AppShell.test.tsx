@@ -3,6 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useQuery } from "@tanstack/react-query";
 import { AppShell, BuildStamp, ConnectionDot, Logo } from "./AppShell";
+import { TOUCH_HIT, TOUCH_TARGET_MIN } from "../lib/breakpoints";
 import { Avatar } from "./Avatar";
 import { makePerson, renderApp } from "../test/render";
 import { api, type Me } from "../lib/api";
@@ -238,6 +239,18 @@ describe("what the sidebar admits it is hiding", () => {
 });
 
 describe("what the header says the screen is", () => {
+  it("sizes the home mark to the sidebar toggle's box", () => {
+    stubAuthMode("open");
+    renderShell();
+    const header = within(document.querySelector("header")!);
+    const home = header.getByRole("link", { name: "Parley home" });
+    const img = home.querySelector("img")!;
+    expect(img.getAttribute("width")).toBe(String(TOUCH_TARGET_MIN));
+    expect(img.getAttribute("height")).toBe(String(TOUCH_TARGET_MIN));
+    const toggle = header.getByRole("button", { name: "Toggle sidebar" });
+    expect(toggle.className).toContain(TOUCH_HIT);
+  });
+
   it("puts the room first when there is one, and the space under it", () => {
     stubAuthMode("open");
     renderShell({ title: "Checkout rewrite" });
