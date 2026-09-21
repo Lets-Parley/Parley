@@ -370,7 +370,7 @@ export function AppShell({
             screen the header's job is to say which round the room is in — not
             whose software it is. The wordmark keeps the way home as a mark. */}
         <Link to="/" aria-label="Parley home" className="flex shrink-0 items-center">
-          <Logo size={18} />
+          <Logo size={44} />
         </Link>
 
         <span className="hidden h-5 w-px bg-line sm:block" />
