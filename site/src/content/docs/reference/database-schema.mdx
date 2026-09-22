@@ -355,7 +355,10 @@ sees, stable across every retry. `unique (session_id, event)` is the
 cross-replica guard: every replica's sweep inserts, one row survives. A claim
 takes `for update skip locked` plus a two-minute `lease_until`; `attempts`,
 `next_attempt_at`, `delivered_at`, `failed_at` and `last_error` record the
-retries. `session_id` cascades, so deleting a room drops its undelivered events.
+retries. The same sweep deletes a delivered or failed row 30 days after it
+reached that state, in one statement, so the outbox does not grow without
+bound. A row still waiting to be sent is kept. `session_id` cascades, so
+deleting a room drops its undelivered events.
 
 ### standup_commitments
 

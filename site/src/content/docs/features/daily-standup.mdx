@@ -293,7 +293,9 @@ space and the room's URL. **No update, blocker or name is ever sent.**
 ```
 
 `X-Parley-Signature` is `sha256=` and the hex HMAC-SHA256 of the raw body, keyed
-by the secret; compare it in constant time before trusting the body.
+by the secret; compare it in constant time before trusting the body. The
+signature covers no timestamp, so a captured delivery can be replayed later
+and still verify. Dedupe on the event id; that replay is not prevented.
 `X-Parley-Event` and `X-Parley-Event-Id` repeat the event and its id.
 
 Delivery is **at least once**. A non-2xx answer or a network error is retried
@@ -304,8 +306,9 @@ is recorded exactly once however many replicas run. The sweep looks back one
 day: an event older than that when no replica was running is not sent.
 
 Every delivery goes through the same guard as a plugin's outbound fetch: https
-only, the host on the allowlist, resolved once, every address screened, the
-screened address dialled, and the whole sequence repeated for each redirect. An
+only, the host on the allowlist, resolved once, every address screened, and the
+screened address dialled. A redirect is not followed. Any 3xx is a failed
+attempt and is retried on the same schedule as any other failure. An
 allowlisted name that resolves to a private, loopback or metadata address is
 refused. See [Plugin sandbox](/security/plugin-sandbox/).
 

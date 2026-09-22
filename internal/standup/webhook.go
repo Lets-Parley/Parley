@@ -26,6 +26,19 @@ const WebhookMaxAttempts = 5
 // that fell out of the window rather than delivering a day-old backlog.
 const webhookLookback = "1 day"
 
+// webhookLease is how long a claim holds the rows it took. webhookClaimLimit
+// is how many of those rows one pass delivers, serially, each allowed to run
+// as long as the plugin fetch timeout. The batch has to finish inside the
+// lease; TestWebhookClaimBatchFitsInsideTheLease is what keeps that true.
+const (
+	webhookLease      = 2 * time.Minute
+	webhookClaimLimit = 5
+	// webhookRetention is how long a delivered or failed outbox row is kept.
+	// The sweep deletes it in one statement after that. A row still waiting
+	// to be sent is left alone.
+	webhookRetention = 30 * 24 * time.Hour
+)
+
 // webhookPayload is the whole of what leaves the instance: which event,
 // which space, where the room is, and the event id. No entry, blocker or
 // participant text is ever part of it.
@@ -145,17 +158,18 @@ type claimedDelivery struct {
 // row lock, because the lock is released at commit and without the lease a
 // second replica would pick up a row that is still being sent.
 func (w *Webhooks) Deliver(ctx context.Context) error {
-	rows, err := w.Pool.Query(ctx, `
+	rows, err := w.Pool.Query(ctx, fmt.Sprintf(`
 		update standup_webhook_deliveries d
-		set lease_until = now() + interval '2 minutes', attempts = attempts + 1
+		set lease_until = now() + make_interval(secs => %d), attempts = attempts + 1
 		where d.id in (
 			select id from standup_webhook_deliveries
 			where delivered_at is null and failed_at is null and next_attempt_at <= now()
 			  and (lease_until is null or lease_until < now())
 			order by next_attempt_at
-			limit 20
+			limit %d
 			for update skip locked)
-		returning d.id::text, d.event, d.session_id::text, d.space_id::text, d.attempts`)
+		returning d.id::text, d.event, d.session_id::text, d.space_id::text, d.attempts`,
+		int(webhookLease.Seconds()), webhookClaimLimit))
 	if err != nil {
 		return fmt.Errorf("claiming standup webhook deliveries: %w", err)
 	}
@@ -263,8 +277,26 @@ func (w *Webhooks) Run(ctx context.Context, every time.Duration) {
 	}
 }
 
+// prune drops delivered and failed rows once they are older than
+// webhookRetention. One statement: the outbox is small, and a second pass
+// is the next sweep.
+func (w *Webhooks) prune(ctx context.Context) error {
+	secs := int(webhookRetention.Seconds())
+	_, err := w.Pool.Exec(ctx, `
+		delete from standup_webhook_deliveries
+		where delivered_at < now() - make_interval(secs => $1)
+		   or failed_at < now() - make_interval(secs => $1)`, secs)
+	if err != nil {
+		return fmt.Errorf("forgetting old standup webhook deliveries: %w", err)
+	}
+	return nil
+}
+
 func (w *Webhooks) pass(ctx context.Context) {
 	defer recovery.Handle("standup webhooks")
+	if err := w.prune(ctx); err != nil && ctx.Err() == nil {
+		slog.Error("standup webhook sweep failed", "error", err)
+	}
 	if err := w.Enqueue(ctx); err != nil && ctx.Err() == nil {
 		slog.Error("standup webhook sweep failed", "error", err)
 	}

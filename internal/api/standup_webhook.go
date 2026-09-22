@@ -14,20 +14,24 @@ import (
 
 // guardedWebhookSend posts a delivery through the plugin fetch guard: https
 // only, the host on the operator's STANDUP_WEBHOOK_HOSTS, resolved once,
-// every record screened, the screened address dialled, on every redirect hop.
+// every record screened, the screened address dialled. A redirect is not
+// followed; the 3xx is the attempt's result.
 func guardedWebhookSend(f *plugin.Fetcher, hosts []string) func(context.Context, string, map[string]string, []byte) (int, error) {
 	return func(ctx context.Context, u string, headers map[string]string, body []byte) (int, error) {
-		resp, err := f.Do(ctx, hosts, plugin.FetchRequest{Method: http.MethodPost, URL: u, Headers: headers, Body: body}, false)
-		if err != nil {
-			return 0, err
-		}
-		return resp.Status, nil
+		return f.PostNoFollow(ctx, hosts, u, headers, body)
 	}
 }
 
+func (a *app) webhookUnconfigured(w http.ResponseWriter) bool {
+	if a.webhooks != nil {
+		return false
+	}
+	http.Error(w, `{"error":"standup webhooks need PLUGIN_SECRET_KEY set on this instance, so the signing secret can be stored encrypted"}`, http.StatusServiceUnavailable)
+	return true
+}
+
 func (a *app) handleGetStandupWebhook(w http.ResponseWriter, r *http.Request) {
-	if a.webhooks == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"url": nil})
+	if a.webhookUnconfigured(w) {
 		return
 	}
 	u, ok, err := a.webhooks.Get(r.Context(), spaceFrom(r.Context()).ID)
@@ -45,8 +49,7 @@ func (a *app) handleGetStandupWebhook(w http.ResponseWriter, r *http.Request) {
 // handlePutStandupWebhook sets the space's webhook and mints a new signing
 // secret. The secret is in this response and nowhere else, ever.
 func (a *app) handlePutStandupWebhook(w http.ResponseWriter, r *http.Request) {
-	if a.webhooks == nil {
-		http.Error(w, `{"error":"standup webhooks need PLUGIN_SECRET_KEY set on this instance, so the signing secret can be stored encrypted"}`, http.StatusServiceUnavailable)
+	if a.webhookUnconfigured(w) {
 		return
 	}
 	var in struct {
@@ -88,11 +91,12 @@ func (a *app) handlePutStandupWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleDeleteStandupWebhook(w http.ResponseWriter, r *http.Request) {
-	if a.webhooks != nil {
-		if err := a.webhooks.Delete(r.Context(), spaceFrom(r.Context()).ID); err != nil {
-			http.Error(w, `{"error":"could not remove the standup webhook"}`, http.StatusInternalServerError)
-			return
-		}
+	if a.webhookUnconfigured(w) {
+		return
+	}
+	if err := a.webhooks.Delete(r.Context(), spaceFrom(r.Context()).ID); err != nil {
+		http.Error(w, `{"error":"could not remove the standup webhook"}`, http.StatusInternalServerError)
+		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

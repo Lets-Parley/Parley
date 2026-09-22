@@ -35,6 +35,22 @@ func webhookTestServer(t *testing.T) (*http.Cookie, *http.Cookie, string, func(m
 	}
 }
 
+func TestStandupWebhookWithoutASecretKeyAnswers503(t *testing.T) {
+	pool := testPool(t)
+	srv := testServerWith(t, pool, Options{
+		AllowedOrigin:       "http://example.test",
+		Plugins:             &plugin.Store{Pool: pool},
+		StandupWebhookHosts: []string{"hooks.example.com"},
+	})
+	owner, _, slug := deckSpace(t, srv)
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+		resp, body := doJSON(t, srv, method, webhookURL(slug), `{"url":"https://hooks.example.com/in"}`, owner)
+		if resp.StatusCode != http.StatusServiceUnavailable {
+			t.Errorf("%s: got %d %v, want 503", method, resp.StatusCode, body)
+		}
+	}
+}
+
 func TestOwnerConfiguresTheStandupWebhookAndSeesTheSecretOnce(t *testing.T) {
 	owner, _, _, do := webhookTestServer(t)
 	resp, body := do(http.MethodPut, `{"url":"https://hooks.example.com/in"}`, owner)

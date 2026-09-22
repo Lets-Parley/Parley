@@ -6,6 +6,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/lets-parley/parley/internal/plugin"
 )
 
 // The expected hex was computed outside Go, with
@@ -110,6 +112,80 @@ func TestADuplicateDeliveryCarriesTheSameEventID(t *testing.T) {
 	// Delivered: nothing more goes out.
 	if err := w.Deliver(ctx); err != nil || len(got) != 2 {
 		t.Fatalf("delivered event was sent again: %d %v", len(got), err)
+	}
+}
+
+// A claim leases every row in the batch, then delivers them one at a time,
+// each allowed to wait as long as the plugin fetch timeout. The product of
+// those two has to finish with a timeout to spare, or a hanging receiver
+// lets the lease lapse while rows from this batch are still in flight and
+// another replica claims them again.
+func TestWebhookClaimBatchFitsInsideTheLease(t *testing.T) {
+	if webhookClaimLimit < 1 || webhookLease <= 0 {
+		t.Fatalf("claim limit %d lease %s", webhookClaimLimit, webhookLease)
+	}
+	budget := time.Duration(webhookClaimLimit) * plugin.DefaultFetchTimeout
+	if budget >= webhookLease || webhookLease-budget <= plugin.DefaultFetchTimeout {
+		t.Fatalf("claiming %d deliveries at %s each takes %s, which is not comfortably inside the %s lease",
+			webhookClaimLimit, plugin.DefaultFetchTimeout, budget, webhookLease)
+	}
+}
+
+// Delivered and failed rows leave the outbox 30 days after they reached that
+// state. A row still waiting, and one delivered more recently, stay.
+func TestOldWebhookDeliveriesAreForgotten(t *testing.T) {
+	w, sessID := webhookFixture(t, func(context.Context, string, map[string]string, []byte) (int, error) {
+		return 204, nil
+	})
+	ctx := context.Background()
+	var spaceID, facilitator string
+	if err := w.Pool.QueryRow(ctx, "select space_id::text, facilitator_id::text from sessions where id = $1", sessID).Scan(&spaceID, &facilitator); err != nil {
+		t.Fatal(err)
+	}
+	insertSession := func() string {
+		t.Helper()
+		var id string
+		if err := w.Pool.QueryRow(ctx, `
+			insert into sessions (space_id, kind, title, config, facilitator_id)
+			values ($1, 'standup', 'Older', '{}', $2) returning id::text`, spaceID, facilitator).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	done := insertSession()
+	waiting := insertSession()
+	insert := func(session, event, column, age, marker string) {
+		t.Helper()
+		q := `insert into standup_webhook_deliveries (space_id, session_id, event, attempts, last_error, ` + column + `)
+			values ($1, $2, $3, 1, $4, now() - interval '` + age + `')`
+		if _, err := w.Pool.Exec(ctx, q, spaceID, session, event, marker); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert(done, "standup.opened", "delivered_at", "31 days", "old-delivered")
+	insert(done, "standup.closed", "failed_at", "31 days", "old-failed")
+	insert(done, "standup.ended", "delivered_at", "29 days", "recent-delivered")
+	if _, err := w.Pool.Exec(ctx, `
+		insert into standup_webhook_deliveries (space_id, session_id, event, next_attempt_at, last_error, created_at)
+		values ($1, $2, 'standup.opened', now() + interval '1 day', 'still-waiting', now() - interval '40 days')`,
+		spaceID, waiting); err != nil {
+		t.Fatal(err)
+	}
+	if webhookRetention != 30*24*time.Hour {
+		t.Fatalf("retention is %s, want 30 days", webhookRetention)
+	}
+	w.pass(ctx)
+	var oldN, recentN, waitingN int
+	if err := w.Pool.QueryRow(ctx, `
+		select
+			count(*) filter (where last_error in ('old-delivered', 'old-failed')),
+			count(*) filter (where last_error = 'recent-delivered'),
+			count(*) filter (where last_error = 'still-waiting' and delivered_at is null and failed_at is null)
+		from standup_webhook_deliveries`).Scan(&oldN, &recentN, &waitingN); err != nil {
+		t.Fatal(err)
+	}
+	if oldN != 0 || recentN != 1 || waitingN != 1 {
+		t.Fatalf("after the sweep: old terminal rows %d (want 0), recent delivered %d (want 1), still waiting %d (want 1)", oldN, recentN, waitingN)
 	}
 }
 

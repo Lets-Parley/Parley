@@ -68,6 +68,10 @@ type FetchRequest struct {
 	URL     string            `json:"url"`
 	Headers map[string]string `json:"headers,omitempty"`
 	Body    []byte            `json:"body,omitempty"`
+	// NoRedirect, when set, returns the first response after that hop has been
+	// screened. The default follows redirects and re-screens every hop, which
+	// is what a plugin's fetch does. Not part of the plugin JSON API.
+	NoRedirect bool `json:"-"`
 }
 
 // FetchResponse is what comes back. The body is capped; a plugin cannot pull
@@ -245,6 +249,24 @@ func (f *Fetcher) screen(ctx context.Context, host string) (netip.Addr, error) {
 	return addrs[0].Unmap(), nil
 }
 
+// PostNoFollow posts a body and returns the first response, including a
+// redirect. The hop is screened the same way as Do; it is not followed.
+// Plugins use Do, which follows redirects. Webhook delivery uses this so a
+// 3xx is a failed attempt rather than an empty request to the next hop.
+func (f *Fetcher) PostNoFollow(ctx context.Context, allow []string, target string, headers map[string]string, body []byte) (int, error) {
+	resp, err := f.Do(ctx, allow, FetchRequest{
+		Method:     http.MethodPost,
+		URL:        target,
+		Headers:    headers,
+		Body:       body,
+		NoRedirect: true,
+	}, false)
+	if err != nil {
+		return 0, err
+	}
+	return resp.Status, nil
+}
+
 // Do performs one guarded request, following redirects by hand so that every
 // hop goes through the same checks the first one did.
 //
@@ -299,6 +321,11 @@ func (f *Fetcher) Do(ctx context.Context, allow []string, req FetchRequest, sync
 		if err != nil {
 			return nil, err
 		}
+		// A caller that opted out still had this hop screened. The status,
+		// including a 3xx, is the result; the next hop is not requested.
+		if req.NoRedirect {
+			return f.readResponse(resp)
+		}
 		if location := redirectTarget(resp); location != "" {
 			resp.Body.Close()
 			next, err := u.Parse(location)
@@ -312,18 +339,21 @@ func (f *Fetcher) Do(ctx context.Context, allow []string, req FetchRequest, sync
 			}
 			continue
 		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(io.LimitReader(resp.Body, f.bodyLimit()))
-		if err != nil {
-			return nil, fmt.Errorf("reading the response body: %w", err)
-		}
-		headers := map[string]string{}
-		for k := range resp.Header {
-			headers[strings.ToLower(k)] = resp.Header.Get(k)
-		}
-		return &FetchResponse{Status: resp.StatusCode, Headers: headers, Body: body}, nil
+		return f.readResponse(resp)
 	}
+}
+
+func (f *Fetcher) readResponse(resp *http.Response) (*FetchResponse, error) {
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, f.bodyLimit()))
+	if err != nil {
+		return nil, fmt.Errorf("reading the response body: %w", err)
+	}
+	headers := map[string]string{}
+	for k := range resp.Header {
+		headers[strings.ToLower(k)] = resp.Header.Get(k)
+	}
+	return &FetchResponse{Status: resp.StatusCode, Headers: headers, Body: body}, nil
 }
 
 func redirectTarget(resp *http.Response) string {
