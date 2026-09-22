@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lets-parley/parley/internal/recovery"
+	"github.com/lets-parley/parley/internal/store"
 )
 
 // Schedule is a space's recurring async standup: on each listed weekday, at
@@ -281,6 +282,11 @@ func openSlot(ctx context.Context, pool *pgxpool.Pool, d dueSchedule, date strin
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("ending previous standup slot: %w", err)
+	}
+	// Each standup this slot ended has its trend day counted in the same
+	// transaction, so no scheduled day is ever over and uncounted.
+	if err := store.FreezeEndedTrendDays(ctx, tx, touched); err != nil {
+		return nil, err
 	}
 
 	// The same space lock and quota store.Sessions.Create applies, so a

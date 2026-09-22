@@ -78,10 +78,38 @@ func asyncStandupOn(t *testing.T, pool *pgxpool.Pool, spaceID, facilitator strin
 	return id
 }
 
+// scheduledStandupOn writes an async standup the space's schedule opened on
+// at's UTC date: a schedule (UTC, every day, 09:00) if the space has none, a
+// session created at at and ended a day later — when the next slot would
+// have opened — and the slot row linking the two. Only a standup linked from
+// a slot is a trend day.
+func scheduledStandupOn(t *testing.T, pool *pgxpool.Pool, spaceID, facilitator string, at time.Time, answering ...string) string {
+	t.Helper()
+	ctx := context.Background()
+	var scheduleID string
+	if err := pool.QueryRow(ctx, `
+		insert into standup_schedules (space_id, weekdays, open_time, timezone, window_minutes, enabled)
+		values ($1, '{0,1,2,3,4,5,6}', '09:00', 'UTC', 60, false)
+		on conflict (space_id) do update set space_id = excluded.space_id
+		returning id::text`, spaceID).Scan(&scheduleID); err != nil {
+		t.Fatal(err)
+	}
+	id := asyncStandupOn(t, pool, spaceID, facilitator, at, answering...)
+	if _, err := pool.Exec(ctx,
+		"insert into standup_schedule_slots (schedule_id, slot_date, session_id) values ($1, $2::date, $3)",
+		scheduleID, at.UTC().Format(time.DateOnly), id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// awayOn writes an away range as if it had been set long before any day the
+// trend tests read, so it counts for every day it covers.
 func awayOn(t *testing.T, pool *pgxpool.Pool, userID string, from, to string) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(),
-		"insert into standup_away (user_id, starts_on, ends_on) values ($1, $2, $3)", userID, from, to); err != nil {
+		"insert into standup_away (user_id, starts_on, ends_on, created_at) values ($1, $2, $3, '2026-01-01T00:00:00Z')",
+		userID, from, to); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -134,19 +162,29 @@ func trendServer(t *testing.T) (*httptest.Server, *pgxpool.Pool) {
 
 var lastWeek = time.Date(2026, 9, 15, 10, 0, 0, 0, time.UTC)
 
+// Eligible is a non-spectator member with no link who is not away that day.
+// Three of them is suppressed and four is shown, and a spectator's entry is
+// not counted as an answer.
 func TestStandupTrendIsSuppressedAtThreeAndShownAtFour(t *testing.T) {
 	srv, pool := trendServer(t)
-	owner, slug, spaceID, ids := trendSpace(t, srv, pool, 3)
-	asyncStandupOn(t, pool, spaceID, ids[0], lastWeek, ids[0], ids[1])
+	owner, slug, spaceID, ids := trendSpace(t, srv, pool, 5)
+	if _, err := pool.Exec(context.Background(),
+		"update members set spectator = true where space_id = $1 and user_id = $2", spaceID, ids[4]); err != nil {
+		t.Fatal(err)
+	}
+	// Tuesday 8 September: member 3 away, member 4 spectating. Eligible: the
+	// owner and members 1 and 2, three people, however many of them answer.
+	scheduledStandupOn(t, pool, spaceID, ids[0], lastWeek.AddDate(0, 0, -7), ids...)
+	awayOn(t, pool, ids[3], "2026-09-08", "2026-09-08")
+	// Tuesday 15 September: eligible the owner and members 1 to 3, four
+	// people. The owner and member 1 answer; so does the spectator.
+	scheduledStandupOn(t, pool, spaceID, ids[0], lastWeek, ids[0], ids[1], ids[4])
 
-	w := readTrend(t, srv, slug, owner)["2026-09-14"]
-	if !w.Suppressed || w.Ratio != nil {
+	weeks := readTrend(t, srv, slug, owner)
+	if w := weeks["2026-09-07"]; !w.Suppressed || w.Ratio != nil {
 		t.Fatalf("three eligible: got %+v, want suppressed with no ratio", w)
 	}
-
-	trendMember(t, pool, spaceID, "Fourth")
-	w = readTrend(t, srv, slug, owner)["2026-09-14"]
-	if w.Suppressed || w.Ratio == nil || *w.Ratio != 0.5 {
+	if w := weeks["2026-09-14"]; w.Suppressed || w.Ratio == nil || *w.Ratio != 0.5 {
 		t.Fatalf("four eligible, two answered: got %+v, want ratio 0.5", w)
 	}
 }
@@ -158,7 +196,7 @@ func TestStandupTrendLeavesOutAwayPeopleAndLinkGuests(t *testing.T) {
 	srv, pool := trendServer(t)
 	owner, slug, spaceID, ids := trendSpace(t, srv, pool, 5)
 	ctx := context.Background()
-	sess := asyncStandupOn(t, pool, spaceID, ids[0], lastWeek, ids[0], ids[1], ids[4])
+	sess := scheduledStandupOn(t, pool, spaceID, ids[0], lastWeek, ids[0], ids[1], ids[4])
 	awayOn(t, pool, ids[4], "2026-09-14", "2026-09-16")
 
 	// A link guest holds a users row and no members row. Give this one a
@@ -186,12 +224,6 @@ func TestStandupTrendLeavesOutAwayPeopleAndLinkGuests(t *testing.T) {
 	if w.Suppressed || w.Ratio == nil || *w.Ratio != 0.5 {
 		t.Fatalf("got %+v, want ratio 0.5 over four eligible", w)
 	}
-
-	// One more away that day brings the eligible count to three: suppressed.
-	awayOn(t, pool, ids[3], "2026-09-15", "2026-09-15")
-	if w := readTrend(t, srv, slug, owner)["2026-09-14"]; !w.Suppressed || w.Ratio != nil {
-		t.Fatalf("three eligible after a second away: got %+v, want suppressed", w)
-	}
 }
 
 // A day on which fewer than four were eligible contributes nothing, even in a
@@ -200,9 +232,9 @@ func TestStandupTrendLeavesOutAwayPeopleAndLinkGuests(t *testing.T) {
 func TestStandupTrendDropsAThinDayInsideAShownWeek(t *testing.T) {
 	srv, pool := trendServer(t)
 	owner, slug, spaceID, ids := trendSpace(t, srv, pool, 4)
-	asyncStandupOn(t, pool, spaceID, ids[0], lastWeek, ids...)
+	scheduledStandupOn(t, pool, spaceID, ids[0], lastWeek, ids...)
 	thin := lastWeek.AddDate(0, 0, 1)
-	asyncStandupOn(t, pool, spaceID, ids[0], thin)
+	scheduledStandupOn(t, pool, spaceID, ids[0], thin)
 	for _, u := range ids[1:] {
 		awayOn(t, pool, u, "2026-09-16", "2026-09-16")
 	}
@@ -218,8 +250,8 @@ func TestStandupTrendDropsAThinDayInsideAShownWeek(t *testing.T) {
 func TestStandupTrendWindowIsFixed(t *testing.T) {
 	srv, pool := trendServer(t)
 	owner, slug, spaceID, ids := trendSpace(t, srv, pool, 4)
-	asyncStandupOn(t, pool, spaceID, ids[0], lastWeek, ids...)
-	asyncStandupOn(t, pool, spaceID, ids[0], trendNow.Add(-time.Hour), ids...)
+	scheduledStandupOn(t, pool, spaceID, ids[0], lastWeek, ids...)
+	scheduledStandupOn(t, pool, spaceID, ids[0], trendNow.Add(-time.Hour), ids...)
 
 	_, plain := getRaw(t, srv, trendURL(slug), owner)
 	for _, q := range []string{"?weeks=1", "?from=2026-09-21&to=2026-09-28", "?weeks=52&since=2020-01-01"} {
@@ -244,8 +276,8 @@ func TestStandupTrendWindowIsFixed(t *testing.T) {
 func TestStandupTrendResponseCarriesOnlyAllowedKeys(t *testing.T) {
 	srv, pool := trendServer(t)
 	owner, slug, spaceID, ids := trendSpace(t, srv, pool, 5)
-	asyncStandupOn(t, pool, spaceID, ids[0], lastWeek, ids[0], ids[1], ids[2])
-	asyncStandupOn(t, pool, spaceID, ids[0], lastWeek.AddDate(0, 0, -7), ids[0])
+	scheduledStandupOn(t, pool, spaceID, ids[0], lastWeek, ids[0], ids[1], ids[2])
+	scheduledStandupOn(t, pool, spaceID, ids[0], lastWeek.AddDate(0, 0, -7), ids[0])
 	awayOn(t, pool, ids[1], "2026-09-07", "2026-09-07")
 
 	status, body := getRaw(t, srv, trendURL(slug), owner)

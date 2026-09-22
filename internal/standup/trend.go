@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/lets-parley/parley/internal/store"
 )
 
 const (
@@ -13,8 +15,8 @@ const (
 	// and not a parameter: a window the caller could move would let two
 	// overlapping answers be differenced into one small one.
 	TrendWeeks = 12
-	// TrendMinEligible is the smallest number of eligible people a standup
-	// day needs before it counts toward the trend at all.
+	// TrendMinEligible is the smallest number of eligible people a frozen
+	// standup day needs before it counts toward the trend at all.
 	TrendMinEligible = 4
 )
 
@@ -27,44 +29,35 @@ type TrendWeek struct {
 	Suppressed bool     `json:"suppressed,omitempty"`
 }
 
-// trendQuery sums, per week, how many eligible people answered and how many
-// were eligible, over the space's async standups. Eligible on a standup's day
-// is a space member who is not a link guest and not away that day. A day on
-// which fewer than TrendMinEligible were eligible is dropped before it is
-// summed, so no single thin day can be read out of a week that is shown.
+// trendQuery sums, per week, the frozen trend days of the space: one row per
+// scheduled standup, counted once when its day was over (who is eligible
+// is defined beside freezeTrendDays in internal/store/standup_trend.go). It never reads members,
+// spectator flags or away ranges, so nothing that changes after a day is over
+// can move it. A day on which fewer than TrendMinEligible were eligible is
+// dropped before it is summed, so no single thin day can be read out of a
+// week that is shown. Weeks bucket by the slot's local date, not by UTC.
 // $1 space, $2 first week start, $3 the running week's start, $4 minimum.
 const trendQuery = `
-	with days as (
-		select s.id, ` + sessionDay + ` as day
-		from sessions s
-		where s.space_id = $1 and s.kind = 'standup' and s.config->>'mode' = 'async'
-	), per_day as (
-		select d.day,
-		       count(*) as eligible,
-		       count(*) filter (where exists (
-		           select 1 from standup_entries e
-		           where e.session_id = d.id and e.user_id = m.user_id
-		             and (btrim(e.yesterday, E' \t\r\n') <> '' or btrim(e.today, E' \t\r\n') <> ''
-		                  or btrim(e.blockers, E' \t\r\n') <> ''))) as answered
-		from days d
-		join members m on m.space_id = $1
-		join users u on u.id = m.user_id and u.link_id is null
-		where d.day >= $2::date and d.day < $3::date
-		  and not exists (
-		      select 1 from standup_away a
-		      where a.user_id = m.user_id and d.day between a.starts_on and a.ends_on)
-		group by d.id, d.day
-	)
 	select date_trunc('week', day::timestamp)::date::text, sum(answered)::float8, sum(eligible)::float8
-	from per_day
-	where eligible >= $4
+	from standup_trend_days
+	where space_id = $1 and day >= $2::date and day < $3::date and eligible >= $4
 	group by 1`
+
+// trendLag holds a week back until it is over in every timezone a schedule
+// can use: a slot's date is local, and UTC-12 reaches Monday twelve hours
+// after UTC does. Until then its last day may not be frozen yet, and a week
+// shown before its last day was counted would change when it was.
+const trendLag = 12 * time.Hour
 
 // Trend reports the space's last TrendWeeks completed weeks, Monday first,
 // oldest first. The running week is never included: reported day by day, it
-// would let each new day's answers be read off the change.
+// would let each new day's answers be read off the change. Ratios are rounded
+// to one decimal place, so a ratio does not pin down the counts behind it.
 func Trend(ctx context.Context, pool *pgxpool.Pool, spaceID string, now time.Time) ([]TrendWeek, error) {
-	y, m, d := now.UTC().Date()
+	if err := store.FreezePastTrendDays(ctx, pool, spaceID, now); err != nil {
+		return nil, err
+	}
+	y, m, d := now.Add(-trendLag).UTC().Date()
 	today := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 	current := today.AddDate(0, 0, -((int(today.Weekday()) + 6) % 7))
 	first := current.AddDate(0, 0, -7*TrendWeeks)
@@ -82,7 +75,7 @@ func Trend(ctx context.Context, pool *pgxpool.Pool, spaceID string, now time.Tim
 		if err := rows.Scan(&week, &answered, &eligible); err != nil {
 			return nil, err
 		}
-		ratios[week] = math.Round(answered/eligible*100) / 100
+		ratios[week] = math.Round(answered/eligible*10) / 10
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

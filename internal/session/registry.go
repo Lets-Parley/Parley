@@ -426,6 +426,10 @@ func (e Envelope) RedactForGuest(selfID string) Envelope {
 		}
 	}
 	e.Participants = people
+	// A kind whose state holds space-level data strips it here too.
+	if g, ok := e.State.(interface{ ForGuest() any }); ok {
+		e.State = g.ForGuest()
+	}
 	return e
 }
 

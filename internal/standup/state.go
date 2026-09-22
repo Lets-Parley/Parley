@@ -141,9 +141,19 @@ type State struct {
 	ClosesAt *time.Time `json:"closesAt"`
 	// Away is the ids of space members who set themselves away on this
 	// standup's day, so the digest does not read them as owing an answer.
-	// Served only by an open async standup: an ended one keeps its entries
-	// only (#388), and a live sync room seats whoever is in it.
+	// Served only by an open async standup, and only while its day is today:
+	// an ended one keeps its entries only (#388), a reopened one from an
+	// earlier day is not today's room, and a live sync room seats whoever is
+	// in it. Never sent to a link guest (see ForGuest).
 	Away []string `json:"away"`
+}
+
+// ForGuest is the state a link guest is sent. A signed link is a capability
+// on one room, not membership of the space, so who in the space is away is
+// none of its business. session.Envelope.RedactForGuest calls it.
+func (s State) ForGuest() any {
+	s.Away = []string{}
+	return s
 }
 
 // Kind describes the standup session kind for the core registry.

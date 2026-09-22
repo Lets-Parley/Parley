@@ -10,9 +10,9 @@ import (
 )
 
 // The limits on a self-set away range. The length also stands as a check
-// constraint in 0042_standup_away.sql. The lookback is short on purpose: away
-// days take a person out of the team trend's eligible count, so a range far in
-// the past would quietly rewrite weeks the team has already read.
+// constraint in 0042_standup_away.sql. A range set on a past day is kept, and
+// shown back to its owner, but changes no trend day: a day counts only the
+// ranges created before it was over, and is frozen once it is.
 const (
 	MaxAwayDays       = 90
 	AwayLookbackDays  = 30
@@ -113,21 +113,32 @@ func (s *AwayStore) Delete(ctx context.Context, userID, id string) (bool, error)
 
 // sessionDay is the calendar date a standup session is for: its schedule
 // slot's local date when a schedule opened it, otherwise the UTC date it was
-// created. s is the sessions table alias. Away ranges are matched against
-// this day, both in the open digest and in the team trend.
-const sessionDay = `coalesce(
+// created. sessionToday is today's date in that same zone: the schedule's
+// timezone, otherwise UTC. s is the sessions table alias.
+const (
+	sessionDay = `coalesce(
 	(select min(sl.slot_date) from standup_schedule_slots sl where sl.session_id = s.id),
 	(s.created_at at time zone 'UTC')::date)`
+	sessionToday = `coalesce(
+	(select (now() at time zone sc.timezone)::date
+	 from standup_schedule_slots sl join standup_schedules sc on sc.id = sl.schedule_id
+	 where sl.session_id = s.id limit 1),
+	(now() at time zone 'UTC')::date)`
+)
 
 // awayMembers is the ids of this session's space members who are away on the
-// session's day. Only members, never link guests: a guest has no account to
-// set a range on. $1 is the session.
+// session's day, served only while that day is today. A facilitator can reopen
+// a standup from any earlier day, and the list must not follow it there: it
+// is a live fact about today's room, never a record of who was away when.
+// Only members, never link guests: a guest has no account to set a range on.
+// $1 is the session.
 const awayMembers = `
 	select m.user_id::text
 	from sessions s
 	join members m on m.space_id = s.space_id
 	join users u on u.id = m.user_id and u.link_id is null
-	where s.id = $1 and exists (
+	where s.id = $1 and ` + sessionDay + ` = ` + sessionToday + `
+	  and exists (
 		select 1 from standup_away a
 		where a.user_id = m.user_id and ` + sessionDay + ` between a.starts_on and a.ends_on)
 	order by m.user_id`
