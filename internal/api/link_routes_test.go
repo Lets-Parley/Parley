@@ -119,6 +119,10 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// middleware on the tree, so a link guest is turned away at the door with
 	// 401. Its capability is one room, and the deck templates of the space
 	// around that room are not part of it.
+	// The standup schedule: rejectLinkPrincipal comes first, so a guest is
+	// told plainly it cannot, before any space lookup runs.
+	"GET /api/orgs/{org}/spaces/{slug}/standup-schedule/": {status: http.StatusForbidden},
+	"PUT /api/orgs/{org}/spaces/{slug}/standup-schedule/": {status: http.StatusForbidden},
 	"GET /api/orgs/{org}/spaces/{slug}/decks/":            {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/spaces/{slug}/decks/":           {status: http.StatusUnauthorized},
 	"PATCH /api/orgs/{org}/spaces/{slug}/decks/{deckId}":  {status: http.StatusUnauthorized},

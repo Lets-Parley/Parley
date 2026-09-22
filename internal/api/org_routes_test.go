@@ -289,6 +289,8 @@ var routeScoping = map[string]string{
 	"POST /api/orgs/{org}/spaces/{slug}/seen":                  "org-scoped",
 	"POST /api/orgs/{org}/spaces/{slug}/passcode":              "org-scoped",
 	"POST /api/orgs/{org}/spaces/{slug}/sessions":              "org-scoped",
+	"GET /api/orgs/{org}/spaces/{slug}/standup-schedule/":      "org-scoped",
+	"PUT /api/orgs/{org}/spaces/{slug}/standup-schedule/":      "org-scoped",
 	"GET /api/orgs/{org}/spaces/{slug}/decks/":                 "org-scoped",
 	"POST /api/orgs/{org}/spaces/{slug}/decks/":                "org-scoped",
 	"PATCH /api/orgs/{org}/spaces/{slug}/decks/{deckId}":       "org-scoped",

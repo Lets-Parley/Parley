@@ -31,15 +31,16 @@ import (
 )
 
 type app struct {
-	pool     *pgxpool.Pool
-	users    *store.Users
-	spaces   *store.Spaces
-	sessions *store.Sessions
-	decks    *store.Decks
-	kudos    *store.Kudos
-	links    *store.Links
-	presence *store.Presence
-	hub      *hub.Hub
+	pool      *pgxpool.Pool
+	users     *store.Users
+	spaces    *store.Spaces
+	sessions  *store.Sessions
+	schedules *standup.Schedules
+	decks     *store.Decks
+	kudos     *store.Kudos
+	links     *store.Links
+	presence  *store.Presence
+	hub       *hub.Hub
 	// kinds is the session-kind registry, built once at wiring time.
 	kinds *session.Registry
 
@@ -129,6 +130,10 @@ type Options struct {
 	// outside of tests: the listener then lives as long as the process.
 	Context context.Context
 
+	// StandupScheduleInterval is how often this replica checks for a
+	// scheduled async standup slot to open. Zero runs no scheduler.
+	StandupScheduleInterval time.Duration
+
 	sessionRevalidationInterval time.Duration
 }
 
@@ -190,9 +195,16 @@ func (l Limits) withDefaults() Limits {
 type Handler struct {
 	http.Handler
 	hub *hub.Hub
+	// stopBackground cancels the goroutines Router started that reach the
+	// database, and background is how Shutdown waits for them: the caller
+	// closes the pool the moment Shutdown returns.
+	stopBackground context.CancelFunc
+	background     *sync.WaitGroup
 }
 
 func (h *Handler) Shutdown() {
+	h.stopBackground()
+	h.background.Wait()
 	h.hub.Shutdown()
 }
 
@@ -217,12 +229,13 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			IdleTTL: opts.SessionIdleTTL,
 			MaxTTL:  opts.SessionMaxTTL,
 		},
-		orgs:     &store.Orgs{Pool: pool},
-		spaces:   &store.Spaces{Pool: pool},
-		sessions: &store.Sessions{Pool: pool},
-		decks:    &store.Decks{Pool: pool},
-		kudos:    &store.Kudos{Pool: pool},
-		links:    &store.Links{Pool: pool},
+		orgs:      &store.Orgs{Pool: pool},
+		spaces:    &store.Spaces{Pool: pool},
+		sessions:  &store.Sessions{Pool: pool},
+		schedules: &standup.Schedules{Pool: pool},
+		decks:     &store.Decks{Pool: pool},
+		kudos:     &store.Kudos{Pool: pool},
+		links:     &store.Links{Pool: pool},
 		presence: &store.Presence{
 			Pool:      pool,
 			ReplicaID: replicaID(),
@@ -298,6 +311,13 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	if pool != nil {
 		go a.listen(listenCtx)
 		go a.sweepPresence(listenCtx)
+	}
+	bgCtx, stopBackground := context.WithCancel(listenCtx)
+	background := &sync.WaitGroup{}
+	if pool != nil && opts.StandupScheduleInterval > 0 {
+		background.Go(func() {
+			standup.RunScheduler(bgCtx, pool, opts.StandupScheduleInterval, a.limits.SessionsPerSpace, a.broadcastState)
+		})
 	}
 
 	a.hub.OnPresenceChange = func(sessionID string) {
@@ -556,6 +576,16 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 				r.Patch("/spaces/{slug}/visibility", a.handleSetVisibility)
 			})
 
+			// A space's standup schedule. Members may read it; only an owner
+			// may change it. A link guest is refused 403 before any lookup.
+			r.Route("/spaces/{slug}/standup-schedule", func(r chi.Router) {
+				r.Use(rejectLinkPrincipal)
+				r.Use(RequireUser)
+				r.Use(a.requireOrgMember)
+				r.With(a.requireSpaceMember).Get("/", a.handleGetStandupSchedule)
+				r.With(a.requireSpaceOwner).Put("/", a.handlePutStandupSchedule)
+			})
+
 			// Org custody. An org admin may manage any space in the org,
 			// including a private one they are not in, and may read nothing
 			// said inside it. The gate is three deep on purpose: RequireUser
@@ -687,7 +717,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 
 	r.NotFound(spa)
 
-	return &Handler{Handler: root, hub: a.hub}
+	return &Handler{Handler: root, hub: a.hub, stopBackground: stopBackground, background: background}
 }
 
 func limitAPIRequestBody(next http.Handler) http.Handler {

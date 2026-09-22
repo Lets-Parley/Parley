@@ -11,7 +11,7 @@ import roundDark from "../../../assets/standup-round-dark.png";
 import blockersLight from "../../../assets/blockers-roundup-light.png";
 import blockersDark from "../../../assets/blockers-roundup-dark.png";
 
-<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "internal/standup/kudos.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/components/AsyncDigest.tsx", "web/src/lib/kinds.ts"]} />
+<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "internal/standup/kudos.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/components/AsyncDigest.tsx", "web/src/lib/kinds.ts", "internal/standup/schedule.go"]} />
 
 A standup session is three text fields per person — yesterday, today, blockers —
 and an order to speak in.
@@ -223,6 +223,41 @@ time like any other, with no late badge. The standup ends when the facilitator
 ends it. Once ended, its record keeps the entries only — the not-yet list is
 never stored or served.
 
+### Scheduled async standups
+
+A space owner can give the space a standup schedule, through the API only for
+now (`PUT /api/orgs/{org}/spaces/{slug}/standup-schedule`): the weekdays, a
+local open time, an IANA time zone such as `America/New_York`, and a window in
+minutes. On each scheduled day, at the open time in that zone, Parley opens a
+new async standup titled with the local date, whose `closesAt` is the open time
+plus the window. The owner who last saved the schedule facilitates that session
+while they are still an owner of the space. Once they have left, or when the
+schedule names nobody, the most recently active current owner facilitates it:
+latest `last_seen_at`, then user id, the same order used when a space's last
+owner is promoted. A space with no owner skips the slot and logs a warning. A
+later check the same local day tries again once the space has an owner; after
+local midnight that day is skipped.
+
+- **Opening a slot ends the previous one.** The cutoff still does not end a
+  standup; the next scheduled slot does, or the facilitator does first.
+- **The local date decides.** Daylight saving time is followed. An open time
+  that does not exist on a spring-forward day (02:30 in New York) opens when
+  the clocks resume, 03:30.
+- **A missed slot opens late, the same day only.** If no replica was running at
+  the open time, the slot opens as soon as one is, until local midnight; after
+  that it is skipped rather than backfilled.
+- **Edits reach future slots only.** Changing or disabling the schedule never
+  touches a standup already open.
+- The schedule counts against the space's session limit like anyone else. When
+  the space is already at that limit, the slot stays unclaimed, the standup
+  already running stays open, and a warning is logged. A later check the same
+  local day opens the slot once the space is under the limit again. After local
+  midnight that day is skipped.
+
+Every replica checks every 30 seconds, so a slot can open up to that late. A
+slot opens exactly once however many replicas run: each slot is one row keyed
+on the schedule and its local date, and only one insert of it can succeed.
+
 :::caution[Upgrade every replica first]
 A replica running an earlier release decodes standup settings strictly and
 rejects the unknown `mode` field, and does not know an async room has no
@@ -237,7 +272,8 @@ as before, so they are unaffected.
 <Capability rows={[
   { name: "Configurable timer length", status: "not-built", detail: "The server supports a <code>secondsPerPerson</code> session setting and defaults it to 90, but nothing in the UI sets it. Treat 90 seconds as fixed." },
   { name: "Async standup", status: "built", detail: "Answer on your own time and read a blockers-first digest. See Async standups above." },
-  { name: "Scheduled async standups and a cutoff picker", status: "not-built", detail: "Async standups are opened and ended by hand, and <code>closesAt</code> is set through the API only. A schedule is on the <a href='/project/roadmap/'>roadmap</a>." },
+  { name: "Scheduled async standups", status: "built", detail: "Set through the API. See Scheduled async standups above." },
+  { name: "A schedule editor and a cutoff picker", status: "not-built", detail: "The schedule and <code>closesAt</code> are set through the API only; nothing in the UI sets them yet." },
   { name: "Reordering the speaking order", status: "not-built", detail: "Fixed once the round starts. Skip moves past anyone who is not ready." },
   { name: "Editing a kudo", status: "not-built", detail: "The sender can withdraw one from the space's wall. Nobody can rewrite text somebody has already read." },
   { name: "Chasing people who did not write anything", status: "out-of-scope", detail: "Parley does not send reminder notifications." },

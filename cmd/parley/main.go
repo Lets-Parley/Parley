@@ -425,6 +425,9 @@ func main() {
 	log.Info("shut down cleanly")
 }
 
+// standupScheduleInterval bounds how late a scheduled standup opens.
+const standupScheduleInterval = 30 * time.Second
+
 // apiOptions maps a parsed config onto the options the HTTP layer is built
 // from. It is a separate function rather than a literal inside main because
 // main is the one caller that matters and the one caller no test can reach:
@@ -457,6 +460,9 @@ func apiOptions(ctx context.Context, cfg config, secureCookies bool, plugins *pl
 		Plugins:        plugins,
 		PluginHost:     pluginHost,
 		MetricsEnabled: cfg.MetricsEnabled,
+		// Scheduled async standups open from this ticker. Every replica runs
+		// it; the slot's primary key keeps a slot from opening twice.
+		StandupScheduleInterval: standupScheduleInterval,
 	}
 	if cfg.AuthMode == api.ModeOIDC {
 		// Discovery happens on the first sign-in rather than here: an identity
