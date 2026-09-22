@@ -80,12 +80,17 @@ var linkGuestActionVerbs = map[string]map[string]linkGuestVerb{
 		"add":    {body: `{"text":"a commitment"}`},
 		"answer": {body: `{"id":"{answerId}","done":false}`},
 		"remove": {body: `{"id":"{removeId}"}`},
+		"drop":   {body: `{"id":"{dropId}"}`},
 		// The one standup verb a guest may not call. No dispatcher flag — it is
 		// not the facilitator's, any member may thank anybody — and refused all
 		// the same, by the action's own membership check: a guest holds no
 		// members row, and kudos are neither sent nor received by one. The
 		// recipient here never gets looked at; the caller is turned away first.
 		"kudo": {refused: true, body: `{"to":"00000000-0000-0000-0000-000000000000","text":"thanks"}`},
+		// A mention asks a member for help, and a guest is not on the team it
+		// would be asking. Refused by the action's own membership check, like
+		// kudo, before the target is looked at.
+		"mention": {refused: true, body: `{"to":"00000000-0000-0000-0000-000000000000","needed":true}`},
 	},
 }
 
@@ -105,7 +110,7 @@ func TestLinkGuestActionVerbs(t *testing.T) {
 			srv := testServer(t)
 			fac, id, guest := mintAndRedeemKind(t, srv, "Verb Table "+kind.Name, kind.Name)
 			storyID := ""
-			answerID, removeID := "", ""
+			answerID, removeID, dropID := "", "", ""
 			if kind.Name == "poker" {
 				storyID = addStory(t, srv, id, "Story", fac)
 				selectStory(t, srv, id, storyID, fac)
@@ -113,9 +118,10 @@ func TestLinkGuestActionVerbs(t *testing.T) {
 			if kind.Name == "standup" {
 				answerID = addCommitment(t, srv, id, guest, "to answer")
 				removeID = addCommitment(t, srv, id, guest, "to remove")
+				dropID = addCommitment(t, srv, id, guest, "to drop")
 			}
 			replace := strings.NewReplacer(
-				"{storyId}", storyID, "{answerId}", answerID, "{removeId}", removeID)
+				"{storyId}", storyID, "{answerId}", answerID, "{removeId}", removeID, "{dropId}", dropID)
 
 			want := linkGuestActionVerbs[kind.Name]
 			for name, act := range kind.Actions {

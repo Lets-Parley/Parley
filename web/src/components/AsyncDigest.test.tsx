@@ -110,4 +110,61 @@ describe("AsyncDigest", () => {
     const { container } = renderApp(<AsyncDigest entries={entries} participants={people} ended={false} />);
     await expectNoViolations(container);
   });
+
+  describe("follow-through and needs you", () => {
+    const changes = [
+      { id: "c1", userId: "dana", text: "ship the importer", outcome: "landed" as const },
+      { id: "c2", userId: "dana", text: "rewrite the parser", outcome: "dropped" as const },
+      { id: "c3", userId: "marcus", text: "chase the vendor", outcome: "carried" as const },
+    ];
+
+    it("puts needs you first and changed commitments after blockers", () => {
+      renderApp(
+        <AsyncDigest entries={entries} participants={people} ended={false} changes={changes} needsYou={["marcus"]} />,
+      );
+      const headings = screen.getAllByRole("heading").map((h) => h.textContent);
+      expect(headings).toEqual(["Needs you", "Blockers", "Changed commitments", "Updates", "Answered", "Not yet"]);
+
+      // Who asked, and the blocker they asked about.
+      const needs = screen.getByRole("region", { name: "Needs you" });
+      expect(needs.textContent).toContain("Marcus Okonjo");
+      expect(needs.textContent).toContain("waiting on staging");
+      expect(needs.textContent).not.toContain("Dana Whitfield");
+    });
+
+    it("never calls a dropped commitment landed", () => {
+      renderApp(<AsyncDigest entries={entries} participants={people} ended={false} changes={changes} />);
+      const changed = screen.getByRole("region", { name: "Changed commitments" });
+      const item = (text: string) =>
+        within(changed).getAllByRole("listitem").find((li) => li.textContent?.includes(text))!;
+      expect(item("ship the importer").textContent).toMatch(/landed/i);
+      expect(item("rewrite the parser").textContent).toMatch(/dropped/i);
+      expect(item("rewrite the parser").textContent).not.toMatch(/landed/i);
+      expect(item("chase the vendor").textContent).toMatch(/still on it/i);
+      // Outcomes, never tallies.
+      expect(changed.textContent).not.toMatch(/\d/);
+    });
+
+    // An ended standup's record is its entries: a per-person landed and
+    // dropped history is not rebuilt from old rooms.
+    it("shows no changed commitments once the standup has ended", () => {
+      renderApp(<AsyncDigest entries={entries} participants={people} ended changes={changes} />);
+      expect(screen.getByRole("heading", { name: "Updates" })).toBeTruthy();
+      expect(screen.queryByRole("heading", { name: "Changed commitments" })).toBeNull();
+      expect(document.body.textContent).not.toContain("ship the importer");
+    });
+
+    it("leaves both sections out when there is nothing in them", () => {
+      renderApp(<AsyncDigest entries={entries} participants={people} ended={false} changes={[]} needsYou={[]} />);
+      expect(screen.queryByRole("heading", { name: "Needs you" })).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Changed commitments" })).toBeNull();
+    });
+
+    it("has no axe violations with every section showing", async () => {
+      const { container } = renderApp(
+        <AsyncDigest entries={entries} participants={people} ended={false} changes={changes} needsYou={["marcus"]} />,
+      );
+      await expectNoViolations(container);
+    });
+  });
 });
