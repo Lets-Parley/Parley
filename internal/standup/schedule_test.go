@@ -3,6 +3,7 @@ package standup
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -57,6 +58,134 @@ func TestUpcomingIncludesAMorningSlotOnTheLastDay(t *testing.T) {
 		}
 	}
 	t.Fatalf("last-day slot 20261006 missing from upcoming windows: %+v", windows)
+}
+
+// TestUpcomingVisitsEachCivilDateOnce walks the horizon across DST
+// transitions. In Santiago (2026-09-06) and Havana (2026-03-08) the clocks
+// jump from 00:00 straight to 01:00, so local midnight does not exist on the
+// transition day; a walk anchored at midnight and stepped with AddDate
+// drifts to 23:00 the previous day, visits that day twice and drops the last
+// date. Every expected date and UTC instant below is worked out by hand from
+// the zone's offsets, never from upcoming itself.
+func TestUpcomingVisitsEachCivilDateOnce(t *testing.T) {
+	type slot struct {
+		date string
+		open time.Time
+	}
+	utc := func(y int, m time.Month, d, h int) time.Time { return time.Date(y, m, d, h, 0, 0, 0, time.UTC) }
+	// 2026-03-02..07 at 09:00 -05:00 (14:00Z), 2026-03-08..15 at 09:00 -04:00
+	// (13:00Z). Havana and New York share both offsets and the transition
+	// date; they differ only in the hour the clocks jump.
+	marchDaily := func() []slot {
+		var out []slot
+		for d := 2; d <= 15; d++ {
+			h := 14
+			if d >= 8 {
+				h = 13
+			}
+			out = append(out, slot{date: fmt.Sprintf("202603%02d", d), open: utc(2026, 3, d, h)})
+		}
+		return out
+	}
+	everyDay := []int{0, 1, 2, 3, 4, 5, 6}
+	cases := []struct {
+		name   string
+		s      Schedule
+		now    time.Time
+		window time.Duration
+		want   []slot
+	}{
+		{
+			// now is Tuesday 2026-09-01 10:00 -04 (14:00Z); until is
+			// 2026-09-15 14:00Z, 11:00 -03. That day's 09:00 slot is 12:00Z.
+			// The 2026-09-01 slot closed at 10:00 -04, exactly now.
+			name:   "santiago tuesday across a midnight gap keeps the last day",
+			s:      Schedule{Weekdays: []int{2}, OpenTime: "09:00", Timezone: "America/Santiago", WindowMinutes: 60},
+			now:    utc(2026, 9, 1, 14),
+			window: time.Hour,
+			want: []slot{
+				{"20260908", utc(2026, 9, 8, 12)},
+				{"20260915", utc(2026, 9, 15, 12)},
+			},
+		},
+		{
+			// now is Friday 2026-09-04 12:00 -04 (16:00Z); until is
+			// 2026-09-18 16:00Z. Saturday 2026-09-05 is the day before the
+			// gap: 09:00 -04 is 13:00Z. 2026-09-12 09:00 -03 is 12:00Z.
+			name:   "santiago saturday before a midnight gap is listed once",
+			s:      Schedule{Weekdays: []int{6}, OpenTime: "09:00", Timezone: "America/Santiago", WindowMinutes: 60},
+			now:    utc(2026, 9, 4, 16),
+			window: time.Hour,
+			want: []slot{
+				{"20260905", utc(2026, 9, 5, 13)},
+				{"20260912", utc(2026, 9, 12, 12)},
+			},
+		},
+		{
+			// now is 2026-03-01 10:00 -05 (15:00Z); until is 2026-03-15
+			// 15:00Z, 11:00 -04. Havana jumps 00:00 -> 01:00 on 2026-03-08.
+			// The 2026-03-01 slot closed at 10:00 -05, exactly now.
+			name:   "havana daily across its march 2026 midnight gap",
+			s:      Schedule{Weekdays: everyDay, OpenTime: "09:00", Timezone: "America/Havana", WindowMinutes: 60},
+			now:    utc(2026, 3, 1, 15),
+			window: time.Hour,
+			want:   marchDaily(),
+		},
+		{
+			// The same walk where the gap is 02:00 -> 03:00, away from
+			// midnight: New York on 2026-03-08.
+			name:   "new york daily across a 02:00 spring forward",
+			s:      Schedule{Weekdays: everyDay, OpenTime: "09:00", Timezone: "America/New_York", WindowMinutes: 60},
+			now:    utc(2026, 3, 1, 15),
+			window: time.Hour,
+			want:   marchDaily(),
+		},
+		{
+			// until is 2026-10-06 08:00Z; the Tuesday 07:00Z slot that day
+			// is before it. 2026-09-22's slot closed at 08:00Z, exactly now.
+			name:   "utc morning slot on the last day",
+			s:      Schedule{Weekdays: []int{2}, OpenTime: "07:00", Timezone: "UTC", WindowMinutes: 60},
+			now:    utc(2026, 9, 22, 8),
+			window: time.Hour,
+			want: []slot{
+				{"20260929", utc(2026, 9, 29, 7)},
+				{"20261006", utc(2026, 10, 6, 7)},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.s.Validate(); err != nil {
+				t.Fatalf("schedule did not validate: %v", err)
+			}
+			got, err := tc.s.upcoming(tc.now)
+			if err != nil {
+				t.Fatalf("upcoming: %v", err)
+			}
+			seen := map[string]int{}
+			for _, w := range got {
+				seen[w.Date]++
+			}
+			for d, n := range seen {
+				if n > 1 {
+					t.Errorf("date %s listed %d times; each becomes a VEVENT with the same UID", d, n)
+				}
+			}
+			var dates []string
+			for _, w := range got {
+				dates = append(dates, w.Date)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %d windows %v, want %d", len(got), dates, len(tc.want))
+			}
+			for i, w := range tc.want {
+				g := got[i]
+				if g.Date != w.date || !g.Open.Equal(w.open) || !g.Close.Equal(w.open.Add(tc.window)) {
+					t.Errorf("window %d = {%s %v %v}, want {%s %v %v}", i, g.Date, g.Open.UTC(), g.Close.UTC(), w.date, w.open, w.open.Add(tc.window))
+				}
+			}
+		})
+	}
 }
 
 func TestScheduleValidateRejectsUnknownTimezone(t *testing.T) {

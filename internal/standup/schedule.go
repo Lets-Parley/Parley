@@ -113,27 +113,27 @@ func (s Schedule) upcoming(now time.Time) ([]feedWindow, error) {
 		return nil, err
 	}
 	until := now.Add(feedHorizon)
-	// A window is at most a day long, so one that is still open started no
-	// earlier than yesterday in this zone.
-	start := now.In(loc).Add(-24 * time.Hour)
-	end := until.In(loc)
-	// Walk calendar dates up to and including until's local date. A noon
-	// anchor would stop before visiting that last date whenever until falls
-	// before noon local time, dropping a morning slot that still opens
-	// within the horizon; each candidate day is still filtered below by its
-	// actual open instant, not by this anchor.
-	endDate := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, loc)
+	// Walk civil dates, not instants. A window is at most a day long, so one
+	// that is still open started no earlier than yesterday in this zone; the
+	// walk ends on until's local date, whatever hour until falls at. Each day
+	// is built at noon, which exists in every zone: local midnight does not
+	// on a day whose clocks jump at 00:00 (Santiago, Havana), and time.Date
+	// would move it onto the neighbouring date. Candidates are still filtered
+	// below by their real open instant, not by this anchor.
+	ny, nm, nd := now.In(loc).Date()
+	ly, lm, ld := until.In(loc).Date()
 	var out []feedWindow
-	for d := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, loc); !d.After(endDate); d = d.AddDate(0, 0, 1) {
-		openAt, ok := s.openInstant(d, loc)
-		if !ok {
-			continue
+	for i := -1; ; i++ {
+		d := time.Date(ny, nm, nd+i, 12, 0, 0, 0, loc)
+		if openAt, ok := s.openInstant(d, loc); ok {
+			closeAt := openAt.Add(time.Duration(s.WindowMinutes) * time.Minute)
+			if closeAt.After(now) && !openAt.After(until) {
+				out = append(out, feedWindow{Date: openAt.In(loc).Format("20060102"), Open: openAt, Close: closeAt})
+			}
 		}
-		closeAt := openAt.Add(time.Duration(s.WindowMinutes) * time.Minute)
-		if !closeAt.After(now) || openAt.After(until) {
-			continue
+		if dy, dm, dd := d.Date(); dy == ly && dm == lm && dd == ld {
+			break
 		}
-		out = append(out, feedWindow{Date: openAt.In(loc).Format("20060102"), Open: openAt, Close: closeAt})
 	}
 	return out, nil
 }
