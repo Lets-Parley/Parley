@@ -6,7 +6,7 @@ description: Every route, who may call it, and what it does.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import RouteTable from "../../../components/RouteTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/api/plugindev.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/api/plugindev.go", "internal/api/standup_schedule.go"]} />
 
 There is no API token scheme. Everything authenticates with the `parley_session`
 cookie, so the API is usable from a script only by reusing a browser session's
@@ -139,6 +139,8 @@ session envelope.
   { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/kudos", auth: "member", purpose: "Give a kudo: {to, text}. Text is 1 to 280 characters, counted in runes. 400 if the recipient is yourself, or is not a member of the space — a link guest holds no membership, so it neither sends nor receives. 409 over the per-space cap." },
   { method: "DELETE", path: "/api/orgs/{org}/spaces/{slug}/kudos/{id}", auth: "sender", purpose: "Withdraw a kudo you sent. 204, 403 for a member who is not the sender, 404 if this space has no such kudo. Nobody can edit one: text somebody has already read is never rewritten underneath them." },
   { method: "PATCH", path: "/api/orgs/{org}/spaces/{slug}/decks/{deckId}", auth: "owner", purpose: "Rewrite a saved deck, same body and same rules as creating one. Sessions already created from it keep the cards they copied. A deck belonging to another space is a 404, whatever the caller owns." },
+  { method: "GET", path: "/api/orgs/{org}/spaces/{slug}/standup-schedule", auth: "member", purpose: "The space's standup schedule as <code>{schedule}</code>, or <code>{schedule: null}</code> when it has none. A link guest gets 403." },
+  { method: "PUT", path: "/api/orgs/{org}/spaces/{slug}/standup-schedule", auth: "owner", purpose: "Create or replace the schedule: <code>{weekdays, openTime, timezone, windowMinutes, enabled}</code>. weekdays are 0 (Sunday) to 6; openTime is \"HH:MM\"; timezone is an IANA name; windowMinutes is 1–1440. 400 for any invalid field, including an unknown time zone; 403 for a member who is not an owner. Changes reach future slots only." },
   { method: "DELETE", path: "/api/orgs/{org}/spaces/{slug}/decks/{deckId}", auth: "owner", purpose: "Delete a saved deck. 204, or 404 if this space has no such deck. Rooms created from it keep working: a session stores the cards it was created with, so nothing joins back to this row." },
   { method: "PATCH", path: "/api/orgs/{org}/spaces/{slug}", auth: "owner", purpose: "Rename the space: {name}, 1-64 characters. The slug never moves with it, so invites already sent keep working." },
   { method: "DELETE", path: "/api/orgs/{org}/spaces/{slug}", auth: "owner", purpose: "Delete the space and everything under it — sessions, stories, standups, memberships. Irreversible, and it closes the sockets on every open room." },
