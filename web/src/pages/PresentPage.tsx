@@ -1,9 +1,17 @@
 import { useParams } from "react-router-dom";
 import { useSession } from "../lib/useSession";
-import type { Envelope } from "../lib/api";
+import type { Envelope, Person } from "../lib/api";
+import { safeDisplayName } from "../lib/displayName";
 import { faceOf } from "../components/Table";
 import { heroOf } from "../components/ResultsPanel";
 import { Timer } from "./StandupRoom";
+
+// The same guest tell every other roster shows — PokerRoom, StandupRoom and
+// Table all render " · guest" the same way, so this page matches rather than
+// inventing its own.
+function GuestMark({ person }: { person: Person }) {
+  return person.guest ? <span className="font-normal text-ink-faint"> · guest</span> : null;
+}
 
 /**
  * A read-only view of a room for a shared screen or a meeting's main stage.
@@ -70,7 +78,10 @@ function Poker({ env }: { env: Envelope }) {
                   key={p.userId}
                   className="rounded-panel border border-line bg-surface px-6 py-4 text-2xl shadow-rest"
                 >
-                  <span className="font-bold">{p.name}</span>{" "}
+                  <span className="font-bold">
+                    {safeDisplayName(p.name)}
+                    <GuestMark person={p} />
+                  </span>{" "}
                   <span className="font-mono text-ink-soft">
                     {value !== undefined ? faceOf(value) : voted.has(p.userId) ? "voted" : "not yet"}
                   </span>
@@ -96,7 +107,14 @@ function Standup({ env, live }: { env: Envelope; live: boolean }) {
   return (
     <>
       <h1 className="mt-4 text-5xl font-bold tracking-tight">
-        {speaker ? `${speaker.name} is speaking` : "Nobody is speaking"}
+        {speaker ? (
+          <>
+            {safeDisplayName(speaker.name)}
+            <GuestMark person={speaker} /> is speaking
+          </>
+        ) : (
+          "Nobody is speaking"
+        )}
       </h1>
       {speaker && st.speakerStartedAt && (
         <p className="mt-8">

@@ -251,7 +251,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
               >
                 Present
               </a>
-                            {/* A link guest is refused the export, and the whole room's
+              {/* A link guest is refused the export, and the whole room's
                   votes are more than its capability anyway. */}
               {!guest && (
               <a
