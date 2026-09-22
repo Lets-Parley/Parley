@@ -6,7 +6,7 @@ description: What Parley emits, what it does not, and where to get the rest.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["cmd/parley/main.go", "internal/api/router.go", "internal/api/metrics.go", "internal/api/client_address.go", "internal/api/secevent.go", "internal/store/users.go"]} />
+<VerifiedStamp source={["cmd/parley/main.go", "internal/api/router.go", "internal/api/metrics.go", "internal/api/client_address.go", "internal/api/secevent.go", "internal/store/users.go", "internal/api/ics.go"]} />
 
 This is a short page, and honestly so.
 
@@ -129,6 +129,8 @@ for that table), and those same writes also emit this line.
 | `space.member.role` | An owner promotes or demotes a member |
 | `link.mint` | A facilitator mints a guest link |
 | `link.revoke` | A facilitator revokes a guest link |
+| `ics.mint`, `ics.revoke` | A personal calendar feed is minted or revoked. The token is not on the line |
+| `ics.feed` | A calendar fetch. `target` is `/ics/[redacted]`; the token is not on the line |
 | `space.claim`, `space.delete`, `space.add_owner`, `org.purge` | The matching `org_audit_log` write |
 | `plugin.install`, `plugin.upgrade`, `plugin.upgrade_requested`, `plugin.upgrade_approved`, `plugin.enable`, `plugin.disable`, `plugin.uninstall`, `plugin.action`, `theme.install`, `theme.reset` | The matching `org_audit_log` write |
 
@@ -146,7 +148,7 @@ response always echoes the id that was used.
   { name: "Distributed tracing", status: "not-built", detail: "Single process, single database — a trace would have two spans. Proxy access logs give you the same latency picture." },
   { name: "Request IDs", status: "built", detail: "Every response echoes <code>X-Request-Id</code>. An inbound id is honoured only from a peer in <code>TRUSTED_PROXY_CIDRS</code>, capped at 128 printable ASCII characters. Correlate proxy access logs with security-event lines on that field." },
   { name: "HTTP access log", status: "not-built", detail: "<code>middleware.Logger</code> is not mounted. Use the proxy's access log — it is the same data, and you already ship it. <code>LOG_LEVEL=debug</code> logs only how the client address was resolved: no method, path or status." },
-  { name: "Audit log", status: "built", detail: "One stdout JSON <code>security event</code> line per sign-in, sign-out, space create and delete, passcode rotate and remove, member add, remove and role change, guest-link mint and revoke, and every <code>org_audit_log</code> write. Schema: <code>event</code>, <code>actor_user_id</code>, <code>actor_subject</code>, <code>org</code>, <code>space</code>, <code>target</code>, <code>outcome</code>, <code>client_addr</code>, <code>request_id</code>. Cookies, tokens, passcodes and request bodies are never logged. The Postgres table remains write-only — no read API or screen (<a href='https://github.com/Lets-Parley/Parley/issues/399'>#399</a>)." },
+  { name: "Audit log", status: "built", detail: "One stdout JSON <code>security event</code> line per sign-in, sign-out, space create and delete, passcode rotate and remove, member add, remove and role change, guest-link mint and revoke, calendar-feed mint, revoke and fetch, and every <code>org_audit_log</code> write. Schema: <code>event</code>, <code>actor_user_id</code>, <code>actor_subject</code>, <code>org</code>, <code>space</code>, <code>target</code>, <code>outcome</code>, <code>client_addr</code>, <code>request_id</code>. Cookies, tokens, passcodes and request bodies are never logged. A calendar fetch's path is rewritten to <code>/ics/[redacted]</code> before the line is written. The Postgres table remains write-only — no read API or screen (<a href='https://github.com/Lets-Parley/Parley/issues/399'>#399</a>)." },
   { name: "Error reporting integration", status: "out-of-scope", detail: "Panics are recovered and logged; scrape them from stdout." },
 ]} />
 

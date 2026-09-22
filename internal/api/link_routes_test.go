@@ -69,6 +69,14 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	"DELETE /api/me":                  {status: http.StatusNoContent},
 	"PATCH /api/me/avatar":            {status: http.StatusForbidden},
 	"PATCH /api/me/settings":          {status: http.StatusForbidden},
+	// The calendar feed is an account credential. A link guest has no account,
+	// so minting, reading and revoking one are refused before any token is
+	// written. The feed itself is not a cookie route: a bad token is 404,
+	// whether or not the caller also holds a link.
+	"GET /api/me/ics":    {status: http.StatusForbidden},
+	"POST /api/me/ics":   {status: http.StatusForbidden},
+	"DELETE /api/me/ics": {status: http.StatusForbidden},
+	"GET /ics/{token}":   {status: http.StatusNotFound},
 
 	// The legacy space-link shim. A link guest belongs to no org, so there is
 	// nothing for it to resolve against — and resolving it against somebody

@@ -65,6 +65,17 @@ func parseClock(v string) (hour, minute int, ok bool) {
 // ambiguous fall-back time resolves as time.Date resolves it.
 func (s Schedule) slotAt(now time.Time, loc *time.Location) (date string, openAt time.Time, ok bool) {
 	local := now.In(loc)
+	openAt, ok = s.openInstant(local, loc)
+	if !ok || now.Before(openAt) {
+		return "", time.Time{}, false
+	}
+	return local.Format(time.DateOnly), openAt, true
+}
+
+// openInstant is when the slot on local's calendar date opens. ok is false
+// when that weekday is not scheduled or the clock does not parse. A time that
+// falls in a spring-forward gap moves forward by the gap: 02:30 becomes 03:30.
+func (s Schedule) openInstant(local time.Time, loc *time.Location) (time.Time, bool) {
 	onDay := false
 	for _, d := range s.Weekdays {
 		if time.Weekday(d) == local.Weekday() {
@@ -73,20 +84,52 @@ func (s Schedule) slotAt(now time.Time, loc *time.Location) (date string, openAt
 	}
 	h, m, valid := parseClock(s.OpenTime)
 	if !onDay || !valid {
-		return "", time.Time{}, false
+		return time.Time{}, false
 	}
-	openAt = time.Date(local.Year(), local.Month(), local.Day(), h, m, 0, 0, loc)
+	openAt := time.Date(local.Year(), local.Month(), local.Day(), h, m, 0, 0, loc)
 	if openAt.Hour() != h || openAt.Minute() != m {
-		// The open time falls in a spring-forward gap, and time.Date does not
-		// promise which side it lands on. Read it with the offset in force
-		// before the gap, which puts it just after: 02:30 becomes 03:30.
+		// time.Date does not promise which side of a gap it lands on. Read it
+		// with the offset in force before the gap, which puts it just after.
 		_, before := openAt.Add(-12 * time.Hour).Zone()
 		openAt = time.Date(local.Year(), local.Month(), local.Day(), h, m, 0, 0, time.FixedZone("", before)).In(loc)
 	}
-	if now.Before(openAt) {
-		return "", time.Time{}, false
+	return openAt, true
+}
+
+// feedHorizon is how far ahead a personal calendar lists scheduled slots.
+const feedHorizon = 14 * 24 * time.Hour
+
+type feedWindow struct {
+	Date        string // YYYYMMDD in the schedule's zone
+	Open, Close time.Time
+}
+
+// upcoming returns slots whose window is still open and whose open time is
+// within feedHorizon. It uses openInstant, so a spring-forward gap is the
+// same instant slotAt would have opened.
+func (s Schedule) upcoming(now time.Time) ([]feedWindow, error) {
+	loc, err := time.LoadLocation(s.Timezone)
+	if err != nil {
+		return nil, err
 	}
-	return local.Format(time.DateOnly), openAt, true
+	until := now.Add(feedHorizon)
+	// A window is at most a day long, so one that is still open started no
+	// earlier than yesterday in this zone.
+	start := now.In(loc).Add(-24 * time.Hour)
+	end := until.In(loc)
+	var out []feedWindow
+	for d := time.Date(start.Year(), start.Month(), start.Day(), 12, 0, 0, 0, loc); !d.After(end); d = d.AddDate(0, 0, 1) {
+		openAt, ok := s.openInstant(d, loc)
+		if !ok {
+			continue
+		}
+		closeAt := openAt.Add(time.Duration(s.WindowMinutes) * time.Minute)
+		if !closeAt.After(now) || openAt.After(until) {
+			continue
+		}
+		out = append(out, feedWindow{Date: openAt.In(loc).Format("20060102"), Open: openAt, Close: closeAt})
+	}
+	return out, nil
 }
 
 type Schedules struct {
