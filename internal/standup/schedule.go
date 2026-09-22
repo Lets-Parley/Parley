@@ -117,8 +117,14 @@ func (s Schedule) upcoming(now time.Time) ([]feedWindow, error) {
 	// earlier than yesterday in this zone.
 	start := now.In(loc).Add(-24 * time.Hour)
 	end := until.In(loc)
+	// Walk calendar dates up to and including until's local date. A noon
+	// anchor would stop before visiting that last date whenever until falls
+	// before noon local time, dropping a morning slot that still opens
+	// within the horizon; each candidate day is still filtered below by its
+	// actual open instant, not by this anchor.
+	endDate := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, loc)
 	var out []feedWindow
-	for d := time.Date(start.Year(), start.Month(), start.Day(), 12, 0, 0, 0, loc); !d.After(end); d = d.AddDate(0, 0, 1) {
+	for d := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, loc); !d.After(endDate); d = d.AddDate(0, 0, 1) {
 		openAt, ok := s.openInstant(d, loc)
 		if !ok {
 			continue

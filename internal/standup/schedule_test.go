@@ -21,6 +21,44 @@ func mustLoc(t *testing.T, name string) *time.Location {
 	return loc
 }
 
+// TestUpcomingIncludesAMorningSlotOnTheLastDay picks now so that
+// until = now + feedHorizon (14 days) lands at 08:00 UTC on a Tuesday, and
+// gives the schedule a 07:00 UTC Tuesday open time. That slot's open instant,
+// hand-computed as 2026-10-06T07:00:00Z, is before until and must be listed.
+// upcoming used to anchor its calendar-day walk at noon and stop as soon as
+// that noon passed until, which drops this exact slot: noon on the last day
+// (2026-10-06T12:00:00Z) is after until (08:00Z), so the day was never
+// visited even though the slot's real open instant is still in the window.
+func TestUpcomingIncludesAMorningSlotOnTheLastDay(t *testing.T) {
+	now := time.Date(2026, 9, 22, 8, 0, 0, 0, time.UTC) // Tuesday
+	s := Schedule{
+		Weekdays:      []int{2}, // Tuesday
+		OpenTime:      "07:00",
+		Timezone:      "UTC",
+		WindowMinutes: 60,
+	}
+	if err := s.Validate(); err != nil {
+		t.Fatalf("schedule did not validate: %v", err)
+	}
+
+	windows, err := s.upcoming(now)
+	if err != nil {
+		t.Fatalf("upcoming: %v", err)
+	}
+
+	wantOpen := time.Date(2026, 10, 6, 7, 0, 0, 0, time.UTC)
+	wantClose := time.Date(2026, 10, 6, 8, 0, 0, 0, time.UTC)
+	for _, w := range windows {
+		if w.Date == "20261006" {
+			if !w.Open.Equal(wantOpen) || !w.Close.Equal(wantClose) {
+				t.Fatalf("last-day slot = {%v %v}, want {%v %v}", w.Open, w.Close, wantOpen, wantClose)
+			}
+			return
+		}
+	}
+	t.Fatalf("last-day slot 20261006 missing from upcoming windows: %+v", windows)
+}
+
 func TestScheduleValidateRejectsUnknownTimezone(t *testing.T) {
 	s := Schedule{Weekdays: []int{1}, OpenTime: "09:00", Timezone: "Mars/Olympus_Mons", WindowMinutes: 60}
 	if err := s.Validate(); err == nil {
