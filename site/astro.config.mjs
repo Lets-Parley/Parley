@@ -63,6 +63,7 @@ export default defineConfig({
             "features/retrospective",
             "features/spaces-and-room-codes",
             "features/guest-links",
+            "features/presenting-a-room",
             "features/kudos",
             "features/exports",
             "features/themes",

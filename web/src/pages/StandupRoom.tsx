@@ -495,6 +495,14 @@ export function StandupRoom({
           would be chrome around two tertiary links. */}
       <header className="-mb-2 flex flex-wrap items-center justify-end gap-3">
         <span data-testid="session-actions" className="flex items-center gap-2">
+        <a
+          href={`/session/${env.id}/present`}
+          target="_blank"
+          rel="noopener"
+          className="text-sm font-bold text-ink-soft hover:text-accent"
+        >
+          Present
+        </a>
         {/* Refused to a link guest, whose capability is this round, not its
             record. */}
         {!guest && (

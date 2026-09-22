@@ -1804,3 +1804,14 @@ describe("StandupRoom async mode", () => {
     expect(screen.getByRole("heading", { name: "Updates" })).toBeTruthy();
   });
 });
+
+describe("StandupRoom present link", () => {
+  it("opens the presenter view in a new tab", () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(answering(new Response("{}", { status: 200 })));
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    const link = screen.getByRole("link", { name: "Present" });
+    expect(link.getAttribute("href")).toBe("/session/sess-1/present");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener");
+  });
+});

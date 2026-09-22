@@ -7,6 +7,7 @@ import { OrgDirectory } from "./pages/OrgDirectory";
 import { SpacePage } from "./pages/SpacePage";
 import { SpaceSettingsPage } from "./pages/SpaceSettingsPage";
 import { SessionPage } from "./pages/SessionPage";
+import { PresentPage } from "./pages/PresentPage";
 import { LinkPage } from "./pages/LinkPage";
 import { PluginsPage } from "./pages/PluginsPage";
 
@@ -37,6 +38,7 @@ export default function App() {
             <Route path="/o/:org/s/:slug" element={<SpacePage />} />
             <Route path="/o/:org/s/:slug/settings" element={<SpaceSettingsPage />} />
             <Route path="/session/:id" element={<SessionPage />} />
+            <Route path="/session/:id/present" element={<PresentPage />} />
             {/* Both of these stay un-prefixed, deliberately. A session id is
                 a globally-unique uuid and this is the URL people paste into
                 chat mid-standup; /link is the landing page for a signed link,

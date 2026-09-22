@@ -243,6 +243,14 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
                 hairline: End session used to sit a cursor-width from Export CSV
                 at the same size and weight. */}
             <span className="flex items-center gap-2 border-l border-line pl-3">
+              <a
+                href={`/session/${env.id}/present`}
+                target="_blank"
+                rel="noopener"
+                className="inline-flex items-center px-2 py-2 text-[13px] font-semibold text-ink-faint hover:text-accent"
+              >
+                Present
+              </a>
               {/* A link guest is refused the export, and the whole room's
                   votes are more than its capability anyway. */}
               {!guest && (
