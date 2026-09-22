@@ -15,6 +15,7 @@ import type { Fail } from "../components/Modal";
 import { cueFor, cueVar } from "../lib/cue";
 import { EmptyTable } from "./PokerRoom";
 import { PluginChrome } from "../components/PluginChrome";
+import { AsyncDigest } from "../components/AsyncDigest";
 
 export type StandupEntry = {
   userId: string;
@@ -25,6 +26,8 @@ export type StandupEntry = {
   skipped: boolean;
   /** Advisory "I've finished writing" signal, shown only while gathering. */
   ready: boolean;
+  /** When the entry was last written, RFC 3339. Shown as "posted HH:MM". */
+  postedAt: string;
 };
 /** Which cluster of controls a failure came from, so it reports there. */
 type Where = "chrome" | "gathering" | "round" | "kudos";
@@ -46,6 +49,10 @@ type StandupState = {
   currentSpeakerId: string | null;
   speakerStartedAt: string | null;
   secondsPerPerson: number;
+  /** "async": people answer on their own time and nobody holds a turn. */
+  mode: "sync" | "async";
+  /** An async standup's published cutoff. Passing it does not end the session. */
+  closesAt: string | null;
 };
 
 // The viewer's own entry is local draft state: it is seeded once from the
@@ -246,6 +253,8 @@ export function StandupRoom({
     const name = safeDisplayName(p.name);
     return p.guest ? `${name} (guest)` : name;
   };
+  const isAsync = st.mode === "async";
+  const spectating = env.participants.find((p) => p.userId === me.id)?.spectator ?? false;
   const speaking = env.phase === "speaking";
   const done = env.phase === "done";
   const current = st.currentSpeakerId ? st.entries.find((e) => e.userId === st.currentSpeakerId) : undefined;
@@ -598,7 +607,46 @@ export function StandupRoom({
       )}
 
 
-      {!speaking && !done && (
+      {/* Async: no speaking order at all, so the answer form and the digest
+          replace the round. The server refuses start/next/skip here. A
+          spectator watches the digest and does not get the form. */}
+      {isAsync && !env.endedAt && !spectating && (
+        <section className="flex flex-col gap-4 rounded-panel border border-line bg-surface px-5 py-5 shadow-rest">
+          <div>
+            <h2 className="text-[19px] font-bold tracking-tight text-ink">Answer when you can</h2>
+            <p className="text-ink-soft">
+              Your notes save automatically and stay editable until the standup ends.
+            </p>
+            {st.closesAt && (
+              <p className="mt-1 text-sm text-ink-faint">
+                Closes{" "}
+                <time dateTime={st.closesAt}>
+                  {new Date(st.closesAt).toLocaleString([], {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </time>
+              </p>
+            )}
+          </div>
+          <Commitments
+            commitments={st.commitments ?? []}
+            meId={me.id}
+            onAdd={(text) => run(() => action(env.id, "add", { text }), { where: "gathering" })}
+            onAnswer={(id, done) => run(() => action(env.id, "answer", { id, done }), { where: "gathering" })}
+            onRemove={(id) => run(() => action(env.id, "remove", { id }), { where: "gathering" })}
+            onNote={noteCommitment}
+          />
+          <EntryForm draft={draft} update={update} saveState={saveState} />
+          {failRow("gathering")}
+        </section>
+      )}
+      {isAsync && <AsyncDigest entries={st.entries} participants={env.participants} ended={Boolean(env.endedAt)} />}
+
+      {!isAsync && !speaking && !done && (
         <section className="flex flex-col gap-4 rounded-panel border border-line bg-surface px-5 py-5 shadow-rest">
           {/* The section's own head. Without it the only heading in the
               gathering phase was the carry-over list's h3, which both skipped a
