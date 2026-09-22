@@ -208,7 +208,14 @@ func blockedAddress(a netip.Addr) bool {
 		return true
 	case b[0] == 0x20 && b[1] == 0x02: // 2002::/16, 6to4 — screen the embedded v4
 		return blockedAddress(netip.AddrFrom4([4]byte{b[2], b[3], b[4], b[5]}))
-	case b[0] == 0x00 && b[1] == 0x64 && b[2] == 0xff && b[3] == 0x9b: // 64:ff9b::/96, NAT64
+	case b[0] == 0x00 && b[1] == 0x64 && b[2] == 0xff && b[3] == 0x9b: // 64:ff9b::/32, NAT64
+		// RFC 6052's well-known prefix is 64:ff9b::/96: the IPv4 address
+		// occupies the last four bytes and bytes 4..11 are zero. Anything
+		// else in the /32, including the RFC 8215 local-use prefix
+		// 64:ff9b:1::/48, puts that address where this screen does not read.
+		if !allZero(b[4:12]) {
+			return true
+		}
 		return blockedAddress(netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]}))
 	case allZero(b[:12]): // ::/96, IPv4-compatible — screen the embedded v4
 		// Unmap has already folded the ::ffff: form down to a v4 address, so

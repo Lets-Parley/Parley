@@ -132,6 +132,27 @@ func TestFetchRefusesPrivateLoopbackLinkLocalAndMetadataAddresses(t *testing.T) 
 	}
 }
 
+func TestFetchRefusesNAT64PrefixesTheGuardCannotDecode(t *testing.T) {
+	// 64:ff9b::/32 covers more than the well-known /96 form. Only that form
+	// places the IPv4 address in the last four bytes; the local-use prefix
+	// 64:ff9b:1::/48 and any other non-zero bytes 4..11 are a different layout.
+	cases := []struct {
+		addr    string
+		blocked bool
+	}{
+		{"64:ff9b:1:a9fe:a9:fe00:101:101", true},
+		{"64:ff9b::a9fe:a9fe", true},
+		{"64:ff9b::808:808", false},
+		{"64:ff9b:1::808:808", true},
+	}
+	for _, tc := range cases {
+		got := blockedAddress(netip.MustParseAddr(tc.addr))
+		if got != tc.blocked {
+			t.Errorf("%s: blocked=%v, want %v", tc.addr, got, tc.blocked)
+		}
+	}
+}
+
 func TestFetchScreensEveryResolvedRecordNotOnlyTheFirst(t *testing.T) {
 	f := &Fetcher{resolve: func(context.Context, string) ([]netip.Addr, error) {
 		return []netip.Addr{

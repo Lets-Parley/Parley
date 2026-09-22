@@ -236,6 +236,13 @@ mutate "the private-address screen" \
     fetch.go 'func blockedAddress(a netip.Addr) bool {' 'func blockedAddress(a netip.Addr) bool { return false //nolint
 '
 
+# Only 64:ff9b::/96 places the IPv4 address in the last four bytes. Dropping
+# the zero check on bytes 4..11 makes the guard read every other layout in
+# 64:ff9b::/32 — including 64:ff9b:1::/48 — as if it were that form.
+mutate "the NAT64 prefix shape check" \
+    'TestFetchRefusesNAT64PrefixesTheGuardCannotDecode' \
+    fetch.go 'if !allZero(b[4:12]) {' 'if false {'
+
 mutate "the per-hop allowlist recheck" \
     'TestEveryRedirectHopRepeatsTheWholeSequence|TestAFetchRedirectedToADisallowedHostIsBlockedOnTheHop' \
     fetch.go 'if !hostAllowed(u.Hostname(), allow) {' 'if hop == 0 && !hostAllowed(u.Hostname(), allow) {'
