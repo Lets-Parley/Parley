@@ -437,6 +437,104 @@ func TestEmbedSignOutNeverFallsBackToTheCookie(t *testing.T) {
 	}
 }
 
+// TestEmbedSignOutWithBearerAndCookieSpendsOnlyTheBearer: a meeting frame that
+// carries an embedded bearer can still have a first-party parley_session
+// cookie riding along on the same request (the same browser, another tab).
+// Signing out must spend only the bearer's token — never expire that cookie —
+// because the cookie's own session_tokens row is untouched and still resolves.
+func TestEmbedSignOutWithBearerAndCookieSpendsOnlyTheBearer(t *testing.T) {
+	srv := embedServer(t, testPool(t))
+	ada := signup(t, srv, "Ada")
+	token := embedToken(t, srv, ada)
+
+	req, _ := http.NewRequest("DELETE", srv.URL+"/api/me", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.AddCookie(ada)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("sign out with bearer + cookie: %d, want 204", resp.StatusCode)
+	}
+	for _, c := range resp.Cookies() {
+		if c.Name == sessionCookie && c.MaxAge < 0 {
+			t.Fatalf("sign out with an embedded bearer expired the first-party cookie: %+v", c)
+		}
+	}
+	// The bearer's own token is spent.
+	if got := bearerStatus(t, srv, "GET", "/api/me", "", token); got != http.StatusUnauthorized {
+		t.Fatalf("GET /api/me with the spent bearer: %d, want 401", got)
+	}
+	// The cookie's token is still valid — its session_tokens row was never
+	// touched.
+	if got, _ := requestStatus(srv, "GET", "/api/me", "", ada); got != http.StatusOK {
+		t.Fatalf("GET /api/me with the cookie after a bearer sign out: %d, want 200", got)
+	}
+
+	// Control: unchanged cookie-only sign-out behaviour still clears the
+	// cookie and spends its token.
+	req2, _ := http.NewRequest("DELETE", srv.URL+"/api/me", nil)
+	req2.AddCookie(ada)
+	resp2, err := srv.Client().Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2.Body.Close()
+	cleared := false
+	for _, c := range resp2.Cookies() {
+		if c.Name == sessionCookie && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Fatal("control: cookie-only sign out did not clear the cookie")
+	}
+	if got, _ := requestStatus(srv, "GET", "/api/me", "", ada); got != http.StatusUnauthorized {
+		t.Fatalf("control: GET /api/me with the cookie after cookie-only sign out: %d, want 401", got)
+	}
+}
+
+// TestEmbedMemberViewWithholdsThePasscode: GET /api/orgs/{org}/spaces/{slug}
+// is on the embedded allow-list, so a phished 12h embedded bearer must not be
+// able to harvest a space's passcode from its member view — the passcode is
+// a credential, not room state. The same member's cookie still gets it.
+func TestEmbedMemberViewWithholdsThePasscode(t *testing.T) {
+	srv := embedServer(t, testPool(t))
+	ada := signup(t, srv, "Ada")
+	_, sp := createSpace(t, srv, "Passcode Team", ada)
+	if sp["passcode"] == nil || sp["passcode"] == "" {
+		t.Fatalf("fixture space has no passcode: %v", sp)
+	}
+	token := embedToken(t, srv, ada)
+
+	req, _ := http.NewRequest("GET", srv.URL+"/api/orgs/default/spaces/"+sp["slug"].(string), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var embedded map[string]any
+	json.NewDecoder(resp.Body).Decode(&embedded)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("embedded member view: %d %v", resp.StatusCode, embedded)
+	}
+	if _, has := embedded["passcode"]; has {
+		t.Fatalf("embedded bearer's member view leaked the passcode: %v", embedded)
+	}
+	if _, has := embedded["members"]; !has {
+		t.Fatalf("embedded bearer's member view lost the rest of the member view: %v", embedded)
+	}
+
+	// Control: the same member's cookie still gets the passcode.
+	_, cookieView := getSpace(t, srv, sp["slug"].(string), ada)
+	if cookieView["passcode"] != sp["passcode"] {
+		t.Fatalf("control: cookie member view passcode = %v, want %v", cookieView["passcode"], sp["passcode"])
+	}
+}
+
 // TestEmbeddedSessionParticipantPowerOnly: on the routes an embedded session
 // may reach, it gets exactly what the same person's cookie gets; the admin set
 // and the space owner's housekeeping are refused even to an owner and admin.

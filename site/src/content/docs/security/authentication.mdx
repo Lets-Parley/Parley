@@ -6,7 +6,7 @@ description: Anonymous and OpenID Connect sign-in, cookies, tokens, and how long
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/auth/oidc.go", "internal/api/auth.go", "internal/api/principal.go", "internal/api/me.go", "internal/store/users.go", "internal/hub/hub.go", "internal/api/ics.go", "internal/standup/ics.go", "internal/api/embed.go", "internal/api/router.go", "internal/api/authz.go", "internal/store/embed.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/auth/oidc.go", "internal/api/auth.go", "internal/api/principal.go", "internal/api/me.go", "internal/store/users.go", "internal/hub/hub.go", "internal/api/ics.go", "internal/standup/ics.go", "internal/api/embed.go", "internal/api/router.go", "internal/api/authz.go", "internal/store/embed.go", "internal/api/spaces.go"]} />
 
 Parley runs in one of two modes, set by `AUTH_MODE` and fixed at boot.
 
@@ -307,14 +307,25 @@ one place on the `/api` mount. It may reach these routes and nothing else:
 Every other `/api` route answers `403` to an embedded session, whoever holds
 it and whatever their roles: creating or deleting spaces and rooms, rotating
 a passcode, changing visibility, member roles or removals, decks, kudos,
-standup schedules and webhooks, facilitator controls, the CSV export, signed
-links (minting, listing or redeeming), renaming, avatar and settings, the
-calendar feed, and all of org administration. Each allowed route's own checks
-still apply, so an embedded session never gets more than the same person's
-cookie. Org administration is refused a second time inside the admin gate.
-Renaming rotates the session token, and the rotated row keeps the embedded
-flag and the original expiry, so a rename could never widen a session even if
-it were allowed.
+standup schedules and webhooks, the room-level facilitator controls —
+claiming or transferring the facilitator seat, removing a participant, and
+closing or reopening the room — the CSV export, signed links (minting,
+listing or redeeming), renaming, avatar and settings, the calendar feed, and
+all of org administration. Each allowed route's own checks still apply, so an
+embedded session never gets more than the same person's cookie. Org
+administration is refused a second time inside the admin gate. Renaming
+rotates the session token, and the rotated row keeps the embedded flag and
+the original expiry, so a rename could never widen a session even if it were
+allowed.
+
+The refusal above is on route-level controls, not on facilitating inside a
+room: `/api/sessions/{id}/actions/{action}` is on the allow-list, so an
+embedded facilitator keeps every in-room kind action the same person's cookie
+would have — poker's reveal, reset and config, standup's start, next and
+skip. `GET /api/orgs/{org}/spaces/{slug}`'s member view is also on the
+allow-list but withholds one field from an embedded session that a cookie
+gets: the space's passcode, so a phished embedded session (the residual risk
+below) cannot harvest every passcode its holder's spaces have.
 
 ### What the handoff does not prevent
 

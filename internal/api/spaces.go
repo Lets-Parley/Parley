@@ -231,10 +231,21 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 			// same rule: it is what the settings page shows an owner, and it
 			// is deliberately absent from the stranger view below, where
 			// "is this room listed to its org" is nobody's business.
-			writeJSON(w, http.StatusOK, map[string]any{
+			//
+			// Except an embedded session: this route is on the embedded
+			// allow-list so a meeting frame can show its own room, but a
+			// phished 12h embedded bearer must not be able to harvest the
+			// passcode of every space its holder belongs to. Everything else
+			// in the member view — roster, sessions, kinds, visibility —
+			// stays, since none of it is a credential.
+			body := map[string]any{
 				"slug": sp.Slug, "name": sp.Name, "members": views, "sessions": sessionViews, "kinds": kinds,
-				"passcode": sp.Passcode, "protected": sp.Passcode != "", "visibility": sp.Visibility,
-			})
+				"protected": sp.Passcode != "", "visibility": sp.Visibility,
+			}
+			if !p.Embedded {
+				body["passcode"] = sp.Passcode
+			}
+			writeJSON(w, http.StatusOK, body)
 			return
 		}
 	}

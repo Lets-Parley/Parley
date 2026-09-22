@@ -268,6 +268,12 @@ func (a *app) handleDeleteMe(w http.ResponseWriter, r *http.Request) {
 		// fields.
 		logSecEvent(r, secEvent{Event: "auth.signout"})
 	}
-	clearSessionCookie(w, a.secureCookies)
+	// A presented bearer never owns the browser's first-party cookie — the
+	// same rule as above. Clearing it here would expire a parley_session
+	// cookie that rode along on the request while its session_tokens row
+	// stays valid, silently signing the browser tab out from under it.
+	if !a.bearerPresented(r) {
+		clearSessionCookie(w, a.secureCookies)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
