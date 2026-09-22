@@ -307,10 +307,11 @@ func TestEveryOptionMainCanSetIsActuallySet(t *testing.T) {
 			KudosPerSpace: 1, StoriesPerSession: 1, LinksPerSession: 1,
 			WSMaxPerToken: 1,
 		},
-		SessionIdleTTL: time.Hour,
-		SessionMaxTTL:  time.Hour,
-		PluginDir:      t.TempDir(),
-		MetricsEnabled: true,
+		SessionIdleTTL:      time.Hour,
+		SessionMaxTTL:       time.Hour,
+		PluginDir:           t.TempDir(),
+		MetricsEnabled:      true,
+		StandupWebhookHosts: []string{"hooks.example.test"},
 	}
 	opts := apiOptions(t.Context(), cfg, true, &plugin.Store{}, &plugin.Host{})
 
