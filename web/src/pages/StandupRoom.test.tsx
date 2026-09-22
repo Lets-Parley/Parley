@@ -1770,6 +1770,33 @@ describe("StandupRoom async mode", () => {
     ).toBeTruthy();
   });
 
+  it("hides the answer form from a spectator", () => {
+    const env = asyncEnvelope({
+      participants: [
+        makePerson({ userId: "dana", name: "Dana Whitfield" }),
+        makePerson({ userId: "marcus", name: "Marcus Okonjo", spectator: true }),
+        makePerson({ userId: "priya", name: "Priya Raman" }),
+      ],
+    });
+    renderApp(<StandupRoom env={env} me={me} />);
+    expect(screen.queryByRole("heading", { name: "Answer when you can" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Your update" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Updates" })).toBeTruthy();
+  });
+
+  it("names the calendar date the standup closes", () => {
+    renderApp(<StandupRoom env={asyncEnvelope()} me={me} />);
+    const closes = document.querySelector('time[datetime="2026-08-18T17:00:00Z"]');
+    const formatted = new Date("2026-08-18T17:00:00Z").toLocaleString([], {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    expect(closes?.textContent).toBe(formatted);
+  });
+
   it("drops the answer form and the not-yet list once ended", () => {
     renderApp(<StandupRoom env={asyncEnvelope({ endedAt: "2026-08-18T18:00:00Z" })} me={me} />);
     expect(screen.queryByRole("heading", { name: "Your update" })).toBeNull();

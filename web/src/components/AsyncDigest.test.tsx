@@ -80,6 +80,32 @@ describe("AsyncDigest", () => {
     expect(screen.getByText(/no updates yet/i)).toBeTruthy();
   });
 
+  it("leaves a spectator's entry out of updates, blockers and answered", () => {
+    const withSam = [
+      ...entries,
+      entry({
+        userId: "sam",
+        today: "just watching",
+        blockers: "the deploy is on fire",
+        position: 3,
+      }),
+    ];
+    renderApp(<AsyncDigest entries={withSam} participants={people} ended={false} />);
+
+    const updates = screen.getByRole("region", { name: "Updates" });
+    expect(updates.textContent).toContain("Dana Whitfield");
+    expect(updates.textContent).not.toContain("Sam Watcher");
+    expect(updates.textContent).not.toContain("just watching");
+
+    const blockers = screen.getByRole("region", { name: "Blockers" });
+    expect(blockers.textContent).toContain("Marcus Okonjo");
+    expect(blockers.textContent).not.toContain("Sam Watcher");
+    expect(blockers.textContent).not.toContain("the deploy is on fire");
+
+    expect(screen.getByRole("region", { name: "Answered" }).textContent).not.toContain("Sam Watcher");
+    expect(screen.getByRole("region", { name: "Not yet" }).textContent).not.toContain("Sam Watcher");
+  });
+
   it("has no axe violations", async () => {
     const { container } = renderApp(<AsyncDigest entries={entries} participants={people} ended={false} />);
     await expectNoViolations(container);

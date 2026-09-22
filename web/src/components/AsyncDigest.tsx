@@ -45,7 +45,10 @@ export function AsyncDigest({
     if (!p) return "Someone";
     return p.guest ? `${safeDisplayName(p.name)} (guest)` : safeDisplayName(p.name);
   };
-  const posted = entries.filter(answered);
+  // A spectator has no turn. An entry they submitted anyway stays out of the
+  // digest the room reads as who answered.
+  const spectators = new Set(participants.filter((p) => p.spectator).map((p) => p.userId));
+  const posted = entries.filter((e) => answered(e) && !spectators.has(e.userId));
   const blockers = posted.filter((e) => e.blockers.trim());
   const answeredIds = new Set(posted.map((e) => e.userId));
   const waiting = participants.filter((p) => !p.spectator && !answeredIds.has(p.userId));

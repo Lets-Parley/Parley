@@ -254,6 +254,7 @@ export function StandupRoom({
     return p.guest ? `${name} (guest)` : name;
   };
   const isAsync = st.mode === "async";
+  const spectating = env.participants.find((p) => p.userId === me.id)?.spectator ?? false;
   const speaking = env.phase === "speaking";
   const done = env.phase === "done";
   const current = st.currentSpeakerId ? st.entries.find((e) => e.userId === st.currentSpeakerId) : undefined;
@@ -607,8 +608,9 @@ export function StandupRoom({
 
 
       {/* Async: no speaking order at all, so the answer form and the digest
-          replace the round. The server refuses start/next/skip here. */}
-      {isAsync && !env.endedAt && (
+          replace the round. The server refuses start/next/skip here. A
+          spectator watches the digest and does not get the form. */}
+      {isAsync && !env.endedAt && !spectating && (
         <section className="flex flex-col gap-4 rounded-panel border border-line bg-surface px-5 py-5 shadow-rest">
           <div>
             <h2 className="text-[19px] font-bold tracking-tight text-ink">Answer when you can</h2>
@@ -619,7 +621,13 @@ export function StandupRoom({
               <p className="mt-1 text-sm text-ink-faint">
                 Closes{" "}
                 <time dateTime={st.closesAt}>
-                  {new Date(st.closesAt).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}
+                  {new Date(st.closesAt).toLocaleString([], {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
                 </time>
               </p>
             )}
