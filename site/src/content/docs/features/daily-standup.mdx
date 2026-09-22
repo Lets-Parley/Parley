@@ -11,7 +11,7 @@ import roundDark from "../../../assets/standup-round-dark.png";
 import blockersLight from "../../../assets/blockers-roundup-light.png";
 import blockersDark from "../../../assets/blockers-roundup-dark.png";
 
-<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "internal/standup/kudos.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/components/AsyncDigest.tsx", "web/src/lib/kinds.ts", "internal/standup/schedule.go"]} />
+<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "internal/standup/kudos.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/components/AsyncDigest.tsx", "web/src/lib/kinds.ts", "internal/standup/schedule.go", "internal/standup/webhook.go", "internal/api/standup_webhook.go"]} />
 
 A standup session is three text fields per person — yesterday, today, blockers —
 and an order to speak in.
@@ -267,12 +267,55 @@ would still start a round in an async room. Live standups are stored exactly
 as before, so they are unaffected.
 :::
 
+### Standup webhooks
+
+A space owner can point the space at one HTTPS webhook, through the API only
+for now (`PUT /api/orgs/{org}/spaces/{slug}/standup-webhook` with `{"url"}`).
+The URL's host must be on the operator's
+[`STANDUP_WEBHOOK_HOSTS`](/reference/configuration/#standup-webhooks) allowlist,
+and the instance needs `PLUGIN_SECRET_KEY`. The response carries a signing
+secret, **shown once**; saving the webhook again mints a new one.
+
+Parley then posts three events for every standup in the space, live and async
+alike:
+
+| Event | When |
+| --- | --- |
+| `standup.opened` | A standup session is created, by a person or by the schedule. |
+| `standup.closed` | An async standup's `closesAt` passes while it is still open. |
+| `standup.ended` | The standup ends. |
+
+The body is the whole of what leaves the instance — the event, its id, the
+space and the room's URL. **No update, blocker or name is ever sent.**
+
+```json
+{"event":"standup.closed","id":"0b1c2d3e-…","sessionUrl":"https://parley.example/session/…","space":{"org":"default","slug":"team"}}
+```
+
+`X-Parley-Signature` is `sha256=` and the hex HMAC-SHA256 of the raw body, keyed
+by the secret; compare it in constant time before trusting the body.
+`X-Parley-Event` and `X-Parley-Event-Id` repeat the event and its id.
+
+Delivery is **at least once**. A non-2xx answer or a network error is retried
+after 30 seconds, 2, 8 and 32 minutes, and given up on after five attempts.
+Every retry carries the same id and the same bytes, so drop an id you have seen.
+Events are found by a sweep every 30 seconds on every replica, and each event
+is recorded exactly once however many replicas run. The sweep looks back one
+day: an event older than that when no replica was running is not sent.
+
+Every delivery goes through the same guard as a plugin's outbound fetch: https
+only, the host on the allowlist, resolved once, every address screened, the
+screened address dialled, and the whole sequence repeated for each redirect. An
+allowlisted name that resolves to a private, loopback or metadata address is
+refused. See [Plugin sandbox](/security/plugin-sandbox/).
+
 ## What is not here
 
 <Capability rows={[
   { name: "Configurable timer length", status: "not-built", detail: "The server supports a <code>secondsPerPerson</code> session setting and defaults it to 90, but nothing in the UI sets it. Treat 90 seconds as fixed." },
   { name: "Async standup", status: "built", detail: "Answer on your own time and read a blockers-first digest. See Async standups above." },
   { name: "Scheduled async standups", status: "built", detail: "Set through the API. See Scheduled async standups above." },
+  { name: "A webhook editor", status: "not-built", detail: "The standup webhook is set through the API only; nothing in the UI sets it yet." },
   { name: "A schedule editor and a cutoff picker", status: "not-built", detail: "The schedule and <code>closesAt</code> are set through the API only; nothing in the UI sets them yet." },
   { name: "Reordering the speaking order", status: "not-built", detail: "Fixed once the round starts. Skip moves past anyone who is not ready." },
   { name: "Editing a kudo", status: "not-built", detail: "The sender can withdraw one from the space's wall. Nobody can rewrite text somebody has already read." },

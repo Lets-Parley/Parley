@@ -402,3 +402,8 @@ func (f *Fetcher) send(ctx context.Context, method string, u *url.URL, pinned ne
 	}
 	return resp, nil
 }
+
+// HostAllowed reports whether host matches an allowlist entry, by the same
+// rule Do applies. It lets core code refuse a destination when it is
+// configured rather than only when a delivery is attempted.
+func HostAllowed(host string, patterns []string) bool { return hostAllowed(host, patterns) }

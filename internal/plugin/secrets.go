@@ -88,3 +88,12 @@ func (s *Store) GetSecret(ctx context.Context, installID, name string) (string, 
 }
 
 func isNoRows(err error) bool { return errors.Is(err, pgx.ErrNoRows) }
+
+// Seal encrypts a secret core code keeps at rest with the instance key, such
+// as a standup webhook's signing secret.
+func (c *Cipher) Seal(plaintext string) (nonce, ciphertext []byte, err error) {
+	return c.seal(plaintext)
+}
+
+// Open reverses Seal.
+func (c *Cipher) Open(nonce, ciphertext []byte) (string, error) { return c.open(nonce, ciphertext) }

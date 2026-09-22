@@ -6,7 +6,7 @@ description: What a Parley plugin can and cannot do, and the mechanism behind ea
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/plugin/host.go", "internal/plugin/hostfn.go", "internal/plugin/fetch.go", "internal/plugin/breaker.go", "internal/plugin/kinds.go", "internal/session/registry.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/db/migrations/0031_plugins.sql", "internal/db/migrations/0032_plugin_pending_upgrade.sql", "web/src/pages/SessionPage.tsx", "web/src/lib/pluginBridge.ts", "web/src/components/PluginPanel.tsx", "scripts/guard-mutation.sh"]} />
+<VerifiedStamp version="unreleased" source={["internal/plugin/host.go", "internal/plugin/hostfn.go", "internal/plugin/fetch.go", "internal/plugin/breaker.go", "internal/plugin/kinds.go", "internal/session/registry.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/db/migrations/0031_plugins.sql", "internal/db/migrations/0032_plugin_pending_upgrade.sql", "web/src/pages/SessionPage.tsx", "web/src/lib/pluginBridge.ts", "web/src/components/PluginPanel.tsx", "scripts/guard-mutation.sh", "internal/api/standup_webhook.go"]} />
 
 A Parley plugin is a WebAssembly module run in-process by
 [Extism](https://extism.org/) over [wazero](https://wazero.io/). Both are pure
@@ -89,6 +89,16 @@ because this guard follows them by hand. Other headers travel unchanged.
 Without it, a single allowlist entry wide enough to cover two hosts is enough:
 the first host 302s to the second, and the credential an operator approved for
 one arrives at the other.
+
+### The same guard carries standup webhooks
+
+Parley's one core outbound request, the [standup webhook](/features/daily-standup/#standup-webhooks),
+is sent by this same guard rather than by a second HTTP client. Its allowlist
+is the operator's `STANDUP_WEBHOOK_HOSTS`, never anything a space owner writes;
+a space owner's URL must also match that list when it is saved, and a URL naming
+an IP address or carrying credentials is refused outright. The body carries no
+standup content — only the event, its id, the space and the room URL — and the
+signing secret is never logged.
 
 ### Synchronous hooks cannot fetch at all
 

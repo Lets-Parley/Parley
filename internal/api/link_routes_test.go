@@ -123,10 +123,14 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// told plainly it cannot, before any space lookup runs.
 	"GET /api/orgs/{org}/spaces/{slug}/standup-schedule/": {status: http.StatusForbidden},
 	"PUT /api/orgs/{org}/spaces/{slug}/standup-schedule/": {status: http.StatusForbidden},
-	"GET /api/orgs/{org}/spaces/{slug}/decks/":            {status: http.StatusUnauthorized},
-	"POST /api/orgs/{org}/spaces/{slug}/decks/":           {status: http.StatusUnauthorized},
-	"PATCH /api/orgs/{org}/spaces/{slug}/decks/{deckId}":  {status: http.StatusUnauthorized},
-	"DELETE /api/orgs/{org}/spaces/{slug}/decks/{deckId}": {status: http.StatusUnauthorized},
+	// The standup webhook, owner-only on every verb, and refused the same way.
+	"GET /api/orgs/{org}/spaces/{slug}/standup-webhook/":    {status: http.StatusForbidden},
+	"PUT /api/orgs/{org}/spaces/{slug}/standup-webhook/":    {status: http.StatusForbidden},
+	"DELETE /api/orgs/{org}/spaces/{slug}/standup-webhook/": {status: http.StatusForbidden},
+	"GET /api/orgs/{org}/spaces/{slug}/decks/":              {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/spaces/{slug}/decks/":             {status: http.StatusUnauthorized},
+	"PATCH /api/orgs/{org}/spaces/{slug}/decks/{deckId}":    {status: http.StatusUnauthorized},
+	"DELETE /api/orgs/{org}/spaces/{slug}/decks/{deckId}":   {status: http.StatusUnauthorized},
 	// A space's kudos, on every verb. Guests neither send nor receive, and
 	// RequireUser turns one away before any space middleware could 404 it.
 	"GET /api/orgs/{org}/spaces/{slug}/kudos/":                 {status: http.StatusUnauthorized},

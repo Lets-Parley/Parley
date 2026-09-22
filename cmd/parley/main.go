@@ -58,6 +58,9 @@ type config struct {
 	// with. Empty means secrets are unavailable, and a plugin that asks for
 	// them fails to install rather than storing them in the clear.
 	PluginSecretKey string
+	// StandupWebhookHosts is the allowlist a space's standup webhook URL
+	// must match, from STANDUP_WEBHOOK_HOSTS. Empty allows no webhook.
+	StandupWebhookHosts []string
 	// SessionIdleTTL is how long a quiet session survives; SessionMaxTTL is
 	// the absolute lifetime from the moment the token was issued, which no
 	// amount of activity extends.
@@ -211,6 +214,15 @@ func loadConfig() (config, error) {
 		if _, err := plugin.NewCipher(cfg.PluginSecretKey); err != nil {
 			return cfg, fmt.Errorf("PLUGIN_SECRET_KEY is not usable: %w", err)
 		}
+	}
+	for _, host := range strings.Split(os.Getenv("STANDUP_WEBHOOK_HOSTS"), ",") {
+		if host = strings.TrimSpace(host); host == "" {
+			continue
+		}
+		if err := plugin.ValidateAllowPattern(host); err != nil {
+			return cfg, fmt.Errorf("STANDUP_WEBHOOK_HOSTS is not usable — list hostnames separated by commas, each optionally starting with \"*.\": %w", err)
+		}
+		cfg.StandupWebhookHosts = append(cfg.StandupWebhookHosts, host)
 	}
 	retention, err := time.ParseDuration(envOr("PLUGIN_EVENT_RETENTION", "168h"))
 	if err != nil || retention <= 0 {
@@ -463,6 +475,9 @@ func apiOptions(ctx context.Context, cfg config, secureCookies bool, plugins *pl
 		// Scheduled async standups open from this ticker. Every replica runs
 		// it; the slot's primary key keeps a slot from opening twice.
 		StandupScheduleInterval: standupScheduleInterval,
+		// A space owner's webhook URL must match this; delivery also goes
+		// through the plugin fetch guard with it as the allowlist.
+		StandupWebhookHosts: cfg.StandupWebhookHosts,
 	}
 	if cfg.AuthMode == api.ModeOIDC {
 		// Discovery happens on the first sign-in rather than here: an identity
@@ -511,6 +526,7 @@ func bootFields(cfg config, secureCookies bool) []any {
 		"trust_proxy_headers", cfg.TrustProxy,
 		"metrics_enabled", cfg.MetricsEnabled,
 		"plugin_secrets", cfg.PluginSecretKey != "",
+		"standup_webhook_hosts", cfg.StandupWebhookHosts,
 		"session_idle_ttl", cfg.SessionIdleTTL.String(),
 		"session_max_ttl", cfg.SessionMaxTTL.String(),
 		"plugin_event_retention", cfg.PluginEventRetention.String(),

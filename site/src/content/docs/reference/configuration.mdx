@@ -6,7 +6,7 @@ description: Every environment variable, its default, and whether a bad value st
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import EnvVar from "../../../components/EnvVar.astro";
 
-<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "cmd/parley/configfile.go", "internal/db/tls.go", "internal/api/client_address.go", "internal/api/secevent.go"]} />
+<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "cmd/parley/configfile.go", "internal/db/tls.go", "internal/api/client_address.go", "internal/api/secevent.go", "internal/api/standup_webhook.go"]} />
 
 Configuration is environment variables, optionally backed by a file that fills
 the gaps (`PARLEY_CONFIG_FILE`, below). There is no command-line flag other than
@@ -236,6 +236,24 @@ holds a cookie the server has stopped honouring.
 
 Rows past either lifetime are deleted by a background pass that runs hourly, so
 lapsed credential hashes do not accumulate.
+</EnvVar>
+
+## Standup webhooks
+
+<EnvVar name="STANDUP_WEBHOOK_HOSTS" badValue="Refuses to start if an entry is not a hostname with at most one leading *. label">
+The destination hosts a space owner's [standup webhook](/features/daily-standup/#standup-webhooks)
+may point at, comma-separated, for example
+`hooks.example.com,*.chat.example.org`. A `*.` entry matches subdomains and not
+the apex, the same rule a plugin's fetch allowlist uses. Unset, the default,
+allows no webhook at all: a space owner who configures one is answered 400.
+
+Standup webhooks also need `PLUGIN_SECRET_KEY`, because the signing secret is
+stored encrypted with it. Without that key the webhook route answers 503 and no
+delivery runs.
+
+Every delivery goes through the plugin fetch guard, so an allowlisted name
+that resolves to a private, loopback, link-local or metadata address is refused
+at delivery time, however it is spelled.
 </EnvVar>
 
 ## Plugins

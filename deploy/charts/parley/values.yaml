@@ -356,6 +356,9 @@ metrics:
 #     secrets are encrypted with. Unset means plugin secrets are unavailable
 #     and a plugin asking for them fails to install; prefer a valueFrom over a
 #     literal here.
+#   * STANDUP_WEBHOOK_HOSTS — comma-separated hosts a space's standup webhook
+#     may post to, each optionally "*." prefixed. Unset allows none. Needs
+#     PLUGIN_SECRET_KEY, which the signing secret is encrypted with.
 #   * PLUGIN_EVENT_RETENTION — how long delivered plugin events are kept
 #     before they are pruned, a Go duration. Default 168h.
 #   * PLUGIN_DIR — directory plugin bundles are read from, as

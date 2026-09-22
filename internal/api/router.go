@@ -36,11 +36,15 @@ type app struct {
 	spaces    *store.Spaces
 	sessions  *store.Sessions
 	schedules *standup.Schedules
-	decks     *store.Decks
-	kudos     *store.Kudos
-	links     *store.Links
-	presence  *store.Presence
-	hub       *hub.Hub
+	// webhooks is nil unless PLUGIN_SECRET_KEY is set: a signing secret
+	// that cannot be stored encrypted is not stored at all.
+	webhooks     *standup.Webhooks
+	webhookHosts []string
+	decks        *store.Decks
+	kudos        *store.Kudos
+	links        *store.Links
+	presence     *store.Presence
+	hub          *hub.Hub
 	// kinds is the session-kind registry, built once at wiring time.
 	kinds *session.Registry
 
@@ -133,6 +137,11 @@ type Options struct {
 	// StandupScheduleInterval is how often this replica checks for a
 	// scheduled async standup slot to open. Zero runs no scheduler.
 	StandupScheduleInterval time.Duration
+
+	// StandupWebhookHosts is STANDUP_WEBHOOK_HOSTS: the destination hosts a
+	// space owner's standup webhook may name. Empty allows none. Delivery
+	// runs on the StandupScheduleInterval ticker.
+	StandupWebhookHosts []string
 
 	sessionRevalidationInterval time.Duration
 }
@@ -318,6 +327,20 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		background.Go(func() {
 			standup.RunScheduler(bgCtx, pool, opts.StandupScheduleInterval, a.limits.SessionsPerSpace, a.broadcastState)
 		})
+	}
+	a.webhookHosts = opts.StandupWebhookHosts
+	if pool != nil && opts.Plugins != nil && opts.Plugins.Cipher != nil {
+		c := opts.Plugins.Cipher
+		a.webhooks = &standup.Webhooks{
+			Pool:    pool,
+			BaseURL: opts.AllowedOrigin,
+			Seal:    c.Seal,
+			Open:    c.Open,
+			Send:    guardedWebhookSend(&plugin.Fetcher{}, opts.StandupWebhookHosts),
+		}
+		if opts.StandupScheduleInterval > 0 {
+			background.Go(func() { a.webhooks.Run(bgCtx, opts.StandupScheduleInterval) })
+		}
 	}
 
 	a.hub.OnPresenceChange = func(sessionID string) {
@@ -584,6 +607,18 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 				r.Use(a.requireOrgMember)
 				r.With(a.requireSpaceMember).Get("/", a.handleGetStandupSchedule)
 				r.With(a.requireSpaceOwner).Put("/", a.handlePutStandupSchedule)
+			})
+
+			// A space's standup webhook. Owner-only on every verb: the URL is
+			// a capability on the receiving end, and the secret is shown once.
+			r.Route("/spaces/{slug}/standup-webhook", func(r chi.Router) {
+				r.Use(rejectLinkPrincipal)
+				r.Use(RequireUser)
+				r.Use(a.requireOrgMember)
+				r.Use(a.requireSpaceOwner)
+				r.Get("/", a.handleGetStandupWebhook)
+				r.Put("/", a.handlePutStandupWebhook)
+				r.Delete("/", a.handleDeleteStandupWebhook)
 			})
 
 			// Org custody. An org admin may manage any space in the org,

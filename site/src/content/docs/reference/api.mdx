@@ -6,7 +6,7 @@ description: Every route, who may call it, and what it does.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import RouteTable from "../../../components/RouteTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/api/plugindev.go", "internal/api/standup_schedule.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/api/plugindev.go", "internal/api/standup_schedule.go", "internal/api/standup_webhook.go"]} />
 
 There is no API token scheme. Everything authenticates with the `parley_session`
 cookie, so the API is usable from a script only by reusing a browser session's
@@ -141,6 +141,9 @@ session envelope.
   { method: "PATCH", path: "/api/orgs/{org}/spaces/{slug}/decks/{deckId}", auth: "owner", purpose: "Rewrite a saved deck, same body and same rules as creating one. Sessions already created from it keep the cards they copied. A deck belonging to another space is a 404, whatever the caller owns." },
   { method: "GET", path: "/api/orgs/{org}/spaces/{slug}/standup-schedule", auth: "member", purpose: "The space's standup schedule as <code>{schedule}</code>, or <code>{schedule: null}</code> when it has none. A link guest gets 403." },
   { method: "PUT", path: "/api/orgs/{org}/spaces/{slug}/standup-schedule", auth: "owner", purpose: "Create or replace the schedule: <code>{weekdays, openTime, timezone, windowMinutes, enabled}</code>. weekdays are 0 (Sunday) to 6; openTime is \"HH:MM\"; timezone is an IANA name; windowMinutes is 1–1440. 400 for any invalid field, including an unknown time zone; 403 for a member who is not an owner. Changes reach future slots only." },
+  { method: "GET", path: "/api/orgs/{org}/spaces/{slug}/standup-webhook", auth: "owner", purpose: "The space's standup webhook as <code>{url}</code>, or <code>{url: null}</code>. The secret is never returned here. 403 for a member who is not an owner, and for a link guest." },
+  { method: "PUT", path: "/api/orgs/{org}/spaces/{slug}/standup-webhook", auth: "owner", purpose: "Set the webhook: <code>{url}</code>. Answers <code>{url, secret}</code>; the secret is shown in this response only, and every PUT mints a new one. 400 unless the url is https, names a host rather than an IP address, carries no credentials, and matches <code>STANDUP_WEBHOOK_HOSTS</code>. 503 without <code>PLUGIN_SECRET_KEY</code>." },
+  { method: "DELETE", path: "/api/orgs/{org}/spaces/{slug}/standup-webhook", auth: "owner", purpose: "Remove the webhook. 204. Undelivered events are dropped on their next attempt." },
   { method: "DELETE", path: "/api/orgs/{org}/spaces/{slug}/decks/{deckId}", auth: "owner", purpose: "Delete a saved deck. 204, or 404 if this space has no such deck. Rooms created from it keep working: a session stores the cards it was created with, so nothing joins back to this row." },
   { method: "PATCH", path: "/api/orgs/{org}/spaces/{slug}", auth: "owner", purpose: "Rename the space: {name}, 1-64 characters. The slug never moves with it, so invites already sent keep working." },
   { method: "DELETE", path: "/api/orgs/{org}/spaces/{slug}", auth: "owner", purpose: "Delete the space and everything under it — sessions, stories, standups, memberships. Irreversible, and it closes the sockets on every open room." },
