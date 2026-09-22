@@ -2,6 +2,21 @@ import type { Person } from "../lib/api";
 import { safeDisplayName } from "../lib/displayName";
 import type { StandupEntry } from "../pages/StandupRoom";
 
+/** One commitment this standup moved, exactly as the session state sends it. */
+export type CommitmentChange = {
+  id: string;
+  userId: string;
+  text: string;
+  outcome: "landed" | "dropped" | "carried";
+};
+
+/** Words, never a tint: a dropped commitment is a decision, not a failure. */
+const OUTCOME: Record<CommitmentChange["outcome"], string> = {
+  landed: "Landed",
+  dropped: "Dropped",
+  carried: "Still on it",
+};
+
 const answered = (e: StandupEntry) => Boolean(e.yesterday.trim() || e.today.trim() || e.blockers.trim());
 
 /** First non-blank line of the update, today first: the collapsed digest row. */
@@ -24,8 +39,13 @@ function Posted({ at }: { at: string }) {
 }
 
 /**
- * The async standup's read view: blockers, then everyone's update collapsed to
- * its first line, then who has answered and who has not yet. Once the standup
+ * The async standup's read view: who needs you, blockers, the commitments this
+ * standup moved, then everyone's update collapsed to its first line, then who
+ * has answered and who has not yet.
+ *
+ * "Needs you" is the viewer's own: the ids of the people who asked the viewer
+ * for help, read from a per-caller endpoint and never from the shared state,
+ * which every socket in the room receives. Once the standup
  * has ended only the entries are kept — the not-yet list is a live fact about
  * an open room, never a record. No counts beside names and no alarm styling on
  * the people who have not answered.
@@ -34,10 +54,14 @@ export function AsyncDigest({
   entries,
   participants,
   ended,
+  changes = [],
+  needsYou = [],
 }: {
   entries: StandupEntry[];
   participants: Person[];
   ended: boolean;
+  changes?: CommitmentChange[];
+  needsYou?: string[];
 }) {
   const people = new Map(participants.map((p) => [p.userId, p]));
   const nameOf = (id: string) => {
@@ -55,8 +79,27 @@ export function AsyncDigest({
   const panel = "flex flex-col gap-3 rounded-panel border border-line bg-surface px-5 py-5 shadow-rest";
   const head = "text-[17px] font-bold tracking-tight text-ink";
 
+  const blockerOf = (id: string) => entries.find((e) => e.userId === id)?.blockers.trim() ?? "";
+
   return (
     <>
+      {needsYou.length > 0 && (
+        <section aria-labelledby="digest-needs-you" className={panel}>
+          <h2 id="digest-needs-you" className={head}>Needs you</h2>
+          <ul className="flex flex-col gap-2.5 rounded-chip bg-felt-deep p-4">
+            {needsYou.map((id) => (
+              <li key={id} className="text-sm">
+                <span className="font-bold text-ink">{nameOf(id)}</span>
+                <span className="whitespace-pre-wrap text-ink-soft">
+                  {" — "}
+                  {blockerOf(id) || "asked for your help"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {blockers.length > 0 && (
         <section aria-labelledby="digest-blockers" className={panel}>
           <h2 id="digest-blockers" className={head}>Blockers</h2>
@@ -65,6 +108,21 @@ export function AsyncDigest({
               <li key={e.userId} className="text-sm">
                 <span className="font-bold text-ink">{nameOf(e.userId)}</span>
                 <span className="whitespace-pre-wrap text-ink-soft"> — {e.blockers.trim()}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {changes.length > 0 && (
+        <section aria-labelledby="digest-changes" className={panel}>
+          <h2 id="digest-changes" className={head}>Changed commitments</h2>
+          <ul className="flex flex-col gap-2">
+            {changes.map((c) => (
+              <li key={c.id} className="text-sm">
+                <span className="font-bold text-ink">{nameOf(c.userId)}</span>
+                <span className="text-ink-soft"> — {c.text}: </span>
+                <span className="font-semibold text-ink">{OUTCOME[c.outcome]}</span>
               </li>
             ))}
           </ul>

@@ -11,7 +11,7 @@ import roundDark from "../../../assets/standup-round-dark.png";
 import blockersLight from "../../../assets/blockers-roundup-light.png";
 import blockersDark from "../../../assets/blockers-roundup-dark.png";
 
-<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "internal/standup/kudos.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/components/AsyncDigest.tsx", "web/src/lib/kinds.ts", "internal/standup/schedule.go", "internal/standup/webhook.go", "internal/api/standup_webhook.go", "internal/standup/ics.go", "internal/api/ics.go"]} />
+<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "internal/standup/kudos.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/components/AsyncDigest.tsx", "web/src/lib/kinds.ts", "internal/standup/schedule.go", "internal/standup/webhook.go", "internal/api/standup_webhook.go", "internal/standup/ics.go", "internal/api/ics.go", "internal/standup/mentions.go", "internal/api/standup_mentions.go"]} />
 
 A standup session is three text fields per person — yesterday, today, blockers —
 and an order to speak in.
@@ -50,18 +50,24 @@ and have not answered for yet. A commitment is one line you add beside the
 narrative — it is not part of "today", and it does not touch the three fields or
 the CSV export.
 
-It opens with one question: **did that land?**
+It opens with one question: **did that land?** It is answered with one of three
+follow-through chips, grouped as *How did it go?*:
 
-- **Yes** closes it. It leaves the list and does not come back.
-- **No** carries it into the next standup, and the count of how many times it has
-  carried goes up by one — once per standup, however many times you answer. A
-  No, a **Change** and another No in the same sitting is one carry, not two.
+- **Done** closes it as landed. It leaves the list and does not come back.
+- **Still on it** carries it into the next standup, and the count of how many
+  times it has carried goes up by one — once per standup, however many times
+  you answer. Still on it, a **Change** and Still on it again in the same
+  sitting is one carry, not two.
+- **Dropped** closes it without it having landed: you are letting it go. It
+  leaves the list like a landed one, the carry count is left where it was, and
+  it is recorded as dropped, never counted as landed.
 
-Both answers resolve the row in place rather than leaving the buttons looking
-dead. A **No** leaves the commitment open, so it keeps a **Change** next to it
-and a mis-click can be corrected without reloading the page. A **Yes** has
-already closed the commitment for good, so the row says **Landed.**, holds still
-long enough to read, and then leaves the list.
+Every answer resolves the row in place rather than leaving the buttons looking
+dead. **Still on it** leaves the commitment open, so it keeps a **Change** next
+to it and a mis-click can be corrected without reloading the page. **Done** and
+**Dropped** have already closed the commitment for good, so the row says
+**Landed.** or **Dropped.**, holds still long enough to read, and then leaves
+the list.
 
 A commitment you add during *this* standup is listed separately, under **Taking
 on now**. It has carried over from nowhere, so it is not asked "did that land?"
@@ -69,13 +75,14 @@ on now**. It has carried over from nowhere, so it is not asked "did that land?"
 standup, if it is still open.
 
 You can withdraw a commitment you no longer intend to do; that removes it rather
-than answering it, so **Remove** sits apart from the Yes/No pair instead of
-reading as a third answer. Removal cannot be undone, so it asks first — with the harmless **Keep it**
+than answering it, so **Remove** sits apart from the follow-through chips
+instead of reading as a fourth answer — and, unlike **Dropped**, leaves no
+record that the commitment existed. Removal cannot be undone, so it asks first — with the harmless **Keep it**
 leading and holding focus, so the second step is a real step for a keyboard as
 well as a mouse. Everything here is scoped to you — the answer, the removal and
 the add all act on your own commitments only, whoever is facilitating.
 
-A commitment still open after **two** standups' worth of No answers is marked
+A commitment still open after **two** standups' worth of Still on it answers is marked
 **stuck**, in words on the row rather than in a colour — a plain sentence under
 the commitment, with the carry count as the only figure in it. It is about the work: it says this piece
 of work has carried, not that a person is failing. There are no streaks, no
@@ -206,11 +213,26 @@ speaking order: people answer on their own time, from wherever they are. The
 room shows your update — which saves as you type and stays editable until the
 standup ends — and a digest of everyone else's, in this order:
 
-1. **Blockers**, named, for everyone who wrote one.
-2. **Updates**, each collapsed to its first line with the time it was posted,
+1. **Needs you**, when somebody has asked for your help with a blocker: who
+   asked, and the blocker they wrote. It is yours alone — nobody else in the
+   room is shown it.
+2. **Blockers**, named, for everyone who wrote one.
+3. **Changed commitments**: each commitment this standup moved, with its
+   outcome in words — Landed, Dropped or Still on it. Outcomes only; there is no
+   tally per person.
+4. **Updates**, each collapsed to its first line with the time it was posted,
    shown in your own time zone. Open one to read all three fields.
-3. **Answered** and **Not yet**, while the standup is open. Spectators are not
+5. **Answered** and **Not yet**, while the standup is open. Spectators are not
    waited on.
+
+Under your own update, **Who do you need?** lists the space's members — all of
+them, not only those who have opened the room yet — as checkboxes. Ticking one
+asks that person for help; unticking withdraws it. The target is a member you
+pick, never a name typed as text: the server refuses anybody who is not
+currently a member of the space, and yourself, with `400`. Only the person you
+asked sees that you asked, at the top of their digest, and you see whom you
+asked; the room's shared state carries neither. A signed-link guest can neither
+ask anybody nor be asked, and has no **Needs you**.
 
 Start, Next and Skip do not exist in an async standup; the server answers them
 with `409`. A signed-link guest answers like anybody else while its link is

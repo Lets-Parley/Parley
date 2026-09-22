@@ -204,8 +204,11 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// …and everything else inside it, each shut explicitly. Spectating is a
 	// member flag with no row for a guest to write, so it is refused rather
 	// than accepted as a lie.
-	"POST /api/sessions/{id}/spectator":         {status: http.StatusForbidden},
-	"GET /api/sessions/{id}/export.csv":         {status: http.StatusForbidden},
+	"POST /api/sessions/{id}/spectator": {status: http.StatusForbidden},
+	"GET /api/sessions/{id}/export.csv": {status: http.StatusForbidden},
+	// "Needs you" is who asked a member for help. A guest is never asked and
+	// never asks, so it has nothing here to read.
+	"GET /api/sessions/{id}/mentions":           {status: http.StatusForbidden},
 	"POST /api/sessions/{id}/facilitator/claim": {status: http.StatusForbidden},
 	"POST /api/sessions/{id}/facilitator":       {status: http.StatusForbidden},
 	// Removing someone from the room is the facilitator's, and a link guest

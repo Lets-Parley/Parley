@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Commitments, type Commitment } from "./Commitments";
 import { renderApp } from "../test/render";
+import { expectNoViolations } from "../test/axe";
 
 const commitment = (over: Partial<Commitment> = {}): Commitment => ({
   id: "c1",
@@ -19,6 +20,7 @@ const props = {
   onAdd: async () => true,
   onAnswer: async () => true,
   onRemove: async () => true,
+  onDrop: async () => true,
 };
 
 describe("a row that leaves while it holds focus", () => {
@@ -26,7 +28,7 @@ describe("a row that leaves while it holds focus", () => {
     const user = userEvent.setup();
     const { rerender } = renderApp(<Commitments {...props} commitments={[commitment()]} />);
 
-    await user.click(screen.getByRole("button", { name: "Yes" }));
+    await user.click(screen.getByRole("button", { name: "Done" }));
     // The row keeps focus while it is held for its let-go beat.
     expect(document.activeElement).not.toBe(document.body);
 
@@ -64,5 +66,36 @@ describe("a confirmed remove", () => {
     await user.click(screen.getByRole("button", { name: "Remove it" }));
     await user.click(screen.getByRole("button", { name: "Remove it" }));
     expect(onRemove).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("follow-through", () => {
+  it("answers a carried-over commitment with done, still on it or dropped, as one labelled group", () => {
+    renderApp(<Commitments {...props} onDrop={async () => true} commitments={[commitment()]} />);
+    const group = screen.getByRole("group", { name: "How did it go?" });
+    const names = within(group).getAllByRole("button").map((b) => b.textContent);
+    expect(names).toEqual(["Done", "Still on it", "Dropped"]);
+  });
+
+  it("drops from the keyboard, and says dropped rather than landed", async () => {
+    const user = userEvent.setup();
+    const onDrop = vi.fn(async () => true);
+    const onAnswer = vi.fn(async () => true);
+    renderApp(
+      <Commitments {...props} onAnswer={onAnswer} onDrop={onDrop} commitments={[commitment()]} />,
+    );
+    screen.getByRole("button", { name: "Dropped" }).focus();
+    await user.keyboard("{Enter}");
+    expect(onDrop).toHaveBeenCalledWith("c1");
+    expect(onAnswer).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByText("Dropped.")).toBeTruthy());
+    expect(screen.queryByText(/landed/i)).toBeNull();
+  });
+
+  it("has no accessibility violations", async () => {
+    const { container } = renderApp(
+      <Commitments {...props} onDrop={async () => true} commitments={[commitment()]} />,
+    );
+    await expectNoViolations(container);
   });
 });

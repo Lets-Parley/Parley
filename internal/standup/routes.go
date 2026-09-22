@@ -36,6 +36,12 @@ func actions() map[string]session.Action {
 		"add":    {Verb: http.MethodPost, Do: addCommitment},
 		"answer": {Verb: http.MethodPost, Do: answerCommitment},
 		"remove": {Verb: http.MethodPost, Do: removeCommitment},
+		"drop":   {Verb: http.MethodPost, Do: dropCommitment},
+		// Asking a member for help with a blocker. PUT because the body says
+		// whether the mention should exist, so a retry lands on the same
+		// answer. Not FacilitatorOnly, and the membership checks are inside Do
+		// for the reason given on "kudo" below.
+		"mention": {Verb: http.MethodPut, Do: setMention},
 		// Kudos are the closing beat of the round, and like the commitment
 		// actions a person gives their own — so no FacilitatorOnly. The
 		// membership check is inside Do rather than out here: dispatch applies

@@ -109,6 +109,20 @@ type WireKudo struct {
 	Text       string `json:"text"`
 }
 
+// WireChange is one commitment this standup moved: answered as landed,
+// dropped, or carried ("still on it"). It is the digest's "Changed
+// commitments" section, and the only place landed and dropped are told apart
+// on the wire, so a dropped commitment is never shown as landed.
+//
+// Outcomes, not totals: there is deliberately no count per person, here or
+// anywhere, so nothing turns this into a follow-through rate.
+type WireChange struct {
+	ID      string `json:"id"`
+	UserID  string `json:"userId"`
+	Text    string `json:"text"`
+	Outcome string `json:"outcome"`
+}
+
 // stuckAfter is the number of "not yet" answers at which a commitment is
 // showing as stalled.
 const stuckAfter = 2
@@ -116,6 +130,7 @@ const stuckAfter = 2
 type State struct {
 	Entries          []WireEntry      `json:"entries"`
 	Commitments      []WireCommitment `json:"commitments"`
+	Changes          []WireChange     `json:"changes"`
 	Kudos            []WireKudo       `json:"kudos"`
 	CurrentSpeakerID *string          `json:"currentSpeakerId"`
 	SpeakerStartedAt *time.Time       `json:"speakerStartedAt"`
@@ -144,6 +159,7 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	st := State{
 		Entries:          []WireEntry{},
 		Commitments:      []WireCommitment{},
+		Changes:          []WireChange{},
 		Kudos:            []WireKudo{},
 		SecondsPerPerson: cfg.secondsOrDefault(),
 		Mode:             "sync",
@@ -203,6 +219,33 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 		st.Commitments = append(st.Commitments, c)
 	}
 	if err := crows.Err(); err != nil {
+		return nil, err
+	}
+
+	// What this standup changed. A closed row with no reason was closed by a
+	// replica that predates closed_reason, and the only close it knew was a
+	// landing. carried_session_id is read only on a row still open: a
+	// commitment carried here and then closed here reports the close.
+	chrows, err := pool.Query(ctx, `
+		select id::text, user_id::text, text,
+		       case when closed_session_id = $2 then coalesce(closed_reason, 'landed')
+		            else 'carried' end
+		from standup_commitments
+		where space_id = $1
+		  and (closed_session_id = $2 or (closed_at is null and carried_session_id = $2))
+		order by created_at, id`, sess.SpaceID, sess.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer chrows.Close()
+	for chrows.Next() {
+		var c WireChange
+		if err := chrows.Scan(&c.ID, &c.UserID, &c.Text, &c.Outcome); err != nil {
+			return nil, err
+		}
+		st.Changes = append(st.Changes, c)
+	}
+	if err := chrows.Err(); err != nil {
 		return nil, err
 	}
 

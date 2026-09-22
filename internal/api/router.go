@@ -722,6 +722,10 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			// every meeting it has held. Membership is not enough for it once
 			// a link guest can be a caller here.
 			r.With(rejectLinkPrincipal).Get("/export.csv", a.handleExportCSV)
+			// Who has asked the caller for help, and whom the caller asked.
+			// Per caller, because the envelope is the room's. A link guest is
+			// neither asked nor asking, so it has nothing to read here.
+			r.With(rejectLinkPrincipal).Get("/mentions", a.handleSessionMentions)
 			// The one action dispatcher, mounted for every method so the
 			// dispatcher itself decides 404-vs-405. Kind actions are resolved
 			// against this session's own kind, so two kinds can name an action
