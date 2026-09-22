@@ -2,6 +2,7 @@ import { useId } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { standupTrendApi } from "../lib/paths";
+import { AwayDays } from "./AwayDays";
 
 type TrendWeek = { weekStart: string; ratio?: number; suppressed?: boolean };
 
@@ -10,10 +11,12 @@ function weekOf(iso: string) {
 }
 
 /**
- * How much of the team answered its async standups, week by week. A team
- * ratio and nothing else: the server sends no names, ids or counts, and a
- * week with fewer than four eligible people comes back suppressed. Nothing
- * here is coloured as good or bad.
+ * How much of the team answered its scheduled async standups, week by week.
+ * A team ratio to one decimal and nothing else: the server sends no names,
+ * ids or counts, each day is counted once when it is over, and a day with
+ * fewer than four eligible people is left out. Nothing here is coloured as
+ * good or bad. The viewer's own away days sit here too, so they can be set
+ * without waiting for a standup to open.
  */
 export function StandupTrend({ org, slug }: { org: string; slug: string }) {
   const headingId = useId();
@@ -34,13 +37,14 @@ export function StandupTrend({ org, slug }: { org: string; slug: string }) {
         Standup participation
       </h2>
       <p className="mt-1 text-[13px] text-ink-faint text-pretty">
-        The share of the team who answered each week&apos;s async standups. People who were away
-        are not counted. There is no per-person figure.
+        The share of the team who answered each week&apos;s scheduled standups, to the nearest
+        10%. Spectators and people who were away are not counted, and each day is counted once, when
+        it is over. There is no per-person figure.
       </p>
       {trend.isLoading ? null : !shown ? (
         <p className="mt-3 text-[13px] text-ink-soft text-pretty">
-          Nothing to show yet. A week appears once at least four people could answer on each day
-          it counts.
+          Nothing to show yet. A week appears once it has a scheduled standup day on which at least
+          four people could answer.
         </p>
       ) : (
         <ul className="mt-3 flex flex-col gap-1.5">
@@ -66,6 +70,9 @@ export function StandupTrend({ org, slug }: { org: string; slug: string }) {
           ))}
         </ul>
       )}
+      <div className="mt-5 border-t border-line pt-4">
+        <AwayDays />
+      </div>
     </section>
   );
 }

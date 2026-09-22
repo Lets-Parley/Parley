@@ -19,9 +19,11 @@ function day(iso: string) {
 
 /**
  * The viewer's own away days. While away, a person is not listed under "Not
- * yet" in an open async digest, and is not counted in the team trend. Only the
- * viewer's own ranges are ever read or written here: the server has no way to
- * name anyone else.
+ * yet" in today's async digest, and is not counted in a trend day frozen
+ * while the range covered it — a range set after a day is over does not count
+ * for that day. Only the viewer's own ranges are ever read or written here:
+ * the server has no way to name anyone else. Rendered in an open async room
+ * and beside the trend on the space page.
  */
 export function AwayDays() {
   const qc = useQueryClient();
@@ -68,7 +70,8 @@ export function AwayDays() {
     <section aria-labelledby={headingId} className="flex flex-col gap-2">
       <h3 id={headingId} className={labelText}>Away days</h3>
       <p className="text-sm text-ink-faint">
-        Days you are off. You are not listed as owing an answer on them.
+        Days you are off. You are not listed as owing an answer on them. Set them ahead: a day
+        that is already over has been counted as it was.
       </p>
       <form onSubmit={add} className="flex flex-wrap items-end gap-3">
         <label htmlFor={firstId} className="flex flex-col gap-1 text-sm">

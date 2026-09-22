@@ -43,6 +43,8 @@ let decks: Deck[] = [];
 let kudos: Kudo[] = [];
 // The space's team participation trend, as the standup panel reads it.
 let trend: { weeks: { weekStart: string; ratio?: number; suppressed?: boolean }[] } = { weeks: [] };
+// The viewer's own away ranges, as the away-days form beside the trend reads them.
+let awayRanges: { id: string; startsOn: string; endsOn: string }[] = [];
 // Flipped on to make the next space read fail, which is how a background
 // refetch failure is reproduced.
 let failSpace = false;
@@ -75,6 +77,13 @@ vi.mock("../lib/api", async () => {
       }
       if (path.endsWith("/kudos")) return [];
       if (path === "/api/orgs/acme/spaces/platform-team/standup-trend") return trend;
+      if (path === "/api/me/away" && method === "GET") return { ranges: awayRanges };
+      if (path === "/api/me/away" && method === "POST") {
+        const b = body as { startsOn: string; endsOn: string };
+        const r = { id: `a${awayRanges.length + 1}`, ...b };
+        awayRanges = [...awayRanges, r];
+        return r;
+      }
       if (path.startsWith("/api/orgs/acme/spaces/")) {
         if (failSpace) throw new Error("network");
         return view;
@@ -92,6 +101,7 @@ beforeEach(() => {
   decks = [];
   kudos = [];
   trend = { weeks: [] };
+  awayRanges = [];
 });
 
 describe("SpacePage kind filter", () => {
@@ -1553,6 +1563,25 @@ describe("SpacePage standup participation trend", () => {
     const { region } = await open();
     await waitFor(() => expect(region.textContent).toMatch(/at least four people/i));
     expect(within(region).queryAllByRole("listitem")).toHaveLength(0);
+  });
+
+  it("sets your own away days from the space page, outside any room", async () => {
+    const user = userEvent.setup();
+    const { region } = await open();
+    const first = await within(region).findByLabelText("First day away");
+    await user.click(first);
+    await user.keyboard("2026-10-05");
+    await user.click(within(region).getByLabelText("Last day away"));
+    await user.keyboard("2026-10-09");
+    await user.click(within(region).getByRole("button", { name: "Add away days" }));
+    await waitFor(() =>
+      expect(
+        vi.mocked(api).mock.calls.filter((c) => c[0] === "POST" && c[1] === "/api/me/away").map((c) => c[2]),
+      ).toEqual([{ startsOn: "2026-10-05", endsOn: "2026-10-09" }]),
+    );
+    expect(
+      await within(region).findByRole("button", { name: "Remove away days 2026-10-05 to 2026-10-09" }),
+    ).toBeTruthy();
   });
 
   it("asks for the trend only for a space that holds standups", async () => {
