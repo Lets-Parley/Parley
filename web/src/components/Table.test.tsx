@@ -3,6 +3,7 @@ import { act, render, screen, within } from "@testing-library/react";
 import { Table, faceOf, celebrationBeats, planCelebration } from "./Table";
 import { PILE_ON_EMOJI, hopStartsAt, CARD_HOP_MS } from "../lib/motion";
 import { makePerson } from "../test/render";
+import { notificationAudio } from "../lib/notificationAudio";
 
 describe("faceOf", () => {
   it("renders the coffee card as its glyph", () => {
@@ -643,6 +644,19 @@ describe("the emoji pile-on", () => {
     for (const emoji of thrown) expect(PILE_ON_EMOJI).toContain(emoji);
   });
 
+  it("sounds each throw at the moment it lands, and cancels on unmount", () => {
+    const cancel = vi.fn();
+    const hits = vi.spyOn(notificationAudio, "hits").mockReturnValue(cancel);
+    const { unmount } = reveal(["5", "5", "5", "5", "8"]);
+    expect(hits).toHaveBeenCalledOnce();
+    const landed = hits.mock.calls[0][0];
+    expect(landed.map((h) => h.emoji)).toEqual(flying());
+    for (const h of landed) expect(h.atMs).toBeGreaterThan(0);
+    unmount();
+    expect(cancel).toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
   it("stays out of the way of the consensus high-five", () => {
     reveal(["5", "5", "5", "5", "5"]);
     expect(flying()).toHaveLength(0);
@@ -918,6 +932,25 @@ describe("the kick", () => {
   it("offers none at all without one", () => {
     kickable();
     expect(screen.queryAllByRole("button", { name: /^Remove / })).toHaveLength(0);
+  });
+
+  it("sounds the boot's contact, and cancels it on unmount", () => {
+    const rects = withLayout();
+    const cancel = vi.fn();
+    const hits = vi.spyOn(notificationAudio, "hits").mockReturnValue(cancel);
+    try {
+      const { boot, unmount } = kickable();
+      boot();
+      expect(hits).toHaveBeenCalledOnce();
+      const [landed] = hits.mock.calls[0][0];
+      expect(landed.emoji).toBe("🥾");
+      expect(landed.atMs).toBeGreaterThan(0);
+      unmount();
+      expect(cancel).toHaveBeenCalled();
+    } finally {
+      rects.mockRestore();
+      hits.mockRestore();
+    }
   });
 
   it("holds the seat in the row until the launch is off screen, then closes it", () => {

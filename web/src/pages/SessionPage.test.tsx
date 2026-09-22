@@ -95,7 +95,9 @@ vi.mock("../lib/notificationAudio", () => ({
   notificationAudio: {
     activate: vi.fn(async () => true),
     play: vi.fn(async () => true),
+    hits: vi.fn(() => () => {}),
     stop: vi.fn(),
+    enabled: false,
   },
 }));
 
@@ -187,6 +189,23 @@ describe("SessionPage wiring", () => {
       } as unknown as Envelope,
     );
     await waitFor(() => expect(notificationAudio.play).toHaveBeenCalledWith("standup-turn"));
+  });
+
+  it("arms impact sounds only while the preference is on, and disarms on leaving", async () => {
+    notificationAudio.enabled = false;
+    apiMeResponse = { ...me, notificationSounds: true };
+    const { unmount } = renderApp(<SessionPage />);
+    await screen.findByRole("button", { name: "Mute notification sounds" });
+    expect(notificationAudio.enabled).toBe(true);
+    unmount();
+    expect(notificationAudio.enabled).toBe(false);
+  });
+
+  it("leaves impact sounds off for a viewer who has not turned sounds on", async () => {
+    notificationAudio.enabled = true;
+    renderApp(<SessionPage />);
+    await screen.findByRole("button", { name: "Unmute notification sounds" });
+    expect(notificationAudio.enabled).toBe(false);
   });
 
   it("puts the saved sound preference in the header for built-in sessions", async () => {
