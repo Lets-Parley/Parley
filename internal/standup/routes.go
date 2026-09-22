@@ -1,6 +1,7 @@
 package standup
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"unicode/utf8"
@@ -23,9 +24,10 @@ func actions() map[string]session.Action {
 		// body carries the state wanted rather than a toggle — a retried
 		// request lands on the same answer.
 		"ready": {Verb: http.MethodPut, Do: setReady},
-		"start": {Verb: http.MethodPost, Do: start, FacilitatorOnly: true},
-		"next":  {Verb: http.MethodPost, Do: next, FacilitatorOnly: true},
-		"skip":  {Verb: http.MethodPost, Do: skip, FacilitatorOnly: true},
+		// An async standup has no speaker, so these refuse there.
+		"start": {Verb: http.MethodPost, Do: syncOnly(start), FacilitatorOnly: true},
+		"next":  {Verb: http.MethodPost, Do: syncOnly(next), FacilitatorOnly: true},
+		"skip":  {Verb: http.MethodPost, Do: syncOnly(skip), FacilitatorOnly: true},
 		// Commitments are their own actions rather than three more fields on
 		// putEntry: that is a whole-record upsert of yesterday/today/blockers,
 		// so a fourth field would be zeroed by every text autosave — the
@@ -41,6 +43,23 @@ func actions() map[string]session.Action {
 		// file speaks to deliberately unions in link guests, who may neither
 		// send a kudo nor receive one.
 		"kudo": {Verb: http.MethodPost, Do: giveKudo},
+	}
+}
+
+// syncOnly answers 409 for a speaker action in an async standup. The config is
+// fixed at creation, so the session the dispatcher loaded is authoritative.
+func syncOnly(do func(http.ResponseWriter, *http.Request, session.ActionCtx)) func(http.ResponseWriter, *http.Request, session.ActionCtx) {
+	return func(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+		var cfg Config
+		if err := json.Unmarshal(ac.Session.Config, &cfg); err != nil {
+			http.Error(w, `{"error":"could not read this standup's settings"}`, http.StatusInternalServerError)
+			return
+		}
+		if cfg.async() {
+			http.Error(w, `{"error":"an async standup has no speaking order"}`, http.StatusConflict)
+			return
+		}
+		do(w, r, ac)
 	}
 }
 

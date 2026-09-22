@@ -130,7 +130,21 @@ export const KINDS: KindDef[] = [
       },
     ],
   },
-  { id: "standup", label: "Standup", Room: StandupRoom },
+  {
+    id: "standup",
+    label: "Standup",
+    Room: StandupRoom,
+    fields: [
+      {
+        key: "mode",
+        label: "Mode",
+        options: [
+          { id: "sync", name: "Live round", sample: ["Everyone", "in turn"], value: "sync" },
+          { id: "async", name: "Async", sample: ["Answer", "any time"], value: "async" },
+        ],
+      },
+    ],
+  },
 ];
 
 /**

@@ -3,6 +3,7 @@ package standup
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -11,8 +12,40 @@ import (
 	"github.com/lets-parley/parley/internal/store"
 )
 
+// Config is a standup's create-time settings.
+//
+// Mode and ClosesAt are omitempty so a sync standup stores exactly the
+// document it did before async existed: a replica on the previous binary
+// decodes with DisallowUnknownFields and would refuse a "mode" key, even an
+// empty one. An async config still cannot be read there — every replica has to
+// be upgraded before one is created — but nothing written today breaks it.
 type Config struct {
 	SecondsPerPerson int `json:"secondsPerPerson"`
+	// Mode is "sync" (the round-robin; also what an absent mode means) or
+	// "async", where people answer on their own time and nobody holds a turn.
+	Mode string `json:"mode,omitempty"`
+	// ClosesAt is an async standup's published cutoff. Passing it does not
+	// end the session: a later answer is accepted and appended like any other.
+	ClosesAt *time.Time `json:"closesAt,omitempty"`
+}
+
+func (c Config) async() bool { return c.Mode == "async" }
+
+// Validate is called by session.Registry.ParseConfig after the strict decode,
+// before the config is re-marshalled for storage. "sync" is folded to no mode
+// so a live standup stores the same document it did before async existed.
+func (c *Config) Validate() error {
+	switch c.Mode {
+	case "sync":
+		c.Mode = ""
+	case "", "async":
+	default:
+		return errors.New(`mode must be "sync" or "async"`)
+	}
+	if c.ClosesAt != nil && !c.async() {
+		return errors.New("closesAt is only meaningful for an async standup")
+	}
+	return nil
 }
 
 func (c Config) secondsOrDefault() int {
@@ -30,6 +63,9 @@ type WireEntry struct {
 	Position  float64 `json:"position"`
 	Skipped   bool    `json:"skipped"`
 	Ready     bool    `json:"ready"`
+	// PostedAt is when the entry was last written, shown as "posted HH:MM"
+	// in the viewer's zone. A late async answer carries it like any other.
+	PostedAt time.Time `json:"postedAt"`
 }
 
 // WireCommitment is one open commitment.
@@ -84,6 +120,10 @@ type State struct {
 	CurrentSpeakerID *string          `json:"currentSpeakerId"`
 	SpeakerStartedAt *time.Time       `json:"speakerStartedAt"`
 	SecondsPerPerson int              `json:"secondsPerPerson"`
+	// Mode is always spelled out ("sync" or "async") so the client never has
+	// to guess what an absent one means.
+	Mode     string     `json:"mode"`
+	ClosesAt *time.Time `json:"closesAt"`
 }
 
 // Kind describes the standup session kind for the core registry.
@@ -106,6 +146,11 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 		Commitments:      []WireCommitment{},
 		Kudos:            []WireKudo{},
 		SecondsPerPerson: cfg.secondsOrDefault(),
+		Mode:             "sync",
+		ClosesAt:         cfg.ClosesAt,
+	}
+	if cfg.async() {
+		st.Mode = "async"
 	}
 
 	var speaker *string
@@ -119,7 +164,7 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	st.SpeakerStartedAt = started
 
 	rows, err := pool.Query(ctx, `
-		select user_id::text, yesterday, today, blockers, position, skipped, ready
+		select user_id::text, yesterday, today, blockers, position, skipped, ready, updated_at
 		from standup_entries where session_id = $1 order by position`, sess.ID)
 	if err != nil {
 		return nil, err
@@ -127,7 +172,7 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	defer rows.Close()
 	for rows.Next() {
 		var e WireEntry
-		if err := rows.Scan(&e.UserID, &e.Yesterday, &e.Today, &e.Blockers, &e.Position, &e.Skipped, &e.Ready); err != nil {
+		if err := rows.Scan(&e.UserID, &e.Yesterday, &e.Today, &e.Blockers, &e.Position, &e.Skipped, &e.Ready, &e.PostedAt); err != nil {
 			return nil, err
 		}
 		st.Entries = append(st.Entries, e)

@@ -21,7 +21,7 @@ describe("kind registry", () => {
     for (const k of KINDS) expect(typeof k.Room).toBe("function");
   });
 
-  it("describes poker's deck as a field spec, and standup as fieldless", () => {
+  it("describes poker's deck and standup's mode as field specs", () => {
     const poker = getKind("poker")!;
     expect(poker.fields?.[0]?.key).toBe("deck");
     expect(poker.fields?.[0]?.options.map((o) => o.id)).toContain("fibonacci");
@@ -29,12 +29,14 @@ describe("kind registry", () => {
     expect(poker.toggles?.[0]?.default).toBe(false);
     expect(poker.toggles?.[1]?.key).toBe("openVoting");
     expect(poker.toggles?.[1]?.default).toBe(false);
-    expect(getKind("standup")!.fields ?? []).toEqual([]);
+    const standup = getKind("standup")!;
+    expect(standup.fields?.map((f) => f.key)).toEqual(["mode"]);
+    expect(standup.fields?.[0]?.options.map((o) => o.value)).toEqual(["sync", "async"]);
   });
 
   it("builds a create-time config from the field defaults", () => {
     expect(defaultConfig(getKind("poker")!)).toEqual({ deck: "fibonacci", autoReveal: false, openVoting: false });
-    expect(defaultConfig(getKind("standup")!)).toEqual({});
+    expect(defaultConfig(getKind("standup")!)).toEqual({ mode: "sync" });
   });
 });
 

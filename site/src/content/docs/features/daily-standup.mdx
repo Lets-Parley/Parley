@@ -1,6 +1,6 @@
 ---
 title: Daily standup
-description: Round-robin with a per-person timer, carry-forward, commitments that carry, and a blockers roundup.
+description: Round-robin with a per-person timer, or async with a blockers-first digest; carry-forward, commitments that carry, and a blockers roundup.
 ---
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
@@ -11,7 +11,7 @@ import roundDark from "../../../assets/standup-round-dark.png";
 import blockersLight from "../../../assets/blockers-roundup-light.png";
 import blockersDark from "../../../assets/blockers-roundup-dark.png";
 
-<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "internal/standup/kudos.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx"]} />
+<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "internal/standup/kudos.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/components/AsyncDigest.tsx", "web/src/lib/kinds.ts"]} />
 
 A standup session is three text fields per person — yesterday, today, blockers —
 and an order to speak in.
@@ -199,11 +199,45 @@ room it was let into; the wall around it stays out of reach.
 
 If nobody thanked anybody, the panel simply does not appear.
 
+## Async standups
+
+Choose **Async** as the mode when you create a standup and there is no
+speaking order: people answer on their own time, from wherever they are. The
+room shows your update — which saves as you type and stays editable until the
+standup ends — and a digest of everyone else's, in this order:
+
+1. **Blockers**, named, for everyone who wrote one.
+2. **Updates**, each collapsed to its first line with the time it was posted,
+   shown in your own time zone. Open one to read all three fields.
+3. **Answered** and **Not yet**, while the standup is open. Spectators are not
+   waited on.
+
+Start, Next and Skip do not exist in an async standup; the server answers them
+with `409`. A signed-link guest answers like anybody else while its link is
+valid.
+
+A session created through the API can carry a published cutoff, `closesAt`
+(RFC 3339), alongside `"mode": "async"`. Passing it does **not** end the
+standup: an answer written afterwards is accepted and appended with its posted
+time like any other, with no late badge. The standup ends when the facilitator
+ends it. Once ended, its record keeps the entries only — the not-yet list is
+never stored or served.
+
+:::caution[Upgrade every replica first]
+A replica running an earlier release decodes standup settings strictly and
+rejects the unknown `mode` field, and does not know an async room has no
+speaking order. Finish rolling every replica onto this release before anyone
+creates an async standup, or some create requests fail and an older replica
+would still start a round in an async room. Live standups are stored exactly
+as before, so they are unaffected.
+:::
+
 ## What is not here
 
 <Capability rows={[
   { name: "Configurable timer length", status: "not-built", detail: "The server supports a <code>secondsPerPerson</code> session setting and defaults it to 90, but nothing in the UI sets it. Treat 90 seconds as fixed." },
-  { name: "Async standup", status: "not-built", detail: "Write ahead of time and let the round run without you; a scheduled digest is on the <a href='/project/roadmap/'>roadmap</a>." },
+  { name: "Async standup", status: "built", detail: "Answer on your own time and read a blockers-first digest. See Async standups above." },
+  { name: "Scheduled async standups and a cutoff picker", status: "not-built", detail: "Async standups are opened and ended by hand, and <code>closesAt</code> is set through the API only. A schedule is on the <a href='/project/roadmap/'>roadmap</a>." },
   { name: "Reordering the speaking order", status: "not-built", detail: "Fixed once the round starts. Skip moves past anyone who is not ready." },
   { name: "Editing a kudo", status: "not-built", detail: "The sender can withdraw one from the space's wall. Nobody can rewrite text somebody has already read." },
   { name: "Chasing people who did not write anything", status: "out-of-scope", detail: "Parley does not send reminder notifications." },

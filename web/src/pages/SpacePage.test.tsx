@@ -1321,14 +1321,39 @@ describe("SpacePage deck chooser", () => {
     }
   });
 
-  it("leaves the standup dialog fieldless and asks for no decks", async () => {
+  it("offers the standup a mode, not a deck, and asks for no decks", async () => {
     space.kinds = ["standup"];
     try {
       const dialog = await openDialog();
       expect(dialog.queryByRole("group", { name: "Deck" })).toBe(null);
+      expect(dialog.getByRole("group", { name: "Mode" })).toBeTruthy();
       expect(vi.mocked(api).mock.calls.some(([, p]) => String(p).endsWith("/decks"))).toBe(false);
     } finally {
       delete space.kinds;
+    }
+  });
+
+  it("posts mode async when the standup is created async", async () => {
+    space.kinds = ["standup"];
+    const defaultApi = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation((async (method: string, path: string, body?: unknown) => {
+      if (method === "POST" && path.endsWith("/sessions")) {
+        return { id: "new-1", kind: "standup", title: "Daily", createdAt: "2026-08-18T12:00:00.000Z", endedAt: null, here: 0 };
+      }
+      return defaultApi(method, path, body);
+    }) as typeof defaultApi);
+    try {
+      const dialog = await openDialog();
+      await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+      await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+      await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+      await waitFor(() => {
+        const create = vi.mocked(api).mock.calls.find(([m, p]) => m === "POST" && String(p).endsWith("/sessions"));
+        expect(create?.[2]).toEqual({ kind: "standup", title: "Daily", config: { mode: "async" } });
+      });
+    } finally {
+      delete space.kinds;
+      vi.mocked(api).mockImplementation(defaultApi);
     }
   });
 });
