@@ -70,8 +70,11 @@ Blocked ranges include loopback, `0.0.0.0/8`, RFC 1918 private space,
 carrier-grade NAT (`100.64/10`), link-local (`169.254/16`, which is where every
 major cloud parks its metadata service), IPv6 unique-local (`fc00::/7`, which
 covers `fd00:ec2::254`), multicast, and reserved space — plus the embedded IPv4
-address inside a 6to4, NAT64, IPv4-mapped (`::ffff:169.254.169.254`) or
-IPv4-compatible (`::169.254.169.254`) address.
+address inside a 6to4, the well-known NAT64 prefix `64:ff9b::/96`, an
+IPv4-mapped (`::ffff:169.254.169.254`) or IPv4-compatible
+(`::169.254.169.254`) address. The rest of `64:ff9b::/32` is blocked outright,
+including the local-use prefix `64:ff9b:1::/48`: only the `/96` form places
+the IPv4 address in the last four bytes, and any other layout is refused.
 
 Redirects are followed by hand, up to a bounded number of hops, and each hop
 repeats all four steps. A guard that checks the domain once and then follows
