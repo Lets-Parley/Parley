@@ -10,8 +10,9 @@ create table standup_schedules (
     timezone       text not null,
     window_minutes integer not null check (window_minutes between 1 and 1440),
     enabled        boolean not null default true,
-    -- The owner who last saved it facilitates the sessions it opens.
-    updated_by     uuid not null references users(id) on delete cascade,
+    -- The user who last saved it. Null when that user has been deleted: the
+    -- schedule stays, and a slot falls back to a current owner at open time.
+    updated_by     uuid references users(id) on delete set null,
     updated_at     timestamptz not null default now()
 );
 

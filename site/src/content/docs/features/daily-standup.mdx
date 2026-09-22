@@ -230,7 +230,13 @@ now (`PUT /api/orgs/{org}/spaces/{slug}/standup-schedule`): the weekdays, a
 local open time, an IANA time zone such as `America/New_York`, and a window in
 minutes. On each scheduled day, at the open time in that zone, Parley opens a
 new async standup titled with the local date, whose `closesAt` is the open time
-plus the window. The owner who last saved the schedule is its facilitator.
+plus the window. The owner who last saved the schedule facilitates that session
+while they are still an owner of the space. Once they have left, or when the
+schedule names nobody, the most recently active current owner facilitates it:
+latest `last_seen_at`, then user id, the same order used when a space's last
+owner is promoted. A space with no owner skips the slot and logs a warning. A
+later check the same local day tries again once the space has an owner; after
+local midnight that day is skipped.
 
 - **Opening a slot ends the previous one.** The cutoff still does not end a
   standup; the next scheduled slot does, or the facilitator does first.
@@ -242,8 +248,11 @@ plus the window. The owner who last saved the schedule is its facilitator.
   that it is skipped rather than backfilled.
 - **Edits reach future slots only.** Changing or disabling the schedule never
   touches a standup already open.
-- The schedule counts against the space's session limit like anyone else. A
-  full space skips the slot and logs a warning.
+- The schedule counts against the space's session limit like anyone else. When
+  the space is already at that limit, the slot stays unclaimed, the standup
+  already running stays open, and a warning is logged. A later check the same
+  local day opens the slot once the space is under the limit again. After local
+  midnight that day is skipped.
 
 Every replica checks every 30 seconds, so a slot can open up to that late. A
 slot opens exactly once however many replicas run: each slot is one row keyed

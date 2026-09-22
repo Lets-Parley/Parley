@@ -155,9 +155,15 @@ func Tick(ctx context.Context, pool *pgxpool.Pool, now time.Time, sessionLimit i
 	for rows.Next() {
 		var d dueSchedule
 		var days []int16
-		if err := rows.Scan(&d.id, &d.spaceID, &d.facilitator, &days, &d.OpenTime, &d.Timezone, &d.WindowMinutes); err != nil {
+		// updated_by is nullable: deleting the saver clears it and leaves the
+		// schedule, and a null here falls through to a current owner at open.
+		var updatedBy *string
+		if err := rows.Scan(&d.id, &d.spaceID, &updatedBy, &days, &d.OpenTime, &d.Timezone, &d.WindowMinutes); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("reading standup schedule: %w", err)
+		}
+		if updatedBy != nil {
+			d.facilitator = *updatedBy
 		}
 		for _, day := range days {
 			d.Weekdays = append(d.Weekdays, int(day))
@@ -238,8 +244,24 @@ func openSlot(ctx context.Context, pool *pgxpool.Pool, d dueSchedule, date strin
 		return nil, err
 	}
 	if count >= limit {
+		// Roll the whole transaction back. Committing here would end the
+		// running standup and keep the slot row, so the day could never open
+		// once a session was freed. A later tick retries.
 		slog.Warn("standup schedule skipped a slot: the space is at its session limit", "schedule", d.id, "slot", date)
-		return touched, tx.Commit(ctx)
+		return nil, nil
+	}
+
+	// updated_by facilitates only while they are still an owner of this space.
+	// Otherwise the most recently active current owner does, the same ordering
+	// migration 0015 uses to promote a last owner. Nobody left: roll back, so
+	// the running standup stays open and a later tick can retry.
+	facilitator, err := slotFacilitator(ctx, tx, d.spaceID, d.facilitator)
+	if err != nil {
+		return nil, err
+	}
+	if facilitator == "" {
+		slog.Warn("standup schedule skipped a slot: the space has no owner to facilitate it", "schedule", d.id, "slot", date)
+		return nil, nil
 	}
 
 	closes := openAt.Add(time.Duration(d.WindowMinutes) * time.Minute).UTC()
@@ -250,7 +272,7 @@ func openSlot(ctx context.Context, pool *pgxpool.Pool, d dueSchedule, date strin
 	var id string
 	if err := tx.QueryRow(ctx,
 		"insert into sessions (space_id, kind, title, config, facilitator_id) values ($1, 'standup', $2, $3, $4) returning id::text",
-		d.spaceID, "Standup "+date, cfg, d.facilitator).Scan(&id); err != nil {
+		d.spaceID, "Standup "+date, cfg, facilitator).Scan(&id); err != nil {
 		return nil, fmt.Errorf("opening standup slot: %w", err)
 	}
 	if _, err := tx.Exec(ctx,
@@ -262,6 +284,40 @@ func openSlot(ctx context.Context, pool *pgxpool.Pool, d dueSchedule, date strin
 		return nil, err
 	}
 	return append(touched, id), nil
+}
+
+// slotFacilitator returns who should facilitate the slot being opened.
+// updatedBy is used only when that user is still an owner. Otherwise the
+// current owner with the latest last_seen_at wins, and user_id breaks a tie
+// the way migration 0015 does. An empty string means the space has no owner.
+func slotFacilitator(ctx context.Context, tx pgx.Tx, spaceID, updatedBy string) (string, error) {
+	if updatedBy != "" {
+		var stillOwner bool
+		if err := tx.QueryRow(ctx,
+			`select exists (
+				select 1 from members
+				where space_id = $1 and user_id = $2 and role = 'owner')`,
+			spaceID, updatedBy,
+		).Scan(&stillOwner); err != nil {
+			return "", fmt.Errorf("checking the standup facilitator: %w", err)
+		}
+		if stillOwner {
+			return updatedBy, nil
+		}
+	}
+	var id string
+	err := tx.QueryRow(ctx, `
+		select user_id::text from members
+		where space_id = $1 and role = 'owner'
+		order by last_seen_at desc, user_id
+		limit 1`, spaceID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("choosing a standup facilitator: %w", err)
+	}
+	return id, nil
 }
 
 // RunScheduler ticks every interval until ctx is done, handing each changed

@@ -50,8 +50,12 @@ func TestStandupScheduleRefusesAnInvalidTimezone(t *testing.T) {
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("invalid timezone: got %d %v, want 400", resp.StatusCode, body)
 	}
-	if resp, _ := doJSON(t, srv, http.MethodPut, scheduleURL(slug), `{"weekdays":[1],"bogus":1}`, owner); resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("unknown field: got %d, want 400", resp.StatusCode)
+	// A valid schedule plus one field the handler does not know. An invalid
+	// body would be refused by Validate and would not show that unknown
+	// fields are rejected.
+	unknown := `{"weekdays":[1,2,3,4,5],"openTime":"09:30","timezone":"America/New_York","windowMinutes":120,"enabled":true,"bogus":1}`
+	if resp, body := doJSON(t, srv, http.MethodPut, scheduleURL(slug), unknown, owner); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unknown field: got %d %v, want 400", resp.StatusCode, body)
 	}
 }
 

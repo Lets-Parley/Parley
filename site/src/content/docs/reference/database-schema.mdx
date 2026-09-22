@@ -326,8 +326,12 @@ logic, not the CSV export.
 `standup_schedules` holds at most one schedule per space (`space_id` unique, on
 delete cascade): `weekdays` (a `smallint[]` of `0`–`6`, Sunday first),
 `open_time`, `timezone` (IANA), `window_minutes` (1–1440), `enabled`, and
-`updated_by`, the owner who last saved it and the facilitator of the sessions
-it opens.
+`updated_by`. `updated_by` is nullable and `references users(id) on delete set
+null`. It records the user who last saved the schedule. Deleting that user
+clears the column and leaves the schedule in place. At open time that user
+facilitates the slot while they are still an owner of the space. When they are
+not, the most recently active current owner does (latest `last_seen_at`, then
+user id). A space with no owner skips the slot.
 
 `standup_schedule_slots` records each slot that has opened, keyed
 `(schedule_id, slot_date)` where `slot_date` is the local date in the

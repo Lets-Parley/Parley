@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/lets-parley/parley/internal/store"
 )
 
 func mustLoc(t *testing.T, name string) *time.Location {
@@ -109,6 +111,12 @@ func TestSlotSkipsDaysNotOnTheSchedule(t *testing.T) {
 func seedSchedule(t *testing.T, pool *pgxpool.Pool, s Schedule) (spaceID, ownerID string) {
 	t.Helper()
 	sess, ids := seed(t, pool, `{}`, "Owner")
+	// seed inserts a member. A scheduled slot is facilitated by an owner, so
+	// the saver has to be one or every tick in this file would skip the slot.
+	if _, err := pool.Exec(context.Background(),
+		"update members set role = 'owner' where space_id = $1 and user_id = $2", sess.SpaceID, ids[0]); err != nil {
+		t.Fatal(err)
+	}
 	if err := (&Schedules{Pool: pool}).Put(context.Background(), sess.SpaceID, ids[0], s); err != nil {
 		t.Fatal(err)
 	}
@@ -272,5 +280,200 @@ func TestSlotRespectsTheSessionQuota(t *testing.T) {
 	}
 	if got := scheduledSessions(t, pool, spaceID); len(got) != 0 {
 		t.Fatalf("a full space got a scheduled session: %+v", got)
+	}
+}
+
+// A space already at its session limit must not consume the day's slot or end
+// the standup that is running. The claim and the previous session's ended_at
+// live in the same transaction, so skipping has to roll both back; a later
+// tick opens the slot once a session has been freed.
+func TestQuotaSkipLeavesTheRunningStandupAndRetriesWhenRoomFrees(t *testing.T) {
+	pool := testPool(t)
+	spaceID, _ := seedSchedule(t, pool, Schedule{Weekdays: []int{0, 1, 2, 3, 4, 5, 6}, OpenTime: "09:00", Timezone: "UTC", WindowMinutes: 60, Enabled: true})
+	ctx := context.Background()
+
+	// The seeded session plus this slot fill a limit of 2.
+	if _, err := Tick(ctx, pool, time.Date(2026, 9, 22, 9, 0, 0, 0, time.UTC), 2); err != nil {
+		t.Fatal(err)
+	}
+	if got := scheduledSessions(t, pool, spaceID); len(got) != 1 || got[0].Ended {
+		t.Fatalf("first slot: %+v", got)
+	}
+
+	if _, err := Tick(ctx, pool, time.Date(2026, 9, 23, 9, 0, 0, 0, time.UTC), 2); err != nil {
+		t.Fatal(err)
+	}
+	if got := scheduledSessions(t, pool, spaceID); len(got) != 1 || got[0].Ended {
+		t.Fatalf("after a quota skip: %+v, want the running standup still open", got)
+	}
+	var slots int
+	if err := pool.QueryRow(ctx, `
+		select count(*) from standup_schedule_slots sl
+		join standup_schedules sc on sc.id = sl.schedule_id
+		where sc.space_id = $1 and sl.slot_date = '2026-09-23'`, spaceID).Scan(&slots); err != nil {
+		t.Fatal(err)
+	}
+	if slots != 0 {
+		t.Fatalf("quota skip left %d slot rows, want none", slots)
+	}
+
+	// Free the seeded session. Ending it would not: the quota counts every row.
+	if _, err := pool.Exec(ctx, `
+		delete from sessions where space_id = $1 and id not in (
+			select session_id from standup_schedule_slots where session_id is not null)`, spaceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Tick(ctx, pool, time.Date(2026, 9, 23, 9, 5, 0, 0, time.UTC), 2); err != nil {
+		t.Fatal(err)
+	}
+	got := scheduledSessions(t, pool, spaceID)
+	if len(got) != 2 || !got[0].Ended || got[1].Ended {
+		t.Fatalf("after room freed: %+v, want the next slot open and the previous one ended", got)
+	}
+}
+
+func slotFacilitators(t *testing.T, pool *pgxpool.Pool, spaceID string) []string {
+	t.Helper()
+	rows, err := pool.Query(context.Background(), `
+		select s.facilitator_id::text
+		from standup_schedule_slots sl
+		join sessions s on s.id = sl.session_id
+		join standup_schedules sc on sc.id = sl.schedule_id
+		where sc.space_id = $1
+		order by sl.slot_date`, spaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return ids
+}
+
+// The saver facilitates a slot only while they are still an owner. After they
+// leave, the next slot is facilitated by the most recently active remaining
+// owner — a more recently seen non-owner is not seated, and neither is the
+// person who was removed.
+func TestRemovedSaverDoesNotFacilitateTheNextSlot(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	spaceID, saver := seedSchedule(t, pool, Schedule{Weekdays: []int{0, 1, 2, 3, 4, 5, 6}, OpenTime: "09:00", Timezone: "UTC", WindowMinutes: 60, Enabled: true})
+	if _, err := pool.Exec(ctx, "update members set role = 'owner' where space_id = $1 and user_id = $2", spaceID, saver); err != nil {
+		t.Fatal(err)
+	}
+
+	var activeOwner, recentMember string
+	if err := pool.QueryRow(ctx, "insert into users (name) values ('Active Owner') returning id::text").Scan(&activeOwner); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, "insert into users (name) values ('Recent Member') returning id::text").Scan(&recentMember); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		insert into members (space_id, user_id, role, last_seen_at) values
+			($1, $2, 'owner', now() - interval '1 hour'),
+			($1, $3, 'member', now())`, spaceID, activeOwner, recentMember); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Tick(ctx, pool, time.Date(2026, 9, 22, 9, 0, 0, 0, time.UTC), 500); err != nil {
+		t.Fatal(err)
+	}
+	if got := slotFacilitators(t, pool, spaceID); len(got) != 1 || got[0] != saver {
+		t.Fatalf("first slot facilitators = %v, want the saver", got)
+	}
+
+	if err := (&store.Spaces{Pool: pool}).RemoveMember(ctx, spaceID, saver); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Tick(ctx, pool, time.Date(2026, 9, 23, 9, 0, 0, 0, time.UTC), 500); err != nil {
+		t.Fatal(err)
+	}
+	got := slotFacilitators(t, pool, spaceID)
+	if len(got) != 2 || got[1] != activeOwner {
+		t.Fatalf("next slot facilitators = %v, want the most recently active owner %s", got, activeOwner)
+	}
+}
+
+// No current owner means there is nobody who may be seated as facilitator.
+// The slot is not claimed and the running standup stays open.
+func TestSlotSkipsWhenTheSpaceHasNoOwner(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	spaceID, saver := seedSchedule(t, pool, Schedule{Weekdays: []int{0, 1, 2, 3, 4, 5, 6}, OpenTime: "09:00", Timezone: "UTC", WindowMinutes: 60, Enabled: true})
+	if _, err := pool.Exec(ctx, "update members set role = 'owner' where space_id = $1 and user_id = $2", spaceID, saver); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Tick(ctx, pool, time.Date(2026, 9, 22, 9, 0, 0, 0, time.UTC), 500); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, "delete from members where space_id = $1", spaceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Tick(ctx, pool, time.Date(2026, 9, 23, 9, 0, 0, 0, time.UTC), 500); err != nil {
+		t.Fatal(err)
+	}
+	if got := scheduledSessions(t, pool, spaceID); len(got) != 1 || got[0].Ended {
+		t.Fatalf("after an ownerless skip: %+v, want the running standup still open", got)
+	}
+	var slots int
+	if err := pool.QueryRow(ctx, `
+		select count(*) from standup_schedule_slots sl
+		join standup_schedules sc on sc.id = sl.schedule_id
+		where sc.space_id = $1 and sl.slot_date = '2026-09-23'`, spaceID).Scan(&slots); err != nil {
+		t.Fatal(err)
+	}
+	if slots != 0 {
+		t.Fatalf("ownerless skip left %d slot rows, want none", slots)
+	}
+}
+
+// Deleting the user who last saved the schedule must not take the schedule
+// with them. updated_by becomes null and the next slot is facilitated by a
+// current owner.
+func TestDeletingTheSaverKeepsTheSchedule(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	spaceID, saver := seedSchedule(t, pool, Schedule{Weekdays: []int{0, 1, 2, 3, 4, 5, 6}, OpenTime: "09:00", Timezone: "UTC", WindowMinutes: 60, Enabled: true})
+	var other string
+	if err := pool.QueryRow(ctx, "insert into users (name) values ('Remaining Owner') returning id::text").Scan(&other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx,
+		"insert into members (space_id, user_id, role) values ($1, $2, 'owner')", spaceID, other); err != nil {
+		t.Fatal(err)
+	}
+	// sessions.facilitator_id has no ON DELETE clause, so the seeded room
+	// would block the user delete for a reason this test is not about.
+	if _, err := pool.Exec(ctx, "update sessions set facilitator_id = $2 where space_id = $1", spaceID, other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, "delete from users where id = $1", saver); err != nil {
+		t.Fatal(err)
+	}
+
+	var updatedBy *string
+	err := pool.QueryRow(ctx, "select updated_by::text from standup_schedules where space_id = $1", spaceID).Scan(&updatedBy)
+	if err != nil {
+		t.Fatalf("schedule after deleting the saver: %v", err)
+	}
+	if updatedBy != nil {
+		t.Fatalf("updated_by = %s, want null", *updatedBy)
+	}
+
+	if _, err := Tick(ctx, pool, time.Date(2026, 9, 22, 9, 0, 0, 0, time.UTC), 500); err != nil {
+		t.Fatal(err)
+	}
+	if got := slotFacilitators(t, pool, spaceID); len(got) != 1 || got[0] != other {
+		t.Fatalf("facilitators = %v, want the remaining owner %s", got, other)
 	}
 }
