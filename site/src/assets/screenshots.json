@@ -217,7 +217,7 @@
         "site/src/assets/present-light.png",
         "site/src/assets/present-dark.png"
       ],
-      "shot_at": "a94f050f65a46f5c0d9546ff19a8eb63e21370f7",
+      "shot_at": "0ecc46c9299127064b35011c971952e13ec297bf",
       "depicts": [
         "web/src/pages/PresentPage.tsx",
         "web/src/tokens.css"
