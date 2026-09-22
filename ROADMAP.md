@@ -212,6 +212,17 @@ feature, and Parley either grows into a whiteboard or deliberately declines to.
 
 - Status: Backlog
 
+### Parley inside the meeting
+
+Teams asked for the votes to show up in the call itself. There is no supported way
+to give a bot a camera in Google Meet, so this is a Meet add-on instead: vote from
+the side panel and put the board on the main stage, signed in to your own
+instance. It is off unless an operator turns it on, and Meet is the first
+provider; Teams and Zoom can follow the same shape.
+
+- Status: Backlog
+- Tracking: [#632](https://github.com/lets-parley/parley/issues/632)
+
 ## Exploring
 
 Ideas under consideration, not committed to.
