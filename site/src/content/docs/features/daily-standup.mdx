@@ -11,7 +11,7 @@ import roundDark from "../../../assets/standup-round-dark.png";
 import blockersLight from "../../../assets/blockers-roundup-light.png";
 import blockersDark from "../../../assets/blockers-roundup-dark.png";
 
-<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "internal/standup/kudos.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/components/AsyncDigest.tsx", "web/src/lib/kinds.ts", "internal/standup/schedule.go", "internal/standup/webhook.go", "internal/api/standup_webhook.go", "internal/standup/ics.go", "internal/api/ics.go", "internal/standup/mentions.go", "internal/api/standup_mentions.go"]} />
+<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "internal/standup/kudos.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/components/AsyncDigest.tsx", "web/src/lib/kinds.ts", "internal/standup/schedule.go", "internal/standup/webhook.go", "internal/api/standup_webhook.go", "internal/standup/ics.go", "internal/api/ics.go", "internal/standup/mentions.go", "internal/api/standup_mentions.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/api/standup_away.go", "web/src/components/AwayDays.tsx", "web/src/components/StandupTrend.tsx"]} />
 
 A standup session is three text fields per person — yesterday, today, blockers —
 and an order to speak in.
@@ -223,8 +223,13 @@ standup ends — and a digest of everyone else's, in this order:
    the section is no longer shown or served.
 4. **Updates**, each collapsed to its first line with the time it was posted,
    shown in your own time zone. Open one to read all three fields.
-5. **Answered** and **Not yet**, while the standup is open. Spectators are not
-   waited on.
+5. **Answered**, **Not yet** and **Away**, while the standup is open.
+   Spectators are not waited on, and nobody who set themselves away today is
+   listed under **Not yet**: they appear under **Away** instead, until they
+   answer anyway.
+
+For a step-by-step walkthrough of running a team this way, see the
+[async standup guide](/features/async-standup-guide/).
 
 Under your own update, **Who do you need?** lists the space's members — all of
 them, not only those who have opened the room yet — as checkboxes. Ticking one
@@ -245,10 +250,52 @@ A session created through the API can carry a published cutoff, `closesAt`
 (RFC 3339), alongside `"mode": "async"`. Passing it does **not** end the
 standup: an answer written afterwards is accepted and appended with its posted
 time like any other, with no late badge. The standup ends when the facilitator
-ends it. Once ended, its record keeps the entries only — the not-yet list is
-never stored or served, and what the standup changed about commitments is no
-longer served, so nobody's landed and dropped history can be rebuilt from old
-rooms.
+ends it. Once ended, its record keeps the entries only — the not-yet and away
+lists are never stored or served, and what the standup changed about
+commitments is no longer served, so nobody's landed and dropped history can be
+rebuilt from old rooms.
+
+### Away days
+
+Under your own update, **Away days** takes a first and a last day. On those
+days you are not listed as owing an answer in any async standup, and you are
+left out of the team trend below. Away days are yours: they apply in every
+space you are in, only you can set or remove them, and a signed-link guest has
+none. `GET`, `POST` and `DELETE /api/me/away` are the same thing through the
+API.
+
+A range is refused with `400` if its last day is before its first, if it is
+longer than 90 days, if it starts more than 30 days ago, or if it starts more
+than a year ahead. You can hold at most 20 ranges at once; a 21st answers
+`409`. Which day a standup is "on" is its schedule slot's local date when a
+schedule opened it, and otherwise the UTC date it was created.
+
+### Team participation trend
+
+A space that holds standups shows **Standup participation** to its members:
+for each of the last 12 completed weeks, the share of eligible answers that
+were given in that week's async standups. It is a team ratio only. No endpoint,
+column or response computes participation per person, and the response carries
+no names, ids or counts.
+
+Eligible on a standup's day means a member of the space who is not a
+signed-link guest and is not away that day. Every member counts, spectators
+included. An answer is an entry with anything written in it.
+
+Three rules keep a small team from being read one person at a time:
+
+- **Suppressed below four.** A standup day with fewer than four eligible people
+  is dropped before anything is summed, and a week with no day left is shown
+  as *not shown*, with no ratio.
+- **Fixed, non-overlapping weeks.** Weeks run Monday to Sunday, UTC. The
+  endpoint takes no parameters, so the window cannot be moved to difference
+  two overlapping answers.
+- **Completed weeks only.** The running week is never reported, so a ratio
+  cannot be watched moving from one day to the next.
+
+Eligibility reads the space's membership as it is now. Someone who has left
+the space is not in any week's count. `GET
+/api/orgs/{org}/spaces/{slug}/standup-trend` is the same data through the API.
 
 ### Scheduled async standups
 
@@ -375,5 +422,6 @@ it lists only the spaces they still belong to.
   { name: "A schedule editor and a cutoff picker", status: "not-built", detail: "The schedule and <code>closesAt</code> are set through the API only; nothing in the UI sets them yet." },
   { name: "Reordering the speaking order", status: "not-built", detail: "Fixed once the round starts. Skip moves past anyone who is not ready." },
   { name: "Editing a kudo", status: "not-built", detail: "The sender can withdraw one from the space's wall. Nobody can rewrite text somebody has already read." },
+  { name: "Participation per person", status: "out-of-scope", detail: "Only the team trend exists, suppressed below four eligible people. No endpoint, column or screen computes it for one person." },
   { name: "Chasing people who did not write anything", status: "out-of-scope", detail: "Parley does not nag. The one reminder is a calendar alarm the person set on their own feed." },
 ]} />

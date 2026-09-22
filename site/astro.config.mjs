@@ -60,6 +60,7 @@ export default defineConfig({
             { slug: "features", label: "Overview" },
             "features/planning-poker",
             "features/daily-standup",
+            "features/async-standup-guide",
             "features/retrospective",
             "features/spaces-and-room-codes",
             "features/guest-links",

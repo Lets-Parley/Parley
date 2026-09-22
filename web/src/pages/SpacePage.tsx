@@ -9,6 +9,7 @@ import { AppShell, Logo } from "../components/AppShell";
 import { PluginChrome } from "../components/PluginChrome";
 import { KindChip } from "../components/KindChip";
 import { Kudos } from "../components/Kudos";
+import { StandupTrend } from "../components/StandupTrend";
 import { EmptyTable } from "./PokerRoom";
 import {
   Modal,
@@ -476,6 +477,8 @@ export function SpacePage() {
             ))}
           </ul>
         )}
+
+        {all.some((s) => s.kind === "standup") && <StandupTrend org={org} slug={sp.slug} />}
 
         {/* Ceremony-independent on purpose: the wall sits on the space itself,
             so thanking somebody never waits for a session to be open. */}

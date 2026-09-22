@@ -273,6 +273,9 @@ var routeScoping = map[string]string{
 	"GET /api/me/ics":                 "non-slug",
 	"POST /api/me/ics":                "non-slug",
 	"DELETE /api/me/ics":              "non-slug",
+	"GET /api/me/away":                "non-slug",
+	"POST /api/me/away":               "non-slug",
+	"DELETE /api/me/away/{id}":        "non-slug",
 
 	// Cross-org by definition: they answer which orgs and spaces a cookie
 	// reaches, so they cannot name an org first.
@@ -294,6 +297,7 @@ var routeScoping = map[string]string{
 	"POST /api/orgs/{org}/spaces/{slug}/sessions":              "org-scoped",
 	"GET /api/orgs/{org}/spaces/{slug}/standup-schedule/":      "org-scoped",
 	"PUT /api/orgs/{org}/spaces/{slug}/standup-schedule/":      "org-scoped",
+	"GET /api/orgs/{org}/spaces/{slug}/standup-trend":          "org-scoped",
 	"GET /api/orgs/{org}/spaces/{slug}/standup-webhook/":       "org-scoped",
 	"PUT /api/orgs/{org}/spaces/{slug}/standup-webhook/":       "org-scoped",
 	"DELETE /api/orgs/{org}/spaces/{slug}/standup-webhook/":    "org-scoped",

@@ -65,3 +65,13 @@ export function pluginsApi(org: string): string {
 export function orgPluginPanelsApi(org: string): string {
   return `/api/orgs/${org}/plugins/panels`;
 }
+
+/** The space's weekly team participation trend. Members only; no parameters. */
+export function standupTrendApi(org: string, slug: string): string {
+  return `${spaceApi(org, slug)}/standup-trend`;
+}
+
+/** The caller's own away days. Removing one appends its id. */
+export function awayApi(id = ""): string {
+  return id ? `/api/me/away/${encodeURIComponent(id)}` : "/api/me/away";
+}

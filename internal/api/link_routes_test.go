@@ -77,6 +77,11 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	"POST /api/me/ics":   {status: http.StatusForbidden},
 	"DELETE /api/me/ics": {status: http.StatusForbidden},
 	"GET /ics/{token}":   {status: http.StatusNotFound},
+	// Away days are an account's own. A link guest has no account and is in
+	// no space's eligible count, so it may not set, read or clear any.
+	"GET /api/me/away":         {status: http.StatusForbidden},
+	"POST /api/me/away":        {status: http.StatusForbidden},
+	"DELETE /api/me/away/{id}": {status: http.StatusForbidden},
 
 	// The legacy space-link shim. A link guest belongs to no org, so there is
 	// nothing for it to resolve against — and resolving it against somebody
@@ -131,6 +136,9 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// told plainly it cannot, before any space lookup runs.
 	"GET /api/orgs/{org}/spaces/{slug}/standup-schedule/": {status: http.StatusForbidden},
 	"PUT /api/orgs/{org}/spaces/{slug}/standup-schedule/": {status: http.StatusForbidden},
+	// The team participation trend is the space's, for its members: a link
+	// to one room is refused at the door before any space lookup runs.
+	"GET /api/orgs/{org}/spaces/{slug}/standup-trend": {status: http.StatusForbidden},
 	// The standup webhook, owner-only on every verb, and refused the same way.
 	"GET /api/orgs/{org}/spaces/{slug}/standup-webhook/":    {status: http.StatusForbidden},
 	"PUT /api/orgs/{org}/spaces/{slug}/standup-webhook/":    {status: http.StatusForbidden},

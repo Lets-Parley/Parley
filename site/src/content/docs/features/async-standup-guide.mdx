@@ -1,0 +1,78 @@
+---
+title: Running an async standup
+description: A walkthrough for teams answering on their own time — opening a standup, answering, asking for help, away days, and reading the team trend.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+
+<VerifiedStamp source={["internal/standup/state.go", "internal/standup/schedule.go", "internal/standup/ics.go", "internal/standup/mentions.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/api/standup_away.go", "web/src/components/AsyncDigest.tsx", "web/src/components/AwayDays.tsx", "web/src/components/StandupTrend.tsx", "web/src/pages/StandupRoom.tsx"]} />
+
+An async standup is the same three questions as a live one, answered when each
+person has a minute rather than in one room at one time. This page walks
+through a week of running one. The reference for every rule is on the
+[daily standup](/features/daily-standup/#async-standups) page.
+
+## 1. Open one
+
+Start a new standup in the space and choose **Async** as the mode. There is no
+speaking order and no timer: everyone who opens the room gets the answer form.
+
+For a standup that opens itself, a space owner sets a schedule — weekdays, a
+local open time, a time zone and a window — through
+`PUT /api/orgs/{org}/spaces/{slug}/standup-schedule`. Each scheduled day opens
+a new async standup, and opening it ends the previous one. See
+[Scheduled async standups](/features/daily-standup/#scheduled-async-standups).
+
+## 2. Get a reminder, once
+
+Each person can mint their own calendar feed with `POST /api/me/ics` and
+subscribe to it from a calendar app. It carries one alarm per window, at the
+offset they chose. Parley sends nothing else: there is no nag. See
+[A personal calendar feed](/features/daily-standup/#a-personal-calendar-feed).
+
+## 3. Answer
+
+Write today, then blockers, then anything from yesterday. The form is
+prefilled from what you said last time and saves as you type. It stays
+editable until the standup ends, and an answer written after the published
+cutoff is appended like any other.
+
+If a blocker needs somebody, tick them under **Who do you need?** Only they see
+that you asked, at the top of their digest.
+
+## 4. Say when you are away
+
+Under your update, **Away days** takes a first and a last day. On those days
+you are listed under **Away** rather than **Not yet**, in every space you are
+in, and you are left out of the team trend. Remove a range with its **Remove**
+button. Only you can set yours; nobody can mark a teammate away.
+
+## 5. Read the digest
+
+The digest reads top to bottom: **Needs you**, **Blockers**, **Changed
+commitments**, **Updates**, then **Answered**, **Not yet** and **Away**. Names
+are listed without counts and without alarm colours.
+
+Once the standup ends, only the updates remain. The not-yet and away lists,
+and what the standup changed about commitments, are never stored and are no
+longer served, so nobody's history of missed days can be rebuilt from old
+rooms.
+
+## 6. Look at the trend, as a team
+
+On the space page, **Standup participation** shows, for each of the last 12
+completed weeks, the share of eligible answers that were given. It is one
+number per week for the whole team — never per person.
+
+It is built so a small team cannot be read one person at a time:
+
+- A standup day with fewer than four eligible people is left out, and a week
+  with nothing left says **Not shown**.
+- Weeks are fixed Monday-to-Sunday UTC buckets and the endpoint takes no
+  parameters, so the window cannot be shifted to difference two answers.
+- The running week is never shown, so the number cannot be watched changing
+  day by day.
+
+Eligible means a member of the space, not a signed-link guest, who is not away
+that day. Treat the trend as a question for the team — is this format working
+for us? — rather than as a measure of anybody.

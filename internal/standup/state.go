@@ -139,6 +139,11 @@ type State struct {
 	// to guess what an absent one means.
 	Mode     string     `json:"mode"`
 	ClosesAt *time.Time `json:"closesAt"`
+	// Away is the ids of space members who set themselves away on this
+	// standup's day, so the digest does not read them as owing an answer.
+	// Served only by an open async standup: an ended one keeps its entries
+	// only (#388), and a live sync room seats whoever is in it.
+	Away []string `json:"away"`
 }
 
 // Kind describes the standup session kind for the core registry.
@@ -161,6 +166,7 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 		Commitments:      []WireCommitment{},
 		Changes:          []WireChange{},
 		Kudos:            []WireKudo{},
+		Away:             []string{},
 		SecondsPerPerson: cfg.secondsOrDefault(),
 		Mode:             "sync",
 		ClosesAt:         cfg.ClosesAt,
@@ -251,6 +257,24 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 			st.Changes = append(st.Changes, c)
 		}
 		if err := chrows.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	if cfg.async() && sess.EndedAt == nil {
+		arows, err := pool.Query(ctx, awayMembers, sess.ID)
+		if err != nil {
+			return nil, err
+		}
+		defer arows.Close()
+		for arows.Next() {
+			var id string
+			if err := arows.Scan(&id); err != nil {
+				return nil, err
+			}
+			st.Away = append(st.Away, id)
+		}
+		if err := arows.Err(); err != nil {
 			return nil, err
 		}
 	}
