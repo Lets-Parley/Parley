@@ -3,6 +3,7 @@ package api
 import (
 	"cmp"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -13,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/lets-parley/parley/internal/httprequest"
 	"github.com/lets-parley/parley/internal/store"
@@ -94,6 +97,13 @@ func (a *app) embedBearer(read func(*http.Request) (string, bool)) func(*http.Re
 		return nil
 	}
 	return read
+}
+
+// bearerPresented reports whether r carries an Authorization header that /api
+// reads in place of the cookie: only ever true with embedding enabled.
+func (a *app) bearerPresented(r *http.Request) bool {
+	_, presented := authorizationBearer(r)
+	return len(a.embedProviders) > 0 && presented
 }
 
 func (a *app) embedProvider(name string) (EmbedProvider, bool) {
@@ -215,18 +225,20 @@ var embedSigninPage = template.Must(template.New("signin").Parse(`<!doctype html
 <title>Sign in to {{.Label}} — Parley</title></head>
 <body><main>
 <h1>{{.Title}}</h1>
-{{if .Code}}<p>Code: <strong>{{.Code}}</strong> — check it matches the one in {{.Label}}.</p>{{end}}
+{{if .Error}}<p role="alert">{{.Error}}</p>{{end}}
 <p>{{.Message}}</p>
 {{if .SigninURL}}<p><a href="{{.SigninURL}}">Sign in to Parley</a>, then come back to this page.</p>{{end}}
 {{if .Challenge}}<form method="post" action="/embed/signin">
 <input type="hidden" name="c" value="{{.Challenge}}">
+<label for="code">The code shown in {{.Label}}</label>
+<input id="code" name="code" required autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABC-123">
 <button type="submit">Continue as {{.Name}}</button>
 </form>{{end}}
 </main></body></html>
 `))
 
 type embedSigninView struct {
-	Title, Label, Code, Message, SigninURL, Challenge, Name string
+	Title, Label, Message, Error, SigninURL, Challenge, Name string
 }
 
 func renderEmbedSignin(w http.ResponseWriter, status int, v embedSigninView) {
@@ -245,8 +257,13 @@ var embedGone = embedSigninView{
 }
 
 // handleEmbedSigninPage is the top-level half of the handoff. It never binds
-// on a GET: binding is the explicit click below, and the page names the
-// provider only from an enabled row, never from anything in the URL.
+// on a GET: binding is the form below, and the page names the provider only
+// from an enabled row, never from anything in the URL.
+//
+// The page asks for the display code and never shows it. Anyone can send a
+// signed-in person this URL for a frame of their own; what they cannot send
+// is the code in that person's meeting, so typing it is what ties the bind to
+// the frame the person is actually looking at.
 func (a *app) handleEmbedSigninPage(w http.ResponseWriter, r *http.Request) {
 	raw := r.URL.Query().Get("c")
 	challenge, ok := decodeChallenge(raw)
@@ -260,7 +277,7 @@ func (a *app) handleEmbedSigninPage(w http.ResponseWriter, r *http.Request) {
 		renderEmbedSignin(w, http.StatusNotFound, embedGone)
 		return
 	}
-	v := embedSigninView{Label: provider.Label, Code: h.DisplayCode}
+	v := embedSigninView{Label: provider.Label}
 	p, ok := PrincipalFrom(r.Context())
 	if !ok || p.IsLinkGuest() || p.Embedded {
 		v.Title = "Sign in to Parley"
@@ -273,19 +290,30 @@ func (a *app) handleEmbedSigninPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v.Title = "Sign in to Parley in " + provider.Label
-	v.Message = "Continue only if you just pressed Sign in inside " + provider.Label + "."
+	v.Message = "Type the code Parley shows in " + provider.Label + ". If you did not just press Sign in there, close this page."
 	v.Challenge = raw
 	v.Name = p.Display
 	renderEmbedSignin(w, http.StatusOK, v)
 }
 
-// handleEmbedSigninBind binds a handoff to the signed-in person on their
-// explicit click. It sits outside /api, so its CSRF story is its own: the
-// group runs rejectCrossSite, and the session cookie is SameSite=Lax, which a
-// cross-site form POST does not carry.
+// normalizeDisplayCode reads a display code the way a person types one: case,
+// the hyphen and surrounding space do not matter.
+func normalizeDisplayCode(s string) string {
+	return strings.ToUpper(strings.NewReplacer("-", "", " ", "").Replace(strings.TrimSpace(s)))
+}
+
+// handleEmbedSigninBind binds a handoff to the signed-in person once they have
+// typed the display code their meeting shows. It sits outside /api, so its
+// CSRF story is its own: the group runs rejectCrossSite, and the session
+// cookie is SameSite=Lax, which a cross-site form POST does not carry.
+//
+// The code is compared in constant time, and every attempt spends from the
+// same per-client budget a space passcode does; a right code gets its guess
+// back.
 func (a *app) handleEmbedSigninBind(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
-	challenge, ok := decodeChallenge(r.PostFormValue("c"))
+	raw := r.PostFormValue("c")
+	challenge, ok := decodeChallenge(raw)
 	if !ok {
 		renderEmbedSignin(w, http.StatusNotFound, embedGone)
 		return
@@ -298,6 +326,37 @@ func (a *app) handleEmbedSigninBind(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	key := clientKey(r) + "|embed"
+	if !a.passcodeAttempts.take(r.Context(), key) {
+		logSecEvent(r, secEvent{Event: "embed.bind", Outcome: "throttled"})
+		w.Header().Set("Retry-After", strconv.Itoa(int(passcodeAttemptWindow.Seconds())))
+		renderEmbedSignin(w, http.StatusTooManyRequests, embedSigninView{
+			Title:   "Too many tries",
+			Message: "Wait a minute, then press Sign in inside your meeting again.",
+		})
+		return
+	}
+	pending, err := a.embedHandoffs.Pending(r.Context(), challenge)
+	provider, enabled := a.embedProvider(pending.Provider)
+	if err != nil || !enabled {
+		logSecEvent(r, secEvent{Event: "embed.bind", Outcome: "refused"})
+		renderEmbedSignin(w, http.StatusNotFound, embedGone)
+		return
+	}
+	typed := normalizeDisplayCode(r.PostFormValue("code"))
+	if subtle.ConstantTimeCompare([]byte(typed), []byte(normalizeDisplayCode(pending.DisplayCode))) != 1 {
+		logSecEvent(r, secEvent{Event: "embed.bind", Outcome: "wrong_code"})
+		renderEmbedSignin(w, http.StatusForbidden, embedSigninView{
+			Title:     "Sign in to Parley in " + provider.Label,
+			Label:     provider.Label,
+			Error:     "That code does not match. Check the code Parley shows in " + provider.Label + " and type it again.",
+			Message:   "If you did not just press Sign in there, close this page.",
+			Challenge: raw,
+			Name:      p.Display,
+		})
+		return
+	}
+	a.passcodeAttempts.refund(r.Context(), key)
 	h, err := a.embedHandoffs.Bind(r.Context(), challenge, p.UserID)
 	if errors.Is(err, store.ErrNoHandoff) {
 		logSecEvent(r, secEvent{Event: "embed.bind", Outcome: "refused"})
@@ -311,10 +370,85 @@ func (a *app) handleEmbedSigninBind(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	provider, _ := a.embedProvider(h.Provider)
 	logSecEvent(r, secEvent{Event: "embed.bind", Target: h.Provider})
 	renderEmbedSignin(w, http.StatusOK, embedSigninView{
 		Title: "You're signed in", Label: provider.Label,
 		Message: "Go back to " + cmp.Or(provider.Label, "your meeting") + " — Parley will open there in a moment. You can close this tab.",
 	})
 }
+
+// embeddedRoutes is everything an embedded session may reach under /api,
+// keyed by method and the chi route pattern the request matched. It is an
+// allow-list on purpose: the frame is a new door into rooms its holder could
+// already enter, never a new key, so a route is closed to it until somebody
+// decides the side panel needs it. A method of "*" allows every method, which
+// only the action dispatcher uses — it decides 404-vs-405 itself.
+//
+// Each route's own authorization still runs after this: allowed here means the
+// embedded session is treated exactly as the same person's cookie would be.
+var embeddedRoutes = map[string]bool{
+	// The handoff itself and the instance's auth mode, which take no principal.
+	"GET /api/auth":           true,
+	"POST /api/embed/handoff": true,
+	"POST /api/embed/session": true,
+	"GET /api/embed/*":        true,
+	"POST /api/embed/*":       true,
+	// Who am I, and signing out, which spends the embedded token.
+	"GET /api/me":    true,
+	"DELETE /api/me": true,
+	// Finding a room: the spaces and rooms this person can already see, and
+	// joining a space with its passcode.
+	"GET /api/orgs":                           true,
+	"GET /api/spaces":                         true,
+	"GET /api/orgs/{org}/spaces":              true,
+	"GET /api/orgs/{org}/spaces/{slug}":       true,
+	"POST /api/orgs/{org}/spaces/{slug}/join": true,
+	// Being in a room: the participate set a link guest is also given.
+	"GET /api/sessions/{id}/":               true,
+	"GET /api/sessions/{id}/plugins/panels": true,
+	"* /api/sessions/{id}/actions/{action}": true,
+}
+
+// embeddedMayReach looks a matched pattern up in embeddedRoutes. A request for
+// a subrouter's root without its trailing slash (/api/sessions/x) reaches the
+// same handler as the slashed form the route walk lists
+// (/api/sessions/{id}/), but chi reports it without the slash, so both forms
+// are tried.
+func embeddedMayReach(method, pattern string) bool {
+	for _, p := range []string{pattern, pattern + "/"} {
+		if embeddedRoutes[method+" "+p] || embeddedRoutes["* "+p] {
+			return true
+		}
+	}
+	return false
+}
+
+// gateEmbedded is the one place an embedded session is told no. It runs on
+// the /api mount after the principal is resolved, looks up the route pattern
+// the request will match in the whole routing tree, and refuses anything off
+// the allow-list with 403. A request that matches no route is refused too.
+func gateEmbedded(routes chi.Routes) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if p, ok := PrincipalFrom(r.Context()); ok && p.Embedded && !embeddedMayReach(r.Method, matchedPattern(routes, r)) {
+				http.Error(w, `{"error":"`+embeddedRefusalMessage+`"}`, http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// matchedPattern is the full route pattern chi will route r to, found the way
+// chi itself routes a request at the root: by the raw path when there is one.
+func matchedPattern(routes chi.Routes, r *http.Request) string {
+	path := r.URL.RawPath
+	if path == "" {
+		path = r.URL.Path
+	}
+	return routes.Find(chi.NewRouteContext(), r.Method, path)
+}
+
+// embeddedRefusalMessage is what gateEmbedded answers a route off the embedded
+// allow-list with.
+const embeddedRefusalMessage = "a meeting-client session cannot do that — open Parley in a browser tab"

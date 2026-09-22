@@ -402,15 +402,14 @@ func (s *Users) Rename(ctx context.Context, userID, name string, oldTokenHash, n
 	}
 	defer tx.Rollback(ctx)
 
-	var createdAt time.Time
-	var expiresAt *time.Time
+	var locked bool
 	err = tx.QueryRow(ctx, `
-		select created_at, expires_at
+		select true
 		from session_tokens
 		where token_hash = $1 and user_id = $2
 		for update`,
 		oldTokenHash, userID,
-	).Scan(&createdAt, &expiresAt)
+	).Scan(&locked)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNoUser
 	}
@@ -425,10 +424,16 @@ func (s *Users) Rename(ctx context.Context, userID, name string, oldTokenHash, n
 	).Scan(&u.ID, &u.Name, &u.AvatarIcon, &u.NotificationSounds); err != nil {
 		return User{}, err
 	}
+	// The replacement is copied from the old row in the statement itself, so
+	// it inherits everything that bounds that token — its clock, its absolute
+	// expiry and whether it is embedded — without any of it passing through
+	// Go. A rotation that dropped one would be a way to widen a session.
 	if _, err := tx.Exec(ctx, `
-		insert into session_tokens (token_hash, user_id, created_at, expires_at)
-		values ($1, $2, $3, $4)`,
-		newTokenHash, u.ID, createdAt, expiresAt); err != nil {
+		insert into session_tokens (token_hash, user_id, created_at, expires_at, embedded)
+		select $1, user_id, created_at, expires_at, embedded
+		from session_tokens
+		where token_hash = $2 and user_id = $3`,
+		newTokenHash, oldTokenHash, u.ID); err != nil {
 		return User{}, err
 	}
 	if _, err := tx.Exec(ctx,

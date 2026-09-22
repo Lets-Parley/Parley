@@ -504,8 +504,9 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 
 	// The top-level half of the embedded-session handoff: an ordinary Parley
 	// page, X-Frame-Options DENY like every other, where a signed-in person
-	// binds a frame's request on an explicit click. It is outside /api, so it
-	// brings its own CSRF defence: rejectCrossSite here, plus the Lax cookie.
+	// binds a frame's request by typing the code the frame shows. It is
+	// outside /api, so it brings its own CSRF defence: rejectCrossSite here,
+	// plus the Lax cookie.
 	// Cookies only — a bearer never binds a handoff.
 	r.Route("/embed", func(r chi.Router) {
 		r.Use(a.requireEmbed)
@@ -522,6 +523,11 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		r.Use(requireJSONBody)
 		r.Use(limitAPIRequestBody)
 		r.Use(resolvePrincipal(a.users, mode == ModeOIDC, a.embedBearer(authorizationBearer)))
+		// An embedded session reaches only the allow-list in embed.go; every
+		// other /api route answers it 403 here, before any of the gates below.
+		// It looks the route up in root because this middleware runs before
+		// the subrouters below have matched anything.
+		r.Use(gateEmbedded(root))
 
 		r.Get("/auth", a.handleAuthConfig)
 		// The frame's half of the embedded-session handoff. Neither route
@@ -536,14 +542,14 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		// Redeeming is the one door a link guest walks through, so it is the
 		// one /api route that neither requires an identity nor rejects a link
 		// one. Everything it mints is scoped to a single room.
-		r.With(rejectEmbedded).Post("/links/redeem", a.handleRedeemLink)
+		r.Post("/links/redeem", a.handleRedeemLink)
 
 		// The identity routes sit outside RequireUser — they are where an
 		// identity comes from — so link guests are turned away here
 		// explicitly. Renaming in particular: a link guest wearing the
 		// facilitator's name on the roster is the cheapest impersonation in
 		// the product.
-		r.With(rejectLinkPrincipal, rejectEmbedded).Post("/me", a.handlePostMe)
+		r.With(rejectLinkPrincipal).Post("/me", a.handlePostMe)
 		// Open to a link guest: the only identity route that is. It hands
 		// back what the guest already has — its own name, avatar and bound
 		// room — so a browser with no local storage can recover instead of
@@ -565,7 +571,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		// from the mint, and is not recoverable after that. A link guest has
 		// no account to hang a feed on.
 		r.With(rejectLinkPrincipal).Get("/me/ics", a.handleGetICS)
-		r.With(rejectLinkPrincipal, rejectEmbedded).Post("/me/ics", a.handleMintICS)
+		r.With(rejectLinkPrincipal).Post("/me/ics", a.handleMintICS)
 		r.With(rejectLinkPrincipal).Delete("/me/ics", a.handleRevokeICS)
 
 		r.Group(func(r chi.Router) {
@@ -776,7 +782,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			// otherwise: how many exist and how often they have been used is
 			// the room's business, not its guests'.
 			r.With(rejectLinkPrincipal).Get("/links", a.handleListSessionLinks)
-			r.With(rejectEnded, rejectLinkPrincipal, rejectEmbedded, requireFacilitator).Post("/links", a.handleCreateSessionLink)
+			r.With(rejectEnded, rejectLinkPrincipal, requireFacilitator).Post("/links", a.handleCreateSessionLink)
 			r.With(rejectLinkPrincipal, requireFacilitator).Delete("/links/{linkId}", a.handleRevokeSessionLink)
 			r.Group(func(r chi.Router) {
 				r.Use(rejectEnded)

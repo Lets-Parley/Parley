@@ -26,8 +26,8 @@ type Principal struct {
 	// rather than this field so those two cases are named "open" and "guest".
 	Subject string
 	// Embedded marks a session minted for a meeting client's frame. It has
-	// participant power only: every route an org admin, a link minter or an
-	// identity rotation needs refuses it.
+	// participant power only: /api lets it reach an allow-list of routes
+	// (gateEmbedded in internal/api) and refuses everything else.
 	Embedded bool
 }
 

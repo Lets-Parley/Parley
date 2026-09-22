@@ -48,3 +48,43 @@ func TestEmbedHandoffBindsAndRedeemsOnce(t *testing.T) {
 		t.Fatalf("a second redeem: %v, want ErrNoHandoff", err)
 	}
 }
+
+// TestRenameKeepsAnEmbeddedTokenEmbedded: rotating a token must not launder an
+// embedded session into a full-power one. The api refuses renaming to an
+// embedded session; this is the statement's own lock behind that.
+func TestRenameKeepsAnEmbeddedTokenEmbedded(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	h := &EmbedHandoffs{Users: &Users{Pool: pool}}
+	ada, _ := newUser(t, pool, "Ada")
+	verifier, _ := NewToken()
+	challenge := sha256.Sum256([]byte(verifier))
+	if _, err := h.Create(ctx, challenge[:], "meet", "198.51.100.8"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Bind(ctx, challenge[:], ada.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, old := NewToken()
+	if _, err := h.Redeem(ctx, challenge[:], old); err != nil {
+		t.Fatal(err)
+	}
+	before, err := h.Users.ResolveToken(ctx, old, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rotated := NewToken()
+	if _, err := h.Users.Rename(ctx, ada.ID, "Ada Two", old, rotated); err != nil {
+		t.Fatal(err)
+	}
+	after, err := h.Users.ResolveToken(ctx, rotated, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after.Embedded {
+		t.Errorf("the rotated token is not embedded: a rename turned a meeting-client session into a full one")
+	}
+	if after.ExpiresAt.After(before.ExpiresAt) {
+		t.Errorf("the rotated token expires at %v, later than the embedded one it replaced (%v)", after.ExpiresAt, before.ExpiresAt)
+	}
+}

@@ -121,19 +121,6 @@ func websocketProtocols(r *http.Request) []string {
 	return out
 }
 
-// rejectEmbedded shuts a route to an embedded session. The frame is a new
-// door into rooms its holder could already enter, never a new key: nothing
-// that administers, mints a credential or rotates an identity answers it.
-func rejectEmbedded(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if p, ok := PrincipalFrom(r.Context()); ok && p.Embedded {
-			http.Error(w, `{"error":"a meeting-client session cannot do that — open Parley in a browser tab"}`, http.StatusForbidden)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 // RequireUser admits an ordinary account. A link guest is not one: its
 // capability is one room, and nothing behind this middleware is scoped to a
 // room, so it is turned away as if it were not signed in at all.

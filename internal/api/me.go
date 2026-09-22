@@ -75,7 +75,7 @@ func (a *app) handleGetMe(w http.ResponseWriter, r *http.Request) {
 		// uses this wording to warn that continuing in open mode mints a new
 		// anonymous identity rather than restoring the old seat.
 		_, cookieErr := r.Cookie(sessionCookie)
-		if cookieErr == nil || (a.embedBearer(authorizationBearer) != nil && r.Header.Get("Authorization") != "") {
+		if cookieErr == nil || a.bearerPresented(r) {
 			http.Error(w, `{"error":"session ended"}`, http.StatusUnauthorized)
 			return
 		}
@@ -236,11 +236,14 @@ func (a *app) handlePostMe(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) handleDeleteMe(w http.ResponseWriter, r *http.Request) {
 	// Sign out spends the credential the principal came from — an embedded
-	// session's bearer included — and otherwise whatever cookie was sent.
+	// session's bearer included — and otherwise whatever cookie was sent. A
+	// presented bearer replaces the cookie here exactly as in
+	// resolvePrincipal: one that did not resolve signs nobody out, rather
+	// than whoever's cookie rode along with it.
 	var hash []byte
 	if p, ok := PrincipalFrom(r.Context()); ok {
 		hash = []byte(p.TokenID)
-	} else if c, err := r.Cookie(sessionCookie); err == nil {
+	} else if c, err := r.Cookie(sessionCookie); err == nil && !a.bearerPresented(r) {
 		hash, _ = store.HashToken(c.Value)
 	}
 	if hash != nil {

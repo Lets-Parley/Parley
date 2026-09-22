@@ -201,7 +201,11 @@ migration and embedding mistakes that unit tests miss.
     The rule: participate actions and reading the bound room; everything else
     401, 403 or 404. Reject one with the `rejectLinkPrincipal` middleware, and
     put a second lock in the statement itself for anything that would escalate
-    (see `store.ClaimFacilitator`).
+    (see `store.ClaimFacilitator`). A new route must also be classified for an
+    embedded (meeting-client) session in `embeddedRouteTable`
+    (`internal/api/embed_routes_test.go`); it is refused 403 unless it is added
+    to the allow-list `embeddedRoutes` in `internal/api/embed.go`, which is the
+    only place that decision is made.
 14. **A signed link's expiry lives on the session token it mints**
     (`session_tokens.expires_at`), never on a timer or a sweeper. `hub.validate`
     already re-reads token validity on a ticker, so that column is the whole of

@@ -652,13 +652,25 @@ mutate "the sign-in page refusing an unknown challenge" \
     'TestEmbedHandoffRefusals' \
     embed.go 'if err != nil || !enabled {' 'if false && (err != nil || !enabled) {'
 
+# The allow-list is the one gate; requireOrgAdmin's refusal is the second
+# lock behind it, and each is broken on its own with a test that reaches it
+# on its own — the route walk would never see the second lock go, because the
+# gate refuses the admin set first.
+mutate "the embedded allow-list gate on /api" \
+    'TestEmbeddedRouteTable' \
+    embed.go 'ok && p.Embedded && !embeddedMayReach(' 'ok && false && p.Embedded && !embeddedMayReach('
+
 mutate "the org admin set refusing an embedded session" \
-    'TestEmbeddedSessionParticipantPowerOnly' \
+    'TestRequireOrgAdminRefusesAnEmbeddedAdmin' \
     authz.go 'p.Embedded || orgRoleFrom' 'p.Embedded && false || orgRoleFrom'
 
-mutate "link minting, redemption and identity rotation refusing an embedded session" \
-    'TestEmbeddedSessionParticipantPowerOnly' \
-    principal.go 'ok && p.Embedded {' 'ok && false && p.Embedded {'
+mutate "binding a handoff only with the display code typed" \
+    'TestEmbedBindRequiresTheDisplayCode' \
+    embed.go '[]byte(normalizeDisplayCode(pending.DisplayCode))) != 1 {' '[]byte(normalizeDisplayCode(pending.DisplayCode))) != 1 && false {'
+
+mutate "sign out never falling back to the cookie beside a bearer" \
+    'TestEmbedSignOutNeverFallsBackToTheCookie' \
+    me.go 'err == nil && !a.bearerPresented(r) {' 'err == nil {'
 
 target internal/store
 
@@ -673,6 +685,10 @@ mutate "an embed handoff binding once" \
     embed.go 'and bound_at is null
 		returning' '
 		returning'
+
+mutate "a renamed token staying embedded" \
+    'TestRenameKeepsAnEmbeddedTokenEmbedded' \
+    users.go 'select $1, user_id, created_at, expires_at, embedded' 'select $1, user_id, created_at, expires_at, false'
 
 mutate "the verifier matching the handoff's challenge" \
     'TestEmbedHandoffBindsAndRedeemsOnce' \

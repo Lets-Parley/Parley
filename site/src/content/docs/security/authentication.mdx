@@ -6,7 +6,7 @@ description: Anonymous and OpenID Connect sign-in, cookies, tokens, and how long
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/auth/oidc.go", "internal/api/auth.go", "internal/api/principal.go", "internal/api/me.go", "internal/store/users.go", "internal/hub/hub.go", "internal/api/ics.go", "internal/standup/ics.go", "internal/api/embed.go", "internal/store/embed.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/auth/oidc.go", "internal/api/auth.go", "internal/api/principal.go", "internal/api/me.go", "internal/store/users.go", "internal/hub/hub.go", "internal/api/ics.go", "internal/standup/ics.go", "internal/api/embed.go", "internal/api/router.go", "internal/api/authz.go", "internal/store/embed.go"]} />
 
 Parley runs in one of two modes, set by `AUTH_MODE` and fixed at boot.
 
@@ -253,16 +253,22 @@ frame signs in by handoff, shaped like the OAuth device flow:
 1. The frame makes a random RFC 7636 verifier (43–128 characters) and sends
    only its SHA-256 challenge to `POST /api/embed/handoff`. The server opens a
    five-minute handoff, throttled per client address, and returns a short
-   display code. A frame should do this when its panel loads, not on click: a
-   popup opened after an `await` is blocked, so the Sign in click must do
-   nothing but open `/embed/signin?c=<challenge>`. That URL and the display
-   code can also be shown for opening by hand.
+   display code for the frame to show. The throttle is keyed on the client
+   address, so people behind one NAT or proxy share its budget. A frame
+   should do this when its panel loads, not on click: a popup opened after an
+   `await` is blocked, so the Sign in click must do nothing but open
+   `/embed/signin?c=<challenge>`. That URL and the display code can also be
+   shown for opening by hand.
 2. `/embed/signin` is an ordinary top-level Parley page (`X-Frame-Options:
    DENY`). It needs the person signed in to Parley in that browser, in either
-   mode, names the meeting client only from an enabled provider, shows the
-   display code, and binds the handoff only when the person presses Continue.
-   Its form post is covered by the cross-site check and the `Lax` cookie. Link
-   guests and embedded sessions cannot bind.
+   mode, and names the meeting client only from an enabled provider. It does
+   not show the display code: it asks the person to type the code their
+   meeting shows, and binds the handoff only if it matches. The comparison is
+   server-side and constant-time, ignores case, the hyphen and surrounding
+   spaces, and every attempt spends from the same per-client budget as a space
+   passcode (eight a minute); a right code gets its attempt back. Its form
+   post is covered by the cross-site check and the `Lax` cookie. Link guests
+   and embedded sessions cannot bind.
 3. The frame polls `POST /api/embed/session` with the verifier. Until the
    handoff is bound it gets `202` and `Retry-After`; once bound it receives a
    session token exactly once. A wrong verifier, an unknown, late or spent
@@ -275,11 +281,50 @@ sends it as `Authorization: Bearer` on `/api` and as the second value of
 `Sec-WebSocket-Protocol: parley.embed, <token>` on `/ws` (the server only ever
 echoes `parley.embed`; a `?token=` query is refused). Only those two mounts read
 a bearer. When an `Authorization` header is present the cookie is not read, and
-a bearer that is not an embedded token resolves to nobody.
+a bearer that is not an embedded token resolves to nobody. Signing out follows
+the same rule: `DELETE /api/me` with an `Authorization` header that does not
+resolve signs nobody out, whatever cookie rides along.
 
-An embedded session has participant power only. Besides everything the same
-person is refused with a cookie, it is refused org administration (custody,
-plugin administration, the org purge), minting signed links, redeeming one,
-renaming (`POST /api/me`) and minting a calendar feed. Signing out
-(`DELETE /api/me`) deletes the embedded token.
+With embedding on, this applies to **any** `Authorization` header on `/api` and
+`/ws`, not only `Bearer`. A forward-auth or basic-auth proxy in front of Parley
+that injects its own `Authorization` header therefore replaces every cookie
+user's session with nobody, and sign-in appears to work but never sticks.
+Strip the header at the proxy before it reaches Parley, or leave
+`EMBED_PROVIDERS` empty on such an instance.
+
+An embedded session has participant power only, enforced as an allow-list in
+one place on the `/api` mount. It may reach these routes and nothing else:
+
+| Route | Why the side panel needs it |
+| --- | --- |
+| `GET /api/auth`, `POST /api/embed/handoff`, `POST /api/embed/session` | The handoff itself; none of them take a principal. |
+| `GET /api/me`, `DELETE /api/me` | Who am I, and signing out, which deletes the embedded token. |
+| `GET /api/orgs`, `GET /api/spaces`, `GET /api/orgs/{org}/spaces`, `GET /api/orgs/{org}/spaces/{slug}` | Finding a room among the spaces the person can already see. |
+| `POST /api/orgs/{org}/spaces/{slug}/join` | Joining a space with its passcode. |
+| `GET /api/sessions/{id}`, `GET /api/sessions/{id}/plugins/panels`, `/api/sessions/{id}/actions/{action}` | Reading a room and taking part in it: the same set a link guest is given. |
+| `GET /ws` | The room's live updates. |
+
+Every other `/api` route answers `403` to an embedded session, whoever holds
+it and whatever their roles: creating or deleting spaces and rooms, rotating
+a passcode, changing visibility, member roles or removals, decks, kudos,
+standup schedules and webhooks, facilitator controls, the CSV export, signed
+links (minting, listing or redeeming), renaming, avatar and settings, the
+calendar feed, and all of org administration. Each allowed route's own checks
+still apply, so an embedded session never gets more than the same person's
+cookie. Org administration is refused a second time inside the admin gate.
+Renaming rotates the session token, and the rotated row keeps the embedded
+flag and the original expiry, so a rename could never widen a session even if
+it were allowed.
+
+### What the handoff does not prevent
+
+The handoff has the device flow's residual risk. Typing the code proves that
+the person copied it from *a* meeting panel, not that the panel belongs to
+them. An attacker who opens a handoff in their own panel and talks a signed-in
+person into visiting the link *and typing the attacker's code* ("read me the
+code on this screen", "type ABC-123 to join") gets an embedded session as that
+person. That session is limited to the allow-list above and to the person's
+own memberships, lasts at most 12 hours, and ends with `DELETE /api/me` or any
+revocation of that person's sessions. Never type a code you did not see in your
+own meeting.
 

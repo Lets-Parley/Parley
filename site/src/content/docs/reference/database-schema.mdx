@@ -377,8 +377,9 @@ the row.
 ### embed_handoffs
 
 One meeting-client sign-in attempt, keyed by `challenge_hash` — the 32-byte
-SHA-256 of a verifier only the frame holds. `display_code` is shown on both
-sides; `provider` names the enabled meeting client; `client_key` is the
+SHA-256 of a verifier only the frame holds. `display_code` is shown in the
+frame and typed back on the sign-in page, which binds only on a match;
+`provider` names the enabled meeting client; `client_key` is the
 requesting address, for the per-client throttle. `user_id` (cascades on user
 delete) and `bound_at` are set by the one bind; `used_at` by the one redeem.
 `expires_at` is five minutes after creation, and the hourly session sweep
