@@ -1222,3 +1222,14 @@ describe("PokerRoom · the card you played", () => {
     expect(screen.getByTestId("spectator-rail").textContent).toContain("Priya Rao");
   });
 });
+
+describe("PokerRoom present link", () => {
+  it("opens the presenter view in a new tab", () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(answering(new Response("{}", { status: 200 })));
+    renderApp(<PokerRoom env={envelope()} me={me} />);
+    const link = screen.getByRole("link", { name: "Present" });
+    expect(link.getAttribute("href")).toBe("/session/sess-1/present");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener");
+  });
+});

@@ -1,5 +1,5 @@
 {
-  "$schema-note": "Every shipped screenshot, the commit it was last shot against, and the web/src files whose UI it depicts. scripts/check-screenshot-freshness.sh reads this to report, per asset, how many commits since `shot_at` touched what it depicts. After a re-shoot, move `shot_at` to the commit the new frames land in. `depicts` is a list of literal paths, matched exactly \u2014 no globs, and a path that no longer exists at HEAD is reported rather than counted clean: keep it broad enough that a real visual change lands in it, and narrow enough that it is not every asset every time.",
+  "$schema-note": "Every shipped screenshot, the commit it was last shot against, and the web/src files whose UI it depicts. scripts/check-screenshot-freshness.sh reads this to report, per asset, how many commits since `shot_at` touched what it depicts. After a re-shoot, move `shot_at` to the commit the new frames land in. `depicts` is a list of literal paths, matched exactly — no globs, and a path that no longer exists at HEAD is reported rather than counted clean: keep it broad enough that a real visual change lands in it, and narrow enough that it is not every asset every time.",
   "assets": [
     {
       "files": [
@@ -210,6 +210,17 @@
       "depicts": [
         "web/src/components/avatarIcons.tsx",
         "web/scripts/portrait-contact-sheet.mjs"
+      ]
+    },
+    {
+      "files": [
+        "site/src/assets/present-light.png",
+        "site/src/assets/present-dark.png"
+      ],
+      "shot_at": "a94f050f65a46f5c0d9546ff19a8eb63e21370f7",
+      "depicts": [
+        "web/src/pages/PresentPage.tsx",
+        "web/src/tokens.css"
       ]
     }
   ]
