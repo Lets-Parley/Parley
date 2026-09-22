@@ -218,8 +218,9 @@ standup ends — and a digest of everyone else's, in this order:
    room is shown it.
 2. **Blockers**, named, for everyone who wrote one.
 3. **Changed commitments**: each commitment this standup moved, with its
-   outcome in words — Landed, Dropped or Still on it. Outcomes only; there is no
-   tally per person.
+   outcome in words — Landed, Dropped or Still on it, while the standup is
+   open. Outcomes only; there is no tally per person, and once the standup ends
+   the section is no longer shown or served.
 4. **Updates**, each collapsed to its first line with the time it was posted,
    shown in your own time zone. Open one to read all three fields.
 5. **Answered** and **Not yet**, while the standup is open. Spectators are not
@@ -229,13 +230,15 @@ Under your own update, **Who do you need?** lists the space's members — all of
 them, not only those who have opened the room yet — as checkboxes. Ticking one
 asks that person for help; unticking withdraws it. The target is a member you
 pick, never a name typed as text: the server refuses anybody who is not
-currently a member of the space, and yourself, with `400`. Only the person you
+currently a member of the space, yourself, and anything that is not a user id,
+with `400`. Only the person you
 asked sees that you asked, at the top of their digest, and you see whom you
 asked; the room's shared state carries neither. A signed-link guest can neither
 ask anybody nor be asked, and has no **Needs you**.
 
 Start, Next and Skip do not exist in an async standup; the server answers them
-with `409`. A signed-link guest answers like anybody else while its link is
+with `409`. Mentions work the other way round: they exist only in an async
+standup, and a sync one answers them with `409`. A signed-link guest answers like anybody else while its link is
 valid.
 
 A session created through the API can carry a published cutoff, `closesAt`
@@ -243,7 +246,9 @@ A session created through the API can carry a published cutoff, `closesAt`
 standup: an answer written afterwards is accepted and appended with its posted
 time like any other, with no late badge. The standup ends when the facilitator
 ends it. Once ended, its record keeps the entries only — the not-yet list is
-never stored or served.
+never stored or served, and what the standup changed about commitments is no
+longer served, so nobody's landed and dropped history can be rebuilt from old
+rooms.
 
 ### Scheduled async standups
 

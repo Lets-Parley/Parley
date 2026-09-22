@@ -222,31 +222,37 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 		return nil, err
 	}
 
-	// What this standup changed. A closed row with no reason was closed by a
-	// replica that predates closed_reason, and the only close it knew was a
-	// landing. carried_session_id is read only on a row still open: a
-	// commitment carried here and then closed here reports the close.
-	chrows, err := pool.Query(ctx, `
-		select id::text, user_id::text, text,
-		       case when closed_session_id = $2 then coalesce(closed_reason, 'landed')
-		            else 'carried' end
-		from standup_commitments
-		where space_id = $1
-		  and (closed_session_id = $2 or (closed_at is null and carried_session_id = $2))
-		order by created_at, id`, sess.SpaceID, sess.ID)
-	if err != nil {
-		return nil, err
-	}
-	defer chrows.Close()
-	for chrows.Next() {
-		var c WireChange
-		if err := chrows.Scan(&c.ID, &c.UserID, &c.Text, &c.Outcome); err != nil {
+	// What this standup changed, served only while it is open. Once a standup
+	// has ended its record keeps its entries only (#388): served from old
+	// rooms, these would let a per-person landed and dropped history be
+	// rebuilt, and the record would rewrite itself as commitments moved on.
+	if sess.EndedAt == nil {
+		// A closed row with no reason was closed by a replica that predates
+		// closed_reason, and the only close it knew was a landing.
+		// carried_session_id is read only on a row still open: a
+		// commitment carried here and then closed here reports the close.
+		chrows, err := pool.Query(ctx, `
+			select id::text, user_id::text, text,
+			       case when closed_session_id = $2 then coalesce(closed_reason, 'landed')
+			            else 'carried' end
+			from standup_commitments
+			where space_id = $1
+			  and (closed_session_id = $2 or (closed_at is null and carried_session_id = $2))
+			order by created_at, id`, sess.SpaceID, sess.ID)
+		if err != nil {
 			return nil, err
 		}
-		st.Changes = append(st.Changes, c)
-	}
-	if err := chrows.Err(); err != nil {
-		return nil, err
+		defer chrows.Close()
+		for chrows.Next() {
+			var c WireChange
+			if err := chrows.Scan(&c.ID, &c.UserID, &c.Text, &c.Outcome); err != nil {
+				return nil, err
+			}
+			st.Changes = append(st.Changes, c)
+		}
+		if err := chrows.Err(); err != nil {
+			return nil, err
+		}
 	}
 
 	// This session's kudos only, oldest first — the order they were given in,

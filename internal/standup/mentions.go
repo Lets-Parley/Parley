@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"regexp"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lets-parley/parley/internal/httprequest"
@@ -34,6 +35,15 @@ const mentionable = `exists (
 	select 1 from members m join users u on u.id = m.user_id
 	where m.space_id = $1 and m.user_id = $2 and u.link_id is null)`
 
+// errMentionInSync is a mention in a sync standup, which never shows one.
+var errMentionInSync = errors.New("mentions are part of an async standup")
+
+// canonicalUUID is the only spelling of a user id this file compares or
+// writes: 8-4-4-4-12 hex, lower-cased. Postgres reads several spellings of the
+// same uuid, so a raw string compared against the caller's id, or cast inside
+// a statement, would let one person be two different strings.
+var canonicalUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
 // setMention records, or withdraws, the caller asking one member for help with
 // a blocker in this standup. The body says which ("needed"), so a retry lands
 // on the same answer.
@@ -41,7 +51,12 @@ const mentionable = `exists (
 // Nothing about a mention reaches buildState: that payload goes to every
 // socket in the room, and "needs you" is the mentioned person's alone. The
 // version bump is what tells each client to re-read its own list through
-// GET /api/sessions/{id}/mentions.
+// GET /api/sessions/{id}/mentions — and it happens only when a row actually
+// changed, so a repeat or a withdrawal of nothing cannot make the room refetch.
+//
+// The order of refusals is authorization first: a caller who is not a member
+// is 403 whatever else is wrong, then a sync standup is 409, then a bad target
+// is 400.
 func setMention(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	var body struct {
 		To     string `json:"to"`
@@ -51,7 +66,16 @@ func setMention(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
 		return
 	}
-	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, false,
+	async, err := isAsync(ac)
+	if err != nil {
+		http.Error(w, `{"error":"could not read this standup's settings"}`, http.StatusInternalServerError)
+		return
+	}
+	// Parsed once, here. Everything below uses to, never body.To.
+	to := strings.ToLower(body.To)
+	wellFormed := canonicalUUID.MatchString(to)
+	changed := false
+	err = (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, false,
 		func(tx pgx.Tx, sess store.Session) error {
 			var member bool
 			if err := tx.QueryRow(r.Context(), "select "+mentionable, sess.SpaceID, ac.UserID).Scan(&member); err != nil {
@@ -60,62 +84,87 @@ func setMention(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 			if !member {
 				return errMentionerNotAMember
 			}
-			if body.To == "" || body.To == ac.UserID {
+			if !async {
+				return errMentionInSync
+			}
+			if !wellFormed || to == ac.UserID {
 				return errNotMentionable
 			}
 			if !body.Needed {
-				if _, err := tx.Exec(r.Context(),
-					"delete from standup_mentions where session_id = $1 and from_user_id = $2 and to_user_id::text = $3",
-					sess.ID, ac.UserID, body.To); err != nil {
+				tag, err := tx.Exec(r.Context(),
+					"delete from standup_mentions where session_id = $1 and from_user_id = $2 and to_user_id = $3",
+					sess.ID, ac.UserID, to)
+				if err != nil {
 					return err
 				}
+				if tag.RowsAffected() == 0 {
+					return nil
+				}
+				changed = true
 				return bumpVersion(r, tx, sess)
 			}
 			var target bool
-			if err := tx.QueryRow(r.Context(), "select "+mentionable, sess.SpaceID, body.To).Scan(&target); err != nil {
-				return malformedIsNotMentionable(err)
+			if err := tx.QueryRow(r.Context(), "select "+mentionable, sess.SpaceID, to).Scan(&target); err != nil {
+				return err
 			}
 			if !target {
 				return errNotMentionable
 			}
-			// Both parties re-checked in the statement. The conflict branch
-			// touches nothing but still returns the row, so a repeat is a
-			// success and zero rows can only mean a guard refused.
-			tag, err := tx.Exec(r.Context(), `
-				insert into standup_mentions (session_id, from_user_id, to_user_id)
-				select $3, $4, $2
-				where `+mentionable+` and exists (
-					select 1 from members m join users u on u.id = m.user_id
-					where m.space_id = $1 and m.user_id = $4 and u.link_id is null)
-				on conflict (session_id, from_user_id, to_user_id)
-				do update set created_at = standup_mentions.created_at`,
-				sess.SpaceID, body.To, sess.ID, ac.UserID)
+			inserted, err := insertMention(r.Context(), tx, sess.SpaceID, sess.ID, ac.UserID, to)
 			if err != nil {
-				return malformedIsNotMentionable(err)
+				return err
 			}
-			if tag.RowsAffected() == 0 {
-				return errNotMentionable
+			if !inserted {
+				// Either the mention was already there, which is a success
+				// that changes nothing, or a guard in the statement refused.
+				var exists bool
+				if err := tx.QueryRow(r.Context(), `select exists (
+					select 1 from standup_mentions
+					where session_id = $1 and from_user_id = $2 and to_user_id = $3)`,
+					sess.ID, ac.UserID, to).Scan(&exists); err != nil {
+					return err
+				}
+				if !exists {
+					return errNotMentionable
+				}
+				return nil
 			}
+			changed = true
 			return bumpVersion(r, tx, sess)
 		})
 	switch {
 	case errors.Is(err, errMentionerNotAMember):
 		http.Error(w, `{"error":"only members of this space can mention anyone"}`, http.StatusForbidden)
+	case errors.Is(err, errMentionInSync):
+		http.Error(w, `{"error":"mentions are only part of an async standup"}`, http.StatusConflict)
 	case errors.Is(err, errNotMentionable):
 		http.Error(w, `{"error":"you can only mention another member of this space"}`, http.StatusBadRequest)
 	case err != nil:
 		writeMutationError(w, err, "could not save your mention")
-	default:
+	case changed:
 		done(w, r, ac)
+	default:
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
-func malformedIsNotMentionable(err error) error {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "22P02" {
-		return errNotMentionable
+// insertMention writes one mention with both parties re-checked in the
+// statement itself, and reports whether a row was written. False is either a
+// mention that already exists or a guard in the statement refusing; the
+// caller tells the two apart. from and to must already be canonical.
+func insertMention(ctx context.Context, tx pgx.Tx, spaceID, sessionID, from, to string) (bool, error) {
+	tag, err := tx.Exec(ctx, `
+		insert into standup_mentions (session_id, from_user_id, to_user_id)
+		select $3, $4, $2
+		where `+mentionable+` and exists (
+			select 1 from members m join users u on u.id = m.user_id
+			where m.space_id = $1 and m.user_id = $4 and u.link_id is null)
+		on conflict (session_id, from_user_id, to_user_id) do nothing`,
+		spaceID, to, sessionID, from)
+	if err != nil {
+		return false, err
 	}
-	return err
+	return tag.RowsAffected() > 0, nil
 }
 
 // Mentions is one person's own view of a standup's mentions: who asked them

@@ -141,7 +141,8 @@ func mentions(t *testing.T, srv *httptest.Server, id string, as *http.Cookie) (n
 // asking sees whom they asked, and a bystander sees neither.
 func TestAMentionReachesOnlyThePersonMentioned(t *testing.T) {
 	srv := testServer(t)
-	fac, m1, m2, id, _ := standupSetup(t, srv, "Needs You Space")
+	fac, m1, m2, sync, _ := standupSetup(t, srv, "Needs You Space")
+	id := asyncStandup(t, srv, sync, fac, `{"mode":"async"}`)
 	benID, calID := userID(t, srv, m1), userID(t, srv, m2)
 
 	if resp, body := mention(t, srv, id, m1, calID, true); resp.StatusCode != http.StatusNoContent {
@@ -186,14 +187,16 @@ func TestAMentionReachesOnlyThePersonMentioned(t *testing.T) {
 // is 400: an outsider, yourself, and an id that is not an id.
 func TestMentioningANonMemberIsRefused(t *testing.T) {
 	srv := testServer(t)
-	_, m1, _, id, _ := standupSetup(t, srv, "Mention Outsider Space")
+	fac, m1, _, sync, _ := standupSetup(t, srv, "Mention Outsider Space")
+	id := asyncStandup(t, srv, sync, fac, `{"mode":"async"}`)
 	outsider := userID(t, srv, signup(t, srv, "Oz"))
 
 	for name, to := range map[string]string{
-		"outsider":  outsider,
-		"self":      userID(t, srv, m1),
-		"malformed": "not-a-uuid",
-		"empty":     "",
+		"outsider":        outsider,
+		"self":            userID(t, srv, m1),
+		"self, uppercase": strings.ToUpper(userID(t, srv, m1)),
+		"malformed":       "not-a-uuid",
+		"empty":           "",
 	} {
 		if resp, body := mention(t, srv, id, m1, to, true); resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("%s: got %d (%v), want 400", name, resp.StatusCode, body)
@@ -205,7 +208,8 @@ func TestMentioningANonMemberIsRefused(t *testing.T) {
 // neither asks for anybody nor is asked for, and it has no "needs you" to read.
 func TestLinkGuestsCannotMentionOrBeMentioned(t *testing.T) {
 	srv := testServer(t)
-	fac, m1, _, id, _ := standupSetup(t, srv, "Mention Guest Space")
+	fac, m1, _, sync, _ := standupSetup(t, srv, "Mention Guest Space")
+	id := asyncStandup(t, srv, sync, fac, `{"mode":"async"}`)
 	guest, guestID := standupLinkGuest(t, srv, id, "Gus", fac)
 
 	if resp, body := mention(t, srv, id, guest, userID(t, srv, m1), true); resp.StatusCode != http.StatusForbidden {
@@ -223,5 +227,41 @@ func TestLinkGuestsCannotMentionOrBeMentioned(t *testing.T) {
 	}
 	if n != 0 {
 		t.Errorf("%d mention rows were written for a guest", n)
+	}
+}
+
+// A sync standup never shows a mention, so it does not take one — but a link
+// guest is still refused as a guest there, before the mode is looked at.
+func TestASyncStandupRefusesMentions(t *testing.T) {
+	srv := testServer(t)
+	fac, m1, m2, id, _ := standupSetup(t, srv, "Mention Sync Space")
+	if resp, body := mention(t, srv, id, m1, userID(t, srv, m2), true); resp.StatusCode != http.StatusConflict {
+		t.Errorf("mention in a sync standup: got %d (%v), want 409", resp.StatusCode, body)
+	}
+	guest, _ := standupLinkGuest(t, srv, id, "Gus", fac)
+	if resp, body := mention(t, srv, id, guest, userID(t, srv, m1), true); resp.StatusCode != http.StatusForbidden {
+		t.Errorf("guest mention in a sync standup: got %d (%v), want 403", resp.StatusCode, body)
+	}
+}
+
+// Once a standup has ended its record keeps its entries only, so the room
+// stops serving what it changed.
+func TestAnEndedStandupServesNoChangedCommitments(t *testing.T) {
+	srv := testServer(t)
+	fac, m1, _, id, slug := standupSetup(t, srv, "Ended Changes Space")
+	cid := addCommitment(t, srv, id, m1, "ship the importer")
+	_, sess := createSession(t, srv, slug, "standup", "Daily Two", fac)
+	next := sess["id"].(string)
+	if resp := drop(t, srv, next, m1, cid); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("drop: %d", resp.StatusCode)
+	}
+	if got := changes(t, srv, next, fac); len(got) != 1 {
+		t.Fatalf("an open standup's changes: %v, want the one it moved", got)
+	}
+	if resp, _ := doJSON(t, srv, "DELETE", "/api/sessions/"+next, "", fac); resp.StatusCode/100 != 2 {
+		t.Fatalf("end the standup: %d", resp.StatusCode)
+	}
+	if got := changes(t, srv, next, fac); len(got) != 0 {
+		t.Errorf("an ended standup still serves its changes: %v", got)
 	}
 }

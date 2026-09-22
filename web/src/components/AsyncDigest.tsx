@@ -46,8 +46,8 @@ function Posted({ at }: { at: string }) {
  * "Needs you" is the viewer's own: the ids of the people who asked the viewer
  * for help, read from a per-caller endpoint and never from the shared state,
  * which every socket in the room receives. Once the standup
- * has ended only the entries are kept — the not-yet list is a live fact about
- * an open room, never a record. No counts beside names and no alarm styling on
+ * has ended only the entries are kept — the not-yet list and the changed
+ * commitments are live facts about an open room, never a record. No counts beside names and no alarm styling on
  * the people who have not answered.
  */
 export function AsyncDigest({
@@ -114,7 +114,11 @@ export function AsyncDigest({
         </section>
       )}
 
-      {changes.length > 0 && (
+      {/* Like the not-yet list, what a standup changed is shown only while it
+          is open: an ended standup's record is its entries, so no per-person
+          landed and dropped history is rebuilt from old rooms. The server
+          sends none for an ended session either. */}
+      {!ended && changes.length > 0 && (
         <section aria-labelledby="digest-changes" className={panel}>
           <h2 id="digest-changes" className={head}>Changed commitments</h2>
           <ul className="flex flex-col gap-2">

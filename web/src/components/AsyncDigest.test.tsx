@@ -145,6 +145,15 @@ describe("AsyncDigest", () => {
       expect(changed.textContent).not.toMatch(/\d/);
     });
 
+    // An ended standup's record is its entries: a per-person landed and
+    // dropped history is not rebuilt from old rooms.
+    it("shows no changed commitments once the standup has ended", () => {
+      renderApp(<AsyncDigest entries={entries} participants={people} ended changes={changes} />);
+      expect(screen.getByRole("heading", { name: "Updates" })).toBeTruthy();
+      expect(screen.queryByRole("heading", { name: "Changed commitments" })).toBeNull();
+      expect(document.body.textContent).not.toContain("ship the importer");
+    });
+
     it("leaves both sections out when there is nothing in them", () => {
       renderApp(<AsyncDigest entries={entries} participants={people} ended={false} changes={[]} needsYou={[]} />);
       expect(screen.queryByRole("heading", { name: "Needs you" })).toBeNull();
