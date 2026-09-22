@@ -44,9 +44,6 @@ export default defineConfig({
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/lets-parley/parley" },
       ],
-      editLink: {
-        baseUrl: "https://github.com/lets-parley/parley/edit/main/site/",
-      },
       components: {
         Hero: "./src/components/Hero.astro",
         SiteTitle: "./src/components/SiteTitle.astro",
