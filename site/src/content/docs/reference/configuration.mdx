@@ -6,7 +6,7 @@ description: Every environment variable, its default, and whether a bad value st
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import EnvVar from "../../../components/EnvVar.astro";
 
-<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "cmd/parley/configfile.go", "internal/db/tls.go", "internal/api/client_address.go", "internal/api/secevent.go", "internal/api/standup_webhook.go"]} />
+<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "cmd/parley/configfile.go", "internal/db/tls.go", "internal/api/client_address.go", "internal/api/secevent.go", "internal/api/standup_webhook.go", "internal/api/embed.go"]} />
 
 Configuration is environment variables, optionally backed by a file that fills
 the gaps (`PARLEY_CONFIG_FILE`, below). There is no command-line flag other than
@@ -126,6 +126,20 @@ the cluster network, keep it off any public ingress, and admit only the
 scraper's pods with `networkPolicy.extraIngress`. NetworkPolicy cannot filter
 by path, so the rule admits those pods to port 8080 as a whole. See
 [Observability](/operations/observability/).
+</EnvVar>
+
+<EnvVar name="EMBED_PROVIDERS" default="(empty)" fatal>
+Comma-separated meeting clients Parley may run inside. The only one today is
+`meet` (Google Meet). Empty turns the embedded session off: every `/embed/*`
+and `/api/embed/*` route answers 404 and bearer tokens are never read. An
+unknown name, a provider missing its own setting, or a `BASE_URL` that is not
+`https` stops the process. See
+[Embedded sessions](/security/authentication/#embedded-sessions).
+</EnvVar>
+
+<EnvVar name="MEET_CLOUD_PROJECT_NUMBER" default="(empty)" fatal>
+The Google Cloud project number of your Meet add-on. Required, as digits, when
+`EMBED_PROVIDERS` includes `meet`; ignored otherwise.
 </EnvVar>
 
 <EnvVar name="TRUST_PROXY_HEADERS" default="false" fatal>

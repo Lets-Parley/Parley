@@ -74,7 +74,8 @@ func (a *app) handleGetMe(w http.ResponseWriter, r *http.Request) {
 		// A cookie that no longer resolves is not a first visit: the client
 		// uses this wording to warn that continuing in open mode mints a new
 		// anonymous identity rather than restoring the old seat.
-		if _, err := r.Cookie(sessionCookie); err == nil {
+		_, cookieErr := r.Cookie(sessionCookie)
+		if cookieErr == nil || (a.embedBearer(authorizationBearer) != nil && r.Header.Get("Authorization") != "") {
 			http.Error(w, `{"error":"session ended"}`, http.StatusUnauthorized)
 			return
 		}
@@ -188,13 +189,9 @@ func (a *app) handlePostMe(w http.ResponseWriter, r *http.Request) {
 	plain, hash := store.NewToken()
 
 	if p, ok := PrincipalFrom(r.Context()); ok {
-		c, _ := r.Cookie(sessionCookie)
-		oldHash, err := store.HashToken(c.Value)
-		if err != nil {
-			http.Error(w, `{"error":"invalid session"}`, http.StatusBadRequest)
-			return
-		}
-		u, err := a.users.Rename(r.Context(), p.UserID, name, oldHash, hash)
+		// The token the principal was resolved from, not a cookie read by
+		// name: a principal need not have come from a cookie at all.
+		u, err := a.users.Rename(r.Context(), p.UserID, name, []byte(p.TokenID), hash)
 		if errors.Is(err, store.ErrNoUser) {
 			// The token this cookie carries was rotated away — usually by a
 			// concurrent rename on another tab. Nothing is broken server-side,
@@ -238,29 +235,35 @@ func (a *app) handlePostMe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleDeleteMe(w http.ResponseWriter, r *http.Request) {
-	if c, err := r.Cookie(sessionCookie); err == nil {
-		if hash, err := store.HashToken(c.Value); err == nil {
-			if err := a.users.DeleteToken(r.Context(), hash); err != nil {
-				http.Error(w, `{"error":"could not end session"}`, http.StatusInternalServerError)
-				return
-			}
-			// Local first and directly, so revocation on this replica never
-			// depends on a database round trip completing.
-			a.hub.DisconnectToken(string(hash))
-			// Then the other replicas, which hold their own sockets for this
-			// token and their own hubs to close them with. Published only after
-			// the row is gone: a replica acting on this can then never
-			// revalidate the token back into existence. Best-effort — the
-			// logout has already succeeded in the database, and revalidate is
-			// the backstop if the notification is lost.
-			a.notifyRevoke(r.Context(), hash)
-			// DELETE /api/me sits outside RequireUser so a guest can spend its
-			// cookie. The line is only written when a session_tokens row was
-			// actually deleted: no cookie, or one we cannot hash, is silent,
-			// otherwise anyone could flood the audit trail with empty actor
-			// fields.
-			logSecEvent(r, secEvent{Event: "auth.signout"})
+	// Sign out spends the credential the principal came from — an embedded
+	// session's bearer included — and otherwise whatever cookie was sent.
+	var hash []byte
+	if p, ok := PrincipalFrom(r.Context()); ok {
+		hash = []byte(p.TokenID)
+	} else if c, err := r.Cookie(sessionCookie); err == nil {
+		hash, _ = store.HashToken(c.Value)
+	}
+	if hash != nil {
+		if err := a.users.DeleteToken(r.Context(), hash); err != nil {
+			http.Error(w, `{"error":"could not end session"}`, http.StatusInternalServerError)
+			return
 		}
+		// Local first and directly, so revocation on this replica never
+		// depends on a database round trip completing.
+		a.hub.DisconnectToken(string(hash))
+		// Then the other replicas, which hold their own sockets for this
+		// token and their own hubs to close them with. Published only after
+		// the row is gone: a replica acting on this can then never
+		// revalidate the token back into existence. Best-effort — the
+		// logout has already succeeded in the database, and revalidate is
+		// the backstop if the notification is lost.
+		a.notifyRevoke(r.Context(), hash)
+		// DELETE /api/me sits outside RequireUser so a guest can spend its
+		// cookie. The line is only written when a session_tokens row was
+		// actually deleted: no cookie, or one we cannot hash, is silent,
+		// otherwise anyone could flood the audit trail with empty actor
+		// fields.
+		logSecEvent(r, secEvent{Event: "auth.signout"})
 	}
 	clearSessionCookie(w, a.secureCookies)
 	w.WriteHeader(http.StatusNoContent)

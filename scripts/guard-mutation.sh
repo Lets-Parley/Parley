@@ -16,7 +16,7 @@ cd "$(dirname "$0")/.."
 # The guards no longer all live in one package: the plugin sandbox has a
 # frontend half now, so a tree here is either a Go package or the web app, and
 # `target` switches which one the mutations below are aimed at.
-TREES=(internal/plugin internal/api web/src cmd/parley)
+TREES=(internal/plugin internal/api internal/store web/src cmd/parley)
 BACKUP=$(mktemp -d)
 LOG=$(mktemp)
 
@@ -628,6 +628,56 @@ mutate "the handshake timeout" \
     'src/lib/pluginBridge.test.ts::renders an explicit failure rather than a blank rectangle when the frame never answers' \
     lib/pluginBridge.ts 'opts.onFailure("handshake-timeout");' '// the frame is simply never given up on'
 
+# The embedded session: a meeting client's frame is a new door into rooms its
+# holder could already enter, never a new key.
+target internal/api
+
+mutate "the embed switch answering 404 when no provider is enabled" \
+    'TestEmbedDisabledIs404AndIgnoresBearer' \
+    embed.go 'if len(a.embedProviders) == 0 {
+			http.NotFound(w, r)' 'if false {
+			http.NotFound(w, r)'
+
+mutate "bearer tokens being ignored when no provider is enabled" \
+    'TestEmbedDisabledIs404AndIgnoresBearer' \
+    embed.go 'if len(a.embedProviders) == 0 {
+		return nil' 'if false {
+		return nil'
+
+mutate "a bearer being read only on /api and /ws" \
+    'TestEmbedBearerPrecedence' \
+    router.go 'resolvePrincipal(a.users, mode == ModeOIDC, nil)).Get("/s/{slug}"' 'resolvePrincipal(a.users, mode == ModeOIDC, a.embedBearer(authorizationBearer))).Get("/s/{slug}"'
+
+mutate "the sign-in page refusing an unknown challenge" \
+    'TestEmbedHandoffRefusals' \
+    embed.go 'if err != nil || !enabled {' 'if false && (err != nil || !enabled) {'
+
+mutate "the org admin set refusing an embedded session" \
+    'TestEmbeddedSessionParticipantPowerOnly' \
+    authz.go 'p.Embedded || orgRoleFrom' 'p.Embedded && false || orgRoleFrom'
+
+mutate "link minting, redemption and identity rotation refusing an embedded session" \
+    'TestEmbeddedSessionParticipantPowerOnly' \
+    principal.go 'ok && p.Embedded {' 'ok && false && p.Embedded {'
+
+target internal/store
+
+mutate "an embed handoff redeeming once" \
+    'TestEmbedHandoffBindsAndRedeemsOnce' \
+    embed.go 'and used_at is null
+		for update' '
+		for update'
+
+mutate "an embed handoff binding once" \
+    'TestEmbedHandoffBindsAndRedeemsOnce' \
+    embed.go 'and bound_at is null
+		returning' '
+		returning'
+
+mutate "the verifier matching the handoff's challenge" \
+    'TestEmbedHandoffBindsAndRedeemsOnce' \
+    embed.go 'where challenge_hash = $1 and expires_at > now() and used_at is null' 'where $1::bytea is not null and expires_at > now() and used_at is null'
+
 # The last wire, and the one no handler test can see. Every guard above is
 # broken inside a package whose own tests construct the app directly — which is
 # exactly how the plugin UI shipped dead: main built api.Options and never set
@@ -640,6 +690,10 @@ target cmd/parley
 mutate "main wiring the plugin directory into the HTTP layer" \
     'TestMainsOptionsServeThePluginUI' \
     main.go '		PluginDir: cfg.PluginDir,' ''
+
+mutate "main wiring the embed providers into the HTTP layer" \
+    'TestMainsOptionsEnableEmbedProviders' \
+    main.go '		EmbedProviders: cfg.EmbedProviders,' ''
 
 restore_all
 

@@ -24,8 +24,10 @@ func (a *app) handleWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such session", http.StatusNotFound)
 		return
 	}
+	// A token in the URL would land in access logs and browser history; an
+	// embedded frame sends it as a subprotocol instead.
 	p, ok := PrincipalFrom(r.Context())
-	if !ok {
+	if !ok || r.URL.Query().Has("token") {
 		http.Error(w, "no such session", http.StatusNotFound)
 		return
 	}
@@ -103,6 +105,7 @@ func (a *app) handleWS(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	upgrader := websocket.Upgrader{
+		Subprotocols: []string{embedWSProtocol},
 		CheckOrigin: func(r *http.Request) bool {
 			o := r.Header.Get("Origin")
 			return o == "" || o == a.allowedOrigin

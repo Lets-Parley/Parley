@@ -203,7 +203,8 @@ func (a *app) requireOrgMember(next http.Handler) http.Handler {
 // this gate does not touch the database.
 func (a *app) requireOrgAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if orgRoleFrom(r.Context()) != store.OrgRoleAdmin {
+		// An embedded session is participant power only, whoever holds it.
+		if p, _ := PrincipalFrom(r.Context()); p.Embedded || orgRoleFrom(r.Context()) != store.OrgRoleAdmin {
 			http.Error(w, `{"error":"only an org admin can do that"}`, http.StatusForbidden)
 			return
 		}

@@ -6,7 +6,7 @@ description: Anonymous and OpenID Connect sign-in, cookies, tokens, and how long
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/auth/oidc.go", "internal/api/auth.go", "internal/api/principal.go", "internal/api/me.go", "internal/store/users.go", "internal/hub/hub.go", "internal/api/ics.go", "internal/standup/ics.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/auth/oidc.go", "internal/api/auth.go", "internal/api/principal.go", "internal/api/me.go", "internal/store/users.go", "internal/hub/hub.go", "internal/api/ics.go", "internal/standup/ics.go", "internal/api/embed.go", "internal/store/embed.go"]} />
 
 Parley runs in one of two modes, set by `AUTH_MODE` and fixed at boot.
 
@@ -235,3 +235,51 @@ one. Revoking it with `DELETE /api/me/ics` (the profile control for this is not
 built yet), revoking the person's org membership, or deleting the user all
 make the URL stop resolving. Org-membership revoke and the feed revocation
 are one transaction. User delete removes the row by foreign key.
+
+## Embedded sessions
+
+Off unless `EMBED_PROVIDERS` names a meeting client (today only `meet`, Google
+Meet). With it empty every `/embed/*` and `/api/embed/*` route answers 404 and
+no `Authorization` header is ever read, so an air-gapped install never
+references a third-party script.
+
+The embed is a new door, never a new key: someone who could already enter a
+room can enter it from a meeting's side panel. Membership, passcodes, link-guest
+limits and redaction are unchanged.
+
+A meeting client frames Parley's own origin but withholds its cookies, so the
+frame signs in by handoff, shaped like the OAuth device flow:
+
+1. The frame makes a random RFC 7636 verifier (43–128 characters) and sends
+   only its SHA-256 challenge to `POST /api/embed/handoff`. The server opens a
+   five-minute handoff, throttled per client address, and returns a short
+   display code. A frame should do this when its panel loads, not on click: a
+   popup opened after an `await` is blocked, so the Sign in click must do
+   nothing but open `/embed/signin?c=<challenge>`. That URL and the display
+   code can also be shown for opening by hand.
+2. `/embed/signin` is an ordinary top-level Parley page (`X-Frame-Options:
+   DENY`). It needs the person signed in to Parley in that browser, in either
+   mode, names the meeting client only from an enabled provider, shows the
+   display code, and binds the handoff only when the person presses Continue.
+   Its form post is covered by the cross-site check and the `Lax` cookie. Link
+   guests and embedded sessions cannot bind.
+3. The frame polls `POST /api/embed/session` with the verifier. Until the
+   handoff is bound it gets `202` and `Retry-After`; once bound it receives a
+   session token exactly once. A wrong verifier, an unknown, late or spent
+   handoff is `404`.
+
+The token is an ordinary `session_tokens` row marked embedded, with an absolute
+expiry 12 hours after it was minted; the idle and maximum lifetimes above still
+apply, and revocation and socket revalidation work as for any session. The frame
+sends it as `Authorization: Bearer` on `/api` and as the second value of
+`Sec-WebSocket-Protocol: parley.embed, <token>` on `/ws` (the server only ever
+echoes `parley.embed`; a `?token=` query is refused). Only those two mounts read
+a bearer. When an `Authorization` header is present the cookie is not read, and
+a bearer that is not an embedded token resolves to nobody.
+
+An embedded session has participant power only. Besides everything the same
+person is refused with a cookie, it is refused org administration (custody,
+plugin administration, the org purge), minting signed links, redeeming one,
+renaming (`POST /api/me`) and minting a calendar feed. Signing out
+(`DELETE /api/me`) deletes the embedded token.
+

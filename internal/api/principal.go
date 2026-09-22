@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/lets-parley/parley/internal/principal"
 	"github.com/lets-parley/parley/internal/store"
@@ -26,11 +27,25 @@ func PrincipalFrom(ctx context.Context) (Principal, bool) {
 // identities does nothing about the ones already minted: their tokens stay
 // valid for the whole idle window, so without this an instance that turned
 // sign-in on would keep admitting everyone who had ever opened it.
-func resolvePrincipal(users *store.Users, federatedOnly bool) func(http.Handler) http.Handler {
+//
+// bearer, when non-nil, reads an embedded session's token from the request.
+// Only the /api and /ws mounts pass one, and only with embedding enabled. When
+// it finds a credential the cookie is never read, and a bearer that does not
+// resolve to an embedded token means no principal at all.
+func resolvePrincipal(users *store.Users, federatedOnly bool, bearer func(*http.Request) (string, bool)) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if c, err := r.Cookie(sessionCookie); err == nil {
-				if hash, err := store.HashToken(c.Value); err == nil {
+			plain, fromBearer := "", false
+			if bearer != nil {
+				plain, fromBearer = bearer(r)
+			}
+			if !fromBearer {
+				if c, err := r.Cookie(sessionCookie); err == nil {
+					plain = c.Value
+				}
+			}
+			if plain != "" {
+				if hash, err := store.HashToken(plain); err == nil {
 					// A read resolves the principal without renewing the
 					// idle window. rejectCrossSite waves GETs through, so a
 					// touching GET would let any third-party page keep a
@@ -40,7 +55,7 @@ func resolvePrincipal(users *store.Users, federatedOnly bool) func(http.Handler)
 					// Sessions still stay alive on real use: every write, and
 					// every WebSocket connect, touches the row.
 					touch := r.Method != http.MethodGet && r.Method != http.MethodHead
-					if sess, err := users.ResolveToken(r.Context(), hash, touch); err == nil {
+					if sess, err := users.ResolveToken(r.Context(), hash, touch); err == nil && (sess.Embedded || !fromBearer) {
 						// A link guest resolves under an identity provider too,
 						// by explicit exception rather than by pretending to be
 						// federated: signed links are otherwise dead on exactly
@@ -55,6 +70,7 @@ func resolvePrincipal(users *store.Users, federatedOnly bool) func(http.Handler)
 								NotificationSounds: sess.User.NotificationSounds,
 								LinkSessionID:      sess.User.LinkSessionID,
 								Subject:            sess.User.Subject,
+								Embedded:           sess.Embedded,
 							}))
 						}
 					}
@@ -63,6 +79,59 @@ func resolvePrincipal(users *store.Users, federatedOnly bool) func(http.Handler)
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// authorizationBearer reads `Authorization: Bearer <token>`. Any Authorization
+// header counts as presented, so a malformed one never falls back to a cookie.
+func authorizationBearer(r *http.Request) (string, bool) {
+	h := r.Header.Get("Authorization")
+	if h == "" {
+		return "", false
+	}
+	token, ok := strings.CutPrefix(h, "Bearer ")
+	if !ok {
+		return "", true
+	}
+	return token, true
+}
+
+// wsProtocolBearer reads the token a browser WebSocket can only send as a
+// subprotocol: `Sec-WebSocket-Protocol: parley.embed, <token>`. The upgrader
+// only ever echoes parley.embed, never the token.
+func wsProtocolBearer(r *http.Request) (string, bool) {
+	protocols := websocketProtocols(r)
+	if len(protocols) == 0 {
+		return "", false
+	}
+	if len(protocols) != 2 || protocols[0] != embedWSProtocol {
+		return "", true
+	}
+	return protocols[1], true
+}
+
+func websocketProtocols(r *http.Request) []string {
+	var out []string
+	for _, h := range r.Header.Values("Sec-WebSocket-Protocol") {
+		for _, p := range strings.Split(h, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				out = append(out, p)
+			}
+		}
+	}
+	return out
+}
+
+// rejectEmbedded shuts a route to an embedded session. The frame is a new
+// door into rooms its holder could already enter, never a new key: nothing
+// that administers, mints a credential or rotates an identity answers it.
+func rejectEmbedded(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if p, ok := PrincipalFrom(r.Context()); ok && p.Embedded {
+			http.Error(w, `{"error":"a meeting-client session cannot do that — open Parley in a browser tab"}`, http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // RequireUser admits an ordinary account. A link guest is not one: its

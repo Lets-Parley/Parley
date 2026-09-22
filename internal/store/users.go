@@ -82,6 +82,9 @@ func (s *Users) maxTTL() time.Duration {
 type TokenSession struct {
 	User      User
 	ExpiresAt time.Time
+	// Embedded marks a token minted through an embed handoff: participant
+	// power only, whatever credential carried it.
+	Embedded bool
 }
 
 func NewToken() (plain string, hash []byte) {
@@ -251,7 +254,8 @@ const resolveTokenColumns = `user_id,
 	          (select avatar_icon from users where id = user_id),
 	          (select notification_sounds from users where id = user_id),
 	          ` + linkSessionExpr + `,
-	          ` + tokenExpiryExpr
+	          ` + tokenExpiryExpr + `,
+	          embedded`
 
 // ResolveToken resolves a valid token and returns the resulting idle expiry so
 // long-lived transports can enforce the same session lifetime.
@@ -276,12 +280,13 @@ func (s *Users) ResolveToken(ctx context.Context, tokenHash []byte, touch bool) 
 
 	var u User
 	var expiresAt time.Time
+	var embedded bool
 	err := s.Pool.QueryRow(ctx, sql, tokenHash, s.idleTTL(), s.maxTTL()).
-		Scan(&u.ID, &u.Name, &u.Issuer, &u.Subject, &u.AvatarIcon, &u.NotificationSounds, &u.LinkSessionID, &expiresAt)
+		Scan(&u.ID, &u.Name, &u.Issuer, &u.Subject, &u.AvatarIcon, &u.NotificationSounds, &u.LinkSessionID, &expiresAt, &embedded)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return TokenSession{}, ErrNoUser
 	}
-	return TokenSession{User: u, ExpiresAt: expiresAt}, err
+	return TokenSession{User: u, ExpiresAt: expiresAt, Embedded: embedded}, err
 }
 
 // TokenExpiry checks shared-store validity without counting the check itself as
@@ -333,6 +338,10 @@ func (s *Users) SweepExpiredTokens(ctx context.Context) (int64, error) {
 		}
 		total += tag.RowsAffected()
 		if tag.RowsAffected() < sweepBatchSize {
+			// Handoffs live five minutes, so the backlog is always small.
+			if _, err := s.Pool.Exec(ctx, "delete from embed_handoffs where expires_at <= now()"); err != nil {
+				return total, fmt.Errorf("sweeping expired embed handoffs: %w", err)
+			}
 			return total, nil
 		}
 	}
