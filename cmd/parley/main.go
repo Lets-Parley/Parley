@@ -478,6 +478,7 @@ func apiOptions(ctx context.Context, cfg config, secureCookies bool, plugins *pl
 		// A space owner's webhook URL must match this; delivery also goes
 		// through the plugin fetch guard with it as the allowlist.
 		StandupWebhookHosts: cfg.StandupWebhookHosts,
+		Now:                 time.Now,
 	}
 	if cfg.AuthMode == api.ModeOIDC {
 		// Discovery happens on the first sign-in rather than here: an identity

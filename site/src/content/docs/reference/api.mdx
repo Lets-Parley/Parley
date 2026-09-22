@@ -6,7 +6,7 @@ description: Every route, who may call it, and what it does.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import RouteTable from "../../../components/RouteTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/api/plugindev.go", "internal/api/standup_schedule.go", "internal/api/standup_webhook.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/api/plugindev.go", "internal/api/standup_schedule.go", "internal/api/standup_webhook.go", "internal/api/ics.go"]} />
 
 There is no API token scheme. Everything authenticates with the `parley_session`
 cookie, so the API is usable from a script only by reusing a browser session's
@@ -67,6 +67,10 @@ reject them. Their own protection is the `state` value in the sign-in cookie.
   { method: "PATCH", path: "/api/me/avatar", auth: "session", purpose: "Set the caller's chosen avatar. Permitted in both auth modes." },
   { method: "PATCH", path: "/api/me/settings", auth: "session", purpose: "Set notificationSounds for the caller without rotating the session token. Ordinary open-mode and OIDC users only; signed-link guests receive 403." },
   { method: "DELETE", path: "/api/me", auth: "session", purpose: "Sign out. Deletes the caller's own token row, synchronously closes its WebSockets with code 1008, and clears the cookie. Open to a link guest — it is how a guest leaves the room and stops the cookie outliving the visit." },
+  { method: "GET", path: "/api/me/ics", auth: "session", purpose: "Whether the caller has a personal standup calendar, as {active} and, when active, remindMinutes. Never the token or the URL. A link guest gets 403." },
+  { method: "POST", path: "/api/me/ics", auth: "session", purpose: "Mint or replace the personal calendar feed: {remindMinutes} from 0 to 1440. Answers {url, remindMinutes}. The url holds the token and is returned only here. A link guest gets 403." },
+  { method: "DELETE", path: "/api/me/ics", auth: "session", purpose: "Revoke the personal calendar feed. 204. The previous URL then answers 404. A link guest gets 403." },
+  { method: "GET", path: "/ics/{token}", auth: "token", purpose: "The caller's standup calendar (text/calendar). No cookie. A missing or revoked token is 404. Lists async windows that are still open and scheduled slots for the next 14 days, each with one alarm at the minted offset. The description is only the link." },
 ]} />
 
 `PATCH /api/me/settings` requires an explicit boolean and answers with the same

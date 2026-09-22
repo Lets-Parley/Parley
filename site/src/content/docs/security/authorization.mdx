@@ -6,7 +6,7 @@ description: Membership, facilitator rights, and what the server checks on every
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/authz.go", "internal/api/principal.go", "internal/store/spaces.go", "internal/store/orgs.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/store/sessions.go", "internal/store/links.go", "internal/api/custody/store.go", "internal/api/secevent.go", "internal/db/migrations/0023_org_custody.sql"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/authz.go", "internal/api/principal.go", "internal/store/spaces.go", "internal/store/orgs.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/store/sessions.go", "internal/store/links.go", "internal/api/custody/store.go", "internal/api/secevent.go", "internal/db/migrations/0023_org_custody.sql", "internal/api/ics.go"]} />
 
 Parley has five authorization concepts and no more: **you are a member of the
 org**, **you are a member of the space**, **you own the space**, **you are the
@@ -45,6 +45,12 @@ because a link guest belongs to no org and no space: it has no org slug to put
 in a URL and no membership one could be derived from, so an org-prefixed
 session tree would 404 every signed link ever issued. `POST /api/links/redeem`
 does, because it mints the identity an org prefix would require.
+
+`GET /ics/{token}` is a third outsider, and its own class: token-auth. A
+calendar client has no cookie and no org. The token in the path is the
+credential, checked on every request against current space membership. A bad
+or revoked token is 404. The route is a GET with no cookie, so it has no CSRF
+exposure and sits outside `/api`.
 
 ## Org custody: management without access
 

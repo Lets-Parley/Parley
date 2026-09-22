@@ -6,7 +6,7 @@ description: Anonymous and OpenID Connect sign-in, cookies, tokens, and how long
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/auth/oidc.go", "internal/api/auth.go", "internal/api/principal.go", "internal/api/me.go", "internal/store/users.go", "internal/hub/hub.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/auth/oidc.go", "internal/api/auth.go", "internal/api/principal.go", "internal/api/me.go", "internal/store/users.go", "internal/hub/hub.go", "internal/api/ics.go", "internal/standup/ics.go"]} />
 
 Parley runs in one of two modes, set by `AUTH_MODE` and fixed at boot.
 
@@ -213,3 +213,25 @@ to every replica immediately, and the periodic check is only the backstop.
 
 If you need to force everybody out of an instance right now, delete every row in
 `session_tokens`. Everyone signs in again; nothing else is affected.
+
+## Calendar feed token
+
+A personal standup calendar is a second credential, not a session cookie.
+`POST /api/me/ics` mints it and returns the URL once. What is stored is the
+sha256 of the token, plus the first eight characters as a lookup prefix so a
+fetch can find the row. The plaintext is not kept, so it cannot be shown again.
+
+`GET /ics/{token}` does not use a cookie and does not sit under `/api`, so it
+has no cross-site cookie to defend. Calendar clients fetch it as a plain GET.
+A missing or revoked token is **404**, never 401 or 403 — the status does not
+say whether that string was ever issued. Space membership is read on every
+fetch, not at mint time: a space the person has left is absent from the next
+response.
+
+The token is redacted to `/ics/[redacted]` before anything in this process logs
+the request path, including security-event lines. A reverse proxy in front of
+Parley still sees the original URL; mask `/ics/` in that access log if you keep
+one. Revoking it with `DELETE /api/me/ics` (the profile control for this is not
+built yet), revoking the person's org membership, or deleting the user all
+make the URL stop resolving. Org-membership revoke and the feed revocation
+are one transaction. User delete removes the row by foreign key.

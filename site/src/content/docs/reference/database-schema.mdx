@@ -6,9 +6,9 @@ description: The tables, the migrations, and the constraints that act as validat
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/db/migrations", "internal/db/migrate.go", "internal/store/presence.go", "internal/poker/routes.go", "internal/api/custody/store.go", "internal/plugin", "internal/store/users.go", "internal/standup/schedule.go", "internal/standup/webhook.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/db/migrations", "internal/db/migrate.go", "internal/store/presence.go", "internal/poker/routes.go", "internal/api/custody/store.go", "internal/plugin", "internal/store/users.go", "internal/standup/schedule.go", "internal/standup/webhook.go", "internal/standup/ics.go"]} />
 
-Thirty-seven migrations, embedded in the binary and applied at boot. Postgres only —
+Forty migrations, embedded in the binary and applied at boot. Postgres only —
 there is no second driver and no plan for one.
 
 ## Migrations
@@ -40,6 +40,7 @@ there is no second driver and no plan for one.
   { name: "0037_notification_sounds", value: "users.notification_sounds, sessions.poker_round_version", note: "Both use constant defaults, so existing identities remain muted and existing poker sessions begin at round version 0" },
   { name: "0038_standup_schedules", value: "standup_schedules, standup_schedule_slots", note: "Scheduled async standups. New tables, so no backfill. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
   { name: "0039_standup_webhooks", value: "standup_webhooks, standup_webhook_deliveries", note: "Standup webhooks and their delivery outbox. New tables, so no backfill. Pins the minimum image version, as above" },
+  { name: "0040_ics_feed_tokens", value: "ics_feed_tokens", note: "One personal calendar token per user. The token is stored as a sha256 digest plus an 8-character lookup prefix. New table, so no backfill. Pins the minimum image version, as above" },
 ]} />
 
 ### How the runner behaves
@@ -359,6 +360,17 @@ retries. The same sweep deletes a delivered or failed row 30 days after it
 reached that state, in one statement, so the outbox does not grow without
 bound. A row still waiting to be sent is kept. `session_id` cascades, so
 deleting a room drops its undelivered events.
+
+### ics_feed_tokens
+
+One personal standup calendar per user (`user_id` primary key, `on delete
+cascade`). `token_hash` is the sha256 of the token's raw bytes, the same shape
+as `session_tokens`, and `lookup_prefix` is the first eight characters of the
+plaintext so a fetch can find the row. A unique index on `lookup_prefix` covers
+only rows whose `revoked_at` is null. `remind_minutes` is 0–1440, the single
+alarm offset. Revoking stamps `revoked_at`; it does not delete the row. An org
+membership revoke stamps it in the same transaction. Deleting the user deletes
+the row.
 
 ### standup_commitments
 

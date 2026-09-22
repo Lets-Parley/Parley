@@ -417,6 +417,17 @@ func (s *Store) RevokeOrgMember(ctx context.Context, scope Scope, userID string)
 			scope.OrgID, userID, orgRoleMember); err != nil {
 			return fmt.Errorf("revoking an org member: %w", err)
 		}
+		// The calendar feed is a long-lived credential. Revoking the org
+		// membership revokes it in the same transaction, so a URL handed out
+		// earlier stops resolving even for spaces in other orgs — the person
+		// mints a new one, and that one sees only what they still belong to.
+		// The statement is duplicated here on purpose: this package does not
+		// import internal/store.
+		if _, err := tx.Exec(ctx,
+			"update ics_feed_tokens set revoked_at = now() where user_id = $1 and revoked_at is null",
+			userID); err != nil {
+			return fmt.Errorf("revoking the calendar feed: %w", err)
+		}
 		return nil
 	})
 	if err != nil {

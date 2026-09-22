@@ -270,6 +270,9 @@ var routeScoping = map[string]string{
 	"DELETE /api/me":                  "non-slug",
 	"PATCH /api/me/avatar":            "non-slug",
 	"PATCH /api/me/settings":          "non-slug",
+	"GET /api/me/ics":                 "non-slug",
+	"POST /api/me/ics":                "non-slug",
+	"DELETE /api/me/ics":              "non-slug",
 
 	// Cross-org by definition: they answer which orgs and spaces a cookie
 	// reaches, so they cannot name an org first.
@@ -344,6 +347,12 @@ var routeScoping = map[string]string{
 	// route somebody adds.
 	"GET /s/{slug}": "legacy-redirect",
 
+	// The personal calendar. Calendar clients fetch it with the token in the
+	// path and no cookie, so it has no session to scope and no org to name.
+	// Its own class: waving it through as non-slug would also wave through the
+	// next unauthenticated secret-in-the-path route somebody adds.
+	"GET /ics/{token}": "token-auth",
+
 	// Anonymous-exempt, and the reason is signed links in every case. A link
 	// guest is a users row carrying link_id: it belongs to no org and no
 	// space, so it has no org slug to put in a URL and no membership one
@@ -414,6 +423,16 @@ func TestEveryRouteIsScopeClassified(t *testing.T) {
 			// route wearing the exemption rather than earning it.
 			if key != "GET /s/{slug}" {
 				t.Errorf("route %q is classified legacy-redirect, which only GET /s/{slug} may be", key)
+			}
+		case "token-auth":
+			// The calendar feed. The secret is the path segment, checked on
+			// every request, and a miss is 404. It must not grow an org prefix:
+			// a calendar client has no org to put in the URL.
+			if key != "GET /ics/{token}" {
+				t.Errorf("route %q is classified token-auth, which only GET /ics/{token} may be", key)
+			}
+			if strings.Contains(route, "{org}") {
+				t.Errorf("route %q is token-auth and must not carry an org prefix", key)
 			}
 		default:
 			t.Errorf("route %q has unknown scope %q", key, scope)

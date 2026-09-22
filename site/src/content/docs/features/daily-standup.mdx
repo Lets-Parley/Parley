@@ -11,7 +11,7 @@ import roundDark from "../../../assets/standup-round-dark.png";
 import blockersLight from "../../../assets/blockers-roundup-light.png";
 import blockersDark from "../../../assets/blockers-roundup-dark.png";
 
-<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "internal/standup/kudos.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/components/AsyncDigest.tsx", "web/src/lib/kinds.ts", "internal/standup/schedule.go", "internal/standup/webhook.go", "internal/api/standup_webhook.go"]} />
+<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "internal/standup/kudos.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/components/AsyncDigest.tsx", "web/src/lib/kinds.ts", "internal/standup/schedule.go", "internal/standup/webhook.go", "internal/api/standup_webhook.go", "internal/standup/ics.go", "internal/api/ics.go"]} />
 
 A standup session is three text fields per person — yesterday, today, blockers —
 and an order to speak in.
@@ -312,6 +312,31 @@ attempt and is retried on the same schedule as any other failure. An
 allowlisted name that resolves to a private, loopback or metadata address is
 refused. See [Plugin sandbox](/security/plugin-sandbox/).
 
+### A personal calendar feed
+
+Each person can subscribe to their own standup calendar. Mint it with
+`POST /api/me/ics` and `{"remindMinutes": 15}` — how many minutes before a
+window the single reminder fires, from 0 to 1440. The response is
+`{"url", "remindMinutes"}`. The URL contains the token and is shown **once**;
+`GET /api/me/ics` afterwards says only whether a feed is active and which
+offset it uses. `DELETE /api/me/ics` revokes it. A revoked or unknown token
+answers **404**.
+
+Subscribe to that URL from a calendar app. `GET /ics/{token}` is a GET with no
+cookie, so a calendar client can fetch it. The body is an iCalendar feed of
+the async windows the caller can currently see: standups whose window is still
+open, and enabled schedules' slots for the next 14 days. Each event's
+description is only the link to the room (or, before a scheduled slot has
+opened, the link to the space). It never includes what anyone wrote. One
+alarm, at the offset chosen when the feed was minted, is the whole reminder —
+there is no second nag.
+
+Space access is checked on every fetch. Leaving a space, or being removed from
+it, drops that space's windows from the next fetch. Revoking someone's org
+membership revokes the feed as well; deleting their account does too, because
+the token row is deleted with them. They can mint another feed afterwards, and
+it lists only the spaces they still belong to.
+
 ## What is not here
 
 <Capability rows={[
@@ -319,8 +344,9 @@ refused. See [Plugin sandbox](/security/plugin-sandbox/).
   { name: "Async standup", status: "built", detail: "Answer on your own time and read a blockers-first digest. See Async standups above." },
   { name: "Scheduled async standups", status: "built", detail: "Set through the API. See Scheduled async standups above." },
   { name: "A webhook editor", status: "not-built", detail: "The standup webhook is set through the API only; nothing in the UI sets it yet." },
+  { name: "A calendar feed on the profile", status: "not-built", detail: "Mint, copy and revoke the personal feed through the API. Nothing in the profile dialog does it yet." },
   { name: "A schedule editor and a cutoff picker", status: "not-built", detail: "The schedule and <code>closesAt</code> are set through the API only; nothing in the UI sets them yet." },
   { name: "Reordering the speaking order", status: "not-built", detail: "Fixed once the round starts. Skip moves past anyone who is not ready." },
   { name: "Editing a kudo", status: "not-built", detail: "The sender can withdraw one from the space's wall. Nobody can rewrite text somebody has already read." },
-  { name: "Chasing people who did not write anything", status: "out-of-scope", detail: "Parley does not send reminder notifications." },
+  { name: "Chasing people who did not write anything", status: "out-of-scope", detail: "Parley does not nag. The one reminder is a calendar alarm the person set on their own feed." },
 ]} />

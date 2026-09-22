@@ -40,11 +40,15 @@ type app struct {
 	// that cannot be stored encrypted is not stored at all.
 	webhooks     *standup.Webhooks
 	webhookHosts []string
-	decks        *store.Decks
-	kudos        *store.Kudos
-	links        *store.Links
-	presence     *store.Presence
-	hub          *hub.Hub
+	ics          *standup.Feeds
+	// now is the clock the calendar feed stamps. Tests freeze it; the process
+	// uses time.Now.
+	now      func() time.Time
+	decks    *store.Decks
+	kudos    *store.Kudos
+	links    *store.Links
+	presence *store.Presence
+	hub      *hub.Hub
 	// kinds is the session-kind registry, built once at wiring time.
 	kinds *session.Registry
 
@@ -142,6 +146,11 @@ type Options struct {
 	// space owner's standup webhook may name. Empty allows none. Delivery
 	// runs on the StandupScheduleInterval ticker.
 	StandupWebhookHosts []string
+
+	// Now is the clock the calendar feed stamps and windows against. Nil means
+	// time.Now. It is not operator configuration; tests freeze it so a feed
+	// can be compared to a fixed calendar.
+	Now func() time.Time
 
 	sessionRevalidationInterval time.Duration
 }
@@ -268,6 +277,13 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		instanceID:       newInstanceID(),
 		plugins:          opts.Plugins,
 		pluginHost:       opts.PluginHost,
+		now:              opts.Now,
+	}
+	if a.now == nil {
+		a.now = time.Now
+	}
+	if pool != nil {
+		a.ics = &standup.Feeds{Pool: pool}
 	}
 	// Set before anything is served: ReserveToken reads it from the handler
 	// goroutine and nothing has a socket yet.
@@ -461,6 +477,13 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		w.Write([]byte("ok"))
 	})
 
+	// A calendar client fetches this with the token in the path and no cookie.
+	// It sits outside /api so it carries neither the JSON-body guard nor the
+	// cross-site guard: a GET with no cookie has nothing for either to defend.
+	// redactICSPath runs on the matched route, after chi has copied the token
+	// out, and is what keeps the secret off every log line.
+	r.With(redactICSPath).Get("/ics/{token}", a.handleICSFeed)
+
 	// Sign-in lives outside /api: these are browser navigations that arrive
 	// from the identity provider's domain, so the JSON-body and cross-site
 	// guards that protect the API would reject them by design. Their own CSRF
@@ -505,6 +528,12 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		// mode does not reach it. It answers 401 itself.
 		r.With(rejectLinkPrincipal).Patch("/me/avatar", a.handlePatchMeAvatar)
 		r.With(rejectLinkPrincipal).Patch("/me/settings", a.handlePatchMeSettings)
+		// The personal calendar feed. The plaintext token is returned once,
+		// from the mint, and is not recoverable after that. A link guest has
+		// no account to hang a feed on.
+		r.With(rejectLinkPrincipal).Get("/me/ics", a.handleGetICS)
+		r.With(rejectLinkPrincipal).Post("/me/ics", a.handleMintICS)
+		r.With(rejectLinkPrincipal).Delete("/me/ics", a.handleRevokeICS)
 
 		r.Group(func(r chi.Router) {
 			r.Use(RequireUser)
