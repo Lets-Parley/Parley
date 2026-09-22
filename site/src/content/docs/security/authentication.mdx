@@ -231,7 +231,7 @@ response.
 The token is redacted to `/ics/[redacted]` before anything in this process logs
 the request path, including security-event lines. A reverse proxy in front of
 Parley still sees the original URL; mask `/ics/` in that access log if you keep
-one. Revoking it from the profile, revoking
-the person's org membership, or deleting the user all make the URL stop
-resolving. Org-membership revoke and the feed revocation are one transaction.
-User delete removes the row by foreign key.
+one. Revoking it with `DELETE /api/me/ics` (the profile control for this is not
+built yet), revoking the person's org membership, or deleting the user all
+make the URL stop resolving. Org-membership revoke and the feed revocation
+are one transaction. User delete removes the row by foreign key.

@@ -150,6 +150,103 @@ func TestLostSpaceVanishesFromICSFeed(t *testing.T) {
 	}
 }
 
+// TestOrgTombstoneVanishesFromICSFeed proves the feed also requires a live
+// org membership: revoking org_members (revoked_at set, no cascade) without
+// touching the members row must still drop the org's windows.
+func TestOrgTombstoneVanishesFromICSFeed(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	srv := testServerWith(t, pool, Options{AllowedOrigin: "http://example.test"})
+	cookies, _, sessionID := standupSpace(t, srv, "Org Tombstone Space", "Ada", "Bob")
+	ada, bob := cookies[0], cookies[1]
+	asyncID := asyncStandup(t, srv, sessionID, ada, `{"mode":"async","closesAt":"2099-01-01T00:00:00Z"}`)
+
+	plain := mintICS(t, srv, bob, 10)
+	if resp, body := getICS(t, srv, plain); resp.StatusCode != http.StatusOK || !strings.Contains(string(body), asyncID) {
+		t.Fatalf("feed before revoke: %d\n%s", resp.StatusCode, body)
+	}
+
+	_, bobMe := doJSON(t, srv, "GET", "/api/me", "", bob)
+	org, err := (&store.Orgs{Pool: pool}).Default(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx,
+		"update org_members set revoked_at = now() where org_id = $1 and user_id = $2",
+		org.ID, bobMe["id"]); err != nil {
+		t.Fatal(err)
+	}
+
+	// The members row is deliberately left in place: this proves the feed
+	// checks org membership independently of the space-level join.
+	var stillMember int
+	if err := pool.QueryRow(ctx,
+		"select count(*) from members where user_id = $1", bobMe["id"]).Scan(&stillMember); err != nil {
+		t.Fatal(err)
+	}
+	if stillMember == 0 {
+		t.Fatal("test setup: members row was removed, this test needs it intact")
+	}
+
+	resp, body := getICS(t, srv, plain)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("feed after org revoke: got %d (%s)", resp.StatusCode, body)
+	}
+	if strings.Contains(string(body), asyncID) {
+		t.Fatalf("an org tombstone did not remove the space's windows from the feed:\n%s", body)
+	}
+}
+
+// TestOpenEndedAsyncWindowStaysCurrent proves an open manual async standup
+// (no closesAt) left running past its nominal created+24h window still reads
+// as a currently-open event rather than one that ended in the past.
+func TestOpenEndedAsyncWindowStaysCurrent(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	created := time.Date(2026, 9, 20, 9, 0, 0, 0, time.UTC)
+	now := created.Add(72 * time.Hour) // three days later: created+24h is long past
+	srv := testServerWith(t, pool, Options{
+		AllowedOrigin: "https://parley.example",
+		Now:           func() time.Time { return now },
+	})
+	ada := signup(t, srv, "Ada")
+	_, me := doJSON(t, srv, "GET", "/api/me", "", ada)
+	var spaceID string
+	if err := pool.QueryRow(ctx,
+		"insert into spaces (org_id, slug, name) values ('00000000-0000-0000-0000-000000000001', $1, 'Open Window') returning id",
+		"ics-open-"+fmt.Sprint(time.Now().UnixNano()),
+	).Scan(&spaceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx,
+		"insert into members (space_id, user_id, role) values ($1, $2, 'owner')", spaceID, me["id"]); err != nil {
+		t.Fatal(err)
+	}
+	const sessionID = "22222222-2222-4222-8222-222222222222"
+	if _, err := pool.Exec(ctx, "delete from sessions where id = $1", sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		insert into sessions (id, space_id, kind, title, config, facilitator_id, created_at)
+		values ($1, $2, 'standup', 'Async', $3, $4, $5)`,
+		sessionID, spaceID, `{"mode":"async"}`, me["id"], created); err != nil {
+		t.Fatal(err)
+	}
+
+	plain := mintICS(t, srv, ada, 15)
+	resp, body := getICS(t, srv, plain)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("feed: got %d (%s)", resp.StatusCode, body)
+	}
+	text := string(body)
+	if !strings.Contains(text, "DTEND:"+now.Add(1*time.Hour).UTC().Format("20060102T150405Z")) {
+		t.Fatalf("open window did not end at now+1h:\n%s", text)
+	}
+	if strings.Contains(text, "DTEND:"+created.Add(24*time.Hour).UTC().Format("20060102T150405Z")) {
+		t.Fatalf("open window still ended at the stale created+24h time:\n%s", text)
+	}
+}
+
 func TestICSLogLineDoesNotContainTheToken(t *testing.T) {
 	srv := testServer(t)
 	ada := signup(t, srv, "Ada")

@@ -253,6 +253,7 @@ func (f *Feeds) Events(ctx context.Context, userID, baseURL string, now time.Tim
 		join spaces sp on sp.id = sc.space_id
 		join orgs o on o.id = sp.org_id
 		join members m on m.space_id = sp.id and m.user_id = $1
+		join org_members om on om.org_id = o.id and om.user_id = $1 and om.revoked_at is null
 		where sc.enabled`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("listing standup schedules for a feed: %w", err)
@@ -280,7 +281,10 @@ func (f *Feeds) Events(ctx context.Context, userID, baseURL string, now time.Tim
 		select sl.schedule_id::text, to_char(sl.slot_date, 'YYYYMMDD'), sl.session_id::text
 		from standup_schedule_slots sl
 		join standup_schedules sc on sc.id = sl.schedule_id
+		join spaces sp on sp.id = sc.space_id
+		join orgs o on o.id = sp.org_id
 		join members m on m.space_id = sc.space_id and m.user_id = $1
+		join org_members om on om.org_id = o.id and om.user_id = $1 and om.revoked_at is null
 		where sl.session_id is not null
 		  and sl.slot_date >= ($2::timestamptz - interval '2 days')::date
 		  and sl.slot_date <= ($2::timestamptz + interval '15 days')::date`,
@@ -331,6 +335,7 @@ func (f *Feeds) Events(ctx context.Context, userID, baseURL string, now time.Tim
 		join spaces sp on sp.id = s.space_id
 		join orgs o on o.id = sp.org_id
 		join members m on m.space_id = sp.id and m.user_id = $1
+		join org_members om on om.org_id = o.id and om.user_id = $1 and om.revoked_at is null
 		where s.kind = 'standup' and s.ended_at is null
 		  and s.config->>'mode' = 'async'`, userID)
 	if err != nil {
@@ -357,6 +362,10 @@ func (f *Feeds) Events(ctx context.Context, userID, baseURL string, now time.Tim
 		end := created.Add(24 * time.Hour)
 		if cfg.ClosesAt != nil {
 			end = *cfg.ClosesAt
+		} else if !end.After(now) {
+			// Still open with no closesAt: created+24h has already passed,
+			// so read it as ending an hour from now rather than in the past.
+			end = now.Add(1 * time.Hour)
 		}
 		if !end.After(created) {
 			continue

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // rfc5545Fixture is a hand-written calendar for one open async window.
@@ -30,6 +31,44 @@ const rfc5545Fixture = "BEGIN:VCALENDAR\r\n" +
 	"END:VALARM\r\n" +
 	"END:VEVENT\r\n" +
 	"END:VCALENDAR\r\n"
+
+// TestEscapeTextLiterals checks escapeText against literals computed by
+// hand from RFC 5545 section 3.3.11, not against anything the function
+// itself produced.
+func TestEscapeTextLiterals(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{";", `\;`},
+		{`\`, `\\`},
+		{"\n", `\n`},
+	}
+	for _, c := range cases {
+		if got := escapeText(c.in); got != c.want {
+			t.Errorf("escapeText(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestFoldLineMultibyteBoundary is a line where a 3-byte rune (€, E2 82 AC)
+// straddles the 75-octet fold point: 74 ASCII bytes put the naive cut at
+// byte index 75, which is the continuation byte E2 82 [AC] — the walk-back
+// must land on index 74, the lead byte, instead of splitting the rune.
+// Expected output below was counted by hand, not produced by foldLine.
+func TestFoldLineMultibyteBoundary(t *testing.T) {
+	line := strings.Repeat("a", 74) + "€" + "bb"
+	want := strings.Repeat("a", 74) + "\r\n " + "€bb"
+	got := foldLine(line)
+	if got != want {
+		t.Fatalf("foldLine mismatch\n got:  %q\n want: %q", got, want)
+	}
+	for i, part := range strings.Split(got, "\r\n") {
+		if n := len(part); n > 75 {
+			t.Errorf("folded line %d is %d octets, want <= 75: %q", i, n, part)
+		}
+		if !utf8.ValidString(part) {
+			t.Errorf("folded line %d is not valid UTF-8: %q", i, part)
+		}
+	}
+}
 
 func TestCalendarMatchesRFC5545Fixture(t *testing.T) {
 	got := RenderCalendar(time.Date(2026, 9, 23, 14, 30, 0, 0, time.UTC), 15, []CalendarEvent{{
