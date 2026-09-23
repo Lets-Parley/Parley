@@ -1371,6 +1371,191 @@ describe("SpacePage deck chooser", () => {
       vi.mocked(api).mockImplementation(defaultApi);
     }
   });
+
+  /**
+   * The cutoff is driven through the dialog the way a person fills it: by
+   * keyboard, in their own local time. The expected instant is worked out by
+   * hand for a pinned zone — 17:00 on 23 September in Chicago is CDT, UTC-5 —
+   * rather than computed with the same Date call the dialog makes, which would
+   * agree with any conversion at all.
+   */
+  describe("async cutoff", () => {
+    const realTZ = process.env.TZ;
+    // The module's own mock, captured before any test swaps it.
+    const defaultApi = vi.mocked(api).getMockImplementation()!;
+    let refuse = "";
+
+    beforeEach(() => {
+      process.env.TZ = "America/Chicago";
+      space.kinds = ["standup"];
+      refuse = "";
+      const fallback = defaultApi;
+      vi.mocked(api).mockImplementation((async (method: string, path: string, body?: unknown) => {
+        if (method === "POST" && path === "/api/orgs/acme/spaces/platform-team/sessions") {
+          if (refuse) throw new ApiError(400, refuse);
+          return { id: "new-1", kind: "standup", title: "Daily", createdAt: "2026-08-18T12:00:00.000Z", endedAt: null, here: 0 };
+        }
+        return fallback(method, path, body);
+      }) as typeof fallback);
+    });
+
+    afterEach(() => {
+      process.env.TZ = realTZ;
+      delete space.kinds;
+      vi.mocked(api).mockImplementation(defaultApi);
+    });
+
+    const created = () =>
+      vi.mocked(api).mock.calls.find(([m, p]) => m === "POST" && String(p).endsWith("/sessions"))?.[2];
+
+    it("stores the exact instant typed, entered with the keyboard alone", async () => {
+      const dialog = await openDialog();
+      // The title is autofocused; nothing below touches the mouse.
+      await userEvent.keyboard("Daily");
+      await userEvent.tab();
+      expect(document.activeElement).toBe(dialog.getByRole("radio", { name: /Live round/ }));
+      expect(dialog.queryByLabelText(/Cutoff/)).toBe(null);
+      await userEvent.keyboard("{ArrowRight}");
+      expect((dialog.getByRole("radio", { name: /Async/ }) as HTMLInputElement).checked).toBe(true);
+      await userEvent.tab();
+      expect(document.activeElement).toBe(dialog.getByLabelText(/Cutoff/));
+      await userEvent.keyboard("2026-09-23T17:00");
+      await userEvent.keyboard("{Enter}");
+      await waitFor(() =>
+        expect(created()).toEqual({
+          kind: "standup",
+          title: "Daily",
+          config: { mode: "async", closesAt: "2026-09-23T22:00:00.000Z" },
+        }),
+      );
+    });
+
+    it("drops a cutoff typed before the mode went back to a live round", async () => {
+      const dialog = await openDialog();
+      await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+      await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+      await userEvent.type(dialog.getByLabelText(/Cutoff/), "2026-09-23T17:00");
+      await userEvent.click(dialog.getByRole("radio", { name: /Live round/ }));
+      expect(dialog.queryByLabelText(/Cutoff/)).toBe(null);
+      await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+      // The server refuses a cutoff on a live round, so it must not be sent.
+      await waitFor(() =>
+        expect(created()).toEqual({ kind: "standup", title: "Daily", config: { mode: "sync" } }),
+      );
+    });
+
+    it("shows the server's refusal inside the dialog and keeps it open", async () => {
+      refuse = "closesAt is only meaningful for an async standup";
+      const dialog = await openDialog();
+      await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+      await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+      await userEvent.type(dialog.getByLabelText(/Cutoff/), "2026-09-23T17:00");
+      await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+      const alert = await dialog.findByRole("alert");
+      expect(alert.textContent).toContain("closesAt is only meaningful for an async standup");
+      // Still open, still holding what was typed, so it can be corrected.
+      expect(screen.getByRole("dialog")).toBeTruthy();
+      expect((dialog.getByLabelText(/Cutoff/) as HTMLInputElement).value).toBe("2026-09-23T17:00");
+      await expectNoViolations(screen.getByRole("dialog"));
+    });
+
+    // Date.* alone is mocked here — setSystemTime without useFakeTimers, per
+    // Vitest's own docs — so findByRole/userEvent keep running on the real
+    // clock and only "now" as the component reads it is pinned.
+    describe("with a fixed clock", () => {
+      beforeEach(() => {
+        vi.setSystemTime(new Date("2026-09-23T22:30:00.000Z")); // 17:30 in Chicago
+      });
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("sets the cutoff's minimum to now, in the viewer's local time", async () => {
+        const dialog = await openDialog();
+        await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+        expect((dialog.getByLabelText(/Cutoff/) as HTMLInputElement).min).toBe("2026-09-23T17:30");
+      });
+
+      it("refuses a cutoff already in the past and sends nothing", async () => {
+        const dialog = await openDialog();
+        await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+        await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+        await userEvent.type(dialog.getByLabelText(/Cutoff/), "2026-09-23T17:00");
+        await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+
+        const alert = await dialog.findByRole("alert");
+        expect(alert.textContent).toBe("The cutoff has to be in the future.");
+        expect(screen.getByRole("dialog")).toBeTruthy();
+        expect(created()).toBe(undefined);
+      });
+    });
+
+    /**
+     * At hh:mm:20 the picker's own `min` still offers the current minute
+     * (localNowMinute truncates to minute precision), so the submit check has
+     * to agree with it rather than compare against the exact millisecond —
+     * otherwise the option the picker hands out is refused the instant it is
+     * chosen.
+     */
+    describe("with a clock mid-minute", () => {
+      beforeEach(() => {
+        vi.setSystemTime(new Date("2026-09-23T22:30:20.000Z")); // 17:30:20 in Chicago
+      });
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("accepts the current minute the picker offers and sends it", async () => {
+        const dialog = await openDialog();
+        await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+        await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+        await userEvent.type(dialog.getByLabelText(/Cutoff/), "2026-09-23T17:30");
+        await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+
+        await waitFor(() =>
+          expect(created()).toEqual({
+            kind: "standup",
+            title: "Daily",
+            config: { mode: "async", closesAt: "2026-09-23T22:30:00.000Z" },
+          }),
+        );
+      });
+
+      it("still refuses the minute before", async () => {
+        const dialog = await openDialog();
+        await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+        await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+        await userEvent.type(dialog.getByLabelText(/Cutoff/), "2026-09-23T17:29");
+        await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+
+        const alert = await dialog.findByRole("alert");
+        expect(alert.textContent).toBe("The cutoff has to be in the future.");
+        expect(created()).toBe(undefined);
+      });
+    });
+
+    /**
+     * noValidate turns off the browser's own validation bubble, so a
+     * half-typed value ("" with validity.badInput set) must be caught by hand
+     * before it is silently skipped — otherwise the standup is created with no
+     * cutoff at all.
+     */
+    it("refuses a half-typed cutoff instead of sending nothing", async () => {
+      const dialog = await openDialog();
+      await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+      await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+      const cutoff = dialog.getByLabelText(/Cutoff/) as HTMLInputElement;
+      Object.defineProperty(cutoff, "validity", {
+        configurable: true,
+        value: { badInput: true },
+      });
+      await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+
+      const alert = await dialog.findByRole("alert");
+      expect(alert.textContent).toBe("The cutoff is not a complete date and time.");
+      expect(created()).toBe(undefined);
+    });
+  });
 });
 
 

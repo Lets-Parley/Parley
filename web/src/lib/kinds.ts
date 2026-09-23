@@ -82,6 +82,25 @@ export type ToggleSpec = {
   default: boolean;
 };
 
+/**
+ * A create-dialog instant: entered in the viewer's own local time, sent as an
+ * RFC 3339 instant. Always optional — left empty, the key is not sent at all.
+ * `showWhen` hides it (and drops it from the config) unless another field
+ * holds the given value, so a setting that only means something in one mode
+ * is never sent in another.
+ */
+export type InstantSpec = {
+  key: string;
+  label: string;
+  hint?: string;
+  showWhen?: { key: string; value: ConfigValue };
+};
+
+/** Whether an instant field applies to the config as it stands. */
+export function instantShown(spec: InstantSpec, config: Record<string, ConfigValue>): boolean {
+  return !spec.showWhen || JSON.stringify(config[spec.showWhen.key]) === JSON.stringify(spec.showWhen.value);
+}
+
 export type KindDef = {
   /** The wire id — what the server stores and the envelope carries. */
   id: string;
@@ -90,6 +109,7 @@ export type KindDef = {
   Room: ComponentType<RoomProps>;
   fields?: FieldSpec[];
   toggles?: ToggleSpec[];
+  instants?: InstantSpec[];
 };
 
 /**
@@ -142,6 +162,14 @@ export const KINDS: KindDef[] = [
           { id: "sync", name: "Live round", sample: ["Everyone", "in turn"], value: "sync" },
           { id: "async", name: "Async", sample: ["Answer", "any time"], value: "async" },
         ],
+      },
+    ],
+    instants: [
+      {
+        key: "closesAt",
+        label: "Cutoff",
+        hint: "Optional, in your local time. With none, the standup stays open until it is ended.",
+        showWhen: { key: "mode", value: "async" },
       },
     ],
   },

@@ -1,7 +1,7 @@
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type Deck, type SessionSummary, type SpaceView } from "../lib/api";
+import { api, errorText, type Deck, type SessionSummary, type SpaceView } from "../lib/api";
 import { useAuthMode, useMe, NameGate } from "../components/NameGate";
 import { isFullAccount } from "../lib/links";
 import { openSessionLapsed } from "../lib/sessionMemory";
@@ -27,6 +27,7 @@ import {
   KINDS,
   defaultConfig,
   fieldOptions,
+  instantShown,
   isChosen,
   kindLabel,
   type KindDef,
@@ -502,7 +503,6 @@ export function SpacePage() {
           slug={sp.slug}
           kinds={offered}
           onClose={() => setCreating(false)}
-          onError={say}
         />
       )}
     </AppShell>
@@ -760,24 +760,44 @@ function RoomManageModal({
   );
 }
 
+/**
+ * "Now" in the viewer's own local time, to minute precision, in the same
+ * "YYYY-MM-DDTHH:MM" shape a datetime-local input reads and writes. Used as
+ * the field's `min` so the browser's own picker refuses the past before the
+ * submit check ever runs.
+ */
+function localNowMinute(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function NewSessionModal({
   org,
   slug,
   kinds,
   onClose,
-  onError,
 }: {
   org: string;
   slug: string;
   /** The kinds this space may start, in registry order. Never empty. */
   kinds: KindDef[];
   onClose: () => void;
-  onError: (msg: string) => void;
 }) {
   const navigate = useNavigate();
   const [kind, setKind] = useState(kinds[0]);
   const [title, setTitle] = useState("");
   const [config, setConfig] = useState(() => defaultConfig(kinds[0]));
+  // Instants as typed, "YYYY-MM-DDTHH:MM" in the viewer's own zone. Converted
+  // only on submit, so switching a mode away and back keeps what was typed.
+  const [instants, setInstants] = useState<Record<string, string>>({});
+  // A refusal is shown here, beside what was typed, and the dialog stays open
+  // so it can be corrected rather than retyped from nothing.
+  const [error, setError] = useState("");
+  // Keyed by instant spec, so submit() can read validity.badInput straight
+  // off the element — React state never sees a half-typed value, since the
+  // browser reports its text back as "".
+  const instantRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const groupName = useId();
   // The space's own decks, fetched only for a kind that has a space-scoped
   // field: a standup has none, and must not cost a request to say so. Failing
@@ -792,22 +812,59 @@ function NewSessionModal({
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    setError("");
+    const body = { ...config };
+    for (const spec of kind.instants ?? []) {
+      if (!instantShown(spec, config)) continue;
+      const typed = instants[spec.key] ?? "";
+      // noValidate turns off the browser's own bubble, so a half-typed value
+      // — "2026-09-23T" with no time, say — reads back as "" here and would
+      // otherwise fall straight through the empty check below and be sent as
+      // though nothing had been typed at all. validity.badInput is the only
+      // signal that distinguishes "half-typed" from "genuinely empty".
+      const input = instantRefs.current[spec.key];
+      if (input?.validity.badInput) {
+        setError(`The ${spec.label.toLowerCase()} is not a complete date and time.`);
+        return;
+      }
+      // A hidden instant is never sent: it means nothing in the mode chosen,
+      // and the server refuses it there rather than ignoring it.
+      if (!typed) continue;
+      // A datetime-local value carries no offset, so Date reads it as local
+      // time — the viewer's own clock, which is what they typed against.
+      const at = new Date(typed);
+      if (Number.isNaN(at.getTime())) {
+        setError(`${spec.label} is not a date and time.`);
+        return;
+      }
+      // Compared against the start of the current minute, matching the
+      // field's own `min` (localNowMinute, minute precision): otherwise the
+      // exact minute the picker still offers is refused the instant it is
+      // chosen, whenever "now" has run past :00 seconds.
+      if (at.getTime() < Math.floor(Date.now() / 60000) * 60000) {
+        setError(`The ${spec.label.toLowerCase()} has to be in the future.`);
+        return;
+      }
+      body[spec.key] = at.toISOString();
+    }
     try {
       const sess = await api<SessionSummary>("POST", `${spaceApi(org, slug)}/sessions`, {
         kind: kind.id,
         title: title.trim(),
-        config,
+        config: body,
       });
       navigate(`/session/${sess.id}`);
     } catch (err) {
-      onError(err instanceof Error ? err.message : "Could not create the session.");
-      onClose();
+      setError(errorText(err));
     }
   }
 
   return (
     <Modal title="New session" onClose={onClose} width="480px">
-      <form onSubmit={submit}>
+      {/* noValidate: the cutoff's min is a hint for the picker, not a native
+          gate — the past check runs in submit() so its message lands in the
+          dialog's own alert line instead of a browser validation bubble. */}
+      <form onSubmit={submit} noValidate>
         <span className={labelClass}>Kind</span>
         <div className="flex gap-2">
           {kinds.map((k) => (
@@ -817,6 +874,8 @@ function NewSessionModal({
               onClick={() => {
                 setKind(k);
                 setConfig(defaultConfig(k));
+                setInstants({});
+                setError("");
               }}
               className={
                 "flex-1 rounded-chip px-3.5 py-2.5 text-sm " +
@@ -889,6 +948,33 @@ function NewSessionModal({
           </fieldset>
         ))}
 
+        {(kind.instants ?? [])
+          .filter((spec) => instantShown(spec, config))
+          .map((spec) => (
+            <div key={spec.key}>
+              <label className={labelClass} htmlFor={`${groupName}-${spec.key}`}>
+                {spec.label}
+              </label>
+              <input
+                id={`${groupName}-${spec.key}`}
+                ref={(el) => {
+                  instantRefs.current[spec.key] = el;
+                }}
+                type="datetime-local"
+                className={inputClass}
+                value={instants[spec.key] ?? ""}
+                onChange={(e) => setInstants({ ...instants, [spec.key]: e.target.value })}
+                min={localNowMinute()}
+                aria-describedby={spec.hint ? `${groupName}-${spec.key}-hint` : undefined}
+              />
+              {spec.hint && (
+                <p id={`${groupName}-${spec.key}-hint`} className="mt-1 text-[13px] text-ink-faint text-pretty">
+                  {spec.hint}
+                </p>
+              )}
+            </div>
+          ))}
+
         {(kind.toggles ?? []).map((t) => (
           <label key={t.key} className="mt-4 flex items-start gap-3 text-sm text-ink-soft">
             <input
@@ -903,6 +989,12 @@ function NewSessionModal({
             </span>
           </label>
         ))}
+
+        {error && (
+          <p role="alert" className="mt-4 text-sm font-bold text-stop text-pretty">
+            {error}
+          </p>
+        )}
 
         <div className="mt-6 flex justify-end gap-2.5">
           <button type="button" className={buttonQuiet} onClick={onClose}>

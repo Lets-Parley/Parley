@@ -5,7 +5,7 @@ description: A walkthrough for teams answering on their own time — opening a s
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp source={["internal/standup/state.go", "internal/standup/schedule.go", "internal/standup/ics.go", "internal/standup/mentions.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go", "internal/store/sessions.go", "internal/session/registry.go", "internal/api/standup_away.go", "web/src/components/AsyncDigest.tsx", "web/src/components/AwayDays.tsx", "web/src/components/StandupTrend.tsx", "web/src/pages/StandupRoom.tsx"]} />
+<VerifiedStamp source={["internal/standup/state.go", "internal/standup/schedule.go", "internal/standup/ics.go", "internal/standup/mentions.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go", "internal/store/sessions.go", "internal/session/registry.go", "internal/api/standup_away.go", "web/src/components/AsyncDigest.tsx", "web/src/components/AwayDays.tsx", "web/src/components/StandupTrend.tsx", "web/src/pages/StandupRoom.tsx", "web/src/pages/SpacePage.tsx", "web/src/components/StandupSchedulePanel.tsx"]} />
 
 An async standup is the same three questions as a live one, answered when each
 person has a minute rather than in one room at one time. This page walks
@@ -16,10 +16,12 @@ through a week of running one. The reference for every rule is on the
 
 Start a new standup in the space and choose **Async** as the mode. There is no
 speaking order and no timer: everyone who opens the room gets the answer form.
+**Cutoff** is optional and in your own local time; it publishes when answers
+are due without ending the standup.
 
 For a standup that opens itself, a space owner sets a schedule — weekdays, a
-local open time, a time zone and a window — through
-`PUT /api/orgs/{org}/spaces/{slug}/standup-schedule`. Each scheduled day opens
+local open time, a time zone and a window — under **Standup schedule** on the
+space's settings page. Each scheduled day opens
 a new async standup, and opening it ends the previous one. See
 [Scheduled async standups](/features/daily-standup/#scheduled-async-standups).
 

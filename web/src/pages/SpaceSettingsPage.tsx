@@ -11,6 +11,7 @@ import {
   labelClass,
 } from "../components/Modal";
 import { DecksPanel } from "../components/DecksPanel";
+import { StandupSchedulePanel } from "../components/StandupSchedulePanel";
 import { useCopy, useToast } from "../lib/ui";
 import { inviteLink } from "../lib/invite";
 import { spaceApi, spacePath } from "../lib/paths";
@@ -133,6 +134,9 @@ export function SpaceSettingsPage() {
             space keeps is reference, not administration. Only the controls
             are an owner's. */}
         <DecksPanel org={org} slug={sp.slug} canManage={canManage} onError={say} />
+        {/* The same split as the decks: a member sees when the standup
+            opens, and only an owner is given the form to move it. */}
+        <StandupSchedulePanel org={org} slug={sp.slug} canManage={canManage} />
         {canManage && <DangerZone org={org} slug={sp.slug} name={sp.name} onError={say} />}
       </div>
     </AppShell>

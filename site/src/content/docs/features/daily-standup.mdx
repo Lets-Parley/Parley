@@ -11,7 +11,7 @@ import roundDark from "../../../assets/standup-round-dark.png";
 import blockersLight from "../../../assets/blockers-roundup-light.png";
 import blockersDark from "../../../assets/blockers-roundup-dark.png";
 
-<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "internal/standup/kudos.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/components/AsyncDigest.tsx", "web/src/lib/kinds.ts", "internal/standup/schedule.go", "internal/standup/webhook.go", "internal/api/standup_webhook.go", "internal/standup/ics.go", "internal/api/ics.go", "internal/standup/mentions.go", "internal/api/standup_mentions.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go", "internal/store/sessions.go", "internal/session/registry.go", "internal/api/standup_away.go", "web/src/components/AwayDays.tsx", "web/src/components/StandupTrend.tsx"]} />
+<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "internal/standup/kudos.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/components/AsyncDigest.tsx", "web/src/lib/kinds.ts", "internal/standup/schedule.go", "internal/standup/webhook.go", "internal/api/standup_webhook.go", "internal/standup/ics.go", "internal/api/ics.go", "internal/standup/mentions.go", "internal/api/standup_mentions.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go", "internal/store/sessions.go", "internal/session/registry.go", "internal/api/standup_away.go", "web/src/components/AwayDays.tsx", "web/src/components/StandupTrend.tsx", "web/src/pages/SpacePage.tsx", "web/src/components/StandupSchedulePanel.tsx"]} />
 
 A standup session is three text fields per person — yesterday, today, blockers —
 and an order to speak in.
@@ -246,14 +246,21 @@ with `409`. Mentions work the other way round: they exist only in an async
 standup, and a sync one answers them with `409`. A signed-link guest answers like anybody else while its link is
 valid.
 
-A session created through the API can carry a published cutoff, `closesAt`
-(RFC 3339), alongside `"mode": "async"`. Passing it does **not** end the
-standup: an answer written afterwards is accepted and appended with its posted
-time like any other, with no late badge. The standup ends when the facilitator
-ends it. Once ended, its record keeps the entries only — the not-yet and away
-lists are never stored or served, and what the standup changed about
-commitments is no longer served, so nobody's landed and dropped history can be
-rebuilt from old rooms.
+An async standup can carry a published cutoff. In the **New session** dialog,
+choosing **Async** offers an optional **Cutoff**, entered in your own local
+time; left empty, the standup has none and stays open until it is ended. The dialog refuses a cutoff already in the past before it is ever sent —
+but that is the dialog's own courtesy, not a server rule: `closesAt` is
+never checked against the clock, so the API accepts one in the past (or one
+far in the future) without complaint. Through the API it is `closesAt` (RFC 3339), alongside
+`"mode": "async"`; a live round refuses one with a 400. If the server refuses
+the new session for any other reason, the dialog stays open and shows its
+message as written. Passing the cutoff does **not** end the standup: an
+answer written afterwards is accepted and appended with its posted time like
+any other, with no late badge. The standup ends when the facilitator ends it.
+Once ended, its record keeps the entries only — the not-yet and away lists are
+never stored or served, and what the standup changed about commitments is no
+longer served, so nobody's landed and dropped history can be rebuilt from old
+rooms.
 
 ### Away days
 
@@ -332,10 +339,15 @@ The trend adds only a rounded team ratio to that. `GET
 
 ### Scheduled async standups
 
-A space owner can give the space a standup schedule, through the API only for
-now (`PUT /api/orgs/{org}/spaces/{slug}/standup-schedule`): the weekdays, a
-local open time, an IANA time zone such as `America/New_York`, and a window in
-minutes. The zone must be one both Parley and Postgres know: `Local`,
+A space owner can give the space a standup schedule under **Standup schedule**
+on the space's settings page, or through
+`PUT /api/orgs/{org}/spaces/{slug}/standup-schedule`: the weekdays, a local open
+time, an IANA time zone such as `America/New_York`, a window in minutes, and
+whether it is on. A new schedule starts in the browser's own time zone, and the
+zone field suggests the names the browser knows, but the server decides: a
+refusal is shown beside the form as written. Members see the schedule on the
+same page without the form; a signed-link guest does not reach the page at
+all. The zone must be one both Parley and Postgres know: `Local`,
 `localtime` and the `posix/` and `right/` copies of the zone database are
 refused with a 400. A schedule saved with such a zone by an earlier release
 keeps opening its slots, and its away days and trend days are read in UTC
@@ -453,10 +465,9 @@ it lists only the spaces they still belong to.
 <Capability rows={[
   { name: "Configurable timer length", status: "not-built", detail: "The server supports a <code>secondsPerPerson</code> session setting and defaults it to 90, but nothing in the UI sets it. Treat 90 seconds as fixed." },
   { name: "Async standup", status: "built", detail: "Answer on your own time and read a blockers-first digest. See Async standups above." },
-  { name: "Scheduled async standups", status: "built", detail: "Set through the API. See Scheduled async standups above." },
+  { name: "Scheduled async standups", status: "built", detail: "Set on the space's settings page or through the API. See Scheduled async standups above." },
   { name: "A webhook editor", status: "not-built", detail: "The standup webhook is set through the API only; nothing in the UI sets it yet." },
   { name: "A calendar feed on the profile", status: "not-built", detail: "Mint, copy and revoke the personal feed through the API. Nothing in the profile dialog does it yet." },
-  { name: "A schedule editor and a cutoff picker", status: "not-built", detail: "The schedule and <code>closesAt</code> are set through the API only; nothing in the UI sets them yet." },
   { name: "Reordering the speaking order", status: "not-built", detail: "Fixed once the round starts. Skip moves past anyone who is not ready." },
   { name: "Editing a kudo", status: "not-built", detail: "The sender can withdraw one from the space's wall. Nobody can rewrite text somebody has already read." },
   { name: "Participation per person", status: "out-of-scope", detail: "Only the team trend exists: frozen per-day counts from scheduled standups, days under four eligible people dropped, rounded to one decimal. No endpoint, column or screen computes it for one person." },

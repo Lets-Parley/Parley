@@ -66,6 +66,11 @@ export function orgPluginPanelsApi(org: string): string {
   return `/api/orgs/${org}/plugins/panels`;
 }
 
+/** The space's standup schedule. Members read it; only an owner may PUT it. */
+export function standupScheduleApi(org: string, slug: string): string {
+  return `${spaceApi(org, slug)}/standup-schedule`;
+}
+
 /** The space's weekly team participation trend. Members only; no parameters. */
 export function standupTrendApi(org: string, slug: string): string {
   return `${spaceApi(org, slug)}/standup-trend`;
