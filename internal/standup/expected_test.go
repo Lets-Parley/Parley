@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/lets-parley/parley/internal/store"
 )
 
 // linkGuest mints a signed link on the session and a users row redeemed from
@@ -80,6 +82,35 @@ func TestAsyncStandupExpectsEveryNonSpectatorMember(t *testing.T) {
 	}
 	if _, ok := got[idle]; ok {
 		t.Error("an unattached link is owed no answer")
+	}
+}
+
+// A manual async standup created yesterday and still open serves no expected
+// list: the day it is for is not today, so the digest must fall back to the
+// room's participants rather than filing an away member under "Not yet"
+// (#640, mirroring TestOpenAsyncStandupListsWhoIsAway's own-day gate).
+func TestExpectedIsServedOnlyOnTheStandupsOwnDay(t *testing.T) {
+	pool := testPool(t)
+	sess, _ := seed(t, pool, `{"mode":"async"}`, "Dana Whitfield", "Ruth Okafor")
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx,
+		"update sessions set created_at = now() - interval '1 day' where id = $1", sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	sess, err := (&store.Sessions{Pool: pool}).ByID(ctx, sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := buildStandupState(t, pool, sess); st.Expected != nil {
+		t.Fatalf("yesterday's open async standup expected = %+v, want none", *st.Expected)
+	}
+
+	if _, err := pool.Exec(ctx, "delete from sessions; delete from members; delete from users; delete from spaces"); err != nil {
+		t.Fatal(err)
+	}
+	today, _ := seed(t, pool, `{"mode":"async"}`, "Priya Raman")
+	if st := buildStandupState(t, pool, today); st.Expected == nil {
+		t.Fatal("today's open async standup expected = nil, want a list")
 	}
 }
 

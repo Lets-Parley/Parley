@@ -60,19 +60,26 @@ func TestAsyncStandupWaitsOnMembersAndNamesDepartedAuthorsForGuests(t *testing.T
 	mintLink(t, srv, s, owner)
 
 	_, body := getRaw(t, srv, "/api/sessions/"+s, owner)
-	var mine struct {
-		State struct {
-			Expected []struct {
-				UserID string `json:"userId"`
-			} `json:"expected"`
-		} `json:"state"`
+	mineRoom := readRawRoom(t, body)
+	memberStateKeys := []string{"away", "changes", "closesAt", "commitments", "currentSpeakerId", "entries", "expected", "kudos", "mode", "secondsPerPerson", "speakerStartedAt"}
+	if k := sortedKeys(mineRoom.State); !slices.Equal(k, memberStateKeys) {
+		t.Fatalf("member state keys = %v, want exactly %v", k, memberStateKeys)
 	}
-	if err := json.Unmarshal(body, &mine); err != nil {
-		t.Fatal(err)
+	var expected []map[string]json.RawMessage
+	if err := json.Unmarshal(mineRoom.State["expected"], &expected); err != nil {
+		t.Fatalf("decoding expected: %v (%s)", err, mineRoom.State["expected"])
 	}
+	expectedKeys := []string{"guest", "name", "userId"}
 	var got []string
-	for _, p := range mine.State.Expected {
-		got = append(got, p.UserID)
+	for _, p := range expected {
+		if k := sortedKeys(p); !slices.Equal(k, expectedKeys) {
+			t.Fatalf("expected[] entry keys = %v, want exactly %v", k, expectedKeys)
+		}
+		var userID string
+		if err := json.Unmarshal(p["userId"], &userID); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, userID)
 	}
 	want := append([]string(nil), ids...)
 	sort.Strings(got)

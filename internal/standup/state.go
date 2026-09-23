@@ -155,10 +155,13 @@ type State struct {
 	// Expected is who an open async standup is waiting on an answer from: the
 	// space's non-spectator members, whether or not they have opened the room,
 	// plus each link guest that has attached to it (#640). Answered and away
-	// people are still in it; the client sets them aside. Absent — not an
-	// empty list — for a sync room, which seats whoever is in it (#601), for
-	// an ended standup, which keeps its entries only (#388), and for a link
-	// guest, to whom the space's roster is none of its business (see ForGuest).
+	// people are still in it; the client sets them aside. Served only while
+	// its day is today, the same gate Away applies: a reopened or still-open
+	// standup from an earlier day serves none, and the digest falls back to
+	// the room's participants. Absent — not an empty list — for a sync room,
+	// which seats whoever is in it (#601), for an ended standup, which keeps
+	// its entries only (#388), for a non-today standup, and for a link guest,
+	// to whom the space's roster is none of its business (see ForGuest).
 	Expected *[]WireExpected `json:"expected,omitempty"`
 }
 
@@ -302,11 +305,22 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 			return nil, err
 		}
 		st.Away = append(st.Away, away...)
-		expected, err := expectedPeople(ctx, pool, sess)
+		// Expected is gated on the same "session day is today" test as the
+		// away list (#640): on a non-today open standup — a manual async
+		// standup created on an earlier day, or one reopened from one — no
+		// Expected is served, and the digest falls back to the room's
+		// participants, as it already does for a guest.
+		today, err := sessionIsToday(ctx, pool, sess.ID)
 		if err != nil {
 			return nil, err
 		}
-		st.Expected = &expected
+		if today {
+			expected, err := expectedPeople(ctx, pool, sess)
+			if err != nil {
+				return nil, err
+			}
+			st.Expected = &expected
+		}
 	}
 
 	// This session's kudos only, oldest first — the order they were given in,

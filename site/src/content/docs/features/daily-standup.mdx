@@ -223,14 +223,17 @@ standup ends — and a digest of everyone else's, in this order:
    the section is no longer shown or served.
 4. **Updates**, each collapsed to its first line with the time it was posted,
    shown in your own time zone. Open one to read all three fields.
-5. **Answered**, **Not yet** and **Away**, while the standup is open.
-   **Not yet** is everyone the standup is waiting on: the space's members
-   who are not spectators, whether or not they have opened the room, plus
-   any signed-link guest once it has joined the room. A link nobody has
-   used yet is not waited on. Nobody who set themselves away today is listed
-   under **Not yet**: they appear under **Away** instead, until they answer
-   anyway. A live (sync) standup is different: there the room waits only on
-   the people who have turned up in it.
+5. **Answered**, **Not yet** and **Away**, while the standup is open and its
+   day is today. **Not yet** is everyone the standup is waiting on: the
+   space's members who are not spectators, whether or not they have opened
+   the room, plus any signed-link guest once it has joined the room. A link
+   nobody has used yet is not waited on. Nobody who set themselves away today
+   is listed under **Not yet**: they appear under **Away** instead, until
+   they answer anyway. A manual async standup created on an earlier day and
+   still open — or reopened from one — shows neither list: the digest falls
+   back to whoever has turned up in the room, the same as a live (sync)
+   standup, where the room always waits only on the people who have turned up
+   in it.
 
 For a step-by-step walkthrough of running a team this way, see the
 [async standup guide](/features/async-standup-guide/).
