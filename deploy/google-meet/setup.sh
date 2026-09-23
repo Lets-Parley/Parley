@@ -142,9 +142,11 @@ Four steps have no API and stay manual:
   2. Same page, Store listing tab: fill in Language, Application name, Short
      description, Detailed description, Category, Application icons,
      Application card banner, Screenshots, Terms of service, Privacy policy
-     and Support, then click Submit. A Private app is published immediately,
-     with no Google review — but it is not installable by anyone until this
-     step is done.
+     and Support (per Google's create-listing page), then click Submit. A
+     Private app is published immediately, with no Google review — but it is
+     not installable by anyone until this step is done. Ready-made icons, a
+     card banner, screenshots and paste-ready text for all of this are in
+     deploy/google-meet/listing/ (see its README.md).
   3. A super administrator turns this on once per domain: Admin console ->
      Apps -> Google Workspace Marketplace apps -> Settings -> "Allow users to
      install any internal app".

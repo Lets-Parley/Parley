@@ -297,6 +297,11 @@ grep -q "Terms of service" "$work/checklist.log"
 grep -q "Privacy policy" "$work/checklist.log"
 grep -qi "published immediately" "$work/checklist.log"
 grep -qi "no Google review" "$work/checklist.log"
+grep -q "deploy/google-meet/listing" "$work/checklist.log" || {
+  echo "FAIL: the checklist should point at the ready-made store listing kit" >&2
+  cat "$work/checklist.log" >&2
+  exit 1
+}
 grep -q "Allow users to" "$work/checklist.log"
 grep -q "install any internal app" "$work/checklist.log"
 grep -q "workspace.google.com/marketplace/mydomainapps" "$work/checklist.log"

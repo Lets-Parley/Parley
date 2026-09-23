@@ -5,7 +5,7 @@ description: Run Parley inside Google Meet — a side panel to vote from and a m
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/embed.go", "internal/api/router.go", "web/src/pages/MeetAddon.tsx", "web/src/lib/meet.ts", "cmd/parley/main.go", "deploy/google-meet/setup.sh", "deploy/google-meet/manifest.template.json", "deploy/google-meet/tutorial.md"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/embed.go", "internal/api/router.go", "web/src/pages/MeetAddon.tsx", "web/src/lib/meet.ts", "cmd/parley/main.go", "deploy/google-meet/setup.sh", "deploy/google-meet/manifest.template.json", "deploy/google-meet/tutorial.md", "deploy/google-meet/listing/README.md", "deploy/google-meet/listing/listing.md"]} />
 
 With the add-on installed, anyone signed in to Parley can open it from a
 Meet call: **Meeting tools** (the apps icon) → **Your add-ons**, which Google's
@@ -113,15 +113,18 @@ hand instead:
    project" banner — the page still saves, and the add-on works without a
    consent screen: Parley asks Google for no scopes.
 5. Still on the Marketplace SDK, open the **Store listing** tab and fill in
-   its required fields — Language, Application name, Short description,
-   Detailed description, Category, Application icons, Application card
-   banner, Screenshots, Terms of service, Privacy policy and Support — then
-   click **Submit**
+   its required fields (per Google's create-listing page) — Language,
+   Application name, Short description, Detailed description, Category,
+   Application icons, Application card banner, Screenshots, Terms of
+   service, Privacy policy and Support — then click **Submit**
    ([Create a store listing](https://developers.google.com/workspace/marketplace/create-listing)).
-   Regardless of visibility, an app needs a store listing before anyone can
-   install it. For a **Private** app this publishes immediately: there is no
-   Google review, and it becomes available to your whole Workspace
-   organization as soon as you submit
+   `deploy/google-meet/listing/` has ready-made icons, a card banner,
+   screenshots and paste-ready text for everything except the Terms of
+   service, Privacy policy and Support links, which have to be your own
+   (see the kit's README.md). Regardless of visibility, an app needs a
+   store listing before anyone can install it. For a **Private** app this
+   publishes immediately: there is no Google review, and it becomes
+   available to your whole Workspace organization as soon as you submit
    ([Publish your app](https://developers.google.com/workspace/marketplace/how-to-publish)).
 6. Back on **HTTP deployments**, click **Install** in the deployment's
    **Actions** column. This installs it for your own account only, so you can

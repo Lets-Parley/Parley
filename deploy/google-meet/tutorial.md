@@ -47,12 +47,16 @@ The script prints four remaining steps and their console URLs:
    `BASE_URL`) and Email. This cannot be changed once saved. Ignore the red
    "The OAuth Consent Screen must be enabled for this project" banner — it
    saves anyway, and the add-on works without one.
-2. On the same page's **Store listing** tab, fill in the required fields —
-   Language, Application name, Short description, Detailed description,
-   Category, Application icons, Application card banner, Screenshots, Terms
-   of service, Privacy policy and Support — then click **Submit**. A
-   **Private** app publishes immediately, with no Google review, but nobody
-   can install it until this step is done.
+2. On the same page's **Store listing** tab, fill in the required fields
+   (per Google's create-listing page) — Language, Application name, Short
+   description, Detailed description, Category, Application icons,
+   Application card banner, Screenshots, Terms of service, Privacy policy
+   and Support — then click **Submit**. A **Private** app publishes
+   immediately, with no Google review, but nobody can install it until this
+   step is done. `deploy/google-meet/listing/` has ready-made icons, a card
+   banner, screenshots and paste-ready text for all of this except the
+   Terms of service, Privacy policy and Support links, which have to be
+   your own.
 3. A super administrator turns on, once per domain, "Allow users to install
    any internal app" in the Google Admin console.
 4. Your people install it themselves from
