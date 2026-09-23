@@ -58,11 +58,11 @@ if the console has moved on, trust those pages over this one.
 This button clones the repository into Cloud Shell, already signed in as
 you, and walks through enabling the two services, building the manifest from
 your `BASE_URL`, creating the deployment, installing it for your own account
-and confirming the install — steps 2, 3 and 6 below — with
+and confirming the install — steps 2, 3 and 7 below — with
 `deploy/google-meet/setup.sh`. Re-running it later, for example after
 `BASE_URL` changes, replaces the existing deployment instead of failing.
-Steps 4 and 5 below have no API and stay manual either way. To do it all by
-hand instead:
+Steps 4, 5 and 6 below have no API and stay manual either way. To do it all
+by hand instead:
 
 1. In the Google Cloud console, create a project in your Workspace
    organization. Its **project number** (not the id) is
@@ -118,46 +118,81 @@ hand instead:
      Public stays public. A private add-on is limited to your Workspace
      organization.
    - **Installation Settings**: choose **Individual + Admin Install** — this
-     is what lets people self-install from
-     `workspace.google.com/marketplace/mydomainapps` in
+     is what gives you both rollout options in
      ["Install it for the domain"](#3-install-it-for-the-domain) below.
-     **Admin Only Install** would break that.
+     **Admin Only Install** would remove the self-install one.
 
-   Ignore the red "The OAuth Consent Screen must be enabled for this
-   project" banner and any yellow "The user type is testing but app is not
-   unlisted" banner — both save fine, and the add-on works without a
-   consent screen: Parley asks Google for no scopes.
-5. Still on the Marketplace SDK, open the **Store listing** tab and fill in
-   its required fields (per Google's create-listing page) — Language,
-   Application name, Short description, Detailed description, Category,
-   Application icons, Application card banner, Screenshots, Terms of
-   service, Privacy policy and Support — then click **Submit**
-   ([Create a store listing](https://developers.google.com/workspace/marketplace/create-listing)).
-   `deploy/google-meet/listing/` has ready-made icons, a card banner,
-   screenshots and paste-ready text for everything except the Terms of
-   service, Privacy policy and Support links, which have to be your own
-   (see the kit's README.md). Regardless of visibility, an app needs a
-   store listing before anyone can install it. For a **Private** app this
-   publishes immediately: there is no Google review, and it becomes
-   available to your whole Workspace organization as soon as you submit
+   The red "The OAuth Consent Screen must be enabled for this project"
+   banner shows here too, along with any yellow "The user type is testing
+   but app is not unlisted" banner. Neither blocks **Save** on this page —
+   but you do need the consent screen before you can **Publish** the Store
+   listing, which is the next step.
+5. **Google Auth Platform** — the consent screen itself, on the same
+   project:
+   [console.cloud.google.com/auth/overview](https://console.cloud.google.com/auth/overview).
+   Click **Get started**, then: App name `Parley`, User support email =
+   yours; Audience = **Internal** (your own organization only, no Google
+   verification); Contact information = your email; agree to the policy;
+   **Create**. Add no scopes — Parley asks for none. This minimal, Internal
+   consent screen is enough; nothing else is asked for.
+6. Still on the Marketplace SDK, open the **Store listing** tab
+   ([Create a store listing](https://developers.google.com/workspace/marketplace/create-listing)):
+   - **Required**: the App Details language entry, Category, Application
+     Icon 32x32, Application Icon 128x128, Application Card Banner 220x140,
+     at least one Screenshot, Terms of service URL, Privacy policy URL,
+     Support URL, and Regions (or tick **All Regions**).
+   - **Optional**: Pricing, Icon 48x48, Icon 96x96, YouTube promo videos,
+     Setup URL, Admin config URL, Help URL, Report issue URL, Draft
+     testers.
+
+   The App Details language row starts collapsed, showing only "English —".
+   Click it to expand **Edit Language**, then fill in Language (English),
+   Application Name, Short Description and Detailed Description — all
+   required — and click **Done**. `deploy/google-meet/listing/listing.md`
+   has paste-ready text for all four plus a category to pick.
+
+   `deploy/google-meet/listing/` also has ready-made icons and a card
+   banner; everything here is provided except the Terms of service, Privacy
+   policy, Support and Regions choices, which have to be your own (see the
+   kit's README.md). Once every required field is filled, including that
+   hidden language row, click **Save draft** first, then **Publish** —
+   Publish stays disabled until Save draft has been clicked once, and both
+   stay greyed out until every required field is filled (that includes the
+   Google Auth Platform consent screen from step 5, not just the fields on
+   this tab). Regardless of visibility, an app needs a store listing before
+   anyone can install it. For a **Private** app, publishing is immediate:
+   there is no Google review, and it becomes available to your whole
+   Workspace organization as soon as you click Publish
    ([Publish your app](https://developers.google.com/workspace/marketplace/how-to-publish)).
-6. Back on **HTTP deployments**, click **Install** in the deployment's
+   Google then shows the app's own Marketplace page — its address looks
+   like `workspace.google.com/marketplace/app/<name>/<project-number>`;
+   the exact link is whatever the console shows you, not something to
+   predict.
+7. Back on **HTTP deployments**, click **Install** in the deployment's
    **Actions** column. This installs it for your own account only, so you can
    try it: start a call at meet.google.com and open it from **Meeting tools →
    Your add-ons**.
 
 ## 3. Install it for the domain
 
-The Store listing step above already made the add-on available to your whole
-organization; a super administrator still has to turn on, once per domain,
-permission for people to install it themselves. In the Google Admin console,
-go to **Apps → Google Workspace Marketplace apps → Settings** and enable
-**Allow users to install any internal app**
-([Google's own steps](https://support.google.com/a/answer/172482)). After
-that, your people install Parley themselves from
-[workspace.google.com/marketplace/mydomainapps](https://workspace.google.com/marketplace/mydomainapps).
-Once installed, it appears under **Meeting tools → Your add-ons** in those
-people's calls.
+Once published, roll it out either way:
+
+- **Easiest**: a Workspace admin opens the app's Marketplace page (the link
+  Publish showed you, or found by searching
+  [workspace.google.com/marketplace](https://workspace.google.com/marketplace))
+  and clicks **Admin install** to install it for the whole domain, or for
+  chosen organizational units
+  ([Google's own steps](https://support.google.com/a/answer/172482)).
+- **Or let people install it themselves**: in the Google Admin console, go
+  to **Apps → Google Workspace Marketplace apps → Settings** and enable
+  **Allow users to install any internal app**, once per domain
+  ([Google's own steps](https://support.google.com/a/answer/172482)). After
+  that, your people click **Individual install** on the app's Marketplace
+  page, or find it themselves at
+  [workspace.google.com/marketplace/mydomainapps](https://workspace.google.com/marketplace/mydomainapps).
+
+Either way, once installed it appears under **Meeting tools → Your
+add-ons** in those people's calls.
 
 ## Who cannot use it
 

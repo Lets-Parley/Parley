@@ -7,7 +7,9 @@
 # What this script cannot do — no API exists for these, so they stay manual
 # console steps printed at the end: Marketplace SDK App configuration
 # (integration type, deployment pointer, visibility, developer contact
-# fields — permanent once saved) and the admin's org-wide install toggle.
+# fields — permanent once saved), the OAuth consent screen, the Store
+# listing (required before anyone can install the app), and rolling it out
+# to the domain.
 set -euo pipefail
 
 # Never stop to ask a yes/no question; every gcloud call below is meant to
@@ -125,6 +127,18 @@ else
   INSTALL_LINE="❌ could not confirm the install; see the error above."
 fi
 
+# Used only to guess the app's future Marketplace page link below; a
+# failure here is not fatal, it just drops that one line.
+PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)' 2>/dev/null || true)"
+MARKETPLACE_PAGE_LINE=""
+if [[ -n "$PROJECT_NUMBER" ]]; then
+  MARKETPLACE_PAGE_LINE="
+     If you kept the Application Name \"Parley\", it should end up at
+     https://workspace.google.com/marketplace/app/parley/${PROJECT_NUMBER}
+     — Google shows the exact link once you publish, so treat this as a
+     guess, not the source of truth."
+fi
+
 cat <<EOF
 
 Scripted steps done for project ${PROJECT_ID}. ${INSTALL_LINE}
@@ -146,22 +160,49 @@ Four steps have no API and stay manual:
      - App Visibility: defaults to Public. Switch it to Private before
        saving — it cannot be changed afterward.
      - Installation Settings: choose "Individual + Admin Install", not
-       "Admin Only Install" — the latter breaks step 4 below.
-     Ignore the red "The OAuth Consent Screen must be enabled for this
-     project" banner and any yellow "user type is testing" banner — both
-     save fine, and the add-on works without a consent screen.
+       "Admin Only Install" — the latter removes one of your two options
+       in step 4 below.
+     The red "The OAuth Consent Screen must be enabled for this project"
+     banner shows here too, and any yellow "user type is testing" banner —
+     neither blocks Save on this page. You do need the consent screen
+     before you can Publish the Store listing, though: that's step 2.
      https://console.cloud.google.com/apis/api/appsmarket-component.googleapis.com/googleapps_sdk?project=${PROJECT_ID}
-  2. Same page, Store listing tab: fill in Language, Application name, Short
-     description, Detailed description, Category, Application icons,
-     Application card banner, Screenshots, Terms of service, Privacy policy
-     and Support (per Google's create-listing page), then click Submit. A
-     Private app is published immediately, with no Google review — but it is
-     not installable by anyone until this step is done. Ready-made icons, a
-     card banner, screenshots and paste-ready text for all of this are in
-     deploy/google-meet/listing/ (see its README.md).
-  3. A super administrator turns this on once per domain: Admin console ->
-     Apps -> Google Workspace Marketplace apps -> Settings -> "Allow users to
-     install any internal app".
-  4. Your people install it themselves from
-     https://workspace.google.com/marketplace/mydomainapps.
+  2. Google Auth Platform (the consent screen), same project:
+     https://console.cloud.google.com/auth/overview?project=${PROJECT_ID}
+     -> Get started -> App name "Parley", User support email = yours ->
+     Audience: Internal (your own organization only, no Google
+     verification) -> Contact information = your email -> agree -> Create.
+     Add no scopes; Parley requests none. This minimal, Internal consent
+     screen is enough.
+  3. Back on the Marketplace SDK, Store listing tab
+     (https://developers.google.com/workspace/marketplace/create-listing).
+     Required: the App Details language entry (its row starts collapsed,
+     showing "English -"; click it to expand "Edit Language", fill
+     Language, Application Name, Short Description and Detailed
+     Description, then click Done), Category, Application Icon 32x32,
+     Application Icon 128x128, Application Card Banner 220x140, at least
+     one Screenshot, Terms of service URL, Privacy policy URL, Support URL,
+     and Regions (or tick "All Regions"). Optional: Pricing, Icon 48x48,
+     Icon 96x96, YouTube promo videos, Setup URL, Admin config URL, Help
+     URL, Report issue URL, Draft testers. deploy/google-meet/listing/ has
+     ready-made icons, a card banner, screenshots and paste-ready text
+     (including the language-entry fields and a category) for all of this
+     except the Terms of service, Privacy policy, Support and Regions
+     choices, which have to be your own (see its README.md). Click Save
+     draft first, then Publish — Publish stays disabled until Save draft
+     has been clicked once, and both stay greyed out until every required
+     field is filled, including the hidden language row and step 2's
+     consent screen. A Private app publishes immediately, with no Google review
+     — but it is not installable by anyone until this step is
+     done.${MARKETPLACE_PAGE_LINE}
+  4. Roll it out, either way:
+       - Easiest: a Workspace admin opens the app's Marketplace page (the
+         link Publish just showed you) and clicks "Admin install" to
+         install it for the whole domain, or for chosen organizational units
+         (https://support.google.com/a/answer/172482).
+       - Or let people install it themselves: turn on, once per domain,
+         Admin console -> Apps -> Google Workspace Marketplace apps ->
+         Settings -> "Allow users to install any internal app", then your
+         people click "Individual install" on the app's page or find it at
+         https://workspace.google.com/marketplace/mydomainapps.
 EOF

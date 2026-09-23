@@ -40,6 +40,9 @@ case "$1 $2" in
     ;;
   "services enable")
     ;;
+  "projects describe")
+    echo "${PROJECT_NUMBER_VALUE:-199472588023}"
+    ;;
   "workspace-add-ons deployments")
     sub="$3"
     case "$sub" in
@@ -277,16 +280,19 @@ grep -q "❌" "$work/statusfail.log" || {
   exit 1
 }
 
-# The final checklist names the four steps with no API: App configuration
-# (App Integrations, Developer Information including Trader status, App
+# The final checklist names four manual steps: App configuration (App
+# Integrations, Developer Information including Trader status, App
 # Visibility defaulting to Public with a prominent switch-to-Private
-# warning, Installation Settings, and the consent-screen banner note), the
-# Store listing (with its required fields and that a Private app publishes
-# immediately with no Google review), the admin's one-time toggle, and the
-# self-install URL. The old "step 4 above" wording and the separate
-# consent-screen step must be gone, and there must be no fifth step.
+# warning, Installation Settings, and a banner note that doesn't claim the
+# consent screen is unnecessary), the consent screen itself (Google Auth
+# Platform), the Store listing (its required fields, the hidden language
+# row, Save draft before Publish, and a guessed Marketplace page link), and
+# rolling it out (Admin install or the self-install toggle). The old "step
+# 4 above" wording must be gone, and there must be no fifth step.
 rm -f "$calls_log" "$capture" "$create_counter"
 run_setup "https://parley.example.com" 1 >"$work/checklist.log" 2>&1
+
+# Step 1: App configuration.
 grep -q "App configuration" "$work/checklist.log"
 grep -q "App Integrations" "$work/checklist.log"
 grep -q "Google Workspace add-on" "$work/checklist.log"
@@ -316,30 +322,93 @@ grep -q "Individual + Admin Install" "$work/checklist.log" || {
   exit 1
 }
 grep -q "Admin Only Install" "$work/checklist.log" || {
-  echo "FAIL: the checklist should warn that Admin Only Install breaks self-install" >&2
+  echo "FAIL: the checklist should name Admin Only Install as the setting to avoid" >&2
   cat "$work/checklist.log" >&2
   exit 1
 }
 grep -q "OAuth Consent Screen must be enabled" "$work/checklist.log"
 grep -qi "user type is testing" "$work/checklist.log" || {
-  echo "FAIL: the checklist should also say to ignore the yellow 'user type is testing' banner" >&2
+  echo "FAIL: the checklist should also mention the yellow 'user type is testing' banner" >&2
   cat "$work/checklist.log" >&2
   exit 1
 }
+grep -q "neither blocks Save" "$work/checklist.log" || {
+  echo "FAIL: the checklist should say the banners don't block Save on App configuration" >&2
+  cat "$work/checklist.log" >&2
+  exit 1
+}
+grep -qi "works without a consent screen" "$work/checklist.log" && {
+  echo "FAIL: the checklist must not claim the add-on works without a consent screen — it is required" >&2
+  cat "$work/checklist.log" >&2
+  exit 1
+}
+grep -qi "still being confirmed" "$work/checklist.log" && {
+  echo "FAIL: the checklist must not hedge on whether a consent screen is needed — it is confirmed required" >&2
+  cat "$work/checklist.log" >&2
+  exit 1
+}
+
+# Step 2: the consent screen (Google Auth Platform) is its own step.
+grep -q "Google Auth Platform" "$work/checklist.log" || {
+  echo "FAIL: the checklist should have a Google Auth Platform / consent screen step" >&2
+  cat "$work/checklist.log" >&2
+  exit 1
+}
+grep -q "console.cloud.google.com/auth/overview" "$work/checklist.log"
+grep -q "Internal" "$work/checklist.log"
+grep -qi "no scopes" "$work/checklist.log"
+
+# Step 3: Store listing.
 grep -q "Store listing" "$work/checklist.log"
-grep -q "Application name" "$work/checklist.log"
+grep -q "Application Name" "$work/checklist.log"
+grep -qi "collapsed" "$work/checklist.log" || {
+  echo "FAIL: the checklist should say the App Details language row starts collapsed" >&2
+  cat "$work/checklist.log" >&2
+  exit 1
+}
+grep -q "Edit Language" "$work/checklist.log"
 grep -q "Terms of service" "$work/checklist.log"
 grep -q "Privacy policy" "$work/checklist.log"
-grep -qi "published immediately" "$work/checklist.log"
+grep -qi "publishes immediately" "$work/checklist.log"
 grep -qi "no Google review" "$work/checklist.log"
 grep -q "deploy/google-meet/listing" "$work/checklist.log" || {
   echo "FAIL: the checklist should point at the ready-made store listing kit" >&2
   cat "$work/checklist.log" >&2
   exit 1
 }
+grep -q "Save draft" "$work/checklist.log" || {
+  echo "FAIL: the checklist should mention Save draft" >&2
+  cat "$work/checklist.log" >&2
+  exit 1
+}
+grep -qi "Publish stays disabled until Save draft" "$work/checklist.log" || {
+  echo "FAIL: the checklist should explain Publish stays disabled until Save draft is clicked" >&2
+  cat "$work/checklist.log" >&2
+  exit 1
+}
+grep -q "workspace.google.com/marketplace/app/parley/199472588023" "$work/checklist.log" || {
+  echo "FAIL: the checklist should guess the app's Marketplace page link from the fetched project number" >&2
+  cat "$work/checklist.log" >&2
+  exit 1
+}
+
+# Step 4: rollout, either Admin install or the self-install toggle.
+grep -q "Admin install" "$work/checklist.log" || {
+  echo "FAIL: the checklist should mention the Admin install button" >&2
+  cat "$work/checklist.log" >&2
+  exit 1
+}
+grep -q "organizational units" "$work/checklist.log"
+grep -q "support.google.com/a/answer/172482" "$work/checklist.log"
 grep -q "Allow users to" "$work/checklist.log"
 grep -q "install any internal app" "$work/checklist.log"
+grep -q "Individual install" "$work/checklist.log" || {
+  echo "FAIL: the checklist should mention the Individual install button" >&2
+  cat "$work/checklist.log" >&2
+  exit 1
+}
 grep -q "workspace.google.com/marketplace/mydomainapps" "$work/checklist.log"
+
 grep -q "^  5\." "$work/checklist.log" && {
   echo "FAIL: only four manual steps should remain" >&2
   cat "$work/checklist.log" >&2
@@ -347,11 +416,6 @@ grep -q "^  5\." "$work/checklist.log" && {
 }
 grep -q "step 4 above" "$work/checklist.log" && {
   echo "FAIL: the stale 'step 4 above' wording must be gone" >&2
-  cat "$work/checklist.log" >&2
-  exit 1
-}
-grep -qE "^  2\. The OAuth consent screen" "$work/checklist.log" && {
-  echo "FAIL: the consent screen must no longer be its own manual step" >&2
   cat "$work/checklist.log" >&2
   exit 1
 }
