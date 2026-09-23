@@ -47,6 +47,9 @@ case "$1 $2" in
     sub="$3"
     case "$sub" in
       describe)
+        if [ "$DESCRIBE_EXIT" -ne 0 ]; then
+          echo "${DESCRIBE_ERROR_TEXT:-ERROR: (gcloud.workspace-add-ons.deployments.describe) NOT_FOUND: Requested entity was not found.}" >&2
+        fi
         exit "$DESCRIBE_EXIT"
         ;;
       create)
@@ -101,6 +104,7 @@ run_setup() {
   BASE_URL="$1" DESCRIBE_EXIT="$2" CALLS_LOG="$calls_log" CAPTURE="$capture" \
     CREATE_COUNTER="$create_counter" CREATE_FAIL_COUNT="${CREATE_FAIL_COUNT:-0}" \
     CREATE_ERROR_TEXT="${CREATE_ERROR_TEXT:-}" \
+    DESCRIBE_ERROR_TEXT="${DESCRIBE_ERROR_TEXT:-}" \
     RETRY_MAX_ATTEMPTS="${RETRY_MAX_ATTEMPTS:-3}" RETRY_INITIAL_DELAY=0 \
     INSTALL_STATUS_VALUE="${INSTALL_STATUS_VALUE:-True}" \
     INSTALL_STATUS_FAIL="${INSTALL_STATUS_FAIL:-0}" \
@@ -156,6 +160,14 @@ grep -q "workspace-add-ons deployments replace parley" "$calls_log" && {
   exit 1
 }
 
+# describe's NOT_FOUND on a brand-new project is the normal "no deployment
+# yet" signal, not a failure to show — it must never print as an ERROR line.
+grep -qi "NOT_FOUND" "$work/first.log" && {
+  echo "FAIL: describe's expected NOT_FOUND must not be printed on a first run" >&2
+  cat "$work/first.log" >&2
+  exit 1
+}
+
 # The manifest it built must carry BASE_URL into every placeholder.
 grep -q '"name": "Parley"' "$capture"
 grep -q '"sidePanelUrl": "https://parley.example.com/embed/meet/sidepanel"' "$capture"
@@ -189,6 +201,26 @@ grep -q "workspace-add-ons deployments replace parley" "$calls_log" || {
 }
 grep -q "workspace-add-ons deployments create parley" "$calls_log" && {
   echo "FAIL: a re-run should not call create" >&2
+  exit 1
+}
+
+# A describe failure that is NOT the expected NOT_FOUND is a real problem:
+# it must be shown, and setup.sh must stop instead of quietly trying create.
+rm -f "$calls_log" "$capture" "$create_counter"
+if DESCRIBE_ERROR_TEXT="ERROR: (gcloud.workspace-add-ons.deployments.describe) PERMISSION_DENIED: The caller does not have permission." \
+  run_setup "https://parley.example.com" 1 >"$work/describe-fail.log" 2>&1; then
+  echo "FAIL: setup.sh should exit nonzero when describe fails with an unexpected error" >&2
+  cat "$work/describe-fail.log" >&2
+  exit 1
+fi
+grep -q "The caller does not have permission" "$work/describe-fail.log" || {
+  echo "FAIL: an unexpected describe error must stay visible" >&2
+  cat "$work/describe-fail.log" >&2
+  exit 1
+}
+[ -f "$calls_log" ] && grep -q "workspace-add-ons deployments create parley" "$calls_log" && {
+  echo "FAIL: setup.sh must not fall through to create after an unexpected describe error" >&2
+  cat "$calls_log" >&2
   exit 1
 }
 
@@ -268,6 +300,16 @@ rm -f "$calls_log" "$capture" "$create_counter"
 INSTALL_STATUS_VALUE=False run_setup "https://parley.example.com" 1 >"$work/notinstalled.log" 2>&1
 grep -q "❌" "$work/notinstalled.log" || {
   echo "FAIL: a false install-status should print a cross" >&2
+  cat "$work/notinstalled.log" >&2
+  exit 1
+}
+grep -q "gcloud workspace-add-ons deployments install parley" "$work/notinstalled.log" || {
+  echo "FAIL: the recovery hint should re-run install, not install-status" >&2
+  cat "$work/notinstalled.log" >&2
+  exit 1
+}
+grep -q "gcloud workspace-add-ons deployments install-status parley" "$work/notinstalled.log" && {
+  echo "FAIL: the recovery hint must not tell the operator to re-run install-status" >&2
   cat "$work/notinstalled.log" >&2
   exit 1
 }

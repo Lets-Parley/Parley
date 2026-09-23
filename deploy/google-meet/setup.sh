@@ -50,10 +50,18 @@ RETRY_MAX_ATTEMPTS="${RETRY_MAX_ATTEMPTS:-6}"
 RETRY_INITIAL_DELAY="${RETRY_INITIAL_DELAY:-5}"
 ACTIVATION_ERROR_RE='(PERMISSION_DENIED|FAILED_PRECONDITION).*(has not been used|is disabled)'
 
+# SUPPRESS_ERROR_RE, set by the caller (VAR=... retry_while_activating ...),
+# hides one expected final error instead of printing it, and sets
+# SUPPRESSED_ERROR=1 so the caller can tell that happened — used by
+# describe's call below, where NOT_FOUND just means "no deployment yet, go
+# create one" and is not something to show as an ERROR line, but any other
+# describe failure is real and the caller needs to know to stop instead of
+# treating it the same way. Every error hit mid-retry still prints.
 retry_while_activating() {
   local attempt=1 delay="$RETRY_INITIAL_DELAY"
   local err_file="$WORK_DIR/retry-error"
   local status
+  SUPPRESSED_ERROR=0
   while :; do
     if "$@" 2>"$err_file"; then
       cat "$err_file" >&2
@@ -62,11 +70,16 @@ retry_while_activating() {
     else
       status=$?
     fi
-    cat "$err_file" >&2
     if [[ $attempt -ge $RETRY_MAX_ATTEMPTS ]] || ! grep -qE "$ACTIVATION_ERROR_RE" "$err_file"; then
+      if [[ -n "${SUPPRESS_ERROR_RE:-}" ]] && grep -qE "$SUPPRESS_ERROR_RE" "$err_file"; then
+        SUPPRESSED_ERROR=1
+      else
+        cat "$err_file" >&2
+      fi
       rm -f "$err_file"
       return "$status"
     fi
+    cat "$err_file" >&2
     rm -f "$err_file"
     echo "the API is still activating, retrying ($attempt/$RETRY_MAX_ATTEMPTS)..." >&2
     sleep "$delay"
@@ -93,13 +106,17 @@ sed "s#BASE_URL_PLACEHOLDER#${BASE_URL}#g" "$SCRIPT_DIR/manifest.template.json" 
 #    `describe` and `replace` are also GA:
 #    https://docs.cloud.google.com/sdk/gcloud/reference/workspace-add-ons/deployments/describe
 #    https://docs.cloud.google.com/sdk/gcloud/reference/workspace-add-ons/deployments/replace
-if retry_while_activating gcloud workspace-add-ons deployments describe "$DEPLOYMENT_ID" --format=none; then
+if SUPPRESS_ERROR_RE='NOT_FOUND' retry_while_activating gcloud workspace-add-ons deployments describe "$DEPLOYMENT_ID" --format=none; then
   if ! retry_while_activating gcloud workspace-add-ons deployments replace "$DEPLOYMENT_ID" \
     --deployment-file="$DEPLOYMENT_FILE" --format=none; then
     echo "could not replace the existing deployment after retrying; see the error above." >&2
     exit 1
   fi
 else
+  if [[ "$SUPPRESSED_ERROR" != "1" ]]; then
+    echo "could not check whether the deployment already exists; see the error above." >&2
+    exit 1
+  fi
   if ! retry_while_activating gcloud workspace-add-ons deployments create "$DEPLOYMENT_ID" \
     --deployment-file="$DEPLOYMENT_FILE" --format=none; then
     echo "could not create the deployment after retrying; see the error above." >&2
@@ -120,7 +137,7 @@ if INSTALLED="$(gcloud workspace-add-ons deployments install-status "$DEPLOYMENT
   if [[ "${INSTALLED,,}" == "true" ]]; then
     INSTALL_LINE="✅ installed for your account."
   else
-    INSTALL_LINE="❌ install-status reports it is not installed yet; re-run: gcloud workspace-add-ons deployments install-status ${DEPLOYMENT_ID}"
+    INSTALL_LINE="❌ install-status reports it is not installed yet; re-run: gcloud workspace-add-ons deployments install ${DEPLOYMENT_ID}"
   fi
 else
   cat "$INSTALL_STATUS_ERR" >&2
