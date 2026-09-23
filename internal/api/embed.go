@@ -407,6 +407,10 @@ var embeddedRoutes = map[string]bool{
 	"GET /api/sessions/{id}/":               true,
 	"GET /api/sessions/{id}/plugins/panels": true,
 	"* /api/sessions/{id}/actions/{action}": true,
+	// A standup's "needs you": who asked this person for help and whom they
+	// asked. It is read per caller rather than off the broadcast, so the room
+	// cannot render its own asks without it, and asking is already an action.
+	"GET /api/sessions/{id}/mentions": true,
 }
 
 // embeddedMayReach looks a matched pattern up in embeddedRoutes. A request for

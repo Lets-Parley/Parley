@@ -302,6 +302,7 @@ one place on the `/api` mount. It may reach these routes and nothing else:
 | `GET /api/orgs`, `GET /api/spaces`, `GET /api/orgs/{org}/spaces`, `GET /api/orgs/{org}/spaces/{slug}` | Finding a room among the spaces the person can already see. |
 | `POST /api/orgs/{org}/spaces/{slug}/join` | Joining a space with its passcode. |
 | `GET /api/sessions/{id}`, `GET /api/sessions/{id}/plugins/panels`, `/api/sessions/{id}/actions/{action}` | Reading a room and taking part in it: the same set a link guest is given. |
+| `GET /api/sessions/{id}/mentions` | A standup's "needs you": who asked this person for help and whom they asked. It is read per caller, not off the broadcast, so a room cannot show its own asks without it. A link guest is refused it, having no asks to read. |
 | `GET /ws` | The room's live updates. |
 
 Every other `/api` route answers `403` to an embedded session, whoever holds

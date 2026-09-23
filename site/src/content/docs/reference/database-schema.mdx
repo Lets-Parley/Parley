@@ -6,9 +6,9 @@ description: The tables, the migrations, and the constraints that act as validat
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/db/migrations", "internal/db/migrate.go", "internal/store/presence.go", "internal/poker/routes.go", "internal/api/custody/store.go", "internal/plugin", "internal/store/users.go", "internal/standup/schedule.go", "internal/standup/webhook.go", "internal/standup/ics.go", "internal/store/embed.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/db/migrations", "internal/db/migrate.go", "internal/store/presence.go", "internal/poker/routes.go", "internal/api/custody/store.go", "internal/plugin", "internal/store/users.go", "internal/standup/schedule.go", "internal/standup/webhook.go", "internal/standup/ics.go", "internal/standup/commitments.go", "internal/standup/mentions.go", "internal/store/embed.go"]} />
 
-Forty-one migrations, embedded in the binary and applied at boot. Postgres only —
+Forty-two migrations, embedded in the binary and applied at boot. Postgres only —
 there is no second driver and no plan for one.
 
 ## Migrations
@@ -41,7 +41,8 @@ there is no second driver and no plan for one.
   { name: "0038_standup_schedules", value: "standup_schedules, standup_schedule_slots", note: "Scheduled async standups. New tables, so no backfill. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
   { name: "0039_standup_webhooks", value: "standup_webhooks, standup_webhook_deliveries", note: "Standup webhooks and their delivery outbox. New tables, so no backfill. Pins the minimum image version, as above" },
   { name: "0040_ics_feed_tokens", value: "ics_feed_tokens", note: "One personal calendar token per user. The token is stored as a sha256 digest plus an 8-character lookup prefix. New table, so no backfill. Pins the minimum image version, as above" },
-  { name: "0041_embed_handoffs", value: "embed_handoffs, session_tokens.embedded", note: "The meeting-client sign-in handoff and the marker on the session it mints. The new column defaults to false, so every existing session stays an ordinary one. Pins the minimum image version, as above" },
+  { name: "0041_standup_follow_through", value: "standup_commitments.closed_reason, standup_mentions", note: "closed_reason is landed or dropped. Every row already closed is backfilled to landed, the only close that existed before; open rows stay null. standup_mentions is a new table, so no backfill. Append-only: rolling back means restoring from backup. Pins the minimum image version, as above" },
+  { name: "0042_embed_handoffs", value: "embed_handoffs, session_tokens.embedded", note: "The meeting-client sign-in handoff and the marker on the session it mints. The new column defaults to false, so every existing session stays an ordinary one. Pins the minimum image version, as above" },
 ]} />
 
 ### How the runner behaves
@@ -390,13 +391,20 @@ deletes rows past it.
 What somebody said they would do, carried until they say it is done. Keyed by
 its own id and scoped to a `(space_id, user_id)`, with `text` ≤500 characters,
 a nullable `opened_session_id`, a nullable `closed_at`, a nullable
-`closed_session_id`, a `carried` count and a nullable `carried_session_id`.
+`closed_session_id`, a nullable `closed_reason`, a `carried` count and a
+nullable `carried_session_id`.
 
 The **open** rows for a space and person — those with a null `closed_at` — are
 the carry-over list, read directly by a partial index. Nothing walks previous
 sessions to work out what is outstanding.
 
-Answering "done" stamps `closed_at` and the commitment leaves the list.
+Answering "done" stamps `closed_at` with a `closed_reason` of `landed`, and the
+commitment leaves the list. Dropping it closes it the same way with a
+`closed_reason` of `dropped`: it leaves the list, `carried` is untouched, and it
+is never read as landed. `closed_reason` is null on an open row. It is not tied
+to `closed_at` by a constraint, because a replica on the previous binary closes
+a commitment without writing a reason; a closed row with a null reason is read
+as landed, which is the only close that binary knew.
 Answering "not yet" carries it into the next standup and it stays. A commitment
 showing `carried` of 2 or more is **stuck**, which the server computes and puts
 on the wire. `carried` only moves when somebody answers: missing a standup
@@ -425,6 +433,23 @@ count, or taking the commitment with it. A commitment belongs to its
 with no origin room left is still on the carry-over list and still answerable,
 and it simply renders as carried in, because there is no room left for it to
 have been opened in.
+
+### standup_mentions
+
+One member asking another for help with a blocker, in one standup:
+`(session_id, from_user_id, to_user_id)` is the primary key, with a
+`created_at`, and a check that the two users differ. Every key cascades — the
+row is about one room and two people and means nothing without any of them.
+
+The target is a user id picked from the space's members. Membership is checked
+at write time, both in the handler and again inside the insert itself: the
+target and the asker must each hold a `members` row in the room's space and have
+a null `users.link_id`, so a link guest can neither ask nor be asked. No foreign
+key can express that — a link guest has a `users` row. Leaving the space later
+does not delete the row.
+
+The rows never reach the room's shared state. They are read one person at a
+time: the people who asked you, and the people you asked.
 
 ### The plugin tables
 

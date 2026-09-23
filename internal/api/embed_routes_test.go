@@ -142,6 +142,10 @@ var embeddedRouteTable = map[string]embedRouteClass{
 	"OPTIONS /api/sessions/{id}/actions/{action}": embedAllowed,
 	"TRACE /api/sessions/{id}/actions/{action}":   embedAllowed,
 
+	// The caller's own standup mentions, which the room reads per caller
+	// because the broadcast is everyone's; asking is a dispatcher action.
+	"GET /api/sessions/{id}/mentions": embedAllowed,
+
 	"POST /api/sessions/{id}/spectator":                    embedRefused,
 	"GET /api/sessions/{id}/export.csv":                    embedRefused,
 	"POST /api/sessions/{id}/facilitator/claim":            embedRefused,

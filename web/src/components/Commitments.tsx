@@ -33,9 +33,9 @@ export type Commitment = {
  * What you have said about this commitment in this sitting. Three states, so
  * the null is written out: `boolean | undefined` collapses "not answered yet"
  * and "answered no" under one truthiness check, and a commitment nobody has
- * touched then renders as a No.
+ * touched then renders as Still on it.
  */
-type Answer = boolean | null;
+type Answer = "landed" | "carried" | "dropped" | null;
 
 /**
  * An answered row settles into place rather than snapping: the one moment on
@@ -59,9 +59,9 @@ const LET_GO_MS = 600;
 const LEAVING = "animate-[let-go_var(--dur-flip)_var(--ease-settle)_var(--dur-flip)_both]";
 
 /**
- * A quiet control one step below Yes/No: a pill with a real hit area and no
+ * A quiet control one step below the follow-through chips: a pill with a real hit area and no
  * border. It is only ever used outside the answer group — a bare pill sitting
- * beside Yes and No still reads as a third answer, whatever its weight.
+ * beside the chips still reads as another answer, whatever its weight.
  */
 const buttonBare =
   "touch-hit inline-flex items-center justify-center whitespace-nowrap rounded-full px-3 py-2 text-[13px] font-semibold text-ink-faint transition hover:bg-felt-deep hover:text-ink disabled:opacity-50";
@@ -76,9 +76,9 @@ const sectionHeading = "text-[15px] font-bold text-ink";
 /**
  * Your open commitments, in two lists, because they are owed two different
  * things. What carried in from an earlier sitting is asked the way round that
- * makes the answer mean something — "did that land?", where No is the one that
+ * makes the answer mean something — "did that land?", where Still on it is the one that
  * carries. What you take on in this sitting is only listed back: it has carried
- * from nowhere, so there is nothing yet to answer, and a No there would move a
+ * from nowhere, so there is nothing yet to answer, and a Still on it there would move a
  * carry count towards a stuck state it never earned.
  *
  * Only your own rows appear; the wire carries the whole room's, because one
@@ -90,6 +90,7 @@ export function Commitments({
   onAdd,
   onAnswer,
   onRemove,
+  onDrop,
   onNote,
 }: {
   commitments: Commitment[];
@@ -97,6 +98,9 @@ export function Commitments({
   onAdd: (text: string) => Promise<boolean>;
   onAnswer: (id: string, done: boolean) => Promise<boolean>;
   onRemove: (id: string) => Promise<boolean>;
+  /** Closes a commitment that will not land. It leaves the list like a landed
+   *  one, and the server records it as dropped, never as landed. */
+  onDrop: (id: string) => Promise<boolean>;
   /** Routed into the page's single polite region. Never a second live region:
    *  a third would queue serially behind the two that already exist. */
   onNote?: (msg: string) => void;
@@ -176,6 +180,7 @@ export function Commitments({
               c={c}
               leaving={goneIds.has(c.id)}
               onAnswer={onAnswer}
+              onDrop={onDrop}
               onRemove={onRemove}
               onNote={onNote}
               onLanded={() => held(c, i)}
@@ -208,6 +213,7 @@ export function Commitments({
                 answerable={false}
                 leaving={false}
                 onAnswer={onAnswer}
+                onDrop={onDrop}
                 onRemove={onRemove}
                 onNote={onNote}
                 onLanded={NOTHING_TO_LAND}
@@ -267,17 +273,16 @@ export function Commitments({
 }
 
 /**
- * One row: the commitment as prose, the answer as an asymmetric pair. Yes is
- * `go`, because landing something is a confirm that closes a state; No stays
- * transparent, because declining to close something is not a failure and must
- * never be dressed as one.
+ * One row: the commitment as prose, the answer as three chips. Done is `go`,
+ * because landing something is a confirm that closes a state; Still on it and
+ * Dropped stay transparent, because not landing something is not a failure and
+ * must never be dressed as one.
  *
- * The two answers resolve differently because the server treats them
- * differently. No keeps the commitment open, so the row settles in place and
- * offers a way back — the previous one-way No could only be undone by
- * reloading. Yes closes it for good: `answer` only matches rows with
+ * The answers resolve differently because the server treats them differently.
+ * Still on it keeps the commitment open, so the row settles in place and offers a way back — the previous one-way No could only be undone by
+ * reloading. Done and Dropped close it for good: `answer` only matches rows with
  * `closed_at is null`, so nothing on the wire can reopen one. A "Change" there
- * would be a button that could only ever 404, so the yes path says what
+ * would be a button that could only ever 404, so those paths say what
  * happened, holds still long enough to be read, and leaves.
  */
 /** A row with no answer group can never land, so there is no beat to hold. */
@@ -288,6 +293,7 @@ function CommitmentRow({
   answerable = true,
   leaving,
   onAnswer,
+  onDrop,
   onRemove,
   onNote,
   onLanded,
@@ -303,6 +309,7 @@ function CommitmentRow({
   /** Answered yes and on its way out: resolved, and no longer answerable. */
   leaving: boolean;
   onAnswer: (id: string, done: boolean) => Promise<boolean>;
+  onDrop: (id: string) => Promise<boolean>;
   onRemove: (id: string) => Promise<boolean>;
   onNote?: (msg: string) => void;
   onLanded: () => void;
@@ -380,19 +387,26 @@ function CommitmentRow({
       });
   };
 
-  const answered = (done: boolean) =>
+  const answered = (next: Exclude<Answer, null>) =>
     send(
-      () => onAnswer(c.id, done),
+      () => (next === "dropped" ? onDrop(c.id) : onAnswer(c.id, next === "landed")),
       (ok) => {
         if (!ok) return;
-        setAnswer(done);
-        // Yes has just closed this commitment. Ask to be held for a beat, so
-        // the acknowledgement is not gone before the eye reaches it.
-        if (done) onLanded();
+        setAnswer(next);
+        // Done and dropped have both just closed this commitment. Ask to be
+        // held for a beat, so the acknowledgement is not gone before the eye
+        // reaches it.
+        if (next !== "carried") onLanded();
         // The control that was clicked has just gone. The row it belonged to is
         // the nearest thing that still exists and still reads as the answer.
         li.current?.focus();
-        onNote?.(done ? "Marked as landed." : "Still open — it carries over to the next standup.");
+        onNote?.(
+          next === "landed"
+            ? "Marked as landed."
+            : next === "dropped"
+              ? "Dropped — it will not carry over."
+              : "Still open — it carries over to the next standup.",
+        );
       },
     );
 
@@ -439,7 +453,7 @@ function CommitmentRow({
         )}
       </span>
       {/* Two different kinds of thing, so two groups rather than one strip of
-          pills. Yes/No answer the question; Remove withdraws it. Stacked, the
+          pills. The chips answer the question; Remove withdraws it. Stacked, the
           groups take opposite edges of the control line, so Remove never sits
           shoulder to shoulder with the answers at 375px where the row has
           least room, and where there is not even room for that the line wraps
@@ -449,7 +463,12 @@ function CommitmentRow({
           on every row would put back the reprimand this list exists without. */}
       <span className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 sm:ml-auto sm:shrink-0 sm:flex-nowrap sm:justify-end">
         {answerable && (
-          <span data-testid="answer-group" className="flex flex-wrap items-center gap-2">
+          <span
+            data-testid="answer-group"
+            role={answer === null && !leaving ? "group" : undefined}
+            aria-label={answer === null && !leaving ? "How did it go?" : undefined}
+            className="flex flex-wrap items-center gap-2"
+          >
             {answer === null && !leaving ? (
               <>
                 {/* Short labels with the commitment attached by description: the
@@ -460,28 +479,44 @@ function CommitmentRow({
                   className={buttonGo}
                   disabled={busy}
                   aria-describedby={textId}
-                  onClick={() => answered(true)}
+                  onClick={() => answered("landed")}
                 >
-                  Yes
+                  Done
                 </button>
                 <button
                   type="button"
                   className={buttonQuiet}
                   disabled={busy}
                   aria-describedby={textId}
-                  onClick={() => answered(false)}
+                  onClick={() => answered("carried")}
                 >
-                  No
+                  Still on it
+                </button>
+                {/* Quiet like Still on it: letting go of a piece of work is a
+                    decision, not a failure, so it is never dressed as one. */}
+                <button
+                  type="button"
+                  className={buttonQuiet}
+                  disabled={busy}
+                  aria-describedby={textId}
+                  onClick={() => answered("dropped")}
+                >
+                  Dropped
                 </button>
               </>
             ) : (
               <span className={`flex items-center gap-1 ${SETTLE}`}>
                 <span className="text-sm font-semibold text-ink-soft">
-                  {answer === false ? "Not yet — it carries over." : "Landed."}
+                  {answer === "carried"
+                    ? "Not yet — it carries over."
+                    : answer === "dropped"
+                      ? "Dropped."
+                      : "Landed."}
                 </span>
-                {/* Only the No path. A no leaves the commitment open, so taking
-                    it back is a real action; a yes has already closed it. */}
-                {answer === false && (
+                {/* Only the Still on it path. It leaves the commitment open, so
+                    taking it back is a real action; Done and Dropped have
+                    already closed it. */}
+                {answer === "carried" && (
                   <button
                     type="button"
                     className={buttonBare}

@@ -289,6 +289,7 @@ const actionVerbs: Record<string, string> = {
   ready: "PUT",
   story: "PATCH",
   config: "PATCH",
+  mention: "PUT",
 };
 
 /**

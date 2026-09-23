@@ -36,6 +36,14 @@ func actions() map[string]session.Action {
 		"add":    {Verb: http.MethodPost, Do: addCommitment},
 		"answer": {Verb: http.MethodPost, Do: answerCommitment},
 		"remove": {Verb: http.MethodPost, Do: removeCommitment},
+		"drop":   {Verb: http.MethodPost, Do: dropCommitment},
+		// Asking a member for help with a blocker. PUT because the body says
+		// whether the mention should exist, so a retry lands on the same
+		// answer. Not FacilitatorOnly, and the membership checks are inside Do
+		// for the reason given on "kudo" below. Async only: a sync standup
+		// never shows a mention, so it answers 409 — after the membership
+		// check, so a link guest is refused 403 in either mode.
+		"mention": {Verb: http.MethodPut, Do: setMention},
 		// Kudos are the closing beat of the round, and like the commitment
 		// actions a person gives their own — so no FacilitatorOnly. The
 		// membership check is inside Do rather than out here: dispatch applies
@@ -50,17 +58,28 @@ func actions() map[string]session.Action {
 // fixed at creation, so the session the dispatcher loaded is authoritative.
 func syncOnly(do func(http.ResponseWriter, *http.Request, session.ActionCtx)) func(http.ResponseWriter, *http.Request, session.ActionCtx) {
 	return func(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
-		var cfg Config
-		if err := json.Unmarshal(ac.Session.Config, &cfg); err != nil {
+		async, err := isAsync(ac)
+		if err != nil {
 			http.Error(w, `{"error":"could not read this standup's settings"}`, http.StatusInternalServerError)
 			return
 		}
-		if cfg.async() {
+		if async {
 			http.Error(w, `{"error":"an async standup has no speaking order"}`, http.StatusConflict)
 			return
 		}
 		do(w, r, ac)
 	}
+}
+
+// isAsync reads the mode of the session the dispatcher loaded. It is shared by
+// syncOnly and by the mention action, which refuses the other way round: a
+// sync standup never shows a mention, so it does not take one.
+func isAsync(ac session.ActionCtx) (bool, error) {
+	var cfg Config
+	if err := json.Unmarshal(ac.Session.Config, &cfg); err != nil {
+		return false, err
+	}
+	return cfg.async(), nil
 }
 
 func done(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {

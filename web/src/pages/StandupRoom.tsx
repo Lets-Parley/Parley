@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { action, api, errorText, type Envelope, type Me } from "../lib/api";
+import { useQuery } from "@tanstack/react-query";
+import { action, api, errorText, type Envelope, type Me, type SpaceView } from "../lib/api";
+import { spaceApi } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
 import type { ConnectionStatus } from "../lib/socket";
 import { useToast } from "../lib/ui";
@@ -15,7 +17,7 @@ import type { Fail } from "../components/Modal";
 import { cueFor, cueVar } from "../lib/cue";
 import { EmptyTable } from "./PokerRoom";
 import { PluginChrome } from "../components/PluginChrome";
-import { AsyncDigest } from "../components/AsyncDigest";
+import { AsyncDigest, type CommitmentChange } from "../components/AsyncDigest";
 
 export type StandupEntry = {
   userId: string;
@@ -44,6 +46,8 @@ type StandupState = {
   entries: StandupEntry[];
   /** Open commitments for the whole space; only the caller's are answerable. */
   commitments: Commitment[];
+  /** Commitments this standup landed, dropped or carried. */
+  changes?: CommitmentChange[];
   /** Kudos given in this session, oldest first. Empty for most rounds. */
   kudos: SessionKudo[];
   currentSpeakerId: string | null;
@@ -254,6 +258,27 @@ export function StandupRoom({
     return p.guest ? `${name} (guest)` : name;
   };
   const isAsync = st.mode === "async";
+  // "Needs you" and whom you asked are yours alone, so they are read per
+  // caller rather than off the broadcast. The version is in the key: a mention
+  // bumps it, so everyone re-reads their own list when anything changes. A
+  // guest is never asked and never asks, so it reads nothing.
+  const mentions = useQuery({
+    queryKey: ["standup-mentions", env.id, env.version],
+    queryFn: () => api<{ needsYou: string[]; asked: string[] }>("GET", `/api/sessions/${env.id}/mentions`),
+    enabled: isAsync && !guest,
+    placeholderData: (prev) => prev,
+  });
+  // The picker offers the whole space, not only who has opened the room: in an
+  // async standup the person you need may not have looked yet.
+  const space = useQuery({
+    queryKey: ["space", env.orgSlug, env.spaceSlug],
+    queryFn: () => api<SpaceView>("GET", spaceApi(env.orgSlug, env.spaceSlug)),
+    enabled: isAsync && !guest && !env.endedAt && Boolean(env.orgSlug && env.spaceSlug),
+  });
+  const askable = (space.data?.members ?? [])
+    .filter((m) => m.userId !== me.id)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const asked = new Set(mentions.data?.asked ?? []);
   const spectating = env.participants.find((p) => p.userId === me.id)?.spectator ?? false;
   const speaking = env.phase === "speaking";
   const done = env.phase === "done";
@@ -646,13 +671,50 @@ export function StandupRoom({
             onAdd={(text) => run(() => action(env.id, "add", { text }), { where: "gathering" })}
             onAnswer={(id, done) => run(() => action(env.id, "answer", { id, done }), { where: "gathering" })}
             onRemove={(id) => run(() => action(env.id, "remove", { id }), { where: "gathering" })}
+            onDrop={(id) => run(() => action(env.id, "drop", { id }), { where: "gathering" })}
             onNote={noteCommitment}
           />
           <EntryForm draft={draft} update={update} saveState={saveState} />
+          {!guest && askable.length > 0 && (
+            <fieldset className="flex flex-col gap-2">
+              <legend className={labelText}>Who do you need?</legend>
+              <p className="text-sm text-ink-faint">
+                Only the people you pick see that you asked, at the top of their digest.
+              </p>
+              <ul className="flex flex-wrap gap-x-4 gap-y-1">
+                {askable.map((m) => (
+                  <li key={m.userId}>
+                    <label className="touch-hit inline-flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={asked.has(m.userId)}
+                        disabled={mentions.isPending}
+                        onChange={(e) =>
+                          void run(
+                            () => action(env.id, "mention", { to: m.userId, needed: e.target.checked }),
+                            { where: "gathering" },
+                          ).then(() => mentions.refetch())
+                        }
+                      />
+                      {safeDisplayName(m.name)}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </fieldset>
+          )}
           {failRow("gathering")}
         </section>
       )}
-      {isAsync && <AsyncDigest entries={st.entries} participants={env.participants} ended={Boolean(env.endedAt)} />}
+      {isAsync && (
+        <AsyncDigest
+          entries={st.entries}
+          participants={env.participants}
+          ended={Boolean(env.endedAt)}
+          changes={st.changes ?? []}
+          needsYou={mentions.data?.needsYou ?? []}
+        />
+      )}
 
       {!isAsync && !speaking && !done && (
         <section className="flex flex-col gap-4 rounded-panel border border-line bg-surface px-5 py-5 shadow-rest">
@@ -676,6 +738,7 @@ export function StandupRoom({
             onAdd={(text) => run(() => action(env.id, "add", { text }), { where: "gathering" })}
             onAnswer={(id, done) => run(() => action(env.id, "answer", { id, done }), { where: "gathering" })}
             onRemove={(id) => run(() => action(env.id, "remove", { id }), { where: "gathering" })}
+            onDrop={(id) => run(() => action(env.id, "drop", { id }), { where: "gathering" })}
             onNote={noteCommitment}
           />
           <EntryForm draft={draft} update={update} saveState={saveState} />

@@ -16,7 +16,7 @@ cd "$(dirname "$0")/.."
 # The guards no longer all live in one package: the plugin sandbox has a
 # frontend half now, so a tree here is either a Go package or the web app, and
 # `target` switches which one the mutations below are aimed at.
-TREES=(internal/plugin internal/api internal/store web/src cmd/parley)
+TREES=(internal/plugin internal/api internal/store web/src cmd/parley internal/standup)
 BACKUP=$(mktemp -d)
 LOG=$(mktemp)
 
@@ -710,6 +710,16 @@ mutate "main wiring the plugin directory into the HTTP layer" \
 mutate "main wiring the embed providers into the HTTP layer" \
     'TestMainsOptionsEnableEmbedProviders' \
     main.go '		EmbedProviders: cfg.EmbedProviders,' ''
+
+# A standup mention's second lock. The handler checks both parties before it
+# writes, so no handler test can see the statement's own guard: the test here
+# calls the insert directly, for a former member and a link guest, and must go
+# red once the guard in the statement is gone.
+target internal/standup
+
+mutate "the membership guard inside the mention insert" \
+    'TestTheMentionInsertRefusesOnItsOwn' \
+    mentions.go '		where `+mentionable+` and exists (' '		where true or exists ('
 
 restore_all
 

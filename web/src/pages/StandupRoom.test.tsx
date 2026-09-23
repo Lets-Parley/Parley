@@ -6,6 +6,7 @@ import { makePerson, renderApp } from "../test/render";
 import type { Envelope, Me } from "../lib/api";
 import type { StandupEntry } from "./StandupRoom";
 import type { Commitment } from "../components/Commitments";
+import { expectNoViolations } from "../test/axe";
 
 function roomCalls(spy: { mock: { calls: unknown[][] } }) {
   return spy.mock.calls.filter((c) => !String(c[0]).includes("/plugins/panels"));
@@ -1334,11 +1335,11 @@ describe("StandupRoom carrying over", () => {
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }, { text: "beta" }])} me={me} />);
     // Both start unanswered: neither says "not yet".
     expect(row("alpha").textContent).not.toMatch(/not yet/i);
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /no/i }));
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^still on it$/i }));
     await waitFor(() => expect(row("alpha").textContent).toMatch(/not yet/i));
     // Beta was never answered, so it must not be rendered as a No.
     expect(row("beta").textContent).not.toMatch(/not yet/i);
-    expect(within(row("beta")).getByRole("button", { name: /no/i })).toBeDefined();
+    expect(within(row("beta")).getByRole("button", { name: /^still on it$/i })).toBeDefined();
     const [path, init] = roomCalls(f)[0] as [string, RequestInit];
     expect(path).toBe("/api/sessions/sess-1/actions/answer");
     expect(JSON.parse(init.body as string)).toEqual({ id: "c1", done: false });
@@ -1351,18 +1352,27 @@ describe("StandupRoom carrying over", () => {
     // commitment open, so re-answering it is a real action.
     mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^no$/i }));
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^still on it$/i }));
     await waitFor(() => expect(row("alpha").textContent).toMatch(/not yet/i));
     await userEvent.click(within(row("alpha")).getByRole("button", { name: /change/i }));
-    expect(within(row("alpha")).getByRole("button", { name: /^yes$/i })).toBeDefined();
-    expect(within(row("alpha")).getByRole("button", { name: /^no$/i })).toBeDefined();
+    expect(within(row("alpha")).getByRole("button", { name: /^done$/i })).toBeDefined();
+    expect(within(row("alpha")).getByRole("button", { name: /^still on it$/i })).toBeDefined();
     expect(row("alpha").textContent).not.toMatch(/not yet/i);
+  });
+
+  it("drops through the drop action before the round too", async () => {
+    const f = mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^dropped$/i }));
+    const [path, init] = roomCalls(f)[0] as [string, RequestInit];
+    expect(path).toBe("/api/sessions/sess-1/actions/drop");
+    expect(JSON.parse(init.body as string)).toEqual({ id: "c1" });
   });
 
   it("sends done:true for yes, and never a userId", async () => {
     const f = mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /yes/i }));
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^done$/i }));
     const [path, init] = roomCalls(f)[0] as [string, RequestInit];
     expect(path).toBe("/api/sessions/sess-1/actions/answer");
     expect(JSON.parse(init.body as string)).toEqual({ id: "c1", done: true });
@@ -1466,9 +1476,9 @@ describe("StandupRoom carrying over", () => {
   it("resolves a yes in place instead of leaving the button looking dead", async () => {
     mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^yes$/i }));
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^done$/i }));
     await waitFor(() => expect(row("alpha").textContent).toMatch(/landed/i));
-    expect(within(row("alpha")).queryByRole("button", { name: /^yes$/i })).toBe(null);
+    expect(within(row("alpha")).queryByRole("button", { name: /^done$/i })).toBe(null);
     // No "Change" on the yes path: the server has already closed the
     // commitment and will not reopen it, so a control offering to take the
     // answer back could only produce a 404.
@@ -1480,7 +1490,7 @@ describe("StandupRoom carrying over", () => {
     const { rerender } = renderApp(
       <StandupRoom env={carrying([{ text: "alpha" }, { text: "beta" }])} me={me} />,
     );
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^yes$/i }));
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^done$/i }));
     await waitFor(() => expect(row("alpha").textContent).toMatch(/landed/i));
     // Yes closes the commitment server-side, so the very next broadcast no
     // longer carries it. Without the hold the acknowledgement is a flash.
@@ -1501,8 +1511,8 @@ describe("StandupRoom carrying over", () => {
   it("keeps Remove out of the answer pair, so it never reads as a third answer", () => {
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
     const answers = within(row("alpha")).getByTestId("answer-group");
-    expect(within(answers).getByRole("button", { name: /^yes$/i })).toBeDefined();
-    expect(within(answers).getByRole("button", { name: /^no$/i })).toBeDefined();
+    expect(within(answers).getByRole("button", { name: /^done$/i })).toBeDefined();
+    expect(within(answers).getByRole("button", { name: /^still on it$/i })).toBeDefined();
     expect(within(answers).queryByRole("button", { name: /^remove$/i })).toBe(null);
     // Still on the row, just not in the group that answers the question.
     expect(within(row("alpha")).getByRole("button", { name: /^remove$/i })).toBeDefined();
@@ -1511,24 +1521,24 @@ describe("StandupRoom carrying over", () => {
   it("lets a mis-clicked answer be changed back", async () => {
     mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^no$/i }));
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^still on it$/i }));
     await waitFor(() => expect(row("alpha").textContent).toMatch(/not yet/i));
     await userEvent.click(within(row("alpha")).getByRole("button", { name: /change/i }));
     expect(row("alpha").textContent).not.toMatch(/not yet/i);
-    expect(within(row("alpha")).getByRole("button", { name: /^yes$/i })).toBeDefined();
+    expect(within(row("alpha")).getByRole("button", { name: /^done$/i })).toBeDefined();
   });
 
   it("keeps focus in the row after an answer instead of dropping it on the body", async () => {
     mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^no$/i }));
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^still on it$/i }));
     await waitFor(() => expect(document.activeElement).toBe(row("alpha")));
   });
 
   it("announces an answer through the one polite region the page already has", async () => {
     mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^yes$/i }));
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^done$/i }));
     await waitFor(() =>
       expect(
         screen.getAllByRole("status").some((n) => /landed/i.test(n.textContent ?? "")),
@@ -1539,7 +1549,7 @@ describe("StandupRoom carrying over", () => {
   it("sends one answer for a double click", async () => {
     const f = mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
-    const yes = within(row("alpha")).getByRole("button", { name: /^yes$/i });
+    const yes = within(row("alpha")).getByRole("button", { name: /^done$/i });
     fireEvent.click(yes);
     fireEvent.click(yes);
     await waitFor(() => expect(row("alpha").textContent).toMatch(/landed/i));
@@ -1581,8 +1591,8 @@ describe("StandupRoom gathering panel and fresh commitments", () => {
     const now = screen.getByTestId("taking-on-now");
     expect(now.textContent).toMatch(/typed just now/);
     // No question is asked about it, so there is nothing to answer.
-    expect(within(row("typed just now")).queryByRole("button", { name: /^yes/i })).toBe(null);
-    expect(within(row("typed just now")).queryByRole("button", { name: /^no/i })).toBe(null);
+    expect(within(row("typed just now")).queryByRole("button", { name: /^done/i })).toBe(null);
+    expect(within(row("typed just now")).queryByRole("button", { name: /^still on it/i })).toBe(null);
     // It is still yours to withdraw.
     expect(within(row("typed just now")).getByRole("button", { name: /remove/i })).toBeDefined();
   });
@@ -1802,6 +1812,123 @@ describe("StandupRoom async mode", () => {
     expect(screen.queryByRole("heading", { name: "Your update" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Not yet" })).toBeNull();
     expect(screen.getByRole("heading", { name: "Updates" })).toBeTruthy();
+  });
+});
+
+describe("StandupRoom async follow-through and mentions", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  function asyncRoom(over: Partial<Envelope> = {}, commitments: Partial<Commitment>[] = []): Envelope {
+    return envelope({
+      phase: "",
+      state: {
+        entries: [
+          entry({ userId: "dana", position: 1, today: "review", blockers: "need the staging keys" }),
+        ],
+        commitments: commitments.map((c, i) => ({
+          id: `c${i + 1}`,
+          userId: "marcus",
+          text: `commitment ${i + 1}`,
+          carried: 1,
+          stuck: false,
+          openedHere: false,
+          ...c,
+        })),
+        changes: [],
+        kudos: [],
+        currentSpeakerId: null,
+        speakerStartedAt: null,
+        secondsPerPerson: 90,
+        mode: "async",
+        closesAt: null,
+      } as unknown as Envelope["state"],
+      ...over,
+    });
+  }
+
+  function serveRoom() {
+    return vi.spyOn(globalThis, "fetch").mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+      if (url.includes("/plugins/panels")) return json([]);
+      if (url === "/api/sessions/sess-1/mentions") return json({ needsYou: ["dana"], asked: ["priya"] });
+      if (url === "/api/orgs/acme/spaces/platform-team") {
+        return json({
+          members: [
+            { userId: "dana", name: "Dana Whitfield" },
+            { userId: "marcus", name: "Marcus Okonjo" },
+            { userId: "priya", name: "Priya Raman" },
+            { userId: "omar", name: "Omar Absent" },
+          ],
+        });
+      }
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+  }
+
+  const writes = (f: ReturnType<typeof serveRoom>) =>
+    f.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method && (c[1] as RequestInit).method !== "GET");
+
+  it("reads needs you for the caller alone and puts it at the top of the digest", async () => {
+    const f = serveRoom();
+    renderApp(<StandupRoom env={asyncRoom()} me={me} />);
+    const needs = await screen.findByRole("region", { name: "Needs you" });
+    expect(needs.textContent).toContain("Dana Whitfield");
+    expect(needs.textContent).toContain("need the staging keys");
+    expect(f.mock.calls.some((c) => String(c[0]) === "/api/sessions/sess-1/mentions")).toBe(true);
+  });
+
+  it("asks a space member for help from a labelled picker", async () => {
+    const f = serveRoom();
+    const user = userEvent.setup();
+    renderApp(<StandupRoom env={asyncRoom()} me={me} />);
+    const picker = await screen.findByRole("group", { name: /who do you need/i });
+    // Every member of the space, including one who has not opened the room —
+    // and never yourself.
+    const boxes = await within(picker).findAllByRole("checkbox");
+    expect(boxes.map((b) => (b as HTMLInputElement).labels?.[0]?.textContent)).toEqual([
+      "Dana Whitfield",
+      "Omar Absent",
+      "Priya Raman",
+    ]);
+    await waitFor(() =>
+      expect((within(picker).getByRole("checkbox", { name: "Priya Raman" }) as HTMLInputElement).checked).toBe(true),
+    );
+
+    within(picker).getByRole("checkbox", { name: "Dana Whitfield" }).focus();
+    await user.keyboard(" ");
+    const [path, init] = writes(f)[0] as [string, RequestInit];
+    expect(path).toBe("/api/sessions/sess-1/actions/mention");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body as string)).toEqual({ to: "dana", needed: true });
+  });
+
+  it("drops a carried-over commitment through the drop action", async () => {
+    const f = serveRoom();
+    const user = userEvent.setup();
+    renderApp(<StandupRoom env={asyncRoom({}, [{ text: "alpha" }])} me={me} />);
+    await user.click(screen.getByRole("button", { name: "Dropped" }));
+    const [path, init] = writes(f)[0] as [string, RequestInit];
+    expect(path).toBe("/api/sessions/sess-1/actions/drop");
+    expect(JSON.parse(init.body as string)).toEqual({ id: "c1" });
+  });
+
+  it("gives a link guest neither a picker nor a needs-you read", async () => {
+    const f = serveRoom();
+    renderApp(<StandupRoom env={asyncRoom({ orgSlug: "", spaceSlug: "" })} me={me} guest />);
+    expect(screen.getByRole("heading", { name: "Your update" })).toBeTruthy();
+    expect(screen.queryByRole("group", { name: /who do you need/i })).toBeNull();
+    await act(async () => {});
+    expect(f.mock.calls.some((c) => String(c[0]).includes("/mentions"))).toBe(false);
+    expect(screen.queryByRole("region", { name: "Needs you" })).toBeNull();
+  });
+
+  it("has no axe violations with the picker and needs you showing", async () => {
+    serveRoom();
+    const { container } = renderApp(<StandupRoom env={asyncRoom({}, [{ text: "alpha" }])} me={me} />);
+    await screen.findByRole("region", { name: "Needs you" });
+    await screen.findAllByRole("checkbox");
+    await expectNoViolations(container);
   });
 });
 
