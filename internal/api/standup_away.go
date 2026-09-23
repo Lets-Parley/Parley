@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -60,6 +61,7 @@ func (a *app) handleAddAway(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"could not save your away days"}`, http.StatusInternalServerError)
 		return
 	}
+	a.refreshAwayRooms(r.Context(), p.UserID)
 	writeJSON(w, http.StatusCreated, added)
 }
 
@@ -79,7 +81,24 @@ func (a *app) handleDeleteAway(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"away range not found"}`, http.StatusNotFound)
 		return
 	}
+	a.refreshAwayRooms(r.Context(), p.UserID)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// refreshAwayRooms pushes new state to each open async standup today in the
+// caller's spaces, after their away write has committed, so the digest moves
+// them in or out of "Away" without a reload. Best-effort: the range is saved
+// whatever happens here, so a failure is logged and the request still succeeds.
+// It runs on the request's goroutine, not its own, so it needs no hub.track.
+func (a *app) refreshAwayRooms(ctx context.Context, userID string) {
+	ids, err := standup.BumpAwayRooms(ctx, a.pool, userID)
+	if err != nil {
+		slog.Warn("could not refresh open standups after an away change", "error", err)
+		return
+	}
+	for _, id := range ids {
+		a.broadcastState(ctx, id)
+	}
 }
 
 // handleStandupTrend is the space's team participation trend. It takes no

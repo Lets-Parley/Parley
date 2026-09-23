@@ -176,3 +176,45 @@ func awayIn(ctx context.Context, pool *pgxpool.Pool, zone, sessionID string) ([]
 	}
 	return ids, rows.Err()
 }
+
+// awayRooms bumps the version of every room a person's away list shows in:
+// an open async standup whose day is today, in a space they are a member of.
+// $1 is the user; %[1]s is the zone, as in sessionToday. It is the same day
+// test awayMembers applies, so the rooms bumped are exactly the rooms whose
+// away list the write could have changed.
+const awayRooms = `
+	update sessions s set version = s.version + 1
+	where s.kind = 'standup' and s.ended_at is null and s.config->>'mode' = 'async'
+	  and exists (select 1 from members m where m.space_id = s.space_id and m.user_id = $1)
+	  and ` + sessionDay + ` = ` + sessionToday + `
+	returning s.id::text`
+
+// BumpAwayRooms moves the version of each room the caller's away list shows
+// in, and returns their ids to broadcast. The room socket replaces its state
+// only when the version moves, so without this a saved or removed range left
+// the person under "Not yet" until something else happened in the room. An
+// unreadable schedule zone is read as UTC, as awayToday reads it.
+func BumpAwayRooms(ctx context.Context, pool *pgxpool.Pool, userID string) ([]string, error) {
+	ids, err := bumpAwayRoomsIn(ctx, pool, "sc.timezone", userID)
+	if store.IsUnknownTimeZone(err) {
+		ids, err = bumpAwayRoomsIn(ctx, pool, "'UTC'", userID)
+	}
+	return ids, err
+}
+
+func bumpAwayRoomsIn(ctx context.Context, pool *pgxpool.Pool, zone, userID string) ([]string, error) {
+	rows, err := pool.Query(ctx, fmt.Sprintf(awayRooms, zone), userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
