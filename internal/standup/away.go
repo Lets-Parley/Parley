@@ -3,10 +3,14 @@ package standup
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/lets-parley/parley/internal/store"
 )
 
 // The limits on a self-set away range. The length also stands as a check
@@ -114,13 +118,14 @@ func (s *AwayStore) Delete(ctx context.Context, userID, id string) (bool, error)
 // sessionDay is the calendar date a standup session is for: its schedule
 // slot's local date when a schedule opened it, otherwise the UTC date it was
 // created. sessionToday is today's date in that same zone: the schedule's
-// timezone, otherwise UTC. s is the sessions table alias.
+// timezone, otherwise UTC. %[1]s is the zone expression, sc.timezone or 'UTC'.
+// s is the sessions table alias.
 const (
 	sessionDay = `coalesce(
 	(select min(sl.slot_date) from standup_schedule_slots sl where sl.session_id = s.id),
 	(s.created_at at time zone 'UTC')::date)`
 	sessionToday = `coalesce(
-	(select (now() at time zone sc.timezone)::date
+	(select (now() at time zone %[1]s)::date
 	 from standup_schedule_slots sl join standup_schedules sc on sc.id = sl.schedule_id
 	 where sl.session_id = s.id limit 1),
 	(now() at time zone 'UTC')::date)`
@@ -131,7 +136,7 @@ const (
 // a standup from any earlier day, and the list must not follow it there: it
 // is a live fact about today's room, never a record of who was away when.
 // Only members, never link guests: a guest has no account to set a range on.
-// $1 is the session.
+// $1 is the session; %[1]s is the zone, as in sessionToday.
 const awayMembers = `
 	select m.user_id::text
 	from sessions s
@@ -142,3 +147,32 @@ const awayMembers = `
 		select 1 from standup_away a
 		where a.user_id = m.user_id and ` + sessionDay + ` between a.starts_on and a.ends_on)
 	order by m.user_id`
+
+// awayToday runs awayMembers for the session. A schedule zone Postgres cannot
+// read (one saved before the zone was checked against it) is read as UTC, the
+// same fallback the trend freeze uses, so the room still loads.
+func awayToday(ctx context.Context, pool *pgxpool.Pool, sessionID string) ([]string, error) {
+	ids, err := awayIn(ctx, pool, "sc.timezone", sessionID)
+	if store.IsUnknownTimeZone(err) {
+		slog.Warn("a standup schedule's timezone is not one Postgres knows; reading its away days in UTC", "session", sessionID, "error", err)
+		ids, err = awayIn(ctx, pool, "'UTC'", sessionID)
+	}
+	return ids, err
+}
+
+func awayIn(ctx context.Context, pool *pgxpool.Pool, zone, sessionID string) ([]string, error) {
+	rows, err := pool.Query(ctx, fmt.Sprintf(awayMembers, zone), sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}

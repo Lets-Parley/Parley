@@ -335,7 +335,11 @@ The trend adds only a rounded team ratio to that. `GET
 A space owner can give the space a standup schedule, through the API only for
 now (`PUT /api/orgs/{org}/spaces/{slug}/standup-schedule`): the weekdays, a
 local open time, an IANA time zone such as `America/New_York`, and a window in
-minutes. On each scheduled day, at the open time in that zone, Parley opens a
+minutes. The zone must be one both Parley and Postgres know: `Local`,
+`localtime` and the `posix/` and `right/` copies of the zone database are
+refused with a 400. A schedule saved with such a zone by an earlier release
+keeps opening its slots, and its away days and trend days are read in UTC
+instead, with a warning logged. On each scheduled day, at the open time in that zone, Parley opens a
 new async standup titled with the local date, whose `closesAt` is the open time
 plus the window. The owner who last saved the schedule facilitates that session
 while they are still an owner of the space. Once they have left, or when the

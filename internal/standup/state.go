@@ -272,21 +272,11 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	}
 
 	if cfg.async() && sess.EndedAt == nil {
-		arows, err := pool.Query(ctx, awayMembers, sess.ID)
+		away, err := awayToday(ctx, pool, sess.ID)
 		if err != nil {
 			return nil, err
 		}
-		defer arows.Close()
-		for arows.Next() {
-			var id string
-			if err := arows.Scan(&id); err != nil {
-				return nil, err
-			}
-			st.Away = append(st.Away, id)
-		}
-		if err := arows.Err(); err != nil {
-			return nil, err
-		}
+		st.Away = append(st.Away, away...)
 	}
 
 	// This session's kudos only, oldest first — the order they were given in,
