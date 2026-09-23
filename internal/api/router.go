@@ -859,6 +859,21 @@ func limitAPIRequestBody(next http.Handler) http.Handler {
 // which blocks cross-site form posts.
 func requireJSONBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.ContentLength < 0 {
+			// Length unknown: a proxy that drops Content-Length on a body-less
+			// POST (Cloudflare Tunnel does) sends -1 for what is really empty.
+			// Peek one byte, and put it back for the handler if there was one.
+			var first [1]byte
+			n, _ := io.ReadFull(r.Body, first[:])
+			if n == 0 {
+				r.ContentLength = 0
+			} else {
+				r.Body = struct {
+					io.Reader
+					io.Closer
+				}{io.MultiReader(bytes.NewReader(first[:n]), r.Body), r.Body}
+			}
+		}
 		if r.Method != http.MethodGet && r.ContentLength != 0 {
 			ct := r.Header.Get("Content-Type")
 			if !strings.HasPrefix(ct, "application/json") {

@@ -430,6 +430,15 @@ mutate "the security headers on a method-not-allowed response" \
     'TestSecurityHeadersOnAMethodNotAllowedResponse|TestEveryNonPluginRouteStillSendsTheSecurityHeaders' \
     router.go 'r.MethodNotAllowed(func(w http.ResponseWriter, _ *http.Request) {' 'root.MethodNotAllowed(func(w http.ResponseWriter, _ *http.Request) {'
 
+# A body of unknown length counts as empty only after a peek finds no byte.
+# Treating every unknown length as empty would let a chunked cross-site form
+# post past the JSON requirement.
+mutate "the unknown-length body peek" \
+    'TestRequireJSONBodyUnknownLength' \
+    router.go '			if n == 0 {
+				r.ContentLength = 0' '			if true {
+				r.ContentLength = 0'
+
 mutate "the framed document's connect-src 'none'" \
     'TestThePluginFrameIsNotDeniedByXFrameOptions' \
     pluginframe.go "connect-src 'none'; " "connect-src *; "
