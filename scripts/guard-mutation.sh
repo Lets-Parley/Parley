@@ -430,6 +430,15 @@ mutate "the security headers on a method-not-allowed response" \
     'TestSecurityHeadersOnAMethodNotAllowedResponse|TestEveryNonPluginRouteStillSendsTheSecurityHeaders' \
     router.go 'r.MethodNotAllowed(func(w http.ResponseWriter, _ *http.Request) {' 'root.MethodNotAllowed(func(w http.ResponseWriter, _ *http.Request) {'
 
+# A body of unknown length counts as empty only after a peek finds no byte.
+# Treating every unknown length as empty would let a chunked cross-site form
+# post past the JSON requirement.
+mutate "the unknown-length body peek" \
+    'TestRequireJSONBodyUnknownLength' \
+    router.go '			if n == 0 {
+				r.ContentLength = 0' '			if true {
+				r.ContentLength = 0'
+
 mutate "the framed document's connect-src 'none'" \
     'TestThePluginFrameIsNotDeniedByXFrameOptions' \
     pluginframe.go "connect-src 'none'; " "connect-src *; "
@@ -677,6 +686,20 @@ mutate "the org admin set refusing an embedded session" \
 mutate "binding a handoff only with the display code typed" \
     'TestEmbedBindRequiresTheDisplayCode' \
     embed.go '[]byte(normalizeDisplayCode(pending.DisplayCode))) != 1 {' '[]byte(normalizeDisplayCode(pending.DisplayCode))) != 1 && false {'
+
+mutate "the add-on documents framable only by the provider's origins" \
+    'TestOnlyTheMeetDocumentsAreFramable' \
+    embed.go '"frame-ancestors "+strings.Join(p.FrameAncestors, " ")' '"frame-ancestors *"'
+
+mutate "the add-on script source scoped to the SDK's directory" \
+    'TestOnlyTheMeetDocumentsAreFramable' \
+    embed.go 'sdk.Host + sdk.Path[:strings.LastIndex(sdk.Path, "/")+1]' 'sdk.Host'
+
+mutate "the add-on documents 404 while their provider is off" \
+    'TestOnlyTheMeetDocumentsAreFramable' \
+    embed.go 'if !ok {
+			securityHeaders(http.NotFoundHandler())' 'if !ok && false {
+			securityHeaders(http.NotFoundHandler())'
 
 mutate "sign out never falling back to the cookie beside a bearer" \
     'TestEmbedSignOutNeverFallsBackToTheCookie' \

@@ -13,11 +13,18 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var testMeet = EmbedProvider{Name: "meet", Label: "Google Meet", CloudProjectNumber: "123"}
+// testMeet is the real Meet row, so the framed documents are served under the
+// origins and SDK the shipped binary would use.
+var testMeet = func() EmbedProvider {
+	p := embedProviderTable["meet"]
+	p.CloudProjectNumber = "123"
+	return p
+}()
 
 func embedServer(t *testing.T, pool *pgxpool.Pool) *httptest.Server {
 	t.Helper()
@@ -628,5 +635,66 @@ func TestEmbedWebSocketSubprotocol(t *testing.T) {
 	// ?token= is refused even beside a valid credential.
 	if _, resp, err := d.Dial(base+"&token=x", http.Header{"Origin": {testOrigin}}); err == nil || resp == nil || resp.StatusCode != http.StatusNotFound {
 		t.Errorf("?token= beside a valid subprotocol was not refused: %v", err)
+	}
+}
+
+// The add-on documents are the only framable pages, and only Meet may frame
+// them. The route walk fetches every GET route with Meet enabled and fails on
+// anything else that goes out without X-Frame-Options: DENY; the plugin frame
+// is its own carve-out and has its own walk. Off, both documents are a plain
+// 404 under the full header profile.
+func TestOnlyTheMeetDocumentsAreFramable(t *testing.T) {
+	pool := testPool(t)
+	on := embedServer(t, pool)
+	router := on.Config.Handler.(*Handler).Handler.(chi.Router)
+
+	framable := map[string]bool{}
+	walk := func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		if method != http.MethodGet || strings.HasPrefix(route, pluginFramePrefix) {
+			return nil
+		}
+		path := strings.ReplaceAll(routeParam.ReplaceAllString(route, "x"), "/*", "/x")
+		resp, _ := get(t, on, path)
+		if resp.Header.Get("X-Frame-Options") != "DENY" {
+			framable[route] = true
+		}
+		return nil
+	}
+	if err := chi.Walk(router, walk); err != nil {
+		t.Fatal(err)
+	}
+	docs := []string{"/embed/meet/sidepanel", "/embed/meet/mainstage"}
+	if len(framable) != len(docs) || !framable[docs[0]] || !framable[docs[1]] {
+		t.Fatalf("framable routes = %v, want exactly %v", framable, docs)
+	}
+
+	off := testServerWith(t, pool, Options{AllowedOrigin: testOrigin})
+	for _, doc := range docs {
+		// Meet appends meet_sdk to the frame URL: it must be served, not redirected.
+		resp, body := get(t, on, doc+"?meet_sdk=abc")
+		if resp.StatusCode != http.StatusOK || !strings.Contains(body, `id="root"`) {
+			t.Fatalf("%s: %d, want the app shell", doc, resp.StatusCode)
+		}
+		csp := resp.Header.Get("Content-Security-Policy")
+		for _, want := range []string{"default-src 'self'", "script-src 'self' https://www.gstatic.com/meetjs/addons/1.1.0/;", "frame-ancestors https://meet.google.com"} {
+			if !strings.Contains(csp, want) {
+				t.Errorf("%s CSP %q lacks %q", doc, csp, want)
+			}
+		}
+		// The SDK's own directory, never the whole host: gstatic.com serves
+		// every Google library, and a host source would admit all of them.
+		if strings.Contains(csp, "https://www.gstatic.com ") || strings.Contains(csp, "https://www.gstatic.com;") {
+			t.Errorf("%s CSP %q allows scripts from the whole gstatic host", doc, csp)
+		}
+		if !strings.HasSuffix(csp, "frame-ancestors https://meet.google.com") {
+			t.Errorf("%s CSP %q lets more than Meet frame it", doc, csp)
+		}
+		if resp.Header.Get("X-Content-Type-Options") != "nosniff" {
+			t.Errorf("%s does not send nosniff", doc)
+		}
+		resp, _ = get(t, off, doc)
+		if resp.StatusCode != http.StatusNotFound || resp.Header.Get("X-Frame-Options") != "DENY" {
+			t.Errorf("%s with embedding off: %d XFO %q, want a 404 under DENY", doc, resp.StatusCode, resp.Header.Get("X-Frame-Options"))
+		}
 	}
 }

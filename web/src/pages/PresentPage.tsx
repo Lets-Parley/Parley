@@ -18,8 +18,9 @@ function GuestMark({ person }: { person: Person }) {
  * It depends on nothing but the session id and the envelope every participant
  * is already sent, so it can never show more than a seat at the table would.
  */
-export function PresentPage() {
-  const { id = "" } = useParams();
+export function PresentPage({ id: given }: { id?: string } = {}) {
+  const params = useParams();
+  const id = given ?? params.id ?? "";
   const session = useSession(id);
   const env = session.data;
   if (session.isLoading) {

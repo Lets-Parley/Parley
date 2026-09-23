@@ -456,3 +456,49 @@ func matchedPattern(routes chi.Routes, r *http.Request) string {
 // embeddedRefusalMessage is what gateEmbedded answers a route off the embedded
 // allow-list with.
 const embeddedRefusalMessage = "a meeting-client session cannot do that — open Parley in a browser tab"
+
+// embedSurfaces are the documents a meeting client frames: a side panel and a
+// main stage. They are the SPA shell, served from their own route group.
+var embedSurfaces = []string{"sidepanel", "mainstage"}
+
+// mountEmbedDocuments registers the framed add-on documents. Like the plugin
+// frame, it is a chi group with its own header middleware, so securityHeaders
+// — and its X-Frame-Options: DENY — never runs for these two paths and cannot
+// be made to run for anything else by editing a prefix. Every other /embed
+// route stays in the /embed subrouter, unframable.
+func (a *app) mountEmbedDocuments(root chi.Router, spa http.Handler) {
+	root.Group(func(g chi.Router) {
+		for name := range embedProviderTable {
+			for _, surface := range embedSurfaces {
+				g.Get("/embed/"+name+"/"+surface, a.handleEmbedDocument(name, spa))
+			}
+		}
+	})
+}
+
+// handleEmbedDocument serves the app shell to a provider's frame. The provider
+// row is the whole policy: only its origins may frame the page, and its SDK
+// origin is the only script source added. Off, the route is a plain 404 with
+// the full header profile, like any other page.
+func (a *app) handleEmbedDocument(name string, spa http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		p, ok := a.embedProvider(name)
+		if !ok {
+			securityHeaders(http.NotFoundHandler()).ServeHTTP(w, r)
+			return
+		}
+		// The SDK's own directory, not its host: a trailing-slash source
+		// matches only paths under it, and the host serves far more than the
+		// one library this page loads.
+		sdk, _ := url.Parse(p.SDKScript)
+		sdkDir := sdk.Scheme + "://" + sdk.Host + sdk.Path[:strings.LastIndex(sdk.Path, "/")+1]
+		h := w.Header()
+		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "+
+			"script-src 'self' "+sdkDir+"; "+
+			"frame-ancestors "+strings.Join(p.FrameAncestors, " "))
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		// No X-Frame-Options: frame-ancestors above says who may frame this.
+		spa.ServeHTTP(w, r)
+	}
+}

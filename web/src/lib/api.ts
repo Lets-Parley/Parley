@@ -1,8 +1,11 @@
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** Seconds from the response's Retry-After header, when the server sent one. */
+  retryAfter?: number;
+  constructor(status: number, message: string, retryAfter?: number) {
     super(message);
     this.status = status;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -30,6 +33,20 @@ export function errorText(e: unknown): string {
   return e instanceof Error && e.message ? e.message : "Something went wrong. Try again.";
 }
 
+/**
+ * The embedded-session token, set only by the meeting-client documents. A
+ * framed page never receives Parley's cookie, so while this is set every
+ * request carries the token instead and sends no cookie at all. The ordinary
+ * app never sets it and keeps its cookie.
+ */
+let bearer = "";
+export function setBearer(token: string) {
+  bearer = token;
+}
+export function getBearer(): string {
+  return bearer;
+}
+
 export async function api<T = unknown>(
   method: string,
   path: string,
@@ -45,9 +62,10 @@ export async function api<T = unknown>(
   try {
     resp = await fetch(path, {
       method,
-      credentials: "same-origin",
+      credentials: bearer ? "omit" : "same-origin",
       headers: {
         ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
         ...extraHeaders,
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -68,7 +86,8 @@ export async function api<T = unknown>(
   if (!resp.ok) {
     const msg =
       (data as { error?: string } | undefined)?.error ?? "Something went wrong talking to the server.";
-    throw new ApiError(resp.status, msg);
+    const ra = Number(resp.headers?.get("Retry-After"));
+    throw new ApiError(resp.status, msg, Number.isFinite(ra) && ra > 0 ? ra : undefined);
   }
   return data as T;
 }

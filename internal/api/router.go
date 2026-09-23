@@ -431,6 +431,9 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	// than a path check inside securityHeaders is the whole point: a group is
 	// reachable only by being registered in it, while a path check is a
 	// matching rule, and matching rules get evaded.
+	// The meeting-client add-on documents are the other framable group.
+	spa := web.SPAHandler()
+	a.mountEmbedDocuments(root, spa)
 	a.mountPluginFrame(root)
 	r := root.With(securityHeaders)
 
@@ -825,7 +828,6 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 
 	r.With(resolvePrincipal(a.users, mode == ModeOIDC, a.embedBearer(wsProtocolBearer))).Get("/ws", a.handleWS)
 
-	spa := web.SPAHandler()
 	// The compatibility shim for links minted before space URLs carried an
 	// org. It is mounted as a real route rather than left to the catch-all
 	// below, because the catch-all would simply serve the app shell to a path
@@ -857,6 +859,21 @@ func limitAPIRequestBody(next http.Handler) http.Handler {
 // which blocks cross-site form posts.
 func requireJSONBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.ContentLength < 0 {
+			// Length unknown: a proxy that drops Content-Length on a body-less
+			// POST (Cloudflare Tunnel does) sends -1 for what is really empty.
+			// Peek one byte, and put it back for the handler if there was one.
+			var first [1]byte
+			n, _ := io.ReadFull(r.Body, first[:])
+			if n == 0 {
+				r.ContentLength = 0
+			} else {
+				r.Body = struct {
+					io.Reader
+					io.Closer
+				}{io.MultiReader(bytes.NewReader(first[:n]), r.Body), r.Body}
+			}
+		}
 		if r.Method != http.MethodGet && r.ContentLength != 0 {
 			ct := r.Header.Get("Content-Type")
 			if !strings.HasPrefix(ct, "application/json") {

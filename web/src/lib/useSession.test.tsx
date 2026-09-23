@@ -63,6 +63,19 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("useSession", () => {
+  it("encodes the id into one path segment", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () => ({ status: 200, ok: true, text: async () => JSON.stringify(envelope(1)) }) as Response,
+    );
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    );
+    renderHook(() => useSession("../me?x#y"), { wrapper });
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    expect(fetch.mock.calls[0][0]).toBe("/api/sessions/..%2Fme%3Fx%23y");
+  });
+
   it("loads the session and starts out live", async () => {
     const { result } = mount();
     await waitFor(() => expect(result.current.data).toBeTruthy());

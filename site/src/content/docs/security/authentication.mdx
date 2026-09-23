@@ -243,6 +243,12 @@ Meet). With it empty every `/embed/*` and `/api/embed/*` route answers 404 and
 no `Authorization` header is ever read, so an air-gapped install never
 references a third-party script.
 
+With a provider enabled, its two framed documents — for Meet,
+`/embed/meet/sidepanel` and `/embed/meet/mainstage` — are served from their own
+route group, the only pages without `X-Frame-Options: DENY`. Their CSP allows
+framing only by the provider's origins and adds only its SDK's directory to
+`script-src` — never the whole host that serves it. See [Google Meet add-on](/operations/google-meet/).
+
 The embed is a new door, never a new key: someone who could already enter a
 room can enter it from a meeting's side panel. Membership, passcodes, link-guest
 limits and redaction are unchanged.
