@@ -61,59 +61,90 @@ function envelope(over: Partial<Envelope> = {}): Envelope {
 
 const READ = ["session:read"] as const;
 
-describe("redactSession", () => {
-  it("keeps hidden votes hidden before the reveal", () => {
-    const out = redactSession(envelope({ revealed: false }), READ);
-    const story = (out!.state as { stories: { votes?: unknown; results?: unknown; votedUserIds: string[] }[] }).stories[0];
-    expect(story.votes).toBeUndefined();
-    expect(story.results).toBeUndefined();
-    // Who voted is not what they voted: the count is the whole point of the
-    // pre-reveal screen, so it must survive.
-    expect(story.votedUserIds).toEqual(["u1", "u2"]);
-    // And no vote value survives anywhere in the payload, whatever shape a
-    // future field arrives in.
-    expect(JSON.stringify(out)).not.toContain('"8"');
-    expect(JSON.stringify(out)).not.toContain('"13"');
-  });
+/** The install the frame under test belongs to. */
+const RETRO = "retro";
 
-  it("releases votes once the round is revealed", () => {
-    const out = redactSession(envelope({ revealed: true }), READ);
-    const story = (out!.state as { stories: { votes?: unknown; results?: unknown }[] }).stories[0];
-    expect(story.votes).toEqual([
-      { userId: "u1", value: "8" },
-      { userId: "u2", value: "13" },
-    ]);
-    expect(story.results).toBeTruthy();
+// A room running a ceremony the framed plugin provides: the envelope names the
+// install, exactly as the server builds it for a plugin-owned kind.
+function pluginKindEnvelope(over: Partial<Envelope> = {}): Envelope {
+  return {
+    ...envelope(),
+    kind: "acme-retro",
+    plugin: { name: RETRO, version: "1.0.0", grants: ["session:read"] },
+    state: { columns: ["went-well"], hidden: "ok-from-statefunc" },
+    ...over,
+  } as unknown as Envelope;
+}
+
+// A standup room as its StateFunc sends it to members. Every value below is
+// something the consent copy says a plugin cannot read.
+function standupEnvelope(): Envelope {
+  return {
+    ...envelope(),
+    kind: "standup",
+    phase: "open",
+    state: {
+      entries: [
+        { userId: "u1", yesterday: "shipped-the-sso-fix", today: "on-call", blockers: "vendor-outage" },
+      ],
+      away: [{ userId: "u2", note: "medical-leave" }],
+      members: [{ userId: "u3", name: "Priya Castellanos" }],
+    },
+  } as unknown as Envelope;
+}
+
+describe("redactSession", () => {
+  it("builds the plugin's own room field by field", () => {
+    const out = redactSession(pluginKindEnvelope(), READ, RETRO);
+    expect(Object.keys(out!).sort()).toEqual(
+      [
+        "endedAt",
+        "facilitatorId",
+        "id",
+        "kind",
+        "participants",
+        "phase",
+        "presence",
+        "revealed",
+        "state",
+        "title",
+        "version",
+      ].sort(),
+    );
+    // The kind's StateFunc already decided what is client-safe, so its
+    // document is what the frame gets.
+    expect(out!.state).toEqual({ columns: ["went-well"], hidden: "ok-from-statefunc" });
+    expect(JSON.stringify(out)).not.toContain("alpha-squad");
+    expect(JSON.stringify(out)).not.toContain('"plugin"');
   });
 
   it("hands a plugin with no session:read grant nothing at all", () => {
-    expect(redactSession(envelope({ revealed: true }), [])).toBeNull();
+    expect(redactSession(pluginKindEnvelope(), [], RETRO)).toBeNull();
   });
 
-  it("does not leak the space or org a session lives in", () => {
-    const out = redactSession(envelope({ revealed: true }), READ);
-    expect(JSON.stringify(out)).not.toContain("alpha-squad");
+  // The consent screen promises session:read "cannot read a planning poker or
+  // standup room, or any other plugin's rooms" (internal/plugin/describe.go).
+  // A frame in chrome on such a room is told nothing about it — not its state,
+  // not who is seated, not its title.
+  it("hands a plugin nothing about a poker room, revealed or not", () => {
+    expect(redactSession(envelope({ revealed: false }), READ, RETRO)).toBeNull();
+    expect(redactSession(envelope({ revealed: true }), READ, RETRO)).toBeNull();
   });
 
-  // A plugin-owned ceremony's StateFunc already built client-safe state. The
-  // poker projection would wipe it into empty stories; this path must pass
-  // that document through after the envelope fields are projected.
-  function pluginKindEnvelope(): Envelope {
-    return {
-      ...envelope(),
-      kind: "acme-retro",
-      state: { columns: ["went-well"], hidden: "ok-from-statefunc" },
-    } as unknown as Envelope;
-  }
-
-  it("passes a plugin kind's state through rather than rewriting it as poker", () => {
-    const out = redactSession(pluginKindEnvelope(), READ);
-    expect(out!.state).toEqual({ columns: ["went-well"], hidden: "ok-from-statefunc" });
-    expect(JSON.stringify(out)).not.toContain("alpha-squad");
+  it("hands a plugin nothing about a standup room", () => {
+    expect(redactSession(standupEnvelope(), READ, RETRO)).toBeNull();
   });
 
-  it("hands a plugin kind with no session:read grant nothing at all", () => {
-    expect(redactSession(pluginKindEnvelope(), [])).toBeNull();
+  it("hands a plugin nothing about another plugin's room", () => {
+    const other = pluginKindEnvelope({
+      plugin: { name: "someone-else", version: "1.0.0", grants: ["session:read"] },
+    } as Partial<Envelope>);
+    expect(redactSession(other, READ, RETRO)).toBeNull();
+  });
+
+  it("hands a plugin nothing about a room whose ceremony is switched off", () => {
+    const off = { ...pluginKindEnvelope(), plugin: undefined, kindUnavailable: true, state: null } as unknown as Envelope;
+    expect(redactSession(off, READ, RETRO)).toBeNull();
   });
 });
 
@@ -143,6 +174,7 @@ describe("createPluginBridge", () => {
     const f = fakeFrame();
     const b = createPluginBridge({
       target: f.target as unknown as Window,
+      plugin: RETRO,
       grants: ["session:read", "session:act"],
       onAction: (action, payload) => {
         actions.push({ action, payload });
@@ -295,7 +327,7 @@ describe("createPluginBridge", () => {
   it("bounds what the host pushes into the frame too", () => {
     const { b, failures } = bridge();
     b.handshake();
-    const huge = envelope({ title: "x".repeat(MAX_MESSAGE_BYTES) });
+    const huge = pluginKindEnvelope({ title: "x".repeat(MAX_MESSAGE_BYTES) });
     b.sendState(huge);
     expect(failures).toContain("oversize-outbound");
     b.close();
@@ -309,8 +341,8 @@ describe("createPluginBridge", () => {
     const sent: string[] = [];
     const { b } = bridge({ send: (body: string) => sent.push(body) });
     b.handshake();
-    b.sendState(envelope({ title: "Sprint 42" }));
-    b.sendState(envelope({ title: "Sprint 43" }));
+    b.sendState(pluginKindEnvelope({ title: "Sprint 42" }));
+    b.sendState(pluginKindEnvelope({ title: "Sprint 43" }));
     vi.advanceTimersByTime(500);
     const body = sent.join("");
     expect(body).toContain("Sprint 43");
@@ -320,15 +352,69 @@ describe("createPluginBridge", () => {
     b.close();
   });
 
-  it("pushes only the redacted projection into the frame", () => {
+  // The exact message a frame receives, read by its raw keys: a reflected type
+  // would pass for any payload the projection happened to type-check against.
+  it("pushes the plugin's own room into the frame, and exactly that", () => {
+    const sent: string[] = [];
+    const { b } = bridge({ send: (body: string) => sent.push(body) });
+    b.handshake();
+    b.sendState(pluginKindEnvelope());
+    vi.advanceTimersByTime(500);
+    expect(sent.length).toBe(1);
+    const message = JSON.parse(sent[0]) as Record<string, unknown>;
+    expect(Object.keys(message).sort()).toEqual(["state", "type"]);
+    expect(message.type).toBe("state");
+    expect(message.state).toEqual({
+      id: "s1",
+      kind: "acme-retro",
+      title: "Sprint 42",
+      phase: "voting",
+      revealed: false,
+      version: 7,
+      facilitatorId: "u1",
+      endedAt: null,
+      presence: ["u1", "u2"],
+      participants: [
+        { userId: "u1", name: "Dana Whitfield", avatarHue: 120, spectator: false },
+        { userId: "u2", name: "Ravi Menon", avatarHue: 20, spectator: false },
+      ],
+      state: { columns: ["went-well"], hidden: "ok-from-statefunc" },
+    });
+    b.close();
+  });
+
+  it("pushes nothing into the frame from a standup room", () => {
+    const sent: string[] = [];
+    const { b } = bridge({ send: (body: string) => sent.push(body) });
+    b.handshake();
+    b.sendState(standupEnvelope());
+    vi.advanceTimersByTime(500);
+    expect(sent).toEqual([]);
+    b.close();
+  });
+
+  it("pushes nothing into the frame from a poker room", () => {
     const sent: string[] = [];
     const { b } = bridge({ send: (body: string) => sent.push(body) });
     b.handshake();
     b.sendState(envelope({ revealed: false }));
+    b.sendState(envelope({ revealed: true }));
     vi.advanceTimersByTime(500);
-    expect(sent.join("")).not.toContain('"8"');
-    expect(sent.join("")).not.toContain('"13"');
-    expect(sent.join("")).toContain("Log in with a passkey");
+    expect(sent).toEqual([]);
+    b.close();
+  });
+
+  it("pushes nothing into the frame from another plugin's room", () => {
+    const sent: string[] = [];
+    const { b } = bridge({ send: (body: string) => sent.push(body) });
+    b.handshake();
+    b.sendState(
+      pluginKindEnvelope({
+        plugin: { name: "someone-else", version: "1.0.0", grants: ["session:read"] },
+      } as Partial<Envelope>),
+    );
+    vi.advanceTimersByTime(500);
+    expect(sent).toEqual([]);
     b.close();
   });
 });

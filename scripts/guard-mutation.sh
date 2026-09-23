@@ -564,10 +564,13 @@ mutate "inerting a plugin frame under a modal" \
     'src/components/PluginPanel.test.tsx::marks the frame inert while a host modal is open' \
     components/PluginPanel.tsx 'el.toggleAttribute("inert", modalOpen);' 'el.toggleAttribute("inert", false);'
 
-mutate "the reveal gate on vote values crossing the bridge" \
-    'src/lib/pluginBridge.test.ts::keeps hidden votes hidden before the reveal' \
-    lib/pluginBridge.ts 'if (env.revealed && s.votes) {' 'if (s.votes) {' \
-    lib/pluginBridge.ts 'if (env.revealed && s.results) story.results = s.results;' 'if (s.results) story.results = s.results;'
+# session:read "cannot read a planning poker or standup room, or any other
+# plugin's rooms" (internal/plugin/describe.go). A frame is built a view only of
+# a room whose ceremony its own install provides; loosening that one comparison
+# hands a standup room's entries to every framed plugin in its chrome.
+mutate "the own-ceremony check on state crossing the bridge" \
+    'src/lib/pluginBridge.test.ts::pushes nothing into the frame from a standup room' \
+    lib/pluginBridge.ts 'return plugin !== "" && env.plugin?.name === plugin;' 'return plugin !== "" || env.plugin?.name === plugin;'
 
 mutate "the session:read grant check" \
     'src/lib/pluginBridge.test.ts::hands a plugin with no session:read grant nothing at all' \
