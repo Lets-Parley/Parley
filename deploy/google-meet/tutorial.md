@@ -50,9 +50,9 @@ The script prints these remaining steps and their console URLs:
      sizes in the kit below are optional.
    - **Developer Information**: pick your own [Trader
      status](https://developers.google.com/workspace/marketplace/enable-configure-sdk)
-     (an EEA consumer-protection declaration — yours, not ours). Developer
-     Name, Developer Website URL (your `BASE_URL`) and Developer Email are
-     required; Application Website URL is optional.
+     (required — an EEA consumer-protection declaration, yours not ours).
+     Developer Name, Developer Website URL (your `BASE_URL`) and Developer
+     Email are required; Application Website URL is optional.
    - **App Visibility**: defaults to **Public**. Switch it to **Private**
      before saving — this cannot be changed once saved.
    - **Installation Settings**: choose **Individual + Admin Install**, not

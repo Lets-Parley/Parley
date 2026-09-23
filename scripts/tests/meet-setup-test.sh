@@ -5,7 +5,7 @@
 # call, a first run creates the deployment and a re-run replaces it, a
 # just-activating API is retried and either recovers or fails clearly, the
 # manifest matches BASE_URL, install-status renders as a checkmark or cross,
-# and the printed checklist is the three remaining manual steps only.
+# and the printed checklist is the four remaining manual steps only.
 set -eu
 
 repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
@@ -298,6 +298,11 @@ grep -q "App Integrations" "$work/checklist.log"
 grep -q "Google Workspace add-on" "$work/checklist.log"
 grep -q "Web app" "$work/checklist.log"
 grep -qi "Trader [Ss]tatus" "$work/checklist.log"
+grep -qi "Trader [Ss]tatus.*(required)" "$work/checklist.log" || {
+  echo "FAIL: Trader status should be marked (required), matching the other Developer fields" >&2
+  cat "$work/checklist.log" >&2
+  exit 1
+}
 grep -q "Developer Name" "$work/checklist.log"
 grep -q "Developer Website" "$work/checklist.log"
 grep -q "your BASE_URL, https://parley.example.com" "$work/checklist.log"

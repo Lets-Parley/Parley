@@ -151,8 +151,8 @@ Four steps have no API and stay manual:
        deployment resource" to ${DEPLOYMENT_ID}. Leave "Web app" unticked —
        it needs 96x96 and 48x48 icons that a Meet add-on doesn't, which is
        why those two sizes in the kit are optional.
-     - Developer Information: pick your own Trader status — this is your
-       own EEA consumer-protection declaration, not ours; see
+     - Developer Information: pick your own Trader status (required) —
+       this is your own EEA consumer-protection declaration, not ours; see
        https://developers.google.com/workspace/marketplace/enable-configure-sdk.
        Developer Name, Developer Website URL (your BASE_URL, ${BASE_URL})
        and Developer Email are required; Application Website URL is
