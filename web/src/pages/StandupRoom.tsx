@@ -86,6 +86,10 @@ function useOwnEntryDraft(env: Envelope, meId: string) {
   // request is already out and pending.current is therefore empty.
   const chain = useRef<Promise<unknown>>(Promise.resolve());
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  // True from the first failed save until one lands. Separate from saveState,
+  // which goes back to "saving" on every keystroke: the alert hangs off this,
+  // so an offline typist hears it once, not after every pause.
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     if (!seeded.current && server) {
@@ -102,8 +106,10 @@ function useOwnEntryDraft(env: Envelope, meId: string) {
       try {
         await action(env.id, "standup", next);
         setSaveState("saved");
+        setFailed(false);
       } catch (e) {
         setSaveState("error");
+        setFailed(true);
         throw e;
       }
     });
@@ -135,7 +141,7 @@ function useOwnEntryDraft(env: Envelope, meId: string) {
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
-  return { draft, update, saveState, flush };
+  return { draft, update, saveState, failed, flush };
 }
 
 export function Timer({
@@ -221,7 +227,7 @@ export function StandupRoom({
   const say = useToast();
   const isFacilitator = !guest && env.facilitatorId === me.id;
   useFacilitatorAnnouncement(env, me.id);
-  const { draft, update, saveState, flush } = useOwnEntryDraft(env, me.id);
+  const { draft, update, saveState, failed, flush } = useOwnEntryDraft(env, me.id);
   // Where it failed, not just that it did. One string at the foot of the page
   // took failures from ready, start, next, skip and end alike — the same shape
   // the poker room shed in #223.
@@ -658,7 +664,7 @@ export function StandupRoom({
             <p className="text-ink-soft">
               Your notes save automatically and stay editable until the standup ends.
             </p>
-            {st.closesAt && <Cutoff key={st.closesAt} at={st.closesAt} />}
+            {st.closesAt && <Cutoff key={st.closesAt} at={st.closesAt} serverTime={env.serverTime} />}
           </div>
           <Commitments
             commitments={st.commitments ?? []}
@@ -669,7 +675,7 @@ export function StandupRoom({
             onDrop={(id) => run(() => action(env.id, "drop", { id }), { where: "gathering" })}
             onNote={noteCommitment}
           />
-          <EntryForm draft={draft} update={update} saveState={saveState} />
+          <EntryForm draft={draft} update={update} saveState={saveState} failed={failed} />
           {!guest && askable.length > 0 && (
             <fieldset className="flex flex-col gap-2">
               <legend className={labelText}>Who do you need?</legend>
@@ -740,7 +746,7 @@ export function StandupRoom({
             onDrop={(id) => run(() => action(env.id, "drop", { id }), { where: "gathering" })}
             onNote={noteCommitment}
           />
-          <EntryForm draft={draft} update={update} saveState={saveState} />
+          <EntryForm draft={draft} update={update} saveState={saveState} failed={failed} />
           {/* Who the room is waiting on, in words — a dot or a tint alone would
               leave the only copy of this fact in colour. Only the people still
               writing are named: the other rows carried one bit each and said
@@ -819,7 +825,7 @@ export function StandupRoom({
             </h2>
           </div>
           {canEditOwn && shown.userId === me.id ? (
-            <EntryForm draft={draft} update={update} saveState={saveState} />
+            <EntryForm draft={draft} update={update} saveState={saveState} failed={failed} />
           ) : (
             <div data-testid="entry-body" className="flex flex-col gap-3">
               {/* An em dash per field said "nothing here" for a seat that was
@@ -1062,16 +1068,34 @@ const PROMPTS = {
  * it changes without waiting for a frame. Keyed by `at` where it is rendered,
  * so a moved cutoff starts from a fresh reading.
  */
-function Cutoff({ at }: { at: string }) {
+export function Cutoff({ at, serverTime }: { at: string; serverTime: string }) {
   const due = new Date(at).getTime();
-  const [passed, setPassed] = useState(() => due <= Date.now());
+  // The server's clock, not the client's: the same offset Timer takes from
+  // each frame, so a laptop with a skewed clock flips when the server starts
+  // counting answers as late. At mount the server's "now" is the frame's
+  // serverTime itself, so the first reading needs no offset.
+  const offset = useRef(0);
+  const [passed, setPassed] = useState(() => due <= Date.parse(serverTime));
+  // Bumped by a timer that woke before the cutoff, so the effect arms the
+  // next one.
+  const [check, setCheck] = useState(0);
+  useEffect(() => {
+    offset.current = Date.parse(serverTime) - Date.now();
+  }, [serverTime]);
   useEffect(() => {
     if (passed) return;
     // setTimeout's delay is a signed 32-bit int; a cutoff further out than
-    // that just re-checks, rather than firing at once.
-    const t = setTimeout(() => setPassed(due <= Date.now()), Math.min(Math.max(0, due - Date.now()), 2 ** 31 - 1));
+    // that wakes early and re-arms, rather than firing at once or never.
+    const left = due - (Date.now() + offset.current);
+    const t = setTimeout(
+      () => {
+        if (due <= Date.now() + offset.current) setPassed(true);
+        else setCheck((n) => n + 1);
+      },
+      Math.min(Math.max(0, left), 2 ** 31 - 1),
+    );
     return () => clearTimeout(t);
-  }, [due, passed]);
+  }, [due, passed, check, serverTime]);
   const when = (
     <time dateTime={at}>
       {new Date(at).toLocaleString([], {
@@ -1100,10 +1124,12 @@ function EntryForm({
   draft,
   update,
   saveState,
+  failed,
 }: {
   draft: { yesterday: string; today: string; blockers: string };
   update: (f: "yesterday" | "today" | "blockers", v: string) => void;
   saveState: string;
+  failed: boolean;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -1123,11 +1149,13 @@ function EntryForm({
         </label>
       ))}
       <span className="text-xs text-ink-faint">
-        {saveState === "saving" && "Saving…"}
-        {saveState === "saved" && "Saved"}
+        {!failed && saveState === "saving" && "Saving…"}
+        {!failed && saveState === "saved" && "Saved"}
         {/* An alert, because a failed autosave is the one state here a
-            screen-reader user must not miss: the answer is not on the server. */}
-        {saveState === "error" && (
+            screen-reader user must not miss: the answer is not on the server.
+            It stays mounted, words unchanged, through every retry until a
+            save lands, so it is announced on the way into failure only. */}
+        {failed && (
           <span role="alert" className="font-bold text-stop">
             Could not save — check your connection
           </span>

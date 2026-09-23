@@ -132,21 +132,27 @@ describe("ToastProvider", () => {
       screen.getByRole("button", { name: "say" }).click();
     });
 
-  it("announces politely and clears itself", async () => {
+  it("announces politely into a region that was already there, and clears itself", async () => {
+    // A live region created together with its first message is missed by
+    // some screen readers: they watch regions for changes, and a region that
+    // did not exist yet has no "before". So the status container is mounted
+    // from the start, and only the words inside it come and go.
     render(
       <ToastProvider>
         <Say msg="You're the facilitator now" />
       </ToastProvider>,
     );
-    expect(screen.queryByRole("status")).toBeNull();
+    const region = screen.getByRole("status");
+    expect(region.getAttribute("aria-live")).toBe("polite");
+    expect(region.textContent).toBe("");
 
     await click();
-    const toast = screen.getByRole("status");
-    expect(toast.textContent).toBe("You're the facilitator now");
-    expect(toast.getAttribute("aria-live")).toBe("polite");
+    expect(screen.getByRole("status")).toBe(region);
+    expect(region.textContent).toBe("You're the facilitator now");
 
     await act(async () => void (await vi.advanceTimersByTimeAsync(3400)));
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("status")).toBe(region);
+    expect(region.textContent).toBe("");
   });
 
   it("shows one toast at a time and restarts the clock on the next message", async () => {
@@ -164,7 +170,7 @@ describe("ToastProvider", () => {
     expect(screen.getAllByRole("status")).toHaveLength(1);
 
     await act(async () => void (await vi.advanceTimersByTimeAsync(2400)));
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe("");
   });
 
   it("leaves no timer behind on unmount", async () => {

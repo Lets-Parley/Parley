@@ -36,7 +36,8 @@ export function AwayDays() {
   const lastId = useId();
   // Adding disables the button just pressed and removing unmounts it, and
   // either one drops a keyboard user's focus to the top of the page. Focus
-  // comes back to the form's first field, and the toast says what happened.
+  // comes back to the form's first field, and the toast says what happened —
+  // whether it worked or not.
   const firstRef = useRef<HTMLInputElement>(null);
 
   const ranges = useQuery({
@@ -54,7 +55,10 @@ export function AwayDays() {
       firstRef.current?.focus();
       return true;
     } catch (e) {
+      // The button was disabled for the request either way, so a refusal
+      // drops focus just as a success does. The fields keep what was typed.
       say(errorText(e));
+      firstRef.current?.focus();
       return false;
     } finally {
       setBusy(false);

@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { StandupRoom, Timer } from "./StandupRoom";
-import { makePerson, renderApp } from "../test/render";
+import { Cutoff, StandupRoom, Timer } from "./StandupRoom";
+import { makePerson, pageStatus, pageStatuses, renderApp } from "../test/render";
 import type { Envelope, Me } from "../lib/api";
 import type { StandupEntry } from "./StandupRoom";
 import type { Commitment } from "../components/Commitments";
@@ -140,6 +140,62 @@ describe("StandupRoom Timer", () => {
   });
 });
 
+describe("StandupRoom Cutoff", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(START));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const line = () => document.querySelector("time")?.closest("p")?.textContent ?? "";
+  const at = (ms: number) => new Date(Date.parse(START) + ms).toISOString();
+
+  it("changes tense when a cutoff a minute out passes", async () => {
+    // Nothing re-renders the line here: only its own timer can flip it, so a
+    // timer whose callback does nothing leaves "Closes" standing.
+    render(<Cutoff at={at(60_000)} serverTime={START} />);
+    expect(line()).toMatch(/^Closes /);
+    await advance(59_000);
+    expect(line()).toMatch(/^Closes /);
+    await advance(2_000);
+    expect(line()).toMatch(/^Cutoff was /);
+  });
+
+  it("still flips a cutoff further out than setTimeout can wait in one go", async () => {
+    // The delay is capped at 2^31-1 ms (about 24.8 days). A capped timer that
+    // fires early has to schedule the next check, or a 30-day cutoff never
+    // turns over.
+    const day = 86_400_000;
+    render(<Cutoff at={at(30 * day)} serverTime={START} />);
+    await advance(29 * day);
+    expect(line()).toMatch(/^Closes /);
+    await advance(2 * day);
+    expect(line()).toMatch(/^Cutoff was /);
+  });
+
+  it("flips at the server's moment, not the skewed client clock's", async () => {
+    // The client runs ten minutes slow. The server says it is 10:10, and the
+    // cutoff is 10:11 by the server clock: one minute of real time away, not
+    // eleven.
+    const serverNow = at(10 * 60_000);
+    render(<Cutoff at={at(11 * 60_000)} serverTime={serverNow} />);
+    expect(line()).toMatch(/^Closes /);
+    await advance(59_000);
+    expect(line()).toMatch(/^Closes /);
+    await advance(2_000);
+    expect(line()).toMatch(/^Cutoff was /);
+  });
+
+  it("reads a cutoff the server clock has already passed as passed", () => {
+    // The client runs ten minutes slow; the cutoff was five minutes ago by
+    // the server clock, and five minutes ahead by the client's.
+    render(<Cutoff at={at(5 * 60_000)} serverTime={at(10 * 60_000)} />);
+    expect(line()).toMatch(/^Cutoff was /);
+  });
+});
+
 const me: Me = { id: "marcus", name: "Marcus Okonjo", avatarHue: 40 };
 
 function entry(over: Partial<StandupEntry> = {}): StandupEntry {
@@ -203,7 +259,7 @@ function noSkipState(): Envelope["state"] {
   return st as unknown as Envelope["state"];
 }
 
-const announcer = () => screen.getByRole("status");
+const announcer = () => pageStatus();
 const seat = (name: string) =>
   screen.getAllByRole("listitem").find((li) => li.textContent?.includes(name))!;
 
@@ -260,7 +316,7 @@ describe("StandupRoom turn accessibility", () => {
         me={me}
       />,
     );
-    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(pageStatuses()).toHaveLength(1);
     expect(announcer().textContent).toBe("Marcus Okonjo is speaking now, 2 of 3.");
   });
 
@@ -1423,7 +1479,7 @@ describe("StandupRoom carrying over", () => {
     expect(labels.indexOf("Keep it")).toBeLessThan(labels.indexOf("Remove it"));
     expect(document.activeElement?.textContent).toBe("Keep it");
     // And the change is announced through the page's one polite region.
-    expect(screen.getByRole("status").textContent).toMatch(/remove this commitment/i);
+    expect(pageStatus().textContent).toMatch(/remove this commitment/i);
 
     await userEvent.keyboard("{Enter}");
     expect(roomCalls(f)).toHaveLength(0);
@@ -1813,8 +1869,9 @@ describe("StandupRoom async mode", () => {
     // It read "Closes Tue, 9:48 PM" an hour after that time: future tense for
     // a cutoff already gone, and nothing telling a late answerer the form is
     // still worth filling in.
-    const past = new Date(Date.now() - 3600_000).toISOString();
+    // An hour before the frame's serverTime: the line reads the server clock.
     const env = asyncEnvelope();
+    const past = new Date(Date.parse(env.serverTime) - 3600_000).toISOString();
     renderApp(
       <StandupRoom
         env={{ ...env, state: { ...(env.state as object), closesAt: past } as unknown as Envelope["state"] }}
@@ -1838,6 +1895,62 @@ describe("StandupRoom async mode", () => {
     const alert = await screen.findByRole("alert", {}, { timeout: 3000 });
     expect(alert.textContent).toMatch(/could not save/i);
     fetchSpy.mockRestore();
+  });
+
+  it("announces a failing autosave once, not after every pause, until a save lands", async () => {
+    // Offline, every keystroke went back to "Saving…", which unmounted the
+    // alert, and every failed save mounted a fresh one: a screen reader heard
+    // the assertive alert again after each pause in typing. The alert now
+    // stays mounted, unchanged, for as long as saving keeps failing.
+    vi.useFakeTimers();
+    let ok = false;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).includes("/plugins/panels")) return new Response("[]", { status: 200 });
+      return ok
+        ? new Response(null, { status: 204 })
+        : new Response(JSON.stringify({ error: "nope" }), { status: 500 });
+    });
+    try {
+      renderApp(<StandupRoom env={asyncEnvelope()} me={me} />);
+      const today = screen.getByLabelText("today");
+      const settle = () =>
+        act(async () => {
+          await vi.advanceTimersByTimeAsync(900);
+        });
+
+      fireEvent.change(today, { target: { value: "one" } });
+      await settle();
+      const alerts = () => screen.queryAllByRole("alert");
+      expect(alerts()).toHaveLength(1);
+      const first = alerts()[0];
+      expect(first.textContent).toMatch(/could not save/i);
+
+      // Typing again while still failing: the same node, same words, while
+      // the retry is pending and after it fails too.
+      fireEvent.change(today, { target: { value: "one two" } });
+      expect(alerts()).toEqual([first]);
+      expect(first.isConnected).toBe(true);
+      await settle();
+      expect(alerts()).toEqual([first]);
+      expect(first.textContent).toMatch(/could not save/i);
+
+      // A save that lands clears it.
+      ok = true;
+      fireEvent.change(today, { target: { value: "one two three" } });
+      await settle();
+      expect(alerts()).toHaveLength(0);
+      expect(screen.getByText("Saved")).toBeTruthy();
+
+      // And the next failure after a success is news again.
+      ok = false;
+      fireEvent.change(today, { target: { value: "four" } });
+      await settle();
+      expect(alerts()).toHaveLength(1);
+      expect(alerts()[0]).not.toBe(first);
+    } finally {
+      fetchSpy.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("drops the answer form and the not-yet list once ended", () => {

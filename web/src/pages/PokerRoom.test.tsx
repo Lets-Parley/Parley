@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PokerRoom } from "./PokerRoom";
-import { makePerson, renderApp } from "../test/render";
+import { makePerson, pageStatus, renderApp } from "../test/render";
 import type { Envelope, Me } from "../lib/api";
 import { expectNoViolations } from "../test/axe";
 
@@ -202,10 +202,10 @@ describe("PokerRoom daybreak cue", () => {
   // would only prove Table renders its prop.
   it("does not step down when a silent seat reconnects", () => {
     const { rerender } = renderApp(<PokerRoom env={bigEnv(3, 2, 2)} me={me} />);
-    expect(screen.getByRole("status").textContent).toContain("2 of 2");
+    expect(pageStatus().textContent).toContain("2 of 2");
     expect(cue()).toBe("daybreak");
     rerender(<PokerRoom env={bigEnv(3, 2, 3)} me={me} />);
-    expect(screen.getByRole("status").textContent).toContain("2 of 3");
+    expect(pageStatus().textContent).toContain("2 of 3");
     expect(cue()).toBe("daybreak");
   });
 
@@ -215,7 +215,7 @@ describe("PokerRoom daybreak cue", () => {
     const { rerender } = renderApp(<PokerRoom env={bigEnv(7, 2, 5)} me={me} />);
     expect(cue()).toBe("daybreak");
     rerender(<PokerRoom env={bigEnv(7, 2, 7)} me={me} />);
-    expect(screen.getByRole("status").textContent).toContain("2 of 7");
+    expect(pageStatus().textContent).toContain("2 of 7");
     expect(cue()).toBe("daybreak");
   });
 
@@ -246,7 +246,7 @@ describe("PokerRoom daybreak cue", () => {
     expect(hidden.state.currentStoryId).toBe("story-1");
     expect(hidden.state.stories[0].votedUserIds.length).toBe(1);
     rerender(<PokerRoom env={hidden} me={me} />);
-    expect(screen.getByRole("status").textContent).toContain("1 of 5");
+    expect(pageStatus().textContent).toContain("1 of 5");
     expect(cue()).toBe("first-light");
   });
 
