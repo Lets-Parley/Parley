@@ -2056,3 +2056,103 @@ describe("StandupRoom present link", () => {
     expect(link.getAttribute("rel")).toBe("noopener");
   });
 });
+
+describe("StandupRoom who an async standup waits on", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  function asyncRoom(state: Record<string, unknown>, over: Partial<Envelope> = {}): Envelope {
+    return envelope({
+      phase: "",
+      state: {
+        entries: [entry({ userId: "marcus", position: 1, today: "review", name: "Marcus Okonjo" })],
+        commitments: [],
+        changes: [],
+        kudos: [],
+        currentSpeakerId: null,
+        speakerStartedAt: null,
+        secondsPerPerson: 90,
+        mode: "async",
+        closesAt: null,
+        away: [],
+        ...state,
+      } as unknown as Envelope["state"],
+      ...over,
+    });
+  }
+
+  it("waits on a member who never opened the room, and not on an unattached link", () => {
+    // The roster seats Gabe (a live link nobody has attached with) and not
+    // Ruth (a member who has never opened the room). The server's expected
+    // list is the other way round, and it is the one that decides.
+    const env = asyncRoom(
+      {
+        expected: [
+          { userId: "dana", name: "Dana Whitfield", guest: false },
+          { userId: "marcus", name: "Marcus Okonjo", guest: false },
+          { userId: "priya", name: "Priya Raman", guest: false },
+          { userId: "ruth", name: "Ruth Okafor", guest: false },
+        ],
+      },
+      {
+        participants: [
+          makePerson({ userId: "dana", name: "Dana Whitfield" }),
+          makePerson({ userId: "marcus", name: "Marcus Okonjo" }),
+          makePerson({ userId: "priya", name: "Priya Raman" }),
+          makePerson({ userId: "gabe", name: "Gabe Guest", guest: true }),
+        ],
+      },
+    );
+    renderApp(<StandupRoom env={env} me={me} />);
+    const notYet = screen.getByRole("region", { name: "Not yet" }).textContent ?? "";
+    expect(notYet).toContain("Ruth Okafor");
+    expect(notYet).toContain("Dana Whitfield");
+    expect(notYet).not.toContain("Gabe");
+    expect(notYet).not.toContain("Marcus");
+  });
+
+  it("files an expected member who is away under Away, even unseated", () => {
+    const env = asyncRoom({
+      expected: [
+        { userId: "marcus", name: "Marcus Okonjo", guest: false },
+        { userId: "ruth", name: "Ruth Okafor", guest: false },
+      ],
+      away: ["ruth"],
+    });
+    renderApp(<StandupRoom env={env} me={me} />);
+    expect(screen.getByRole("region", { name: "Not yet" }).textContent).not.toContain("Ruth");
+    expect(screen.getByRole("region", { name: "Away" }).textContent).toContain("Ruth Okafor");
+  });
+
+  it("marks an attached guest the room waits on as a guest", () => {
+    const env = asyncRoom({
+      expected: [
+        { userId: "marcus", name: "Marcus Okonjo", guest: false },
+        { userId: "gus", name: "Dana Whitfield", guest: true },
+      ],
+    });
+    renderApp(<StandupRoom env={env} me={me} />);
+    expect(screen.getByRole("region", { name: "Not yet" }).textContent).toContain("Dana Whitfield (guest)");
+  });
+
+  it("names, for a link guest, the author of an update whose seat it cannot see", async () => {
+    // The guest's roster is presence plus the facilitator: Priya answered and
+    // left, so only her entry still says who she is.
+    const guestMe: Me = { id: "gus", name: "Gus", avatarHue: 200 };
+    const env = asyncRoom(
+      { entries: [entry({ userId: "priya", position: 1, today: "shipped", name: "Priya Raman" })] },
+      {
+        participants: [
+          makePerson({ userId: "dana", name: "Dana Whitfield" }),
+          makePerson({ userId: "gus", name: "Gus", guest: true }),
+        ],
+        presence: ["gus"],
+      },
+    );
+    const { container } = renderApp(<StandupRoom env={env} me={guestMe} guest />);
+    const updates = screen.getByRole("region", { name: "Updates" }).textContent ?? "";
+    expect(updates).toContain("Priya Raman");
+    expect(updates).not.toContain("Someone");
+    expect(screen.getByRole("region", { name: "Answered" }).textContent).toContain("Priya Raman");
+    await expectNoViolations(container);
+  });
+});

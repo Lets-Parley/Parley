@@ -6,7 +6,7 @@ description: Membership, facilitator rights, and what the server checks on every
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/authz.go", "internal/api/principal.go", "internal/store/spaces.go", "internal/store/orgs.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/store/sessions.go", "internal/store/links.go", "internal/api/custody/store.go", "internal/api/secevent.go", "internal/db/migrations/0023_org_custody.sql", "internal/api/ics.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/authz.go", "internal/api/principal.go", "internal/store/spaces.go", "internal/store/orgs.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/store/sessions.go", "internal/store/links.go", "internal/api/custody/store.go", "internal/api/secevent.go", "internal/db/migrations/0023_org_custody.sql", "internal/api/ics.go", "internal/standup/state.go", "internal/session/registry.go", "web/src/components/AsyncDigest.tsx"]} />
 
 Parley has five authorization concepts and no more: **you are a member of the
 org**, **you are a member of the space**, **you own the space**, **you are the
@@ -333,6 +333,17 @@ like anybody else in the room, never a spectator's. Their own seat is in the
 very first copy they are served, before their socket has connected and put them
 in the room's presence: being told you are not in the room you are in is never
 the right answer.
+
+An async standup's update is still attributed after its author has left the
+room: each entry carries its author's display name, and only that, so a guest
+reads "Priya Raman" rather than "Someone" beside an update it can already
+read. It discloses nothing the entry did not already imply, and it does not
+seat the author on the guest's roster. An entry written by another link guest
+carries no name, because a guest's name is whatever it typed and, without the
+roster's `guest` flag, it could pass for a member's. The guest's copy of the
+state carries neither the away list nor the list of who the standup is
+waiting on: both are drawn from the space's membership, so its **Not yet**
+is limited to the people it can already see.
 
 A guest chooses their own display name, and renaming is the only thing refused
 afterwards, so nothing prevents one redeeming as a name a member already

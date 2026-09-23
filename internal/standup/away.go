@@ -177,6 +177,33 @@ func awayIn(ctx context.Context, pool *pgxpool.Pool, zone, sessionID string) ([]
 	return ids, rows.Err()
 }
 
+// sessionIsTodayQuery reports whether the session's day (sessionDay) is
+// today (sessionToday) in its schedule's zone. This is the same "is today"
+// test awayMembers already applies row by row; expectedPeople's gate in
+// buildState uses it too (#640) so the away list and the expected list can
+// never disagree about whether a session's day is today. %[1]s is the zone,
+// as in sessionToday. $1 is the session.
+const sessionIsTodayQuery = `
+	select ` + sessionDay + ` = ` + sessionToday + `
+	from sessions s where s.id = $1`
+
+// sessionIsToday runs sessionIsTodayQuery for the session, with the same
+// unreadable-zone fallback to UTC that awayToday uses.
+func sessionIsToday(ctx context.Context, pool *pgxpool.Pool, sessionID string) (bool, error) {
+	ok, err := isTodayIn(ctx, pool, "sc.timezone", sessionID)
+	if store.IsUnknownTimeZone(err) {
+		slog.Warn("a standup schedule's timezone is not one Postgres knows; reading its day in UTC", "session", sessionID, "error", err)
+		ok, err = isTodayIn(ctx, pool, "'UTC'", sessionID)
+	}
+	return ok, err
+}
+
+func isTodayIn(ctx context.Context, pool *pgxpool.Pool, zone, sessionID string) (bool, error) {
+	var ok bool
+	err := pool.QueryRow(ctx, fmt.Sprintf(sessionIsTodayQuery, zone), sessionID).Scan(&ok)
+	return ok, err
+}
+
 // awayRooms bumps the version of every room a person's away list shows in:
 // an open async standup whose day is today, in a space they are a member of.
 // $1 is the user; %[1]s is the zone, as in sessionToday. It is the same day

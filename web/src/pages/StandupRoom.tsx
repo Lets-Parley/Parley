@@ -17,7 +17,7 @@ import type { Fail } from "../components/Modal";
 import { cueFor, cueVar } from "../lib/cue";
 import { EmptyTable } from "./PokerRoom";
 import { PluginChrome } from "../components/PluginChrome";
-import { AsyncDigest, type CommitmentChange } from "../components/AsyncDigest";
+import { AsyncDigest, type CommitmentChange, type ExpectedPerson } from "../components/AsyncDigest";
 import { AwayDays } from "../components/AwayDays";
 
 export type StandupEntry = {
@@ -31,6 +31,9 @@ export type StandupEntry = {
   ready: boolean;
   /** When the entry was last written, RFC 3339. Shown as "posted HH:MM". */
   postedAt: string;
+  /** The author's display name, so an entry whose author the roster no
+      longer seats is still attributed. Empty for a link guest's entry. */
+  name?: string;
 };
 /** Which cluster of controls a failure came from, so it reports there. */
 type Where = "chrome" | "gathering" | "round" | "kudos";
@@ -60,6 +63,8 @@ type StandupState = {
   closesAt: string | null;
   /** Members away today. Sent only by an open async standup. */
   away?: string[];
+  /** Who an open async standup is waiting on. Absent for a guest. */
+  expected?: ExpectedPerson[];
 };
 
 // The viewer's own entry is local draft state: it is seeded once from the
@@ -719,6 +724,7 @@ export function StandupRoom({
           changes={st.changes ?? []}
           needsYou={mentions.data?.needsYou ?? []}
           away={st.away ?? []}
+          expected={st.expected}
         />
       )}
 

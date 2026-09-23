@@ -66,6 +66,12 @@ type WireEntry struct {
 	// PostedAt is when the entry was last written, shown as "posted HH:MM"
 	// in the viewer's zone. A late async answer carries it like any other.
 	PostedAt time.Time `json:"postedAt"`
+	// Name is the author's display name, so a reader whose roster no longer
+	// seats the author — a link guest's, which keeps only who is present —
+	// still sees who wrote an entry it can already read. Empty for an entry a
+	// link guest wrote: that name is whatever the guest typed, and without the
+	// roster's guest mark it could pass for a member's.
+	Name string `json:"name"`
 }
 
 // WireCommitment is one open commitment.
@@ -146,6 +152,25 @@ type State struct {
 	// earlier day is not today's room, and a live sync room seats whoever is
 	// in it. Never sent to a link guest (see ForGuest).
 	Away []string `json:"away"`
+	// Expected is who an open async standup is waiting on an answer from: the
+	// space's non-spectator members, whether or not they have opened the room,
+	// plus each link guest that has attached to it (#640). Answered and away
+	// people are still in it; the client sets them aside. Served only while
+	// its day is today, the same gate Away applies: a reopened or still-open
+	// standup from an earlier day serves none, and the digest falls back to
+	// the room's participants. Absent — not an empty list — for a sync room,
+	// which seats whoever is in it (#601), for an ended standup, which keeps
+	// its entries only (#388), for a non-today standup, and for a link guest,
+	// to whom the space's roster is none of its business (see ForGuest).
+	Expected *[]WireExpected `json:"expected,omitempty"`
+}
+
+// WireExpected is one person an async standup is waiting on. Guest marks a
+// link guest, for the same reason session.Person carries it.
+type WireExpected struct {
+	UserID string `json:"userId"`
+	Name   string `json:"name"`
+	Guest  bool   `json:"guest"`
 }
 
 // ForGuest is the state a link guest is sent. A signed link is a capability
@@ -153,6 +178,7 @@ type State struct {
 // none of its business. session.Envelope.RedactForGuest calls it.
 func (s State) ForGuest() any {
 	s.Away = []string{}
+	s.Expected = nil
 	return s
 }
 
@@ -196,15 +222,17 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	st.SpeakerStartedAt = started
 
 	rows, err := pool.Query(ctx, `
-		select user_id::text, yesterday, today, blockers, position, skipped, ready, updated_at
-		from standup_entries where session_id = $1 order by position`, sess.ID)
+		select e.user_id::text, e.yesterday, e.today, e.blockers, e.position, e.skipped, e.ready, e.updated_at,
+		       case when u.link_id is null then u.name else '' end
+		from standup_entries e join users u on u.id = e.user_id
+		where e.session_id = $1 order by e.position`, sess.ID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var e WireEntry
-		if err := rows.Scan(&e.UserID, &e.Yesterday, &e.Today, &e.Blockers, &e.Position, &e.Skipped, &e.Ready, &e.PostedAt); err != nil {
+		if err := rows.Scan(&e.UserID, &e.Yesterday, &e.Today, &e.Blockers, &e.Position, &e.Skipped, &e.Ready, &e.PostedAt, &e.Name); err != nil {
 			return nil, err
 		}
 		st.Entries = append(st.Entries, e)
@@ -277,6 +305,22 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 			return nil, err
 		}
 		st.Away = append(st.Away, away...)
+		// Expected is gated on the same "session day is today" test as the
+		// away list (#640): on a non-today open standup — a manual async
+		// standup created on an earlier day, or one reopened from one — no
+		// Expected is served, and the digest falls back to the room's
+		// participants, as it already does for a guest.
+		today, err := sessionIsToday(ctx, pool, sess.ID)
+		if err != nil {
+			return nil, err
+		}
+		if today {
+			expected, err := expectedPeople(ctx, pool, sess)
+			if err != nil {
+				return nil, err
+			}
+			st.Expected = &expected
+		}
 	}
 
 	// This session's kudos only, oldest first — the order they were given in,
@@ -297,4 +341,37 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 		st.Kudos = append(st.Kudos, k)
 	}
 	return st, krows.Err()
+}
+
+// expectedPeople is who an open async standup is waiting on (#640): the
+// space's non-spectator members with no link — the eligibility the frozen
+// trend day counts (see store.freezeTrendDays) — whether or not they have
+// opened the room, plus each guest whose link is still live and that has
+// attached to this room. A link nobody has attached with owes nothing.
+func expectedPeople(ctx context.Context, pool *pgxpool.Pool, sess store.Session) ([]WireExpected, error) {
+	rows, err := pool.Query(ctx, `
+		select u.id::text, u.name, false
+		from members m join users u on u.id = m.user_id and u.link_id is null
+		where m.space_id = $2 and not m.spectator
+		union
+		select u.id::text, u.name, true
+		from session_participants sp
+		join users u on u.id = sp.user_id
+		join session_links l on l.id = u.link_id
+		where sp.session_id = $1 and l.session_id = $1
+		  and l.revoked_at is null and l.expires_at > now()
+		order by 2, 1`, sess.ID, sess.SpaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []WireExpected{}
+	for rows.Next() {
+		var p WireExpected
+		if err := rows.Scan(&p.UserID, &p.Name, &p.Guest); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }
