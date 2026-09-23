@@ -698,3 +698,50 @@ func TestOnlyTheMeetDocumentsAreFramable(t *testing.T) {
 		}
 	}
 }
+
+// TestEmbedSigninPageHeadersAndFormContract pins the sign-in page's security
+// headers and the form the meeting-client bind depends on: every field name,
+// the POST action, and that no script ever ships alongside it. The page's
+// visual styling is free to change; these are not.
+func TestEmbedSigninPageHeadersAndFormContract(t *testing.T) {
+	srv := embedServer(t, testPool(t))
+	ada := signup(t, srv, "Ada")
+	_, challenge, _ := startHandoff(t, srv)
+
+	req, _ := http.NewRequest("GET", srv.URL+"/embed/signin?c="+challenge, nil)
+	req.AddCookie(ada)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	page := string(body)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("X-Frame-Options"); got != "DENY" {
+		t.Errorf("X-Frame-Options = %q, want DENY", got)
+	}
+	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
+		t.Errorf("Content-Type = %q, want text/html", got)
+	}
+	if got := resp.Header.Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", got)
+	}
+	if strings.Contains(page, "<script") {
+		t.Errorf("the sign-in page must never carry a script tag")
+	}
+	for _, want := range []string{
+		`<form method="post" action="/embed/signin">`,
+		`<input type="hidden" name="c" value="` + challenge + `">`,
+		`<label for="code">The code shown in Google Meet</label>`,
+		`id="code" name="code" required autocomplete="off" autocapitalize="characters" spellcheck="false"`,
+		`<button type="submit">Continue as Ada</button>`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("sign-in page form contract missing %q\npage: %s", want, page)
+		}
+	}
+}
