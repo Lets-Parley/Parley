@@ -1,4 +1,4 @@
-FROM node:26-alpine@sha256:2d984a15c9b54fd0aeb608b8e0d0d83529eb34d2966db27a1fb4f1edc3d298a3 AS webbuild
+FROM node:26-alpine@sha256:dbaa92e5758cbbcf85d65d5403fdb530fe3442cbe8c6dbfb7ef23365450d5070 AS webbuild
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
