@@ -733,12 +733,23 @@ func TestEmbedSigninPageHeadersAndFormContract(t *testing.T) {
 	if strings.Contains(page, "<script") {
 		t.Errorf("the sign-in page must never carry a script tag")
 	}
+	// The logo and its fonts must load same-origin only — no external host,
+	// so the page needs no CSP widening beyond default-src 'self'. The SVG
+	// namespace URI is not a resource load and is exempt.
+	for _, attr := range []string{`src="http`, `href="http`, `url(http`} {
+		if strings.Contains(page, attr) {
+			t.Errorf("the sign-in page must reference no external origin (found %q): %s", attr, page)
+		}
+	}
 	for _, want := range []string{
 		`<form method="post" action="/embed/signin">`,
 		`<input type="hidden" name="c" value="` + challenge + `">`,
 		`<label for="code">The code shown in Google Meet</label>`,
 		`id="code" name="code" required autocomplete="off" autocapitalize="characters" spellcheck="false"`,
 		`<button type="submit">Continue as Ada</button>`,
+		`role="img" aria-label="Parley"`,
+		`url("/embed-fonts/instrument-sans-400.woff2")`,
+		`url("/embed-fonts/jetbrains-mono-400.woff2")`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("sign-in page form contract missing %q\npage: %s", want, page)

@@ -224,6 +224,20 @@ var embedSigninPage = template.Must(template.New("signin").Parse(`<!doctype html
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sign in to {{.Label}} — Parley</title>
 <style>
+@font-face {
+  font-family: "Instrument Sans";
+  src: url("/embed-fonts/instrument-sans-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/embed-fonts/jetbrains-mono-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 :root {
   color-scheme: light;
   --color-felt: #E9E7E1;
@@ -279,6 +293,12 @@ main {
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-rest);
   padding: 28px 24px;
+}
+.logo {
+  margin-bottom: 16px;
+}
+.logo svg {
+  display: block;
 }
 h1 {
   font-size: 1.25rem;
@@ -338,6 +358,7 @@ button:focus-visible {
 </style>
 </head>
 <body><main>
+<div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="40" height="40" role="img" aria-label="Parley"><rect width="256" height="256" rx="56" fill="#1D4E6E"/><rect x="60" y="48" width="96" height="136" rx="20" fill="#F7F6F2" transform="rotate(-9 108 116)"/><rect x="100" y="64" width="96" height="136" rx="20" fill="#F7F6F2" stroke="#1D4E6E" stroke-width="9.6" transform="rotate(9 148 132)"/><g transform="rotate(9 148 132)" fill="none" stroke="#1D4E6E" stroke-width="14" stroke-linecap="round"><circle cx="150" cy="114" r="13"/><circle cx="150" cy="144" r="17"/></g></svg></div>
 <h1>{{.Title}}</h1>
 {{if .Error}}<p role="alert">{{.Error}}</p>{{end}}
 <p>{{.Message}}</p>
