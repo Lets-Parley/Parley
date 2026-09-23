@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errorText, type Deck, type SessionSummary, type SpaceView } from "../lib/api";
@@ -794,6 +794,10 @@ function NewSessionModal({
   // A refusal is shown here, beside what was typed, and the dialog stays open
   // so it can be corrected rather than retyped from nothing.
   const [error, setError] = useState("");
+  // Keyed by instant spec, so submit() can read validity.badInput straight
+  // off the element — React state never sees a half-typed value, since the
+  // browser reports its text back as "".
+  const instantRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const groupName = useId();
   // The space's own decks, fetched only for a kind that has a space-scoped
   // field: a standup has none, and must not cost a request to say so. Failing
@@ -811,10 +815,21 @@ function NewSessionModal({
     setError("");
     const body = { ...config };
     for (const spec of kind.instants ?? []) {
+      if (!instantShown(spec, config)) continue;
       const typed = instants[spec.key] ?? "";
+      // noValidate turns off the browser's own bubble, so a half-typed value
+      // — "2026-09-23T" with no time, say — reads back as "" here and would
+      // otherwise fall straight through the empty check below and be sent as
+      // though nothing had been typed at all. validity.badInput is the only
+      // signal that distinguishes "half-typed" from "genuinely empty".
+      const input = instantRefs.current[spec.key];
+      if (input?.validity.badInput) {
+        setError(`The ${spec.label.toLowerCase()} is not a complete date and time.`);
+        return;
+      }
       // A hidden instant is never sent: it means nothing in the mode chosen,
       // and the server refuses it there rather than ignoring it.
-      if (!typed || !instantShown(spec, config)) continue;
+      if (!typed) continue;
       // A datetime-local value carries no offset, so Date reads it as local
       // time — the viewer's own clock, which is what they typed against.
       const at = new Date(typed);
@@ -822,7 +837,11 @@ function NewSessionModal({
         setError(`${spec.label} is not a date and time.`);
         return;
       }
-      if (at.getTime() < Date.now()) {
+      // Compared against the start of the current minute, matching the
+      // field's own `min` (localNowMinute, minute precision): otherwise the
+      // exact minute the picker still offers is refused the instant it is
+      // chosen, whenever "now" has run past :00 seconds.
+      if (at.getTime() < Math.floor(Date.now() / 60000) * 60000) {
         setError(`The ${spec.label.toLowerCase()} has to be in the future.`);
         return;
       }
@@ -938,6 +957,9 @@ function NewSessionModal({
               </label>
               <input
                 id={`${groupName}-${spec.key}`}
+                ref={(el) => {
+                  instantRefs.current[spec.key] = el;
+                }}
                 type="datetime-local"
                 className={inputClass}
                 value={instants[spec.key] ?? ""}

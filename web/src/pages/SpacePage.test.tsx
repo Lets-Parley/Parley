@@ -1489,6 +1489,72 @@ describe("SpacePage deck chooser", () => {
         expect(created()).toBe(undefined);
       });
     });
+
+    /**
+     * At hh:mm:20 the picker's own `min` still offers the current minute
+     * (localNowMinute truncates to minute precision), so the submit check has
+     * to agree with it rather than compare against the exact millisecond —
+     * otherwise the option the picker hands out is refused the instant it is
+     * chosen.
+     */
+    describe("with a clock mid-minute", () => {
+      beforeEach(() => {
+        vi.setSystemTime(new Date("2026-09-23T22:30:20.000Z")); // 17:30:20 in Chicago
+      });
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("accepts the current minute the picker offers and sends it", async () => {
+        const dialog = await openDialog();
+        await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+        await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+        await userEvent.type(dialog.getByLabelText(/Cutoff/), "2026-09-23T17:30");
+        await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+
+        await waitFor(() =>
+          expect(created()).toEqual({
+            kind: "standup",
+            title: "Daily",
+            config: { mode: "async", closesAt: "2026-09-23T22:30:00.000Z" },
+          }),
+        );
+      });
+
+      it("still refuses the minute before", async () => {
+        const dialog = await openDialog();
+        await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+        await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+        await userEvent.type(dialog.getByLabelText(/Cutoff/), "2026-09-23T17:29");
+        await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+
+        const alert = await dialog.findByRole("alert");
+        expect(alert.textContent).toBe("The cutoff has to be in the future.");
+        expect(created()).toBe(undefined);
+      });
+    });
+
+    /**
+     * noValidate turns off the browser's own validation bubble, so a
+     * half-typed value ("" with validity.badInput set) must be caught by hand
+     * before it is silently skipped — otherwise the standup is created with no
+     * cutoff at all.
+     */
+    it("refuses a half-typed cutoff instead of sending nothing", async () => {
+      const dialog = await openDialog();
+      await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+      await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+      const cutoff = dialog.getByLabelText(/Cutoff/) as HTMLInputElement;
+      Object.defineProperty(cutoff, "validity", {
+        configurable: true,
+        value: { badInput: true },
+      });
+      await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+
+      const alert = await dialog.findByRole("alert");
+      expect(alert.textContent).toBe("The cutoff is not a complete date and time.");
+      expect(created()).toBe(undefined);
+    });
   });
 });
 

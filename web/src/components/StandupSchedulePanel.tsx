@@ -31,6 +31,23 @@ function browserZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
 
+// Suggestions, not a fence: a zone this browser does not list can still be
+// typed, and the server decides whether it knows it. Safari before 15.4 has
+// no Intl.supportedValuesOf at all, and calling it unguarded threw and
+// blanked the whole page there — an absent or throwing implementation just
+// means no suggestions; the input still works as free text either way.
+// Computed once at module load rather than on every render: the supported
+// zone list cannot change during a session.
+function supportedZones(): string[] {
+  try {
+    if (typeof Intl.supportedValuesOf === "function") return Intl.supportedValuesOf("timeZone");
+  } catch {
+    // fall through to []
+  }
+  return [];
+}
+const ZONES = supportedZones();
+
 /**
  * When the space's scheduled async standups open, and for how long.
  *
@@ -102,18 +119,7 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  // Suggestions, not a fence: a zone this browser does not list can still be
-  // typed, and the server decides whether it knows it. Safari before 15.4 has
-  // no Intl.supportedValuesOf at all, and calling it unguarded during render
-  // threw and blanked this whole page there — an absent or throwing
-  // implementation just means no suggestions; the input still works as free
-  // text either way.
-  let zones: string[] = [];
-  try {
-    if (typeof Intl.supportedValuesOf === "function") zones = Intl.supportedValuesOf("timeZone");
-  } catch {
-    zones = [];
-  }
+  const zones = ZONES;
 
   async function save(e: FormEvent) {
     e.preventDefault();

@@ -248,9 +248,10 @@ valid.
 
 An async standup can carry a published cutoff. In the **New session** dialog,
 choosing **Async** offers an optional **Cutoff**, entered in your own local
-time; left empty, the standup has none and stays open until it is ended. The
-cutoff must be in the future — the dialog refuses one already in the past
-before it is ever sent. Through the API it is `closesAt` (RFC 3339), alongside
+time; left empty, the standup has none and stays open until it is ended. The dialog refuses a cutoff already in the past before it is ever sent —
+but that is the dialog's own courtesy, not a server rule: `closesAt` is
+never checked against the clock, so the API accepts one in the past (or one
+far in the future) without complaint. Through the API it is `closesAt` (RFC 3339), alongside
 `"mode": "async"`; a live round refuses one with a 400. If the server refuses
 the new session for any other reason, the dialog stays open and shows its
 message as written. Passing the cutoff does **not** end the standup: an
