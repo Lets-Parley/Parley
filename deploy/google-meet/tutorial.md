@@ -41,12 +41,25 @@ account and checks that the install took.
 
 The script prints four remaining steps and their console URLs:
 
-1. Marketplace SDK **App configuration**: App integration = "Google Workspace
-   add-on", "Deploy using cloud deployment resource" = `parley`, App
-   visibility = **Private**, plus your Developer Name, Website (your
-   `BASE_URL`) and Email. This cannot be changed once saved. Ignore the red
-   "The OAuth Consent Screen must be enabled for this project" banner — it
-   saves anyway, and the add-on works without one.
+1. Marketplace SDK **App configuration**:
+   - **App Integrations**: tick only "Google Workspace add-on" ("At least
+     one integration must be enabled"), then set "Deploy using cloud
+     deployment resource" to `parley`. Leave "Web app" unticked — it needs
+     96x96 and 48x48 icons a Meet add-on doesn't, which is why those two
+     sizes in the kit below are optional.
+   - **Developer Information**: pick your own [Trader
+     status](https://developers.google.com/workspace/marketplace/enable-configure-sdk)
+     (an EEA consumer-protection declaration — yours, not ours). Developer
+     Name, Developer Website URL (your `BASE_URL`) and Developer Email are
+     required; Application Website URL is optional.
+   - **App Visibility**: defaults to **Public**. Switch it to **Private**
+     before saving — this cannot be changed once saved.
+   - **Installation Settings**: choose **Individual + Admin Install**, not
+     **Admin Only Install** — the latter breaks step 4 below.
+
+   Ignore the red "The OAuth Consent Screen must be enabled for this
+   project" banner and any yellow "user type is testing" banner — both save
+   fine, and the add-on works without a consent screen.
 2. On the same page's **Store listing** tab, fill in the required fields
    (per Google's create-listing page) — Language, Application name, Short
    description, Detailed description, Category, Application icons,

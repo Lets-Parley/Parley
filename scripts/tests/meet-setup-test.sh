@@ -278,19 +278,54 @@ grep -q "❌" "$work/statusfail.log" || {
 }
 
 # The final checklist names the four steps with no API: App configuration
-# (with the required fields and the consent-screen banner note), the Store
-# listing (with its required fields and that a Private app publishes
+# (App Integrations, Developer Information including Trader status, App
+# Visibility defaulting to Public with a prominent switch-to-Private
+# warning, Installation Settings, and the consent-screen banner note), the
+# Store listing (with its required fields and that a Private app publishes
 # immediately with no Google review), the admin's one-time toggle, and the
 # self-install URL. The old "step 4 above" wording and the separate
 # consent-screen step must be gone, and there must be no fifth step.
 rm -f "$calls_log" "$capture" "$create_counter"
 run_setup "https://parley.example.com" 1 >"$work/checklist.log" 2>&1
 grep -q "App configuration" "$work/checklist.log"
+grep -q "App Integrations" "$work/checklist.log"
+grep -q "Google Workspace add-on" "$work/checklist.log"
+grep -q "Web app" "$work/checklist.log"
+grep -qi "Trader [Ss]tatus" "$work/checklist.log"
 grep -q "Developer Name" "$work/checklist.log"
 grep -q "Developer Website" "$work/checklist.log"
 grep -q "your BASE_URL, https://parley.example.com" "$work/checklist.log"
 grep -q "Developer Email" "$work/checklist.log"
+grep -q "Application Website URL" "$work/checklist.log"
+grep -qi "optional" "$work/checklist.log"
+grep -q "App Visibility" "$work/checklist.log"
+grep -q "defaults to Public" "$work/checklist.log" || {
+  echo "FAIL: the checklist must warn that App Visibility defaults to Public" >&2
+  cat "$work/checklist.log" >&2
+  exit 1
+}
+grep -q "Switch it to Private" "$work/checklist.log" || {
+  echo "FAIL: the checklist must tell the operator to switch to Private before saving" >&2
+  cat "$work/checklist.log" >&2
+  exit 1
+}
+grep -q "Installation Settings" "$work/checklist.log"
+grep -q "Individual + Admin Install" "$work/checklist.log" || {
+  echo "FAIL: the checklist must say to choose Individual + Admin Install" >&2
+  cat "$work/checklist.log" >&2
+  exit 1
+}
+grep -q "Admin Only Install" "$work/checklist.log" || {
+  echo "FAIL: the checklist should warn that Admin Only Install breaks self-install" >&2
+  cat "$work/checklist.log" >&2
+  exit 1
+}
 grep -q "OAuth Consent Screen must be enabled" "$work/checklist.log"
+grep -qi "user type is testing" "$work/checklist.log" || {
+  echo "FAIL: the checklist should also say to ignore the yellow 'user type is testing' banner" >&2
+  cat "$work/checklist.log" >&2
+  exit 1
+}
 grep -q "Store listing" "$work/checklist.log"
 grep -q "Application name" "$work/checklist.log"
 grep -q "Terms of service" "$work/checklist.log"

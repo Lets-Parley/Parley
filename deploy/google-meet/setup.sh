@@ -132,12 +132,24 @@ Scripted steps done for project ${PROJECT_ID}. ${INSTALL_LINE}
 Four steps have no API and stay manual:
 
   1. APIs & Services -> Google Workspace Marketplace SDK -> App configuration:
-     App integration = "Google Workspace add-on", "Deploy using cloud
-     deployment resource" = ${DEPLOYMENT_ID}, App visibility = Private
-     (permanent once saved). Also fill in Developer Name, Developer Website
-     URL (your BASE_URL, ${BASE_URL}) and Developer Email. Ignore the red
-     "The OAuth Consent Screen must be enabled for this project" banner — it
-     saves anyway, and the add-on works without one.
+     - App Integrations: tick only "Google Workspace add-on" ("At least one
+       integration must be enabled"), then set "Deploy using cloud
+       deployment resource" to ${DEPLOYMENT_ID}. Leave "Web app" unticked —
+       it needs 96x96 and 48x48 icons that a Meet add-on doesn't, which is
+       why those two sizes in the kit are optional.
+     - Developer Information: pick your own Trader status — this is your
+       own EEA consumer-protection declaration, not ours; see
+       https://developers.google.com/workspace/marketplace/enable-configure-sdk.
+       Developer Name, Developer Website URL (your BASE_URL, ${BASE_URL})
+       and Developer Email are required; Application Website URL is
+       optional.
+     - App Visibility: defaults to Public. Switch it to Private before
+       saving — it cannot be changed afterward.
+     - Installation Settings: choose "Individual + Admin Install", not
+       "Admin Only Install" — the latter breaks step 4 below.
+     Ignore the red "The OAuth Consent Screen must be enabled for this
+     project" banner and any yellow "user type is testing" banner — both
+     save fine, and the add-on works without a consent screen.
      https://console.cloud.google.com/apis/api/appsmarket-component.googleapis.com/googleapps_sdk?project=${PROJECT_ID}
   2. Same page, Store listing tab: fill in Language, Application name, Short
      description, Detailed description, Category, Application icons,
