@@ -46,7 +46,7 @@ DEPLOYMENT_FILE="$WORK_DIR/deployment.json"
 # intact.
 RETRY_MAX_ATTEMPTS="${RETRY_MAX_ATTEMPTS:-6}"
 RETRY_INITIAL_DELAY="${RETRY_INITIAL_DELAY:-5}"
-ACTIVATION_ERROR_RE='PERMISSION_DENIED.*(has not been used|is disabled)|FAILED_PRECONDITION'
+ACTIVATION_ERROR_RE='(PERMISSION_DENIED|FAILED_PRECONDITION).*(has not been used|is disabled)'
 
 retry_while_activating() {
   local attempt=1 delay="$RETRY_INITIAL_DELAY"
@@ -129,7 +129,7 @@ cat <<EOF
 
 Scripted steps done for project ${PROJECT_ID}. ${INSTALL_LINE}
 
-Three steps have no API and stay manual:
+Four steps have no API and stay manual:
 
   1. APIs & Services -> Google Workspace Marketplace SDK -> App configuration:
      App integration = "Google Workspace add-on", "Deploy using cloud
@@ -139,9 +139,15 @@ Three steps have no API and stay manual:
      "The OAuth Consent Screen must be enabled for this project" banner — it
      saves anyway, and the add-on works without one.
      https://console.cloud.google.com/apis/api/appsmarket-component.googleapis.com/googleapps_sdk?project=${PROJECT_ID}
-  2. A super administrator turns this on once per domain: Admin console ->
+  2. Same page, Store listing tab: fill in Language, Application name, Short
+     description, Detailed description, Category, Application icons,
+     Application card banner, Screenshots, Terms of service, Privacy policy
+     and Support, then click Submit. A Private app is published immediately,
+     with no Google review — but it is not installable by anyone until this
+     step is done.
+  3. A super administrator turns this on once per domain: Admin console ->
      Apps -> Google Workspace Marketplace apps -> Settings -> "Allow users to
      install any internal app".
-  3. Your people install it themselves from
+  4. Your people install it themselves from
      https://workspace.google.com/marketplace/mydomainapps.
 EOF

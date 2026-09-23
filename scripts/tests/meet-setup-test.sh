@@ -52,7 +52,7 @@ case "$1 $2" in
         n=$((n + 1))
         echo "$n" >"$CREATE_COUNTER"
         if [ "$n" -le "${CREATE_FAIL_COUNT:-0}" ]; then
-          echo "ERROR: (gcloud.workspace-add-ons.deployments.create) PERMISSION_DENIED: Google Workspace Marketplace SDK API has not been used in project test-project before or it is disabled." >&2
+          echo "${CREATE_ERROR_TEXT:-ERROR: (gcloud.workspace-add-ons.deployments.create) PERMISSION_DENIED: Google Workspace Marketplace SDK API has not been used in project test-project before or it is disabled.}" >&2
           exit 1
         fi
         for arg in "$@"; do
@@ -97,6 +97,7 @@ chmod +x "$stub_bin/gcloud"
 run_setup() {
   BASE_URL="$1" DESCRIBE_EXIT="$2" CALLS_LOG="$calls_log" CAPTURE="$capture" \
     CREATE_COUNTER="$create_counter" CREATE_FAIL_COUNT="${CREATE_FAIL_COUNT:-0}" \
+    CREATE_ERROR_TEXT="${CREATE_ERROR_TEXT:-}" \
     RETRY_MAX_ATTEMPTS="${RETRY_MAX_ATTEMPTS:-3}" RETRY_INITIAL_DELAY=0 \
     INSTALL_STATUS_VALUE="${INSTALL_STATUS_VALUE:-True}" \
     INSTALL_STATUS_FAIL="${INSTALL_STATUS_FAIL:-0}" \
@@ -226,6 +227,28 @@ grep -q "has not been used in project" "$work/retry-fail.log" || {
   exit 1
 }
 
+# A FAILED_PRECONDITION that has nothing to do with API activation (e.g. a
+# billing problem) must not be mistaken for one and retried for two minutes —
+# it should fail on the very first attempt.
+rm -f "$calls_log" "$capture" "$create_counter"
+if CREATE_FAIL_COUNT=99 RETRY_MAX_ATTEMPTS=5 \
+  CREATE_ERROR_TEXT="ERROR: (gcloud.workspace-add-ons.deployments.create) FAILED_PRECONDITION: billing account not linked to this project." \
+  run_setup "https://parley.example.com" 1 >"$work/nonactivation-fail.log" 2>&1; then
+  echo "FAIL: setup.sh should exit nonzero on a non-activation FAILED_PRECONDITION" >&2
+  cat "$work/nonactivation-fail.log" >&2
+  exit 1
+fi
+[ "$(grep -c "workspace-add-ons deployments create parley" "$calls_log")" -eq 1 ] || {
+  echo "FAIL: a non-activation FAILED_PRECONDITION must not be retried" >&2
+  cat "$calls_log" >&2
+  exit 1
+}
+grep -q "billing account not linked" "$work/nonactivation-fail.log" || {
+  echo "FAIL: gcloud's own error must stay visible on the first attempt" >&2
+  cat "$work/nonactivation-fail.log" >&2
+  exit 1
+}
+
 # install-status reporting the add-on installed prints a checkmark.
 rm -f "$calls_log" "$capture" "$create_counter"
 INSTALL_STATUS_VALUE=True run_setup "https://parley.example.com" 1 >"$work/installed.log" 2>&1
@@ -254,10 +277,12 @@ grep -q "❌" "$work/statusfail.log" || {
   exit 1
 }
 
-# The final checklist names only the three steps with no API: App
-# configuration (with the required fields and the consent-screen banner
-# note), the admin's one-time toggle, and the self-install URL. The old
-# "step 4 above" wording and the separate consent-screen step must be gone.
+# The final checklist names the four steps with no API: App configuration
+# (with the required fields and the consent-screen banner note), the Store
+# listing (with its required fields and that a Private app publishes
+# immediately with no Google review), the admin's one-time toggle, and the
+# self-install URL. The old "step 4 above" wording and the separate
+# consent-screen step must be gone, and there must be no fifth step.
 rm -f "$calls_log" "$capture" "$create_counter"
 run_setup "https://parley.example.com" 1 >"$work/checklist.log" 2>&1
 grep -q "App configuration" "$work/checklist.log"
@@ -266,11 +291,17 @@ grep -q "Developer Website" "$work/checklist.log"
 grep -q "your BASE_URL, https://parley.example.com" "$work/checklist.log"
 grep -q "Developer Email" "$work/checklist.log"
 grep -q "OAuth Consent Screen must be enabled" "$work/checklist.log"
+grep -q "Store listing" "$work/checklist.log"
+grep -q "Application name" "$work/checklist.log"
+grep -q "Terms of service" "$work/checklist.log"
+grep -q "Privacy policy" "$work/checklist.log"
+grep -qi "published immediately" "$work/checklist.log"
+grep -qi "no Google review" "$work/checklist.log"
 grep -q "Allow users to" "$work/checklist.log"
 grep -q "install any internal app" "$work/checklist.log"
 grep -q "workspace.google.com/marketplace/mydomainapps" "$work/checklist.log"
-grep -q "^  4\." "$work/checklist.log" && {
-  echo "FAIL: only three manual steps should remain" >&2
+grep -q "^  5\." "$work/checklist.log" && {
+  echo "FAIL: only four manual steps should remain" >&2
   cat "$work/checklist.log" >&2
   exit 1
 }
