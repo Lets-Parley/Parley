@@ -603,23 +603,19 @@ describe("SpaceSettingsPage standup schedule", () => {
     }
   });
 
-  // Safari < 15.4 has no Intl.supportedValuesOf at all; calling it unguarded
-  // during render throws and blanks the whole settings page.
-  it("still renders the time zone input when the browser lacks Intl.supportedValuesOf", async () => {
-    const real = Intl.supportedValuesOf;
-    // @ts-expect-error - simulating a browser that never defined it.
-    Intl.supportedValuesOf = undefined;
-    try {
-      schedule = saved;
-      renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
-      const p = await panel();
-      const zone = (await p.findByLabelText("Time zone")) as HTMLInputElement;
-      expect(zone.value).toBe("Europe/Berlin");
-      await userEvent.clear(zone);
-      await userEvent.type(zone, "America/Chicago");
-      expect(zone.value).toBe("America/Chicago");
-    } finally {
-      Intl.supportedValuesOf = real;
-    }
+  // The fallback behaviour of supportedZones() itself — including a browser
+  // that lacks Intl.supportedValuesOf entirely — is unit-tested directly in
+  // StandupSchedulePanel.test.ts, since ZONES is computed once at module
+  // import and stubbing the API inside a test body here runs too late to
+  // exercise it. This just confirms the input renders and is editable.
+  it("renders an editable time zone input for an owner", async () => {
+    schedule = saved;
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+    const p = await panel();
+    const zone = (await p.findByLabelText("Time zone")) as HTMLInputElement;
+    expect(zone.value).toBe("Europe/Berlin");
+    await userEvent.clear(zone);
+    await userEvent.type(zone, "America/Chicago");
+    expect(zone.value).toBe("America/Chicago");
   });
 });

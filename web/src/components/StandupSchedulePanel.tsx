@@ -38,7 +38,7 @@ function browserZone(): string {
 // means no suggestions; the input still works as free text either way.
 // Computed once at module load rather than on every render: the supported
 // zone list cannot change during a session.
-function supportedZones(): string[] {
+export function supportedZones(): string[] {
   try {
     if (typeof Intl.supportedValuesOf === "function") return Intl.supportedValuesOf("timeZone");
   } catch {
