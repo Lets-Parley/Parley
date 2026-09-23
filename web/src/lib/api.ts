@@ -1,8 +1,11 @@
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** Seconds from the response's Retry-After header, when the server sent one. */
+  retryAfter?: number;
+  constructor(status: number, message: string, retryAfter?: number) {
     super(message);
     this.status = status;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -83,7 +86,8 @@ export async function api<T = unknown>(
   if (!resp.ok) {
     const msg =
       (data as { error?: string } | undefined)?.error ?? "Something went wrong talking to the server.";
-    throw new ApiError(resp.status, msg);
+    const ra = Number(resp.headers?.get("Retry-After"));
+    throw new ApiError(resp.status, msg, Number.isFinite(ra) && ra > 0 ? ra : undefined);
   }
   return data as T;
 }

@@ -83,6 +83,10 @@ function sharedSessionId(additionalData: string | undefined): string {
  * so the click does nothing but open the sign-in page: a popup opened after an
  * await is blocked. The person types the code shown here on that page.
  */
+/** The poll's ordinary cadence, and the ceiling a backoff never exceeds. */
+const POLL_DELAY_MS = 2000;
+const POLL_MAX_DELAY_MS = 15_000;
+
 function MeetSignIn({ onToken }: { onToken: (token: string) => void }) {
   const [handoff, setHandoff] = useState<{ displayCode: string; signinPath: string } | null>(null);
   const [blocked, setBlocked] = useState(false);
@@ -93,24 +97,49 @@ function MeetSignIn({ onToken }: { onToken: (token: string) => void }) {
     void (async () => {
       try {
         const { verifier, challenge } = await newVerifier();
-        const h = await api<{ displayCode: string; signinPath: string }>("POST", "/api/embed/handoff", {
-          provider: "meet",
-          challenge,
-        });
+        const h = await api<{ displayCode: string; signinPath: string; expiresIn?: number }>(
+          "POST",
+          "/api/embed/handoff",
+          { provider: "meet", challenge },
+        );
         if (stop) return;
         setHandoff(h);
+        // The handoff dies with the row the server minted for it, so the poll
+        // gives up at the same moment rather than waiting on a request that
+        // can only ever come back 404 from here on.
+        const deadline = Date.now() + (h.expiresIn ?? 300) * 1000;
+        let attempt = 0;
         const poll = async () => {
           if (stop) return;
+          let delay = POLL_DELAY_MS;
           try {
             const res = await api<{ token?: string }>("POST", "/api/embed/session", { verifier });
             if (res?.token) return onToken(res.token);
+            // Still pending — a normal answer, not a failure: back to the
+            // ordinary cadence.
+            attempt = 0;
           } catch (e) {
-            if (!stop) setError(errorText(e));
-            return;
+            // 400 (a malformed verifier) and 404 (the handoff expired, was
+            // used, or never existed) are the only terminal answers — the
+            // poll retrying either would never turn into a different one.
+            // Everything else — a dropped connection, a 5xx, a 429 — is
+            // transient, so it keeps polling with backoff until the handoff
+            // itself expires.
+            const terminal = e instanceof ApiError && (e.status === 400 || e.status === 404);
+            if (terminal || Date.now() >= deadline) {
+              if (!stop) setError(errorText(e));
+              return;
+            }
+            attempt += 1;
+            delay =
+              e instanceof ApiError && e.retryAfter
+                ? e.retryAfter * 1000
+                : Math.min(POLL_DELAY_MS * 2 ** attempt, POLL_MAX_DELAY_MS);
           }
-          timer = window.setTimeout(poll, 2000);
+          if (stop) return;
+          timer = window.setTimeout(poll, delay);
         };
-        timer = window.setTimeout(poll, 2000);
+        timer = window.setTimeout(poll, POLL_DELAY_MS);
       } catch (e) {
         if (!stop) setError(errorText(e));
       }
@@ -296,7 +325,7 @@ function Room({ id, me, client }: { id: string; me: Me; client: MeetSidePanel | 
         </button>
       )}
       {env.kind === "poker" ? (
-        <VotePad env={env} />
+        <VotePad env={env} myId={me.id} />
       ) : (
         <a className="underline" href={`/session/${encodeURIComponent(id)}`} target="_blank" rel="noreferrer">
           Open this room in Parley
@@ -307,13 +336,24 @@ function Room({ id, me, client }: { id: string; me: Me; client: MeetSidePanel | 
 }
 
 /** A compact vote pad: the current story and the deck, nothing else. */
-function VotePad({ env }: { env: Envelope }) {
+function VotePad({ env, myId }: { env: Envelope; myId: string }) {
   const st = env.state;
   const story = st.stories.find((s) => s.id === st.currentStoryId);
   const [picked, setPicked] = useState<{ story: string; value: string } | null>(null);
   const [error, setError] = useState("");
+  // A new story or a fresh round means a fresh hand — mirrors PokerRoom's
+  // `selected` reset, so a pre-reveal Reset on the same story clears this too.
+  useEffect(() => {
+    setPicked(null);
+  }, [st.currentStoryId, env.revealed]);
   if (!story) return <p>Waiting for the facilitator to pick a story.</p>;
-  const mine = picked?.story === story.id ? picked.value : "";
+  // The envelope exposes who voted, not the caller's own value pre-reveal
+  // (that only arrives once the round is revealed). `picked` is optimistic
+  // local state, so it is shown only while the server still counts this
+  // caller as having voted on this story — the moment votedUserIds drops
+  // this id, the round was reset out from under a stale local pick.
+  const iVoted = story.votedUserIds.includes(myId);
+  const mine = picked?.story === story.id && iVoted ? picked.value : "";
   const vote = async (value: string) => {
     setError("");
     try {

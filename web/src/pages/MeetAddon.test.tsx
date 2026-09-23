@@ -49,10 +49,18 @@ function envelope(facilitatorId: string): Envelope {
 
 let calls: { url: string; init: RequestInit }[];
 let sockets: { url: string; protocols?: string | string[] }[];
+let wsInstances: { onmessage?: (ev: { data: string }) => void }[];
 let startActivity: ReturnType<typeof vi.fn>;
 let providers: (typeof meetRow)[];
 let facilitator = "ada";
 let startingData: string | undefined;
+/**
+ * Queued answers for the next `/api/embed/session` polls, consumed one per
+ * call. A test with nothing queued gets the default one-shot success below —
+ * the poll-resilience tests are the only ones that need more than one shape
+ * of answer across the life of a single poll.
+ */
+let sessionResponses: Array<"network" | { status: number; retryAfter?: number } | { token: string }>;
 
 function respond(url: string, method: string): unknown {
   if (url === "/api/auth") return { mode: "open", embedProviders: providers };
@@ -67,7 +75,7 @@ function respond(url: string, method: string): unknown {
       sessions: [{ id: SID, kind: "poker", title: "Sprint 12", createdAt: "", endedAt: null, here: 1 }],
     };
   if (url === `/api/sessions/${SID}`) return envelope(facilitator);
-  if (url === "/api/embed/handoff") return { displayCode: "ABC-123", signinPath: "/embed/signin?c=xyz" };
+  if (url === "/api/embed/handoff") return { displayCode: "ABC-123", signinPath: "/embed/signin?c=xyz", expiresIn: 300 };
   if (url === "/api/embed/session") return { token: "fresh" };
   if (url.endsWith("/actions/vote") && method === "POST") return undefined;
   throw new Error(`unexpected ${method} ${url}`);
@@ -78,6 +86,8 @@ beforeEach(() => {
   document.head.querySelectorAll("script").forEach((s) => s.remove());
   calls = [];
   sockets = [];
+  wsInstances = [];
+  sessionResponses = [];
   providers = [meetRow];
   facilitator = "ada";
   startingData = JSON.stringify({ sessionId: SID });
@@ -86,6 +96,15 @@ beforeEach(() => {
     "fetch",
     vi.fn(async (url: string, init: RequestInit) => {
       calls.push({ url, init });
+      if (url === "/api/embed/session" && sessionResponses.length > 0) {
+        const next = sessionResponses.shift()!;
+        if (next === "network") throw new TypeError("network down");
+        if ("status" in next) {
+          const headers = next.retryAfter ? { "Retry-After": String(next.retryAfter) } : undefined;
+          return new Response(JSON.stringify({ error: "boom" }), { status: next.status, headers });
+        }
+        return new Response(JSON.stringify(next), { status: 200 });
+      }
       const body = respond(url, init.method ?? "GET");
       return new Response(body === undefined ? null : JSON.stringify(body), { status: body === undefined ? 204 : 200 });
     }),
@@ -93,8 +112,10 @@ beforeEach(() => {
   vi.stubGlobal(
     "WebSocket",
     class {
+      onmessage?: (ev: { data: string }) => void;
       constructor(url: string, protocols?: string | string[]) {
         sockets.push({ url, protocols });
+        wsInstances.push(this);
       }
       close() {}
     },
@@ -171,6 +192,34 @@ describe("Meet side panel", () => {
     });
   });
 
+  it("clears a stale pick once the caller drops out of the story's votedUserIds", async () => {
+    renderApp(<MeetSidePanel />);
+    await loadSDK();
+    await openRoom();
+
+    fireEvent.click(screen.getByRole("button", { name: "2" }));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith("/actions/vote"))).toBe(true));
+
+    // The server's own ack: a fresh frame naming ada as having voted.
+    const voted = envelope("ada");
+    voted.version = 2;
+    voted.state.stories[0].votedUserIds = ["ada"];
+    wsInstances.at(-1)?.onmessage?.({ data: JSON.stringify(voted) });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "2" }).getAttribute("aria-pressed")).toBe("true"),
+    );
+
+    // The facilitator resets the round on the SAME story: votedUserIds empties
+    // out, but currentStoryId and revealed never change.
+    const reset = envelope("ada");
+    reset.version = 3;
+    reset.state.stories[0].votedUserIds = [];
+    wsInstances.at(-1)?.onmessage?.({ data: JSON.stringify(reset) });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "2" }).getAttribute("aria-pressed")).toBe("false"),
+    );
+  });
+
   it("gives a non-facilitator no start control", async () => {
     facilitator = "someone-else";
     renderApp(<MeetSidePanel />);
@@ -210,6 +259,42 @@ describe("Meet sign-in", () => {
     expect(tab.opener).toBeNull();
     expect(screen.queryByText(/blocked the new tab/)).toBeNull();
   });
+
+  it(
+    "keeps polling through a dropped connection and a 503 (honouring Retry-After), then signs in",
+    async () => {
+      sessionResponses = ["network", { status: 503, retryAfter: 1 }, { token: "fresh" }];
+      renderApp(<MeetSidePanel />);
+      await screen.findByText("ABC-123");
+      expect(sessionStorage.getItem("parley.embed.token")).toBeNull();
+      // Neither a dropped connection nor a 503 is a terminal answer, so the
+      // poll keeps going — through the 2s cadence, the backoff after the
+      // network error, and the 503's own Retry-After — until it finally
+      // signs in on the third attempt.
+      await waitFor(() => expect(sessionStorage.getItem("parley.embed.token")).toBe("fresh"), {
+        timeout: 10_000,
+      });
+      expect(screen.queryByRole("alert")).toBeNull();
+    },
+    15_000,
+  );
+
+  it(
+    "stops polling on a 404 — the handoff expired, was used, or never existed",
+    async () => {
+      sessionResponses = [{ status: 404 }];
+      renderApp(<MeetSidePanel />);
+      await screen.findByText("ABC-123");
+      await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("boom"), {
+        timeout: 5_000,
+      });
+      // No further request goes out once the terminal answer has been shown.
+      calls.length = 0;
+      await new Promise((r) => setTimeout(r, 3_000));
+      expect(calls.some((c) => c.url === "/api/embed/session")).toBe(false);
+    },
+    12_000,
+  );
 
   it("has no axe violations at 320px", async () => {
     vi.stubGlobal("innerWidth", 320);
