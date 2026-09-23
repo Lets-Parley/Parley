@@ -121,7 +121,7 @@
         "site/src/assets/standup-round-dark.png",
         "docs/screenshot-standup.png"
       ],
-      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "shot_at": "3d7da0c85b9b7e97412b0abb0c705a4c8ac55600",
       "depicts": [
         "web/src/pages/StandupRoom.tsx",
         "web/src/components/NotificationSoundButton.tsx",
@@ -138,7 +138,7 @@
         "site/src/assets/blockers-roundup-light.png",
         "site/src/assets/blockers-roundup-dark.png"
       ],
-      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "shot_at": "3d7da0c85b9b7e97412b0abb0c705a4c8ac55600",
       "depicts": [
         "web/src/pages/StandupRoom.tsx",
         "web/src/components/NotificationSoundButton.tsx",
@@ -220,6 +220,61 @@
       "shot_at": "0ecc46c9299127064b35011c971952e13ec297bf",
       "depicts": [
         "web/src/pages/PresentPage.tsx",
+        "web/src/tokens.css"
+      ]
+    },
+    {
+      "files": [
+        "site/src/assets/async-answer-light.png",
+        "site/src/assets/async-answer-dark.png"
+      ],
+      "shot_at": "3d7da0c85b9b7e97412b0abb0c705a4c8ac55600",
+      "depicts": [
+        "web/src/pages/StandupRoom.tsx",
+        "web/src/components/Commitments.tsx",
+        "web/src/components/AwayDays.tsx",
+        "web/src/components/AppShell.tsx",
+        "web/src/pages/SessionPage.tsx",
+        "web/src/components/NotificationSoundButton.tsx",
+        "web/src/components/FacilitatorControls.tsx",
+        "web/src/components/Avatar.tsx",
+        "web/src/tokens.css"
+      ]
+    },
+    {
+      "files": [
+        "site/src/assets/async-digest-light.png",
+        "site/src/assets/async-digest-dark.png"
+      ],
+      "shot_at": "3d7da0c85b9b7e97412b0abb0c705a4c8ac55600",
+      "depicts": [
+        "web/src/components/AsyncDigest.tsx",
+        "web/src/pages/StandupRoom.tsx",
+        "web/src/tokens.css"
+      ]
+    },
+    {
+      "files": [
+        "site/src/assets/standup-trend-light.png",
+        "site/src/assets/standup-trend-dark.png"
+      ],
+      "shot_at": "3d7da0c85b9b7e97412b0abb0c705a4c8ac55600",
+      "depicts": [
+        "web/src/components/StandupTrend.tsx",
+        "web/src/components/AwayDays.tsx",
+        "web/src/pages/SpacePage.tsx",
+        "web/src/tokens.css"
+      ]
+    },
+    {
+      "files": [
+        "site/src/assets/standup-schedule-light.png",
+        "site/src/assets/standup-schedule-dark.png"
+      ],
+      "shot_at": "3d7da0c85b9b7e97412b0abb0c705a4c8ac55600",
+      "depicts": [
+        "web/src/components/StandupSchedulePanel.tsx",
+        "web/src/pages/SpaceSettingsPage.tsx",
         "web/src/tokens.css"
       ]
     }

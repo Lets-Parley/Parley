@@ -4,6 +4,15 @@ description: A walkthrough for teams answering on their own time — opening a s
 ---
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+import Screenshot from "../../../components/Screenshot.astro";
+import answerLight from "../../../assets/async-answer-light.png";
+import answerDark from "../../../assets/async-answer-dark.png";
+import digestLight from "../../../assets/async-digest-light.png";
+import digestDark from "../../../assets/async-digest-dark.png";
+import trendLight from "../../../assets/standup-trend-light.png";
+import trendDark from "../../../assets/standup-trend-dark.png";
+import scheduleLight from "../../../assets/standup-schedule-light.png";
+import scheduleDark from "../../../assets/standup-schedule-dark.png";
 
 <VerifiedStamp source={["internal/standup/state.go", "internal/standup/schedule.go", "internal/standup/ics.go", "internal/standup/mentions.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go", "internal/store/sessions.go", "internal/session/registry.go", "internal/api/standup_away.go", "web/src/components/AsyncDigest.tsx", "web/src/components/AwayDays.tsx", "web/src/components/StandupTrend.tsx", "web/src/pages/StandupRoom.tsx", "web/src/pages/SpacePage.tsx", "web/src/components/StandupSchedulePanel.tsx"]} />
 
@@ -25,6 +34,13 @@ space's settings page. Each scheduled day opens
 a new async standup, and opening it ends the previous one. See
 [Scheduled async standups](/features/daily-standup/#scheduled-async-standups).
 
+<Screenshot
+  light={scheduleLight}
+  dark={scheduleDark}
+  alt="The Standup schedule panel on a space's settings page: Monday to Friday ticked, Saturday and Sunday not, opening at 09:30 AM in America/Chicago with a 240-minute window, and Open standups on this schedule ticked above Save schedule."
+  caption="A schedule is weekdays, a local open time, a time zone and a window. A change reaches the next standup, never one already open."
+/>
+
 ## 2. Get a reminder, once
 
 Each person can mint their own calendar feed with `POST /api/me/ics` and
@@ -42,6 +58,13 @@ cutoff is appended like any other: once the cutoff has passed, the form says
 
 If a blocker needs somebody, tick them under **Who do you need?** Only they see
 that you asked, at the top of their digest.
+
+<Screenshot
+  light={answerLight}
+  dark={answerDark}
+  alt="An open async standup: Answer when you can, with the cutoff time beneath it, one commitment carried over from last time with Done, Still on it and Dropped, empty yesterday, today and blockers fields, a Who do you need? row of five teammates to tick, and Away days with one range already set."
+  caption="Everything you write is on one form: last time's commitment, your update, who you need, and your away days."
+/>
 
 ## 4. Say when you are away
 
@@ -72,12 +95,26 @@ remain: the not-yet and away lists and what the standup changed about
 commitments are never stored and are no longer served. Reopening an old
 standup does not bring the away list back, because that day is not today.
 
+<Screenshot
+  light={digestLight}
+  dark={digestDark}
+  alt="The digest of an open async standup, top to bottom: Needs you with Priya Raman asking for a review; Blockers from Ben Alvarez and Priya Raman; Changed commitments with one landed, one still on it and one dropped; Updates collapsed to one line each with a posted time; then Answered (three names), Not yet (two) and Away (Nina Kowalski)."
+  caption="Names without counts and without alarm colours. Someone away today is listed under Away, not under Not yet."
+/>
+
 ## 6. Look at the trend, as a team
 
 On the space page, **Standup participation** shows, for each of the last 12
 completed weeks, the share of eligible people who answered that week's
 **scheduled** standups. It is one number per week for the whole team — never
 per person.
+
+<Screenshot
+  light={trendLight}
+  dark={trendDark}
+  alt="Standup participation on a space page: twelve weeks from Jun 29 to Sep 14, each a bar with a percentage between 80% and 90%, the week of Aug 17 reading Not shown — fewer than four people, and the Away days form beneath with one range set."
+  caption="One rounded team figure per completed week. A week whose days all had fewer than four eligible people is not shown."
+/>
 
 It is built so a small team cannot be read one person at a time:
 
