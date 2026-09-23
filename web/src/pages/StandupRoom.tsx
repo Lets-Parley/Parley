@@ -18,6 +18,7 @@ import { cueFor, cueVar } from "../lib/cue";
 import { EmptyTable } from "./PokerRoom";
 import { PluginChrome } from "../components/PluginChrome";
 import { AsyncDigest, type CommitmentChange } from "../components/AsyncDigest";
+import { AwayDays } from "../components/AwayDays";
 
 export type StandupEntry = {
   userId: string;
@@ -57,6 +58,8 @@ type StandupState = {
   mode: "sync" | "async";
   /** An async standup's published cutoff. Passing it does not end the session. */
   closesAt: string | null;
+  /** Members away today. Sent only by an open async standup. */
+  away?: string[];
 };
 
 // The viewer's own entry is local draft state: it is seeded once from the
@@ -703,6 +706,8 @@ export function StandupRoom({
               </ul>
             </fieldset>
           )}
+          {/* A link guest has no account to be away from. */}
+          {!guest && <AwayDays />}
           {failRow("gathering")}
         </section>
       )}
@@ -713,6 +718,7 @@ export function StandupRoom({
           ended={Boolean(env.endedAt)}
           changes={st.changes ?? []}
           needsYou={mentions.data?.needsYou ?? []}
+          away={st.away ?? []}
         />
       )}
 

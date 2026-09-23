@@ -1932,6 +1932,120 @@ describe("StandupRoom async follow-through and mentions", () => {
   });
 });
 
+describe("StandupRoom away days", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  // Marcus (the viewer) has answered; Priya set herself away today; Dana has
+  // not answered and is not away.
+  function awayRoom(over: Partial<Envelope> = {}, away: string[] = ["priya"]): Envelope {
+    return envelope({
+      phase: "",
+      state: {
+        entries: [entry({ userId: "marcus", position: 1, today: "review" })],
+        commitments: [],
+        changes: [],
+        kudos: [],
+        currentSpeakerId: null,
+        speakerStartedAt: null,
+        secondsPerPerson: 90,
+        mode: "async",
+        closesAt: null,
+        away,
+      } as unknown as Envelope["state"],
+      ...over,
+    });
+  }
+
+  function serveAway(ranges: { id: string; startsOn: string; endsOn: string }[] = []) {
+    return vi.spyOn(globalThis, "fetch").mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      const json = (body: unknown, status = 200) =>
+        Promise.resolve(new Response(JSON.stringify(body), { status }));
+      if (url.includes("/plugins/panels")) return json([]);
+      if (url === "/api/me/away" && method === "GET") return json({ ranges });
+      if (url === "/api/me/away" && method === "POST") {
+        const b = JSON.parse(init!.body as string);
+        return json({ id: "a9", ...b }, 201);
+      }
+      if (url.endsWith("/mentions")) return json({ needsYou: [], asked: [] });
+      if (url === "/api/orgs/acme/spaces/platform-team") return json({ members: [] });
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+  }
+
+  const writes = (f: ReturnType<typeof serveAway>) =>
+    f.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method && (c[1] as RequestInit).method !== "GET");
+
+  it("lists an away person under Away rather than Not yet", () => {
+    serveAway();
+    renderApp(<StandupRoom env={awayRoom()} me={me} />);
+    const notYet = screen.getByRole("region", { name: "Not yet" });
+    expect(notYet.textContent).toContain("Dana Whitfield");
+    expect(notYet.textContent).not.toContain("Priya Raman");
+    expect(screen.getByRole("region", { name: "Away" }).textContent).toContain("Priya Raman");
+  });
+
+  it("shows no Away section when nobody is away", () => {
+    serveAway();
+    renderApp(<StandupRoom env={awayRoom({}, [])} me={me} />);
+    expect(screen.queryByRole("region", { name: "Away" })).toBeNull();
+    expect(screen.getByRole("region", { name: "Not yet" }).textContent).toContain("Priya Raman");
+  });
+
+  it("serves neither Not yet nor Away once the standup has ended", () => {
+    serveAway();
+    renderApp(<StandupRoom env={awayRoom({ endedAt: "2026-08-18T18:00:00Z" })} me={me} />);
+    expect(screen.queryByRole("region", { name: "Not yet" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Away" })).toBeNull();
+  });
+
+  it("sets away days from labelled date fields, keyboard only", async () => {
+    const f = serveAway();
+    const user = userEvent.setup();
+    renderApp(<StandupRoom env={awayRoom()} me={me} />);
+    const first = await screen.findByLabelText("First day away");
+    await user.click(first);
+    await user.keyboard("2026-10-05");
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByLabelText("Last day away"));
+    await user.keyboard("2026-10-09");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(writes(f)).toHaveLength(1));
+    const [path, init] = writes(f)[0] as [string, RequestInit];
+    expect(path).toBe("/api/me/away");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ startsOn: "2026-10-05", endsOn: "2026-10-09" });
+  });
+
+  it("lists your own away ranges and removes one", async () => {
+    const f = serveAway([{ id: "a1", startsOn: "2026-10-05", endsOn: "2026-10-09" }]);
+    const user = userEvent.setup();
+    renderApp(<StandupRoom env={awayRoom()} me={me} />);
+    const remove = await screen.findByRole("button", { name: "Remove away days 2026-10-05 to 2026-10-09" });
+    await user.click(remove);
+    await waitFor(() => expect(writes(f)).toHaveLength(1));
+    const [path, init] = writes(f)[0] as [string, RequestInit];
+    expect(path).toBe("/api/me/away/a1");
+    expect(init.method).toBe("DELETE");
+  });
+
+  it("gives a link guest no away controls and no away read", async () => {
+    const f = serveAway();
+    renderApp(<StandupRoom env={awayRoom({ orgSlug: "", spaceSlug: "" })} me={me} guest />);
+    await act(async () => {});
+    expect(screen.queryByLabelText("First day away")).toBeNull();
+    expect(f.mock.calls.some((c) => String(c[0]).includes("/api/me/away"))).toBe(false);
+  });
+
+  it("has no axe violations with away showing", async () => {
+    serveAway([{ id: "a1", startsOn: "2026-10-05", endsOn: "2026-10-09" }]);
+    const { container } = renderApp(<StandupRoom env={awayRoom()} me={me} />);
+    await screen.findByRole("button", { name: /remove away days/i });
+    await expectNoViolations(container);
+  });
+});
+
 describe("StandupRoom present link", () => {
   it("opens the presenter view in a new tab", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(answering(new Response("{}", { status: 200 })));
