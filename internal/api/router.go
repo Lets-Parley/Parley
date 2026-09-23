@@ -96,6 +96,10 @@ type app struct {
 	plugins    *plugin.Store
 	pluginHost *plugin.Host
 	metrics    *metrics
+	// embedProviders are the meeting clients enabled on this instance; empty
+	// means every embed route is 404 and no bearer token is ever read.
+	embedProviders []EmbedProvider
+	embedHandoffs  *store.EmbedHandoffs
 }
 
 type Options struct {
@@ -134,6 +138,9 @@ type Options struct {
 	// MetricsEnabled mounts an unauthenticated Prometheus exposition at
 	// /metrics. Off by default: the route does not exist unless this is set.
 	MetricsEnabled bool
+	// EmbedProviders are the meeting clients Parley may run inside
+	// (EMBED_PROVIDERS). Empty turns the embedded session off entirely.
+	EmbedProviders []EmbedProvider
 
 	// Context bounds the cross-replica notification listener. Leave it nil
 	// outside of tests: the listener then lives as long as the process.
@@ -280,7 +287,9 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		plugins:          opts.Plugins,
 		pluginHost:       opts.PluginHost,
 		now:              opts.Now,
+		embedProviders:   opts.EmbedProviders,
 	}
+	a.embedHandoffs = &store.EmbedHandoffs{Users: a.users}
 	if a.now == nil {
 		a.now = time.Now
 	}
@@ -495,13 +504,43 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		r.Get("/callback", a.handleAuthCallback)
 	})
 
+	// The top-level half of the embedded-session handoff: an ordinary Parley
+	// page, X-Frame-Options DENY like every other, where a signed-in person
+	// binds a frame's request by typing the code the frame shows. It is
+	// outside /api, so it brings its own CSRF defence: rejectCrossSite here,
+	// plus the Lax cookie.
+	// Cookies only — a bearer never binds a handoff.
+	r.Route("/embed", func(r chi.Router) {
+		r.Use(a.requireEmbed)
+		r.Use(rejectCrossSite(a.allowedOrigin))
+		r.Use(resolvePrincipal(a.users, mode == ModeOIDC, nil))
+		r.Get("/signin", a.handleEmbedSigninPage)
+		r.Post("/signin", a.handleEmbedSigninBind)
+		r.Get("/*", http.NotFound)
+		r.Post("/*", http.NotFound)
+	})
+
 	r.Route("/api", func(r chi.Router) {
 		r.Use(rejectCrossSite(a.allowedOrigin))
 		r.Use(requireJSONBody)
 		r.Use(limitAPIRequestBody)
-		r.Use(resolvePrincipal(a.users, mode == ModeOIDC))
+		r.Use(resolvePrincipal(a.users, mode == ModeOIDC, a.embedBearer(authorizationBearer)))
+		// An embedded session reaches only the allow-list in embed.go; every
+		// other /api route answers it 403 here, before any of the gates below.
+		// It looks the route up in root because this middleware runs before
+		// the subrouters below have matched anything.
+		r.Use(gateEmbedded(root))
 
 		r.Get("/auth", a.handleAuthConfig)
+		// The frame's half of the embedded-session handoff. Neither route
+		// takes a principal: the handoff is proven by the verifier alone.
+		r.Route("/embed", func(r chi.Router) {
+			r.Use(a.requireEmbed)
+			r.Post("/handoff", a.handleEmbedHandoff)
+			r.Post("/session", a.handleEmbedSession)
+			r.Get("/*", http.NotFound)
+			r.Post("/*", http.NotFound)
+		})
 		// Redeeming is the one door a link guest walks through, so it is the
 		// one /api route that neither requires an identity nor rejects a link
 		// one. Everything it mints is scoped to a single room.
@@ -784,7 +823,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		})
 	})
 
-	r.With(resolvePrincipal(a.users, mode == ModeOIDC)).Get("/ws", a.handleWS)
+	r.With(resolvePrincipal(a.users, mode == ModeOIDC, a.embedBearer(wsProtocolBearer))).Get("/ws", a.handleWS)
 
 	spa := web.SPAHandler()
 	// The compatibility shim for links minted before space URLs carried an
@@ -793,7 +832,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	// the client router no longer knows. Everything it cannot resolve — an
 	// anonymous caller, a link guest — falls through to that same shell, so
 	// mounting it changes nothing for anyone it does not redirect.
-	r.With(resolvePrincipal(a.users, mode == ModeOIDC)).Get("/s/{slug}", a.legacySpaceRedirect(spa))
+	r.With(resolvePrincipal(a.users, mode == ModeOIDC, nil)).Get("/s/{slug}", a.legacySpaceRedirect(spa))
 
 	r.NotFound(spa)
 

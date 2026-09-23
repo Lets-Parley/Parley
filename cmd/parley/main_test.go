@@ -235,3 +235,38 @@ func TestLoadConfigDefaultOrgClaim(t *testing.T) {
 		t.Errorf("DefaultOrgClaim = %q, want parley-users", cfg.DefaultOrgClaim)
 	}
 }
+
+func TestLoadConfigEmbedProviders(t *testing.T) {
+	cases := []struct {
+		name, base, providers, project string
+		wantErr                        bool
+		want                           int
+	}{
+		{name: "off by default", base: "https://parley.example.test", want: 0},
+		{name: "meet with its project number", base: "https://parley.example.test", providers: "meet", project: "123456789012", want: 1},
+		{name: "unknown provider", base: "https://parley.example.test", providers: "zoom", wantErr: true},
+		{name: "meet without its project number", base: "https://parley.example.test", providers: "meet", wantErr: true},
+		{name: "plain http base url", base: "http://parley.example.test", providers: "meet", project: "123456789012", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			baseConfigEnv(t)
+			t.Setenv("BASE_URL", tc.base)
+			t.Setenv("EMBED_PROVIDERS", tc.providers)
+			t.Setenv("MEET_CLOUD_PROJECT_NUMBER", tc.project)
+			cfg, err := loadConfig()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("loadConfig accepted it")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(cfg.EmbedProviders) != tc.want {
+				t.Fatalf("got %d providers, want %d", len(cfg.EmbedProviders), tc.want)
+			}
+		})
+	}
+}

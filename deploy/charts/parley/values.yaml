@@ -332,6 +332,10 @@ logLevel: info
 metrics:
   enabled: false
 
+# EMBED_PROVIDERS and MEET_CLOUD_PROJECT_NUMBER turn on Parley inside meeting
+# clients (Google Meet). Off by default; set both through extraEnv below, and
+# only with an https BASE_URL. See security/authentication.mdx.
+#
 # Environment variables appended verbatim to the container, for the settings
 # this chart does not give a value of its own. Each entry is a full EnvVar, so
 # a valueFrom works here too.

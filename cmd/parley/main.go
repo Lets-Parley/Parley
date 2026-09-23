@@ -77,6 +77,9 @@ type config struct {
 	// MetricsEnabled mounts an unauthenticated Prometheus exposition at
 	// /metrics. Off by default.
 	MetricsEnabled bool
+	// EmbedProviders are the meeting clients Parley may run inside. Empty,
+	// the default, means the embedded session does not exist.
+	EmbedProviders []api.EmbedProvider
 }
 
 type abuseLimits = api.Limits
@@ -123,6 +126,14 @@ func loadConfig() (config, error) {
 		return cfg, fmt.Errorf("BASE_URL %q is not a valid URL — set it to the address users reach this server at, e.g. http://localhost:8080", rawBase)
 	}
 	cfg.BaseURL = base
+
+	cfg.EmbedProviders, err = api.ParseEmbedProviders(os.Getenv("EMBED_PROVIDERS"), os.Getenv("MEET_CLOUD_PROJECT_NUMBER"))
+	if err != nil {
+		return cfg, err
+	}
+	if len(cfg.EmbedProviders) > 0 && base.Scheme != "https" {
+		return cfg, fmt.Errorf("EMBED_PROVIDERS is set but BASE_URL %q is not https — meeting clients only frame HTTPS pages, so serve Parley over HTTPS or unset EMBED_PROVIDERS", rawBase)
+	}
 
 	switch lv := strings.ToLower(envOr("LOG_LEVEL", "info")); lv {
 	case "debug":
@@ -472,6 +483,7 @@ func apiOptions(ctx context.Context, cfg config, secureCookies bool, plugins *pl
 		Plugins:        plugins,
 		PluginHost:     pluginHost,
 		MetricsEnabled: cfg.MetricsEnabled,
+		EmbedProviders: cfg.EmbedProviders,
 		// Scheduled async standups open from this ticker. Every replica runs
 		// it; the slot's primary key keeps a slot from opening twice.
 		StandupScheduleInterval: standupScheduleInterval,

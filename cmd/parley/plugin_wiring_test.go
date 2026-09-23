@@ -141,6 +141,32 @@ func TestMainsOptionsMountMetrics(t *testing.T) {
 	}
 }
 
+// EmbedProviders is another feature gate: absent from the mapping, every
+// embed route answers 404 in the binary however the operator configured it.
+func TestMainsOptionsEnableEmbedProviders(t *testing.T) {
+	base, _ := url.Parse("https://example.test")
+	providers, err := api.ParseEmbedProviders("meet", "123456789012")
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := apiOptions(t.Context(), config{BaseURL: base, AuthMode: api.ModeOpen, EmbedProviders: providers}, true, nil, nil)
+	handler := api.Router(nil, opts)
+	srv := httptest.NewServer(handler)
+	t.Cleanup(func() {
+		handler.Shutdown()
+		srv.Close()
+	})
+	resp, err := srv.Client().Get(srv.URL + "/api/auth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(body), `"name":"meet"`) {
+		t.Fatalf("GET /api/auth through apiOptions does not list meet: %s", body)
+	}
+}
+
 func TestMainsOptionsLeaveMetricsUnmounted(t *testing.T) {
 	base, _ := url.Parse("http://example.test")
 	cfg := config{BaseURL: base, AuthMode: api.ModeOpen}
@@ -312,6 +338,7 @@ func TestEveryOptionMainCanSetIsActuallySet(t *testing.T) {
 		PluginDir:           t.TempDir(),
 		MetricsEnabled:      true,
 		StandupWebhookHosts: []string{"hooks.example.test"},
+		EmbedProviders:      []api.EmbedProvider{{Name: "meet"}},
 	}
 	opts := apiOptions(t.Context(), cfg, true, &plugin.Store{}, &plugin.Host{})
 

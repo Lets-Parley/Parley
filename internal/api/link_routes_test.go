@@ -32,13 +32,24 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// room. These are the only non-4xx entries outside the bound session.
 	// /metrics is unauthenticated when mounted; a link guest sees the same
 	// exposition anyone who can reach the process does.
-	"GET /healthz":       {status: http.StatusOK},
-	"GET /version":       {status: http.StatusOK},
-	"GET /readyz":        {status: http.StatusOK},
-	"GET /metrics":       {status: http.StatusOK},
-	"GET /api/auth":      {status: http.StatusOK},
-	"GET /auth/login":    {status: http.StatusNotFound},
-	"GET /auth/callback": {status: http.StatusNotFound},
+	"GET /healthz":  {status: http.StatusOK},
+	"GET /version":  {status: http.StatusOK},
+	"GET /readyz":   {status: http.StatusOK},
+	"GET /metrics":  {status: http.StatusOK},
+	"GET /api/auth": {status: http.StatusOK},
+	// The embedded-session handoff, off on this instance, so 404 for everyone.
+	// Enabled, both halves still refuse a link guest: the sign-in page binds
+	// only for an ordinary account (TestEmbedRefusesLinkGuestBinding).
+	"GET /embed/signin":       {status: http.StatusNotFound},
+	"POST /embed/signin":      {status: http.StatusNotFound},
+	"GET /embed/*":            {status: http.StatusNotFound},
+	"POST /embed/*":           {status: http.StatusNotFound},
+	"POST /api/embed/handoff": {status: http.StatusNotFound},
+	"POST /api/embed/session": {status: http.StatusNotFound},
+	"GET /api/embed/*":        {status: http.StatusNotFound},
+	"POST /api/embed/*":       {status: http.StatusNotFound},
+	"GET /auth/login":         {status: http.StatusNotFound},
+	"GET /auth/callback":      {status: http.StatusNotFound},
 	// The socket is not an HTTP status, so it is exercised by the WebSocket
 	// tests instead: a guest connects to the bound room, and expiry and
 	// revocation both sever it.

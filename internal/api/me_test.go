@@ -438,7 +438,7 @@ func TestConcurrentRenameLoserGets401AndClearsCookie(t *testing.T) {
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r = r.WithContext(principal.With(r.Context(), Principal{UserID: u.ID}))
+		r = r.WithContext(principal.With(r.Context(), Principal{UserID: u.ID, TokenID: string(hash)}))
 		a.handlePostMe(w, r)
 	}))
 	t.Cleanup(srv.Close)
