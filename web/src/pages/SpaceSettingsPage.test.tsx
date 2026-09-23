@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
@@ -445,6 +445,27 @@ describe("SpaceSettingsPage standup schedule", () => {
           "PUT",
           scheduleUrl,
           { weekdays: [0, 1, 2, 5], openTime: "10:15", timezone: "America/Chicago", windowMinutes: 90, enabled: false },
+        ],
+      ]),
+    );
+  });
+
+  it("normalises a time the browser reports with seconds to HH:MM", async () => {
+    schedule = saved;
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+    const p = await panel();
+
+    await waitFor(() => expect((p.getByLabelText("Opens at") as HTMLInputElement).value).toBe("09:30"));
+    const time = p.getByLabelText("Opens at");
+    fireEvent.change(time, { target: { value: "09:30:00" } });
+    await userEvent.click(p.getByRole("button", { name: "Save schedule" }));
+
+    await waitFor(() =>
+      expect(puts()).toEqual([
+        [
+          "PUT",
+          scheduleUrl,
+          { weekdays: [1, 3, 5], openTime: "09:30", timezone: "Europe/Berlin", windowMinutes: 120, enabled: true },
         ],
       ]),
     );

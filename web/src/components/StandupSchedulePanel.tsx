@@ -136,7 +136,9 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
     setBusy(true);
     const next: StandupSchedule = {
       weekdays: [...days].sort((a, b) => a - b),
-      openTime,
+      // Some browsers report HH:MM:SS from a time input that carries
+      // seconds; the API only accepts the five-character HH:MM.
+      openTime: openTime.slice(0, 5),
       timezone,
       windowMinutes: windowValue,
       enabled,
@@ -185,6 +187,7 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
           <input
             id={`${id}-time`}
             type="time"
+            step={60}
             className={inputClass}
             value={openTime}
             onChange={(e) => setOpenTime(e.target.value)}
