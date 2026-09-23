@@ -799,6 +799,8 @@ function NewSessionModal({
   // browser reports its text back as "".
   const instantRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const groupName = useId();
+  // Its own id, so no kind field key can ever share the radio group name.
+  const kindGroup = useId();
   // The space's own decks, fetched only for a kind that has a space-scoped
   // field: a standup has none, and must not cost a request to say so. Failing
   // to load them leaves the built-ins, which is the whole dialog still working.
@@ -865,29 +867,43 @@ function NewSessionModal({
           gate — the past check runs in submit() so its message lands in the
           dialog's own alert line instead of a browser validation bubble. */}
       <form onSubmit={submit} noValidate>
-        <span className={labelClass}>Kind</span>
-        <div className="flex gap-2">
-          {kinds.map((k) => (
-            <button
-              key={k.id}
-              type="button"
-              onClick={() => {
-                setKind(k);
-                setConfig(defaultConfig(k));
-                setInstants({});
-                setError("");
-              }}
-              className={
-                "flex-1 rounded-chip px-3.5 py-2.5 text-sm " +
-                (kind.id === k.id
-                  ? "border-2 border-accent bg-accent-soft font-bold"
-                  : "border border-line font-semibold text-ink-soft hover:bg-felt-deep")
-              }
-            >
-              {k.label}
-            </button>
-          ))}
-        </div>
+        {/* A native radio group in a fieldset, the same pattern as Mode below
+            and the avatar picker in ProfileDialog: one tab stop, arrow keys,
+            the group's name and the selected state all come from the
+            platform. The input is only visually hidden, so it keeps its place
+            in the tab order and its focus ring lands on the chip. */}
+        {/* A legend's own top margin is not laid out inside its fieldset, so
+            the fieldset carries the mt-4 the old "Kind" span had. */}
+        <fieldset className="mt-4 border-0 p-0">
+          <legend className={labelClass}>Kind</legend>
+          <div className="flex gap-2">
+            {kinds.map((k) => (
+              <label
+                key={k.id}
+                className={
+                  "flex flex-1 cursor-pointer items-center justify-center rounded-chip px-3.5 py-2.5 text-sm has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent " +
+                  (kind.id === k.id
+                    ? "border-2 border-accent bg-accent-soft font-bold"
+                    : "border border-line font-semibold text-ink-soft hover:bg-felt-deep")
+                }
+              >
+                <input
+                  type="radio"
+                  className="sr-only"
+                  name={kindGroup}
+                  checked={kind.id === k.id}
+                  onChange={() => {
+                    setKind(k);
+                    setConfig(defaultConfig(k));
+                    setInstants({});
+                    setError("");
+                  }}
+                />
+                {k.label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
 
         <label className={labelClass} htmlFor="session-title">
           Title

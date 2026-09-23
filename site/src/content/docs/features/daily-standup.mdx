@@ -263,7 +263,9 @@ far in the future) without complaint. Through the API it is `closesAt` (RFC 3339
 the new session for any other reason, the dialog stays open and shows its
 message as written. Passing the cutoff does **not** end the standup: an
 answer written afterwards is accepted and appended with its posted time like
-any other, with no late badge. The standup ends when the facilitator ends it.
+any other, with no late badge. Before the cutoff the answer form reads
+**Closes** and the time; once it has passed it reads **Cutoff was** that time
+and says late answers are still added. The standup ends when the facilitator ends it.
 Once ended, its record keeps the entries only — the not-yet and away lists are
 never stored or served, and what the standup changed about commitments is no
 longer served, so nobody's landed and dropped history can be rebuilt from old

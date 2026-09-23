@@ -177,11 +177,11 @@ describe("SpacePage create dialog", () => {
       renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
       await userEvent.click(await screen.findByRole("button", { name: "New session" }));
       const dialog = within(screen.getByRole("dialog"));
-      expect(dialog.getByRole("button", { name: "Poker" })).toBeTruthy();
+      expect(dialog.getByRole("radio", { name: "Poker" })).toBeTruthy();
       // The tab strip still names Standup — that filters existing sessions —
       // so this assertion has to be scoped to the dialog, and it fails for a
       // dialog that simply rendered every built-in kind.
-      expect(dialog.queryByRole("button", { name: "Standup" })).toBe(null);
+      expect(dialog.queryByRole("radio", { name: "Standup" })).toBe(null);
     } finally {
       delete space.kinds;
     }
@@ -193,8 +193,8 @@ describe("SpacePage create dialog", () => {
       renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
       await userEvent.click(await screen.findByRole("button", { name: "New session" }));
       const dialog = within(screen.getByRole("dialog"));
-      expect(dialog.getByRole("button", { name: "Poker" })).toBeTruthy();
-      expect(dialog.getByRole("button", { name: "Standup" })).toBeTruthy();
+      expect(dialog.getByRole("radio", { name: "Poker" })).toBeTruthy();
+      expect(dialog.getByRole("radio", { name: "Standup" })).toBeTruthy();
     } finally {
       delete space.kinds;
     }
@@ -207,8 +207,41 @@ describe("SpacePage create dialog", () => {
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await userEvent.click(await screen.findByRole("button", { name: "New session" }));
     const dialog = within(screen.getByRole("dialog"));
-    expect(dialog.getByRole("button", { name: "Poker" })).toBeTruthy();
-    expect(dialog.getByRole("button", { name: "Standup" })).toBeTruthy();
+    expect(dialog.getByRole("radio", { name: "Poker" })).toBeTruthy();
+    expect(dialog.getByRole("radio", { name: "Standup" })).toBeTruthy();
+  });
+
+  it("offers the kind as one named radio group, like Mode beside it", async () => {
+    // The kind picker was a pair of aria-pressed buttons under a bare "Kind"
+    // span: two tab stops, no group name, and a different pattern from the
+    // Mode radios in the same dialog. A native radio group gives one tab
+    // stop, arrow keys and the group's name from the platform.
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+    const dialog = within(screen.getByRole("dialog"));
+    const group = within(dialog.getByRole("group", { name: "Kind" }));
+    const poker = group.getByRole("radio", { name: "Poker" }) as HTMLInputElement;
+    const standup = group.getByRole("radio", { name: "Standup" }) as HTMLInputElement;
+    expect(poker.checked).toBe(true);
+    expect(standup.checked).toBe(false);
+    expect(poker.name).toBe(standup.name);
+    expect(dialog.queryByRole("button", { name: "Poker" })).toBe(null);
+
+    await userEvent.click(standup);
+    expect(standup.checked).toBe(true);
+    expect(poker.checked).toBe(false);
+    // Standup's own fields follow the choice.
+    expect(dialog.getByRole("group", { name: "Mode" })).toBeTruthy();
+
+    // Arrow keys move the choice, the platform's radio path.
+    standup.focus();
+    await userEvent.keyboard("{ArrowLeft}");
+    expect(poker.checked).toBe(true);
+    expect(document.activeElement).toBe(poker);
+    expect(dialog.queryByRole("group", { name: "Mode" })).toBe(null);
+    await userEvent.keyboard("{ArrowRight}");
+    expect(standup.checked).toBe(true);
+    expect(document.activeElement).toBe(standup);
   });
 
   it("hides New session when the space offers no kinds", async () => {
@@ -230,7 +263,7 @@ describe("SpacePage create dialog", () => {
       const dialog = within(screen.getByRole("dialog"));
       // Poker is first in registry order, so the dialog opens on it.
       expect(dialog.getByRole("checkbox", { name: /Auto-reveal when everyone has voted/ })).toBeTruthy();
-      await userEvent.click(dialog.getByRole("button", { name: "Standup" }));
+      await userEvent.click(dialog.getByRole("radio", { name: "Standup" }));
       expect(dialog.queryByRole("checkbox", { name: /Auto-reveal when everyone has voted/ })).toBe(null);
       expect(dialog.queryByRole("checkbox", { name: /Open voting/ })).toBe(null);
     } finally {

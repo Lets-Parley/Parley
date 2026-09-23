@@ -351,7 +351,7 @@ export function AppShell({
       >
         Skip to the table
       </a>
-      <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-line bg-surface pt-[var(--safe-top)] pl-[max(0.75rem,var(--safe-left))] pr-[max(0.75rem,var(--safe-right))] sm:gap-4 sm:pl-[max(1.25rem,var(--safe-left))] sm:pr-[max(1.25rem,var(--safe-right))]">
+      <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-3 border-b border-line bg-surface pt-[var(--safe-top)] pl-[max(0.75rem,var(--safe-left))] pr-[max(0.75rem,var(--safe-right))] sm:gap-4 sm:pl-[max(1.25rem,var(--safe-left))] sm:pr-[max(1.25rem,var(--safe-right))] md:flex-nowrap">
         {!guest && (
         <button
           onClick={() => setSideOpen((v) => !v)}
@@ -375,7 +375,7 @@ export function AppShell({
 
         <span className="hidden h-5 w-px bg-line sm:block" />
 
-        <span className="flex min-w-0 flex-col justify-center leading-tight">
+        <span className="flex min-w-0 flex-col justify-center leading-tight max-md:flex-1">
           <h1 className="truncate text-[17px] font-bold tracking-tight sm:text-[19px]">
             {title ?? spaceName}
           </h1>
@@ -389,7 +389,7 @@ export function AppShell({
           )}
         </span>
 
-        <span className="flex-1" />
+        <span className="flex-1 max-md:hidden" />
 
         {status && (
           <span className="hidden sm:block">
@@ -431,36 +431,51 @@ export function AppShell({
           </span>
         )}
 
-        {actions}
+        {/* The room's own controls, then your profile and the theme, as one
+            group in the order the desktop row reads them. Below md, when a
+            room passes controls, the whole group takes a second row: on one
+            row a facilitator's header (sounds, guest links, profile, theme)
+            ran ~70px past a 360px phone and squeezed the room's name to
+            nothing at 200% zoom. Moving the controls down with an order
+            utility instead left Tab visiting the second row before the end
+            of the first (WCAG 2.4.3), so nothing here is reordered: the
+            visual order is the source order at every width. At md and up the
+            group is display:contents, so the desktop header is exactly the
+            one row it always was. */}
+        <span className="flex min-w-0 flex-wrap items-center justify-end gap-3 sm:gap-4 max-md:has-[>[data-room-actions]:not(:empty)]:basis-full max-md:has-[>[data-room-actions]:not(:empty)]:pb-2 md:contents">
+          <span data-room-actions="" className="flex flex-wrap items-center justify-end gap-2 empty:hidden md:contents">
+            {actions}
+          </span>
 
-        {me && !guest && (
-          /* On a phone the room's name outranks your own — you already know
-             who you are, and the chip still says it. */
-          <button
-            onClick={() => setProfileOpen(true)}
-            /* One name, said once: the chip announces it here, so the Avatar
-               inside stays decorative and the visible span is not read again. */
-            aria-label={`${safeDisplayName(me.name)} — your profile`}
-            className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-felt-deep py-1 pl-1 hover:bg-surface-hi sm:pr-3"
-          >
-            <Avatar
-              name={me.name}
-              hue={me.avatarHue}
-              icon={me.avatarIcon}
-              size="sm"
-              decorative
-            />
-            {/* Visible only where there is room for it beside the title. */}
-            <span
-              aria-hidden
-              className="hidden max-w-24 truncate text-[13px] font-bold sm:inline lg:max-w-48"
+          {me && !guest && (
+            /* On a phone the room's name outranks your own — you already know
+               who you are, and the chip still says it. */
+            <button
+              onClick={() => setProfileOpen(true)}
+              /* One name, said once: the chip announces it here, so the Avatar
+                 inside stays decorative and the visible span is not read again. */
+              aria-label={`${safeDisplayName(me.name)} — your profile`}
+              className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-felt-deep py-1 pl-1 hover:bg-surface-hi sm:pr-3"
             >
-              {safeDisplayName(me.name)}
-            </span>
-          </button>
-        )}
+              <Avatar
+                name={me.name}
+                hue={me.avatarHue}
+                icon={me.avatarIcon}
+                size="sm"
+                decorative
+              />
+              {/* Visible only where there is room for it beside the title. */}
+              <span
+                aria-hidden
+                className="hidden max-w-24 truncate text-[13px] font-bold sm:inline lg:max-w-48"
+              >
+                {safeDisplayName(me.name)}
+              </span>
+            </button>
+          )}
 
-        <ThemeToggle />
+          <ThemeToggle />
+        </span>
       </header>
 
       {status && <ConnectionBanner status={status} onRetry={onRetry} />}

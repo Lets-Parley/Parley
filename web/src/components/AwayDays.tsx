@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errorText } from "../lib/api";
 import { awayApi } from "../lib/paths";
@@ -34,6 +34,11 @@ export function AwayDays() {
   const headingId = useId();
   const firstId = useId();
   const lastId = useId();
+  // Adding disables the button just pressed and removing unmounts it, and
+  // either one drops a keyboard user's focus to the top of the page. Focus
+  // comes back to the form's first field, and the toast says what happened —
+  // whether it worked or not.
+  const firstRef = useRef<HTMLInputElement>(null);
 
   const ranges = useQuery({
     queryKey: ["away"],
@@ -41,14 +46,19 @@ export function AwayDays() {
     retry: false,
   });
 
-  async function change(fn: () => Promise<unknown>) {
+  async function change(fn: () => Promise<unknown>, done: string) {
     setBusy(true);
     try {
       await fn();
       await qc.invalidateQueries({ queryKey: ["away"] });
+      say(done);
+      firstRef.current?.focus();
       return true;
     } catch (e) {
+      // The button was disabled for the request either way, so a refusal
+      // drops focus just as a success does. The fields keep what was typed.
       say(errorText(e));
+      firstRef.current?.focus();
       return false;
     } finally {
       setBusy(false);
@@ -58,7 +68,7 @@ export function AwayDays() {
   async function add(e: FormEvent) {
     e.preventDefault();
     if (!startsOn || !endsOn) return;
-    if (await change(() => api("POST", awayApi(), { startsOn, endsOn }))) {
+    if (await change(() => api("POST", awayApi(), { startsOn, endsOn }), "Away days added")) {
       setStartsOn("");
       setEndsOn("");
     }
@@ -78,6 +88,7 @@ export function AwayDays() {
           First day away
           <input
             id={firstId}
+            ref={firstRef}
             type="date"
             className={inputClass}
             value={startsOn}
@@ -113,7 +124,7 @@ export function AwayDays() {
                 className={buttonQuiet}
                 disabled={busy}
                 aria-label={`Remove away days ${r.startsOn} to ${r.endsOn}`}
-                onClick={() => void change(() => api("DELETE", awayApi(r.id)))}
+                onClick={() => void change(() => api("DELETE", awayApi(r.id)), "Away days removed")}
               >
                 Remove
               </button>

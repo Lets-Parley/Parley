@@ -103,20 +103,24 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastCtx.Provider value={ctx}>
       {children}
-      {msg && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="fixed left-1/2 z-[70] rounded-full border border-line bg-surface-hi px-6 py-3 text-sm font-bold shadow-lift"
-          style={{
-            bottom: "calc(1.5rem + var(--safe-bottom))",
-            transform: "translate(-50%,0)",
-            animation: "toast-up 220ms var(--ease-spring)",
-          }}
-        >
-          {msg}
-        </div>
-      )}
+      {/* The live region is always mounted and only its words change: some
+          screen readers never announce a region that appears together with
+          its first message, because they only watch regions that already
+          exist. Empty, it has no box and nothing to see. */}
+      <div role="status" aria-live="polite" data-toast="">
+        {msg && (
+          <div
+            className="fixed left-1/2 z-[70] rounded-full border border-line bg-surface-hi px-6 py-3 text-sm font-bold shadow-lift"
+            style={{
+              bottom: "calc(1.5rem + var(--safe-bottom))",
+              transform: "translate(-50%,0)",
+              animation: "toast-up 220ms var(--ease-spring)",
+            }}
+          >
+            {msg}
+          </div>
+        )}
+      </div>
     </ToastCtx.Provider>
   );
 }

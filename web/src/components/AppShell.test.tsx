@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AppShell, BuildStamp, ConnectionDot, Logo } from "./AppShell";
 import { TOUCH_HIT, TOUCH_TARGET_MIN } from "../lib/breakpoints";
 import { Avatar } from "./Avatar";
-import { makePerson, renderApp } from "../test/render";
+import { makePerson, pageStatus, renderApp } from "../test/render";
 import { api, type Me } from "../lib/api";
 
 const me: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 200 };
@@ -72,7 +72,7 @@ describe("AppShell", () => {
     stubAuthMode("open");
     renderShell({ status: "stale" });
     expect(screen.getByText("offline")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toContain("Connection lost");
+    expect(pageStatus().textContent).toContain("Connection lost");
   });
 
   it("treats missing presence as unknown, not as everyone being here", () => {
@@ -276,6 +276,39 @@ describe("what the header says the screen is", () => {
   });
 });
 
+describe("the header's focus order", () => {
+  // Below md the room's controls take a second row. That used to be done with
+  // order-last on a wrapper that sat before the profile chip and the theme
+  // toggle in the DOM, so on a phone Tab visited the second row before the
+  // end of the first (WCAG 2.4.3). Visual order has to come from source
+  // order: nothing in the header may be moved with a CSS order utility, and
+  // the source order is the desktop row's, which the phone layout also reads.
+  it("keeps visual order in source order: no CSS order utilities in the header", () => {
+    stubAuthMode("open");
+    renderShell({ title: "Checkout rewrite", actions: <button type="button">Sounds off</button> });
+    const header = document.querySelector("header")!;
+    const reordered = [header, ...header.querySelectorAll("*")].filter((el) =>
+      /(^|\s)([\w-]+:)*-?order-/.test(el.getAttribute("class") ?? ""),
+    );
+    expect(reordered.map((el) => el.getAttribute("class"))).toEqual([]);
+  });
+
+  it("tabs through the title's row, the room's controls, then profile and theme", () => {
+    stubAuthMode("open");
+    renderShell({ title: "Checkout rewrite", actions: <button type="button">Sounds off</button> });
+    const header = document.querySelector("header")!;
+    const stops = [...header.querySelectorAll<HTMLElement>("a[href], button")];
+    const at = (el: HTMLElement) => stops.indexOf(el);
+    const space = within(header).getByRole("link", { name: "Platform Team" });
+    const sounds = within(header).getByRole("button", { name: "Sounds off" });
+    const profile = within(header).getByRole("button", { name: /your profile/ });
+    const theme = within(header).getByRole("button", { name: /^Theme:/ });
+    expect(at(space)).toBeLessThan(at(sounds));
+    expect(at(sounds)).toBeLessThan(at(profile));
+    expect(at(profile)).toBeLessThan(at(theme));
+  });
+});
+
 describe("the sidebar on a phone", () => {
   it("opens the space nav as a sheet, because the rail has nowhere to go", async () => {
     asPhone();
@@ -402,7 +435,8 @@ describe("the build stamp", () => {
     stubShell("fail");
     const { container, queryClient } = renderApp(<BuildStamp />);
     await waitFor(() => expect(queryClient.getQueryState(["version"])?.status).toBe("error"));
-    expect(container.innerHTML).toBe("");
+    // Only the toast provider's standing live region; the stamp adds nothing.
+    expect([...container.children].filter((n) => !n.hasAttribute("data-toast"))).toEqual([]);
   });
 });
 
