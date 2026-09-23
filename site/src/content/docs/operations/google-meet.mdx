@@ -5,7 +5,7 @@ description: Run Parley inside Google Meet — a side panel to vote from and a m
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/embed.go", "internal/api/router.go", "web/src/pages/MeetAddon.tsx", "web/src/lib/meet.ts", "cmd/parley/main.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/embed.go", "internal/api/router.go", "web/src/pages/MeetAddon.tsx", "web/src/lib/meet.ts", "cmd/parley/main.go", "deploy/google-meet/setup.sh", "deploy/google-meet/manifest.template.json"]} />
 
 With the add-on installed, anyone signed in to Parley can open it from a
 Meet call: **Meeting tools** (the apps icon) → **Your add-ons**, which Google's
@@ -51,6 +51,16 @@ These steps follow Google's
 [Deploy a Meet add-on](https://developers.google.com/workspace/meet/add-ons/guides/deploy-add-on)
 and [Publish your Meet add-on](https://developers.google.com/workspace/meet/add-ons/guides/publish);
 if the console has moved on, trust those pages over this one.
+
+[![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/Lets-Parley/Parley&cloudshell_git_branch=main&cloudshell_tutorial=deploy/google-meet/tutorial.md)
+
+This button clones the repository into Cloud Shell, already signed in as
+you, and walks through enabling the two services, building the manifest from
+your `BASE_URL` and creating the deployment — steps 1 through 3 below —
+with `deploy/google-meet/setup.sh`. Re-running it later, for example after
+`BASE_URL` changes, replaces the existing deployment instead of failing.
+Steps 4 and 5 below have no API and stay manual either way. To do it all by
+hand instead:
 
 1. In the Google Cloud console, create a project in your Workspace
    organization. Its **project number** (not the id) is

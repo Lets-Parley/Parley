@@ -249,6 +249,8 @@ jobs:
         run: scripts/tests/check-image-pins-test.sh
       - name: Test screenshot freshness checker
         run: scripts/tests/check-screenshot-freshness-test.sh
+      - name: Test Meet add-on setup script
+        run: scripts/tests/meet-setup-test.sh
       - name: Check pinned image digests still resolve
         run: scripts/check-image-pins.sh .github/workflows/*.yml
 
