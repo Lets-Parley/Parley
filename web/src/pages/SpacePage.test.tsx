@@ -1458,6 +1458,37 @@ describe("SpacePage deck chooser", () => {
       expect((dialog.getByLabelText(/Cutoff/) as HTMLInputElement).value).toBe("2026-09-23T17:00");
       await expectNoViolations(screen.getByRole("dialog"));
     });
+
+    // Date.* alone is mocked here — setSystemTime without useFakeTimers, per
+    // Vitest's own docs — so findByRole/userEvent keep running on the real
+    // clock and only "now" as the component reads it is pinned.
+    describe("with a fixed clock", () => {
+      beforeEach(() => {
+        vi.setSystemTime(new Date("2026-09-23T22:30:00.000Z")); // 17:30 in Chicago
+      });
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("sets the cutoff's minimum to now, in the viewer's local time", async () => {
+        const dialog = await openDialog();
+        await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+        expect((dialog.getByLabelText(/Cutoff/) as HTMLInputElement).min).toBe("2026-09-23T17:30");
+      });
+
+      it("refuses a cutoff already in the past and sends nothing", async () => {
+        const dialog = await openDialog();
+        await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+        await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+        await userEvent.type(dialog.getByLabelText(/Cutoff/), "2026-09-23T17:00");
+        await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+
+        const alert = await dialog.findByRole("alert");
+        expect(alert.textContent).toBe("The cutoff has to be in the future.");
+        expect(screen.getByRole("dialog")).toBeTruthy();
+        expect(created()).toBe(undefined);
+      });
+    });
   });
 });
 

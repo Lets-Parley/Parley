@@ -760,6 +760,18 @@ function RoomManageModal({
   );
 }
 
+/**
+ * "Now" in the viewer's own local time, to minute precision, in the same
+ * "YYYY-MM-DDTHH:MM" shape a datetime-local input reads and writes. Used as
+ * the field's `min` so the browser's own picker refuses the past before the
+ * submit check ever runs.
+ */
+function localNowMinute(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function NewSessionModal({
   org,
   slug,
@@ -810,6 +822,10 @@ function NewSessionModal({
         setError(`${spec.label} is not a date and time.`);
         return;
       }
+      if (at.getTime() < Date.now()) {
+        setError(`The ${spec.label.toLowerCase()} has to be in the future.`);
+        return;
+      }
       body[spec.key] = at.toISOString();
     }
     try {
@@ -826,7 +842,10 @@ function NewSessionModal({
 
   return (
     <Modal title="New session" onClose={onClose} width="480px">
-      <form onSubmit={submit}>
+      {/* noValidate: the cutoff's min is a hint for the picker, not a native
+          gate — the past check runs in submit() so its message lands in the
+          dialog's own alert line instead of a browser validation bubble. */}
+      <form onSubmit={submit} noValidate>
         <span className={labelClass}>Kind</span>
         <div className="flex gap-2">
           {kinds.map((k) => (
@@ -923,6 +942,7 @@ function NewSessionModal({
                 className={inputClass}
                 value={instants[spec.key] ?? ""}
                 onChange={(e) => setInstants({ ...instants, [spec.key]: e.target.value })}
+                min={localNowMinute()}
                 aria-describedby={spec.hint ? `${groupName}-${spec.key}-hint` : undefined}
               />
               {spec.hint && (

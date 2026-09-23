@@ -103,20 +103,36 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
   const [error, setError] = useState("");
 
   // Suggestions, not a fence: a zone this browser does not list can still be
-  // typed, and the server decides whether it knows it.
-  const zones = Intl.supportedValuesOf("timeZone");
+  // typed, and the server decides whether it knows it. Safari before 15.4 has
+  // no Intl.supportedValuesOf at all, and calling it unguarded during render
+  // threw and blanked this whole page there — an absent or throwing
+  // implementation just means no suggestions; the input still works as free
+  // text either way.
+  let zones: string[] = [];
+  try {
+    if (typeof Intl.supportedValuesOf === "function") zones = Intl.supportedValuesOf("timeZone");
+  } catch {
+    zones = [];
+  }
 
   async function save(e: FormEvent) {
     e.preventDefault();
-    setBusy(true);
     setError("");
+    const windowValue = Number(windowMinutes);
+    // Caught here so the field's own message — matching the server's
+    // wording — lands beside the form instead of the generic "invalid JSON
+    // body" a fractional or out-of-range number gets from the API, since
+    // Number("90.5") sails right past a server-side integer decode failure.
+    if (!Number.isInteger(windowValue) || windowValue < 1 || windowValue > 1440) {
+      setError("The window has to be a whole number of minutes from 1 to 1440.");
+      return;
+    }
+    setBusy(true);
     const next: StandupSchedule = {
       weekdays: [...days].sort((a, b) => a - b),
       openTime,
       timezone,
-      // The server owns the range; a blank or out-of-range number is sent as
-      // is so its own message explains the limit.
-      windowMinutes: Number(windowMinutes),
+      windowMinutes: windowValue,
       enabled,
     };
     try {
@@ -131,7 +147,11 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
   }
 
   return (
-    <form onSubmit={save} className="mt-1">
+    // noValidate: min/max/step on the window field are a hint for the
+    // spinner, not a native gate — the range check runs in save() so its
+    // message lands in this form's own alert line instead of a browser
+    // validation bubble.
+    <form onSubmit={save} className="mt-1" noValidate>
       <fieldset className="border-0 p-0">
         <legend className={labelClass}>Days</legend>
         <div className="flex flex-wrap gap-2">
@@ -191,6 +211,9 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
             id={`${id}-window`}
             type="number"
             inputMode="numeric"
+            min={1}
+            max={1440}
+            step={1}
             className={inputClass}
             value={windowMinutes}
             onChange={(e) => setWindowMinutes(e.target.value)}

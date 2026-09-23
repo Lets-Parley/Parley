@@ -248,16 +248,18 @@ valid.
 
 An async standup can carry a published cutoff. In the **New session** dialog,
 choosing **Async** offers an optional **Cutoff**, entered in your own local
-time; left empty, the standup has none and stays open until it is ended.
-Through the API it is `closesAt` (RFC 3339), alongside `"mode": "async"`; a
-live round refuses one with a 400. If the server refuses the new session, the
-dialog stays open and shows its message as written. Passing it does **not** end the
-standup: an answer written afterwards is accepted and appended with its posted
-time like any other, with no late badge. The standup ends when the facilitator
-ends it. Once ended, its record keeps the entries only — the not-yet and away
-lists are never stored or served, and what the standup changed about
-commitments is no longer served, so nobody's landed and dropped history can be
-rebuilt from old rooms.
+time; left empty, the standup has none and stays open until it is ended. The
+cutoff must be in the future — the dialog refuses one already in the past
+before it is ever sent. Through the API it is `closesAt` (RFC 3339), alongside
+`"mode": "async"`; a live round refuses one with a 400. If the server refuses
+the new session for any other reason, the dialog stays open and shows its
+message as written. Passing the cutoff does **not** end the standup: an
+answer written afterwards is accepted and appended with its posted time like
+any other, with no late badge. The standup ends when the facilitator ends it.
+Once ended, its record keeps the entries only — the not-yet and away lists are
+never stored or served, and what the standup changed about commitments is no
+longer served, so nobody's landed and dropped history can be rebuilt from old
+rooms.
 
 ### Away days
 

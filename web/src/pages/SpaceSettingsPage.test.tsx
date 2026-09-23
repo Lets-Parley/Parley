@@ -489,6 +489,52 @@ describe("SpaceSettingsPage standup schedule", () => {
     expect((p.getByLabelText("Time zone") as HTMLInputElement).value).toBe("Europe/Berlin");
   });
 
+  // The server's own message for this refusal is "windowMinutes must be
+  // between 1 and 1440"; the client check reads the same way rather than
+  // parroting it, since the field is never sent as JSON here.
+  it("refuses a fractional window and sends nothing", async () => {
+    schedule = saved;
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+    const p = await panel();
+    await waitFor(() => expect(checkbox(p, "Mon").checked).toBe(true));
+
+    const windowField = p.getByLabelText("Window (minutes)");
+    await userEvent.clear(windowField);
+    await userEvent.type(windowField, "90.5");
+    await userEvent.click(p.getByRole("button", { name: "Save schedule" }));
+
+    const alert = await p.findByRole("alert");
+    expect(alert.textContent).toBe("The window has to be a whole number of minutes from 1 to 1440.");
+    expect(puts()).toEqual([]);
+  });
+
+  it("refuses a window outside 1-1440 and sends nothing", async () => {
+    schedule = saved;
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+    const p = await panel();
+    await waitFor(() => expect(checkbox(p, "Mon").checked).toBe(true));
+
+    const windowField = p.getByLabelText("Window (minutes)");
+    await userEvent.clear(windowField);
+    await userEvent.type(windowField, "1441");
+    await userEvent.click(p.getByRole("button", { name: "Save schedule" }));
+
+    const alert = await p.findByRole("alert");
+    expect(alert.textContent).toBe("The window has to be a whole number of minutes from 1 to 1440.");
+    expect(puts()).toEqual([]);
+  });
+
+  it("has min, max and step set on the window field", async () => {
+    schedule = saved;
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+    const p = await panel();
+    await waitFor(() => expect(checkbox(p, "Mon").checked).toBe(true));
+    const windowField = p.getByLabelText("Window (minutes)") as HTMLInputElement;
+    expect(windowField.min).toBe("1");
+    expect(windowField.max).toBe("1440");
+    expect(windowField.step).toBe("1");
+  });
+
   it("is operable from the keyboard alone", async () => {
     schedule = saved;
     renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
@@ -554,6 +600,26 @@ describe("SpaceSettingsPage standup schedule", () => {
       await waitFor(() => expect(p.queryByText("Checking the calendar…")).toBe(null));
       await expectNoViolations((await screen.findByRole("heading", { name: "Standup schedule" })).closest("section")!);
       unmount();
+    }
+  });
+
+  // Safari < 15.4 has no Intl.supportedValuesOf at all; calling it unguarded
+  // during render throws and blanks the whole settings page.
+  it("still renders the time zone input when the browser lacks Intl.supportedValuesOf", async () => {
+    const real = Intl.supportedValuesOf;
+    // @ts-expect-error - simulating a browser that never defined it.
+    Intl.supportedValuesOf = undefined;
+    try {
+      schedule = saved;
+      renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+      const p = await panel();
+      const zone = (await p.findByLabelText("Time zone")) as HTMLInputElement;
+      expect(zone.value).toBe("Europe/Berlin");
+      await userEvent.clear(zone);
+      await userEvent.type(zone, "America/Chicago");
+      expect(zone.value).toBe("America/Chicago");
+    } finally {
+      Intl.supportedValuesOf = real;
     }
   });
 });
