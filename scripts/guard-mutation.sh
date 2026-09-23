@@ -564,10 +564,13 @@ mutate "inerting a plugin frame under a modal" \
     'src/components/PluginPanel.test.tsx::marks the frame inert while a host modal is open' \
     components/PluginPanel.tsx 'el.toggleAttribute("inert", modalOpen);' 'el.toggleAttribute("inert", false);'
 
-mutate "the reveal gate on vote values crossing the bridge" \
-    'src/lib/pluginBridge.test.ts::keeps hidden votes hidden before the reveal' \
-    lib/pluginBridge.ts 'if (env.revealed && s.votes) {' 'if (s.votes) {' \
-    lib/pluginBridge.ts 'if (env.revealed && s.results) story.results = s.results;' 'if (s.results) story.results = s.results;'
+# session:read "cannot read a planning poker or standup room, or any other
+# plugin's rooms" (internal/plugin/describe.go). A frame is built a view only of
+# a room whose ceremony its own install provides; loosening that one comparison
+# hands a standup room's entries to every framed plugin in its chrome.
+mutate "the own-ceremony check on state crossing the bridge" \
+    'src/lib/pluginBridge.test.ts::pushes nothing into the frame from a standup room' \
+    lib/pluginBridge.ts 'return plugin !== "" && env.plugin?.name === plugin;' 'return plugin !== "" || env.plugin?.name === plugin;'
 
 mutate "the session:read grant check" \
     'src/lib/pluginBridge.test.ts::hands a plugin with no session:read grant nothing at all' \
@@ -588,8 +591,15 @@ mutate "the inbound message rate cap" \
 mutate "the outbound message size cap" \
     'src/lib/pluginBridge.test.ts::bounds what the host pushes into the frame too' \
     lib/pluginBridge.ts 'if (overMessageCap(body)) {
-        opts.onFailure("oversize-outbound");' 'if (false) {
-        opts.onFailure("oversize-outbound");'
+          opts.onFailure("oversize-outbound");' 'if (false) {
+          opts.onFailure("oversize-outbound");'
+
+# A toolbar or export-menu frame outlives a move to another room, so building
+# no view of a room it does not provide is not enough: without the clear it
+# goes on holding the last room's title, roster and state.
+mutate "the clear when the user leaves a plugin's own room" \
+    'src/lib/pluginBridge.test.ts::clears the frame when the user moves from its own room to a standup room' \
+    lib/pluginBridge.ts 'if (!holdsView) return;' 'if (!holdsView || true) return;'
 
 # The action name is a path segment, and an unscreened one is a path
 # expression: "../../../me" is normalised out of the actions path by the same

@@ -6,7 +6,7 @@ description: What a Parley plugin can and cannot do, and the mechanism behind ea
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/plugin/host.go", "internal/plugin/hostfn.go", "internal/plugin/fetch.go", "internal/plugin/breaker.go", "internal/plugin/kinds.go", "internal/session/registry.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/db/migrations/0031_plugins.sql", "internal/db/migrations/0032_plugin_pending_upgrade.sql", "web/src/pages/SessionPage.tsx", "web/src/lib/pluginBridge.ts", "web/src/components/PluginPanel.tsx", "scripts/guard-mutation.sh", "internal/api/standup_webhook.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/plugin/host.go", "internal/plugin/hostfn.go", "internal/plugin/fetch.go", "internal/plugin/breaker.go", "internal/plugin/kinds.go", "internal/session/registry.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/db/migrations/0031_plugins.sql", "internal/db/migrations/0032_plugin_pending_upgrade.sql", "web/src/pages/SessionPage.tsx", "web/src/lib/pluginBridge.ts", "web/src/components/PluginPanel.tsx", "scripts/guard-mutation.sh", "internal/api/standup_webhook.go", "internal/plugin/describe.go"]} />
 
 A Parley plugin is a WebAssembly module run in-process by
 [Extism](https://extism.org/) over [wazero](https://wazero.io/). Both are pure
@@ -186,13 +186,28 @@ proposes.
 ### Redaction runs host-side, before anything crosses
 
 Session state is pushed from the react-query cache the room already keeps —
-there is no second websocket — and it is redacted first. The projection is
-built field by field rather than filtered: vote values are only ever *written*
-into it once the round is revealed, so a pre-reveal value has no path into the
-payload. There is nothing to strip and therefore nothing to forget to strip,
-which is the same discipline `poker.buildState` holds on the server. A plugin
-with no `session:read` grant is handed nothing at all, and the space and org a
-room belongs to never cross.
+there is no second websocket — and it is redacted first. A frame is sent a
+room only when that room runs a ceremony the frame's own install provides; the
+envelope names the providing install, and the bridge compares it with the
+install it framed. A planning poker room, a standup room and another plugin's
+room send the frame nothing at all — not the state, not who is seated, not the
+title — so a plugin's toolbar, export-menu or nested panel in one of those
+rooms is shown the design tokens and no room data. That is what the consent
+screen promises for `session:read`, and it is the same line the session host
+functions hold on the server.
+
+A toolbar or export-menu frame stays mounted as the user moves between rooms,
+so when they leave a room the plugin provides for one it does not, the frame is
+sent a `state` message whose `state` is `null` — once, however many such rooms
+follow — and nothing further until one of its own rooms comes back. A frame
+that has never been shown one of its own rooms is sent nothing at all, not even
+the `null`. Plugin UI should treat a `null` state as "no room".
+
+For a room the plugin does provide, the view is built field by field rather
+than filtered: the envelope's session fields, the roster, and the document the
+kind's own `StateFunc` already built for every member. The space and org a room
+belongs to are never written into it. A plugin with no `session:read` grant is
+handed nothing at all, in any room.
 
 ### Actions are host-mediated
 
@@ -282,10 +297,11 @@ The room itself is the same sandboxed iframe a nested poker panel uses, filling
 the session chrome rather than an `h-64` strip. The envelope carries the
 install (`plugin.name`, `plugin.version`, `plugin.grants`) so the browser can
 build `/plugin-ui/…` and redact without a second websocket. What crosses the
-bridge still goes through `redactSession`: poker panels keep the vote
-projection; a plugin-owned kind's `StateFunc` already built client-safe state
-and that document is what the frame receives. `kindUnavailable` still wins
-first when the install is switched off.
+bridge still goes through `redactSession`: the plugin-owned kind's `StateFunc`
+already built client-safe state, and that document is what the providing
+install's frame receives. Any other plugin's frame in the same room receives
+nothing about it. `kindUnavailable` still wins first when the install is
+switched off, and a switched-off room sends every frame nothing.
 
 ### A ceremony belongs to the org that installed it
 

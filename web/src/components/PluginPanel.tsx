@@ -66,6 +66,7 @@ export function PluginPanel({
     if (!target) return;
     const b = createPluginBridge({
       target,
+      plugin: name,
       grants,
       onAction,
       onFailure: (reason) => {

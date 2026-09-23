@@ -427,8 +427,10 @@ issue first. For anything large, open an issue before writing code.
     real routing tree, so a route that drifts into the group goes red.
 
 37. **Nothing reaches a plugin frame that `redactSession` did not build.** It
-    is a projection, not a filter: vote values are written into it only once
-    the round is revealed, so a pre-reveal value has no path into the payload.
+    is a projection, not a filter: it builds a view only for a room the framed
+    install itself provides (`providesRoom`) and returns null for every other
+    room, so a poker, standup or other plugin's room has no path into the
+    frame — the promise `internal/plugin/describe.go` makes at consent.
     Do not rewrite it as "copy the envelope, then delete what is hidden" — a
     field the projection never writes cannot be forgotten, and a field a filter
     does not know about is shipped.

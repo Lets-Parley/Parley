@@ -379,6 +379,9 @@ describe("SessionPage wiring", () => {
     await waitFor(() => expect(vi.mocked(createPluginBridge)).toHaveBeenCalled());
     const bridgeOpts = vi.mocked(createPluginBridge).mock.calls.at(-1)![0];
     expect(bridgeOpts.grants).toContain("session:read");
+    // The frame is told which install it is, or its own room's state is
+    // withheld from it as if it were somebody else's.
+    expect((bridgeOpts as unknown as { plugin?: string }).plugin).toBe("retro");
 
     await bridgeOpts.onAction("gather", { col: "went-well" });
     expect(vi.mocked(action)).toHaveBeenCalledWith("sess-1", "gather", { col: "went-well" }, {
