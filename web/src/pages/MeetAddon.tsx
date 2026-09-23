@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   action,
@@ -32,6 +32,15 @@ const row = "w-full rounded-panel border border-line bg-surface px-3 py-2 text-l
  * The embedded token for this frame, read once from sessionStorage and pushed
  * into the api client before anything fetches. Cookies never reach a framed
  * page, so this is the only way it is signed in.
+ *
+ * The bearer is module state in the api client, so it has two jobs here.
+ * Installed during render, by the state initializer: children's effects run
+ * before their parent's, so a bearer set by an ordinary effect in this hook
+ * would let a child's first fetch go out cookie-mode. And taken back out when
+ * the page unmounts, by the layout effect's cleanup, so nothing rendered
+ * afterwards inherits it. It is a layout effect rather than a passive one
+ * because StrictMode's simulated remount re-runs every layout effect before
+ * any passive one: the bearer is back before a child's effect fetches again.
  */
 function useEmbedToken(): [string, (t: string) => void] {
   const [token, setToken] = useState(() => {
@@ -39,12 +48,34 @@ function useEmbedToken(): [string, (t: string) => void] {
     setBearer(t);
     return t;
   });
+  useLayoutEffect(() => {
+    setBearer(token);
+    return () => setBearer("");
+  }, [token]);
   const set = useCallback((t: string) => {
     storeToken(t);
     setBearer(t);
     setToken(t);
   }, []);
   return [token, set];
+}
+
+/** The shape of every session id the server mints: a UUID. */
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The room id the side panel handed to Meet, or "" for anything else.
+ * additionalData reaches the main stage from whoever started the activity, so
+ * it is input, not configuration: only a string shaped like a session id ever
+ * becomes part of a request path.
+ */
+function sharedSessionId(additionalData: string | undefined): string {
+  try {
+    const id = (JSON.parse(additionalData || "{}") as { sessionId?: unknown } | null)?.sessionId;
+    return typeof id === "string" && SESSION_ID.test(id) ? id : "";
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -103,7 +134,14 @@ function MeetSignIn({ onToken }: { onToken: (token: string) => void }) {
       <button
         type="button"
         className={button}
-        onClick={() => setBlocked(!window.open(handoff.signinPath, "_blank"))}
+        onClick={() => {
+          // Synchronous in the click, or the popup blocker takes it. The new
+          // tab gets no handle on this frame: it is an ordinary Parley page
+          // and has no reason to reach back into Meet.
+          const tab = window.open(handoff.signinPath, "_blank");
+          if (tab) tab.opener = null;
+          setBlocked(!tab);
+        }}
       >
         Sign in
       </button>
@@ -320,7 +358,7 @@ export function MeetMainStage() {
   useEffect(() => {
     connectMeet("mainstage")
       .then((c: MeetMainStage | null) => c?.getActivityStartingState())
-      .then((s) => setSessionId((JSON.parse(s?.additionalData || "{}") as { sessionId?: string }).sessionId ?? ""))
+      .then((s) => setSessionId(sharedSessionId(s?.additionalData)))
       .catch(() => setSessionId(""));
   }, []);
   if (!token)
@@ -330,5 +368,11 @@ export function MeetMainStage() {
       </main>
     );
   if (sessionId === null) return <p className="p-8 text-center text-ink-faint">Pulling up a chair…</p>;
+  if (!sessionId)
+    return (
+      <p className="p-8 text-center text-ink-faint">
+        No room was shared to the main stage. Pick one in the Parley side panel and show it again.
+      </p>
+    );
   return <PresentPage id={sessionId} />;
 }

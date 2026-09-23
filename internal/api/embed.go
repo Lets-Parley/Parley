@@ -487,10 +487,14 @@ func (a *app) handleEmbedDocument(name string, spa http.Handler) http.HandlerFun
 			securityHeaders(http.NotFoundHandler()).ServeHTTP(w, r)
 			return
 		}
+		// The SDK's own directory, not its host: a trailing-slash source
+		// matches only paths under it, and the host serves far more than the
+		// one library this page loads.
 		sdk, _ := url.Parse(p.SDKScript)
+		sdkDir := sdk.Scheme + "://" + sdk.Host + sdk.Path[:strings.LastIndex(sdk.Path, "/")+1]
 		h := w.Header()
 		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "+
-			"script-src 'self' "+sdk.Scheme+"://"+sdk.Host+"; "+
+			"script-src 'self' "+sdkDir+"; "+
 			"frame-ancestors "+strings.Join(p.FrameAncestors, " "))
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")

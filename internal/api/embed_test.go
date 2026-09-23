@@ -676,10 +676,15 @@ func TestOnlyTheMeetDocumentsAreFramable(t *testing.T) {
 			t.Fatalf("%s: %d, want the app shell", doc, resp.StatusCode)
 		}
 		csp := resp.Header.Get("Content-Security-Policy")
-		for _, want := range []string{"default-src 'self'", "script-src 'self' https://www.gstatic.com;", "frame-ancestors https://meet.google.com"} {
+		for _, want := range []string{"default-src 'self'", "script-src 'self' https://www.gstatic.com/meetjs/addons/1.1.0/;", "frame-ancestors https://meet.google.com"} {
 			if !strings.Contains(csp, want) {
 				t.Errorf("%s CSP %q lacks %q", doc, csp, want)
 			}
+		}
+		// The SDK's own directory, never the whole host: gstatic.com serves
+		// every Google library, and a host source would admit all of them.
+		if strings.Contains(csp, "https://www.gstatic.com ") || strings.Contains(csp, "https://www.gstatic.com;") {
+			t.Errorf("%s CSP %q allows scripts from the whole gstatic host", doc, csp)
 		}
 		if !strings.HasSuffix(csp, "frame-ancestors https://meet.google.com") {
 			t.Errorf("%s CSP %q lets more than Meet frame it", doc, csp)

@@ -2,15 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { renderApp } from "../test/render";
 import { expectNoViolations } from "../test/axe";
-import type { Envelope } from "../lib/api";
+import { api, type Envelope } from "../lib/api";
 import { MeetMainStage, MeetSidePanel } from "./MeetAddon";
 
 const SDK = "https://www.gstatic.com/meetjs/addons/1.1.0/meet.addons.js";
+/** A session id as the server mints them: a UUID. */
+const SID = "0b6f3e2a-8c1d-4f5e-9a7b-2c3d4e5f6a7b";
 const meetRow = { name: "meet", label: "Google Meet", sdkScript: SDK, cloudProjectNumber: "123" };
 
 function envelope(facilitatorId: string): Envelope {
   return {
-    id: "s1",
+    id: SID,
     kind: "poker",
     title: "Sprint 12",
     phase: "voting",
@@ -50,6 +52,7 @@ let sockets: { url: string; protocols?: string | string[] }[];
 let startActivity: ReturnType<typeof vi.fn>;
 let providers: (typeof meetRow)[];
 let facilitator = "ada";
+let startingData: string | undefined;
 
 function respond(url: string, method: string): unknown {
   if (url === "/api/auth") return { mode: "open", embedProviders: providers };
@@ -61,9 +64,9 @@ function respond(url: string, method: string): unknown {
       name: "Platform",
       protected: false,
       members: [],
-      sessions: [{ id: "s1", kind: "poker", title: "Sprint 12", createdAt: "", endedAt: null, here: 1 }],
+      sessions: [{ id: SID, kind: "poker", title: "Sprint 12", createdAt: "", endedAt: null, here: 1 }],
     };
-  if (url === "/api/sessions/s1") return envelope(facilitator);
+  if (url === `/api/sessions/${SID}`) return envelope(facilitator);
   if (url === "/api/embed/handoff") return { displayCode: "ABC-123", signinPath: "/embed/signin?c=xyz" };
   if (url === "/api/embed/session") return { token: "fresh" };
   if (url.endsWith("/actions/vote") && method === "POST") return undefined;
@@ -77,6 +80,7 @@ beforeEach(() => {
   sockets = [];
   providers = [meetRow];
   facilitator = "ada";
+  startingData = JSON.stringify({ sessionId: SID });
   startActivity = vi.fn(() => Promise.resolve());
   vi.stubGlobal(
     "fetch",
@@ -100,7 +104,7 @@ beforeEach(() => {
       createAddonSession: vi.fn(async () => ({
         createSidePanelClient: async () => ({ startActivity }),
         createMainStageClient: async () => ({
-          getActivityStartingState: async () => ({ additionalData: JSON.stringify({ sessionId: "s1" }) }),
+          getActivityStartingState: async () => ({ additionalData: startingData }),
         }),
       })),
     },
@@ -140,6 +144,22 @@ describe("Meet side panel", () => {
     for (const s of sockets) expect(s.protocols).toEqual(["parley.embed", "tok"]);
   });
 
+  it("sends the bearer on its very first fetch and puts the cookie back when it unmounts", async () => {
+    const page = renderApp(<MeetSidePanel />);
+    await waitFor(() => expect(calls.length).toBeGreaterThan(0));
+    // Children's effects run before their parent's, so a bearer installed by
+    // an ordinary effect in the page would let this first request go out
+    // with the cookie instead.
+    expect(calls[0].init.credentials, calls[0].url).toBe("omit");
+    expect((calls[0].init.headers as Record<string, string>).Authorization).toBe("Bearer tok");
+    await screen.findByRole("button", { name: "Platform" });
+    page.unmount();
+    calls = [];
+    await api("GET", "/api/me");
+    expect(calls[0].init.credentials).toBe("same-origin");
+    expect((calls[0].init.headers as Record<string, string>).Authorization).toBeUndefined();
+  });
+
   it("lets the facilitator start the main stage on this room", async () => {
     renderApp(<MeetSidePanel />);
     await loadSDK();
@@ -147,7 +167,7 @@ describe("Meet side panel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Show on main stage" }));
     expect(startActivity).toHaveBeenCalledWith({
       mainStageUrl: `${location.origin}/embed/meet/mainstage`,
-      additionalData: JSON.stringify({ sessionId: "s1" }),
+      additionalData: JSON.stringify({ sessionId: SID }),
     });
   });
 
@@ -181,6 +201,16 @@ describe("Meet sign-in", () => {
     expect(localStorage.length).toBe(0);
   });
 
+  it("cuts the sign-in tab's way back to the frame", async () => {
+    const tab = { opener: window as unknown };
+    vi.stubGlobal("open", vi.fn(() => tab));
+    renderApp(<MeetSidePanel />);
+    await screen.findByText("ABC-123");
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(tab.opener).toBeNull();
+    expect(screen.queryByText(/blocked the new tab/)).toBeNull();
+  });
+
   it("has no axe violations at 320px", async () => {
     vi.stubGlobal("innerWidth", 320);
     vi.stubGlobal("matchMedia", (query: string) => ({
@@ -208,6 +238,19 @@ describe("Meet main stage", () => {
     renderApp(<MeetMainStage />);
     await loadSDK();
     expect(await screen.findByRole("heading", { name: "Rate-limit the join endpoint" })).toBeTruthy();
-    expect(calls.find((c) => c.url === "/api/sessions/s1")?.init.credentials).toBe("omit");
+    expect(calls.find((c) => c.url === `/api/sessions/${SID}`)?.init.credentials).toBe("omit");
   });
+
+  for (const crafted of ["../me", "x?y", "../../api/me#", 42, { toString: () => SID }]) {
+    it(`never turns a crafted sessionId (${JSON.stringify(crafted)}) into a request`, async () => {
+      sessionStorage.setItem("parley.embed.token", "tok");
+      startingData = JSON.stringify({ sessionId: crafted });
+      renderApp(<MeetMainStage />);
+      await loadSDK();
+      await screen.findByText(/No room was shared/);
+      await new Promise((r) => setTimeout(r, 50));
+      for (const c of calls) expect(c.url, c.url).not.toMatch(/^\/api\/(sessions|me)/);
+      expect(sockets).toEqual([]);
+    });
+  }
 });

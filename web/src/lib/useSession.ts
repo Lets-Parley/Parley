@@ -34,7 +34,7 @@ export function useSession(
 
   const query = useQuery({
     queryKey: ["session", id],
-    queryFn: () => api<Envelope>("GET", `/api/sessions/${id}`),
+    queryFn: () => api<Envelope>("GET", `/api/sessions/${encodeURIComponent(id)}`),
     staleTime: Infinity,
     retry: false,
     enabled: active,

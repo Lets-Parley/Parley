@@ -672,6 +672,10 @@ mutate "the add-on documents framable only by the provider's origins" \
     'TestOnlyTheMeetDocumentsAreFramable' \
     embed.go '"frame-ancestors "+strings.Join(p.FrameAncestors, " ")' '"frame-ancestors *"'
 
+mutate "the add-on script source scoped to the SDK's directory" \
+    'TestOnlyTheMeetDocumentsAreFramable' \
+    embed.go 'sdk.Host + sdk.Path[:strings.LastIndex(sdk.Path, "/")+1]' 'sdk.Host'
+
 mutate "the add-on documents 404 while their provider is off" \
     'TestOnlyTheMeetDocumentsAreFramable' \
     embed.go 'if !ok {
