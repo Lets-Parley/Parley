@@ -1,0 +1,15 @@
+{
+  "addOns": {
+    "common": {
+      "name": "Parley",
+      "logoUrl": "BASE_URL_PLACEHOLDER/favicon.svg"
+    },
+    "meet": {
+      "web": {
+        "sidePanelUrl": "BASE_URL_PLACEHOLDER/embed/meet/sidepanel",
+        "addOnOrigins": ["BASE_URL_PLACEHOLDER"],
+        "logoUrl": "BASE_URL_PLACEHOLDER/favicon.svg"
+      }
+    }
+  }
+}
