@@ -211,6 +211,20 @@ describe("SpacePage create dialog", () => {
     expect(dialog.getByRole("button", { name: "Standup" })).toBeTruthy();
   });
 
+  it("says which kind is chosen, not only with a border", async () => {
+    // The kind picker is a pair of buttons whose only tell was a thicker
+    // border, so a screen reader heard "Poker, button" and "Standup, button"
+    // either way and could not tell which one the session would be.
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByRole("button", { name: "Poker", pressed: true })).toBeTruthy();
+    expect(dialog.getByRole("button", { name: "Standup", pressed: false })).toBeTruthy();
+    await userEvent.click(dialog.getByRole("button", { name: "Standup" }));
+    expect(dialog.getByRole("button", { name: "Standup", pressed: true })).toBeTruthy();
+    expect(dialog.getByRole("button", { name: "Poker", pressed: false })).toBeTruthy();
+  });
+
   it("hides New session when the space offers no kinds", async () => {
     space.kinds = [];
     try {

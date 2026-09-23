@@ -871,6 +871,7 @@ function NewSessionModal({
             <button
               key={k.id}
               type="button"
+              aria-pressed={kind.id === k.id}
               onClick={() => {
                 setKind(k);
                 setConfig(defaultConfig(k));

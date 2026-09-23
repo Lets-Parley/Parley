@@ -351,7 +351,7 @@ export function AppShell({
       >
         Skip to the table
       </a>
-      <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-line bg-surface pt-[var(--safe-top)] pl-[max(0.75rem,var(--safe-left))] pr-[max(0.75rem,var(--safe-right))] sm:gap-4 sm:pl-[max(1.25rem,var(--safe-left))] sm:pr-[max(1.25rem,var(--safe-right))]">
+      <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-3 border-b border-line bg-surface pt-[var(--safe-top)] pl-[max(0.75rem,var(--safe-left))] pr-[max(0.75rem,var(--safe-right))] sm:gap-4 sm:pl-[max(1.25rem,var(--safe-left))] sm:pr-[max(1.25rem,var(--safe-right))] md:flex-nowrap">
         {!guest && (
         <button
           onClick={() => setSideOpen((v) => !v)}
@@ -375,7 +375,7 @@ export function AppShell({
 
         <span className="hidden h-5 w-px bg-line sm:block" />
 
-        <span className="flex min-w-0 flex-col justify-center leading-tight">
+        <span className="flex min-w-0 flex-col justify-center leading-tight max-md:flex-1">
           <h1 className="truncate text-[17px] font-bold tracking-tight sm:text-[19px]">
             {title ?? spaceName}
           </h1>
@@ -389,7 +389,7 @@ export function AppShell({
           )}
         </span>
 
-        <span className="flex-1" />
+        <span className="flex-1 max-md:hidden" />
 
         {status && (
           <span className="hidden sm:block">
@@ -431,7 +431,14 @@ export function AppShell({
           </span>
         )}
 
-        {actions}
+        {/* A room's own controls take a second row below md. On one row a
+            facilitator's header (sounds, guest links, profile, theme) ran
+            ~70px past a 360px phone and squeezed the room's name to nothing
+            at 200% zoom. At md and up the wrapper is display:contents, so the
+            desktop header is exactly the one row it always was. */}
+        <span className="order-last flex basis-full flex-wrap items-center justify-end gap-2 pb-2 empty:hidden md:order-none md:contents md:pb-0">
+          {actions}
+        </span>
 
         {me && !guest && (
           /* On a phone the room's name outranks your own — you already know

@@ -585,7 +585,8 @@ describe("StandupRoom ending the session", () => {
     expect(
       fetchSpy.mock.calls.filter(([u, i]) => u === "/api/sessions/sess-1" && (i as RequestInit)?.method === "DELETE"),
     ).toHaveLength(0);
-    expect(screen.getByRole("alert").textContent).toMatch(/still open/i);
+    // The form's own "Could not save" alert stands beside this one.
+    expect(screen.getAllByRole("alert").some((a) => /still open/i.test(a.textContent ?? ""))).toBe(true);
     expect(screen.queryByText(/session closed/i)).toBeNull();
     fetchSpy.mockRestore();
   });
@@ -606,7 +607,8 @@ describe("StandupRoom ending the session", () => {
 
     fireEvent.change(screen.getByLabelText("yesterday"), { target: { value: "first go" } });
     await endNow();
-    expect(screen.getByRole("alert").textContent).toMatch(/still open/i);
+    // The form's own "Could not save" alert stands beside this one.
+    expect(screen.getAllByRole("alert").some((a) => /still open/i.test(a.textContent ?? ""))).toBe(true);
     expect(endButton()).toBeTruthy();
     expect((endButton() as HTMLButtonElement).disabled).toBe(false);
 
@@ -1762,7 +1764,7 @@ describe("StandupRoom async mode", () => {
         speakerStartedAt: null,
         secondsPerPerson: 90,
         mode: "async",
-        closesAt: "2026-08-18T17:00:00Z",
+        closesAt: "2099-08-18T17:00:00Z",
       } as unknown as Envelope["state"],
       ...over,
     });
@@ -1796,8 +1798,8 @@ describe("StandupRoom async mode", () => {
 
   it("names the calendar date the standup closes", () => {
     renderApp(<StandupRoom env={asyncEnvelope()} me={me} />);
-    const closes = document.querySelector('time[datetime="2026-08-18T17:00:00Z"]');
-    const formatted = new Date("2026-08-18T17:00:00Z").toLocaleString([], {
+    const closes = document.querySelector('time[datetime="2099-08-18T17:00:00Z"]');
+    const formatted = new Date("2099-08-18T17:00:00Z").toLocaleString([], {
       weekday: "short",
       month: "short",
       day: "numeric",
@@ -1805,6 +1807,37 @@ describe("StandupRoom async mode", () => {
       minute: "2-digit",
     });
     expect(closes?.textContent).toBe(formatted);
+  });
+
+  it("says a passed cutoff has passed, and that a late answer still goes in", () => {
+    // It read "Closes Tue, 9:48 PM" an hour after that time: future tense for
+    // a cutoff already gone, and nothing telling a late answerer the form is
+    // still worth filling in.
+    const past = new Date(Date.now() - 3600_000).toISOString();
+    const env = asyncEnvelope();
+    renderApp(
+      <StandupRoom
+        env={{ ...env, state: { ...(env.state as object), closesAt: past } as unknown as Envelope["state"] }}
+        me={me}
+      />,
+    );
+    const line = document.querySelector(`time[datetime="${past}"]`)?.closest("p");
+    expect(line?.textContent).toMatch(/^Cutoff was /);
+    expect(line?.textContent).toMatch(/late answers are still added/i);
+    expect(screen.queryByText((_, el) => el?.tagName === "P" && /^Closes /.test(el.textContent ?? ""))).toBeNull();
+  });
+
+  it("says out loud when an answer could not be saved", async () => {
+    // The only word of a failed autosave was small grey text beside the
+    // form, which a screen reader never hears: the answer is lost silently.
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(answering(new Response(JSON.stringify({ error: "nope" }), { status: 500 })));
+    renderApp(<StandupRoom env={asyncEnvelope()} me={me} />);
+    fireEvent.change(screen.getByLabelText("today"), { target: { value: "shipping the thing" } });
+    const alert = await screen.findByRole("alert", {}, { timeout: 3000 });
+    expect(alert.textContent).toMatch(/could not save/i);
+    fetchSpy.mockRestore();
   });
 
   it("drops the answer form and the not-yet list once ended", () => {

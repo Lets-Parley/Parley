@@ -658,20 +658,7 @@ export function StandupRoom({
             <p className="text-ink-soft">
               Your notes save automatically and stay editable until the standup ends.
             </p>
-            {st.closesAt && (
-              <p className="mt-1 text-sm text-ink-faint">
-                Closes{" "}
-                <time dateTime={st.closesAt}>
-                  {new Date(st.closesAt).toLocaleString([], {
-                    weekday: "short",
-                    month: "short",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </time>
-              </p>
-            )}
+            {st.closesAt && <Cutoff key={st.closesAt} at={st.closesAt} />}
           </div>
           <Commitments
             commitments={st.commitments ?? []}
@@ -1067,6 +1054,48 @@ const PROMPTS = {
   blockers: "Anything in your way?",
 } as const;
 
+/**
+ * The published cutoff. Passing it does not end the standup, so once it has
+ * gone the line says so in the past tense and tells a late answerer the form
+ * still counts, rather than naming a time already behind them as "Closes".
+ * The tense flips on a timer at the cutoff itself, so a room left open across
+ * it changes without waiting for a frame. Keyed by `at` where it is rendered,
+ * so a moved cutoff starts from a fresh reading.
+ */
+function Cutoff({ at }: { at: string }) {
+  const due = new Date(at).getTime();
+  const [passed, setPassed] = useState(() => due <= Date.now());
+  useEffect(() => {
+    if (passed) return;
+    // setTimeout's delay is a signed 32-bit int; a cutoff further out than
+    // that just re-checks, rather than firing at once.
+    const t = setTimeout(() => setPassed(due <= Date.now()), Math.min(Math.max(0, due - Date.now()), 2 ** 31 - 1));
+    return () => clearTimeout(t);
+  }, [due, passed]);
+  const when = (
+    <time dateTime={at}>
+      {new Date(at).toLocaleString([], {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })}
+    </time>
+  );
+  return (
+    <p className="mt-1 text-sm text-ink-faint">
+      {passed ? (
+        <>
+          Cutoff was {when}. Late answers are still added until the standup ends.
+        </>
+      ) : (
+        <>Closes {when}</>
+      )}
+    </p>
+  );
+}
+
 function EntryForm({
   draft,
   update,
@@ -1096,7 +1125,13 @@ function EntryForm({
       <span className="text-xs text-ink-faint">
         {saveState === "saving" && "Saving…"}
         {saveState === "saved" && "Saved"}
-        {saveState === "error" && <span className="font-bold text-stop">Could not save — check your connection</span>}
+        {/* An alert, because a failed autosave is the one state here a
+            screen-reader user must not miss: the answer is not on the server. */}
+        {saveState === "error" && (
+          <span role="alert" className="font-bold text-stop">
+            Could not save — check your connection
+          </span>
+        )}
       </span>
     </div>
   );
