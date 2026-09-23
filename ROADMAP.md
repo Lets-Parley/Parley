@@ -212,17 +212,6 @@ feature, and Parley either grows into a whiteboard or deliberately declines to.
 
 - Status: Backlog
 
-### Parley inside the meeting
-
-Teams asked for the votes to show up in the call itself. There is no supported way
-to give a bot a camera in Google Meet, so this is a Meet add-on instead: vote from
-the side panel and put the board on the main stage, signed in to your own
-instance. It is off unless an operator turns it on, and Meet is the first
-provider; Teams and Zoom can follow the same shape.
-
-- Status: Backlog
-- Tracking: [#632](https://github.com/lets-parley/parley/issues/632)
-
 ## Exploring
 
 Ideas under consideration, not committed to.
@@ -262,6 +251,10 @@ Ideas under consideration, not committed to.
 
 ### Unreleased
 
+- Parley runs inside Google Meet as an add-on, turned on by the operator: people vote
+  from the side panel, the facilitator puts the board on the main stage, and a
+  read-only presenter view works as a screen share in any meeting tool
+  ([#632](https://github.com/lets-parley/parley/issues/632))
 - A facilitator can hand the role to a named participant from the roster, in
   poker and in standup alike, instead of the role only moving by going quiet for
   a minute ([#392](https://github.com/lets-parley/parley/issues/392))
