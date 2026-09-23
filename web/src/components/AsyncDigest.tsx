@@ -10,6 +10,12 @@ export type CommitmentChange = {
   outcome: "landed" | "dropped" | "carried";
 };
 
+/**
+ * One person an open async standup is waiting on, as the session state sends
+ * it: the space's non-spectator members and each attached link guest.
+ */
+export type ExpectedPerson = { userId: string; name: string; guest: boolean };
+
 /** Words, never a tint: a dropped commitment is a decision, not a failure. */
 const OUTCOME: Record<CommitmentChange["outcome"], string> = {
   landed: "Landed",
@@ -48,7 +54,12 @@ function Posted({ at }: { at: string }) {
  * which every socket in the room receives. Once the standup
  * has ended only the entries are kept — the not-yet list, the away list and
  * the changed commitments are live facts about an open room, never a record.
- * Someone away today is listed as away rather than as not yet. No counts beside names and no alarm styling on
+ * Someone away today is listed as away rather than as not yet.
+ *
+ * Who is owed an answer is the server's `expected` list — the space's
+ * members, whether or not they have opened the room, and attached guests —
+ * not the room's roster. A link guest is sent none, since the space's roster
+ * is not its business, and falls back to the people it can see. No counts beside names and no alarm styling on
  * the people who have not answered.
  */
 export function AsyncDigest({
@@ -58,6 +69,7 @@ export function AsyncDigest({
   changes = [],
   needsYou = [],
   away = [],
+  expected,
 }: {
   entries: StandupEntry[];
   participants: Person[];
@@ -66,8 +78,14 @@ export function AsyncDigest({
   needsYou?: string[];
   /** Ids of the members who set themselves away today, from the session state. */
   away?: string[];
+  /** Who the standup is waiting on. Absent for a link guest. */
+  expected?: ExpectedPerson[];
 }) {
-  const people = new Map(participants.map((p) => [p.userId, p]));
+  const people = new Map<string, { name: string; guest?: boolean }>(participants.map((p) => [p.userId, p]));
+  for (const p of expected ?? []) if (!people.has(p.userId)) people.set(p.userId, p);
+  // An entry names its author, so one whose seat this viewer's roster does
+  // not carry is still attributed. A link guest's entry carries no name.
+  for (const e of entries) if (e.name && !people.has(e.userId)) people.set(e.userId, { name: e.name });
   const nameOf = (id: string) => {
     const p = people.get(id);
     if (!p) return "Someone";
@@ -80,7 +98,8 @@ export function AsyncDigest({
   const blockers = posted.filter((e) => e.blockers.trim());
   const answeredIds = new Set(posted.map((e) => e.userId));
   const awayIds = new Set(away);
-  const owing = participants.filter((p) => !p.spectator && !answeredIds.has(p.userId));
+  const owed = expected ?? participants.filter((p) => !p.spectator);
+  const owing = owed.filter((p) => !answeredIds.has(p.userId));
   const waiting = owing.filter((p) => !awayIds.has(p.userId));
   const awayNow = owing.filter((p) => awayIds.has(p.userId));
   const panel = "flex flex-col gap-3 rounded-panel border border-line bg-surface px-5 py-5 shadow-rest";
