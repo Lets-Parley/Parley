@@ -86,6 +86,7 @@ export default defineConfig({
             "operations/backups-and-recovery",
             "operations/upgrading",
             "operations/air-gapped",
+            "operations/google-meet",
             "operations/runbook",
           ],
         },

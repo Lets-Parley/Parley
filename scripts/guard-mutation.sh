@@ -668,6 +668,16 @@ mutate "binding a handoff only with the display code typed" \
     'TestEmbedBindRequiresTheDisplayCode' \
     embed.go '[]byte(normalizeDisplayCode(pending.DisplayCode))) != 1 {' '[]byte(normalizeDisplayCode(pending.DisplayCode))) != 1 && false {'
 
+mutate "the add-on documents framable only by the provider's origins" \
+    'TestOnlyTheMeetDocumentsAreFramable' \
+    embed.go '"frame-ancestors "+strings.Join(p.FrameAncestors, " ")' '"frame-ancestors *"'
+
+mutate "the add-on documents 404 while their provider is off" \
+    'TestOnlyTheMeetDocumentsAreFramable' \
+    embed.go 'if !ok {
+			securityHeaders(http.NotFoundHandler())' 'if !ok && false {
+			securityHeaders(http.NotFoundHandler())'
+
 mutate "sign out never falling back to the cookie beside a bearer" \
     'TestEmbedSignOutNeverFallsBackToTheCookie' \
     me.go 'err == nil && !a.bearerPresented(r) {' 'err == nil {'

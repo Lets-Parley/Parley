@@ -50,6 +50,8 @@ var embeddedRouteTable = map[string]embedRouteClass{
 	"POST /embed/signin":              embedOutside,
 	"GET /embed/*":                    embedOutside,
 	"POST /embed/*":                   embedOutside,
+	"GET /embed/meet/sidepanel":       embedOutside,
+	"GET /embed/meet/mainstage":       embedOutside,
 	"GET /plugin-ui/{name}/{version}": embedOutside,
 	"GET /ics/{token}":                embedOutside,
 	"GET /s/{slug}":                   embedOutside,

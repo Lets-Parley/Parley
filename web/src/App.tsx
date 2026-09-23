@@ -10,6 +10,7 @@ import { SessionPage } from "./pages/SessionPage";
 import { PresentPage } from "./pages/PresentPage";
 import { LinkPage } from "./pages/LinkPage";
 import { PluginsPage } from "./pages/PluginsPage";
+import { MeetMainStage, MeetSidePanel } from "./pages/MeetAddon";
 
 const queryClient = new QueryClient();
 
@@ -47,6 +48,11 @@ export default function App() {
                 The token rides in the fragment, so /link takes no parameter of
                 its own — see lib/links. */}
             <Route path="/link" element={<LinkPage />} />
+            {/* The Google Meet add-on's two framed documents. The server
+                serves them from their own route group; they sign in with a
+                bearer token, never the cookie. */}
+            <Route path="/embed/meet/sidepanel" element={<MeetSidePanel />} />
+            <Route path="/embed/meet/mainstage" element={<MeetMainStage />} />
           </Routes>
         </BrowserRouter>
       </ToastProvider>

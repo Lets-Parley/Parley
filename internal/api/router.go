@@ -431,6 +431,9 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	// than a path check inside securityHeaders is the whole point: a group is
 	// reachable only by being registered in it, while a path check is a
 	// matching rule, and matching rules get evaded.
+	// The meeting-client add-on documents are the other framable group.
+	spa := web.SPAHandler()
+	a.mountEmbedDocuments(root, spa)
 	a.mountPluginFrame(root)
 	r := root.With(securityHeaders)
 
@@ -825,7 +828,6 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 
 	r.With(resolvePrincipal(a.users, mode == ModeOIDC, a.embedBearer(wsProtocolBearer))).Get("/ws", a.handleWS)
 
-	spa := web.SPAHandler()
 	// The compatibility shim for links minted before space URLs carried an
 	// org. It is mounted as a real route rather than left to the catch-all
 	// below, because the catch-all would simply serve the app shell to a path

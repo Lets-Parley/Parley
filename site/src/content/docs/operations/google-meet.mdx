@@ -1,0 +1,126 @@
+---
+title: Google Meet add-on
+description: Run Parley inside Google Meet — a side panel to vote from and a main stage everyone in the call can watch.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+
+<VerifiedStamp version="unreleased" source={["internal/api/embed.go", "internal/api/router.go", "web/src/pages/MeetAddon.tsx", "web/src/lib/meet.ts", "cmd/parley/main.go"]} />
+
+With the add-on installed, anyone signed in to Parley can open it from a
+Meet call's **Activities** menu. The **side panel** lists their spaces and open
+rooms, joins a space with its passcode exactly as the Parley tab does, and
+gives a poker room a compact vote pad; a standup links out to the room in a
+browser tab. The room's facilitator also gets **Show on main stage**, which
+opens the [presenter view](/features/presenting-a-room/) for everyone in the
+call who has the add-on.
+
+The add-on is published privately by your own Google Workspace: there is no
+public listing and no Google review. You own the Cloud project, and nothing
+reaches Parley's maintainers.
+
+## Before you start
+
+- `BASE_URL` must be `https`. Meet frames only secure pages, and Parley
+  refuses to start with `EMBED_PROVIDERS` set and a plain-HTTP `BASE_URL`.
+- Your people must already be able to sign in to Parley in the same browser.
+  The add-on signs them in by a short code they type on an ordinary Parley
+  tab — see [Embedded sessions](/security/authentication/#embedded-sessions).
+- Only a Google Workspace admin can install it for the domain.
+
+## 1. Turn it on in Parley
+
+```sh
+EMBED_PROVIDERS=meet
+MEET_CLOUD_PROJECT_NUMBER=123456789012   # step 2
+```
+
+This enables two documents, `/embed/meet/sidepanel` and
+`/embed/meet/mainstage`. They are the only pages on the instance without
+`X-Frame-Options: DENY`; their policy is `frame-ancestors
+https://meet.google.com`, and their `script-src` adds only
+`https://www.gstatic.com` for Google's add-on SDK. Every other page, and both
+documents while `meet` is off, stays unframable and never references the SDK.
+
+## 2. Create the Cloud project
+
+1. In the Google Cloud console, create a project in your Workspace
+   organization. Its **project number** (not the id) is
+   `MEET_CLOUD_PROJECT_NUMBER`.
+2. Enable the **Google Workspace Marketplace SDK**.
+3. Under the Marketplace SDK's **App configuration**, set visibility to
+   **Private**. Private listings are permanent — they cannot be made public
+   later — are installable only inside your domain, and skip Google's review.
+4. Choose **Meet add-on** and paste a deployment manifest built from your
+   `BASE_URL`. With `BASE_URL=https://parley.example.com`:
+
+```json
+{
+  "addOns": {
+    "common": {
+      "name": "Parley",
+      "logoUrl": "https://parley.example.com/favicon.svg"
+    },
+    "meet": {
+      "web": {
+        "sidePanelUri": "https://parley.example.com/embed/meet/sidepanel",
+        "supportsCollaboration": true,
+        "addOnOrigins": ["https://parley.example.com"]
+      }
+    }
+  }
+}
+```
+
+`addOnOrigins` belongs under `addOns.meet.web`, not `addOns.common`: it is
+what lets the side panel open the main stage at Parley's origin. Use your `BASE_URL`
+exactly — scheme and host, no trailing slash.
+
+5. Fill in the store listing's required fields (they are shown only to your
+   domain) and publish.
+
+## 3. Install it for the domain
+
+In the Google Admin console, open the app under **Apps → Google Workspace
+Marketplace apps** and install it for the domain or for chosen
+organizational units. It then appears in every Meet call's **Activities**
+menu for those people.
+
+## Who cannot use it
+
+- **External attendees, and anyone not signed in to Parley.** The side panel
+  offers sign-in; without a Parley account there is nothing to sign in to.
+- **View-only attendees**, and anyone the Meet host has not let open
+  activities.
+
+All of them keep what they had before: the facilitator can share the
+presenter view as an ordinary screen share.
+
+## Untested
+
+Mobile Meet, Meet hardware (room kits), Safari and Firefox have not been
+tested.
+
+## Your proxy's access logs
+
+A framed page cannot set headers on a WebSocket, so the add-on sends its token
+as the second value of `Sec-WebSocket-Protocol` on `/ws`. Parley never logs
+it, but a reverse proxy that logs request headers will. Strip or redact
+`Sec-WebSocket-Protocol` (and `Authorization`) in your proxy's access log
+format.
+
+## Adding another meeting client
+
+For contributors. A provider is three things, and Meet is the worked example:
+
+1. **A row in `embedProviderTable`** (`internal/api/embed.go`): its frame
+   ancestors, its SDK URL, and any setting it needs, validated in
+   `ParseEmbedProviders` and documented in the
+   [configuration reference](/reference/configuration/).
+   `mountEmbedDocuments` serves its `sidepanel` and `mainstage` documents
+   from the row; `TestOnlyTheMeetDocumentsAreFramable` pins which routes may be
+   framed.
+2. **Glue pages** in `web/src` like `pages/MeetAddon.tsx` and `lib/meet.ts`:
+   load the SDK named by the row, connect on load, and use the bearer — never
+   the cookie — for every request and the socket.
+3. **An operator guide** like this one.

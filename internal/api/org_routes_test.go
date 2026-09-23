@@ -262,16 +262,18 @@ var routeScoping = map[string]string{
 	"GET /api/auth":      "non-slug",
 	// The embedded-session handoff carries no space and no org: the frame
 	// has neither until it holds a session.
-	"GET /embed/signin":       "non-slug",
-	"POST /embed/signin":      "non-slug",
-	"GET /embed/*":            "non-slug",
-	"POST /embed/*":           "non-slug",
-	"POST /api/embed/handoff": "non-slug",
-	"POST /api/embed/session": "non-slug",
-	"GET /api/embed/*":        "non-slug",
-	"POST /api/embed/*":       "non-slug",
-	"POST /api/me":            "non-slug",
-	"GET /api/me":             "non-slug",
+	"GET /embed/signin":         "non-slug",
+	"POST /embed/signin":        "non-slug",
+	"GET /embed/*":              "non-slug",
+	"POST /embed/*":             "non-slug",
+	"GET /embed/meet/sidepanel": "non-slug",
+	"GET /embed/meet/mainstage": "non-slug",
+	"POST /api/embed/handoff":   "non-slug",
+	"POST /api/embed/session":   "non-slug",
+	"GET /api/embed/*":          "non-slug",
+	"POST /api/embed/*":         "non-slug",
+	"POST /api/me":              "non-slug",
+	"GET /api/me":               "non-slug",
 	// The frame is a static document and carries no org slug. The panel list
 	// does carry an org — the room's — but it resolves it from the session
 	// rather than from a slug in the path, which is what a link guest, who has

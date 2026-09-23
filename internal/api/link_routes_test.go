@@ -40,16 +40,20 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// The embedded-session handoff, off on this instance, so 404 for everyone.
 	// Enabled, both halves still refuse a link guest: the sign-in page binds
 	// only for an ordinary account (TestEmbedRefusesLinkGuestBinding).
-	"GET /embed/signin":       {status: http.StatusNotFound},
-	"POST /embed/signin":      {status: http.StatusNotFound},
-	"GET /embed/*":            {status: http.StatusNotFound},
-	"POST /embed/*":           {status: http.StatusNotFound},
-	"POST /api/embed/handoff": {status: http.StatusNotFound},
-	"POST /api/embed/session": {status: http.StatusNotFound},
-	"GET /api/embed/*":        {status: http.StatusNotFound},
-	"POST /api/embed/*":       {status: http.StatusNotFound},
-	"GET /auth/login":         {status: http.StatusNotFound},
-	"GET /auth/callback":      {status: http.StatusNotFound},
+	"GET /embed/signin":  {status: http.StatusNotFound},
+	"POST /embed/signin": {status: http.StatusNotFound},
+	"GET /embed/*":       {status: http.StatusNotFound},
+	"POST /embed/*":      {status: http.StatusNotFound},
+	// The framed add-on documents: the app shell, identical for everyone,
+	// and 404 here because embedding is off.
+	"GET /embed/meet/sidepanel": {status: http.StatusNotFound},
+	"GET /embed/meet/mainstage": {status: http.StatusNotFound},
+	"POST /api/embed/handoff":   {status: http.StatusNotFound},
+	"POST /api/embed/session":   {status: http.StatusNotFound},
+	"GET /api/embed/*":          {status: http.StatusNotFound},
+	"POST /api/embed/*":         {status: http.StatusNotFound},
+	"GET /auth/login":           {status: http.StatusNotFound},
+	"GET /auth/callback":        {status: http.StatusNotFound},
 	// The socket is not an HTTP status, so it is exercised by the WebSocket
 	// tests instead: a guest connects to the bound room, and expiry and
 	// revocation both sever it.
