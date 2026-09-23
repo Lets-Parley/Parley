@@ -196,6 +196,13 @@ rooms is shown the design tokens and no room data. That is what the consent
 screen promises for `session:read`, and it is the same line the session host
 functions hold on the server.
 
+A toolbar or export-menu frame stays mounted as the user moves between rooms,
+so when they leave a room the plugin provides for one it does not, the frame is
+sent a `state` message whose `state` is `null` — once, however many such rooms
+follow — and nothing further until one of its own rooms comes back. A frame
+that has never been shown one of its own rooms is sent nothing at all, not even
+the `null`. Plugin UI should treat a `null` state as "no room".
+
 For a room the plugin does provide, the view is built field by field rather
 than filtered: the envelope's session fields, the roster, and the document the
 kind's own `StateFunc` already built for every member. The space and org a room

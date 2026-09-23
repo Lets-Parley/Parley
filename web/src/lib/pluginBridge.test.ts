@@ -417,6 +417,73 @@ describe("createPluginBridge", () => {
     expect(sent).toEqual([]);
     b.close();
   });
+
+  // A toolbar or export-menu frame is keyed by install name, so the same frame
+  // and bridge survive the user walking from the plugin's own room into a
+  // standup room. Building no view for the standup room is not enough on its
+  // own: the frame would go on holding the retro room's title, roster and
+  // board. The host has to say the room is gone.
+  it("clears the frame when the user moves from its own room to a standup room", () => {
+    const sent: string[] = [];
+    const { b } = bridge({ send: (body: string) => sent.push(body) });
+    b.handshake();
+    b.sendState(pluginKindEnvelope({ title: "Retro 9" }));
+    vi.advanceTimersByTime(500);
+    b.sendState(standupEnvelope());
+    vi.advanceTimersByTime(500);
+    expect(sent.length).toBe(2);
+    expect(JSON.parse(sent[1])).toEqual({ type: "state", state: null });
+    // And nothing of the standup room came with the clear.
+    expect(sent[1]).not.toContain("shipped-the-sso-fix");
+    expect(sent[1]).not.toContain("Sprint 42");
+    b.close();
+  });
+
+  it("hands the frame its own room when the user arrives from a standup room", () => {
+    const sent: string[] = [];
+    const { b } = bridge({ send: (body: string) => sent.push(body) });
+    b.handshake();
+    b.sendState(standupEnvelope());
+    vi.advanceTimersByTime(500);
+    // A frame that never held a room is not sent a clear either.
+    expect(sent).toEqual([]);
+    b.sendState(pluginKindEnvelope({ title: "Retro 9" }));
+    vi.advanceTimersByTime(500);
+    expect(sent.length).toBe(1);
+    const message = JSON.parse(sent[0]) as { type: string; state: { title: string } };
+    expect(message.type).toBe("state");
+    expect(message.state.title).toBe("Retro 9");
+    b.close();
+  });
+
+  it("clears the frame once across two rooms it does not provide", () => {
+    const sent: string[] = [];
+    const { b } = bridge({ send: (body: string) => sent.push(body) });
+    b.handshake();
+    b.sendState(pluginKindEnvelope());
+    vi.advanceTimersByTime(500);
+    b.sendState(standupEnvelope());
+    vi.advanceTimersByTime(500);
+    b.sendState(envelope());
+    vi.advanceTimersByTime(500);
+    b.sendState(standupEnvelope());
+    vi.advanceTimersByTime(500);
+    expect(sent.map((s) => (JSON.parse(s) as { state: unknown }).state === null)).toEqual([false, true]);
+    b.close();
+  });
+
+  // The clear goes through the coalescer, so a view still waiting for the
+  // interval when the user leaves is replaced rather than delivered late.
+  it("never delivers a pending view of a room the user has already left", () => {
+    const sent: string[] = [];
+    const { b } = bridge({ send: (body: string) => sent.push(body) });
+    b.handshake();
+    b.sendState(pluginKindEnvelope({ title: "Retro 9" }));
+    b.sendState(standupEnvelope());
+    vi.advanceTimersByTime(500);
+    expect(sent.join("")).not.toContain("Retro 9");
+    b.close();
+  });
 });
 
 describe("CrashBreaker", () => {

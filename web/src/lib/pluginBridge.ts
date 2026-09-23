@@ -236,7 +236,10 @@ export type PluginBridgeOptions = {
 export type PluginBridge = {
   /** Transfers the port. Called once, on frame load. */
   handshake: () => void;
-  /** Pushes redacted state into the frame, coalesced. */
+  /**
+   * Pushes redacted state into the frame, coalesced; a `null` state, once,
+   * when the user leaves one of the plugin's own rooms for one it does not provide.
+   */
   sendState: (env: Envelope) => void;
   /** Pushes the current design tokens so plugin UI re-themes with the app. */
   sendTokens: (tokens: Record<string, string>) => void;
@@ -251,6 +254,10 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
   let shook = false;
   let pending: string | null = null;
   let pushTimer: ReturnType<typeof setTimeout> | null = null;
+  // Whether the frame may be holding a view of a room: set when a view is
+  // queued, cleared when the clear is. A toolbar or export-menu frame is keyed
+  // by install name, so it and this bridge outlive a move to another room.
+  let holdsView = false;
   const stamps: number[] = [];
 
   const timeout = setTimeout(() => {
@@ -376,12 +383,26 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
     sendState(env: Envelope) {
       if (closed) return;
       const session = redactSession(env, opts.grants, opts.plugin);
-      if (!session) return;
-      const body = JSON.stringify({ type: "state", state: session });
-      if (overMessageCap(body)) {
-        opts.onFailure("oversize-outbound");
-        pending = null;
-        return;
+      let body: string;
+      if (session) {
+        body = JSON.stringify({ type: "state", state: session });
+        if (overMessageCap(body)) {
+          opts.onFailure("oversize-outbound");
+          pending = null;
+          return;
+        }
+        holdsView = true;
+      } else {
+        // A room this plugin does not provide. Building no view of it is not
+        // enough: a frame that was handed the last room would go on holding
+        // its title, roster and state. So it is told, once, that there is no
+        // room — through the coalescer, so a view still waiting to be flushed
+        // is replaced rather than delivered late — and then nothing until one
+        // of its own rooms comes back. A frame that never held one is sent
+        // nothing at all.
+        if (!holdsView) return;
+        holdsView = false;
+        body = JSON.stringify({ type: "state", state: null });
       }
       // Coalescing: the newest state wins and at most one push lands per
       // interval, so a busy room cannot become the frame's load. Newest, not

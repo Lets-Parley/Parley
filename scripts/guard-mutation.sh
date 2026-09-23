@@ -591,8 +591,15 @@ mutate "the inbound message rate cap" \
 mutate "the outbound message size cap" \
     'src/lib/pluginBridge.test.ts::bounds what the host pushes into the frame too' \
     lib/pluginBridge.ts 'if (overMessageCap(body)) {
-        opts.onFailure("oversize-outbound");' 'if (false) {
-        opts.onFailure("oversize-outbound");'
+          opts.onFailure("oversize-outbound");' 'if (false) {
+          opts.onFailure("oversize-outbound");'
+
+# A toolbar or export-menu frame outlives a move to another room, so building
+# no view of a room it does not provide is not enough: without the clear it
+# goes on holding the last room's title, roster and state.
+mutate "the clear when the user leaves a plugin's own room" \
+    'src/lib/pluginBridge.test.ts::clears the frame when the user moves from its own room to a standup room' \
+    lib/pluginBridge.ts 'if (!holdsView) return;' 'if (!holdsView || true) return;'
 
 # The action name is a path segment, and an unscreened one is a path
 # expression: "../../../me" is normalised out of the actions path by the same
