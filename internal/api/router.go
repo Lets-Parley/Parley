@@ -41,6 +41,7 @@ type app struct {
 	webhooks     *standup.Webhooks
 	webhookHosts []string
 	ics          *standup.Feeds
+	away         *standup.AwayStore
 	// now is the clock the calendar feed stamps. Tests freeze it; the process
 	// uses time.Now.
 	now      func() time.Time
@@ -258,6 +259,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		spaces:    &store.Spaces{Pool: pool},
 		sessions:  &store.Sessions{Pool: pool},
 		schedules: &standup.Schedules{Pool: pool},
+		away:      &standup.AwayStore{Pool: pool},
 		decks:     &store.Decks{Pool: pool},
 		kudos:     &store.Kudos{Pool: pool},
 		links:     &store.Links{Pool: pool},
@@ -573,6 +575,11 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		r.With(rejectLinkPrincipal).Get("/me/ics", a.handleGetICS)
 		r.With(rejectLinkPrincipal).Post("/me/ics", a.handleMintICS)
 		r.With(rejectLinkPrincipal).Delete("/me/ics", a.handleRevokeICS)
+		// A person's own away days for async standups. A link guest has no
+		// account and is never counted as owing an answer, so it has none.
+		r.With(rejectLinkPrincipal).Get("/me/away", a.handleListAway)
+		r.With(rejectLinkPrincipal).Post("/me/away", a.handleAddAway)
+		r.With(rejectLinkPrincipal).Delete("/me/away/{id}", a.handleDeleteAway)
 
 		r.Group(func(r chi.Router) {
 			r.Use(RequireUser)
@@ -676,6 +683,11 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 				r.With(a.requireSpaceMember).Get("/", a.handleGetStandupSchedule)
 				r.With(a.requireSpaceOwner).Put("/", a.handlePutStandupSchedule)
 			})
+
+			// A space's team participation trend: weekly team ratios only,
+			// for its members. A link guest is refused 403 before any lookup.
+			r.With(rejectLinkPrincipal, RequireUser, a.requireOrgMember, a.requireSpaceMember).
+				Get("/spaces/{slug}/standup-trend", a.handleStandupTrend)
 
 			// A space's standup webhook. Owner-only on every verb: the URL is
 			// a capability on the receiving end, and the secret is shown once.

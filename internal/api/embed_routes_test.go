@@ -70,7 +70,12 @@ var embeddedRouteTable = map[string]embedRouteClass{
 	"GET /api/me/ics":        embedRefused,
 	"POST /api/me/ics":       embedRefused,
 	"DELETE /api/me/ics":     embedRefused,
-	"POST /api/links/redeem": embedRefused,
+	// Away days are the account's own and count in every space's standups,
+	// not one room's, so they stay with the account's other settings.
+	"GET /api/me/away":         embedRefused,
+	"POST /api/me/away":        embedRefused,
+	"DELETE /api/me/away/{id}": embedRefused,
+	"POST /api/links/redeem":   embedRefused,
 
 	"GET /api/orgs":                      embedAllowed,
 	"GET /api/spaces":                    embedAllowed,
@@ -98,6 +103,7 @@ var embeddedRouteTable = map[string]embedRouteClass{
 
 	"GET /api/orgs/{org}/spaces/{slug}/standup-schedule/":   embedRefused,
 	"PUT /api/orgs/{org}/spaces/{slug}/standup-schedule/":   embedRefused,
+	"GET /api/orgs/{org}/spaces/{slug}/standup-trend":       embedRefused,
 	"GET /api/orgs/{org}/spaces/{slug}/standup-webhook/":    embedRefused,
 	"PUT /api/orgs/{org}/spaces/{slug}/standup-webhook/":    embedRefused,
 	"DELETE /api/orgs/{org}/spaces/{slug}/standup-webhook/": embedRefused,

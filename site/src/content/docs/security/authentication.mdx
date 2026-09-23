@@ -308,10 +308,10 @@ one place on the `/api` mount. It may reach these routes and nothing else:
 Every other `/api` route answers `403` to an embedded session, whoever holds
 it and whatever their roles: creating or deleting spaces and rooms, rotating
 a passcode, changing visibility, member roles or removals, decks, kudos,
-standup schedules and webhooks, the room-level facilitator controls —
+standup schedules, webhooks and the participation trend, the room-level facilitator controls —
 claiming or transferring the facilitator seat, removing a participant, and
 closing or reopening the room — the CSV export, signed links (minting,
-listing or redeeming), renaming, avatar and settings, the calendar feed, and
+listing or redeeming), renaming, avatar and settings, away days, the calendar feed, and
 all of org administration. Each allowed route's own checks still apply, so an
 embedded session never gets more than the same person's cookie. Org
 administration is refused a second time inside the admin gate. Renaming

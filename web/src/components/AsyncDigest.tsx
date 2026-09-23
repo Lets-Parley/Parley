@@ -46,8 +46,9 @@ function Posted({ at }: { at: string }) {
  * "Needs you" is the viewer's own: the ids of the people who asked the viewer
  * for help, read from a per-caller endpoint and never from the shared state,
  * which every socket in the room receives. Once the standup
- * has ended only the entries are kept — the not-yet list and the changed
- * commitments are live facts about an open room, never a record. No counts beside names and no alarm styling on
+ * has ended only the entries are kept — the not-yet list, the away list and
+ * the changed commitments are live facts about an open room, never a record.
+ * Someone away today is listed as away rather than as not yet. No counts beside names and no alarm styling on
  * the people who have not answered.
  */
 export function AsyncDigest({
@@ -56,12 +57,15 @@ export function AsyncDigest({
   ended,
   changes = [],
   needsYou = [],
+  away = [],
 }: {
   entries: StandupEntry[];
   participants: Person[];
   ended: boolean;
   changes?: CommitmentChange[];
   needsYou?: string[];
+  /** Ids of the members who set themselves away today, from the session state. */
+  away?: string[];
 }) {
   const people = new Map(participants.map((p) => [p.userId, p]));
   const nameOf = (id: string) => {
@@ -75,7 +79,10 @@ export function AsyncDigest({
   const posted = entries.filter((e) => answered(e) && !spectators.has(e.userId));
   const blockers = posted.filter((e) => e.blockers.trim());
   const answeredIds = new Set(posted.map((e) => e.userId));
-  const waiting = participants.filter((p) => !p.spectator && !answeredIds.has(p.userId));
+  const awayIds = new Set(away);
+  const owing = participants.filter((p) => !p.spectator && !answeredIds.has(p.userId));
+  const waiting = owing.filter((p) => !awayIds.has(p.userId));
+  const awayNow = owing.filter((p) => awayIds.has(p.userId));
   const panel = "flex flex-col gap-3 rounded-panel border border-line bg-surface px-5 py-5 shadow-rest";
   const head = "text-[17px] font-bold tracking-tight text-ink";
 
@@ -165,7 +172,7 @@ export function AsyncDigest({
       </section>
 
       {!ended && (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className={`grid gap-4 ${awayNow.length > 0 ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
           <section aria-labelledby="digest-answered" className={panel}>
             <h2 id="digest-answered" className={head}>Answered</h2>
             <NameList names={posted.map((e) => nameOf(e.userId))} empty="Nobody yet." />
@@ -174,6 +181,12 @@ export function AsyncDigest({
             <h2 id="digest-waiting" className={head}>Not yet</h2>
             <NameList names={waiting.map((p) => nameOf(p.userId))} empty="Everyone has answered." />
           </section>
+          {awayNow.length > 0 && (
+            <section aria-labelledby="digest-away" className={panel}>
+              <h2 id="digest-away" className={head}>Away</h2>
+              <NameList names={awayNow.map((p) => nameOf(p.userId))} empty="" />
+            </section>
+          )}
         </div>
       )}
     </>

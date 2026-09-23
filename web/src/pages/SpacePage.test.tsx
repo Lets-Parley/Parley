@@ -41,6 +41,10 @@ let decks: Deck[] = [];
 // The space's kudos, as the wall reads them. Newest first, the way the
 // handler answers.
 let kudos: Kudo[] = [];
+// The space's team participation trend, as the standup panel reads it.
+let trend: { weeks: { weekStart: string; ratio?: number; suppressed?: boolean }[] } = { weeks: [] };
+// The viewer's own away ranges, as the away-days form beside the trend reads them.
+let awayRanges: { id: string; startsOn: string; endsOn: string }[] = [];
 // Flipped on to make the next space read fail, which is how a background
 // refetch failure is reproduced.
 let failSpace = false;
@@ -72,6 +76,14 @@ vi.mock("../lib/api", async () => {
         return undefined;
       }
       if (path.endsWith("/kudos")) return [];
+      if (path === "/api/orgs/acme/spaces/platform-team/standup-trend") return trend;
+      if (path === "/api/me/away" && method === "GET") return { ranges: awayRanges };
+      if (path === "/api/me/away" && method === "POST") {
+        const b = body as { startsOn: string; endsOn: string };
+        const r = { id: `a${awayRanges.length + 1}`, ...b };
+        awayRanges = [...awayRanges, r];
+        return r;
+      }
       if (path.startsWith("/api/orgs/acme/spaces/")) {
         if (failSpace) throw new Error("network");
         return view;
@@ -88,6 +100,8 @@ beforeEach(() => {
   vi.mocked(api).mockClear();
   decks = [];
   kudos = [];
+  trend = { weeks: [] };
+  awayRanges = [];
 });
 
 describe("SpacePage kind filter", () => {
@@ -572,7 +586,8 @@ function spaceReads(): number {
         c[0] === "GET" &&
         String(c[1]).startsWith("/api/orgs/acme/spaces/") &&
         !String(c[1]).endsWith("/kudos") &&
-        !String(c[1]).endsWith("/decks"),
+        !String(c[1]).endsWith("/decks") &&
+        !String(c[1]).endsWith("/standup-trend"),
     ).length;
 }
 
@@ -1512,5 +1527,69 @@ describe("SpacePage kudos wall", () => {
     // above); the kudos wall must not ride along with it.
     await vi.advanceTimersByTimeAsync(30_100);
     expect(kudosReads()).toBe(1);
+  });
+});
+
+describe("SpacePage standup participation trend", () => {
+  const defaultApi = vi.mocked(api).getMockImplementation()!;
+  afterEach(() => {
+    view = space;
+  });
+
+  async function open() {
+    vi.mocked(api).mockImplementation(defaultApi);
+    const r = renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    return { region: await screen.findByRole("region", { name: "Standup participation" }), ...r };
+  }
+
+  it("shows the team's weekly ratio and says plainly when a week is not shown", async () => {
+    trend = {
+      weeks: [
+        { weekStart: "2026-09-07", suppressed: true },
+        { weekStart: "2026-09-14", ratio: 0.75 },
+      ],
+    };
+    const { region, container } = await open();
+    await waitFor(() => expect(region.textContent).toContain("75%"));
+    const rows = within(region).getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).toContain("Not shown");
+    expect(rows[1].textContent).toContain("75%");
+    await expectNoViolations(container);
+  });
+
+  it("explains the threshold when no week can be shown", async () => {
+    trend = { weeks: [{ weekStart: "2026-09-07", suppressed: true }, { weekStart: "2026-09-14", suppressed: true }] };
+    const { region } = await open();
+    await waitFor(() => expect(region.textContent).toMatch(/at least four people/i));
+    expect(within(region).queryAllByRole("listitem")).toHaveLength(0);
+  });
+
+  it("sets your own away days from the space page, outside any room", async () => {
+    const user = userEvent.setup();
+    const { region } = await open();
+    const first = await within(region).findByLabelText("First day away");
+    await user.click(first);
+    await user.keyboard("2026-10-05");
+    await user.click(within(region).getByLabelText("Last day away"));
+    await user.keyboard("2026-10-09");
+    await user.click(within(region).getByRole("button", { name: "Add away days" }));
+    await waitFor(() =>
+      expect(
+        vi.mocked(api).mock.calls.filter((c) => c[0] === "POST" && c[1] === "/api/me/away").map((c) => c[2]),
+      ).toEqual([{ startsOn: "2026-10-05", endsOn: "2026-10-09" }]),
+    );
+    expect(
+      await within(region).findByRole("button", { name: "Remove away days 2026-10-05 to 2026-10-09" }),
+    ).toBeTruthy();
+  });
+
+  it("asks for the trend only for a space that holds standups", async () => {
+    view = { ...space, sessions: (space.sessions ?? []).filter((s) => s.kind !== "standup") } as SpaceView;
+    vi.mocked(api).mockImplementation(defaultApi);
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+    expect(screen.queryByRole("region", { name: "Standup participation" })).toBeNull();
+    expect(vi.mocked(api).mock.calls.some((c) => String(c[1]).endsWith("/standup-trend"))).toBe(false);
   });
 });

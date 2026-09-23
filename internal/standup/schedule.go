@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lets-parley/parley/internal/recovery"
+	"github.com/lets-parley/parley/internal/store"
 )
 
 // Schedule is a space's recurring async standup: on each listed weekday, at
@@ -38,7 +40,7 @@ func (s Schedule) Validate() error {
 	if _, _, ok := parseClock(s.OpenTime); !ok {
 		return errors.New(`openTime must be "HH:MM" on a 24-hour clock`)
 	}
-	if s.Timezone == "" || s.Timezone == "Local" {
+	if !plausibleZone(s.Timezone) {
 		return errors.New("timezone must be an IANA name such as America/New_York")
 	}
 	if _, err := time.LoadLocation(s.Timezone); err != nil {
@@ -48,6 +50,22 @@ func (s Schedule) Validate() error {
 		return errors.New("windowMinutes must be between 1 and 1440")
 	}
 	return nil
+}
+
+// plausibleZone refuses the names time.LoadLocation accepts that are not a
+// zone a team chose, or that Postgres cannot read: "Local" and "localtime"
+// are the server's own zone, and the right/ and posix/ trees are alternate
+// copies of the database Postgres does not carry. Postgres evaluates the zone
+// for away days and the trend, so a name it rejects breaks both. The handler
+// also asks Postgres itself (Schedules.ZoneReadable); this is the part that
+// needs no database.
+func plausibleZone(name string) bool {
+	switch {
+	case name == "", name == "Local", name == "localtime",
+		strings.HasPrefix(name, "right/"), strings.HasPrefix(name, "posix/"):
+		return false
+	}
+	return true
 }
 
 func parseClock(v string) (hour, minute int, ok bool) {
@@ -183,6 +201,19 @@ func (st *Schedules) Put(ctx context.Context, spaceID, userID string, s Schedule
 	return nil
 }
 
+// ZoneReadable reports whether Postgres knows name as a time zone. Go and
+// Postgres carry separate copies of the zone database, and a name only Go
+// can read opens slots and then fails every query that asks Postgres for the
+// time there, so a schedule is saved only when both accept its zone.
+func (st *Schedules) ZoneReadable(ctx context.Context, name string) (bool, error) {
+	var ok bool
+	if err := st.Pool.QueryRow(ctx,
+		"select exists (select 1 from pg_timezone_names where name = $1)", name).Scan(&ok); err != nil {
+		return false, fmt.Errorf("checking the standup timezone: %w", err)
+	}
+	return ok, nil
+}
+
 type dueSchedule struct {
 	id, spaceID, facilitator string
 	Schedule
@@ -224,8 +255,16 @@ func Tick(ctx context.Context, pool *pgxpool.Pool, now time.Time, sessionLimit i
 		return nil, fmt.Errorf("listing standup schedules: %w", err)
 	}
 
+	// One schedule failing does not keep the rest shut: its slot is retried
+	// on the next pass, and every other schedule still opens on this one.
+	// The failures come back joined, each naming its schedule, for the
+	// caller to log. Only a cancelled context ends the pass early.
 	var touched []string
+	var failed []error
 	for _, d := range due {
+		if err := ctx.Err(); err != nil {
+			return touched, err
+		}
 		loc, err := time.LoadLocation(d.Timezone)
 		if err != nil {
 			slog.Error("standup schedule has an unusable timezone", "schedule", d.id, "timezone", d.Timezone, "error", err)
@@ -237,11 +276,15 @@ func Tick(ctx context.Context, pool *pgxpool.Pool, now time.Time, sessionLimit i
 		}
 		ids, err := openSlot(ctx, pool, d, date, openAt, sessionLimit)
 		if err != nil {
-			return touched, err
+			if ctx.Err() != nil {
+				return touched, err
+			}
+			failed = append(failed, fmt.Errorf("schedule %s: %w", d.id, err))
+			continue
 		}
 		touched = append(touched, ids...)
 	}
-	return touched, nil
+	return touched, errors.Join(failed...)
 }
 
 func openSlot(ctx context.Context, pool *pgxpool.Pool, d dueSchedule, date string, openAt time.Time, limit int) ([]string, error) {
@@ -281,6 +324,11 @@ func openSlot(ctx context.Context, pool *pgxpool.Pool, d dueSchedule, date strin
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("ending previous standup slot: %w", err)
+	}
+	// Each standup this slot ended has its trend day counted in the same
+	// transaction, so no scheduled day is ever over and uncounted.
+	if err := store.FreezeEndedTrendDays(ctx, tx, touched); err != nil {
+		return nil, err
 	}
 
 	// The same space lock and quota store.Sessions.Create applies, so a

@@ -239,8 +239,16 @@ func (s *Sessions) SetEnded(ctx context.Context, id, actorID string, ended bool)
 		} else {
 			q = "update sessions set ended_at = null, version = version + 1 where id = $1 and ended_at is not null"
 		}
-		_, err := tx.Exec(ctx, q, id)
-		return err
+		if _, err := tx.Exec(ctx, q, id); err != nil {
+			return err
+		}
+		if !ended {
+			return nil
+		}
+		// A scheduled async standup's trend day is counted as it ends, in this
+		// transaction. A no-op for every other session, and for one already
+		// counted: a reopen and a second end never recount it.
+		return FreezeEndedTrendDays(ctx, tx, []string{id})
 	})
 }
 
