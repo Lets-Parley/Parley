@@ -20,7 +20,7 @@
         "docs/screenshot-poker.png",
         "docs/screenshot-poker-dark.png"
       ],
-      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "shot_at": "2631b3767cb46cc1491e7bb9e58e04e853bb367f",
       "depicts": [
         "web/src/pages/PokerRoom.tsx",
         "web/src/components/Table.tsx",
@@ -42,7 +42,7 @@
       "files": [
         "site/src/assets/themes-side-by-side.png"
       ],
-      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "shot_at": "2631b3767cb46cc1491e7bb9e58e04e853bb367f",
       "depicts": [
         "web/src/pages/PokerRoom.tsx",
         "web/src/components/Table.tsx",
@@ -108,7 +108,7 @@
         "site/src/assets/create-session-light.png",
         "site/src/assets/create-session-dark.png"
       ],
-      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "shot_at": "2631b3767cb46cc1491e7bb9e58e04e853bb367f",
       "depicts": [
         "web/src/pages/SpacePage.tsx",
         "web/src/components/DecksPanel.tsx",
@@ -121,7 +121,7 @@
         "site/src/assets/standup-round-dark.png",
         "docs/screenshot-standup.png"
       ],
-      "shot_at": "8a96af287b50e1d23ba0bd92a18309b56866707a",
+      "shot_at": "2631b3767cb46cc1491e7bb9e58e04e853bb367f",
       "depicts": [
         "web/src/pages/StandupRoom.tsx",
         "web/src/components/NotificationSoundButton.tsx",
@@ -138,7 +138,7 @@
         "site/src/assets/blockers-roundup-light.png",
         "site/src/assets/blockers-roundup-dark.png"
       ],
-      "shot_at": "8a96af287b50e1d23ba0bd92a18309b56866707a",
+      "shot_at": "2631b3767cb46cc1491e7bb9e58e04e853bb367f",
       "depicts": [
         "web/src/pages/StandupRoom.tsx",
         "web/src/components/NotificationSoundButton.tsx",
@@ -156,7 +156,7 @@
         "site/src/assets/space-room-code-dark.png",
         "docs/screenshot-space.png"
       ],
-      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "shot_at": "2631b3767cb46cc1491e7bb9e58e04e853bb367f",
       "depicts": [
         "web/src/pages/SpacePage.tsx",
         "web/src/components/KindChip.tsx",
@@ -170,7 +170,7 @@
         "site/src/assets/session-history-light.png",
         "site/src/assets/session-history-dark.png"
       ],
-      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "shot_at": "2631b3767cb46cc1491e7bb9e58e04e853bb367f",
       "depicts": [
         "web/src/pages/SpacePage.tsx",
         "web/src/components/KindChip.tsx"
@@ -181,7 +181,7 @@
         "site/src/assets/space-settings-light.png",
         "site/src/assets/space-settings-dark.png"
       ],
-      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "shot_at": "2631b3767cb46cc1491e7bb9e58e04e853bb367f",
       "depicts": [
         "web/src/pages/SpaceSettingsPage.tsx",
         "web/src/components/AppShell.tsx",
@@ -193,7 +193,7 @@
         "site/src/assets/avatar-picker-light.png",
         "site/src/assets/avatar-picker-dark.png"
       ],
-      "shot_at": "c7878b6112047b7e431b41efd1823756e764d546",
+      "shot_at": "2631b3767cb46cc1491e7bb9e58e04e853bb367f",
       "depicts": [
         "web/src/components/ProfileDialog.tsx",
         "web/src/components/avatarIcons.tsx",
