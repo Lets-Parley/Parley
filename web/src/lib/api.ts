@@ -229,7 +229,40 @@ export type SessionSummary = {
   endedAt: string | null;
   /** People with a socket open on this session right now. Always 0 once ended. */
   here: number;
+  /**
+   * The latest moment anything is recorded happening in the room, as an ISO
+   * instant in UTC. An ended session reads its close. An open one reads the
+   * latest of its creation, a story added, a standup entry edited, the turn
+   * moving on, the facilitator's heartbeat and anyone's presence heartbeat.
+   * Votes and saved estimates carry no timestamp, so they show up only
+   * through the voter's own presence. Never null: creation is a floor.
+   */
+  lastActivityAt: string;
+  /**
+   * Up to five of the people `here` counts, facilitator first and then by
+   * name. Only space members are named — a link guest is counted in `here`
+   * but never appears — so `present.length` can be less than `here` even
+   * below five. Always empty once ended. Avatar, role and spectator flag are
+   * on the member with the same id.
+   */
+  present: PresentPerson[];
+  /** Kind-specific progress, or null for a kind that reports none (a plugin kind). */
+  progress: SessionProgress | null;
 };
+/** One named person in a live room, from the space roster. */
+export type PresentPerson = { id: string; name: string; facilitator: boolean };
+/**
+ * How far a room has got. `kind` repeats the session's kind so this narrows
+ * on its own.
+ *
+ * - poker: `settled` stories carry a saved estimate, of `total` stories.
+ * - standup: `answered` people in the queue have written a non-blank update,
+ *   of `total` not skipped. A turn spoken aloud with nothing written is not
+ *   recorded, which is why it is not called "spoke".
+ */
+export type SessionProgress =
+  | { kind: "poker"; settled: number; total: number }
+  | { kind: "standup"; answered: number; total: number };
 export type HistogramRow = { value: string; count: number };
 export type Results = {
   histogram: HistogramRow[];
