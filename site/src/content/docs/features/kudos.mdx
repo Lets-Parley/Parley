@@ -6,24 +6,30 @@ description: A short thank-you with somebody's name on it, and no leaderboard an
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["internal/db/migrations/0033_kudos.sql", "internal/store/kudos.go", "internal/api/kudos.go", "internal/standup/kudos.go", "web/src/components/Kudos.tsx", "web/src/pages/StandupRoom.tsx"]} />
+<VerifiedStamp source={["internal/db/migrations/0033_kudos.sql", "internal/store/kudos.go", "internal/api/kudos.go", "internal/standup/kudos.go", "web/src/components/Kudos.tsx", "web/src/components/AppShell.tsx", "web/src/pages/SpacePage.tsx", "web/src/pages/StandupRoom.tsx"]} />
 
 A **kudo** is one sentence thanking a named person for something they did. It
-appears on the space's kudos wall, under the session list, newest first. Anyone
+appears on the space's kudos wall, newest first: beside the session list on a
+wide screen, and below it on a narrower one. Anyone
 who is a member of the space can give one, to anyone else who is a member of
 the same space, at any time — it needs no meeting open and no facilitator's
 permission.
 
-There are two places to write one. The wall itself has a form: pick a name from
-the roster, say what they did, send. And a daily standup offers the same form
+There are two places to write one. The wall itself has a form, folded under
+**Thank someone** so the wall reads first: pick a name from the roster, say
+what they did, send. Each member in the space's sidebar has a **Thank** of
+their own, which opens the same form with their name already chosen. Two
+members who share a display name are told apart in the picker by the last four
+characters of their user id. And a daily standup offers the same form
 as its closing beat, once the round is done and everybody has just heard what
 everybody else was working on, which is the moment a team is most likely to
 mean it. A kudo given in a room is not a different kind of thing — it is the
 same row in the same table, and it lands on the space wall immediately, still
 carrying the session it was given in.
 
-A kudo is capped at **280 characters**. The form counts down as you type, and
-it counts characters as a person reads them rather than as the browser stores
+A kudo is capped at **280 characters**. The form shows what is left once you
+are within 40 of the limit, and says why it will not send once you are over. It
+counts characters as a person reads them rather than as the browser stores
 them, so an emoji costs one. The server enforces the same limit and so does a
 database constraint, which means the number cannot quietly differ between the
 two surfaces.

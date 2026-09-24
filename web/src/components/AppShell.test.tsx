@@ -601,3 +601,45 @@ describe("the avatar survives a reload", () => {
     await waitFor(() => expect(chip.querySelector("img")?.getAttribute("src")).toBe(want));
   });
 });
+
+describe("the sidebar's Thank action", () => {
+  const withGuest = [...roster, makePerson({ userId: "visitor", name: "Link Visitor", guest: true })];
+
+  it("offers Thank on everybody else's row, and hands over who", async () => {
+    stubAuthMode("open");
+    const onThank = vi.fn();
+    renderShell({ members: withGuest, onThank });
+    const nav = within(screen.getByRole("navigation", { name: "Space" }));
+    const thank = nav.getByRole("button", { name: "Thank Marcus Okonjo" });
+    expect(thank.className).toContain(TOUCH_HIT);
+    // Never yourself, never somebody seated by a link.
+    expect(nav.queryByRole("button", { name: "Thank Dana Whitfield" })).toBe(null);
+    expect(nav.queryByRole("button", { name: /Thank Link Visitor/ })).toBe(null);
+    await userEvent.click(thank);
+    expect(onThank).toHaveBeenCalledWith("marcus");
+  });
+
+  it("offers nothing where no kudos wall is listening", () => {
+    stubAuthMode("open");
+    renderShell({ members: withGuest });
+    expect(screen.queryByRole("button", { name: /^Thank / })).toBe(null);
+  });
+
+  it("offers nothing to a viewer holding a guest link", () => {
+    stubAuthMode("open");
+    renderShell({ members: withGuest, onThank: vi.fn(), guest: true });
+    expect(screen.queryByRole("button", { name: /^Thank / })).toBe(null);
+  });
+
+  it("closes the phone sheet so the form it opens can be seen", async () => {
+    stubAuthMode("open");
+    asPhone();
+    const onThank = vi.fn();
+    renderShell({ members: withGuest, onThank });
+    await userEvent.click(screen.getByRole("button", { name: "Toggle sidebar" }));
+    const nav = within(screen.getByRole("navigation", { name: "Space" }));
+    await userEvent.click(nav.getByRole("button", { name: "Thank Marcus Okonjo" }));
+    expect(onThank).toHaveBeenCalledWith("marcus");
+    expect(screen.queryByRole("navigation", { name: "Space" })).toBe(null);
+  });
+});

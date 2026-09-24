@@ -2,7 +2,9 @@ import { useId } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { standupTrendApi } from "../lib/paths";
+import { TOUCH_HIT } from "../lib/breakpoints";
 import { AwayDays } from "./AwayDays";
+import { RailError, railHeading } from "./Kudos";
 
 type TrendWeek = { weekStart: string; ratio?: number; suppressed?: boolean };
 
@@ -31,18 +33,48 @@ export function StandupTrend({ org, slug }: { org: string; slug: string }) {
   return (
     <section
       aria-labelledby={headingId}
-      className="mt-8 rounded-panel border border-line bg-surface px-5 py-5 shadow-rest"
+      className="rounded-panel border border-line bg-surface px-5 py-5"
     >
-      <h2 id={headingId} className="text-[17px] font-bold tracking-tight text-ink">
+      <h2 id={headingId} className={railHeading}>
         Standup participation
       </h2>
       <p className="mt-1 text-[13px] text-ink-faint text-pretty">
-        The share of the team who answered each week&apos;s scheduled standups, to the nearest
-        10%. Spectators and people who were away are not counted, and each day is counted once, when
-        it is over. There is no per-person figure.
+        The share of the team who answered each week, to the nearest 10%.
       </p>
-      {trend.isLoading ? null : !shown ? (
-        <p className="mt-3 text-[13px] text-ink-soft text-pretty">
+      {/* The full rule is a click away rather than always on screen: it is
+          read once, and the column beside the sessions is narrow. */}
+      <details className="group text-[13px] text-ink-faint">
+        <summary
+          className={`${TOUCH_HIT} inline-flex cursor-pointer list-none items-center gap-1.5 font-semibold text-ink-soft hover:text-ink [&::-webkit-details-marker]:hidden`}
+        >
+          <svg
+            aria-hidden="true"
+            width="12"
+            height="12"
+            viewBox="0 0 12 12"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            className="shrink-0 transition-transform group-open:rotate-90 motion-reduce:transition-none"
+          >
+            <path d="M4.5 2.5 8 6l-3.5 3.5" />
+          </svg>
+          How it is counted
+        </summary>
+        <p className="mb-1 text-pretty">
+          Only scheduled standups count. Spectators and people who were away are not counted,
+          and each day is counted once, when it is over. There is no per-person figure.
+        </p>
+      </details>
+      {trend.isLoading ? null : trend.isError && !trend.data ? (
+        <RailError
+          what="the participation trend"
+          onRetry={() => void trend.refetch()}
+          busy={trend.isFetching}
+        />
+      ) : !shown ? (
+        <p className="mt-2 text-[13px] text-ink-soft text-pretty">
           Nothing to show yet. A week appears once it has a scheduled standup day on which at least
           four people could answer.
         </p>

@@ -380,9 +380,9 @@ describe("SpacePage after the split", () => {
     renderApp(routed, { route: "/o/acme/s/platform-team" });
 
     const nav = within(await screen.findByRole("navigation", { name: "Space" }));
-    const ada = nav.getByRole("button", { name: /Ada/ });
+    const ada = nav.getByRole("button", { name: /^Ada/ });
     expect(within(ada).getByText("Owner")).toBeTruthy();
-    const bob = nav.getByRole("button", { name: /Bob/ });
+    const bob = nav.getByRole("button", { name: /^Bob/ });
     expect(within(bob).queryByText("Member")).toBe(null);
   });
 });
