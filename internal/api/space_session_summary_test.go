@@ -5,23 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
-)
 
-// presentJSON re-encodes one row's "present" so it can be compared with a
-// literal: an extra field on a person is a failure. The row was decoded into
-// maps, so keys come back in alphabetical order, not the server's.
-func presentJSON(t *testing.T, row map[string]any) string {
-	t.Helper()
-	v, ok := row["present"]
-	if !ok {
-		t.Fatalf("row has no \"present\": %v", row)
-	}
-	b, err := json.Marshal(v)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
-}
+	"github.com/lets-parley/parley/internal/plugin"
+	"github.com/lets-parley/parley/internal/store"
+)
 
 func fieldJSON(t *testing.T, row map[string]any, key string) string {
 	t.Helper()
@@ -88,16 +75,16 @@ func TestSpaceSessionNamesWhoIsPresent(t *testing.T) {
 		`{"facilitator":false,"id":"` + ids["Bob"] + `","name":"Bob"},` +
 		`{"facilitator":false,"id":"` + ids["Cal"] + `","name":"Cal"},` +
 		`{"facilitator":false,"id":"` + ids["Dee"] + `","name":"Dee"}]`
-	if got := presentJSON(t, row); got != want {
+	if got := fieldJSON(t, row, "present"); got != want {
 		t.Fatalf("present =\n %s\nwant\n %s", got, want)
 	}
-	if got := presentJSON(t, rows[empty["id"].(string)]); got != `[]` {
+	if got := fieldJSON(t, rows[empty["id"].(string)], "present"); got != `[]` {
 		t.Fatalf("empty room present = %s, want []", got)
 	}
 
 	// An ended room names nobody, whatever presence rows are left over.
 	closeSession(t, srv, id, fac)
-	if got := presentJSON(t, spaceSessionRows(t, srv, slug, fac)[id]); got != `[]` {
+	if got := fieldJSON(t, spaceSessionRows(t, srv, slug, fac)[id], "present"); got != `[]` {
 		t.Fatalf("ended room present = %s, want []", got)
 	}
 }
@@ -146,5 +133,59 @@ func TestSpaceSessionReportsLastActivity(t *testing.T) {
 	}
 	if got := fieldJSON(t, spaceSessionRows(t, srv, slug, fac)[id], "lastActivityAt"); got != `"2026-03-02T11:00:00Z"` {
 		t.Fatalf("lastActivityAt = %s, want the close", got)
+	}
+}
+
+// A kind a plugin provides has no progress Parley knows how to count, so it
+// says so with null rather than borrowing a core kind's shape.
+func TestAPluginKindsSessionReportsNoProgress(t *testing.T) {
+	srv, pool, plugins, host := hostServer(t)
+	orgID := defaultOrg(t, pool)
+	kind := "retro" + randomKindSuffix(t)
+	in := installIn(t, plugins, orgID, plugin.KindDef{Kind: kind, Display: "Retrospective"})
+	registerStubKind(t, host, kind, in.OrgID, func(store.Session) any {
+		return map[string]any{"columns": []string{"went-well"}}
+	})
+
+	fac := signup(t, srv, "Fay")
+	_, sp := createSpace(t, srv, "Plugin Progress Space", fac)
+	slug := sp["slug"].(string)
+	resp, body := createSession(t, srv, slug, kind, "Retro", fac)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("creating a room of a plugin-provided kind: %d %v", resp.StatusCode, body)
+	}
+	if got := fieldJSON(t, spaceSessionRows(t, srv, slug, fac)[body["id"].(string)], "progress"); got != `null` {
+		t.Fatalf("plugin kind progress = %s, want null", got)
+	}
+}
+
+// Two people present under the same display name are told apart by id, so
+// the order is the same on every request rather than whatever order presence
+// happened to report them in. The facilitator still comes first and names
+// still sort before ids.
+func TestPresentInBreaksANameTieByID(t *testing.T) {
+	sess := store.Session{FacilitatorID: "ffffffff-0000-0000-0000-000000000009"}
+	names := map[string]string{
+		"ffffffff-0000-0000-0000-000000000009": "Sam",
+		"bbbbbbbb-0000-0000-0000-000000000002": "Sam",
+		"aaaaaaaa-0000-0000-0000-000000000001": "Sam",
+		"cccccccc-0000-0000-0000-000000000003": "Ann",
+	}
+	here := []string{
+		"bbbbbbbb-0000-0000-0000-000000000002",
+		"ffffffff-0000-0000-0000-000000000009",
+		"cccccccc-0000-0000-0000-000000000003",
+		"aaaaaaaa-0000-0000-0000-000000000001",
+	}
+	got, err := json.Marshal(presentIn(sess, here, names))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `[{"id":"ffffffff-0000-0000-0000-000000000009","name":"Sam","facilitator":true},` +
+		`{"id":"cccccccc-0000-0000-0000-000000000003","name":"Ann","facilitator":false},` +
+		`{"id":"aaaaaaaa-0000-0000-0000-000000000001","name":"Sam","facilitator":false},` +
+		`{"id":"bbbbbbbb-0000-0000-0000-000000000002","name":"Sam","facilitator":false}]`
+	if string(got) != want {
+		t.Fatalf("present =\n %s\nwant\n %s", got, want)
 	}
 }

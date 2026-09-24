@@ -192,3 +192,27 @@ func TestSummariesAreThisSpacesSessionsNewestFirst(t *testing.T) {
 		}
 	}
 }
+
+// The facilitator's last pong is activity too: a room whose only recent sign
+// of life is its facilitator still being there reads as that moment, not as
+// the older story, heartbeat or creation.
+func TestAFacilitatorPongCanBeTheLatestActivity(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	sess, members := newSession(t, pool, "Dana Whitfield")
+
+	mustExec(t, pool, "update sessions set created_at = $2, facilitator_seen_at = $3 where id = $1",
+		sess.ID, at("10:00"), at("10:40"))
+	mustExec(t, pool, `insert into stories (session_id, title, position, created_at) values ($1, 'Login', 1, $2)`,
+		sess.ID, at("10:10"))
+	mustExec(t, pool, `insert into session_presence (session_id, user_id, replica_id, seen_at) values ($1, $2, 'a', $3)`,
+		sess.ID, members[0].ID, at("10:20"))
+
+	list, err := (&Sessions{Pool: pool}).SummariesBySpace(ctx, sess.SpaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := summaryByID(t, list, sess.ID).LastActivityAt; !got.Equal(at("10:40")) {
+		t.Fatalf("last activity = %s, want the facilitator's pong at %s", got, at("10:40"))
+	}
+}
