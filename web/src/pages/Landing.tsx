@@ -192,7 +192,13 @@ export function Landing() {
       setCanRetry(false);
       let sp: SpaceView;
       try {
-        sp = await api<SpaceView>("POST", "/api/spaces", { name: spaceName });
+        const org =
+          orgFilter ?? (myOrgs.data?.length === 1 ? myOrgs.data[0].slug : undefined);
+        sp = await api<SpaceView>(
+          "POST",
+          "/api/spaces",
+          org ? { name: spaceName, org } : { name: spaceName },
+        );
       } catch (e) {
         creating.current = false;
         setBusy(false);
@@ -224,7 +230,7 @@ export function Landing() {
       creating.current = false;
       setBusy(false);
     },
-    [navigate, qc],
+    [navigate, qc, orgFilter, myOrgs.data],
   );
 
   // Signing in is a full page navigation, so the submit that triggered it never
