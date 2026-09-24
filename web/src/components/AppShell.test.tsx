@@ -441,11 +441,13 @@ describe("the build stamp", () => {
 });
 
 describe("sidebar kind labels", () => {
+  // The summary fields the sidebar does not read.
+  const idle = { lastActivityAt: "", present: [], progress: null };
   const sessions = [
-    { id: "s1", kind: "poker", title: "Sprint 12", createdAt: "", endedAt: null, here: 0 },
-    { id: "s2", kind: "standup", title: "Daily", createdAt: "", endedAt: null, here: 0 },
-    { id: "s3", kind: "acme.retro", title: "Retro", createdAt: "", endedAt: null, here: 0 },
-    { id: "s4", kind: "poker", title: "Sprint 11", createdAt: "", endedAt: "2024-01-01", here: 0 },
+    { id: "s1", kind: "poker", title: "Sprint 12", createdAt: "", endedAt: null, here: 0, ...idle },
+    { id: "s2", kind: "standup", title: "Daily", createdAt: "", endedAt: null, here: 0, ...idle },
+    { id: "s3", kind: "acme.retro", title: "Retro", createdAt: "", endedAt: null, here: 0, ...idle },
+    { id: "s4", kind: "poker", title: "Sprint 11", createdAt: "", endedAt: "2024-01-01", here: 0, ...idle },
   ];
 
   /** The chip is an element of its own, so assert on it — not on the row's text. */

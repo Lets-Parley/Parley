@@ -1081,7 +1081,8 @@ function NewSessionModal({
       body[spec.key] = at.toISOString();
     }
     try {
-      const sess = await api<SessionSummary>("POST", `${spaceApi(org, slug)}/sessions`, {
+      // The create answers the bare session, not a summary: only the id is read.
+      const sess = await api<{ id: string }>("POST", `${spaceApi(org, slug)}/sessions`, {
         kind: kind.id,
         title: title.trim(),
         config: body,
