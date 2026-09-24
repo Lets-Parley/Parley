@@ -193,7 +193,10 @@ migration and embedding mistakes that unit tests miss.
     v0.11.1, v0.12.0) shipped with every one of them still reading v0.10.0.
     `scripts/check-release-pins.sh` and `scripts/check-release-freshness.sh`
     are CI legs that catch a partial bump and a version.mjs left behind a tag,
-    respectively — see [Cutting a
+    respectively. Bump first, tag second: merge the bump PR, then
+    `scripts/cut-release.sh X.Y.Z`, which refuses unless origin/main already
+    pins X.Y.Z. v0.13.0 was tagged before its bump and the freshness leg
+    blocked every PR for twelve hours — see [Cutting a
     release](/project/contributing/#cutting-a-release).
 12. **`users.link_id` is `on delete set null`, never cascade.** `votes`,
     `standup_entries` and presence all cascade from `users`, so cascading a

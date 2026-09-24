@@ -290,6 +290,8 @@ jobs:
           fetch-tags: true
       - name: Test the release pin checkers
         run: scripts/tests/check-release-pins-test.sh
+      - name: Test the release cutter
+        run: scripts/tests/cut-release-test.sh
       - name: Check every release pin agrees with site/src/version.mjs
         run: scripts/check-release-pins.sh
       - name: Check site/src/version.mjs isn't behind the newest release tag
