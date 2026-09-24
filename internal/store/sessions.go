@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -345,3 +346,91 @@ func (s *Sessions) Delete(ctx context.Context, id, spaceID string) error {
 	}
 	return nil
 }
+
+// SessionSummary is a session plus what the space page shows beside it. None
+// of it is a column on sessions, so it is read alongside the row rather than
+// stored on it.
+type SessionSummary struct {
+	Session
+	// LastActivityAt is the latest moment the schema records anything
+	// happening in the room, and nothing more precise than that:
+	//
+	//   - an ended session reads its ended_at. Every write path refuses an
+	//     ended room, so nothing after the close is activity — a presence
+	//     row that outlives it until the sweep is somebody looking;
+	//   - an open one reads the greatest of created_at, facilitator_seen_at
+	//     (bumped on the facilitator's connect and every pong),
+	//     speaker_started_at (a standup's turn moving on), the newest
+	//     stories.created_at, the newest standup_entries.updated_at, and the
+	//     newest session_presence.seen_at (anyone's heartbeat, on any
+	//     replica).
+	//
+	// Votes and saved estimates carry no timestamp, so casting one is visible
+	// here only through the voter's own presence heartbeat.
+	LastActivityAt time.Time
+	// Stories and StoriesEstimated count a poker room's stories and those
+	// with a saved estimate. Zero for every other kind.
+	Stories          int
+	StoriesEstimated int
+	// Entries counts a standup's queue — its entries not skipped — and
+	// EntriesAnswered those with a non-blank "today" or "blockers". Not
+	// "yesterday": start() and the ready click prefill it with the person's
+	// "today" from the space's previous standup (standup.yesterdayPrefill),
+	// so it is non-blank before anyone has written anything in this room.
+	// Only putEntry writes the other two, so they are what this session
+	// actually received. This is deliberately narrower than the frozen trend
+	// day's "answered", which also counts "yesterday". Zero for every other
+	// kind.
+	Entries         int
+	EntriesAnswered int
+}
+
+// SummariesBySpace is ListBySpace plus each room's activity and progress, in
+// one statement. The newest 50 sessions are chosen first and only those are
+// aggregated, so a space with a long history pays for fifty rooms and not for
+// all of them; every aggregate is an index lookup on session_id
+// (stories_session_idx and the primary keys of standup_entries and
+// session_presence).
+func (s *Sessions) SummariesBySpace(ctx context.Context, spaceID string) ([]SessionSummary, error) {
+	rows, err := s.Pool.Query(ctx, `
+		select `+prefixedSessionCols+`,
+		       case when s.ended_at is not null then s.ended_at
+		            else greatest(s.created_at, s.facilitator_seen_at, s.speaker_started_at,
+		                          st.newest, e.newest, p.newest) end,
+		       st.total, st.estimated, e.total, e.answered
+		from (select `+sessionCols+`, speaker_started_at from sessions
+		      where space_id = $1 order by created_at desc limit 50) s
+		cross join lateral (
+		    select count(*) as total,
+		           count(*) filter (where estimate is not null) as estimated,
+		           max(created_at) as newest
+		    from stories where session_id = s.id) st
+		cross join lateral (
+		    select count(*) filter (where not skipped) as total,
+		           count(*) filter (where not skipped and (
+		               btrim(today, E' \t\r\n') <> ''
+		               or btrim(blockers, E' \t\r\n') <> '')) as answered,
+		           max(updated_at) as newest
+		    from standup_entries where session_id = s.id) e
+		cross join lateral (
+		    select max(seen_at) as newest from session_presence where session_id = s.id) p
+		order by s.created_at desc`, spaceID)
+	if err != nil {
+		return nil, fmt.Errorf("listing session summaries: %w", err)
+	}
+	defer rows.Close()
+	out := []SessionSummary{}
+	for rows.Next() {
+		var x SessionSummary
+		if err := rows.Scan(&x.ID, &x.SpaceID, &x.Kind, &x.Title, &x.Config, &x.Phase,
+			&x.Revealed, &x.Version, &x.FacilitatorID, &x.FacilitatorSeenAt, &x.CreatedAt, &x.EndedAt,
+			&x.LastActivityAt, &x.Stories, &x.StoriesEstimated, &x.Entries, &x.EntriesAnswered); err != nil {
+			return nil, fmt.Errorf("scanning a session summary: %w", err)
+		}
+		out = append(out, x)
+	}
+	return out, rows.Err()
+}
+
+// prefixedSessionCols is sessionCols qualified by the alias s.
+var prefixedSessionCols = "s." + strings.ReplaceAll(sessionCols, ", ", ", s.")
