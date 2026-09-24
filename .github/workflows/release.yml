@@ -46,6 +46,13 @@ jobs:
           git fetch --no-tags origin main
           git merge-base --is-ancestor "$release_commit" origin/main
           version=${TAG#v}
+          # A tag cut before the pin bump leaves main stale and the freshness
+          # gate failing every PR (v0.13.0). This runs from the tag's own
+          # commit, so it only protects tags cut after it landed.
+          . scripts/lib/release-pins.sh
+          pinned=$(read_version "$VERSION_FILE")
+          test "$pinned" = "$version" \
+            || { echo "::error::$TAG was cut before the pin bump ($VERSION_FILE reads '$pinned'); nothing was published. Tags are immutable: merge scripts/bump-release-pins.sh for the next version, then run scripts/cut-release.sh with it."; exit 1; }
           major_minor=${version%.*}
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"

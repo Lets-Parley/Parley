@@ -35,6 +35,7 @@ newest=$(printf '%s\n%s\n' "$version" "$latest_version" | sort -V | tail -1)
 if [ "$newest" != "$version" ]; then
   echo "site/src/version.mjs pins $version but the newest release is $latest_tag." >&2
   echo "run: scripts/bump-release-pins.sh $latest_version" >&2
+  echo "(release order is bump, merge, then scripts/cut-release.sh — never tag first)" >&2
   exit 1
 fi
 

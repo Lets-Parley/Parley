@@ -142,6 +142,13 @@ test -n "$sbom_upload_name"
 test -n "$sbom_download_name"
 test "$sbom_upload_name" = "$sbom_download_name"
 
+# A tag cut before the pin bump (v0.13.0) must fail validate, before any job
+# that pushes an image can start.
+test "$(digest_guard 'test "$pinned" = "$version" \')" -eq 1 \
+  || { echo "validate does not refuse a tag whose version.mjs disagrees" >&2; exit 1; }
+job_block validate | grep -Fq 'pinned=$(read_version "$VERSION_FILE")' \
+  || { echo "validate does not read version.mjs at the tag" >&2; exit 1; }
+
 compare_line=$(line_number 'test "$actual" = "$expected"')
 tag_check_line=$(line_number 'test "$current_commit" = "$VALIDATED_COMMIT"')
 promotion_line=$(line_number '--tag "$IMAGE:$VERSION"')

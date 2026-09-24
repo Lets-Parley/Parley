@@ -170,8 +170,23 @@ anything that is not `X.Y.Z`, and moves every version it supersedes into
 row named, but every `v*` tag between it and `X.Y.Z`, so a release that ships
 while the pins sit stuck (as v0.11.0 and v0.11.1 both did against 0.10.0)
 still ends up listed once the next bump runs. That lookup needs the repo's
-tags fetched locally; run it from a normal clone, not a shallow one. Run the
-script once per release and commit the result alongside the tag.
+tags fetched locally; run it from a normal clone, not a shallow one.
+
+The order is bump first, tag second:
+
+1. Open a pull request that runs `scripts/bump-release-pins.sh X.Y.Z`, and
+   merge it.
+2. Run `scripts/cut-release.sh X.Y.Z`. It fetches `origin/main`, refuses unless
+   that commit's `version.mjs` reads `X.Y.Z` and every pin agrees, refuses a tag
+   that already exists, then runs `gh release create vX.Y.Z --target <sha>
+   --generate-notes` against that exact commit. `--dry-run` runs the checks and
+   prints the command instead.
+
+v0.13.0 was tagged the other way round: a tag cut before the bump leaves `main`
+stale, and the freshness check below then fails every pull request in the
+repository until the bump lands — twelve hours, that time. The release
+workflow's `validate` job also refuses a tag whose `version.mjs` does not match
+it, before any image is pushed.
 
 Two CI legs exist because that bump used to be a manual step nobody remembered
 after #470 landed it once: three releases (v0.11.0, v0.11.1, v0.12.0) shipped
@@ -179,8 +194,8 @@ with every pin still reading the one before. `scripts/check-release-pins.sh`
 fails a pull request where any pin disagrees with `version.mjs` — a partial
 run of the bump script, or a hand-edit that missed a file.
 `scripts/check-release-freshness.sh` fails one where `version.mjs` is older
-than the newest `v*` tag — the case the bump script exists but nobody ran it
-after cutting the tag — and names the exact command to fix it. Both read
+than the newest `v*` tag — the last net for a tag cut by hand, bypassing
+`cut-release.sh` — and names the exact command to fix it. Both read
 `scripts/lib/release-pins.sh`'s pin list, so a location added there is bumped
 and checked without a second list to keep in sync.
 
