@@ -11,7 +11,7 @@ import spaceDark from "../../../assets/space-room-code-dark.png";
 import settingsLight from "../../../assets/space-settings-light.png";
 import settingsDark from "../../../assets/space-settings-dark.png";
 
-<VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "internal/api/authz.go", "web/src/pages/OrgDirectory.tsx", "web/src/pages/SpacePage.tsx", "web/src/pages/SpaceSettingsPage.tsx", "web/src/components/DecksPanel.tsx", "web/src/components/Kudos.tsx", "web/src/pages/Landing.tsx", "internal/store/sessions.go"]} />
+<VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "internal/api/authz.go", "web/src/pages/OrgDirectory.tsx", "web/src/pages/SpacePage.tsx", "web/src/pages/SpaceSettingsPage.tsx", "web/src/components/DecksPanel.tsx", "web/src/components/Kudos.tsx", "web/src/components/AppShell.tsx", "web/src/pages/Landing.tsx", "internal/store/sessions.go"]} />
 
 A space is a team's room. It has a memorable URL — `/o/acme/s/platform-team` — a roster,
 and a history of every session run in it.
@@ -247,9 +247,11 @@ timestamp and calling it presence.
 
 ## Kudos
 
-Below the session list, every space has a **kudos wall**: pick somebody from the
-roster, say in a sentence what they did — up to 280 characters, counted down as
-you type — and it appears at the top of the wall with their name on it. It needs
+Every space has a **kudos wall**, in a column beside the session list on a wide
+screen and below it on a narrow one: pick somebody from the roster — or press
+**Thank** beside their name in the sidebar — say in a sentence what they did, up
+to 280 characters, with a countdown once 40 are left, and it appears at the top
+of the wall with their name on it. It needs
 no meeting: thanking a colleague on a Thursday afternoon does not wait for a
 ceremony to be open.
 
