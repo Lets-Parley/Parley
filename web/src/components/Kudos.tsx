@@ -278,15 +278,16 @@ export function Kudos({
               </li>
             ))}
           </ul>
-          {/* The wall's length is the one number here, and only on the way
-              to the rest of it: it ranks nobody. */}
-          {!showAll && rows.length > SHOWN && (
+          {/* No number on the way to the rest: the wall's length is a
+              count too, and nothing here is counted. */}
+          {rows.length > SHOWN && (
             <button
               type="button"
+              aria-expanded={showAll}
               className={`${TOUCH_HIT} -mx-2 px-2 text-[13px] font-bold text-accent hover:underline`}
-              onClick={() => setShowAll(true)}
+              onClick={() => setShowAll((v) => !v)}
             >
-              Show all {rows.length}
+              {showAll ? "Show fewer" : "Show all"}
             </button>
           )}
         </>

@@ -205,8 +205,16 @@ describe("Kudos wall", () => {
     mount();
     await screen.findByTestId("kudo-n0");
     expect(screen.queryByTestId("kudo-n5")).toBe(null);
-    await userEvent.click(screen.getByRole("button", { name: "Show all 7" }));
+    const more = screen.getByRole("button", { name: /^Show all/ });
+    // Nothing here is counted: not even the wall's length on the way to it.
+    expect(more.textContent).not.toMatch(/\d/);
+    expect(more.getAttribute("aria-label") ?? "").not.toMatch(/\d/);
+    await userEvent.click(more);
     expect(screen.getByTestId("kudo-n6")).toBeTruthy();
+    const fewer = screen.getByRole("button", { name: "Show fewer" });
+    expect(fewer.textContent).not.toMatch(/\d/);
+    await userEvent.click(fewer);
+    expect(screen.queryByTestId("kudo-n5")).toBe(null);
   });
 });
 
