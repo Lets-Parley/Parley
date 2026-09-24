@@ -1910,6 +1910,7 @@ describe("SpacePage kudos wall", () => {
     const wall = await open();
     expect(await wall.findByTestId("kudos-empty")).toBeTruthy();
 
+    await userEvent.click(wall.getByRole("button", { name: "Thank someone" }));
     await userEvent.selectOptions(wall.getByLabelText("To"), "dana");
     await userEvent.type(wall.getByLabelText("For what"), "Unblocked the release.");
     await userEvent.click(wall.getByRole("button", { name: "Give kudos" }));
@@ -1926,6 +1927,7 @@ describe("SpacePage kudos wall", () => {
 
   it("never offers you as a recipient", async () => {
     const wall = await open();
+    await userEvent.click(await wall.findByRole("button", { name: "Thank someone" }));
     const names = within(wall.getByLabelText("To"))
       .getAllByRole("option")
       .map((o) => o.textContent);
@@ -2006,6 +2008,7 @@ describe("SpacePage kudos wall", () => {
       return defaultApi(method, path, body);
     });
 
+    await userEvent.click(await wall.findByRole("button", { name: "Thank someone" }));
     await userEvent.selectOptions(wall.getByLabelText("To"), "dana");
     await userEvent.type(wall.getByLabelText("For what"), "Shipped the fix.");
     await userEvent.click(wall.getByRole("button", { name: "Give kudos" }));
@@ -2093,5 +2096,152 @@ describe("SpacePage standup participation trend", () => {
     await screen.findAllByText("Sprint 12 grooming");
     expect(screen.queryByRole("region", { name: "Standup participation" })).toBeNull();
     expect(vi.mocked(api).mock.calls.some((c) => String(c[1]).endsWith("/standup-trend"))).toBe(false);
+  });
+});
+
+/**
+ * Kudos and standup participation as a column beside the sessions. jsdom has
+ * no layout, so the column itself cannot be seen here; what is pinned is the
+ * order everything reads in, which is the same at every width, and the
+ * disclosure that keeps the give form out of the way until it is wanted.
+ */
+describe("SpacePage kudos rail", () => {
+  const roster = {
+    ...space,
+    members: [
+      { userId: "marcus", name: "Marcus Okonjo", avatarHue: 40, spectator: false, role: "member" },
+      { userId: "dana", name: "Dana Whitfield", avatarHue: 120, spectator: false, role: "owner" },
+      { userId: "visitor", name: "Link Visitor", avatarHue: 200, spectator: false, guest: true },
+    ],
+  } as unknown as SpaceView;
+
+  const defaultApi = vi.mocked(api).getMockImplementation()!;
+
+  afterEach(() => {
+    view = space;
+  });
+
+  async function open() {
+    vi.mocked(api).mockImplementation(defaultApi);
+    view = roster;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    return within(await screen.findByTestId("kudos"));
+  }
+
+  function precedes(a: Node, b: Node) {
+    return (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  }
+
+  it("reads kudos before standup participation, and the wall before the form", async () => {
+    kudos = [
+      {
+        id: "k1",
+        fromUserId: "dana",
+        toUserId: "marcus",
+        text: "Untangled the flaky seat test.",
+        createdAt: "2026-09-03T09:00:00.000Z",
+        sessionId: "",
+      },
+    ];
+    const wall = await open();
+    const trendRegion = await screen.findByRole("region", { name: "Standup participation" });
+    expect(precedes(screen.getByTestId("kudos"), trendRegion)).toBe(true);
+    const row = await wall.findByTestId("kudo-k1");
+    expect(precedes(row, wall.getByRole("button", { name: "Thank someone" }))).toBe(true);
+    // Both panels speak with one heading voice.
+    const kh = wall.getByRole("heading", { name: "Kudos" });
+    const th = within(trendRegion).getByRole("heading", { name: "Standup participation" });
+    expect(kh.className).toBe(th.className);
+  });
+
+  it("keeps the form folded until Thank someone opens it, then hands focus to To", async () => {
+    const wall = await open();
+    const trigger = await wall.findByRole("button", { name: "Thank someone" });
+    expect(wall.queryByLabelText("To")).toBe(null);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+    await userEvent.click(trigger);
+    const to = wall.getByLabelText("To");
+    await waitFor(() => expect(document.activeElement).toBe(to));
+  });
+
+  it("folds the form on Escape and gives focus back to Thank someone", async () => {
+    const wall = await open();
+    await userEvent.click(await wall.findByRole("button", { name: "Thank someone" }));
+    await waitFor(() => expect(document.activeElement).toBe(wall.getByLabelText("To")));
+    await userEvent.keyboard("{Escape}");
+    expect(wall.queryByLabelText("To")).toBe(null);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(wall.getByRole("button", { name: "Thank someone" })),
+    );
+  });
+
+  it("folds the form on Cancel too", async () => {
+    const wall = await open();
+    await userEvent.click(await wall.findByRole("button", { name: "Thank someone" }));
+    await userEvent.click(wall.getByRole("button", { name: "Cancel" }));
+    expect(wall.queryByLabelText("To")).toBe(null);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(wall.getByRole("button", { name: "Thank someone" })),
+    );
+  });
+
+  it("thanks a member from the sidebar: the form opens with them chosen and For what focused", async () => {
+    const wall = await open();
+    const nav = within(screen.getByRole("navigation", { name: "Space" }));
+    await userEvent.click(await nav.findByRole("button", { name: "Thank Dana Whitfield" }));
+    const to = wall.getByLabelText("To") as HTMLSelectElement;
+    expect(to.value).toBe("dana");
+    await waitFor(() => expect(document.activeElement).toBe(wall.getByLabelText("For what")));
+  });
+
+  it("offers no Thank on your own row or on a link guest's", async () => {
+    await open();
+    const nav = within(screen.getByRole("navigation", { name: "Space" }));
+    expect(await nav.findByRole("button", { name: "Thank Dana Whitfield" })).toBeTruthy();
+    expect(nav.queryByRole("button", { name: "Thank Marcus Okonjo" })).toBe(null);
+    expect(nav.queryByRole("button", { name: /Thank Link Visitor/ })).toBe(null);
+  });
+
+  it("says the wall could not be read, with a Retry, rather than claiming it is empty", async () => {
+    let failing = true;
+    vi.mocked(api).mockImplementation(async (method: string, path: string, body?: unknown) => {
+      if (failing && method === "GET" && path.endsWith("/kudos")) throw new Error("network");
+      return defaultApi(method, path, body);
+    });
+    view = roster;
+    kudos = [
+      {
+        id: "k2",
+        fromUserId: "dana",
+        toUserId: "marcus",
+        text: "Held the release together.",
+        createdAt: "2026-09-03T09:00:00.000Z",
+        sessionId: "",
+      },
+    ];
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    const wall = within(await screen.findByTestId("kudos"));
+    expect(await wall.findByText(/could not read the kudos/i)).toBeTruthy();
+    expect(wall.queryByTestId("kudos-empty")).toBe(null);
+    failing = false;
+    await userEvent.click(wall.getByRole("button", { name: "Retry" }));
+    expect(await wall.findByTestId("kudo-k2")).toBeTruthy();
+  });
+
+  it("says the participation trend could not be read, with a Retry, rather than nothing to show", async () => {
+    let failing = true;
+    vi.mocked(api).mockImplementation(async (method: string, path: string, body?: unknown) => {
+      if (failing && path.endsWith("/standup-trend")) throw new Error("network");
+      return defaultApi(method, path, body);
+    });
+    trend = { weeks: [{ weekStart: "2026-09-14", ratio: 0.8 }] };
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    const region = within(await screen.findByRole("region", { name: "Standup participation" }));
+    expect(await region.findByText(/could not read the participation trend/i)).toBeTruthy();
+    expect(region.queryByText(/Nothing to show yet/)).toBe(null);
+    failing = false;
+    await userEvent.click(region.getByRole("button", { name: "Retry" }));
+    expect(await region.findByText("80%")).toBeTruthy();
   });
 });

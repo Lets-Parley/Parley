@@ -1,10 +1,19 @@
-import { useId, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errorText, type Kudo, type Person } from "../lib/api";
 import { Avatar } from "./Avatar";
 import { buttonPrimary, buttonQuiet, inputClass, labelText } from "./Modal";
 import { kudosApi } from "../lib/paths";
+import { TOUCH_HIT } from "../lib/breakpoints";
 import { useToast } from "../lib/ui";
+
+/** Who a Thank pressed outside the wall is for. */
+export type ThankRequest = { userId: string };
+
+/** The wall shows this many before it asks to show the rest. */
+const SHOWN = 5;
+/** The counter stays out of the way until this few characters are left. */
+const WARN_AT = 40;
 
 /** Matches maxKudoRunes in internal/api/kudos.go and the CHECK in 0033_kudos.sql. */
 const MAX_RUNES = 280;
@@ -46,12 +55,19 @@ export function Kudos({
   slug,
   members,
   meId,
+  thank = null,
 }: {
   org: string;
   slug: string;
   /** The space roster, as SpacePage already has it. */
   members: Person[] | undefined;
   meId: string;
+  /**
+   * A Thank pressed somewhere else on the page — the sidebar's member rows.
+   * A fresh object per press, so pressing the same person twice still opens
+   * the form a second time.
+   */
+  thank?: ThankRequest | null;
 }) {
   const qc = useQueryClient();
   const say = useToast();
@@ -60,8 +76,19 @@ export function Kudos({
   const [busy, setBusy] = useState(false);
   /** The kudo whose withdrawal has been asked about, "" for none. */
   const [confirming, setConfirming] = useState("");
+  /** Whether the give form is unfolded. It starts folded: the wall is the
+      thing most visits come to read. */
+  const [formOpen, setFormOpen] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  /** Where focus goes once the form has (un)folded; a fresh object per move. */
+  const [focusTo, setFocusTo] = useState<{ el: "to" | "text" | "trigger" } | null>(null);
+  const [lastThank, setLastThank] = useState<ThankRequest | null>(thank);
   const headingId = useId();
   const countId = useId();
+  const formId = useId();
+  const toRef = useRef<HTMLSelectElement>(null);
+  const textRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const kudos = useQuery({
     queryKey: ["kudos", org, slug],
@@ -78,12 +105,59 @@ export function Kudos({
   );
   const byId = useMemo(() => new Map(roster.map((m) => [m.userId, m])), [roster]);
   const nameOf = (id: string) => byId.get(id)?.name ?? "Someone who has left";
+  // Two people may share a display name, and a picker offering "Kade" twice
+  // is a coin toss. The id is the only thing the roster sends that tells them
+  // apart, so its tail is the suffix — stable across visits, and nothing the
+  // members could not already see in a URL.
+  const optionLabel = useMemo(() => {
+    const seen = new Map<string, number>();
+    for (const m of candidates) seen.set(m.name, (seen.get(m.name) ?? 0) + 1);
+    return (m: Person) => ((seen.get(m.name) ?? 0) > 1 ? `${m.name} · ${m.userId.slice(-4)}` : m.name);
+  }, [candidates]);
+
+  // A Thank from the sidebar: unfold the form with that person chosen and
+  // put the caret where the words go. Adjusted during render rather than in
+  // an effect, so the form never paints a frame with the old recipient.
+  if (thank !== lastThank) {
+    setLastThank(thank);
+    if (thank && candidates.some((m) => m.userId === thank.userId)) {
+      setFormOpen(true);
+      setTo(thank.userId);
+      setFocusTo({ el: "text" });
+    }
+  }
+
+  useEffect(() => {
+    if (!focusTo) return;
+    const el = { to: toRef, text: textRef, trigger: triggerRef }[focusTo.el].current;
+    // Focusing scrolls the field into view on its own, instantly, which is
+    // what a reduced-motion reader wants and costs everyone else nothing.
+    el?.focus();
+  }, [focusTo]);
+
+  function unfold() {
+    setFormOpen(true);
+    setFocusTo({ el: "to" });
+  }
+
+  function fold() {
+    setFormOpen(false);
+    setFocusTo({ el: "trigger" });
+  }
+
+  function onFormKey(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      fold();
+    }
+  }
 
   // Runes, not UTF-16 units: the handler counts runes, so a `maxLength` of 280
   // on the field would let an emoji-heavy kudo past the counter and straight
   // into a 400.
   const left = MAX_RUNES - [...text].length;
   const rows = kudos.data ?? [];
+  const visible = showAll ? rows : rows.slice(0, SHOWN);
 
   async function give(e: FormEvent) {
     e.preventDefault();
@@ -94,7 +168,9 @@ export function Kudos({
       await api("POST", kudosApi(org, slug), { to, text: t });
       await qc.invalidateQueries({ queryKey: ["kudos", org, slug] });
       setText("");
+      setTo("");
       say(`Kudos sent to ${nameOf(to)}.`);
+      fold();
     } catch (err) {
       say(errorText(err));
     } finally {
@@ -120,27 +196,132 @@ export function Kudos({
     <section
       data-testid="kudos"
       aria-labelledby={headingId}
-      className="mt-8 rounded-card border border-line bg-surface px-5 py-4"
+      className="rounded-panel border border-line bg-surface px-5 py-5"
     >
-      <h2 id={headingId} className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+      <h2 id={headingId} className={railHeading}>
         Kudos
       </h2>
-      <p className="mt-1 text-[13px] text-ink-soft text-pretty">
-        Thank somebody by name. No meeting required, and nothing here is counted or ranked.
+      <p className="mt-1 text-[13px] text-ink-faint text-pretty">
+        Thanks by name. Nothing here is counted or ranked.
       </p>
 
-      {candidates.length === 0 ? (
-        <p className="mt-3 text-[13px] text-ink-faint">
-          Nobody else is in this space yet — invite someone and you will have somebody to thank.
+      {kudos.isLoading ? (
+        <p className="mt-3 text-[13px] text-ink-faint">Reading the wall…</p>
+      ) : kudos.isError && !kudos.data ? (
+        <RailError what="the kudos" onRetry={() => void kudos.refetch()} busy={kudos.isFetching} />
+      ) : rows.length === 0 ? (
+        <p data-testid="kudos-empty" className="mt-3 text-[13px] text-ink-soft text-pretty">
+          No kudos yet. The first one is the hardest — say what somebody did and who did it.
         </p>
       ) : (
-        <form className="mt-3 flex flex-wrap items-end gap-2" onSubmit={give}>
+        <>
+          <ul className="mt-2 flex flex-col divide-y divide-line">
+            {visible.map((k) => (
+              <li
+                key={k.id}
+                data-testid={`kudo-${k.id}`}
+                className="flex flex-wrap items-start gap-3 py-3"
+              >
+                <Avatar
+                  name={nameOf(k.fromUserId)}
+                  hue={byId.get(k.fromUserId)?.avatarHue ?? 0}
+                  icon={byId.get(k.fromUserId)?.avatarIcon}
+                  size="sm"
+                  decorative
+                />
+                {/* min-w-0 is what actually lets the wrapping below happen: a
+                    flex child defaults to min-content width, so an unbroken word
+                    would otherwise widen the row past the panel. */}
+                <span className="min-w-0 flex-1">
+                  <span data-testid="kudo-who" className="block break-words text-[13px] text-ink-soft">
+                    <span className="font-semibold text-ink">{nameOf(k.fromUserId)}</span> thanked{" "}
+                    <span className="font-semibold text-ink">{nameOf(k.toUserId)}</span>
+                  </span>
+                  <span data-testid="kudo-text" className="mt-0.5 block break-words text-[14px]">
+                    {k.text}
+                  </span>
+                  <time dateTime={k.createdAt} className="mt-1 block text-[12px] text-ink-faint">
+                    {ago(k.createdAt)}
+                  </time>
+                  {/* Only the sender, matching the handler: everyone else gets
+                      a 403 there, so offering the control would be a lie. It
+                      sits under the words rather than beside them, so a narrow
+                      column keeps its width for the thank-you itself. */}
+                  {k.fromUserId === meId &&
+                    (confirming === k.id ? (
+                      <span className="-ml-2 flex flex-wrap items-center">
+                        <button type="button" className={smallPill} onClick={() => setConfirming("")}>
+                          <span className={smallPillFace}>Keep it</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={smallPill}
+                          disabled={busy}
+                          onClick={() => void withdraw(k.id)}
+                        >
+                          <span className={smallPillFace}>Withdraw it</span>
+                        </button>
+                      </span>
+                    ) : (
+                      /* Nothing on the server undoes a withdrawal, so the
+                         first click only asks. */
+                      <button
+                        type="button"
+                        className={`${smallPill} -ml-2`}
+                        aria-label={`Withdraw: ${k.text}`}
+                        onClick={() => setConfirming(k.id)}
+                      >
+                        <span className={smallPillFace}>Withdraw</span>
+                      </button>
+                    ))}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {/* The wall's length is the one number here, and only on the way
+              to the rest of it: it ranks nobody. */}
+          {!showAll && rows.length > SHOWN && (
+            <button
+              type="button"
+              className={`${TOUCH_HIT} -mx-2 px-2 text-[13px] font-bold text-accent hover:underline`}
+              onClick={() => setShowAll(true)}
+            >
+              Show all {rows.length}
+            </button>
+          )}
+        </>
+      )}
+
+      {candidates.length === 0 ? (
+        <p className="mt-4 text-[13px] text-ink-faint text-pretty">
+          Nobody else is in this space yet — invite someone and you will have somebody to thank.
+        </p>
+      ) : !formOpen ? (
+        <button
+          ref={triggerRef}
+          type="button"
+          aria-expanded={false}
+          aria-controls={formId}
+          className={`${TOUCH_HIT} ${buttonQuiet} mt-4 w-full`}
+          onClick={unfold}
+        >
+          Thank someone
+        </button>
+      ) : (
+        <form
+          id={formId}
+          aria-label="Thank someone"
+          className="mt-4 flex flex-col gap-3 border-t border-line pt-4"
+          onSubmit={give}
+          onKeyDown={onFormKey}
+        >
           <label className="flex flex-col gap-1">
             <span className={labelText}>To</span>
             {/* A native select: it is keyboard-operable, screen-reader
                 announced and mobile-native for free, which a hand-rolled
                 listbox would each have to earn back. */}
             <select
+              ref={toRef}
               className={inputClass}
               value={to}
               onChange={(e) => setTo(e.target.value)}
@@ -148,14 +329,15 @@ export function Kudos({
               <option value="">Choose somebody</option>
               {candidates.map((m) => (
                 <option key={m.userId} value={m.userId}>
-                  {m.name}
+                  {optionLabel(m)}
                 </option>
               ))}
             </select>
           </label>
-          <label className="flex min-w-48 flex-1 flex-col gap-1">
+          <label className="flex flex-col gap-1">
             <span className={labelText}>For what</span>
             <input
+              ref={textRef}
               className={inputClass}
               value={text}
               aria-describedby={countId}
@@ -164,98 +346,80 @@ export function Kudos({
               placeholder="What did they do?"
             />
           </label>
-          <button
-            type="submit"
-            className={buttonPrimary}
-            disabled={!to || !text.trim() || left < 0 || busy}
-          >
-            Give kudos
-          </button>
-          {/* The numeral is the only data in the line, so it alone is mono and
-              tabular — the count must not jitter as it falls. */}
-          <span
-            id={countId}
-            data-testid="kudos-left"
-            className={`w-full text-[13px] ${left < 0 ? "text-stop" : "text-ink-faint"}`}
-          >
-            <span className="font-mono tabular-nums">{left}</span> characters left
+          {/* Quiet until it matters. The numeral is the only data in the
+              line, so it alone is mono and tabular — it must not jitter as
+              it falls. */}
+          <span id={countId} className="text-[13px] empty:hidden">
+            {left <= WARN_AT && (
+              <span data-testid="kudos-left" className={left < 0 ? "text-stop" : "text-ink-faint"}>
+                {left < 0 ? (
+                  <>
+                    <span className="font-mono tabular-nums">{-left}</span> over — shorten it to{" "}
+                    {MAX_RUNES} characters to send
+                  </>
+                ) : (
+                  <>
+                    <span className="font-mono tabular-nums">{left}</span> characters left
+                  </>
+                )}
+              </span>
+            )}
+          </span>
+          {/* Said once, when the text first runs over, rather than on every
+              keystroke the visible counter changes on. */}
+          <span data-testid="kudos-over" aria-live="polite" className="sr-only">
+            {left < 0 ? `Too long to send. A kudo is at most ${MAX_RUNES} characters.` : ""}
+          </span>
+          <span className="flex flex-wrap items-center justify-end gap-2">
+            <button type="button" className={`${TOUCH_HIT} ${buttonQuiet}`} onClick={fold}>
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className={`${TOUCH_HIT} ${buttonPrimary}`}
+              disabled={!to || !text.trim() || left < 0 || busy}
+            >
+              Give kudos
+            </button>
           </span>
         </form>
       )}
-
-      {kudos.isLoading ? (
-        <p className="mt-3 text-[13px] text-ink-faint">Reading the wall…</p>
-      ) : rows.length === 0 ? (
-        <p data-testid="kudos-empty" className="mt-4 text-[13px] text-ink-faint text-pretty">
-          No kudos yet. The first one is the hardest — say what somebody did and who did it.
-        </p>
-      ) : (
-        <ul className="mt-4 flex flex-col divide-y divide-line">
-          {rows.map((k) => (
-            <li
-              key={k.id}
-              data-testid={`kudo-${k.id}`}
-              className="flex flex-wrap items-start gap-3 py-3"
-            >
-              <Avatar
-                name={nameOf(k.fromUserId)}
-                hue={byId.get(k.fromUserId)?.avatarHue ?? 0}
-                icon={byId.get(k.fromUserId)?.avatarIcon}
-                size="sm"
-                decorative
-              />
-              {/* min-w-0 is what actually lets the wrapping below happen: a
-                  flex child defaults to min-content width, so an unbroken word
-                  would otherwise widen the row past the panel. */}
-              <span className="min-w-0 flex-1">
-                <span data-testid="kudo-who" className="block break-words text-[13px] text-ink-soft">
-                  <span className="font-semibold text-ink">{nameOf(k.fromUserId)}</span> thanked{" "}
-                  <span className="font-semibold text-ink">{nameOf(k.toUserId)}</span>
-                </span>
-                <span data-testid="kudo-text" className="mt-0.5 block break-words text-[14px]">
-                  {k.text}
-                </span>
-                <time dateTime={k.createdAt} className="mt-1 block text-[12px] text-ink-faint">
-                  {ago(k.createdAt)}
-                </time>
-              </span>
-              {/* Only the sender, matching the handler: everyone else gets a
-                  403 there, so offering the control would be a lie. */}
-              {k.fromUserId === meId &&
-                (confirming === k.id ? (
-                  <span className="flex shrink-0 items-center gap-1">
-                    <button
-                      type="button"
-                      className={buttonQuiet}
-                      onClick={() => setConfirming("")}
-                    >
-                      Keep it
-                    </button>
-                    <button
-                      type="button"
-                      className={buttonQuiet}
-                      disabled={busy}
-                      onClick={() => void withdraw(k.id)}
-                    >
-                      Withdraw it
-                    </button>
-                  </span>
-                ) : (
-                  /* Nothing on the server undoes a withdrawal, so the first
-                     click only asks. */
-                  <button
-                    type="button"
-                    className={`${buttonQuiet} shrink-0`}
-                    aria-label={`Withdraw: ${k.text}`}
-                    onClick={() => setConfirming(k.id)}
-                  >
-                    Withdraw
-                  </button>
-                ))}
-            </li>
-          ))}
-        </ul>
-      )}
     </section>
+  );
+}
+
+/** A small pill inside a full-size hit area: the target is 44px, the face is not. */
+const smallPill = `${TOUCH_HIT} inline-flex items-center justify-center px-2 disabled:opacity-50`;
+const smallPillFace =
+  "rounded-full border border-line-strong px-3 py-1 text-[12px] font-bold text-ink-soft hover:bg-felt-deep";
+
+/** The one heading voice both panels beside the sessions speak in. */
+export const railHeading = "text-[17px] font-bold tracking-tight text-ink";
+
+/**
+ * A panel whose read failed. Saying "nothing yet" here would be a claim the
+ * page cannot back: it does not know.
+ */
+export function RailError({
+  what,
+  onRetry,
+  busy,
+}: {
+  what: string;
+  onRetry: () => void;
+  busy: boolean;
+}) {
+  return (
+    <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-soft">
+      <span className="text-pretty">Could not read {what} just now.</span>
+      <button
+        type="button"
+        className={`${TOUCH_HIT} ${buttonQuiet}`}
+        disabled={busy}
+        onClick={onRetry}
+      >
+        Retry
+      </button>
+    </p>
   );
 }

@@ -134,6 +134,12 @@ type Props = {
   actions?: ReactNode;
   /** Plugin UI for the space nav. Never shown to a link guest. */
   navExtra?: ReactNode;
+  /**
+   * Set where a kudos wall is listening — the space page. Each member row
+   * other than yours and a link guest's then carries a Thank that hands the
+   * wall that person's id.
+   */
+  onThank?: (userId: string) => void;
   children: ReactNode;
 };
 
@@ -187,6 +193,7 @@ export function AppShell({
   guest = false,
   actions,
   navExtra,
+  onThank,
   children,
 }: Props) {
   // Below md there is no room for a rail, so the same nav arrives as a sheet.
@@ -266,12 +273,14 @@ export function AppShell({
               <h2 className="mb-2.5 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
                 Members · {members.length}
               </h2>
-              <ul className="flex flex-col gap-2">
+              <ul className="flex flex-col gap-0.5">
                 {members.map((m) => (
-                  <li key={m.userId}>
+                  /* Two controls side by side, never one inside the other: a
+                     button may not hold a button. */
+                  <li key={m.userId} className="group flex items-center gap-1">
                     <button
                       onClick={() => setWho(m.userId)}
-                      className="-mx-1 flex w-[calc(100%+0.5rem)] items-center gap-2.5 rounded-chip px-1 py-0.5 text-left hover:bg-felt-deep"
+                      className="-mx-1 flex min-h-9 min-w-0 flex-1 items-center gap-2.5 rounded-chip px-1 py-0.5 text-left hover:bg-felt-deep"
                     >
                     <span className="relative">
                       <Avatar
@@ -320,6 +329,28 @@ export function AppShell({
                       </span>
                     )}
                     </button>
+                    {/* The same people the wall's picker offers: not you, and
+                        not a link guest, who may neither send nor receive. On
+                        a pointer it waits for the row to be hovered or
+                        focused; on touch, where there is no hover, it is
+                        simply there. */}
+                    {onThank && me && !guest && m.userId !== me.id && !m.guest && (
+                      <button
+                        type="button"
+                        aria-label={`Thank ${safeDisplayName(m.name)}`}
+                        onClick={() => {
+                          // The sheet covers the page; the form it opens has
+                          // to be seen.
+                          if (!wide) setSideOpen(false);
+                          onThank(m.userId);
+                        }}
+                        className={`${TOUCH_HIT} inline-flex shrink-0 items-center justify-center opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 max-sm:opacity-100 [@media(hover:none)]:opacity-100`}
+                      >
+                        <span className="rounded-full border border-line-strong px-2.5 py-0.5 text-[11px] font-bold text-ink-soft hover:bg-felt-deep">
+                          Thank
+                        </span>
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>

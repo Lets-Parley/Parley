@@ -98,11 +98,12 @@ describe("the kudos give form", () => {
 
   it("is reachable, labelled and announces what it did, from the keyboard alone", async () => {
     renderApp(<Kudos org="acme" slug="platform-team" members={members} meId="marcus" />);
-    const picker = await screen.findByLabelText("To");
+    await userEvent.click(await screen.findByRole("button", { name: "Thank someone" }));
+    const picker = screen.getByLabelText("To");
     const text = screen.getByLabelText("For what");
     const give = screen.getByRole("button", { name: "Give kudos" });
 
-    // Tabbing from the top of the panel reaches all three in order — no
+    // Tabbing from the top of the panel reaches every control in order — no
     // control is a div that only a mouse can operate. Filled in first,
     // because a disabled submit is not in the tab order at all and the
     // sequence would then prove nothing about the button.
@@ -111,6 +112,8 @@ describe("the kudos give form", () => {
     await userEvent.tab();
     expect(document.activeElement).toBe(text);
     await userEvent.keyboard("Held the line on the release.");
+    await userEvent.tab();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }));
     await userEvent.tab();
     expect(document.activeElement).toBe(give);
 

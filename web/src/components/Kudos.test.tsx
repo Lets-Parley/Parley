@@ -24,6 +24,12 @@ const members = [
   makePerson({ userId: "dana", name: "Dana Whitfield" }),
 ];
 
+/** Opens the folded give form and returns the For what field. */
+async function openForm() {
+  await userEvent.click(await screen.findByRole("button", { name: "Thank someone" }));
+  return screen.getByLabelText("For what");
+}
+
 function mount(over: Partial<Parameters<typeof Kudos>[0]> = {}) {
   return renderApp(
     <Kudos org="acme" slug="platform-team" members={members} meId="marcus" {...over} />,
@@ -89,7 +95,8 @@ describe("Kudos wall", () => {
 
   it("only offers people other than you as recipients", async () => {
     mount({ members: [...members, makePerson({ userId: "guest", name: "Link Guest", guest: true })] });
-    const picker = await screen.findByLabelText("To");
+    await openForm();
+    const picker = screen.getByLabelText("To");
     const names = within(picker).getAllByRole("option").map((o) => o.textContent);
     expect(names).toContain("Dana Whitfield");
     expect(names).not.toContain("Marcus Okonjo");
@@ -113,37 +120,93 @@ describe("Kudos wall", () => {
     await expectNoViolations(container);
   });
 
-  it("counts down the runes left and refuses a kudo over the limit", async () => {
+  it("has no axe violations with the form open and the text over the limit", async () => {
+    const { container } = mount();
+    const field = await openForm();
+    fireEvent.change(field, { target: { value: "a".repeat(290) } });
+    await expectNoViolations(container);
+  });
+
+  it("keeps the counter out of sight until 40 characters are left", async () => {
     mount();
-    const field = await screen.findByLabelText("For what");
+    const field = await openForm();
     await userEvent.type(field, "hello");
-    // Hand-written: 280 - 5.
-    expect(screen.getByTestId("kudos-left").textContent).toContain("275");
-    expect(screen.getByRole("button", { name: "Give kudos" }).hasAttribute("disabled")).toBe(true);
+    // 275 left is nothing to warn about.
+    expect(screen.queryByTestId("kudos-left")).toBe(null);
+    fireEvent.change(field, { target: { value: "a".repeat(239) } });
+    // Hand-written: 280 - 239 = 41, still quiet.
+    expect(screen.queryByTestId("kudos-left")).toBe(null);
+    fireEvent.change(field, { target: { value: "a".repeat(240) } });
+    // Hand-written: 280 - 240.
+    expect(screen.getByTestId("kudos-left").textContent).toContain("40");
   });
 
   it("counts an emoji as one rune, not the two UTF-16 units it occupies", async () => {
     mount();
-    const field = await screen.findByLabelText("For what");
+    const field = await openForm();
     // Set directly: userEvent.type drives one keystroke per UTF-16 unit, which
     // mis-simulates a real emoji keystroke and is what would mask this bug.
-    fireEvent.change(field, { target: { value: "🎉" } });
-    // Hand-written: 280 - 1 rune. A UTF-16-length count would read 278 (two units).
-    expect(screen.getByTestId("kudos-left").textContent).toContain("279");
+    fireEvent.change(field, { target: { value: "🎉".repeat(250) } });
+    // Hand-written: 280 - 250 runes. A UTF-16-length count would read -220.
+    expect(screen.getByTestId("kudos-left").textContent).toContain("30");
   });
 
   it("disables submit only once the rune count, not the UTF-16 length, exceeds 280", async () => {
     mount();
+    const field = await openForm();
     // A recipient is required too; select one so the count is the only thing
     // this assertion is pinning.
-    await userEvent.selectOptions(await screen.findByLabelText("To"), "dana");
-    const field = screen.getByLabelText("For what");
+    await userEvent.selectOptions(screen.getByLabelText("To"), "dana");
     // 280 emoji is exactly 280 runes but 560 UTF-16 units, so a UTF-16-length
     // count would already have refused this as over the limit.
-    const text = "🎉".repeat(280);
-    fireEvent.change(field, { target: { value: text } });
+    fireEvent.change(field, { target: { value: "🎉".repeat(280) } });
     expect(screen.getByTestId("kudos-left").textContent).toContain("0");
     expect(screen.getByRole("button", { name: "Give kudos" }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("says why Give kudos is refused once the text runs over, and announces it once", async () => {
+    mount();
+    const field = await openForm();
+    await userEvent.selectOptions(screen.getByLabelText("To"), "dana");
+    const alert = screen.getByTestId("kudos-over");
+    expect(alert.getAttribute("aria-live")).toBe("polite");
+    expect(alert.textContent).toBe("");
+    fireEvent.change(field, { target: { value: "a".repeat(283) } });
+    expect(screen.getByRole("button", { name: "Give kudos" }).hasAttribute("disabled")).toBe(true);
+    // Hand-written: 283 - 280.
+    expect(screen.getByTestId("kudos-left").textContent).toContain("3 over");
+    expect(alert.textContent).toMatch(/280 characters/);
+  });
+
+  it("tells two members with the same name apart in the picker", async () => {
+    mount({
+      members: [
+        ...members,
+        makePerson({ userId: "u-7f3a", name: "Kade" }),
+        makePerson({ userId: "u-91c2", name: "Kade" }),
+      ],
+    });
+    await openForm();
+    const names = within(screen.getByLabelText("To"))
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+    expect(names).toEqual(["Choose somebody", "Dana Whitfield", "Kade · 7f3a", "Kade · 91c2"]);
+  });
+
+  it("shows the five newest and folds the rest behind Show all", async () => {
+    kudos = Array.from({ length: 7 }, (_, i) => ({
+      id: `n${i}`,
+      fromUserId: "dana",
+      toUserId: "marcus",
+      text: `Kudo number ${i}`,
+      createdAt: "2026-09-03T09:00:00.000Z",
+      sessionId: "",
+    }));
+    mount();
+    await screen.findByTestId("kudo-n0");
+    expect(screen.queryByTestId("kudo-n5")).toBe(null);
+    await userEvent.click(screen.getByRole("button", { name: "Show all 7" }));
+    expect(screen.getByTestId("kudo-n6")).toBeTruthy();
   });
 });
 

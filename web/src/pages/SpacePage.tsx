@@ -8,7 +8,7 @@ import { openSessionLapsed } from "../lib/sessionMemory";
 import { AppShell, Logo } from "../components/AppShell";
 import { PluginChrome } from "../components/PluginChrome";
 import { KindChip } from "../components/KindChip";
-import { Kudos } from "../components/Kudos";
+import { Kudos, type ThankRequest } from "../components/Kudos";
 import { StandupTrend } from "../components/StandupTrend";
 import { EmptyTable } from "./PokerRoom";
 import {
@@ -239,6 +239,9 @@ export function SpacePage() {
   const [invited] = useState<Invite>(() => takeInviteCode(org, slug));
   /** The room whose manage dialog is open, if any. */
   const [managing, setManaging] = useState<SessionSummary | null>(null);
+  // A Thank pressed on a sidebar row, handed to the kudos wall. A new object
+  // per press, so thanking the same person twice opens the form twice.
+  const [thank, setThank] = useState<ThankRequest | null>(null);
   // One attempt only. A refused passcode must land on the gate with the error
   // showing, not retry itself forever against a code that will never work.
   const [autoJoined, setAutoJoined] = useState(false);
@@ -439,8 +442,14 @@ export function SpacePage() {
       sessions={all}
       canManage={canManage}
       navExtra={<PluginChrome slot="nav" orgSlug={org} />}
+      onThank={(userId) => setThank({ userId })}
     >
-      <div className="mx-auto max-w-[760px] py-9 pl-[max(1.5rem,var(--safe-left))] pr-[max(1.5rem,var(--safe-right))] sm:pl-[max(2rem,var(--safe-left))] sm:pr-[max(2rem,var(--safe-right))]">
+      {/* Two columns from xl: the sessions, and beside them the space's own
+          things — kudos, then standup participation. Narrower, the same
+          order stacks, so the source order is the reading order at every
+          width. */}
+      <div className="mx-auto max-w-[760px] py-9 pl-[max(1.5rem,var(--safe-left))] pr-[max(1.5rem,var(--safe-right))] sm:pl-[max(2rem,var(--safe-left))] sm:pr-[max(2rem,var(--safe-right))] xl:grid xl:max-w-[1180px] xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start xl:gap-10">
+        <div className="min-w-0">
         <InviteStrip org={org} slug={sp.slug} passcode={sp.passcode ?? ""} />
 
         <div className="mb-5 flex items-center justify-between gap-4">
@@ -613,11 +622,24 @@ export function SpacePage() {
           <p className="mt-3 px-1 text-xs text-ink-faint">{`Showing the latest ${SESSION_CAP} sessions`}</p>
         )}
 
-        {all.some((s) => s.kind === "standup") && <StandupTrend org={org} slug={sp.slug} />}
+        </div>
 
-        {/* Ceremony-independent on purpose: the wall sits on the space itself,
-            so thanking somebody never waits for a session to be open. */}
-        <Kudos org={org} slug={sp.slug} members={sp.members} meId={me.data?.id ?? ""} />
+        {/* Sticky only where a viewport is tall enough to hold the column
+            whole; a shorter one scrolls it with the page rather than hiding
+            its foot. */}
+        <div className="mt-8 flex flex-col gap-6 xl:mt-0 [@media(min-width:80rem)_and_(min-height:56rem)]:sticky [@media(min-width:80rem)_and_(min-height:56rem)]:top-6">
+          {/* Ceremony-independent on purpose: the wall sits on the space
+              itself, so thanking somebody never waits for a session to be
+              open. */}
+          <Kudos
+            org={org}
+            slug={sp.slug}
+            members={sp.members}
+            meId={me.data?.id ?? ""}
+            thank={thank}
+          />
+          {all.some((s) => s.kind === "standup") && <StandupTrend org={org} slug={sp.slug} />}
+        </div>
       </div>
 
       {managing && (
