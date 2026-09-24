@@ -58,7 +58,10 @@ vi.mock("../lib/api", async () => {
         return createResult;
       }
       if (path.includes("/plugins/panels")) return [];
-      if (/^\/api\/orgs\/[^/]+\/spaces\/[^/]+$/.test(path) && method === "GET") return spaceDetail;
+      if (/^\/api\/orgs\/[^/]+\/spaces\/[^/]+$/.test(path) && method === "GET") {
+        if (detailFails) throw new Error("Space not found.");
+        return spaceDetail;
+      }
       throw new Error(`unexpected api call: ${path}`);
     }),
   };
@@ -69,6 +72,8 @@ let asGuest = false;
 let authMode: "open" | "oidc" = "oidc";
 let createFails = false;
 let listFails = false;
+// Makes the return table's read of its room fail.
+let detailFails = false;
 // Set to a promise a test resolves by hand, to hold the create in flight long
 // enough to look at the button while it waits.
 let holdCreate: Promise<void> | null = null;
@@ -112,6 +117,7 @@ beforeEach(() => {
   authMode = "oidc";
   createFails = false;
   listFails = false;
+  detailFails = false;
   holdCreate = null;
   holdList = null;
   spaceDetail = { slug: "platform-team", name: "Platform Team", protected: true, members: [], sessions: [] };
@@ -1128,6 +1134,90 @@ describe("Landing, coming back to the table", () => {
 
     await userEvent.keyboard("{Enter}");
     expect(navigate).toHaveBeenCalledWith("/o/acme/s/foxtrot");
+  });
+
+  it("opens the first match on Enter when several match", async () => {
+    mySpaces = ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf"].map((n) => ({
+      slug: n.toLowerCase(),
+      name: n,
+      orgSlug: "acme",
+      protected: false,
+    }));
+    renderApp(<Landing />);
+
+    await userEvent.type(await screen.findByRole("searchbox", { name: "Find a space" }), "o{Enter}");
+    expect(navigate).toHaveBeenCalledWith("/o/acme/s/bravo");
+  });
+
+  // A live region mounted already holding its text is often never announced.
+  it("keeps the no-match announcement mounted before it has anything to say", async () => {
+    mySpaces = ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf"].map((n) => ({
+      slug: n.toLowerCase(),
+      name: n,
+      orgSlug: "acme",
+      protected: false,
+    }));
+    const { container } = renderApp(<Landing />);
+
+    const find = await screen.findByRole("searchbox", { name: "Find a space" });
+    const main = within(container.querySelector("main")!);
+    const status = main.getByRole("status");
+    expect(status.textContent).toBe("");
+    await userEvent.type(find, "zzz");
+    expect(main.getByRole("status")).toBe(status);
+    expect(status.textContent).toMatch(/No space of yours matches/);
+  });
+
+  it("names each org panel by its heading rather than a second copy of it", async () => {
+    renderApp(<Landing />);
+    const region = await screen.findByRole("region", { name: "Acme" });
+    expect(region.getAttribute("aria-label")).toBeNull();
+    expect(document.getElementById(region.getAttribute("aria-labelledby")!)!.tagName).toBe("H2");
+  });
+
+  it("runs the form labels a size up from the shared 10px", async () => {
+    renderApp(<Landing />);
+    await screen.findByRole("list", { name: /your spaces/i });
+    const label = screen.getByText("New space");
+    expect(label.className).toContain("text-[11px]");
+    expect(label.className).not.toContain("text-[10px]");
+  });
+
+  // Below sm the chip is hidden; the glyph has to say poker or standup alone.
+  it("marks a round's kind with its glyph where the chip does not fit", async () => {
+    spaceDetail = {
+      slug: "platform-team",
+      name: "Platform Team",
+      protected: true,
+      members: [],
+      sessions: [{ id: "s1", kind: "standup", title: "Daily", createdAt: "", endedAt: null, here: 1 }],
+    };
+    renderApp(<Landing />);
+
+    const row = within(await screen.findByRole("list", { name: "Rounds open now" })).getByRole("link");
+    const small = row.querySelector(".sm\\:hidden")!;
+    expect(small.querySelector("svg")).not.toBeNull();
+    expect(small.textContent).toBe(", Standup");
+  });
+
+  // "Two at the table" is a claim about now, so the room is re-read — but a
+  // read that failed is not retried every 15s for as long as the tab is open.
+  it("stops re-reading the last table once its read fails", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      detailFails = true;
+      renderApp(<Landing />);
+      await screen.findByRole("heading", { level: 1 });
+      const detailCalls = () =>
+        vi.mocked(api).mock.calls.filter((c) => /^\/api\/orgs\/acme\/spaces\//.test(c[1])).length;
+      await waitFor(() => expect(detailCalls()).toBe(1));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(46_000);
+      });
+      expect(detailCalls()).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps the find box away from a list short enough to read at a glance", async () => {

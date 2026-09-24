@@ -33,7 +33,7 @@ export function KindChip({ kind, size = "md" }: Props) {
  * beside it — so it inherits `currentColor` and the two cannot drift apart.
  * An unregistered kind has no glyph; the chip stays text-only, never icon-only.
  */
-function KindIcon({ kind }: { kind: string }) {
+export function KindIcon({ kind }: { kind: string }) {
   switch (kind) {
     case "poker":
       // One card face-on, with the top-right corner of the card behind it

@@ -5,7 +5,7 @@ import { api, type Me, type Person, type SessionSummary } from "../lib/api";
 import { safeDisplayName } from "../lib/displayName";
 import { kindLabel } from "../lib/kinds";
 import type { ConnectionStatus } from "../lib/socket";
-import { useMediaQuery, useTheme } from "../lib/ui";
+import { useMediaQuery } from "../lib/ui";
 import { SIDEBAR_RAIL_QUERY, TOUCH_HIT } from "../lib/breakpoints";
 import { Avatar } from "./Avatar";
 import { ProfileDialog } from "./ProfileDialog";
@@ -14,24 +14,15 @@ import { KindChip } from "./KindChip";
 import { MemberCard } from "./MemberCard";
 import { Modal } from "./Modal";
 import { spacePath, spaceSettingsPath } from "../lib/paths";
-import logoUrl from "../assets/logo.svg";
+import { Logo, ThemeToggle } from "./Brand";
 
-export function Logo({ size = 14 }: { size?: number }) {
-  return (
-    <img
-      src={logoUrl}
-      width={size}
-      height={size}
-      className="inline-block shrink-0"
-      alt=""
-      aria-hidden
-    />
-  );
-}
+// Re-exported so pages that only want the mark and the switch can import them
+// from Brand without pulling this shell and its dependencies into their chunk.
+export { Logo, ThemeToggle };
+
 
 const SIDEBAR_SESSIONS = 8;
 
-const NEXT_THEME_WORD = { system: "light", light: "dark", dark: "system" } as const;
 
 const RELEASES = "https://github.com/lets-parley/parley/releases";
 
@@ -137,38 +128,6 @@ type Props = {
   children: ReactNode;
 };
 
-/**
- * The theme control, standing on its own so the landing page can mount it too.
- * Three themes are a product commitment, and a visitor who has never opened a
- * space still needs the switch.
- *
- * The palette says its own name. Encoding it in an inset shadow on a 12px dot
- * asked everyone to read a state only its author knew.
- */
-export function ThemeToggle() {
-  const { theme, isDark, cycle } = useTheme();
-  return (
-    <button
-      onClick={cycle}
-      aria-label={`Theme: ${theme}. Switch to ${NEXT_THEME_WORD[theme]}.`}
-      /* The label is hidden below sm, which left a ~22x30px target — and on
-         the landing page this is the only chrome control there is. TOUCH_HIT
-         is the repo's own utility for exactly this and this control was the
-         lone opt-out. line-strong because a transparent-ish pill's border is
-         the only thing identifying it (WCAG 2.2 AA 1.4.11). */
-      className={`${TOUCH_HIT} inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-line-strong bg-felt-deep px-3 hover:bg-surface-hi`}
-    >
-      <span
-        aria-hidden
-        className="h-3 w-3 shrink-0 rounded-full bg-ink-soft"
-        style={{ boxShadow: isDark ? "inset 3px -2px 0 0 var(--color-surface)" : "none" }}
-      />
-      <span className="hidden font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint sm:inline">
-        {theme}
-      </span>
-    </button>
-  );
-}
 
 export function AppShell({
   orgSlug,

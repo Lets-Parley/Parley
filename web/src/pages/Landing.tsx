@@ -22,10 +22,10 @@ import { orgPath, pluginsPath, spaceApi, spacePath } from "../lib/paths";
 import { kindLabel } from "../lib/kinds";
 import { useMe, useAuthMode, NameGate, clearSessionMemory } from "../components/NameGate";
 import { isFullAccount } from "../lib/links";
-import { Logo, ThemeToggle } from "../components/AppShell";
+import { Logo, ThemeToggle } from "../components/Brand";
 import { PluginChrome } from "../components/PluginChrome";
 import { Avatar } from "../components/Avatar";
-import { KindChip } from "../components/KindChip";
+import { KindChip, KindIcon } from "../components/KindChip";
 import { buttonPrimary, buttonQuiet, inputClass, labelText } from "../components/Modal";
 import { safeDisplayName } from "../lib/displayName";
 import {
@@ -35,6 +35,11 @@ import {
   flipStartsAt,
   resultStampsAt,
 } from "../lib/motion";
+
+// Form labels here run a size up from the shared 10px `labelText`: they are
+// the only labels on a page a stranger reads first. The shared token is left
+// alone; changing it would restyle every form in the app.
+const formLabel = labelText.replace("text-[10px]", "text-[11px]");
 
 // Deliberately sessionStorage, not localStorage: an abandoned space name should
 // die with the tab rather than greet someone next week. The stamp narrows it
@@ -235,7 +240,9 @@ function ReturnTable({ space, orgName }: { space: Membership; orgName: string | 
     queryKey: ["space", space.orgSlug, space.slug],
     queryFn: () => api<SpaceView>("GET", spaceApi(space.orgSlug, space.slug)),
     retry: false,
-    refetchInterval: 15_000,
+    // A read that failed stops asking: polling a room that 404s or refuses
+    // every 15s would only fill the server log. Reloading the page tries again.
+    refetchInterval: (q) => (q.state.status === "error" ? false : 15_000),
   });
   // Occupied tables first: a round people are sitting at is the one worth
   // joining. Stable sort, so equal counts keep the server's order.
@@ -272,6 +279,14 @@ function ReturnTable({ space, orgName }: { space: Membership; orgName: string | 
                 <span className="min-w-0 flex-1">
                   <span className="line-clamp-2 font-bold">{s.title || kindLabel(s.kind)}</span>
                   <span className="block text-sm text-ink-soft">{whoIsHere(s, members)}</span>
+                </span>
+                {/* Below sm there is no room for the chip, but poker and standup
+                    still have to be told apart: the glyph alone, with the word
+                    kept for a screen reader. KindChip's text is 10px at either
+                    size, so the chip itself is left as it is. */}
+                <span className="shrink-0 text-ink-soft sm:hidden">
+                  <KindIcon kind={s.kind} />
+                  <span className="sr-only">, {kindLabel(s.kind)}</span>
                 </span>
                 <span className="hidden sm:inline-flex">
                   <KindChip kind={s.kind} size="sm" />
@@ -354,6 +369,7 @@ export function Landing() {
   const orgFieldId = useId();
   const errorId = useId();
   const findId = useId();
+  const panelIdBase = useId();
 
   // The org a create is sent to. Omitted when the page cannot say — the
   // server then uses the instance's default org, which is what it always did.
@@ -677,7 +693,7 @@ export function Landing() {
                     }
                   >
                     <div className="min-w-0 flex-1 sm:min-w-48">
-                      <label htmlFor={fieldId} className={"mb-2 block " + labelText}>
+                      <label htmlFor={fieldId} className={"mb-2 block " + formLabel}>
                         {known ? "New space" : "Name your space"}
                       </label>
                       <input
@@ -698,7 +714,7 @@ export function Landing() {
                         switcher click changed the answer without a word. */}
                     {fullAccount && multiOrg && (
                       <div className="sm:w-40">
-                        <label htmlFor={orgFieldId} className={"mb-2 block " + labelText}>
+                        <label htmlFor={orgFieldId} className={"mb-2 block " + formLabel}>
                           Org
                         </label>
                         <select
@@ -800,11 +816,17 @@ export function Landing() {
                               value={find}
                               onChange={(e) => setFind(e.target.value)}
                               onKeyDown={(e) => {
-                                // Enter opens the one match, which is the whole
-                                // point of typing four letters.
-                                if (e.key === "Enter" && shown.length === 1) {
+                                // Enter opens the first match as drawn — the
+                                // top row of the top panel, the most recent of
+                                // that org — which is the whole point of typing
+                                // four letters. No arrow-key roving: tabbing
+                                // down the list already does that.
+                                const first = panelSlugs
+                                  .map((slug) => shown.find((sp) => sp.orgSlug === slug))
+                                  .find((sp) => sp !== undefined);
+                                if (e.key === "Enter" && first) {
                                   e.preventDefault();
-                                  navigate(spacePath(shown[0].orgSlug, shown[0].slug));
+                                  navigate(spacePath(first.orgSlug, first.slug));
                                 }
                               }}
                               placeholder="Find a space"
@@ -826,14 +848,17 @@ export function Landing() {
                       // finds a room nobody sent them.
                       if (needle && rows.length === 0) return null;
                       const title = orgName(slug);
+                      const headingId = `${panelIdBase}-${slug}`;
                       return (
                         <section
                           key={slug}
-                          aria-label={title}
+                          aria-labelledby={headingId}
                           className="rounded-panel border border-line bg-surface shadow-rest"
                         >
                           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-line px-5 py-3">
-                            <h2 className="font-display text-[15px] font-bold">{title}</h2>
+                            <h2 id={headingId} className="font-display text-[15px] font-bold">
+                              {title}
+                            </h2>
                             {org && (
                               <span className="flex items-center gap-4 text-sm">
                                 <Link
@@ -895,11 +920,13 @@ export function Landing() {
                         </section>
                       );
                     })}
-                    {needle && shown.length === 0 && (
-                      <p role="status" className="px-1 text-sm text-ink-soft">
-                        No space of yours matches “{find.trim()}”.
-                      </p>
-                    )}
+                    {/* Mounted before it has anything to say: a live region
+                        that appears already holding its text is often not
+                        announced at all (WCAG 4.1.3). empty:sr-only takes the
+                        silent one out of the flow without leaving the tree. */}
+                    <p role="status" className="px-1 text-sm text-ink-soft empty:sr-only">
+                      {needle && shown.length === 0 ? `No space of yours matches “${find.trim()}”.` : ""}
+                    </p>
                   </div>
                 )}
               </div>
