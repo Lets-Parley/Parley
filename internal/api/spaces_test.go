@@ -575,7 +575,7 @@ func TestCreateSpaceInTheOrgTheRequestNames(t *testing.T) {
 
 	for _, org := range []string{theirs, "nowhere-" + randomSlugSuffix(t)} {
 		resp, body := doJSON(t, srv, "POST", "/api/spaces", `{"name":"Nope `+randomSlugSuffix(t)+`","org":"`+org+`"}`, ada)
-		if resp.StatusCode != http.StatusNotFound || body["error"] != "no such org" {
+		if resp.StatusCode != http.StatusNotFound || len(body) != 1 || body["error"] != "no such org" {
 			t.Fatalf("create in %s: %d %v, want 404 no such org", org, resp.StatusCode, body)
 		}
 	}
