@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -50,6 +51,91 @@ type sessionView struct {
 	// membership revalidation tick. A headcount that is briefly one too high
 	// is a better trade than a second query on every space load.
 	Here int `json:"here"`
+	// LastActivityAt is store.SessionSummary.LastActivityAt, in UTC — see
+	// there for exactly which moments it is the latest of.
+	LastActivityAt time.Time `json:"lastActivityAt"`
+	// Present names up to presentLimit of the people Here counts, projected
+	// through the space roster the caller is already sent: facilitator
+	// first, then by name. Someone present who is not a member — a link
+	// guest, or a member removed a moment ago whose socket has not closed
+	// yet — is counted in Here and never named, because the roster does not
+	// name them either. Empty, never null, for an ended or empty room.
+	Present []presentPerson `json:"present"`
+	// Progress is pokerProgress, standupProgress, or null for a kind that
+	// reports none (a plugin kind).
+	Progress any `json:"progress"`
+}
+
+// presentLimit is how many present people a session row names. The rest are
+// in Here.
+const presentLimit = 5
+
+// presentPerson is one named person in a live room. A name and nothing else:
+// the avatar, role and spectator flag are on the member row with the same id.
+type presentPerson struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Facilitator bool   `json:"facilitator"`
+}
+
+// pokerProgress counts a poker room's stories and those with a saved estimate.
+type pokerProgress struct {
+	Kind    string `json:"kind"`
+	Settled int    `json:"settled"`
+	Total   int    `json:"total"`
+}
+
+// standupProgress counts a standup's queue (entries not skipped) and those
+// with a non-blank "today" or "blockers" — see store.SessionSummary for why a
+// carried-forward "yesterday" does not count. A turn spoken aloud with nothing
+// written is not recorded anywhere, so it is not counted either — hence
+// "answered", not "spoke".
+type standupProgress struct {
+	Kind     string `json:"kind"`
+	Answered int    `json:"answered"`
+	Total    int    `json:"total"`
+}
+
+// progressOf is the kind-specific half of a session row. The two core kinds
+// are named here because the counts come out of their own tables; any other
+// kind reports none rather than a zero that would read as "nothing done".
+func progressOf(s store.SessionSummary) any {
+	switch s.Kind {
+	case "poker":
+		return pokerProgress{Kind: "poker", Settled: s.StoriesEstimated, Total: s.Stories}
+	case "standup":
+		return standupProgress{Kind: "standup", Answered: s.EntriesAnswered, Total: s.Entries}
+	}
+	return nil
+}
+
+// presentIn names who is in one live room from the ids presence reported,
+// keeping only roster members. names is the roster keyed by user id.
+func presentIn(sess store.Session, here []string, names map[string]string) []presentPerson {
+	out := []presentPerson{}
+	for _, uid := range here {
+		name, member := names[uid]
+		if !member {
+			continue
+		}
+		out = append(out, presentPerson{ID: uid, Name: name, Facilitator: uid == sess.FacilitatorID})
+	}
+	slices.SortFunc(out, func(a, b presentPerson) int {
+		if a.Facilitator != b.Facilitator {
+			if a.Facilitator {
+				return -1
+			}
+			return 1
+		}
+		if c := strings.Compare(a.Name, b.Name); c != 0 {
+			return c
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	if len(out) > presentLimit {
+		out = out[:presentLimit]
+	}
+	return out
 }
 
 func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
@@ -185,7 +271,7 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
 				return
 			}
-			sessions, err := a.sessions.ListBySpace(r.Context(), sp.ID)
+			sessions, err := a.sessions.SummariesBySpace(r.Context(), sp.ID)
 			if err != nil {
 				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
 				return
@@ -236,9 +322,20 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 			// The count is the same map the seats came from — InSessions
 			// stays exactly one query for the whole page. `here` only ever
 			// has entries for open sessions, so an ended one reads 0.
+			// Present comes out of the same map and the roster already read,
+			// so naming who is in each room costs no query of its own.
+			names := make(map[string]string, len(roster))
+			for _, m := range roster {
+				names[m.UserID] = m.Name
+			}
 			sessionViews := make([]sessionView, len(sessions))
 			for i, sess := range sessions {
-				sessionViews[i] = sessionView{Session: sess, Here: len(here[sess.ID])}
+				sessionViews[i] = sessionView{
+					Session: sess.Session, Here: len(here[sess.ID]),
+					LastActivityAt: sess.LastActivityAt.UTC(),
+					Present:        presentIn(sess.Session, here[sess.ID], names),
+					Progress:       progressOf(sess),
+				}
 			}
 			views := make([]memberView, len(roster))
 			for i, m := range roster {
