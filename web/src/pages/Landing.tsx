@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useId,
@@ -23,7 +25,10 @@ import { kindLabel } from "../lib/kinds";
 import { useMe, useAuthMode, NameGate, clearSessionMemory } from "../components/NameGate";
 import { isFullAccount } from "../lib/links";
 import { Logo, ThemeToggle } from "../components/Brand";
-import { PluginChrome } from "../components/PluginChrome";
+// Only an org with plugins renders anything here; keep it off the entry chunk.
+const PluginChrome = lazy(() =>
+  import("../components/PluginChrome").then((m) => ({ default: m.PluginChrome })),
+);
 import { Avatar } from "../components/Avatar";
 import { KindChip } from "../components/KindChip";
 import { buttonPrimary, buttonQuiet, inputClass, labelText } from "../components/Modal";
@@ -883,7 +888,9 @@ export function Landing() {
                               does not pay a gap for one. */}
                           {org && (
                             <div className="px-5 pt-3 empty:hidden">
-                              <PluginChrome slot="nav" orgSlug={slug} />
+                              <Suspense fallback={null}>
+                                <PluginChrome slot="nav" orgSlug={slug} />
+                              </Suspense>
                             </div>
                           )}
                           {rows.length > 0 ? (

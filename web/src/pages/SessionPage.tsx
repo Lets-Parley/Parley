@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { action, api, type Me, type SpaceView } from "../lib/api";
@@ -265,14 +265,16 @@ export function SessionPage() {
             are still here, and come back when an admin switches it on again.
           </p>
         ) : Room ? (
-          <Room
-            env={env}
-            me={identity}
-            status={session.status}
-            guest={!!guest}
-            kickReason={session.kickReason}
-            kicked={session.kicked}
-          />
+          <Suspense fallback={null}>
+            <Room
+              env={env}
+              me={identity}
+              status={session.status}
+              guest={!!guest}
+              kickReason={session.kickReason}
+              kicked={session.kicked}
+            />
+          </Suspense>
         ) : pluginUI ? (
           <PluginPanel
             slot="room"

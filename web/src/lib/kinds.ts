@@ -1,8 +1,15 @@
-import type { ComponentType } from "react";
+import { lazy, type ComponentType } from "react";
 import type { Deck, Envelope, Me } from "./api";
 import type { ConnectionStatus } from "./socket";
-import { PokerRoom } from "../pages/PokerRoom";
-import { StandupRoom } from "../pages/StandupRoom";
+
+// Loaded on demand: every page imports this module for labels, so a static
+// import would put both rooms in the front page's entry chunk.
+const PokerRoom = lazy(() =>
+  import("../pages/PokerRoom").then((m) => ({ default: m.PokerRoom })),
+);
+const StandupRoom = lazy(() =>
+  import("../pages/StandupRoom").then((m) => ({ default: m.StandupRoom })),
+);
 
 /**
  * `guest` marks a viewer holding a signed link: bound to this room, never the
