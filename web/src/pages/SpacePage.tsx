@@ -182,6 +182,10 @@ function ago(iso: string): string {
   return relative.format(-Math.round(days / 30), "month");
 }
 
+// British English only for the serial comma: "Dana, Bojan and Jalynn", which
+// is how the page has always joined a list of names.
+const names = new Intl.ListFormat("en-GB", { style: "long", type: "conjunction" });
+
 /** The day a session was made: the time if that was today, the date otherwise. */
 function sessionDate(iso: string): string {
   const d = new Date(iso);
@@ -214,8 +218,7 @@ function whoIsIn(s: SessionSummary): string {
   if (named.length === 0) return "";
   const more = s.here - named.length;
   const all = more > 0 ? [...named, `${more} more`] : named;
-  if (all.length === 1) return `${all[0]} is in`;
-  return `${all.slice(0, -1).join(", ")} and ${all[all.length - 1]} are in`;
+  return `${names.format(all)} ${all.length === 1 ? "is" : "are"} in`;
 }
 
 /** The viewer's own memory of one space's Logbook. Storage can refuse, and

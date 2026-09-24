@@ -2353,6 +2353,16 @@ describe("SpacePage kudos rail", () => {
     await waitFor(() => expect(document.activeElement).toBe(wall.getByLabelText("For what")));
   });
 
+  it("hands focus back to For what on a second Thank, with the form already open", async () => {
+    const wall = await open();
+    const nav = within(screen.getByRole("navigation", { name: "Space" }));
+    const thank = await nav.findByRole("button", { name: "Thank Dana Whitfield" });
+    await userEvent.click(thank);
+    await waitFor(() => expect(document.activeElement).toBe(wall.getByLabelText("For what")));
+    await userEvent.click(thank);
+    await waitFor(() => expect(document.activeElement).toBe(wall.getByLabelText("For what")));
+  });
+
   it("offers no Thank on your own row or on a link guest's", async () => {
     await open();
     const nav = within(screen.getByRole("navigation", { name: "Space" }));

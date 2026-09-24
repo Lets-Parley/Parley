@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import { standupTrendApi } from "../lib/paths";
 import { TOUCH_HIT } from "../lib/breakpoints";
 import { AwayDays } from "./AwayDays";
-import { RailError, railHeading } from "./Kudos";
+import { RailError, railHeading } from "./RailPanel";
 
 type TrendWeek = { weekStart: string; ratio?: number; suppressed?: boolean };
 
