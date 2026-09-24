@@ -59,6 +59,8 @@ func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 		// Open opts out of the passcode; the default is a protected space.
 		Open bool `json:"open"`
+		// Org names the org by slug; empty means the default org.
+		Org string `json:"org"`
 	}
 	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
 		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
@@ -87,24 +89,41 @@ func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 	if a.authMode == ModeOpen {
 		visibility = store.VisibilityPrivate
 	}
-	org, ok := a.resolveOrg(w, r)
-	if !ok {
-		return
-	}
-	// This route names no org in its path, so requireOrgMember cannot guard
-	// it — but the space still lands in one, and every follow-up call against
-	// it is org-gated. Creating for an outsider would hand them a space they
-	// could not join, open a room in, or set a passcode on. Same 404 as
-	// requireOrgMember, and for the same reason: whether an org exists is not
-	// disclosed to anyone outside it.
-	member, err := a.orgs.IsMember(r.Context(), org.ID, p.UserID)
-	if err != nil {
-		http.Error(w, `{"error":"could not load org"}`, http.StatusInternalServerError)
-		return
-	}
-	if !member {
-		http.Error(w, `{"error":"no such org"}`, http.StatusNotFound)
-		return
+	var org store.Org
+	if body.Org != "" {
+		// One query for existence and membership, so an org the caller is
+		// outside and one that does not exist fail after identical work.
+		var err error
+		org, _, err = a.orgs.MembershipBySlug(r.Context(), body.Org, p.UserID)
+		if errors.Is(err, store.ErrNoOrg) || errors.Is(err, store.ErrNotOrgMember) {
+			http.Error(w, `{"error":"no such org"}`, http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(w, `{"error":"could not load org"}`, http.StatusInternalServerError)
+			return
+		}
+	} else {
+		var ok bool
+		org, ok = a.resolveOrg(w, r)
+		if !ok {
+			return
+		}
+		// This route names no org in its path, so requireOrgMember cannot guard
+		// it — but the space still lands in one, and every follow-up call against
+		// it is org-gated. Creating for an outsider would hand them a space they
+		// could not join, open a room in, or set a passcode on. Same 404 as
+		// requireOrgMember, and for the same reason: whether an org exists is not
+		// disclosed to anyone outside it.
+		member, err := a.orgs.IsMember(r.Context(), org.ID, p.UserID)
+		if err != nil {
+			http.Error(w, `{"error":"could not load org"}`, http.StatusInternalServerError)
+			return
+		}
+		if !member {
+			http.Error(w, `{"error":"no such org"}`, http.StatusNotFound)
+			return
+		}
 	}
 	sp, err := a.spaces.Create(r.Context(), org.ID, name, slug, passcode, p.UserID, visibility, a.limits.SpacesPerIdentity)
 	if errors.Is(err, store.ErrSlugTaken) {

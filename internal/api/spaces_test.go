@@ -546,3 +546,42 @@ func TestCreateSpaceVisibilityByAuthMode(t *testing.T) {
 		})
 	}
 }
+
+// TestCreateSpaceInTheOrgTheRequestNames: a create that names an org lands the
+// space there, and an org the caller is outside answers exactly like one that
+// does not exist.
+func TestCreateSpaceInTheOrgTheRequestNames(t *testing.T) {
+	pool := testPool(t)
+	srv := httptest.NewServer(Router(pool, Options{AllowedOrigin: testOrigin}))
+	t.Cleanup(srv.Close)
+	ada := signup(t, srv, "Ada")
+	adaID := userIDOf(t, srv, ada)
+	mine := otherOrgHoldingSlug(t, pool, "held-"+randomSlugSuffix(t), adaID, adaID)
+	theirs := otherOrgHoldingSlug(t, pool, "held-"+randomSlugSuffix(t), adaID, "")
+
+	name := "Harbour " + randomSlugSuffix(t)
+	resp, created := doJSON(t, srv, "POST", "/api/spaces", `{"name":"`+name+`","org":"`+mine+`"}`, ada)
+	if resp.StatusCode != http.StatusCreated || created["orgSlug"] != mine {
+		t.Fatalf("create in own org: %d %v, want 201 in %s", resp.StatusCode, created, mine)
+	}
+	var orgSlug string
+	if err := pool.QueryRow(context.Background(),
+		"select o.slug from spaces s join orgs o on o.id = s.org_id where s.id = $1", created["id"]).Scan(&orgSlug); err != nil {
+		t.Fatal(err)
+	}
+	if orgSlug != mine {
+		t.Fatalf("space stored in %q, want %q", orgSlug, mine)
+	}
+
+	for _, org := range []string{theirs, "nowhere-" + randomSlugSuffix(t)} {
+		resp, body := doJSON(t, srv, "POST", "/api/spaces", `{"name":"Nope `+randomSlugSuffix(t)+`","org":"`+org+`"}`, ada)
+		if resp.StatusCode != http.StatusNotFound || body["error"] != "no such org" {
+			t.Fatalf("create in %s: %d %v, want 404 no such org", org, resp.StatusCode, body)
+		}
+	}
+
+	_, dflt := doJSON(t, srv, "POST", "/api/spaces", `{"name":"Plain `+randomSlugSuffix(t)+`"}`, ada)
+	if dflt["orgSlug"] != "default" {
+		t.Fatalf("omitted org landed in %v, want default", dflt["orgSlug"])
+	}
+}

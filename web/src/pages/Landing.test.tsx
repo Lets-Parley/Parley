@@ -138,6 +138,42 @@ describe("Landing, signed in with spaces", () => {
 
   // Whether a space wants a code is the difference between pasting the link and
   // having to go and ask for six characters, so the row says which it is.
+  it("creates in the org the page is filtered to", async () => {
+    myOrgs = [
+      { slug: "acme", name: "Acme", role: "member" },
+      { slug: "harbour-labs", name: "Harbour Labs", role: "member" },
+    ];
+    renderApp(<Landing />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Harbour Labs" }));
+    await userEvent.type(screen.getByPlaceholderText(/Platform Team/), "New Crew");
+    await userEvent.click(screen.getByRole("button", { name: /create a space/i }));
+
+    await waitFor(() =>
+      expect(spaceCalls()).toContainEqual([
+        "POST",
+        "/api/spaces",
+        { name: "New Crew", org: "harbour-labs" },
+      ]),
+    );
+  });
+
+  it("names no org while several are shown unfiltered", async () => {
+    myOrgs = [
+      { slug: "acme", name: "Acme", role: "member" },
+      { slug: "harbour-labs", name: "Harbour Labs", role: "member" },
+    ];
+    renderApp(<Landing />);
+
+    await screen.findByRole("button", { name: "Harbour Labs" });
+    await userEvent.type(screen.getByPlaceholderText(/Platform Team/), "New Crew");
+    await userEvent.click(screen.getByRole("button", { name: /create a space/i }));
+
+    await waitFor(() =>
+      expect(spaceCalls()).toContainEqual(["POST", "/api/spaces", { name: "New Crew" }]),
+    );
+  });
+
   it("marks the spaces that will ask for a passcode", async () => {
     renderApp(<Landing />);
 
@@ -168,7 +204,7 @@ describe("Landing, signed in with spaces", () => {
     await waitFor(() =>
       expect(navigate).toHaveBeenCalledWith("/o/acme/s/platform-team"),
     );
-    expect(spaceCalls()).toContainEqual(["POST", "/api/spaces", { name: "New Crew" }]);
+    expect(spaceCalls()).toContainEqual(["POST", "/api/spaces", { name: "New Crew", org: "acme" }]);
   });
 
   it("still finishes a create left pending by a sign-in round trip", async () => {
@@ -182,7 +218,7 @@ describe("Landing, signed in with spaces", () => {
     expect(spaceCalls()).toContainEqual([
       "POST",
       "/api/spaces",
-      { name: "Platform Team" },
+      { name: "Platform Team", org: "acme" },
     ]);
     expect(sessionStorage.getItem(pendingKey)).toBeNull();
   });
@@ -228,7 +264,7 @@ describe("Landing", () => {
     expect(vi.mocked(api).mock.calls).toContainEqual([
       "POST",
       "/api/spaces",
-      { name: "Platform Team" },
+      { name: "Platform Team", org: "acme" },
     ]);
     expect(sessionStorage.getItem(pendingKey)).toBeNull();
   });
@@ -478,7 +514,7 @@ describe("Landing", () => {
     );
     await act(async () => {});
     expect(spaceCalls()).toEqual([
-      ["POST", "/api/spaces", { name: "Platform Team" }],
+      ["POST", "/api/spaces", { name: "Platform Team", org: "acme" }],
     ]);
   });
 
@@ -531,14 +567,14 @@ describe("Landing", () => {
       expect(navigate).toHaveBeenCalledWith("/o/acme/s/platform-team"),
     );
     expect(spaceCalls()).toEqual([
-      ["POST", "/api/spaces", { name: "Platform Team" }],
+      ["POST", "/api/spaces", { name: "Platform Team", org: "acme" }],
     ]);
 
     await userEvent.click(open);
     await waitFor(() =>
       expect(spaceCalls()).toEqual([
-        ["POST", "/api/spaces", { name: "Platform Team" }],
-        ["POST", "/api/spaces", { name: "Platform Team" }],
+        ["POST", "/api/spaces", { name: "Platform Team", org: "acme" }],
+        ["POST", "/api/spaces", { name: "Platform Team", org: "acme" }],
       ]),
     );
   });
@@ -626,7 +662,7 @@ describe("Landing, a pending create raced by both paths", () => {
       expect(navigate).toHaveBeenCalledWith("/o/acme/s/platform-team"),
     );
     expect(spaceCalls()).toEqual([
-      ["POST", "/api/spaces", { name: "Platform Team" }],
+      ["POST", "/api/spaces", { name: "Platform Team", org: "acme" }],
     ]);
   });
 });
