@@ -9,7 +9,7 @@ import Screenshot from "../../../components/Screenshot.astro";
 import historyLight from "../../../assets/session-history-light.png";
 import historyDark from "../../../assets/session-history-dark.png";
 
-<VerifiedStamp source={["internal/api/export.go", "internal/poker/csv.go", "internal/standup/csv.go", "internal/plugin/csv.go"]} />
+<VerifiedStamp source={["internal/api/export.go", "internal/poker/csv.go", "internal/standup/csv.go", "internal/plugin/csv.go", "web/src/pages/SpacePage.tsx", "internal/store/sessions.go"]} />
 
 Any session exports to CSV from a link in its own room, or directly:
 
@@ -22,6 +22,8 @@ session title, sanitised.
 
 Finding the session to export is the space page's job: search the titles and
 filter by kind, then open the one you want and take the CSV from its room.
+Ended sessions are in the page's **Logbook**, folded under the open ones, and
+the page lists a space's 50 newest sessions.
 
 <Screenshot
   light={historyLight}

@@ -34,6 +34,22 @@ const space = {
   ],
 } as unknown as SpaceView & { kinds?: string[] };
 
+// The main column's own heading. The sidebar carries a "Sessions" heading
+// too, so this is scoped to <main>, which also only exists once the space
+// has loaded.
+async function findSessionsHeading() {
+  return within(await screen.findByRole("main")).findByRole("heading", { name: "Sessions" });
+}
+
+// Every polite status region on the page, read together: the toast and the
+// session list's match count are both one.
+function statusText() {
+  return screen
+    .getAllByRole("status")
+    .map((el) => el.textContent ?? "")
+    .join(" | ");
+}
+
 // The api mock reads this, so a test can swap in a different space view.
 let view: SpaceView = space;
 // The space's saved decks, as the create dialog reads them.
@@ -145,12 +161,13 @@ describe("SpacePage session list", () => {
     // The sidebar lists the same sessions, so scope to the main column.
     const main = within(screen.getByRole("main"));
 
-    const row = main.getByText("Sprint 12 grooming").closest("a")!;
+    // Live rooms sit on cards above the list; the chip is on the card.
+    const row = main.getByText("Sprint 12 grooming").closest("li")!;
     expect(within(row).getByText("Poker")).toBeTruthy();
     expect(row.querySelector("svg")).toBeTruthy();
 
     // An unknown kind still gets named — by its wire id — and still no glyph.
-    const dotted = main.getByText("Retro of record").closest("a")!;
+    const dotted = main.getByText("Retro of record").closest("li")!;
     expect(within(dotted).getByText("acme.retro")).toBeTruthy();
     expect(dotted.querySelector("svg")).toBe(null);
   });
@@ -159,12 +176,230 @@ describe("SpacePage session list", () => {
   // has to say which filter came up empty, in the same words as the tab.
   it("names the active kind filter when nothing matches", async () => {
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
-    await screen.findByText("Recent sessions");
+    await findSessionsHeading();
     await userEvent.click(screen.getByRole("button", { name: "Standup" }));
     await userEvent.type(screen.getByLabelText("Search sessions"), "zzz");
 
     const main = within(screen.getByRole("main"));
     expect(main.getByText(/Nothing matches/).textContent).toContain("in Standup sessions");
+  });
+});
+
+/**
+ * The main list in three groups: whatever has people in it right now, the
+ * rooms still open, and a folded logbook of the ones that ended. The base
+ * fixture has two live rooms (s1 with 3, s3 with 1), one open and empty (s2),
+ * and one ended room that still carries a count (s4) — which must not be
+ * offered as a live one.
+ */
+describe("SpacePage live, open and logbook groups", () => {
+  const main = () => within(screen.getByRole("main"));
+
+  afterEach(() => {
+    view = space;
+    vi.useRealTimers();
+    try {
+      localStorage.clear();
+    } catch {
+      // Nothing was remembered to forget.
+    }
+  });
+
+  function sessions(n: number) {
+    return Array.from({ length: n }, (_, i) => ({
+      id: `n${i}`,
+      kind: "poker",
+      title: `Round ${i}`,
+      createdAt: "2026-08-18T10:00:00.000Z",
+      endedAt: null,
+      here: 0,
+    }));
+  }
+
+  it("lifts only sessions with people in them onto the table, each with a Rejoin link", async () => {
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+
+    const live = main().getByRole("list", { name: "On the table now" });
+    const rejoin = within(live).getByRole("link", { name: "Rejoin Sprint 12 grooming" });
+    expect(rejoin.getAttribute("href")).toBe("/session/s1");
+    expect(within(live).getByRole("link", { name: "Rejoin Retro of record" }).getAttribute("href")).toBe(
+      "/session/s3",
+    );
+    expect(within(live).getByText("3 here")).toBeTruthy();
+    expect(within(live).getByText("1 here")).toBeTruthy();
+    // Open but empty is not on the table, and ended beats any count.
+    expect(within(live).queryByText("Daily")).toBe(null);
+    expect(within(live).queryByText("Pokerful planning")).toBe(null);
+    expect(main().queryByRole("link", { name: /Rejoin Daily/ })).toBe(null);
+    expect(main().queryByRole("link", { name: /Rejoin Pokerful/ })).toBe(null);
+  });
+
+  it("shows no table card when nobody is in any session", async () => {
+    view = {
+      ...space,
+      sessions: space.sessions!.map((s) => ({ ...s, here: 0 })),
+    } as unknown as SpaceView;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+    expect(main().queryByRole("list", { name: "On the table now" })).toBe(null);
+    expect(main().queryByRole("link", { name: /^Rejoin/ })).toBe(null);
+  });
+
+  it("folds ended sessions into a closed logbook that counts them", async () => {
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+
+    const summary = main().getByText("Logbook · 1 ended");
+    const logbook = summary.closest("details")!;
+    expect(logbook).toBeTruthy();
+    expect(logbook.open).toBe(false);
+    expect(within(logbook).getByText("Pokerful planning")).toBeTruthy();
+    // Only ended rooms are in it, and it no longer shouts "ended" in a pill.
+    expect(within(logbook).queryByText("Daily")).toBe(null);
+    expect(within(logbook).queryByText("ended")).toBe(null);
+
+    const open = main().getByRole("list", { name: "Open rooms" });
+    expect(within(open).getByText("Daily")).toBeTruthy();
+    expect(within(open).queryByText("Pokerful planning")).toBe(null);
+  });
+
+  it("remembers the logbook open for this viewer", async () => {
+    const first = renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+    await userEvent.click(main().getByText("Logbook · 1 ended"));
+    expect(main().getByText("Logbook · 1 ended").closest("details")!.open).toBe(true);
+    first.unmount();
+
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+    expect(main().getByText("Logbook · 1 ended").closest("details")!.open).toBe(true);
+  });
+
+  it("says how long ago an open room was opened, and never calls it idle", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-24T12:00:00.000Z"));
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+
+    const open = main().getByRole("list", { name: "Open rooms" });
+    expect(within(open).getByText("opened 6 days ago")).toBeTruthy();
+    expect(within(open).queryByText(/idle/)).toBe(null);
+    // The row names itself, kind first, the way the sidebar does.
+    expect(main().getByRole("link", { name: "Standup · Daily · opened 6 days ago" })).toBeTruthy();
+  });
+
+  it("says opened today for a room opened today", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-18T12:00:00.000Z"));
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+    expect(within(main().getByRole("list", { name: "Open rooms" })).getByText("opened today")).toBeTruthy();
+  });
+
+  it("draws the search glyph as an svg, not a styled span", async () => {
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    const field = await screen.findByLabelText("Search sessions");
+    const glyph = field.closest("label")!.querySelector("svg");
+    expect(glyph).toBeTruthy();
+    expect(glyph!.getAttribute("aria-hidden")).toBe("true");
+    expect(field.closest("label")!.querySelector("span.rounded-full")).toBe(null);
+  });
+
+  it("focuses search on / from the page, but types a / into a field that has focus", async () => {
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    const field = (await screen.findByLabelText("Search sessions")) as HTMLInputElement;
+    expect(document.activeElement).not.toBe(field);
+
+    await userEvent.keyboard("/");
+    expect(document.activeElement).toBe(field);
+    // The shortcut key is not typed into the field it just focused.
+    expect(field.value).toBe("");
+
+    // Once inside a field, / is just a character.
+    await userEvent.keyboard("a/b");
+    expect(field.value).toBe("a/b");
+  });
+
+  it("does not steal / from a field in an open dialog", async () => {
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+    const title = screen.getByRole("textbox", { name: "Title" }) as HTMLInputElement;
+    await userEvent.type(title, "1/2");
+    expect(title.value).toBe("1/2");
+    expect(document.activeElement).toBe(title);
+
+    // A button in the dialog is not a field, and / still stays put: the
+    // search sits behind the dialog, where focus must not go.
+    const cancel = within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" });
+    cancel.focus();
+    await userEvent.keyboard("/");
+    expect(document.activeElement).toBe(cancel);
+  });
+
+  it("announces how many sessions a search leaves, politely", async () => {
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    const field = await screen.findByLabelText("Search sessions");
+    const status = main().getByRole("status");
+    expect(status.getAttribute("aria-live")).toBe("polite");
+    expect(status.textContent).toBe("");
+
+    await userEvent.type(field, "Daily");
+    expect(status.textContent).toBe("1 session matches");
+
+    await userEvent.clear(field);
+    await userEvent.type(field, "r");
+    // "Sprint 12 grooming", "Retro of record", "Pokerful planning" — across
+    // all three groups, the folded logbook included.
+    expect(status.textContent).toBe("3 sessions match");
+
+    await userEvent.type(field, "zzz");
+    expect(status.textContent).toBe("No sessions match");
+  });
+
+  it("says the list stops at the latest 50 when the server sent 50", async () => {
+    view = { ...space, sessions: sessions(50) } as unknown as SpaceView;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Round 0");
+    expect(main().getByText("Showing the latest 50 sessions")).toBeTruthy();
+  });
+
+  it("says nothing about a cap at 49 sessions", async () => {
+    view = { ...space, sessions: sessions(49) } as unknown as SpaceView;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Round 0");
+    expect(main().queryByText(/latest 50/)).toBe(null);
+  });
+
+  it("has no axe violations with the table card, the list and an open logbook", async () => {
+    view = {
+      ...space,
+      members: [{ userId: "marcus", name: "Marcus Okonjo", avatarHue: 40, spectator: false, role: "owner" }],
+    } as unknown as SpaceView;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+    await userEvent.click(main().getByText("Logbook · 1 ended"));
+    await expectNoViolations(screen.getByRole("main"));
+  }, 15_000);
+
+  it("groups the kind tabs under a name", async () => {
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+    const tabs = main().getByRole("group", { name: "Filter by kind" });
+    expect(within(tabs).getByRole("button", { name: "All" })).toBeTruthy();
+  });
+
+  it("puts Manage after the row it manages, as a real touch target", async () => {
+    view = {
+      ...space,
+      members: [{ userId: "marcus", name: "Marcus Okonjo", avatarHue: 40, spectator: false, role: "owner" }],
+    } as unknown as SpaceView;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    const manage = await screen.findByRole("button", { name: "Manage Daily" });
+    const rowLink = main().getByRole("link", { name: /^Standup · Daily/ });
+    expect(rowLink.compareDocumentPosition(manage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(manage.className).toContain("touch-hit");
+    expect(manage.className).toContain("border-line-strong");
   });
 });
 
@@ -248,7 +483,7 @@ describe("SpacePage create dialog", () => {
     space.kinds = [];
     try {
       renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
-      await screen.findByText("Recent sessions");
+      await findSessionsHeading();
       expect(screen.queryByRole("button", { name: "New session" })).toBe(null);
     } finally {
       delete space.kinds;
@@ -535,32 +770,30 @@ describe("SpacePage session badge", () => {
     vi.useRealTimers();
   });
 
-  // The row is a bare <Link> with no aria-label, so its accessible name is
-  // the whole row read out — title, date, kind chip and badge concatenated.
-  // Matching it needs a regex; an exact string would never hit.
+  // A room's whole entry in the main column — the table card for a live
+  // room, the list row otherwise — found by its title.
   function row(title: string) {
     // The sidebar lists the same sessions, so scope to the main column first.
     const main = within(screen.getByRole("main"));
-    return within(main.getByRole("link", { name: new RegExp(title) }));
+    return within(main.getByText(title).closest("li")!);
   }
 
   it("counts the people in each session rather than calling every open one live", async () => {
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
-    await screen.findByText("Recent sessions");
+    await findSessionsHeading();
 
     // A busy session says how many, and never the old word.
     expect(row("Sprint 12 grooming").getByText("3 here")).toBeTruthy();
     expect(row("Sprint 12 grooming").queryByText("live")).toBe(null);
     // One person is still a count, not a special case.
     expect(row("Retro of record").getByText("1 here")).toBeTruthy();
-    // An open session nobody is in is quiet — not green, not "live".
-    expect(row("Daily").getByText("open")).toBeTruthy();
+    // An open session nobody is in is quiet — no count, not "live".
     expect(row("Daily").queryByText(/here/)).toBe(null);
-    // Ended beats any count.
-    expect(row("Pokerful planning").getByText("ended")).toBeTruthy();
+    expect(row("Daily").queryByText("live")).toBe(null);
+    // Ended beats any count: it goes to the logbook, never to the table.
     expect(row("Pokerful planning").queryByText(/here/)).toBe(null);
-    expect(row("Pokerful planning").queryByText("2 here")).toBe(null);
-    expect(row("Pokerful planning").queryByText("open")).toBe(null);
+    expect(row("Pokerful planning").queryByRole("link", { name: /Rejoin/ })).toBe(null);
+    expect(within(screen.getByRole("main")).getByText("Pokerful planning").closest("details")).toBeTruthy();
   });
 
   it("re-reads the space on a timer, so the count does not freeze at page load", async () => {
@@ -587,7 +820,7 @@ describe("SpacePage session badge", () => {
     vi.useFakeTimers();
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(screen.getByText("Recent sessions")).toBeTruthy();
+    expect(within(screen.getByRole("main")).getByRole("heading", { name: "Sessions" })).toBeTruthy();
 
     // One flaky response — a deploy, a proxy hiccup, a single 5xx. The cached
     // space is still perfectly good, so the dead-end screen must not appear.
@@ -595,7 +828,7 @@ describe("SpacePage session badge", () => {
     await vi.advanceTimersByTimeAsync(30_000);
 
     expect(screen.queryByText("No table under that name")).toBe(null);
-    expect(screen.getByText("Recent sessions")).toBeTruthy();
+    expect(within(screen.getByRole("main")).getByRole("heading", { name: "Sessions" })).toBeTruthy();
     expect(row("Sprint 12 grooming").getByText("3 here")).toBeTruthy();
   });
 
@@ -658,7 +891,7 @@ describe("SpacePage room admin", () => {
   it("offers nothing to manage to a plain member", async () => {
     view = asMember;
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
-    await screen.findByText("Recent sessions");
+    await findSessionsHeading();
     // The settings route is where renaming and deleting live now, and a
     // member is not pointed at it.
     expect(screen.queryByRole("link", { name: "Settings" })).toBe(null);
@@ -1132,7 +1365,7 @@ describe("SpacePage expired-session remint", () => {
       route: "/o/acme/s/platform-team",
       path: "/o/:org/s/:slug",
     });
-    await screen.findByText("Recent sessions");
+    await findSessionsHeading();
     await userEvent.click(screen.getByRole("button", { name: "New session" }));
     const title = await screen.findByLabelText(/session title|title/i);
     await userEvent.type(title, "Half-typed planning");
@@ -1197,7 +1430,7 @@ describe("SpacePage expired-session remint", () => {
       expect(screen.queryByText("TEAM49")).toBeNull();
     });
     // Still a stranger while the space refetch hangs — join gate, not roster.
-    expect(screen.queryByText("Recent sessions")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Sessions" })).toBeNull();
 
     pendingSpace.resolve?.({
       slug: "platform-team",
@@ -1640,7 +1873,9 @@ describe("SpacePage kudos wall", () => {
     expect(row.textContent).toContain("Dana Whitfield");
     expect(wall.queryByTestId("kudos-empty")).toBe(null);
     // Announced, not merely rendered.
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Kudos sent"));
+    // The session list keeps its own polite status region, so the toast is
+    // one of two.
+    await waitFor(() => expect(statusText()).toContain("Kudos sent"));
   });
 
   it("never offers you as a recipient", async () => {
@@ -1730,9 +1965,7 @@ describe("SpacePage kudos wall", () => {
     await userEvent.click(wall.getByRole("button", { name: "Give kudos" }));
 
     await waitFor(() =>
-      expect(screen.getByRole("status").textContent).toContain(
-        "This space has reached its kudos cap for today.",
-      ),
+      expect(statusText()).toContain("This space has reached its kudos cap for today."),
     );
     // The failed kudo never joined the wall.
     expect(wall.queryByTestId("kudos-empty")).toBeTruthy();

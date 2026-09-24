@@ -110,6 +110,23 @@ stated plainly in the [security model](/security/overview/), and it is the reaso
 a code is a door, not an identity.
 :::
 
+## The session list
+
+Under the invite strip, a space's sessions come in three groups. Any room with
+somebody in it right now sits on a card at the top, **On the table now**, with
+how many are there and a **Rejoin** link. Rooms that are still open but empty
+follow in one list, each saying how long ago it was opened — opened, not idle:
+the list knows when a room was made, not when anyone last used it. Ended
+sessions fold into a **Logbook** below, closed by default; whether you left it
+open is remembered in your own browser.
+
+Search, the kind filter and the sort apply to all three groups at once, and the
+number of matches is announced to screen readers as you type. Press <kbd>/</kbd>
+anywhere on the page to jump to the search box. The server sends a space's 50
+newest sessions and no more, so when the list is full it says **Showing the
+latest 50 sessions** — a search that finds nothing there has not proven an
+older session never existed.
+
 ## Space settings
 
 Everything that changes a space lives on its own route, `/o/<org>/s/<slug>/settings`,

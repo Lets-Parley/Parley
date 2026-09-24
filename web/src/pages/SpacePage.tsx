@@ -14,6 +14,7 @@ import { EmptyTable } from "./PokerRoom";
 import {
   Modal,
   buttonDanger,
+  buttonGo,
   buttonPrimary,
   buttonQuiet,
   inputClass,
@@ -35,7 +36,8 @@ import {
 
 // "" is the All tab; every other value is a registered kind's wire id.
 const KIND_TABS = [{ id: "", label: "All" }, ...KINDS];
-type Sort = "Recent" | "Active first" | "A\u2013Z";
+const SORTS = ["Recent", "Active first", "A\u2013Z"] as const;
+type Sort = (typeof SORTS)[number];
 
 /**
  * The credential an invite arrived with: a passcode read out of the URL
@@ -148,6 +150,54 @@ async function parkInvite(org: string, slug: string, code: string): Promise<void
   }
 }
 
+/** The server's own page size for a space's sessions (internal/store/sessions.go). */
+const SESSION_CAP = 50;
+
+/** Where the Logbook's open/closed state is kept, per viewer. */
+const logbookKey = "parley:logbook-open";
+
+function readLogbookOpen(): boolean {
+  try {
+    return localStorage.getItem(logbookKey) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeLogbookOpen(open: boolean) {
+  try {
+    localStorage.setItem(logbookKey, open ? "1" : "0");
+  } catch {
+    // Remembering is a convenience; the logbook still opens and closes.
+  }
+}
+
+/**
+ * How long ago a room was opened, in calendar days of the viewer's own clock.
+ * Deliberately "opened", never "idle": the list knows when a room was made,
+ * not when anybody last did anything in it.
+ */
+function openedAgo(iso: string): string {
+  const start = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.max(0, Math.round((start(new Date()) - start(new Date(iso))) / 86_400_000));
+  if (days === 0) return "opened today";
+  if (days === 1) return "opened yesterday";
+  if (days < 14) return `opened ${days} days ago`;
+  if (days < 60) return `opened ${Math.round(days / 7)} weeks ago`;
+  return `opened ${Math.round(days / 30)} months ago`;
+}
+
+/** True when a keystroke belongs to whatever field the viewer is typing in. */
+function typingInField(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target.isContentEditable ||
+    target.tagName === "INPUT" ||
+    target.tagName === "TEXTAREA" ||
+    target.tagName === "SELECT"
+  );
+}
+
 function relativeDate(iso: string): string {
   const d = new Date(iso);
   const today = new Date();
@@ -179,6 +229,8 @@ export function SpacePage() {
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState("");
   const [sort, setSort] = useState<Sort>("Recent");
+  const [logbookOpen, setLogbookOpen] = useState(readLogbookOpen);
+  const searchRef = useRef<HTMLInputElement>(null);
   // Held across the name prompt so a joiner presents the invite exactly once.
   const [pending, setPending] = useState<Invite>({});
   // Read on the first render, before anything can navigate: an invite link
@@ -216,6 +268,22 @@ export function SpacePage() {
     if (!isMember) return;
     api("POST", `${spaceApi(org, slug)}/seen`).catch(() => {});
   }, [org, slug, isMember]);
+
+  // "/" jumps to search, the way it does on most list pages — but only when
+  // the viewer is not already typing somewhere, and never out from under an
+  // open dialog.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (typingInField(e.target) || document.querySelector("dialog[open]")) return;
+      const field = searchRef.current;
+      if (!field) return;
+      e.preventDefault();
+      field.focus();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   // The one join path, whether the passcode was typed at the gate or carried
   // in by an invite link. Identity comes first: a visitor with no name is sent
@@ -330,11 +398,24 @@ export function SpacePage() {
     // no label to lowercase, and "pokerful" is not "poker".
     .filter((s) => (!kind || s.kind === kind) && (!q || s.title.toLowerCase().includes(q)))
     .sort((a, b) => {
-      if (sort === "A\u2013Z") return a.title.localeCompare(b.title);
-      if (sort === "Active first") return Number(!!a.endedAt) - Number(!!b.endedAt);
+      if (sort === "A–Z") return a.title.localeCompare(b.title);
+      // The groups below already put live rooms first and ended ones last;
+      // inside a group, the fuller room comes first.
+      if (sort === "Active first") return b.here - a.here;
       return 0; // "Recent" — the server already returns newest first.
     });
-  const filtersOn = !!q || !!kind || sort !== "Recent";
+  // Ended beats any count: a room that has ended is never "on the table".
+  const live = filtered.filter((s) => !s.endedAt && s.here > 0);
+  const open = filtered.filter((s) => !s.endedAt && s.here === 0);
+  const ended = filtered.filter((s) => !!s.endedAt);
+  const narrowed = !!q || !!kind;
+  const filtersOn = narrowed || sort !== "Recent";
+  const matchCount =
+    filtered.length === 0
+      ? "No sessions match"
+      : filtered.length === 1
+        ? "1 session matches"
+        : `${filtered.length} sessions match`;
   // What a new session may be: the server omits any kind retired in place.
   // An older server sends no list at all, and offers everything as before.
   const offered = KINDS.filter((k) => sp.kinds?.includes(k.id) ?? true);
@@ -361,7 +442,7 @@ export function SpacePage() {
         <InviteStrip org={org} slug={sp.slug} passcode={sp.passcode ?? ""} />
 
         <div className="mb-5 flex items-center justify-between gap-4">
-          <h2 className="text-[22px] font-bold tracking-tight">Recent sessions</h2>
+          <h2 className="text-[22px] font-bold tracking-tight">Sessions</h2>
           {offered.length > 0 && (
             <button className={buttonPrimary} onClick={() => setCreating(true)}>
               New session
@@ -370,18 +451,39 @@ export function SpacePage() {
         </div>
 
         {all.length > 0 && (
-          <div className="mb-4 flex flex-wrap items-center gap-2.5">
-            <label className="flex min-w-[180px] flex-1 items-center gap-2 rounded-full border border-line bg-surface px-3.5 py-2">
-              <span className="h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] border-ink-faint" aria-hidden />
+          <div className="mb-5 flex flex-wrap items-center gap-2.5">
+            <label className="flex min-w-[180px] flex-1 items-center gap-2 rounded-full border border-line-strong bg-surface px-3.5 py-2 text-ink-faint focus-within:border-accent">
+              <svg
+                aria-hidden="true"
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                className="shrink-0"
+              >
+                <circle cx="7" cy="7" r="4.6" />
+                <path d="M10.4 10.4 14 14" />
+              </svg>
               <input
+                ref={searchRef}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search sessions"
                 aria-label="Search sessions"
-                className="w-full bg-transparent text-[13px]"
+                aria-keyshortcuts="/"
+                className="w-full bg-transparent text-[13px] text-ink"
               />
+              <kbd
+                aria-hidden="true"
+                className="hidden shrink-0 rounded-[6px] border border-line-strong px-1.5 font-mono text-[11px] leading-[18px] text-ink-faint sm:inline-block"
+              >
+                /
+              </kbd>
             </label>
-            <div className="flex gap-0.5 rounded-full bg-felt-deep p-[3px]">
+            <div role="group" aria-label="Filter by kind" className="flex gap-0.5 rounded-full bg-felt-deep p-[3px]">
               {KIND_TABS.map((k) => (
                 <button
                   key={k.id}
@@ -396,13 +498,26 @@ export function SpacePage() {
                 </button>
               ))}
             </div>
-            <button
-              onClick={() => setSort(sort === "Recent" ? "Active first" : sort === "Active first" ? "A\u2013Z" : "Recent")}
-              className={`${TOUCH_HIT} inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-4 text-xs font-bold text-ink-soft hover:bg-surface-hi`}
+            {/* A native select: it holds its width whichever order is chosen,
+                where a button that cycled its own label jumped under the
+                pointer on every press. */}
+            <label
+              className={`${TOUCH_HIT} inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-surface pl-4 pr-2 text-xs font-bold text-ink-soft focus-within:border-accent hover:bg-surface-hi`}
             >
-              <span className="font-mono text-[10px] text-ink-faint">SORT</span>
-              {sort}
-            </button>
+              <span className="text-[11px] font-semibold text-ink-faint">Sort</span>
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as Sort)}
+                aria-label="Sort sessions"
+                className="cursor-pointer bg-transparent py-2 text-xs font-bold text-ink-soft"
+              >
+                {SORTS.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </label>
             {filtersOn && (
               <button
                 onClick={() => {
@@ -418,6 +533,11 @@ export function SpacePage() {
           </div>
         )}
 
+        {/* Sighted viewers see the list change; this says how much it did. */}
+        <p role="status" aria-live="polite" className="sr-only">
+          {narrowed ? matchCount : ""}
+        </p>
+
         {all.length === 0 ? (
           <EmptyTable
             heading="Nothing on the table yet"
@@ -425,58 +545,70 @@ export function SpacePage() {
           />
         ) : filtered.length === 0 ? (
           <p className="px-2 py-9 text-center text-sm text-ink-soft">
-            Nothing matches {q ? `\u201c${query}\u201d` : "these filters"}
+            Nothing matches {q ? `“${query}”` : "these filters"}
             {kind ? ` in ${kindLabel(kind)} sessions` : ""}.
           </p>
         ) : (
-          <ul className="flex flex-col gap-2.5">
-            {filtered.map((s) => (
-              <li key={s.id} className="relative">
-                {/* The button is a sibling of the link, never inside it: a
-                    control nested in an anchor is neither reliably clickable
-                    nor announced as its own thing. */}
-                {canManage && (
-                  <button
-                    onClick={() => setManaging(s)}
-                    aria-label={`Manage ${s.title}`}
-                    className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-chip border border-line bg-surface px-2.5 py-1.5 text-[12px] font-bold text-ink-soft hover:bg-felt-deep"
+          <div className="flex flex-col gap-5">
+            {live.length > 0 && (
+              <ul aria-label="On the table now" className="flex flex-col gap-3">
+                {live.map((s) => (
+                  <LiveCard key={s.id} s={s} onManage={canManage ? () => setManaging(s) : undefined} />
+                ))}
+              </ul>
+            )}
+
+            {open.length > 0 && (
+              <ul
+                aria-label="Open rooms"
+                className="divide-y divide-line overflow-hidden rounded-card border border-line bg-surface"
+              >
+                {open.map((s) => (
+                  <SessionRow key={s.id} s={s} onManage={canManage ? () => setManaging(s) : undefined} />
+                ))}
+              </ul>
+            )}
+
+            {ended.length > 0 && (
+              <details
+                open={logbookOpen}
+                onToggle={(e) => {
+                  const next = e.currentTarget.open;
+                  setLogbookOpen(next);
+                  writeLogbookOpen(next);
+                }}
+                className="group overflow-hidden rounded-card border border-line bg-surface"
+              >
+                <summary className="flex min-h-11 list-none items-center gap-2 px-5 py-2.5 text-[13px] font-bold text-ink-soft hover:bg-surface-hi [&::-webkit-details-marker]:hidden">
+                  <svg
+                    aria-hidden="true"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    className="shrink-0 transition-transform group-open:rotate-90"
                   >
-                    Manage
-                  </button>
-                )}
-                <Link
-                  to={`/session/${s.id}`}
-                  className={
-                    "flex items-center gap-3.5 rounded-card border border-line bg-surface px-5 py-4 shadow-rest transition hover:shadow-lift " +
-                    (canManage ? "pr-24" : "")
-                  }
-                >
-                  <KindChip kind={s.kind} />
-                  <span className="min-w-0">
-                    <span className="block truncate text-[15px] font-bold">{s.title}</span>
-                    <span className="mt-0.5 block text-xs text-ink-faint">
-                      {relativeDate(s.createdAt)}
-                    </span>
-                  </span>
-                  <span className="flex-1" />
-                  {/* The text carries the whole meaning — the dot only
-                      decorates a count that is already spelled out. */}
-                  {s.endedAt ? (
-                    <span className="shrink-0 rounded-full bg-felt-deep px-2.5 py-1 font-mono text-[10px] text-ink-faint">
-                      ended
-                    </span>
-                  ) : s.here > 0 ? (
-                    <span className="flex shrink-0 items-center gap-1.5 font-mono text-[10px] text-go">
-                      <span aria-hidden="true" className="h-[7px] w-[7px] rounded-full bg-go" />
-                      {`${s.here} here`}
-                    </span>
-                  ) : (
-                    <span className="shrink-0 font-mono text-[10px] text-ink-faint">open</span>
-                  )}
-                </Link>
-              </li>
-            ))}
-          </ul>
+                    <path d="M4.5 2.5 8 6l-3.5 3.5" />
+                  </svg>
+                  {`Logbook · ${ended.length} ended`}
+                </summary>
+                <ul aria-label="Ended sessions" className="divide-y divide-line border-t border-line">
+                  {ended.map((s) => (
+                    <SessionRow key={s.id} s={s} onManage={canManage ? () => setManaging(s) : undefined} />
+                  ))}
+                </ul>
+              </details>
+            )}
+          </div>
+        )}
+
+        {/* The server sends the newest 50 and no more, so a search that finds
+            nothing at the cap has not proven the session never existed. */}
+        {all.length >= SESSION_CAP && (
+          <p className="mt-3 px-1 text-xs text-ink-faint">{`Showing the latest ${SESSION_CAP} sessions`}</p>
         )}
 
         {all.some((s) => s.kind === "standup") && <StandupTrend org={org} slug={sp.slug} />}
@@ -520,6 +652,105 @@ export function SpacePage() {
       />
     )}
     </>
+  );
+}
+
+/**
+ * A room with people in it right now, lifted above the list. The Rejoin link
+ * is the card's one way in and names the room it opens, so a screen reader
+ * hears "Rejoin Sprint 12 grooming" rather than a row of bare "Rejoin"s.
+ */
+function LiveCard({ s, onManage }: { s: SessionSummary; onManage?: () => void }) {
+  return (
+    <li className="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-card border border-line border-l-[3px] border-l-go bg-surface-hi py-4 pl-5 pr-4 shadow-lift">
+      {/* A 14rem basis, so on a phone the buttons wrap under the title
+          rather than squeezing it down to an ellipsis. */}
+      <div className="min-w-0 flex-[1_1_14rem]">
+        <p className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.08em] text-go">
+          {/* The ping is decoration over a dot that already says "live";
+              reduced motion leaves the dot standing still. */}
+          <span aria-hidden="true" className="relative flex h-2 w-2 shrink-0">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-go opacity-60 motion-reduce:animate-none" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-go" />
+          </span>
+          On the table now
+        </p>
+        <p className="mt-1 truncate text-[19px] font-bold tracking-tight">{s.title}</p>
+        <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-soft">
+          <KindChip kind={s.kind} />
+          <span className="font-mono text-[12px] font-semibold text-go">{`${s.here} here`}</span>
+          <span>{relativeDate(s.createdAt)}</span>
+        </p>
+      </div>
+      {/* Its own line on a phone, with Rejoin taking the width. */}
+      <div className="flex shrink-0 items-center gap-2 max-sm:w-full">
+        <Link
+          to={`/session/${s.id}`}
+          aria-label={`Rejoin ${s.title}`}
+          className={`${buttonGo} ${TOUCH_HIT} inline-flex items-center justify-center whitespace-nowrap max-sm:flex-1`}
+        >
+          Rejoin
+        </Link>
+        {onManage && (
+          <button onClick={onManage} aria-label={`Manage ${s.title}`} className={`${buttonQuiet} ${TOUCH_HIT} shrink-0`}>
+            Manage
+          </button>
+        )}
+      </div>
+    </li>
+  );
+}
+
+/**
+ * One row of the open list or the logbook. The link is named outright, kind
+ * first, the way the sidebar names it, and Manage follows it as a sibling:
+ * a control nested in an anchor is neither reliably clickable nor announced
+ * as its own thing, and after the link is the order the eye reads them in.
+ */
+function SessionRow({ s, onManage }: { s: SessionSummary; onManage?: () => void }) {
+  const ended = !!s.endedAt;
+  const age = openedAgo(s.createdAt);
+  return (
+    <li className={"flex items-center gap-2 " + (onManage ? "pr-3" : "")}>
+      <Link
+        to={`/session/${s.id}`}
+        aria-label={`${kindLabel(s.kind)} · ${s.title} · ${ended ? "ended" : age}`}
+        // On a phone the chip sits above the title, so the title keeps the
+        // row's width instead of truncating beside it.
+        className={
+          "flex min-w-0 flex-1 items-center gap-3.5 px-5 hover:bg-surface-hi max-sm:flex-col max-sm:items-start max-sm:gap-1.5 max-sm:pr-2 " +
+          (ended ? "py-2.5" : "py-3.5")
+        }
+      >
+        <KindChip kind={s.kind} />
+        {ended ? (
+          <span className="min-w-0 flex-1 truncate text-[13px] text-ink-soft max-sm:w-full">
+            <span className="font-semibold">{s.title}</span>
+            {` · ${relativeDate(s.createdAt)}`}
+          </span>
+        ) : (
+          <>
+            <span className="min-w-0 flex-1 max-sm:w-full">
+              <span className="block truncate text-[15px] font-bold">{s.title}</span>
+              <span className="mt-0.5 block truncate text-xs text-ink-faint">
+                {relativeDate(s.createdAt)}
+                {/* No room for a second column on a phone: the age joins
+                    the date line instead. */}
+                <span className="sm:hidden">{` · ${age}`}</span>
+              </span>
+            </span>
+            <span className="hidden shrink-0 text-xs text-ink-faint sm:inline">
+              {age}
+            </span>
+          </>
+        )}
+      </Link>
+      {onManage && (
+        <button onClick={onManage} aria-label={`Manage ${s.title}`} className={`${buttonQuiet} ${TOUCH_HIT} shrink-0`}>
+          Manage
+        </button>
+      )}
+    </li>
   );
 }
 
