@@ -490,7 +490,7 @@ export function Landing() {
       <main
         className={
           "mx-auto flex w-full flex-1 flex-col items-center gap-7 px-4 py-6 sm:px-6 " +
-          (known ? "max-w-xl justify-start pt-16 sm:pt-20" : "max-w-2xl justify-center")
+          (known ? "max-w-6xl justify-start pt-16 sm:pt-20" : "max-w-2xl justify-center")
         }
       >
         {!settling && !known && <DealAndReveal />}
@@ -617,243 +617,261 @@ export function Landing() {
               </p>
             )}
 
-            {known && (
-              <ReturnTable space={spaces[0]} orgName={multiOrg ? orgName(spaces[0].orgSlug) : null} />
-            )}
+            {/* Past lg the page is two columns: the table you are going back
+                to and the create form on the left, every space you have on the
+                right. One column there left most of a wide screen empty. DOM
+                order is hero, list, form, so a phone reads the same way it
+                always did. For a stranger the wrapper is `contents` and
+                changes nothing. */}
+            <div
+              className={
+                known
+                  ? "grid w-full items-start gap-7 lg:grid-cols-[minmax(0,7fr)_minmax(0,6fr)] lg:grid-rows-[auto_1fr]"
+                  : "contents"
+              }
+            >
+              {known && (
+                <ReturnTable space={spaces[0]} orgName={multiOrg ? orgName(spaces[0].orgSlug) : null} />
+              )}
 
-            {!settling && (known || orgs.length > 0) && (
-              <div className="flex w-full flex-col gap-4">
-                {(multiOrg || findable) && (
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    {multiOrg && (
-                      /* A filter, not navigation: pressing one changes what
-                         this page shows and goes nowhere. Every state keeps
-                         the same box so the row never reflows under the
-                         pointer. */
-                      <div
-                        role="group"
-                        aria-label="Show spaces from"
-                        className="flex flex-wrap items-center gap-2"
-                      >
-                        {[{ slug: null as string | null, name: "All orgs" }, ...orgs].map((o) => {
-                          const on = orgFilter === o.slug;
-                          return (
-                            <button
-                              key={o.slug ?? ""}
-                              type="button"
-                              aria-pressed={on}
-                              onClick={() => setOrgFilter(o.slug)}
-                              className={
-                                "rounded-full border px-3.5 py-1.5 text-sm font-bold transition " +
-                                (on
-                                  ? "border-accent bg-accent-soft text-ink"
-                                  : "border-line-strong text-ink-soft hover:bg-felt-deep")
-                              }
-                            >
-                              {o.name}
-                            </button>
-                          );
-                        })}
+              <div className={known ? "lg:col-start-2 lg:row-span-2 lg:row-start-1" : "contents"}>
+                {!settling && (known || orgs.length > 0) && (
+                  <div className="flex w-full flex-col gap-4">
+                    {(multiOrg || findable) && (
+                      <div className="flex flex-wrap items-center gap-3">
+                        {multiOrg && (
+                          /* A filter, not navigation: pressing one changes what
+                             this page shows and goes nowhere. Every state keeps
+                             the same box so the row never reflows under the
+                             pointer. */
+                          <div
+                            role="group"
+                            aria-label="Show spaces from"
+                            className="flex flex-wrap items-center gap-2"
+                          >
+                            {[{ slug: null as string | null, name: "All orgs" }, ...orgs].map((o) => {
+                              const on = orgFilter === o.slug;
+                              return (
+                                <button
+                                  key={o.slug ?? ""}
+                                  type="button"
+                                  aria-pressed={on}
+                                  onClick={() => setOrgFilter(o.slug)}
+                                  className={
+                                    "rounded-full border px-3.5 py-1.5 text-sm font-bold transition " +
+                                    (on
+                                      ? "border-accent bg-accent-soft text-ink"
+                                      : "border-line-strong text-ink-soft hover:bg-felt-deep")
+                                  }
+                                >
+                                  {o.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {findable && (
+                          <div className="min-w-48 flex-1">
+                            <label htmlFor={findId} className="sr-only">
+                              Find a space
+                            </label>
+                            <input
+                              id={findId}
+                              type="search"
+                              autoComplete="off"
+                              className={inputClass}
+                              value={find}
+                              onChange={(e) => setFind(e.target.value)}
+                              onKeyDown={(e) => {
+                                // Enter opens the one match, which is the whole
+                                // point of typing four letters.
+                                if (e.key === "Enter" && shown.length === 1) {
+                                  e.preventDefault();
+                                  navigate(spacePath(shown[0].orgSlug, shown[0].slug));
+                                }
+                              }}
+                              placeholder="Find a space"
+                            />
+                          </div>
+                        )}
                       </div>
                     )}
-                    {findable && (
-                      <div className="sm:w-56">
-                        <label htmlFor={findId} className="sr-only">
-                          Find a space
-                        </label>
-                        <input
-                          id={findId}
-                          type="search"
-                          autoComplete="off"
-                          className={inputClass}
-                          value={find}
-                          onChange={(e) => setFind(e.target.value)}
-                          onKeyDown={(e) => {
-                            // Enter opens the one match, which is the whole
-                            // point of typing four letters.
-                            if (e.key === "Enter" && shown.length === 1) {
-                              e.preventDefault();
-                              navigate(spacePath(shown[0].orgSlug, shown[0].slug));
-                            }
-                          }}
-                          placeholder="Find a space"
-                        />
-                      </div>
+
+                    {/* One panel per org: its name, its spaces, and the doors that
+                        belong to it — the directory, and the plugin surface for an
+                        admin. Those doors used to float in two separate navs under
+                        the list, detached from the org they opened. */}
+                    {panelSlugs.map((slug) => {
+                      const rows = shown.filter((sp) => sp.orgSlug === slug);
+                      const org = orgs.find((o) => o.slug === slug);
+                      // A filtered-out panel is noise; one with no spaces at all
+                      // stays, because its directory door is how that member
+                      // finds a room nobody sent them.
+                      if (needle && rows.length === 0) return null;
+                      const title = orgName(slug);
+                      return (
+                        <section
+                          key={slug}
+                          aria-label={title}
+                          className="rounded-panel border border-line bg-surface shadow-rest"
+                        >
+                          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-line px-5 py-3">
+                            <h2 className="font-display text-[15px] font-bold">{title}</h2>
+                            {org && (
+                              <span className="flex items-center gap-4 text-sm">
+                                <Link
+                                  to={orgPath(slug)}
+                                  aria-label={`Browse ${title}`}
+                                  className="py-1 text-ink-soft underline underline-offset-2 hover:text-ink"
+                                >
+                                  Browse
+                                </Link>
+                                {org.role === "admin" && (
+                                  <Link
+                                    to={pluginsPath(slug)}
+                                    aria-label={`Plugins in ${title}`}
+                                    className="py-1 text-ink-soft underline underline-offset-2 hover:text-ink"
+                                  >
+                                    Plugins
+                                  </Link>
+                                )}
+                              </span>
+                            )}
+                          </div>
+                          {/* A plugin's nav slot for this org. Collapses when the
+                              slot renders nothing, so an instance with no plugins
+                              does not pay a gap for one. */}
+                          {org && (
+                            <div className="px-5 pt-3 empty:hidden">
+                              <PluginChrome slot="nav" orgSlug={slug} />
+                            </div>
+                          )}
+                          {rows.length > 0 ? (
+                            <ul aria-label={`Your spaces in ${title}`} className="flex flex-col gap-0.5 p-2">
+                              {rows.map((sp) => (
+                                <li key={sp.orgSlug + "/" + sp.slug}>
+                                  <Link
+                                    to={spacePath(sp.orgSlug, sp.slug)}
+                                    className="flex items-center justify-between gap-3 rounded-card px-3 py-2.5 font-bold hover:bg-felt-deep"
+                                  >
+                                    <span className="line-clamp-2 min-w-0">{sp.name}</span>
+                                    {sp.protected && (
+                                      <span className="flex shrink-0 items-center gap-1.5 text-ink-faint">
+                                        <LockGlyph />
+                                        <span className="font-mono text-[11px] font-normal tracking-[0.06em]">
+                                          <span className="sr-only">, </span>passcode
+                                        </span>
+                                      </span>
+                                    )}
+                                  </Link>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="px-5 py-4 text-sm text-ink-soft">
+                              No tables of yours here yet. Browse to find your team's, or name one below.
+                            </p>
+                          )}
+                        </section>
+                      );
+                    })}
+                    {needle && shown.length === 0 && (
+                      <p role="status" className="px-1 text-sm text-ink-soft">
+                        No space of yours matches “{find.trim()}”.
+                      </p>
                     )}
                   </div>
                 )}
+              </div>
 
-                {/* One panel per org: its name, its spaces, and the doors that
-                    belong to it — the directory, and the plugin surface for an
-                    admin. Those doors used to float in two separate navs under
-                    the list, detached from the org they opened. */}
-                {panelSlugs.map((slug) => {
-                  const rows = shown.filter((sp) => sp.orgSlug === slug);
-                  const org = orgs.find((o) => o.slug === slug);
-                  // A filtered-out panel is noise; one with no spaces at all
-                  // stays, because its directory door is how that member
-                  // finds a room nobody sent them.
-                  if (needle && rows.length === 0) return null;
-                  const title = orgName(slug);
-                  return (
-                    <section
-                      key={slug}
-                      aria-label={title}
-                      className="rounded-panel border border-line bg-surface shadow-rest"
-                    >
-                      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-line px-5 py-3">
-                        <h2 className="font-display text-[15px] font-bold">{title}</h2>
-                        {org && (
-                          <span className="flex items-center gap-4 text-sm">
-                            <Link
-                              to={orgPath(slug)}
-                              aria-label={`Browse ${title}`}
-                              className="py-1 text-ink-soft underline underline-offset-2 hover:text-ink"
-                            >
-                              Browse
-                            </Link>
-                            {org.role === "admin" && (
-                              <Link
-                                to={pluginsPath(slug)}
-                                aria-label={`Plugins in ${title}`}
-                                className="py-1 text-ink-soft underline underline-offset-2 hover:text-ink"
-                              >
-                                Plugins
-                              </Link>
-                            )}
-                          </span>
-                        )}
-                      </div>
-                      {/* A plugin's nav slot for this org. Collapses when the
-                          slot renders nothing, so an instance with no plugins
-                          does not pay a gap for one. */}
-                      {org && (
-                        <div className="px-5 pt-3 empty:hidden">
-                          <PluginChrome slot="nav" orgSlug={slug} />
-                        </div>
-                      )}
-                      {rows.length > 0 ? (
-                        <ul aria-label={`Your spaces in ${title}`} className="flex flex-col gap-0.5 p-2">
-                          {rows.map((sp) => (
-                            <li key={sp.orgSlug + "/" + sp.slug}>
-                              <Link
-                                to={spacePath(sp.orgSlug, sp.slug)}
-                                className="flex items-center justify-between gap-3 rounded-card px-3 py-2.5 font-bold hover:bg-felt-deep"
-                              >
-                                <span className="line-clamp-2 min-w-0">{sp.name}</span>
-                                {sp.protected && (
-                                  <span className="flex shrink-0 items-center gap-1.5 text-ink-faint">
-                                    <LockGlyph />
-                                    <span className="font-mono text-[11px] font-normal tracking-[0.06em]">
-                                      <span className="sr-only">, </span>passcode
-                                    </span>
-                                  </span>
-                                )}
-                              </Link>
-                            </li>
+              <div className={known ? "flex flex-col gap-4 lg:col-start-1 lg:row-start-2" : "contents"}>
+                {!settling && (
+                  <form
+                    onSubmit={submit}
+                    className={
+                      "flex w-full flex-col gap-3 self-center rounded-panel border border-line bg-surface p-5 shadow-rest sm:flex-row sm:flex-wrap sm:items-end " +
+                      (known ? "" : "max-w-md")
+                    }
+                  >
+                    <div className="min-w-0 flex-1 sm:min-w-48">
+                      <label htmlFor={fieldId} className={"mb-2 block " + labelText}>
+                        {known ? "New space" : "Name your space"}
+                      </label>
+                      <input
+                        id={fieldId}
+                        name="space-name"
+                        autoComplete="off"
+                        className={inputClass}
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder="e.g. Platform Team"
+                        maxLength={64}
+                        aria-invalid={error && canRetry ? true : undefined}
+                        aria-describedby={error ? errorId : undefined}
+                      />
+                    </div>
+                    {/* Which org it lands in, asked only when the page cannot
+                        tell: several orgs and no switcher choice. */}
+                    {fullAccount && multiOrg && !orgFilter && (
+                      <div className="sm:w-40">
+                        <label htmlFor={orgFieldId} className={"mb-2 block " + labelText}>
+                          In
+                        </label>
+                        <select
+                          id={orgFieldId}
+                          className={inputClass}
+                          value={targetOrg}
+                          onChange={(e) => setCreateOrg(e.target.value)}
+                        >
+                          {orgs.map((o) => (
+                            <option key={o.slug} value={o.slug}>
+                              {o.name}
+                            </option>
                           ))}
-                        </ul>
-                      ) : (
-                        <p className="px-5 py-4 text-sm text-ink-soft">
-                          No tables of yours here yet. Browse to find your team's, or name one below.
-                        </p>
-                      )}
-                    </section>
-                  );
-                })}
-                {needle && shown.length === 0 && (
-                  <p role="status" className="px-1 text-sm text-ink-soft">
-                    No space of yours matches “{find.trim()}”.
+                        </select>
+                      </div>
+                    )}
+                    <button
+                      type="submit"
+                      className={buttonPrimary + " shrink-0"}
+                      disabled={!name.trim() || busy}
+                    >
+                      {busy ? "Opening…" : known ? "Create a space" : "Open a space"}
+                    </button>
+                    {fullAccount && multiOrg && orgFilter && (
+                      <p className="w-full text-sm text-ink-soft sm:order-last">
+                        It will be in {orgName(orgFilter)}.
+                      </p>
+                    )}
+                  </form>
+                )}
+
+                {error && (
+                  <p id={errorId} role="alert" className="flex items-center gap-3 font-bold text-stop">
+                    {error}
+                    {canRetry && (
+                      <button
+                        type="button"
+                        className={buttonQuiet + " font-bold"}
+                        onClick={() => doCreate(name.trim(), targetOrg)}
+                        disabled={!name.trim() || busy}
+                      >
+                        Try again
+                      </button>
+                    )}
+                  </p>
+                )}
+
+                {/* Worth saying until the list says it for them: once someone has
+                    a few tables they know how they got there. */}
+                {!settling && spaces.length <= 1 && (
+                  <p className={"text-pretty text-sm text-ink-faint " + (known ? "self-stretch px-1" : "max-w-md self-center")}>
+                    Got a link from a teammate? That link is your invite — just open it. A
+                    passcode alone won't do it; ask them for the link.
                   </p>
                 )}
               </div>
-            )}
-
-            {!settling && (
-              <form
-                onSubmit={submit}
-                className={
-                  "flex w-full flex-col gap-3 self-center rounded-panel border border-line bg-surface p-5 shadow-rest sm:flex-row sm:flex-wrap sm:items-end " +
-                  (known ? "" : "max-w-md")
-                }
-              >
-                <div className="min-w-0 flex-1 sm:min-w-48">
-                  <label htmlFor={fieldId} className={"mb-2 block " + labelText}>
-                    {known ? "New space" : "Name your space"}
-                  </label>
-                  <input
-                    id={fieldId}
-                    name="space-name"
-                    autoComplete="off"
-                    className={inputClass}
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. Platform Team"
-                    maxLength={64}
-                    aria-invalid={error && canRetry ? true : undefined}
-                    aria-describedby={error ? errorId : undefined}
-                  />
-                </div>
-                {/* Which org it lands in, asked only when the page cannot
-                    tell: several orgs and no switcher choice. */}
-                {fullAccount && multiOrg && !orgFilter && (
-                  <div className="sm:w-40">
-                    <label htmlFor={orgFieldId} className={"mb-2 block " + labelText}>
-                      In
-                    </label>
-                    <select
-                      id={orgFieldId}
-                      className={inputClass}
-                      value={targetOrg}
-                      onChange={(e) => setCreateOrg(e.target.value)}
-                    >
-                      {orgs.map((o) => (
-                        <option key={o.slug} value={o.slug}>
-                          {o.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                <button
-                  type="submit"
-                  className={buttonPrimary + " shrink-0"}
-                  disabled={!name.trim() || busy}
-                >
-                  {busy ? "Opening…" : known ? "Create a space" : "Open a space"}
-                </button>
-                {fullAccount && multiOrg && orgFilter && (
-                  <p className="w-full text-sm text-ink-soft sm:order-last">
-                    It will be in {orgName(orgFilter)}.
-                  </p>
-                )}
-              </form>
-            )}
-
-            {error && (
-              <p id={errorId} role="alert" className="flex items-center gap-3 font-bold text-stop">
-                {error}
-                {canRetry && (
-                  <button
-                    type="button"
-                    className={buttonQuiet + " font-bold"}
-                    onClick={() => doCreate(name.trim(), targetOrg)}
-                    disabled={!name.trim() || busy}
-                  >
-                    Try again
-                  </button>
-                )}
-              </p>
-            )}
-
-            {/* Worth saying until the list says it for them: once someone has
-                a few tables they know how they got there. */}
-            {!settling && spaces.length <= 1 && (
-              <p className={"text-pretty text-sm text-ink-faint " + (known ? "self-stretch px-1" : "max-w-md self-center")}>
-                Got a link from a teammate? That link is your invite — just open it. A
-                passcode alone won't do it; ask them for the link.
-              </p>
-            )}
+            </div>
           </>
         )}
 
