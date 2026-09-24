@@ -181,11 +181,20 @@ migration and embedding mistakes that unit tests miss.
     updating the `site/` page **and** its stamp in the same PR.
 11. **The docs site writes the current release down once**, in
     `site/src/version.mjs`. Pages carry `%VERSION%` and an mdast plugin
-    substitutes it at build time, prose and code fences alike. A release means
-    editing that one line and merging it — that push under `site/**` is also
-    what redeploys the site, since `release.yml` never touches `site/`. Leave
-    minimum-version sentences ("chart 0.4.1 or newer") and historical
-    references literal; they are not the current version.
+    substitutes it at build time, prose and code fences alike. That push under
+    `site/**` is also what redeploys the site, since `release.yml` never
+    touches `site/`. Leave minimum-version sentences ("chart 0.4.1 or newer")
+    and historical references literal; they are not the current version. A
+    release means running `scripts/bump-release-pins.sh X.Y.Z`, not
+    hand-editing that line: eight other files (README, `SECURITY.md`, the
+    compose file, the k8s manifest, the Helm chart, and the deployment guide's
+    FIPS example) name the current version too, and #470 pinning them once
+    without a script behind it is why three releases in a row (v0.11.0,
+    v0.11.1, v0.12.0) shipped with every one of them still reading v0.10.0.
+    `scripts/check-release-pins.sh` and `scripts/check-release-freshness.sh`
+    are CI legs that catch a partial bump and a version.mjs left behind a tag,
+    respectively — see [Cutting a
+    release](/project/contributing/#cutting-a-release).
 12. **`users.link_id` is `on delete set null`, never cascade.** `votes`,
     `standup_entries` and presence all cascade from `users`, so cascading a
     signed link's delete into its holders would erase their votes and updates

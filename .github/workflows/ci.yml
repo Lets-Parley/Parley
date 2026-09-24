@@ -272,6 +272,29 @@ jobs:
       - name: Test the core-untouched checker
         run: scripts/tests/check-core-untouched-test.sh
 
+  # The pins in README.md, SECURITY.md, the compose file, the k8s manifest and
+  # the Helm chart all have to name the same release as site/src/version.mjs,
+  # and version.mjs itself has to be the release actually tagged — #470
+  # pinned them once and nothing kept them in sync, so three releases
+  # (v0.11.0, v0.11.1, v0.12.0) shipped with every pin still saying 0.10.0.
+  # fetch-tags is explicit because actions/checkout skips tags by default
+  # even at fetch-depth: 0, and the freshness check has nothing to compare
+  # against without them.
+  release-pins:
+    name: release pins
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Test the release pin checkers
+        run: scripts/tests/check-release-pins-test.sh
+      - name: Check every release pin agrees with site/src/version.mjs
+        run: scripts/check-release-pins.sh
+      - name: Check site/src/version.mjs isn't behind the newest release tag
+        run: scripts/check-release-freshness.sh
+
   plugin-ceremonies:
     name: plugin ceremonies
     runs-on: ubuntu-24.04
@@ -1239,7 +1262,7 @@ jobs:
   gate:
     name: required / gate
     if: always()
-    needs: [go, go-fips, web, site, dependency-review, dco, docker, docker-fips, container-scan, chart, buildx-arg-passthrough, guard-mutation, core-untouched, plugin-ceremonies]
+    needs: [go, go-fips, web, site, dependency-review, dco, docker, docker-fips, container-scan, chart, buildx-arg-passthrough, guard-mutation, core-untouched, plugin-ceremonies, release-pins]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every check
@@ -1258,3 +1281,4 @@ jobs:
           test "${{ needs.guard-mutation.result }}" = success
           test "${{ needs.core-untouched.result }}" = success
           test "${{ needs.plugin-ceremonies.result }}" = success
+          test "${{ needs.release-pins.result }}" = success
