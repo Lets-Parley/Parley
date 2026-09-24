@@ -4,8 +4,10 @@
 #
 # This exists because the bump after #470 was a one-off, manual chore that
 # stopped happening: v0.11.0, v0.11.1 and v0.12.0 all shipped with every pin
-# still saying 0.10.0. One command, run once per release, replaces re-editing
-# nine files by hand and hoping none of them were missed.
+# still saying 0.10.0, and SECURITY.md's supported-versions table never
+# learned that v0.11.0 and v0.11.1 existed either. One command, run once per
+# release, replaces re-editing nine files by hand and hoping none of them, or
+# the versions that shipped in between, were missed.
 #
 # Each pin is found by its anchor text, not by a single "old version" read
 # once from version.mjs: a pin can be stale at a version version.mjs has
@@ -55,15 +57,62 @@ for i in "${!RELEASE_PIN_FILES[@]}"; do
   bump_pin "${RELEASE_PIN_FILES[$i]}" "${RELEASE_PIN_TEMPLATES[$i]}"
 done
 
-# SECURITY.md's supported-versions table is not a simple find/replace: the
-# version that was current a moment ago moves into the superseded row rather
-# than disappearing. old_version is read from the "Yes" pin's own text above,
-# before it was rewritten — never assumed to equal whatever version.mjs
-# happened to say. Nothing to move on an idempotent re-run (old == new), and
-# the superseded row is left alone if that version is already listed there,
-# so re-running after a fix already applied by hand does not duplicate it.
-if [ "$old_version" != "$new_version" ] && ! grep -qF "$old_version" <(grep 'superseded' SECURITY.md); then
-  sed -i -E "s/^\| ([^|]*) \| No — superseded \|\$/| ${old_version}, \1 | No — superseded |/" SECURITY.md
+# SECURITY.md's supported-versions table is not a simple find/replace: every
+# version that moves out of "Yes" moves into the superseded row rather than
+# disappearing. That is not only old_version: a release can ship while the
+# pins sit stuck at an older one — v0.11.0 and v0.11.1 both shipped while
+# this table still said 0.10.0 — and every version tagged in
+# [old_version, new_version) belongs in the row, not only the one the "Yes"
+# pin happened to name.
+version_lt() {
+  [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n 1)" = "$1" ]
+}
+
+# Versions from git tags in [old_version, new_version), newest first. Falls
+# back to just old_version outside a git checkout (or with no tags fetched)
+# rather than silently moving nothing — the same gap this script exists to
+# close, just for one version instead of a run of them.
+superseded_additions() {
+  local old=$1 new=$2
+  if ! git rev-parse --git-dir >/dev/null 2>&1; then
+    printf '%s\n' "$old"
+    return 0
+  fi
+  local tags
+  tags=$(git tag --list 'v*' 2>/dev/null | grep -vE -- '-' | sed 's/^v//')
+  local -a additions=()
+  local v found_old=0
+  while IFS= read -r v; do
+    [ -z "$v" ] && continue
+    if [ "$v" = "$old" ]; then
+      found_old=1
+    fi
+    if version_lt "$v" "$new" && ! version_lt "$v" "$old"; then
+      additions+=("$v")
+    fi
+  done <<<"$tags"
+  if [ "$found_old" -eq 0 ]; then
+    additions+=("$old")
+  fi
+  if [ "${#additions[@]}" -gt 0 ]; then
+    printf '%s\n' "${additions[@]}" | sort -rV
+  fi
+}
+
+if [ "$old_version" != "$new_version" ]; then
+  existing_row=$(grep 'superseded' SECURITY.md || true)
+  to_add=()
+  while IFS= read -r v; do
+    [ -z "$v" ] && continue
+    if ! grep -qF "$v" <<<"$existing_row"; then
+      to_add+=("$v")
+    fi
+  done < <(superseded_additions "$old_version" "$new_version")
+  if [ "${#to_add[@]}" -gt 0 ]; then
+    prefix=$(printf '%s, ' "${to_add[@]}")
+    prefix=${prefix%, }
+    sed -i -E "s/^\| ([^|]*) \| No — superseded \|\$/| ${prefix}, \1 | No — superseded |/" SECURITY.md
+  fi
 fi
 
 echo "bumped release pins: $old_version -> $new_version"

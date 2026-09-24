@@ -111,5 +111,26 @@ if (cd "$work" && "$freshness_checker") >"$work/stale-tag.log" 2>&1; then
 fi
 grep -q "v1.3.0" "$work/stale-tag.log"
 grep -q "bump-release-pins.sh 1.3.0" "$work/stale-tag.log"
+git -C "$work" tag -d v1.2.3 v1.3.0 v2.0.0-rc1 >/dev/null
+
+# --- SECURITY.md's superseded row picks up releases the pins skipped ------
+#
+# #670's own finding: v0.11.0 and v0.11.1 both shipped while every pin still
+# said v0.10.0, and the first pass at this script only moved the one version
+# the "Yes" pin named into "superseded", leaving those two out of the table
+# entirely. Reproduce the same shape — two tagged releases with no fixture
+# commit of their own — and check the bump picks up both, newest first.
+write_fixtures "1.0.0"
+git -C "$work" tag v1.0.0
+git -C "$work" tag v1.1.0
+git -C "$work" tag v1.1.1
+(cd "$work" && "$bump" 1.2.0) >/dev/null
+superseded_row=$(grep 'superseded' "$work/SECURITY.md")
+if [[ "$superseded_row" != *'1.1.1, 1.1.0, 1.0.0,'* ]]; then
+  echo "FAIL: bump-release-pins.sh did not fold skipped tags v1.1.0/v1.1.1 into the superseded row" >&2
+  echo "  row: $superseded_row" >&2
+  exit 1
+fi
+git -C "$work" tag -d v1.0.0 v1.1.0 v1.1.1 >/dev/null
 
 echo "release pin checks passed"
