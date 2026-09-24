@@ -497,11 +497,11 @@ export function Landing() {
 
         {/* The wordmark is a brand mark, not the document's heading. */}
         <div className={"flex flex-col gap-3 " + (known ? "items-start self-stretch" : "items-center")}>
-          <div className="flex items-center gap-2.5">
-            <Logo size={known ? 20 : 26} />
+          <div className="flex items-center gap-3">
+            <Logo size={known ? 30 : 26} />
             <span
               className={
-                (known ? "text-xl" : "text-3xl") +
+                (known ? "text-[1.7rem]" : "text-3xl") +
                 " font-display font-bold tracking-[-0.02em]"
               }
             >
@@ -849,7 +849,7 @@ export function Landing() {
             {/* Worth saying until the list says it for them: once someone has
                 a few tables they know how they got there. */}
             {!settling && spaces.length <= 1 && (
-              <p className="max-w-md self-center text-pretty text-sm text-ink-faint">
+              <p className={"text-pretty text-sm text-ink-faint " + (known ? "self-stretch px-1" : "max-w-md self-center")}>
                 Got a link from a teammate? That link is your invite — just open it. A
                 passcode alone won't do it; ask them for the link.
               </p>
