@@ -380,7 +380,10 @@ func TestListMySpacesCarriesOnlyTheListedFields(t *testing.T) {
 		// orgSlug is part of the address, not extra disclosure: a slug alone
 		// no longer resolves to a space, so the list would be unlinkable
 		// without it.
-		case "slug", "name", "orgSlug", "protected":
+		// open and here are counts a member already reads, per session, from
+		// the space view; the list sums them so the front page can mark a
+		// live table without a request per row.
+		case "slug", "name", "orgSlug", "protected", "open", "here":
 		default:
 			t.Fatalf("unexpected field %q in %v", key, mine[0])
 		}

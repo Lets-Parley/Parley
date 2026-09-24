@@ -82,7 +82,7 @@ let holdList: Promise<void> | null = null;
 // What GET /api/orgs/{org}/spaces/{slug} answers: the room the return table
 // reads its open rounds and roster from.
 let spaceDetail: unknown = { slug: "platform-team", name: "Platform Team", protected: true, members: [], sessions: [] };
-let mySpaces: { slug: string; name: string; orgSlug: string; protected: boolean }[] = [];
+let mySpaces: { slug: string; name: string; orgSlug: string; protected: boolean; open?: number; here?: number }[] = [];
 // The orgs the caller belongs to. One by default, which is what a single-tenant
 // instance looks like: the switcher stays out of the way and the list is flat.
 let myOrgs: { slug: string; name: string; role: "admin" | "member" }[] = [
@@ -1287,6 +1287,25 @@ describe("Landing, coming back to the table", () => {
     const list = await screen.findByRole("list", { name: /your spaces/i });
     const field = screen.getByPlaceholderText(/Platform Team/);
     expect(field.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  // Every row says whether its table is live, not only the one in the hero.
+  it("marks a row whose round is open, and whether anyone is at it", async () => {
+    mySpaces = [
+      { slug: "platform-team", name: "Platform Team", orgSlug: "acme", protected: true, open: 1, here: 3 },
+      { slug: "design-guild", name: "Design Guild", orgSlug: "acme", protected: false, open: 1, here: 0 },
+      { slug: "research", name: "Research", orgSlug: "acme", protected: false, open: 0, here: 0 },
+    ];
+    renderApp(<Landing />);
+
+    const list = within(await screen.findByRole("list", { name: /your spaces/i }));
+    const busy = list.getByRole("link", { name: /^Platform Team, round open, 3 at the table\W+passcode$/ });
+    expect(busy.querySelector(".bg-card-back")).not.toBeNull();
+    const empty = list.getByRole("link", { name: "Design Guild, round open" });
+    expect(empty.querySelector(".border-dashed")).not.toBeNull();
+    expect(empty.querySelector(".bg-card-back")).toBeNull();
+    const quiet = list.getByRole("link", { name: "Research" });
+    expect(quiet.querySelector("[aria-hidden]")).toBeNull();
   });
 
   it("stops explaining invites once there are a few tables", async () => {

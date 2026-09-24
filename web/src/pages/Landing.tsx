@@ -897,6 +897,20 @@ export function Landing() {
                                     className="flex items-center justify-between gap-3 rounded-card px-3 py-2.5 font-bold hover:bg-felt-deep"
                                   >
                                     <span className="line-clamp-2 min-w-0 [overflow-wrap:anywhere]">{sp.name}</span>
+                                    {/* The hero's language, one card deep: a
+                                        face-down card when someone is at an
+                                        open round, an empty seat when a round
+                                        is open with nobody at it. The words go
+                                        to a screen reader; the card is decor. */}
+                                    {(sp.open ?? 0) > 0 && (
+                                      <span className="ml-auto flex shrink-0 items-center">
+                                        <SeatedCards here={(sp.here ?? 0) > 0 ? 1 : 0} />
+                                        <span className="sr-only">
+                                          , round open
+                                          {(sp.here ?? 0) > 0 ? `, ${sp.here} at the table` : ""}
+                                        </span>
+                                      </span>
+                                    )}
                                     {sp.protected && (
                                       <span className="flex shrink-0 items-center gap-1.5 text-ink-faint">
                                         <LockGlyph />

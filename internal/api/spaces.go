@@ -153,7 +153,7 @@ func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 // active first, so a signed-in visitor lands on their own tables.
 func (a *app) handleListMySpaces(w http.ResponseWriter, r *http.Request) {
 	p, _ := PrincipalFrom(r.Context())
-	spaces, err := a.spaces.ForUser(r.Context(), p.UserID)
+	spaces, err := a.spaces.ForUser(r.Context(), p.UserID, a.presence.Window)
 	if err != nil {
 		http.Error(w, `{"error":"could not load your spaces"}`, http.StatusInternalServerError)
 		return
