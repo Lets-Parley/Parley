@@ -26,11 +26,14 @@ const space = {
   // s4 is ended *and* carries a count. The server never sends that pair, and
   // that is exactly why the fixture does: "ended" has to win on the row's own
   // logic rather than on the server happening to zero the count.
+  // Nobody named and no progress anywhere in the base fixture: the tests that
+  // read faces, progress or activity build their own sessions, so none of
+  // them can pass on something this shared fixture happened to carry.
   sessions: [
-    { id: "s1", kind: "poker", title: "Sprint 12 grooming", createdAt: "2026-08-18T10:00:00.000Z", endedAt: null, here: 3 },
-    { id: "s2", kind: "standup", title: "Daily", createdAt: "2026-08-18T09:00:00.000Z", endedAt: null, here: 0 },
-    { id: "s3", kind: "acme.retro", title: "Retro of record", createdAt: "2026-08-18T08:00:00.000Z", endedAt: null, here: 1 },
-    { id: "s4", kind: "pokerful", title: "Pokerful planning", createdAt: "2026-08-18T07:00:00.000Z", endedAt: "2026-08-18T11:00:00.000Z", here: 2 },
+    { id: "s1", kind: "poker", title: "Sprint 12 grooming", createdAt: "2026-08-18T10:00:00.000Z", endedAt: null, here: 3, lastActivityAt: "2026-08-18T10:00:00.000Z", present: [], progress: null },
+    { id: "s2", kind: "standup", title: "Daily", createdAt: "2026-08-18T09:00:00.000Z", endedAt: null, here: 0, lastActivityAt: "2026-08-18T09:00:00.000Z", present: [], progress: null },
+    { id: "s3", kind: "acme.retro", title: "Retro of record", createdAt: "2026-08-18T08:00:00.000Z", endedAt: null, here: 1, lastActivityAt: "2026-08-18T08:00:00.000Z", present: [], progress: null },
+    { id: "s4", kind: "pokerful", title: "Pokerful planning", createdAt: "2026-08-18T07:00:00.000Z", endedAt: "2026-08-18T11:00:00.000Z", here: 2, lastActivityAt: "2026-08-18T11:00:00.000Z", present: [], progress: null },
   ],
 } as unknown as SpaceView & { kinds?: string[] };
 
@@ -245,6 +248,9 @@ describe("SpacePage live, open and logbook groups", () => {
       createdAt: "2026-08-18T10:00:00.000Z",
       endedAt: null,
       here: 0,
+      lastActivityAt: "2026-08-18T10:00:00.000Z",
+      present: [],
+      progress: null,
     }));
   }
 
@@ -308,25 +314,177 @@ describe("SpacePage live, open and logbook groups", () => {
     expect(main().getByText("Logbook · 1 ended").closest("details")!.open).toBe(true);
   });
 
-  it("says how long ago an open room was opened, and never calls it idle", async () => {
+  it("says when an open room was last active, and never calls it idle", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-08-24T12:00:00.000Z"));
+    // Made ten days ago, last touched six days ago: the age is the touch.
+    view = {
+      ...space,
+      sessions: [
+        { id: "o1", kind: "standup", title: "Daily", createdAt: "2026-08-14T12:00:00.000Z", endedAt: null, here: 0, lastActivityAt: "2026-08-18T12:00:00.000Z", present: [], progress: null },
+      ],
+    } as unknown as SpaceView;
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
-    await screen.findAllByText("Sprint 12 grooming");
+    await screen.findAllByText("Daily");
 
     const open = main().getByRole("list", { name: "Open rooms" });
-    expect(within(open).getByText("opened 6 days ago")).toBeTruthy();
+    expect(within(open).getAllByText("active 6 days ago").length).toBeGreaterThan(0);
+    expect(within(open).queryByText(/opened/)).toBe(null);
     expect(within(open).queryByText(/idle/)).toBe(null);
+    // The date under the title is still the day it was made.
+    expect(within(open).getByText(/Fri, Aug 14/)).toBeTruthy();
     // The row names itself, kind first, the way the sidebar does.
-    expect(main().getByRole("link", { name: "Standup · Daily · opened 6 days ago" })).toBeTruthy();
+    expect(main().getByRole("link", { name: "Standup · Daily · active 6 days ago" })).toBeTruthy();
   });
 
-  it("says opened today for a room opened today", async () => {
+  it("says active today and active yesterday by the viewer's calendar", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-08-18T12:00:00.000Z"));
+    vi.setSystemTime(new Date("2026-08-24T12:00:00.000Z"));
+    view = {
+      ...space,
+      sessions: [
+        { id: "o1", kind: "poker", title: "Touched now", createdAt: "2026-08-10T12:00:00.000Z", endedAt: null, here: 0, lastActivityAt: "2026-08-24T11:00:00.000Z", present: [], progress: null },
+        { id: "o2", kind: "poker", title: "Touched before", createdAt: "2026-08-10T12:00:00.000Z", endedAt: null, here: 0, lastActivityAt: "2026-08-23T12:00:00.000Z", present: [], progress: null },
+      ],
+    } as unknown as SpaceView;
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Touched now");
+    expect(main().getByRole("link", { name: "Poker · Touched now · active today" })).toBeTruthy();
+    expect(main().getByRole("link", { name: "Poker · Touched before · active yesterday" })).toBeTruthy();
+  });
+
+  // Live cards read `present`, which is who the server names: members only,
+  // facilitator first. Their faces come from the roster by id.
+  const crew = [
+    { userId: "dana", name: "Dana", avatarHue: 20, spectator: false, role: "member" },
+    { userId: "bojan", name: "Bojan", avatarHue: 120, spectator: false, role: "member" },
+    { userId: "jalynn", name: "Jalynn", avatarHue: 240, spectator: false, role: "member" },
+  ];
+  function liveView(rooms: Record<string, unknown>[]) {
+    return {
+      ...space,
+      members: crew,
+      sessions: rooms.map((r, i) => ({
+        id: `l${i}`,
+        kind: "poker",
+        title: `Live ${i}`,
+        createdAt: "2026-08-18T10:00:00.000Z",
+        endedAt: null,
+        here: 1,
+        lastActivityAt: "2026-08-18T10:00:00.000Z",
+        present: [],
+        progress: null,
+        ...r,
+      })),
+    } as unknown as SpaceView;
+  }
+  const card = (title: string) => main().getByRole("link", { name: `Rejoin ${title}` }).closest("li")!;
+
+  it("shows the faces of who is in, facilitator first, with brass on the facilitator alone", async () => {
+    view = liveView([
+      {
+        title: "Refinement",
+        here: 3,
+        present: [
+          { id: "dana", name: "Dana", facilitator: true },
+          { id: "bojan", name: "Bojan", facilitator: false },
+          { id: "jalynn", name: "Jalynn", facilitator: false },
+        ],
+      },
+    ]);
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Refinement");
+
+    const live = card("Refinement");
+    expect(within(live).getByText("Dana, Bojan and Jalynn are in")).toBeTruthy();
+    const faces = live.querySelector("[data-faces]")!;
+    expect(faces).toBeTruthy();
+    const discs = Array.from(faces.children);
+    expect(discs.map((d) => d.textContent)).toEqual(["DA", "BO", "JA"]);
+    const brass = faces.querySelectorAll(".bg-brass");
+    expect(brass.length).toBe(1);
+    expect(discs[0].contains(brass[0])).toBe(true);
+  });
+
+  it("counts the people it cannot name as more, and names nobody it was not given", async () => {
+    view = liveView([
+      {
+        title: "Crowded",
+        here: 5,
+        present: [
+          { id: "dana", name: "Dana", facilitator: true },
+          { id: "bojan", name: "Bojan", facilitator: false },
+        ],
+      },
+      { title: "Alone", here: 1, present: [{ id: "jalynn", name: "Jalynn", facilitator: false }] },
+      // Two link guests: counted in `here`, never named.
+      { title: "Guests only", here: 2, present: [] },
+    ]);
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Crowded");
+
+    expect(within(card("Crowded")).getByText("Dana, Bojan and 3 more are in")).toBeTruthy();
+    expect(within(card("Crowded")).queryAllByText(/Jalynn/)).toEqual([]);
+    expect(within(card("Alone")).getByText("Jalynn is in")).toBeTruthy();
+    const guests = card("Guests only");
+    expect(within(guests).getByText("2 here")).toBeTruthy();
+    expect(within(guests).queryByText(/ in$/)).toBe(null);
+    expect(guests.querySelector("[data-faces]")).toBe(null);
+  });
+
+  it("says how far a live room has got, by kind, and nothing when there is nothing to count", async () => {
+    view = liveView([
+      { title: "Estimating", progress: { kind: "poker", settled: 4, total: 9 } },
+      { title: "Morning", kind: "standup", progress: { kind: "standup", answered: 5, total: 6 } },
+      { title: "Plugin room", kind: "acme.retro", progress: null },
+      { title: "No stories yet", progress: { kind: "poker", settled: 0, total: 0 } },
+    ]);
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Estimating");
+
+    expect(within(card("Estimating")).getByText("4 of 9 settled")).toBeTruthy();
+    expect(within(card("Morning")).getByText("5 of 6 answered")).toBeTruthy();
+    for (const quiet of ["Plugin room", "No stories yet"]) {
+      expect(within(card(quiet)).queryByText(/settled|answered/)).toBe(null);
+    }
+    // We know how many are settled, not which story is up.
+    expect(main().queryByText(/Story \d/)).toBe(null);
+  });
+
+  it("says what each ended session came to in the logbook", async () => {
+    view = {
+      ...space,
+      sessions: [
+        { id: "e1", kind: "poker", title: "Refinement", createdAt: "2026-08-18T10:00:00.000Z", endedAt: "2026-08-18T11:00:00.000Z", here: 0, lastActivityAt: "2026-08-18T11:00:00.000Z", present: [], progress: { kind: "poker", settled: 7, total: 9 } },
+        { id: "e2", kind: "standup", title: "Morning", createdAt: "2026-08-18T09:00:00.000Z", endedAt: "2026-08-18T09:30:00.000Z", here: 0, lastActivityAt: "2026-08-18T09:30:00.000Z", present: [], progress: { kind: "standup", answered: 5, total: 6 } },
+        { id: "e3", kind: "acme.retro", title: "Plugin room", createdAt: "2026-08-18T08:00:00.000Z", endedAt: "2026-08-18T08:30:00.000Z", here: 0, lastActivityAt: "2026-08-18T08:30:00.000Z", present: [], progress: null },
+      ],
+    } as unknown as SpaceView;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Refinement");
+    const logbook = main().getByText("Logbook · 3 ended").closest("details")!;
+
+    const settled = within(logbook).getByText("7 settled");
+    expect(settled.className).toContain("text-settled");
+    const answered = within(logbook).getByText("5 of 6 answered");
+    expect(answered.className).toContain("text-ink-faint");
+    expect(answered.className).not.toContain("text-settled");
+    // The link's own name carries it, since the label replaces its text.
+    expect(within(logbook).getByRole("link", { name: "Poker · Refinement · ended · 7 settled" })).toBeTruthy();
+    expect(within(logbook).getByRole("link", { name: "Standup · Morning · ended · 5 of 6 answered" })).toBeTruthy();
+    expect(within(logbook).getByRole("link", { name: "acme.retro · Plugin room · ended" })).toBeTruthy();
+  });
+
+  it("remembers the logbook per space, so one space's open logbook leaves another's shut", async () => {
+    const first = renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await screen.findAllByText("Sprint 12 grooming");
-    expect(within(main().getByRole("list", { name: "Open rooms" })).getByText("opened today")).toBeTruthy();
+    await userEvent.click(main().getByText("Logbook · 1 ended"));
+    expect(localStorage.getItem("parley:logbook-open:acme/platform-team")).toBe("1");
+    first.unmount();
+
+    renderApp(<SpacePage />, { route: "/o/acme/s/other-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+    expect(main().getByText("Logbook · 1 ended").closest("details")!.open).toBe(false);
   });
 
   it("draws the search glyph as an svg, not a styled span", async () => {

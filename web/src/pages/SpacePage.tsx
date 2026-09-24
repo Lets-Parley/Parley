@@ -1,13 +1,23 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, errorText, type Deck, type SessionSummary, type SpaceView } from "../lib/api";
+import {
+  api,
+  errorText,
+  type Deck,
+  type Person,
+  type SessionProgress,
+  type SessionSummary,
+  type SpaceView,
+} from "../lib/api";
 import { useAuthMode, useMe, NameGate } from "../components/NameGate";
 import { isFullAccount } from "../lib/links";
 import { openSessionLapsed } from "../lib/sessionMemory";
 import { AppShell, Logo } from "../components/AppShell";
 import { PluginChrome } from "../components/PluginChrome";
 import { KindChip } from "../components/KindChip";
+import { Avatar } from "../components/Avatar";
+import { safeDisplayName } from "../lib/displayName";
 import { Kudos, type ThankRequest } from "../components/Kudos";
 import { StandupTrend } from "../components/StandupTrend";
 import { EmptyTable } from "./PokerRoom";
@@ -153,60 +163,70 @@ async function parkInvite(org: string, slug: string, code: string): Promise<void
 /** The server's own page size for a space's sessions (internal/store/sessions.go). */
 const SESSION_CAP = 50;
 
-/** Where the Logbook's open/closed state is kept, per viewer. */
-const logbookKey = "parley:logbook-open";
+/** Whole calendar days from an instant to today, on the viewer's own clock. */
+function daysAgo(iso: string): number {
+  const start = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  return Math.max(0, Math.round((start(new Date()) - start(new Date(iso))) / 86_400_000));
+}
 
-function readLogbookOpen(): boolean {
+// English, like every other word on the page. `auto` is what says "today" and
+// "yesterday" rather than "0 days ago" and "1 day ago".
+const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+
+/** "today", "yesterday", "6 days ago", "3 weeks ago": the page's one way of
+ *  saying how long ago something was. */
+function ago(iso: string): string {
+  const days = daysAgo(iso);
+  if (days < 14) return relative.format(-days, "day");
+  if (days < 60) return relative.format(-Math.round(days / 7), "week");
+  return relative.format(-Math.round(days / 30), "month");
+}
+
+/** The day a session was made: the time if that was today, the date otherwise. */
+function sessionDate(iso: string): string {
+  const d = new Date(iso);
+  if (daysAgo(iso) === 0) {
+    return `Today · ${d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
+  }
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+/**
+ * How far a room has got, or "" when there is nothing to count: a kind that
+ * reports no progress, or a room with no stories and nobody queued yet.
+ * `ended` drops the poker total — the logbook's question is what the room
+ * came to, not what it left undone.
+ */
+function progressText(p: SessionProgress | null, ended = false): string {
+  if (!p || p.total === 0) return "";
+  if (p.kind === "standup") return `${p.answered} of ${p.total} answered`;
+  return ended ? `${p.settled} settled` : `${p.settled} of ${p.total} settled`;
+}
+
+/**
+ * Who is in a live room, as a sentence. Only `present` is named, and it holds
+ * members only, so anyone else `here` counts — a link guest, or a sixth
+ * member — is "N more" and never a name. With nobody named the card's count
+ * already says it all.
+ */
+function whoIsIn(s: SessionSummary): string {
+  const named = s.present.map((p) => safeDisplayName(p.name));
+  if (named.length === 0) return "";
+  const more = s.here - named.length;
+  const all = more > 0 ? [...named, `${more} more`] : named;
+  if (all.length === 1) return `${all[0]} is in`;
+  return `${all.slice(0, -1).join(", ")} and ${all[all.length - 1]} are in`;
+}
+
+/** The viewer's own memory of one space's Logbook. Storage can refuse, and
+ *  closed is where the Logbook starts anyway. */
+function logbookRemembered(key: string): boolean {
   try {
-    return localStorage.getItem(logbookKey) === "1";
+    return localStorage.getItem(key) === "1";
   } catch {
     return false;
   }
 }
-
-function writeLogbookOpen(open: boolean) {
-  try {
-    localStorage.setItem(logbookKey, open ? "1" : "0");
-  } catch {
-    // Remembering is a convenience; the logbook still opens and closes.
-  }
-}
-
-/**
- * How long ago a room was opened, in calendar days of the viewer's own clock.
- * Deliberately "opened", never "idle": the list knows when a room was made,
- * not when anybody last did anything in it.
- */
-function openedAgo(iso: string): string {
-  const start = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  const days = Math.max(0, Math.round((start(new Date()) - start(new Date(iso))) / 86_400_000));
-  if (days === 0) return "opened today";
-  if (days === 1) return "opened yesterday";
-  if (days < 14) return `opened ${days} days ago`;
-  if (days < 60) return `opened ${Math.round(days / 7)} weeks ago`;
-  return `opened ${Math.round(days / 30)} months ago`;
-}
-
-/** True when a keystroke belongs to whatever field the viewer is typing in. */
-function typingInField(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return (
-    target.isContentEditable ||
-    target.tagName === "INPUT" ||
-    target.tagName === "TEXTAREA" ||
-    target.tagName === "SELECT"
-  );
-}
-
-function relativeDate(iso: string): string {
-  const d = new Date(iso);
-  const today = new Date();
-  const sameDay = d.toDateString() === today.toDateString();
-  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  if (sameDay) return `Today · ${time}`;
-  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-}
-
 
 /** Member-only fields must not survive an identity remint. A new open-mode
  *  seat is a stranger until the server says otherwise — leaving passcode or
@@ -229,7 +249,12 @@ export function SpacePage() {
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState("");
   const [sort, setSort] = useState<Sort>("Recent");
-  const [logbookOpen, setLogbookOpen] = useState(readLogbookOpen);
+  // Per space: a logbook opened in one space says nothing about another's.
+  // Held by key, not as one flag, because moving between spaces keeps this
+  // component mounted.
+  const logbookKey = `parley:logbook-open:${org}/${slug}`;
+  const [logbookToggled, setLogbookToggled] = useState<Record<string, boolean>>({});
+  const logbookOpen = logbookToggled[logbookKey] ?? logbookRemembered(logbookKey);
   const searchRef = useRef<HTMLInputElement>(null);
   // Held across the name prompt so a joiner presents the invite exactly once.
   const [pending, setPending] = useState<Invite>({});
@@ -278,7 +303,10 @@ export function SpacePage() {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (typingInField(e.target) || document.querySelector("dialog[open]")) return;
+      const t = e.target;
+      const typing =
+        t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName));
+      if (typing || document.querySelector("dialog[open]")) return;
       const field = searchRef.current;
       if (!field) return;
       e.preventDefault();
@@ -564,7 +592,13 @@ export function SpacePage() {
             {live.length > 0 && (
               <ul aria-label="On the table now" className="flex flex-col gap-3">
                 {live.map((s) => (
-                  <LiveCard key={s.id} s={s} showKind={mixedKinds} onManage={canManage ? () => setManaging(s) : undefined} />
+                  <LiveCard
+                    key={s.id}
+                    s={s}
+                    members={sp.members ?? []}
+                    showKind={mixedKinds}
+                    onManage={canManage ? () => setManaging(s) : undefined}
+                  />
                 ))}
               </ul>
             )}
@@ -585,8 +619,12 @@ export function SpacePage() {
                 open={logbookOpen}
                 onToggle={(e) => {
                   const next = e.currentTarget.open;
-                  setLogbookOpen(next);
-                  writeLogbookOpen(next);
+                  setLogbookToggled((t) => ({ ...t, [logbookKey]: next }));
+                  try {
+                    localStorage.setItem(logbookKey, next ? "1" : "0");
+                  } catch {
+                    // Remembering is a convenience; the logbook still opens and closes.
+                  }
                 }}
                 className="group overflow-hidden rounded-card border border-line bg-surface"
               >
@@ -684,7 +722,20 @@ export function SpacePage() {
  * is the card's one way in and names the room it opens, so a screen reader
  * hears "Rejoin Sprint 12 grooming" rather than a row of bare "Rejoin"s.
  */
-function LiveCard({ s, showKind, onManage }: { s: SessionSummary; showKind: boolean; onManage?: () => void }) {
+function LiveCard({
+  s,
+  members,
+  showKind,
+  onManage,
+}: {
+  s: SessionSummary;
+  /** The roster, for each named person's face: `present` carries names only. */
+  members: Person[];
+  showKind: boolean;
+  onManage?: () => void;
+}) {
+  const progress = progressText(s.progress);
+  const who = whoIsIn(s);
   return (
     <li className="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-card border border-line border-l-[3px] border-l-go bg-surface-hi py-4 pl-5 pr-4 shadow-lift">
       {/* A 14rem basis, so on a phone the buttons wrap under the title
@@ -703,8 +754,34 @@ function LiveCard({ s, showKind, onManage }: { s: SessionSummary; showKind: bool
         <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-soft">
           <KindChip kind={s.kind} label={showKind} />
           <span className="font-mono text-[12px] font-semibold text-go">{`${s.here} here`}</span>
-          <span>{relativeDate(s.createdAt)}</span>
+          {progress && <span className="tabular-nums">{progress}</span>}
+          <span>{sessionDate(s.createdAt)}</span>
         </p>
+        {who && (
+          <p className="mt-2.5 flex items-center gap-2.5 text-[13px] text-ink-soft">
+            {/* Decoration beside the sentence that names them. Each face sits
+                over the one after it, so the facilitator's brass dot, first
+                in line, is never covered by its neighbour. */}
+            <span data-faces aria-hidden="true" className="flex shrink-0">
+              {s.present.map((p, i) => {
+                const m = members.find((x) => x.userId === p.id);
+                return (
+                  <span key={p.id} className={"relative flex" + (i > 0 ? " -ml-[7px]" : "")} style={{ zIndex: s.present.length - i }}>
+                    <Avatar
+                      name={p.name}
+                      hue={m?.avatarHue ?? 0}
+                      icon={m?.avatarIcon}
+                      size="sm"
+                      facilitator={p.facilitator}
+                      decorative
+                    />
+                  </span>
+                );
+              })}
+            </span>
+            <span className="min-w-0 text-pretty">{who}</span>
+          </p>
+        )}
       </div>
       {/* Its own line on a phone, with Rejoin taking the width. */}
       <div className="flex shrink-0 items-center gap-2 max-sm:w-full">
@@ -733,14 +810,15 @@ function LiveCard({ s, showKind, onManage }: { s: SessionSummary; showKind: bool
  */
 function SessionRow({ s, showKind, onManage }: { s: SessionSummary; showKind: boolean; onManage?: () => void }) {
   const ended = !!s.endedAt;
-  const age = openedAgo(s.createdAt);
+  const age = `active ${ago(s.lastActivityAt)}`;
+  const outcome = ended ? progressText(s.progress, true) : "";
   return (
     // With Manage beside it the row must be taller than the 44px button, or
     // neighbouring buttons meet across the divider.
     <li className={"flex items-center gap-2 " + (onManage ? "py-1.5 pr-3" : "")}>
       <Link
         to={`/session/${s.id}`}
-        aria-label={`${kindLabel(s.kind)} · ${s.title} · ${ended ? "ended" : age}`}
+        aria-label={[kindLabel(s.kind), s.title, ended ? "ended" : age, outcome].filter(Boolean).join(" · ")}
         // On a phone the chip sits above the title, so the title keeps the
         // row's width instead of truncating beside it.
         className={
@@ -754,16 +832,29 @@ function SessionRow({ s, showKind, onManage }: { s: SessionSummary; showKind: bo
           <KindChip kind={s.kind} label={showKind} />
         </span>
         {ended ? (
-          <span className="min-w-0 flex-1 truncate text-[13px] text-ink-soft max-sm:w-full">
-            <span className="font-semibold">{s.title}</span>
-            {` · ${relativeDate(s.createdAt)}`}
-          </span>
+          <>
+            <span className="min-w-0 flex-1 truncate text-[13px] text-ink-soft max-sm:w-full">
+              <span className="font-semibold">{s.title}</span>
+              {` · ${sessionDate(s.createdAt)}`}
+            </span>
+            {/* What the room came to. Settled estimates are the agreed
+                outcome, so plum; a standup's answers are a count, not a
+                decision, so they stay quiet ink. */}
+            {outcome &&
+              (s.progress?.kind === "poker" ? (
+                <span className="shrink-0 rounded-full border border-settled/45 px-2 font-mono text-[12px] leading-5 font-medium text-settled">
+                  {outcome}
+                </span>
+              ) : (
+                <span className="shrink-0 text-xs tabular-nums text-ink-faint">{outcome}</span>
+              ))}
+          </>
         ) : (
           <>
             <span className="min-w-0 flex-1 max-sm:w-full">
               <span className="block truncate text-[15px] font-bold">{s.title}</span>
               <span className="mt-0.5 block truncate text-xs text-ink-faint">
-                {relativeDate(s.createdAt)}
+                {sessionDate(s.createdAt)}
                 {/* No room for a second column on a phone: the age joins
                     the date line instead. */}
                 <span className="sm:hidden">{` · ${age}`}</span>
