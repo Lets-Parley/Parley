@@ -11,7 +11,7 @@ import spaceDark from "../../../assets/space-room-code-dark.png";
 import settingsLight from "../../../assets/space-settings-light.png";
 import settingsDark from "../../../assets/space-settings-dark.png";
 
-<VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "internal/api/authz.go", "web/src/pages/OrgDirectory.tsx", "web/src/pages/SpacePage.tsx", "web/src/pages/SpaceSettingsPage.tsx", "web/src/components/DecksPanel.tsx", "web/src/components/Kudos.tsx", "web/src/pages/Landing.tsx"]} />
+<VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "internal/api/authz.go", "web/src/pages/OrgDirectory.tsx", "web/src/pages/SpacePage.tsx", "web/src/pages/SpaceSettingsPage.tsx", "web/src/components/DecksPanel.tsx", "web/src/components/Kudos.tsx", "web/src/pages/Landing.tsx", "internal/store/sessions.go"]} />
 
 A space is a team's room. It has a memorable URL — `/o/acme/s/platform-team` — a roster,
 and a history of every session run in it.
@@ -129,11 +129,18 @@ a code is a door, not an identity.
 
 Under the invite strip, a space's sessions come in three groups. Any room with
 somebody in it right now sits on a card at the top, **On the table now**, with
-how many are there and a **Rejoin** link. Rooms that are still open but empty
-follow in one list, each saying how long ago it was opened — opened, not idle:
-the list knows when a room was made, not when anyone last used it. Ended
-sessions fold into a **Logbook** below, closed by default; whether you left it
-open is remembered in your own browser.
+how many are there, a **Rejoin** link, the faces and names of up to five of the
+space's members who are in (the facilitator first), and how far it has got — "4
+of 9 settled" for planning poker, "5 of 6 answered" for a standup. People in the
+room through a signed link are counted but never named, so they show up as "and
+2 more". Rooms that are still open but empty follow in one list, each saying
+when it was last active: a story added, a standup entry written, the turn
+moving on, or somebody being in the room. A vote on its own does not count,
+because votes carry no time — the voter being present does. Ended sessions
+fold into a **Logbook** below, closed by default, where a poker session shows
+how many stories it settled and a standup how many people answered; whether
+you left the Logbook open is remembered in your own browser, for each space
+separately.
 
 Search, the kind filter and the sort apply to all three groups at once, and the
 number of matches is announced to screen readers as you type. Press <kbd>/</kbd>

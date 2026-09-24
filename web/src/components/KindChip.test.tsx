@@ -106,9 +106,11 @@ describe("KindChip", () => {
     expect(el.textContent).toBe("acme.retro");
   });
 
-  // The picker's size: the same objects, bigger, and they answer hover — the
-  // card squares up and lifts, the speaker steps round one seat.
-  it("scales the objects up for the create dialog and moves them on hover", () => {
+  // The picker's size: the same objects, bigger, and wired to answer hover —
+  // the card squares up and lifts, the speaker steps round one seat. jsdom has
+  // no layout or transitions, so this pins the classes that do it; whether the
+  // motion reads well is a browser check, not this one.
+  it("scales the objects up for the create dialog and carries the hover classes", () => {
     const poker = token(<KindChip kind="poker" size="lg" />);
     const card = poker.querySelector('[data-token="card"]');
     expect(classes(card)).toContain("w-[34px]");
