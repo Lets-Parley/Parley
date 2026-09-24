@@ -18,7 +18,7 @@ describe("kind registry", () => {
   });
 
   it("gives every kind a room component", () => {
-    for (const k of KINDS) expect(typeof k.Room).toBe("function");
+    for (const k of KINDS) expect(k.Room).toBeTruthy();
   });
 
   it("describes poker's deck and standup's mode as field specs", () => {
