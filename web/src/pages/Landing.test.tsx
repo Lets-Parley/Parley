@@ -48,6 +48,7 @@ vi.mock("../lib/api", async () => {
       if (path === "/api/auth") return { mode: authMode };
       if (path === "/api/orgs") return myOrgs;
       if (path === "/api/spaces" && method === "GET") {
+        if (holdList) await holdList;
         if (listFails) throw new Error("Could not list your spaces.");
         return mySpaces;
       }
@@ -57,6 +58,10 @@ vi.mock("../lib/api", async () => {
         return createResult;
       }
       if (path.includes("/plugins/panels")) return [];
+      if (/^\/api\/orgs\/[^/]+\/spaces\/[^/]+$/.test(path) && method === "GET") {
+        if (detailFails) throw new Error("Space not found.");
+        return spaceDetail;
+      }
       throw new Error(`unexpected api call: ${path}`);
     }),
   };
@@ -67,10 +72,17 @@ let asGuest = false;
 let authMode: "open" | "oidc" = "oidc";
 let createFails = false;
 let listFails = false;
+// Makes the return table's read of its room fail.
+let detailFails = false;
 // Set to a promise a test resolves by hand, to hold the create in flight long
 // enough to look at the button while it waits.
 let holdCreate: Promise<void> | null = null;
-let mySpaces: { slug: string; name: string; orgSlug: string; protected: boolean }[] = [];
+// Holds GET /api/spaces open, to look at the page before the list answers.
+let holdList: Promise<void> | null = null;
+// What GET /api/orgs/{org}/spaces/{slug} answers: the room the return table
+// reads its open rounds and roster from.
+let spaceDetail: unknown = { slug: "platform-team", name: "Platform Team", protected: true, members: [], sessions: [] };
+let mySpaces: { slug: string; name: string; orgSlug: string; protected: boolean; open?: number; here?: number }[] = [];
 // The orgs the caller belongs to. One by default, which is what a single-tenant
 // instance looks like: the switcher stays out of the way and the list is flat.
 let myOrgs: { slug: string; name: string; role: "admin" | "member" }[] = [
@@ -105,7 +117,10 @@ beforeEach(() => {
   authMode = "oidc";
   createFails = false;
   listFails = false;
+  detailFails = false;
   holdCreate = null;
+  holdList = null;
+  spaceDetail = { slug: "platform-team", name: "Platform Team", protected: true, members: [], sessions: [] };
   createResult = createdSpace;
   myOrgs = [{ slug: "acme", name: "Acme", role: "member" }];
   mySpaces = [];
@@ -158,7 +173,9 @@ describe("Landing, signed in with spaces", () => {
     );
   });
 
-  it("names no org while several are shown unfiltered", async () => {
+  // Unfiltered, the form asks; left alone it names the first org rather than
+  // leaving the server to guess, so the space lands where the picker says.
+  it("names the org the form shows while several are shown unfiltered", async () => {
     myOrgs = [
       { slug: "acme", name: "Acme", role: "member" },
       { slug: "harbour-labs", name: "Harbour Labs", role: "member" },
@@ -170,7 +187,7 @@ describe("Landing, signed in with spaces", () => {
     await userEvent.click(screen.getByRole("button", { name: /create a space/i }));
 
     await waitFor(() =>
-      expect(spaceCalls()).toContainEqual(["POST", "/api/spaces", { name: "New Crew" }]),
+      expect(spaceCalls()).toContainEqual(["POST", "/api/spaces", { name: "New Crew", org: "acme" }]),
     );
   });
 
@@ -784,18 +801,18 @@ describe("Landing across orgs", () => {
     twoOrgs();
     renderApp(<Landing />);
 
-    const nav = within(await screen.findByRole("navigation", { name: "Administer an org" }));
-    expect(nav.getByRole("link", { name: /Plugins in Globex/ }).getAttribute("href")).toBe(
+    const globex = within(await screen.findByRole("region", { name: "Globex" }));
+    expect(globex.getByRole("link", { name: /Plugins in Globex/ }).getAttribute("href")).toBe(
       "/o/globex/admin/plugins",
     );
-    expect(nav.queryByRole("link", { name: /Plugins in Acme/ })).toBe(null);
+    expect(screen.queryByRole("link", { name: /Plugins in Acme/ })).toBe(null);
   });
 
   it("offers it to nobody when the account administers no org", async () => {
     myOrgs = [{ slug: "acme", name: "Acme", role: "member" }];
     renderApp(<Landing />);
     await screen.findByRole("heading", { level: 1 });
-    expect(screen.queryByRole("navigation", { name: "Administer an org" })).toBe(null);
+    expect(screen.queryByRole("link", { name: /Plugins in/ })).toBe(null);
   });
 
   // Two orgs can each hold a "platform-team", so the slug alone is ambiguous
@@ -822,7 +839,7 @@ describe("Landing across orgs", () => {
     renderApp(<Landing />);
 
     await screen.findByRole("list", { name: /your spaces/i });
-    expect(screen.queryByRole("navigation", { name: "Your orgs" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Show spaces from" })).toBeNull();
   });
 
   it("narrows the list to the org the switcher names", async () => {
@@ -898,18 +915,13 @@ describe("Landing across orgs", () => {
     twoOrgs();
     renderApp(<Landing />);
 
-    const nav = await screen.findByRole("navigation", { name: "Browse an org" });
-    expect(within(nav).getAllByRole("link").map((a) => a.getAttribute("href"))).toEqual([
-      "/o/acme",
-      "/o/globex",
-    ]);
+    const browse = () =>
+      screen.getAllByRole("link", { name: /^Browse / }).map((a) => a.getAttribute("href"));
+    await screen.findByRole("link", { name: "Browse Acme" });
+    expect(browse()).toEqual(["/o/acme", "/o/globex"]);
 
     await userEvent.click(screen.getByRole("button", { name: "Globex" }));
-    await waitFor(() =>
-      expect(within(nav).getAllByRole("link").map((a) => a.getAttribute("href"))).toEqual([
-        "/o/globex",
-      ]),
-    );
+    await waitFor(() => expect(browse()).toEqual(["/o/globex"]));
   });
 
   it("puts the directory door in the tab order, no pointer needed", async () => {
@@ -928,7 +940,7 @@ describe("Landing across orgs", () => {
       mySpaces = [];
       localStorage.setItem("parley:theme", theme);
       const { container } = renderApp(<Landing />);
-      await screen.findByRole("navigation", { name: "Browse an org" });
+      await screen.findByRole("link", { name: /browse acme/i });
       await expectNoViolations(container);
     });
 
@@ -936,7 +948,7 @@ describe("Landing across orgs", () => {
       twoOrgs();
       localStorage.setItem("parley:theme", theme);
       const { container } = renderApp(<Landing />);
-      await screen.findByRole("navigation", { name: "Your orgs" });
+      await screen.findByRole("group", { name: "Show spaces from" });
       await expectNoViolations(container);
     });
 
@@ -946,6 +958,375 @@ describe("Landing across orgs", () => {
       localStorage.setItem("parley:theme", theme);
       const { container } = renderApp(<Landing />);
       await screen.findByRole("region", { name: "No org yet" });
+      await expectNoViolations(container);
+    });
+  }
+});
+
+describe("Landing, coming back to the table", () => {
+  const twoOrgs = () => {
+    myOrgs = [
+      { slug: "acme", name: "Acme", role: "member" },
+      { slug: "globex", name: "Globex", role: "admin" },
+    ];
+    mySpaces = [
+      { slug: "platform-team", name: "Platform Team", orgSlug: "acme", protected: true },
+      { slug: "research", name: "Research", orgSlug: "globex", protected: false },
+    ];
+  };
+
+  beforeEach(() => {
+    mySpaces = [
+      { slug: "platform-team", name: "Platform Team", orgSlug: "acme", protected: true },
+      { slug: "design-guild", name: "Design Guild", orgSlug: "acme", protected: false },
+    ];
+  });
+
+  // The list is most-recently-active first, so its head is the table this
+  // person last sat at — and it is the page's heading, not a row among rows.
+  it("leads with the table you sat at last", async () => {
+    renderApp(<Landing />);
+
+    const h1 = await screen.findByRole("heading", { level: 1 });
+    expect(h1.textContent).toBe("Platform Team");
+    expect(
+      screen.getByRole("link", { name: "Go to Platform Team" }).getAttribute("href"),
+    ).toBe("/o/acme/s/platform-team");
+  });
+
+  it("says who is at an open round, and seats you at it in one step", async () => {
+    spaceDetail = {
+      slug: "platform-team",
+      name: "Platform Team",
+      protected: true,
+      members: [
+        { userId: "b", name: "Ben Alvarez", avatarHue: 1, spectator: false, at: { sessionId: "s1", title: "Sprint 34" } },
+        { userId: "n", name: "Nina Kowalski", avatarHue: 2, spectator: false, at: { sessionId: "s1", title: "Sprint 34" } },
+        { userId: "t", name: "Tomas Herrera", avatarHue: 3, spectator: false },
+      ],
+      sessions: [
+        { id: "s1", kind: "poker", title: "Sprint 34", createdAt: "", endedAt: null, here: 3 },
+        { id: "s0", kind: "standup", title: "Monday", createdAt: "", endedAt: "2026-01-01T00:00:00Z", here: 0 },
+      ],
+    };
+    renderApp(<Landing />);
+
+    const open = within(await screen.findByRole("list", { name: "Rounds open now" }));
+    const join = open.getByRole("link");
+    expect(join.getAttribute("href")).toBe("/session/s1");
+    // Two named from the roster; the third socket is a link guest the roster
+    // does not carry, counted rather than dropped.
+    expect(within(join).getByText("Ben, Nina and 1 other at the table")).toBeTruthy();
+    expect(open.queryByText("Monday")).toBeNull();
+  });
+
+  it("says the table is quiet when no round is open", async () => {
+    renderApp(<Landing />);
+    expect(await screen.findByText(/No round open/)).toBeTruthy();
+    expect(screen.queryByRole("list", { name: "Rounds open now" })).toBeNull();
+  });
+
+  // `data ?? []` read a list still in flight as "no spaces", so every signed-in
+  // load dealt the stranger's hand and printed the pitch before tearing both
+  // down. Nothing of the stranger's page may render while the answer is out.
+  it("never shows a returning account the stranger's page while the list loads", async () => {
+    let release!: () => void;
+    holdList = new Promise((r) => (release = r));
+    renderApp(<Landing />);
+
+    await waitFor(() => expect(listCalls()).toHaveLength(1));
+    expect(screen.queryByText(/Name a table/)).toBeNull();
+    expect(screen.queryByText(/Self-hosted: one binary/)).toBeNull();
+
+    release();
+    expect((await screen.findByRole("heading", { level: 1 })).textContent).toBe("Platform Team");
+    expect(screen.queryByText(/Name a table/)).toBeNull();
+  });
+
+  // The switcher is the page saying which org it is showing; a create sent to
+  // the instance's default org from under another org's heading lands where
+  // the person is not looking.
+  it("creates in the org the switcher is showing", async () => {
+    twoOrgs();
+    renderApp(<Landing />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Globex" }));
+    expect((screen.getByLabelText("Org") as HTMLSelectElement).value).toBe("globex");
+    await userEvent.type(screen.getByPlaceholderText(/Platform Team/), "Night Watch");
+    await userEvent.click(screen.getByRole("button", { name: /create a space/i }));
+
+    await waitFor(() =>
+      expect(spaceCalls()).toContainEqual(["POST", "/api/spaces", { name: "Night Watch", org: "globex" }]),
+    );
+  });
+
+  // The picker stays on screen under a filter, so the switcher is never a
+  // silent second control over where a create lands — and a pick made in it
+  // outranks whatever the switcher says afterwards.
+  it("keeps the org picker in view under a filter, and lets an explicit pick win", async () => {
+    twoOrgs();
+    renderApp(<Landing />);
+
+    const picker = (await screen.findByLabelText("Org")) as HTMLSelectElement;
+    expect(picker.value).toBe("acme");
+    await userEvent.click(screen.getByRole("button", { name: "Globex" }));
+    expect((screen.getByLabelText("Org") as HTMLSelectElement).value).toBe("globex");
+    await userEvent.selectOptions(screen.getByLabelText("Org"), "acme");
+    await userEvent.click(screen.getByRole("button", { name: "Globex" }));
+    expect((screen.getByLabelText("Org") as HTMLSelectElement).value).toBe("acme");
+    await userEvent.type(screen.getByPlaceholderText(/Platform Team/), "Night Watch");
+    await userEvent.click(screen.getByRole("button", { name: /create a space/i }));
+
+    await waitFor(() =>
+      expect(spaceCalls()).toContainEqual(["POST", "/api/spaces", { name: "Night Watch", org: "acme" }]),
+    );
+  });
+
+  // Nobody at an empty round is waiting on you; "Join" with the accent's
+  // weight promised company that is not there.
+  it("offers to open an empty round and to join an occupied one", async () => {
+    spaceDetail = {
+      slug: "platform-team",
+      name: "Platform Team",
+      protected: true,
+      members: [],
+      sessions: [
+        { id: "s1", kind: "poker", title: "Sprint 34", createdAt: "", endedAt: null, here: 2 },
+        { id: "s2", kind: "standup", title: "Daily", createdAt: "", endedAt: null, here: 0 },
+      ],
+    };
+    renderApp(<Landing />);
+
+    const open = within(await screen.findByRole("list", { name: "Rounds open now" }));
+    const [busy, empty] = open.getAllByRole("link");
+    expect(within(busy).getByText("Join")).toBeTruthy();
+    expect(within(empty).getByText("Open")).toBeTruthy();
+    expect(within(empty).queryByText("Join")).toBeNull();
+    expect(empty.getAttribute("href")).toBe("/session/s2");
+  });
+
+  it("asks which org when the page is showing all of them", async () => {
+    twoOrgs();
+    renderApp(<Landing />);
+
+    await userEvent.selectOptions(await screen.findByLabelText("Org"), "globex");
+    await userEvent.type(screen.getByPlaceholderText(/Platform Team/), "Night Watch");
+    await userEvent.click(screen.getByRole("button", { name: /create a space/i }));
+
+    await waitFor(() =>
+      expect(spaceCalls()).toContainEqual(["POST", "/api/spaces", { name: "Night Watch", org: "globex" }]),
+    );
+  });
+
+  it("finds a space by typing, and opens the only match on Enter", async () => {
+    mySpaces = ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf"].map((n) => ({
+      slug: n.toLowerCase(),
+      name: n,
+      orgSlug: "acme",
+      protected: false,
+    }));
+    renderApp(<Landing />);
+
+    const find = await screen.findByRole("searchbox", { name: "Find a space" });
+    await userEvent.type(find, "trot");
+    const list = within(screen.getByRole("list", { name: "Your spaces in Acme" }));
+    expect(list.getAllByRole("link").map((a) => a.textContent)).toEqual(["Foxtrot"]);
+
+    await userEvent.keyboard("{Enter}");
+    expect(navigate).toHaveBeenCalledWith("/o/acme/s/foxtrot");
+  });
+
+  it("opens the first match on Enter when several match", async () => {
+    mySpaces = ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf"].map((n) => ({
+      slug: n.toLowerCase(),
+      name: n,
+      orgSlug: "acme",
+      protected: false,
+    }));
+    renderApp(<Landing />);
+
+    await userEvent.type(await screen.findByRole("searchbox", { name: "Find a space" }), "o{Enter}");
+    expect(navigate).toHaveBeenCalledWith("/o/acme/s/bravo");
+  });
+
+  // A live region mounted already holding its text is often never announced.
+  it("keeps the no-match announcement mounted before it has anything to say", async () => {
+    mySpaces = ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf"].map((n) => ({
+      slug: n.toLowerCase(),
+      name: n,
+      orgSlug: "acme",
+      protected: false,
+    }));
+    const { container } = renderApp(<Landing />);
+
+    const find = await screen.findByRole("searchbox", { name: "Find a space" });
+    const main = within(container.querySelector("main")!);
+    const status = main.getByRole("status");
+    expect(status.textContent).toBe("");
+    await userEvent.type(find, "zzz");
+    expect(main.getByRole("status")).toBe(status);
+    expect(status.textContent).toMatch(/No space of yours matches/);
+  });
+
+  it("names each org panel by its heading rather than a second copy of it", async () => {
+    renderApp(<Landing />);
+    const region = await screen.findByRole("region", { name: "Acme" });
+    expect(region.getAttribute("aria-label")).toBeNull();
+    expect(document.getElementById(region.getAttribute("aria-labelledby")!)!.tagName).toBe("H2");
+  });
+
+  it("runs the form labels a size up from the shared 10px", async () => {
+    renderApp(<Landing />);
+    await screen.findByRole("list", { name: /your spaces/i });
+    const label = screen.getByText("New space");
+    expect(label.className).toContain("text-[11px]");
+    expect(label.className).not.toContain("text-[10px]");
+  });
+
+  // Below sm the word is hidden; the kind's object has to say poker or
+  // standup alone.
+  it("marks a round's kind with its token where the word does not fit", async () => {
+    spaceDetail = {
+      slug: "platform-team",
+      name: "Platform Team",
+      protected: true,
+      members: [],
+      sessions: [{ id: "s1", kind: "standup", title: "Daily", createdAt: "", endedAt: null, here: 1 }],
+    };
+    renderApp(<Landing />);
+
+    const row = within(await screen.findByRole("list", { name: "Rounds open now" })).getByRole("link");
+    const small = row.querySelector<HTMLElement>(".sm\\:hidden")!;
+    expect(within(small).getByRole("img", { name: "Standup" })).toBeTruthy();
+  });
+
+  // "Two at the table" is a claim about now, so the room is re-read — but a
+  // read that failed is not retried every 15s for as long as the tab is open.
+  it("stops re-reading the last table once its read fails", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      detailFails = true;
+      renderApp(<Landing />);
+      await screen.findByRole("heading", { level: 1 });
+      const detailCalls = () =>
+        vi.mocked(api).mock.calls.filter((c) => /^\/api\/orgs\/acme\/spaces\//.test(c[1])).length;
+      await waitFor(() => expect(detailCalls()).toBe(1));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(46_000);
+      });
+      expect(detailCalls()).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the find box away from a list short enough to read at a glance", async () => {
+    renderApp(<Landing />);
+    await screen.findByRole("list", { name: /your spaces/i });
+    expect(screen.queryByRole("searchbox")).toBeNull();
+  });
+
+  // A screen reader used to hear "Platform TeamPASSCODE" as one word.
+  it("names a locked space and its passcode as two words", async () => {
+    renderApp(<Landing />);
+    const list = within(await screen.findByRole("list", { name: /your spaces/i }));
+    expect(list.getByRole("link", { name: /^Platform Team\W+passcode$/i })).toBeTruthy();
+  });
+
+  // The load used to lay out the stranger's narrow centred column and snap to
+  // the wide top-aligned one when the list landed — the page's biggest layout
+  // shift. A full account gets the signed-in shell, and a skeleton in the same
+  // two columns, from the first paint.
+  it("holds the signed-in shell, in two columns, while the list loads", async () => {
+    let release!: () => void;
+    holdList = new Promise((r) => (release = r));
+    const { container } = renderApp(<Landing />);
+
+    await waitFor(() => expect(listCalls()).toHaveLength(1));
+    const main = container.querySelector("main")!;
+    expect(main.className).toContain("max-w-6xl");
+    expect(main.querySelector("[aria-hidden].lg\\:col-start-2")).not.toBeNull();
+
+    release();
+    await screen.findByRole("heading", { level: 1 });
+    expect(main.className).toContain("max-w-6xl");
+  });
+
+  // A list that failed is not an empty one: no pitch to someone who already
+  // has tables, and no panel claiming there are none.
+  it("shows a signed-in account neither the pitch nor an empty list when the list fails", async () => {
+    listFails = true;
+    renderApp(<Landing />);
+
+    await screen.findByText(/couldn't load your spaces/i);
+    await screen.findByRole("region", { name: "Acme" });
+    expect(screen.queryByText(/Name a table/)).toBeNull();
+    expect(screen.queryByText(/Self-hosted: one binary/)).toBeNull();
+    expect(screen.queryByText(/No tables of yours/)).toBeNull();
+  });
+
+  // One unbroken name used to widen the grid past a 390px viewport.
+  it("lets a long unbroken space name wrap rather than widen the page", async () => {
+    const long = "x".repeat(80);
+    mySpaces = [{ slug: "long", name: long, orgSlug: "acme", protected: false }];
+    const { container } = renderApp(<Landing />);
+
+    const h1 = await screen.findByRole("heading", { level: 1 });
+    expect(h1.className).toContain("[overflow-wrap:anywhere]");
+    const row = within(screen.getByRole("list", { name: /your spaces/i })).getByText(long);
+    expect(row.className).toContain("[overflow-wrap:anywhere]");
+    expect(screen.getByRole("link", { name: `Go to ${long}` }).className).toContain("[overflow-wrap:anywhere]");
+    expect(container.querySelector("main .grid")!.className).toContain("grid-cols-[minmax(0,1fr)]");
+  });
+
+  // At lg the form sits under the hero, on the left; it has to come before the
+  // right-hand list in the tab order too, not after every space row.
+  it("puts the create form before the list in the reading order", async () => {
+    renderApp(<Landing />);
+
+    const list = await screen.findByRole("list", { name: /your spaces/i });
+    const field = screen.getByPlaceholderText(/Platform Team/);
+    expect(field.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  // Every row says whether its table is live, not only the one in the hero.
+  it("marks a row whose round is open, and whether anyone is at it", async () => {
+    mySpaces = [
+      { slug: "platform-team", name: "Platform Team", orgSlug: "acme", protected: true, open: 1, here: 3 },
+      { slug: "design-guild", name: "Design Guild", orgSlug: "acme", protected: false, open: 1, here: 0 },
+      { slug: "research", name: "Research", orgSlug: "acme", protected: false, open: 0, here: 0 },
+    ];
+    renderApp(<Landing />);
+
+    const list = within(await screen.findByRole("list", { name: /your spaces/i }));
+    const busy = list.getByRole("link", { name: /^Platform Team, round open, 3 at the table\W+passcode$/ });
+    expect(busy.querySelector(".bg-card-back")).not.toBeNull();
+    const empty = list.getByRole("link", { name: "Design Guild, round open" });
+    expect(empty.querySelector(".border-dashed")).not.toBeNull();
+    expect(empty.querySelector(".bg-card-back")).toBeNull();
+    const quiet = list.getByRole("link", { name: "Research" });
+    expect(quiet.querySelector("[aria-hidden]")).toBeNull();
+  });
+
+  it("stops explaining invites once there are a few tables", async () => {
+    renderApp(<Landing />);
+    await screen.findByRole("list", { name: /your spaces/i });
+    expect(screen.queryByText(/That link is your invite/)).toBeNull();
+  });
+
+  for (const theme of ["light", "dark"] as const) {
+    it(`has no axe violations in the ${theme} pass, with a round open`, async () => {
+      twoOrgs();
+      spaceDetail = {
+        slug: "platform-team",
+        name: "Platform Team",
+        protected: true,
+        members: [],
+        sessions: [{ id: "s1", kind: "poker", title: "Sprint 34", createdAt: "", endedAt: null, here: 2 }],
+      };
+      localStorage.setItem("parley:theme", theme);
+      const { container } = renderApp(<Landing />);
+      await screen.findByRole("list", { name: "Rounds open now" });
       await expectNoViolations(container);
     });
   }

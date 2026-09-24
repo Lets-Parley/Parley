@@ -185,6 +185,10 @@ export type Membership = {
   /** The org segment of the space's URL — a slug alone no longer resolves. */
   orgSlug: string;
   protected: boolean;
+  /** Rounds in the space that have not ended. */
+  open?: number;
+  /** Distinct people present across those rounds, by the presence window. */
+  here?: number;
 };
 /**
  * One space in an org's directory.

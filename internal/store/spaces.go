@@ -266,17 +266,32 @@ type Membership struct {
 	// cannot be turned back into a link.
 	OrgSlug   string `json:"orgSlug"`
 	Protected bool   `json:"protected"`
+	// Open counts the space's rounds that have not ended, and Here the
+	// distinct people present across them, so the front page can mark a live
+	// table without a request per row.
+	Open int `json:"open"`
+	Here int `json:"here"`
 }
 
-// ForUser lists the caller's own spaces, most recently active first.
-func (s *Spaces) ForUser(ctx context.Context, userID string) ([]Membership, error) {
+// ForUser lists the caller's own spaces, most recently active first, each with
+// its open rounds and who is at them. window must be the presence window
+// (Presence.Window): "here" means exactly what the room itself means by it,
+// a presence row refreshed inside that window, counted once per person
+// however many open rounds they sit at. Still one query.
+func (s *Spaces) ForUser(ctx context.Context, userID string, window time.Duration) ([]Membership, error) {
 	rows, err := s.Pool.Query(ctx, `
-		select sp.slug, sp.name, o.slug, sp.passcode <> ''
+		select sp.slug, sp.name, o.slug, sp.passcode <> '',
+			(select count(*) from sessions se
+				where se.space_id = sp.id and se.ended_at is null),
+			(select count(distinct pr.user_id) from session_presence pr
+				join sessions se on se.id = pr.session_id
+				where se.space_id = sp.id and se.ended_at is null
+				and pr.seen_at > now() - $2::interval)
 		from members m
 		join spaces sp on sp.id = m.space_id
 		join orgs o on o.id = sp.org_id
 		where m.user_id = $1
-		order by m.last_seen_at desc, sp.name`, userID)
+		order by m.last_seen_at desc, sp.name`, userID, window.String())
 	if err != nil {
 		return nil, err
 	}
@@ -284,7 +299,7 @@ func (s *Spaces) ForUser(ctx context.Context, userID string) ([]Membership, erro
 	spaces := []Membership{}
 	for rows.Next() {
 		var sp Membership
-		if err := rows.Scan(&sp.Slug, &sp.Name, &sp.OrgSlug, &sp.Protected); err != nil {
+		if err := rows.Scan(&sp.Slug, &sp.Name, &sp.OrgSlug, &sp.Protected, &sp.Open, &sp.Here); err != nil {
 			return nil, err
 		}
 		spaces = append(spaces, sp)
