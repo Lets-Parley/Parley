@@ -222,8 +222,143 @@ func (a *app) handleEmbedSession(w http.ResponseWriter, r *http.Request) {
 
 var embedSigninPage = template.Must(template.New("signin").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in to {{.Label}} — Parley</title></head>
+<title>Sign in to {{.Label}} — Parley</title>
+<style>
+@font-face {
+  font-family: "Instrument Sans";
+  src: url("/embed-fonts/instrument-sans-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/embed-fonts/jetbrains-mono-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+:root {
+  color-scheme: light;
+  --color-felt: #E9E7E1;
+  --color-surface: #F7F6F2;
+  --color-surface-hi: #FFFFFF;
+  --color-ink: #12202F;
+  --color-ink-soft: #46596B;
+  --color-line: #C7C4BA;
+  --color-line-strong: #77746D;
+  --color-accent: #1D4E6E;
+  --color-accent-ink: #F4F8FB;
+  --color-stop: #B33326;
+  --font-sans: "Instrument Sans", -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --radius-card: 14px;
+  --radius-chip: 8px;
+  --shadow-rest: 0 1px 2px rgb(18 32 47 / 0.1), 0 2px 8px rgb(18 32 47 / 0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --color-felt: #0E1726;
+    --color-surface: #162032;
+    --color-surface-hi: #1E2B3F;
+    --color-ink: #E9E7E1;
+    --color-ink-soft: #A3B1C0;
+    --color-line: #2A3648;
+    --color-line-strong: #6D7A8A;
+    --color-accent: #5FA8D3;
+    --color-accent-ink: #08131F;
+    --color-stop: #E3695C;
+    --shadow-rest: 0 1px 2px rgb(0 0 0 / 0.4), 0 2px 8px rgb(0 0 0 / 0.3);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--color-felt);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+main {
+  width: 100%;
+  max-width: 380px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-rest);
+  padding: 28px 24px;
+}
+.logo {
+  margin-bottom: 16px;
+}
+.logo svg {
+  display: block;
+}
+h1 {
+  font-size: 1.25rem;
+  line-height: 1.3;
+  margin: 0 0 12px;
+}
+p {
+  margin: 0 0 16px;
+  color: var(--color-ink-soft);
+  line-height: 1.5;
+}
+p[role="alert"] {
+  color: var(--color-stop);
+  font-weight: 600;
+}
+a {
+  color: var(--color-accent);
+}
+label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+input#code {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 1.5rem;
+  letter-spacing: 0.08em;
+  text-align: center;
+  padding: 12px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-chip);
+  background: var(--color-surface-hi);
+  color: var(--color-ink);
+  margin-bottom: 16px;
+}
+input#code:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+button {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: var(--radius-chip);
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+</style>
+</head>
 <body><main>
+<div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="40" height="40" role="img" aria-label="Parley"><rect width="256" height="256" rx="56" fill="#1D4E6E"/><rect x="60" y="48" width="96" height="136" rx="20" fill="#F7F6F2" transform="rotate(-9 108 116)"/><rect x="100" y="64" width="96" height="136" rx="20" fill="#F7F6F2" stroke="#1D4E6E" stroke-width="9.6" transform="rotate(9 148 132)"/><g transform="rotate(9 148 132)" fill="none" stroke="#1D4E6E" stroke-width="14" stroke-linecap="round"><circle cx="150" cy="114" r="13"/><circle cx="150" cy="144" r="17"/></g></svg></div>
 <h1>{{.Title}}</h1>
 {{if .Error}}<p role="alert">{{.Error}}</p>{{end}}
 <p>{{.Message}}</p>
@@ -231,7 +366,7 @@ var embedSigninPage = template.Must(template.New("signin").Parse(`<!doctype html
 {{if .Challenge}}<form method="post" action="/embed/signin">
 <input type="hidden" name="c" value="{{.Challenge}}">
 <label for="code">The code shown in {{.Label}}</label>
-<input id="code" name="code" required autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABC-123">
+<input id="code" name="code" required autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABC-123" autofocus>
 <button type="submit">Continue as {{.Name}}</button>
 </form>{{end}}
 </main></body></html>
