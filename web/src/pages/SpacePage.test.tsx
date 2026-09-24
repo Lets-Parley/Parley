@@ -1420,6 +1420,10 @@ describe("SpacePage deck chooser", () => {
 
     beforeEach(() => {
       process.env.TZ = "America/Chicago";
+      // Pinned well before every cutoff typed in this suite (17:00-17:30
+      // Chicago), so these tests don't fail once the wall clock catches up
+      // to a hardcoded cutoff later the same day.
+      vi.setSystemTime(new Date("2026-09-23T08:00:00.000Z")); // 03:00 Chicago
       space.kinds = ["standup"];
       refuse = "";
       const fallback = defaultApi;
@@ -1434,6 +1438,7 @@ describe("SpacePage deck chooser", () => {
 
     afterEach(() => {
       process.env.TZ = realTZ;
+      vi.useRealTimers();
       delete space.kinds;
       vi.mocked(api).mockImplementation(defaultApi);
     });
