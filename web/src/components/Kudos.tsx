@@ -6,6 +6,7 @@ import { buttonPrimary, buttonQuiet, inputClass, labelText } from "./Modal";
 import { kudosApi } from "../lib/paths";
 import { TOUCH_HIT } from "../lib/breakpoints";
 import { useToast } from "../lib/ui";
+import { RailError, railHeading } from "./RailPanel";
 
 /** Who a Thank pressed outside the wall is for. */
 export type ThankRequest = { userId: string };
@@ -80,7 +81,9 @@ export function Kudos({
       thing most visits come to read. */
   const [formOpen, setFormOpen] = useState(false);
   const [showAll, setShowAll] = useState(false);
-  /** Where focus goes once the form has (un)folded; a fresh object per move. */
+  /** Where focus goes once the form has (un)folded. A fresh object per move,
+      not the bare target: a second Thank asks for "text" again, and an
+      unchanged string would never re-run the effect that moves focus. */
   const [focusTo, setFocusTo] = useState<{ el: "to" | "text" | "trigger" } | null>(null);
   const [lastThank, setLastThank] = useState<ThankRequest | null>(thank);
   const headingId = useId();
@@ -393,34 +396,3 @@ export function Kudos({
 const smallPill = `${TOUCH_HIT} inline-flex items-center justify-center px-2 disabled:opacity-50`;
 const smallPillFace =
   "rounded-full border border-line-strong px-3 py-1 text-[12px] font-bold text-ink-soft hover:bg-felt-deep";
-
-/** The one heading voice both panels beside the sessions speak in. */
-export const railHeading = "text-[17px] font-bold tracking-tight text-ink";
-
-/**
- * A panel whose read failed. Saying "nothing yet" here would be a claim the
- * page cannot back: it does not know.
- */
-export function RailError({
-  what,
-  onRetry,
-  busy,
-}: {
-  what: string;
-  onRetry: () => void;
-  busy: boolean;
-}) {
-  return (
-    <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-soft">
-      <span className="text-pretty">Could not read {what} just now.</span>
-      <button
-        type="button"
-        className={`${TOUCH_HIT} ${buttonQuiet}`}
-        disabled={busy}
-        onClick={onRetry}
-      >
-        Retry
-      </button>
-    </p>
-  );
-}
