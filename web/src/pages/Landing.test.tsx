@@ -1098,6 +1098,62 @@ describe("Landing, coming back to the table", () => {
     expect(list.getByRole("link", { name: /^Platform Team\W+passcode$/i })).toBeTruthy();
   });
 
+  // The load used to lay out the stranger's narrow centred column and snap to
+  // the wide top-aligned one when the list landed — the page's biggest layout
+  // shift. A full account gets the signed-in shell, and a skeleton in the same
+  // two columns, from the first paint.
+  it("holds the signed-in shell, in two columns, while the list loads", async () => {
+    let release!: () => void;
+    holdList = new Promise((r) => (release = r));
+    const { container } = renderApp(<Landing />);
+
+    await waitFor(() => expect(listCalls()).toHaveLength(1));
+    const main = container.querySelector("main")!;
+    expect(main.className).toContain("max-w-6xl");
+    expect(main.querySelector("[aria-hidden].lg\\:col-start-2")).not.toBeNull();
+
+    release();
+    await screen.findByRole("heading", { level: 1 });
+    expect(main.className).toContain("max-w-6xl");
+  });
+
+  // A list that failed is not an empty one: no pitch to someone who already
+  // has tables, and no panel claiming there are none.
+  it("shows a signed-in account neither the pitch nor an empty list when the list fails", async () => {
+    listFails = true;
+    renderApp(<Landing />);
+
+    await screen.findByText(/couldn't load your spaces/i);
+    await screen.findByRole("region", { name: "Acme" });
+    expect(screen.queryByText(/Name a table/)).toBeNull();
+    expect(screen.queryByText(/Self-hosted: one binary/)).toBeNull();
+    expect(screen.queryByText(/No tables of yours/)).toBeNull();
+  });
+
+  // One unbroken name used to widen the grid past a 390px viewport.
+  it("lets a long unbroken space name wrap rather than widen the page", async () => {
+    const long = "x".repeat(80);
+    mySpaces = [{ slug: "long", name: long, orgSlug: "acme", protected: false }];
+    const { container } = renderApp(<Landing />);
+
+    const h1 = await screen.findByRole("heading", { level: 1 });
+    expect(h1.className).toContain("[overflow-wrap:anywhere]");
+    const row = within(screen.getByRole("list", { name: /your spaces/i })).getByText(long);
+    expect(row.className).toContain("[overflow-wrap:anywhere]");
+    expect(screen.getByRole("link", { name: `Go to ${long}` }).className).toContain("[overflow-wrap:anywhere]");
+    expect(container.querySelector("main .grid")!.className).toContain("grid-cols-[minmax(0,1fr)]");
+  });
+
+  // At lg the form sits under the hero, on the left; it has to come before the
+  // right-hand list in the tab order too, not after every space row.
+  it("puts the create form before the list in the reading order", async () => {
+    renderApp(<Landing />);
+
+    const list = await screen.findByRole("list", { name: /your spaces/i });
+    const field = screen.getByPlaceholderText(/Platform Team/);
+    expect(field.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("stops explaining invites once there are a few tables", async () => {
     renderApp(<Landing />);
     await screen.findByRole("list", { name: /your spaces/i });

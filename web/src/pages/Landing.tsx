@@ -248,7 +248,7 @@ function ReturnTable({ space, orgName }: { space: Membership; orgName: string | 
     >
       <h1
         id={headingId}
-        className="text-balance font-display text-[clamp(1.75rem,5vw,2.4rem)] font-bold leading-[1.1] tracking-[-0.02em]"
+        className="text-balance font-display text-[clamp(1.75rem,5vw,2.4rem)] font-bold leading-[1.1] tracking-[-0.02em] [overflow-wrap:anywhere]"
       >
         {space.name}
       </h1>
@@ -285,7 +285,7 @@ function ReturnTable({ space, orgName }: { space: Membership; orgName: string | 
         </p>
       )}
 
-      <Link to={spacePath(space.orgSlug, space.slug)} className={buttonPrimary + " mt-6 inline-block"}>
+      <Link to={spacePath(space.orgSlug, space.slug)} className={buttonPrimary + " mt-6 inline-block max-w-full [overflow-wrap:anywhere]"}>
         Go to {space.name}
       </Link>
     </section>
@@ -465,6 +465,14 @@ export function Landing() {
     ]),
   ].filter((slug) => !orgFilter || slug === orgFilter);
   const known = spaces.length > 0;
+  // The stranger's page is for someone deciding: signed out, or an account
+  // whose list answered and was empty. Everyone else — a full account still
+  // loading, one whose list failed, one with tables — gets the signed-in
+  // shell from the first paint, because swapping the narrow centred column
+  // for the wide top-aligned one once the list lands was the page's biggest
+  // layout shift, and a failed read is not evidence of having no tables.
+  const stranger = !fullAccount || (mine.isSuccess && !known);
+  const wide = !stranger;
   const multiOrg = orgs.length > 1;
   const guestRoomId = me.data?.linkSessionId;
   // Past a handful the list outgrows a glance, and typing four letters beats
@@ -490,25 +498,25 @@ export function Landing() {
       <main
         className={
           "mx-auto flex w-full flex-1 flex-col items-center gap-7 px-4 py-6 sm:px-6 " +
-          (known ? "max-w-6xl justify-start pt-16 sm:pt-20" : "max-w-2xl justify-center")
+          (wide ? "max-w-6xl justify-start pt-16 sm:pt-20" : "max-w-2xl justify-center")
         }
       >
-        {!settling && !known && <DealAndReveal />}
+        {!settling && stranger && <DealAndReveal />}
 
         {/* The wordmark is a brand mark, not the document's heading. */}
-        <div className={"flex flex-col gap-3 " + (known ? "items-start self-stretch" : "items-center")}>
+        <div className={"flex flex-col gap-3 " + (wide ? "items-start self-stretch" : "items-center")}>
           <div className="flex items-center gap-3">
-            <Logo size={known ? 30 : 26} />
+            <Logo size={wide ? 30 : 26} />
             <span
               className={
-                (known ? "text-[1.7rem]" : "text-3xl") +
+                (wide ? "text-[1.7rem]" : "text-3xl") +
                 " font-display font-bold tracking-[-0.02em]"
               }
             >
               Parley
             </span>
           </div>
-          {!settling && !known && !guestRoomId && (
+          {!settling && stranger && !guestRoomId && (
             <h1 className="max-w-[18ch] text-balance text-center font-display text-[clamp(2rem,6vw,3.25rem)] font-bold leading-[1.05] tracking-[-0.02em]">
               Name a table. Share the link. Start the round.
             </h1>
@@ -530,7 +538,7 @@ export function Landing() {
 
         {/* The pitch is for someone deciding. Someone with spaces already decided,
             and their list should not sit below an advertisement for it. */}
-        {!settling && !known && !guestRoomId && (
+        {!settling && stranger && !guestRoomId && (
           <p className="max-w-[68ch] text-pretty text-ink-soft">
             Planning poker and daily standups for your team, at your table. A space
             is a room your team keeps — name one, share the link, start a round.
@@ -544,7 +552,7 @@ export function Landing() {
         {mode.data?.mode === "oidc" && fullAccount && me.data && (
           <p
             className={
-              "flex items-center gap-3 text-sm text-ink-soft " + (known ? "self-stretch" : "")
+              "flex items-center gap-3 text-sm text-ink-soft " + (wide ? "self-stretch" : "")
             }
           >
             <Avatar name={me.data.name} hue={me.data.avatarHue} icon={me.data.avatarIcon} size="sm" decorative />
@@ -598,16 +606,6 @@ export function Landing() {
 
         {!guestRoomId && !noOrg && (
           <>
-            {fullAccount && settling && (
-              <div
-                aria-hidden
-                className="flex w-full max-w-md flex-col gap-2 rounded-panel border border-line bg-surface p-3"
-              >
-                <span className="h-9 rounded-card bg-felt-deep" />
-                <span className="h-9 w-2/3 rounded-card bg-felt-deep" />
-              </div>
-            )}
-
             {mine.isError && (
               <p className="flex items-center gap-3 text-sm text-ink-soft">
                 Couldn't load your spaces.
@@ -619,14 +617,20 @@ export function Landing() {
 
             {/* Past lg the page is two columns: the table you are going back
                 to and the create form on the left, every space you have on the
-                right. One column there left most of a wide screen empty. DOM
-                order is hero, list, form, so a phone reads the same way it
-                always did. For a stranger the wrapper is `contents` and
-                changes nothing. */}
+                right. One column there left most of a wide screen empty. The
+                list is placed on the grid explicitly, so the DOM can run hero,
+                form, list — the order the left column is read and tabbed in —
+                without the list moving. Below lg there is one column and no
+                order-* reshuffling: what is read first, tabbed first and seen
+                first stay the same thing (WCAG 1.3.2), at the cost of the list
+                sitting under the form on a phone. The base template is
+                minmax(0,1fr), not auto, so one long unbroken space name wraps
+                instead of widening the page past the viewport (1.4.10). For a
+                stranger the wrapper is `contents` and changes nothing. */}
             <div
               className={
-                known
-                  ? "grid w-full items-start gap-7 lg:grid-cols-[minmax(0,7fr)_minmax(0,6fr)] lg:grid-rows-[auto_1fr]"
+                wide
+                  ? "grid w-full grid-cols-[minmax(0,1fr)] items-start gap-7 lg:grid-cols-[minmax(0,7fr)_minmax(0,6fr)] lg:grid-rows-[auto_1fr]"
                   : "contents"
               }
             >
@@ -634,7 +638,111 @@ export function Landing() {
                 <ReturnTable space={spaces[0]} orgName={multiOrg ? orgName(spaces[0].orgSlug) : null} />
               )}
 
-              <div className={known ? "lg:col-start-2 lg:row-span-2 lg:row-start-1" : "contents"}>
+              {/* The same two blocks the answer will fill, where it will fill
+                  them, so nothing moves when it lands. */}
+              {fullAccount && settling && (
+                <>
+                  <div aria-hidden className="flex h-56 flex-col gap-3 rounded-panel border border-line bg-surface p-6 lg:col-start-1 lg:row-start-1">
+                    <span className="h-9 w-2/3 rounded-card bg-felt-deep" />
+                    <span className="h-4 w-1/2 rounded-card bg-felt-deep" />
+                  </div>
+                  <div aria-hidden className="flex flex-col gap-2 rounded-panel border border-line bg-surface p-3 lg:col-start-2 lg:row-span-2 lg:row-start-1">
+                    <span className="h-9 rounded-card bg-felt-deep" />
+                    <span className="h-9 rounded-card bg-felt-deep" />
+                    <span className="h-9 w-2/3 rounded-card bg-felt-deep" />
+                  </div>
+                </>
+              )}
+
+              <div className={wide ? "flex flex-col gap-4 lg:col-start-1 lg:row-start-2" : "contents"}>
+                {!settling && (
+                  <form
+                    onSubmit={submit}
+                    className={
+                      "flex w-full flex-col gap-3 self-center rounded-panel border border-line bg-surface p-5 shadow-rest sm:flex-row sm:flex-wrap sm:items-end " +
+                      (wide ? "" : "max-w-md")
+                    }
+                  >
+                    <div className="min-w-0 flex-1 sm:min-w-48">
+                      <label htmlFor={fieldId} className={"mb-2 block " + labelText}>
+                        {known ? "New space" : "Name your space"}
+                      </label>
+                      <input
+                        id={fieldId}
+                        name="space-name"
+                        autoComplete="off"
+                        className={inputClass}
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder="e.g. Platform Team"
+                        maxLength={64}
+                        aria-invalid={error && canRetry ? true : undefined}
+                        aria-describedby={error ? errorId : undefined}
+                      />
+                    </div>
+                    {/* Which org it lands in, asked only when the page cannot
+                        tell: several orgs and no switcher choice. */}
+                    {fullAccount && multiOrg && !orgFilter && (
+                      <div className="sm:w-40">
+                        <label htmlFor={orgFieldId} className={"mb-2 block " + labelText}>
+                          In
+                        </label>
+                        <select
+                          id={orgFieldId}
+                          className={inputClass}
+                          value={targetOrg}
+                          onChange={(e) => setCreateOrg(e.target.value)}
+                        >
+                          {orgs.map((o) => (
+                            <option key={o.slug} value={o.slug}>
+                              {o.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    <button
+                      type="submit"
+                      className={buttonPrimary + " shrink-0"}
+                      disabled={!name.trim() || busy}
+                    >
+                      {busy ? "Opening…" : known ? "Create a space" : "Open a space"}
+                    </button>
+                    {fullAccount && multiOrg && orgFilter && (
+                      <p className="w-full text-sm text-ink-soft sm:order-last">
+                        It will be in {orgName(orgFilter)}.
+                      </p>
+                    )}
+                  </form>
+                )}
+
+                {error && (
+                  <p id={errorId} role="alert" className="flex items-center gap-3 font-bold text-stop">
+                    {error}
+                    {canRetry && (
+                      <button
+                        type="button"
+                        className={buttonQuiet + " font-bold"}
+                        onClick={() => doCreate(name.trim(), targetOrg)}
+                        disabled={!name.trim() || busy}
+                      >
+                        Try again
+                      </button>
+                    )}
+                  </p>
+                )}
+
+                {/* Worth saying until the list says it for them: once someone has
+                    a few tables they know how they got there. */}
+                {!settling && spaces.length <= 1 && (
+                  <p className={"text-pretty text-sm text-ink-faint " + (wide ? "self-stretch px-1" : "max-w-md self-center")}>
+                    Got a link from a teammate? That link is your invite — just open it. A
+                    passcode alone won't do it; ask them for the link.
+                  </p>
+                )}
+              </div>
+
+              <div className={wide ? "lg:col-start-2 lg:row-span-2 lg:row-start-1" : "contents"}>
                 {!settling && (known || orgs.length > 0) && (
                   <div className="flex w-full flex-col gap-4">
                     {(multiOrg || findable) && (
@@ -754,7 +862,7 @@ export function Landing() {
                                     to={spacePath(sp.orgSlug, sp.slug)}
                                     className="flex items-center justify-between gap-3 rounded-card px-3 py-2.5 font-bold hover:bg-felt-deep"
                                   >
-                                    <span className="line-clamp-2 min-w-0">{sp.name}</span>
+                                    <span className="line-clamp-2 min-w-0 [overflow-wrap:anywhere]">{sp.name}</span>
                                     {sp.protected && (
                                       <span className="flex shrink-0 items-center gap-1.5 text-ink-faint">
                                         <LockGlyph />
@@ -768,7 +876,10 @@ export function Landing() {
                               ))}
                             </ul>
                           ) : (
-                            <p className="px-5 py-4 text-sm text-ink-soft">
+                            // A list that failed to load says so once, above;
+                            // repeating "none here" in every panel would claim
+                            // an answer the page never got.
+                            !mine.isError && <p className="px-5 py-4 text-sm text-ink-soft">
                               No tables of yours here yet. Browse to find your team's, or name one below.
                             </p>
                           )}
@@ -784,93 +895,6 @@ export function Landing() {
                 )}
               </div>
 
-              <div className={known ? "flex flex-col gap-4 lg:col-start-1 lg:row-start-2" : "contents"}>
-                {!settling && (
-                  <form
-                    onSubmit={submit}
-                    className={
-                      "flex w-full flex-col gap-3 self-center rounded-panel border border-line bg-surface p-5 shadow-rest sm:flex-row sm:flex-wrap sm:items-end " +
-                      (known ? "" : "max-w-md")
-                    }
-                  >
-                    <div className="min-w-0 flex-1 sm:min-w-48">
-                      <label htmlFor={fieldId} className={"mb-2 block " + labelText}>
-                        {known ? "New space" : "Name your space"}
-                      </label>
-                      <input
-                        id={fieldId}
-                        name="space-name"
-                        autoComplete="off"
-                        className={inputClass}
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        placeholder="e.g. Platform Team"
-                        maxLength={64}
-                        aria-invalid={error && canRetry ? true : undefined}
-                        aria-describedby={error ? errorId : undefined}
-                      />
-                    </div>
-                    {/* Which org it lands in, asked only when the page cannot
-                        tell: several orgs and no switcher choice. */}
-                    {fullAccount && multiOrg && !orgFilter && (
-                      <div className="sm:w-40">
-                        <label htmlFor={orgFieldId} className={"mb-2 block " + labelText}>
-                          In
-                        </label>
-                        <select
-                          id={orgFieldId}
-                          className={inputClass}
-                          value={targetOrg}
-                          onChange={(e) => setCreateOrg(e.target.value)}
-                        >
-                          {orgs.map((o) => (
-                            <option key={o.slug} value={o.slug}>
-                              {o.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-                    <button
-                      type="submit"
-                      className={buttonPrimary + " shrink-0"}
-                      disabled={!name.trim() || busy}
-                    >
-                      {busy ? "Opening…" : known ? "Create a space" : "Open a space"}
-                    </button>
-                    {fullAccount && multiOrg && orgFilter && (
-                      <p className="w-full text-sm text-ink-soft sm:order-last">
-                        It will be in {orgName(orgFilter)}.
-                      </p>
-                    )}
-                  </form>
-                )}
-
-                {error && (
-                  <p id={errorId} role="alert" className="flex items-center gap-3 font-bold text-stop">
-                    {error}
-                    {canRetry && (
-                      <button
-                        type="button"
-                        className={buttonQuiet + " font-bold"}
-                        onClick={() => doCreate(name.trim(), targetOrg)}
-                        disabled={!name.trim() || busy}
-                      >
-                        Try again
-                      </button>
-                    )}
-                  </p>
-                )}
-
-                {/* Worth saying until the list says it for them: once someone has
-                    a few tables they know how they got there. */}
-                {!settling && spaces.length <= 1 && (
-                  <p className={"text-pretty text-sm text-ink-faint " + (known ? "self-stretch px-1" : "max-w-md self-center")}>
-                    Got a link from a teammate? That link is your invite — just open it. A
-                    passcode alone won't do it; ask them for the link.
-                  </p>
-                )}
-              </div>
             </div>
           </>
         )}
