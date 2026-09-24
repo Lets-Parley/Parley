@@ -1183,8 +1183,9 @@ describe("Landing, coming back to the table", () => {
     expect(label.className).not.toContain("text-[10px]");
   });
 
-  // Below sm the chip is hidden; the glyph has to say poker or standup alone.
-  it("marks a round's kind with its glyph where the chip does not fit", async () => {
+  // Below sm the word is hidden; the kind's object has to say poker or
+  // standup alone.
+  it("marks a round's kind with its token where the word does not fit", async () => {
     spaceDetail = {
       slug: "platform-team",
       name: "Platform Team",
@@ -1195,9 +1196,8 @@ describe("Landing, coming back to the table", () => {
     renderApp(<Landing />);
 
     const row = within(await screen.findByRole("list", { name: "Rounds open now" })).getByRole("link");
-    const small = row.querySelector(".sm\\:hidden")!;
-    expect(small.querySelector("svg")).not.toBeNull();
-    expect(small.textContent).toBe(", Standup");
+    const small = row.querySelector<HTMLElement>(".sm\\:hidden")!;
+    expect(within(small).getByRole("img", { name: "Standup" })).toBeTruthy();
   });
 
   // "Two at the table" is a claim about now, so the room is re-read — but a

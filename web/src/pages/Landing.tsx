@@ -25,7 +25,7 @@ import { isFullAccount } from "../lib/links";
 import { Logo, ThemeToggle } from "../components/Brand";
 import { PluginChrome } from "../components/PluginChrome";
 import { Avatar } from "../components/Avatar";
-import { KindChip, KindIcon } from "../components/KindChip";
+import { KindChip } from "../components/KindChip";
 import { buttonPrimary, buttonQuiet, inputClass, labelText } from "../components/Modal";
 import { safeDisplayName } from "../lib/displayName";
 import {
@@ -280,16 +280,14 @@ function ReturnTable({ space, orgName }: { space: Membership; orgName: string | 
                   <span className="line-clamp-2 font-bold">{s.title || kindLabel(s.kind)}</span>
                   <span className="block text-sm text-ink-soft">{whoIsHere(s, members)}</span>
                 </span>
-                {/* Below sm there is no room for the chip, but poker and standup
-                    still have to be told apart: the glyph alone, with the word
-                    kept for a screen reader. KindChip's text is 10px at either
-                    size, so the chip itself is left as it is. */}
-                <span className="shrink-0 text-ink-soft sm:hidden">
-                  <KindIcon kind={s.kind} />
-                  <span className="sr-only">, {kindLabel(s.kind)}</span>
+                {/* Below sm there is no room for the word, but poker and
+                    standup still have to be told apart: the kind's object
+                    alone, which names itself to a screen reader. */}
+                <span className="shrink-0 sm:hidden">
+                  <KindChip kind={s.kind} label={false} />
                 </span>
                 <span className="hidden sm:inline-flex">
-                  <KindChip kind={s.kind} size="sm" />
+                  <KindChip kind={s.kind} />
                 </span>
                 {/* An empty round is a door, not an invitation: nobody is
                     waiting on you, so it does not get the accent's weight. */}
