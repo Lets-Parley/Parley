@@ -90,9 +90,12 @@ nothing else — no router surgery, no constraint change, no frontend ternaries.
 3. **Add the frontend entry.** Append a `KindDef` to `KINDS` in
    `web/src/lib/kinds.ts` — `id` matching the `kind` column, `label`, the `Room`
    component, and `fields` if the create dialog should offer config options.
-   Give the kind a glyph in `KindChip` too, or its chip stays text-only. The
-   glyph tests pick it up automatically and will hold it to the same legibility
-   floor as the existing ones.
+   Give the kind an object in `KindChip` too — a small thing taken from its
+   own room, the way poker shows the table's face-down card and standup the
+   round of speakers — or it keeps a text-only chip with its label everywhere,
+   including the places the other kinds drop their label to show the object
+   alone. Build it from design tokens so it themes, and cover it in
+   `KindChip.test.tsx` and the axe sweep in `a11y.test.tsx`.
 
 ## Ceremonies delivered as plugins
 
