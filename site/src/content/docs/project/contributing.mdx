@@ -155,6 +155,35 @@ the new frames land in, and add a `depicts` entry for any new surface a shot
 now covers. A new screenshot belongs in the manifest in the same pull request
 that adds it.
 
+## Cutting a release
+
+`site/src/version.mjs` is the one place the current release is written down —
+the whole site substitutes it into prose and code fences at build time — but
+eight other files also name the current version as a worked example: the
+README's install and upgrade commands, `SECURITY.md`'s supported-versions
+table, `docker-compose.yml`, `deploy/k8s/deployment.yaml`, the Helm chart's
+`Chart.yaml` and `_helpers.tpl` comments, `values.yaml`'s FIPS-tag example, and
+the deployment guide's FIPS-tag example. `scripts/bump-release-pins.sh X.Y.Z`
+rewrites all nine from whatever version each one currently names, refuses
+anything that is not `X.Y.Z`, and moves every version it supersedes into
+`SECURITY.md`'s table rather than dropping it — not only the one the "Yes"
+row named, but every `v*` tag between it and `X.Y.Z`, so a release that ships
+while the pins sit stuck (as v0.11.0 and v0.11.1 both did against 0.10.0)
+still ends up listed once the next bump runs. That lookup needs the repo's
+tags fetched locally; run it from a normal clone, not a shallow one. Run the
+script once per release and commit the result alongside the tag.
+
+Two CI legs exist because that bump used to be a manual step nobody remembered
+after #470 landed it once: three releases (v0.11.0, v0.11.1, v0.12.0) shipped
+with every pin still reading the one before. `scripts/check-release-pins.sh`
+fails a pull request where any pin disagrees with `version.mjs` — a partial
+run of the bump script, or a hand-edit that missed a file.
+`scripts/check-release-freshness.sh` fails one where `version.mjs` is older
+than the newest `v*` tag — the case the bump script exists but nobody ran it
+after cutting the tag — and names the exact command to fix it. Both read
+`scripts/lib/release-pins.sh`'s pin list, so a location added there is bumped
+and checked without a second list to keep in sync.
+
 ## Contributing
 
 Use [Discussions](https://github.com/lets-parley/parley/discussions) for support
