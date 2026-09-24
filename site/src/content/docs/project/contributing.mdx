@@ -178,15 +178,25 @@ The order is bump first, tag second:
    merge it.
 2. Run `scripts/cut-release.sh X.Y.Z`. It fetches `origin/main`, refuses unless
    that commit's `version.mjs` reads `X.Y.Z` and every pin agrees, refuses a tag
-   that already exists, then runs `gh release create vX.Y.Z --target <sha>
+   that already exists, then runs `gh release create vX.Y.Z --repo <owner/name> --target <sha>
    --generate-notes` against that exact commit. `--dry-run` runs the checks and
    prints the command instead.
+
+Run step 2 as soon as the bump merges. Merging it redeploys the docs site, so
+from then until the release workflow publishes the image, the site, README,
+`SECURITY.md` and the manifests name an image that does not exist yet. If the
+release run fails, that version is burned — tags are immutable — so bump to the
+next patch and cut that instead; don't leave the pins on a version with no
+image.
 
 v0.13.0 was tagged the other way round: a tag cut before the bump leaves `main`
 stale, and the freshness check below then fails every pull request in the
 repository until the bump lands — twelve hours, that time. The release
 workflow's `validate` job also refuses a tag whose `version.mjs` does not match
-it, before any image is pushed.
+it, before any image is pushed. If that happens to a hand-cut tag, delete the
+empty GitHub release, bump to the next patch, and cut that; bumping the pins to
+the refused tag's version would point the docs at an image that was never
+published. The freshness check's message gives both branches.
 
 Two CI legs exist because that bump used to be a manual step nobody remembered
 after #470 landed it once: three releases (v0.11.0, v0.11.1, v0.12.0) shipped

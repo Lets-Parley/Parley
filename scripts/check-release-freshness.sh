@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Fails if site/src/version.mjs is older than the newest published release
-# tag — the case a bump script exists but nobody ran it after cutting a tag.
+# tag — a tag cut by hand without scripts/cut-release.sh, which only tags a
+# commit that already carries the bump.
 #
 # Needs the repository's tags, which a shallow `actions/checkout` does not
 # fetch by default even with fetch-depth: 0; the CI job for this script fetches
@@ -34,8 +35,8 @@ latest_version=${latest_tag#v}
 newest=$(printf '%s\n%s\n' "$version" "$latest_version" | sort -V | tail -1)
 if [ "$newest" != "$version" ]; then
   echo "site/src/version.mjs pins $version but the newest release is $latest_tag." >&2
-  echo "run: scripts/bump-release-pins.sh $latest_version" >&2
-  echo "(release order is bump, merge, then scripts/cut-release.sh — never tag first)" >&2
+  echo "if $latest_tag's release run published its image: scripts/bump-release-pins.sh $latest_version" >&2
+  echo "if it failed: bump to the next patch, delete the empty $latest_tag release, then scripts/cut-release.sh" >&2
   exit 1
 fi
 

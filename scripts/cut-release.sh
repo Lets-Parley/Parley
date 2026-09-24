@@ -24,18 +24,30 @@ if [ "${1:-}" = "--dry-run" ]; then
 fi
 [ "$#" -eq 1 ] || usage
 version=$1
-if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+# The same shape release.yml's validate job accepts: no leading zeros.
+if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
   echo "not a version: '$version' (expected X.Y.Z, e.g. 0.12.0)" >&2
   exit 2
 fi
 tag="v$version"
 
 repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$repo_root"
 
-# shellcheck source=scripts/lib/release-pins.sh
-source "$repo_root/scripts/lib/release-pins.sh"
+# gh gets the repository from origin's configured URL, never from whatever
+# remote it would pick on its own.
+origin_url=$(git config remote.origin.url)
+origin_url=${origin_url%.git}
+gh_repo=${origin_url#*github.com[:/]}
+if [[ ! "$gh_repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+  echo "origin ($origin_url) is not a github.com repository" >&2
+  exit 1
+fi
 
-git fetch -q origin main --tags
+if ! git fetch origin main --tags; then
+  echo "git fetch origin main --tags failed (a local tag that differs from origin's?)" >&2
+  exit 1
+fi
 sha=$(git rev-parse origin/main)
 
 if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
@@ -48,6 +60,10 @@ tree=$(mktemp -d)
 trap 'rm -rf "$tree"' EXIT
 git archive "$sha" | tar -x -C "$tree"
 
+# The pin list and checker come from the same tree, so they match the commit
+# being tagged rather than whatever is checked out.
+# shellcheck source=scripts/lib/release-pins.sh
+source "$tree/scripts/lib/release-pins.sh"
 pinned=$(read_version "$tree/$VERSION_FILE")
 if [ "$pinned" != "$version" ]; then
   echo "origin/main ($sha) pins ${pinned:-nothing} in $VERSION_FILE, not $version." >&2
@@ -55,12 +71,12 @@ if [ "$pinned" != "$version" ]; then
   exit 1
 fi
 
-if ! (cd "$tree" && "$repo_root/scripts/check-release-pins.sh") >&2; then
+if ! (cd "$tree" && ./scripts/check-release-pins.sh) >&2; then
   echo "origin/main ($sha) has release pins that disagree; fix them before tagging." >&2
   exit 1
 fi
 
-cmd=(gh release create "$tag" --target "$sha" --generate-notes)
+cmd=(gh release create "$tag" --repo "$gh_repo" --target "$sha" --generate-notes)
 if [ "$dry_run" -eq 1 ]; then
   echo "dry run: ${cmd[*]}"
   exit 0
