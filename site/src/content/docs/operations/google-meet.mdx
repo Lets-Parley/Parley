@@ -266,8 +266,8 @@ for `meet.google.com` once and click **Sign in** again.
 **Every request from the add-on fails with 415, especially behind a
 reverse proxy or CDN.** A proxy that forwards a body-less POST without
 `Content-Length` (Cloudflare Tunnel does this) used to make Parley reject
-it with 415. That's fixed on main after v0.12.0 — if you're on an older
-build, upgrade; if you're already past it and still see 415s on
+it with 415. That's fixed in v0.13.0 — on an older build, upgrade; if
+you're already past it and still see 415s on
 `/api/embed/*`, check `Sec-WebSocket-Protocol` and `Authorization` header
 handling in your proxy config instead.
 
