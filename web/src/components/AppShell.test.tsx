@@ -478,6 +478,19 @@ describe("sidebar kind labels", () => {
     expect(screen.getByRole("link", { name: "Poker · Sprint 11 · ended" })).toBeDefined();
   });
 
+  // The object leads the row so every one sits in the same column: placed
+  // after the title it floated with the title's length and the ended marker.
+  it("puts the kind's object first, before the title", () => {
+    stubAuthMode("open");
+    renderShell({ sessions });
+    for (const name of ["Poker · Sprint 12", "Standup · Daily", "Poker · Sprint 11 · ended"]) {
+      const row = screen.getByRole("link", { name });
+      const token = within(row).getByRole("img");
+      const title = within(row).getByText(name.split(" · ")[1]);
+      expect(token.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
   // An unregistered kind has no object to draw, so its wire id stays on the
   // row as text rather than the row going silent — and it never borrows
   // another kind's object.

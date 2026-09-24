@@ -229,12 +229,15 @@ export function AppShell({
                         (s.id === activeSessionId ? "bg-felt-deep" : "")
                       }
                     >
-                      <span className="truncate text-[13px] font-semibold">{s.title}</span>
-                      <span className="ml-auto">
+                      {/* A fixed slot, centred: the card and the seat ring
+                          differ in width, and the titles should still start
+                          in one column. */}
+                      <span className="flex w-6 shrink-0 justify-center">
                         <KindChip kind={s.kind} label={false} />
                       </span>
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{s.title}</span>
                       {s.endedAt && (
-                        <span className="shrink-0 font-mono text-[9px] text-ink-faint">ended</span>
+                        <span className="shrink-0 font-mono text-[11px] text-ink-faint">ended</span>
                       )}
                     </Link>
                   </li>

@@ -713,7 +713,9 @@ function SessionRow({ s, showKind, onManage }: { s: SessionSummary; showKind: bo
   const ended = !!s.endedAt;
   const age = openedAgo(s.createdAt);
   return (
-    <li className={"flex items-center gap-2 " + (onManage ? "pr-3" : "")}>
+    // With Manage beside it the row must be taller than the 44px button, or
+    // neighbouring buttons meet across the divider.
+    <li className={"flex items-center gap-2 " + (onManage ? "py-1.5 pr-3" : "")}>
       <Link
         to={`/session/${s.id}`}
         aria-label={`${kindLabel(s.kind)} · ${s.title} · ${ended ? "ended" : age}`}
@@ -724,7 +726,11 @@ function SessionRow({ s, showKind, onManage }: { s: SessionSummary; showKind: bo
           (ended ? "py-2.5" : "py-3.5")
         }
       >
-        <KindChip kind={s.kind} label={showKind} />
+        {/* A fixed column, so titles line up whether the kind reads "Poker"
+            or "Standup" — or shows its object alone. */}
+        <span className={"flex shrink-0 max-sm:w-auto " + (showKind ? "w-24" : "w-6 justify-center")}>
+          <KindChip kind={s.kind} label={showKind} />
+        </span>
         {ended ? (
           <span className="min-w-0 flex-1 truncate text-[13px] text-ink-soft max-sm:w-full">
             <span className="font-semibold">{s.title}</span>
