@@ -144,16 +144,20 @@ else
   INSTALL_LINE="❌ could not confirm the install; see the error above."
 fi
 
-# Used only to guess the app's future Marketplace page link below; a
-# failure here is not fatal, it just drops that one line.
+# The guessed link below only works if the operator kept the app name
+# "Parley" and the project number lookup succeeds — so the checklist always
+# also prints where to find the real one, regardless of either.
 PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)' 2>/dev/null || true)"
-MARKETPLACE_PAGE_LINE=""
+MARKETPLACE_PAGE_LINE="
+     If you don't see it there, it's on the deployment's HTTP deployments
+     row in the Marketplace SDK — click the deployment, and the Marketplace
+     page link is listed alongside its status."
 if [[ -n "$PROJECT_NUMBER" ]]; then
   MARKETPLACE_PAGE_LINE="
      If you kept the Application Name \"Parley\", it should end up at
      https://workspace.google.com/marketplace/app/parley/${PROJECT_NUMBER}
      — Google shows the exact link once you publish, so treat this as a
-     guess, not the source of truth."
+     guess, not the source of truth.${MARKETPLACE_PAGE_LINE}"
 fi
 
 cat <<EOF

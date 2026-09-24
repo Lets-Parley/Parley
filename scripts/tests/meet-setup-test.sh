@@ -41,6 +41,10 @@ case "$1 $2" in
   "services enable")
     ;;
   "projects describe")
+    if [ "${PROJECT_NUMBER_FAIL:-0}" = "1" ]; then
+      echo "ERROR: (gcloud.projects.describe) could not reach the API" >&2
+      exit 1
+    fi
     echo "${PROJECT_NUMBER_VALUE:-199472588023}"
     ;;
   "workspace-add-ons deployments")
@@ -436,6 +440,27 @@ grep -qi "Publish stays disabled until Save draft" "$work/checklist.log" || {
 grep -q "workspace.google.com/marketplace/app/parley/199472588023" "$work/checklist.log" || {
   echo "FAIL: the checklist should guess the app's Marketplace page link from the fetched project number" >&2
   cat "$work/checklist.log" >&2
+  exit 1
+}
+grep -q "HTTP deployments" "$work/checklist.log" || {
+  echo "FAIL: the checklist should always say where the Marketplace page link lives, not just guess it" >&2
+  cat "$work/checklist.log" >&2
+  exit 1
+}
+
+# Even when the project-number lookup fails (or the app was renamed, so the
+# guessed link would be wrong), the checklist must still tell the operator
+# where to find the real Marketplace page link.
+rm -f "$calls_log" "$capture" "$create_counter"
+PROJECT_NUMBER_FAIL=1 run_setup "https://parley.example.com" 1 >"$work/norenumber.log" 2>&1
+grep -q "workspace.google.com/marketplace/app/parley/" "$work/norenumber.log" && {
+  echo "FAIL: with no project number, the checklist must not print a guessed link" >&2
+  cat "$work/norenumber.log" >&2
+  exit 1
+}
+grep -q "HTTP deployments" "$work/norenumber.log" || {
+  echo "FAIL: with no project number, the checklist must still say where to find the Marketplace page link" >&2
+  cat "$work/norenumber.log" >&2
   exit 1
 }
 

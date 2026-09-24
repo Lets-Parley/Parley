@@ -38,6 +38,10 @@ deployment named `parley`. It retries for a couple of minutes if a
 just-enabled API is still activating, then installs the add-on for your own
 account and checks that the install took.
 
+If this fails with a permission error, you're not the owner or editor of
+the project you picked above — ask whoever created it to grant you
+`roles/editor`, or pick a project you already own.
+
 ## Finish the steps with no API
 
 The script prints these remaining steps and their console URLs:
