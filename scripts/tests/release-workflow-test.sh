@@ -142,6 +142,13 @@ test -n "$sbom_upload_name"
 test -n "$sbom_download_name"
 test "$sbom_upload_name" = "$sbom_download_name"
 
+# A tag cut before the pin bump (v0.13.0) must fail validate, before any job
+# that pushes an image can start.
+test "$(digest_guard 'test "$pinned" = "$version" \')" -eq 1 \
+  || { echo "validate does not refuse a tag whose version.mjs disagrees" >&2; exit 1; }
+job_block validate | grep -Fq 'pinned=$(read_version "$VERSION_FILE")' \
+  || { echo "validate does not read version.mjs at the tag" >&2; exit 1; }
+
 compare_line=$(line_number 'test "$actual" = "$expected"')
 tag_check_line=$(line_number 'test "$current_commit" = "$VALIDATED_COMMIT"')
 promotion_line=$(line_number '--tag "$IMAGE:$VERSION"')
@@ -346,5 +353,51 @@ if grep -F 'oci-archive:/release/parley-image-fips.tar "docker://$IMAGE:$VERSION
 fi
 test "$(digest_guard 'test "$resolved_fips" = "$FIPS_DIGEST" \')" -eq 1 \
   || { echo "FIPS digest comparison is missing the failing || { ... exit 1; } continuation" >&2; exit 1; }
+
+# Run the validate step itself, not a grep of it: deleting the line that
+# sources the pin reader, or deriving version as "$TAG" instead of "${TAG#v}",
+# keeps every substring above and refuses every future release.
+validate_script=$(awk '
+  /^      - name: Validate published release$/ { in_step = 1; next }
+  in_step && /^        run: \|$/ { in_run = 1; next }
+  in_run && /^          / { sub(/^          /, ""); print; next }
+  in_run { exit }
+' "$workflow")
+test -n "$validate_script"
+
+vwork=$(mktemp -d)
+trap 'rm -rf "$vwork"' EXIT
+git init -q --bare -b main "$vwork/origin.git"
+git clone -q "$vwork/origin.git" "$vwork/clone" 2>/dev/null
+git -C "$vwork/clone" config user.name "Test Contributor"
+git -C "$vwork/clone" config user.email "contributor@example.com"
+mkdir -p "$vwork/clone/scripts/lib" "$vwork/clone/site/src"
+cp "$repo_root/scripts/lib/release-pins.sh" "$vwork/clone/scripts/lib/"
+echo 'export const VERSION = "1.2.3";' >"$vwork/clone/site/src/version.mjs"
+git -C "$vwork/clone" add -A
+git -C "$vwork/clone" commit -q -m fixture
+git -C "$vwork/clone" push -q origin HEAD:main
+git -C "$vwork/clone" tag v1.2.3
+git -C "$vwork/clone" tag v1.2.4
+
+run_validate() {
+  : >"$vwork/output"
+  (cd "$vwork/clone" && TAG=$1 PRERELEASE=false GITHUB_OUTPUT="$vwork/output" \
+    bash -c "$validate_script") >"$vwork/validate.log" 2>&1
+}
+
+if ! run_validate v1.2.3; then
+  echo "validate refused a tag whose version.mjs matches it" >&2
+  cat "$vwork/validate.log" >&2
+  exit 1
+fi
+grep -Fqx 'version=1.2.3' "$vwork/output" \
+  || { echo "validate did not output version=1.2.3" >&2; exit 1; }
+if run_validate v1.2.4; then
+  echo "validate accepted v1.2.4 on a commit whose version.mjs reads 1.2.3" >&2
+  exit 1
+fi
+grep -Fq 'cut before the pin bump' "$vwork/validate.log" \
+  || { echo "validate refused v1.2.4 without naming the cause" >&2; cat "$vwork/validate.log" >&2; exit 1; }
 
 echo "release workflow checks passed"
