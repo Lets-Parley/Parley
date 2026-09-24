@@ -448,18 +448,18 @@ describe("sidebar kind labels", () => {
     { id: "s4", kind: "poker", title: "Sprint 11", createdAt: "", endedAt: "2024-01-01", here: 0 },
   ];
 
-  /** The chip is an element of its own, so assert on it — not on the row's text. */
-  function chipIn(accessibleName: string, label: string) {
-    return within(screen.getByRole("link", { name: accessibleName })).getByText(label);
-  }
-
-  // Colour alone is not a distinction: the row carries a visible chip naming
-  // its kind, in the same vocabulary the space page already uses.
-  it("marks each row with a visible chip naming its kind", () => {
+  // Colour alone is not a distinction, but a repeated "Poker" down a narrow
+  // list is noise: each row carries the kind's object without its label, and
+  // the object still names its kind to assistive tech.
+  it("marks each row with the kind's object and no visible label", () => {
     stubAuthMode("open");
     renderShell({ sessions });
-    expect(chipIn("Poker · Sprint 12", "Poker").className).not.toContain("sr-only");
-    expect(chipIn("Standup · Daily", "Standup")).toBeDefined();
+    const poker = screen.getByRole("link", { name: "Poker · Sprint 12" });
+    expect(within(poker).getByRole("img", { name: "Poker" }).querySelector('[data-token="card"]')).not.toBe(null);
+    expect(within(poker).queryByText("Poker")).toBe(null);
+    const standup = screen.getByRole("link", { name: "Standup · Daily" });
+    expect(within(standup).getByRole("img", { name: "Standup" }).querySelector('[data-token="round"]')).not.toBe(null);
+    expect(within(standup).queryByText("Standup")).toBe(null);
   });
 
   // The kind has to reach the accessible name cleanly — separated from the
@@ -478,23 +478,15 @@ describe("sidebar kind labels", () => {
     expect(screen.getByRole("link", { name: "Poker · Sprint 11 · ended" })).toBeDefined();
   });
 
-  // An unregistered kind has no label to look up, so the wire id stands in
-  // rather than the row going silent.
-  it("falls back to the wire id for an unknown kind", () => {
+  // An unregistered kind has no object to draw, so its wire id stays on the
+  // row as text rather than the row going silent — and it never borrows
+  // another kind's object.
+  it("falls back to the wire id, as text, for an unknown kind", () => {
     stubAuthMode("open");
     renderShell({ sessions });
-    expect(chipIn("acme.retro · Retro", "acme.retro")).toBeDefined();
-  });
-
-  // The chip carries a glyph for a kind that has one — and only text for one
-  // that does not, so an unknown kind never borrows another kind's icon.
-  it("draws a glyph for a known kind and none for an unknown one", () => {
-    stubAuthMode("open");
-    renderShell({ sessions });
-    const known = screen.getByRole("link", { name: "Poker · Sprint 12" });
-    expect(known.querySelector("svg")).not.toBe(null);
     const unknown = screen.getByRole("link", { name: "acme.retro · Retro" });
-    expect(unknown.querySelector("svg")).toBe(null);
+    expect(within(unknown).getByText("acme.retro")).toBeDefined();
+    expect(unknown.querySelector("[data-token]")).toBe(null);
   });
 });
 

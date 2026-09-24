@@ -231,7 +231,7 @@ export function AppShell({
                     >
                       <span className="truncate text-[13px] font-semibold">{s.title}</span>
                       <span className="ml-auto">
-                        <KindChip kind={s.kind} size="sm" />
+                        <KindChip kind={s.kind} label={false} />
                       </span>
                       {s.endedAt && (
                         <span className="shrink-0 font-mono text-[9px] text-ink-faint">ended</span>

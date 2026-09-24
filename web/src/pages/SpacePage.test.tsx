@@ -164,12 +164,44 @@ describe("SpacePage session list", () => {
     // Live rooms sit on cards above the list; the chip is on the card.
     const row = main.getByText("Sprint 12 grooming").closest("li")!;
     expect(within(row).getByText("Poker")).toBeTruthy();
-    expect(row.querySelector("svg")).toBeTruthy();
+    expect(row.querySelector('[data-token="card"]')).toBeTruthy();
+    const daily = main.getByText("Daily").closest("a")!;
+    expect(within(daily).getByText("Standup")).toBeTruthy();
+    expect(daily.querySelector('[data-token="round"]')).toBeTruthy();
 
-    // An unknown kind still gets named — by its wire id — and still no glyph.
+    // An unknown kind still gets named — by its wire id — and no object.
     const dotted = main.getByText("Retro of record").closest("li")!;
     expect(within(dotted).getByText("acme.retro")).toBeTruthy();
-    expect(dotted.querySelector("svg")).toBe(null);
+    expect(dotted.querySelector("[data-token]")).toBe(null);
+  });
+
+  // Filtered to one kind, every row would repeat the same word: the object
+  // stays, the label goes, and the kind still reaches the row's name.
+  it("drops the kind label once the list is filtered to one kind", async () => {
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+    await userEvent.click(screen.getByRole("button", { name: "Poker" }));
+    const main = within(screen.getByRole("main"));
+    const row = main.getByText("Sprint 12 grooming").closest("li")!;
+    expect(within(row).queryByText("Poker")).toBe(null);
+    expect(within(row).getByRole("img", { name: "Poker" }).querySelector('[data-token="card"]')).toBeTruthy();
+  });
+
+  it("drops the kind label in a space whose sessions are all one kind", async () => {
+    view = {
+      ...space,
+      sessions: (space.sessions ?? []).filter((s) => s.kind === "standup"),
+    } as SpaceView;
+    try {
+      renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+      await screen.findAllByText("Daily");
+      const main = within(screen.getByRole("main"));
+      const row = main.getByText("Daily").closest("a")!;
+      expect(within(row).queryByText("Standup")).toBe(null);
+      expect(within(row).getByRole("img", { name: "Standup" })).toBeTruthy();
+    } finally {
+      view = space;
+    }
   });
 
   // The empty state borrows the chip's label vocabulary as inline text: it
@@ -444,6 +476,20 @@ describe("SpacePage create dialog", () => {
     const dialog = within(screen.getByRole("dialog"));
     expect(dialog.getByRole("radio", { name: "Poker" })).toBeTruthy();
     expect(dialog.getByRole("radio", { name: "Standup" })).toBeTruthy();
+  });
+
+  // The picker shows each kind as its object, scaled up, and the object adds
+  // nothing to the radio's name: "Poker", not "Poker Poker".
+  it("shows each kind's object in the picker without changing the radio's name", async () => {
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+    const dialog = within(screen.getByRole("dialog"));
+    const poker = dialog.getByRole("radio", { name: "Poker" }).closest("label")!;
+    expect([...poker.querySelector('[data-token="card"]')!.classList]).toContain("w-[34px]");
+    // Hover is on the whole choice, so the label is the group.
+    expect([...poker.classList]).toContain("group");
+    const standup = dialog.getByRole("radio", { name: "Standup" }).closest("label")!;
+    expect(standup.querySelector('[data-token="round"]')).toBeTruthy();
   });
 
   it("offers the kind as one named radio group, like Mode beside it", async () => {

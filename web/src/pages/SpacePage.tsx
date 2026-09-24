@@ -392,6 +392,8 @@ export function SpacePage() {
   }
 
   const all = sp.sessions ?? [];
+  // A kind's name only tells rows apart when the list mixes kinds.
+  const mixedKinds = !kind && all.some((o) => o.kind !== all[0].kind);
   const q = query.trim().toLowerCase();
   const filtered = all
     // Kinds compare by exact wire id — a namespaced id like "acme.retro" has
@@ -553,7 +555,7 @@ export function SpacePage() {
             {live.length > 0 && (
               <ul aria-label="On the table now" className="flex flex-col gap-3">
                 {live.map((s) => (
-                  <LiveCard key={s.id} s={s} onManage={canManage ? () => setManaging(s) : undefined} />
+                  <LiveCard key={s.id} s={s} showKind={mixedKinds} onManage={canManage ? () => setManaging(s) : undefined} />
                 ))}
               </ul>
             )}
@@ -564,7 +566,7 @@ export function SpacePage() {
                 className="divide-y divide-line overflow-hidden rounded-card border border-line bg-surface"
               >
                 {open.map((s) => (
-                  <SessionRow key={s.id} s={s} onManage={canManage ? () => setManaging(s) : undefined} />
+                  <SessionRow key={s.id} s={s} showKind={mixedKinds} onManage={canManage ? () => setManaging(s) : undefined} />
                 ))}
               </ul>
             )}
@@ -597,7 +599,7 @@ export function SpacePage() {
                 </summary>
                 <ul aria-label="Ended sessions" className="divide-y divide-line border-t border-line">
                   {ended.map((s) => (
-                    <SessionRow key={s.id} s={s} onManage={canManage ? () => setManaging(s) : undefined} />
+                    <SessionRow key={s.id} s={s} showKind={mixedKinds} onManage={canManage ? () => setManaging(s) : undefined} />
                   ))}
                 </ul>
               </details>
@@ -660,7 +662,7 @@ export function SpacePage() {
  * is the card's one way in and names the room it opens, so a screen reader
  * hears "Rejoin Sprint 12 grooming" rather than a row of bare "Rejoin"s.
  */
-function LiveCard({ s, onManage }: { s: SessionSummary; onManage?: () => void }) {
+function LiveCard({ s, showKind, onManage }: { s: SessionSummary; showKind: boolean; onManage?: () => void }) {
   return (
     <li className="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-card border border-line border-l-[3px] border-l-go bg-surface-hi py-4 pl-5 pr-4 shadow-lift">
       {/* A 14rem basis, so on a phone the buttons wrap under the title
@@ -677,7 +679,7 @@ function LiveCard({ s, onManage }: { s: SessionSummary; onManage?: () => void })
         </p>
         <p className="mt-1 truncate text-[19px] font-bold tracking-tight">{s.title}</p>
         <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-soft">
-          <KindChip kind={s.kind} />
+          <KindChip kind={s.kind} label={showKind} />
           <span className="font-mono text-[12px] font-semibold text-go">{`${s.here} here`}</span>
           <span>{relativeDate(s.createdAt)}</span>
         </p>
@@ -707,7 +709,7 @@ function LiveCard({ s, onManage }: { s: SessionSummary; onManage?: () => void })
  * a control nested in an anchor is neither reliably clickable nor announced
  * as its own thing, and after the link is the order the eye reads them in.
  */
-function SessionRow({ s, onManage }: { s: SessionSummary; onManage?: () => void }) {
+function SessionRow({ s, showKind, onManage }: { s: SessionSummary; showKind: boolean; onManage?: () => void }) {
   const ended = !!s.endedAt;
   const age = openedAgo(s.createdAt);
   return (
@@ -722,7 +724,7 @@ function SessionRow({ s, onManage }: { s: SessionSummary; onManage?: () => void 
           (ended ? "py-2.5" : "py-3.5")
         }
       >
-        <KindChip kind={s.kind} />
+        <KindChip kind={s.kind} label={showKind} />
         {ended ? (
           <span className="min-w-0 flex-1 truncate text-[13px] text-ink-soft max-sm:w-full">
             <span className="font-semibold">{s.title}</span>
@@ -1112,7 +1114,7 @@ function NewSessionModal({
               <label
                 key={k.id}
                 className={
-                  "flex flex-1 cursor-pointer items-center justify-center rounded-chip px-3.5 py-2.5 text-sm has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent " +
+                  "group flex flex-1 cursor-pointer items-center justify-center rounded-chip px-3.5 py-2.5 text-sm has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent " +
                   (kind.id === k.id
                     ? "border-2 border-accent bg-accent-soft font-bold"
                     : "border border-line font-semibold text-ink-soft hover:bg-felt-deep")
@@ -1130,7 +1132,7 @@ function NewSessionModal({
                     setError("");
                   }}
                 />
-                {k.label}
+                <KindChip kind={k.id} size="lg" />
               </label>
             ))}
           </div>
