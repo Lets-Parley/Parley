@@ -115,15 +115,18 @@ func TestAnUntouchedSessionsLastActivityIsItsCreation(t *testing.T) {
 }
 
 // A standup's progress is its queue: the people not skipped, and how many of
-// them have written a non-blank update — the same "answered" the trend counts.
-// An entry's edit is activity, and so is moving to the next speaker.
+// them have written a non-blank "today" or "blockers" in this session. A
+// "yesterday" alone does not count: start() fills it with the previous
+// standup's "today", so a recurring room would read as answered before anyone
+// had written a word. An entry's edit is activity, and so is moving to the
+// next speaker.
 func TestSummariesCountStandupAnswersAndReadTheLatestActivity(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 	sp := newSpace(t, pool)
 	spaces := &Spaces{Pool: pool}
 	var ids []string
-	for _, n := range []string{"Ana", "Bo", "Cy", "Di"} {
+	for _, n := range []string{"Ana", "Bo", "Cy", "Di", "Ed"} {
 		u, _ := newUser(t, pool, n)
 		if err := spaces.Join(ctx, sp.ID, u.ID); err != nil {
 			t.Fatal(err)
@@ -137,21 +140,24 @@ func TestSummariesCountStandupAnswersAndReadTheLatestActivity(t *testing.T) {
 	mustExec(t, pool, "update sessions set created_at = $2, facilitator_seen_at = $3, speaker_started_at = $4 where id = $1",
 		sess.ID, at("09:00"), at("09:01"), at("09:20"))
 	// Ana answered, Bo is whitespace only, Cy has not written, Di wrote and
-	// was then skipped — out of the queue, so neither counted nor answered.
+	// was then skipped — out of the queue, so neither counted nor answered —
+	// and Ed holds only the "yesterday" carried forward from last time.
 	mustExec(t, pool, `insert into standup_entries (session_id, user_id, today, position, skipped, updated_at) values
 		($1, $2, 'shipping', 1, false, $6),
 		($1, $3, E'  \n\t', 2, false, $7),
 		($1, $4, '', 3, false, $8),
 		($1, $5, 'away', 4, true, $9)`,
 		sess.ID, ids[0], ids[1], ids[2], ids[3], at("09:05"), at("09:10"), at("09:15"), at("09:12"))
+	mustExec(t, pool, `insert into standup_entries (session_id, user_id, yesterday, position, updated_at)
+		values ($1, $2, 'shipped the login page', 5, $3)`, sess.ID, ids[4], at("09:02"))
 
 	list, err := (&Sessions{Pool: pool}).SummariesBySpace(ctx, sess.SpaceID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := summaryByID(t, list, sess.ID)
-	if got.Entries != 3 || got.EntriesAnswered != 1 {
-		t.Fatalf("entries = %d answered %d, want 3 and 1", got.Entries, got.EntriesAnswered)
+	if got.Entries != 4 || got.EntriesAnswered != 1 {
+		t.Fatalf("entries = %d answered %d, want 4 and 1", got.Entries, got.EntriesAnswered)
 	}
 	if !got.LastActivityAt.Equal(at("09:20")) {
 		t.Fatalf("last activity = %s, want the speaker change at %s", got.LastActivityAt, at("09:20"))

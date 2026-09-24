@@ -373,8 +373,14 @@ type SessionSummary struct {
 	Stories          int
 	StoriesEstimated int
 	// Entries counts a standup's queue — its entries not skipped — and
-	// EntriesAnswered those with a non-blank written update, the same rule
-	// the frozen trend day counts "answered" by. Zero for every other kind.
+	// EntriesAnswered those with a non-blank "today" or "blockers". Not
+	// "yesterday": start() and the ready click prefill it with the person's
+	// "today" from the space's previous standup (standup.yesterdayPrefill),
+	// so it is non-blank before anyone has written anything in this room.
+	// Only putEntry writes the other two, so they are what this session
+	// actually received. This is deliberately narrower than the frozen trend
+	// day's "answered", which also counts "yesterday". Zero for every other
+	// kind.
 	Entries         int
 	EntriesAnswered int
 }
@@ -402,7 +408,7 @@ func (s *Sessions) SummariesBySpace(ctx context.Context, spaceID string) ([]Sess
 		cross join lateral (
 		    select count(*) filter (where not skipped) as total,
 		           count(*) filter (where not skipped and (
-		               btrim(yesterday, E' \t\r\n') <> '' or btrim(today, E' \t\r\n') <> ''
+		               btrim(today, E' \t\r\n') <> ''
 		               or btrim(blockers, E' \t\r\n') <> '')) as answered,
 		           max(updated_at) as newest
 		    from standup_entries where session_id = s.id) e

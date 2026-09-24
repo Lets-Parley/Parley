@@ -86,9 +86,10 @@ type pokerProgress struct {
 }
 
 // standupProgress counts a standup's queue (entries not skipped) and those
-// with a non-blank written update. A turn spoken aloud with nothing written
-// is not recorded anywhere, so it is not counted — hence "answered", not
-// "spoke".
+// with a non-blank "today" or "blockers" — see store.SessionSummary for why a
+// carried-forward "yesterday" does not count. A turn spoken aloud with nothing
+// written is not recorded anywhere, so it is not counted either — hence
+// "answered", not "spoke".
 type standupProgress struct {
 	Kind     string `json:"kind"`
 	Answered int    `json:"answered"`

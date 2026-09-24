@@ -256,8 +256,9 @@ export type PresentPerson = { id: string; name: string; facilitator: boolean };
  * on its own.
  *
  * - poker: `settled` stories carry a saved estimate, of `total` stories.
- * - standup: `answered` people in the queue have written a non-blank update,
- *   of `total` not skipped. A turn spoken aloud with nothing written is not
+ * - standup: `answered` people in the queue have written a non-blank "today"
+ *   or "blockers", of `total` not skipped. "Yesterday" alone does not count:
+ *   it is prefilled from the previous standup. A turn spoken aloud with nothing written is not
  *   recorded, which is why it is not called "spoke".
  */
 export type SessionProgress =
