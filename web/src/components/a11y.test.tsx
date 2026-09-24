@@ -52,7 +52,12 @@ const cases: [string, () => React.ReactElement][] = [
       />
     ),
   ],
-  ["KindChip", () => <KindChip kind="poker" />],
+  ["KindChip (poker, labelled)", () => <KindChip kind="poker" />],
+  ["KindChip (standup, labelled)", () => <KindChip kind="standup" />],
+  ["KindChip (poker, label dropped)", () => <KindChip kind="poker" label={false} />],
+  ["KindChip (standup, label dropped)", () => <KindChip kind="standup" label={false} />],
+  ["KindChip (picker size)", () => <KindChip kind="standup" size="lg" />],
+  ["KindChip (unknown kind)", () => <KindChip kind="acme.retro" label={false} />],
   [
     "MemberCard",
     () => <MemberCard member={makePerson()} isYou={false} onClose={vi.fn()} />,
