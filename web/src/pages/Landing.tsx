@@ -188,7 +188,11 @@ function whoIsHere(session: SessionSummary, members: Person[]): string {
 const handCap = 6;
 function SeatedCards({ here }: { here: number }) {
   if (here === 0) {
-    return <span aria-hidden className="h-[30px] w-[22px] shrink-0 rounded-sm border-2 border-dashed border-line" />;
+    // line-strong, not the `line` DESIGN.md gives an empty seat: at this size
+    // a dashed `line` edge is 1.17:1 on the dark surface and all but vanishes.
+    // rounded-sm rather than rounded-chip, because 8px on a 22px card rounds
+    // it into a lozenge.
+    return <span aria-hidden className="h-[30px] w-[22px] shrink-0 rounded-sm border-2 border-dashed border-line-strong" />;
   }
   const shown = Math.min(here, handCap);
   return (
@@ -196,7 +200,7 @@ function SeatedCards({ here }: { here: number }) {
       {Array.from({ length: shown }, (_, i) => (
         <span
           key={i}
-          className="-ml-2 flex h-[30px] w-[22px] items-center justify-center rounded-sm border border-surface bg-card-back shadow-rest first:ml-0"
+          className="-ml-2 flex h-[30px] w-[22px] items-center justify-center rounded-sm border border-line-strong bg-card-back shadow-rest first:ml-0"
           style={
             {
               "--rot": `${((i - (shown - 1) / 2) * 5).toFixed(1)}deg`,
@@ -272,7 +276,11 @@ function ReturnTable({ space, orgName }: { space: Membership; orgName: string | 
                 <span className="hidden sm:inline-flex">
                   <KindChip kind={s.kind} size="sm" />
                 </span>
-                <span className="shrink-0 text-sm font-bold text-accent">Join</span>
+                {/* An empty round is a door, not an invitation: nobody is
+                    waiting on you, so it does not get the accent's weight. */}
+                <span className={"shrink-0 text-sm font-bold " + (s.here > 0 ? "text-accent" : "text-ink-soft")}>
+                  {s.here > 0 ? "Join" : "Open"}
+                </span>
               </Link>
             </li>
           ))}
@@ -327,8 +335,9 @@ export function Landing() {
   // Which org the list is showing. Null is "all of them", which is what a
   // single-org instance always shows — there is nothing to switch between.
   const [orgFilter, setOrgFilter] = useState<string | null>(null);
-  // Where a new space goes when the page is showing every org. The switcher,
-  // when set, answers it instead: a create should land in the org on screen.
+  // Where a new space goes, when somebody picked. Left unpicked, it follows
+  // the switcher — a create should land in the org on screen — and the picker
+  // shows that, so a filter never silently retargets a create.
   const [createOrg, setCreateOrg] = useState("");
   const [find, setFind] = useState("");
   const qc = useQueryClient();
@@ -349,7 +358,7 @@ export function Landing() {
   // The org a create is sent to. Omitted when the page cannot say — the
   // server then uses the instance's default org, which is what it always did.
   const soleOrg = orgs.length === 1 ? orgs[0].slug : undefined;
-  const targetOrg = orgFilter ?? soleOrg ?? (createOrg || orgs[0]?.slug);
+  const targetOrg = createOrg || orgFilter || orgs[0]?.slug;
 
   // Both the resume effect and the gate can finish the same pending name, and
   // either can win the race. One shared latch makes the loser a no-op while a
@@ -482,10 +491,14 @@ export function Landing() {
   return (
     <div className="flex min-h-dvh flex-col">
       {/* The page corner, not the column's — main is capped, so an absolute
-          corner would strand this in dead space on a wide screen. Absolute
-          below sm: a fixed pill on a phone rides over the list as it scrolls. */}
+          corner would strand this in dead space on a wide screen. Absolute —
+          it scrolls away with the page — until 2xl: main is max-w-6xl (1152px)
+          plus a 24px pad, so at 768 or 1280 the right-hand list runs within
+          ~24-88px of the edge and a fixed pill (16px in, ~80px wide with its
+          label) sat on the Join links once scrolled. From 1536 the gutter is
+          over 200px and the pill fits in it. */}
       <div
-        className="absolute z-10 sm:fixed"
+        className="absolute z-10 2xl:fixed"
         style={{ top: "calc(1rem + var(--safe-top))", right: "calc(1rem + var(--safe-right))" }}
       >
         <ThemeToggle />
@@ -680,12 +693,13 @@ export function Landing() {
                         aria-describedby={error ? errorId : undefined}
                       />
                     </div>
-                    {/* Which org it lands in, asked only when the page cannot
-                        tell: several orgs and no switcher choice. */}
-                    {fullAccount && multiOrg && !orgFilter && (
+                    {/* Which org it lands in, always in view with several:
+                        a sentence under the form was easy to miss, and a
+                        switcher click changed the answer without a word. */}
+                    {fullAccount && multiOrg && (
                       <div className="sm:w-40">
                         <label htmlFor={orgFieldId} className={"mb-2 block " + labelText}>
-                          In
+                          Org
                         </label>
                         <select
                           id={orgFieldId}
@@ -708,11 +722,6 @@ export function Landing() {
                     >
                       {busy ? "Opening…" : known ? "Create a space" : "Open a space"}
                     </button>
-                    {fullAccount && multiOrg && orgFilter && (
-                      <p className="w-full text-sm text-ink-soft sm:order-last">
-                        It will be in {orgName(orgFilter)}.
-                      </p>
-                    )}
                   </form>
                 )}
 

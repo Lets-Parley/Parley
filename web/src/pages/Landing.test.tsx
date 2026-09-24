@@ -1045,7 +1045,7 @@ describe("Landing, coming back to the table", () => {
     renderApp(<Landing />);
 
     await userEvent.click(await screen.findByRole("button", { name: "Globex" }));
-    expect(screen.getByText("It will be in Globex.")).toBeTruthy();
+    expect((screen.getByLabelText("Org") as HTMLSelectElement).value).toBe("globex");
     await userEvent.type(screen.getByPlaceholderText(/Platform Team/), "Night Watch");
     await userEvent.click(screen.getByRole("button", { name: /create a space/i }));
 
@@ -1054,11 +1054,56 @@ describe("Landing, coming back to the table", () => {
     );
   });
 
+  // The picker stays on screen under a filter, so the switcher is never a
+  // silent second control over where a create lands — and a pick made in it
+  // outranks whatever the switcher says afterwards.
+  it("keeps the org picker in view under a filter, and lets an explicit pick win", async () => {
+    twoOrgs();
+    renderApp(<Landing />);
+
+    const picker = (await screen.findByLabelText("Org")) as HTMLSelectElement;
+    expect(picker.value).toBe("acme");
+    await userEvent.click(screen.getByRole("button", { name: "Globex" }));
+    expect((screen.getByLabelText("Org") as HTMLSelectElement).value).toBe("globex");
+    await userEvent.selectOptions(screen.getByLabelText("Org"), "acme");
+    await userEvent.click(screen.getByRole("button", { name: "Globex" }));
+    expect((screen.getByLabelText("Org") as HTMLSelectElement).value).toBe("acme");
+    await userEvent.type(screen.getByPlaceholderText(/Platform Team/), "Night Watch");
+    await userEvent.click(screen.getByRole("button", { name: /create a space/i }));
+
+    await waitFor(() =>
+      expect(spaceCalls()).toContainEqual(["POST", "/api/spaces", { name: "Night Watch", org: "acme" }]),
+    );
+  });
+
+  // Nobody at an empty round is waiting on you; "Join" with the accent's
+  // weight promised company that is not there.
+  it("offers to open an empty round and to join an occupied one", async () => {
+    spaceDetail = {
+      slug: "platform-team",
+      name: "Platform Team",
+      protected: true,
+      members: [],
+      sessions: [
+        { id: "s1", kind: "poker", title: "Sprint 34", createdAt: "", endedAt: null, here: 2 },
+        { id: "s2", kind: "standup", title: "Daily", createdAt: "", endedAt: null, here: 0 },
+      ],
+    };
+    renderApp(<Landing />);
+
+    const open = within(await screen.findByRole("list", { name: "Rounds open now" }));
+    const [busy, empty] = open.getAllByRole("link");
+    expect(within(busy).getByText("Join")).toBeTruthy();
+    expect(within(empty).getByText("Open")).toBeTruthy();
+    expect(within(empty).queryByText("Join")).toBeNull();
+    expect(empty.getAttribute("href")).toBe("/session/s2");
+  });
+
   it("asks which org when the page is showing all of them", async () => {
     twoOrgs();
     renderApp(<Landing />);
 
-    await userEvent.selectOptions(await screen.findByLabelText("In"), "globex");
+    await userEvent.selectOptions(await screen.findByLabelText("Org"), "globex");
     await userEvent.type(screen.getByPlaceholderText(/Platform Team/), "Night Watch");
     await userEvent.click(screen.getByRole("button", { name: /create a space/i }));
 
