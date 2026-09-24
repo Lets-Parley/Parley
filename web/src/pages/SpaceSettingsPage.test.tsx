@@ -53,6 +53,9 @@ vi.mock("../lib/api", async () => {
         schedule = body;
         return { schedule: body };
       }
+      // The space page's kudos wall reads a list; answering it with the space
+      // view crashes the wall if the read lands before the test unmounts.
+      if (method === "GET" && path.endsWith("/kudos")) return [];
       if (method === "GET" && path.startsWith("/api/orgs/acme/spaces/")) return view;
       calls.push([method, path, body]);
       return undefined;
@@ -365,7 +368,7 @@ describe("SpacePage after the split", () => {
     } as unknown as SpaceView;
     renderApp(routed, { route: "/o/acme/s/platform-team" });
 
-    await screen.findByText("Recent sessions");
+    await within(await screen.findByRole("main")).findByRole("heading", { name: "Sessions" });
     expect(screen.queryByRole("link", { name: "Settings" })).toBe(null);
   });
 
