@@ -1,3 +1,4 @@
+import { StrictMode, useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -1753,9 +1754,10 @@ describe("StandupRoom kudos", () => {
     renderApp(
       <StandupRoom
         env={doneEnv([
-          { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me" },
-          { id: "k2", fromUserId: "marcus", toUserId: "priya", text: "from me" },
+          // Oldest first on the wire; the list shows newest first.
           { id: "k3", fromUserId: "dana", toUserId: "priya", text: "neither" },
+          { id: "k2", fromUserId: "marcus", toUserId: "priya", text: "from me" },
+          { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me" },
         ])}
         me={me}
       />,
@@ -1775,6 +1777,200 @@ describe("StandupRoom kudos", () => {
     expect(rows[2].textContent).toContain("Dana Whitfield thanked Priya Raman");
     expect(rows[2].getAttribute("data-to-me")).toBe(null);
     expect(rows[2].querySelector("[data-testid=kudo-note]")).toBe(null);
+  });
+
+  describe("a kudo arriving", () => {
+    const old = { id: "k0", fromUserId: "dana", toUserId: "marcus", text: "an old one" };
+    const arrive = (k: WireKudo, guest = false) => {
+      const { rerender } = renderApp(<StandupRoom env={doneEnv([old])} me={me} guest={guest} />);
+      rerender(<StandupRoom env={doneEnv([old, k], { version: 2 })} me={me} guest={guest} />);
+    };
+    const row = (id: string) =>
+      screen.getByTestId("standup-kudos").querySelector<HTMLElement>(`li[data-kudo="${id}"]`)!;
+    const animated = (id: string) =>
+      row(id).className.includes("set-down") || row(id).outerHTML.includes("note-set-down");
+    const reduce = (on: boolean) => {
+      const real = window.matchMedia;
+      window.matchMedia = ((q: string) => ({ ...real(q), matches: on && q.includes("reduce") ? true : real(q).matches })) as typeof window.matchMedia;
+      return () => (window.matchMedia = real);
+    };
+
+    it("replays nothing on the initial load", () => {
+      renderApp(<StandupRoom env={doneEnv([old])} me={me} />);
+      expect(animated("k0")).toBe(false);
+      expect(pageStatus().textContent).not.toContain("thanked");
+    });
+
+    it("sets the note down for its recipient, at the top, and tells them what it says", async () => {
+      arrive({ id: "k1", fromUserId: "dana", toUserId: "marcus", text: "unstuck the deploy" });
+      const rows = screen.getByTestId("standup-kudos").querySelectorAll("li");
+      expect(rows[0].getAttribute("data-kudo")).toBe("k1");
+      expect(row("k1").outerHTML).toContain("note-set-down");
+      expect(animated("k0")).toBe(false);
+      await waitFor(() => expect(pageStatus().textContent).toBe("Dana Whitfield thanked you: unstuck the deploy"));
+    });
+
+    it("sets a witness's row down quietly and names both people once", async () => {
+      arrive({ id: "k1", fromUserId: "dana", toUserId: "priya", text: "paired on the flake" });
+      expect(row("k1").className).toContain("set-down");
+      expect(row("k1").outerHTML).not.toContain("note-set-down");
+      await waitFor(() => expect(pageStatus().textContent).toBe("Dana Whitfield thanked Priya Raman."));
+    });
+
+    it("never gives a link guest the recipient treatment", async () => {
+      arrive({ id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to a member" }, true);
+      expect(row("k1").outerHTML).not.toContain("note-set-down");
+      expect(row("k1").className).toContain("set-down");
+      await waitFor(() => expect(pageStatus().textContent).toBe("Dana Whitfield thanked Marcus Okonjo."));
+    });
+
+    it("simply appears under reduced motion, still announced", async () => {
+      const restore = reduce(true);
+      try {
+        arrive({ id: "k1", fromUserId: "dana", toUserId: "marcus", text: "unstuck the deploy" });
+        expect(animated("k1")).toBe(false);
+        await waitFor(() => expect(pageStatus().textContent).toContain("thanked you"));
+      } finally {
+        restore();
+      }
+    });
+
+    it("simply appears in a hidden tab", () => {
+      const spy = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+      try {
+        arrive({ id: "k1", fromUserId: "dana", toUserId: "priya", text: "x" });
+        expect(animated("k1")).toBe(false);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("replays no kudo across a reconnect, but animates the next one that arrives live", async () => {
+      // K1 was already on the wall before the drop; K2 arrived during the gap,
+      // invisible to this client until the reconnect frame. Per the worker
+      // (seenKudos.current reset on any non-"live" status), both are backdrop
+      // on the first live render after a reconnect — only a kudo that arrives
+      // while already live gets the arrival treatment. Deleting the reset
+      // line makes K1 replay as "arriving" on reconnect, which this pins.
+      const k1 = { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "unstuck the deploy" };
+      const k2 = { id: "k2", fromUserId: "priya", toUserId: "marcus", text: "covered the standup" };
+      const k3 = { id: "k3", fromUserId: "dana", toUserId: "marcus", text: "fixed the flake" };
+
+      const { rerender } = renderApp(
+        <StandupRoom env={doneEnv([k1], { version: 1 })} me={me} status="live" />,
+      );
+      expect(row("k1").outerHTML).not.toContain("note-set-down");
+
+      rerender(
+        <StandupRoom env={doneEnv([k1], { version: 1 })} me={me} status="reconnecting" />,
+      );
+
+      rerender(
+        <StandupRoom env={doneEnv([k1, k2], { version: 2 })} me={me} status="live" />,
+      );
+      expect(row("k1").outerHTML).not.toContain("note-set-down");
+      expect(animated("k1")).toBe(false);
+      expect(row("k2").outerHTML).not.toContain("note-set-down");
+      expect(animated("k2")).toBe(false);
+      expect(pageStatus().textContent).not.toContain("thanked");
+
+      rerender(
+        <StandupRoom env={doneEnv([k1, k2, k3], { version: 3 })} me={me} status="live" />,
+      );
+      expect(row("k3").outerHTML).toContain("note-set-down");
+      await waitFor(() =>
+        expect(pageStatus().textContent).toBe("Dana Whitfield thanked you: fixed the flake"),
+      );
+    });
+
+    it("carries the fall on the first frame the note is in the document", async () => {
+      // A kudo reaches the room over the socket, not inside act(), so the
+      // update is delivered here as a plain state change with the act
+      // environment off. The observer's microtask runs after React's commit
+      // and before any later task — which is where a passive effect runs, and
+      // where the browser paints. A class added there is added a frame late.
+      const k1 = { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "unstuck the deploy" };
+      const socket: { push?: (e: Envelope) => void } = {};
+      function Harness() {
+        const [env, setEnv] = useState(doneEnv([old]));
+        useEffect(() => {
+          socket.push = setEnv;
+        }, []);
+        return <StandupRoom env={env} me={me} status="live" />;
+      }
+      renderApp(<Harness />);
+      const list = screen.getByTestId("standup-kudos");
+      const g = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+      const was = g.IS_REACT_ACT_ENVIRONMENT;
+      g.IS_REACT_ACT_ENVIRONMENT = false;
+      try {
+        const firstSeen = new Promise<string>((resolve) => {
+          const mo = new MutationObserver(() => {
+            const li = list.querySelector<HTMLElement>('li[data-kudo="k1"]');
+            if (!li) return;
+            mo.disconnect();
+            resolve(li.outerHTML);
+          });
+          mo.observe(list, { childList: true, subtree: true, attributes: true });
+        });
+        socket.push!(doneEnv([old, k1], { version: 2 }));
+        expect(await firstSeen).toContain("note-set-down");
+      } finally {
+        g.IS_REACT_ACT_ENVIRONMENT = was;
+      }
+    });
+
+    it("does not repeat the wrap-up line once a kudo's announcement clears", async () => {
+      vi.useFakeTimers();
+      try {
+        const { rerender } = renderApp(<StandupRoom env={doneEnv([old])} me={me} status="live" />);
+        expect(pageStatus().textContent).toBe("The standup has wrapped up.");
+        rerender(
+          <StandupRoom
+            env={doneEnv([old, { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "unstuck the deploy" }], {
+              version: 2,
+            })}
+            me={me}
+            status="live"
+          />,
+        );
+        await advance(0);
+        expect(pageStatus().textContent).toBe("Dana Whitfield thanked you: unstuck the deploy");
+        await advance(4000);
+        expect(pageStatus().textContent).not.toContain("wrapped up");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("announces a kudo to the viewer exactly once under StrictMode's double render", async () => {
+      // StrictMode intentionally double-invokes render (and, in dev, effects)
+      // to surface impure work. A commit-time set mutation read back on the
+      // same pass — rather than through the ref-then-effect order the arrival
+      // effect uses — would double the announcement here.
+      const { rerender } = renderApp(
+        <StrictMode>
+          <StandupRoom env={doneEnv([old])} me={me} status="live" />
+        </StrictMode>,
+      );
+      rerender(
+        <StrictMode>
+          <StandupRoom
+            env={doneEnv([old, { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "unstuck the deploy" }], {
+              version: 2,
+            })}
+            me={me}
+            status="live"
+          />
+        </StrictMode>,
+      );
+      await waitFor(() =>
+        expect(pageStatus().textContent).toBe("Dana Whitfield thanked you: unstuck the deploy"),
+      );
+      expect(
+        pageStatuses().filter((el) => (el.textContent ?? "").includes("thanked")),
+      ).toHaveLength(1);
+    });
   });
 
   it("never gives a link guest the \"you\" treatment", () => {
