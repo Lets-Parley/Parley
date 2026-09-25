@@ -4,6 +4,7 @@ import { api, errorText, type Kudo, type Person } from "../lib/api";
 import { Avatar } from "./Avatar";
 import { buttonPrimary, buttonQuiet, inputClass, labelText } from "./Modal";
 import { kudosApi } from "../lib/paths";
+import { safeDisplayName } from "../lib/displayName";
 import { TOUCH_HIT } from "../lib/breakpoints";
 import { useToast } from "../lib/ui";
 import { RailError, railHeading } from "./RailPanel";
@@ -107,7 +108,7 @@ export function Kudos({
     [roster, meId],
   );
   const byId = useMemo(() => new Map(roster.map((m) => [m.userId, m])), [roster]);
-  const nameOf = (id: string) => byId.get(id)?.name ?? "Someone who has left";
+  const nameOf = (id: string) => safeDisplayName(byId.get(id)?.name ?? "Someone who has left");
   // Two people may share a display name, and a picker offering "Kade" twice
   // is a coin toss. The id is the only thing the roster sends that tells them
   // apart, so its tail is the suffix — stable across visits, and nothing the

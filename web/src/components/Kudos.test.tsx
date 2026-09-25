@@ -68,6 +68,27 @@ describe("Kudos wall", () => {
     expect(within(row).queryByRole("button", { name: /withdraw/i })).toBe(null);
   });
 
+  it("strips bidi formatting characters from a member's name on the wall", async () => {
+    const bidiMembers = [
+      makePerson({ userId: "marcus", name: "Marcus‮Okonjo" }),
+      makePerson({ userId: "dana", name: "Dana Whitfield" }),
+    ];
+    kudos = [
+      {
+        id: "k3",
+        fromUserId: "marcus",
+        toUserId: "dana",
+        text: "Covered the on-call swap.",
+        createdAt: "2026-09-03T09:00:00.000Z",
+        sessionId: "",
+      },
+    ];
+    mount({ members: bidiMembers });
+    const row = await screen.findByTestId("kudo-k3");
+    expect(row.textContent).toContain("MarcusOkonjo");
+    expect(row.textContent).not.toContain("‮");
+  });
+
   it("lets long words and long names wrap rather than run off the panel", async () => {
     kudos = [
       {
