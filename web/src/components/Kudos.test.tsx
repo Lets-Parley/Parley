@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderApp, makePerson } from "../test/render";
 import { expectNoViolations } from "../test/axe";
@@ -9,13 +9,20 @@ import { Kudos, ago } from "./Kudos";
 let kudos: Kudo[] = [];
 /** The page after the first, answered to any request carrying a cursor. */
 let older: Kudo[] = [];
+/** When set, a first-page GET answers only once this settles, with the wall as it
+    stood when the request was made — a refetch caught in flight. */
+let hold: Promise<void> | null = null;
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
   return {
     ...actual,
     api: vi.fn(async (method: string, path: string) => {
-      if (path.endsWith("/kudos") && method === "GET") return kudos;
+      if (path.endsWith("/kudos") && method === "GET") {
+        const snapshot = kudos;
+        if (hold) await hold;
+        return snapshot;
+      }
       if (path.includes("/kudos?before=") && method === "GET") return older;
       if (path.endsWith("/seen") && method === "POST") return undefined;
       throw new Error(`unexpected api call: ${method} ${path}`);
@@ -44,6 +51,7 @@ beforeEach(() => {
   vi.mocked(api).mockClear();
   kudos = [];
   older = [];
+  hold = null;
 });
 
 describe("Kudos wall", () => {
@@ -411,6 +419,7 @@ describe("Kudos wall paging", () => {
 });
 
 describe("Kudos letter", () => {
+  const putName = /^Put it with the others, Dana Whitfield's thank-you$/;
   const letter = (id: string, over: Partial<Kudo> = {}): Kudo => ({
     id,
     fromUserId: "dana",
@@ -446,13 +455,155 @@ describe("Kudos letter", () => {
   it("puts the letter with the others: calls seen, and it sets down into the list", async () => {
     kudos = [letter("k1")];
     mount();
-    await userEvent.click(await screen.findByRole("button", { name: "Put it with the others" }));
+    await userEvent.click(await screen.findByRole("button", { name: putName }));
     expect(api).toHaveBeenCalledWith("POST", "/api/orgs/acme/spaces/platform-team/kudos/k1/seen");
     const row = await screen.findByTestId("kudo-k1");
-    expect(row.className).toContain("set-down");
     expect(row.hasAttribute("data-to-me")).toBe(true);
     expect(document.activeElement).toBe(row);
     expect(screen.queryByTestId("kudo-letter")).toBe(null);
+  });
+
+  it("is a labelled group, and says without a number that another is waiting", async () => {
+    kudos = [letter("k1")];
+    const { unmount } = mount();
+    const one = await screen.findByRole("group", { name: "A thank-you waiting for you" });
+    expect(one.getAttribute("aria-describedby")).toBe(null);
+    unmount();
+
+    kudos = [letter("k1"), letter("k2")];
+    mount();
+    const two = await screen.findByRole("group", { name: "A thank-you waiting for you" });
+    const describedBy = two.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy!)!.textContent).toBe("Another is waiting after this one.");
+    expect(within(two).getByText("Waiting for you")).toBeTruthy();
+  });
+
+  it("names whose thank-you the button puts away, and keeps the visible words first", async () => {
+    kudos = [letter("k1")];
+    mount();
+    const button = await screen.findByRole("button", { name: putName });
+    expect(button.textContent).toBe("Put it with the others, Dana Whitfield's thank-you");
+  });
+
+  it("keeps the edge behind the note alone, never behind the button", async () => {
+    kudos = [letter("k1"), letter("k2")];
+    mount();
+    const stack = await screen.findByTestId("kudo-letter-stack");
+    const box = stack.parentElement!;
+    expect(within(box).getByTestId("kudo-note")).toBeTruthy();
+    expect(within(box).queryByRole("button")).toBe(null);
+    // It falls with the note, so no frame shows the edge without its letter.
+    expect(box.className).toContain("*:animate-[note-set-down");
+  });
+
+  it("moves focus to the next letter's button when another is waiting", async () => {
+    kudos = [letter("k1"), letter("k2", { text: "Second thanks." })];
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: putName }));
+    await screen.findByTestId("kudo-k1");
+    const next = await screen.findByRole("group", { name: "A thank-you waiting for you" });
+    expect(within(next).getByTestId("kudo-text").textContent).toBe("Second thanks.");
+    expect(document.activeElement).toBe(within(next).getByRole("button", { name: putName }));
+  });
+
+  it("lands the next letter only once the put-away has settled", async () => {
+    let finish!: () => void;
+    const finished = new Promise<void>((r) => (finish = r));
+    const animate = vi.fn(() => ({ finished, cancel: () => {} }) as unknown as Animation);
+    const original = Element.prototype.animate;
+    Element.prototype.animate = animate;
+    try {
+      kudos = [letter("k1"), letter("k2", { text: "Second thanks." })];
+      mount();
+      await userEvent.click(await screen.findByRole("button", { name: putName }));
+      await screen.findByTestId("kudo-k1");
+      // The note is on its way to its row: nothing new has landed yet.
+      expect(animate).toHaveBeenCalled();
+      expect(screen.queryByRole("group", { name: "A thank-you waiting for you" })).toBe(null);
+      // Its room may be opening, but it has not landed: nothing of it is
+      // exposed, and its fall has not started.
+      const waiting = screen.getByText("Second thanks.").closest<HTMLElement>('[data-testid="kudo-letter-block"]')!;
+      expect(waiting.getAttribute("aria-hidden")).toBe("true");
+      expect(waiting.innerHTML).not.toContain("letter-in");
+      expect(waiting.innerHTML).not.toContain("note-set-down");
+      finish();
+      const next = await screen.findByRole("group", { name: "A thank-you waiting for you" });
+      expect(within(next).getByTestId("kudo-text").textContent).toBe("Second thanks.");
+    } finally {
+      Element.prototype.animate = original;
+    }
+  });
+
+  it("opens room for a letter that arrives after the wall is drawn, and not for one there on first paint", async () => {
+    const heights: string[] = [];
+    const original = Element.prototype.animate;
+    Element.prototype.animate = function (this: Element, frames: Keyframe[] | PropertyIndexedKeyframes | null) {
+      if (this.getAttribute("data-testid") === "kudo-letter-block") heights.push(JSON.stringify(frames));
+      return { finished: Promise.resolve(), cancel: () => {} } as unknown as Animation;
+    };
+    try {
+      kudos = [letter("k1", { unread: false })];
+      const { queryClient } = mount();
+      await screen.findByTestId("kudo-k1");
+      kudos = [letter("k2", { text: "Live thanks." }), ...kudos];
+      await queryClient.invalidateQueries({ queryKey: ["kudos", "acme", "platform-team"] });
+      await screen.findByTestId("kudo-letter");
+      expect(heights).toHaveLength(1);
+      expect(heights[0]).toContain('"height":"0px"');
+    } finally {
+      Element.prototype.animate = original;
+    }
+    heights.length = 0;
+    cleanup();
+    kudos = [letter("k3")];
+    mount();
+    await screen.findByTestId("kudo-letter");
+    expect(heights).toHaveLength(0);
+  });
+
+  it("swaps at once under reduced motion, with nothing animated", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("prefers-reduced-motion") || query.includes("min-width"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+    }));
+    const animate = vi.fn(() => ({ finished: new Promise(() => {}), cancel: () => {} }) as unknown as Animation);
+    const original = Element.prototype.animate;
+    Element.prototype.animate = animate;
+    try {
+      kudos = [letter("k1"), letter("k2", { text: "Second thanks." })];
+      mount();
+      await userEvent.click(await screen.findByRole("button", { name: putName }));
+      const next = await screen.findByRole("group", { name: "A thank-you waiting for you" });
+      expect(within(next).getByTestId("kudo-text").textContent).toBe("Second thanks.");
+      expect(screen.getByTestId("kudo-k1")).toBeTruthy();
+      expect(animate).not.toHaveBeenCalled();
+    } finally {
+      Element.prototype.animate = original;
+    }
+  });
+
+  it("does not land the letter again when a refetch in flight answers after it was put away", async () => {
+    kudos = [letter("k1")];
+    const { queryClient } = mount();
+    await screen.findByTestId("kudo-letter");
+    // A focus refetch leaves while the letter is still unread, and is held.
+    let release!: () => void;
+    hold = new Promise<void>((r) => (release = r));
+    void queryClient.refetchQueries({ queryKey: ["kudos", "acme", "platform-team"] });
+    await userEvent.click(screen.getByRole("button", { name: putName }));
+    await screen.findByTestId("kudo-k1");
+    // The stale answer, still saying unread, arrives after the put-away.
+    release();
+    hold = null;
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByTestId("kudo-letter")).toBe(null);
+    const cached = queryClient.getQueryData<{ pages: Kudo[][] }>(["kudos", "acme", "platform-team"]);
+    expect(cached!.pages[0].find((k) => k.id === "k1")!.unread).toBe(false);
   });
 
   it("does not land the letter again when the wall refetches", async () => {
@@ -473,7 +624,9 @@ describe("Kudos letter", () => {
       expect(stack.getAttribute("aria-hidden")).toBe("true");
       expect(stack.textContent).toBe("");
       expect(screen.getAllByTestId("kudo-letter-stack")).toHaveLength(1);
-      seenAs.push(screen.getByTestId("kudo-letter").parentElement!.outerHTML);
+      seenAs.push(
+        screen.getByRole("group", { name: "A thank-you waiting for you" }).outerHTML.replace(/_r_[^"]*_/g, "id"),
+      );
       unmount();
     }
     // Two waiting and thirty waiting render identically.
