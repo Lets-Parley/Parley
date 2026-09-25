@@ -1749,6 +1749,43 @@ describe("StandupRoom kudos", () => {
     expect(panel.textContent).toContain("unstuck the deploy");
   });
 
+  it("addresses a kudo to the viewer, and only to the viewer", () => {
+    renderApp(
+      <StandupRoom
+        env={doneEnv([
+          { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me" },
+          { id: "k2", fromUserId: "marcus", toUserId: "priya", text: "from me" },
+          { id: "k3", fromUserId: "dana", toUserId: "priya", text: "neither" },
+        ])}
+        me={me}
+      />,
+    );
+    const rows = screen.getByTestId("standup-kudos").querySelectorAll("li");
+    expect(rows[0].textContent).toContain("Dana Whitfield thanked you");
+    expect(rows[0].getAttribute("data-to-me")).toBe("true");
+    expect(rows[0].querySelector("[data-testid=kudo-flags]")).not.toBe(null);
+    expect(rows[1].textContent).toContain("You thanked Priya Raman");
+    expect(rows[1].getAttribute("data-to-me")).toBe(null);
+    expect(rows[1].querySelector("[data-testid=kudo-flags]")).toBe(null);
+    expect(rows[2].textContent).toContain("Dana Whitfield thanked Priya Raman");
+    expect(rows[2].getAttribute("data-to-me")).toBe(null);
+    expect(rows[2].querySelector("[data-testid=kudo-flags]")).toBe(null);
+  });
+
+  it("never gives a link guest the \"you\" treatment", () => {
+    // A guest is never a recipient; even an id collision must not mark a row.
+    renderApp(
+      <StandupRoom
+        env={doneEnv([{ id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to a member" }])}
+        me={me}
+        guest
+      />,
+    );
+    const row = screen.getByTestId("standup-kudos").querySelector("li")!;
+    expect(row.textContent).toContain("Dana Whitfield thanked Marcus Okonjo");
+    expect(row.getAttribute("data-to-me")).toBe(null);
+  });
+
   it("skips the closing panel entirely rather than empty-stating it", () => {
     // A guest can neither send nor receive, so with nothing given there is
     // nothing for it in the beat at all — and nowhere does a "no kudos yet"

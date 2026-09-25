@@ -87,7 +87,8 @@ describe("Kudos wall", () => {
         sessionId: "",
       },
     ];
-    mount({ members: bidiMembers });
+    // Viewed by a third member, so Marcus is named rather than read back as "You".
+    mount({ members: bidiMembers, meId: "sam" });
     const row = await screen.findByTestId("kudo-k3");
     expect(row.textContent).toContain("MarcusOkonjo");
     expect(row.textContent).not.toContain("‮");
@@ -234,7 +235,7 @@ describe("Kudos wall", () => {
     kudos = Array.from({ length: 7 }, (_, i) => ({
       id: `n${i}`,
       fromUserId: "dana",
-      toUserId: "marcus",
+      toUserId: "gone",
       text: `Kudo number ${i}`,
       createdAt: "2026-09-03T09:00:00.000Z",
       sessionId: "",
@@ -255,12 +256,65 @@ describe("Kudos wall", () => {
   });
 });
 
+describe("Kudos wall, addressed to the viewer", () => {
+  const kudo = (id: string, fromUserId: string, toUserId: string): Kudo => ({
+    id,
+    fromUserId,
+    toUserId,
+    text: `Kudo ${id}`,
+    createdAt: "2026-09-03T09:00:00.000Z",
+    sessionId: "",
+  });
+  const people = [
+    ...members,
+    makePerson({ userId: "sam", name: "Sam Ortiz" }),
+  ];
+
+  it("says \"thanked you\" and marks a kudo to the viewer", async () => {
+    kudos = [kudo("k1", "dana", "marcus")];
+    mount({ members: people });
+    const row = await screen.findByTestId("kudo-k1");
+    expect(within(row).getByTestId("kudo-who").textContent).toBe("Dana Whitfield thanked you");
+    expect(row.getAttribute("data-to-me")).toBe("true");
+    expect(row.querySelector("[data-testid=kudo-flags]")).not.toBe(null);
+  });
+
+  it("says \"You thanked\" on the viewer's own kudo, unmarked", async () => {
+    kudos = [kudo("k1", "marcus", "sam")];
+    mount({ members: people });
+    const row = await screen.findByTestId("kudo-k1");
+    expect(within(row).getByTestId("kudo-who").textContent).toBe("You thanked Sam Ortiz");
+    expect(row.getAttribute("data-to-me")).toBe(null);
+    expect(row.querySelector("[data-testid=kudo-flags]")).toBe(null);
+  });
+
+  it("names both people on a kudo the viewer is not in", async () => {
+    kudos = [kudo("k1", "dana", "sam")];
+    mount({ members: people });
+    const row = await screen.findByTestId("kudo-k1");
+    expect(within(row).getByTestId("kudo-who").textContent).toBe("Dana Whitfield thanked Sam Ortiz");
+    expect(row.getAttribute("data-to-me")).toBe(null);
+    expect(row.querySelector("[data-testid=kudo-flags]")).toBe(null);
+  });
+
+  it("never folds a kudo addressed to the viewer behind Show all", async () => {
+    kudos = [
+      ...Array.from({ length: 6 }, (_, i) => kudo(`n${i}`, "dana", "sam")),
+      kudo("mine", "dana", "marcus"),
+    ];
+    mount({ members: people });
+    expect(await screen.findByTestId("kudo-mine")).toBeTruthy();
+    expect(screen.queryByTestId("kudo-n5")).toBe(null);
+    expect(screen.getByRole("button", { name: "Show all" })).toBeTruthy();
+  });
+});
+
 describe("Kudos wall paging", () => {
   const page = (n: number, prefix: string, at: string) =>
     Array.from({ length: n }, (_, i) => ({
       id: `${prefix}${i}`,
       fromUserId: "dana",
-      toUserId: "marcus",
+      toUserId: "gone",
       text: `Kudo ${prefix}${i}`,
       createdAt: at,
       sessionId: "",

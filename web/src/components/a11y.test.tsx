@@ -10,6 +10,7 @@ import { KindChip } from "./KindChip";
 import { MemberCard } from "./MemberCard";
 import { ResultsPanel } from "./ResultsPanel";
 import { Kudos } from "./Kudos";
+import { KudoFlags } from "./KudoFlags";
 
 /**
  * The kudos wall owns a fetch, so it cannot join the props-only sweep below.
@@ -52,6 +53,7 @@ const cases: [string, () => React.ReactElement][] = [
       />
     ),
   ],
+  ["KudoFlags", () => <KudoFlags />],
   ["KindChip (poker, labelled)", () => <KindChip kind="poker" />],
   ["KindChip (standup, labelled)", () => <KindChip kind="standup" />],
   ["KindChip (poker, label dropped)", () => <KindChip kind="poker" label={false} />],

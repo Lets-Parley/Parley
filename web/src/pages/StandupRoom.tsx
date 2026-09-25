@@ -17,6 +17,8 @@ import type { Fail } from "../components/Modal";
 import { cueFor, cueVar } from "../lib/cue";
 import { EmptyTable } from "./PokerRoom";
 import { PluginChrome } from "../components/PluginChrome";
+import { KudoFlags } from "../components/KudoFlags";
+import { toMeRow } from "../components/Kudos";
 import { AsyncDigest, type CommitmentChange, type ExpectedPerson } from "../components/AsyncDigest";
 import { AwayDays } from "../components/AwayDays";
 
@@ -1002,15 +1004,27 @@ export function StandupRoom({
               nothing to say about it. */}
           {givenKudos.length > 0 && (
             <ul data-testid="standup-kudos" className="flex flex-col gap-2.5 rounded-chip bg-felt-deep p-4">
-              {givenKudos.map((k) => (
-                <li key={k.id} className="text-sm">
-                  <span className="text-ink-soft">
-                    <span className="font-bold text-ink">{nameOf(k.fromUserId)}</span> thanked{" "}
-                    <span className="font-bold text-ink">{nameOf(k.toUserId)}</span>
-                  </span>
-                  <span className="mt-0.5 block break-words text-ink">{k.text}</span>
-                </li>
-              ))}
+              {givenKudos.map((k) => {
+                // A link guest is never a recipient, so never "you".
+                const toMe = !guest && k.toUserId === me.id;
+                const fromMe = !guest && k.fromUserId === me.id;
+                return (
+                  <li
+                    key={k.id}
+                    data-to-me={toMe || undefined}
+                    className={`flex items-start gap-2 text-sm ${toMe ? toMeRow : ""}`}
+                  >
+                    {toMe && <KudoFlags />}
+                    <span className="min-w-0">
+                      <span className="text-ink-soft">
+                        <span className="font-bold text-ink">{fromMe ? "You" : nameOf(k.fromUserId)}</span>{" "}
+                        thanked <span className="font-bold text-ink">{toMe ? "you" : nameOf(k.toUserId)}</span>
+                      </span>
+                      <span className="mt-0.5 block break-words text-ink">{k.text}</span>
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           )}
           {failRow("kudos")}

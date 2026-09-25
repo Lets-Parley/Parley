@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type Keybo
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errorText, type Kudo, type Person } from "../lib/api";
 import { Avatar } from "./Avatar";
+import { KudoFlags } from "./KudoFlags";
 import { buttonPrimary, buttonQuiet, inputClass, labelText } from "./Modal";
 import { kudosApi } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
@@ -179,7 +180,9 @@ export function Kudos({
   // into a 400.
   const left = MAX_RUNES - [...text].length;
   const rows = useMemo(() => kudos.data?.pages.flat() ?? [], [kudos.data]);
-  const visible = showAll ? rows : rows.slice(0, SHOWN);
+  // A kudo addressed to you is never folded: it is the one you came for.
+  const visible = showAll ? rows : rows.filter((k, i) => i < SHOWN || k.toUserId === meId);
+  const who = (id: string, you: string) => (id === meId ? you : nameOf(id));
 
   async function give(e: FormEvent) {
     e.preventDefault();
@@ -242,8 +245,10 @@ export function Kudos({
               <li
                 key={k.id}
                 data-testid={`kudo-${k.id}`}
-                className="flex flex-wrap items-start gap-3 py-3"
+                data-to-me={k.toUserId === meId || undefined}
+                className={`flex flex-wrap items-start gap-3 py-3 ${k.toUserId === meId ? toMeRow : ""}`}
               >
+                {k.toUserId === meId && <KudoFlags />}
                 <Avatar
                   name={nameOf(k.fromUserId)}
                   hue={byId.get(k.fromUserId)?.avatarHue ?? 0}
@@ -256,8 +261,8 @@ export function Kudos({
                     would otherwise widen the row past the panel. */}
                 <span className="min-w-0 flex-1">
                   <span data-testid="kudo-who" className="block break-words text-[13px] text-ink-soft">
-                    <span className="font-semibold text-ink">{nameOf(k.fromUserId)}</span> thanked{" "}
-                    <span className="font-semibold text-ink">{nameOf(k.toUserId)}</span>
+                    <span className="font-semibold text-ink">{who(k.fromUserId, "You")}</span> thanked{" "}
+                    <span className="font-semibold text-ink">{who(k.toUserId, "you")}</span>
                   </span>
                   <span data-testid="kudo-text" className="mt-0.5 block break-words text-[14px]">
                     {k.text}
@@ -420,6 +425,10 @@ export function Kudos({
     </section>
   );
 }
+
+/** A kudo addressed to the viewer: a pip edge and a light wash. The wash is
+    kept at 40% so ink-faint still clears AA on it in the dark theme. */
+export const toMeRow = "-mx-2 border-l-2 border-pip bg-accent-soft/40 px-2";
 
 /** A small pill inside a full-size hit area: the target is 44px, the face is not. */
 const smallPill = `${TOUCH_HIT} inline-flex items-center justify-center px-2 disabled:opacity-50`;
