@@ -28,8 +28,9 @@ A sender can withdraw a kudo; nobody can edit one. Guests neither send nor
 receive: a signed-link guest is deliberately not somebody the instance
 remembers, so a thank-you addressed to one would point at nobody by morning.
 
-- Status: In Progress
+- Status: Shipped in v0.11.0; delivery follow-up On Deck
 - Tracking: [#386](https://github.com/lets-parley/parley/issues/386)
+- **Delivering the thank-you** — a kudo that reaches the person it names, with one reply from them and still no count. ([#687](https://github.com/lets-parley/parley/issues/687))
 
 ## Next
 
