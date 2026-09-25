@@ -1753,9 +1753,10 @@ describe("StandupRoom kudos", () => {
     renderApp(
       <StandupRoom
         env={doneEnv([
-          { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me" },
-          { id: "k2", fromUserId: "marcus", toUserId: "priya", text: "from me" },
+          // Oldest first on the wire; the list shows newest first.
           { id: "k3", fromUserId: "dana", toUserId: "priya", text: "neither" },
+          { id: "k2", fromUserId: "marcus", toUserId: "priya", text: "from me" },
+          { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me" },
         ])}
         me={me}
       />,
@@ -1775,6 +1776,73 @@ describe("StandupRoom kudos", () => {
     expect(rows[2].textContent).toContain("Dana Whitfield thanked Priya Raman");
     expect(rows[2].getAttribute("data-to-me")).toBe(null);
     expect(rows[2].querySelector("[data-testid=kudo-note]")).toBe(null);
+  });
+
+  describe("a kudo arriving", () => {
+    const old = { id: "k0", fromUserId: "dana", toUserId: "marcus", text: "an old one" };
+    const arrive = (k: WireKudo, guest = false) => {
+      const { rerender } = renderApp(<StandupRoom env={doneEnv([old])} me={me} guest={guest} />);
+      rerender(<StandupRoom env={doneEnv([old, k], { version: 2 })} me={me} guest={guest} />);
+    };
+    const row = (id: string) =>
+      screen.getByTestId("standup-kudos").querySelector<HTMLElement>(`li[data-kudo="${id}"]`)!;
+    const animated = (id: string) =>
+      row(id).className.includes("set-down") || row(id).outerHTML.includes("note-set-down");
+    const reduce = (on: boolean) => {
+      const real = window.matchMedia;
+      window.matchMedia = ((q: string) => ({ ...real(q), matches: on && q.includes("reduce") ? true : real(q).matches })) as typeof window.matchMedia;
+      return () => (window.matchMedia = real);
+    };
+
+    it("replays nothing on the initial load", () => {
+      renderApp(<StandupRoom env={doneEnv([old])} me={me} />);
+      expect(animated("k0")).toBe(false);
+      expect(pageStatus().textContent).not.toContain("thanked");
+    });
+
+    it("sets the note down for its recipient, at the top, and tells them what it says", async () => {
+      arrive({ id: "k1", fromUserId: "dana", toUserId: "marcus", text: "unstuck the deploy" });
+      const rows = screen.getByTestId("standup-kudos").querySelectorAll("li");
+      expect(rows[0].getAttribute("data-kudo")).toBe("k1");
+      expect(row("k1").outerHTML).toContain("note-set-down");
+      expect(animated("k0")).toBe(false);
+      await waitFor(() => expect(pageStatus().textContent).toBe("Dana Whitfield thanked you: unstuck the deploy"));
+    });
+
+    it("sets a witness's row down quietly and names both people once", async () => {
+      arrive({ id: "k1", fromUserId: "dana", toUserId: "priya", text: "paired on the flake" });
+      expect(row("k1").className).toContain("set-down");
+      expect(row("k1").outerHTML).not.toContain("note-set-down");
+      await waitFor(() => expect(pageStatus().textContent).toBe("Dana Whitfield thanked Priya Raman."));
+    });
+
+    it("never gives a link guest the recipient treatment", async () => {
+      arrive({ id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to a member" }, true);
+      expect(row("k1").outerHTML).not.toContain("note-set-down");
+      expect(row("k1").className).toContain("set-down");
+      await waitFor(() => expect(pageStatus().textContent).toBe("Dana Whitfield thanked Marcus Okonjo."));
+    });
+
+    it("simply appears under reduced motion, still announced", async () => {
+      const restore = reduce(true);
+      try {
+        arrive({ id: "k1", fromUserId: "dana", toUserId: "marcus", text: "unstuck the deploy" });
+        expect(animated("k1")).toBe(false);
+        await waitFor(() => expect(pageStatus().textContent).toContain("thanked you"));
+      } finally {
+        restore();
+      }
+    });
+
+    it("simply appears in a hidden tab", () => {
+      const spy = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+      try {
+        arrive({ id: "k1", fromUserId: "dana", toUserId: "priya", text: "x" });
+        expect(animated("k1")).toBe(false);
+      } finally {
+        spy.mockRestore();
+      }
+    });
   });
 
   it("never gives a link guest the \"you\" treatment", () => {

@@ -430,6 +430,43 @@ export function StandupRoom({
   // socket in the room and pretending otherwise would be a lie about a payload
   // they can see.
   const givenKudos = st.kudos ?? [];
+  // Arrival. Ids present when the room is first live (mount, or after a
+  // reconnect) are the backdrop and replay nothing; only an id seen after
+  // that is set down, and announced once.
+  const seenKudos = useRef<Set<string> | null>(null);
+  const kudoList = useRef<HTMLUListElement>(null);
+  const [arrived, setArrived] = useState<Record<string, "note" | "row">>({});
+  const kudoIds = givenKudos.map((k) => k.id).join();
+  useEffect(() => {
+    if (status !== "live") {
+      seenKudos.current = null;
+      return;
+    }
+    const seen = seenKudos.current;
+    seenKudos.current = new Set(givenKudos.map((k) => k.id));
+    const fresh = seen ? givenKudos.filter((k) => !seen.has(k.id)) : [];
+    if (fresh.length === 0) return;
+    const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const still = reduced || document.hidden;
+    const lines: string[] = [];
+    const next: Record<string, "note" | "row"> = {};
+    for (const k of fresh) {
+      const toMe = !guest && k.toUserId === me.id;
+      if (!still) next[k.id] = toMe ? "note" : "row";
+      if (toMe) lines.push(`${nameOf(k.fromUserId)} thanked you: ${k.text}`);
+      // The sender already heard "Kudos sent to …" from the form.
+      else if (guest || k.fromUserId !== me.id) lines.push(`${nameOf(k.fromUserId)} thanked ${nameOf(k.toUserId)}.`);
+    }
+    setArrived((a) => ({ ...a, ...next }));
+    if (lines.length) noteCommitment(lines.join(" "));
+    const note = fresh.some((k) => !guest && k.toUserId === me.id);
+    const typing = kudoList.current?.parentElement?.querySelector("form")?.contains(document.activeElement);
+    if (note && !typing) {
+      kudoList.current?.scrollIntoView?.({ block: "nearest", behavior: reduced ? "auto" : "smooth" });
+    }
+    // Keyed on the ids, not the array: a fresh `?? []` each render must not rerun it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kudoIds, status]);
   const kudoCandidates = env.participants.filter((p) => !p.guest && p.userId !== me.id);
   const canGiveKudos = !guest && kudoCandidates.length > 0;
   // Runes, not UTF-16 units, matching maxKudoChars in the standup action: a
@@ -1002,13 +1039,19 @@ export function StandupRoom({
           {/* Absent, not empty-stated: a round where nobody thanked anybody has
               nothing to say about it. */}
           {givenKudos.length > 0 && (
-            <ul data-testid="standup-kudos" className="flex flex-col gap-2.5 rounded-chip bg-felt-deep p-4">
-              {givenKudos.map((k) => {
+            <ul ref={kudoList} data-testid="standup-kudos" className="flex flex-col gap-2.5 rounded-chip bg-felt-deep p-4">
+              {/* Newest first, so a note that just arrived is where the eye already is. */}
+              {[...givenKudos].reverse().map((k) => {
                 // A link guest is never a recipient, so never "you".
                 const toMe = !guest && k.toUserId === me.id;
                 const fromMe = !guest && k.fromUserId === me.id;
                 return toMe ? (
-                  <li key={k.id} data-to-me className={`flex py-2 text-sm ${toMeRow}`}>
+                  <li
+                    key={k.id}
+                    data-kudo={k.id}
+                    data-to-me
+                    className={`flex py-2 text-sm ${toMeRow} ${arrived[k.id] === "note" ? "*:animate-[note-set-down_790ms_linear_both]" : ""}`}
+                  >
                     <KudoNote
                       from={nameOf(k.fromUserId)}
                       text={k.text}
@@ -1022,7 +1065,11 @@ export function StandupRoom({
                     />
                   </li>
                 ) : (
-                  <li key={k.id} className="text-sm">
+                  <li
+                    key={k.id}
+                    data-kudo={k.id}
+                    className={`text-sm ${arrived[k.id] ? "animate-[set-down_var(--dur-lift)_var(--ease-settle)]" : ""}`}
+                  >
                     <span className="text-ink-soft">
                       <span className="font-bold text-ink">{fromMe ? "You" : nameOf(k.fromUserId)}</span> thanked{" "}
                       <span className="font-bold text-ink">{nameOf(k.toUserId)}</span>
