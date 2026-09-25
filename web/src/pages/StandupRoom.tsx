@@ -261,6 +261,10 @@ export function StandupRoom({
     }, 0);
   }, []);
   useEffect(() => () => clearTimeout(noteTimer.current), []);
+  // The wrap-up is said once. A kudo that arrives afterwards takes the line,
+  // and when its note clears the line falls silent rather than back to the
+  // wrap-up, which would read that sentence out a second time.
+  const [wrapUpSaid, setWrapUpSaid] = useState(false);
   const people = new Map(env.participants.map((p) => [p.userId, p]));
   // The visual seat marks a guest with " · guest"; the text summaries below
   // (the live announcement, skipped names, blocker lines) are built from
@@ -356,7 +360,9 @@ export function StandupRoom({
       : commitmentNote
         ? commitmentNote
         : done
-          ? "The standup has wrapped up."
+          ? wrapUpSaid
+            ? ""
+            : "The standup has wrapped up."
           : speaking && current
             ? `${nameOf(current.userId)} is speaking now, ${position} of ${speakers.length}.`
             : "";
@@ -461,7 +467,10 @@ export function StandupRoom({
       else if (guest || k.fromUserId !== me.id) lines.push(`${nameOf(k.fromUserId)} thanked ${nameOf(k.toUserId)}.`);
     }
     setArrived((a) => ({ ...a, ...next }));
-    if (lines.length) noteCommitment(lines.join(" "));
+    if (lines.length) {
+      if (done) setWrapUpSaid(true);
+      noteCommitment(lines.join(" "));
+    }
     const note = fresh.some((k) => !guest && k.toUserId === me.id);
     const typing = kudoList.current?.parentElement?.querySelector("form")?.contains(document.activeElement);
     if (note && !typing) {

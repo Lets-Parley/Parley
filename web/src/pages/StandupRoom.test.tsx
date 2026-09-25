@@ -1920,6 +1920,29 @@ describe("StandupRoom kudos", () => {
       }
     });
 
+    it("does not repeat the wrap-up line once a kudo's announcement clears", async () => {
+      vi.useFakeTimers();
+      try {
+        const { rerender } = renderApp(<StandupRoom env={doneEnv([old])} me={me} status="live" />);
+        expect(pageStatus().textContent).toBe("The standup has wrapped up.");
+        rerender(
+          <StandupRoom
+            env={doneEnv([old, { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "unstuck the deploy" }], {
+              version: 2,
+            })}
+            me={me}
+            status="live"
+          />,
+        );
+        await advance(0);
+        expect(pageStatus().textContent).toBe("Dana Whitfield thanked you: unstuck the deploy");
+        await advance(4000);
+        expect(pageStatus().textContent).not.toContain("wrapped up");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("announces a kudo to the viewer exactly once under StrictMode's double render", async () => {
       // StrictMode intentionally double-invokes render (and, in dev, effects)
       // to surface impure work. A commit-time set mutation read back on the
