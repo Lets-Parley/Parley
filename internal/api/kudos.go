@@ -29,6 +29,10 @@ func (a *app) handleListKudos(w http.ResponseWriter, r *http.Request) {
 	// The cursor is the last row's createdAt, sent back verbatim, and its id.
 	var before time.Time
 	q := r.URL.Query()
+	if q.Has("waiting") {
+		a.listWaitingKudos(w, r)
+		return
+	}
 	beforeID := q.Get("beforeId")
 	if q.Has("before") || q.Has("beforeId") {
 		var err error
@@ -56,6 +60,28 @@ func (a *app) handleListKudos(w http.ResponseWriter, r *http.Request) {
 		if k.ToUserID == p.UserID {
 			out[i].Unread = &kudos[i].Unread
 		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// listWaitingKudos is ?waiting=1: the caller's own unread kudos in this space,
+// newest first, whatever page of the wall they sit on. It is not a page of the
+// wall, so it takes no cursor.
+func (a *app) listWaitingKudos(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	if q.Get("waiting") != "1" || q.Has("before") || q.Has("beforeId") {
+		http.Error(w, `{"error":"waiting takes the value 1 and no cursor"}`, http.StatusBadRequest)
+		return
+	}
+	p, _ := PrincipalFrom(r.Context())
+	kudos, err := a.kudos.WaitingFor(r.Context(), spaceFrom(r.Context()).ID, p.UserID)
+	if err != nil {
+		http.Error(w, `{"error":"could not load kudos"}`, http.StatusInternalServerError)
+		return
+	}
+	out := make([]kudoView, len(kudos))
+	for i, k := range kudos {
+		out[i] = kudoView{Kudo: k, Unread: &kudos[i].Unread}
 	}
 	writeJSON(w, http.StatusOK, out)
 }

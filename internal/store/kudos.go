@@ -162,6 +162,39 @@ func (s *Kudos) ListForSpace(ctx context.Context, spaceID string, before time.Ti
 	return kudos, nil
 }
 
+// WaitingFor returns the kudos in a space addressed to userID that they have
+// not read yet, newest first and at most one page of them. It is how the letter
+// finds a kudo older than the wall's first page: waiting letters are exactly
+// the case of somebody who has been away while the wall moved on. It is scoped
+// by space and recipient alone, so nobody can read another member's letters
+// through it, and a malformed id is simply nobody's.
+func (s *Kudos) WaitingFor(ctx context.Context, spaceID, userID string) ([]Kudo, error) {
+	rows, err := s.Pool.Query(ctx,
+		"select "+kudoCols+" from kudos where space_id = $1 and to_user_id = $2 and seen_at is null order by created_at desc, id desc limit $3",
+		spaceID, userID, kudoPage)
+	if err != nil {
+		if isMalformedUUID(err) {
+			return []Kudo{}, nil
+		}
+		return nil, fmt.Errorf("listing waiting kudos: %w", err)
+	}
+	defer rows.Close()
+	kudos := []Kudo{}
+	for rows.Next() {
+		k, err := scanKudo(rows)
+		if err != nil {
+			return nil, fmt.Errorf("reading a waiting kudo: %w", err)
+		}
+		kudos = append(kudos, k)
+	}
+	if err := rows.Err(); isMalformedUUID(err) {
+		return []Kudo{}, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("listing waiting kudos: %w", err)
+	}
+	return kudos, nil
+}
+
 // Delete removes a kudo the sender sent. Nobody else can — not the recipient,
 // not a space owner — and a refused delete is ErrNoKudo, never a silent
 // success.

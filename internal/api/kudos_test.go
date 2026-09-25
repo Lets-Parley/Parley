@@ -347,3 +347,74 @@ func TestKudoSeenStatusCodes(t *testing.T) {
 		t.Fatalf("stranger seen: got %d, want 404", resp.StatusCode)
 	}
 }
+
+// ?waiting=1 is the caller's own unread kudos in this space, and nothing else:
+// not another member's letters, not a read one, not another space's. It carries
+// exactly the wall's fields, so it hands out nothing the wall does not.
+func TestKudoWaitingIsTheCallersUnreadInThisSpace(t *testing.T) {
+	srv := testServer(t)
+	owner, member, other, memberID, slug := kudoSpace(t, srv)
+	otherID := userIDOf(t, srv, other)
+	giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"older"}`, owner)
+	_, read := giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"read already"}`, owner)
+	giveKudo(t, srv, slug, `{"to":"`+otherID+`","text":"for somebody else"}`, owner)
+	giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"newer"}`, other)
+	seen := "/api/orgs/default/spaces/" + slug + "/kudos/" + read["id"].(string) + "/seen"
+	if resp, _ := doJSON(t, srv, http.MethodPost, seen, "", member); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("seen: got %d", resp.StatusCode)
+	}
+	// Another space where the member is thanked too: none of it may leak here.
+	_, b := createSpace(t, srv, "Second Kudo Space", owner)
+	if resp := joinSpace(t, srv, b["slug"].(string), member, b["passcode"].(string)); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("join: got %d", resp.StatusCode)
+	}
+	giveKudo(t, srv, b["slug"].(string), `{"to":"`+memberID+`","text":"another space"}`, owner)
+
+	path := "/api/orgs/default/spaces/" + slug + "/kudos?waiting=1"
+	req, _ := http.NewRequest("GET", srv.URL+path, nil)
+	req.AddCookie(member)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw []map[string]json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("waiting: got %d", resp.StatusCode)
+	}
+	allowed := map[string]bool{"id": true, "fromUserId": true, "toUserId": true, "text": true, "createdAt": true, "sessionId": true, "unread": true}
+	texts := []string{}
+	for _, row := range raw {
+		for k := range row {
+			if !allowed[k] {
+				t.Fatalf("unexpected key %q in %s", k, row)
+			}
+		}
+		if string(row["unread"]) != "true" || string(row["toUserId"]) != `"`+memberID+`"` {
+			t.Fatalf("waiting row is not the caller's unread: %v", row)
+		}
+		var text string
+		json.Unmarshal(row["text"], &text)
+		texts = append(texts, text)
+	}
+	if strings.Join(texts, ",") != "newer,older" {
+		t.Fatalf("waiting = %v, want newer,older", texts)
+	}
+
+	// Somebody else asking sees their own letters only, never the member's.
+	_, theirs := getKudosPath(t, srv, path, other)
+	if len(theirs) != 1 || theirs[0]["text"] != "for somebody else" {
+		t.Fatalf("other's waiting = %v", theirs)
+	}
+	if _, mine := getKudosPath(t, srv, path, owner); len(mine) != 0 {
+		t.Fatalf("owner's waiting = %v, want none", mine)
+	}
+	for _, q := range []string{"?waiting=yes", "?waiting=1&before=2026-09-01T00:00:00Z&beforeId=x"} {
+		if resp, _ := getKudosPath(t, srv, "/api/orgs/default/spaces/"+slug+"/kudos"+q, member); resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("%s: got %d, want 400", q, resp.StatusCode)
+		}
+	}
+}
