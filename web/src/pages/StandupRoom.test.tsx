@@ -1763,13 +1763,18 @@ describe("StandupRoom kudos", () => {
     const rows = screen.getByTestId("standup-kudos").querySelectorAll("li");
     expect(rows[0].textContent).toContain("Dana Whitfield thanked you");
     expect(rows[0].getAttribute("data-to-me")).toBe("true");
-    expect(rows[0].querySelector("[data-testid=kudo-flags]")).not.toBe(null);
+    const note = rows[0].querySelector<HTMLElement>("[data-testid=kudo-note]")!;
+    expect(note).not.toBe(null);
+    expect(note.textContent).toContain("to me");
+    const sign = note.querySelector("[data-testid=kudo-sign]")!;
+    expect(sign.textContent).toBe("— Dana Whitfield");
+    expect(sign.getAttribute("aria-hidden")).toBe("true");
     expect(rows[1].textContent).toContain("You thanked Priya Raman");
     expect(rows[1].getAttribute("data-to-me")).toBe(null);
-    expect(rows[1].querySelector("[data-testid=kudo-flags]")).toBe(null);
+    expect(rows[1].querySelector("[data-testid=kudo-note]")).toBe(null);
     expect(rows[2].textContent).toContain("Dana Whitfield thanked Priya Raman");
     expect(rows[2].getAttribute("data-to-me")).toBe(null);
-    expect(rows[2].querySelector("[data-testid=kudo-flags]")).toBe(null);
+    expect(rows[2].querySelector("[data-testid=kudo-note]")).toBe(null);
   });
 
   it("never gives a link guest the \"you\" treatment", () => {
@@ -1784,6 +1789,7 @@ describe("StandupRoom kudos", () => {
     const row = screen.getByTestId("standup-kudos").querySelector("li")!;
     expect(row.textContent).toContain("Dana Whitfield thanked Marcus Okonjo");
     expect(row.getAttribute("data-to-me")).toBe(null);
+    expect(row.querySelector("[data-testid=kudo-note]")).toBe(null);
   });
 
   it("skips the closing panel entirely rather than empty-stating it", () => {

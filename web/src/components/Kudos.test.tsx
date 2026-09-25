@@ -142,8 +142,16 @@ describe("Kudos wall", () => {
     expect(names).not.toContain("Link Guest");
   });
 
-  it("has no axe violations", async () => {
+  it("has no axe violations, a note addressed to the viewer included", async () => {
     kudos = [
+      {
+        id: "k4",
+        fromUserId: "dana",
+        toUserId: "marcus",
+        text: "Held the line on the release.",
+        createdAt: "2026-09-03T10:00:00.000Z",
+        sessionId: "",
+      },
       {
         id: "k3",
         fromUserId: "marcus",
@@ -155,6 +163,7 @@ describe("Kudos wall", () => {
     ];
     const { container } = mount();
     await screen.findByTestId("kudo-k3");
+    expect(within(screen.getByTestId("kudo-k4")).queryByTestId("kudo-note")).not.toBe(null);
     await expectNoViolations(container);
   });
 
@@ -276,7 +285,14 @@ describe("Kudos wall, addressed to the viewer", () => {
     const row = await screen.findByTestId("kudo-k1");
     expect(within(row).getByTestId("kudo-who").textContent).toBe("Dana Whitfield thanked you");
     expect(row.getAttribute("data-to-me")).toBe("true");
-    expect(row.querySelector("[data-testid=kudo-flags]")).not.toBe(null);
+    // Handed to you: the words sit on a note, signed by who sent it. The
+    // sign-off repeats the name the line above already says, so it is hidden
+    // from a screen reader rather than read twice.
+    const note = within(row).getByTestId("kudo-note");
+    expect(within(note).getByTestId("kudo-text").textContent).toBe("Kudo k1");
+    const sign = within(note).getByTestId("kudo-sign");
+    expect(sign.textContent).toBe("— Dana Whitfield");
+    expect(sign.getAttribute("aria-hidden")).toBe("true");
   });
 
   it("says \"You thanked\" on the viewer's own kudo, unmarked", async () => {
@@ -285,7 +301,8 @@ describe("Kudos wall, addressed to the viewer", () => {
     const row = await screen.findByTestId("kudo-k1");
     expect(within(row).getByTestId("kudo-who").textContent).toBe("You thanked Sam Ortiz");
     expect(row.getAttribute("data-to-me")).toBe(null);
-    expect(row.querySelector("[data-testid=kudo-flags]")).toBe(null);
+    expect(row.querySelector("[data-testid=kudo-note]")).toBe(null);
+    expect(row.querySelector("[data-testid=kudo-sign]")).toBe(null);
   });
 
   it("names both people on a kudo the viewer is not in", async () => {
@@ -294,7 +311,8 @@ describe("Kudos wall, addressed to the viewer", () => {
     const row = await screen.findByTestId("kudo-k1");
     expect(within(row).getByTestId("kudo-who").textContent).toBe("Dana Whitfield thanked Sam Ortiz");
     expect(row.getAttribute("data-to-me")).toBe(null);
-    expect(row.querySelector("[data-testid=kudo-flags]")).toBe(null);
+    expect(row.querySelector("[data-testid=kudo-note]")).toBe(null);
+    expect(row.querySelector("[data-testid=kudo-sign]")).toBe(null);
   });
 
   it("never folds a kudo addressed to the viewer behind Show all", async () => {

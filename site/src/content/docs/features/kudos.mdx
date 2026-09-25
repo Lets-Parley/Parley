@@ -6,7 +6,7 @@ description: A short thank-you with somebody's name on it, and no leaderboard an
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["internal/db/migrations/0033_kudos.sql", "internal/store/kudos.go", "internal/api/kudos.go", "internal/standup/kudos.go", "web/src/components/Kudos.tsx", "web/src/components/KudoFlags.tsx", "web/src/components/AppShell.tsx", "web/src/pages/SpacePage.tsx", "web/src/pages/StandupRoom.tsx"]} />
+<VerifiedStamp source={["internal/db/migrations/0033_kudos.sql", "internal/store/kudos.go", "internal/api/kudos.go", "internal/standup/kudos.go", "web/src/components/Kudos.tsx", "web/src/components/AppShell.tsx", "web/src/pages/SpacePage.tsx", "web/src/pages/StandupRoom.tsx"]} />
 
 A **kudo** is one sentence thanking a named person for something they did. It
 appears on the space's kudos wall, newest first: beside the session list on a
@@ -27,13 +27,13 @@ mean it. A kudo given in a room is not a different kind of thing — it is the
 same row in the same table, and it lands on the space wall immediately, still
 carrying the session it was given in.
 
-A kudo addressed to you reads that way: "Dana thanked **you**", on the wall
-and in the standup's closing list alike, with a brass edge, a light wash and
-a small Bravo-over-Zulu flag hoist — the signal for "well done". It is one
-fixed mark per kudo, never a tally. One you sent reads "You thanked Sam". The
-wall shows its five newest and folds the rest behind **Show all**, but never
-folds one addressed to you. A guest is never addressed this way, because a
-guest is never a recipient.
+A kudo addressed to you is handed to you rather than listed: "Dana thanked
+**you**", with the words set on a raised note and signed "— Dana" underneath,
+behind a brass edge and a light wash. It looks the same on the wall and in the
+standup's closing list. There is one note per kudo and nothing on it is
+counted. One you sent reads "You thanked Sam". The wall shows its five newest
+and folds the rest behind **Show all**, but never folds one addressed to you.
+A guest is never handed a note, because a guest is never a recipient.
 
 A kudo is capped at **280 characters**. The form shows what is left once you
 are within 40 of the limit, and says why it will not send once you are over. It
