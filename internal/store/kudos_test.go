@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The cap every test here creates against, small enough that exceeding it is
@@ -90,7 +91,7 @@ func TestKudoDeleteIsTheSenderOnly(t *testing.T) {
 	if err := kudos.Delete(ctx, k.ID, members[1].ID); !errors.Is(err, ErrNoKudo) {
 		t.Fatalf("delete by the recipient: got %v, want ErrNoKudo", err)
 	}
-	list, err := kudos.ListForSpace(ctx, sess.SpaceID)
+	list, err := kudos.ListForSpace(ctx, sess.SpaceID, time.Time{}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +123,7 @@ func TestKudoSurvivesTheSessionItWasGivenIn(t *testing.T) {
 	if err := (&Sessions{Pool: pool}).Delete(ctx, sess.ID, sess.SpaceID); err != nil {
 		t.Fatal(err)
 	}
-	list, err := kudos.ListForSpace(ctx, sess.SpaceID)
+	list, err := kudos.ListForSpace(ctx, sess.SpaceID, time.Time{}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +150,7 @@ func TestKudoListIsNewestFirstAndCapped(t *testing.T) {
 		t.Fatalf("past the per-space cap: got %v, want ErrQuotaExceeded", err)
 	}
 
-	list, err := kudos.ListForSpace(ctx, sess.SpaceID)
+	list, err := kudos.ListForSpace(ctx, sess.SpaceID, time.Time{}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,5 +224,66 @@ func TestKudoCapCountsOnlyTheLast30Days(t *testing.T) {
 	}
 	if _, err := kudos.Create(ctx, sess.SpaceID, members[0].ID, members[1].ID, "thanks", "", testKudoCap); err != nil {
 		t.Fatalf("kudos older than the window blocked a new one: %v", err)
+	}
+}
+
+// Paging walks the whole wall even when every row shares one microsecond-
+// precise timestamp: the id breaks the tie, so nothing is skipped or repeated,
+// and the cursor survives the RFC3339Nano round trip the browser makes.
+func TestKudoPagesHaveNoGapsOrDuplicatesOnTiedTimestamps(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	sess, members := newSession(t, pool, "Ada", "Bo")
+	kudos := &Kudos{Pool: pool}
+	for i := 0; i < 5; i++ {
+		if _, err := kudos.Create(ctx, sess.SpaceID, members[0].ID, members[1].ID, "thanks", "", 10); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := pool.Exec(ctx, "update kudos set created_at = '2026-01-02 03:04:05.123456+00' where space_id = $1", sess.SpaceID); err != nil {
+		t.Fatal(err)
+	}
+	old := kudoPage
+	kudoPage = 2
+	t.Cleanup(func() { kudoPage = old })
+
+	seen := map[string]bool{}
+	var before time.Time
+	var beforeID string
+	for pages := 0; ; pages++ {
+		if pages > 5 {
+			t.Fatal("paging did not terminate")
+		}
+		page, err := kudos.ListForSpace(ctx, sess.SpaceID, before, beforeID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, k := range page {
+			if seen[k.ID] {
+				t.Fatalf("kudo %s returned twice", k.ID)
+			}
+			seen[k.ID] = true
+		}
+		if len(page) < kudoPage {
+			break
+		}
+		last := page[len(page)-1]
+		wire, _ := last.CreatedAt.MarshalJSON()
+		if err := before.UnmarshalJSON(wire); err != nil {
+			t.Fatal(err)
+		}
+		beforeID = last.ID
+	}
+	if len(seen) != 5 {
+		t.Fatalf("paged %d kudos, want 5", len(seen))
+	}
+}
+
+func TestKudoCursorWithAMalformedIDIsABadCursor(t *testing.T) {
+	pool := testPool(t)
+	sess, _ := newSession(t, pool, "Ada", "Bo")
+	_, err := (&Kudos{Pool: pool}).ListForSpace(context.Background(), sess.SpaceID, time.Now(), "not-a-uuid")
+	if !errors.Is(err, ErrBadCursor) {
+		t.Fatalf("got %v, want ErrBadCursor", err)
 	}
 }

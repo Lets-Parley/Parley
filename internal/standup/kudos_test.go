@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -61,7 +62,7 @@ func TestGiveKudoLandsOnTheWallAndInTheSessionState(t *testing.T) {
 		t.Fatalf("session version = %d, want %d", after, before+1)
 	}
 
-	wall, err := (&store.Kudos{Pool: pool}).ListForSpace(context.Background(), sess.SpaceID)
+	wall, err := (&store.Kudos{Pool: pool}).ListForSpace(context.Background(), sess.SpaceID, time.Time{}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +135,7 @@ func TestGiveKudoRefusesALinkGuest(t *testing.T) {
 	if broadcasts != 0 {
 		t.Fatalf("broadcasts = %d, want 0", broadcasts)
 	}
-	wall, err := (&store.Kudos{Pool: pool}).ListForSpace(ctx, sess.SpaceID)
+	wall, err := (&store.Kudos{Pool: pool}).ListForSpace(ctx, sess.SpaceID, time.Time{}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +192,7 @@ func TestGiveKudoRefusesALinkGuestRecipient(t *testing.T) {
 	if broadcasts != 0 {
 		t.Fatalf("broadcasts = %d, want 0", broadcasts)
 	}
-	wall, err := (&store.Kudos{Pool: pool}).ListForSpace(ctx, sess.SpaceID)
+	wall, err := (&store.Kudos{Pool: pool}).ListForSpace(ctx, sess.SpaceID, time.Time{}, "")
 	if err != nil {
 		t.Fatal(err)
 	}

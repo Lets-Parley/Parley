@@ -51,7 +51,7 @@ both times — are drowned out by volume.
 So the constraint is built low, where a future redesign has to argue with it
 rather than route around it. The `kudos` table has no count column and there is
 no aggregate endpoint; the only read the store offers is "this space's kudos,
-newest first", capped at the most recent hundred. The migration that creates
+newest first", a hundred at a time. The migration that creates
 the table says so in a comment, in as many words: adding a count column means
 arguing with that paragraph first. A UI rule can be relaxed in an afternoon by
 somebody who never heard the argument. A schema cannot.
@@ -114,7 +114,7 @@ were not in the room for.
   { name: "Reacting to a kudo", status: "not-built", detail: "Nothing on a kudo is countable, and a reaction count is a count." },
 ]} />
 
-The wall keeps the most recent hundred kudos, and a space may be given at most
+The wall reads back in pages of a hundred, with Show older for the rest, and a space may be given at most
 `KUDO_LIMIT_PER_SPACE` of them in any rolling 30 days — 500 by default. Older
 kudos stop counting, so storage is bounded per 30 days rather than for the
 space's whole life. See

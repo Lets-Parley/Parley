@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errorText, type Kudo, type Person } from "../lib/api";
 import { Avatar } from "./Avatar";
 import { buttonPrimary, buttonQuiet, inputClass, labelText } from "./Modal";
@@ -14,6 +14,8 @@ export type ThankRequest = { userId: string };
 
 /** The wall shows this many before it asks to show the rest. */
 const SHOWN = 5;
+/** A full page from the server; a shorter one is the end of the wall. */
+const PAGE = 100;
 /** The counter stays out of the way until this few characters are left. */
 const WARN_AT = 40;
 
@@ -94,9 +96,19 @@ export function Kudos({
   const textRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
-  const kudos = useQuery({
+  // The cursor is the last row's createdAt exactly as the server sent it:
+  // re-serialising it through Date would drop the microseconds and skip rows.
+  const kudos = useInfiniteQuery({
     queryKey: ["kudos", org, slug],
-    queryFn: () => api<Kudo[]>("GET", kudosApi(org, slug)),
+    queryFn: ({ pageParam }) =>
+      api<Kudo[]>(
+        "GET",
+        pageParam
+          ? `${kudosApi(org, slug)}?${new URLSearchParams({ before: pageParam.createdAt, beforeId: pageParam.id })}`
+          : kudosApi(org, slug),
+      ),
+    initialPageParam: null as Kudo | null,
+    getNextPageParam: (last) => (last.length === PAGE ? last[last.length - 1] : undefined),
     retry: false,
   });
 
@@ -166,7 +178,7 @@ export function Kudos({
   // on the field would let an emoji-heavy kudo past the counter and straight
   // into a 400.
   const left = MAX_RUNES - [...text].length;
-  const rows = kudos.data ?? [];
+  const rows = useMemo(() => kudos.data?.pages.flat() ?? [], [kudos.data]);
   const visible = showAll ? rows : rows.slice(0, SHOWN);
 
   async function give(e: FormEvent) {
@@ -298,6 +310,16 @@ export function Kudos({
               onClick={() => setShowAll((v) => !v)}
             >
               {showAll ? "Show fewer" : "Show all"}
+            </button>
+          )}
+          {showAll && kudos.hasNextPage && (
+            <button
+              type="button"
+              disabled={kudos.isFetchingNextPage}
+              className={`${TOUCH_HIT} -mx-2 px-2 text-[13px] font-bold text-accent hover:underline disabled:opacity-50`}
+              onClick={() => void kudos.fetchNextPage()}
+            >
+              Show older
             </button>
           )}
         </>
