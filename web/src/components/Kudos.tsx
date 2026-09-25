@@ -1,4 +1,13 @@
-import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errorText, type Kudo, type Person } from "../lib/api";
 import { Avatar } from "./Avatar";
@@ -179,7 +188,12 @@ export function Kudos({
   // into a 400.
   const left = MAX_RUNES - [...text].length;
   const rows = useMemo(() => kudos.data?.pages.flat() ?? [], [kudos.data]);
-  const visible = showAll ? rows : rows.slice(0, SHOWN);
+  // A kudo addressed to you is never folded: it is the one you came for.
+  const visible = showAll ? rows : rows.filter((k, i) => i < SHOWN || k.toUserId === meId);
+  // Whether the fold hides anything: rows past it that are all yours stay
+  // shown, and a Show all that reveals nothing is a dead control.
+  const folds = rows.some((k, i) => i >= SHOWN && k.toUserId !== meId);
+  const who = (id: string, you: string) => (id === meId ? you : nameOf(id));
 
   async function give(e: FormEvent) {
     e.preventDefault();
@@ -238,7 +252,43 @@ export function Kudos({
       ) : (
         <>
           <ul className="mt-2 flex flex-col divide-y divide-line">
-            {visible.map((k) => (
+            {visible.map((k) =>
+              k.toUserId === meId ? (
+                <li
+                  key={k.id}
+                  data-testid={`kudo-${k.id}`}
+                  data-to-me
+                  className={`flex pt-2.5 pb-3 ${toMeRow}`}
+                >
+                  {/* Never a withdraw control here: nobody can thank
+                      themselves, so a kudo to you is never yours to take back. */}
+                  <KudoNote
+                    from={nameOf(k.fromUserId)}
+                    text={k.text}
+                    words="text-[15px]"
+                    head={
+                      <>
+                        <Avatar
+                          name={nameOf(k.fromUserId)}
+                          hue={byId.get(k.fromUserId)?.avatarHue ?? 0}
+                          icon={byId.get(k.fromUserId)?.avatarIcon}
+                          size="sm"
+                          decorative
+                        />
+                        <span data-testid="kudo-who" className="min-w-0 flex-1 break-words text-[13px] text-ink-soft">
+                          <span className="font-semibold text-ink">{nameOf(k.fromUserId)}</span>{" "}
+                          <span className="whitespace-nowrap">thanked <span className="font-semibold text-ink">you</span></span>
+                        </span>
+                        {/* ink-soft, not ink-faint: on the raised note in the
+                            dark theme ink-faint measures only 4.59:1. */}
+                        <time dateTime={k.createdAt} className="shrink-0 text-[12px] text-ink-soft">
+                          {ago(k.createdAt)}
+                        </time>
+                      </>
+                    }
+                  />
+                </li>
+              ) : (
               <li
                 key={k.id}
                 data-testid={`kudo-${k.id}`}
@@ -256,7 +306,7 @@ export function Kudos({
                     would otherwise widen the row past the panel. */}
                 <span className="min-w-0 flex-1">
                   <span data-testid="kudo-who" className="block break-words text-[13px] text-ink-soft">
-                    <span className="font-semibold text-ink">{nameOf(k.fromUserId)}</span> thanked{" "}
+                    <span className="font-semibold text-ink">{who(k.fromUserId, "You")}</span> thanked{" "}
                     <span className="font-semibold text-ink">{nameOf(k.toUserId)}</span>
                   </span>
                   <span data-testid="kudo-text" className="mt-0.5 block break-words text-[14px]">
@@ -298,11 +348,12 @@ export function Kudos({
                     ))}
                 </span>
               </li>
-            ))}
+              ),
+            )}
           </ul>
           {/* No number on the way to the rest: the wall's length is a
               count too, and nothing here is counted. */}
-          {rows.length > SHOWN && (
+          {folds && (
             <button
               type="button"
               aria-expanded={showAll}
@@ -312,12 +363,17 @@ export function Kudos({
               {showAll ? "Show fewer" : "Show all"}
             </button>
           )}
-          {showAll && kudos.hasNextPage && (
+          {(showAll || !folds) && kudos.hasNextPage && (
             <button
               type="button"
               disabled={kudos.isFetchingNextPage}
               className={`${TOUCH_HIT} -mx-2 px-2 text-[13px] font-bold text-accent hover:underline disabled:opacity-50`}
-              onClick={() => void kudos.fetchNextPage()}
+              onClick={() => {
+                // Asking for older kudos is asking to see them, so the fold
+                // opens rather than swallowing the page that just arrived.
+                setShowAll(true);
+                void kudos.fetchNextPage();
+              }}
             >
               Show older
             </button>
@@ -418,6 +474,53 @@ export function Kudos({
         </form>
       )}
     </section>
+  );
+}
+
+/** A kudo addressed to the viewer: a pip edge and a light wash behind the
+    note. The wash is kept at 40% so the row still reads as the panel's own. */
+export const toMeRow = "-mx-2 border-l-2 border-pip bg-accent-soft/40 px-2";
+
+/**
+ * A kudo addressed to the viewer, handed to them: the words on a raised note,
+ * signed by whoever sent it. The wall and the standup's closing list both draw
+ * it, so a thank-you looks the same wherever it reaches you.
+ *
+ * The sign-off repeats the name the head line already says, so it is hidden
+ * from a screen reader rather than read twice. There is one note per kudo and
+ * nothing on it is counted.
+ */
+export function KudoNote({
+  head,
+  from,
+  text,
+  words,
+}: {
+  /** The line above the words: who thanked you, and on the wall their face and when. */
+  head: ReactNode;
+  /** The sender's display name, for the sign-off. */
+  from: string;
+  text: string;
+  /** The words' type size: the wall sets them a step larger than the standup list. */
+  words: string;
+}) {
+  return (
+    <span
+      data-testid="kudo-note"
+      className="block min-w-0 flex-1 rounded-chip bg-surface-hi px-3 pt-2.5 pb-[9px] shadow-rest"
+    >
+      <span className="flex items-center gap-2">{head}</span>
+      <span data-testid="kudo-text" className={`mt-2 block break-words leading-[1.45] text-ink text-pretty ${words}`}>
+        {text}
+      </span>
+      <span
+        data-testid="kudo-sign"
+        aria-hidden="true"
+        className="mt-1.5 block break-words text-right text-[13px] font-semibold text-ink-soft"
+      >
+        — {from}
+      </span>
+    </span>
   );
 }
 
