@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -1842,6 +1843,73 @@ describe("StandupRoom kudos", () => {
       } finally {
         spy.mockRestore();
       }
+    });
+
+    it("replays no kudo across a reconnect, but animates the next one that arrives live", async () => {
+      // K1 was already on the wall before the drop; K2 arrived during the gap,
+      // invisible to this client until the reconnect frame. Per the worker
+      // (seenKudos.current reset on any non-"live" status), both are backdrop
+      // on the first live render after a reconnect — only a kudo that arrives
+      // while already live gets the arrival treatment. Deleting the reset
+      // line makes K1 replay as "arriving" on reconnect, which this pins.
+      const k1 = { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "unstuck the deploy" };
+      const k2 = { id: "k2", fromUserId: "priya", toUserId: "marcus", text: "covered the standup" };
+      const k3 = { id: "k3", fromUserId: "dana", toUserId: "marcus", text: "fixed the flake" };
+
+      const { rerender } = renderApp(
+        <StandupRoom env={doneEnv([k1], { version: 1 })} me={me} status="live" />,
+      );
+      expect(row("k1").outerHTML).not.toContain("note-set-down");
+
+      rerender(
+        <StandupRoom env={doneEnv([k1], { version: 1 })} me={me} status="reconnecting" />,
+      );
+
+      rerender(
+        <StandupRoom env={doneEnv([k1, k2], { version: 2 })} me={me} status="live" />,
+      );
+      expect(row("k1").outerHTML).not.toContain("note-set-down");
+      expect(animated("k1")).toBe(false);
+      expect(row("k2").outerHTML).not.toContain("note-set-down");
+      expect(animated("k2")).toBe(false);
+      expect(pageStatus().textContent).not.toContain("thanked");
+
+      rerender(
+        <StandupRoom env={doneEnv([k1, k2, k3], { version: 3 })} me={me} status="live" />,
+      );
+      expect(row("k3").outerHTML).toContain("note-set-down");
+      await waitFor(() =>
+        expect(pageStatus().textContent).toBe("Dana Whitfield thanked you: fixed the flake"),
+      );
+    });
+
+    it("announces a kudo to the viewer exactly once under StrictMode's double render", async () => {
+      // StrictMode intentionally double-invokes render (and, in dev, effects)
+      // to surface impure work. A commit-time set mutation read back on the
+      // same pass — rather than through the ref-then-effect order the arrival
+      // effect uses — would double the announcement here.
+      const { rerender } = renderApp(
+        <StrictMode>
+          <StandupRoom env={doneEnv([old])} me={me} status="live" />
+        </StrictMode>,
+      );
+      rerender(
+        <StrictMode>
+          <StandupRoom
+            env={doneEnv([old, { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "unstuck the deploy" }], {
+              version: 2,
+            })}
+            me={me}
+            status="live"
+          />
+        </StrictMode>,
+      );
+      await waitFor(() =>
+        expect(pageStatus().textContent).toBe("Dana Whitfield thanked you: unstuck the deploy"),
+      );
+      expect(
+        pageStatuses().filter((el) => (el.textContent ?? "").includes("thanked")),
+      ).toHaveLength(1);
     });
   });
 
