@@ -6,7 +6,7 @@ description: Every environment variable, its default, and whether a bad value st
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import EnvVar from "../../../components/EnvVar.astro";
 
-<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "cmd/parley/configfile.go", "internal/db/tls.go", "internal/api/client_address.go", "internal/api/secevent.go", "internal/api/standup_webhook.go", "internal/api/embed.go"]} />
+<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "internal/store/kudos.go", "cmd/parley/configfile.go", "internal/db/tls.go", "internal/api/client_address.go", "internal/api/secevent.go", "internal/api/standup_webhook.go", "internal/api/embed.go"]} />
 
 Configuration is environment variables, optionally backed by a file that fills
 the gaps (`PARLEY_CONFIG_FILE`, below). There is no command-line flag other than
@@ -381,8 +381,10 @@ created.
 </EnvVar>
 
 <EnvVar name="KUDO_LIMIT_PER_SPACE" default="500" fatal>
-Maximum kudos one space's wall may hold. Over the cap a give is a 409; a member
-withdrawing one of their own frees a slot.
+Maximum kudos one space may be given in any rolling 30 days (a fixed window).
+Over the cap a give is a 409; a kudo older than 30 days, or a member withdrawing
+one of their own, frees a slot. Storage is therefore bounded per 30 days, not
+for a space's whole life: about 6,000 short rows a year at the default.
 </EnvVar>
 
 <EnvVar name="STORY_LIMIT_PER_SESSION" default="500" fatal>

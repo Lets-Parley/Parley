@@ -99,8 +99,12 @@ func (s *Kudos) CreateIn(ctx context.Context, tx pgx.Tx, spaceID, fromUserID, to
 	if members != 2 {
 		return Kudo{}, ErrNotAMember
 	}
+	// The cap counts a fixed rolling 30 days, not a space's whole life, so a
+	// long-lived space is never locked out for good. The window is fixed on
+	// purpose; make it configurable only if an operator asks. The trade-off:
+	// storage is bounded to limit per 30 days, not for the space's lifetime.
 	var count int
-	if err := tx.QueryRow(ctx, "select count(*) from kudos where space_id = $1", spaceID).Scan(&count); err != nil {
+	if err := tx.QueryRow(ctx, "select count(*) from kudos where space_id = $1 and created_at > now() - interval '30 days'", spaceID).Scan(&count); err != nil {
 		return Kudo{}, fmt.Errorf("counting a space's kudos: %w", err)
 	}
 	if count >= limit {
