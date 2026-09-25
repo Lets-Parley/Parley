@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
@@ -38,12 +39,13 @@ func (a *app) handleGiveKudo(w http.ResponseWriter, r *http.Request) {
 		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
 		return
 	}
-	if body.Text == "" || utf8.RuneCountInString(body.Text) > maxKudoRunes {
+	text := strings.TrimSpace(body.Text)
+	if text == "" || utf8.RuneCountInString(text) > maxKudoRunes {
 		http.Error(w, `{"error":"a kudo is between 1 and 280 characters"}`, http.StatusBadRequest)
 		return
 	}
 	p, _ := PrincipalFrom(r.Context())
-	kudo, err := a.kudos.Create(r.Context(), spaceFrom(r.Context()).ID, p.UserID, body.To, body.Text, "", a.limits.KudosPerSpace)
+	kudo, err := a.kudos.Create(r.Context(), spaceFrom(r.Context()).ID, p.UserID, body.To, text, "", a.limits.KudosPerSpace)
 	if writeKudoError(w, err) {
 		return
 	}
