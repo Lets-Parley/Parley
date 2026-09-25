@@ -1,4 +1,4 @@
-import { StrictMode } from "react";
+import { StrictMode, useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -1881,6 +1881,43 @@ describe("StandupRoom kudos", () => {
       await waitFor(() =>
         expect(pageStatus().textContent).toBe("Dana Whitfield thanked you: fixed the flake"),
       );
+    });
+
+    it("carries the fall on the first frame the note is in the document", async () => {
+      // A kudo reaches the room over the socket, not inside act(), so the
+      // update is delivered here as a plain state change with the act
+      // environment off. The observer's microtask runs after React's commit
+      // and before any later task — which is where a passive effect runs, and
+      // where the browser paints. A class added there is added a frame late.
+      const k1 = { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "unstuck the deploy" };
+      const socket: { push?: (e: Envelope) => void } = {};
+      function Harness() {
+        const [env, setEnv] = useState(doneEnv([old]));
+        useEffect(() => {
+          socket.push = setEnv;
+        }, []);
+        return <StandupRoom env={env} me={me} status="live" />;
+      }
+      renderApp(<Harness />);
+      const list = screen.getByTestId("standup-kudos");
+      const g = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+      const was = g.IS_REACT_ACT_ENVIRONMENT;
+      g.IS_REACT_ACT_ENVIRONMENT = false;
+      try {
+        const firstSeen = new Promise<string>((resolve) => {
+          const mo = new MutationObserver(() => {
+            const li = list.querySelector<HTMLElement>('li[data-kudo="k1"]');
+            if (!li) return;
+            mo.disconnect();
+            resolve(li.outerHTML);
+          });
+          mo.observe(list, { childList: true, subtree: true, attributes: true });
+        });
+        socket.push!(doneEnv([old, k1], { version: 2 }));
+        expect(await firstSeen).toContain("note-set-down");
+      } finally {
+        g.IS_REACT_ACT_ENVIRONMENT = was;
+      }
     });
 
     it("announces a kudo to the viewer exactly once under StrictMode's double render", async () => {

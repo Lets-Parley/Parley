@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { action, api, errorText, type Envelope, type Me, type SpaceView } from "../lib/api";
 import { spaceApi } from "../lib/paths";
@@ -437,7 +437,10 @@ export function StandupRoom({
   const kudoList = useRef<HTMLUListElement>(null);
   const [arrived, setArrived] = useState<Record<string, "note" | "row">>({});
   const kudoIds = givenKudos.map((k) => k.id).join();
-  useEffect(() => {
+  // A layout effect, not a passive one: its state update re-renders before the
+  // browser paints, so the first frame holding a new note already carries the
+  // fall. A passive effect runs after that paint, and the note flashes at rest.
+  useLayoutEffect(() => {
     if (status !== "live") {
       seenKudos.current = null;
       return;
