@@ -201,3 +201,27 @@ func TestKudoRejectsANonMemberAndALinkGuestAsSender(t *testing.T) {
 		t.Fatalf("kudo from a link guest: got %v, want ErrNotAMember", err)
 	}
 }
+
+// The cap counts a rolling 30 days, not a space's whole life: kudos older
+// than the window free their slots, recent ones still hold them.
+func TestKudoCapCountsOnlyTheLast30Days(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	sess, members := newSession(t, pool, "Ada", "Bo")
+	kudos := &Kudos{Pool: pool}
+
+	for i := 0; i < testKudoCap; i++ {
+		if _, err := kudos.Create(ctx, sess.SpaceID, members[0].ID, members[1].ID, "thanks", "", testKudoCap); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := kudos.Create(ctx, sess.SpaceID, members[0].ID, members[1].ID, "thanks", "", testKudoCap); !errors.Is(err, ErrQuotaExceeded) {
+		t.Fatalf("recent kudos at the cap: got %v, want ErrQuotaExceeded", err)
+	}
+	if _, err := pool.Exec(ctx, "update kudos set created_at = now() - interval '31 days' where space_id = $1", sess.SpaceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := kudos.Create(ctx, sess.SpaceID, members[0].ID, members[1].ID, "thanks", "", testKudoCap); err != nil {
+		t.Fatalf("kudos older than the window blocked a new one: %v", err)
+	}
+}

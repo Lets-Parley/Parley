@@ -114,7 +114,9 @@ were not in the room for.
   { name: "Reacting to a kudo", status: "not-built", detail: "Nothing on a kudo is countable, and a reaction count is a count." },
 ]} />
 
-The wall keeps the most recent hundred kudos, and a space holds at most
-`KUDO_LIMIT_PER_SPACE` of them — 500 by default. See
+The wall keeps the most recent hundred kudos, and a space may be given at most
+`KUDO_LIMIT_PER_SPACE` of them in any rolling 30 days — 500 by default. Older
+kudos stop counting, so storage is bounded per 30 days rather than for the
+space's whole life. See
 [Limits and defaults](/reference/limits-and-defaults/) and
 [Configuration](/reference/configuration/).
