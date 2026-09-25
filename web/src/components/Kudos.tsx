@@ -272,12 +272,12 @@ export function Kudos({
                           name={nameOf(k.fromUserId)}
                           hue={byId.get(k.fromUserId)?.avatarHue ?? 0}
                           icon={byId.get(k.fromUserId)?.avatarIcon}
-                          size="xs"
+                          size="sm"
                           decorative
                         />
                         <span data-testid="kudo-who" className="min-w-0 flex-1 break-words text-[13px] text-ink-soft">
-                          <span className="font-semibold text-ink">{nameOf(k.fromUserId)}</span> thanked{" "}
-                          <span className="font-semibold text-ink">you</span>
+                          <span className="font-semibold text-ink">{nameOf(k.fromUserId)}</span>{" "}
+                          <span className="whitespace-nowrap">thanked <span className="font-semibold text-ink">you</span></span>
                         </span>
                         {/* ink-soft, not ink-faint: on the raised note in the
                             dark theme ink-faint measures only 4.59:1. */}

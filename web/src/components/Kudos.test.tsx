@@ -295,6 +295,28 @@ describe("Kudos wall, addressed to the viewer", () => {
     expect(sign.getAttribute("aria-hidden")).toBe("true");
   });
 
+  it("draws the sender's own avatar on the note, same as an ordinary row", async () => {
+    kudos = [
+      kudo("k1", "dana", "marcus"),
+      kudo("k2", "dana", "sam"),
+    ];
+    mount({
+      members: [
+        makePerson({ userId: "marcus", name: "Marcus Okonjo" }),
+        makePerson({ userId: "dana", name: "Dana Whitfield", avatarIcon: "ada" }),
+        makePerson({ userId: "sam", name: "Sam Ortiz" }),
+      ],
+    });
+    const noteRow = await screen.findByTestId("kudo-k1");
+    const ordinaryRow = await screen.findByTestId("kudo-k2");
+    // Both rows are Dana's; an ordinary row draws her chosen portrait, so the
+    // note addressed to you must too rather than falling back to initials.
+    const noteImg = noteRow.querySelector("img");
+    const ordinaryImg = ordinaryRow.querySelector("img");
+    expect(ordinaryImg?.getAttribute("src")).toContain("ada");
+    expect(noteImg?.getAttribute("src")).toBe(ordinaryImg?.getAttribute("src"));
+  });
+
   it("says \"You thanked\" on the viewer's own kudo, unmarked", async () => {
     kudos = [kudo("k1", "marcus", "sam")];
     mount({ members: people });
