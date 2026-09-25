@@ -4,6 +4,7 @@ import { api, errorText, type Kudo, type Person } from "../lib/api";
 import { Avatar } from "./Avatar";
 import { buttonPrimary, buttonQuiet, inputClass, labelText } from "./Modal";
 import { kudosApi } from "../lib/paths";
+import { safeDisplayName } from "../lib/displayName";
 import { TOUCH_HIT } from "../lib/breakpoints";
 import { useToast } from "../lib/ui";
 import { RailError, railHeading } from "./RailPanel";
@@ -107,15 +108,21 @@ export function Kudos({
     [roster, meId],
   );
   const byId = useMemo(() => new Map(roster.map((m) => [m.userId, m])), [roster]);
-  const nameOf = (id: string) => byId.get(id)?.name ?? "Someone who has left";
+  const nameOf = (id: string) => safeDisplayName(byId.get(id)?.name ?? "Someone who has left");
   // Two people may share a display name, and a picker offering "Kade" twice
   // is a coin toss. The id is the only thing the roster sends that tells them
   // apart, so its tail is the suffix — stable across visits, and nothing the
   // members could not already see in a URL.
   const optionLabel = useMemo(() => {
     const seen = new Map<string, number>();
-    for (const m of candidates) seen.set(m.name, (seen.get(m.name) ?? 0) + 1);
-    return (m: Person) => ((seen.get(m.name) ?? 0) > 1 ? `${m.name} · ${m.userId.slice(-4)}` : m.name);
+    for (const m of candidates) {
+      const name = safeDisplayName(m.name);
+      seen.set(name, (seen.get(name) ?? 0) + 1);
+    }
+    return (m: Person) => {
+      const name = safeDisplayName(m.name);
+      return (seen.get(name) ?? 0) > 1 ? `${name} · ${m.userId.slice(-4)}` : name;
+    };
   }, [candidates]);
 
   // A Thank from the sidebar: unfold the form with that person chosen and
