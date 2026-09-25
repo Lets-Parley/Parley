@@ -182,6 +182,9 @@ export function Kudos({
   const rows = useMemo(() => kudos.data?.pages.flat() ?? [], [kudos.data]);
   // A kudo addressed to you is never folded: it is the one you came for.
   const visible = showAll ? rows : rows.filter((k, i) => i < SHOWN || k.toUserId === meId);
+  // Whether the fold hides anything: rows past it that are all yours stay
+  // shown, and a Show all that reveals nothing is a dead control.
+  const folds = rows.some((k, i) => i >= SHOWN && k.toUserId !== meId);
   const who = (id: string, you: string) => (id === meId ? you : nameOf(id));
 
   async function give(e: FormEvent) {
@@ -307,7 +310,7 @@ export function Kudos({
           </ul>
           {/* No number on the way to the rest: the wall's length is a
               count too, and nothing here is counted. */}
-          {rows.length > SHOWN && (
+          {folds && (
             <button
               type="button"
               aria-expanded={showAll}
@@ -317,12 +320,17 @@ export function Kudos({
               {showAll ? "Show fewer" : "Show all"}
             </button>
           )}
-          {showAll && kudos.hasNextPage && (
+          {(showAll || !folds) && kudos.hasNextPage && (
             <button
               type="button"
               disabled={kudos.isFetchingNextPage}
               className={`${TOUCH_HIT} -mx-2 px-2 text-[13px] font-bold text-accent hover:underline disabled:opacity-50`}
-              onClick={() => void kudos.fetchNextPage()}
+              onClick={() => {
+                // Asking for older kudos is asking to see them, so the fold
+                // opens rather than swallowing the page that just arrived.
+                setShowAll(true);
+                void kudos.fetchNextPage();
+              }}
             >
               Show older
             </button>

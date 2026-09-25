@@ -307,6 +307,17 @@ describe("Kudos wall, addressed to the viewer", () => {
     expect(screen.queryByTestId("kudo-n5")).toBe(null);
     expect(screen.getByRole("button", { name: "Show all" })).toBeTruthy();
   });
+
+  it("offers no Show all when every kudo past the fold is addressed to the viewer", async () => {
+    kudos = [
+      ...Array.from({ length: 5 }, (_, i) => kudo(`n${i}`, "dana", "sam")),
+      kudo("mine1", "dana", "marcus"),
+      kudo("mine2", "sam", "marcus"),
+    ];
+    mount({ members: people });
+    expect(await screen.findByTestId("kudo-mine2")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Show all" })).toBe(null);
+  });
 });
 
 describe("Kudos wall paging", () => {
@@ -335,6 +346,19 @@ describe("Kudos wall paging", () => {
     );
     // The second page was short: that is the end of the wall.
     expect(screen.queryByRole("button", { name: "Show older" })).toBe(null);
+  });
+
+  it("still offers Show older when nothing on the first page is folded away", async () => {
+    kudos = [
+      ...page(5, "a", "2026-09-03T09:00:00Z"),
+      ...page(95, "m", "2026-09-03T08:00:00Z").map((k) => ({ ...k, toUserId: "marcus" })),
+    ];
+    older = page(3, "b", "2026-09-01T09:00:00Z");
+    mount();
+    await screen.findByTestId("kudo-m94");
+    expect(screen.queryByRole("button", { name: "Show all" })).toBe(null);
+    await userEvent.click(screen.getByRole("button", { name: "Show older" }));
+    expect(await screen.findByTestId("kudo-b0")).toBeTruthy();
   });
 
   it("does not offer Show older when the first page is short", async () => {
