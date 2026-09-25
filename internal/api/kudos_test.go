@@ -100,6 +100,23 @@ func TestKudoTextIsMeasuredInRunes(t *testing.T) {
 	}
 }
 
+func TestKudoTextIsTrimmed(t *testing.T) {
+	srv := testServer(t)
+	owner, _, _, memberID, slug := kudoSpace(t, srv)
+
+	if resp, body := giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"   "}`, owner); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("whitespace-only: got %d (%v), want 400", resp.StatusCode, body)
+	}
+
+	resp, kudo := giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"  thank you  "}`, owner)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("padded: got %d (%v)", resp.StatusCode, kudo)
+	}
+	if kudo["text"] != "thank you" {
+		t.Fatalf("padded text stored as %q, want %q", kudo["text"], "thank you")
+	}
+}
+
 // A guest holds a users row but no members row, so nothing in the schema
 // catches it — and a non-member recipient must never be a 500.
 func TestKudoToAGuestOrANonMemberIsRefused(t *testing.T) {
