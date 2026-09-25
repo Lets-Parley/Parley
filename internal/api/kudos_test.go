@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -233,5 +234,62 @@ func TestKudoCapReturnsAClear4xx(t *testing.T) {
 	resp, body := giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"second"}`, owner)
 	if resp.StatusCode < 400 || resp.StatusCode >= 500 {
 		t.Fatalf("over-cap: got %d (%v), want a 4xx", resp.StatusCode, body)
+	}
+}
+
+func getKudosPath(t *testing.T, srv *httptest.Server, path string, cookie *http.Cookie) (*http.Response, []map[string]any) {
+	t.Helper()
+	req, _ := http.NewRequest("GET", srv.URL+path, nil)
+	req.AddCookie(cookie)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []map[string]any
+	json.NewDecoder(resp.Body).Decode(&out)
+	resp.Body.Close()
+	return resp, out
+}
+
+func TestKudoBadCursorIs400(t *testing.T) {
+	srv := testServer(t)
+	owner, _, _, _, slug := kudoSpace(t, srv)
+	base := "/api/orgs/default/spaces/" + slug + "/kudos?"
+	for _, q := range []string{
+		"before=2026-01-02T03:04:05.123456Z",
+		"beforeId=00000000-0000-0000-0000-000000000000",
+		"before=yesterday&beforeId=00000000-0000-0000-0000-000000000000",
+		"before=2026-01-02T03:04:05.123456Z&beforeId=nope",
+	} {
+		if resp, _ := getKudosPath(t, srv, base+q, owner); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: got %d, want 400", q, resp.StatusCode)
+		}
+	}
+}
+
+// A cursor lifted from another space pages this space's wall and nothing else.
+func TestKudoCursorFromAnotherSpaceRevealsNothing(t *testing.T) {
+	srv := testServer(t)
+	owner, _, _, memberID, slug := kudoSpace(t, srv)
+	_, mine := giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"here"}`, owner)
+
+	_, b := createSpace(t, srv, "Other Space", owner)
+	bSlug := b["slug"].(string)
+	member, bMemberID := signupWithID(t, srv, "B member")
+	if resp := joinSpace(t, srv, bSlug, member, b["passcode"].(string)); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("join: got %d", resp.StatusCode)
+	}
+	_, theirs := giveKudo(t, srv, bSlug, `{"to":"`+bMemberID+`","text":"elsewhere"}`, owner)
+	if theirs["id"] == nil {
+		t.Fatalf("give in B: %v", theirs)
+	}
+
+	q := "?before=" + url.QueryEscape(theirs["createdAt"].(string)) + "&beforeId=" + theirs["id"].(string)
+	resp, got := getKudosPath(t, srv, "/api/orgs/default/spaces/"+slug+"/kudos"+q, owner)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("got %d", resp.StatusCode)
+	}
+	if len(got) != 1 || got[0]["id"] != mine["id"] {
+		t.Fatalf("cross-space cursor returned %v, want only this space's kudo", got)
 	}
 }

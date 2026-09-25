@@ -7,6 +7,8 @@ import { api, type Kudo } from "../lib/api";
 import { Kudos, ago } from "./Kudos";
 
 let kudos: Kudo[] = [];
+/** The page after the first, answered to any request carrying a cursor. */
+let older: Kudo[] = [];
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -14,6 +16,7 @@ vi.mock("../lib/api", async () => {
     ...actual,
     api: vi.fn(async (method: string, path: string) => {
       if (path.endsWith("/kudos") && method === "GET") return kudos;
+      if (path.includes("/kudos?before=") && method === "GET") return older;
       throw new Error(`unexpected api call: ${method} ${path}`);
     }),
   };
@@ -39,6 +42,7 @@ function mount(over: Partial<Parameters<typeof Kudos>[0]> = {}) {
 beforeEach(() => {
   vi.mocked(api).mockClear();
   kudos = [];
+  older = [];
 });
 
 describe("Kudos wall", () => {
@@ -248,6 +252,42 @@ describe("Kudos wall", () => {
     expect(fewer.textContent).not.toMatch(/\d/);
     await userEvent.click(fewer);
     expect(screen.queryByTestId("kudo-n5")).toBe(null);
+  });
+});
+
+describe("Kudos wall paging", () => {
+  const page = (n: number, prefix: string, at: string) =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `${prefix}${i}`,
+      fromUserId: "dana",
+      toUserId: "marcus",
+      text: `Kudo ${prefix}${i}`,
+      createdAt: at,
+      sessionId: "",
+    }));
+
+  it("offers Show older only when a page came back full, and appends it", async () => {
+    // Microseconds on purpose: the cursor must be the server's string verbatim.
+    kudos = page(100, "a", "2026-09-03T09:00:00.123456Z");
+    older = page(3, "b", "2026-09-01T09:00:00Z");
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Show all" }));
+    const olderBtn = screen.getByRole("button", { name: "Show older" });
+    await userEvent.click(olderBtn);
+    expect(await screen.findByTestId("kudo-b2")).toBeTruthy();
+    expect(vi.mocked(api)).toHaveBeenCalledWith(
+      "GET",
+      "/api/orgs/acme/spaces/platform-team/kudos?before=2026-09-03T09%3A00%3A00.123456Z&beforeId=a99",
+    );
+    // The second page was short: that is the end of the wall.
+    expect(screen.queryByRole("button", { name: "Show older" })).toBe(null);
+  });
+
+  it("does not offer Show older when the first page is short", async () => {
+    kudos = page(99, "a", "2026-09-03T09:00:00Z");
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Show all" }));
+    expect(screen.queryByRole("button", { name: "Show older" })).toBe(null);
   });
 });
 

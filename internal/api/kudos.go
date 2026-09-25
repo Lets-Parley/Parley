@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
@@ -25,7 +26,23 @@ type kudoBody struct {
 const maxKudoRunes = 280
 
 func (a *app) handleListKudos(w http.ResponseWriter, r *http.Request) {
-	kudos, err := a.kudos.ListForSpace(r.Context(), spaceFrom(r.Context()).ID)
+	// The cursor is the last row's createdAt, sent back verbatim, and its id.
+	var before time.Time
+	q := r.URL.Query()
+	beforeID := q.Get("beforeId")
+	if q.Has("before") || q.Has("beforeId") {
+		var err error
+		before, err = time.Parse(time.RFC3339Nano, q.Get("before"))
+		if err != nil || beforeID == "" {
+			http.Error(w, `{"error":"before and beforeId must be given together, as a timestamp and a kudo id"}`, http.StatusBadRequest)
+			return
+		}
+	}
+	kudos, err := a.kudos.ListForSpace(r.Context(), spaceFrom(r.Context()).ID, before, beforeID)
+	if errors.Is(err, store.ErrBadCursor) {
+		http.Error(w, `{"error":"beforeId is not a kudo id"}`, http.StatusBadRequest)
+		return
+	}
 	if err != nil {
 		http.Error(w, `{"error":"could not load kudos"}`, http.StatusInternalServerError)
 		return

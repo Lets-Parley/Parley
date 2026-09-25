@@ -23,6 +23,10 @@ var (
 	ErrNotAMember = errors.New("sender and recipient must both be members of this space")
 )
 
+// kudoPage is how many kudos one page of the wall holds. A var so tests can
+// page a handful of rows instead of inserting a hundred.
+var kudoPage = 100
+
 // Kudo is a note from one member of a space to another. There is deliberately
 // no count anywhere near this type: see 0033_kudos.sql.
 type Kudo struct {
@@ -122,12 +126,19 @@ func (s *Kudos) CreateIn(ctx context.Context, tx pgx.Tx, spaceID, fromUserID, to
 		spaceID, fromUserID, toUserID, text, session))
 }
 
-// ListForSpace returns a space's kudos, newest first, at most a hundred. There
-// is no cursor: decks, members, sessions and commitments are all returned
-// whole, and paging is the org directory's problem, not a space's.
-func (s *Kudos) ListForSpace(ctx context.Context, spaceID string) ([]Kudo, error) {
-	rows, err := s.Pool.Query(ctx,
-		"select "+kudoCols+" from kudos where space_id = $1 order by created_at desc, id desc limit 100", spaceID)
+// ListForSpace returns a page of a space's kudos, newest first. A zero before
+// is the first page; otherwise the page holds the rows strictly older than
+// (before, beforeID), so tied timestamps are split by id and never skipped or
+// repeated. The wall pages because the cap is a rolling window: a space keeps
+// every kudo it was ever given, so the wall is no longer bounded.
+func (s *Kudos) ListForSpace(ctx context.Context, spaceID string, before time.Time, beforeID string) ([]Kudo, error) {
+	q := "select " + kudoCols + " from kudos where space_id = $1"
+	args := []any{spaceID, kudoPage}
+	if !before.IsZero() {
+		q += " and (created_at, id) < ($3, $4)"
+		args = append(args, before, beforeID)
+	}
+	rows, err := s.Pool.Query(ctx, q+" order by created_at desc, id desc limit $2", args...)
 	if err != nil {
 		return nil, fmt.Errorf("listing kudos: %w", err)
 	}
@@ -140,7 +151,12 @@ func (s *Kudos) ListForSpace(ctx context.Context, spaceID string) ([]Kudo, error
 		}
 		kudos = append(kudos, k)
 	}
-	return kudos, rows.Err()
+	if err := rows.Err(); isMalformedUUID(err) {
+		return nil, ErrBadCursor
+	} else if err != nil {
+		return nil, fmt.Errorf("listing kudos: %w", err)
+	}
+	return kudos, nil
 }
 
 // Delete removes a kudo the sender sent. Nobody else can — not the recipient,
