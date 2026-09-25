@@ -47,7 +47,49 @@ func (a *app) handleListKudos(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"could not load kudos"}`, http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, kudos)
+	// unread goes to the recipient alone. Everyone else gets no key at all —
+	// a false would tell the sender their kudo was read.
+	p, _ := PrincipalFrom(r.Context())
+	out := make([]kudoView, len(kudos))
+	for i, k := range kudos {
+		out[i] = kudoView{Kudo: k}
+		if k.ToUserID == p.UserID {
+			out[i].Unread = &kudos[i].Unread
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+type kudoView struct {
+	store.Kudo
+	Unread *bool `json:"unread,omitempty"`
+}
+
+// handleSeenKudo is the recipient putting a letter with the others. Like
+// withdraw, the row is read first so another space's id is a 404 and a
+// caller who is not the recipient is a 403.
+func (a *app) handleSeenKudo(w http.ResponseWriter, r *http.Request) {
+	p, _ := PrincipalFrom(r.Context())
+	space := spaceFrom(r.Context()).ID
+	kudo, err := a.kudos.Get(r.Context(), space, chi.URLParam(r, "id"))
+	if errors.Is(err, store.ErrNoKudo) {
+		http.Error(w, `{"error":"no such kudo"}`, http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, `{"error":"could not mark kudo seen"}`, http.StatusInternalServerError)
+		return
+	}
+	if kudo.ToUserID != p.UserID {
+		http.Error(w, `{"error":"only the recipient can mark a kudo seen"}`, http.StatusForbidden)
+		return
+	}
+	// A kudo withdrawn in between is gone either way; nothing left to read.
+	if err := a.kudos.MarkSeen(r.Context(), space, kudo.ID, p.UserID); err != nil && !errors.Is(err, store.ErrNoKudo) {
+		http.Error(w, `{"error":"could not mark kudo seen"}`, http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *app) handleGiveKudo(w http.ResponseWriter, r *http.Request) {

@@ -36,18 +36,21 @@ type Kudo struct {
 	Text       string    `json:"text"`
 	SessionID  string    `json:"sessionId,omitempty"`
 	CreatedAt  time.Time `json:"createdAt"`
+	// Unread is never serialised here: the API shows it to the recipient
+	// alone, so the sender never learns a kudo was read.
+	Unread bool `json:"-"`
 }
 
 type Kudos struct {
 	Pool *pgxpool.Pool
 }
 
-const kudoCols = "id, from_user_id, to_user_id, text, session_id, created_at"
+const kudoCols = "id, from_user_id, to_user_id, text, session_id, created_at, seen_at is null"
 
 func scanKudo(row pgx.Row) (Kudo, error) {
 	var k Kudo
 	var session *string
-	err := row.Scan(&k.ID, &k.FromUserID, &k.ToUserID, &k.Text, &session, &k.CreatedAt)
+	err := row.Scan(&k.ID, &k.FromUserID, &k.ToUserID, &k.Text, &session, &k.CreatedAt, &k.Unread)
 	if errors.Is(err, pgx.ErrNoRows) || isMalformedUUID(err) {
 		return Kudo{}, ErrNoKudo
 	}
@@ -183,4 +186,23 @@ func (s *Kudos) Delete(ctx context.Context, id, senderID string) error {
 func (s *Kudos) Get(ctx context.Context, spaceID, id string) (Kudo, error) {
 	return scanKudo(s.Pool.QueryRow(ctx,
 		"select "+kudoCols+" from kudos where id = $1 and space_id = $2", id, spaceID))
+}
+
+// MarkSeen records that the recipient has read a kudo. It is scoped by space
+// and recipient, so anyone else — or an id from another space — is ErrNoKudo.
+// Marking an already-seen kudo keeps its first seen_at.
+func (s *Kudos) MarkSeen(ctx context.Context, spaceID, id, userID string) error {
+	tag, err := s.Pool.Exec(ctx,
+		"update kudos set seen_at = coalesce(seen_at, now()) where id = $1 and space_id = $2 and to_user_id = $3",
+		id, spaceID, userID)
+	if isMalformedUUID(err) {
+		return ErrNoKudo
+	}
+	if err != nil {
+		return fmt.Errorf("marking a kudo seen: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNoKudo
+	}
+	return nil
 }

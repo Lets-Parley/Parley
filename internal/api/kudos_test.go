@@ -293,3 +293,57 @@ func TestKudoCursorFromAnotherSpaceRevealsNothing(t *testing.T) {
 		t.Fatalf("cross-space cursor returned %v, want only this space's kudo", got)
 	}
 }
+
+// unread is the recipient's alone: the sender and a bystander see no key at
+// all, never a false, so nobody learns that a kudo was read.
+func TestKudoUnreadIsShownOnlyToTheRecipient(t *testing.T) {
+	srv := testServer(t)
+	owner, member, other, memberID, slug := kudoSpace(t, srv)
+	giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"thank you"}`, owner)
+
+	for name, c := range map[string]*http.Cookie{"sender": owner, "bystander": other} {
+		_, kudos := listKudos(t, srv, slug, c)
+		if len(kudos) != 1 {
+			t.Fatalf("%s list: got %v", name, kudos)
+		}
+		if _, ok := kudos[0]["unread"]; ok {
+			t.Fatalf("%s sees an unread key: %v", name, kudos[0])
+		}
+	}
+	_, kudos := listKudos(t, srv, slug, member)
+	if len(kudos) != 1 || kudos[0]["unread"] != true {
+		t.Fatalf("recipient list: got %v, want unread true", kudos)
+	}
+}
+
+func TestKudoSeenStatusCodes(t *testing.T) {
+	srv := testServer(t)
+	owner, member, other, memberID, slug := kudoSpace(t, srv)
+	_, kudo := giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"thank you"}`, owner)
+	path := "/api/orgs/default/spaces/" + slug + "/kudos/" + kudo["id"].(string) + "/seen"
+
+	for name, c := range map[string]*http.Cookie{"sender": owner, "bystander": other} {
+		if resp, body := doJSON(t, srv, http.MethodPost, path, "", c); resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("%s seen: got %d (%v), want 403", name, resp.StatusCode, body)
+		}
+	}
+	missing := "/api/orgs/default/spaces/" + slug + "/kudos/00000000-0000-0000-0000-000000000000/seen"
+	if resp, body := doJSON(t, srv, http.MethodPost, missing, "", member); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing kudo seen: got %d (%v), want 404", resp.StatusCode, body)
+	}
+	_, b := createSpace(t, srv, "Other Space", owner)
+	cross := "/api/orgs/default/spaces/" + b["slug"].(string) + "/kudos/" + kudo["id"].(string) + "/seen"
+	if resp, body := doJSON(t, srv, http.MethodPost, cross, "", owner); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("cross-space seen: got %d (%v), want 404", resp.StatusCode, body)
+	}
+	if resp, body := doJSON(t, srv, http.MethodPost, path, "", member); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("recipient seen: got %d (%v), want 204", resp.StatusCode, body)
+	}
+	if _, kudos := listKudos(t, srv, slug, member); len(kudos) != 1 || kudos[0]["unread"] != false {
+		t.Fatalf("after seen: got %v, want unread false", kudos)
+	}
+	stranger := signup(t, srv, "Stranger")
+	if resp, _ := doJSON(t, srv, http.MethodPost, path, "", stranger); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("stranger seen: got %d, want 404", resp.StatusCode)
+	}
+}

@@ -287,3 +287,43 @@ func TestKudoCursorWithAMalformedIDIsABadCursor(t *testing.T) {
 		t.Fatalf("got %v, want ErrBadCursor", err)
 	}
 }
+
+// MarkSeen is the recipient's alone and scoped to the kudo's own space: the
+// sender, a bystander and a right id in the wrong space all find nothing.
+func TestKudoMarkSeenIsTheRecipientsInItsOwnSpace(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	sess, members := newSession(t, pool, "Ada", "Bo")
+	other, _ := newSession(t, pool, "Cy")
+	kudos := &Kudos{Pool: pool}
+
+	k, err := kudos.Create(ctx, sess.SpaceID, members[0].ID, members[1].ID, "carried the release", "", testKudoCap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !k.Unread {
+		t.Fatal("a new kudo should start unread")
+	}
+	if err := kudos.MarkSeen(ctx, sess.SpaceID, k.ID, members[0].ID); !errors.Is(err, ErrNoKudo) {
+		t.Fatalf("seen by the sender: got %v, want ErrNoKudo", err)
+	}
+	if err := kudos.MarkSeen(ctx, other.SpaceID, k.ID, members[1].ID); !errors.Is(err, ErrNoKudo) {
+		t.Fatalf("seen from another space: got %v, want ErrNoKudo", err)
+	}
+	if err := kudos.MarkSeen(ctx, sess.SpaceID, "not-a-uuid", members[1].ID); !errors.Is(err, ErrNoKudo) {
+		t.Fatalf("seen with a malformed id: got %v, want ErrNoKudo", err)
+	}
+	list, _ := kudos.ListForSpace(ctx, sess.SpaceID, time.Time{}, "")
+	if len(list) != 1 || !list[0].Unread {
+		t.Fatalf("a refused MarkSeen changed the row: %+v", list)
+	}
+	for range 2 { // idempotent
+		if err := kudos.MarkSeen(ctx, sess.SpaceID, k.ID, members[1].ID); err != nil {
+			t.Fatalf("seen by the recipient: %v", err)
+		}
+	}
+	list, _ = kudos.ListForSpace(ctx, sess.SpaceID, time.Time{}, "")
+	if len(list) != 1 || list[0].Unread {
+		t.Fatalf("after MarkSeen the kudo is still unread: %+v", list)
+	}
+}
