@@ -89,6 +89,18 @@ describe("Kudos wall", () => {
     expect(row.textContent).not.toContain("‮");
   });
 
+  it("strips bidi formatting characters from a member's name in the recipient picker", async () => {
+    const bidiMembers = [
+      makePerson({ userId: "marcus", name: "Marcus‮Okonjo" }),
+      makePerson({ userId: "dana", name: "Dana Whitfield" }),
+    ];
+    mount({ members: bidiMembers, meId: "dana" });
+    await openForm();
+    const toSelect = screen.getByLabelText("To");
+    expect(toSelect.textContent).toContain("MarcusOkonjo");
+    expect(toSelect.textContent).not.toContain("‮");
+  });
+
   it("lets long words and long names wrap rather than run off the panel", async () => {
     kudos = [
       {

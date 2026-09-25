@@ -115,8 +115,14 @@ export function Kudos({
   // members could not already see in a URL.
   const optionLabel = useMemo(() => {
     const seen = new Map<string, number>();
-    for (const m of candidates) seen.set(m.name, (seen.get(m.name) ?? 0) + 1);
-    return (m: Person) => ((seen.get(m.name) ?? 0) > 1 ? `${m.name} · ${m.userId.slice(-4)}` : m.name);
+    for (const m of candidates) {
+      const name = safeDisplayName(m.name);
+      seen.set(name, (seen.get(name) ?? 0) + 1);
+    }
+    return (m: Person) => {
+      const name = safeDisplayName(m.name);
+      return (seen.get(name) ?? 0) > 1 ? `${name} · ${m.userId.slice(-4)}` : name;
+    };
   }, [candidates]);
 
   // A Thank from the sidebar: unfold the form with that person chosen and
