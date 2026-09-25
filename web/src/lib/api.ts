@@ -142,6 +142,8 @@ export type Kudo = {
   createdAt: string;
   /** The room it was given in, or "" for one given outside a session. */
   sessionId: string;
+  /** Present only on a kudo to the viewer: whether they have yet to read it. */
+  unread?: boolean;
 };
 
 export type SpaceRole = "owner" | "member";

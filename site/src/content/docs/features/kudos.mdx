@@ -6,7 +6,7 @@ description: A short thank-you with somebody's name on it, and no leaderboard an
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["internal/db/migrations/0033_kudos.sql", "internal/store/kudos.go", "internal/api/kudos.go", "internal/standup/kudos.go", "web/src/components/Kudos.tsx", "web/src/components/AppShell.tsx", "web/src/pages/SpacePage.tsx", "web/src/pages/StandupRoom.tsx"]} />
+<VerifiedStamp source={["internal/db/migrations/0033_kudos.sql", "internal/db/migrations/0044_kudo_seen.sql", "internal/store/kudos.go", "internal/api/kudos.go", "internal/standup/kudos.go", "web/src/components/Kudos.tsx", "web/src/components/AppShell.tsx", "web/src/pages/SpacePage.tsx", "web/src/pages/StandupRoom.tsx"]} />
 
 A **kudo** is one sentence thanking a named person for something they did. It
 appears on the space's kudos wall, newest first: beside the session list on a
@@ -88,6 +88,24 @@ membership. It outlives the room, too: deleting the standup a kudo was given in
 leaves the kudo standing on the wall, for the same reason deleting a room does
 not retract the votes cast in it.
 
+## A letter waiting
+
+A kudo given on the wall while you are elsewhere is not left to chance. The
+next time you open the space, it is waiting above the wall as a signed letter:
+the sender's words, and their name at the foot. It lands once; with reduced
+motion it simply appears. **Put it with the others** marks it read, and it
+sets down into the wall as an ordinary kudo to you. Nothing about it is modal.
+
+When more than one is waiting, one extra edge shows behind the letter. It
+looks the same for two as for thirty and carries no number — how many people
+thanked you is not a count the wall keeps.
+
+Whether a kudo has been read is the recipient's alone. The wall tells you which
+of yours are unread and tells nobody else anything: the sender never learns
+that their kudo was seen, and it is never aggregated or exported. A kudo
+already on the wall when Parley was upgraded to this version counts as read,
+so the upgrade does not deliver years of old letters at once.
+
 ## Guests
 
 A [guest link](/features/guest-links/) seats somebody in one room for a day and
@@ -118,7 +136,7 @@ were not in the room for.
   { name: "Editing a kudo", status: "out-of-scope", detail: "The sender can withdraw one instead. Text somebody has already read is never rewritten underneath them." },
   { name: "Kudos to or from a guest", status: "out-of-scope", detail: "A <a href='/features/guest-links/'>guest link</a> is not a person the instance remembers, so a thank-you addressed to one would point at nobody by morning." },
   { name: "Kudos across spaces", status: "not-built", detail: "Both people must hold a membership in the same space. A kudo belongs to the space it was given in." },
-  { name: "Notifying the recipient", status: "not-built", detail: "Parley sends no email and no push. A kudo is found by opening the wall, or by being in the room when it is given." },
+  { name: "Notifying the recipient", status: "built", detail: "In-app only: an unread kudo waits as a letter on the space page. Parley sends no email and no push." },
   { name: "Reacting to a kudo", status: "not-built", detail: "Nothing on a kudo is countable, and a reaction count is a count." },
 ]} />
 

@@ -17,6 +17,7 @@ vi.mock("../lib/api", async () => {
     api: vi.fn(async (method: string, path: string) => {
       if (path.endsWith("/kudos") && method === "GET") return kudos;
       if (path.includes("/kudos?before=") && method === "GET") return older;
+      if (path.endsWith("/seen") && method === "POST") return undefined;
       throw new Error(`unexpected api call: ${method} ${path}`);
     }),
   };
@@ -406,6 +407,84 @@ describe("Kudos wall paging", () => {
     mount();
     await userEvent.click(await screen.findByRole("button", { name: "Show all" }));
     expect(screen.queryByRole("button", { name: "Show older" })).toBe(null);
+  });
+});
+
+describe("Kudos letter", () => {
+  const letter = (id: string, over: Partial<Kudo> = {}): Kudo => ({
+    id,
+    fromUserId: "dana",
+    toUserId: "marcus",
+    text: `Thanks for ${id}.`,
+    createdAt: "2026-09-03T09:00:00.000Z",
+    sessionId: "",
+    unread: true,
+    ...over,
+  });
+
+  it("leaves an unread kudo to you as a signed letter above the list, not twice", async () => {
+    kudos = [letter("k1"), letter("k2", { unread: false, text: "Old thanks." })];
+    mount();
+    const card = await screen.findByTestId("kudo-letter");
+    expect(within(card).getByTestId("kudo-note").textContent).toContain("Thanks for k1.");
+    expect(within(card).getByTestId("kudo-sign").textContent).toContain("Dana Whitfield");
+    expect(card.outerHTML).toContain("note-set-down");
+    expect(screen.queryByTestId("kudo-k1")).toBe(null);
+    expect(screen.getByTestId("kudo-k2")).toBeTruthy();
+    // One letter waiting: no stacked edge.
+    expect(screen.queryByTestId("kudo-letter-stack")).toBe(null);
+    expect(screen.queryByRole("dialog")).toBe(null);
+  });
+
+  it("shows no letter for a kudo that is read or not addressed to you", async () => {
+    kudos = [letter("k1", { unread: false }), letter("k2", { toUserId: "dana", fromUserId: "marcus" })];
+    mount();
+    await screen.findByTestId("kudo-k1");
+    expect(screen.queryByTestId("kudo-letter")).toBe(null);
+  });
+
+  it("puts the letter with the others: calls seen, and it sets down into the list", async () => {
+    kudos = [letter("k1")];
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Put it with the others" }));
+    expect(api).toHaveBeenCalledWith("POST", "/api/orgs/acme/spaces/platform-team/kudos/k1/seen");
+    const row = await screen.findByTestId("kudo-k1");
+    expect(row.className).toContain("set-down");
+    expect(row.hasAttribute("data-to-me")).toBe(true);
+    expect(document.activeElement).toBe(row);
+    expect(screen.queryByTestId("kudo-letter")).toBe(null);
+  });
+
+  it("does not land the letter again when the wall refetches", async () => {
+    kudos = [letter("k1")];
+    const { queryClient } = mount();
+    const first = await screen.findByTestId("kudo-letter");
+    await queryClient.invalidateQueries({ queryKey: ["kudos", "acme", "platform-team"] });
+    await screen.findByTestId("kudo-letter");
+    expect(screen.getByTestId("kudo-letter")).toBe(first);
+  });
+
+  it("draws one fixed edge behind the letter whatever the number waiting, and no number", async () => {
+    const seenAs: string[] = [];
+    for (const n of [2, 30]) {
+      kudos = Array.from({ length: n }, (_, i) => letter(`k${i}`));
+      const { unmount } = mount();
+      const stack = await screen.findByTestId("kudo-letter-stack");
+      expect(stack.getAttribute("aria-hidden")).toBe("true");
+      expect(stack.textContent).toBe("");
+      expect(screen.getAllByTestId("kudo-letter-stack")).toHaveLength(1);
+      seenAs.push(screen.getByTestId("kudo-letter").parentElement!.outerHTML);
+      unmount();
+    }
+    // Two waiting and thirty waiting render identically.
+    expect(seenAs[0]).toBe(seenAs[1]);
+  });
+
+  it("has no axe violations with letters waiting", async () => {
+    kudos = [letter("k1"), letter("k2")];
+    const { container } = mount();
+    await screen.findByTestId("kudo-letter");
+    await expectNoViolations(container);
   });
 });
 

@@ -8,11 +8,11 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { api, errorText, type Kudo, type Person } from "../lib/api";
 import { Avatar } from "./Avatar";
 import { buttonPrimary, buttonQuiet, inputClass, labelText } from "./Modal";
-import { kudosApi } from "../lib/paths";
+import { kudoSeenApi, kudosApi } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
 import { TOUCH_HIT } from "../lib/breakpoints";
 import { useToast } from "../lib/ui";
@@ -187,7 +187,10 @@ export function Kudos({
   // on the field would let an emoji-heavy kudo past the counter and straight
   // into a 400.
   const left = MAX_RUNES - [...text].length;
-  const rows = useMemo(() => kudos.data?.pages.flat() ?? [], [kudos.data]);
+  const all = useMemo(() => kudos.data?.pages.flat() ?? [], [kudos.data]);
+  // An unread kudo to you waits as a letter above the list, not in it too.
+  const letters = all.filter((k) => k.toUserId === meId && k.unread);
+  const rows = all.filter((k) => !(k.toUserId === meId && k.unread));
   // A kudo addressed to you is never folded: it is the one you came for.
   const visible = showAll ? rows : rows.filter((k, i) => i < SHOWN || k.toUserId === meId);
   // Whether the fold hides anything: rows past it that are all yours stay
@@ -213,6 +216,51 @@ export function Kudos({
       setBusy(false);
     }
   }
+
+  /** Letters put with the others this visit: each sets down into the list once. */
+  const [putAway, setPutAway] = useState<string[]>([]);
+  // The button that was pressed is gone, so focus follows the note into the list.
+  const listRef = useRef<HTMLUListElement>(null);
+  useEffect(() => {
+    const id = putAway[putAway.length - 1];
+    if (id) listRef.current?.querySelector<HTMLElement>(`[data-testid="kudo-${CSS.escape(id)}"]`)?.focus();
+  }, [putAway]);
+
+  async function seen(id: string) {
+    setBusy(true);
+    try {
+      await api("POST", kudoSeenApi(org, slug, id));
+      qc.setQueryData<InfiniteData<Kudo[]>>(["kudos", org, slug], (d) =>
+        d && { ...d, pages: d.pages.map((p) => p.map((k) => (k.id === id ? { ...k, unread: false } : k))) },
+      );
+      setPutAway((a) => [...a, id]);
+    } catch (err) {
+      say(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const toMeHead = (k: Kudo) => (
+    <>
+      <Avatar
+        name={nameOf(k.fromUserId)}
+        hue={byId.get(k.fromUserId)?.avatarHue ?? 0}
+        icon={byId.get(k.fromUserId)?.avatarIcon}
+        size="sm"
+        decorative
+      />
+      <span data-testid="kudo-who" className="min-w-0 flex-1 break-words text-[13px] text-ink-soft">
+        <span className="font-semibold text-ink">{nameOf(k.fromUserId)}</span>{" "}
+        <span className="whitespace-nowrap">thanked <span className="font-semibold text-ink">you</span></span>
+      </span>
+      {/* ink-soft, not ink-faint: on the raised note in the
+          dark theme ink-faint measures only 4.59:1. */}
+      <time dateTime={k.createdAt} className="shrink-0 text-[12px] text-ink-soft">
+        {ago(k.createdAt)}
+      </time>
+    </>
+  );
 
   async function withdraw(id: string) {
     setBusy(true);
@@ -245,20 +293,50 @@ export function Kudos({
         <p className="mt-3 text-[13px] text-ink-faint">Reading the wall…</p>
       ) : kudos.isError && !kudos.data ? (
         <RailError what="the kudos" onRetry={() => void kudos.refetch()} busy={kudos.isFetching} />
-      ) : rows.length === 0 ? (
+      ) : all.length === 0 ? (
         <p data-testid="kudos-empty" className="mt-3 text-[13px] text-ink-soft text-pretty">
           No kudos yet. The first one is the hardest — say what somebody did and who did it.
         </p>
       ) : (
         <>
-          <ul className="mt-2 flex flex-col divide-y divide-line">
+          {letters[0] && (
+            // Keyed by id, so a refetch keeps the same node and the landing
+            // plays once per letter, not on every refresh of the wall.
+            <div key={letters[0].id} className="relative mt-3 mb-2">
+              {/* One fixed edge for "more than one waiting": the same for two
+                  as for thirty, and no number — that would be a count. */}
+              {letters.length > 1 && (
+                <span
+                  data-testid="kudo-letter-stack"
+                  aria-hidden="true"
+                  className="absolute inset-x-1.5 -bottom-1.5 top-1.5 rounded-chip bg-surface-hi shadow-rest"
+                />
+              )}
+              <div
+                data-testid="kudo-letter"
+                className="relative flex flex-col *:animate-[note-set-down_790ms_linear_both]"
+              >
+                <KudoNote from={nameOf(letters[0].fromUserId)} text={letters[0].text} words="text-[15px]" head={toMeHead(letters[0])} />
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                className={`${smallPill} relative -ml-2 mt-1`}
+                onClick={() => void seen(letters[0].id)}
+              >
+                <span className={smallPillFace}>Put it with the others</span>
+              </button>
+            </div>
+          )}
+          <ul ref={listRef} className="mt-2 flex flex-col divide-y divide-line">
             {visible.map((k) =>
               k.toUserId === meId ? (
                 <li
                   key={k.id}
                   data-testid={`kudo-${k.id}`}
                   data-to-me
-                  className={`flex pt-2.5 pb-3 ${toMeRow}`}
+                  tabIndex={putAway.includes(k.id) ? -1 : undefined}
+                  className={`flex pt-2.5 pb-3 ${toMeRow} ${putAway.includes(k.id) ? "animate-[set-down_var(--dur-lift)_var(--ease-settle)]" : ""}`}
                 >
                   {/* Never a withdraw control here: nobody can thank
                       themselves, so a kudo to you is never yours to take back. */}
@@ -266,26 +344,7 @@ export function Kudos({
                     from={nameOf(k.fromUserId)}
                     text={k.text}
                     words="text-[15px]"
-                    head={
-                      <>
-                        <Avatar
-                          name={nameOf(k.fromUserId)}
-                          hue={byId.get(k.fromUserId)?.avatarHue ?? 0}
-                          icon={byId.get(k.fromUserId)?.avatarIcon}
-                          size="sm"
-                          decorative
-                        />
-                        <span data-testid="kudo-who" className="min-w-0 flex-1 break-words text-[13px] text-ink-soft">
-                          <span className="font-semibold text-ink">{nameOf(k.fromUserId)}</span>{" "}
-                          <span className="whitespace-nowrap">thanked <span className="font-semibold text-ink">you</span></span>
-                        </span>
-                        {/* ink-soft, not ink-faint: on the raised note in the
-                            dark theme ink-faint measures only 4.59:1. */}
-                        <time dateTime={k.createdAt} className="shrink-0 text-[12px] text-ink-soft">
-                          {ago(k.createdAt)}
-                        </time>
-                      </>
-                    }
+                    head={toMeHead(k)}
                   />
                 </li>
               ) : (
