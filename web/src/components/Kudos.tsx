@@ -12,7 +12,7 @@ import {
   type RefObject,
 } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
-import { api, errorText, type Kudo, type Person } from "../lib/api";
+import { api, ApiError, errorText, type Kudo, type Person } from "../lib/api";
 import { Avatar } from "./Avatar";
 import { buttonPrimary, buttonQuiet, inputClass, labelText } from "./Modal";
 import { kudoSeenApi, kudosApi } from "../lib/paths";
@@ -275,14 +275,24 @@ export function Kudos({
   // Newest first, like the wall. While a note is moving the queue is frozen.
   const queue = moving ? moving.queue : live;
   const leaving = moving && moving.queue.length === 0 ? moving.kudo : null;
-  const shown = leaving ?? queue.find((k) => k.id === pinned) ?? queue[0];
-  if (!leaving && shown && shown.id !== pinned) setPinned(shown.id);
-  const more = !leaving && queue.length > 1;
+  /** The letter drawn last render, so one whose kudo has gone can still be set down. */
+  const lastShown = useRef<Kudo | null>(null);
+  // The letter on show left the waiting set without being put away here: its
+  // sender withdrew it, or it was read somewhere else. It is drawn one render
+  // more, so it can be set down in place rather than unmounted in one frame.
+  const vanished =
+    !moving && pinned !== "" && !putAway.includes(pinned) && lastShown.current?.id === pinned && !live.some((k) => k.id === pinned)
+      ? lastShown.current
+      : null;
+  const shown = leaving ?? vanished ?? queue.find((k) => k.id === pinned) ?? queue[0];
+  lastShown.current = shown ?? null;
+  if (!leaving && !vanished && shown && shown.id !== pinned) setPinned(shown.id);
+  const more = !leaving && queue.some((k) => k.id !== shown?.id);
   // A waiting kudo is a letter above the list, never a row in it too — and one
   // held back mid-move is neither until the move is over. The wall's own
   // unread flag counts as well, so a refetch of the wall that beats the letters'
   // own refetch cannot flash a new kudo into the list first.
-  const letterIds = new Set([...live, ...queue].map((k) => k.id));
+  const letterIds = new Set([...live, ...queue, ...(vanished ? [vanished] : [])].map((k) => k.id));
   const isLetter = (k: Kudo) =>
     letterIds.has(k.id) || (k.toUserId === meId && !!k.unread && !putAway.includes(k.id));
   const rows = all.filter((k) => !isLetter(k));
@@ -345,15 +355,20 @@ export function Kudos({
     const last = moving.queue.length === 0;
     const settle = () => {
       setMoving(null);
-      if (last) setGen((g) => g + 1);
+      if (last) {
+        setGen((g) => g + 1);
+        setPinned("");
+      }
     };
     const root = letterRef.current;
     const row = rowEl(moving.kudo.id);
     // Focus goes somewhere stable before anything goes inert: it stays on the
     // same button when another letter waits, else it goes where the note is
-    // going — or to the wall itself, for a letter from a page not loaded.
+    // going — or to the wall itself, for a letter from a page not loaded or one
+    // that no longer exists. Focus that was never in the letter is left alone.
     if (last) {
-      (row ?? headingRef.current)?.focus({ preventScroll: true });
+      const at = document.activeElement;
+      if (!at || at === document.body || root?.contains(at)) (row ?? headingRef.current)?.focus({ preventScroll: true });
       if (root) root.inert = true;
     }
     if (!root || typeof root.animate !== "function" || reducedMotion()) {
@@ -372,12 +387,19 @@ export function Kudos({
     const glide = !!(to && moving.from && toTop >= -margin && toTop + to.height <= window.innerHeight + margin);
     const dx = glide ? moving.from!.left - to!.left : 0;
     const dy = glide ? moving.from!.top - toTop - (moving.blockH - targetH) : 0;
+    // Set down in place on top of the next one, the note slides off the pile:
+    // down and out of the letter's slot, far enough that none of it is left.
+    const pile = !glide && !last && moving.ghost && moving.from ? ghostRef.current : null;
+    const wrap = pile?.getBoundingClientRect();
+    const drop = wrap ? Math.max(0, wrap.bottom - moving.from!.top) : 0;
     const { duration, at } = slide(
-      glide ? Math.hypot(moving.from!.left - to!.left, moving.from!.top - toTop) : Math.max(48, Math.abs(moving.blockH - targetH)),
+      glide
+        ? Math.hypot(moving.from!.left - to!.left, moving.from!.top - toTop)
+        : drop || Math.max(48, Math.abs(moving.blockH - targetH)),
     );
     const run = (el: HTMLElement, frame: (f: number) => Keyframe) =>
       running.push(el.animate(slideFrames(at, frame), { duration, easing: "linear", fill: "both" }));
-    const hold = (el: HTMLElement, prop: "overflowY" | "position" | "zIndex" | "visibility", value: string) => {
+    const hold = (el: HTMLElement, prop: "overflow" | "overflowY" | "outlineStyle" | "position" | "zIndex" | "visibility", value: string) => {
       el.style[prop] = value;
       undo.push(() => (el.style[prop] = ""));
     };
@@ -393,6 +415,9 @@ export function Kudos({
       if (Math.abs(off) > 0.5) run(button, (f) => ({ transform: `translateY(${off * (1 - f)}px)` }));
     }
     if (row) {
+      // A slot still empty is no place to draw a focus ring; it shows once the
+      // note is home.
+      hold(row, "outlineStyle", "none");
       // The row's slot opens under the rows above it. Set down in place, the
       // row is revealed as its slot opens rather than overlapping the next.
       const rowH = row.getBoundingClientRect().height;
@@ -420,15 +445,16 @@ export function Kudos({
     } else if (last) {
       // Set down where it is: the whole letter settles away as it closes up.
       run(root, (f) => ({ opacity: 1 - f }));
-    } else if (moving.ghost && ghostRef.current && moving.from) {
-      // Set down where it is, on top of the next one: the note leaving is
-      // lowered onto the pile and gone, and the next is already underneath.
-      const wrap = ghostRef.current.getBoundingClientRect();
+    } else if (pile && wrap && moving.ghost && moving.from) {
+      // Set down where it is, on top of the next one: the note leaving is the
+      // top sheet, slid off the pile and out of the slot, whole and opaque the
+      // whole way, so the next one is uncovered rather than faded through it.
       const g = moving.ghost;
       g.style.cssText = `position:absolute;margin:0;left:${moving.from.left - wrap.left}px;top:${moving.from.top - wrap.top}px;width:${moving.from.width}px`;
-      ghostRef.current.append(g);
+      hold(pile, "overflow", "clip");
+      pile.append(g);
       undo.push(() => g.remove());
-      run(g, (f) => ({ opacity: 1 - f, transform: `translateY(${3 * f}px) scale(${1 - 0.015 * f})` }));
+      run(g, (f) => ({ transform: `translateY(${drop * f}px)` }));
     }
     let current = true;
     void Promise.all(running.map((a) => a.finished)).then(
@@ -448,35 +474,61 @@ export function Kudos({
       second one on the heels of the first, must not put away a letter that
       was on screen for a moment. A ref, so two presses in one tick agree. */
   const lockUntil = useRef(0);
+
+  /** Starts the move for the letter on show, measured as it stands now. */
+  function setDown(k: Kudo) {
+    const root = letterRef.current;
+    const note = root?.querySelector<HTMLElement>('[data-testid="kudo-letter"] > [data-testid="kudo-note"]');
+    // A copy of the note, for setting it down in place over the next one.
+    const ghost = (note?.cloneNode(true) as HTMLElement | undefined) ?? null;
+    if (ghost) {
+      ghost.setAttribute("aria-hidden", "true");
+      for (const el of [ghost, ...ghost.querySelectorAll("[data-testid]")]) el.removeAttribute("data-testid");
+    }
+    setMoving({
+      kudo: k,
+      queue: liveRef.current.filter((x) => x.id !== k.id),
+      from: note?.getBoundingClientRect() ?? null,
+      blockH: root?.getBoundingClientRect().height ?? 0,
+      buttonTop: letterButtonRef.current?.getBoundingClientRect().top ?? null,
+      ghost,
+    });
+  }
+
+  // Before paint: the letter that vanished is still on screen, so it is
+  // measured where it stands and set down from there.
+  useLayoutEffect(() => {
+    if (vanished) setDown(vanished);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per vanished letter
+  }, [vanished?.id]);
+
   async function seen() {
     const k = shown;
     if (!k || moving || performance.now() < lockUntil.current) return;
     lockUntil.current = Infinity;
     setAckPending(k.id);
     try {
-      await api("POST", kudoSeenApi(org, slug, k.id));
+      let gone = false;
+      try {
+        await api("POST", kudoSeenApi(org, slug, k.id));
+      } catch (err) {
+        // Withdrawn before it was put away: there is nothing left to mark, so
+        // it is put away all the same, without an error for something already done.
+        if (!(err instanceof ApiError && err.status === 404)) throw err;
+        gone = true;
+      }
       // A refetch already in flight still says unread; it must not land after this.
       await qc.cancelQueries({ queryKey: ["kudos", org, slug] });
       qc.setQueryData<InfiniteData<Kudo[]>>(["kudos", org, slug], (d) =>
-        d && { ...d, pages: d.pages.map((p) => p.map((x) => (x.id === k.id ? { ...x, unread: false } : x))) },
+        d && {
+          ...d,
+          pages: d.pages.map((p) =>
+            gone ? p.filter((x) => x.id !== k.id) : p.map((x) => (x.id === k.id ? { ...x, unread: false } : x)),
+          ),
+        },
       );
       qc.setQueryData<Kudo[]>(["kudos", org, slug, "waiting"], (d) => d?.filter((x) => x.id !== k.id));
-      const root = letterRef.current;
-      const note = root?.querySelector<HTMLElement>('[data-testid="kudo-letter"] > [data-testid="kudo-note"]');
-      // A copy of the note, for setting it down in place over the next one.
-      const ghost = (note?.cloneNode(true) as HTMLElement | undefined) ?? null;
-      if (ghost) {
-        ghost.setAttribute("aria-hidden", "true");
-        for (const el of [ghost, ...ghost.querySelectorAll("[data-testid]")]) el.removeAttribute("data-testid");
-      }
-      setMoving({
-        kudo: k,
-        queue: liveRef.current.filter((x) => x.id !== k.id),
-        from: note?.getBoundingClientRect() ?? null,
-        blockH: root?.getBoundingClientRect().height ?? 0,
-        buttonTop: letterButtonRef.current?.getBoundingClientRect().top ?? null,
-        ghost,
-      });
+      setDown(k);
       setPutAway((a) => [...a, k.id]);
       lockUntil.current = performance.now() + PILL_AT + PILL_MS;
     } catch (err) {
@@ -539,7 +591,7 @@ export function Kudos({
         <p className="mt-3 text-[13px] text-ink-faint">Reading the wall…</p>
       ) : kudos.isError && !kudos.data ? (
         <RailError what="the kudos" onRetry={() => void kudos.refetch()} busy={kudos.isFetching} />
-      ) : all.length === 0 ? (
+      ) : all.length === 0 && !shown ? (
         <p data-testid="kudos-empty" className="mt-3 text-[13px] text-ink-soft text-pretty">
           No kudos yet. The first one is the hardest — say what somebody did and who did it.
         </p>
@@ -916,6 +968,9 @@ function KudoLetter({
           aria-disabled={pending || undefined}
           aria-label={`Put it with the others, ${from}'s thank-you`}
           className={`${smallPill} -ml-2 mt-1 ${held ? "opacity-0" : ready ? "" : "animate-[letter-pill-in_140ms_ease-out_var(--pill-delay)_both]"}`}
+          // A held key repeats long after the lock has lapsed; only the
+          // first keydown of a press may put a letter away.
+          onKeyDown={(e) => e.repeat && e.preventDefault()}
           onClick={onPut}
         >
           <span className={smallPillFace}>Put it with the others</span>

@@ -12,6 +12,8 @@ let older: Kudo[] = [];
 /** When set, a first-page GET answers only once this settles, with the wall as it
     stood when the request was made — a refetch caught in flight. */
 let hold: Promise<void> | null = null;
+/** Kudos the server no longer has: withdrawn by their sender. Seen answers 404 for them. */
+let withdrawn: string[] = [];
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -30,7 +32,10 @@ vi.mock("../lib/api", async () => {
         return snapshot;
       }
       if (path.includes("/kudos?before=") && method === "GET") return older;
-      if (path.endsWith("/seen") && method === "POST") return undefined;
+      if (path.endsWith("/seen") && method === "POST") {
+        if (withdrawn.some((id) => path.endsWith(`/kudos/${id}/seen`))) throw new actual.ApiError(404, "no such kudo");
+        return undefined;
+      }
       throw new Error(`unexpected api call: ${method} ${path}`);
     }),
   };
@@ -58,6 +63,7 @@ beforeEach(() => {
   kudos = [];
   older = [];
   hold = null;
+  withdrawn = [];
 });
 
 describe("Kudos wall", () => {
@@ -862,6 +868,140 @@ describe("Kudos letter", () => {
     await screen.findByTestId("kudo-k1");
     for (let i = 0; i < 5; i++) expect(screen.getByTestId(`kudo-o${i}`)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Show all" })).toBe(null);
+  });
+
+  it("sets a letter withdrawn while it is shown down in place, and focus goes to the heading", async () => {
+    const anim = recordAnimations();
+    try {
+      kudos = [letter("k1")];
+      const { queryClient } = mount();
+      const button = await screen.findByRole("button", { name: putName });
+      await waitFor(() => expect(button.hasAttribute("inert")).toBe(false), { timeout: 1500 });
+      button.focus();
+      // The sender withdraws it; the next refetch no longer has it.
+      kudos = [];
+      await queryClient.invalidateQueries({ queryKey: ["kudos", "acme", "platform-team"] });
+      await new Promise((r) => setTimeout(r, 20));
+      // Not unmounted in one frame: it closes up softly where it is.
+      const block = screen.getByTestId("kudo-letter-block");
+      expect(anim.calls.some((c) => c.el === block && JSON.stringify(c.frames).includes("height"))).toBe(true);
+      expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Kudos" }));
+      anim.finish();
+      await waitFor(() => expect(screen.queryByTestId("kudo-letter-block")).toBe(null));
+      expect(screen.queryByTestId("kudo-k1")).toBe(null);
+      expect(document.activeElement).not.toBe(document.body);
+    } finally {
+      anim.restore();
+    }
+  });
+
+  it("slides a withdrawn letter off the pile when another is waiting, focus staying on the button", async () => {
+    const anim = recordAnimations();
+    try {
+      kudos = [letter("k1"), letter("k2", { text: "Second thanks.", createdAt: "2026-09-03T08:00:00.000Z" })];
+      const { queryClient } = mount();
+      const button = await screen.findByRole("button", { name: putName });
+      await waitFor(() => expect(button.hasAttribute("inert")).toBe(false), { timeout: 1500 });
+      button.focus();
+      kudos = kudos.filter((k) => k.id !== "k1");
+      await queryClient.invalidateQueries({ queryKey: ["kudos", "acme", "platform-team"] });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(within(screen.getByTestId("kudo-letter")).getByTestId("kudo-text").textContent).toBe("Second thanks.");
+      // The withdrawn note is a copy lifted off the top of the pile, not a swap.
+      expect(anim.calls.some((c) => c.el.textContent?.includes("Thanks for k1.") && JSON.stringify(c.frames).includes("translateY"))).toBe(true);
+      expect(document.activeElement).toBe(button);
+    } finally {
+      anim.restore();
+    }
+  });
+
+  it("puts a letter away quietly when the server says it no longer exists", async () => {
+    kudos = [letter("k1")];
+    withdrawn = ["k1"];
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: putName }));
+    await waitFor(() => expect(screen.queryByTestId("kudo-letter-block")).toBe(null));
+    // No error for a kudo that is simply gone, and no row for it either.
+    expect(screen.queryByText(/no such kudo/)).toBe(null);
+    expect(screen.queryByTestId("kudo-k1")).toBe(null);
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Kudos" }));
+  });
+
+  it("puts one letter away, not two, when Enter is held down", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("prefers-reduced-motion") || query.includes("min-width"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+    }));
+    kudos = [
+      letter("k1"),
+      letter("k2", { text: "Second thanks.", createdAt: "2026-09-03T08:00:00.000Z" }),
+      letter("k3", { text: "Third thanks.", createdAt: "2026-09-03T07:00:00.000Z" }),
+    ];
+    mount();
+    const button = await screen.findByRole("button", { name: putName });
+    button.focus();
+    // The first keydown, then the key's own auto-repeat long after the lock has lapsed.
+    await userEvent.keyboard("{Enter>}");
+    await screen.findByTestId("kudo-k1");
+    await new Promise((r) => setTimeout(r, 600));
+    const repeat = new KeyboardEvent("keydown", { key: "Enter", code: "Enter", repeat: true, bubbles: true, cancelable: true });
+    button.dispatchEvent(repeat);
+    // A browser activates a button on an uncancelled Enter keydown; a repeat must be cancelled.
+    expect(repeat.defaultPrevented).toBe(true);
+    await userEvent.keyboard("{/Enter}");
+    const seens = vi.mocked(api).mock.calls.filter((c) => c[0] === "POST" && String(c[1]).endsWith("/seen"));
+    expect(seens).toHaveLength(1);
+    expect(within(screen.getByTestId("kudo-letter")).getByTestId("kudo-text").textContent).toBe("Second thanks.");
+  });
+
+  it("slides a note set down in place off the pile, opaque and clipped, never faded over the next", async () => {
+    const anim = recordAnimations();
+    const rects = placeRows({ k1: 5000 });
+    try {
+      kudos = [letter("k1"), letter("k2", { text: "Second thanks.", createdAt: "2026-09-03T08:00:00.000Z" })];
+      mount();
+      const button = await screen.findByRole("button", { name: putName });
+      await waitFor(() => expect(button.hasAttribute("inert")).toBe(false), { timeout: 1500 });
+      await userEvent.click(button);
+      await screen.findByTestId("kudo-k1");
+      const off = anim.calls.find((c) => c.el.textContent?.includes("Thanks for k1.") && JSON.stringify(c.frames).includes("translateY"));
+      expect(off).toBeTruthy();
+      // Opaque on every frame: no crossfade, so two texts are never overlaid.
+      expect(JSON.stringify(off!.frames)).not.toContain("opacity");
+      // It leaves the slot entirely, downwards: the last frame is at least its own height down.
+      const last = off!.frames[off!.frames.length - 1].transform as string;
+      expect(Number(/translateY\((-?[\d.]+)px\)/.exec(last)![1])).toBeGreaterThanOrEqual(90);
+      // Pushed from rest, then friction, like every other part of the move.
+      expect(off!.frames[0].easing).toBe("cubic-bezier(0.333, 0, 0.667, 0.333)");
+      // Clipped by the letter, so it goes out of the slot rather than over the wall.
+      expect(getComputedStyle(off!.el.parentElement!).overflow).toMatch(/clip|hidden/);
+    } finally {
+      rects.restore();
+      anim.restore();
+    }
+  });
+
+  it("draws no focus ring round the row's empty slot until the note has arrived", async () => {
+    const anim = recordAnimations();
+    const rects = placeRows({ k1: 420 });
+    try {
+      kudos = [letter("k1")];
+      mount();
+      await userEvent.click(await screen.findByRole("button", { name: putName }));
+      const row = await screen.findByTestId("kudo-k1");
+      expect(document.activeElement).toBe(row);
+      expect(row.style.outlineStyle).toBe("none");
+      anim.finish();
+      await waitFor(() => expect(screen.queryByTestId("kudo-letter-block")).toBe(null));
+      expect(row.style.outlineStyle).toBe("");
+    } finally {
+      rects.restore();
+      anim.restore();
+    }
   });
 
   it("has no axe violations with letters waiting", async () => {
