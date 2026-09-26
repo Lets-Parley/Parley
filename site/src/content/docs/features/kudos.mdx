@@ -28,9 +28,10 @@ same row in the same table, and it lands on the space wall immediately, still
 carrying the session it was given in.
 
 A kudo addressed to you is handed to you rather than listed: "Dana thanked
-**you**", with the words set on a raised note and signed "— Dana" underneath,
-behind a brass edge and a light wash. It looks the same on the wall and in the
-standup's closing list. There is one note per kudo and nothing on it is
+**you**", with the words set on a raised note and signed "— Dana" underneath.
+In the standup's closing list it sits behind a brass edge and a light wash; on
+the wall, the edge and the wash are kept for a letter still waiting (below), so
+the one you have not read leads the ones you have. There is one note per kudo and nothing on it is
 counted. One you sent reads "You thanked Sam". The wall shows its five newest
 and folds the rest behind **Show all**, but never folds one addressed to you.
 A guest is never handed a note, because a guest is never a recipient.
@@ -59,7 +60,8 @@ both times — are drowned out by volume.
 So the constraint is built low, where a future redesign has to argue with it
 rather than route around it. The `kudos` table has no count column and there is
 no aggregate endpoint; the only read the store offers is "this space's kudos,
-newest first", a hundred at a time. The migration that creates
+newest first", a hundred at a time — and, for the recipient alone, which of
+those are still unread. The migration that creates
 the table says so in a comment, in as many words: adding a count column means
 arguing with that paragraph first. A UI rule can be relaxed in an afternoon by
 somebody who never heard the argument. A schema cannot.
@@ -93,17 +95,25 @@ not retract the votes cast in it.
 A kudo given on the wall while you are elsewhere is not left to chance. The
 next time you open the space, it is waiting above the wall under the words
 **Waiting for you**, as a signed letter: the sender's words, and their name at
-the foot, with the same gold edge as every kudo to you. It lands once; with
-reduced motion it simply appears. **Put it with the others** marks it read, and
-the note slides down into its place on the wall — by date, so under anything
-newer — as an ordinary kudo to you. Focus follows it there, or to the next
-letter if another is waiting. Nothing about it is modal.
+the foot, on the gold edge and light wash that only a waiting letter carries.
+It is found however long you have been away — a letter older than the wall's
+first hundred rows still waits. It lands once; with reduced motion it simply
+appears. The letter on show stays until you put it away: one arriving while
+you read does not take its place.
+
+**Put it with the others** marks it read. If its place on the wall — by date,
+so under anything newer — is on screen, the note slides down into it; if it is
+further down the page, the note is set down where it is and takes its place in
+the list without the page moving. Either way, when another letter is waiting
+the label and the button stay exactly where they are and the next note is
+already underneath, and focus stays on the button. When it was the last, focus
+goes to the kudo in the wall. A letter arriving while a note is on its way is
+held back until the note has come to rest. Nothing about it is modal.
 
 When more than one is waiting, the edge of one more sheet shows under the note.
 It looks the same for two as for thirty and carries no number — how many people
 thanked you is not a count the wall keeps. A screen reader hears "Another is
-waiting after this one", also without a number. The next letter lands only
-once the one you put away has come to rest.
+waiting after this one", also without a number.
 
 Whether a kudo has been read is the recipient's alone. The wall tells you which
 of yours are unread and tells nobody else anything: the sender never learns
