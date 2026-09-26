@@ -286,11 +286,14 @@ export function Kudos({
   const isLetter = (k: Kudo) =>
     letterIds.has(k.id) || (k.toUserId === meId && !!k.unread && !putAway.includes(k.id));
   const rows = all.filter((k) => !isLetter(k));
-  // A kudo addressed to you is never folded: it is the one you came for.
-  const visible = showAll ? rows : rows.filter((k, i) => i < SHOWN || k.toUserId === meId);
-  // Whether the fold hides anything: rows past it that are all yours stay
-  // shown, and a Show all that reveals nothing is a dead control.
-  const folds = rows.some((k, i) => i >= SHOWN && k.toUserId !== meId);
+  // A kudo addressed to you is never folded: it is the one you came for. So the
+  // fold counts only the others — putting a letter away adds a row of yours,
+  // and that must never push somebody else's kudo behind Show all.
+  const others = rows.filter((k) => k.toUserId !== meId);
+  const folded = new Set(others.slice(SHOWN).map((k) => k.id));
+  const visible = showAll ? rows : rows.filter((k) => !folded.has(k.id));
+  // A Show all that reveals nothing is a dead control.
+  const folds = folded.size > 0;
   const who = (id: string, you: string) => (id === meId ? you : nameOf(id));
 
   async function give(e: FormEvent) {

@@ -847,6 +847,23 @@ describe("Kudos letter", () => {
     expect(seenAs[0]).toBe(seenAs[1]);
   });
 
+  it("never changes which other kudos are shown when a letter is put away", async () => {
+    // The letter is the newest; five others fill the fold exactly. Putting the
+    // letter away adds a row addressed to you, which is never folded, so it
+    // must not push the fifth of the others behind Show all.
+    kudos = [
+      letter("k1", { createdAt: "2026-09-03T10:00:00.000Z" }),
+      ...Array.from({ length: 5 }, (_, i) => letter(`o${i}`, { toUserId: "sam", unread: undefined })),
+    ];
+    mount();
+    await screen.findByTestId("kudo-o4");
+    expect(screen.queryByRole("button", { name: "Show all" })).toBe(null);
+    await userEvent.click(await screen.findByRole("button", { name: putName }));
+    await screen.findByTestId("kudo-k1");
+    for (let i = 0; i < 5; i++) expect(screen.getByTestId(`kudo-o${i}`)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Show all" })).toBe(null);
+  });
+
   it("has no axe violations with letters waiting", async () => {
     kudos = [letter("k1"), letter("k2")];
     const { container } = mount();
