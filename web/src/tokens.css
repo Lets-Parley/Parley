@@ -388,14 +388,11 @@ a {
 }
 /* A waiting kudo letter. Its paper fades in over the note's own first frames
    (6.3% of note-set-down's 790ms), so the wash and the pip edge are never on
-   screen without the note on them; the button to put it away waits until the
-   note has touched down (37.9%, about 300ms), so it never sits on an empty card. */
+   screen without the note on them. The button to put it away comes in once the
+   note has touched down (37.9%, about 300ms), so it never sits on an empty
+   card, and it cannot be reached until it has. */
 @keyframes letter-in { from { opacity: 0 } to { opacity: 1 } }
-@keyframes letter-pill-in {
-  0%, 37.9% { opacity: 0 }
-  56%       { opacity: 1 }
-  100%      { opacity: 1 }
-}
+@keyframes letter-pill-in { from { opacity: 0 } to { opacity: 1 } }
 /* A landed commitment leaving the carry-over list. It holds still long enough
    to be read, then lifts away, so the person sees which row left rather than
    the list silently reflowing under them. Reduced motion kills it below, and
