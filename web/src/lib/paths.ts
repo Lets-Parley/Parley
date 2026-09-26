@@ -51,6 +51,11 @@ export function kudosApi(org: string, slug: string): string {
   return `${spaceApi(org, slug)}/kudos`;
 }
 
+/** The recipient putting a kudo with the others: marks it read. */
+export function kudoSeenApi(org: string, slug: string, id: string): string {
+  return `${kudosApi(org, slug)}/${id}/seen`;
+}
+
 /** The SPA route for the operator's plugin administration surface. */
 export function pluginsPath(org: string): string {
   return `/o/${org}/admin/plugins`;
