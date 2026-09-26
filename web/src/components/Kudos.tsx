@@ -624,7 +624,11 @@ export function Kudos({
                   key={k.id}
                   data-testid={`kudo-${k.id}`}
                   data-to-me
-                  tabIndex={putAway.includes(k.id) ? -1 : undefined}
+                  // Always focusable, not only once put away here: a letter
+                  // read in another tab never runs through putAway, and the
+                  // move that sets it down still needs somewhere real to send
+                  // focus. -1 keeps it out of the tab order either way.
+                  tabIndex={-1}
                   // No wash and no edge once read: the waiting letter alone
                   // carries the full treatment, and a read one is its note.
                   className="flex pt-2.5 pb-3"

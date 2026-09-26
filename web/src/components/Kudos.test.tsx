@@ -895,6 +895,29 @@ describe("Kudos letter", () => {
     }
   });
 
+  it("keeps focus on the page when the shown letter is read elsewhere", async () => {
+    const anim = recordAnimations();
+    try {
+      kudos = [letter("k1")];
+      const { queryClient } = mount();
+      const button = await screen.findByRole("button", { name: putName });
+      await waitFor(() => expect(button.hasAttribute("inert")).toBe(false), { timeout: 1500 });
+      button.focus();
+      // Read in another tab: the wall already shows it as read, so the
+      // waiting query (filtered by unread) drops it without ever going
+      // through this tab's own putAway.
+      kudos = [letter("k1", { unread: false })];
+      await queryClient.invalidateQueries({ queryKey: ["kudos", "acme", "platform-team"] });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(document.activeElement).not.toBe(document.body);
+      anim.finish();
+      await waitFor(() => expect(screen.queryByTestId("kudo-letter-block")).toBe(null));
+      expect(document.activeElement).not.toBe(document.body);
+    } finally {
+      anim.restore();
+    }
+  });
+
   it("slides a withdrawn letter off the pile when another is waiting, focus staying on the button", async () => {
     const anim = recordAnimations();
     try {
