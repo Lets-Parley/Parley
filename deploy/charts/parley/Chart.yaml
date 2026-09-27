@@ -1,6 +1,6 @@
 apiVersion: v2
 name: parley
-description: Planning poker and daily standups for your team, at your table.
+description: Self-hosted planning poker, daily standups and kudos for your team, at your table.
 type: application
 home: https://www.letsparley.io
 sources:

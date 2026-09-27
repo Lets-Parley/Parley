@@ -1,7 +1,8 @@
 # Parley
 
-**Planning poker and daily standups for your team, at your table.** Self-hosted,
-open source, no accounts, no fuss.
+**Planning poker, daily standups and kudos for your team, at your table — plus a
+retrospective as a plugin.** Self-hosted and open source: one Go binary and
+Postgres. No account needed in open mode; sign in through OIDC when you want one.
 
 [![ci](https://github.com/lets-parley/parley/actions/workflows/ci.yml/badge.svg)](https://github.com/lets-parley/parley/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)

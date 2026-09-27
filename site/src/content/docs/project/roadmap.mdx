@@ -67,19 +67,6 @@ Tracking: [#388](https://github.com/lets-parley/parley/issues/388)
 
 ## Later
 
-### A plugin system
-
-Extend Parley without forking it — integrations, meeting notes, themes, and whole
-ceremonies, installed by the operator and running under capability grants they
-approve. Plugin code would be sandboxed WebAssembly with no sockets and no
-database access, reaching everything through a host function that checks the
-grant first.
-
-The extensible core shipped ([#8](https://github.com/lets-parley/parley/issues/8));
-this is the layer on top of it.
-
-Tracking: [#9](https://github.com/lets-parley/parley/issues/9)
-
 ### A parking lot with an owner and a clock
 
 "Let's take that offline" is the most-spoken and least-honoured sentence in any
@@ -89,11 +76,12 @@ until somebody deals with it.
 
 ### The rest of the ceremonies
 
-Retrospectives with grouping and dot voting, action items that outlive the
-meeting, user story mapping, a sprint board, team health checks.
+User story mapping, a sprint board, team health checks. Retrospectives with
+grouping, dot voting and action items already ship as a
+[plugin](/features/retrospective/).
 
-Some of these will arrive as plugins rather than core features, which is rather
-the point of the plugin system above.
+Most of these will arrive as plugins rather than core features, which is rather
+the point of the plugin system.
 
 ### A collaborative whiteboard
 

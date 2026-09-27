@@ -572,7 +572,7 @@ export function Landing() {
             and their list should not sit below an advertisement for it. */}
         {!settling && stranger && !guestRoomId && (
           <p className="max-w-[68ch] text-pretty text-ink-soft">
-            Planning poker and daily standups for your team, at your table. A space
+            Planning poker, daily standups and kudos for your team, at your table. A space
             is a room your team keeps — name one, share the link, start a round.
             Self-hosted: one binary, your database, no seat counts.
           </p>
