@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
+import starlightLlmsTxt from "starlight-llms-txt";
 import { mdastVersion } from "./src/mdast-version.mjs";
 
 const description =
@@ -32,6 +33,18 @@ export default defineConfig({
     },
     starlight({
       title: "Parley",
+      plugins: [
+        starlightLlmsTxt({
+          details:
+            "Parley is open source (MIT), one Go binary plus Postgres, run by the team that uses it; there is no hosted service. " +
+            "Planning poker, daily standup and kudos are built in. The retrospective is a WebAssembly plugin: it is not in the image " +
+            "or chart, and an operator builds it and installs it into PLUGIN_DIR. There is no public plugin registry and no " +
+            "signature verification. Open mode (the default) asks only for a name; OIDC mode signs people in through an " +
+            "identity provider; guest links admit one person to one room for 24 hours. Organizations are flat: no nested " +
+            "or parent/child orgs. The Google Meet add-on is deployed by the operator in their own Workspace and needs https.",
+          promote: ["index*", "quickstart*", "features/**", "known-limitations*"],
+        }),
+      ],
       logo: { src: "./src/assets/logo.svg" },
       favicon: "/favicon.svg",
       description,
