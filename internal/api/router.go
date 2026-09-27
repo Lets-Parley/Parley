@@ -658,6 +658,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 				r.Get("/", a.handleListKudos)
 				r.Post("/", a.handleGiveKudo)
 				r.Delete("/{id}", a.handleWithdrawKudo)
+				r.Post("/{id}/seen", a.handleSeenKudo)
 			})
 
 			// Managing the space itself is owner-only, and the middleware

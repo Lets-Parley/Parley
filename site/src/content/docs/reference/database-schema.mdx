@@ -225,6 +225,7 @@ function — a second copy in SQL would be a copy that drifts.
 | `text` | text | 1–280 characters |
 | `session_id` | uuid | Nullable, references `sessions`, **`on delete set null`** — deleting the room must not erase the thank-you |
 | `created_at` | timestamptz | Indexed with `space_id`, descending: the only read is one space's kudos, newest first |
+| `seen_at` | timestamptz | Nullable, no default. When the recipient read it; null is unread. Shown only to the recipient, never aggregated, never exported. Rows that existed before 0044 were backfilled as read |
 
 A note from one member of a space to another. One table serves both surfaces —
 the space's kudos wall and a standup's closing beat — so a kudo given in a room
