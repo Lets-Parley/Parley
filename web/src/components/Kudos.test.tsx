@@ -14,6 +14,8 @@ let older: Kudo[] = [];
 let hold: Promise<void> | null = null;
 /** Kudos the server no longer has: withdrawn by their sender. Seen answers 404 for them. */
 let withdrawn: string[] = [];
+/** When set, the waiting read answers this instead of a list: a proxy error page, say. */
+let waitingBody: unknown = undefined;
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -27,6 +29,7 @@ vi.mock("../lib/api", async () => {
       }
       // The caller's own unread kudos, from every page of the wall.
       if (path.endsWith("/kudos?waiting=1") && method === "GET") {
+        if (waitingBody !== undefined) return waitingBody;
         const snapshot = [...kudos, ...older].filter((k) => k.toUserId === "marcus" && k.unread);
         if (hold) await hold;
         return snapshot;
@@ -64,9 +67,17 @@ beforeEach(() => {
   older = [];
   hold = null;
   withdrawn = [];
+  waitingBody = undefined;
 });
 
 describe("Kudos wall", () => {
+  it("treats a waiting read that is not a list as no letters, rather than crashing the wall", async () => {
+    waitingBody = { error: "not a list" };
+    mount();
+    expect(await screen.findByTestId("kudos-empty")).toBeTruthy();
+    expect(screen.queryByLabelText("A thank-you waiting for you")).toBe(null);
+  });
+
   it("says something useful when nobody has been thanked yet", async () => {
     mount();
     expect(await screen.findByTestId("kudos-empty")).toBeTruthy();

@@ -175,7 +175,12 @@ export function Kudos({
   // away needs to be handed.
   const waiting = useQuery({
     queryKey: ["kudos", org, slug, "waiting"],
-    queryFn: () => api<Kudo[]>("GET", `${kudosApi(org, slug)}?waiting=1`),
+    // Anything but a list (a proxy's error page, say) is read as no letters
+    // rather than handed to a render that would throw on it.
+    queryFn: async () => {
+      const got = await api<Kudo[]>("GET", `${kudosApi(org, slug)}?waiting=1`);
+      return Array.isArray(got) ? got : [];
+    },
     retry: false,
   });
 

@@ -53,9 +53,10 @@ vi.mock("../lib/api", async () => {
         schedule = body;
         return { schedule: body };
       }
-      // The space page's kudos wall reads a list; answering it with the space
-      // view crashes the wall if the read lands before the test unmounts.
-      if (method === "GET" && path.endsWith("/kudos")) return [];
+      // The space page's kudos wall reads two lists, the wall and the letters
+      // waiting for the viewer; answering either with the space view crashes
+      // the wall if the read lands before the test unmounts.
+      if (method === "GET" && /\/kudos(\?waiting=1)?$/.test(path)) return [];
       if (method === "GET" && path.startsWith("/api/orgs/acme/spaces/")) return view;
       calls.push([method, path, body]);
       return undefined;
