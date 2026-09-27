@@ -6,7 +6,7 @@ description: Everything Parley does not do, in one place, with the workaround wh
 import VerifiedStamp from "../../components/VerifiedStamp.astro";
 import Capability from "../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/db/db.go", "cmd/parley/main.go", "ROADMAP.md", "internal/api", "internal/api/metrics.go", "internal/hub/hub.go", "internal/poker/routes.go", ".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/dependabot.yml"]} />
+<VerifiedStamp version="unreleased" source={["internal/db/db.go", "cmd/parley/main.go", "ROADMAP.md", "plugins/retrospective", "internal/api", "internal/api/metrics.go", "internal/hub/hub.go", "internal/poker/routes.go", ".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/dependabot.yml"]} />
 
 Every gap in the product, collected, so that the rest of this documentation is
 worth believing. Read it before you deploy, not after.
@@ -77,7 +77,8 @@ accepted and actionable.
 ## Product
 
 <Capability rows={[
-  { name: "Retrospectives, story mapping, and other ceremonies", status: "not-built", detail: "Poker and standup are the two session kinds. The rest is roadmap, and much of it is waiting on session kinds becoming a real extension point." },
+  { name: "Story mapping, a sprint board, and other ceremonies", status: "not-built", detail: "Poker and standup are the two core session kinds, and a retrospective ships as a plugin. The rest is roadmap; most of it is expected to arrive as plugins." },
+  { name: "A preinstalled retrospective", status: "not-built", detail: "The retrospective is a plugin, not part of the image or the chart. An operator builds it, puts it in <code>PLUGIN_DIR</code>, and installs and enables it for an org. See <a href=\"/features/retrospective/\">Retrospective</a>." },
   { name: "A verified mobile layout", status: "not-built", detail: "Foundation in progress (<a href=\"https://github.com/Lets-Parley/Parley/pull/475\">#475</a>): named breakpoints, touch targets on key controls, and safe-area insets on the shell and hand. Participant voting is the first-class mobile target; standup, settings, and facilitator workflows are not yet verified on a handset." },
   { name: "Custom decks", status: "built", detail: "Four built-in decks, plus any a space owner saves under Settings → Decks. A saved deck is a template: a session copies the cards when it is created, so editing or deleting a deck leaves existing rooms alone. Sharing a deck between spaces is not built. See <a href='/features/planning-poker/#decks-of-your-own'>Planning poker</a>." },
   { name: "Configurable standup timer", status: "not-built", detail: "The server takes a <code>secondsPerPerson</code> value but no UI sets it, so 90 seconds is effectively fixed." },

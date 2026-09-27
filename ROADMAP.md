@@ -123,20 +123,6 @@ a signed webhook, not email.
 
 Accepted direction, not currently scheduled.
 
-### A plugin system
-
-Extend Parley without forking it — integrations, AI features, meeting notes,
-themes, and whole ceremonies, installed by the operator and running under
-capability grants they approve. Plugin code is sandboxed WebAssembly with no
-sockets and no database access; everything it reaches goes through a host
-function that checks the grant first.
-
-The extensible core shipped ([#8](https://github.com/lets-parley/parley/issues/8));
-this is the layer on top of it.
-
-- Status: Backlog
-- Tracking: [#9](https://github.com/lets-parley/parley/issues/9)
-
 ### A parking lot with an owner and a clock
 
 "Let's take that offline" is the most-spoken and least-honoured sentence in any
@@ -189,15 +175,17 @@ and the less-used one quietly rots.
 
 ### The rest of the ceremonies
 
-Retrospectives with grouping and dot voting, action items that outlive the
-meeting, user story mapping, a sprint board, team health checks.
+User story mapping, a sprint board, team health checks. Retrospectives with
+grouping, dot voting and action items already ship as a plugin
+([#21](https://github.com/lets-parley/parley/issues/21)).
 The meetings a delivery team already runs, in the tool they already have open.
 
-Some of these will arrive as plugins rather than core features, which is rather
-the point of the plugin system above.
+Most of these will arrive as plugins rather than core features, which is rather
+the point of the plugin system
+([#9](https://github.com/lets-parley/parley/issues/9)).
 
 Several of the Exploring ideas below — issue sync, chat integrations, meeting
-recaps — are likely to become plugins once that system exists.
+recaps — are likely to become plugins too.
 
 - Status: Backlog
 
@@ -251,6 +239,12 @@ Ideas under consideration, not committed to.
 
 ### Unreleased
 
+- A plugin system: sandboxed WebAssembly plugins running under capability
+  grants the operator approves, able to add whole ceremonies
+  ([#9](https://github.com/lets-parley/parley/issues/9))
+- A retrospective, delivered entirely as a plugin, with hidden authorship,
+  grouping, dot voting and action items; operators install it
+  ([#21](https://github.com/lets-parley/parley/issues/21))
 - Parley runs inside Google Meet as an add-on, turned on by the operator: people vote
   from the side panel, the facilitator puts the board on the main stage, and a
   read-only presenter view works as a screen share in any meeting tool
