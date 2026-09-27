@@ -4,7 +4,7 @@ import starlight from "@astrojs/starlight";
 import { mdastVersion } from "./src/mdast-version.mjs";
 
 const description =
-  "Planning poker and daily standups for your team, at your table. " +
+  "Planning poker, daily standups, kudos and retrospectives for your team, at your table. " +
   "Self-hosted, open source, one Go binary and a Postgres database.";
 
 export default defineConfig({
@@ -37,7 +37,7 @@ export default defineConfig({
       description,
       head: [
         { tag: "meta", attrs: { property: "og:image", content: "https://www.letsparley.io/og.png" } },
-        { tag: "meta", attrs: { property: "og:image:alt", content: "Parley — planning poker and daily standups, self-hosted" } },
+        { tag: "meta", attrs: { property: "og:image:alt", content: "Parley — self-hosted planning poker, standups and retros" } },
         { tag: "meta", attrs: { name: "twitter:card", content: "summary_large_image" } },
         { tag: "meta", attrs: { name: "twitter:image", content: "https://www.letsparley.io/og.png" } },
       ],
