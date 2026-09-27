@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -21,7 +24,16 @@ var (
 	// roster — an outsider, or a link guest, who holds a users row but no
 	// members row. Guests neither send nor receive.
 	ErrNotAMember = errors.New("sender and recipient must both be members of this space")
+	// ErrAnswered is a second answer to a kudo. There is no edit: an answer
+	// is withdrawn and given again.
+	ErrAnswered = errors.New("this kudo already has an answer")
+	// ErrBadAnswer is an answer that is empty or longer than MaxAnswerRunes.
+	ErrBadAnswer = errors.New("an answer is between 1 and 80 characters")
 )
+
+// MaxAnswerRunes matches the check in 0045_kudo_answers.sql, counted in runes
+// as Postgres's char_length counts them.
+const MaxAnswerRunes = 80
 
 // kudoPage is how many kudos one page of the wall holds. A var so tests can
 // page a handful of rows instead of inserting a hundred.
@@ -36,6 +48,9 @@ type Kudo struct {
 	Text       string    `json:"text"`
 	SessionID  string    `json:"sessionId,omitempty"`
 	CreatedAt  time.Time `json:"createdAt"`
+	// Answer is the recipient's one line back, public like the kudo. Absent,
+	// never empty, when there is none: nothing marks a kudo "unanswered".
+	Answer string `json:"answer,omitempty"`
 	// Unread is never serialised here: the API shows it to the recipient
 	// alone, so the sender never learns a kudo was read.
 	Unread bool `json:"-"`
@@ -45,17 +60,20 @@ type Kudos struct {
 	Pool *pgxpool.Pool
 }
 
-const kudoCols = "id, from_user_id, to_user_id, text, session_id, created_at, seen_at is null"
+const kudoCols = "id, from_user_id, to_user_id, text, session_id, created_at, seen_at is null, answer"
 
 func scanKudo(row pgx.Row) (Kudo, error) {
 	var k Kudo
-	var session *string
-	err := row.Scan(&k.ID, &k.FromUserID, &k.ToUserID, &k.Text, &session, &k.CreatedAt, &k.Unread)
+	var session, answer *string
+	err := row.Scan(&k.ID, &k.FromUserID, &k.ToUserID, &k.Text, &session, &k.CreatedAt, &k.Unread, &answer)
 	if errors.Is(err, pgx.ErrNoRows) || isMalformedUUID(err) {
 		return Kudo{}, ErrNoKudo
 	}
 	if session != nil {
 		k.SessionID = *session
+	}
+	if answer != nil {
+		k.Answer = *answer
 	}
 	return k, err
 }
@@ -233,6 +251,74 @@ func (s *Kudos) MarkSeen(ctx context.Context, spaceID, id, userID string) error 
 	}
 	if err != nil {
 		return fmt.Errorf("marking a kudo seen: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNoKudo
+	}
+	return nil
+}
+
+// kudoDB is a pool or a transaction: the wall answers on the pool, the standup
+// action inside the session row's transaction.
+type kudoDB interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+// Answer records the recipient's one line back to a kudo in this space. It
+// writes only an unanswered kudo addressed to userID, so a second answer is
+// ErrAnswered, and a kudo that is not there — withdrawn mid-request, another
+// space's, or not the caller's — is ErrNoKudo.
+func (s *Kudos) Answer(ctx context.Context, spaceID, id, userID, text string) error {
+	return s.AnswerIn(ctx, s.Pool, spaceID, id, userID, text)
+}
+
+// AnswerIn is Answer on a transaction the caller holds.
+func (s *Kudos) AnswerIn(ctx context.Context, db kudoDB, spaceID, id, userID, text string) error {
+	text = strings.TrimSpace(text)
+	if text == "" || utf8.RuneCountInString(text) > MaxAnswerRunes {
+		return ErrBadAnswer
+	}
+	tag, err := db.Exec(ctx,
+		"update kudos set answer = $4, answered_at = now() where space_id = $1 and id = $2 and to_user_id = $3 and answer is null",
+		spaceID, id, userID, text)
+	if isMalformedUUID(err) {
+		return ErrNoKudo
+	}
+	if err != nil {
+		return fmt.Errorf("answering a kudo: %w", err)
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+	var answered bool
+	err = db.QueryRow(ctx,
+		"select true from kudos where space_id = $1 and id = $2 and to_user_id = $3", spaceID, id, userID).Scan(&answered)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNoKudo
+	}
+	if err != nil {
+		return fmt.Errorf("answering a kudo: %w", err)
+	}
+	return ErrAnswered
+}
+
+// Unanswer withdraws the recipient's answer. Scoped like Answer; clearing an
+// answer that is already gone is not an error.
+func (s *Kudos) Unanswer(ctx context.Context, spaceID, id, userID string) error {
+	return s.UnanswerIn(ctx, s.Pool, spaceID, id, userID)
+}
+
+// UnanswerIn is Unanswer on a transaction the caller holds.
+func (s *Kudos) UnanswerIn(ctx context.Context, db kudoDB, spaceID, id, userID string) error {
+	tag, err := db.Exec(ctx,
+		"update kudos set answer = null, answered_at = null where space_id = $1 and id = $2 and to_user_id = $3",
+		spaceID, id, userID)
+	if isMalformedUUID(err) {
+		return ErrNoKudo
+	}
+	if err != nil {
+		return fmt.Errorf("withdrawing an answer: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNoKudo

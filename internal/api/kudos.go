@@ -168,6 +168,72 @@ func (a *app) handleWithdrawKudo(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleAnswerKudo is the recipient's one line back. Read first, like
+// withdraw, so another space's id is a 404 and anyone but the recipient a 403.
+// There is no edit: an answered kudo is a 409 until the answer is withdrawn.
+func (a *app) handleAnswerKudo(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Text string `json:"text"`
+	}
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
+		return
+	}
+	kudo, ok := a.recipientsKudo(w, r)
+	if !ok {
+		return
+	}
+	p, _ := PrincipalFrom(r.Context())
+	switch err := a.kudos.Answer(r.Context(), spaceFrom(r.Context()).ID, kudo.ID, p.UserID, body.Text); {
+	case err == nil:
+		w.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, store.ErrBadAnswer):
+		http.Error(w, `{"error":"an answer is between 1 and 80 characters"}`, http.StatusBadRequest)
+	case errors.Is(err, store.ErrAnswered):
+		http.Error(w, `{"error":"this kudo already has an answer; withdraw it first"}`, http.StatusConflict)
+	case errors.Is(err, store.ErrNoKudo):
+		// Withdrawn by its sender while this request was in flight.
+		http.Error(w, `{"error":"no such kudo"}`, http.StatusNotFound)
+	default:
+		http.Error(w, `{"error":"could not save your answer"}`, http.StatusInternalServerError)
+	}
+}
+
+// handleUnanswerKudo withdraws the recipient's answer.
+func (a *app) handleUnanswerKudo(w http.ResponseWriter, r *http.Request) {
+	kudo, ok := a.recipientsKudo(w, r)
+	if !ok {
+		return
+	}
+	p, _ := PrincipalFrom(r.Context())
+	// A kudo withdrawn in between took the answer with it.
+	if err := a.kudos.Unanswer(r.Context(), spaceFrom(r.Context()).ID, kudo.ID, p.UserID); err != nil && !errors.Is(err, store.ErrNoKudo) {
+		http.Error(w, `{"error":"could not withdraw your answer"}`, http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// recipientsKudo reads the {id} kudo in this space and answers 404 or 403
+// itself unless the caller is its recipient.
+func (a *app) recipientsKudo(w http.ResponseWriter, r *http.Request) (store.Kudo, bool) {
+	p, _ := PrincipalFrom(r.Context())
+	kudo, err := a.kudos.Get(r.Context(), spaceFrom(r.Context()).ID, chi.URLParam(r, "id"))
+	if errors.Is(err, store.ErrNoKudo) {
+		http.Error(w, `{"error":"no such kudo"}`, http.StatusNotFound)
+		return kudo, false
+	}
+	if err != nil {
+		http.Error(w, `{"error":"could not load kudo"}`, http.StatusInternalServerError)
+		return kudo, false
+	}
+	if kudo.ToUserID != p.UserID {
+		http.Error(w, `{"error":"only the recipient can answer a kudo"}`, http.StatusForbidden)
+		return kudo, false
+	}
+	return kudo, true
+}
+
 // writeKudoError turns the store's refusals into answers a client can act on
 // and reports whether it wrote one. A recipient who is not on the roster — an
 // outsider or a link guest — is the caller's mistake, not the server's, so it

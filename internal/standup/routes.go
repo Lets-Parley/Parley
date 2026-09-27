@@ -51,6 +51,9 @@ func actions() map[string]session.Action {
 		// file speaks to deliberately unions in link guests, who may neither
 		// send a kudo nor receive one.
 		"kudo": {Verb: http.MethodPost, Do: giveKudo},
+		// The recipient's one line back, or its withdrawal. Refused to a link
+		// guest inside Do, for the reason given on "kudo".
+		"answerKudo": {Verb: http.MethodPost, Do: answerKudo},
 	}
 }
 

@@ -113,6 +113,8 @@ type WireKudo struct {
 	FromUserID string `json:"fromUserId"`
 	ToUserID   string `json:"toUserId"`
 	Text       string `json:"text"`
+	// Answer is the recipient's one line back, public like the kudo.
+	Answer string `json:"answer,omitempty"`
 }
 
 // WireChange is one commitment this standup moved: answered as landed,
@@ -327,7 +329,7 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	// which is how the closing beat reads. The wall reads the same rows the
 	// other way round for its own surface.
 	krows, err := pool.Query(ctx, `
-		select id::text, from_user_id::text, to_user_id::text, text
+		select id::text, from_user_id::text, to_user_id::text, text, coalesce(answer, '')
 		from kudos where session_id = $1 order by created_at, id`, sess.ID)
 	if err != nil {
 		return nil, err
@@ -335,7 +337,7 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	defer krows.Close()
 	for krows.Next() {
 		var k WireKudo
-		if err := krows.Scan(&k.ID, &k.FromUserID, &k.ToUserID, &k.Text); err != nil {
+		if err := krows.Scan(&k.ID, &k.FromUserID, &k.ToUserID, &k.Text, &k.Answer); err != nil {
 			return nil, err
 		}
 		st.Kudos = append(st.Kudos, k)

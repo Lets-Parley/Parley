@@ -379,3 +379,73 @@ func TestKudoWaitingForIsOnePersonsUnreadInOneSpace(t *testing.T) {
 		t.Fatalf("a malformed user id: %v, want an empty answer", err)
 	}
 }
+
+// An answer is the recipient's, one per kudo, and 80 characters counted the
+// way Postgres counts them. There is no edit: a second answer is ErrAnswered
+// until the first is withdrawn.
+func TestKudoAnswerIsTheRecipientsOnce(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	sess, members := newSession(t, pool, "Ada", "Bo", "Cy")
+	kudos := &Kudos{Pool: pool}
+	k, err := kudos.Create(ctx, sess.SpaceID, members[0].ID, members[1].ID, "thanks", "", testKudoCap)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, uid := range map[string]string{"sender": members[0].ID, "bystander": members[2].ID} {
+		if err := kudos.Answer(ctx, sess.SpaceID, k.ID, uid, "hi"); !errors.Is(err, ErrNoKudo) {
+			t.Fatalf("%s answer: got %v, want ErrNoKudo", name, err)
+		}
+	}
+	for _, bad := range []string{"   ", strings.Repeat("い", 81)} {
+		if err := kudos.Answer(ctx, sess.SpaceID, k.ID, members[1].ID, bad); !errors.Is(err, ErrBadAnswer) {
+			t.Fatalf("answer %q: got %v, want ErrBadAnswer", bad, err)
+		}
+	}
+	if err := kudos.Answer(ctx, sess.SpaceID, k.ID, members[1].ID, "  "+strings.Repeat("い", 80)+" "); err != nil {
+		t.Fatalf("80-rune answer: %v", err)
+	}
+	if err := kudos.Answer(ctx, sess.SpaceID, k.ID, members[1].ID, "again"); !errors.Is(err, ErrAnswered) {
+		t.Fatalf("second answer: got %v, want ErrAnswered", err)
+	}
+	got, err := kudos.Get(ctx, sess.SpaceID, k.ID)
+	if err != nil || got.Answer != strings.Repeat("い", 80) {
+		t.Fatalf("answer = %q (%v), want the trimmed 80 runes", got.Answer, err)
+	}
+
+	if err := kudos.Unanswer(ctx, sess.SpaceID, k.ID, members[0].ID); !errors.Is(err, ErrNoKudo) {
+		t.Fatalf("sender unanswer: got %v, want ErrNoKudo", err)
+	}
+	if err := kudos.Unanswer(ctx, sess.SpaceID, k.ID, members[1].ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := kudos.Answer(ctx, sess.SpaceID, k.ID, members[1].ID, "changed my mind"); err != nil {
+		t.Fatalf("answer after withdraw: %v", err)
+	}
+}
+
+// A kudo withdrawn while its recipient is answering takes the answer with it,
+// and the answer is ErrNoKudo rather than a write to nothing.
+func TestKudoAnswerRacesAWithdraw(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	sess, members := newSession(t, pool, "Ada", "Bo")
+	kudos := &Kudos{Pool: pool}
+	k, err := kudos.Create(ctx, sess.SpaceID, members[0].ID, members[1].ID, "thanks", "", testKudoCap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := kudos.Delete(ctx, k.ID, members[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := kudos.Answer(ctx, sess.SpaceID, k.ID, members[1].ID, "thank you"); !errors.Is(err, ErrNoKudo) {
+		t.Fatalf("answer after withdraw: got %v, want ErrNoKudo", err)
+	}
+	if err := kudos.Answer(ctx, sess.SpaceID, "not-a-uuid", members[1].ID, "hi"); !errors.Is(err, ErrNoKudo) {
+		t.Fatalf("malformed id: got %v, want ErrNoKudo", err)
+	}
+	if err := kudos.Answer(ctx, "00000000-0000-0000-0000-000000000000", k.ID, members[1].ID, "hi"); !errors.Is(err, ErrNoKudo) {
+		t.Fatalf("other space: got %v, want ErrNoKudo", err)
+	}
+}

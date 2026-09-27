@@ -168,6 +168,8 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	"POST /api/orgs/{org}/spaces/{slug}/kudos/":                {status: http.StatusUnauthorized},
 	"DELETE /api/orgs/{org}/spaces/{slug}/kudos/{id}":          {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/spaces/{slug}/kudos/{id}/seen":       {status: http.StatusUnauthorized},
+	"PUT /api/orgs/{org}/spaces/{slug}/kudos/{id}/answer":      {status: http.StatusUnauthorized},
+	"DELETE /api/orgs/{org}/spaces/{slug}/kudos/{id}/answer":   {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/spaces/{slug}/members/{userId}/role": {status: http.StatusNotFound},
 	"DELETE /api/orgs/{org}/spaces/{slug}/members/{userId}/":   {status: http.StatusNotFound},
 	"PATCH /api/orgs/{org}/spaces/{slug}/sessions/{id}/":       {status: http.StatusNotFound},

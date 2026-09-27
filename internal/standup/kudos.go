@@ -72,6 +72,58 @@ func giveKudo(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	done(w, r, ac)
 }
 
+// answerKudo is the recipient's one line back to a kudo, or with withdraw its
+// removal. The space is the session's, read under its row lock, never the
+// client's, so a kudo from another space is a 404 however its id was learned.
+// The membership check is giveKudo's, for giveKudo's reason: a link guest is
+// in the room but neither sends, receives nor answers.
+func answerKudo(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+	var body struct {
+		ID       string `json:"id"`
+		Text     string `json:"text"`
+		Withdraw bool   `json:"withdraw"`
+	}
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
+		return
+	}
+	kudos := &store.Kudos{Pool: ac.Pool}
+	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, false,
+		func(tx pgx.Tx, sess store.Session) error {
+			var member bool
+			if err := tx.QueryRow(r.Context(),
+				"select exists (select 1 from members where space_id = $1 and user_id = $2)",
+				sess.SpaceID, ac.UserID).Scan(&member); err != nil {
+				return err
+			}
+			if !member {
+				return errNotAMember
+			}
+			var err error
+			if body.Withdraw {
+				err = kudos.UnanswerIn(r.Context(), tx, sess.SpaceID, body.ID, ac.UserID)
+			} else {
+				err = kudos.AnswerIn(r.Context(), tx, sess.SpaceID, body.ID, ac.UserID, body.Text)
+			}
+			if err != nil {
+				return err
+			}
+			return bumpVersion(r, tx, sess)
+		})
+	switch {
+	case err == nil:
+		done(w, r, ac)
+	case errors.Is(err, store.ErrNoKudo):
+		http.Error(w, `{"error":"no such kudo"}`, http.StatusNotFound)
+	case errors.Is(err, store.ErrBadAnswer):
+		http.Error(w, `{"error":"an answer is between 1 and 80 characters"}`, http.StatusBadRequest)
+	case errors.Is(err, store.ErrAnswered):
+		http.Error(w, `{"error":"this kudo already has an answer; withdraw it first"}`, http.StatusConflict)
+	default:
+		writeKudoError(w, err)
+	}
+}
+
 // errNotAMember is a caller who is in the room but not on the roster — a link
 // guest. It is the action's own refusal, distinct from the store's
 // ErrNotAMember, which speaks for both parties.

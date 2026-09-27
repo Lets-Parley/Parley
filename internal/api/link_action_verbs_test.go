@@ -87,6 +87,9 @@ var linkGuestActionVerbs = map[string]map[string]linkGuestVerb{
 		// members row, and kudos are neither sent nor received by one. The
 		// recipient here never gets looked at; the caller is turned away first.
 		"kudo": {refused: true, body: `{"to":"00000000-0000-0000-0000-000000000000","text":"thanks"}`},
+		// Answering one is refused by the same check: a guest never receives
+		// a kudo, so it never has one to answer.
+		"answerKudo": {refused: true, body: `{"id":"00000000-0000-0000-0000-000000000000","text":"thanks"}`},
 		// A mention asks a member for help, and a guest is not on the team it
 		// would be asking. Refused by the action's own membership check, like
 		// kudo, before the target is looked at.

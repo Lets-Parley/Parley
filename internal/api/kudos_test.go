@@ -418,3 +418,57 @@ func TestKudoWaitingIsTheCallersUnreadInThisSpace(t *testing.T) {
 		}
 	}
 }
+
+// The recipient answers once, in at most 80 characters counted in runes; the
+// sender and a bystander are refused, and the answer is on the wall for
+// everybody. There is no edit: a second PUT is 409 until a DELETE.
+func TestKudoAnswerStatusCodes(t *testing.T) {
+	srv := testServer(t)
+	owner, member, other, memberID, slug := kudoSpace(t, srv)
+	_, kudo := giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"thank you"}`, owner)
+	path := "/api/orgs/default/spaces/" + slug + "/kudos/" + kudo["id"].(string) + "/answer"
+
+	for name, c := range map[string]*http.Cookie{"sender": owner, "bystander": other} {
+		if resp, body := doJSON(t, srv, http.MethodPut, path, `{"text":"hi"}`, c); resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("%s answer: got %d (%v), want 403", name, resp.StatusCode, body)
+		}
+		if resp, body := doJSON(t, srv, http.MethodDelete, path, "", c); resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("%s unanswer: got %d (%v), want 403", name, resp.StatusCode, body)
+		}
+	}
+	missing := "/api/orgs/default/spaces/" + slug + "/kudos/00000000-0000-0000-0000-000000000000/answer"
+	if resp, body := doJSON(t, srv, http.MethodPut, missing, `{"text":"hi"}`, member); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing kudo answer: got %d (%v), want 404", resp.StatusCode, body)
+	}
+	if resp, body := doJSON(t, srv, http.MethodPut, path, `{"text":"`+strings.Repeat("い", 81)+`"}`, member); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("81-rune answer: got %d (%v), want 400", resp.StatusCode, body)
+	}
+	if resp, body := doJSON(t, srv, http.MethodPut, path, `{"text":"`+strings.Repeat("い", 80)+`"}`, member); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("80-rune answer: got %d (%v), want 204", resp.StatusCode, body)
+	}
+	if resp, body := doJSON(t, srv, http.MethodPut, path, `{"text":"edited"}`, member); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("second answer: got %d (%v), want 409", resp.StatusCode, body)
+	}
+	if _, kudos := listKudos(t, srv, slug, other); len(kudos) != 1 || kudos[0]["answer"] != strings.Repeat("い", 80) {
+		t.Fatalf("wall for a bystander: got %v, want the answer", kudos)
+	}
+	if resp, body := doJSON(t, srv, http.MethodDelete, path, "", member); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("unanswer: got %d (%v), want 204", resp.StatusCode, body)
+	}
+	if _, kudos := listKudos(t, srv, slug, other); len(kudos) != 1 || kudos[0]["answer"] != nil {
+		t.Fatalf("wall after unanswer: got %v, want no answer key", kudos)
+	}
+	_, b := createSpace(t, srv, "Other Answer Space", owner)
+	cross := "/api/orgs/default/spaces/" + b["slug"].(string) + "/kudos/" + kudo["id"].(string) + "/answer"
+	if resp, body := doJSON(t, srv, http.MethodPut, cross, `{"text":"hi"}`, owner); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("cross-space answer: got %d (%v), want 404", resp.StatusCode, body)
+	}
+	// Withdrawing the kudo takes the answer with it.
+	doJSON(t, srv, http.MethodPut, path, `{"text":"thanks back"}`, member)
+	if resp, _ := doJSON(t, srv, http.MethodDelete, "/api/orgs/default/spaces/"+slug+"/kudos/"+kudo["id"].(string), "", owner); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("withdraw: got %d", resp.StatusCode)
+	}
+	if resp, body := doJSON(t, srv, http.MethodPut, path, `{"text":"hi"}`, member); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("answer after withdraw: got %d (%v), want 404", resp.StatusCode, body)
+	}
+}
