@@ -1,12 +1,13 @@
 ---
 title: Parley
-description: Self-hosted planning poker and daily standups. No accounts, no seat count — just a link your team follows. One Go binary and a Postgres database.
+description: Self-hosted planning poker, daily standups, kudos and a retrospective plugin. Join with a link, or sign in through OIDC. One Go binary and Postgres.
 template: splash
 hero:
-  title: Self-hosted planning poker your team joins with a link
+  title: Self-hosted planning poker, standups and retros
   tagline: >-
-    Sprint estimation and standup for engineering teams. One Go binary and a
-    Postgres database — no accounts, no seat count, no credit card.
+    For teams that already work together. Join with a name and a link, or sign
+    in through your identity provider. One Go binary and a Postgres database —
+    no seat count, no credit card.
   image:
     alt: A revealed planning poker round in Parley
     light: ../../assets/poker.png
@@ -114,8 +115,8 @@ The things it does not do are on one page too, each with its workaround:
 
 ## The first screen, and the whole sign-up
 
-There is no account step to show, because there isn't one. Name a space and you
-are in it; everyone else follows the link you paste into chat.
+In open mode, the default, there is no account step to show. Name a space and
+you are in it; everyone else follows the link you paste into chat.
 
 <Screenshot
   light={landingLight}
@@ -190,6 +191,22 @@ link and type a name.
       alt="A Guest links dialog over a poker room, with a Create a guest link button and two live links showing 0 of 25 and 3 of 25 redemptions used, each with a Revoke button."
     />
     [What it does](/features/guest-links/)
+  </Card>
+  <Card title="Kudos">
+    Thank a teammate from their entry or at the close of standup, in 280
+    characters, onto the space's wall. No counts, no leaderboard.
+    [What it does](/features/kudos/)
+  </Card>
+  <Card title="Retrospective (plugin)">
+    Columns, cards with authorship hidden until reveal, grouping, dot voting
+    and action items — a sandboxed WebAssembly plugin an operator installs.
+    [What it does](/features/retrospective/)
+  </Card>
+  <Card title="In the meeting">
+    A read-only presenter view for a shared screen, and a Google Meet add-on
+    you deploy in your own Workspace: vote from the side panel, put the board
+    on the main stage.
+    [Presenting](/features/presenting-a-room/) · [Google Meet](/operations/google-meet/)
   </Card>
 </CardGrid>
 
