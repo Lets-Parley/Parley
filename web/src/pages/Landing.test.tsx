@@ -82,7 +82,7 @@ let holdList: Promise<void> | null = null;
 // What GET /api/orgs/{org}/spaces/{slug} answers: the room the return table
 // reads its open rounds and roster from.
 let spaceDetail: unknown = { slug: "platform-team", name: "Platform Team", protected: true, members: [], sessions: [] };
-let mySpaces: { slug: string; name: string; orgSlug: string; protected: boolean; open?: number; here?: number }[] = [];
+let mySpaces: { slug: string; name: string; orgSlug: string; protected: boolean; open?: number; here?: number; kudoWaiting?: boolean }[] = [];
 // The orgs the caller belongs to. One by default, which is what a single-tenant
 // instance looks like: the switcher stays out of the way and the list is flat.
 let myOrgs: { slug: string; name: string; role: "admin" | "member" }[] = [
@@ -189,6 +189,24 @@ describe("Landing, signed in with spaces", () => {
     await waitFor(() =>
       expect(spaceCalls()).toContainEqual(["POST", "/api/spaces", { name: "New Crew", org: "acme" }]),
     );
+  });
+
+  // A yes/no in the note's own words, never a count: two waiting in one space
+  // read exactly like one.
+  it("says a thank-you is waiting, without a number", async () => {
+    mySpaces = [
+      { slug: "platform-team", name: "Platform Team", orgSlug: "acme", protected: false, kudoWaiting: true },
+      { slug: "design-guild", name: "Design Guild", orgSlug: "acme", protected: false },
+    ];
+    const { container } = renderApp(<Landing />);
+
+    const list = await screen.findByRole("list", { name: /your spaces/i });
+    const links = within(list).getAllByRole("link");
+    const cue = within(links[0]).getByText("A thank-you is waiting for you.");
+    expect(cue.textContent).not.toMatch(/\d/);
+    expect(links[0].textContent).not.toMatch(/\d/);
+    expect(within(links[1]).queryByText(/thank-you/i)).toBeNull();
+    await expectNoViolations(container);
   });
 
   it("marks the spaces that will ask for a passcode", async () => {

@@ -901,7 +901,16 @@ export function Landing() {
                                     to={spacePath(sp.orgSlug, sp.slug)}
                                     className="flex items-center justify-between gap-3 rounded-card px-3 py-2.5 font-bold hover:bg-felt-deep"
                                   >
-                                    <span className="line-clamp-2 min-w-0 [overflow-wrap:anywhere]">{sp.name}</span>
+                                    <span className="min-w-0">
+                                      <span className="line-clamp-2 [overflow-wrap:anywhere]">{sp.name}</span>
+                                      {/* A thank-you's own paper, not a badge:
+                                          yes or no, never how many. */}
+                                      {sp.kudoWaiting && (
+                                        <span className="mt-1 inline-block rounded-chip bg-surface-hi px-2 py-0.5 text-[13px] font-semibold italic text-ink-soft shadow-rest">
+                                          A thank-you is waiting for you.
+                                        </span>
+                                      )}
+                                    </span>
                                     {/* The hero's language, one card deep: a
                                         face-down card when someone is at an
                                         open round, an empty seat when a round

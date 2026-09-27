@@ -379,3 +379,51 @@ func TestKudoWaitingForIsOnePersonsUnreadInOneSpace(t *testing.T) {
 		t.Fatalf("a malformed user id: %v, want an empty answer", err)
 	}
 }
+
+// The landing page's cue is a yes/no per space, the recipient's own, and it
+// clears when the kudo is read or withdrawn.
+func TestForUserKudoWaitingClearsWhenSeenOrWithdrawn(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	sess, members := newSession(t, pool, "Ada", "Bo")
+	kudos := &Kudos{Pool: pool}
+	spaces := &Spaces{Pool: pool}
+	waiting := func(userID string) bool {
+		t.Helper()
+		list, err := spaces.ForUser(ctx, userID, time.Minute)
+		if err != nil || len(list) != 1 {
+			t.Fatalf("ForUser: %v %+v", err, list)
+		}
+		return list[0].KudoWaiting
+	}
+
+	if waiting(members[1].ID) {
+		t.Fatal("waiting before any kudo")
+	}
+	k, err := kudos.Create(ctx, sess.SpaceID, members[0].ID, members[1].ID, "thanks", "", testKudoCap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !waiting(members[1].ID) {
+		t.Fatal("recipient not told a kudo is waiting")
+	}
+	if waiting(members[0].ID) {
+		t.Fatal("the sender was told a kudo is waiting")
+	}
+	if err := kudos.Delete(ctx, k.ID, members[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if waiting(members[1].ID) {
+		t.Fatal("a withdrawn kudo is still waiting")
+	}
+	k, err = kudos.Create(ctx, sess.SpaceID, members[0].ID, members[1].ID, "thanks again", "", testKudoCap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := kudos.MarkSeen(ctx, sess.SpaceID, k.ID, members[1].ID); err != nil {
+		t.Fatal(err)
+	}
+	if waiting(members[1].ID) {
+		t.Fatal("a seen kudo is still waiting")
+	}
+}
