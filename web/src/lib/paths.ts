@@ -51,6 +51,11 @@ export function kudosApi(org: string, slug: string): string {
   return `${spaceApi(org, slug)}/kudos`;
 }
 
+/** The recipient's one answer to a kudo: PUT gives it, DELETE withdraws it. */
+export function kudoAnswerApi(org: string, slug: string, id: string): string {
+  return `${kudosApi(org, slug)}/${id}/answer`;
+}
+
 /** The recipient putting a kudo with the others: marks it read. */
 export function kudoSeenApi(org: string, slug: string, id: string): string {
   return `${kudosApi(org, slug)}/${id}/seen`;

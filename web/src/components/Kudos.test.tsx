@@ -21,7 +21,7 @@ vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
   return {
     ...actual,
-    api: vi.fn(async (method: string, path: string) => {
+    api: vi.fn(async (method: string, path: string, body?: unknown) => {
       if (path.endsWith("/kudos") && method === "GET") {
         const snapshot = kudos;
         if (hold) await hold;
@@ -37,6 +37,12 @@ vi.mock("../lib/api", async () => {
       if (path.includes("/kudos?before=") && method === "GET") return older;
       if (path.endsWith("/seen") && method === "POST") {
         if (withdrawn.some((id) => path.endsWith(`/kudos/${id}/seen`))) throw new actual.ApiError(404, "no such kudo");
+        return undefined;
+      }
+      const answered = path.match(/\/kudos\/([^/]+)\/answer$/);
+      if (answered && (method === "PUT" || method === "DELETE")) {
+        const text = method === "PUT" ? (body as { text: string }).text : undefined;
+        kudos = kudos.map((k) => (k.id === answered[1] ? { ...k, answer: text } : k));
         return undefined;
       }
       throw new Error(`unexpected api call: ${method} ${path}`);
@@ -1057,5 +1063,92 @@ describe("ago", () => {
     ["2026-08-31T12:00:00.000Z", "3d ago"],
   ])("%s reads as %s", (iso, want) => {
     expect(ago(iso, now)).toBe(want);
+  });
+});
+
+describe("Kudos answer", () => {
+  const toMarcus: Kudo = {
+    id: "k1",
+    fromUserId: "dana",
+    toUserId: "marcus",
+    text: "Paired on the flaky test all afternoon.",
+    createdAt: "2026-09-03T09:00:00.000Z",
+    sessionId: "",
+    unread: false,
+  };
+
+  it("offers Answer to the recipient alone, and never says a kudo is unanswered", async () => {
+    kudos = [toMarcus];
+    mount();
+    expect(await screen.findByRole("button", { name: "Answer Dana Whitfield" })).toBeTruthy();
+    cleanup();
+    for (const meId of ["dana", "someone-else"]) {
+      mount({ meId });
+      await screen.findByTestId("kudo-k1");
+      expect(screen.queryByRole("button", { name: /answer/i })).toBe(null);
+      expect(screen.getByTestId("kudos").textContent).not.toMatch(/answer|repl/i);
+      cleanup();
+    }
+  });
+
+  it("answers inline: Enter sends, and the line appears under the note", async () => {
+    kudos = [toMarcus];
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Answer Dana Whitfield" }));
+    const field = screen.getByLabelText("Your answer to Dana Whitfield");
+    expect(document.activeElement).toBe(field);
+    await userEvent.type(field, "Any time.{Enter}");
+    expect(vi.mocked(api)).toHaveBeenCalledWith("PUT", "/api/orgs/acme/spaces/platform-team/kudos/k1/answer", {
+      text: "Any time.",
+    });
+    const line = await screen.findByTestId("kudo-answer");
+    expect(line.textContent).toBe("You: Any time.");
+    expect(screen.queryByRole("button", { name: /^answer/i })).toBe(null);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Withdraw your answer" })));
+  });
+
+  it("cancels on Escape and hands focus back to Answer", async () => {
+    kudos = [toMarcus];
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Answer Dana Whitfield" }));
+    await userEvent.type(screen.getByLabelText("Your answer to Dana Whitfield"), "hm{Escape}");
+    expect(screen.queryByLabelText("Your answer to Dana Whitfield")).toBe(null);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Answer Dana Whitfield" }));
+    expect(vi.mocked(api)).not.toHaveBeenCalledWith("PUT", expect.anything(), expect.anything());
+  });
+
+  it("shows the counter only near 80 runes and refuses to send past it", async () => {
+    kudos = [toMarcus];
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Answer Dana Whitfield" }));
+    const field = screen.getByLabelText("Your answer to Dana Whitfield");
+    fireEvent.change(field, { target: { value: "🎉".repeat(50) } });
+    expect(screen.queryByTestId("answer-left")).toBe(null);
+    fireEvent.change(field, { target: { value: "🎉".repeat(81) } });
+    expect(screen.getByTestId("answer-left").textContent).toContain("1");
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(vi.mocked(api)).not.toHaveBeenCalledWith("PUT", expect.anything(), expect.anything());
+  });
+
+  it("shows a witness the answer with no control, and lets the recipient withdraw it", async () => {
+    kudos = [{ ...toMarcus, answer: "Any time." }];
+    mount({ meId: "dana" });
+    expect((await screen.findByTestId("kudo-answer")).textContent).toBe("Marcus Okonjo: Any time.");
+    expect(screen.queryByRole("button", { name: /answer/i })).toBe(null);
+    cleanup();
+
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Withdraw your answer" }));
+    expect(vi.mocked(api)).toHaveBeenCalledWith("DELETE", "/api/orgs/acme/spaces/platform-team/kudos/k1/answer");
+    await waitFor(() => expect(screen.queryByTestId("kudo-answer")).toBe(null));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Answer Dana Whitfield" }));
+  });
+
+  it("has no axe violations with the answer field open", async () => {
+    kudos = [toMarcus];
+    const { container } = mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Answer Dana Whitfield" }));
+    await expectNoViolations(container);
   });
 });

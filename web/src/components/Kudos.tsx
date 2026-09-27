@@ -15,7 +15,7 @@ import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from "@
 import { api, ApiError, errorText, type Kudo, type Person } from "../lib/api";
 import { Avatar } from "./Avatar";
 import { buttonPrimary, buttonQuiet, inputClass, labelText } from "./Modal";
-import { kudoSeenApi, kudosApi } from "../lib/paths";
+import { kudoAnswerApi, kudoSeenApi, kudosApi } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
 import { TOUCH_HIT } from "../lib/breakpoints";
 import { useToast } from "../lib/ui";
@@ -565,6 +565,30 @@ export function Kudos({
     </>
   );
 
+  async function answerKudo(id: string, text: string | null) {
+    try {
+      await (text === null
+        ? api("DELETE", kudoAnswerApi(org, slug, id))
+        : api("PUT", kudoAnswerApi(org, slug, id), { text }));
+      await qc.invalidateQueries({ queryKey: ["kudos", org, slug] });
+      return true;
+    } catch (err) {
+      say(errorText(err));
+      return false;
+    }
+  }
+
+  const answerOf = (k: Kudo) => (
+    <KudoAnswer
+      answer={k.answer}
+      by={who(k.toUserId, "You")}
+      thanker={nameOf(k.fromUserId)}
+      mine={k.toUserId === meId}
+      onAnswer={(t) => answerKudo(k.id, t)}
+      onWithdraw={() => answerKudo(k.id, null)}
+    />
+  );
+
   async function withdraw(id: string) {
     setBusy(true);
     try {
@@ -645,6 +669,7 @@ export function Kudos({
                     text={k.text}
                     words="text-[15px]"
                     head={toMeHead(k)}
+                    foot={answerOf(k)}
                   />
                 </li>
               ) : (
@@ -671,6 +696,7 @@ export function Kudos({
                   <span data-testid="kudo-text" className="mt-0.5 block break-words text-[14px]">
                     {k.text}
                   </span>
+                  {answerOf(k)}
                   <time dateTime={k.createdAt} className="mt-1 block text-[12px] text-ink-faint">
                     {ago(k.createdAt)}
                   </time>
@@ -1003,8 +1029,11 @@ export function KudoNote({
   from,
   text,
   words,
+  foot,
   className = "",
 }: {
+  /** Under the sign-off: the recipient's answer, or their Answer control. */
+  foot?: ReactNode;
   /** The line above the words: who thanked you, and on the wall their face and when. */
   head: ReactNode;
   /** The sender's display name, for the sign-off. */
@@ -1029,6 +1058,153 @@ export function KudoNote({
         className="mt-1.5 block break-words text-right text-[13px] font-semibold text-ink-soft"
       >
         — {from}
+      </span>
+      {foot}
+    </span>
+  );
+}
+
+/** Matches MaxAnswerRunes in internal/store/kudos.go and 0045_kudo_answers.sql. */
+const MAX_ANSWER_RUNES = 80;
+
+/**
+ * The recipient's one line back, written under the note: "Sam: …". Everyone
+ * who sees the kudo sees the answer; only the recipient (`mine`) ever gets a
+ * control. With no answer, a witness sees nothing at all — there is no
+ * "unanswered" state, and the control never prompts. No edit: withdraw, then
+ * answer again.
+ */
+export function KudoAnswer({
+  answer,
+  by,
+  thanker,
+  mine,
+  onAnswer,
+  onWithdraw,
+}: {
+  answer?: string;
+  /** The recipient's name as this viewer reads it ("You" for themselves). */
+  by: string;
+  /** Who is being answered, for the control's accessible name. */
+  thanker: string;
+  mine: boolean;
+  /** Resolve true once saved; false keeps the field open. */
+  onAnswer: (text: string) => Promise<boolean>;
+  onWithdraw: () => Promise<boolean>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [focus, setFocus] = useState<"answer" | "withdraw" | null>(null);
+  const answerRef = useRef<HTMLButtonElement>(null);
+  const withdrawRef = useRef<HTMLButtonElement>(null);
+  const counterId = useId();
+  const left = MAX_ANSWER_RUNES - [...text.trim()].length;
+
+  // Focus follows the control that replaced the one just used, once it exists.
+  useEffect(() => {
+    const el = focus === "answer" ? answerRef.current : focus === "withdraw" ? withdrawRef.current : null;
+    if (el) {
+      el.focus();
+      setFocus(null);
+    }
+  }, [focus, answer, open]);
+
+  async function send() {
+    if (busy || !text.trim() || left < 0) return;
+    setBusy(true);
+    const ok = await onAnswer(text.trim());
+    setBusy(false);
+    if (ok) {
+      setOpen(false);
+      setText("");
+      setFocus("withdraw");
+    }
+  }
+
+  async function withdraw() {
+    setBusy(true);
+    const ok = await onWithdraw();
+    setBusy(false);
+    if (ok) setFocus("answer");
+  }
+
+  if (answer) {
+    return (
+      <span className="mt-1.5 flex flex-wrap items-baseline gap-x-1">
+        <span data-testid="kudo-answer" className="min-w-0 break-words text-[13px] leading-[1.45] text-ink-soft">
+          <span className="font-semibold text-ink">{by}:</span> {answer}
+        </span>
+        {mine && (
+          <button
+            ref={withdrawRef}
+            type="button"
+            className={`${smallPill} -my-2 -mr-2`}
+            aria-label="Withdraw your answer"
+            disabled={busy}
+            onClick={() => void withdraw()}
+          >
+            <span className={smallPillFace}>Withdraw</span>
+          </button>
+        )}
+      </span>
+    );
+  }
+  if (!mine) return null;
+  if (!open) {
+    return (
+      <button
+        ref={answerRef}
+        type="button"
+        className={`${smallPill} -mb-2 -ml-2`}
+        aria-label={`Answer ${thanker}`}
+        onClick={() => setOpen(true)}
+      >
+        <span className={smallPillFace}>Answer</span>
+      </button>
+    );
+  }
+  return (
+    <span className="mt-2 block">
+      <input
+        // Opened by a press on Answer, so taking focus is expected.
+        // oxlint-disable-next-line jsx-a11y/no-autofocus
+        autoFocus
+        className={`${inputClass} w-full py-1.5 text-[13px]`}
+        aria-label={`Your answer to ${thanker}`}
+        aria-describedby={left <= 20 ? counterId : undefined}
+        aria-invalid={left < 0 || undefined}
+        value={text}
+        disabled={busy}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            void send();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen(false);
+            setText("");
+            setFocus("answer");
+          }
+        }}
+      />
+      <span className="mt-1 flex items-center justify-between gap-2 text-[12px] text-ink-soft">
+        <span>Enter to send, Esc to cancel</span>
+        {left <= 20 && (
+          <span id={counterId} data-testid="answer-left" className={left < 0 ? "text-stop" : ""}>
+            {left < 0 ? (
+              <>
+                <span className="font-mono tabular-nums">{-left}</span> over
+              </>
+            ) : (
+              <>
+                <span className="font-mono tabular-nums">{left}</span> left
+              </>
+            )}
+          </span>
+        )}
       </span>
     </span>
   );

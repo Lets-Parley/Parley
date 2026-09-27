@@ -1666,7 +1666,7 @@ describe("StandupRoom gathering panel and fresh commitments", () => {
 
 
 /** The closing beat: kudos given in the room, and the form that gives them. */
-type WireKudo = { id: string; fromUserId: string; toUserId: string; text: string };
+type WireKudo = { id: string; fromUserId: string; toUserId: string; text: string; answer?: string };
 function kudoState(kudos: WireKudo[]): Envelope["state"] {
   const st = standupState(null) as unknown as { kudos: WireKudo[] };
   st.kudos = kudos;
@@ -1971,6 +1971,47 @@ describe("StandupRoom kudos", () => {
         pageStatuses().filter((el) => (el.textContent ?? "").includes("thanked")),
       ).toHaveLength(1);
     });
+  });
+
+  it("offers Answer on the viewer's own note alone, through the round's action", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(answering(new Response(null, { status: 204 })));
+    renderApp(
+      <StandupRoom
+        env={doneEnv([
+          { id: "k2", fromUserId: "dana", toUserId: "priya", text: "not mine", answer: "Thanks!" },
+          { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me" },
+        ])}
+        me={me}
+      />,
+    );
+    expect(screen.getAllByRole("button", { name: /^answer/i })).toHaveLength(1);
+    expect(screen.getByTestId("standup-kudos").textContent).toContain("Priya Raman: Thanks!");
+    await userEvent.click(screen.getByRole("button", { name: "Answer Dana Whitfield" }));
+    await userEvent.type(screen.getByLabelText("Your answer to Dana Whitfield"), "Any time{Enter}");
+    await waitFor(() =>
+      expect(
+        fetchSpy.mock.calls.filter(
+          ([url, init]) =>
+            url === "/api/sessions/sess-1/actions/answerKudo" &&
+            (init as RequestInit).body === JSON.stringify({ id: "k1", text: "Any time" }),
+        ),
+      ).toHaveLength(1),
+    );
+    fetchSpy.mockRestore();
+  });
+
+  it("shows a guest the answer and never the control", () => {
+    renderApp(
+      <StandupRoom
+        env={doneEnv([{ id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to a member", answer: "Cheers" }])}
+        me={me}
+        guest
+      />,
+    );
+    expect(screen.getByTestId("standup-kudos").textContent).toContain("Marcus Okonjo: Cheers");
+    expect(screen.queryByRole("button", { name: /answer/i })).toBeNull();
   });
 
   it("never gives a link guest the \"you\" treatment", () => {

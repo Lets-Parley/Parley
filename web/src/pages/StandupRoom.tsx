@@ -17,7 +17,7 @@ import type { Fail } from "../components/Modal";
 import { cueFor, cueVar } from "../lib/cue";
 import { EmptyTable } from "./PokerRoom";
 import { PluginChrome } from "../components/PluginChrome";
-import { KudoNote, toMeRow } from "../components/Kudos";
+import { KudoAnswer, KudoNote, toMeRow } from "../components/Kudos";
 import { AsyncDigest, type CommitmentChange, type ExpectedPerson } from "../components/AsyncDigest";
 import { AwayDays } from "../components/AwayDays";
 
@@ -45,6 +45,8 @@ export type SessionKudo = {
   fromUserId: string;
   toUserId: string;
   text: string;
+  /** The recipient's one line back, absent when there is none. */
+  answer?: string;
 };
 
 type StandupState = {
@@ -1057,6 +1059,16 @@ export function StandupRoom({
                 // A link guest is never a recipient, so never "you".
                 const toMe = !guest && k.toUserId === me.id;
                 const fromMe = !guest && k.fromUserId === me.id;
+                const answer = (
+                  <KudoAnswer
+                    answer={k.answer}
+                    by={toMe ? "You" : nameOf(k.toUserId)}
+                    thanker={nameOf(k.fromUserId)}
+                    mine={toMe}
+                    onAnswer={(text) => run(() => action(env.id, "answerKudo", { id: k.id, text }), { where: "kudos" })}
+                    onWithdraw={() => run(() => action(env.id, "answerKudo", { id: k.id, withdraw: true }), { where: "kudos" })}
+                  />
+                );
                 return toMe ? (
                   <li
                     key={k.id}
@@ -1068,6 +1080,7 @@ export function StandupRoom({
                       from={nameOf(k.fromUserId)}
                       text={k.text}
                       words="text-sm"
+                      foot={answer}
                       head={
                         <span className="min-w-0 flex-1 break-words text-ink-soft">
                           <span className="font-bold text-ink">{nameOf(k.fromUserId)}</span> thanked{" "}
@@ -1087,6 +1100,7 @@ export function StandupRoom({
                       <span className="font-bold text-ink">{nameOf(k.toUserId)}</span>
                     </span>
                     <span className="mt-0.5 block break-words text-ink">{k.text}</span>
+                    {answer}
                   </li>
                 );
               })}
