@@ -6,7 +6,7 @@ description: Everything Parley does not do, in one place, with the workaround wh
 import VerifiedStamp from "../../components/VerifiedStamp.astro";
 import Capability from "../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/db/db.go", "cmd/parley/main.go", "ROADMAP.md", "internal/api", "internal/api/metrics.go", "internal/hub/hub.go", "internal/poker/routes.go", ".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/dependabot.yml"]} />
+<VerifiedStamp version="unreleased" source={["internal/db/db.go", "cmd/parley/main.go", "ROADMAP.md", "plugins/retrospective", "web/src/pages/PluginsPage.tsx", "internal/api", "internal/api/metrics.go", "internal/hub/hub.go", "internal/poker/routes.go", ".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/dependabot.yml"]} />
 
 Every gap in the product, collected, so that the rest of this documentation is
 worth believing. Read it before you deploy, not after.
@@ -18,7 +18,7 @@ accepted and actionable.
 ## Plugins
 
 <Capability rows={[
-  { name: "Operator administration UI", status: "not-built", detail: "Installing a plugin, approving a pending upgrade, and disabling one are store operations with no screen behind them yet. An operator drives them from the database until that lands." },
+  { name: "Operator administration UI", status: "built", detail: "An org admin installs, enables, disables, upgrades and uninstalls plugins from <code>/o/&lt;org&gt;/admin/plugins</code>, approving each grant on a consent screen." },
   { name: "Plugin UI", status: "built", detail: "A plugin can draw a panel, served from <code>/plugin-ui/&lt;name&gt;/&lt;version&gt;</code> and rendered in a sandboxed iframe with no network access of its own — see <a href='/security/plugin-sandbox/'>Plugin sandbox</a>." },
   { name: "A plugin registry or signature verification", status: "not-built", detail: "An operator places a bundle in <code>PLUGIN_DIR</code> and approves its grants; that approval is the whole trust decision. There is nothing to verify a bundle against." },
   { name: "Python plugins", status: "not-built", detail: "Python is not an official Extism guest PDK. Rust, JavaScript, Go (TinyGo), Haskell, AssemblyScript, C, Zig and .NET are." },
@@ -77,7 +77,8 @@ accepted and actionable.
 ## Product
 
 <Capability rows={[
-  { name: "Retrospectives, story mapping, and other ceremonies", status: "not-built", detail: "Poker and standup are the two session kinds. The rest is roadmap, and much of it is waiting on session kinds becoming a real extension point." },
+  { name: "Story mapping, a sprint board, and other ceremonies", status: "not-built", detail: "Poker and standup are the two core session kinds, and a retrospective ships as a plugin. The rest is roadmap; most of it is expected to arrive as plugins." },
+  { name: "A preinstalled retrospective", status: "not-built", detail: "The retrospective is a plugin, not part of the image or the chart. An operator builds it, puts it in <code>PLUGIN_DIR</code>, and installs and enables it for an org. See <a href=\"/features/retrospective/\">Retrospective</a>." },
   { name: "A verified mobile layout", status: "not-built", detail: "Foundation in progress (<a href=\"https://github.com/Lets-Parley/Parley/pull/475\">#475</a>): named breakpoints, touch targets on key controls, and safe-area insets on the shell and hand. Participant voting is the first-class mobile target; standup, settings, and facilitator workflows are not yet verified on a handset." },
   { name: "Custom decks", status: "built", detail: "Four built-in decks, plus any a space owner saves under Settings → Decks. A saved deck is a template: a session copies the cards when it is created, so editing or deleting a deck leaves existing rooms alone. Sharing a deck between spaces is not built. See <a href='/features/planning-poker/#decks-of-your-own'>Planning poker</a>." },
   { name: "Configurable standup timer", status: "not-built", detail: "The server takes a <code>secondsPerPerson</code> value but no UI sets it, so 90 seconds is effectively fixed." },
