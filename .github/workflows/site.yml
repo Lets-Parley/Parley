@@ -92,6 +92,13 @@ jobs:
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
         run: |
+          # Pages' CDN can still serve the pre-deploy copy for a few minutes.
+          # IndexNow answers 403 while the key file 404s, and a stale sitemap
+          # misses a page added in this push, so wait for the new deploy first.
+          for _ in $(seq 1 20); do
+            curl -fsS -o /dev/null "https://www.letsparley.io/f3ed8476414a4e94a2934cdfcf4ecf13.txt" && break
+            sleep 15
+          done
           # The live sitemap is the deployed one; the build artifact is a
           # Pages tarball this job cannot read.
           curl -fsS --retry 3 https://www.letsparley.io/sitemap-0.xml -o sitemap.xml
