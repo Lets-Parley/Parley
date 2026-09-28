@@ -13,9 +13,12 @@ if [[ -z "$chrome" || ! -x "$chrome" ]]; then
 fi
 render() {
   local src="$root/$1" out="$root/$2"
+  rm -f "$out"
   "$chrome" --headless --disable-gpu --hide-scrollbars --allow-file-access-from-files \
     --force-device-scale-factor=1 --window-size=1200,630 --virtual-time-budget=3000 \
     --screenshot="$out" "file://$src" >/dev/null 2>&1
+  # Chrome is noisy on stderr even when it succeeds, so judge by the file.
+  [[ -s "$out" ]] || { echo "render failed: $2" >&2; exit 1; }
   echo "wrote $2"
 }
 render site/src/assets/og/og-site.svg site/public/og.png
