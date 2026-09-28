@@ -1,0 +1,88 @@
+---
+title: Parley compared
+description: How self-hosted Parley compares with Thunderdome and Parabol for planning poker, standups and retrospectives, including where each is ahead.
+---
+
+Parley is a self-hosted planning poker and standup tool. If you are looking
+for a Thunderdome alternative, a Parabol alternative, or an open source
+retrospective tool, this page sets out what each one does, as honestly as we
+can, including where the others are ahead.
+
+The claims about other projects were checked against their own sites and
+repositories on **2026-09-27**, and each one links to its source. Projects
+move; if something here is out of date, open a pull request. Claims about
+Parley come from this documentation and the source; everything Parley does
+not do is in [Known limitations](/known-limitations/).
+
+## At a glance
+
+| | Parley | Thunderdome | Parabol |
+| --- | --- | --- | --- |
+| Planning poker | Built in | Built in | Built in ("Sprint Poker") |
+| Standups | Built in, live round-robin with timer | Async check-ins | Check-ins and async "Team Prompt" standups |
+| Retrospectives | Plugin, not preinstalled | Built in | Built in, with several templates |
+| Story mapping | No | Yes | No |
+| Hosted option | No | Yes, thunderdome.dev | Yes, parabol.co |
+| Sign-in | Open mode or OpenID Connect | Built-in accounts, LDAP, OIDC, or proxy header auth | Hosted accounts; Microsoft/Azure AD SSO |
+| Self-hosting | One Go binary plus Postgres | Docker, PostgreSQL | Node.js, PostgreSQL, Valkey |
+| License | MIT | Apache-2.0 | AGPL-3.0 (dual-licensed) |
+
+## Parley
+
+- **Built in:** [planning poker](/features/planning-poker/), a
+  [daily standup](/features/daily-standup/), and [kudos](/features/kudos/).
+- **Retrospective:** a [plugin](/features/retrospective/) running in a Wasm
+  sandbox. It is not preinstalled: an operator builds the bundle, places it in
+  `PLUGIN_DIR`, and enables it for an org.
+- **No story mapping**, sprint board or other ceremonies today.
+- **Sign-in:** open mode (a display name only), or OpenID Connect. A
+  facilitator can also mint a [guest link](/features/guest-links/) that seats
+  one person in one room, for 24 hours and at most 25 redemptions.
+- **Deployment:** one Go binary with the frontend embedded, plus Postgres. No
+  hosted service.
+- **Google Meet:** an [add-on](/operations/google-meet/) the operator deploys
+  themselves; it needs Parley served over `https`.
+- **Organizations** are flat: no nested teams or departments.
+
+## Thunderdome
+
+[Thunderdome](https://thunderdome.dev/) is an Apache-2.0 project offering
+planning poker, sprint retrospectives, story mapping and "async team
+stand-ups (checkins)"
+([README](https://github.com/StevenWeathers/thunderdome-planning-poker)).
+It can be self-hosted with Docker and requires PostgreSQL
+([installation guide](https://github.com/StevenWeathers/thunderdome-planning-poker/blob/main/docs/INSTALLATION.md)),
+and it is also offered as a
+[hosted service](https://thunderdome.dev/subscriptions/pricing). It supports
+built-in accounts, LDAP, OIDC and proxy header sign-in
+([configuration](https://github.com/StevenWeathers/thunderdome-planning-poker/blob/main/docs/CONFIGURATION.md)). Its README
+states it is "intentionally built without any AI driven features".
+
+**Where Thunderdome is ahead:** story mapping, retrospectives without an extra
+install step, and a hosted option if you do not want to run anything.
+
+## Parabol
+
+[Parabol](https://www.parabol.co/) is dual-licensed under the AGPL-3.0
+([repository](https://github.com/ParabolInc/parabol)). It covers
+retrospectives with formats such as Start/Stop/Continue, 4Ls and
+Mad/Sad/Glad plus custom templates; Sprint Poker with Fibonacci, T-shirt or
+custom scales; agenda-driven check-ins; async standups via "Team Prompt";
+team health surveys; and integrations including Jira, GitHub, GitLab, Linear,
+Azure DevOps, Slack and Mattermost (all per its
+[README](https://github.com/ParabolInc/parabol)). It is mainly used as a
+hosted service at parabol.co; a production self-host runs on Node.js with
+PostgreSQL and Valkey.
+
+**Where Parabol is ahead:** more retrospective templates, team health checks,
+issue-tracker and chat integrations, collaborative pages and a task board, and a
+hosted service.
+
+## Choose…
+
+- **Parley** if you want to self-host planning poker and a live standup with
+  as little to run as possible, and keep everything inside your own network.
+- **Thunderdome** if you need story mapping, or want poker, retros and
+  check-ins in one self-hosted app without installing a plugin.
+- **Parabol** if retrospectives are the main event, you want a wide choice of
+  templates and tracker integrations, or you would rather not host anything.
