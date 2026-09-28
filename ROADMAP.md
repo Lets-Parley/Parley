@@ -13,23 +13,16 @@ For implementation status, see the GitHub Project:
 
 Work in progress or expected in the current development cycle.
 
-### Kudos, with no leaderboard
+### Deliver the thank-you, never count it
 
-A short note thanking somebody, attached to a person and visible to the team —
-on the space itself, and as the closing beat of a standup, where a team has just
-heard what everybody did and is most likely to mean it.
-
-The interesting part is the constraint. The moment kudos are counted and ranked
-they become a performance metric and the honest ones stop, so there is no count
-column, no aggregate endpoint, and nothing that orders people by anything. That
-is written into the schema rather than left to a UI decision.
-
-A sender can withdraw a kudo; nobody can edit one. Guests neither send nor
-receive: a signed-link guest is deliberately not somebody the instance
-remembers, so a thank-you addressed to one would point at nobody by morning.
+Kudos shipped: a short note thanking somebody, on the space and as the closing
+beat of a standup, with no count, no aggregate and nothing that ranks people.
+What is still in progress is making a kudo *arrive* — telling the person it
+names that they were thanked, and letting them answer once — still without
+attaching anything countable.
 
 - Status: In Progress
-- Tracking: [#386](https://github.com/lets-parley/parley/issues/386)
+- Tracking: [#687](https://github.com/lets-parley/parley/issues/687)
 
 ## Next
 
@@ -239,6 +232,10 @@ Ideas under consideration, not committed to.
 
 ### Unreleased
 
+- Kudos with no leaderboard: a short thank-you on the space and at the close of
+  a standup, never counted, aggregated or ranked; a sender can withdraw one,
+  nobody can edit one, and signed-link guests neither send nor receive
+  ([#386](https://github.com/lets-parley/parley/issues/386))
 - A plugin system: sandboxed WebAssembly plugins running under capability
   grants the operator approves, able to add whole ceremonies
   ([#9](https://github.com/lets-parley/parley/issues/9))
