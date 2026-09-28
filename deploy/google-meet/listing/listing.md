@@ -33,9 +33,10 @@ Planning poker and standups inside Google Meet: a side panel to join and vote fr
 *Limit: less than 16,000 characters*
 
 ```
-Parley brings planning poker and standups into Google Meet. Anyone with an
-account on your Parley instance can open it from Meeting tools -> Your
-add-ons, signing in right there from the side panel.
+Parley brings planning poker and standups into Google Meet. Anyone who can
+sign in to your Parley instance can open it from Meeting tools -> Your
+add-ons. The side panel connects to the Parley session in the same browser:
+press Sign in, and type the short code it shows on an ordinary Parley tab.
 
 The side panel lists your Parley spaces and open rooms, joins a room with
 its passcode, and gives a poker room a compact vote pad. For a standup, it
@@ -50,11 +51,13 @@ submission. It runs entirely inside your own Google Cloud project and your
 own Parley instance -- nothing reaches Parley's maintainers, and Parley asks
 Google for no OAuth scopes.
 
-Requirements: your people need an account on your Parley instance -- the
-side panel signs them in itself, with a short code they type on an
-ordinary Parley tab -- and Parley must be served over HTTPS.
+Requirements: your people must be signed in to Parley in the same browser
+they use for Meet, and Parley must be served over HTTPS. With single sign-on
+the Parley tab returns them straight to the code prompt; on an instance
+without sign-in, they choose a name on Parley first and then press Sign in
+in the side panel again. A Parley guest link does not sign in the add-on.
 
-External Meet attendees without a Parley account, and view-only attendees,
+External Meet attendees who cannot sign in to Parley, and view-only attendees,
 cannot use the add-on; they keep what they had before, since a facilitator
 can still share the presenter view as an ordinary screen share.
 ```
