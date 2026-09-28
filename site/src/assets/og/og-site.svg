@@ -12,7 +12,7 @@
   <text x="84" y="170" font-size="104" font-weight="700" fill="#E9E7E1" letter-spacing="-2">Parley</text>
   <text x="84" y="250" font-size="40" fill="#A3B1C0">Planning poker, standups and retros,</text>
   <text x="84" y="302" font-size="40" fill="#A3B1C0">at your table.</text>
-  <text x="84" y="400" font-size="28" fill="#5FA8D3" style="font-family:'JetBrains Mono'">docker compose up -d</text>
+  <text x="84" y="400" font-size="32" font-weight="600" fill="#5FA8D3">Share a link. Start the round.</text>
   <text x="84" y="560" font-size="24" fill="#8494A4">Self-hosted&#160;&#160;·&#160;&#160;open source&#160;&#160;·&#160;&#160;one Go binary and Postgres</text>
   <g transform="translate(800 150) scale(1.6)">
     <rect x="60" y="48" width="96" height="136" rx="20" fill="#E9E7E1" transform="rotate(-9 108 116)"/>
