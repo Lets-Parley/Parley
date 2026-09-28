@@ -8,6 +8,7 @@ import (
 	"html"
 	"io/fs"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -21,7 +22,8 @@ const shareURLMarker = "<!--parley:share-url-->"
 // SPAHandler serves the built frontend. publicURL is the instance's absolute
 // address; when it is empty the shell carries no og:url or canonical link at
 // all, because a relative one is not an address a chat client can use. The
-// shell is rendered once here, not per request.
+// page is split around its placeholder once here, so a request costs one
+// concatenation.
 func SPAHandler(publicURL string) http.HandlerFunc {
 	sub, err := fs.Sub(dist, "dist")
 	if err != nil {
@@ -33,13 +35,22 @@ func SPAHandler(publicURL string) http.HandlerFunc {
 	if err != nil {
 		panic(err)
 	}
-	tags := ""
-	if publicURL != "" {
-		u := html.EscapeString(publicURL)
-		tags = `<meta property="og:url" content="` + u + `" />` + "\n    " +
+	head, tail, _ := bytes.Cut(raw, []byte(shareURLMarker))
+	base := strings.TrimRight(publicURL, "/")
+	// shell renders the app page for one request. The URL tags name the page
+	// actually requested — the path only, never the query or fragment — so a
+	// shared room is not folded into the home page.
+	bare := append(append(make([]byte, 0, len(head)+len(tail)), head...), tail...)
+	shell := func(r *http.Request) []byte {
+		if publicURL == "" {
+			return bare
+		}
+		u := html.EscapeString(base + r.URL.EscapedPath())
+		tags := `<meta property="og:url" content="` + u + `" />` + "\n    " +
 			`<link rel="canonical" href="` + u + `" />`
+		out := make([]byte, 0, len(head)+len(tags)+len(tail))
+		return append(append(append(out, head...), tags...), tail...)
 	}
-	shell := bytes.Replace(raw, []byte(shareURLMarker), []byte(tags), 1)
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
@@ -52,8 +63,10 @@ func SPAHandler(publicURL string) http.HandlerFunc {
 		}
 		if _, err := fs.Stat(sub, path); err != nil || path == "index.html" {
 			// Client-side route: serve the app shell.
+			body := shell(r)
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.Write(shell)
+			w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+			w.Write(body)
 			return
 		}
 		fileServer.ServeHTTP(w, r)

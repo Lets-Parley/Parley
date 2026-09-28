@@ -171,7 +171,7 @@ func TestMainsOptionsEnableEmbedProviders(t *testing.T) {
 // operator configured: absolute when BASE_URL was set, absent when it was not,
 // never the localhost default dressed up as a public address.
 func TestMainsOptionsPutTheBaseURLInTheShell(t *testing.T) {
-	shell := func(t *testing.T, cfg config) string {
+	shell := func(t *testing.T, cfg config, path string) string {
 		t.Helper()
 		handler := api.Router(nil, apiOptions(t.Context(), cfg, true, nil, nil))
 		srv := httptest.NewServer(handler)
@@ -179,7 +179,7 @@ func TestMainsOptionsPutTheBaseURLInTheShell(t *testing.T) {
 			handler.Shutdown()
 			srv.Close()
 		})
-		resp, err := srv.Client().Get(srv.URL + "/some/client/route")
+		resp, err := srv.Client().Get(srv.URL + path)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -192,18 +192,21 @@ func TestMainsOptionsPutTheBaseURLInTheShell(t *testing.T) {
 	}
 
 	base, _ := url.Parse("https://parley.example.test/")
-	set := shell(t, config{BaseURL: base, BaseURLSet: true, AuthMode: api.ModeOpen})
+	set := shell(t, config{BaseURL: base, BaseURLSet: true, AuthMode: api.ModeOpen}, "/o/acme/s/platform?secret=1")
 	for _, want := range []string{
-		`<link rel="canonical" href="https://parley.example.test/"`,
-		`<meta property="og:url" content="https://parley.example.test/"`,
+		`<link rel="canonical" href="https://parley.example.test/o/acme/s/platform"`,
+		`<meta property="og:url" content="https://parley.example.test/o/acme/s/platform"`,
 	} {
 		if !strings.Contains(set, want) {
 			t.Errorf("shell with BASE_URL set lacks %s", want)
 		}
 	}
+	if strings.Contains(set, "secret") {
+		t.Error("shell reflects the query string")
+	}
 
 	def, _ := url.Parse("http://localhost:8080")
-	unset := shell(t, config{BaseURL: def, AuthMode: api.ModeOpen})
+	unset := shell(t, config{BaseURL: def, AuthMode: api.ModeOpen}, "/some/client/route")
 	for _, bad := range []string{`rel="canonical"`, `og:url`, `localhost:8080`} {
 		if strings.Contains(unset, bad) {
 			t.Errorf("shell with BASE_URL unset contains %s", bad)
