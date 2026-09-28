@@ -13,17 +13,6 @@ For implementation status, see the GitHub Project:
 
 Work in progress or expected in the current development cycle.
 
-### Deliver the thank-you, never count it
-
-Kudos shipped: a short note thanking somebody, on the space and as the closing
-beat of a standup, with no count, no aggregate and nothing that ranks people.
-What is still in progress is making a kudo *arrive* — telling the person it
-names that they were thanked, and letting them answer once — still without
-attaching anything countable.
-
-- Status: In Progress
-- Tracking: [#687](https://github.com/lets-parley/parley/issues/687)
-
 ## Next
 
 Accepted work, likely to be picked up after current priorities.
@@ -232,6 +221,11 @@ Ideas under consideration, not committed to.
 
 ### Unreleased
 
+- A thank-you reaches the person it names: a kudo addressed to you reads as a
+  signed note, lands in the standup room as it is given, and waits as a letter
+  on the space page, with the landing page saying one is waiting. The
+  recipient can answer it once, and nothing is counted
+  ([#687](https://github.com/lets-parley/parley/issues/687))
 - A pasted link to an instance previews properly in chat: the app's share
   card carries the instance's own address, per page, and an image, whenever
   `BASE_URL` is set ([#714](https://github.com/lets-parley/parley/pull/714),
