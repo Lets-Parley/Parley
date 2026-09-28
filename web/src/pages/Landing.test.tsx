@@ -221,6 +221,9 @@ describe("Landing, signed in with spaces", () => {
     const hero = (await screen.findByRole("heading", { level: 1 })).closest("section")!;
     const cue = within(hero).getByText("A thank-you is waiting");
     expect(cue.textContent).not.toMatch(/\d/);
+    // The hero has no preceding name for the list's comma to join, so a
+    // screen reader must not hear a stray leading "comma" before the cue.
+    expect(cue.parentElement!.textContent).toBe("A thank-you is waiting");
     await expectNoViolations(container);
     unmount();
 

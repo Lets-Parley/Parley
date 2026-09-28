@@ -234,11 +234,13 @@ function SeatedCards({ here }: { here: number }) {
  * no, never how many. One line always — a slip that folds on a phone is a
  * lump, not a note — so it truncates rather than wraps. The comma is for a
  * screen reader, so the row reads "Platform Team, A thank-you is waiting".
+ * The hero has no preceding name to join, so `lead` is false there and the
+ * comma is dropped.
  */
-function KudoWaitingCue({ className = "" }: { className?: string }) {
+function KudoWaitingCue({ className = "", lead = true }: { className?: string; lead?: boolean }) {
   return (
     <span className={"block basis-full " + className}>
-      <span className="sr-only">, </span>
+      {lead && <span className="sr-only">, </span>}
       <span
         className="block w-fit max-w-full truncate rounded-r-chip border-l-2 border-pip bg-surface-hi py-px pr-2 pl-1.5 text-[13px] leading-[18px] font-semibold text-ink-soft shadow-rest"
       >
@@ -291,7 +293,7 @@ function ReturnTable({ space, orgName }: { space: Membership; orgName: string | 
       <p className="mt-1.5 text-sm text-ink-soft">
         The table you sat at last{orgName ? `, in ${orgName}` : ""}.
       </p>
-      {space.kudoWaiting && <KudoWaitingCue className="mt-3" />}
+      {space.kudoWaiting && <KudoWaitingCue className="mt-3" lead={false} />}
 
       {open.length > 0 && (
         <ul aria-label="Rounds open now" className="mt-5 flex flex-col gap-2">
