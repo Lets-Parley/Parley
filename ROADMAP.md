@@ -219,7 +219,7 @@ Ideas under consideration, not committed to.
 
 ## Completed
 
-### Unreleased
+### v0.15.0
 
 - A thank-you reaches the person it names: a kudo addressed to you reads as a
   signed note, lands in the standup room as it is given, and waits as a letter
