@@ -234,7 +234,8 @@ Ideas under consideration, not committed to.
 
 - A pasted link to an instance previews properly in chat: the app's share
   card carries the instance's own address, per page, and an image, whenever
-  `BASE_URL` is set
+  `BASE_URL` is set ([#714](https://github.com/lets-parley/parley/pull/714),
+  [#716](https://github.com/lets-parley/parley/pull/716))
 
 ### v0.14.0
 
@@ -249,9 +250,9 @@ Ideas under consideration, not committed to.
   can, on a recurring schedule, with late posts accepted and marked, a
   personal calendar feed, away days, and commitment follow-through
 - Parley runs inside Google Meet as an add-on, turned on by the operator:
-  people vote from the side panel and the facilitator puts the room on the
-  main stage ([#632](https://github.com/lets-parley/parley/issues/632))
-- A read-only presenter view of a room, for a shared screen in any meeting tool
+  people vote in a poker room from the side panel and the facilitator puts the
+  room on the main stage ([#632](https://github.com/lets-parley/parley/issues/632))
+- A read-only presenter view of a poker or standup room, for a shared screen in any meeting tool
 
 ### v0.12.0
 
@@ -292,6 +293,11 @@ Ideas under consideration, not committed to.
   and lands on a dedicated screen rather than a dead socket
 - Thrown emoji pile onto a seat when someone joins, with motion that respects
   reduced-motion preferences
+
+### v0.9.1
+
+- Open voting can be turned on from the app: a checkbox when creating a room
+  and a switch in the room, beside auto-reveal
 
 ### v0.9.0
 
