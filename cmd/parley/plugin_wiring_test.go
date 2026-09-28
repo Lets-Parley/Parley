@@ -167,6 +167,50 @@ func TestMainsOptionsEnableEmbedProviders(t *testing.T) {
 	}
 }
 
+// The share card's canonical and og:url are only as good as the address the
+// operator configured: absolute when BASE_URL was set, absent when it was not,
+// never the localhost default dressed up as a public address.
+func TestMainsOptionsPutTheBaseURLInTheShell(t *testing.T) {
+	shell := func(t *testing.T, cfg config) string {
+		t.Helper()
+		handler := api.Router(nil, apiOptions(t.Context(), cfg, true, nil, nil))
+		srv := httptest.NewServer(handler)
+		t.Cleanup(func() {
+			handler.Shutdown()
+			srv.Close()
+		})
+		resp, err := srv.Client().Get(srv.URL + "/some/client/route")
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if !strings.Contains(string(body), `<div id="root">`) {
+			t.Fatalf("did not get the app shell: %s", body)
+		}
+		return string(body)
+	}
+
+	base, _ := url.Parse("https://parley.example.test/")
+	set := shell(t, config{BaseURL: base, BaseURLSet: true, AuthMode: api.ModeOpen})
+	for _, want := range []string{
+		`<link rel="canonical" href="https://parley.example.test/"`,
+		`<meta property="og:url" content="https://parley.example.test/"`,
+	} {
+		if !strings.Contains(set, want) {
+			t.Errorf("shell with BASE_URL set lacks %s", want)
+		}
+	}
+
+	def, _ := url.Parse("http://localhost:8080")
+	unset := shell(t, config{BaseURL: def, AuthMode: api.ModeOpen})
+	for _, bad := range []string{`rel="canonical"`, `og:url`, `localhost:8080`} {
+		if strings.Contains(unset, bad) {
+			t.Errorf("shell with BASE_URL unset contains %s", bad)
+		}
+	}
+}
+
 func TestMainsOptionsLeaveMetricsUnmounted(t *testing.T) {
 	base, _ := url.Parse("http://example.test")
 	cfg := config{BaseURL: base, AuthMode: api.ModeOpen}
@@ -315,8 +359,9 @@ func TestEveryOptionMainCanSetIsActuallySet(t *testing.T) {
 	_, cidr, _ := net.ParseCIDR("10.0.0.0/8")
 	prefix, _ := netip.ParsePrefix(cidr.String())
 	cfg := config{
-		BaseURL:  base,
-		AuthMode: api.ModeOIDC,
+		BaseURL:    base,
+		BaseURLSet: true,
+		AuthMode:   api.ModeOIDC,
 		OIDC: auth.Config{
 			Issuer:       "https://idp.example.test",
 			ClientID:     "client",
