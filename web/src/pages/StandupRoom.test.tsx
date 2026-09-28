@@ -1,6 +1,6 @@
 import { StrictMode, useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Cutoff, StandupRoom, Timer } from "./StandupRoom";
 import { makePerson, pageStatus, pageStatuses, renderApp } from "../test/render";
@@ -2027,22 +2027,45 @@ describe("StandupRoom kudos", () => {
     fetchSpy.mockRestore();
   });
 
-  it("offers no Try again when the answer can never land: kudo gone, or answered already", async () => {
-    for (const [status, error] of [
-      [404, "no such kudo"],
-      [409, "this kudo already has an answer; withdraw it first"],
-    ] as const) {
-      const fetchSpy = vi
-        .spyOn(globalThis, "fetch")
-        .mockImplementation(answering(new Response(JSON.stringify({ error }), { status })));
-      renderApp(<StandupRoom env={doneEnv([{ id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me" }])} me={me} />);
-      await userEvent.click(screen.getByRole("button", { name: /^Answer Dana Whitfield/ }));
-      await userEvent.type(screen.getByLabelText("Your answer to Dana Whitfield"), "Any time{Enter}");
-      expect(await screen.findByText(new RegExp(error))).toBeTruthy();
-      expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
-      fetchSpy.mockRestore();
-      cleanup();
-    }
+  it("closes the field on an answer already given, keeps the words, and shows the answer when it lands", async () => {
+    // The room's copy was stale: the answer was given on the wall, say.
+    const error = "this kudo already has an answer; withdraw it first";
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(answering(new Response(JSON.stringify({ error }), { status: 409 })));
+    const kudo = { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me" };
+    const { rerender } = renderApp(<StandupRoom env={doneEnv([kudo])} me={me} />);
+    await userEvent.click(screen.getByRole("button", { name: /^Answer Dana Whitfield/ }));
+    await userEvent.type(screen.getByLabelText("Your answer to Dana Whitfield"), "Typed in the room{Enter}");
+    await waitFor(() => expect(screen.queryByLabelText("Your answer to Dana Whitfield")).toBe(null));
+    const note = screen.getByTestId("answer-unsent");
+    expect(note.textContent).toContain("You already answered this");
+    expect(note.textContent).toContain("Typed in the room");
+    expect(note.closest('[aria-live="polite"]')).not.toBe(null);
+    // Nothing offers a send the server will refuse again, and nothing raw.
+    expect(screen.queryByRole("button", { name: /^Answer Dana Whitfield/ })).toBe(null);
+    expect(screen.queryByRole("button", { name: "Try again" })).toBe(null);
+    expect(document.body.textContent).not.toMatch(/withdraw it first/);
+    rerender(<StandupRoom env={doneEnv([{ ...kudo, answer: "Said on the wall" }], { version: 2 })} me={me} />);
+    expect(screen.getByTestId("kudo-answer").textContent).toContain("You: Said on the wall");
+    expect(screen.getByTestId("answer-unsent").textContent).toContain("Typed in the room");
+    fetchSpy.mockRestore();
+  });
+
+  it("says plainly that the thank-you was withdrawn, and closes the field", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(answering(new Response(JSON.stringify({ error: "no such kudo" }), { status: 404 })));
+    renderApp(<StandupRoom env={doneEnv([{ id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me" }])} me={me} />);
+    await userEvent.click(screen.getByRole("button", { name: /^Answer Dana Whitfield/ }));
+    await userEvent.type(screen.getByLabelText("Your answer to Dana Whitfield"), "Any time{Enter}");
+    expect(await screen.findByText("Dana Whitfield withdrew this thank-you.")).toBeTruthy();
+    expect(screen.queryByLabelText("Your answer to Dana Whitfield")).toBe(null);
+    expect(screen.queryByRole("button", { name: /^Answer Dana Whitfield/ })).toBe(null);
+    expect(screen.queryByRole("button", { name: "Try again" })).toBe(null);
+    expect(document.body.textContent).not.toMatch(/no such kudo/);
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Kudos" }));
+    fetchSpy.mockRestore();
   });
 
   it("shows a guest the answer and never the control", () => {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderApp, makePerson } from "../test/render";
 import { expectNoViolations } from "../test/axe";
@@ -1454,17 +1454,64 @@ describe("Kudos answer, second pass", () => {
     expect(note.textContent).toContain("Typed in this tab.");
   });
 
-  it("keeps the refused words and focus in the field when the refetch after a 409 fails", async () => {
+  it("closes the field on a refused answer, keeps the words in a polite note, and sends nothing more", async () => {
     kudos = [toMarcus];
-    mount();
+    const { queryClient } = mount();
     await userEvent.click(await answerButton());
     await userEvent.type(field(), "Typed in this tab.");
     kudos = [{ ...toMarcus, answer: "Said in another tab." }];
     wallFails = true;
     await userEvent.keyboard("{Enter}");
-    await waitFor(() => expect(screen.getByTestId("answer-hint").textContent).toBe("You already answered this."));
-    expect((field() as HTMLInputElement).value).toBe("Typed in this tab.");
-    expect(field().getAttribute("aria-disabled")).toBe(null);
-    expect(document.activeElement).toBe(field());
+    await waitFor(() => expect(screen.queryByLabelText("Your answer to Dana Whitfield")).toBe(null));
+    const note = screen.getByTestId("answer-unsent");
+    expect(note.textContent).toContain("Typed in this tab.");
+    expect(note.closest('[aria-live="polite"]')).not.toBe(null);
+    await waitFor(() => expect(document.activeElement).toBe(note));
+    // Refused is refused until the wall is read again: no Answer, no Enter.
+    expect(screen.queryByRole("button", { name: /^Answer Dana Whitfield/ })).toBe(null);
+    await userEvent.keyboard("{Enter}");
+    expect(vi.mocked(api).mock.calls.filter(([m]) => m === "PUT")).toHaveLength(1);
+    // Leaving the note puts it away, and gives up the focus hand-off with it.
+    act(() => note.blur());
+    await waitFor(() => expect(screen.queryByTestId("answer-unsent")).toBe(null));
+    expect(document.activeElement).toBe(document.body);
+    wallFails = false;
+    const focus = spyFocus();
+    await act(() => queryClient.invalidateQueries());
+    await screen.findByTestId("kudo-answer");
+    await new Promise((r) => setTimeout(r, 20));
+    focus.restore();
+    expect(focus.calls).toEqual([]);
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("lets the server win over an answer shown from a write whose refetch failed", async () => {
+    kudos = [toMarcus];
+    const { queryClient } = mount();
+    await userEvent.click(await answerButton());
+    await userEvent.type(field(), "Only here.");
+    wallFails = true;
+    await userEvent.keyboard("{Enter}");
+    expect((await screen.findByTestId("kudo-answer")).textContent).toContain("Only here.");
+    // Withdrawn in another tab; the next good read has no answer.
+    kudos = [toMarcus];
+    wallFails = false;
+    await act(() => queryClient.invalidateQueries());
+    await waitFor(() => expect(screen.queryByTestId("kudo-answer")).toBe(null));
+    expect(await answerButton()).toBeTruthy();
+  });
+
+  it("lets the server win over a withdrawal shown from a write whose refetch failed", async () => {
+    kudos = [{ ...toMarcus, answer: "Any time." }];
+    const { queryClient } = mount();
+    await userEvent.click(await screen.findByRole("button", { name: /^Withdraw answer/ }));
+    wallFails = true;
+    await userEvent.click(screen.getByRole("button", { name: "Withdraw it" }));
+    await waitFor(() => expect(screen.queryByTestId("kudo-answer")).toBe(null));
+    // The same answer, given again in another tab.
+    kudos = [{ ...toMarcus, answer: "Any time." }];
+    wallFails = false;
+    await act(() => queryClient.invalidateQueries());
+    expect((await screen.findByTestId("kudo-answer")).textContent).toContain("Any time.");
   });
 });

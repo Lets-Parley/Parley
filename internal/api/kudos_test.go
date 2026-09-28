@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -470,5 +471,72 @@ func TestKudoAnswerStatusCodes(t *testing.T) {
 	}
 	if resp, body := doJSON(t, srv, http.MethodPut, path, `{"text":"hi"}`, member); resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("answer after withdraw: got %d (%v), want 404", resp.StatusCode, body)
+	}
+}
+
+// A kudo given in a standup is also shown in that room's closing list, so a
+// wall write to it has to reach the room: an answer, a withdrawn answer and a
+// withdrawn kudo each bump the live session's version. A room that has ended
+// is left alone.
+func TestKudoWallWriteBumpsItsLiveSession(t *testing.T) {
+	srv := testServer(t)
+	owner, member, _, memberID, slug := kudoSpace(t, srv)
+	_, room := createSession(t, srv, slug, "standup", "Daily", owner)
+	roomID := room["id"].(string)
+	_, ended := createSession(t, srv, slug, "standup", "Yesterday", owner)
+	endedID := ended["id"].(string)
+
+	pool := testDBPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, "update sessions set ended_at = now() where id = $1", endedID); err != nil {
+		t.Fatal(err)
+	}
+	version := func(id string) int {
+		t.Helper()
+		var v int
+		if err := pool.QueryRow(ctx, "select version from sessions where id = $1", id).Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	kudoIn := func(sessionID string) string {
+		t.Helper()
+		_, kudo := giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"thank you"}`, owner)
+		id := kudo["id"].(string)
+		if _, err := pool.Exec(ctx, "update kudos set session_id = $2 where id = $1", id, sessionID); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	base := "/api/orgs/default/spaces/" + slug + "/kudos/"
+	steps := []struct {
+		name, method, path, body string
+		cookie                   *http.Cookie
+	}{
+		{"answer", http.MethodPut, "/answer", `{"text":"thanks back"}`, member},
+		{"unanswer", http.MethodDelete, "/answer", "", member},
+		{"withdraw kudo", http.MethodDelete, "", "", owner},
+	}
+
+	live := kudoIn(roomID)
+	for _, s := range steps {
+		before := version(roomID)
+		if resp, body := doJSON(t, srv, s.method, base+live+s.path, s.body, s.cookie); resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("%s: got %d (%v), want 204", s.name, resp.StatusCode, body)
+		}
+		if after := version(roomID); after <= before {
+			t.Fatalf("%s: live room version %d -> %d, want it bumped", s.name, before, after)
+		}
+	}
+
+	old := kudoIn(endedID)
+	for _, s := range steps {
+		before := version(endedID)
+		if resp, body := doJSON(t, srv, s.method, base+old+s.path, s.body, s.cookie); resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("ended %s: got %d (%v), want 204", s.name, resp.StatusCode, body)
+		}
+		if after := version(endedID); after != before {
+			t.Fatalf("ended %s: version %d -> %d, want it untouched", s.name, before, after)
+		}
 	}
 }

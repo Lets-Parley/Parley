@@ -11,7 +11,7 @@ import roundDark from "../../../assets/standup-round-dark.png";
 import blockersLight from "../../../assets/blockers-roundup-light.png";
 import blockersDark from "../../../assets/blockers-roundup-dark.png";
 
-<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "internal/standup/kudos.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx", "web/src/tokens.css", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/components/AsyncDigest.tsx", "web/src/lib/kinds.ts", "internal/standup/schedule.go", "internal/standup/webhook.go", "internal/api/standup_webhook.go", "internal/standup/ics.go", "internal/api/ics.go", "internal/standup/mentions.go", "internal/api/standup_mentions.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go", "internal/store/sessions.go", "internal/session/registry.go", "internal/api/standup_away.go", "web/src/components/AwayDays.tsx", "web/src/components/StandupTrend.tsx", "web/src/pages/SpacePage.tsx", "web/src/components/StandupSchedulePanel.tsx"]} />
+<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "internal/standup/kudos.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx", "web/src/tokens.css", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/components/AsyncDigest.tsx", "web/src/lib/kinds.ts", "internal/standup/schedule.go", "internal/standup/webhook.go", "internal/api/standup_webhook.go", "internal/standup/ics.go", "internal/api/ics.go", "internal/standup/mentions.go", "internal/api/standup_mentions.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go", "internal/store/sessions.go", "internal/session/registry.go", "internal/api/standup_away.go", "web/src/components/AwayDays.tsx", "web/src/components/StandupTrend.tsx", "web/src/pages/SpacePage.tsx", "web/src/components/StandupSchedulePanel.tsx", "internal/api/kudos.go", "web/src/components/Kudos.tsx"]} />
 
 A standup session is three text fields per person — yesterday, today, blockers —
 and an order to speak in.
@@ -216,6 +216,13 @@ A note addressed to you carries a quiet **Answer**: one line back, at most 80
 characters, Enter to send and Esc to cancel. It appears under the note as
 "Sam: …" for everybody in the room, guests included, and you can withdraw it.
 Nobody is asked to answer, and an unanswered kudo looks like any other.
+
+The room and the space's kudos wall show the same answer: answering or
+withdrawing on the wall updates an open standup at once. If the room had not
+caught up yet, it says so in the wall's words rather than offering a send that
+cannot land — an answer already given closes the field and keeps the words you
+typed in a note beneath it, and a thank-you its sender withdrew reads "Dana
+withdrew this thank-you."
 
 ## Async standups
 

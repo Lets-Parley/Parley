@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -165,6 +167,7 @@ func (a *app) handleWithdrawKudo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"could not withdraw kudo"}`, http.StatusInternalServerError)
 		return
 	}
+	a.refreshKudoRoom(r.Context(), kudo)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -186,6 +189,7 @@ func (a *app) handleAnswerKudo(w http.ResponseWriter, r *http.Request) {
 	p, _ := PrincipalFrom(r.Context())
 	switch err := a.kudos.Answer(r.Context(), spaceFrom(r.Context()).ID, kudo.ID, p.UserID, body.Text); {
 	case err == nil:
+		a.refreshKudoRoom(r.Context(), kudo)
 		w.WriteHeader(http.StatusNoContent)
 	case errors.Is(err, store.ErrBadAnswer):
 		http.Error(w, `{"error":"an answer is between 1 and 80 characters"}`, http.StatusBadRequest)
@@ -211,7 +215,31 @@ func (a *app) handleUnanswerKudo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"could not withdraw your answer"}`, http.StatusInternalServerError)
 		return
 	}
+	a.refreshKudoRoom(r.Context(), kudo)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// refreshKudoRoom tells the standup a kudo was given in that it changed on the
+// wall, so an open room's closing list is not left offering to answer a kudo
+// that is already answered or gone. It bumps the room's version, which is what
+// makes a client take the new envelope, and broadcasts it. Only a live room is
+// touched; a kudo given on the wall has no room at all.
+//
+// Best-effort, like notify: the write the caller asked for has already been
+// made, so a failure here costs the room one refresh — its own answer action
+// still refuses a stale send — rather than failing a successful answer.
+func (a *app) refreshKudoRoom(ctx context.Context, kudo store.Kudo) {
+	if kudo.SessionID == "" {
+		return
+	}
+	bumped, err := a.sessions.BumpLiveVersion(ctx, kudo.SessionID)
+	if err != nil {
+		slog.Error("could not refresh the room a kudo was given in", "session", kudo.SessionID, "error", err)
+		return
+	}
+	if bumped {
+		a.broadcastState(ctx, kudo.SessionID)
+	}
 }
 
 // recipientsKudo reads the {id} kudo in this space and answers 404 or 403

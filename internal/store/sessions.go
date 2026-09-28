@@ -310,6 +310,19 @@ func (s *Sessions) BumpVersion(ctx context.Context, id string) error {
 	return err
 }
 
+// BumpLiveVersion bumps a room's version only while it is open, and reports
+// whether it did. It is for writes made outside the room that change what the
+// room shows — a kudo answered on the wall — where an ended room has nothing
+// connected to refresh and nothing to act on.
+func (s *Sessions) BumpLiveVersion(ctx context.Context, id string) (bool, error) {
+	tag, err := s.Pool.Exec(ctx,
+		"update sessions set version = version + 1 where id = $1 and ended_at is null", id)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
 // Rename retitles a room. Scoped by space as well as id so a caller authorized
 // for one space can never retitle a room in another by guessing its id — the
 // handler's authorization is over the space, so the query must be too.

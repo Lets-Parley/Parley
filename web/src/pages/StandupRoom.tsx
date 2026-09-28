@@ -17,7 +17,7 @@ import type { Fail } from "../components/Modal";
 import { cueFor, cueVar } from "../lib/cue";
 import { EmptyTable } from "./PokerRoom";
 import { PluginChrome } from "../components/PluginChrome";
-import { KudoAnswer, KudoNote, toMeRow } from "../components/Kudos";
+import { KudoAnswer, KudoNote, toMeRow, type AnswerResult } from "../components/Kudos";
 import { AsyncDigest, type CommitmentChange, type ExpectedPerson } from "../components/AsyncDigest";
 import { AwayDays } from "../components/AwayDays";
 
@@ -407,10 +407,7 @@ export function StandupRoom({
 
   async function run(
     fn: () => Promise<unknown>,
-    {
-      where = "round",
-      retry = true,
-    }: { where?: Where; retry?: boolean | ((e: unknown) => boolean) } = {},
+    { where = "round", retry = true }: { where?: Where; retry?: boolean } = {},
   ) {
     try {
       setFail(null);
@@ -419,15 +416,33 @@ export function StandupRoom({
     } catch (e) {
       // Ending is the one action a retry cannot simply repeat — it is offered
       // by the confirm rather than by the row, and its message says so itself.
-      const again = typeof retry === "function" ? retry(e) : retry;
-      setFail({ where, msg: errorText(e), retry: again ? () => run(fn, { where, retry }) : undefined });
+      setFail({ where, msg: errorText(e), retry: retry ? () => run(fn, { where, retry }) : undefined });
       return false;
     }
   }
 
-  // A kudo its sender withdrew (404), or one already answered (409), refuses
-  // the same answer however often it is sent: the message, never Try again.
-  const answerRetry = (e: unknown) => !(e instanceof ApiError && (e.status === 404 || e.status === 409));
+  // The recipient's answer, sent through the round. A 404 or a 409 means this
+  // room's copy was behind the wall — the kudo withdrawn, or answered there —
+  // and sending again would be refused the same way, so it is said as the
+  // wall says it and never offered as Try again. The wall's write refreshes
+  // this room too; the refusal only beat it here.
+  async function answerKudo(k: SessionKudo, body: { text: string } | { withdraw: true }): Promise<AnswerResult> {
+    try {
+      setFail(null);
+      await action(env.id, "answerKudo", { id: k.id, ...body });
+      return true;
+    } catch (e) {
+      const status = e instanceof ApiError ? e.status : 0;
+      if (status === 409) return "taken";
+      if (status === 404) {
+        say(`${nameOf(k.fromUserId)} withdrew this thank-you.`);
+        kudosHeading.current?.focus({ preventScroll: true });
+        return "gone";
+      }
+      setFail({ where: "kudos", msg: errorText(e), retry: () => answerKudo(k, body) });
+      return false;
+    }
+  }
 
   const failRow = (where: Where) =>
     fail?.where === where ? (
@@ -451,6 +466,7 @@ export function StandupRoom({
   // that is set down, and announced once.
   const seenKudos = useRef<Set<string> | null>(null);
   const kudoList = useRef<HTMLUListElement>(null);
+  const kudosHeading = useRef<HTMLHeadingElement>(null);
   const [arrived, setArrived] = useState<Record<string, "note" | "row">>({});
   const kudoIds = givenKudos.map((k) => k.id).join();
   // A layout effect, not a passive one: its state update re-renders before the
@@ -1005,7 +1021,11 @@ export function StandupRoom({
 
       {done && (givenKudos.length > 0 || canGiveKudos) && (
         <section className="flex flex-col gap-3 rounded-panel bg-surface p-6 shadow-rest">
-          <h2 className="font-display text-2xl font-semibold">Kudos</h2>
+          {/* Focusable for the one moment it is handed focus: when the note
+              an answer was being written on turns out to be withdrawn. */}
+          <h2 ref={kudosHeading} tabIndex={-1} className="font-display text-2xl font-semibold">
+            Kudos
+          </h2>
           {/* No count, per person or in the heading: a number beside a name is
               a leaderboard however quietly it is drawn. */}
           {canGiveKudos && (
@@ -1074,8 +1094,9 @@ export function StandupRoom({
                     thanker={nameOf(k.fromUserId)}
                     about={k.text}
                     mine={toMe}
-                    onAnswer={(text) => run(() => action(env.id, "answerKudo", { id: k.id, text }), { where: "kudos", retry: answerRetry })}
-                    onWithdraw={() => run(() => action(env.id, "answerKudo", { id: k.id, withdraw: true }), { where: "kudos", retry: answerRetry })}
+                    fresh={env.version}
+                    onAnswer={(text) => answerKudo(k, { text })}
+                    onWithdraw={() => answerKudo(k, { withdraw: true })}
                   />
                 );
                 return toMe ? (

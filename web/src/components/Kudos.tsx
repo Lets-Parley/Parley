@@ -7,6 +7,7 @@ import {
   useState,
   type CSSProperties,
   type FormEvent,
+  type FocusEvent,
   type KeyboardEvent,
   type ReactNode,
   type RefObject,
@@ -600,6 +601,7 @@ export function Kudos({
       thanker={nameOf(k.fromUserId)}
       about={k.text}
       mine={k.toUserId === meId}
+      fresh={kudos.dataUpdatedAt}
       onAnswer={(t) => answerKudo(k, t)}
       onWithdraw={() => answerKudo(k, null)}
     />
@@ -1097,7 +1099,8 @@ function openingWords(text: string) {
 
 /** What `onAnswer` and `onWithdraw` settle to. "gone": the kudo itself was
  *  withdrawn, and the caller has already said so and moved focus. "taken": an
- *  answer was already given (another tab, say), and the caller has fetched it. */
+ *  answer was already given (another tab, say); the caller has asked for it,
+ *  but it may not have arrived. */
 export type AnswerResult = boolean | "gone" | "taken";
 
 /**
@@ -1113,6 +1116,7 @@ export function KudoAnswer({
   thanker,
   about,
   mine,
+  fresh,
   onAnswer,
   onWithdraw,
 }: {
@@ -1124,6 +1128,10 @@ export function KudoAnswer({
   /** The kudo's own words: their opening keeps two notes' controls apart. */
   about: string;
   mine: boolean;
+  /** Changes on every good read of the server's copy — the wall's fetch
+   *  time, the room's envelope version. Whatever this viewer is showing from
+   *  its own write gives way to it, so the server always wins. */
+  fresh?: number;
   /** Settles true once saved, false to keep the field open. */
   onAnswer: (text: string) => Promise<AnswerResult>;
   onWithdraw: () => Promise<AnswerResult>;
@@ -1136,16 +1144,22 @@ export function KudoAnswer({
   const [nudge, setNudge] = useState("");
   // Words a 409 turned away: kept on the page rather than silently dropped.
   const [unsent, setUnsent] = useState("");
+  // A 409 is final until the server's copy is read again: sending once more
+  // would be refused the same way, so nothing offers to.
+  const [refused, setRefused] = useState(false);
+  // A 404: the kudo is withdrawn and on its way off the page.
+  const [gone, setGone] = useState(false);
   // What this viewer just saved, shown until the room's own copy arrives: a
   // refetch that fails, or a socket still reconnecting, must not hold the
   // field. `null` is "nothing pending"; `{ value: undefined }` a withdrawal.
   const [saved, setSaved] = useState<{ value?: string } | null>(null);
   const shown = saved ? saved.value : answer;
-  const [focus, setFocus] = useState<"answer" | "line" | "withdraw" | "keep" | null>(null);
+  const [focus, setFocus] = useState<"answer" | "line" | "withdraw" | "keep" | "note" | null>(null);
   const answerRef = useRef<HTMLButtonElement>(null);
   const lineRef = useRef<HTMLSpanElement>(null);
   const withdrawRef = useRef<HTMLButtonElement>(null);
   const keepRef = useRef<HTMLButtonElement>(null);
+  const noteRef = useRef<HTMLSpanElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   // Set only by this viewer's own send or withdraw, from the control that
   // held focus: the one change focus may follow. Nobody else's answer, and
@@ -1167,12 +1181,26 @@ export function KudoAnswer({
             ? withdrawRef.current
             : focus === "keep"
               ? keepRef.current
-              : null;
+              : focus === "note"
+                ? // The note stands in for an answer still on its way; one
+                  // that has landed since takes precedence.
+                  (lineRef.current ?? noteRef.current)
+                : null;
     if (el) {
       el.focus({ preventScroll: true });
       setFocus(null);
     }
-  }, [focus, shown, open, confirming]);
+  }, [focus, shown, open, confirming, unsent]);
+
+  // A good read of the server's copy settles what this viewer was showing
+  // from its own write, whether or not the answer in it changed: after a
+  // refetch that failed, the next one that succeeds is the truth.
+  const [read, setRead] = useState(fresh);
+  if (read !== fresh) {
+    setRead(fresh);
+    setSaved(null);
+    setRefused(false);
+  }
 
   // The answer arriving or leaving — ours, the one a 409 revealed, one given
   // in another tab, or a retry the standup's error row made — settles every
@@ -1200,12 +1228,12 @@ export function KudoAnswer({
     if (!owned.current) return;
     owned.current = false;
     const el = document.activeElement;
-    if (el && el !== document.body) return;
+    if (el && el !== document.body && el !== noteRef.current) return;
     (shown ? lineRef.current : answerRef.current)?.focus({ preventScroll: true });
   }, [shown]);
 
   async function send(from: EventTarget) {
-    if (busy) return;
+    if (busy || refused || gone) return;
     if (!text.trim()) {
       setNudge("Write something first.");
       return;
@@ -1228,18 +1256,25 @@ export function KudoAnswer({
       return;
     }
     if (ok === "taken") {
-      // An answer was already given, and is on its way in. These words were
-      // never sent: they stay in the field with the reason until it lands,
-      // and after that under it, rather than vanish. Focus is still ours to
-      // hand to the answer when it arrives.
+      // An answer was already given. The field closes, since sending again
+      // would be refused again; these words were never sent, so they stay
+      // on the page in the note rather than vanish. Focus goes to the answer
+      // if it is here, and to the note while it is still on its way; the
+      // answer landing takes it from the note, unless focus has moved on.
+      setRefused(true);
       setUnsent(words);
-      setNudge("You already answered this.");
-      inputRef.current?.focus({ preventScroll: true });
+      setOpen(false);
+      setText("");
+      setNudge("");
+      setFocus(lastShown.current ? "line" : "note");
       return;
     }
     owned.current = false;
     // Gone: the note is going, and the owner has already moved focus.
-    if (ok === "gone") return;
+    if (ok === "gone") {
+      setGone(true);
+      return;
+    }
     inputRef.current?.focus({ preventScroll: true });
   }
 
@@ -1256,6 +1291,24 @@ export function KudoAnswer({
       return;
     }
     owned.current = false;
+    if (ok === "gone") setGone(true);
+  }
+
+  // Focus leaving this answer for good — a click elsewhere, a Tab away —
+  // gives up everything waiting on it: a focus hand-off still pending, and
+  // the note about refused words, which has been read by then. A control
+  // that unmounts under focus is not leaving; it is caught above. Checked
+  // a tick later, once the focus has landed wherever it is going.
+  function leave(e: FocusEvent<HTMLSpanElement>) {
+    const wrap = e.currentTarget;
+    const from = e.target;
+    if (e.relatedTarget instanceof Node && wrap.contains(e.relatedTarget)) return;
+    window.setTimeout(() => {
+      if (!from.isConnected || wrap.contains(document.activeElement)) return;
+      owned.current = false;
+      setFocus(null);
+      setUnsent("");
+    }, 0);
   }
 
   function cancel() {
@@ -1279,14 +1332,34 @@ export function KudoAnswer({
     if (e.repeat) e.preventDefault();
   };
 
-  const unsentNote = unsent && (
-    <span data-testid="answer-unsent" className="mt-1 block break-words text-[12px] leading-[1.45] text-ink-soft">
-      You already answered this, so these words were not sent: “{unsent}”
+  // Always mounted for the recipient, and always last, so the region is in
+  // place before the note is put into it and the note is announced.
+  const unsentNote = (
+    <span aria-live="polite" className="block">
+      {unsent && (
+        <span
+          ref={noteRef}
+          tabIndex={-1}
+          data-testid="answer-unsent"
+          className="mt-1 block break-words text-[12px] leading-[1.45] text-ink-soft"
+        >
+          You already answered this, so these words were not sent: “{unsent}”
+        </span>
+      )}
     </span>
   );
 
+  if (gone) return null;
+  // One wrapper for every state below, laid out as if it were not there: it
+  // is what hears focus leave, and it keeps the note's region in one place.
+  const own = (body: ReactNode) => (
+    <span className="contents" onBlur={leave}>
+      {body}
+      {mine && unsentNote}
+    </span>
+  );
   if (shown) {
-    return (
+    return own(
       <span className="mt-1.5 block">
         {/* Focusable so a send can hand focus to what it made, rather than to
             the control that would take it straight back. */}
@@ -1302,7 +1375,6 @@ export function KudoAnswer({
           </span>{" "}
           {shown}
         </span>
-        {mine && unsentNote}
         {mine &&
           (confirming ? (
             // Esc answers "Keep it", as it would in any other dialog.
@@ -1357,31 +1429,30 @@ export function KudoAnswer({
               Withdraw answer
             </button>
           ))}
-      </span>
+      </span>,
     );
   }
   if (!mine) return null;
+  // Refused: the answer is on its way in, and there is nothing to offer.
+  if (refused) return own(null);
   if (!open) {
-    return (
-      <>
-        <button
-          ref={answerRef}
-          type="button"
-          className={`${quietAction} -mb-2 -ml-2 mt-0.5`}
-          aria-label={`Answer ${thanker}: ${opening}`}
-          onKeyDown={noRepeat}
-          onClick={() => {
-            setUnsent("");
-            setOpen(true);
-          }}
-        >
-          Answer
-        </button>
-        {unsentNote}
-      </>
+    return own(
+      <button
+        ref={answerRef}
+        type="button"
+        className={`${quietAction} -mb-2 -ml-2 mt-0.5`}
+        aria-label={`Answer ${thanker}: ${opening}`}
+        onKeyDown={noRepeat}
+        onClick={() => {
+          setUnsent("");
+          setOpen(true);
+        }}
+      >
+        Answer
+      </button>,
     );
   }
-  return (
+  return own(
     <span className="mt-2 block">
       <input
         ref={inputRef}
@@ -1445,7 +1516,7 @@ export function KudoAnswer({
           </button>
         </span>
       </span>
-    </span>
+    </span>,
   );
 }
 
