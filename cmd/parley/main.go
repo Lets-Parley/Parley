@@ -42,9 +42,12 @@ type config struct {
 	// interface. IPv6 literals are accepted; a host:port form is not.
 	BindAddr string
 	BaseURL  *url.URL
-	LogLevel slog.Level
-	AuthMode string
-	OIDC     auth.Config
+	// BaseURLSet is whether the operator named BASE_URL rather than taking the
+	// localhost default, which is no address to put on a share card.
+	BaseURLSet bool
+	LogLevel   slog.Level
+	AuthMode   string
+	OIDC       auth.Config
 	// DefaultOrgClaim, when set, points the default org at an identity-provider
 	// group so a fresh instance has something for a claim to match.
 	DefaultOrgClaim string
@@ -126,6 +129,7 @@ func loadConfig() (config, error) {
 		return cfg, fmt.Errorf("BASE_URL %q is not a valid URL — set it to the address users reach this server at, e.g. http://localhost:8080", rawBase)
 	}
 	cfg.BaseURL = base
+	cfg.BaseURLSet = os.Getenv("BASE_URL") != ""
 
 	cfg.EmbedProviders, err = api.ParseEmbedProviders(os.Getenv("EMBED_PROVIDERS"), os.Getenv("MEET_CLOUD_PROJECT_NUMBER"))
 	if err != nil {
@@ -491,6 +495,9 @@ func apiOptions(ctx context.Context, cfg config, secureCookies bool, plugins *pl
 		// through the plugin fetch guard with it as the allowlist.
 		StandupWebhookHosts: cfg.StandupWebhookHosts,
 		Now:                 time.Now,
+	}
+	if cfg.BaseURLSet {
+		opts.PublicURL = strings.TrimSuffix(cfg.BaseURL.String(), "/") + "/"
 	}
 	if cfg.AuthMode == api.ModeOIDC {
 		// Discovery happens on the first sign-in rather than here: an identity
