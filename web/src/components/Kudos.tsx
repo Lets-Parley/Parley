@@ -565,16 +565,28 @@ export function Kudos({
     </>
   );
 
-  async function answerKudo(id: string, text: string | null) {
+  async function answerKudo(k: Kudo, text: string | null): Promise<AnswerResult> {
     try {
       await (text === null
-        ? api("DELETE", kudoAnswerApi(org, slug, id))
-        : api("PUT", kudoAnswerApi(org, slug, id), { text }));
+        ? api("DELETE", kudoAnswerApi(org, slug, k.id))
+        : api("PUT", kudoAnswerApi(org, slug, k.id), { text }));
       await qc.invalidateQueries({ queryKey: ["kudos", org, slug] });
       return true;
     } catch (err) {
-      say(errorText(err));
-      return false;
+      const status = err instanceof ApiError ? err.status : 0;
+      if (status !== 404 && status !== 409) {
+        say(errorText(err));
+        return false;
+      }
+      // Somebody moved first: the sender withdrew the kudo (404), or an
+      // answer was already given, in another tab say (409). Either way the
+      // wall is stale, and reading it again is what shows why.
+      await qc.invalidateQueries({ queryKey: ["kudos", org, slug] });
+      if (status === 409) return false;
+      // The note is about to go, and focus with it. The heading stays.
+      say(`${nameOf(k.fromUserId)} withdrew this thank-you.`);
+      headingRef.current?.focus();
+      return "gone";
     }
   }
 
@@ -583,9 +595,10 @@ export function Kudos({
       answer={k.answer}
       by={who(k.toUserId, "You")}
       thanker={nameOf(k.fromUserId)}
+      about={k.text}
       mine={k.toUserId === meId}
-      onAnswer={(t) => answerKudo(k.id, t)}
-      onWithdraw={() => answerKudo(k.id, null)}
+      onAnswer={(t) => answerKudo(k, t)}
+      onWithdraw={() => answerKudo(k, null)}
     />
   );
 
@@ -696,10 +709,11 @@ export function Kudos({
                   <span data-testid="kudo-text" className="mt-0.5 block break-words text-[14px]">
                     {k.text}
                   </span>
-                  {answerOf(k)}
                   <time dateTime={k.createdAt} className="mt-1 block text-[12px] text-ink-faint">
                     {ago(k.createdAt)}
                   </time>
+                  {/* After the time, so the time reads as the kudo's, not the answer's. */}
+                  {answerOf(k)}
                   {/* Only the sender, matching the handler: everyone else gets
                       a 403 there, so offering the control would be a lie. It
                       sits under the words rather than beside them, so a narrow
@@ -1068,6 +1082,21 @@ export function KudoNote({
 const MAX_ANSWER_RUNES = 80;
 
 /**
+ * A kudo's first few words, to tell two notes from the same person apart in
+ * a control's accessible name. Capped in characters too, for an unbroken word.
+ */
+function openingWords(text: string) {
+  const words = text.trim().split(/\s+/);
+  let out = words.slice(0, 6).join(" ");
+  if (out.length > 40) out = out.slice(0, 40).trimEnd();
+  return out.length < text.trim().length ? `${out}…` : out;
+}
+
+/** What `onAnswer` and `onWithdraw` settle to. "gone": the kudo itself was
+ *  withdrawn, and the caller has already said so and moved focus. */
+export type AnswerResult = boolean | "gone";
+
+/**
  * The recipient's one line back, written under the note: "Sam: …". Everyone
  * who sees the kudo sees the answer; only the recipient (`mine`) ever gets a
  * control. With no answer, a witness sees nothing at all — there is no
@@ -1078,6 +1107,7 @@ export function KudoAnswer({
   answer,
   by,
   thanker,
+  about,
   mine,
   onAnswer,
   onWithdraw,
@@ -1087,66 +1117,174 @@ export function KudoAnswer({
   by: string;
   /** Who is being answered, for the control's accessible name. */
   thanker: string;
+  /** The kudo's own words: their opening keeps two notes' controls apart. */
+  about: string;
   mine: boolean;
-  /** Resolve true once saved; false keeps the field open. */
-  onAnswer: (text: string) => Promise<boolean>;
-  onWithdraw: () => Promise<boolean>;
+  /** Settles true once saved, false to keep the field open. */
+  onAnswer: (text: string) => Promise<AnswerResult>;
+  onWithdraw: () => Promise<AnswerResult>;
 }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [focus, setFocus] = useState<"answer" | "withdraw" | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  // Why Enter did nothing, said where the hint is rather than not at all.
+  const [nudge, setNudge] = useState("");
+  const [focus, setFocus] = useState<"answer" | "line" | "withdraw" | "keep" | null>(null);
   const answerRef = useRef<HTMLButtonElement>(null);
+  const lineRef = useRef<HTMLSpanElement>(null);
   const withdrawRef = useRef<HTMLButtonElement>(null);
+  const keepRef = useRef<HTMLButtonElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const counterId = useId();
   const left = MAX_ANSWER_RUNES - [...text.trim()].length;
+  const opening = openingWords(about);
 
   // Focus follows the control that replaced the one just used, once it exists.
   useEffect(() => {
-    const el = focus === "answer" ? answerRef.current : focus === "withdraw" ? withdrawRef.current : null;
+    const el =
+      focus === "answer"
+        ? answerRef.current
+        : focus === "line"
+          ? lineRef.current
+          : focus === "withdraw"
+            ? withdrawRef.current
+            : focus === "keep"
+              ? keepRef.current
+              : null;
     if (el) {
       el.focus();
       setFocus(null);
     }
-  }, [focus, answer, open]);
+  }, [focus, answer, open, confirming]);
+
+  // The answer arriving or leaving — ours, the one a 409 revealed, one given
+  // in another tab, or a retry the standup's error row made — settles every
+  // local state it could strand: an open field would otherwise reappear
+  // pre-filled the next time the answer is withdrawn. Reset during render, so
+  // the stale field never reaches the page.
+  const [settled, setSettled] = useState(answer);
+  if (settled !== answer) {
+    setSettled(answer);
+    setOpen(false);
+    setText("");
+    setNudge("");
+    setBusy(false);
+    setConfirming(false);
+  }
+  // Whatever held focus was just unmounted by that change, so it is caught
+  // here rather than left on the page.
+  // Only on a change: on mount nothing was unmounted, and focus is not ours.
+  const lastAnswer = useRef(answer);
+  useLayoutEffect(() => {
+    if (lastAnswer.current === answer) return;
+    lastAnswer.current = answer;
+    const el = document.activeElement;
+    if (el && el !== document.body) return;
+    (answer ? lineRef.current : answerRef.current)?.focus();
+  }, [answer]);
 
   async function send() {
-    if (busy || !text.trim() || left < 0) return;
+    if (busy) return;
+    if (!text.trim()) {
+      setNudge("Write something first.");
+      return;
+    }
+    if (left < 0) {
+      setNudge(`An answer is 80 characters at most.`);
+      return;
+    }
     setBusy(true);
     const ok = await onAnswer(text.trim());
+    // Saved: the field stays read-only until the answer itself arrives, and
+    // the effect above closes it. Gone: the note is going, and the owner has
+    // already moved focus somewhere that stays.
+    if (ok !== false) return;
     setBusy(false);
-    if (ok) {
-      setOpen(false);
-      setText("");
-      setFocus("withdraw");
-    }
+    inputRef.current?.focus();
   }
 
   async function withdraw() {
+    if (busy) return;
     setBusy(true);
     const ok = await onWithdraw();
+    if (ok !== false) return;
     setBusy(false);
-    if (ok) setFocus("answer");
   }
+
+  function cancel() {
+    if (busy) return;
+    setOpen(false);
+    setText("");
+    setNudge("");
+    setFocus("answer");
+  }
+
+  // A held key auto-repeats, and a repeat is never a second decision.
+  const noRepeat = (e: KeyboardEvent) => {
+    if (e.repeat) e.preventDefault();
+  };
 
   if (answer) {
     return (
-      <span className="mt-1.5 flex flex-wrap items-baseline gap-x-1">
-        <span data-testid="kudo-answer" className="min-w-0 break-words text-[13px] leading-[1.45] text-ink-soft">
-          <span className="font-semibold text-ink">{by}:</span> {answer}
+      <span className="mt-1.5 block">
+        {/* Focusable so a send can hand focus to what it made, rather than to
+            the control that would take it straight back. */}
+        <span
+          ref={lineRef}
+          tabIndex={-1}
+          data-testid="kudo-answer"
+          className="block min-w-0 break-words text-[13px] leading-[1.45] text-ink-soft"
+        >
+          <span className="sr-only">{by} replied: </span>
+          <span aria-hidden="true" className="font-semibold text-ink">
+            {by}:
+          </span>{" "}
+          {answer}
         </span>
-        {mine && (
-          <button
-            ref={withdrawRef}
-            type="button"
-            className={`${smallPill} -my-2 -mr-2`}
-            aria-label="Withdraw your answer"
-            disabled={busy}
-            onClick={() => void withdraw()}
-          >
-            <span className={smallPillFace}>Withdraw</span>
-          </button>
-        )}
+        {mine &&
+          (confirming ? (
+            <span className="-mb-2 -ml-2 flex flex-wrap items-center">
+              <button
+                ref={keepRef}
+                type="button"
+                className={quietAction}
+                onKeyDown={noRepeat}
+                onClick={() => {
+                  if (busy) return;
+                  setConfirming(false);
+                  setFocus("withdraw");
+                }}
+              >
+                Keep it
+              </button>
+              <button
+                type="button"
+                className={quietAction}
+                aria-disabled={busy || undefined}
+                onKeyDown={noRepeat}
+                onClick={() => void withdraw()}
+              >
+                Withdraw it
+              </button>
+            </span>
+          ) : (
+            /* Nothing undoes a withdrawal and an answer cannot be edited, so
+               the first press only asks — as the kudo's own Withdraw does. */
+            <button
+              ref={withdrawRef}
+              type="button"
+              className={`${quietAction} -mb-2 -ml-2`}
+              aria-label={`Withdraw answer to ${thanker}: ${opening}`}
+              onKeyDown={noRepeat}
+              onClick={() => {
+                setConfirming(true);
+                setFocus("keep");
+              }}
+            >
+              Withdraw answer
+            </button>
+          ))}
       </span>
     );
   }
@@ -1156,17 +1294,19 @@ export function KudoAnswer({
       <button
         ref={answerRef}
         type="button"
-        className={`${smallPill} -mb-2 -ml-2`}
-        aria-label={`Answer ${thanker}`}
+        className={`${quietAction} -mb-2 -ml-2 mt-0.5`}
+        aria-label={`Answer ${thanker}: ${opening}`}
+        onKeyDown={noRepeat}
         onClick={() => setOpen(true)}
       >
-        <span className={smallPillFace}>Answer</span>
+        Answer
       </button>
     );
   }
   return (
     <span className="mt-2 block">
       <input
+        ref={inputRef}
         // Opened by a press on Answer, so taking focus is expected.
         // oxlint-disable-next-line jsx-a11y/no-autofocus
         autoFocus
@@ -1174,41 +1314,67 @@ export function KudoAnswer({
         aria-label={`Your answer to ${thanker}`}
         aria-describedby={left <= 20 ? counterId : undefined}
         aria-invalid={left < 0 || undefined}
+        // Read-only, not disabled, while it sends: a disabled field throws
+        // focus to the page, and a keyboard user loses their place.
+        readOnly={busy}
+        aria-disabled={busy || undefined}
         value={text}
-        disabled={busy}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value);
+          setNudge("");
+        }}
         onKeyDown={(e) => {
+          // Mid-composition, Enter picks the input method's candidate; it
+          // is not the person saying they are done. 229 is Safari's tell.
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
           if (e.key === "Enter") {
             e.preventDefault();
-            void send();
+            if (!e.repeat) void send();
           } else if (e.key === "Escape") {
             e.preventDefault();
             e.stopPropagation();
-            setOpen(false);
-            setText("");
-            setFocus("answer");
+            cancel();
           }
         }}
       />
-      <span className="mt-1 flex items-center justify-between gap-2 text-[12px] text-ink-soft">
-        <span>Enter to send, Esc to cancel</span>
-        {left <= 20 && (
-          <span id={counterId} data-testid="answer-left" className={left < 0 ? "text-stop" : ""}>
-            {left < 0 ? (
-              <>
-                <span className="font-mono tabular-nums">{-left}</span> over
-              </>
-            ) : (
-              <>
-                <span className="font-mono tabular-nums">{left}</span> left
-              </>
-            )}
-          </span>
-        )}
+      <span className="flex items-center justify-between gap-2 text-[12px] text-ink-soft">
+        <span data-testid="answer-hint" aria-live="polite" className={nudge ? "text-stop" : ""}>
+          {nudge || "Enter to send"}
+        </span>
+        <span className="flex items-center gap-2">
+          {left <= 20 && (
+            <span id={counterId} data-testid="answer-left" className={left < 0 ? "text-stop" : ""}>
+              {left < 0 ? (
+                <>
+                  <span className="font-mono tabular-nums">{-left}</span> over
+                </>
+              ) : (
+                <>
+                  <span className="font-mono tabular-nums">{left}</span> left
+                </>
+              )}
+            </span>
+          )}
+          {/* Esc is not on a phone's keyboard. */}
+          <button
+            type="button"
+            className={`${quietAction} -mr-2 text-[12px]`}
+            aria-disabled={busy || undefined}
+            onClick={cancel}
+          >
+            Cancel
+          </button>
+        </span>
       </span>
     </span>
   );
 }
+
+/**
+ * The answer's controls: quiet text rather than a pill, so an unanswered note
+ * never reads as an item on a list to clear. The hit area is still 44px.
+ */
+const quietAction = `${TOUCH_HIT} inline-flex items-center px-2 text-[13px] text-ink-soft underline-offset-2 hover:text-ink hover:underline aria-disabled:opacity-60`;
 
 /** A small pill inside a full-size hit area: the target is 44px, the face is not. */
 const smallPill = `${TOUCH_HIT} pill-hit inline-flex items-center justify-center px-2 disabled:opacity-50`;

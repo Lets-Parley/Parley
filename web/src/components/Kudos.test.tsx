@@ -16,6 +16,10 @@ let hold: Promise<void> | null = null;
 let withdrawn: string[] = [];
 /** When set, the waiting read answers this instead of a list: a proxy error page, say. */
 let waitingBody: unknown = undefined;
+/** When set, the next answer PUT or DELETE fails with this status. */
+let answerFail: number | null = null;
+/** When set, an answer PUT or DELETE settles only once this does. */
+let answerHold: Promise<void> | null = null;
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -41,6 +45,17 @@ vi.mock("../lib/api", async () => {
       }
       const answered = path.match(/\/kudos\/([^/]+)\/answer$/);
       if (answered && (method === "PUT" || method === "DELETE")) {
+        if (answerHold) await answerHold;
+        if (answerFail) {
+          const status = answerFail;
+          answerFail = null;
+          throw new actual.ApiError(status, "could not save your answer");
+        }
+        // As the server does: a kudo its sender withdrew is a 404, and a
+        // second answer is a 409 until the first is withdrawn.
+        const k = kudos.find((x) => x.id === answered[1]);
+        if (!k) throw new actual.ApiError(404, "no such kudo");
+        if (method === "PUT" && k.answer) throw new actual.ApiError(409, "this kudo already has an answer; withdraw it first");
         const text = method === "PUT" ? (body as { text: string }).text : undefined;
         kudos = kudos.map((k) => (k.id === answered[1] ? { ...k, answer: text } : k));
         return undefined;
@@ -74,6 +89,8 @@ beforeEach(() => {
   hold = null;
   withdrawn = [];
   waitingBody = undefined;
+  answerFail = null;
+  answerHold = null;
 });
 
 describe("Kudos wall", () => {
@@ -1076,11 +1093,14 @@ describe("Kudos answer", () => {
     sessionId: "",
     unread: false,
   };
+  const answerButton = () => screen.findByRole("button", { name: /^Answer Dana Whitfield/ });
+  const field = () => screen.getByLabelText("Your answer to Dana Whitfield");
+  const writes = () => vi.mocked(api).mock.calls.filter(([m]) => m !== "GET");
 
   it("offers Answer to the recipient alone, and never says a kudo is unanswered", async () => {
     kudos = [toMarcus];
     mount();
-    expect(await screen.findByRole("button", { name: "Answer Dana Whitfield" })).toBeTruthy();
+    expect(await answerButton()).toBeTruthy();
     cleanup();
     for (const meId of ["dana", "someone-else"]) {
       mount({ meId });
@@ -1091,64 +1111,198 @@ describe("Kudos answer", () => {
     }
   });
 
-  it("answers inline: Enter sends, and the line appears under the note", async () => {
+  it("answers inline: Enter sends, and focus lands on the line itself", async () => {
     kudos = [toMarcus];
     mount();
-    await userEvent.click(await screen.findByRole("button", { name: "Answer Dana Whitfield" }));
-    const field = screen.getByLabelText("Your answer to Dana Whitfield");
-    expect(document.activeElement).toBe(field);
-    await userEvent.type(field, "Any time.{Enter}");
+    await userEvent.click(await answerButton());
+    expect(document.activeElement).toBe(field());
+    await userEvent.type(field(), "Any time.{Enter}");
     expect(vi.mocked(api)).toHaveBeenCalledWith("PUT", "/api/orgs/acme/spaces/platform-team/kudos/k1/answer", {
       text: "Any time.",
     });
     const line = await screen.findByTestId("kudo-answer");
-    expect(line.textContent).toBe("You: Any time.");
+    expect(line.textContent).toContain("You: Any time.");
     expect(screen.queryByRole("button", { name: /^answer/i })).toBe(null);
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Withdraw your answer" })));
+    await waitFor(() => expect(document.activeElement).toBe(line));
   });
 
-  it("cancels on Escape and hands focus back to Answer", async () => {
+  it("keeps the answer when Enter is pressed again, or held, after sending", async () => {
     kudos = [toMarcus];
     mount();
-    await userEvent.click(await screen.findByRole("button", { name: "Answer Dana Whitfield" }));
-    await userEvent.type(screen.getByLabelText("Your answer to Dana Whitfield"), "hm{Escape}");
+    await userEvent.click(await answerButton());
+    await userEvent.type(field(), "Any time.{Enter}");
+    await screen.findByTestId("kudo-answer");
+    await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard("{Enter>5/}");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(writes()).toEqual([["PUT", "/api/orgs/acme/spaces/platform-team/kudos/k1/answer", { text: "Any time." }]]);
+    expect(screen.getByTestId("kudo-answer").textContent).toContain("Any time.");
+  });
+
+  it("sends once for a held Enter in the field", async () => {
+    kudos = [toMarcus];
+    mount();
+    await userEvent.click(await answerButton());
+    await userEvent.type(field(), "Any time.");
+    fireEvent.keyDown(field(), { key: "Enter" });
+    fireEvent.keyDown(field(), { key: "Enter", repeat: true });
+    fireEvent.keyDown(field(), { key: "Enter", repeat: true });
+    await screen.findByTestId("kudo-answer");
+    expect(writes()).toHaveLength(1);
+  });
+
+  it("does not send while an input method is still composing", async () => {
+    kudos = [toMarcus];
+    mount();
+    await userEvent.click(await answerButton());
+    fireEvent.change(field(), { target: { value: "ありがとう" } });
+    fireEvent.keyDown(field(), { key: "Enter", isComposing: true });
+    fireEvent.keyDown(field(), { key: "Enter", keyCode: 229 });
+    expect(writes()).toEqual([]);
+    expect(field()).toBeTruthy();
+  });
+
+  it("keeps focus in the field while sending and after a failure, never on the page", async () => {
+    kudos = [toMarcus];
+    mount();
+    await userEvent.click(await answerButton());
+    let release!: () => void;
+    answerHold = new Promise((r) => (release = r));
+    answerFail = 500;
+    await userEvent.type(field(), "Any time.{Enter}");
+    expect(document.activeElement).toBe(field());
+    expect(field().getAttribute("aria-disabled")).toBe("true");
+    release();
+    await waitFor(() => expect(field().getAttribute("aria-disabled")).toBe(null));
+    expect(document.activeElement).toBe(field());
+    expect((field() as HTMLInputElement).value).toBe("Any time.");
+  });
+
+  it("says plainly when the kudo was withdrawn while the answer was being written", async () => {
+    kudos = [toMarcus];
+    mount();
+    await userEvent.click(await answerButton());
+    await userEvent.type(field(), "Any time.");
+    kudos = [];
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() => expect(screen.queryByTestId("kudo-k1")).toBe(null));
+    expect(await screen.findByText("Dana Whitfield withdrew this thank-you.")).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/404|no such kudo/);
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it("shows the answer already given when a second one is refused", async () => {
+    kudos = [toMarcus];
+    mount();
+    await userEvent.click(await answerButton());
+    await userEvent.type(field(), "Any time.");
+    kudos = [{ ...toMarcus, answer: "Said in another tab." }];
+    await userEvent.keyboard("{Enter}");
+    const line = await screen.findByTestId("kudo-answer");
+    expect(line.textContent).toContain("Said in another tab.");
     expect(screen.queryByLabelText("Your answer to Dana Whitfield")).toBe(null);
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Answer Dana Whitfield" }));
-    expect(vi.mocked(api)).not.toHaveBeenCalledWith("PUT", expect.anything(), expect.anything());
+    await waitFor(() => expect(document.activeElement).toBe(line));
   });
 
-  it("shows the counter only near 80 runes and refuses to send past it", async () => {
+  it("cancels on Escape or the Cancel button and hands focus back to Answer", async () => {
     kudos = [toMarcus];
     mount();
-    await userEvent.click(await screen.findByRole("button", { name: "Answer Dana Whitfield" }));
-    const field = screen.getByLabelText("Your answer to Dana Whitfield");
-    fireEvent.change(field, { target: { value: "🎉".repeat(50) } });
-    expect(screen.queryByTestId("answer-left")).toBe(null);
-    fireEvent.change(field, { target: { value: "🎉".repeat(81) } });
-    expect(screen.getByTestId("answer-left").textContent).toContain("1");
-    expect(field.getAttribute("aria-invalid")).toBe("true");
-    fireEvent.keyDown(field, { key: "Enter" });
-    expect(vi.mocked(api)).not.toHaveBeenCalledWith("PUT", expect.anything(), expect.anything());
+    await userEvent.click(await answerButton());
+    await userEvent.type(field(), "hm{Escape}");
+    expect(screen.queryByLabelText("Your answer to Dana Whitfield")).toBe(null);
+    expect(document.activeElement).toBe(await answerButton());
+    await userEvent.click(await answerButton());
+    await userEvent.type(field(), "hm");
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByLabelText("Your answer to Dana Whitfield")).toBe(null);
+    expect(document.activeElement).toBe(await answerButton());
+    expect(writes()).toEqual([]);
   });
 
-  it("shows a witness the answer with no control, and lets the recipient withdraw it", async () => {
+  it("shows the counter only near 80 runes and says why Enter did nothing", async () => {
+    kudos = [toMarcus];
+    mount();
+    await userEvent.click(await answerButton());
+    fireEvent.change(field(), { target: { value: "🎉".repeat(50) } });
+    expect(screen.queryByTestId("answer-left")).toBe(null);
+    fireEvent.change(field(), { target: { value: "🎉".repeat(81) } });
+    expect(screen.getByTestId("answer-left").textContent).toContain("1");
+    expect(field().getAttribute("aria-invalid")).toBe("true");
+    fireEvent.keyDown(field(), { key: "Enter" });
+    expect(screen.getByTestId("answer-hint").textContent).toMatch(/80 characters/);
+    fireEvent.change(field(), { target: { value: "   " } });
+    expect(screen.getByTestId("answer-hint").textContent).toBe("Enter to send");
+    fireEvent.keyDown(field(), { key: "Enter" });
+    expect(screen.getByTestId("answer-hint").textContent).toMatch(/write something/i);
+    expect(writes()).toEqual([]);
+  });
+
+  it("asks before withdrawing an answer, and Keep it keeps it", async () => {
     kudos = [{ ...toMarcus, answer: "Any time." }];
     mount({ meId: "dana" });
-    expect((await screen.findByTestId("kudo-answer")).textContent).toBe("Marcus Okonjo: Any time.");
+    expect((await screen.findByTestId("kudo-answer")).textContent).toContain("Marcus Okonjo: Any time.");
     expect(screen.queryByRole("button", { name: /answer/i })).toBe(null);
     cleanup();
 
     mount();
-    await userEvent.click(await screen.findByRole("button", { name: "Withdraw your answer" }));
+    const withdraw = await screen.findByRole("button", { name: /^Withdraw answer to Dana Whitfield/ });
+    expect(withdraw.textContent).toBe("Withdraw answer");
+    await userEvent.click(withdraw);
+    expect(writes()).toEqual([]);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep it" }));
+    await userEvent.keyboard("{Enter}");
+    expect(screen.getByTestId("kudo-answer")).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Withdraw answer/ }));
+
+    await userEvent.click(screen.getByRole("button", { name: /^Withdraw answer/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Withdraw it" }));
     expect(vi.mocked(api)).toHaveBeenCalledWith("DELETE", "/api/orgs/acme/spaces/platform-team/kudos/k1/answer");
     await waitFor(() => expect(screen.queryByTestId("kudo-answer")).toBe(null));
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Answer Dana Whitfield" }));
+    expect(document.activeElement).toBe(await answerButton());
+  });
+
+  it("names each note's controls apart, and marks where the answer begins", async () => {
+    kudos = [
+      { ...toMarcus, id: "k1", text: "Paired on the flaky test all afternoon." },
+      { ...toMarcus, id: "k2", text: "Reviewed the migration twice." },
+      { ...toMarcus, id: "k3", text: "Wrote the runbook.", answer: "Cheers." },
+      { ...toMarcus, id: "k4", text: "Fixed the build.", answer: "Any time." },
+    ];
+    mount();
+    const names = [
+      ...(await screen.findAllByRole("button", { name: /^Answer/ })),
+      ...screen.getAllByRole("button", { name: /^Withdraw answer/ }),
+    ].map((b) => b.getAttribute("aria-label"));
+    expect(new Set(names).size).toBe(4);
+    expect(names[0]).toContain("Paired on the flaky");
+    for (const line of screen.getAllByTestId("kudo-answer")) expect(line.textContent).toMatch(/^You replied:/);
+  });
+
+  it("keeps a witness's timestamp with the note, above the answer", async () => {
+    kudos = [{ ...toMarcus, toUserId: "dana", fromUserId: "marcus", answer: "Thanks!" }];
+    mount();
+    const row = await screen.findByTestId("kudo-k1");
+    const time = row.querySelector("time")!;
+    const answer = within(row).getByTestId("kudo-answer");
+    expect(time.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("has no axe violations with the answer field open", async () => {
     kudos = [toMarcus];
     const { container } = mount();
-    await userEvent.click(await screen.findByRole("button", { name: "Answer Dana Whitfield" }));
+    await userEvent.click(await answerButton());
     await expectNoViolations(container);
+  });
+});
+
+describe("Kudos answer focus", () => {
+  it("takes no focus when the wall first renders", async () => {
+    kudos = [
+      { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "Thanks.", createdAt: "2026-09-03T09:00:00.000Z", sessionId: "", unread: false, answer: "Cheers." },
+      { id: "k2", fromUserId: "dana", toUserId: "marcus", text: "Thanks again.", createdAt: "2026-09-03T08:00:00.000Z", sessionId: "", unread: false },
+    ];
+    mount();
+    await screen.findByTestId("kudo-answer");
+    expect(document.activeElement).toBe(document.body);
   });
 });

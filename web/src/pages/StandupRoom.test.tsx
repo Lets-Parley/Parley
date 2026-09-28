@@ -1988,7 +1988,7 @@ describe("StandupRoom kudos", () => {
     );
     expect(screen.getAllByRole("button", { name: /^answer/i })).toHaveLength(1);
     expect(screen.getByTestId("standup-kudos").textContent).toContain("Priya Raman: Thanks!");
-    await userEvent.click(screen.getByRole("button", { name: "Answer Dana Whitfield" }));
+    await userEvent.click(screen.getByRole("button", { name: /^Answer Dana Whitfield/ }));
     await userEvent.type(screen.getByLabelText("Your answer to Dana Whitfield"), "Any time{Enter}");
     await waitFor(() =>
       expect(
@@ -1999,6 +1999,31 @@ describe("StandupRoom kudos", () => {
         ),
       ).toHaveLength(1),
     );
+    fetchSpy.mockRestore();
+  });
+
+  it("closes the answer field once a retried answer lands, so a later withdrawal starts clean", async () => {
+    let status = 500;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input) =>
+      answering(
+        status === 204
+          ? new Response(null, { status: 204 })
+          : new Response(JSON.stringify({ error: "could not save your answer" }), { status }),
+      )(input),
+    );
+    const kudo = { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me" };
+    const { rerender } = renderApp(<StandupRoom env={doneEnv([kudo])} me={me} />);
+    await userEvent.click(screen.getByRole("button", { name: /^Answer Dana Whitfield/ }));
+    await userEvent.type(screen.getByLabelText("Your answer to Dana Whitfield"), "Any time{Enter}");
+    status = 204;
+    await userEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    rerender(<StandupRoom env={doneEnv([{ ...kudo, answer: "Any time" }])} me={me} />);
+    expect(await screen.findByText(/Any time/)).toBeTruthy();
+    // Withdrawn — from another tab, say — the note offers Answer again, not
+    // the old field still holding the old words.
+    rerender(<StandupRoom env={doneEnv([kudo])} me={me} />);
+    expect(screen.queryByLabelText("Your answer to Dana Whitfield")).toBe(null);
+    expect(screen.getByRole("button", { name: /^Answer Dana Whitfield/ })).toBeTruthy();
     fetchSpy.mockRestore();
   });
 

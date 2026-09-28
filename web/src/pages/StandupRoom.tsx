@@ -1064,6 +1064,7 @@ export function StandupRoom({
                     answer={k.answer}
                     by={toMe ? "You" : nameOf(k.toUserId)}
                     thanker={nameOf(k.fromUserId)}
+                    about={k.text}
                     mine={toMe}
                     onAnswer={(text) => run(() => action(env.id, "answerKudo", { id: k.id, text }), { where: "kudos" })}
                     onWithdraw={() => run(() => action(env.id, "answerKudo", { id: k.id, withdraw: true }), { where: "kudos" })}
