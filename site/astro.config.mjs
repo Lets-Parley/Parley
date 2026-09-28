@@ -3,10 +3,9 @@ import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 import starlightLlmsTxt from "starlight-llms-txt";
 import { mdastVersion } from "./src/mdast-version.mjs";
+import { DESCRIPTION } from "./src/description.mjs";
 
-const description =
-  "Planning poker, daily standups, kudos and retrospectives for your team, at your table. " +
-  "Self-hosted, open source, one Go binary and a Postgres database.";
+const description = DESCRIPTION;
 
 export default defineConfig({
   site: "https://www.letsparley.io",
