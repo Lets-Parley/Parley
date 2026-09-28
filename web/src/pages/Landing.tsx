@@ -229,6 +229,28 @@ function SeatedCards({ here }: { here: number }) {
 }
 
 /**
+ * A thank-you waiting in a space, said on the landing page: the signed note's
+ * paper and its to-you pip edge, upright like the note's own sign-off. Yes or
+ * no, never how many. One line always — a slip that folds on a phone is a
+ * lump, not a note — so it truncates rather than wraps. The comma is for a
+ * screen reader, so the row reads "Platform Team, A thank-you is waiting".
+ * The hero has no preceding name to join, so `lead` is false there and the
+ * comma is dropped.
+ */
+function KudoWaitingCue({ className = "", lead = true }: { className?: string; lead?: boolean }) {
+  return (
+    <span className={"block basis-full " + className}>
+      {lead && <span className="sr-only">, </span>}
+      <span
+        className="block w-fit max-w-full truncate rounded-r-chip border-l-2 border-pip bg-surface-hi py-px pr-2 pl-1.5 text-[13px] leading-[18px] font-semibold text-ink-soft shadow-rest"
+      >
+        A thank-you is waiting
+      </span>
+    </span>
+  );
+}
+
+/**
  * The first thing a returning account sees: the table they last sat at, and
  * what is happening on it right now. The list is ordered by the server's
  * last_seen_at, so the first membership is that table — no new endpoint.
@@ -271,6 +293,7 @@ function ReturnTable({ space, orgName }: { space: Membership; orgName: string | 
       <p className="mt-1.5 text-sm text-ink-soft">
         The table you sat at last{orgName ? `, in ${orgName}` : ""}.
       </p>
+      {space.kudoWaiting && <KudoWaitingCue className="mt-3" lead={false} />}
 
       {open.length > 0 && (
         <ul aria-label="Rounds open now" className="mt-5 flex flex-col gap-2">
@@ -899,16 +922,23 @@ export function Landing() {
                                 <li key={sp.orgSlug + "/" + sp.slug}>
                                   <Link
                                     to={spacePath(sp.orgSlug, sp.slug)}
-                                    className="flex items-center justify-between gap-3 rounded-card px-3 py-2.5 font-bold hover:bg-felt-deep"
+                                    className="flex flex-wrap items-start justify-between gap-x-3 rounded-card px-3 py-2.5 font-bold hover:bg-felt-deep"
                                   >
-                                    <span className="line-clamp-2 min-w-0 [overflow-wrap:anywhere]">{sp.name}</span>
+                                    {/* items-start: the glyphs on the right keep
+                                        to the name's first line whether or not
+                                        a cue sits under it. The cue is read
+                                        right after the name but laid on a line
+                                        of its own, under the glyphs too, so it
+                                        has the row's whole width at 320px. */}
+                                    <span className="line-clamp-2 min-w-0 flex-1 basis-0 [overflow-wrap:anywhere]">{sp.name}</span>
+                                    {sp.kudoWaiting && <KudoWaitingCue className="order-last mt-1" />}
                                     {/* The hero's language, one card deep: a
                                         face-down card when someone is at an
                                         open round, an empty seat when a round
                                         is open with nobody at it. The words go
                                         to a screen reader; the card is decor. */}
                                     {(sp.open ?? 0) > 0 && (
-                                      <span className="ml-auto flex shrink-0 items-center">
+                                      <span className="ml-auto flex h-6 shrink-0 items-center self-start">
                                         <SeatedCards here={(sp.here ?? 0) > 0 ? 1 : 0} />
                                         <span className="sr-only">
                                           , round open
@@ -917,7 +947,7 @@ export function Landing() {
                                       </span>
                                     )}
                                     {sp.protected && (
-                                      <span className="flex shrink-0 items-center gap-1.5 text-ink-faint">
+                                      <span className="flex h-6 shrink-0 items-center gap-1.5 self-start text-ink-faint">
                                         <LockGlyph />
                                         <span className="font-mono text-[11px] font-normal tracking-[0.06em]">
                                           <span className="sr-only">, </span>passcode

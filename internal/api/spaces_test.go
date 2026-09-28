@@ -383,7 +383,8 @@ func TestListMySpacesCarriesOnlyTheListedFields(t *testing.T) {
 		// open and here are counts a member already reads, per session, from
 		// the space view; the list sums them so the front page can mark a
 		// live table without a request per row.
-		case "slug", "name", "orgSlug", "protected", "open", "here":
+		// kudoWaiting is the caller's own unread kudo, as a yes/no.
+		case "slug", "name", "orgSlug", "protected", "open", "here", "kudoWaiting":
 		default:
 			t.Fatalf("unexpected field %q in %v", key, mine[0])
 		}

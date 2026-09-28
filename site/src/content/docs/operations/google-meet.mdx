@@ -38,9 +38,9 @@ reaches Parley's maintainers. A security reviewer should start at
   clicking.
 - `BASE_URL` must be `https`. Meet frames only secure pages, and Parley
   refuses to start with `EMBED_PROVIDERS` set and a plain-HTTP `BASE_URL`.
-- Your people must already be able to sign in to Parley in the same browser.
-  The add-on signs them in by a short code they type on an ordinary Parley
-  tab, not an existing session (Parley calls this an "embedded session" —
+- Your people must be signed in to Parley in the same browser. The add-on
+  signs them in by a short code they type on an ordinary Parley tab, not an
+  existing session (Parley calls this an "embedded session" —
   see [Embedded sessions](/security/authentication/#embedded-sessions) for
   what it can and can't do).
 - Only a Google Workspace super administrator can install it for the whole
@@ -239,8 +239,12 @@ As yourself, or as a colleague who was covered by the rollout:
 4. Click **Sign in**. A pop-up opens to an ordinary Parley tab. If your
    browser blocks it, allow pop-ups for `meet.google.com` and click
    **Sign in** again.
-5. Sign in to Parley as you normally would, then type the code the side
-   panel showed you. The pop-up confirms and can be closed.
+5. If you are not already signed in to Parley in that browser, sign in. With
+   `AUTH_MODE=oidc` the identity provider brings you straight back to the
+   code prompt. In open mode Parley lands you on its home page instead:
+   choose your name there, then click **Sign in** in the side panel again.
+   Type the code the side panel showed you; the pop-up confirms and can be
+   closed. A browser holding only a guest link cannot sign in the add-on.
 6. Back in the side panel, you should now see your spaces and open rooms.
    Join a poker room and confirm the vote pad works; as facilitator, click
    **Show on main stage** and confirm the presenter view appears for the
@@ -314,8 +318,8 @@ Private selected before saving.
 
 ## Who cannot use it
 
-- **External attendees, and anyone not signed in to Parley.** The side panel
-  offers sign-in; without a Parley account there is nothing to sign in to.
+- **External attendees, and anyone who cannot sign in to Parley.** The side
+  panel needs a Parley session in the same browser; a guest link is not one.
 - **View-only attendees**, and anyone the Meet host has not let open
   activities.
 

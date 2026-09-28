@@ -537,6 +537,38 @@ describe("Kudos letter", () => {
     expect(screen.queryByTestId("kudo-letter")).toBe(null);
   });
 
+  // The landing page's "a thank-you is waiting" reads ["my-spaces"]. Putting
+  // the last letter away has to clear it there, or going back paints a cue
+  // for a letter already read.
+  it("clears this space's landing cue when the last letter is put away, and no other org's", async () => {
+    kudos = [letter("k1")];
+    const { queryClient } = mount();
+    const before = [
+      { slug: "platform-team", name: "Platform Team", orgSlug: "acme", protected: false, kudoWaiting: true },
+      { slug: "platform-team", name: "Platform Team", orgSlug: "other", protected: false, kudoWaiting: true },
+    ];
+    queryClient.setQueryData(["my-spaces"], before);
+    await userEvent.click(await screen.findByRole("button", { name: putName }));
+    await screen.findByTestId("kudo-k1");
+    const after = queryClient.getQueryData<typeof before>(["my-spaces"]);
+    expect(after?.map((m) => m.kudoWaiting)).toEqual([false, true]);
+  });
+
+  it("keeps this space's landing cue while another letter is still waiting", async () => {
+    kudos = [letter("k1"), letter("k2")];
+    const { queryClient } = mount();
+    queryClient.setQueryData(["my-spaces"], [
+      { slug: "platform-team", name: "Platform Team", orgSlug: "acme", protected: false, kudoWaiting: true },
+    ]);
+    await userEvent.click(await screen.findByRole("button", { name: putName }));
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("POST", "/api/orgs/acme/spaces/platform-team/kudos/k1/seen"),
+    );
+    await screen.findByTestId("kudo-k1");
+    const after = queryClient.getQueryData<{ kudoWaiting?: boolean }[]>(["my-spaces"]);
+    expect(after?.[0].kudoWaiting).toBe(true);
+  });
+
   it("is a labelled group, and says without a number that another is waiting", async () => {
     kudos = [letter("k1")];
     const { unmount } = mount();

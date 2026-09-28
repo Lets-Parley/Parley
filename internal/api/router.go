@@ -105,6 +105,10 @@ type app struct {
 type Options struct {
 	SecureCookies bool
 	AllowedOrigin string
+	// PublicURL is the instance's absolute address, set only when the
+	// operator configured BASE_URL. It becomes the app shell's og:url and
+	// canonical link; empty omits both.
+	PublicURL string
 	// AuthMode is ModeOpen (the default) or ModeOIDC.
 	AuthMode string
 	// OIDC must be set when AuthMode is ModeOIDC and is ignored otherwise.
@@ -432,7 +436,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	// reachable only by being registered in it, while a path check is a
 	// matching rule, and matching rules get evaded.
 	// The meeting-client add-on documents are the other framable group.
-	spa := web.SPAHandler()
+	spa := web.SPAHandler(opts.PublicURL)
 	a.mountEmbedDocuments(root, spa)
 	a.mountPluginFrame(root)
 	r := root.With(securityHeaders)

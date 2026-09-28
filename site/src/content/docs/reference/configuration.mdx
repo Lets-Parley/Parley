@@ -6,7 +6,7 @@ description: Every environment variable, its default, and whether a bad value st
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import EnvVar from "../../../components/EnvVar.astro";
 
-<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "internal/store/kudos.go", "cmd/parley/configfile.go", "internal/db/tls.go", "internal/api/client_address.go", "internal/api/secevent.go", "internal/api/standup_webhook.go", "internal/api/embed.go"]} />
+<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "web/embed.go", "internal/store/kudos.go", "cmd/parley/configfile.go", "internal/db/tls.go", "internal/api/client_address.go", "internal/api/secevent.go", "internal/api/standup_webhook.go", "internal/api/embed.go"]} />
 
 Configuration is environment variables, optionally backed by a file that fills
 the gaps (`PARLEY_CONFIG_FILE`, below). There is no command-line flag other than
@@ -89,6 +89,11 @@ OIDC redirect is `<BASE_URL>/auth/callback`.
 
 Get it wrong and the symptoms look unrelated to configuration: boards stuck at
 "reconnecting", logins that do not stick, sign-in landing on the wrong host.
+
+When `BASE_URL` is set explicitly, the app page also carries it as its
+`og:url` and canonical link, so a pasted link previews under the instance's own
+address. Left at the default, both are omitted rather than advertise
+`localhost`.
 </EnvVar>
 
 <EnvVar name="PORT" default="8080">

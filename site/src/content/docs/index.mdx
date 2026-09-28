@@ -23,6 +23,7 @@ hero:
 
 import { CardGrid, Card, LinkCard, Tabs, TabItem } from "@astrojs/starlight/components";
 import Screenshot from "../../components/Screenshot.astro";
+import SoftwareJsonLd from "../../components/SoftwareJsonLd.astro";
 import hiddenLight from "../../assets/hidden-votes-light.png";
 import hiddenDark from "../../assets/hidden-votes-dark.png";
 import tshirtLight from "../../assets/tshirt-results-light.png";
@@ -37,6 +38,8 @@ import storyLight from "../../assets/story-queue-light.png";
 import storyDark from "../../assets/story-queue-dark.png";
 import landingLight from "../../assets/landing-light.png";
 import landingDark from "../../assets/landing-dark.png";
+
+<SoftwareJsonLd />
 
 ## Most tools want an account. Parley wants a link.
 
@@ -182,7 +185,7 @@ link and type a name.
     [What it does](/features/spaces-and-room-codes/)
   </Card>
   <Card title="Guest links">
-    One URL that seats one person in one room, for 24 hours — no account, no
+    One URL into one room, for 24 hours and 25 redemptions — no account, no
     space membership, and nothing else it can reach. Revoke it and whoever
     redeemed it is out of the room in seconds.
     <Screenshot

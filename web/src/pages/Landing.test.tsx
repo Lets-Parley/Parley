@@ -82,7 +82,7 @@ let holdList: Promise<void> | null = null;
 // What GET /api/orgs/{org}/spaces/{slug} answers: the room the return table
 // reads its open rounds and roster from.
 let spaceDetail: unknown = { slug: "platform-team", name: "Platform Team", protected: true, members: [], sessions: [] };
-let mySpaces: { slug: string; name: string; orgSlug: string; protected: boolean; open?: number; here?: number }[] = [];
+let mySpaces: { slug: string; name: string; orgSlug: string; protected: boolean; open?: number; here?: number; kudoWaiting?: boolean }[] = [];
 // The orgs the caller belongs to. One by default, which is what a single-tenant
 // instance looks like: the switcher stays out of the way and the list is flat.
 let myOrgs: { slug: string; name: string; role: "admin" | "member" }[] = [
@@ -189,6 +189,48 @@ describe("Landing, signed in with spaces", () => {
     await waitFor(() =>
       expect(spaceCalls()).toContainEqual(["POST", "/api/spaces", { name: "New Crew", org: "acme" }]),
     );
+  });
+
+  // A yes/no in the note's own words, never a count: two waiting in one space
+  // read exactly like one.
+  it("says a thank-you is waiting, without a number", async () => {
+    mySpaces = [
+      { slug: "platform-team", name: "Platform Team", orgSlug: "acme", protected: false, kudoWaiting: true },
+      { slug: "design-guild", name: "Design Guild", orgSlug: "acme", protected: false },
+    ];
+    const { container } = renderApp(<Landing />);
+
+    const list = await screen.findByRole("list", { name: /your spaces/i });
+    const links = within(list).getAllByRole("link");
+    const cue = within(links[0]).getByText("A thank-you is waiting");
+    expect(cue.textContent).not.toMatch(/\d/);
+    expect(links[0].textContent).not.toMatch(/\d/);
+    expect(within(links[1]).queryByText(/thank-you/i)).toBeNull();
+    // Read as one sentence: the name, a comma, the cue — never "you. ,".
+    expect(links[0].textContent).toBe("Platform Team, A thank-you is waiting");
+    await expectNoViolations(container);
+  });
+
+  // spaces[0] is the hero and the likeliest to hold the letter, so the table
+  // you sat at last says it too, in the same words and still without a number.
+  it("says a thank-you is waiting on the table you sat at last, only when one is", async () => {
+    mySpaces = [
+      { slug: "platform-team", name: "Platform Team", orgSlug: "acme", protected: false, kudoWaiting: true },
+    ];
+    const { container, unmount } = renderApp(<Landing />);
+    const hero = (await screen.findByRole("heading", { level: 1 })).closest("section")!;
+    const cue = within(hero).getByText("A thank-you is waiting");
+    expect(cue.textContent).not.toMatch(/\d/);
+    // The hero has no preceding name for the list's comma to join, so a
+    // screen reader must not hear a stray leading "comma" before the cue.
+    expect(cue.parentElement!.textContent).toBe("A thank-you is waiting");
+    await expectNoViolations(container);
+    unmount();
+
+    mySpaces = [{ slug: "platform-team", name: "Platform Team", orgSlug: "acme", protected: false }];
+    renderApp(<Landing />);
+    const quiet = (await screen.findByRole("heading", { level: 1 })).closest("section")!;
+    expect(within(quiet).queryByText(/thank-you/i)).toBeNull();
   });
 
   it("marks the spaces that will ask for a passcode", async () => {

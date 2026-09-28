@@ -193,6 +193,8 @@ export type Membership = {
   open?: number;
   /** Distinct people present across those rounds, by the presence window. */
   here?: number;
+  /** A thank-you to you is unread here. Yes or no, never a count. */
+  kudoWaiting?: boolean;
 };
 /**
  * One space in an org's directory.

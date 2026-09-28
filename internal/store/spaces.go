@@ -271,6 +271,9 @@ type Membership struct {
 	// table without a request per row.
 	Open int `json:"open"`
 	Here int `json:"here"`
+	// KudoWaiting says a thank-you addressed to the caller sits unread in the
+	// space. A yes/no, never a count, and only ever the caller's own.
+	KudoWaiting bool `json:"kudoWaiting"`
 }
 
 // ForUser lists the caller's own spaces, most recently active first, each with
@@ -286,7 +289,11 @@ func (s *Spaces) ForUser(ctx context.Context, userID string, window time.Duratio
 			(select count(distinct pr.user_id) from session_presence pr
 				join sessions se on se.id = pr.session_id
 				where se.space_id = sp.id and se.ended_at is null
-				and pr.seen_at > now() - $2::interval)
+				and pr.seen_at > now() - $2::interval),
+			-- ponytail: rides the (space_id, created_at) index to one space's
+			-- kudos; add a to_user_id index if a space's wall grows large.
+			exists (select 1 from kudos k where k.space_id = sp.id
+				and k.to_user_id = $1 and k.seen_at is null)
 		from members m
 		join spaces sp on sp.id = m.space_id
 		join orgs o on o.id = sp.org_id
@@ -299,7 +306,7 @@ func (s *Spaces) ForUser(ctx context.Context, userID string, window time.Duratio
 	spaces := []Membership{}
 	for rows.Next() {
 		var sp Membership
-		if err := rows.Scan(&sp.Slug, &sp.Name, &sp.OrgSlug, &sp.Protected, &sp.Open, &sp.Here); err != nil {
+		if err := rows.Scan(&sp.Slug, &sp.Name, &sp.OrgSlug, &sp.Protected, &sp.Open, &sp.Here, &sp.KudoWaiting); err != nil {
 			return nil, err
 		}
 		spaces = append(spaces, sp)
