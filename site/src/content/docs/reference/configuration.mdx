@@ -91,9 +91,10 @@ Get it wrong and the symptoms look unrelated to configuration: boards stuck at
 "reconnecting", logins that do not stick, sign-in landing on the wrong host.
 
 When `BASE_URL` is set explicitly, the app page also carries it as its
-`og:url` and canonical link, so a pasted link previews under the instance's own
-address. Left at the default, both are omitted rather than advertise
-`localhost`.
+`og:url` and canonical link, and names `<BASE_URL>/og.png` as its share image
+with a large-image card, so a pasted link previews under the instance's own
+address with a picture. Left at the default, all of them are omitted rather than
+advertise `localhost`, and the preview is the text-only kind.
 </EnvVar>
 
 <EnvVar name="PORT" default="8080">

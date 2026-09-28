@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -196,6 +197,12 @@ func TestMainsOptionsPutTheBaseURLInTheShell(t *testing.T) {
 	for _, want := range []string{
 		`<link rel="canonical" href="https://parley.example.test/o/acme/s/platform"`,
 		`<meta property="og:url" content="https://parley.example.test/o/acme/s/platform"`,
+		`<meta property="og:image" content="https://parley.example.test/og.png"`,
+		`<meta property="og:image:width" content="1200"`,
+		`<meta property="og:image:height" content="630"`,
+		`<meta property="og:image:alt" content=`,
+		`<meta name="twitter:image" content="https://parley.example.test/og.png"`,
+		`<meta name="twitter:card" content="summary_large_image"`,
 	} {
 		if !strings.Contains(set, want) {
 			t.Errorf("shell with BASE_URL set lacks %s", want)
@@ -207,10 +214,37 @@ func TestMainsOptionsPutTheBaseURLInTheShell(t *testing.T) {
 
 	def, _ := url.Parse("http://localhost:8080")
 	unset := shell(t, config{BaseURL: def, AuthMode: api.ModeOpen}, "/some/client/route")
-	for _, bad := range []string{`rel="canonical"`, `og:url`, `localhost:8080`} {
+	for _, bad := range []string{`rel="canonical"`, `og:url`, `localhost:8080`, `og:image`, `twitter:image`, `summary_large_image`} {
 		if strings.Contains(unset, bad) {
 			t.Errorf("shell with BASE_URL unset contains %s", bad)
 		}
+	}
+	if !strings.Contains(unset, `<meta name="twitter:card" content="summary"`) {
+		t.Error("shell with BASE_URL unset lost its summary twitter card")
+	}
+}
+
+// The og:image the shell names has to be a file the binary actually serves,
+// or every share card points at the SPA shell instead of a picture.
+func TestMainsOptionsServeTheShareImage(t *testing.T) {
+	base, _ := url.Parse("https://parley.example.test/")
+	handler := api.Router(nil, apiOptions(t.Context(), config{BaseURL: base, BaseURLSet: true, AuthMode: api.ModeOpen}, true, nil, nil))
+	srv := httptest.NewServer(handler)
+	t.Cleanup(func() {
+		handler.Shutdown()
+		srv.Close()
+	})
+	resp, err := srv.Client().Get(srv.URL + "/og.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "image/png" {
+		t.Fatalf("GET /og.png = %d %q, want 200 image/png", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	if !bytes.HasPrefix(body, []byte("\x89PNG\r\n\x1a\n")) {
+		t.Fatal("GET /og.png did not return a PNG")
 	}
 }
 

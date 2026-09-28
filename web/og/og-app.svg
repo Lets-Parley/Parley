@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <!-- Source of web/public/og.png. Render with scripts/render-og.sh; fonts
+       resolve from web/node_modules/@fontsource, so run `npm ci` in web/ first. -->
+  <style>
+    @font-face { font-family: "Instrument Sans"; font-weight: 400; src: url("../node_modules/@fontsource/instrument-sans/files/instrument-sans-latin-400-normal.woff2"); }
+    @font-face { font-family: "Instrument Sans"; font-weight: 700; src: url("../node_modules/@fontsource/instrument-sans/files/instrument-sans-latin-700-normal.woff2"); }
+    @font-face { font-family: "JetBrains Mono"; font-weight: 400; src: url("../node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff2"); }
+    text { font-family: "Instrument Sans"; }
+  </style>
+  <rect width="1200" height="630" fill="#0E1726"/>
+  <rect width="1200" height="8" fill="#5FA8D3"/>
+  <text x="84" y="170" font-size="104" font-weight="700" fill="#E9E7E1" letter-spacing="-2">Parley</text>
+  <text x="84" y="262" font-size="46" font-weight="700" fill="#E9E7E1">Pull up a chair —</text>
+  <text x="84" y="320" font-size="46" font-weight="700" fill="#E9E7E1">your team’s table is ready.</text>
+  <text x="84" y="420" font-size="30" fill="#A3B1C0">Planning poker, standups and kudos,</text>
+  <text x="84" y="462" font-size="30" fill="#A3B1C0">together in one room.</text>
+  <g transform="translate(800 150) scale(1.6)">
+    <rect x="60" y="48" width="96" height="136" rx="20" fill="#E9E7E1" transform="rotate(-9 108 116)"/>
+    <rect x="100" y="64" width="96" height="136" rx="20" fill="#E9E7E1" stroke="#0E1726" stroke-width="8" transform="rotate(9 148 132)"/>
+    <g transform="rotate(9 148 132)" fill="none" stroke="#1D4E6E" stroke-width="14" stroke-linecap="round"><circle cx="150" cy="114" r="13"/><circle cx="150" cy="144" r="17"/></g>
+  </g>
+</svg>
