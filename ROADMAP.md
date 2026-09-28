@@ -232,23 +232,55 @@ Ideas under consideration, not committed to.
 
 ### Unreleased
 
-- Kudos with no leaderboard: a short thank-you on the space and at the close of
-  a standup, never counted, aggregated or ranked; a sender can withdraw one,
-  nobody can edit one, and signed-link guests neither send nor receive
-  ([#386](https://github.com/lets-parley/parley/issues/386))
+- A pasted link to an instance previews properly in chat: the app's share
+  card carries the instance's own address, per page, and an image, whenever
+  `BASE_URL` is set
+
+### v0.14.0
+
+- The space page leads with live sessions, showing who is in, progress and
+  last activity, and folds ended ones into a logbook; kudos and standup
+  participation get a column beside them
+- The front page opens on the table you sat at last
+
+### v0.13.0
+
+- Async standups: a standup can run as a window people post into when they
+  can, on a recurring schedule, with late posts accepted and marked, a
+  personal calendar feed, away days, and commitment follow-through
+- Parley runs inside Google Meet as an add-on, turned on by the operator:
+  people vote from the side panel and the facilitator puts the room on the
+  main stage ([#632](https://github.com/lets-parley/parley/issues/632))
+- A read-only presenter view of a room, for a shared screen in any meeting tool
+
+### v0.12.0
+
+- Sound cues for poker and standup, off until you turn them on, with the
+  preference following you between rooms and devices
+
+### v0.11.1
+
+- A room's table seats only the people who have actually attached, instead of
+  everyone in the space with an "away" card
+
+### v0.11.0
+
 - A plugin system: sandboxed WebAssembly plugins running under capability
   grants the operator approves, able to add whole ceremonies
   ([#9](https://github.com/lets-parley/parley/issues/9))
 - A retrospective, delivered entirely as a plugin, with hidden authorship,
   grouping, dot voting and action items; operators install it
   ([#21](https://github.com/lets-parley/parley/issues/21))
-- Parley runs inside Google Meet as an add-on, turned on by the operator: people vote
-  from the side panel, the facilitator puts the board on the main stage, and a
-  read-only presenter view works as a screen share in any meeting tool
-  ([#632](https://github.com/lets-parley/parley/issues/632))
+- Kudos with no leaderboard: a short thank-you on the space and at the close of
+  a standup, never counted, aggregated or ranked; a sender can withdraw one,
+  nobody can edit one, and signed-link guests neither send nor receive
+  ([#386](https://github.com/lets-parley/parley/issues/386))
+- Standup commitments carry until they are answered, and say when one is stuck
 - A facilitator can hand the role to a named participant from the roster, in
   poker and in standup alike, instead of the role only moving by going quiet for
   a minute ([#392](https://github.com/lets-parley/parley/issues/392))
+- For operators: a FIPS image, Prometheus metrics, session expiry, and an
+  offline-verifiable Sigstore bundle with every release
 
 ### v0.10.0
 
