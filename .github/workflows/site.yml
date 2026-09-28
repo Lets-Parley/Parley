@@ -65,3 +65,50 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+
+  # Tell IndexNow (Bing, Yandex, Seznam, Naver, ...) which pages a push just
+  # changed, so they are recrawled in hours rather than whenever. Push only:
+  # the daily star-count rebuild changes no page worth resubmitting, a pull
+  # request never deploys, and a manual dispatch has no diff to compute. The
+  # key file it names is site/public/<key>.txt, served at the site root.
+  indexnow:
+    needs: deploy
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    # A search-engine ping is advisory. It must never mark a deploy red.
+    continue-on-error: true
+    env:
+      KEY: f3ed8476414a4e94a2934cdfcf4ecf13
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The whole history, so github.event.before is present to diff
+          # against however many commits the push carried.
+          fetch-depth: 0
+      - name: Submit changed pages to IndexNow
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          # The live sitemap is the deployed one; the build artifact is a
+          # Pages tarball this job cannot read.
+          curl -fsS --retry 3 https://www.letsparley.io/sitemap-0.xml -o sitemap.xml
+          site/scripts/indexnow-urls.sh "$BEFORE" "$AFTER" sitemap.xml > urls.txt
+          echo "submitting $(wc -l < urls.txt) URL(s):"; cat urls.txt
+          if [ ! -s urls.txt ]; then echo "no page changed"; exit 0; fi
+          jq -Rn --arg key "$KEY" '{
+            host: "www.letsparley.io",
+            key: $key,
+            keyLocation: "https://www.letsparley.io/\($key).txt",
+            urlList: [inputs]
+          }' < urls.txt > body.json
+          status=$(curl -sS -o resp.txt -w '%{http_code}' -X POST \
+            -H 'Content-Type: application/json; charset=utf-8' \
+            --data-binary @body.json https://api.indexnow.org/indexnow) || status=000
+          echo "IndexNow answered HTTP $status"; cat resp.txt 2>/dev/null || true
+          case "$status" in
+            200|202) ;;
+            *) echo "::warning::IndexNow submission answered HTTP $status" ;;
+          esac
