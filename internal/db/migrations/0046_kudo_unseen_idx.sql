@@ -3,7 +3,7 @@
 -- (internal/store/kudos.go). Neither matches kudos_space_created_idx
 -- (space_id, created_at desc) from 0033_kudos.sql, so both read every kudo the
 -- space holds and filter to_user_id/seen_at on the heap. The 500-per-space cap
--- that used to bound this is gone as of the rolling 30-day retention, so a
+-- that used to bound this became a rolling 30-day cap in #700, so a
 -- space's kudos now grow for its whole life.
 --
 -- This index is partial: a kudo leaves it the moment it is seen, so it stays
