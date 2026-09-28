@@ -21,8 +21,9 @@ not do is in [Known limitations](/known-limitations/).
 | Planning poker | Built in | Built in | Built in ("Sprint Poker") |
 | Standups | Built in, live round-robin with timer | Async check-ins | Check-ins and async "Team Prompt" standups |
 | Retrospectives | Plugin, not preinstalled | Built in | Built in, with several templates |
-| Story mapping | No | Yes | No mention found |
-| Hosted option | No | Free and premium hosted | Yes, parabol.co |
+| Story mapping | No | Yes | No |
+| Hosted option | No | Yes, thunderdome.dev | Yes, parabol.co |
+| Sign-in | Open mode or OpenID Connect | Built-in accounts, LDAP, OIDC, or proxy header auth | Hosted accounts; Microsoft/Azure AD SSO |
 | Self-hosting | One Go binary plus Postgres | Docker, PostgreSQL | Node.js, PostgreSQL, Valkey |
 | License | MIT | Apache-2.0 | AGPL-3.0 (dual-licensed) |
 
@@ -51,8 +52,10 @@ stand-ups (checkins)"
 ([README](https://github.com/StevenWeathers/thunderdome-planning-poker)).
 It can be self-hosted with Docker and requires PostgreSQL
 ([installation guide](https://github.com/StevenWeathers/thunderdome-planning-poker/blob/main/docs/INSTALLATION.md)),
-and it is also offered hosted, free and with
-[premium options](https://thunderdome.dev/subscriptions/pricing). Its README
+and it is also offered as a
+[hosted service](https://thunderdome.dev/subscriptions/pricing). It supports
+built-in accounts, LDAP, OIDC and proxy header sign-in
+([configuration](https://github.com/StevenWeathers/thunderdome-planning-poker/blob/main/docs/CONFIGURATION.md)). Its README
 states it is "intentionally built without any AI driven features".
 
 **Where Thunderdome is ahead:** story mapping, retrospectives without an extra
@@ -72,13 +75,13 @@ hosted service at parabol.co; a production self-host runs on Node.js with
 PostgreSQL and Valkey.
 
 **Where Parabol is ahead:** more retrospective templates, team health checks,
-issue-tracker and chat integrations, and a hosted service.
+issue-tracker and chat integrations, collaborative pages and a task board, and a
+hosted service.
 
 ## Choose…
 
 - **Parley** if you want to self-host planning poker and a live standup with
-  as little to run as possible, keep everything inside your own network, and
-  sign people in through your own identity provider.
+  as little to run as possible, and keep everything inside your own network.
 - **Thunderdome** if you need story mapping, or want poker, retros and
   check-ins in one self-hosted app without installing a plugin.
 - **Parabol** if retrospectives are the main event, you want a wide choice of
