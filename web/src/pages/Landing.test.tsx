@@ -202,11 +202,32 @@ describe("Landing, signed in with spaces", () => {
 
     const list = await screen.findByRole("list", { name: /your spaces/i });
     const links = within(list).getAllByRole("link");
-    const cue = within(links[0]).getByText("A thank-you is waiting for you.");
+    const cue = within(links[0]).getByText("A thank-you is waiting");
     expect(cue.textContent).not.toMatch(/\d/);
     expect(links[0].textContent).not.toMatch(/\d/);
     expect(within(links[1]).queryByText(/thank-you/i)).toBeNull();
+    // Read as one sentence: the name, a comma, the cue — never "you. ,".
+    expect(links[0].textContent).toBe("Platform Team, A thank-you is waiting");
     await expectNoViolations(container);
+  });
+
+  // spaces[0] is the hero and the likeliest to hold the letter, so the table
+  // you sat at last says it too, in the same words and still without a number.
+  it("says a thank-you is waiting on the table you sat at last, only when one is", async () => {
+    mySpaces = [
+      { slug: "platform-team", name: "Platform Team", orgSlug: "acme", protected: false, kudoWaiting: true },
+    ];
+    const { container, unmount } = renderApp(<Landing />);
+    const hero = (await screen.findByRole("heading", { level: 1 })).closest("section")!;
+    const cue = within(hero).getByText("A thank-you is waiting");
+    expect(cue.textContent).not.toMatch(/\d/);
+    await expectNoViolations(container);
+    unmount();
+
+    mySpaces = [{ slug: "platform-team", name: "Platform Team", orgSlug: "acme", protected: false }];
+    renderApp(<Landing />);
+    const quiet = (await screen.findByRole("heading", { level: 1 })).closest("section")!;
+    expect(within(quiet).queryByText(/thank-you/i)).toBeNull();
   });
 
   it("marks the spaces that will ask for a passcode", async () => {

@@ -12,7 +12,7 @@ import {
   type RefObject,
 } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
-import { api, ApiError, errorText, type Kudo, type Person } from "../lib/api";
+import { api, ApiError, errorText, type Kudo, type Membership, type Person } from "../lib/api";
 import { Avatar } from "./Avatar";
 import { buttonPrimary, buttonQuiet, inputClass, labelText } from "./Modal";
 import { kudoSeenApi, kudosApi } from "../lib/paths";
@@ -533,6 +533,13 @@ export function Kudos({
         },
       );
       qc.setQueryData<Kudo[]>(["kudos", org, slug, "waiting"], (d) => d?.filter((x) => x.id !== k.id));
+      // The landing page's "a thank-you is waiting" goes with the last letter
+      // here; while another still waits, the cue stays true.
+      if (qc.getQueryData<Kudo[]>(["kudos", org, slug, "waiting"])?.length === 0) {
+        qc.setQueryData<Membership[]>(["my-spaces"], (d) =>
+          d?.map((m) => (m.orgSlug === org && m.slug === slug ? { ...m, kudoWaiting: false } : m)),
+        );
+      }
       setDown(k);
       setPutAway((a) => [...a, k.id]);
       lockUntil.current = performance.now() + PILL_AT + PILL_MS;
