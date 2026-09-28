@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -165,7 +167,99 @@ func (a *app) handleWithdrawKudo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"could not withdraw kudo"}`, http.StatusInternalServerError)
 		return
 	}
+	a.refreshKudoRoom(r.Context(), kudo)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleAnswerKudo is the recipient's one line back. Read first, like
+// withdraw, so another space's id is a 404 and anyone but the recipient a 403.
+// There is no edit: an answered kudo is a 409 until the answer is withdrawn.
+func (a *app) handleAnswerKudo(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Text string `json:"text"`
+	}
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
+		return
+	}
+	kudo, ok := a.recipientsKudo(w, r)
+	if !ok {
+		return
+	}
+	p, _ := PrincipalFrom(r.Context())
+	switch err := a.kudos.Answer(r.Context(), spaceFrom(r.Context()).ID, kudo.ID, p.UserID, body.Text); {
+	case err == nil:
+		a.refreshKudoRoom(r.Context(), kudo)
+		w.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, store.ErrBadAnswer):
+		http.Error(w, `{"error":"an answer is between 1 and 80 characters"}`, http.StatusBadRequest)
+	case errors.Is(err, store.ErrAnswered):
+		http.Error(w, `{"error":"this kudo already has an answer; withdraw it first"}`, http.StatusConflict)
+	case errors.Is(err, store.ErrNoKudo):
+		// Withdrawn by its sender while this request was in flight.
+		http.Error(w, `{"error":"no such kudo"}`, http.StatusNotFound)
+	default:
+		http.Error(w, `{"error":"could not save your answer"}`, http.StatusInternalServerError)
+	}
+}
+
+// handleUnanswerKudo withdraws the recipient's answer.
+func (a *app) handleUnanswerKudo(w http.ResponseWriter, r *http.Request) {
+	kudo, ok := a.recipientsKudo(w, r)
+	if !ok {
+		return
+	}
+	p, _ := PrincipalFrom(r.Context())
+	// A kudo withdrawn in between took the answer with it.
+	if err := a.kudos.Unanswer(r.Context(), spaceFrom(r.Context()).ID, kudo.ID, p.UserID); err != nil && !errors.Is(err, store.ErrNoKudo) {
+		http.Error(w, `{"error":"could not withdraw your answer"}`, http.StatusInternalServerError)
+		return
+	}
+	a.refreshKudoRoom(r.Context(), kudo)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// refreshKudoRoom tells the standup a kudo was given in that it changed on the
+// wall, so an open room's closing list is not left offering to answer a kudo
+// that is already answered or gone. It bumps the room's version, which is what
+// makes a client take the new envelope, and broadcasts it. Only a live room is
+// touched; a kudo given on the wall has no room at all.
+//
+// Best-effort, like notify: the write the caller asked for has already been
+// made, so a failure here costs the room one refresh — its own answer action
+// still refuses a stale send — rather than failing a successful answer.
+func (a *app) refreshKudoRoom(ctx context.Context, kudo store.Kudo) {
+	if kudo.SessionID == "" {
+		return
+	}
+	bumped, err := a.sessions.BumpLiveVersion(ctx, kudo.SessionID)
+	if err != nil {
+		slog.Error("could not refresh the room a kudo was given in", "session", kudo.SessionID, "error", err)
+		return
+	}
+	if bumped {
+		a.broadcastState(ctx, kudo.SessionID)
+	}
+}
+
+// recipientsKudo reads the {id} kudo in this space and answers 404 or 403
+// itself unless the caller is its recipient.
+func (a *app) recipientsKudo(w http.ResponseWriter, r *http.Request) (store.Kudo, bool) {
+	p, _ := PrincipalFrom(r.Context())
+	kudo, err := a.kudos.Get(r.Context(), spaceFrom(r.Context()).ID, chi.URLParam(r, "id"))
+	if errors.Is(err, store.ErrNoKudo) {
+		http.Error(w, `{"error":"no such kudo"}`, http.StatusNotFound)
+		return kudo, false
+	}
+	if err != nil {
+		http.Error(w, `{"error":"could not load kudo"}`, http.StatusInternalServerError)
+		return kudo, false
+	}
+	if kudo.ToUserID != p.UserID {
+		http.Error(w, `{"error":"only the recipient can answer a kudo"}`, http.StatusForbidden)
+		return kudo, false
+	}
+	return kudo, true
 }
 
 // writeKudoError turns the store's refusals into answers a client can act on

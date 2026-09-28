@@ -273,3 +273,74 @@ func TestGiveKudoHonoursTheSpaceCap(t *testing.T) {
 		t.Fatalf("over-cap status = %d (%s), want 409", rec.Code, rec.Body.String())
 	}
 }
+
+func answerKudoCall(t *testing.T, pool *pgxpool.Pool, sess store.Session, userID, body string) (*httptest.ResponseRecorder, int) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	broadcasts := 0
+	answerKudo(rec, req, session.ActionCtx{
+		Pool:      pool,
+		Session:   sess,
+		UserID:    userID,
+		Broadcast: func(context.Context, string) { broadcasts++ },
+	})
+	return rec, broadcasts
+}
+
+// The recipient answers in the room, the room hears it, and the answer is on
+// the closing list; withdrawing it clears it the same way.
+func TestAnswerKudoInTheRoom(t *testing.T) {
+	pool := testPool(t)
+	sess, ids := seed(t, pool, `{}`, "Dana Whitfield", "Ruth Okafor")
+	k, err := (&store.Kudos{Pool: pool}).Create(context.Background(), sess.SpaceID, ids[0], ids[1], "unstuck the deploy", sess.ID, 500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec, _ := answerKudoCall(t, pool, sess, ids[0], `{"id":"`+k.ID+`","text":"hi"}`); rec.Code != http.StatusNotFound {
+		t.Fatalf("sender answer = %d (%s), want 404", rec.Code, rec.Body.String())
+	}
+	rec, broadcasts := answerKudoCall(t, pool, sess, ids[1], `{"id":"`+k.ID+`","text":"any time"}`)
+	if rec.Code != http.StatusNoContent || broadcasts != 1 {
+		t.Fatalf("answer = %d (%s), broadcasts %d; want 204 and 1", rec.Code, rec.Body.String(), broadcasts)
+	}
+	if st := buildStandupState(t, pool, sess); len(st.Kudos) != 1 || st.Kudos[0].Answer != "any time" {
+		t.Fatalf("state kudos = %+v, want the answer", st.Kudos)
+	}
+	if rec, _ := answerKudoCall(t, pool, sess, ids[1], `{"id":"`+k.ID+`","text":"edit"}`); rec.Code != http.StatusConflict {
+		t.Fatalf("second answer = %d, want 409", rec.Code)
+	}
+	if rec, _ := answerKudoCall(t, pool, sess, ids[1], `{"id":"`+k.ID+`","text":"`+strings.Repeat("い", 81)+`"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("81 runes = %d, want 400", rec.Code)
+	}
+	if rec, _ := answerKudoCall(t, pool, sess, ids[1], `{"id":"`+k.ID+`","withdraw":true}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("withdraw = %d (%s), want 204", rec.Code, rec.Body.String())
+	}
+	if st := buildStandupState(t, pool, sess); st.Kudos[0].Answer != "" {
+		t.Fatalf("state kudo after withdraw = %+v, want no answer", st.Kudos[0])
+	}
+}
+
+// The space is the session's, never the client's: a kudo the caller received
+// in another space is not reachable through this room.
+func TestAnswerKudoFromAnotherSpaceIs404(t *testing.T) {
+	pool := testPool(t)
+	sess, ids := seed(t, pool, `{}`, "Dana Whitfield", "Ruth Okafor")
+	ctx := context.Background()
+	var otherSpace string
+	if err := pool.QueryRow(ctx,
+		"insert into spaces (slug, name) values ('elsewhere', 'Elsewhere') returning id::text").Scan(&otherSpace); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, "insert into members (space_id, user_id) values ($1, $2), ($1, $3)", otherSpace, ids[0], ids[1]); err != nil {
+		t.Fatal(err)
+	}
+	k, err := (&store.Kudos{Pool: pool}).Create(ctx, otherSpace, ids[0], ids[1], "elsewhere", "", 500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, broadcasts := answerKudoCall(t, pool, sess, ids[1], `{"id":"`+k.ID+`","text":"hi"}`)
+	if rec.Code != http.StatusNotFound || broadcasts != 0 {
+		t.Fatalf("cross-space answer = %d (%s), broadcasts %d; want 404 and 0", rec.Code, rec.Body.String(), broadcasts)
+	}
+}

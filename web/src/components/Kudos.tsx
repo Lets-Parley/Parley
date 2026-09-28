@@ -7,6 +7,7 @@ import {
   useState,
   type CSSProperties,
   type FormEvent,
+  type FocusEvent,
   type KeyboardEvent,
   type ReactNode,
   type RefObject,
@@ -15,7 +16,7 @@ import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from "@
 import { api, ApiError, errorText, type Kudo, type Membership, type Person } from "../lib/api";
 import { Avatar } from "./Avatar";
 import { buttonPrimary, buttonQuiet, inputClass, labelText } from "./Modal";
-import { kudoSeenApi, kudosApi } from "../lib/paths";
+import { kudoAnswerApi, kudoSeenApi, kudosApi } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
 import { TOUCH_HIT } from "../lib/breakpoints";
 import { useToast } from "../lib/ui";
@@ -572,6 +573,47 @@ export function Kudos({
     </>
   );
 
+  async function answerKudo(k: Kudo, text: string | null): Promise<AnswerResult> {
+    try {
+      await (text === null
+        ? api("DELETE", kudoAnswerApi(org, slug, k.id))
+        : api("PUT", kudoAnswerApi(org, slug, k.id), { text }));
+      // Saved is saved: the control shows it from here. The refetch only
+      // catches the wall up, and one that fails must not hold the field.
+      void qc.invalidateQueries({ queryKey: ["kudos", org, slug] });
+      return true;
+    } catch (err) {
+      const status = err instanceof ApiError ? err.status : 0;
+      if (status !== 404 && status !== 409) {
+        say(errorText(err));
+        return false;
+      }
+      // Somebody moved first: the sender withdrew the kudo (404), or an
+      // answer was already given, in another tab say (409). Either way the
+      // wall is stale, and reading it again is what shows why.
+      await qc.invalidateQueries({ queryKey: ["kudos", org, slug] });
+      if (status === 409) return "taken";
+      // The note is about to go, and focus with it. The heading stays, and
+      // the reader keeps their place on the wall.
+      say(`${nameOf(k.fromUserId)} withdrew this thank-you.`);
+      headingRef.current?.focus({ preventScroll: true });
+      return "gone";
+    }
+  }
+
+  const answerOf = (k: Kudo) => (
+    <KudoAnswer
+      answer={k.answer}
+      by={who(k.toUserId, "You")}
+      thanker={nameOf(k.fromUserId)}
+      about={k.text}
+      mine={k.toUserId === meId}
+      fresh={kudos.dataUpdatedAt}
+      onAnswer={(t) => answerKudo(k, t)}
+      onWithdraw={() => answerKudo(k, null)}
+    />
+  );
+
   async function withdraw(id: string) {
     setBusy(true);
     try {
@@ -652,6 +694,7 @@ export function Kudos({
                     text={k.text}
                     words="text-[15px]"
                     head={toMeHead(k)}
+                    foot={answerOf(k)}
                   />
                 </li>
               ) : (
@@ -681,6 +724,8 @@ export function Kudos({
                   <time dateTime={k.createdAt} className="mt-1 block text-[12px] text-ink-faint">
                     {ago(k.createdAt)}
                   </time>
+                  {/* After the time, so the time reads as the kudo's, not the answer's. */}
+                  {answerOf(k)}
                   {/* Only the sender, matching the handler: everyone else gets
                       a 403 there, so offering the control would be a lie. It
                       sits under the words rather than beside them, so a narrow
@@ -1010,8 +1055,11 @@ export function KudoNote({
   from,
   text,
   words,
+  foot,
   className = "",
 }: {
+  /** Under the sign-off: the recipient's answer, or their Answer control. */
+  foot?: ReactNode;
   /** The line above the words: who thanked you, and on the wall their face and when. */
   head: ReactNode;
   /** The sender's display name, for the sign-off. */
@@ -1037,9 +1085,453 @@ export function KudoNote({
       >
         — {from}
       </span>
+      {foot}
     </span>
   );
 }
+
+/** Matches MaxAnswerRunes in internal/store/kudos.go and 0045_kudo_answers.sql. */
+const MAX_ANSWER_RUNES = 80;
+
+/**
+ * A kudo's first few words, to tell two notes from the same person apart in
+ * a control's accessible name. Capped in characters too, for an unbroken word.
+ */
+function openingWords(text: string) {
+  const words = text.trim().split(/\s+/);
+  let out = words.slice(0, 6).join(" ");
+  if (out.length > 40) out = out.slice(0, 40).trimEnd();
+  return out.length < text.trim().length ? `${out}…` : out;
+}
+
+/** What `onAnswer` and `onWithdraw` settle to. "gone": the kudo itself was
+ *  withdrawn, and the caller has already said so and moved focus. "taken": an
+ *  answer was already given (another tab, say); the caller has asked for it,
+ *  but it may not have arrived. */
+export type AnswerResult = boolean | "gone" | "taken";
+
+/**
+ * The recipient's one line back, written under the note: "Sam: …". Everyone
+ * who sees the kudo sees the answer; only the recipient (`mine`) ever gets a
+ * control. With no answer, a witness sees nothing at all — there is no
+ * "unanswered" state, and the control never prompts. No edit: withdraw, then
+ * answer again.
+ */
+export function KudoAnswer({
+  answer,
+  by,
+  thanker,
+  about,
+  mine,
+  fresh,
+  onAnswer,
+  onWithdraw,
+}: {
+  answer?: string;
+  /** The recipient's name as this viewer reads it ("You" for themselves). */
+  by: string;
+  /** Who is being answered, for the control's accessible name. */
+  thanker: string;
+  /** The kudo's own words: their opening keeps two notes' controls apart. */
+  about: string;
+  mine: boolean;
+  /** Changes on every good read of the server's copy — the wall's fetch
+   *  time, the room's envelope version. Whatever this viewer is showing from
+   *  its own write gives way to it, so the server always wins. */
+  fresh?: number;
+  /** Settles true once saved, false to keep the field open. */
+  onAnswer: (text: string) => Promise<AnswerResult>;
+  onWithdraw: () => Promise<AnswerResult>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  // Why Enter did nothing, said where the hint is rather than not at all.
+  const [nudge, setNudge] = useState("");
+  // Words a 409 turned away: kept on the page rather than silently dropped.
+  const [unsent, setUnsent] = useState("");
+  // A 409 is final until the server's copy is read again: sending once more
+  // would be refused the same way, so nothing offers to.
+  const [refused, setRefused] = useState(false);
+  // A 404: the kudo is withdrawn and on its way off the page.
+  const [gone, setGone] = useState(false);
+  // What this viewer just saved, shown until the room's own copy arrives: a
+  // refetch that fails, or a socket still reconnecting, must not hold the
+  // field. `null` is "nothing pending"; `{ value: undefined }` a withdrawal.
+  const [saved, setSaved] = useState<{ value?: string } | null>(null);
+  const shown = saved ? saved.value : answer;
+  const [focus, setFocus] = useState<"answer" | "line" | "withdraw" | "keep" | "note" | null>(null);
+  const answerRef = useRef<HTMLButtonElement>(null);
+  const lineRef = useRef<HTMLSpanElement>(null);
+  const withdrawRef = useRef<HTMLButtonElement>(null);
+  const keepRef = useRef<HTMLButtonElement>(null);
+  const noteRef = useRef<HTMLSpanElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Set only by this viewer's own send or withdraw, from the control that
+  // held focus: the one change focus may follow. Nobody else's answer, and
+  // no refetch, ever moves it.
+  const owned = useRef(false);
+  const counterId = useId();
+  const promptId = useId();
+  const left = MAX_ANSWER_RUNES - [...text.trim()].length;
+  const opening = openingWords(about);
+
+  // Focus follows the control that replaced the one just used, once it exists.
+  useEffect(() => {
+    const el =
+      focus === "answer"
+        ? answerRef.current
+        : focus === "line"
+          ? lineRef.current
+          : focus === "withdraw"
+            ? withdrawRef.current
+            : focus === "keep"
+              ? keepRef.current
+              : focus === "note"
+                ? // The note stands in for an answer still on its way; one
+                  // that has landed since takes precedence.
+                  (lineRef.current ?? noteRef.current)
+                : null;
+    if (el) {
+      el.focus({ preventScroll: true });
+      setFocus(null);
+    }
+  }, [focus, shown, open, confirming, unsent]);
+
+  // A good read of the server's copy settles what this viewer was showing
+  // from its own write, whether or not the answer in it changed: after a
+  // refetch that failed, the next one that succeeds is the truth.
+  const [read, setRead] = useState(fresh);
+  if (read !== fresh) {
+    setRead(fresh);
+    setSaved(null);
+    setRefused(false);
+  }
+
+  // The answer arriving or leaving — ours, the one a 409 revealed, one given
+  // in another tab, or a retry the standup's error row made — settles every
+  // local state it could strand: an open field would otherwise reappear
+  // pre-filled the next time the answer is withdrawn. Reset during render, so
+  // the stale field never reaches the page.
+  const [settled, setSettled] = useState(answer);
+  if (settled !== answer) {
+    setSettled(answer);
+    setSaved(null);
+    setOpen(false);
+    setText("");
+    setNudge("");
+    setBusy(false);
+    setConfirming(false);
+    if (!answer) setUnsent("");
+  }
+  // What this viewer's own send or withdraw unmounted held focus; it is
+  // caught here rather than left on the page. Only then: a change that came
+  // from anywhere else leaves focus, and the scroll, where they were.
+  const lastShown = useRef(shown);
+  useLayoutEffect(() => {
+    if (lastShown.current === shown) return;
+    lastShown.current = shown;
+    if (!owned.current) return;
+    owned.current = false;
+    const el = document.activeElement;
+    if (el && el !== document.body && el !== noteRef.current) return;
+    (shown ? lineRef.current : answerRef.current)?.focus({ preventScroll: true });
+  }, [shown]);
+
+  async function send(from: EventTarget) {
+    if (busy || refused || gone) return;
+    if (!text.trim()) {
+      setNudge("Write something first.");
+      return;
+    }
+    if (left < 0) {
+      setNudge(`An answer is 80 characters at most.`);
+      return;
+    }
+    const words = text.trim();
+    owned.current = from === document.activeElement;
+    setBusy(true);
+    setUnsent("");
+    const ok = await onAnswer(words);
+    setBusy(false);
+    if (ok === true) {
+      // Shown from the write itself: the room's copy replaces it on arrival.
+      setSaved({ value: words });
+      setOpen(false);
+      setText("");
+      return;
+    }
+    if (ok === "taken") {
+      // An answer was already given. The field closes, since sending again
+      // would be refused again; these words were never sent, so they stay
+      // on the page in the note rather than vanish. Focus goes to the answer
+      // if it is here, and to the note while it is still on its way; the
+      // answer landing takes it from the note, unless focus has moved on.
+      setRefused(true);
+      setUnsent(words);
+      setOpen(false);
+      setText("");
+      setNudge("");
+      setFocus(lastShown.current ? "line" : "note");
+      return;
+    }
+    owned.current = false;
+    // Gone: the note is going, and the owner has already moved focus.
+    if (ok === "gone") {
+      setGone(true);
+      return;
+    }
+    inputRef.current?.focus({ preventScroll: true });
+  }
+
+  async function withdraw(from: EventTarget) {
+    if (busy) return;
+    owned.current = from === document.activeElement;
+    setBusy(true);
+    const ok = await onWithdraw();
+    setBusy(false);
+    if (ok === true) {
+      setSaved({ value: undefined });
+      setConfirming(false);
+      setUnsent("");
+      return;
+    }
+    owned.current = false;
+    if (ok === "gone") setGone(true);
+  }
+
+  // Focus leaving this answer for good — a click elsewhere, a Tab away —
+  // gives up everything waiting on it: a focus hand-off still pending, and
+  // the note about refused words, which has been read by then. A control
+  // that unmounts under focus is not leaving; it is caught above. Checked
+  // a tick later, once the focus has landed wherever it is going.
+  function leave(e: FocusEvent<HTMLSpanElement>) {
+    const wrap = e.currentTarget;
+    const from = e.target;
+    if (e.relatedTarget instanceof Node && wrap.contains(e.relatedTarget)) return;
+    window.setTimeout(() => {
+      if (!from.isConnected || wrap.contains(document.activeElement)) return;
+      owned.current = false;
+      setFocus(null);
+      setUnsent("");
+    }, 0);
+  }
+
+  function cancel() {
+    if (busy) return;
+    owned.current = false;
+    setUnsent("");
+    setOpen(false);
+    setText("");
+    setNudge("");
+    setFocus("answer");
+  }
+
+  function keep() {
+    if (busy) return;
+    setConfirming(false);
+    setFocus("withdraw");
+  }
+
+  // A held key auto-repeats, and a repeat is never a second decision.
+  const noRepeat = (e: KeyboardEvent) => {
+    if (e.repeat) e.preventDefault();
+  };
+
+  // Always mounted for the recipient, and always last, so the region is in
+  // place before the note is put into it and the note is announced.
+  const unsentNote = (
+    <span aria-live="polite" className="block">
+      {unsent && (
+        <span
+          ref={noteRef}
+          tabIndex={-1}
+          data-testid="answer-unsent"
+          className="mt-1 block break-words text-[12px] leading-[1.45] text-ink-soft"
+        >
+          You already answered this, so these words were not sent: “{unsent}”
+        </span>
+      )}
+    </span>
+  );
+
+  if (gone) return null;
+  // One wrapper for every state below, laid out as if it were not there: it
+  // is what hears focus leave, and it keeps the note's region in one place.
+  const own = (body: ReactNode) => (
+    <span className="contents" onBlur={leave}>
+      {body}
+      {mine && unsentNote}
+    </span>
+  );
+  if (shown) {
+    return own(
+      <span className="mt-1.5 block">
+        {/* Focusable so a send can hand focus to what it made, rather than to
+            the control that would take it straight back. */}
+        <span
+          ref={lineRef}
+          tabIndex={-1}
+          data-testid="kudo-answer"
+          className="block min-w-0 break-words text-[13px] leading-[1.45] text-ink-soft"
+        >
+          <span className="sr-only">{by} replied: </span>
+          <span aria-hidden="true" className="font-semibold text-ink">
+            {by}:
+          </span>{" "}
+          {shown}
+        </span>
+        {mine &&
+          (confirming ? (
+            // Esc answers "Keep it", as it would in any other dialog.
+            <span
+              className="-mb-2 -ml-2 flex flex-wrap items-center"
+              onKeyDown={(e) => {
+                if (e.key !== "Escape") return;
+                e.preventDefault();
+                e.stopPropagation();
+                keep();
+              }}
+            >
+              <span id={promptId} aria-live="polite" className="w-full px-2 pt-1 text-[13px] text-ink-soft">
+                {busy ? "Withdrawing…" : "Withdraw your answer?"}
+              </span>
+              <button
+                ref={keepRef}
+                type="button"
+                className={quietAction}
+                aria-describedby={promptId}
+                aria-disabled={busy || undefined}
+                onKeyDown={noRepeat}
+                onClick={keep}
+              >
+                Keep it
+              </button>
+              <button
+                type="button"
+                className={quietAction}
+                aria-describedby={promptId}
+                aria-disabled={busy || undefined}
+                onKeyDown={noRepeat}
+                onClick={(e) => void withdraw(e.currentTarget)}
+              >
+                Withdraw it
+              </button>
+            </span>
+          ) : (
+            /* Nothing undoes a withdrawal and an answer cannot be edited, so
+               the first press only asks — as the kudo's own Withdraw does. */
+            <button
+              ref={withdrawRef}
+              type="button"
+              className={`${quietAction} -mb-2 -ml-2`}
+              aria-label={`Withdraw answer to ${thanker}: ${opening}`}
+              onKeyDown={noRepeat}
+              onClick={() => {
+                setConfirming(true);
+                setFocus("keep");
+              }}
+            >
+              Withdraw answer
+            </button>
+          ))}
+      </span>,
+    );
+  }
+  if (!mine) return null;
+  // Refused: the answer is on its way in, and there is nothing to offer.
+  if (refused) return own(null);
+  if (!open) {
+    return own(
+      <button
+        ref={answerRef}
+        type="button"
+        className={`${quietAction} -mb-2 -ml-2 mt-0.5`}
+        aria-label={`Answer ${thanker}: ${opening}`}
+        onKeyDown={noRepeat}
+        onClick={() => {
+          setUnsent("");
+          setOpen(true);
+        }}
+      >
+        Answer
+      </button>,
+    );
+  }
+  return own(
+    <span className="mt-2 block">
+      <input
+        ref={inputRef}
+        // Opened by a press on Answer, so taking focus is expected.
+        // oxlint-disable-next-line jsx-a11y/no-autofocus
+        autoFocus
+        // Dimmed while it sends, so it does not look open to more typing.
+        className={`${inputClass} w-full py-1.5 text-[13px] ${busy ? "cursor-default opacity-60" : ""}`}
+        aria-label={`Your answer to ${thanker}`}
+        aria-describedby={left <= 20 ? counterId : undefined}
+        aria-invalid={left < 0 || undefined}
+        // Read-only, not disabled, while it sends: a disabled field throws
+        // focus to the page, and a keyboard user loses their place.
+        readOnly={busy}
+        aria-disabled={busy || undefined}
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          setNudge("");
+        }}
+        onKeyDown={(e) => {
+          // Mid-composition, Enter picks the input method's candidate; it
+          // is not the person saying they are done. 229 is Safari's tell.
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+          if (e.key === "Enter") {
+            e.preventDefault();
+            if (!e.repeat) void send(e.currentTarget);
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            cancel();
+          }
+        }}
+      />
+      <span className="flex items-center justify-between gap-2 text-[12px] text-ink-soft">
+        <span data-testid="answer-hint" aria-live="polite" className={nudge && !busy ? "text-stop" : ""}>
+          {busy ? "Sending…" : nudge || "Enter to send"}
+        </span>
+        <span className="flex items-center gap-2">
+          {left <= 20 && (
+            <span id={counterId} data-testid="answer-left" className={left < 0 ? "text-stop" : ""}>
+              {left < 0 ? (
+                <>
+                  <span className="font-mono tabular-nums">{-left}</span> over
+                </>
+              ) : (
+                <>
+                  <span className="font-mono tabular-nums">{left}</span> left
+                </>
+              )}
+            </span>
+          )}
+          {/* Esc is not on a phone's keyboard. */}
+          <button
+            type="button"
+            className={`${quietAction} -mr-2 text-[12px]`}
+            aria-disabled={busy || undefined}
+            onClick={cancel}
+          >
+            Cancel
+          </button>
+        </span>
+      </span>
+    </span>,
+  );
+}
+
+/**
+ * The answer's controls: quiet text rather than a pill, so an unanswered note
+ * never reads as an item on a list to clear. The hit area is still 44px.
+ */
+const quietAction = `${TOUCH_HIT} inline-flex items-center px-2 text-[13px] text-ink-soft underline-offset-2 hover:text-ink hover:underline aria-disabled:opacity-60`;
 
 /** A small pill inside a full-size hit area: the target is 44px, the face is not. */
 const smallPill = `${TOUCH_HIT} pill-hit inline-flex items-center justify-center px-2 disabled:opacity-50`;

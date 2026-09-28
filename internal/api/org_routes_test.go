@@ -321,6 +321,8 @@ var routeScoping = map[string]string{
 	"POST /api/orgs/{org}/spaces/{slug}/kudos/":                "org-scoped",
 	"DELETE /api/orgs/{org}/spaces/{slug}/kudos/{id}":          "org-scoped",
 	"POST /api/orgs/{org}/spaces/{slug}/kudos/{id}/seen":       "org-scoped",
+	"PUT /api/orgs/{org}/spaces/{slug}/kudos/{id}/answer":      "org-scoped",
+	"DELETE /api/orgs/{org}/spaces/{slug}/kudos/{id}/answer":   "org-scoped",
 	"POST /api/orgs/{org}/spaces/{slug}/members/{userId}/role": "org-scoped",
 	"DELETE /api/orgs/{org}/spaces/{slug}/members/{userId}/":   "org-scoped",
 	"PATCH /api/orgs/{org}/spaces/{slug}/sessions/{id}/":       "org-scoped",

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -415,6 +416,127 @@ func TestKudoWaitingIsTheCallersUnreadInThisSpace(t *testing.T) {
 	for _, q := range []string{"?waiting=yes", "?waiting=1&before=2026-09-01T00:00:00Z&beforeId=x"} {
 		if resp, _ := getKudosPath(t, srv, "/api/orgs/default/spaces/"+slug+"/kudos"+q, member); resp.StatusCode != http.StatusBadRequest {
 			t.Fatalf("%s: got %d, want 400", q, resp.StatusCode)
+		}
+	}
+}
+
+// The recipient answers once, in at most 80 characters counted in runes; the
+// sender and a bystander are refused, and the answer is on the wall for
+// everybody. There is no edit: a second PUT is 409 until a DELETE.
+func TestKudoAnswerStatusCodes(t *testing.T) {
+	srv := testServer(t)
+	owner, member, other, memberID, slug := kudoSpace(t, srv)
+	_, kudo := giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"thank you"}`, owner)
+	path := "/api/orgs/default/spaces/" + slug + "/kudos/" + kudo["id"].(string) + "/answer"
+
+	for name, c := range map[string]*http.Cookie{"sender": owner, "bystander": other} {
+		if resp, body := doJSON(t, srv, http.MethodPut, path, `{"text":"hi"}`, c); resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("%s answer: got %d (%v), want 403", name, resp.StatusCode, body)
+		}
+		if resp, body := doJSON(t, srv, http.MethodDelete, path, "", c); resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("%s unanswer: got %d (%v), want 403", name, resp.StatusCode, body)
+		}
+	}
+	missing := "/api/orgs/default/spaces/" + slug + "/kudos/00000000-0000-0000-0000-000000000000/answer"
+	if resp, body := doJSON(t, srv, http.MethodPut, missing, `{"text":"hi"}`, member); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing kudo answer: got %d (%v), want 404", resp.StatusCode, body)
+	}
+	if resp, body := doJSON(t, srv, http.MethodPut, path, `{"text":"`+strings.Repeat("い", 81)+`"}`, member); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("81-rune answer: got %d (%v), want 400", resp.StatusCode, body)
+	}
+	if resp, body := doJSON(t, srv, http.MethodPut, path, `{"text":"`+strings.Repeat("い", 80)+`"}`, member); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("80-rune answer: got %d (%v), want 204", resp.StatusCode, body)
+	}
+	if resp, body := doJSON(t, srv, http.MethodPut, path, `{"text":"edited"}`, member); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("second answer: got %d (%v), want 409", resp.StatusCode, body)
+	}
+	if _, kudos := listKudos(t, srv, slug, other); len(kudos) != 1 || kudos[0]["answer"] != strings.Repeat("い", 80) {
+		t.Fatalf("wall for a bystander: got %v, want the answer", kudos)
+	}
+	if resp, body := doJSON(t, srv, http.MethodDelete, path, "", member); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("unanswer: got %d (%v), want 204", resp.StatusCode, body)
+	}
+	if _, kudos := listKudos(t, srv, slug, other); len(kudos) != 1 || kudos[0]["answer"] != nil {
+		t.Fatalf("wall after unanswer: got %v, want no answer key", kudos)
+	}
+	_, b := createSpace(t, srv, "Other Answer Space", owner)
+	cross := "/api/orgs/default/spaces/" + b["slug"].(string) + "/kudos/" + kudo["id"].(string) + "/answer"
+	if resp, body := doJSON(t, srv, http.MethodPut, cross, `{"text":"hi"}`, owner); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("cross-space answer: got %d (%v), want 404", resp.StatusCode, body)
+	}
+	// Withdrawing the kudo takes the answer with it.
+	doJSON(t, srv, http.MethodPut, path, `{"text":"thanks back"}`, member)
+	if resp, _ := doJSON(t, srv, http.MethodDelete, "/api/orgs/default/spaces/"+slug+"/kudos/"+kudo["id"].(string), "", owner); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("withdraw: got %d", resp.StatusCode)
+	}
+	if resp, body := doJSON(t, srv, http.MethodPut, path, `{"text":"hi"}`, member); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("answer after withdraw: got %d (%v), want 404", resp.StatusCode, body)
+	}
+}
+
+// A kudo given in a standup is also shown in that room's closing list, so a
+// wall write to it has to reach the room: an answer, a withdrawn answer and a
+// withdrawn kudo each bump the live session's version. A room that has ended
+// is left alone.
+func TestKudoWallWriteBumpsItsLiveSession(t *testing.T) {
+	srv := testServer(t)
+	owner, member, _, memberID, slug := kudoSpace(t, srv)
+	_, room := createSession(t, srv, slug, "standup", "Daily", owner)
+	roomID := room["id"].(string)
+	_, ended := createSession(t, srv, slug, "standup", "Yesterday", owner)
+	endedID := ended["id"].(string)
+
+	pool := testDBPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, "update sessions set ended_at = now() where id = $1", endedID); err != nil {
+		t.Fatal(err)
+	}
+	version := func(id string) int {
+		t.Helper()
+		var v int
+		if err := pool.QueryRow(ctx, "select version from sessions where id = $1", id).Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	kudoIn := func(sessionID string) string {
+		t.Helper()
+		_, kudo := giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"thank you"}`, owner)
+		id := kudo["id"].(string)
+		if _, err := pool.Exec(ctx, "update kudos set session_id = $2 where id = $1", id, sessionID); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	base := "/api/orgs/default/spaces/" + slug + "/kudos/"
+	steps := []struct {
+		name, method, path, body string
+		cookie                   *http.Cookie
+	}{
+		{"answer", http.MethodPut, "/answer", `{"text":"thanks back"}`, member},
+		{"unanswer", http.MethodDelete, "/answer", "", member},
+		{"withdraw kudo", http.MethodDelete, "", "", owner},
+	}
+
+	live := kudoIn(roomID)
+	for _, s := range steps {
+		before := version(roomID)
+		if resp, body := doJSON(t, srv, s.method, base+live+s.path, s.body, s.cookie); resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("%s: got %d (%v), want 204", s.name, resp.StatusCode, body)
+		}
+		if after := version(roomID); after <= before {
+			t.Fatalf("%s: live room version %d -> %d, want it bumped", s.name, before, after)
+		}
+	}
+
+	old := kudoIn(endedID)
+	for _, s := range steps {
+		before := version(endedID)
+		if resp, body := doJSON(t, srv, s.method, base+old+s.path, s.body, s.cookie); resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("ended %s: got %d (%v), want 204", s.name, resp.StatusCode, body)
+		}
+		if after := version(endedID); after != before {
+			t.Fatalf("ended %s: version %d -> %d, want it untouched", s.name, before, after)
 		}
 	}
 }

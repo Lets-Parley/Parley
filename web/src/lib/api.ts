@@ -144,6 +144,8 @@ export type Kudo = {
   sessionId: string;
   /** Present only on a kudo to the viewer: whether they have yet to read it. */
   unread?: boolean;
+  /** The recipient's one line back, absent when there is none. */
+  answer?: string;
 };
 
 export type SpaceRole = "owner" | "member";

@@ -6,7 +6,7 @@ description: A short thank-you with somebody's name on it, and no leaderboard an
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["internal/db/migrations/0033_kudos.sql", "internal/db/migrations/0044_kudo_seen.sql", "internal/store/kudos.go", "internal/api/kudos.go", "internal/standup/kudos.go", "web/src/components/Kudos.tsx", "web/src/components/AppShell.tsx", "web/src/pages/SpacePage.tsx", "web/src/pages/StandupRoom.tsx", "web/src/pages/Landing.tsx", "internal/store/spaces.go"]} />
+<VerifiedStamp source={["internal/db/migrations/0033_kudos.sql", "internal/db/migrations/0044_kudo_seen.sql", "internal/db/migrations/0045_kudo_answers.sql", "internal/store/kudos.go", "internal/api/kudos.go", "internal/standup/kudos.go", "web/src/components/Kudos.tsx", "web/src/components/AppShell.tsx", "web/src/pages/SpacePage.tsx", "web/src/pages/StandupRoom.tsx", "web/src/pages/Landing.tsx", "internal/store/spaces.go"]} />
 
 A **kudo** is one sentence thanking a named person for something they did. It
 appears on the space's kudos wall, newest first: beside the session list on a
@@ -168,6 +168,7 @@ were not in the room for.
   { name: "Kudos to or from a guest", status: "out-of-scope", detail: "A <a href='/features/guest-links/'>guest link</a> is not a person the instance remembers, so a thank-you addressed to one would point at nobody by morning." },
   { name: "Kudos across spaces", status: "not-built", detail: "Both people must hold a membership in the same space. A kudo belongs to the space it was given in." },
   { name: "Notifying the recipient", status: "built", detail: "In-app only: an unread kudo waits as a letter on the space page. Parley sends no email and no push." },
+  { name: "Answering a kudo", status: "built", detail: "The recipient may write one line back, at most 80 characters, shown under the note as \"Sam: …\" to everyone who sees the kudo. One per kudo, so there is nothing to count; never edited, only withdrawn and written again, and withdrawing asks first. Nobody is prompted to answer, and a kudo without an answer looks like any other." },
   { name: "Reacting to a kudo", status: "not-built", detail: "Nothing on a kudo is countable, and a reaction count is a count." },
 ]} />
 

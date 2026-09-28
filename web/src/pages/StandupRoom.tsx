@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { action, api, errorText, type Envelope, type Me, type SpaceView } from "../lib/api";
+import { action, api, ApiError, errorText, type Envelope, type Me, type SpaceView } from "../lib/api";
 import { spaceApi } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
 import type { ConnectionStatus } from "../lib/socket";
@@ -17,7 +17,7 @@ import type { Fail } from "../components/Modal";
 import { cueFor, cueVar } from "../lib/cue";
 import { EmptyTable } from "./PokerRoom";
 import { PluginChrome } from "../components/PluginChrome";
-import { KudoNote, toMeRow } from "../components/Kudos";
+import { KudoAnswer, KudoNote, toMeRow, type AnswerResult } from "../components/Kudos";
 import { AsyncDigest, type CommitmentChange, type ExpectedPerson } from "../components/AsyncDigest";
 import { AwayDays } from "../components/AwayDays";
 
@@ -45,6 +45,8 @@ export type SessionKudo = {
   fromUserId: string;
   toUserId: string;
   text: string;
+  /** The recipient's one line back, absent when there is none. */
+  answer?: string;
 };
 
 type StandupState = {
@@ -419,6 +421,29 @@ export function StandupRoom({
     }
   }
 
+  // The recipient's answer, sent through the round. A 404 or a 409 means this
+  // room's copy was behind the wall — the kudo withdrawn, or answered there —
+  // and sending again would be refused the same way, so it is said as the
+  // wall says it and never offered as Try again. The wall's write refreshes
+  // this room too; the refusal only beat it here.
+  async function answerKudo(k: SessionKudo, body: { text: string } | { withdraw: true }): Promise<AnswerResult> {
+    try {
+      setFail(null);
+      await action(env.id, "answerKudo", { id: k.id, ...body });
+      return true;
+    } catch (e) {
+      const status = e instanceof ApiError ? e.status : 0;
+      if (status === 409) return "taken";
+      if (status === 404) {
+        say(`${nameOf(k.fromUserId)} withdrew this thank-you.`);
+        kudosHeading.current?.focus({ preventScroll: true });
+        return "gone";
+      }
+      setFail({ where: "kudos", msg: errorText(e), retry: () => answerKudo(k, body) });
+      return false;
+    }
+  }
+
   const failRow = (where: Where) =>
     fail?.where === where ? (
       <ErrorRow
@@ -441,6 +466,7 @@ export function StandupRoom({
   // that is set down, and announced once.
   const seenKudos = useRef<Set<string> | null>(null);
   const kudoList = useRef<HTMLUListElement>(null);
+  const kudosHeading = useRef<HTMLHeadingElement>(null);
   const [arrived, setArrived] = useState<Record<string, "note" | "row">>({});
   const kudoIds = givenKudos.map((k) => k.id).join();
   // A layout effect, not a passive one: its state update re-renders before the
@@ -995,7 +1021,11 @@ export function StandupRoom({
 
       {done && (givenKudos.length > 0 || canGiveKudos) && (
         <section className="flex flex-col gap-3 rounded-panel bg-surface p-6 shadow-rest">
-          <h2 className="font-display text-2xl font-semibold">Kudos</h2>
+          {/* Focusable for the one moment it is handed focus: when the note
+              an answer was being written on turns out to be withdrawn. */}
+          <h2 ref={kudosHeading} tabIndex={-1} className="font-display text-2xl font-semibold">
+            Kudos
+          </h2>
           {/* No count, per person or in the heading: a number beside a name is
               a leaderboard however quietly it is drawn. */}
           {canGiveKudos && (
@@ -1057,6 +1087,18 @@ export function StandupRoom({
                 // A link guest is never a recipient, so never "you".
                 const toMe = !guest && k.toUserId === me.id;
                 const fromMe = !guest && k.fromUserId === me.id;
+                const answer = (
+                  <KudoAnswer
+                    answer={k.answer}
+                    by={toMe ? "You" : nameOf(k.toUserId)}
+                    thanker={nameOf(k.fromUserId)}
+                    about={k.text}
+                    mine={toMe}
+                    fresh={env.version}
+                    onAnswer={(text) => answerKudo(k, { text })}
+                    onWithdraw={() => answerKudo(k, { withdraw: true })}
+                  />
+                );
                 return toMe ? (
                   <li
                     key={k.id}
@@ -1068,6 +1110,7 @@ export function StandupRoom({
                       from={nameOf(k.fromUserId)}
                       text={k.text}
                       words="text-sm"
+                      foot={answer}
                       head={
                         <span className="min-w-0 flex-1 break-words text-ink-soft">
                           <span className="font-bold text-ink">{nameOf(k.fromUserId)}</span> thanked{" "}
@@ -1087,6 +1130,7 @@ export function StandupRoom({
                       <span className="font-bold text-ink">{nameOf(k.toUserId)}</span>
                     </span>
                     <span className="mt-0.5 block break-words text-ink">{k.text}</span>
+                    {answer}
                   </li>
                 );
               })}

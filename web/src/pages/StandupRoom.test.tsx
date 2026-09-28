@@ -1666,7 +1666,7 @@ describe("StandupRoom gathering panel and fresh commitments", () => {
 
 
 /** The closing beat: kudos given in the room, and the form that gives them. */
-type WireKudo = { id: string; fromUserId: string; toUserId: string; text: string };
+type WireKudo = { id: string; fromUserId: string; toUserId: string; text: string; answer?: string };
 function kudoState(kudos: WireKudo[]): Envelope["state"] {
   const st = standupState(null) as unknown as { kudos: WireKudo[] };
   st.kudos = kudos;
@@ -1971,6 +1971,113 @@ describe("StandupRoom kudos", () => {
         pageStatuses().filter((el) => (el.textContent ?? "").includes("thanked")),
       ).toHaveLength(1);
     });
+  });
+
+  it("offers Answer on the viewer's own note alone, through the round's action", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(answering(new Response(null, { status: 204 })));
+    renderApp(
+      <StandupRoom
+        env={doneEnv([
+          { id: "k2", fromUserId: "dana", toUserId: "priya", text: "not mine", answer: "Thanks!" },
+          { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me" },
+        ])}
+        me={me}
+      />,
+    );
+    expect(screen.getAllByRole("button", { name: /^answer/i })).toHaveLength(1);
+    expect(screen.getByTestId("standup-kudos").textContent).toContain("Priya Raman: Thanks!");
+    await userEvent.click(screen.getByRole("button", { name: /^Answer Dana Whitfield/ }));
+    await userEvent.type(screen.getByLabelText("Your answer to Dana Whitfield"), "Any time{Enter}");
+    await waitFor(() =>
+      expect(
+        fetchSpy.mock.calls.filter(
+          ([url, init]) =>
+            url === "/api/sessions/sess-1/actions/answerKudo" &&
+            (init as RequestInit).body === JSON.stringify({ id: "k1", text: "Any time" }),
+        ),
+      ).toHaveLength(1),
+    );
+    fetchSpy.mockRestore();
+  });
+
+  it("closes the answer field once a retried answer lands, so a later withdrawal starts clean", async () => {
+    let status = 500;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input) =>
+      answering(
+        status === 204
+          ? new Response(null, { status: 204 })
+          : new Response(JSON.stringify({ error: "could not save your answer" }), { status }),
+      )(input),
+    );
+    const kudo = { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me" };
+    const { rerender } = renderApp(<StandupRoom env={doneEnv([kudo])} me={me} />);
+    await userEvent.click(screen.getByRole("button", { name: /^Answer Dana Whitfield/ }));
+    await userEvent.type(screen.getByLabelText("Your answer to Dana Whitfield"), "Any time{Enter}");
+    status = 204;
+    await userEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    rerender(<StandupRoom env={doneEnv([{ ...kudo, answer: "Any time" }])} me={me} />);
+    expect(await screen.findByText(/Any time/)).toBeTruthy();
+    // Withdrawn — from another tab, say — the note offers Answer again, not
+    // the old field still holding the old words.
+    rerender(<StandupRoom env={doneEnv([kudo])} me={me} />);
+    expect(screen.queryByLabelText("Your answer to Dana Whitfield")).toBe(null);
+    expect(screen.getByRole("button", { name: /^Answer Dana Whitfield/ })).toBeTruthy();
+    fetchSpy.mockRestore();
+  });
+
+  it("closes the field on an answer already given, keeps the words, and shows the answer when it lands", async () => {
+    // The room's copy was stale: the answer was given on the wall, say.
+    const error = "this kudo already has an answer; withdraw it first";
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(answering(new Response(JSON.stringify({ error }), { status: 409 })));
+    const kudo = { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me" };
+    const { rerender } = renderApp(<StandupRoom env={doneEnv([kudo])} me={me} />);
+    await userEvent.click(screen.getByRole("button", { name: /^Answer Dana Whitfield/ }));
+    await userEvent.type(screen.getByLabelText("Your answer to Dana Whitfield"), "Typed in the room{Enter}");
+    await waitFor(() => expect(screen.queryByLabelText("Your answer to Dana Whitfield")).toBe(null));
+    const note = screen.getByTestId("answer-unsent");
+    expect(note.textContent).toContain("You already answered this");
+    expect(note.textContent).toContain("Typed in the room");
+    expect(note.closest('[aria-live="polite"]')).not.toBe(null);
+    // Nothing offers a send the server will refuse again, and nothing raw.
+    expect(screen.queryByRole("button", { name: /^Answer Dana Whitfield/ })).toBe(null);
+    expect(screen.queryByRole("button", { name: "Try again" })).toBe(null);
+    expect(document.body.textContent).not.toMatch(/withdraw it first/);
+    rerender(<StandupRoom env={doneEnv([{ ...kudo, answer: "Said on the wall" }], { version: 2 })} me={me} />);
+    expect(screen.getByTestId("kudo-answer").textContent).toContain("You: Said on the wall");
+    expect(screen.getByTestId("answer-unsent").textContent).toContain("Typed in the room");
+    fetchSpy.mockRestore();
+  });
+
+  it("says plainly that the thank-you was withdrawn, and closes the field", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(answering(new Response(JSON.stringify({ error: "no such kudo" }), { status: 404 })));
+    renderApp(<StandupRoom env={doneEnv([{ id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me" }])} me={me} />);
+    await userEvent.click(screen.getByRole("button", { name: /^Answer Dana Whitfield/ }));
+    await userEvent.type(screen.getByLabelText("Your answer to Dana Whitfield"), "Any time{Enter}");
+    expect(await screen.findByText("Dana Whitfield withdrew this thank-you.")).toBeTruthy();
+    expect(screen.queryByLabelText("Your answer to Dana Whitfield")).toBe(null);
+    expect(screen.queryByRole("button", { name: /^Answer Dana Whitfield/ })).toBe(null);
+    expect(screen.queryByRole("button", { name: "Try again" })).toBe(null);
+    expect(document.body.textContent).not.toMatch(/no such kudo/);
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Kudos" }));
+    fetchSpy.mockRestore();
+  });
+
+  it("shows a guest the answer and never the control", () => {
+    renderApp(
+      <StandupRoom
+        env={doneEnv([{ id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to a member", answer: "Cheers" }])}
+        me={me}
+        guest
+      />,
+    );
+    expect(screen.getByTestId("standup-kudos").textContent).toContain("Marcus Okonjo: Cheers");
+    expect(screen.queryByRole("button", { name: /answer/i })).toBeNull();
   });
 
   it("never gives a link guest the \"you\" treatment", () => {
