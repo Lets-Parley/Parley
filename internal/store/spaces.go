@@ -290,8 +290,8 @@ func (s *Spaces) ForUser(ctx context.Context, userID string, window time.Duratio
 				join sessions se on se.id = pr.session_id
 				where se.space_id = sp.id and se.ended_at is null
 				and pr.seen_at > now() - $2::interval),
-			-- ponytail: rides the (space_id, created_at) index to one space's
-			-- kudos; add a to_user_id index if a space's wall grows large.
+			-- Uses kudos_unseen_by_recipient_idx (to_user_id, space_id) where
+			-- seen_at is null, added by 0046_kudo_unseen_idx.sql.
 			exists (select 1 from kudos k where k.space_id = sp.id
 				and k.to_user_id = $1 and k.seen_at is null)
 		from members m
