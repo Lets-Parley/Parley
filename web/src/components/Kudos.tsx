@@ -570,7 +570,9 @@ export function Kudos({
       await (text === null
         ? api("DELETE", kudoAnswerApi(org, slug, k.id))
         : api("PUT", kudoAnswerApi(org, slug, k.id), { text }));
-      await qc.invalidateQueries({ queryKey: ["kudos", org, slug] });
+      // Saved is saved: the control shows it from here. The refetch only
+      // catches the wall up, and one that fails must not hold the field.
+      void qc.invalidateQueries({ queryKey: ["kudos", org, slug] });
       return true;
     } catch (err) {
       const status = err instanceof ApiError ? err.status : 0;
@@ -582,10 +584,11 @@ export function Kudos({
       // answer was already given, in another tab say (409). Either way the
       // wall is stale, and reading it again is what shows why.
       await qc.invalidateQueries({ queryKey: ["kudos", org, slug] });
-      if (status === 409) return false;
-      // The note is about to go, and focus with it. The heading stays.
+      if (status === 409) return "taken";
+      // The note is about to go, and focus with it. The heading stays, and
+      // the reader keeps their place on the wall.
       say(`${nameOf(k.fromUserId)} withdrew this thank-you.`);
-      headingRef.current?.focus();
+      headingRef.current?.focus({ preventScroll: true });
       return "gone";
     }
   }
@@ -1093,8 +1096,9 @@ function openingWords(text: string) {
 }
 
 /** What `onAnswer` and `onWithdraw` settle to. "gone": the kudo itself was
- *  withdrawn, and the caller has already said so and moved focus. */
-export type AnswerResult = boolean | "gone";
+ *  withdrawn, and the caller has already said so and moved focus. "taken": an
+ *  answer was already given (another tab, say), and the caller has fetched it. */
+export type AnswerResult = boolean | "gone" | "taken";
 
 /**
  * The recipient's one line back, written under the note: "Sam: …". Everyone
@@ -1130,13 +1134,25 @@ export function KudoAnswer({
   const [confirming, setConfirming] = useState(false);
   // Why Enter did nothing, said where the hint is rather than not at all.
   const [nudge, setNudge] = useState("");
+  // Words a 409 turned away: kept on the page rather than silently dropped.
+  const [unsent, setUnsent] = useState("");
+  // What this viewer just saved, shown until the room's own copy arrives: a
+  // refetch that fails, or a socket still reconnecting, must not hold the
+  // field. `null` is "nothing pending"; `{ value: undefined }` a withdrawal.
+  const [saved, setSaved] = useState<{ value?: string } | null>(null);
+  const shown = saved ? saved.value : answer;
   const [focus, setFocus] = useState<"answer" | "line" | "withdraw" | "keep" | null>(null);
   const answerRef = useRef<HTMLButtonElement>(null);
   const lineRef = useRef<HTMLSpanElement>(null);
   const withdrawRef = useRef<HTMLButtonElement>(null);
   const keepRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Set only by this viewer's own send or withdraw, from the control that
+  // held focus: the one change focus may follow. Nobody else's answer, and
+  // no refetch, ever moves it.
+  const owned = useRef(false);
   const counterId = useId();
+  const promptId = useId();
   const left = MAX_ANSWER_RUNES - [...text.trim()].length;
   const opening = openingWords(about);
 
@@ -1153,10 +1169,10 @@ export function KudoAnswer({
               ? keepRef.current
               : null;
     if (el) {
-      el.focus();
+      el.focus({ preventScroll: true });
       setFocus(null);
     }
-  }, [focus, answer, open, confirming]);
+  }, [focus, shown, open, confirming]);
 
   // The answer arriving or leaving — ours, the one a 409 revealed, one given
   // in another tab, or a retry the standup's error row made — settles every
@@ -1166,25 +1182,29 @@ export function KudoAnswer({
   const [settled, setSettled] = useState(answer);
   if (settled !== answer) {
     setSettled(answer);
+    setSaved(null);
     setOpen(false);
     setText("");
     setNudge("");
     setBusy(false);
     setConfirming(false);
+    if (!answer) setUnsent("");
   }
-  // Whatever held focus was just unmounted by that change, so it is caught
-  // here rather than left on the page.
-  // Only on a change: on mount nothing was unmounted, and focus is not ours.
-  const lastAnswer = useRef(answer);
+  // What this viewer's own send or withdraw unmounted held focus; it is
+  // caught here rather than left on the page. Only then: a change that came
+  // from anywhere else leaves focus, and the scroll, where they were.
+  const lastShown = useRef(shown);
   useLayoutEffect(() => {
-    if (lastAnswer.current === answer) return;
-    lastAnswer.current = answer;
+    if (lastShown.current === shown) return;
+    lastShown.current = shown;
+    if (!owned.current) return;
+    owned.current = false;
     const el = document.activeElement;
     if (el && el !== document.body) return;
-    (answer ? lineRef.current : answerRef.current)?.focus();
-  }, [answer]);
+    (shown ? lineRef.current : answerRef.current)?.focus({ preventScroll: true });
+  }, [shown]);
 
-  async function send() {
+  async function send(from: EventTarget) {
     if (busy) return;
     if (!text.trim()) {
       setNudge("Write something first.");
@@ -1194,30 +1214,64 @@ export function KudoAnswer({
       setNudge(`An answer is 80 characters at most.`);
       return;
     }
+    const words = text.trim();
+    owned.current = from === document.activeElement;
     setBusy(true);
-    const ok = await onAnswer(text.trim());
-    // Saved: the field stays read-only until the answer itself arrives, and
-    // the effect above closes it. Gone: the note is going, and the owner has
-    // already moved focus somewhere that stays.
-    if (ok !== false) return;
+    setUnsent("");
+    const ok = await onAnswer(words);
     setBusy(false);
-    inputRef.current?.focus();
+    if (ok === true) {
+      // Shown from the write itself: the room's copy replaces it on arrival.
+      setSaved({ value: words });
+      setOpen(false);
+      setText("");
+      return;
+    }
+    if (ok === "taken") {
+      // An answer was already given, and is on its way in. These words were
+      // never sent: they stay in the field with the reason until it lands,
+      // and after that under it, rather than vanish. Focus is still ours to
+      // hand to the answer when it arrives.
+      setUnsent(words);
+      setNudge("You already answered this.");
+      inputRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    owned.current = false;
+    // Gone: the note is going, and the owner has already moved focus.
+    if (ok === "gone") return;
+    inputRef.current?.focus({ preventScroll: true });
   }
 
-  async function withdraw() {
+  async function withdraw(from: EventTarget) {
     if (busy) return;
+    owned.current = from === document.activeElement;
     setBusy(true);
     const ok = await onWithdraw();
-    if (ok !== false) return;
     setBusy(false);
+    if (ok === true) {
+      setSaved({ value: undefined });
+      setConfirming(false);
+      setUnsent("");
+      return;
+    }
+    owned.current = false;
   }
 
   function cancel() {
     if (busy) return;
+    owned.current = false;
+    setUnsent("");
     setOpen(false);
     setText("");
     setNudge("");
     setFocus("answer");
+  }
+
+  function keep() {
+    if (busy) return;
+    setConfirming(false);
+    setFocus("withdraw");
   }
 
   // A held key auto-repeats, and a repeat is never a second decision.
@@ -1225,7 +1279,13 @@ export function KudoAnswer({
     if (e.repeat) e.preventDefault();
   };
 
-  if (answer) {
+  const unsentNote = unsent && (
+    <span data-testid="answer-unsent" className="mt-1 block break-words text-[12px] leading-[1.45] text-ink-soft">
+      You already answered this, so these words were not sent: “{unsent}”
+    </span>
+  );
+
+  if (shown) {
     return (
       <span className="mt-1.5 block">
         {/* Focusable so a send can hand focus to what it made, rather than to
@@ -1240,30 +1300,42 @@ export function KudoAnswer({
           <span aria-hidden="true" className="font-semibold text-ink">
             {by}:
           </span>{" "}
-          {answer}
+          {shown}
         </span>
+        {mine && unsentNote}
         {mine &&
           (confirming ? (
-            <span className="-mb-2 -ml-2 flex flex-wrap items-center">
+            // Esc answers "Keep it", as it would in any other dialog.
+            <span
+              className="-mb-2 -ml-2 flex flex-wrap items-center"
+              onKeyDown={(e) => {
+                if (e.key !== "Escape") return;
+                e.preventDefault();
+                e.stopPropagation();
+                keep();
+              }}
+            >
+              <span id={promptId} aria-live="polite" className="w-full px-2 pt-1 text-[13px] text-ink-soft">
+                {busy ? "Withdrawing…" : "Withdraw your answer?"}
+              </span>
               <button
                 ref={keepRef}
                 type="button"
                 className={quietAction}
+                aria-describedby={promptId}
+                aria-disabled={busy || undefined}
                 onKeyDown={noRepeat}
-                onClick={() => {
-                  if (busy) return;
-                  setConfirming(false);
-                  setFocus("withdraw");
-                }}
+                onClick={keep}
               >
                 Keep it
               </button>
               <button
                 type="button"
                 className={quietAction}
+                aria-describedby={promptId}
                 aria-disabled={busy || undefined}
                 onKeyDown={noRepeat}
-                onClick={() => void withdraw()}
+                onClick={(e) => void withdraw(e.currentTarget)}
               >
                 Withdraw it
               </button>
@@ -1291,16 +1363,22 @@ export function KudoAnswer({
   if (!mine) return null;
   if (!open) {
     return (
-      <button
-        ref={answerRef}
-        type="button"
-        className={`${quietAction} -mb-2 -ml-2 mt-0.5`}
-        aria-label={`Answer ${thanker}: ${opening}`}
-        onKeyDown={noRepeat}
-        onClick={() => setOpen(true)}
-      >
-        Answer
-      </button>
+      <>
+        <button
+          ref={answerRef}
+          type="button"
+          className={`${quietAction} -mb-2 -ml-2 mt-0.5`}
+          aria-label={`Answer ${thanker}: ${opening}`}
+          onKeyDown={noRepeat}
+          onClick={() => {
+            setUnsent("");
+            setOpen(true);
+          }}
+        >
+          Answer
+        </button>
+        {unsentNote}
+      </>
     );
   }
   return (
@@ -1310,7 +1388,8 @@ export function KudoAnswer({
         // Opened by a press on Answer, so taking focus is expected.
         // oxlint-disable-next-line jsx-a11y/no-autofocus
         autoFocus
-        className={`${inputClass} w-full py-1.5 text-[13px]`}
+        // Dimmed while it sends, so it does not look open to more typing.
+        className={`${inputClass} w-full py-1.5 text-[13px] ${busy ? "cursor-default opacity-60" : ""}`}
         aria-label={`Your answer to ${thanker}`}
         aria-describedby={left <= 20 ? counterId : undefined}
         aria-invalid={left < 0 || undefined}
@@ -1329,7 +1408,7 @@ export function KudoAnswer({
           if (e.nativeEvent.isComposing || e.keyCode === 229) return;
           if (e.key === "Enter") {
             e.preventDefault();
-            if (!e.repeat) void send();
+            if (!e.repeat) void send(e.currentTarget);
           } else if (e.key === "Escape") {
             e.preventDefault();
             e.stopPropagation();
@@ -1338,8 +1417,8 @@ export function KudoAnswer({
         }}
       />
       <span className="flex items-center justify-between gap-2 text-[12px] text-ink-soft">
-        <span data-testid="answer-hint" aria-live="polite" className={nudge ? "text-stop" : ""}>
-          {nudge || "Enter to send"}
+        <span data-testid="answer-hint" aria-live="polite" className={nudge && !busy ? "text-stop" : ""}>
+          {busy ? "Sending…" : nudge || "Enter to send"}
         </span>
         <span className="flex items-center gap-2">
           {left <= 20 && (

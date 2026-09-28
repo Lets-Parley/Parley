@@ -20,6 +20,8 @@ let waitingBody: unknown = undefined;
 let answerFail: number | null = null;
 /** When set, an answer PUT or DELETE settles only once this does. */
 let answerHold: Promise<void> | null = null;
+/** When set, every read of the wall fails: the refetch after a write, say. */
+let wallFails = false;
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -27,6 +29,7 @@ vi.mock("../lib/api", async () => {
     ...actual,
     api: vi.fn(async (method: string, path: string, body?: unknown) => {
       if (path.endsWith("/kudos") && method === "GET") {
+        if (wallFails) throw new actual.ApiError(503, "unavailable");
         const snapshot = kudos;
         if (hold) await hold;
         return snapshot;
@@ -91,6 +94,7 @@ beforeEach(() => {
   waitingBody = undefined;
   answerFail = null;
   answerHold = null;
+  wallFails = false;
 });
 
 describe("Kudos wall", () => {
@@ -1304,5 +1308,163 @@ describe("Kudos answer focus", () => {
     mount();
     await screen.findByTestId("kudo-answer");
     expect(document.activeElement).toBe(document.body);
+  });
+});
+
+describe("Kudos answer, second pass", () => {
+  const toMarcus: Kudo = {
+    id: "k1",
+    fromUserId: "dana",
+    toUserId: "marcus",
+    text: "Paired on the flaky test all afternoon.",
+    createdAt: "2026-09-03T09:00:00.000Z",
+    sessionId: "",
+    unread: false,
+  };
+  const toSam: Kudo = { ...toMarcus, id: "k3", fromUserId: "marcus", toUserId: "sam", text: "Wrote the runbook." };
+  const answerButton = () => screen.findByRole("button", { name: /^Answer Dana Whitfield/ });
+  const field = () => screen.getByLabelText("Your answer to Dana Whitfield");
+  /** Every focus() call, with the element it was made on and its options. */
+  function spyFocus() {
+    const calls: { el: HTMLElement; opts?: FocusOptions }[] = [];
+    const real = HTMLElement.prototype.focus;
+    const spy = vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement, opts) {
+      calls.push({ el: this, opts });
+      real.call(this, opts);
+    });
+    return { calls, restore: () => spy.mockRestore() };
+  }
+
+  it("leaves focus and scroll alone when somebody else's answer arrives", async () => {
+    kudos = [toMarcus, toSam];
+    for (const meId of ["dana", "marcus"]) {
+      const { queryClient } = mount({ meId });
+      await screen.findByTestId("kudo-k3");
+      (document.activeElement as HTMLElement | null)?.blur();
+      expect(document.activeElement).toBe(document.body);
+      const focus = spyFocus();
+      kudos = [toMarcus, { ...toSam, answer: "It was mostly copied from yours." }];
+      await queryClient.invalidateQueries();
+      await screen.findByTestId("kudo-answer");
+      await new Promise((r) => setTimeout(r, 20));
+      focus.restore();
+      expect(focus.calls).toEqual([]);
+      expect(document.activeElement).toBe(document.body);
+      cleanup();
+      kudos = [toMarcus, toSam];
+    }
+  });
+
+  it("moves focus to the sent answer without scrolling the page", async () => {
+    kudos = [toMarcus];
+    mount();
+    await userEvent.click(await answerButton());
+    const focus = spyFocus();
+    await userEvent.type(field(), "Any time.{Enter}");
+    const line = await screen.findByTestId("kudo-answer");
+    await waitFor(() => expect(document.activeElement).toBe(line));
+    focus.restore();
+    const onLine = focus.calls.filter((c) => c.el === line);
+    expect(onLine.length).toBeGreaterThan(0);
+    for (const c of onLine) expect(c.opts).toEqual({ preventScroll: true });
+  });
+
+  it("closes the field on a saved answer even when the refetch after it fails", async () => {
+    kudos = [toMarcus];
+    mount();
+    await userEvent.click(await answerButton());
+    await userEvent.type(field(), "Any time.");
+    wallFails = true;
+    await userEvent.keyboard("{Enter}");
+    const line = await screen.findByTestId("kudo-answer");
+    expect(line.textContent).toContain("You: Any time.");
+    expect(screen.queryByLabelText("Your answer to Dana Whitfield")).toBe(null);
+    await waitFor(() => expect(document.activeElement).toBe(line));
+    // And it still answers: withdrawing works, and so does Keep it.
+    await userEvent.click(screen.getByRole("button", { name: /^Withdraw answer/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Keep it" }));
+    expect(screen.queryByRole("button", { name: "Keep it" })).toBe(null);
+  });
+
+  it("leaves the confirm on a withdrawn answer even when the refetch after it fails", async () => {
+    kudos = [{ ...toMarcus, answer: "Any time." }];
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: /^Withdraw answer/ }));
+    wallFails = true;
+    await userEvent.click(screen.getByRole("button", { name: "Withdraw it" }));
+    expect(await answerButton()).toBeTruthy();
+    expect(screen.queryByTestId("kudo-answer")).toBe(null);
+    expect(screen.queryByRole("button", { name: "Keep it" })).toBe(null);
+    await waitFor(async () => expect(document.activeElement).toBe(await answerButton()));
+  });
+
+  it("does not scroll the wall away when a withdrawn kudo sends focus to the heading", async () => {
+    kudos = [toMarcus];
+    mount();
+    await userEvent.click(await answerButton());
+    await userEvent.type(field(), "Any time.");
+    kudos = [];
+    const focus = spyFocus();
+    await userEvent.keyboard("{Enter}");
+    await screen.findByText("Dana Whitfield withdrew this thank-you.");
+    focus.restore();
+    const heading = screen.getByRole("heading", { name: "Kudos" });
+    const onHeading = focus.calls.filter((c) => c.el === heading);
+    expect(onHeading.length).toBe(1);
+    expect(onHeading[0].opts).toEqual({ preventScroll: true });
+  });
+
+  it("says Sending while the answer is on its way, and dims the words", async () => {
+    kudos = [toMarcus];
+    mount();
+    await userEvent.click(await answerButton());
+    let release!: () => void;
+    answerHold = new Promise((r) => (release = r));
+    await userEvent.type(field(), "Any time.{Enter}");
+    const hint = screen.getByTestId("answer-hint");
+    expect(hint.textContent).toBe("Sending…");
+    expect(hint.getAttribute("aria-live")).toBe("polite");
+    expect(field().className).toMatch(/opacity-/);
+    release();
+    await screen.findByTestId("kudo-answer");
+  });
+
+  it("asks the question the withdraw buttons answer", async () => {
+    kudos = [{ ...toMarcus, answer: "Any time." }];
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: /^Withdraw answer/ }));
+    const prompt = screen.getByText("Withdraw your answer?");
+    for (const name of ["Keep it", "Withdraw it"]) {
+      const b = screen.getByRole("button", { name });
+      expect(b.getAttribute("aria-describedby")).toBe(prompt.id);
+    }
+    expect(prompt.id).not.toBe("");
+  });
+
+  it("keeps the words typed when the kudo turns out to be answered already", async () => {
+    kudos = [toMarcus];
+    mount();
+    await userEvent.click(await answerButton());
+    await userEvent.type(field(), "Typed in this tab.");
+    kudos = [{ ...toMarcus, answer: "Said in another tab." }];
+    await userEvent.keyboard("{Enter}");
+    await screen.findByTestId("kudo-answer");
+    const note = await screen.findByTestId("answer-unsent");
+    expect(note.textContent).toContain("You already answered this");
+    expect(note.textContent).toContain("Typed in this tab.");
+  });
+
+  it("keeps the refused words and focus in the field when the refetch after a 409 fails", async () => {
+    kudos = [toMarcus];
+    mount();
+    await userEvent.click(await answerButton());
+    await userEvent.type(field(), "Typed in this tab.");
+    kudos = [{ ...toMarcus, answer: "Said in another tab." }];
+    wallFails = true;
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() => expect(screen.getByTestId("answer-hint").textContent).toBe("You already answered this."));
+    expect((field() as HTMLInputElement).value).toBe("Typed in this tab.");
+    expect(field().getAttribute("aria-disabled")).toBe(null);
+    expect(document.activeElement).toBe(field());
   });
 });

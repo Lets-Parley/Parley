@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { action, api, errorText, type Envelope, type Me, type SpaceView } from "../lib/api";
+import { action, api, ApiError, errorText, type Envelope, type Me, type SpaceView } from "../lib/api";
 import { spaceApi } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
 import type { ConnectionStatus } from "../lib/socket";
@@ -407,7 +407,10 @@ export function StandupRoom({
 
   async function run(
     fn: () => Promise<unknown>,
-    { where = "round", retry = true }: { where?: Where; retry?: boolean } = {},
+    {
+      where = "round",
+      retry = true,
+    }: { where?: Where; retry?: boolean | ((e: unknown) => boolean) } = {},
   ) {
     try {
       setFail(null);
@@ -416,10 +419,15 @@ export function StandupRoom({
     } catch (e) {
       // Ending is the one action a retry cannot simply repeat — it is offered
       // by the confirm rather than by the row, and its message says so itself.
-      setFail({ where, msg: errorText(e), retry: retry ? () => run(fn, { where, retry }) : undefined });
+      const again = typeof retry === "function" ? retry(e) : retry;
+      setFail({ where, msg: errorText(e), retry: again ? () => run(fn, { where, retry }) : undefined });
       return false;
     }
   }
+
+  // A kudo its sender withdrew (404), or one already answered (409), refuses
+  // the same answer however often it is sent: the message, never Try again.
+  const answerRetry = (e: unknown) => !(e instanceof ApiError && (e.status === 404 || e.status === 409));
 
   const failRow = (where: Where) =>
     fail?.where === where ? (
@@ -1066,8 +1074,8 @@ export function StandupRoom({
                     thanker={nameOf(k.fromUserId)}
                     about={k.text}
                     mine={toMe}
-                    onAnswer={(text) => run(() => action(env.id, "answerKudo", { id: k.id, text }), { where: "kudos" })}
-                    onWithdraw={() => run(() => action(env.id, "answerKudo", { id: k.id, withdraw: true }), { where: "kudos" })}
+                    onAnswer={(text) => run(() => action(env.id, "answerKudo", { id: k.id, text }), { where: "kudos", retry: answerRetry })}
+                    onWithdraw={() => run(() => action(env.id, "answerKudo", { id: k.id, withdraw: true }), { where: "kudos", retry: answerRetry })}
                   />
                 );
                 return toMe ? (

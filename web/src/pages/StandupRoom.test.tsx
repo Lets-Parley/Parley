@@ -1,6 +1,6 @@
 import { StrictMode, useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Cutoff, StandupRoom, Timer } from "./StandupRoom";
 import { makePerson, pageStatus, pageStatuses, renderApp } from "../test/render";
@@ -2025,6 +2025,24 @@ describe("StandupRoom kudos", () => {
     expect(screen.queryByLabelText("Your answer to Dana Whitfield")).toBe(null);
     expect(screen.getByRole("button", { name: /^Answer Dana Whitfield/ })).toBeTruthy();
     fetchSpy.mockRestore();
+  });
+
+  it("offers no Try again when the answer can never land: kudo gone, or answered already", async () => {
+    for (const [status, error] of [
+      [404, "no such kudo"],
+      [409, "this kudo already has an answer; withdraw it first"],
+    ] as const) {
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockImplementation(answering(new Response(JSON.stringify({ error }), { status })));
+      renderApp(<StandupRoom env={doneEnv([{ id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me" }])} me={me} />);
+      await userEvent.click(screen.getByRole("button", { name: /^Answer Dana Whitfield/ }));
+      await userEvent.type(screen.getByLabelText("Your answer to Dana Whitfield"), "Any time{Enter}");
+      expect(await screen.findByText(new RegExp(error))).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+      fetchSpy.mockRestore();
+      cleanup();
+    }
   });
 
   it("shows a guest the answer and never the control", () => {
