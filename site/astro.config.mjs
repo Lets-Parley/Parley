@@ -138,6 +138,7 @@ export default defineConfig({
           ],
         },
         { label: "Known limitations", link: "/known-limitations/" },
+        { label: "Parley compared", link: "/compare/" },
         {
           label: "Project",
           collapsed: true,
