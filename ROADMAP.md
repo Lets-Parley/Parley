@@ -219,7 +219,7 @@ Ideas under consideration, not committed to.
 
 ## Completed
 
-### Unreleased
+### v0.15.0
 
 - A thank-you reaches the person it names: a kudo addressed to you reads as a
   signed note, lands in the standup room as it is given, and waits as a letter
@@ -230,6 +230,9 @@ Ideas under consideration, not committed to.
   card carries the instance's own address, per page, and an image, whenever
   `BASE_URL` is set ([#714](https://github.com/lets-parley/parley/pull/714),
   [#716](https://github.com/lets-parley/parley/pull/716))
+- The kudos wall pages back through older notes, and a space's kudo cap
+  counts the last 30 days instead of every kudo it has ever had, so a busy
+  space no longer runs out for good
 
 ### v0.14.0
 
