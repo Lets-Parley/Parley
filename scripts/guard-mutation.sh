@@ -812,7 +812,7 @@ target internal/standup
 
 mutate "the re-read after a reseal lands between read and open" \
     'TestAResealBetweenReadAndOpenDoesNotFailADelivery' \
-    webhook.go 'if w.Undecryptable != nil && errors.Is(err, w.Undecryptable) {' 'if false {'
+    webhook.go 'if err = w.Pool.QueryRow(ctx, "select secret_nonce, secret_ciphertext, coalesce(key_id, '"''"') from standup_webhooks where space_id = $1",' 'if _ = w.Pool.QueryRow(ctx, "select secret_nonce, secret_ciphertext, coalesce(key_id, '"''"') from standup_webhooks where space_id = $1",'
 
 mutate "only an undecryptable secret gives up on a delivery" \
     'TestOnlyAnUndecryptableSecretGivesUpOnADelivery' \

@@ -333,8 +333,8 @@ func TestAResealBetweenReadAndOpenDoesNotFailADelivery(t *testing.T) {
 	}
 	beforeOpenHook = func() {
 		beforeOpenHook = nil
-		if _, remaining, err := st.ResealSecrets(ctx); err != nil || remaining != 0 {
-			t.Errorf("ResealSecrets remaining=%d err=%v", remaining, err)
+		if resealed, remaining, err := st.ResealSecrets(ctx); err != nil || resealed < 1 || remaining != 0 {
+			t.Errorf("ResealSecrets = (%d, %d, %v), want at least one row re-sealed and none remaining", resealed, remaining, err)
 		}
 	}
 	t.Cleanup(func() { beforeOpenHook = nil })
