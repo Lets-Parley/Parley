@@ -136,6 +136,7 @@ export default defineConfig({
             "reference/limits-and-defaults",
             "reference/plugin-sdk",
             "reference/plugin-protocol",
+            "reference/plugin-bundle",
           ],
         },
         { label: "Known limitations", link: "/known-limitations/" },

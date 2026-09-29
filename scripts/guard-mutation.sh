@@ -16,7 +16,7 @@ cd "$(dirname "$0")/.."
 # The guards no longer all live in one package: the plugin sandbox has a
 # frontend half now, so a tree here is either a Go package or the web app, and
 # `target` switches which one the mutations below are aimed at.
-TREES=(internal/plugin internal/api internal/store web/src cmd/parley internal/standup)
+TREES=(internal/plugin internal/plugin/bundle internal/api internal/store web/src cmd/parley internal/standup)
 BACKUP=$(mktemp -d)
 LOG=$(mktemp)
 
@@ -415,6 +415,33 @@ mutate "the retirement and enabled filters on the kind-ownership answer" \
 mutate "the closed set of verbs an action may answer" \
     'TestAManifestDeclaringAKindTheHostWillNotHonourIsRefusedAtInstall' \
     kinds.go 'if !actionVerbs[a.Verb] {' 'if false {'
+
+# The .parley bundle's refusals. Each is the whole of the check it names:
+# nothing downstream re-validates a bundle Verify returned.
+target internal/plugin/bundle
+
+mutate "bundle: an unlisted file" 'TestRefusesAnUnlistedFile' \
+    bundle.go 'if n != sumsName && n != sigName && listed[n] == "" {' 'if false {'
+mutate "bundle: a listed but missing file" 'TestRefusesAListedButMissingFile' \
+    bundle.go 'return nil, fmt.Errorf("%q: %w", n, ErrMissing)' 'continue'
+mutate "bundle: a digest mismatch" 'TestRefusesADigestMismatch' \
+    bundle.go 'if hex.EncodeToString(sum[:]) != want {' 'if false {'
+mutate "bundle: path components" 'TestRefusesPathComponents' \
+    bundle.go 'if n == "" || n == "." || n == ".." || strings.ContainsAny(n, "/\\") {' 'if false {'
+mutate "bundle: non-regular entries" 'TestRefusesSymlinksAndOtherNonRegularEntries' \
+    bundle.go 'if hdr.Typeflag != tar.TypeReg {' 'if false {'
+mutate "bundle: duplicate entries" 'TestRefusesADuplicateEntry' \
+    bundle.go 'if _, dup := got[n]; dup {' 'if _, dup := got[n]; false && dup {'
+mutate "bundle: the wasm size cap" 'TestRefusesAnOversizedWasm' \
+    bundle.go 'if n == wasmName && hdr.Size > MaxWasm {' 'if false {'
+mutate "bundle: the streaming uncompressed cap" 'TestRefusesAZipBombWhileStreaming' \
+    bundle.go 'n: MaxTotal})' 'n: 1 << 40})'
+mutate "bundle: the signature check" 'TestRefusesABadSignature' \
+    bundle.go 'if !ed25519.Verify(pub, append([]byte(sigContext), s...), sig[ed25519.PublicKeySize:]) {' 'if false {'
+mutate "bundle: the trusted-key check" 'TestRefusesAnUntrustedKey' \
+    bundle.go 'if pub.Equal(k) {' 'if pub.Equal(k) || true {'
+mutate "bundle: unsigned refused by default" 'TestRefusesUnsignedUnlessAllowed' \
+    bundle.go 'if !allowUnsigned {' 'if false {'
 
 target internal/api
 
