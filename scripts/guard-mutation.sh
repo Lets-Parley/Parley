@@ -307,6 +307,14 @@ mutate "no marker while a row is not bound" \
     'TestAMixedRowIsResealedOrCounted|TestResealDoesNotOverwriteASecretChangedMeanwhile' \
     secrets.go 'if remaining > 0 {' 'if false {'
 
+mutate "the writer's lock on the binding marker" \
+    'TestAWriterPausedAcrossAResealLeavesNoUnopenableRow' \
+    secrets.go '"lock table secret_binding in share mode"' '"select 1"'
+
+mutate "the marker committed with its check, not before" \
+    'TestAResealThatFailsPartwayLeavesNoMarker' \
+    secrets.go '"insert into secret_binding default values on conflict do nothing"); err != nil {' '"insert into secret_binding default values on conflict do nothing"); err != nil || tx.Commit(ctx) != nil {'
+
 mutate "the refusal of a previous key equal to the current one" \
     'TestAPreviousKeyEqualToTheCurrentOneIsRefused' \
     secrets.go 'if c.prev.id == cur.id {' 'if false {'
@@ -801,6 +809,11 @@ mutate "main wiring the embed providers into the HTTP layer" \
 # calls the insert directly, for a former member and a link guest, and must go
 # red once the guard in the statement is gone.
 target internal/standup
+
+mutate "only an undecryptable secret gives up on a delivery" \
+    'TestOnlyAnUndecryptableSecretGivesUpOnADelivery' \
+    webhook.go 'return w.finish(ctx, c, false, "the signing secret could not be read", false)' 'return w.finish(ctx, c, false, "the signing secret could not be read", true)'
+
 
 mutate "the membership guard inside the mention insert" \
     'TestTheMentionInsertRefusesOnItsOwn' \

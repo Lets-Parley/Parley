@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -70,7 +71,7 @@ func TestASecretRowSwappedBetweenInstallsOrTablesDoesNotOpen(t *testing.T) {
 		t.Fatalf("install b read install a's row as (%q, %v), want ErrSecretUndecryptable", v, err)
 	}
 
-	nonce, sealed, keyID, err := s.SealWebhook(ctx, a.ID, "webhook-secret")
+	nonce, sealed, keyID, err := s.Cipher.Seal(webhookSecretAAD(a.ID), "webhook-secret")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,13 +400,61 @@ func TestAResealThatFailsPartwayLeavesNoMarker(t *testing.T) {
 	if err := st.PutSecret(context.Background(), in.ID, "token", "v"); err != nil {
 		t.Fatal(err)
 	}
+	// Fail inside the marker transaction, after the insert, before the commit.
 	ctx, cancel := context.WithCancel(context.Background())
-	resealHook = cancel
-	t.Cleanup(func() { resealHook = nil })
+	resealCommitHook = cancel
+	t.Cleanup(func() { resealCommitHook = nil })
 	if _, _, err := st.ResealSecrets(ctx); err == nil {
-		t.Fatal("a reseal whose context was cancelled mid-conversion reported success")
+		t.Fatal("a reseal whose marker transaction failed reported success")
 	}
 	if markerSet(t, pool) {
 		t.Fatal("a failed reseal left the binding marker set")
+	}
+}
+
+// A writer that read "unbound" and then paused must not land an unbound row
+// behind a reseal's marker.
+func TestAWriterPausedAcrossAResealLeavesNoUnopenableRow(t *testing.T) {
+	pool := testPool(t)
+	clearSecrets(t, pool)
+	ctx := context.Background()
+	st := &Store{Pool: pool, Cipher: mustCipher(t, oldSecretKey, "")}
+	in := install(t, st, Grant{Capability: CapabilitySecrets})
+	paused, release := make(chan struct{}), make(chan struct{})
+	sealHook = func() {
+		sealHook = nil
+		close(paused)
+		<-release
+	}
+	t.Cleanup(func() { sealHook = nil })
+	wrote := make(chan error, 1)
+	go func() { wrote <- st.PutSecret(ctx, in.ID, "token", "v") }()
+	<-paused
+	resealed := make(chan error, 1)
+	go func() { _, _, err := st.ResealSecrets(ctx); resealed <- err }()
+	time.Sleep(300 * time.Millisecond)
+	close(release)
+	if err := <-wrote; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-resealed; err != nil {
+		t.Fatal(err)
+	}
+	if v, err := st.GetSecret(ctx, in.ID, "token"); err != nil || v != "v" {
+		t.Fatalf("the paused writer's secret = (%q, %v), want it to open", v, err)
+	}
+}
+
+func TestAMarkerReadFailureIsNotUndecryptable(t *testing.T) {
+	pool := testPool(t)
+	st := &Store{Pool: pool, Cipher: mustCipher(t, oldSecretKey, "")}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	n, ct, _, err := st.Cipher.sealUnbound("v")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, err := st.OpenWebhook(ctx, "space", "", n, ct); err == nil || errors.Is(err, ErrSecretUndecryptable) {
+		t.Fatalf("OpenWebhook with the marker unreadable = (%q, %v), want a failure that is not ErrSecretUndecryptable", v, err)
 	}
 }

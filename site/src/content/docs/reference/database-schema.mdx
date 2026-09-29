@@ -371,8 +371,11 @@ replays a space's history.
 
 `secret_binding` (from `0048_secret_key_ids`) is instance-wide and holds at
 most one row. `parley secrets reseal` inserts it, in the same transaction that
-locks `plugin_secrets` and `standup_webhooks` against writes and finds every row
-of both in the bound form. While it is absent, secrets are written unbound and
+locks `secret_binding`, `plugin_secrets` and `standup_webhooks` against
+writes and finds every row of both tables bound under the current key. Every
+secret write takes a share lock on `secret_binding` in its own transaction
+before it reads the marker, so no write can decide on the unbound form and
+land after the marker. While it is absent, secrets are written unbound and
 either form opens; once it exists, secrets are written and read bound only.
 
 `standup_webhook_deliveries` is the outbox. Its `id` is the event id a receiver

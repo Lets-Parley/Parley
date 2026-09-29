@@ -70,8 +70,12 @@ type Webhooks struct {
 	BaseURL string
 	// Seal and Open encrypt the signing secret at rest, bound to its space
 	// and to the key id stored beside it.
-	Seal func(ctx context.Context, spaceID, plaintext string) (nonce, ciphertext []byte, keyID string, err error)
+	// Seal seals the secret and runs write in the transaction it seals under.
+	Seal func(ctx context.Context, spaceID, plaintext string, write func(tx pgx.Tx, nonce, ciphertext []byte, keyID string) error) error
 	Open func(ctx context.Context, spaceID, keyID string, nonce, ciphertext []byte) (string, error)
+	// Undecryptable is the error Open wraps when no key opens the secret.
+	// Only that gives up on a delivery; any other Open error is retried.
+	Undecryptable error
 	// Send posts one delivery. In production it goes through the plugin
 	// fetch guard; it returns the response status.
 	Send func(ctx context.Context, url string, headers map[string]string, body []byte) (int, error)
@@ -94,22 +98,20 @@ func (w *Webhooks) Get(ctx context.Context, spaceID string) (string, bool, error
 // Put creates or replaces the space's webhook with a new secret. Replacing
 // keeps created_at, so it does not replay the events since then.
 func (w *Webhooks) Put(ctx context.Context, spaceID, userID, url, secret string) error {
-	nonce, sealed, keyID, err := w.Seal(ctx, spaceID, secret)
-	if err != nil {
-		return fmt.Errorf("sealing the webhook secret: %w", err)
-	}
-	_, err = w.Pool.Exec(ctx, `
-		insert into standup_webhooks (space_id, url, secret_nonce, secret_ciphertext, key_id, updated_by)
-		values ($1, $2, $3, $4, nullif($5, ''), nullif($6, '')::uuid)
-		on conflict (space_id) do update set
-			url = excluded.url, secret_nonce = excluded.secret_nonce,
-			secret_ciphertext = excluded.secret_ciphertext, key_id = excluded.key_id,
-			updated_by = excluded.updated_by`,
-		spaceID, url, nonce, sealed, keyID, userID)
-	if err != nil {
-		return fmt.Errorf("saving standup webhook: %w", err)
-	}
-	return nil
+	return w.Seal(ctx, spaceID, secret, func(tx pgx.Tx, nonce, sealed []byte, keyID string) error {
+		_, err := tx.Exec(ctx, `
+			insert into standup_webhooks (space_id, url, secret_nonce, secret_ciphertext, key_id, updated_by)
+			values ($1, $2, $3, $4, nullif($5, ''), nullif($6, '')::uuid)
+			on conflict (space_id) do update set
+				url = excluded.url, secret_nonce = excluded.secret_nonce,
+				secret_ciphertext = excluded.secret_ciphertext, key_id = excluded.key_id,
+				updated_by = excluded.updated_by`,
+			spaceID, url, nonce, sealed, keyID, userID)
+		if err != nil {
+			return fmt.Errorf("saving standup webhook: %w", err)
+		}
+		return nil
+	})
 }
 
 // Delete removes the space's webhook. Undelivered events fail on their next
@@ -212,8 +214,11 @@ func (w *Webhooks) deliverOne(ctx context.Context, c claimedDelivery) error {
 		return fmt.Errorf("reading standup webhook: %w", err)
 	}
 	secret, err := w.Open(ctx, c.spaceID, keyID, nonce, sealed)
-	if err != nil {
+	if w.Undecryptable != nil && errors.Is(err, w.Undecryptable) {
 		return w.finish(ctx, c, false, "the signing secret could not be decrypted", true)
+	}
+	if err != nil {
+		return w.finish(ctx, c, false, "the signing secret could not be read", false)
 	}
 	body, err := json.Marshal(webhookPayload{
 		Event:      c.event,

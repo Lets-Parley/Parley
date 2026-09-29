@@ -158,9 +158,8 @@ func webhookSecretAAD(spaceID string) []byte {
 	return []byte("standup-webhook|" + spaceID)
 }
 
-// bound reports whether "parley secrets reseal" has recorded that every
-// replica reads the bound form. It is read on every write, so the switch
-// reaches every replica at once.
+// bound reports whether "parley secrets reseal" has recorded that every row
+// is bound. Readers check it on every read.
 func (s *Store) bound(ctx context.Context) (bool, error) {
 	var b bool
 	if err := s.Pool.QueryRow(ctx, "select exists (select 1 from secret_binding)").Scan(&b); err != nil {
@@ -169,21 +168,46 @@ func (s *Store) bound(ctx context.Context) (bool, error) {
 	return b, nil
 }
 
-// seal writes the bound form once the marker exists, the unbound one before.
-func (s *Store) seal(ctx context.Context, aad []byte, plaintext string) ([]byte, []byte, string, error) {
-	b, err := s.bound(ctx)
+// sealAndWrite seals plaintext and hands it to write inside one transaction
+// that first takes a share lock on secret_binding. That conflicts with the
+// lock the reseal takes to record the marker, so a writer that read "unbound"
+// commits before the reseal's check, which then sees its row, and a writer
+// after the marker reads "bound". Lock order is secret_binding, then the
+// secret tables, here and in the reseal.
+func (s *Store) sealAndWrite(ctx context.Context, aad []byte, plaintext string, write func(tx pgx.Tx, nonce, ciphertext []byte, keyID string) error) error {
+	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
-		return nil, nil, "", err
+		return fmt.Errorf("starting a secret write: %w", err)
 	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "lock table secret_binding in share mode"); err != nil {
+		return fmt.Errorf("locking the secret binding marker: %w", err)
+	}
+	var b bool
+	if err := tx.QueryRow(ctx, "select exists (select 1 from secret_binding)").Scan(&b); err != nil {
+		return fmt.Errorf("reading the secret binding marker: %w", err)
+	}
+	if sealHook != nil {
+		sealHook()
+	}
+	seal := s.Cipher.sealUnbound
 	if b {
-		return s.Cipher.Seal(aad, plaintext)
+		seal = func(p string) ([]byte, []byte, string, error) { return s.Cipher.Seal(aad, p) }
 	}
-	return s.Cipher.sealUnbound(plaintext)
+	nonce, ciphertext, keyID, err := seal(plaintext)
+	if err != nil {
+		return err
+	}
+	if err := write(tx, nonce, ciphertext, keyID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
-// SealWebhook seals a standup webhook's signing secret for its space.
-func (s *Store) SealWebhook(ctx context.Context, spaceID, plaintext string) ([]byte, []byte, string, error) {
-	return s.seal(ctx, webhookSecretAAD(spaceID), plaintext)
+// SealWebhook seals a standup webhook's signing secret for its space and
+// writes it with write, under the same lock as every secret write.
+func (s *Store) SealWebhook(ctx context.Context, spaceID, plaintext string, write func(tx pgx.Tx, nonce, ciphertext []byte, keyID string) error) error {
+	return s.sealAndWrite(ctx, webhookSecretAAD(spaceID), plaintext, write)
 }
 
 // open accepts both forms before the binding marker and the bound form only
@@ -206,20 +230,18 @@ func (s *Store) PutSecret(ctx context.Context, installID, name, value string) er
 	if s.Cipher == nil {
 		return ErrNoSecretKey
 	}
-	nonce, ciphertext, keyID, err := s.seal(ctx, pluginSecretAAD(installID, name), value)
-	if err != nil {
-		return err
-	}
-	if _, err := s.Pool.Exec(ctx, `
-		insert into plugin_secrets (install_id, name, nonce, ciphertext, key_id)
-		values ($1, $2, $3, $4, nullif($5, ''))
-		on conflict (install_id, name) do update
-			set nonce = excluded.nonce, ciphertext = excluded.ciphertext,
-			    key_id = excluded.key_id, updated_at = now()`,
-		installID, name, nonce, ciphertext, keyID); err != nil {
-		return fmt.Errorf("storing plugin secret %q: %w", name, err)
-	}
-	return nil
+	return s.sealAndWrite(ctx, pluginSecretAAD(installID, name), value, func(tx pgx.Tx, nonce, ciphertext []byte, keyID string) error {
+		if _, err := tx.Exec(ctx, `
+			insert into plugin_secrets (install_id, name, nonce, ciphertext, key_id)
+			values ($1, $2, $3, $4, nullif($5, ''))
+			on conflict (install_id, name) do update
+				set nonce = excluded.nonce, ciphertext = excluded.ciphertext,
+				    key_id = excluded.key_id, updated_at = now()`,
+			installID, name, nonce, ciphertext, keyID); err != nil {
+			return fmt.Errorf("storing plugin secret %q: %w", name, err)
+		}
+		return nil
+	})
 }
 
 // GetSecret reads one secret back: ErrSecretNotSet when there is none,
@@ -265,6 +287,14 @@ func (s *Store) StaleSecrets(ctx context.Context) (int, error) {
 // resealHook runs between a row's read and its write; tests use it to race a
 // concurrent change against the compare-and-set.
 var resealHook func()
+
+// resealCommitHook runs inside the marker transaction, after the insert and
+// before the commit.
+var resealCommitHook func()
+
+// sealHook runs after a writer has read the binding marker and before it
+// writes; tests use it to pause a writer across a reseal.
+var sealHook func()
 
 type sealedTable struct {
 	sel, upd string
@@ -350,7 +380,7 @@ func (s *Store) ResealSecrets(ctx context.Context) (resealed, remaining int, err
 		return resealed, -1, fmt.Errorf("starting the reseal check: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, "lock table plugin_secrets, standup_webhooks in share row exclusive mode"); err != nil {
+	if _, err := tx.Exec(ctx, "lock table secret_binding, plugin_secrets, standup_webhooks in share row exclusive mode"); err != nil {
 		return resealed, -1, fmt.Errorf("locking the secret tables: %w", err)
 	}
 	for _, t := range sealedTables {
@@ -369,6 +399,9 @@ func (s *Store) ResealSecrets(ctx context.Context) (resealed, remaining int, err
 	}
 	if _, err := tx.Exec(ctx, "insert into secret_binding default values on conflict do nothing"); err != nil {
 		return resealed, -1, fmt.Errorf("recording the secret binding marker: %w", err)
+	}
+	if resealCommitHook != nil {
+		resealCommitHook()
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return resealed, -1, fmt.Errorf("recording the secret binding marker: %w", err)

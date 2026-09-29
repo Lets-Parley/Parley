@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lets-parley/parley/internal/db"
@@ -40,8 +41,16 @@ func TestARedirectIsNotADeliveredWebhook(t *testing.T) {
 	hooks := &standup.Webhooks{
 		Pool:    pool,
 		BaseURL: "https://parley.example",
-		Seal: func(_ context.Context, _, s string) ([]byte, []byte, string, error) {
-			return []byte("n"), []byte(s), "k", nil
+		Seal: func(ctx context.Context, _, s string, write func(pgx.Tx, []byte, []byte, string) error) error {
+			tx, err := pool.Begin(ctx)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = tx.Rollback(ctx) }()
+			if err := write(tx, []byte("n"), []byte(s), "k"); err != nil {
+				return err
+			}
+			return tx.Commit(ctx)
 		},
 		Open: func(_ context.Context, _, _ string, _, c []byte) (string, error) { return string(c), nil },
 		Send: func(ctx context.Context, u string, h map[string]string, b []byte) (int, error) {

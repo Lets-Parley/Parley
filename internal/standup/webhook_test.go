@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/lets-parley/parley/internal/plugin"
 )
@@ -46,8 +49,16 @@ func webhookFixture(t *testing.T, send func(context.Context, string, map[string]
 	w := &Webhooks{
 		Pool:    pool,
 		BaseURL: "https://parley.example",
-		Seal: func(_ context.Context, _, s string) ([]byte, []byte, string, error) {
-			return []byte("n"), []byte(s), "k", nil
+		Seal: func(ctx context.Context, _, s string, write func(pgx.Tx, []byte, []byte, string) error) error {
+			tx, err := pool.Begin(ctx)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = tx.Rollback(ctx) }()
+			if err := write(tx, []byte("n"), []byte(s), "k"); err != nil {
+				return err
+			}
+			return tx.Commit(ctx)
 		},
 		Open: func(_ context.Context, _, _ string, _, c []byte) (string, error) { return string(c), nil },
 		Send: send,
@@ -254,5 +265,39 @@ func TestClosedAndEndedEventsFire(t *testing.T) {
 	}
 	if len(events) != 3 || seen["standup.opened"] != 1 || seen["standup.closed"] != 1 || seen["standup.ended"] != 1 {
 		t.Fatalf("events: %v", events)
+	}
+}
+
+// Only an undecryptable secret gives up on a delivery; any other failure to
+// open it, such as the database blinking, is retried.
+func TestOnlyAnUndecryptableSecretGivesUpOnADelivery(t *testing.T) {
+	undecryptable := errors.New("undecryptable")
+	for _, tc := range []struct {
+		name       string
+		openErr    error
+		wantFailed bool
+	}{
+		{"undecryptable", fmt.Errorf("x: %w", undecryptable), true},
+		{"transient", errors.New("reading the secret binding marker: connection reset"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w, sessID := webhookFixture(t, func(context.Context, string, map[string]string, []byte) (int, error) { return 200, nil })
+			w.Undecryptable = undecryptable
+			w.Open = func(context.Context, string, string, []byte, []byte) (string, error) { return "", tc.openErr }
+			ctx := context.Background()
+			if err := w.Enqueue(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if err := w.Deliver(ctx); err != nil {
+				t.Fatal(err)
+			}
+			var failed bool
+			if err := w.Pool.QueryRow(ctx, "select bool_or(failed_at is not null) from standup_webhook_deliveries where session_id = $1", sessID).Scan(&failed); err != nil {
+				t.Fatal(err)
+			}
+			if failed != tc.wantFailed {
+				t.Fatalf("failed_at set = %v, want %v", failed, tc.wantFailed)
+			}
+		})
 	}
 }
