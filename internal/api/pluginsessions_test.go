@@ -246,6 +246,8 @@ func TestAnUnanswerableOwnershipQuestionRefusesRatherThanGrants(t *testing.T) {
 // h.PluginKind would make.
 func registerStubKind(t *testing.T, host *plugin.Host, kind, orgID string, state func(store.Session) any) {
 	t.Helper()
+	// The install already put the guest-backed kind on offer; this stub replaces it.
+	_ = host.Kinds.Unregister(kind)
 	if err := host.Kinds.Register(session.Kind{
 		Name:      kind,
 		OrgID:     orgID,
@@ -284,8 +286,14 @@ func TestARoomOfADisabledPluginsKindStillLoadsAndComesBack(t *testing.T) {
 	}
 	id := body["id"].(string)
 
-	// The real disable path: it reads what the install provides and retires
-	// exactly those kinds out of the live registry.
+	// Hand the kind back to the reconcile, which only ever retires what it
+	// registered itself, so the disable below is what takes it away.
+	_ = host.Kinds.Unregister(kind)
+	if err := host.ReconcileKinds(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// The real disable path: OnChange reconciles the ceremony out of the live
+	// registry.
 	if err := host.Disable(ctx, in.ID, "an operator switched it off"); err != nil {
 		t.Fatalf("disabling the plugin: %v", err)
 	}
@@ -308,7 +316,7 @@ func TestARoomOfADisabledPluginsKindStillLoadsAndComesBack(t *testing.T) {
 	}
 
 	// And switching it back on restores the room exactly as it was. The
-	// registration stands in for OfferKinds, which would build a guest-backed
+	// registration stands in for ReconcileKinds, which would build a guest-backed
 	// kind and there is no guest here.
 	registerStubKind(t, host, kind, in.OrgID, func(store.Session) any {
 		return map[string]any{"columns": []string{"went-well"}}
@@ -401,6 +409,8 @@ func registerPluginKindWithStubState(t *testing.T, host *plugin.Host, plugins *p
 	k.State = func(_ context.Context, _ *pgxpool.Pool, _ store.Session) (any, error) {
 		return map[string]any{"columns": []string{"went-well"}}, nil
 	}
+	// The install already put the guest-backed kind on offer; this stub replaces it.
+	_ = host.Kinds.Unregister(kind)
 	if err := host.Kinds.Register(k); err != nil {
 		t.Fatal(err)
 	}
@@ -408,7 +418,7 @@ func registerPluginKindWithStubState(t *testing.T, host *plugin.Host, plugins *p
 }
 
 // A narrowing upgrade replaces the grants in force. The kind registered at
-// enable still names the old set unless OfferKinds runs again, and the room
+// enable still names the old set unless ReconcileKinds runs again, and the room
 // iframe redacts against that snapshot.
 func TestANarrowingUpgradeRebuildsTheKindPluginGrants(t *testing.T) {
 	srv, pool, plugins, host := hostServer(t)
@@ -418,11 +428,11 @@ func TestANarrowingUpgradeRebuildsTheKindPluginGrants(t *testing.T) {
 	makeOrgAdmin(t, pool, adminID)
 	kind := "retro" + randomKindSuffix(t)
 	name := newPluginName(t)
-	in := installCeremony(t, plugins, orgID, name, kind,
+	installCeremony(t, plugins, orgID, name, kind,
 		plugin.Grant{Capability: plugin.CapabilitySessionRead},
 		plugin.Grant{Capability: plugin.CapabilityLog},
 	)
-	if err := host.OfferKinds(ctx, in.ID); err != nil {
+	if err := host.ReconcileKinds(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if got := offeredPluginGrants(t, host, kind); got != "log,session:read" {
@@ -453,7 +463,7 @@ func TestApprovingAnUpgradeRebuildsTheKindPluginGrants(t *testing.T) {
 	in := installCeremony(t, plugins, orgID, name, kind,
 		plugin.Grant{Capability: plugin.CapabilityLog},
 	)
-	if err := host.OfferKinds(ctx, in.ID); err != nil {
+	if err := host.ReconcileKinds(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if got := offeredPluginGrants(t, host, kind); got != "log" {
@@ -628,6 +638,8 @@ func TestAPluginProvidedKindGoesThroughTheSameAuthorisationLadder(t *testing.T) 
 	in := installIn(t, plugins, orgID, plugin.KindDef{Kind: kind, Display: "Retrospective"})
 
 	ran := false
+	// The install already put the guest-backed kind on offer; this stub replaces it.
+	_ = host.Kinds.Unregister(kind)
 	if err := host.Kinds.Register(session.Kind{
 		Name:      kind,
 		OrgID:     in.OrgID,

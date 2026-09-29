@@ -6,7 +6,7 @@ description: What a Parley plugin can and cannot do, and the mechanism behind ea
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/plugin/host.go", "internal/plugin/hostfn.go", "internal/plugin/fetch.go", "internal/plugin/breaker.go", "internal/plugin/kinds.go", "internal/session/registry.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/db/migrations/0031_plugins.sql", "internal/db/migrations/0032_plugin_pending_upgrade.sql", "web/src/pages/SessionPage.tsx", "web/src/lib/pluginBridge.ts", "web/src/components/PluginPanel.tsx", "scripts/guard-mutation.sh", "internal/api/standup_webhook.go", "internal/plugin/describe.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/plugin/host.go", "internal/plugin/hostfn.go", "internal/plugin/fetch.go", "internal/plugin/breaker.go", "internal/plugin/kinds.go", "internal/plugin/grants.go", "internal/session/registry.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/db/migrations/0031_plugins.sql", "internal/db/migrations/0032_plugin_pending_upgrade.sql", "internal/db/migrations/0047_plugin_pending_kinds.sql", "internal/api/fanout.go", "web/src/pages/SessionPage.tsx", "web/src/lib/pluginBridge.ts", "web/src/components/PluginPanel.tsx", "scripts/guard-mutation.sh", "internal/api/standup_webhook.go", "internal/plugin/describe.go"]} />
 
 A Parley plugin is a WebAssembly module run in-process by
 [Extism](https://extism.org/) over [wazero](https://wazero.io/). Both are pure
@@ -285,9 +285,29 @@ re-themes with the app without being able to read the app.
 
 A plugin can provide a whole session kind: the uploaded package declares the
 ceremony in `kinds` (`kind`, `display`, `actions`), the kind is registered when
-the install is enabled and unregistered when it is disabled or uninstalled, and
-rooms of it are created, dispatched and closed by exactly the paths a core kind
-uses. That is a wider surface than a panel, and it is bounded in five places.
+the install is installed or enabled and unregistered when it is disabled —
+by an operator or by the circuit breaker — or uninstalled, and rooms of it are
+created, dispatched and closed by exactly the paths a core kind uses. That is a
+wider surface than a panel, and it is bounded in five places.
+
+Every one of those changes applies on every replica at once, with no restart:
+the pod that made it rebuilds its registry from the database and sends a
+`parley_plugin` notification, and every other pod rebuilds from the database in
+turn. The notification's payload is the sender's instance id and the word
+`reconcile`, nothing more, so a forged one costs a re-read and nothing else. A
+pod that was reconnecting when it was sent rebuilds when its listener comes
+back; an install whose rows cannot be read keeps the kinds it already had on
+that pod, and a failed rebuild is retried there on a short backoff. The core kinds are never part of that
+rebuild. A widening upgrade's kinds wait with its grants (`pending_kinds`, `0047`)
+and go live only when the upgrade is approved; a bad or taken kind name is
+refused when the package is uploaded, and a name another org takes while the
+upgrade waits is refused at approval, which then changes nothing.
+
+Do not approve a plugin upgrade while a rolling deploy is still replacing pods
+from a release before `0047`. A pod on the older binary approves by bumping the
+version without applying the staged kinds, and nothing replays them: the
+install runs the new version with its old ceremonies until it is uploaded
+again. Finish the rollout, then approve.
 
 The shipped proof is the [retrospective plugin](/features/retrospective/):
 columns, cards, hidden authorship, grouping, dot voting and action items, with

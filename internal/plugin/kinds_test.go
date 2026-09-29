@@ -81,7 +81,7 @@ func TestEnablingAnInstallOffersItsKindAndDisablingRetiresIt(t *testing.T) {
 		Actions: []ActionDef{{Name: "gather", Verb: http.MethodPost}, {Name: "close", Verb: http.MethodPost, FacilitatorOnly: true}},
 	})
 
-	if err := h.OfferKinds(ctx, in.ID); err != nil {
+	if err := h.ReconcileKinds(ctx); err != nil {
 		t.Fatalf("offering the kinds of an enabled install: %v", err)
 	}
 	if !kinds.KnownInOrg(testOrgID, kind) {
@@ -96,7 +96,7 @@ func TestEnablingAnInstallOffersItsKindAndDisablingRetiresIt(t *testing.T) {
 	}
 
 	// Enabling twice must not fail on the registry's duplicate check.
-	if err := h.OfferKinds(ctx, in.ID); err != nil {
+	if err := h.ReconcileKinds(ctx); err != nil {
 		t.Fatalf("re-offering the kinds of an install that is already enabled: %v", err)
 	}
 
@@ -122,7 +122,7 @@ func TestEnablingAnInstallOffersItsKindAndDisablingRetiresIt(t *testing.T) {
 	}
 	fresh := session.NewRegistry()
 	h.Kinds = fresh
-	if err := h.OfferEnabledKinds(ctx); err != nil {
+	if err := h.ReconcileKinds(ctx); err != nil {
 		t.Fatalf("offering the kinds of every enabled install: %v", err)
 	}
 	if !fresh.Known(kind) {
@@ -655,4 +655,145 @@ func newOrg(t *testing.T, pool *pgxpool.Pool) string {
 		t.Fatal(err)
 	}
 	return id
+}
+
+// A widening upgrade's kinds wait with its grants. Written at once, the
+// ceremony the pending version declares would be on offer under the grants
+// of the version still running; only the approval may put it live.
+func TestAPendingUpgradeStagesItsKindsUntilApproval(t *testing.T) {
+	pool := testPool(t)
+	s := &Store{Pool: pool}
+	ctx := context.Background()
+	oldKind, newKind := kindName(t), kindName(t)
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, "delete from session_kinds where kind = $1", newKind) })
+	in := installWithKinds(t, s, testOrgID, KindDef{Kind: oldKind, Display: "Retrospective"})
+
+	// Staging refuses a bad declaration at upload, not at approval.
+	err := s.Upgrade(ctx, in.ID, "2.0.0", []Grant{{Capability: CapabilityLog}},
+		[]KindDef{{Kind: "Bad Name", Display: "x"}})
+	if !errors.Is(err, ErrBadKindDef) {
+		t.Fatalf("staging a bad kind: got %v, want ErrBadKindDef", err)
+	}
+	err = s.Upgrade(ctx, in.ID, "2.0.0", []Grant{{Capability: CapabilityLog}},
+		[]KindDef{{Kind: newKind, Display: "Mine Now"}})
+	if !errors.Is(err, ErrUpgradePending) {
+		t.Fatalf("a widening upgrade: got %v, want ErrUpgradePending", err)
+	}
+	live := func() string {
+		defs, err := s.ProvidedKinds(ctx, in.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		names := []string{}
+		for _, d := range defs {
+			names = append(names, d.Kind)
+		}
+		return strings.Join(names, ",")
+	}
+	if got := live(); got != oldKind {
+		t.Fatalf("while pending the install provides %q, want only %q", got, oldKind)
+	}
+	if err := s.ApproveUpgrade(ctx, in.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := live(); got != newKind {
+		t.Fatalf("after approval the install provides %q, want %q", got, newKind)
+	}
+}
+
+// An install that cannot be read keeps the kinds it had and never freezes the
+// others; once it reads again, a real change still lands.
+func TestAnUnreadableInstallKeepsItsKindsAndBlocksNothing(t *testing.T) {
+	pool := testPool(t)
+	s := &Store{Pool: pool}
+	h := NewHost(s, HostConfig{})
+	reg := session.NewRegistry()
+	h.Kinds = reg
+	ctx := context.Background()
+	good, flaky := kindName(t), kindName(t)
+	installWithKinds(t, s, testOrgID, KindDef{Kind: good, Display: "Good"})
+	in := installWithKinds(t, s, testOrgID, KindDef{Kind: flaky, Display: "Flaky"})
+	if !reg.Known(flaky) {
+		t.Fatal("the install did not offer its kind, so the rest proves nothing")
+	}
+	if _, err := pool.Exec(ctx, `update session_kinds set actions = '{"x":1}' where kind = $1`, flaky); err != nil {
+		t.Fatal(err)
+	}
+	// Another org's change lands while this install cannot be read.
+	if _, err := pool.Exec(ctx, `update plugin_installs set enabled = false where name = (select provider from session_kinds where kind = $1)`, good); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.ReconcileKinds(ctx); err == nil {
+		t.Fatal("an unreadable install was not reported")
+	}
+	if !reg.Known(flaky) || reg.Known(good) {
+		t.Fatalf("after a failed read: %v", reg.PluginKindNames())
+	}
+	if _, err := pool.Exec(ctx, `update session_kinds set actions = '[]' where kind = $1`, flaky); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetEnabled(ctx, in.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if reg.Known(flaky) {
+		t.Fatalf("a readable disable did not land: %v", reg.PluginKindNames())
+	}
+}
+
+// What a widening upgrade says about kinds is kept exactly: no declaration
+// leaves the current kinds alone, and an empty declaration retires them all.
+func TestApprovalHonoursAnOmittedAndAnEmptyKindDeclaration(t *testing.T) {
+	pool := testPool(t)
+	s := &Store{Pool: pool}
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name  string
+		kinds []KindDef
+		want  int
+	}{{"omitted", nil, 1}, {"empty", []KindDef{}, 0}} {
+		kind := kindName(t)
+		in := installWithKinds(t, s, testOrgID, KindDef{Kind: kind, Display: "Retrospective"})
+		if err := s.Upgrade(ctx, in.ID, "2.0.0", []Grant{{Capability: CapabilityLog}}, tc.kinds); !errors.Is(err, ErrUpgradePending) {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if err := s.ApproveUpgrade(ctx, in.ID); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		defs, err := s.ProvidedKinds(ctx, in.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st, _ := s.State(ctx, in.ID); st.Install.Version != "2.0.0" {
+			t.Fatalf("%s: approval left the version at %s", tc.name, st.Install.Version)
+		}
+		if len(defs) != tc.want {
+			t.Fatalf("%s declaration: the install provides %v, want %d kinds", tc.name, defs, tc.want)
+		}
+	}
+}
+
+// Staging reserves nothing, so a name another org takes while an upgrade
+// waits is refused at approval, and the approval writes nothing.
+func TestApprovalRefusesAKindTakenWhileItWaited(t *testing.T) {
+	pool := testPool(t)
+	s := &Store{Pool: pool}
+	ctx := context.Background()
+	kind := kindName(t)
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, "delete from session_kinds where kind = $1", kind) })
+	in := installWithKinds(t, s, testOrgID, KindDef{Kind: kindName(t), Display: "Old"})
+	if err := s.Upgrade(ctx, in.ID, "2.0.0", []Grant{{Capability: CapabilityLog}},
+		[]KindDef{{Kind: kind, Display: "Mine"}}); !errors.Is(err, ErrUpgradePending) {
+		t.Fatal(err)
+	}
+	installWithKinds(t, s, newOrg(t, pool), KindDef{Kind: kind, Display: "Theirs"})
+	if err := s.ApproveUpgrade(ctx, in.ID); !errors.Is(err, ErrKindTaken) {
+		t.Fatalf("approving onto a taken kind: got %v, want ErrKindTaken", err)
+	}
+	st, err := s.State(ctx, in.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Install.Version != "1.0.0" {
+		t.Fatalf("a refused approval bumped the version to %s", st.Install.Version)
+	}
 }

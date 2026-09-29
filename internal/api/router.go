@@ -95,7 +95,11 @@ type app struct {
 	// pretending to know a health it cannot observe.
 	plugins    *plugin.Store
 	pluginHost *plugin.Host
-	metrics    *metrics
+	// pluginReconcile wakes the one goroutine that re-reads the plugin kinds
+	// after another replica changed them. Buffered by one, so any number of
+	// notifications arriving during a reconcile coalesce into one more.
+	pluginReconcile chan struct{}
+	metrics         *metrics
 	// embedProviders are the meeting clients enabled on this instance; empty
 	// means every embed route is 404 and no bearer token is ever read.
 	embedProviders []EmbedProvider
@@ -337,10 +341,14 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		opts.PluginHost.Kinds = kinds
 		opts.PluginHost.Sessions = &pluginSessions{app: a}
 		if pool != nil {
+			// Every lifecycle write reconciles this replica and tells the
+			// others to, so a ceremony is on offer everywhere without a restart.
+			opts.PluginHost.OnChange = a.pluginsChanged
+			a.pluginReconcile = make(chan struct{}, 1)
 			// Whatever was enabled when the process last ran is enabled now:
 			// a restart must not silently retire every plugin ceremony on the
 			// instance.
-			if err := opts.PluginHost.OfferEnabledKinds(listenCtx); err != nil {
+			if err := opts.PluginHost.ReconcileKinds(listenCtx); err != nil {
 				slog.Error("could not offer the session kinds of the enabled plugins", "error", err)
 			}
 		}
@@ -354,6 +362,9 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	}
 	bgCtx, stopBackground := context.WithCancel(listenCtx)
 	background := &sync.WaitGroup{}
+	if a.pluginReconcile != nil {
+		background.Go(func() { a.runPluginReconcile(bgCtx) })
+	}
 	if pool != nil && opts.StandupScheduleInterval > 0 {
 		background.Go(func() {
 			standup.RunScheduler(bgCtx, pool, opts.StandupScheduleInterval, a.limits.SessionsPerSpace, a.broadcastState)

@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 
@@ -111,6 +112,7 @@ func (s *Store) SetEnabled(ctx context.Context, installID string, enabled bool) 
 		`update plugin_installs set enabled = $2 where id = $1`, installID, enabled); err != nil {
 		return fmt.Errorf("setting install %s enabled=%t: %w", installID, enabled, err)
 	}
+	s.changed(ctx)
 	return nil
 }
 
@@ -125,6 +127,7 @@ func (s *Store) setEnabled(ctx context.Context, orgID, installID string, enabled
 	if tag.RowsAffected() == 0 {
 		return ErrNoSuchInstall
 	}
+	s.changed(ctx)
 	return nil
 }
 
@@ -176,12 +179,17 @@ func (s *Store) Upgrade(ctx context.Context, installID, version string, want []G
 	// pending upgrade has to be recorded, and an error out of BeginFunc rolls
 	// the record back.
 	if err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		// The install row first, as ApproveUpgrade takes it, so the two can
+		// never wait on each other's locks in opposite orders.
+		if _, err := tx.Exec(ctx, `select 1 from plugin_installs where id = $1 for update`, installID); err != nil {
+			return fmt.Errorf("locking %s: %w", installID, err)
+		}
 		if _, err := tx.Exec(ctx, `delete from plugin_pending_grants where install_id = $1`, installID); err != nil {
 			return fmt.Errorf("clearing the pending grants for %s: %w", installID, err)
 		}
 		if !widens {
 			if _, err := tx.Exec(ctx,
-				`update plugin_installs set version = $2, pending_version = null where id = $1`,
+				`update plugin_installs set version = $2, pending_version = null, pending_kinds = null where id = $1`,
 				installID, version); err != nil {
 				return fmt.Errorf("upgrading %s: %w", installID, err)
 			}
@@ -189,8 +197,22 @@ func (s *Store) Upgrade(ctx context.Context, installID, version string, want []G
 				return err
 			}
 		} else {
+			// The kinds wait with the grants: a ceremony the pending version
+			// declares is not offered under the grants of the one running.
+			// Screened now, so a bad or taken name is refused at upload rather
+			// than at approval. A re-upload overwrites what was staged.
+			var staged []byte
+			if kinds != nil {
+				if err := checkKindsFree(ctx, tx, current.Install.OrgID, current.Install.Name, screened); err != nil {
+					return err
+				}
+				if staged, err = json.Marshal(screened); err != nil {
+					return fmt.Errorf("staging the kinds for %s: %w", installID, err)
+				}
+			}
 			if _, err := tx.Exec(ctx,
-				`update plugin_installs set pending_version = $2 where id = $1`, installID, version); err != nil {
+				`update plugin_installs set pending_version = $2, pending_kinds = $3 where id = $1`,
+				installID, version, staged); err != nil {
 				return fmt.Errorf("recording the pending upgrade for %s: %w", installID, err)
 			}
 			for _, g := range want {
@@ -201,10 +223,7 @@ func (s *Store) Upgrade(ctx context.Context, installID, version string, want []G
 				}
 			}
 		}
-		if kinds != nil {
-			// Kinds are not capabilities: they land even while a widening
-			// grant set waits for approval, so a re-upload cannot silently
-			// drop a ceremony the package still declares.
+		if kinds != nil && !widens {
 			if err := syncKinds(ctx, tx, current.Install.OrgID, current.Install.Name, screened); err != nil {
 				return err
 			}
@@ -213,6 +232,7 @@ func (s *Store) Upgrade(ctx context.Context, installID, version string, want []G
 	}); err != nil {
 		return err
 	}
+	s.changed(ctx)
 	if widens {
 		return ErrUpgradePending
 	}
@@ -258,33 +278,68 @@ func (s *Store) Pending(ctx context.Context, installID string) (PendingUpgrade, 
 // ApproveUpgrade is the operator's decision. Only this puts a wider grant set
 // into force.
 func (s *Store) ApproveUpgrade(ctx context.Context, installID string) error {
-	pending, ok, err := s.Pending(ctx, installID)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return fmt.Errorf("approving an upgrade for %s: there is nothing pending", installID)
-	}
 	current, err := s.State(ctx, installID)
 	if err != nil {
 		return err
 	}
-	// The plugin's name, as every other call site passes: an operator reading
-	// a refused approval wants to know which plugin it was, not which UUID.
-	if err := checkGrants(s.Cipher, current.Install.Name, pending.Grants); err != nil {
-		return err
-	}
-	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+	// Everything the approval acts on is read under the row lock, so an
+	// upload that lands meanwhile cannot swap the grants being approved.
+	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		var version *string
+		var staged []byte
+		if err := tx.QueryRow(ctx,
+			`select pending_version, pending_kinds from plugin_installs where id = $1 for update`,
+			installID).Scan(&version, &staged); err != nil {
+			return fmt.Errorf("reading the pending upgrade for %s: %w", installID, err)
+		}
+		if version == nil {
+			return fmt.Errorf("approving an upgrade for %s: there is nothing pending", installID)
+		}
+		rows, err := tx.Query(ctx,
+			`select capability, scope from plugin_pending_grants where install_id = $1`, installID)
+		if err != nil {
+			return fmt.Errorf("reading the pending grants for %s: %w", installID, err)
+		}
+		grants, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Grant, error) {
+			var g Grant
+			return g, r.Scan(&g.Capability, &g.Scope)
+		})
+		if err != nil {
+			return fmt.Errorf("reading a pending grant for %s: %w", installID, err)
+		}
+		// The plugin's name, as every other call site passes: an operator
+		// reading a refused approval wants to know which plugin it was.
+		if err := checkGrants(s.Cipher, current.Install.Name, grants); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx,
-			`update plugin_installs set version = pending_version, pending_version = null where id = $1`,
-			installID); err != nil {
+			`update plugin_installs set version = $2, pending_version = null, pending_kinds = null where id = $1`,
+			installID, *version); err != nil {
 			return fmt.Errorf("approving the upgrade for %s: %w", installID, err)
+		}
+		// NULL: the upgrade declared no kinds, so the current ones stay. A
+		// declared set, even an empty one, is applied — and syncKinds'
+		// seedKinds re-checks ownership here, so a name another org took
+		// while this waited is ErrKindTaken and the whole approval rolls back.
+		if staged != nil {
+			var kinds []KindDef
+			if err := json.Unmarshal(staged, &kinds); err != nil {
+				return fmt.Errorf("reading the staged kinds for %s: %w", installID, err)
+			}
+			if err := syncKinds(ctx, tx, current.Install.OrgID, current.Install.Name, kinds); err != nil {
+				return err
+			}
 		}
 		if _, err := tx.Exec(ctx, `delete from plugin_pending_grants where install_id = $1`, installID); err != nil {
 			return fmt.Errorf("clearing the pending grants for %s: %w", installID, err)
 		}
-		return replaceGrants(ctx, tx, installID, pending.Grants)
+		return replaceGrants(ctx, tx, installID, grants)
 	})
+	if err != nil {
+		return err
+	}
+	s.changed(ctx)
+	return nil
 }
 
 func replaceGrants(ctx context.Context, tx pgx.Tx, installID string, grants []Grant) error {

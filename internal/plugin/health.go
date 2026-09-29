@@ -119,6 +119,11 @@ var errBlocked = errors.New("uninstall blocked")
 func (s *Store) uninstall(ctx context.Context, orgID, installID string, inTx TxHook) error {
 	var blocked *BlockedError
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		// The install row first, the order Upgrade and ApproveUpgrade take
+		// their locks in, so an uninstall cannot deadlock against them.
+		if _, err := tx.Exec(ctx, `select 1 from plugin_installs where id = $1 for update`, installID); err != nil {
+			return fmt.Errorf("locking %s: %w", installID, err)
+		}
 		// Scoped to the org as well as the provider: two orgs may run plugins
 		// of the same name, and one org uninstalling must not retire the
 		// other's ceremony.
@@ -153,6 +158,9 @@ func (s *Store) uninstall(ctx context.Context, orgID, installID string, inTx TxH
 		// The retirement rolled back with it: a refused uninstall changes
 		// nothing at all.
 		return blocked
+	}
+	if err == nil {
+		s.changed(ctx)
 	}
 	return err
 }

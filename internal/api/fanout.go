@@ -69,6 +69,11 @@ const memberRevokeChannel = "parley_member_revoke"
 // nothing a participant in the room cannot already see.
 const participantRemoveChannel = "parley_participant_remove"
 
+// pluginChannel tells the other replicas that plugin lifecycle state changed.
+// The payload is "<instance> reconcile" and is never trusted: a receiver only
+// re-reads the database, so a forged notification costs one reconcile.
+const pluginChannel = "parley_plugin"
+
 // listenerBackoffMax caps the reconnect delay. A replica that cannot listen is
 // a replica whose clients silently stop receiving other people's votes, so it
 // retries hard rather than politely.
@@ -252,7 +257,7 @@ func (a *app) listenOnce(ctx context.Context) error {
 
 	// Both channels on the one dedicated connection: a second parked connection
 	// would double the idle backends for no gain.
-	for _, channel := range []string{notifyChannel, revokeChannel, memberRevokeChannel, participantRemoveChannel} {
+	for _, channel := range []string{notifyChannel, revokeChannel, memberRevokeChannel, participantRemoveChannel, pluginChannel} {
 		if _, err := conn.Exec(ctx, "listen "+channel); err != nil {
 			return err
 		}
@@ -268,6 +273,8 @@ func (a *app) listenOnce(ctx context.Context) error {
 	// the current state for every room still held here, or those clients sit on
 	// stale state until somebody happens to touch the same session again.
 	a.resyncLocalSessions(ctx)
+	// A plugin change missed while reconnecting is caught the same way.
+	a.requestPluginReconcile()
 
 	for {
 		n, err := conn.WaitForNotification(ctx)
@@ -288,6 +295,8 @@ func (a *app) listenOnce(ctx context.Context) error {
 		switch n.Channel {
 		case notifyChannel:
 			a.broadcastLocal(ctx, rest)
+		case pluginChannel:
+			a.requestPluginReconcile()
 		case revokeChannel:
 			tokenHash, err := hex.DecodeString(rest)
 			if err != nil {
@@ -322,6 +331,71 @@ func (a *app) listenOnce(ctx context.Context) error {
 		}
 	}
 }
+
+// pluginsChanged is Host.OnChange: reconcile here, synchronously, so the
+// caller's next request already sees the change, then tell every other
+// replica. Detached from the request, which may be gone by now; the write it
+// follows has already committed.
+func (a *app) pluginsChanged(ctx context.Context) {
+	ctx = context.WithoutCancel(ctx)
+	if err := a.pluginHost.ReconcileKinds(ctx); err != nil {
+		slog.Error("could not reconcile the plugin session kinds", "error", err)
+		// This replica ignores its own notification, so nothing else would
+		// ever retry it.
+		a.requestPluginReconcile()
+	}
+	if _, err := a.pool.Exec(ctx, "select pg_notify($1, $2)", pluginChannel, a.instanceID+" reconcile"); err != nil {
+		slog.Warn("could not notify the other replicas of a plugin change", "error", err)
+	}
+}
+
+// requestPluginReconcile never blocks the listener: a reconcile already
+// queued will read everything this one would have.
+func (a *app) requestPluginReconcile() {
+	if a.pluginReconcile == nil {
+		return
+	}
+	select {
+	case a.pluginReconcile <- struct{}{}:
+	default:
+	}
+}
+
+// runPluginReconcile is the single flight. Router runs it on the background
+// WaitGroup, so Shutdown waits for it before the pool closes.
+// A failed reconcile is retried on a growing backoff, up to
+// pluginReconcileRetries times; the next change starts the count again.
+func (a *app) runPluginReconcile(ctx context.Context) {
+	failures := 0
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-a.pluginReconcile:
+		}
+		err := a.pluginHost.ReconcileKinds(ctx)
+		if err == nil || ctx.Err() != nil {
+			failures = 0
+			continue
+		}
+		slog.Error("could not reconcile the plugin session kinds", "error", err)
+		if failures++; failures > pluginReconcileRetries {
+			failures = 0
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Duration(failures) * pluginReconcileBackoff):
+		}
+		a.requestPluginReconcile()
+	}
+}
+
+const (
+	pluginReconcileRetries = 5
+	pluginReconcileBackoff = 500 * time.Millisecond
+)
 
 // resyncLocalSessions rebuilds and pushes state for every room this replica
 // holds, without notifying anyone else — the other replicas did not miss
