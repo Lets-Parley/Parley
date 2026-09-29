@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -26,3 +27,40 @@ func TestPluginVerifyAcceptsTheGoldenBundleOnlyWithItsKey(t *testing.T) {
 
 // The public half of sdk/abi/bundle-v1/TEST-ONLY-signing.key.
 const goldenPub = "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg="
+
+func TestPluginKeygenRefusesToOverwriteEitherFile(t *testing.T) {
+	for _, existing := range []string{".key", ".pub"} {
+		t.Run(existing, func(t *testing.T) {
+			prefix := filepath.Join(t.TempDir(), "k")
+			if err := os.WriteFile(prefix+existing, []byte("keep me"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			var out, errb bytes.Buffer
+			if code := runPlugin([]string{"keygen", prefix}, &out, &errb); code == 0 {
+				t.Fatal("keygen overwrote an existing file")
+			}
+			if b, _ := os.ReadFile(prefix + existing); string(b) != "keep me" {
+				t.Fatalf("existing %s changed to %q", existing, b)
+			}
+			other := map[string]string{".key": ".pub", ".pub": ".key"}[existing]
+			if _, err := os.Stat(prefix + other); !os.IsNotExist(err) {
+				t.Fatalf("keygen left an orphan %s", other)
+			}
+		})
+	}
+}
+
+func TestPluginKeygenWritesThePrivateKeyOwnerOnly(t *testing.T) {
+	prefix := filepath.Join(t.TempDir(), "k")
+	var out, errb bytes.Buffer
+	if code := runPlugin([]string{"keygen", prefix}, &out, &errb); code != 0 {
+		t.Fatal(errb.String())
+	}
+	st, err := os.Stat(prefix + ".key")
+	if err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("%v %v", st.Mode(), err)
+	}
+	if !strings.Contains(out.String(), "parley plugin verify -key") || strings.Contains(out.String(), "PLUGIN_TRUSTED_KEYS") {
+		t.Fatalf("output: %s", out.String())
+	}
+}

@@ -31,54 +31,74 @@ func goldenKey(t *testing.T) ed25519.PrivateKey {
 	return ed25519.NewKeyFromSeed(seed)
 }
 
-func goldenInputs(t *testing.T) (map[string][]byte, []byte) {
+func goldenInputs(t *testing.T, dir string) (map[string][]byte, []byte) {
 	t.Helper()
 	files := map[string][]byte{}
 	for _, n := range []string{"plugin.wasm", "ui.js", "slots.json"} {
-		b, err := os.ReadFile(filepath.Join(golden, "input", n))
+		b, err := os.ReadFile(filepath.Join(dir, "input", n))
+		if os.IsNotExist(err) && n != "plugin.wasm" {
+			continue
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
 		files[n] = b
 	}
-	m, err := os.ReadFile(filepath.Join(golden, "input", "manifest.json"))
+	m, err := os.ReadFile(filepath.Join(dir, "input", "manifest.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return files, m
 }
 
+// The digests are written out in full so a change to the format cannot pass
+// by regenerating the vectors alongside it.
+var goldenVectors = []struct{ dir, digest string }{
+	{golden, "c17aa8ac55e0b548cee4fefbc91f2e9362b92f5933d2c7727b127c70a7d4ff1d"},
+	{filepath.Join(golden, "large"), "8fb6eefc4e20fef462a179f2915f9450c043c4f40b962f24c7112ad0689f9f18"},
+}
+
 func TestPackReproducesTheGoldenVector(t *testing.T) {
 	key := goldenKey(t)
-	files, m := goldenInputs(t)
-	got, err := Pack(files, m, key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := Verify(bytes.NewReader(got), []ed25519.PublicKey{key.Public().(ed25519.PublicKey)}, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if *update {
-		os.WriteFile(filepath.Join(golden, "expected.parley"), got, 0o644)
-		os.WriteFile(filepath.Join(golden, "expected.digest"), []byte(b.Digest+"\n"), 0o644)
-	}
-	want, err := os.ReadFile(filepath.Join(golden, "expected.parley"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(got, want) {
-		t.Fatal("Pack output differs from sdk/abi/bundle-v1/expected.parley")
-	}
-	wantDigest, _ := os.ReadFile(filepath.Join(golden, "expected.digest"))
-	if b.Digest != strings.TrimSpace(string(wantDigest)) {
-		t.Fatalf("digest %s, golden %s", b.Digest, wantDigest)
-	}
-	if b.KeyID != "" && b.KeyID != KeyID(key.Public().(ed25519.PublicKey)) {
-		t.Fatalf("key id %s", b.KeyID)
-	}
-	if string(b.Wasm) != string(files["plugin.wasm"]) || string(b.UI) != string(files["ui.js"]) || string(b.Slots) != string(files["slots.json"]) || string(b.Manifest) != string(m) {
-		t.Fatal("verified contents differ from the inputs")
+	pub := key.Public().(ed25519.PublicKey)
+	for _, v := range goldenVectors {
+		t.Run(v.dir, func(t *testing.T) {
+			files, m := goldenInputs(t, v.dir)
+			got, err := Pack(files, m, key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if *update {
+				os.WriteFile(filepath.Join(v.dir, "expected.parley"), got, 0o644)
+			}
+			want, err := os.ReadFile(filepath.Join(v.dir, "expected.parley"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Fatalf("Pack output differs from %s/expected.parley", v.dir)
+			}
+			b, err := Verify(bytes.NewReader(want), []ed25519.PublicKey{pub}, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if *update {
+				os.WriteFile(filepath.Join(v.dir, "expected.digest"), []byte(b.Digest+"\n"), 0o644)
+			}
+			if b.Digest != v.digest {
+				t.Fatalf("digest %s, want %s", b.Digest, v.digest)
+			}
+			onDisk, _ := os.ReadFile(filepath.Join(v.dir, "expected.digest"))
+			if string(onDisk) != v.digest+"\n" {
+				t.Fatalf("expected.digest reads %q", onDisk)
+			}
+			if b.KeyID != KeyID(pub) || b.KeyID != "56475aa75463474c" {
+				t.Fatalf("key id %s", b.KeyID)
+			}
+			if string(b.Wasm) != string(files["plugin.wasm"]) || string(b.UI) != string(files["ui.js"]) || string(b.Slots) != string(files["slots.json"]) || string(b.Manifest) != string(m) {
+				t.Fatal("verified contents differ from the inputs")
+			}
+		})
 	}
 }
 
@@ -212,8 +232,10 @@ func TestRefusesAZipBombWhileStreaming(t *testing.T) {
 	gz, _ := gzip.NewWriterLevel(&body, gzip.BestCompression)
 	tw := tar.NewWriter(gz)
 	for _, n := range []string{"slots.json", "ui.js"} {
-		tw.WriteHeader(&tar.Header{Name: n, Typeflag: tar.TypeReg, Size: 9 << 20})
-		tw.Write(make([]byte, 9<<20))
+		// 8 MiB each: the declared sizes stay within the cap, and only the
+		// headers and end blocks carry the stream past it.
+		tw.WriteHeader(&tar.Header{Name: n, Typeflag: tar.TypeReg, Size: 8 << 20})
+		tw.Write(make([]byte, 8<<20))
 	}
 	tw.Close()
 	gz.Close()
@@ -242,5 +264,91 @@ func TestRefusesUnsignedUnlessAllowed(t *testing.T) {
 	b, err := Verify(bytes.NewReader(data), nil, true)
 	if err != nil || b.KeyID != "" {
 		t.Fatalf("allowUnsigned: %v", err)
+	}
+}
+
+// signedWith builds a bundle from explicit MANIFEST.sha256 bytes and entries.
+func signedWith(t *testing.T, sumsBody []byte, es ...entry) []byte {
+	t.Helper()
+	sig := append(append([]byte{}, testPub...), ed25519.Sign(testKey, append([]byte(sigContext), sumsBody...))...)
+	return raw(t, append([]entry{{name: "MANIFEST.sha256", body: sumsBody}, {name: "MANIFEST.sig", body: sig}}, es...)...)
+}
+
+var (
+	mBody = []byte("{}")
+	wBody = []byte("w")
+	mSum  = "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+	wSum  = "50e721e49c013f00c62cf59f2163542a9d8df02464efeb615d31051b0fddc326"
+)
+
+func TestRefusesNonCanonicalSums(t *testing.T) {
+	es := []entry{{name: "manifest.json", body: mBody}, {name: "plugin.wasm", body: wBody}}
+	cases := map[string]string{
+		"unsorted":         wSum + "  plugin.wasm\n" + mSum + "  manifest.json\n",
+		"uppercase":        strings.ToUpper(mSum) + "  manifest.json\n" + wSum + "  plugin.wasm\n",
+		"no final newline": mSum + "  manifest.json\n" + wSum + "  plugin.wasm",
+		"one space":        mSum + " manifest.json\n" + wSum + "  plugin.wasm\n",
+		"blank line":       mSum + "  manifest.json\n\n" + wSum + "  plugin.wasm\n",
+		"crlf":             mSum + "  manifest.json\r\n" + wSum + "  plugin.wasm\r\n",
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) { refuse(t, signedWith(t, []byte(body), es...), ErrMalformed) })
+	}
+}
+
+func TestRefusesADuplicateSumsLine(t *testing.T) {
+	body := mSum + "  manifest.json\n" + mSum + "  manifest.json\n" + wSum + "  plugin.wasm\n"
+	refuse(t, signedWith(t, []byte(body), entry{name: "manifest.json", body: mBody}, entry{name: "plugin.wasm", body: wBody}), ErrDuplicate)
+}
+
+func TestRefusesManifestJSONAndPackageJSONTogether(t *testing.T) {
+	body := mSum + "  manifest.json\n" + mSum + "  package.json\n" + wSum + "  plugin.wasm\n"
+	refuse(t, signedWith(t, []byte(body), entry{name: "manifest.json", body: mBody}, entry{name: "package.json", body: mBody}, entry{name: "plugin.wasm", body: wBody}), ErrDuplicate)
+}
+
+func TestRefusesAnUnknownFileName(t *testing.T) {
+	refuse(t, valid(t, testKey, entry{name: "evil.sh", body: []byte("x")}), ErrUnknownFile)
+}
+
+func TestRefusesATruncatedSignature(t *testing.T) {
+	body := []byte(mSum + "  manifest.json\n" + wSum + "  plugin.wasm\n")
+	sig := append(append([]byte{}, testPub...), ed25519.Sign(testKey, append([]byte(sigContext), body...))...)
+	for _, n := range []int{95, 10} { // 10 is shorter than the public key it would be sliced for
+		refuse(t, raw(t, entry{name: "MANIFEST.sha256", body: body}, entry{name: "MANIFEST.sig", body: sig[:n]},
+			entry{name: "manifest.json", body: mBody}, entry{name: "plugin.wasm", body: wBody}), ErrBadSignature)
+	}
+}
+
+func TestRefusesATrailingGzipMember(t *testing.T) {
+	data := valid(t, testKey)
+	var extra bytes.Buffer
+	gz := gzip.NewWriter(&extra)
+	gz.Write([]byte("more"))
+	gz.Close()
+	refuse(t, append(data, extra.Bytes()...), ErrMalformed)
+	refuse(t, append(valid(t, testKey), 0), ErrMalformed)
+}
+
+// Declared sizes are capped as a sum, not only as bytes read: a sparse entry
+// expands to its declared size without the stream carrying it.
+func TestRefusesDeclaredSizesPastTheCap(t *testing.T) {
+	var out bytes.Buffer
+	gz := gzip.NewWriter(&out)
+	tw := tar.NewWriter(gz)
+	tw.WriteHeader(&tar.Header{Name: "slots.json", Typeflag: tar.TypeReg, Size: 9 << 20})
+	tw.Write(make([]byte, 9<<20))
+	tw.WriteHeader(&tar.Header{Name: "ui.js", Typeflag: tar.TypeReg, Size: 9 << 20})
+	tw.Flush()
+	gz.Close() // the second entry's content never arrives
+	refuse(t, out.Bytes(), ErrTooLarge)
+}
+
+func TestPackEnforcesTheVerifyLimits(t *testing.T) {
+	if _, err := Pack(map[string][]byte{"plugin.wasm": make([]byte, MaxWasm+1)}, mBody, nil); !errors.Is(err, ErrWasmTooLarge) {
+		t.Fatalf("wasm: %v", err)
+	}
+	big := map[string][]byte{"plugin.wasm": make([]byte, MaxWasm), "ui.js": make([]byte, 7<<20)}
+	if _, err := Pack(big, mBody, nil); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("total: %v", err)
 	}
 }

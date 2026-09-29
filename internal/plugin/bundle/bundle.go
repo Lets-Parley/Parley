@@ -27,6 +27,10 @@ const (
 	MaxWasm = 10 << 20
 	// MaxTotal caps the uncompressed tar stream, headers included.
 	MaxTotal = 16 << 20
+	// MaxUpload bounds a request body carrying a bundle. A stored-block
+	// archive at MaxTotal adds 5 bytes per 65535 plus 18 of gzip framing, so
+	// 64 KiB of slack admits every bundle Verify could accept.
+	MaxUpload = MaxTotal + 64<<10
 
 	sigContext  = "parley-bundle-v1\n"
 	sumsName    = "MANIFEST.sha256"
@@ -57,6 +61,10 @@ var (
 	ErrMalformed      = errors.New("bundle is malformed")
 )
 
+// Bundle is a verified bundle. The digest covers content only, not who signed
+// it: the same bytes re-signed by another key have the same Digest, so storage
+// must key on (Digest, KeyID), never on Digest alone.
+//
 // Bundle is a verified bundle. KeyID is empty only for an unsigned bundle
 // accepted under allowUnsigned. UI and Slots are nil when absent.
 type Bundle struct {
@@ -92,6 +100,9 @@ func sums(files map[string][]byte) []byte {
 // Pack writes a bundle of manifest (as manifest.json) plus files. A nil key
 // writes an unsigned bundle. Output is deterministic for the same inputs.
 func Pack(files map[string][]byte, manifest []byte, key ed25519.PrivateKey) ([]byte, error) {
+	if len(files[wasmName]) > MaxWasm {
+		return nil, ErrWasmTooLarge
+	}
 	all := map[string][]byte{manifestNew: manifest}
 	for n, body := range files {
 		if !payloadNames[n] || n == manifestNew || n == manifestOld {
@@ -114,12 +125,8 @@ func Pack(files map[string][]byte, manifest []byte, key ed25519.PrivateKey) ([]b
 	}
 	sort.Strings(names)
 
-	var out bytes.Buffer
-	gz, err := gzip.NewWriterLevel(&out, gzip.NoCompression)
-	if err != nil {
-		return nil, fmt.Errorf("packing bundle: %w", err)
-	}
-	tw := tar.NewWriter(gz)
+	var tarBuf bytes.Buffer
+	tw := tar.NewWriter(&tarBuf)
 	for _, n := range names {
 		hdr := &tar.Header{Typeflag: tar.TypeReg, Name: n, Size: int64(len(entries[n])), ModTime: time.Unix(0, 0), Format: tar.FormatUSTAR}
 		if err := tw.WriteHeader(hdr); err != nil {
@@ -130,6 +137,17 @@ func Pack(files map[string][]byte, manifest []byte, key ed25519.PrivateKey) ([]b
 		}
 	}
 	if err := tw.Close(); err != nil {
+		return nil, fmt.Errorf("packing bundle: %w", err)
+	}
+	if tarBuf.Len() > MaxTotal {
+		return nil, ErrTooLarge
+	}
+	var out bytes.Buffer
+	gz, err := gzip.NewWriterLevel(&out, gzip.NoCompression)
+	if err != nil {
+		return nil, fmt.Errorf("packing bundle: %w", err)
+	}
+	if _, err := gz.Write(tarBuf.Bytes()); err != nil {
 		return nil, fmt.Errorf("packing bundle: %w", err)
 	}
 	if err := gz.Close(); err != nil {
@@ -159,12 +177,16 @@ func (c *capped) Read(p []byte) (int, error) {
 
 // Verify unpacks r and returns the bundle only if every check passes.
 func Verify(r io.Reader, trusted []ed25519.PublicKey, allowUnsigned bool) (*Bundle, error) {
-	gz, err := gzip.NewReader(r)
+	br := bufio.NewReader(r)
+	gz, err := gzip.NewReader(br)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrMalformed, err)
 	}
-	tr := tar.NewReader(&capped{r: gz, n: MaxTotal})
+	gz.Multistream(false)
+	stream := &capped{r: gz, n: MaxTotal}
+	tr := tar.NewReader(stream)
 	got := map[string][]byte{}
+	var declared int64
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -192,7 +214,10 @@ func Verify(r io.Reader, trusted []ed25519.PublicKey, allowUnsigned bool) (*Bund
 		if n == wasmName && hdr.Size > MaxWasm {
 			return nil, ErrWasmTooLarge
 		}
-		if hdr.Size > MaxTotal {
+		// ponytail: sparse entries expand without stream bytes; capping the
+		// declared sizes as a sum bounds them without parsing sparse maps.
+		declared += hdr.Size
+		if declared > MaxTotal {
 			return nil, ErrTooLarge
 		}
 		body, err := io.ReadAll(tr)
@@ -204,22 +229,48 @@ func Verify(r io.Reader, trusted []ed25519.PublicKey, allowUnsigned bool) (*Bund
 		}
 		got[n] = body
 	}
+	// The rest of the member (end-of-archive blocks) counts toward the cap,
+	// and nothing may follow it: no second gzip member, no trailing bytes.
+	if _, err := io.Copy(io.Discard, stream); err != nil {
+		if errors.Is(err, ErrTooLarge) {
+			return nil, ErrTooLarge
+		}
+		return nil, fmt.Errorf("%w: %v", ErrMalformed, err)
+	}
+	if _, err := br.ReadByte(); err != io.EOF {
+		return nil, fmt.Errorf("%w: data after the gzip member", ErrMalformed)
+	}
 
 	s, ok := got[sumsName]
 	if !ok {
 		return nil, fmt.Errorf("%s: %w", sumsName, ErrMissing)
 	}
 	listed := map[string]string{}
-	sc := bufio.NewScanner(bytes.NewReader(s))
-	for sc.Scan() {
-		sum, name, ok := strings.Cut(sc.Text(), "  ")
-		if !ok || len(sum) != 64 || !payloadNames[name] {
-			return nil, fmt.Errorf("%w: bad %s line %q", ErrMalformed, sumsName, sc.Text())
+	lines := strings.SplitAfter(string(s), "\n")
+	for _, line := range lines[:len(lines)-1] { // SplitAfter leaves a final "" after the last "\n"
+		sum, name, ok := strings.Cut(strings.TrimSuffix(line, "\n"), "  ")
+		raw, err := hex.DecodeString(sum)
+		if !ok || err != nil || len(raw) != sha256.Size || !payloadNames[name] {
+			return nil, fmt.Errorf("%w: bad %s line %q", ErrMalformed, sumsName, line)
 		}
 		if _, dup := listed[name]; dup {
 			return nil, fmt.Errorf("%q: %w", name, ErrDuplicate)
 		}
-		listed[name] = sum
+		listed[name] = hex.EncodeToString(raw)
+	}
+	// Only the canonical rendering is accepted, so one set of files has one
+	// MANIFEST.sha256 and therefore one digest.
+	var canon bytes.Buffer
+	names := make([]string, 0, len(listed))
+	for n := range listed {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		fmt.Fprintf(&canon, "%s  %s\n", listed[n], n)
+	}
+	if !bytes.Equal(canon.Bytes(), s) {
+		return nil, fmt.Errorf("%w: %s is not in canonical form", ErrMalformed, sumsName)
 	}
 	for n := range got {
 		if n != sumsName && n != sigName && listed[n] == "" {

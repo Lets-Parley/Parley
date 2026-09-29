@@ -435,13 +435,37 @@ mutate "bundle: duplicate entries" 'TestRefusesADuplicateEntry' \
 mutate "bundle: the wasm size cap" 'TestRefusesAnOversizedWasm' \
     bundle.go 'if n == wasmName && hdr.Size > MaxWasm {' 'if false {'
 mutate "bundle: the streaming uncompressed cap" 'TestRefusesAZipBombWhileStreaming' \
-    bundle.go 'n: MaxTotal})' 'n: 1 << 40})'
+    bundle.go 'n: MaxTotal}' 'n: 1 << 40}'
 mutate "bundle: the signature check" 'TestRefusesABadSignature' \
     bundle.go 'if !ed25519.Verify(pub, append([]byte(sigContext), s...), sig[ed25519.PublicKeySize:]) {' 'if false {'
 mutate "bundle: the trusted-key check" 'TestRefusesAnUntrustedKey' \
     bundle.go 'if pub.Equal(k) {' 'if pub.Equal(k) || true {'
 mutate "bundle: unsigned refused by default" 'TestRefusesUnsignedUnlessAllowed' \
     bundle.go 'if !allowUnsigned {' 'if false {'
+mutate "bundle: canonical MANIFEST.sha256" 'TestRefusesNonCanonicalSums' \
+    bundle.go 'if !bytes.Equal(canon.Bytes(), s) {' 'if false {'
+mutate "bundle: a malformed sums line" 'TestRefusesNonCanonicalSums' \
+    bundle.go 'if !ok || err != nil || len(raw) != sha256.Size || !payloadNames[name] {' 'if false && (!ok || err != nil || len(raw) != sha256.Size || !payloadNames[name]) {' \
+    bundle.go 'if !bytes.Equal(canon.Bytes(), s) {' 'if false {'
+mutate "bundle: a duplicate sums line" 'TestRefusesADuplicateSumsLine' \
+    bundle.go 'if _, dup := listed[name]; dup {' 'if _, dup := listed[name]; false && dup {'
+mutate "bundle: manifest.json and package.json together" 'TestRefusesManifestJSONAndPackageJSONTogether' \
+    bundle.go '		if hasNew {
+			return nil, fmt.Errorf("manifest.json and package.json: %w", ErrDuplicate)' '		if false {
+			return nil, fmt.Errorf("manifest.json and package.json: %w", ErrDuplicate)'
+mutate "bundle: an unknown file name" 'TestRefusesAnUnknownFileName' \
+    bundle.go 'if !payloadNames[n] && n != sumsName && n != sigName {' 'if false {'
+mutate "bundle: a truncated signature" 'TestRefusesATruncatedSignature' \
+    bundle.go 'if len(sig) != ed25519.PublicKeySize+ed25519.SignatureSize {' 'if false {'
+mutate "bundle: data after the gzip member" 'TestRefusesATrailingGzipMember' \
+    bundle.go 'if _, err := br.ReadByte(); err != io.EOF {' 'if false {' \
+    bundle.go 'gz.Multistream(false)' ''
+mutate "bundle: the declared-size sum cap" 'TestRefusesDeclaredSizesPastTheCap' \
+    bundle.go 'if declared > MaxTotal {' 'if false {'
+mutate "bundle: Pack's wasm cap" 'TestPackEnforcesTheVerifyLimits' \
+    bundle.go 'if len(files[wasmName]) > MaxWasm {' 'if false {'
+mutate "bundle: Pack's total cap" 'TestPackEnforcesTheVerifyLimits' \
+    bundle.go 'if tarBuf.Len() > MaxTotal {' 'if false {'
 
 target internal/api
 
@@ -785,6 +809,11 @@ mutate "main wiring the embed providers into the HTTP layer" \
 # writes, so no handler test can see the statement's own guard: the test here
 # calls the insert directly, for a former member and a link guest, and must go
 # red once the guard in the statement is gone.
+mutate "keygen refusing to overwrite a key file" \
+    'TestPluginKeygenRefusesToOverwriteEitherFile' \
+    plugincmd.go 'if _, err := os.Lstat(p); err == nil {' 'if false {' \
+    plugincmd.go 'os.O_WRONLY|os.O_CREATE|os.O_EXCL' 'os.O_WRONLY|os.O_CREATE|os.O_TRUNC'
+
 target internal/standup
 
 mutate "the membership guard inside the mention insert" \

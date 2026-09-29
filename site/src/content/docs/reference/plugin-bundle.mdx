@@ -39,7 +39,10 @@ A bundle is refused, before any of it is used, if it contains a file
 digest does not match; if an entry name has path components, is a symlink or
 other non-regular entry, is duplicated, or is not one of the names above; if
 `plugin.wasm` exceeds 10 MiB or the uncompressed archive exceeds **16 MiB**
-(counted while decompressing); or if its signature does not verify, is by an
+(tar headers and padding included, counted while decompressing), or the
+entries' declared sizes add up past it; if anything follows the gzip member; if
+`MANIFEST.sha256` is not in canonical form (sorted, lowercase hex, two spaces,
+a newline after every line); or if its signature does not verify, is by an
 untrusted key, or is missing and unsigned bundles are not allowed.
 
 ## Operator commands
@@ -49,7 +52,8 @@ parley plugin keygen [path-prefix]    # writes <prefix>.key (0600) and <prefix>.
 parley plugin verify -key <base64-public-key> bundle.parley
 ```
 
-`keygen` prints the key id and the base64 public key. `verify` accepts `-key`
+`keygen` refuses to overwrite either file and prints the key id and the base64
+public key to pass to `verify -key`. `verify` accepts `-key`
 more than once and `-allow-unsigned`; it prints the digest and key id, or the
 reason for refusal, and exits non-zero on refusal. Packing and signing are done
 by the plugin SDK, not the server binary.

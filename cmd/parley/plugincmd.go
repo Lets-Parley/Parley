@@ -33,6 +33,12 @@ func runPlugin(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		pubB64 := base64.StdEncoding.EncodeToString(pub)
+		for _, p := range []string{prefix + ".key", prefix + ".pub"} {
+			if _, err := os.Lstat(p); err == nil {
+				fmt.Fprintf(stderr, "refusing to overwrite %s\n", p)
+				return 1
+			}
+		}
 		if err := writeNew(prefix+".key", base64.StdEncoding.EncodeToString(priv.Seed())+"\n", 0o600); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -41,7 +47,7 @@ func runPlugin(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "private key: %s.key (keep secret)\npublic key:  %s.pub\nkey id:      %s\ntrust it with PLUGIN_TRUSTED_KEYS=%s\n", prefix, prefix, bundle.KeyID(pub), pubB64)
+		fmt.Fprintf(stdout, "private key: %s.key (keep secret)\npublic key:  %s.pub\nkey id:      %s\ntrust it:    parley plugin verify -key %s FILE\n", prefix, prefix, bundle.KeyID(pub), pubB64)
 		return 0
 	case "verify":
 		fs := flag.NewFlagSet("verify", flag.ContinueOnError)
