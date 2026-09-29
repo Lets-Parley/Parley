@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/lets-parley/parley/internal/standup"
@@ -157,7 +158,7 @@ func TestWebhookSigningSurvivesRotation(t *testing.T) {
 	hooks := func(c *Cipher) *standup.Webhooks {
 		st := &Store{Pool: pool, Cipher: c}
 		return &standup.Webhooks{
-			Pool: pool, BaseURL: "https://parley.example", Seal: st.SealWebhook, Open: c.OpenWebhook,
+			Pool: pool, BaseURL: "https://parley.example", Seal: st.SealWebhook, Open: st.OpenWebhook,
 			Send: func(_ context.Context, _ string, h map[string]string, b []byte) (int, error) {
 				body, sig = b, h["X-Parley-Signature"]
 				return 200, nil
@@ -217,7 +218,7 @@ func TestASecretSealedForOneNameOrSpaceDoesNotOpenForAnother(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, err := c.OpenWebhook("space-b", kid, n, ct); err == nil {
+	if v, err := c.Open(kid, webhookSecretAAD("space-b"), n, ct); err == nil {
 		t.Fatalf("space a's webhook secret opened for space b: %q", v)
 	}
 }
@@ -235,7 +236,7 @@ func TestResealDoesNotOverwriteASecretChangedMeanwhile(t *testing.T) {
 	if err := pool.QueryRow(ctx, "insert into spaces (slug, name) values ('cas', 'Cas') returning id::text").Scan(&spaceID); err != nil {
 		t.Fatal(err)
 	}
-	hooks := &standup.Webhooks{Pool: pool, Seal: st.SealWebhook, Open: c.OpenWebhook}
+	hooks := &standup.Webhooks{Pool: pool, Seal: st.SealWebhook, Open: st.OpenWebhook}
 	if err := hooks.Put(ctx, spaceID, "", "https://hooks.example/in", "stale"); err != nil {
 		t.Fatal(err)
 	}
@@ -265,6 +266,9 @@ func TestResealDoesNotOverwriteASecretChangedMeanwhile(t *testing.T) {
 	if err != nil || resealed != 0 || remaining != 2 {
 		t.Fatalf("ResealSecrets = (%d, %d, %v), want (0, 2, nil): both writes lost the race", resealed, remaining, err)
 	}
+	if markerSet(t, pool) {
+		t.Fatal("a reseal that found unbound rows at verify set the binding marker")
+	}
 	if v, err := st.GetSecret(ctx, in.ID, "token"); err != nil || v != "fresh" {
 		t.Fatalf("plugin secret after a racing write = (%q, %v), want fresh", v, err)
 	}
@@ -273,7 +277,7 @@ func TestResealDoesNotOverwriteASecretChangedMeanwhile(t *testing.T) {
 	if err := pool.QueryRow(ctx, "select coalesce(key_id, ''), secret_nonce, secret_ciphertext from standup_webhooks where space_id = $1", spaceID).Scan(&kid, &n, &ct); err != nil {
 		t.Fatal(err)
 	}
-	if v, err := c.OpenWebhook(spaceID, kid, n, ct); err != nil || v != "fresh" {
+	if v, err := st.OpenWebhook(ctx, spaceID, kid, n, ct); err != nil || v != "fresh" {
 		t.Fatalf("webhook secret after a racing write = (%q, %v), want fresh", v, err)
 	}
 }
@@ -348,5 +352,60 @@ func TestAMixedRowIsResealedOrCounted(t *testing.T) {
 	resealed, remaining, err := st.ResealSecrets(ctx)
 	if err != nil || resealed != 1 || remaining != 1 {
 		t.Fatalf("ResealSecrets = (%d, %d, %v), want (1, 1, nil): the openable mixed row re-sealed, the broken one counted", resealed, remaining, err)
+	}
+	if markerSet(t, pool) {
+		t.Fatal("a reseal that left an unopenable row set the binding marker")
+	}
+}
+
+func markerSet(t *testing.T, pool interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}) bool {
+	t.Helper()
+	var b bool
+	if err := pool.QueryRow(context.Background(), "select exists (select 1 from secret_binding)").Scan(&b); err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestAfterTheMarkerAnUnboundRowDoesNotOpen(t *testing.T) {
+	pool := testPool(t)
+	clearSecrets(t, pool)
+	ctx := context.Background()
+	st := &Store{Pool: pool, Cipher: mustCipher(t, oldSecretKey, "")}
+	in := install(t, st, Grant{Capability: CapabilitySecrets})
+	n, ct, _, err := st.Cipher.sealUnbound("planted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `insert into plugin_secrets (install_id, name, nonce, ciphertext) values ($1, 'token', $2, $3)`, in.ID, n, ct); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := st.GetSecret(ctx, in.ID, "token"); err != nil || v != "planted" {
+		t.Fatalf("an unbound row before the marker = (%q, %v), want it to open", v, err)
+	}
+	bindSecrets(t, pool)
+	if v, err := st.GetSecret(ctx, in.ID, "token"); !errors.Is(err, ErrSecretUndecryptable) {
+		t.Fatalf("an unbound row after the marker = (%q, %v), want ErrSecretUndecryptable", v, err)
+	}
+}
+
+func TestAResealThatFailsPartwayLeavesNoMarker(t *testing.T) {
+	pool := testPool(t)
+	clearSecrets(t, pool)
+	st := &Store{Pool: pool, Cipher: mustCipher(t, oldSecretKey, "")}
+	in := install(t, st, Grant{Capability: CapabilitySecrets})
+	if err := st.PutSecret(context.Background(), in.ID, "token", "v"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	resealHook = cancel
+	t.Cleanup(func() { resealHook = nil })
+	if _, _, err := st.ResealSecrets(ctx); err == nil {
+		t.Fatal("a reseal whose context was cancelled mid-conversion reported success")
+	}
+	if markerSet(t, pool) {
+		t.Fatal("a failed reseal left the binding marker set")
 	}
 }

@@ -71,7 +71,7 @@ type Webhooks struct {
 	// Seal and Open encrypt the signing secret at rest, bound to its space
 	// and to the key id stored beside it.
 	Seal func(ctx context.Context, spaceID, plaintext string) (nonce, ciphertext []byte, keyID string, err error)
-	Open func(spaceID, keyID string, nonce, ciphertext []byte) (string, error)
+	Open func(ctx context.Context, spaceID, keyID string, nonce, ciphertext []byte) (string, error)
 	// Send posts one delivery. In production it goes through the plugin
 	// fetch guard; it returns the response status.
 	Send func(ctx context.Context, url string, headers map[string]string, body []byte) (int, error)
@@ -211,7 +211,7 @@ func (w *Webhooks) deliverOne(ctx context.Context, c claimedDelivery) error {
 	if err != nil {
 		return fmt.Errorf("reading standup webhook: %w", err)
 	}
-	secret, err := w.Open(c.spaceID, keyID, nonce, sealed)
+	secret, err := w.Open(ctx, c.spaceID, keyID, nonce, sealed)
 	if err != nil {
 		return w.finish(ctx, c, false, "the signing secret could not be decrypted", true)
 	}

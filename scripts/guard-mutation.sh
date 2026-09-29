@@ -299,6 +299,14 @@ mutate "the reseal's check of every row rather than its key id" \
     'TestAMixedRowIsResealedOrCounted' \
     secrets.go 'if !s.Cipher.openBound(x.keyID, t.aad(x.a, x.b), x.nonce, x.sealed) {' 'if x.keyID != s.Cipher.KeyID() {'
 
+mutate "the bound-only read once the marker is set" \
+    'TestAfterTheMarkerAnUnboundRowDoesNotOpen' \
+    secrets.go 'return s.Cipher.openAs(keyID, aad, nonce, ciphertext, !b)' 'return s.Cipher.openAs(keyID, aad, nonce, ciphertext, !b || true)'
+
+mutate "no marker while a row is not bound" \
+    'TestAMixedRowIsResealedOrCounted|TestResealDoesNotOverwriteASecretChangedMeanwhile' \
+    secrets.go 'if remaining > 0 {' 'if false {'
+
 mutate "the refusal of a previous key equal to the current one" \
     'TestAPreviousKeyEqualToTheCurrentOneIsRefused' \
     secrets.go 'if c.prev.id == cur.id {' 'if false {'

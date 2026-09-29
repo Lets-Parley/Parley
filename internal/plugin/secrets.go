@@ -122,9 +122,18 @@ func (c *Cipher) openBound(keyID string, aad, nonce, ciphertext []byte) bool {
 
 // Open reverses Seal and sealUnbound. The key id picks which bound form to try,
 // but never rules out the unbound one: a replica from before key ids can
-// rewrite a row's ciphertext and leave its key_id standing.
+// rewrite a row's ciphertext and leave its key_id standing. Once the binding
+// marker exists, readers go through Store and accept the bound form only.
 func (c *Cipher) Open(keyID string, aad, nonce, ciphertext []byte) (string, error) {
-	for _, bound := range []bool{true, false} {
+	return c.openAs(keyID, aad, nonce, ciphertext, true)
+}
+
+func (c *Cipher) openAs(keyID string, aad, nonce, ciphertext []byte, allowUnbound bool) (string, error) {
+	forms := []bool{true}
+	if allowUnbound {
+		forms = append(forms, false)
+	}
+	for _, bound := range forms {
 		for _, k := range []*sealKey{c.cur, c.prev} {
 			if k == nil || (bound && keyID != k.id) || len(nonce) != k.aead.NonceSize() {
 				continue
@@ -177,9 +186,19 @@ func (s *Store) SealWebhook(ctx context.Context, spaceID, plaintext string) ([]b
 	return s.seal(ctx, webhookSecretAAD(spaceID), plaintext)
 }
 
+// open accepts both forms before the binding marker and the bound form only
+// after it, so a row written unbound behind the reseal's back never opens.
+func (s *Store) open(ctx context.Context, keyID string, aad, nonce, ciphertext []byte) (string, error) {
+	b, err := s.bound(ctx)
+	if err != nil {
+		return "", err
+	}
+	return s.Cipher.openAs(keyID, aad, nonce, ciphertext, !b)
+}
+
 // OpenWebhook opens a standup webhook's signing secret.
-func (c *Cipher) OpenWebhook(spaceID, keyID string, nonce, ciphertext []byte) (string, error) {
-	return c.Open(keyID, webhookSecretAAD(spaceID), nonce, ciphertext)
+func (s *Store) OpenWebhook(ctx context.Context, spaceID, keyID string, nonce, ciphertext []byte) (string, error) {
+	return s.open(ctx, keyID, webhookSecretAAD(spaceID), nonce, ciphertext)
 }
 
 // PutSecret stores one secret for an install, encrypted.
@@ -220,7 +239,7 @@ func (s *Store) GetSecret(ctx context.Context, installID, name string) (string, 
 	if err != nil {
 		return "", fmt.Errorf("reading plugin secret %q: %w", name, err)
 	}
-	v, err := s.Cipher.Open(keyID, pluginSecretAAD(installID, name), nonce, ciphertext)
+	v, err := s.open(ctx, keyID, pluginSecretAAD(installID, name), nonce, ciphertext)
 	if err != nil {
 		return "", fmt.Errorf("%q: %w", name, err)
 	}
@@ -273,8 +292,10 @@ type sealedRow struct {
 	keyID         string
 }
 
-func (s *Store) sealedRows(ctx context.Context, t sealedTable) ([]sealedRow, error) {
-	rows, err := s.Pool.Query(ctx, t.sel)
+func sealedRows(ctx context.Context, q interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}, t sealedTable) ([]sealedRow, error) {
+	rows, err := q.Query(ctx, t.sel)
 	if err != nil {
 		return nil, fmt.Errorf("listing sealed secrets: %w", err)
 	}
@@ -289,18 +310,15 @@ func (s *Store) sealedRows(ctx context.Context, t sealedTable) ([]sealedRow, err
 }
 
 // ResealSecrets is "parley secrets reseal", run once every replica reads the
-// bound form. It records the binding marker first, so every write from then on
-// is bound and no unbound row can appear behind the pass; then it re-seals
-// every row not bound under the current key, each write a compare-and-set on
-// the ciphertext it read. remaining is a second pass over every row, counting
-// those that still do not open bound under the current key; on error it is
-// unknown and -1.
+// bound form. It re-seals every row that does not open bound under the current
+// key, each write a compare-and-set on the ciphertext it read. Then, in one
+// transaction holding both tables against writes, it checks every row and
+// records the binding marker only if none remains: a failed or incomplete run
+// leaves no marker, and a write racing the check waits for it. remaining is
+// what that check counted; on error it is unknown and -1.
 func (s *Store) ResealSecrets(ctx context.Context) (resealed, remaining int, err error) {
-	if _, err := s.Pool.Exec(ctx, "insert into secret_binding default values on conflict do nothing"); err != nil {
-		return 0, -1, fmt.Errorf("recording the secret binding marker: %w", err)
-	}
 	for _, t := range sealedTables {
-		found, err := s.sealedRows(ctx, t)
+		found, err := sealedRows(ctx, s.Pool, t)
 		if err != nil {
 			return resealed, -1, err
 		}
@@ -327,8 +345,16 @@ func (s *Store) ResealSecrets(ctx context.Context) (resealed, remaining int, err
 			resealed += int(tag.RowsAffected())
 		}
 	}
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return resealed, -1, fmt.Errorf("starting the reseal check: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "lock table plugin_secrets, standup_webhooks in share row exclusive mode"); err != nil {
+		return resealed, -1, fmt.Errorf("locking the secret tables: %w", err)
+	}
 	for _, t := range sealedTables {
-		found, err := s.sealedRows(ctx, t)
+		found, err := sealedRows(ctx, tx, t)
 		if err != nil {
 			return resealed, -1, err
 		}
@@ -338,5 +364,14 @@ func (s *Store) ResealSecrets(ctx context.Context) (resealed, remaining int, err
 			}
 		}
 	}
-	return resealed, remaining, nil
+	if remaining > 0 {
+		return resealed, remaining, nil
+	}
+	if _, err := tx.Exec(ctx, "insert into secret_binding default values on conflict do nothing"); err != nil {
+		return resealed, -1, fmt.Errorf("recording the secret binding marker: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return resealed, -1, fmt.Errorf("recording the secret binding marker: %w", err)
+	}
+	return resealed, 0, nil
 }

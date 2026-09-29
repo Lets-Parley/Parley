@@ -365,9 +365,15 @@ day open again.
 on delete cascade): the `url`, the signing secret as `secret_nonce` and
 `secret_ciphertext` (AES-GCM under `PLUGIN_SECRET_KEY`; it must be recoverable to
 sign, so it is not a hash), `key_id` (a fingerprint of the key that sealed it;
-null until `parley secrets reseal` has run), `created_at` and `updated_by` (on delete set null).
+null while the secret is in the unbound form), `created_at` and `updated_by` (on delete set null).
 Only events after `created_at` are delivered, so configuring a webhook never
 replays a space's history.
+
+`secret_binding` (from `0048_secret_key_ids`) is instance-wide and holds at
+most one row. `parley secrets reseal` inserts it, in the same transaction that
+locks `plugin_secrets` and `standup_webhooks` against writes and finds every row
+of both in the bound form. While it is absent, secrets are written unbound and
+either form opens; once it exists, secrets are written and read bound only.
 
 `standup_webhook_deliveries` is the outbox. Its `id` is the event id a receiver
 sees, stable across every retry. `unique (session_id, event)` is the
@@ -513,7 +519,6 @@ with it.
 | `plugin_installs` | What is installed **in one org**: `org_id`, name, version, whether it is enabled, and its storage quota and counter. `unique (org_id, name)` |
 | `plugin_grants` | One row per capability an install may use, optionally narrowed by scope |
 | `plugin_secrets` | Encrypted credentials — nonce, ciphertext and the sealing key's fingerprint `key_id`, and deliberately no plaintext column |
-| `secret_binding` | One row once `parley secrets reseal` has run; from then on secrets are written bound to their row |
 | `plugin_kv` | Namespaced key-value storage. A plugin has no SQL, so this is the whole of its durable storage |
 | `plugin_events` | The transactional outbox: one row per thing that happened |
 | `plugin_deliveries` | One row per (event, subscriber), with its state, attempts and next-attempt time |
