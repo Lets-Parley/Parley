@@ -352,3 +352,34 @@ func TestPackEnforcesTheVerifyLimits(t *testing.T) {
 		t.Fatalf("total: %v", err)
 	}
 }
+
+// A base-256 size near 2^63 must not wrap the running sum below the cap.
+func TestRefusesADeclaredSizeThatWouldOverflow(t *testing.T) {
+	var out bytes.Buffer
+	gz := gzip.NewWriter(&out)
+	tw := tar.NewWriter(gz)
+	tw.WriteHeader(&tar.Header{Name: "slots.json", Typeflag: tar.TypeReg, Size: 1, Format: tar.FormatGNU})
+	tw.Write([]byte("x"))
+	if err := tw.WriteHeader(&tar.Header{Name: "ui.js", Typeflag: tar.TypeReg, Size: 1<<63 - 1, Format: tar.FormatGNU}); err != nil {
+		t.Fatal(err)
+	}
+	tw.Flush()
+	gz.Close()
+	refuse(t, out.Bytes(), ErrTooLarge)
+}
+
+// A tar stream of exactly MaxTotal is within the cap, end blocks included.
+func TestABundleOfExactlyTheCapVerifies(t *testing.T) {
+	files := map[string][]byte{"plugin.wasm": make([]byte, MaxWasm), "ui.js": make([]byte, 6<<20-4096)}
+	data, err := Pack(files, mBody, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Verify(bytes.NewReader(data), nil, true); err != nil {
+		t.Fatal(err)
+	}
+	files["ui.js"] = make([]byte, 6<<20-4096+1)
+	if _, err := Pack(files, mBody, nil); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("one byte over: %v", err)
+	}
+}

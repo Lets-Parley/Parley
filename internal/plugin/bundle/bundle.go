@@ -165,7 +165,14 @@ type capped struct {
 
 func (c *capped) Read(p []byte) (int, error) {
 	if c.n <= 0 {
-		return 0, ErrTooLarge
+		// At the cap, only a real byte past it is too large; end of stream
+		// here is a bundle of exactly MaxTotal.
+		var probe [1]byte
+		k, err := c.r.Read(probe[:])
+		if k > 0 {
+			return 0, ErrTooLarge
+		}
+		return 0, err
 	}
 	if int64(len(p)) > c.n {
 		p = p[:c.n]
@@ -214,12 +221,13 @@ func Verify(r io.Reader, trusted []ed25519.PublicKey, allowUnsigned bool) (*Bund
 		if n == wasmName && hdr.Size > MaxWasm {
 			return nil, ErrWasmTooLarge
 		}
-		// ponytail: sparse entries expand without stream bytes; capping the
-		// declared sizes as a sum bounds them without parsing sparse maps.
-		declared += hdr.Size
-		if declared > MaxTotal {
+		// Sparse entries expand without stream bytes; capping the declared
+		// sizes as a sum bounds them without parsing sparse maps. Compared
+		// before adding, so a size near 2^63 cannot wrap the sum.
+		if hdr.Size < 0 || hdr.Size > MaxTotal-declared {
 			return nil, ErrTooLarge
 		}
+		declared += hdr.Size
 		body, err := io.ReadAll(tr)
 		if err != nil {
 			if errors.Is(err, ErrTooLarge) {

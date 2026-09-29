@@ -39,11 +39,14 @@ func runPlugin(args []string, stdout, stderr io.Writer) int {
 				return 1
 			}
 		}
-		if err := writeNew(prefix+".key", base64.StdEncoding.EncodeToString(priv.Seed())+"\n", 0o600); err != nil {
+		// The public half first: if the private write then fails, nothing
+		// secret is left behind, and the .pub this run made is removed.
+		if err := writeNew(prefix+".pub", pubB64+"\n", 0o644); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if err := writeNew(prefix+".pub", pubB64+"\n", 0o644); err != nil {
+		if err := writeNew(prefix+".key", base64.StdEncoding.EncodeToString(priv.Seed())+"\n", 0o600); err != nil {
+			os.Remove(prefix + ".pub")
 			fmt.Fprintln(stderr, err)
 			return 1
 		}

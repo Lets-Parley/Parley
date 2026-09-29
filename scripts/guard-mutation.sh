@@ -461,7 +461,13 @@ mutate "bundle: data after the gzip member" 'TestRefusesATrailingGzipMember' \
     bundle.go 'if _, err := br.ReadByte(); err != io.EOF {' 'if false {' \
     bundle.go 'gz.Multistream(false)' ''
 mutate "bundle: the declared-size sum cap" 'TestRefusesDeclaredSizesPastTheCap' \
-    bundle.go 'if declared > MaxTotal {' 'if false {'
+    bundle.go 'if hdr.Size < 0 || hdr.Size > MaxTotal-declared {' 'if false {'
+mutate "bundle: the declared-size overflow" 'TestRefusesADeclaredSizeThatWouldOverflow' \
+    bundle.go 'if hdr.Size < 0 || hdr.Size > MaxTotal-declared {' 'if declared+hdr.Size > MaxTotal {'
+mutate "bundle: the cap admits a bundle of exactly MaxTotal" 'TestABundleOfExactlyTheCapVerifies' \
+    bundle.go 'if k > 0 {
+			return 0, ErrTooLarge' 'if k >= 0 {
+			return 0, ErrTooLarge'
 mutate "bundle: Pack's wasm cap" 'TestPackEnforcesTheVerifyLimits' \
     bundle.go 'if len(files[wasmName]) > MaxWasm {' 'if false {'
 mutate "bundle: Pack's total cap" 'TestPackEnforcesTheVerifyLimits' \
@@ -805,15 +811,15 @@ mutate "main wiring the embed providers into the HTTP layer" \
     'TestMainsOptionsEnableEmbedProviders' \
     main.go '		EmbedProviders: cfg.EmbedProviders,' ''
 
-# A standup mention's second lock. The handler checks both parties before it
-# writes, so no handler test can see the statement's own guard: the test here
-# calls the insert directly, for a former member and a link guest, and must go
-# red once the guard in the statement is gone.
 mutate "keygen refusing to overwrite a key file" \
     'TestPluginKeygenRefusesToOverwriteEitherFile' \
     plugincmd.go 'if _, err := os.Lstat(p); err == nil {' 'if false {' \
     plugincmd.go 'os.O_WRONLY|os.O_CREATE|os.O_EXCL' 'os.O_WRONLY|os.O_CREATE|os.O_TRUNC'
 
+# A standup mention's second lock. The handler checks both parties before it
+# writes, so no handler test can see the statement's own guard: the test here
+# calls the insert directly, for a former member and a link guest, and must go
+# red once the guard in the statement is gone.
 target internal/standup
 
 mutate "the membership guard inside the mention insert" \
