@@ -198,6 +198,10 @@ func (w *Webhooks) Deliver(ctx context.Context) error {
 	return nil
 }
 
+// beforeOpenHook runs between reading a webhook's secret and opening it; tests
+// use it to land a reseal in that window.
+var beforeOpenHook func()
+
 func (w *Webhooks) deliverOne(ctx context.Context, c claimedDelivery) error {
 	var url, org, slug, keyID string
 	var nonce, sealed []byte
@@ -213,7 +217,18 @@ func (w *Webhooks) deliverOne(ctx context.Context, c claimedDelivery) error {
 	if err != nil {
 		return fmt.Errorf("reading standup webhook: %w", err)
 	}
+	if beforeOpenHook != nil {
+		beforeOpenHook()
+	}
 	secret, err := w.Open(ctx, c.spaceID, keyID, nonce, sealed)
+	if w.Undecryptable != nil && errors.Is(err, w.Undecryptable) {
+		// A reseal may have committed between the read and the open, turning
+		// the unbound row we read into one the marker now refuses. Re-read once.
+		if err = w.Pool.QueryRow(ctx, "select secret_nonce, secret_ciphertext, coalesce(key_id, '') from standup_webhooks where space_id = $1",
+			c.spaceID).Scan(&nonce, &sealed, &keyID); err == nil {
+			secret, err = w.Open(ctx, c.spaceID, keyID, nonce, sealed)
+		}
+	}
 	if w.Undecryptable != nil && errors.Is(err, w.Undecryptable) {
 		return w.finish(ctx, c, false, "the signing secret could not be decrypted", true)
 	}

@@ -810,6 +810,10 @@ mutate "main wiring the embed providers into the HTTP layer" \
 # red once the guard in the statement is gone.
 target internal/standup
 
+mutate "the re-read after a reseal lands between read and open" \
+    'TestAResealBetweenReadAndOpenDoesNotFailADelivery' \
+    webhook.go 'if w.Undecryptable != nil && errors.Is(err, w.Undecryptable) {' 'if false {'
+
 mutate "only an undecryptable secret gives up on a delivery" \
     'TestOnlyAnUndecryptableSecretGivesUpOnADelivery' \
     webhook.go 'return w.finish(ctx, c, false, "the signing secret could not be read", false)' 'return w.finish(ctx, c, false, "the signing secret could not be read", true)'

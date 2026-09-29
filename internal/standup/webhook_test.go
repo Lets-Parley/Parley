@@ -301,3 +301,51 @@ func TestOnlyAnUndecryptableSecretGivesUpOnADelivery(t *testing.T) {
 		})
 	}
 }
+
+// A reseal that commits between the delivery's read of the secret and its
+// open must not fail the delivery for good.
+func TestAResealBetweenReadAndOpenDoesNotFailADelivery(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	sess, _ := seed(t, pool, `{"mode":"async"}`, "Ada")
+	c, err := plugin.NewCipher("MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &plugin.Store{Pool: pool, Cipher: c}
+	if _, err := pool.Exec(ctx, "delete from secret_binding"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "delete from secret_binding") })
+	w := &Webhooks{
+		Pool: pool, BaseURL: "https://parley.example",
+		Seal: st.SealWebhook, Open: st.OpenWebhook, Undecryptable: plugin.ErrSecretUndecryptable,
+		Send: func(context.Context, string, map[string]string, []byte) (int, error) { return 200, nil },
+	}
+	if err := w.Put(ctx, sess.SpaceID, "", "https://hooks.example/in", "s3cret"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, "update standup_webhooks set created_at = now() - interval '1 minute'"); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Enqueue(ctx); err != nil {
+		t.Fatal(err)
+	}
+	beforeOpenHook = func() {
+		beforeOpenHook = nil
+		if _, remaining, err := st.ResealSecrets(ctx); err != nil || remaining != 0 {
+			t.Errorf("ResealSecrets remaining=%d err=%v", remaining, err)
+		}
+	}
+	t.Cleanup(func() { beforeOpenHook = nil })
+	if err := w.Deliver(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var failed bool
+	if err := pool.QueryRow(ctx, "select bool_or(failed_at is not null) from standup_webhook_deliveries where session_id = $1", sess.ID).Scan(&failed); err != nil {
+		t.Fatal(err)
+	}
+	if failed {
+		t.Fatal("a delivery that raced a reseal was given up on")
+	}
+}
