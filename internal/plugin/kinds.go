@@ -280,6 +280,7 @@ func (h *Host) ReconcileKinds(ctx context.Context) error {
 	}
 	h.reconcileMu.Lock()
 	defer h.reconcileMu.Unlock()
+	defer h.reconciles.Add(1)
 	rows, err := h.Store.Pool.Query(ctx, `
 		select p.id, p.org_id::text, p.name from plugin_installs p
 		where p.enabled and exists (
@@ -325,6 +326,10 @@ func (h *Host) ReconcileKinds(ctx context.Context) error {
 	}
 	return errors.Join(append(errs, h.Kinds.Sync(desired))...)
 }
+
+// Reconciles counts finished ReconcileKinds runs, successful or not. It exists
+// so a test can wait for a reconcile to have happened rather than guess.
+func (h *Host) Reconciles() int64 { return h.reconciles.Load() }
 
 // PluginKind builds the live kind for one declared ceremony. State and
 // actions are contained calls into the guest; CSV is rendered from the

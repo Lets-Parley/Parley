@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	extism "github.com/extism/go-sdk"
@@ -157,6 +158,7 @@ type Host struct {
 
 	cfg         HostConfig
 	reconcileMu sync.Mutex
+	reconciles  atomic.Int64
 
 	mu       sync.Mutex
 	cache    map[string]*cachedModule

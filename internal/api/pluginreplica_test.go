@@ -23,6 +23,11 @@ func TestPluginKindsReachEveryReplicaWithoutARestart(t *testing.T) {
 	hostB := plugin.NewHost(storeB, plugin.HostConfig{})
 	srvB := testServerWith(t, pool, Options{AllowedOrigin: testOrigin, Plugins: storeB, PluginHost: hostB})
 	waitListening(t, srvB)
+	// Boot and the listener's connect-time pass: once both are done, only the
+	// notification can deliver what A does next.
+	eventually(t, 5*time.Second, "the second replica's connect-time reconcile", func() bool {
+		return hostB.Reconciles() >= 2
+	})
 
 	storeA := &plugin.Store{Pool: pool}
 	hostA := plugin.NewHost(storeA, plugin.HostConfig{})
@@ -103,8 +108,14 @@ func TestAFailedReconcileIsRetried(t *testing.T) {
 	if _, err := pool.Exec(ctx, `insert into plugin_grants (install_id, capability, scope) values ($1, 'session:read', '')`, in.ID); err != nil {
 		t.Fatal(err)
 	}
-	// Any lifecycle write reconciles, and this one fails on the unreadable row.
+	// Any lifecycle write reconciles, and this one fails on the unreadable row:
+	// once locally, then once more in the worker it queued. Wait for both, so
+	// no request is left pending and only the capped retry can recover.
+	before := host.Reconciles()
 	installIn(t, plugins, defaultOrg(t, pool), plugin.KindDef{Kind: "other" + randomKindSuffix(t), Display: "Other"})
+	eventually(t, 5*time.Second, "the queued reconcile to have failed too", func() bool {
+		return host.Reconciles() >= before+2
+	})
 	if got := offeredPluginGrants(t, host, kind); got != "log" {
 		t.Fatalf("the failed reconcile changed the kind: %q", got)
 	}
