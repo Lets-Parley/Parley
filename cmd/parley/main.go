@@ -62,7 +62,7 @@ type config struct {
 	// them fails to install rather than storing them in the clear.
 	PluginSecretKey string
 	// PluginSecretKeyPrevious is the key PLUGIN_SECRET_KEY replaced. It only
-	// opens, so secrets sealed under it can be re-sealed at boot.
+	// opens, so secrets sealed under it stay readable until "parley secrets reseal".
 	PluginSecretKeyPrevious string
 	// StandupWebhookHosts is the allowlist a space's standup webhook URL
 	// must match, from STANDUP_WEBHOOK_HOSTS. Empty allows no webhook.
@@ -671,8 +671,8 @@ func listenAddr(bind, port string) string {
 }
 
 // pluginSecrets builds the plugin store and its cipher. It never rewrites a
-// secret: during a rolling deploy an older replica can only open rows in the
-// form it wrote, so re-sealing waits for the operator's "secrets reseal".
+// secret: until the operator's "secrets reseal", secrets are written in the
+// unbound form an older replica can still open.
 func pluginSecrets(ctx context.Context, pool *pgxpool.Pool, cfg config, log *slog.Logger) (*plugin.Store, error) {
 	plugins := &plugin.Store{Pool: pool}
 	if cfg.PluginSecretKey == "" {
@@ -704,11 +704,11 @@ func runReseal(ctx context.Context, plugins *plugin.Store, log *slog.Logger) int
 		log.Error("FATAL: secrets reseal did not finish; the remaining count is unknown, so keep PLUGIN_SECRET_KEY_PREVIOUS and run it again", "resealed", resealed, "error", err)
 		return 1
 	}
-	log.Info("secrets reseal finished", "key_id", plugins.Cipher.KeyID(), "resealed", resealed, "remaining", remaining)
 	if remaining > 0 {
-		log.Error("some secrets open under no configured key; keep PLUGIN_SECRET_KEY_PREVIOUS until they are re-entered or removed", "remaining", remaining)
+		log.Error("secrets reseal left secrets that do not open under the current key; keep PLUGIN_SECRET_KEY_PREVIOUS until they are re-entered or removed, then run it again", "resealed", resealed, "remaining", remaining)
 		return 1
 	}
+	log.Info("secrets reseal finished", "key_id", plugins.Cipher.KeyID(), "resealed", resealed, "remaining", remaining)
 	return 0
 }
 

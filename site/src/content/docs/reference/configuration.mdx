@@ -296,40 +296,42 @@ Leave it unset and plugin secrets are simply unavailable: a plugin that asks for
 the `secrets` capability **fails to install** rather than storing its
 credentials in the clear. There is no plaintext column to fall back to.
 
-Every secret is sealed bound to where it lives (the plugin install and secret
-name, or the standup webhook's space) and to a fingerprint of the key that
-sealed it, so a row copied elsewhere does not decrypt. Rows written before that
-binding existed carry no fingerprint; they still open under either configured
-key, and stay in that form until re-sealed.
+Once `parley secrets reseal` has run, every secret is sealed bound to where it
+lives (the plugin install and secret name, or the standup webhook's space) and
+to a fingerprint of the key that sealed it, so a row copied elsewhere does not
+decrypt. Until then secrets are written unbound, with no fingerprint, in the
+form older versions read, so a rolling upgrade never leaves an older
+replica facing a row it cannot open. Both forms open under either configured
+key.
 
 A secret no configured key opens is reported as undecryptable, not as missing:
 a plugin reading it gets an error, and a standup webhook delivery fails.
 Rotating without `PLUGIN_SECRET_KEY_PREVIOUS` makes every stored secret
 undecryptable — re-enter them.
+
+After upgrading from a version without key fingerprints, once every replica
+runs the new version, run `parley secrets reseal` once (below) to switch to the
+bound form. Boot never rewrites a secret; it logs how many are not yet under
+the current key.
 </EnvVar>
 
 <EnvVar name="PLUGIN_SECRET_KEY_PREVIOUS" badValue="Refuses to start if the value is not base64 that decodes to exactly 32 bytes, equals PLUGIN_SECRET_KEY, or is set without PLUGIN_SECRET_KEY">
-The key `PLUGIN_SECRET_KEY` replaced. It is only ever used to decrypt. Boot
-never rewrites a secret, because during a rolling deploy an older replica can
-only open the form it wrote; it logs how many secrets are not yet under the
-current key.
+The key `PLUGIN_SECRET_KEY` replaced. It is only ever used to decrypt.
 
 To rotate, in this order:
 
 1. Move the old value to `PLUGIN_SECRET_KEY_PREVIOUS`, put a new key in
    `PLUGIN_SECRET_KEY`, and roll that out to **every** replica.
 2. Once the rollout is complete, run `parley secrets reseal` once, with the same
-   environment (in Kubernetes, a one-off Job or `kubectl exec`). It re-seals
-   every plugin secret and standup webhook secret under the current key; each
-   write is a compare-and-set, so it never overwrites a secret changed while it
-   runs.
+   environment (in Kubernetes, a one-off Job or `kubectl exec`). It records that
+   secrets are written bound from now on, then re-seals every plugin secret and
+   standup webhook secret that does not already open bound under the current
+   key. Each write is a compare-and-set on the ciphertext it read, so a secret
+   changed while it runs is left alone. It then checks every row.
 3. Remove `PLUGIN_SECRET_KEY_PREVIOUS` only after a run that exits 0 and logs
-   `secrets reseal finished` with `remaining` 0. A run that fails partway exits
-   nonzero and does not report a remaining count; keep the previous key and run
-   it again.
-
-The same command, run once after upgrading every replica to this version,
-converts secrets written by older versions to the bound form.
+   `secrets reseal finished` with `remaining` 0. A run that fails, or finds a
+   row that does not open bound under the current key, exits nonzero and never
+   logs that line; keep the previous key and run it again.
 </EnvVar>
 
 <EnvVar name="PLUGIN_EVENT_RETENTION" default="168h" badValue="Refuses to start if the value is not a positive Go duration">

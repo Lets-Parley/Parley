@@ -70,7 +70,7 @@ type Webhooks struct {
 	BaseURL string
 	// Seal and Open encrypt the signing secret at rest, bound to its space
 	// and to the key id stored beside it.
-	Seal func(spaceID, plaintext string) (nonce, ciphertext []byte, keyID string, err error)
+	Seal func(ctx context.Context, spaceID, plaintext string) (nonce, ciphertext []byte, keyID string, err error)
 	Open func(spaceID, keyID string, nonce, ciphertext []byte) (string, error)
 	// Send posts one delivery. In production it goes through the plugin
 	// fetch guard; it returns the response status.
@@ -94,13 +94,13 @@ func (w *Webhooks) Get(ctx context.Context, spaceID string) (string, bool, error
 // Put creates or replaces the space's webhook with a new secret. Replacing
 // keeps created_at, so it does not replay the events since then.
 func (w *Webhooks) Put(ctx context.Context, spaceID, userID, url, secret string) error {
-	nonce, sealed, keyID, err := w.Seal(spaceID, secret)
+	nonce, sealed, keyID, err := w.Seal(ctx, spaceID, secret)
 	if err != nil {
 		return fmt.Errorf("sealing the webhook secret: %w", err)
 	}
 	_, err = w.Pool.Exec(ctx, `
 		insert into standup_webhooks (space_id, url, secret_nonce, secret_ciphertext, key_id, updated_by)
-		values ($1, $2, $3, $4, $5, nullif($6, '')::uuid)
+		values ($1, $2, $3, $4, nullif($5, ''), nullif($6, '')::uuid)
 		on conflict (space_id) do update set
 			url = excluded.url, secret_nonce = excluded.secret_nonce,
 			secret_ciphertext = excluded.secret_ciphertext, key_id = excluded.key_id,

@@ -46,9 +46,11 @@ func webhookFixture(t *testing.T, send func(context.Context, string, map[string]
 	w := &Webhooks{
 		Pool:    pool,
 		BaseURL: "https://parley.example",
-		Seal:    func(_, s string) ([]byte, []byte, string, error) { return []byte("n"), []byte(s), "k", nil },
-		Open:    func(_, _ string, _, c []byte) (string, error) { return string(c), nil },
-		Send:    send,
+		Seal: func(_ context.Context, _, s string) ([]byte, []byte, string, error) {
+			return []byte("n"), []byte(s), "k", nil
+		},
+		Open: func(_, _ string, _, c []byte) (string, error) { return string(c), nil },
+		Send: send,
 	}
 	// The webhook predates the session so the sweep sees its opening.
 	if err := w.Put(context.Background(), sess.SpaceID, "", "https://hooks.example/in", "s3cret"); err != nil {

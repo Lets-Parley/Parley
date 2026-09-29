@@ -281,11 +281,23 @@ mutate "the secret name and webhook space in the additional data" \
 
 mutate "the plugin secret re-seal compare-and-set" \
     'TestResealDoesNotOverwriteASecretChangedMeanwhile' \
-    secrets.go "and coalesce(key_id, '') = \$6 and ciphertext = \$7" 'and $6::text is not null and $7::bytea is not null'
+    secrets.go 'and ciphertext = $6' 'and $6::bytea is not null'
 
 mutate "the webhook secret re-seal compare-and-set" \
     'TestResealDoesNotOverwriteASecretChangedMeanwhile' \
-    secrets.go "and coalesce(key_id, '') = \$6 and secret_ciphertext = \$7" 'and $6::text is not null and $7::bytea is not null'
+    secrets.go 'and secret_ciphertext = $6' 'and $6::bytea is not null'
+
+mutate "the key id in the additional data" \
+    'TestTheBoundFormBindsTheKeyID' \
+    secrets.go "return append(append(bytes.Clone(aad), '|'), keyID...)" "return append(bytes.Clone(aad), '|')"
+
+mutate "unbound writes until the reseal marker" \
+    'TestWritesStayUnboundUntilTheResealMarker' \
+    secrets.go 'if b {' 'if b || true {'
+
+mutate "the reseal's check of every row rather than its key id" \
+    'TestAMixedRowIsResealedOrCounted' \
+    secrets.go 'if !s.Cipher.openBound(x.keyID, t.aad(x.a, x.b), x.nonce, x.sealed) {' 'if x.keyID != s.Cipher.KeyID() {'
 
 mutate "the refusal of a previous key equal to the current one" \
     'TestAPreviousKeyEqualToTheCurrentOneIsRefused' \
