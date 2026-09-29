@@ -128,6 +128,7 @@ type KindRegistry interface {
 	Register(k session.Kind) error
 	Unregister(name string) error
 	Sync(desired []session.Kind) error
+	PluginKinds() []session.Kind
 }
 
 // seedKinds writes the session_kinds rows for an install, inside the install's
@@ -280,30 +281,42 @@ func (h *Host) ReconcileKinds(ctx context.Context) error {
 	h.reconcileMu.Lock()
 	defer h.reconcileMu.Unlock()
 	rows, err := h.Store.Pool.Query(ctx, `
-		select p.id from plugin_installs p
+		select p.id, p.org_id::text, p.name from plugin_installs p
 		where p.enabled and exists (
 			select 1 from session_kinds k
 			where k.provider = p.name and k.org_id = p.org_id and k.retired_at is null)`)
 	if err != nil {
 		return fmt.Errorf("listing the enabled installs: %w", err)
 	}
-	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	type install struct{ id, orgID, name string }
+	installs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (install, error) {
+		var in install
+		return in, r.Scan(&in.id, &in.orgID, &in.name)
+	})
 	if err != nil {
 		return fmt.Errorf("reading an enabled install id: %w", err)
 	}
-	// An install that cannot be read is left out and reported, never a reason
-	// to freeze every other org's set. The next change retries it.
+	// An install that cannot be read keeps exactly the kinds it already has
+	// here and is reported: a transient error must neither drop a healthy
+	// ceremony nor freeze every other org's set. Only a successful read adds
+	// or removes. The next change retries it.
+	current := h.Kinds.PluginKinds()
 	var desired []session.Kind
 	var errs []error
-	for _, id := range ids {
+	for _, in := range installs {
+		id := in.id
 		state, err := h.Store.State(ctx, id)
-		if err != nil {
-			errs = append(errs, err)
-			continue
+		var defs []KindDef
+		if err == nil {
+			defs, err = h.Store.ProvidedKinds(ctx, id)
 		}
-		defs, err := h.Store.ProvidedKinds(ctx, id)
 		if err != nil {
 			errs = append(errs, err)
+			for _, k := range current {
+				if k.OrgID == in.orgID && k.Plugin != nil && k.Plugin.Name == in.name {
+					desired = append(desired, k)
+				}
+			}
 			continue
 		}
 		for _, def := range defs {

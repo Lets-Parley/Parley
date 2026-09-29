@@ -181,6 +181,19 @@ func (r *Registry) Sync(desired []Kind) error {
 	return errors.Join(errs...)
 }
 
+// PluginKinds is what the last Sync registered, for a caller that has to
+// carry part of it over unchanged.
+func (r *Registry) PluginKinds() []Kind {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cur := r.read()
+	out := make([]Kind, 0, len(r.synced))
+	for name := range r.synced {
+		out = append(out, cur[name])
+	}
+	return out
+}
+
 // PluginKindNames is the sorted set the last Sync registered.
 func (r *Registry) PluginKindNames() []string {
 	r.mu.Lock()

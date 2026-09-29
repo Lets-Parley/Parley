@@ -701,26 +701,42 @@ func TestAPendingUpgradeStagesItsKindsUntilApproval(t *testing.T) {
 	}
 }
 
-// One install whose rows cannot be read must not freeze every other org's
-// kinds on the replica: the rest still land and the error is reported.
-func TestOneUnreadableInstallDoesNotBlockTheReconcile(t *testing.T) {
+// An install that cannot be read keeps the kinds it had and never freezes the
+// others; once it reads again, a real change still lands.
+func TestAnUnreadableInstallKeepsItsKindsAndBlocksNothing(t *testing.T) {
 	pool := testPool(t)
 	s := &Store{Pool: pool}
 	h := NewHost(s, HostConfig{})
 	reg := session.NewRegistry()
 	h.Kinds = reg
 	ctx := context.Background()
-	good, bad := kindName(t), kindName(t)
+	good, flaky := kindName(t), kindName(t)
 	installWithKinds(t, s, testOrgID, KindDef{Kind: good, Display: "Good"})
-	installWithKinds(t, s, testOrgID, KindDef{Kind: bad, Display: "Bad"})
-	if _, err := pool.Exec(ctx, `update session_kinds set actions = '{"x":1}' where kind = $1`, bad); err != nil {
+	in := installWithKinds(t, s, testOrgID, KindDef{Kind: flaky, Display: "Flaky"})
+	if !reg.Known(flaky) {
+		t.Fatal("the install did not offer its kind, so the rest proves nothing")
+	}
+	if _, err := pool.Exec(ctx, `update session_kinds set actions = '{"x":1}' where kind = $1`, flaky); err != nil {
+		t.Fatal(err)
+	}
+	// Another org's change lands while this install cannot be read.
+	if _, err := pool.Exec(ctx, `update plugin_installs set enabled = false where name = (select provider from session_kinds where kind = $1)`, good); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.ReconcileKinds(ctx); err == nil {
 		t.Fatal("an unreadable install was not reported")
 	}
-	if !reg.Known(good) || reg.Known(bad) {
-		t.Fatalf("after the reconcile: %v", reg.PluginKindNames())
+	if !reg.Known(flaky) || reg.Known(good) {
+		t.Fatalf("after a failed read: %v", reg.PluginKindNames())
+	}
+	if _, err := pool.Exec(ctx, `update session_kinds set actions = '[]' where kind = $1`, flaky); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetEnabled(ctx, in.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if reg.Known(flaky) {
+		t.Fatalf("a readable disable did not land: %v", reg.PluginKindNames())
 	}
 }
 
@@ -746,6 +762,9 @@ func TestApprovalHonoursAnOmittedAndAnEmptyKindDeclaration(t *testing.T) {
 		defs, err := s.ProvidedKinds(ctx, in.ID)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if st, _ := s.State(ctx, in.ID); st.Install.Version != "2.0.0" {
+			t.Fatalf("%s: approval left the version at %s", tc.name, st.Install.Version)
 		}
 		if len(defs) != tc.want {
 			t.Fatalf("%s declaration: the install provides %v, want %d kinds", tc.name, defs, tc.want)

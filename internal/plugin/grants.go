@@ -179,6 +179,11 @@ func (s *Store) Upgrade(ctx context.Context, installID, version string, want []G
 	// pending upgrade has to be recorded, and an error out of BeginFunc rolls
 	// the record back.
 	if err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		// The install row first, as ApproveUpgrade takes it, so the two can
+		// never wait on each other's locks in opposite orders.
+		if _, err := tx.Exec(ctx, `select 1 from plugin_installs where id = $1 for update`, installID); err != nil {
+			return fmt.Errorf("locking %s: %w", installID, err)
+		}
 		if _, err := tx.Exec(ctx, `delete from plugin_pending_grants where install_id = $1`, installID); err != nil {
 			return fmt.Errorf("clearing the pending grants for %s: %w", installID, err)
 		}
@@ -308,8 +313,8 @@ func (s *Store) ApproveUpgrade(ctx context.Context, installID string) error {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
-			`update plugin_installs set version = pending_version, pending_version = null, pending_kinds = null where id = $1`,
-			installID); err != nil {
+			`update plugin_installs set version = $2, pending_version = null, pending_kinds = null where id = $1`,
+			installID, *version); err != nil {
 			return fmt.Errorf("approving the upgrade for %s: %w", installID, err)
 		}
 		// NULL: the upgrade declared no kinds, so the current ones stay. A

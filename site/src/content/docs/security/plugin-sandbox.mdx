@@ -301,6 +301,12 @@ and go live only when the upgrade is approved; a bad or taken kind name is
 refused when the package is uploaded, and a name another org takes while the
 upgrade waits is refused at approval, which then changes nothing.
 
+Do not approve a plugin upgrade while a rolling deploy is still replacing pods
+from a release before `0047`. A pod on the older binary approves by bumping the
+version without applying the staged kinds, and nothing replays them: the
+install runs the new version with its old ceremonies until it is uploaded
+again. Finish the rollout, then approve.
+
 The shipped proof is the [retrospective plugin](/features/retrospective/):
 columns, cards, hidden authorship, grouping, dot voting and action items, with
 no commit under `internal/` or `web/src`.
