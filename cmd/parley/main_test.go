@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -268,5 +269,21 @@ func TestLoadConfigEmbedProviders(t *testing.T) {
 				t.Fatalf("got %d providers, want %d", len(cfg.EmbedProviders), tc.want)
 			}
 		})
+	}
+}
+
+func TestLoadConfigRefusesAnUnusablePreviousSecretKey(t *testing.T) {
+	const key = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+	for name, env := range map[string][2]string{
+		"equal to the current key": {key, key},
+		"malformed":                {key, "not-a-key"},
+		"without a current key":    {"", key},
+	} {
+		baseConfigEnv(t)
+		t.Setenv("PLUGIN_SECRET_KEY", env[0])
+		t.Setenv("PLUGIN_SECRET_KEY_PREVIOUS", env[1])
+		if _, err := loadConfig(); err == nil || !strings.Contains(err.Error(), "PLUGIN_SECRET_KEY_PREVIOUS") {
+			t.Errorf("%s: loadConfig() error = %v, want a refusal naming PLUGIN_SECRET_KEY_PREVIOUS", name, err)
+		}
 	}
 }

@@ -269,6 +269,15 @@ mutate "the key namespace separator check" \
     'TestAForgedKeyCannotReachAnotherNamespace' \
     hostfn.go 'if strings.Contains(key, kvSeparator) {' 'if false {'
 
+mutate "the secret's additional data" \
+    'TestASecretRowSwappedBetweenInstallsOrTablesDoesNotOpen' \
+    secrets.go 'c.cur.aead.Seal(nil, nonce, []byte(plaintext), withKey(aad, c.cur.id))' 'c.cur.aead.Seal(nil, nonce, []byte(plaintext), nil)' \
+    secrets.go 'ad = withKey(aad, keyID)' 'ad = nil'
+
+mutate "the refusal of a previous key equal to the current one" \
+    'TestAPreviousKeyEqualToTheCurrentOneIsRefused' \
+    secrets.go 'if c.prev.id == cur.id {' 'if false {'
+
 mutate "the per-call timeout" \
     'TestAHangingPluginIsStoppedByTheCallTimeout' \
     host.go 'ctx, cancel := context.WithTimeout(ctx, h.cfg.CallTimeout)' 'ctx, cancel := context.WithTimeout(ctx, time.Hour)' \

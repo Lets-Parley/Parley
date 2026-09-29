@@ -40,8 +40,8 @@ func TestARedirectIsNotADeliveredWebhook(t *testing.T) {
 	hooks := &standup.Webhooks{
 		Pool:    pool,
 		BaseURL: "https://parley.example",
-		Seal:    func(s string) ([]byte, []byte, error) { return []byte("n"), []byte(s), nil },
-		Open:    func(_, c []byte) (string, error) { return string(c), nil },
+		Seal:    func(_, s string) ([]byte, []byte, string, error) { return []byte("n"), []byte(s), "k", nil },
+		Open:    func(_, _ string, _, c []byte) (string, error) { return string(c), nil },
 		Send: func(ctx context.Context, u string, h map[string]string, b []byte) (int, error) {
 			return f.PostNoFollow(ctx, []string{"hooks.example"}, u, h, b)
 		},

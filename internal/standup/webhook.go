@@ -68,9 +68,10 @@ type Webhooks struct {
 	Pool *pgxpool.Pool
 	// BaseURL is the instance's public origin, for the session URL.
 	BaseURL string
-	// Seal and Open encrypt the signing secret at rest.
-	Seal func(plaintext string) (nonce, ciphertext []byte, err error)
-	Open func(nonce, ciphertext []byte) (string, error)
+	// Seal and Open encrypt the signing secret at rest, bound to its space
+	// and to the key id stored beside it.
+	Seal func(spaceID, plaintext string) (nonce, ciphertext []byte, keyID string, err error)
+	Open func(spaceID, keyID string, nonce, ciphertext []byte) (string, error)
 	// Send posts one delivery. In production it goes through the plugin
 	// fetch guard; it returns the response status.
 	Send func(ctx context.Context, url string, headers map[string]string, body []byte) (int, error)
@@ -93,17 +94,18 @@ func (w *Webhooks) Get(ctx context.Context, spaceID string) (string, bool, error
 // Put creates or replaces the space's webhook with a new secret. Replacing
 // keeps created_at, so it does not replay the events since then.
 func (w *Webhooks) Put(ctx context.Context, spaceID, userID, url, secret string) error {
-	nonce, sealed, err := w.Seal(secret)
+	nonce, sealed, keyID, err := w.Seal(spaceID, secret)
 	if err != nil {
 		return fmt.Errorf("sealing the webhook secret: %w", err)
 	}
 	_, err = w.Pool.Exec(ctx, `
-		insert into standup_webhooks (space_id, url, secret_nonce, secret_ciphertext, updated_by)
-		values ($1, $2, $3, $4, nullif($5, '')::uuid)
+		insert into standup_webhooks (space_id, url, secret_nonce, secret_ciphertext, key_id, updated_by)
+		values ($1, $2, $3, $4, $5, nullif($6, '')::uuid)
 		on conflict (space_id) do update set
 			url = excluded.url, secret_nonce = excluded.secret_nonce,
-			secret_ciphertext = excluded.secret_ciphertext, updated_by = excluded.updated_by`,
-		spaceID, url, nonce, sealed, userID)
+			secret_ciphertext = excluded.secret_ciphertext, key_id = excluded.key_id,
+			updated_by = excluded.updated_by`,
+		spaceID, url, nonce, sealed, keyID, userID)
 	if err != nil {
 		return fmt.Errorf("saving standup webhook: %w", err)
 	}
@@ -195,21 +197,21 @@ func (w *Webhooks) Deliver(ctx context.Context) error {
 }
 
 func (w *Webhooks) deliverOne(ctx context.Context, c claimedDelivery) error {
-	var url, org, slug string
+	var url, org, slug, keyID string
 	var nonce, sealed []byte
 	err := w.Pool.QueryRow(ctx, `
-		select h.url, h.secret_nonce, h.secret_ciphertext, o.slug, sp.slug
+		select h.url, h.secret_nonce, h.secret_ciphertext, coalesce(h.key_id, ''), o.slug, sp.slug
 		from standup_webhooks h
 		join spaces sp on sp.id = h.space_id
 		join orgs o on o.id = sp.org_id
-		where h.space_id = $1`, c.spaceID).Scan(&url, &nonce, &sealed, &org, &slug)
+		where h.space_id = $1`, c.spaceID).Scan(&url, &nonce, &sealed, &keyID, &org, &slug)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return w.finish(ctx, c, false, "the webhook was removed", true)
 	}
 	if err != nil {
 		return fmt.Errorf("reading standup webhook: %w", err)
 	}
-	secret, err := w.Open(nonce, sealed)
+	secret, err := w.Open(c.spaceID, keyID, nonce, sealed)
 	if err != nil {
 		return w.finish(ctx, c, false, "the signing secret could not be decrypted", true)
 	}

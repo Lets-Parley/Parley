@@ -61,6 +61,9 @@ type config struct {
 	// with. Empty means secrets are unavailable, and a plugin that asks for
 	// them fails to install rather than storing them in the clear.
 	PluginSecretKey string
+	// PluginSecretKeyPrevious is the key PLUGIN_SECRET_KEY replaced. It only
+	// opens, so secrets sealed under it can be re-sealed at boot.
+	PluginSecretKeyPrevious string
 	// StandupWebhookHosts is the allowlist a space's standup webhook URL
 	// must match, from STANDUP_WEBHOOK_HOSTS. Empty allows no webhook.
 	StandupWebhookHosts []string
@@ -225,9 +228,16 @@ func loadConfig() (config, error) {
 	}
 
 	cfg.PluginSecretKey = strings.TrimSpace(os.Getenv("PLUGIN_SECRET_KEY"))
+	cfg.PluginSecretKeyPrevious = strings.TrimSpace(os.Getenv("PLUGIN_SECRET_KEY_PREVIOUS"))
+	if cfg.PluginSecretKeyPrevious != "" && cfg.PluginSecretKey == "" {
+		return cfg, fmt.Errorf("PLUGIN_SECRET_KEY_PREVIOUS is set but PLUGIN_SECRET_KEY is not — set the new key in PLUGIN_SECRET_KEY and keep the old one only in PLUGIN_SECRET_KEY_PREVIOUS")
+	}
 	if cfg.PluginSecretKey != "" {
 		if _, err := plugin.NewCipher(cfg.PluginSecretKey); err != nil {
 			return cfg, fmt.Errorf("PLUGIN_SECRET_KEY is not usable: %w", err)
+		}
+		if _, err := plugin.NewRotatingCipher(cfg.PluginSecretKey, cfg.PluginSecretKeyPrevious); err != nil {
+			return cfg, fmt.Errorf("PLUGIN_SECRET_KEY_PREVIOUS is not usable — it must be the old base64 32-byte key and differ from PLUGIN_SECRET_KEY, or be unset: %w", err)
 		}
 	}
 	for _, host := range strings.Split(os.Getenv("STANDUP_WEBHOOK_HOSTS"), ",") {
@@ -399,12 +409,19 @@ func main() {
 	// arrives.
 	plugins := &plugin.Store{Pool: pool}
 	if cfg.PluginSecretKey != "" {
-		cipher, err := plugin.NewCipher(cfg.PluginSecretKey)
+		cipher, err := plugin.NewRotatingCipher(cfg.PluginSecretKey, cfg.PluginSecretKeyPrevious)
 		if err != nil {
 			log.Error("FATAL: PLUGIN_SECRET_KEY is not usable", "error", err)
 			os.Exit(1)
 		}
 		plugins.Cipher = cipher
+		// Re-sealing is a boot step, never a request path. A failure leaves
+		// rows on their old key, which still open, so it is not fatal.
+		resealed, remaining, err := plugins.ResealSecrets(ctx)
+		if err != nil {
+			log.Error("re-sealing secrets under the current key failed", "error", err)
+		}
+		log.Info("secrets re-sealed under the current key", "key_id", cipher.KeyID(), "resealed", resealed, "undecryptable", remaining)
 	}
 	go plugins.RunRetention(ctx, cfg.PluginEventRetention, time.Hour, log)
 	// Expired session tokens on the same hourly cadence. A row stops

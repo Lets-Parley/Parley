@@ -376,8 +376,8 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		a.webhooks = &standup.Webhooks{
 			Pool:    pool,
 			BaseURL: opts.AllowedOrigin,
-			Seal:    c.Seal,
-			Open:    c.Open,
+			Seal:    c.SealWebhook,
+			Open:    c.OpenWebhook,
 			Send:    guardedWebhookSend(&plugin.Fetcher{}, opts.StandupWebhookHosts),
 		}
 		if opts.StandupScheduleInterval > 0 {

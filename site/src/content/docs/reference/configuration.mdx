@@ -6,7 +6,7 @@ description: Every environment variable, its default, and whether a bad value st
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import EnvVar from "../../../components/EnvVar.astro";
 
-<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "web/embed.go", "internal/store/kudos.go", "cmd/parley/configfile.go", "internal/db/tls.go", "internal/api/client_address.go", "internal/api/secevent.go", "internal/api/standup_webhook.go", "internal/api/embed.go"]} />
+<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "web/embed.go", "internal/store/kudos.go", "cmd/parley/configfile.go", "internal/db/tls.go", "internal/api/client_address.go", "internal/api/secevent.go", "internal/api/standup_webhook.go", "internal/api/embed.go", "internal/plugin/secrets.go"]} />
 
 Configuration is environment variables, optionally backed by a file that fills
 the gaps (`PARLEY_CONFIG_FILE`, below). There is no command-line flag other than
@@ -296,7 +296,23 @@ Leave it unset and plugin secrets are simply unavailable: a plugin that asks for
 the `secrets` capability **fails to install** rather than storing its
 credentials in the clear. There is no plaintext column to fall back to.
 
-Rotating it makes every stored secret undecryptable — re-enter them.
+Every secret is sealed bound to where it lives (the plugin install and secret
+name, or the standup webhook's space) and to a fingerprint of the key that
+sealed it, so a row copied elsewhere does not decrypt.
+
+To rotate, move the old value to `PLUGIN_SECRET_KEY_PREVIOUS`, put a new key in
+`PLUGIN_SECRET_KEY`, and restart. Rotating without the previous key makes every
+stored secret undecryptable — re-enter them.
+</EnvVar>
+
+<EnvVar name="PLUGIN_SECRET_KEY_PREVIOUS" badValue="Refuses to start if the value is not base64 that decodes to exactly 32 bytes, equals PLUGIN_SECRET_KEY, or is set without PLUGIN_SECRET_KEY">
+The key `PLUGIN_SECRET_KEY` replaced. It is only ever used to decrypt. At boot,
+before serving, every replica re-seals the plugin secrets and standup webhook
+secrets still under an older key with the current one; each write is a
+compare-and-set, so replicas booting together are safe. The boot log line
+`secrets re-sealed under the current key` reports how many rows were re-sealed
+and how many no configured key can open. Once every replica has booted on the
+new key and that second count is zero, remove this variable.
 </EnvVar>
 
 <EnvVar name="PLUGIN_EVENT_RETENTION" default="168h" badValue="Refuses to start if the value is not a positive Go duration">
