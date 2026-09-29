@@ -83,3 +83,36 @@ func waitListening(t *testing.T, srv *httptest.Server) {
 		return resp.StatusCode == http.StatusOK
 	})
 }
+
+// A reconcile that fails on this replica is retried here: the replica ignores
+// its own notification, so no other path would ever pick the change up.
+func TestAFailedReconcileIsRetried(t *testing.T) {
+	srv, pool, plugins, host := hostServer(t)
+	waitListening(t, srv)
+	ctx := context.Background()
+	kind := "retro" + randomKindSuffix(t)
+	in := installCeremony(t, plugins, defaultOrg(t, pool), newPluginName(t), kind,
+		plugin.Grant{Capability: plugin.CapabilityLog})
+	if got := offeredPluginGrants(t, host, kind); got != "log" {
+		t.Fatalf("before: %q", got)
+	}
+	// Unreadable, and changed behind the reconcile's back.
+	if _, err := pool.Exec(ctx, `update session_kinds set actions = '{"x":1}' where kind = $1`, kind); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `insert into plugin_grants (install_id, capability, scope) values ($1, 'session:read', '')`, in.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Any lifecycle write reconciles, and this one fails on the unreadable row.
+	installIn(t, plugins, defaultOrg(t, pool), plugin.KindDef{Kind: "other" + randomKindSuffix(t), Display: "Other"})
+	if got := offeredPluginGrants(t, host, kind); got != "log" {
+		t.Fatalf("the failed reconcile changed the kind: %q", got)
+	}
+	// The row becomes readable with no further change or notification.
+	if _, err := pool.Exec(ctx, `update session_kinds set actions = '[]' where kind = $1`, kind); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, 5*time.Second, "the failed reconcile to be retried", func() bool {
+		return offeredPluginGrants(t, host, kind) == "log,session:read"
+	})
+}

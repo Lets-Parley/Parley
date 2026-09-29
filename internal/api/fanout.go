@@ -340,6 +340,9 @@ func (a *app) pluginsChanged(ctx context.Context) {
 	ctx = context.WithoutCancel(ctx)
 	if err := a.pluginHost.ReconcileKinds(ctx); err != nil {
 		slog.Error("could not reconcile the plugin session kinds", "error", err)
+		// This replica ignores its own notification, so nothing else would
+		// ever retry it.
+		a.requestPluginReconcile()
 	}
 	if _, err := a.pool.Exec(ctx, "select pg_notify($1, $2)", pluginChannel, a.instanceID+" reconcile"); err != nil {
 		slog.Warn("could not notify the other replicas of a plugin change", "error", err)
@@ -360,18 +363,39 @@ func (a *app) requestPluginReconcile() {
 
 // runPluginReconcile is the single flight. Router runs it on the background
 // WaitGroup, so Shutdown waits for it before the pool closes.
+// A failed reconcile is retried on a growing backoff, up to
+// pluginReconcileRetries times; the next change starts the count again.
 func (a *app) runPluginReconcile(ctx context.Context) {
+	failures := 0
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-a.pluginReconcile:
-			if err := a.pluginHost.ReconcileKinds(ctx); err != nil && ctx.Err() == nil {
-				slog.Error("could not reconcile the plugin session kinds", "error", err)
-			}
 		}
+		err := a.pluginHost.ReconcileKinds(ctx)
+		if err == nil || ctx.Err() != nil {
+			failures = 0
+			continue
+		}
+		slog.Error("could not reconcile the plugin session kinds", "error", err)
+		if failures++; failures > pluginReconcileRetries {
+			failures = 0
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Duration(failures) * pluginReconcileBackoff):
+		}
+		a.requestPluginReconcile()
 	}
 }
+
+const (
+	pluginReconcileRetries = 5
+	pluginReconcileBackoff = 500 * time.Millisecond
+)
 
 // resyncLocalSessions rebuilds and pushes state for every room this replica
 // holds, without notifying anyone else — the other replicas did not miss

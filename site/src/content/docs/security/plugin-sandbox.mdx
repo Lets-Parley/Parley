@@ -293,9 +293,11 @@ wider surface than a panel, and it is bounded in five places.
 Every one of those changes applies on every replica at once, with no restart:
 the pod that made it rebuilds its registry from the database and sends a
 `parley_plugin` notification, and every other pod rebuilds from the database in
-turn. The notification carries nothing but the sender, so a forged one costs a
-re-read and nothing else, and a pod that was reconnecting when it was sent
-rebuilds when its listener comes back. The core kinds are never part of that
+turn. The notification's payload is the sender's instance id and the word
+`reconcile`, nothing more, so a forged one costs a re-read and nothing else. A
+pod that was reconnecting when it was sent rebuilds when its listener comes
+back; an install whose rows cannot be read keeps the kinds it already had on
+that pod, and a failed rebuild is retried there on a short backoff. The core kinds are never part of that
 rebuild. A widening upgrade's kinds wait with its grants (`pending_kinds`, `0047`)
 and go live only when the upgrade is approved; a bad or taken kind name is
 refused when the package is uploaded, and a name another org takes while the
