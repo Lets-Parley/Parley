@@ -398,7 +398,7 @@ func TestSyncReplacesPluginKindsAndNeverCoreKinds(t *testing.T) {
 	if err := r.Sync([]Kind{{Name: "poker", OrgID: "a"}, {Name: "x"}}); err == nil {
 		t.Fatal("sync accepted a kind shadowing a core kind")
 	}
-	if !r.Known("poker") || r.KnownInOrg("a", "poker") != true || r.Known("x") {
+	if r.read()["poker"].OrgID != "" || r.Known("x") {
 		t.Fatalf("a refused sync changed the core: %v", r.Names())
 	}
 }

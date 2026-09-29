@@ -291,21 +291,26 @@ func (h *Host) ReconcileKinds(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("reading an enabled install id: %w", err)
 	}
+	// An install that cannot be read is left out and reported, never a reason
+	// to freeze every other org's set. The next change retries it.
 	var desired []session.Kind
+	var errs []error
 	for _, id := range ids {
 		state, err := h.Store.State(ctx, id)
 		if err != nil {
-			return err
+			errs = append(errs, err)
+			continue
 		}
 		defs, err := h.Store.ProvidedKinds(ctx, id)
 		if err != nil {
-			return err
+			errs = append(errs, err)
+			continue
 		}
 		for _, def := range defs {
 			desired = append(desired, h.PluginKind(state, def))
 		}
 	}
-	return h.Kinds.Sync(desired)
+	return errors.Join(append(errs, h.Kinds.Sync(desired))...)
 }
 
 // PluginKind builds the live kind for one declared ceremony. State and
