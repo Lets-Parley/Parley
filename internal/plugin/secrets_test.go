@@ -182,3 +182,80 @@ func TestWebhookSigningSurvivesRotation(t *testing.T) {
 		t.Fatalf("delivery after rotation signed %q over %q, want the original secret's signature", sig, body)
 	}
 }
+
+func TestTheKeyIDIsAFixedFingerprintOfTheKey(t *testing.T) {
+	// HMAC-SHA256(key, "parley-secret-key-id-v1")[:8], computed with openssl.
+	if got := mustCipher(t, oldSecretKey, "").KeyID(); got != "7b0c5e9172d53094" {
+		t.Fatalf("KeyID() = %q, want 7b0c5e9172d53094", got)
+	}
+}
+
+func TestASecretSealedForOneNameOrSpaceDoesNotOpenForAnother(t *testing.T) {
+	c := mustCipher(t, oldSecretKey, "")
+	n, ct, kid, err := c.Seal(pluginSecretAAD("install", "a"), "v")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, err := c.Open(kid, pluginSecretAAD("install", "b"), n, ct); err == nil {
+		t.Fatalf("secret a opened as secret b: %q", v)
+	}
+	n, ct, kid, err = c.SealWebhook("space-a", "v")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, err := c.OpenWebhook("space-b", kid, n, ct); err == nil {
+		t.Fatalf("space a's webhook secret opened for space b: %q", v)
+	}
+}
+
+func TestResealDoesNotOverwriteASecretChangedMeanwhile(t *testing.T) {
+	pool := redirectTestPool(t)
+	ctx := context.Background()
+	oldC, newC := mustCipher(t, oldSecretKey, ""), mustCipher(t, newSecretKey, oldSecretKey)
+	old := &Store{Pool: pool, Cipher: oldC}
+	in := install(t, old, Grant{Capability: CapabilitySecrets})
+	if err := old.PutSecret(ctx, in.ID, "token", "stale"); err != nil {
+		t.Fatal(err)
+	}
+	var spaceID string
+	if err := pool.QueryRow(ctx, "insert into spaces (slug, name) values ('cas', 'Cas') returning id::text").Scan(&spaceID); err != nil {
+		t.Fatal(err)
+	}
+	hooks := func(c *Cipher) *standup.Webhooks {
+		return &standup.Webhooks{Pool: pool, Seal: c.SealWebhook, Open: c.OpenWebhook}
+	}
+	if err := hooks(oldC).Put(ctx, spaceID, "", "https://hooks.example/in", "stale"); err != nil {
+		t.Fatal(err)
+	}
+	rotated := &Store{Pool: pool, Cipher: newC}
+	// One stale row per table, plugin_secrets first: each call races the
+	// write for the row about to be re-sealed.
+	calls := 0
+	resealHook = func() {
+		calls++
+		var err error
+		if calls == 1 {
+			err = rotated.PutSecret(ctx, in.ID, "token", "fresh")
+		} else {
+			err = hooks(newC).Put(ctx, spaceID, "", "https://hooks.example/in", "fresh")
+		}
+		if err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { resealHook = nil })
+	if _, _, err := rotated.ResealSecrets(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := rotated.GetSecret(ctx, in.ID, "token"); err != nil || v != "fresh" {
+		t.Fatalf("plugin secret after a racing write = (%q, %v), want fresh", v, err)
+	}
+	var kid string
+	var n, ct []byte
+	if err := pool.QueryRow(ctx, "select key_id, secret_nonce, secret_ciphertext from standup_webhooks where space_id = $1", spaceID).Scan(&kid, &n, &ct); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := newC.OpenWebhook(spaceID, kid, n, ct); err != nil || v != "fresh" {
+		t.Fatalf("webhook secret after a racing write = (%q, %v), want fresh", v, err)
+	}
+}

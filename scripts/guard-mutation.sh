@@ -274,6 +274,19 @@ mutate "the secret's additional data" \
     secrets.go 'c.cur.aead.Seal(nil, nonce, []byte(plaintext), withKey(aad, c.cur.id))' 'c.cur.aead.Seal(nil, nonce, []byte(plaintext), nil)' \
     secrets.go 'ad = withKey(aad, keyID)' 'ad = nil'
 
+mutate "the secret name and webhook space in the additional data" \
+    'TestASecretSealedForOneNameOrSpaceDoesNotOpenForAnother' \
+    secrets.go 'return []byte("plugin-secret|" + installID + "|" + name)' 'return []byte("plugin-secret|" + installID)' \
+    secrets.go 'return []byte("standup-webhook|" + spaceID)' 'return []byte("standup-webhook|")'
+
+mutate "the plugin secret re-seal compare-and-set" \
+    'TestResealDoesNotOverwriteASecretChangedMeanwhile' \
+    secrets.go "and coalesce(key_id, '') = \$6 and ciphertext = \$7" 'and $6::text is not null and $7::bytea is not null'
+
+mutate "the webhook secret re-seal compare-and-set" \
+    'TestResealDoesNotOverwriteASecretChangedMeanwhile' \
+    secrets.go "and coalesce(key_id, '') = \$6 and secret_ciphertext = \$7" 'and $6::text is not null and $7::bytea is not null'
+
 mutate "the refusal of a previous key equal to the current one" \
     'TestAPreviousKeyEqualToTheCurrentOneIsRefused' \
     secrets.go 'if c.prev.id == cur.id {' 'if false {'

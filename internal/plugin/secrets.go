@@ -183,11 +183,30 @@ func (s *Store) GetSecret(ctx context.Context, installID, name string) (string, 
 
 func isNoRows(err error) bool { return errors.Is(err, pgx.ErrNoRows) }
 
+// StaleSecrets counts the secrets not sealed under the current key.
+func (s *Store) StaleSecrets(ctx context.Context) (int, error) {
+	var n int
+	err := s.Pool.QueryRow(ctx, `
+		select (select count(*) from plugin_secrets where key_id is distinct from $1)
+		     + (select count(*) from standup_webhooks where key_id is distinct from $1)`,
+		s.Cipher.KeyID()).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("counting secrets not under the current key: %w", err)
+	}
+	return n, nil
+}
+
+// resealHook runs between a row's read and its write; tests use it to race a
+// concurrent change against the compare-and-set.
+var resealHook func()
+
 // ResealSecrets re-encrypts every plugin secret and standup webhook secret not
-// already under the current key. It is a boot step, never a request path. Each
-// write is a compare-and-set on the key id and ciphertext it read, so replicas
-// booting together cannot overwrite each other or a secret changed meanwhile.
-// remaining counts the rows still on another key: ones no configured key opens.
+// already under the current key. It is the operator's "parley secrets reseal",
+// run once every replica can open the new form — never at boot, never on a
+// request path. Each write is a compare-and-set on the key id and ciphertext it
+// read, so it cannot overwrite a secret changed meanwhile. remaining is a fresh
+// count of rows still on another key once the pass is done; on error it is not
+// known and is -1.
 func (s *Store) ResealSecrets(ctx context.Context) (resealed, remaining int, err error) {
 	for _, t := range []struct {
 		sel, upd string
@@ -213,31 +232,37 @@ func (s *Store) ResealSecrets(ctx context.Context) (resealed, remaining int, err
 		}
 		rows, err := s.Pool.Query(ctx, t.sel, s.Cipher.KeyID())
 		if err != nil {
-			return resealed, remaining, fmt.Errorf("listing secrets to re-seal: %w", err)
+			return resealed, -1, fmt.Errorf("listing secrets to re-seal: %w", err)
 		}
 		found, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (row, error) {
 			var x row
 			return x, r.Scan(&x.a, &x.b, &x.nonce, &x.sealed, &x.keyID)
 		})
 		if err != nil {
-			return resealed, remaining, fmt.Errorf("listing secrets to re-seal: %w", err)
+			return resealed, -1, fmt.Errorf("listing secrets to re-seal: %w", err)
 		}
 		for _, x := range found {
 			plain, err := s.Cipher.Open(x.keyID, t.aad(x.a, x.b), x.nonce, x.sealed)
 			if err != nil {
-				remaining++
-				continue
+				continue // counted below: it is still on another key
 			}
 			nonce, sealed, keyID, err := s.Cipher.Seal(t.aad(x.a, x.b), plain)
 			if err != nil {
-				return resealed, remaining, err
+				return resealed, -1, err
+			}
+			if resealHook != nil {
+				resealHook()
 			}
 			tag, err := s.Pool.Exec(ctx, t.upd, x.a, x.b, nonce, sealed, keyID, x.keyID, x.sealed)
 			if err != nil {
-				return resealed, remaining, fmt.Errorf("re-sealing a secret: %w", err)
+				return resealed, -1, fmt.Errorf("re-sealing a secret: %w", err)
 			}
 			resealed += int(tag.RowsAffected())
 		}
+	}
+	remaining, err = s.StaleSecrets(ctx)
+	if err != nil {
+		return resealed, -1, err
 	}
 	return resealed, remaining, nil
 }

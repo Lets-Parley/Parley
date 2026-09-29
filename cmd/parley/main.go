@@ -407,21 +407,17 @@ func main() {
 	// quota reconciliation pass are the instance's own housekeeping and run
 	// from the start, so the tables cannot grow unbounded before the host
 	// arrives.
-	plugins := &plugin.Store{Pool: pool}
-	if cfg.PluginSecretKey != "" {
-		cipher, err := plugin.NewRotatingCipher(cfg.PluginSecretKey, cfg.PluginSecretKeyPrevious)
-		if err != nil {
-			log.Error("FATAL: PLUGIN_SECRET_KEY is not usable", "error", err)
-			os.Exit(1)
-		}
-		plugins.Cipher = cipher
-		// Re-sealing is a boot step, never a request path. A failure leaves
-		// rows on their old key, which still open, so it is not fatal.
-		resealed, remaining, err := plugins.ResealSecrets(ctx)
-		if err != nil {
-			log.Error("re-sealing secrets under the current key failed", "error", err)
-		}
-		log.Info("secrets re-sealed under the current key", "key_id", cipher.KeyID(), "resealed", resealed, "undecryptable", remaining)
+	plugins, err := pluginSecrets(ctx, pool, cfg, log)
+	if err != nil {
+		log.Error("FATAL: PLUGIN_SECRET_KEY is not usable", "error", err)
+		os.Exit(1)
+	}
+	if flag.Arg(0) == "secrets" && flag.Arg(1) == "reseal" {
+		os.Exit(runReseal(ctx, plugins, log))
+	}
+	if flag.NArg() > 0 {
+		log.Error("FATAL: unknown command — the only command is \"secrets reseal\"", "args", flag.Args())
+		os.Exit(1)
 	}
 	go plugins.RunRetention(ctx, cfg.PluginEventRetention, time.Hour, log)
 	// Expired session tokens on the same hourly cadence. A row stops
@@ -672,6 +668,48 @@ func validHostname(s string) bool {
 
 func listenAddr(bind, port string) string {
 	return net.JoinHostPort(bindHost(bind), port)
+}
+
+// pluginSecrets builds the plugin store and its cipher. It never rewrites a
+// secret: during a rolling deploy an older replica can only open rows in the
+// form it wrote, so re-sealing waits for the operator's "secrets reseal".
+func pluginSecrets(ctx context.Context, pool *pgxpool.Pool, cfg config, log *slog.Logger) (*plugin.Store, error) {
+	plugins := &plugin.Store{Pool: pool}
+	if cfg.PluginSecretKey == "" {
+		return plugins, nil
+	}
+	cipher, err := plugin.NewRotatingCipher(cfg.PluginSecretKey, cfg.PluginSecretKeyPrevious)
+	if err != nil {
+		return nil, err
+	}
+	plugins.Cipher = cipher
+	if stale, err := plugins.StaleSecrets(ctx); err != nil {
+		log.Warn("could not count secrets not yet under the current key", "error", err)
+	} else if stale > 0 {
+		log.Info("secrets not yet re-sealed under the current key; once every replica runs this version, run: parley secrets reseal", "key_id", cipher.KeyID(), "count", stale)
+	}
+	return plugins, nil
+}
+
+// runReseal is "parley secrets reseal": re-seal every secret under the current
+// key, then report how many are still on another key. Only a clean run that
+// reports zero remaining makes PLUGIN_SECRET_KEY_PREVIOUS safe to remove.
+func runReseal(ctx context.Context, plugins *plugin.Store, log *slog.Logger) int {
+	if plugins.Cipher == nil {
+		log.Error("FATAL: secrets reseal needs PLUGIN_SECRET_KEY set")
+		return 1
+	}
+	resealed, remaining, err := plugins.ResealSecrets(ctx)
+	if err != nil {
+		log.Error("FATAL: secrets reseal did not finish; the remaining count is unknown, so keep PLUGIN_SECRET_KEY_PREVIOUS and run it again", "resealed", resealed, "error", err)
+		return 1
+	}
+	log.Info("secrets reseal finished", "key_id", plugins.Cipher.KeyID(), "resealed", resealed, "remaining", remaining)
+	if remaining > 0 {
+		log.Error("some secrets open under no configured key; keep PLUGIN_SECRET_KEY_PREVIOUS until they are re-entered or removed", "remaining", remaining)
+		return 1
+	}
+	return 0
 }
 
 func healthcheckTarget(bind, port string) string {

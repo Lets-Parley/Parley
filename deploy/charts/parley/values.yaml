@@ -362,8 +362,9 @@ metrics:
 #     and a plugin asking for them fails to install; prefer a valueFrom over a
 #     literal here.
 #   * PLUGIN_SECRET_KEY_PREVIOUS — the key PLUGIN_SECRET_KEY replaced, for
-#     rotation. Decrypt-only; secrets under it are re-sealed at boot. Must
-#     differ from PLUGIN_SECRET_KEY. Remove once the boot log reports none left.
+#     rotation. Decrypt-only; must differ from PLUGIN_SECRET_KEY. After every
+#     replica runs the new key, run "parley secrets reseal" once; remove this
+#     only after a run that exits 0 with remaining 0.
 #   * STANDUP_WEBHOOK_HOSTS — comma-separated hosts a space's standup webhook
 #     may post to, each optionally "*." prefixed. Unset allows none. Needs
 #     PLUGIN_SECRET_KEY, which the signing secret is encrypted with.
