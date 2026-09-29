@@ -269,6 +269,56 @@ mutate "the key namespace separator check" \
     'TestAForgedKeyCannotReachAnotherNamespace' \
     hostfn.go 'if strings.Contains(key, kvSeparator) {' 'if false {'
 
+mutate "the secret's additional data" \
+    'TestASecretRowSwappedBetweenInstallsOrTablesDoesNotOpen' \
+    secrets.go 'c.cur.aead.Seal(nil, nonce, []byte(plaintext), withKey(aad, c.cur.id))' 'c.cur.aead.Seal(nil, nonce, []byte(plaintext), nil)' \
+    secrets.go 'ad = withKey(aad, keyID)' 'ad = nil'
+
+mutate "the secret name and webhook space in the additional data" \
+    'TestASecretSealedForOneNameOrSpaceDoesNotOpenForAnother' \
+    secrets.go 'return []byte("plugin-secret|" + installID + "|" + name)' 'return []byte("plugin-secret|" + installID)' \
+    secrets.go 'return []byte("standup-webhook|" + spaceID)' 'return []byte("standup-webhook|")'
+
+mutate "the plugin secret re-seal compare-and-set" \
+    'TestResealDoesNotOverwriteASecretChangedMeanwhile' \
+    secrets.go 'and ciphertext = $6' 'and $6::bytea is not null'
+
+mutate "the webhook secret re-seal compare-and-set" \
+    'TestResealDoesNotOverwriteASecretChangedMeanwhile' \
+    secrets.go 'and secret_ciphertext = $6' 'and $6::bytea is not null'
+
+mutate "the key id in the additional data" \
+    'TestTheBoundFormBindsTheKeyID' \
+    secrets.go "return append(append(bytes.Clone(aad), '|'), keyID...)" "return append(bytes.Clone(aad), '|')"
+
+mutate "unbound writes until the reseal marker" \
+    'TestWritesStayUnboundUntilTheResealMarker' \
+    secrets.go 'if b {' 'if b || true {'
+
+mutate "the reseal's check of every row rather than its key id" \
+    'TestAMixedRowIsResealedOrCounted' \
+    secrets.go 'if !s.Cipher.openBound(x.keyID, t.aad(x.a, x.b), x.nonce, x.sealed) {' 'if x.keyID != s.Cipher.KeyID() {'
+
+mutate "the bound-only read once the marker is set" \
+    'TestAfterTheMarkerAnUnboundRowDoesNotOpen' \
+    secrets.go 'return s.Cipher.openAs(keyID, aad, nonce, ciphertext, !b)' 'return s.Cipher.openAs(keyID, aad, nonce, ciphertext, !b || true)'
+
+mutate "no marker while a row is not bound" \
+    'TestAMixedRowIsResealedOrCounted|TestResealDoesNotOverwriteASecretChangedMeanwhile' \
+    secrets.go 'if remaining > 0 {' 'if false {'
+
+mutate "the writer's lock on the binding marker" \
+    'TestAWriterPausedAcrossAResealLeavesNoUnopenableRow' \
+    secrets.go '"lock table secret_binding in share mode"' '"select 1"'
+
+mutate "the marker committed with its check, not before" \
+    'TestAResealThatFailsPartwayLeavesNoMarker' \
+    secrets.go '"insert into secret_binding default values on conflict do nothing"); err != nil {' '"insert into secret_binding default values on conflict do nothing"); err != nil || tx.Commit(ctx) != nil {'
+
+mutate "the refusal of a previous key equal to the current one" \
+    'TestAPreviousKeyEqualToTheCurrentOneIsRefused' \
+    secrets.go 'if c.prev.id == cur.id {' 'if false {'
+
 mutate "the per-call timeout" \
     'TestAHangingPluginIsStoppedByTheCallTimeout' \
     host.go 'ctx, cancel := context.WithTimeout(ctx, h.cfg.CallTimeout)' 'ctx, cancel := context.WithTimeout(ctx, time.Hour)' \
@@ -759,6 +809,15 @@ mutate "main wiring the embed providers into the HTTP layer" \
 # calls the insert directly, for a former member and a link guest, and must go
 # red once the guard in the statement is gone.
 target internal/standup
+
+mutate "the re-read after a reseal lands between read and open" \
+    'TestAResealBetweenReadAndOpenDoesNotFailADelivery' \
+    webhook.go 'if err = w.Pool.QueryRow(ctx, "select secret_nonce, secret_ciphertext, coalesce(key_id, '"''"') from standup_webhooks where space_id = $1",' 'if _ = w.Pool.QueryRow(ctx, "select secret_nonce, secret_ciphertext, coalesce(key_id, '"''"') from standup_webhooks where space_id = $1",'
+
+mutate "only an undecryptable secret gives up on a delivery" \
+    'TestOnlyAnUndecryptableSecretGivesUpOnADelivery' \
+    webhook.go 'return w.finish(ctx, c, false, "the signing secret could not be read", false)' 'return w.finish(ctx, c, false, "the signing secret could not be read", true)'
+
 
 mutate "the membership guard inside the mention insert" \
     'TestTheMentionInsertRefusesOnItsOwn' \

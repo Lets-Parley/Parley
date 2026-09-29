@@ -8,7 +8,7 @@ import SpecTable from "../../../components/SpecTable.astro";
 
 <VerifiedStamp version="unreleased" source={["internal/db/migrations", "internal/db/migrate.go", "internal/store/presence.go", "internal/poker/routes.go", "internal/api/custody/store.go", "internal/plugin", "internal/store/users.go", "internal/standup/schedule.go", "internal/standup/webhook.go", "internal/standup/ics.go", "internal/standup/commitments.go", "internal/standup/mentions.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go", "internal/store/embed.go", "internal/store/spaces.go", "internal/store/kudos.go"]} />
 
-Forty-seven migrations, embedded in the binary and applied at boot. Postgres only —
+Forty-eight migrations, embedded in the binary and applied at boot. Postgres only —
 there is no second driver and no plan for one.
 
 ## Migrations
@@ -48,17 +48,20 @@ there is no second driver and no plan for one.
   { name: "0045_kudo_answers", value: "kudos.answer, kudos.answered_at", note: "The recipient's one line back, 1 to 80 characters, zero or one per kudo. Nullable, so no backfill. Pins the minimum image version, as above" },
   { name: "0046_kudo_unseen_idx", value: "kudos_unseen_by_recipient_idx", note: "A partial index on a recipient's unseen kudos. Built plainly, not concurrently, because each migration runs in its own transaction. Pins the minimum image version, as above" },
   { name: "0047_plugin_pending_kinds", value: "plugin_installs.pending_kinds", note: "The session kinds a widening upgrade declares, staged beside its pending grants and written to session_kinds only when the upgrade is approved. Nullable, so no backfill. Null means the upgrade declared no kinds and approval leaves the current ones in place; an empty array is a declaration and retires them all. A name another org took while the upgrade waited is refused at approval, which then writes nothing. Pins the minimum image version, as above" },
+  { name: "0048_secret_key_ids", value: "plugin_secrets.key_id, standup_webhooks.key_id, secret_binding", note: "The fingerprint of the key that sealed each secret, and a one-row marker. Nullable with no backfill: until an operator runs parley secrets reseal, secrets are still written with a null key_id in the form older images read, so a rolling upgrade is safe. Pins the minimum image version, as above" },
 ]} />
 
 ### How the runner behaves
 
 Files are read from the embedded filesystem, sorted lexically, and a migration's
-version is **its position in that list**. Each runs in its own transaction
+version is **the number its filename starts with**. Boot applies every file
+numbered above the highest version the database records, so a file numbered
+below that is never applied. Each runs in its own transaction
 together with the row that records it, so a failure leaves no half-applied
 migration.
 
-If the database records a version **higher** than the number of files the binary
-has, the process refuses to start. That is the guard against rolling an image
+If the database records a version **higher** than the highest-numbered file the
+binary has, the process refuses to start. That is the guard against rolling an image
 back past a migration it does not know about — it fails loudly instead of running
 against a schema from the future.
 
@@ -358,9 +361,19 @@ day open again.
 `standup_webhooks` holds at most one webhook per space (`space_id` primary key,
 on delete cascade): the `url`, the signing secret as `secret_nonce` and
 `secret_ciphertext` (AES-GCM under `PLUGIN_SECRET_KEY`; it must be recoverable to
-sign, so it is not a hash), `created_at` and `updated_by` (on delete set null).
+sign, so it is not a hash), `key_id` (a fingerprint of the key that sealed it;
+null while the secret is in the unbound form), `created_at` and `updated_by` (on delete set null).
 Only events after `created_at` are delivered, so configuring a webhook never
 replays a space's history.
+
+`secret_binding` (from `0048_secret_key_ids`) is instance-wide and holds at
+most one row. `parley secrets reseal` inserts it, in the same transaction that
+locks `secret_binding`, `plugin_secrets` and `standup_webhooks` against
+writes and finds every row of both tables bound under the current key. Every
+secret write takes a share lock on `secret_binding` in its own transaction
+before it reads the marker, so no write can decide on the unbound form and
+land after the marker. While it is absent, secrets are written unbound and
+either form opens; once it exists, secrets are written and read bound only.
 
 `standup_webhook_deliveries` is the outbox. Its `id` is the event id a receiver
 sees, stable across every retry. `unique (session_id, event)` is the
@@ -505,7 +518,7 @@ with it.
 |---|---|
 | `plugin_installs` | What is installed **in one org**: `org_id`, name, version, whether it is enabled, and its storage quota and counter. `unique (org_id, name)` |
 | `plugin_grants` | One row per capability an install may use, optionally narrowed by scope |
-| `plugin_secrets` | Encrypted credentials — nonce and ciphertext, and deliberately no plaintext column |
+| `plugin_secrets` | Encrypted credentials — nonce, ciphertext and the sealing key's fingerprint `key_id`, and deliberately no plaintext column |
 | `plugin_kv` | Namespaced key-value storage. A plugin has no SQL, so this is the whole of its durable storage |
 | `plugin_events` | The transactional outbox: one row per thing that happened |
 | `plugin_deliveries` | One row per (event, subscriber), with its state, attempts and next-attempt time |

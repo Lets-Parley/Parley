@@ -372,13 +372,13 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	}
 	a.webhookHosts = opts.StandupWebhookHosts
 	if pool != nil && opts.Plugins != nil && opts.Plugins.Cipher != nil {
-		c := opts.Plugins.Cipher
 		a.webhooks = &standup.Webhooks{
-			Pool:    pool,
-			BaseURL: opts.AllowedOrigin,
-			Seal:    c.Seal,
-			Open:    c.Open,
-			Send:    guardedWebhookSend(&plugin.Fetcher{}, opts.StandupWebhookHosts),
+			Pool:          pool,
+			BaseURL:       opts.AllowedOrigin,
+			Seal:          opts.Plugins.SealWebhook,
+			Open:          opts.Plugins.OpenWebhook,
+			Undecryptable: plugin.ErrSecretUndecryptable,
+			Send:          guardedWebhookSend(&plugin.Fetcher{}, opts.StandupWebhookHosts),
 		}
 		if opts.StandupScheduleInterval > 0 {
 			background.Go(func() { a.webhooks.Run(bgCtx, opts.StandupScheduleInterval) })

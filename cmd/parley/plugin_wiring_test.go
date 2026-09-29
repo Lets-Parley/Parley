@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -434,5 +437,38 @@ func TestEveryOptionMainCanSetIsActuallySet(t *testing.T) {
 			t.Errorf("api.Options.%s is never set by main — a feature gated on it is dead in the shipped binary, "+
 				"and no handler test that builds its own Options can tell you that", field.Name)
 		}
+	}
+}
+
+// A normal boot must leave a legacy secret exactly as it was: during a rolling
+// deploy an older replica can still only open that form.
+func TestBootLeavesALegacySecretInItsLegacyForm(t *testing.T) {
+	pool := migratedPool(t)
+	ctx := context.Background()
+	seedPluginInstall(t, pool, "legacy-secret")
+	var installID string
+	if err := pool.QueryRow(ctx, "select id::text from plugin_installs where name = 'legacy-secret'").Scan(&installID); err != nil {
+		t.Fatal(err)
+	}
+	// Sealed the way a pre-0048 binary did: the previous key, no additional data.
+	prevKey, _ := base64.StdEncoding.DecodeString("ZmVkY2JhOTg3NjU0MzIxMGZlZGNiYTk4NzY1NDMyMTA=")
+	block, _ := aes.NewCipher(prevKey)
+	gcm, _ := cipher.NewGCM(block)
+	nonce := make([]byte, gcm.NonceSize())
+	legacy := gcm.Seal(nil, nonce, []byte("hunter2"), nil)
+	if _, err := pool.Exec(ctx, `insert into plugin_secrets (install_id, name, nonce, ciphertext) values ($1, 'token', $2, $3)`, installID, nonce, legacy); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config{PluginSecretKey: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=", PluginSecretKeyPrevious: "ZmVkY2JhOTg3NjU0MzIxMGZlZGNiYTk4NzY1NDMyMTA="}
+	if _, err := pluginSecrets(ctx, pool, cfg, slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatal(err)
+	}
+	var keyID *string
+	var ct []byte
+	if err := pool.QueryRow(ctx, "select key_id, ciphertext from plugin_secrets where install_id = $1", installID).Scan(&keyID, &ct); err != nil {
+		t.Fatal(err)
+	}
+	if keyID != nil || !bytes.Equal(ct, legacy) {
+		t.Fatalf("boot rewrote a legacy secret: key_id=%v ciphertext=%x", keyID, ct)
 	}
 }

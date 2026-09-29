@@ -61,6 +61,9 @@ type config struct {
 	// with. Empty means secrets are unavailable, and a plugin that asks for
 	// them fails to install rather than storing them in the clear.
 	PluginSecretKey string
+	// PluginSecretKeyPrevious is the key PLUGIN_SECRET_KEY replaced. It only
+	// opens, so secrets sealed under it stay readable until "parley secrets reseal".
+	PluginSecretKeyPrevious string
 	// StandupWebhookHosts is the allowlist a space's standup webhook URL
 	// must match, from STANDUP_WEBHOOK_HOSTS. Empty allows no webhook.
 	StandupWebhookHosts []string
@@ -225,9 +228,16 @@ func loadConfig() (config, error) {
 	}
 
 	cfg.PluginSecretKey = strings.TrimSpace(os.Getenv("PLUGIN_SECRET_KEY"))
+	cfg.PluginSecretKeyPrevious = strings.TrimSpace(os.Getenv("PLUGIN_SECRET_KEY_PREVIOUS"))
+	if cfg.PluginSecretKeyPrevious != "" && cfg.PluginSecretKey == "" {
+		return cfg, fmt.Errorf("PLUGIN_SECRET_KEY_PREVIOUS is set but PLUGIN_SECRET_KEY is not — set the new key in PLUGIN_SECRET_KEY and keep the old one only in PLUGIN_SECRET_KEY_PREVIOUS")
+	}
 	if cfg.PluginSecretKey != "" {
 		if _, err := plugin.NewCipher(cfg.PluginSecretKey); err != nil {
 			return cfg, fmt.Errorf("PLUGIN_SECRET_KEY is not usable: %w", err)
+		}
+		if _, err := plugin.NewRotatingCipher(cfg.PluginSecretKey, cfg.PluginSecretKeyPrevious); err != nil {
+			return cfg, fmt.Errorf("PLUGIN_SECRET_KEY_PREVIOUS is not usable — it must be the old base64 32-byte key and differ from PLUGIN_SECRET_KEY, or be unset: %w", err)
 		}
 	}
 	for _, host := range strings.Split(os.Getenv("STANDUP_WEBHOOK_HOSTS"), ",") {
@@ -397,14 +407,17 @@ func main() {
 	// quota reconciliation pass are the instance's own housekeeping and run
 	// from the start, so the tables cannot grow unbounded before the host
 	// arrives.
-	plugins := &plugin.Store{Pool: pool}
-	if cfg.PluginSecretKey != "" {
-		cipher, err := plugin.NewCipher(cfg.PluginSecretKey)
-		if err != nil {
-			log.Error("FATAL: PLUGIN_SECRET_KEY is not usable", "error", err)
-			os.Exit(1)
-		}
-		plugins.Cipher = cipher
+	plugins, err := pluginSecrets(ctx, pool, cfg, log)
+	if err != nil {
+		log.Error("FATAL: PLUGIN_SECRET_KEY is not usable", "error", err)
+		os.Exit(1)
+	}
+	if flag.Arg(0) == "secrets" && flag.Arg(1) == "reseal" {
+		os.Exit(runReseal(ctx, plugins, log))
+	}
+	if flag.NArg() > 0 {
+		log.Error("FATAL: unknown command — the only command is \"secrets reseal\"", "args", flag.Args())
+		os.Exit(1)
 	}
 	go plugins.RunRetention(ctx, cfg.PluginEventRetention, time.Hour, log)
 	// Expired session tokens on the same hourly cadence. A row stops
@@ -655,6 +668,48 @@ func validHostname(s string) bool {
 
 func listenAddr(bind, port string) string {
 	return net.JoinHostPort(bindHost(bind), port)
+}
+
+// pluginSecrets builds the plugin store and its cipher. It never rewrites a
+// secret: until the operator's "secrets reseal", secrets are written in the
+// unbound form an older replica can still open.
+func pluginSecrets(ctx context.Context, pool *pgxpool.Pool, cfg config, log *slog.Logger) (*plugin.Store, error) {
+	plugins := &plugin.Store{Pool: pool}
+	if cfg.PluginSecretKey == "" {
+		return plugins, nil
+	}
+	cipher, err := plugin.NewRotatingCipher(cfg.PluginSecretKey, cfg.PluginSecretKeyPrevious)
+	if err != nil {
+		return nil, err
+	}
+	plugins.Cipher = cipher
+	if stale, err := plugins.StaleSecrets(ctx); err != nil {
+		log.Warn("could not count secrets not yet under the current key", "error", err)
+	} else if stale > 0 {
+		log.Info("secrets not yet re-sealed under the current key; once every replica runs this version, run: parley secrets reseal", "key_id", cipher.KeyID(), "count", stale)
+	}
+	return plugins, nil
+}
+
+// runReseal is "parley secrets reseal": re-seal every secret under the current
+// key, then report how many are still on another key. Only a clean run that
+// reports zero remaining makes PLUGIN_SECRET_KEY_PREVIOUS safe to remove.
+func runReseal(ctx context.Context, plugins *plugin.Store, log *slog.Logger) int {
+	if plugins.Cipher == nil {
+		log.Error("FATAL: secrets reseal needs PLUGIN_SECRET_KEY set")
+		return 1
+	}
+	resealed, remaining, err := plugins.ResealSecrets(ctx)
+	if err != nil {
+		log.Error("FATAL: secrets reseal did not finish; the remaining count is unknown, so keep PLUGIN_SECRET_KEY_PREVIOUS and run it again", "resealed", resealed, "error", err)
+		return 1
+	}
+	if remaining > 0 {
+		log.Error("secrets reseal left secrets that do not open under the current key; keep PLUGIN_SECRET_KEY_PREVIOUS until they are re-entered or removed, then run it again", "resealed", resealed, "remaining", remaining)
+		return 1
+	}
+	log.Info("secrets reseal finished", "key_id", plugins.Cipher.KeyID(), "resealed", resealed, "remaining", remaining)
+	return 0
 }
 
 func healthcheckTarget(bind, port string) string {
