@@ -340,6 +340,9 @@ func envOr(key, fallback string) string {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "plugin" {
+		os.Exit(runPlugin(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	healthcheck := flag.Bool("healthcheck", false, "probe the running server's /readyz and exit 0 if ready")
 	showVersion := flag.Bool("version", false, "print the build version and exit")
 	flag.Parse()

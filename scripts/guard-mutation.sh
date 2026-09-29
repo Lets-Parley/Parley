@@ -16,7 +16,7 @@ cd "$(dirname "$0")/.."
 # The guards no longer all live in one package: the plugin sandbox has a
 # frontend half now, so a tree here is either a Go package or the web app, and
 # `target` switches which one the mutations below are aimed at.
-TREES=(internal/plugin internal/api internal/store web/src cmd/parley internal/standup)
+TREES=(internal/plugin internal/plugin/bundle internal/api internal/store web/src cmd/parley internal/standup)
 BACKUP=$(mktemp -d)
 LOG=$(mktemp)
 
@@ -466,6 +466,63 @@ mutate "the closed set of verbs an action may answer" \
     'TestAManifestDeclaringAKindTheHostWillNotHonourIsRefusedAtInstall' \
     kinds.go 'if !actionVerbs[a.Verb] {' 'if false {'
 
+# The .parley bundle's refusals. Each is the whole of the check it names:
+# nothing downstream re-validates a bundle Verify returned.
+target internal/plugin/bundle
+
+mutate "bundle: an unlisted file" 'TestRefusesAnUnlistedFile' \
+    bundle.go 'if n != sumsName && n != sigName && listed[n] == "" {' 'if false {'
+mutate "bundle: a listed but missing file" 'TestRefusesAListedButMissingFile' \
+    bundle.go 'return nil, fmt.Errorf("%q: %w", n, ErrMissing)' 'continue'
+mutate "bundle: a digest mismatch" 'TestRefusesADigestMismatch' \
+    bundle.go 'if hex.EncodeToString(sum[:]) != want {' 'if hex.EncodeToString(sum[:]) == want && false {'
+mutate "bundle: path components" 'TestRefusesPathComponents' \
+    bundle.go 'if n == "" || n == "." || n == ".." || strings.ContainsAny(n, "/\\") {' 'if false {'
+mutate "bundle: non-regular entries" 'TestRefusesSymlinksAndOtherNonRegularEntries' \
+    bundle.go 'if hdr.Typeflag != tar.TypeReg {' 'if false {'
+mutate "bundle: duplicate entries" 'TestRefusesADuplicateEntry' \
+    bundle.go 'if _, dup := got[n]; dup {' 'if _, dup := got[n]; false && dup {'
+mutate "bundle: the wasm size cap" 'TestRefusesAnOversizedWasm' \
+    bundle.go 'if n == wasmName && hdr.Size > MaxWasm {' 'if false {'
+mutate "bundle: the streaming uncompressed cap" 'TestRefusesAZipBombWhileStreaming' \
+    bundle.go 'n: MaxTotal}' 'n: 1 << 40}'
+mutate "bundle: the signature check" 'TestRefusesABadSignature' \
+    bundle.go 'if !ed25519.Verify(pub, append([]byte(sigContext), s...), sig[ed25519.PublicKeySize:]) {' 'if false {'
+mutate "bundle: the trusted-key check" 'TestRefusesAnUntrustedKey' \
+    bundle.go 'if pub.Equal(k) {' 'if pub.Equal(k) || true {'
+mutate "bundle: unsigned refused by default" 'TestRefusesUnsignedUnlessAllowed' \
+    bundle.go 'if !allowUnsigned {' 'if false {'
+mutate "bundle: canonical MANIFEST.sha256" 'TestRefusesNonCanonicalSums' \
+    bundle.go 'if !bytes.Equal(canon.Bytes(), s) {' 'if false {'
+mutate "bundle: a malformed sums line" 'TestRefusesNonCanonicalSums' \
+    bundle.go 'if !ok || err != nil || len(raw) != sha256.Size || !payloadNames[name] {' 'if false && (!ok || err != nil || len(raw) != sha256.Size || !payloadNames[name]) {' \
+    bundle.go 'if !bytes.Equal(canon.Bytes(), s) {' 'if false {'
+mutate "bundle: a duplicate sums line" 'TestRefusesADuplicateSumsLine' \
+    bundle.go 'if _, dup := listed[name]; dup {' 'if _, dup := listed[name]; false && dup {'
+mutate "bundle: manifest.json and package.json together" 'TestRefusesManifestJSONAndPackageJSONTogether' \
+    bundle.go '		if hasNew {
+			return nil, fmt.Errorf("manifest.json and package.json: %w", ErrDuplicate)' '		if false {
+			return nil, fmt.Errorf("manifest.json and package.json: %w", ErrDuplicate)'
+mutate "bundle: an unknown file name" 'TestRefusesAnUnknownFileName' \
+    bundle.go 'if !payloadNames[n] && n != sumsName && n != sigName {' 'if false {'
+mutate "bundle: a truncated signature" 'TestRefusesATruncatedSignature' \
+    bundle.go 'if len(sig) != ed25519.PublicKeySize+ed25519.SignatureSize {' 'if false {'
+mutate "bundle: data after the gzip member" 'TestRefusesATrailingGzipMember' \
+    bundle.go 'if _, err := br.ReadByte(); err != io.EOF {' 'if false {' \
+    bundle.go 'gz.Multistream(false)' ''
+mutate "bundle: the declared-size sum cap" 'TestRefusesDeclaredSizesPastTheCap' \
+    bundle.go 'if hdr.Size < 0 || hdr.Size > MaxTotal-declared {' 'if false {'
+mutate "bundle: the declared-size overflow" 'TestRefusesADeclaredSizeThatWouldOverflow' \
+    bundle.go 'if hdr.Size < 0 || hdr.Size > MaxTotal-declared {' 'if declared+hdr.Size > MaxTotal {'
+mutate "bundle: the cap admits a bundle of exactly MaxTotal" 'TestABundleOfExactlyTheCapVerifies' \
+    bundle.go 'if k > 0 {
+			return 0, ErrTooLarge' 'if k >= 0 {
+			return 0, ErrTooLarge'
+mutate "bundle: Pack's wasm cap" 'TestPackEnforcesTheVerifyLimits' \
+    bundle.go 'if len(files[wasmName]) > MaxWasm {' 'if false {'
+mutate "bundle: Pack's total cap" 'TestPackEnforcesTheVerifyLimits' \
+    bundle.go 'if tarBuf.Len() > MaxTotal {' 'if false {'
+
 target internal/api
 
 mutate "the plugin frame's route-group carve-out" \
@@ -803,6 +860,11 @@ mutate "main wiring the plugin directory into the HTTP layer" \
 mutate "main wiring the embed providers into the HTTP layer" \
     'TestMainsOptionsEnableEmbedProviders' \
     main.go '		EmbedProviders: cfg.EmbedProviders,' ''
+
+mutate "keygen refusing to overwrite a key file" \
+    'TestPluginKeygenRefusesToOverwriteEitherFile' \
+    plugincmd.go 'if _, err := os.Lstat(p); err == nil {' 'if false {' \
+    plugincmd.go 'os.O_WRONLY|os.O_CREATE|os.O_EXCL' 'os.O_WRONLY|os.O_CREATE|os.O_TRUNC'
 
 # A standup mention's second lock. The handler checks both parties before it
 # writes, so no handler test can see the statement's own guard: the test here

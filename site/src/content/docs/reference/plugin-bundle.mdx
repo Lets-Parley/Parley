@@ -1,0 +1,59 @@
+---
+title: Plugin bundle format
+description: The .parley bundle, version 1 — what it contains, how it is signed, and what the host refuses.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+
+<VerifiedStamp version="unreleased" source={["sdk/abi/bundle-v1.md", "internal/plugin/bundle/bundle.go", "cmd/parley/plugincmd.go"]} />
+
+A plugin ships as one `.parley` file: a deterministic gzip-compressed tar
+archive. The full specification, including the byte-level encoding a packer
+must reproduce, is `sdk/abi/bundle-v1.md`; golden vectors live beside it in
+`sdk/abi/bundle-v1/`.
+
+## Contents
+
+| File | Required | Notes |
+| --- | --- | --- |
+| `manifest.json` | yes | `package.json` is accepted as a legacy alias, never both |
+| `plugin.wasm` | yes | at most **10 MiB** |
+| `ui.js` | no | the plugin UI script |
+| `slots.json` | no | UI slot declarations |
+| `MANIFEST.sha256` | yes | `<hex sha256>  <name>` per file, sorted |
+| `MANIFEST.sig` | when signed | Ed25519 public key (32 bytes) then signature (64 bytes) |
+
+A bundle's identity, its **digest**, is the hex sha256 of `MANIFEST.sha256`.
+
+## Signing
+
+The signature is pure Ed25519 over `"parley-bundle-v1\n"` followed by the
+`MANIFEST.sha256` bytes. The signer is identified by a **key id** — the first
+8 bytes of sha256 of the public key, in hex — which the host computes itself.
+Any publisher named in the manifest is ignored.
+
+## What the host refuses
+
+A bundle is refused, before any of it is used, if it contains a file
+`MANIFEST.sha256` does not list, lacks a file it does list, or has a file whose
+digest does not match; if an entry name has path components, is a symlink or
+other non-regular entry, is duplicated, or is not one of the names above; if
+`plugin.wasm` exceeds 10 MiB or the uncompressed archive exceeds **16 MiB**
+(tar headers and padding included, counted while decompressing), or the
+entries' declared sizes add up past it; if anything follows the gzip member; if
+`MANIFEST.sha256` is not in canonical form (sorted, lowercase hex, two spaces,
+a newline after every line); or if its signature does not verify, is by an
+untrusted key, or is missing and unsigned bundles are not allowed.
+
+## Operator commands
+
+```sh
+parley plugin keygen [path-prefix]    # writes <prefix>.key (0600) and <prefix>.pub
+parley plugin verify -key <base64-public-key> bundle.parley
+```
+
+`keygen` refuses to overwrite either file and prints the key id and the base64
+public key to pass to `verify -key`. `verify` accepts `-key`
+more than once and `-allow-unsigned`; it prints the digest and key id, or the
+reason for refusal, and exits non-zero on refusal. Packing and signing are done
+by the plugin SDK, not the server binary.
