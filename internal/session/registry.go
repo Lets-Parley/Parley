@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -60,7 +61,7 @@ type Kind struct {
 	// needs it. Core kinds leave it nil.
 	Plugin *PluginUI
 	// LivePlugin, when set, is read on every envelope so a grant change takes
-	// effect without waiting for the kind to be re-offered. OfferKinds still
+	// effect without waiting for the kind to be re-offered. ReconcileKinds still
 	// rebuilds Plugin so the registered snapshot matches what is in force.
 	LivePlugin func(ctx context.Context) (*PluginUI, error)
 }
@@ -89,6 +90,9 @@ type PluginUI struct {
 type Registry struct {
 	mu    sync.Mutex
 	kinds atomic.Pointer[map[string]Kind]
+	// synced is what the last Sync registered, so the next one replaces
+	// exactly that. Guarded by mu.
+	synced map[string]bool
 }
 
 func NewRegistry() *Registry {
@@ -124,15 +128,69 @@ func (r *Registry) Register(k Kind) error {
 	// nothing. Every action is a write, so an action answering GET would be a
 	// write with no CSRF protection at all. Refuse it at wiring time — a
 	// third-party kind is registered the same way and gets the same refusal.
-	for name, a := range k.Actions {
-		if a.Verb == http.MethodGet || a.Verb == http.MethodHead {
-			return fmt.Errorf("registering session kind %q: action %q answers %s, but actions are writes and the cross-site guard exempts %s", k.Name, name, a.Verb, a.Verb)
-		}
+	if err := checkVerbs(k); err != nil {
+		return err
 	}
 	next := r.clone()
 	next[k.Name] = k
 	r.kinds.Store(&next)
 	return nil
+}
+
+func checkVerbs(k Kind) error {
+	for name, a := range k.Actions {
+		if a.Verb == http.MethodGet || a.Verb == http.MethodHead {
+			return fmt.Errorf("registering session kind %q: action %q answers %s, but actions are writes and the cross-site guard exempts %s", k.Name, name, a.Verb, a.Verb)
+		}
+	}
+	return nil
+}
+
+// Sync replaces the set of kinds Sync itself registered with desired, in one
+// publish. A kind registered any other way — every core kind — is never
+// touched: a desired kind whose name is already held is skipped and reported,
+// and the rest of the set still lands, so one bad row cannot take every other
+// org's ceremony down with it.
+func (r *Registry) Sync(desired []Kind) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	next := r.clone()
+	for name := range r.synced {
+		delete(next, name)
+	}
+	synced := map[string]bool{}
+	var errs []error
+	for _, k := range desired {
+		if k.Name == "" || k.OrgID == "" {
+			errs = append(errs, fmt.Errorf("syncing session kind %q: a plugin kind needs a name and an org", k.Name))
+			continue
+		}
+		if _, ok := next[k.Name]; ok {
+			errs = append(errs, fmt.Errorf("syncing session kind %q: already registered", k.Name))
+			continue
+		}
+		if err := checkVerbs(k); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		next[k.Name] = k
+		synced[k.Name] = true
+	}
+	r.synced = synced
+	r.kinds.Store(&next)
+	return errors.Join(errs...)
+}
+
+// PluginKindNames is the sorted set the last Sync registered.
+func (r *Registry) PluginKindNames() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	names := make([]string, 0, len(r.synced))
+	for name := range r.synced {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // clone copies the live map for a writer. The caller holds mu.
@@ -154,6 +212,7 @@ func (r *Registry) Unregister(name string) error {
 	}
 	next := r.clone()
 	delete(next, name)
+	delete(r.synced, name)
 	r.kinds.Store(&next)
 	return nil
 }

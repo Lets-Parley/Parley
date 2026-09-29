@@ -81,7 +81,7 @@ func TestEnablingAnInstallOffersItsKindAndDisablingRetiresIt(t *testing.T) {
 		Actions: []ActionDef{{Name: "gather", Verb: http.MethodPost}, {Name: "close", Verb: http.MethodPost, FacilitatorOnly: true}},
 	})
 
-	if err := h.OfferKinds(ctx, in.ID); err != nil {
+	if err := h.ReconcileKinds(ctx); err != nil {
 		t.Fatalf("offering the kinds of an enabled install: %v", err)
 	}
 	if !kinds.KnownInOrg(testOrgID, kind) {
@@ -96,7 +96,7 @@ func TestEnablingAnInstallOffersItsKindAndDisablingRetiresIt(t *testing.T) {
 	}
 
 	// Enabling twice must not fail on the registry's duplicate check.
-	if err := h.OfferKinds(ctx, in.ID); err != nil {
+	if err := h.ReconcileKinds(ctx); err != nil {
 		t.Fatalf("re-offering the kinds of an install that is already enabled: %v", err)
 	}
 
@@ -122,7 +122,7 @@ func TestEnablingAnInstallOffersItsKindAndDisablingRetiresIt(t *testing.T) {
 	}
 	fresh := session.NewRegistry()
 	h.Kinds = fresh
-	if err := h.OfferEnabledKinds(ctx); err != nil {
+	if err := h.ReconcileKinds(ctx); err != nil {
 		t.Fatalf("offering the kinds of every enabled install: %v", err)
 	}
 	if !fresh.Known(kind) {
@@ -655,4 +655,48 @@ func newOrg(t *testing.T, pool *pgxpool.Pool) string {
 		t.Fatal(err)
 	}
 	return id
+}
+
+// A widening upgrade's kinds wait with its grants. Written at once, the
+// ceremony the pending version declares would be on offer under the grants
+// of the version still running; only the approval may put it live.
+func TestAPendingUpgradeStagesItsKindsUntilApproval(t *testing.T) {
+	pool := testPool(t)
+	s := &Store{Pool: pool}
+	ctx := context.Background()
+	oldKind, newKind := kindName(t), kindName(t)
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, "delete from session_kinds where kind = $1", newKind) })
+	in := installWithKinds(t, s, testOrgID, KindDef{Kind: oldKind, Display: "Retrospective"})
+
+	// Staging refuses a bad declaration at upload, not at approval.
+	err := s.Upgrade(ctx, in.ID, "2.0.0", []Grant{{Capability: CapabilityLog}},
+		[]KindDef{{Kind: "Bad Name", Display: "x"}})
+	if !errors.Is(err, ErrBadKindDef) {
+		t.Fatalf("staging a bad kind: got %v, want ErrBadKindDef", err)
+	}
+	err = s.Upgrade(ctx, in.ID, "2.0.0", []Grant{{Capability: CapabilityLog}},
+		[]KindDef{{Kind: newKind, Display: "Mine Now"}})
+	if !errors.Is(err, ErrUpgradePending) {
+		t.Fatalf("a widening upgrade: got %v, want ErrUpgradePending", err)
+	}
+	live := func() string {
+		defs, err := s.ProvidedKinds(ctx, in.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		names := []string{}
+		for _, d := range defs {
+			names = append(names, d.Kind)
+		}
+		return strings.Join(names, ",")
+	}
+	if got := live(); got != oldKind {
+		t.Fatalf("while pending the install provides %q, want only %q", got, oldKind)
+	}
+	if err := s.ApproveUpgrade(ctx, in.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := live(); got != newKind {
+		t.Fatalf("after approval the install provides %q, want %q", got, newKind)
+	}
 }

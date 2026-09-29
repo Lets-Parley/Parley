@@ -366,7 +366,10 @@ mutate "cron and delay together refused without storing" \
 # can run is created against a plugin an operator has switched off.
 mutate "retiring a disabled plugin's session kinds" \
     'TestEnablingAnInstallOffersItsKindAndDisablingRetiresIt' \
-    host.go 'h.RetireKinds(defs)' '_ = defs'
+    grants.go 'enabled=%t: %w", installID, enabled, err)
+	}
+	s.changed(ctx)' 'enabled=%t: %w", installID, enabled, err)
+	}'
 
 # A kind name is instance-wide, so two orgs running plugins of the same name
 # collide on it. Without the org half of the upsert predicate the second org's
@@ -420,6 +423,13 @@ mutate "the plugin frame's route-group carve-out" \
     router.go 'a.mountPluginFrame(root)
 	r := root.With(securityHeaders)' 'r := root.With(securityHeaders)
 	a.mountPluginFrame(r)'
+
+# The one cross-replica path for plugin lifecycle changes. Without the notify
+# every other pod keeps the kinds it had until it restarts, and the only test
+# that can see it is the one with a second replica booted before the install.
+mutate "the plugin change notification to the other replicas" \
+    'TestPluginKindsReachEveryReplicaWithoutARestart' \
+    fanout.go 'if _, err := a.pool.Exec(ctx, "select pg_notify($1, $2)", pluginChannel, a.instanceID+" reconcile"); err != nil {' 'if err := error(nil); err != nil {'
 
 # chi answers a known path with an unknown method from its own handler, outside
 # the route tree — so a header middleware that moved from root.Use onto a route

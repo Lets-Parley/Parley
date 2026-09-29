@@ -149,8 +149,14 @@ type Host struct {
 	// wired gets — not a silent half-registration.
 	Kinds KindRegistry
 	Log   *slog.Logger
+	// OnChange runs after every committed plugin lifecycle write, on whichever
+	// path made it — a handler, the breaker, a boot step. The api layer points
+	// it at a local reconcile plus a notification to the other replicas. Nil
+	// means only ReconcileKinds, which is what a host with no router gets.
+	OnChange func(ctx context.Context)
 
-	cfg HostConfig
+	cfg         HostConfig
+	reconcileMu sync.Mutex
 
 	mu       sync.Mutex
 	cache    map[string]*cachedModule
@@ -162,13 +168,27 @@ type Host struct {
 
 // NewHost builds a host with the containment budget filled in.
 func NewHost(store *Store, cfg HostConfig) *Host {
-	return &Host{
+	h := &Host{
 		Store:    store,
 		Fetcher:  &Fetcher{},
 		cfg:      cfg.withDefaults(),
 		cache:    map[string]*cachedModule{},
 		breakers: map[string]*breaker{},
 		inflight: map[string]int{},
+	}
+	store.onChange = h.changed
+	return h
+}
+
+// changed is the Store's hook. With no OnChange wired it still reconciles this
+// process, so a lone host never serves a stale set.
+func (h *Host) changed(ctx context.Context) {
+	if h.OnChange != nil {
+		h.OnChange(ctx)
+		return
+	}
+	if err := h.ReconcileKinds(ctx); err != nil && h.Log != nil {
+		h.Log.Error("could not reconcile the plugin session kinds", "error", err)
 	}
 }
 
@@ -184,12 +204,9 @@ func (h *Host) Enable(ctx context.Context, installID string) error {
 	h.mu.Lock()
 	delete(h.breakers, installID)
 	h.mu.Unlock()
-	// The ceremony this install provides goes on offer with it. Registration
-	// happens before the compile so that a bundle that will not compile still
-	// leaves the kind offered or not offered consistently with `enabled`.
-	if err := h.OfferKinds(ctx, installID); err != nil {
-		return err
-	}
+	// SetEnabled has already put the ceremony on offer through OnChange,
+	// before the compile, so a bundle that will not compile still leaves the
+	// kind offered consistently with `enabled`.
 	_, err := h.module(ctx, installID)
 	return err
 }
@@ -197,17 +214,11 @@ func (h *Host) Enable(ctx context.Context, installID string) error {
 // Disable switches an install off and evicts its compiled module, rather than
 // leaving a disabled plugin's code resident.
 func (h *Host) Disable(ctx context.Context, installID, reason string) error {
-	// The kinds are read before the install is switched off, because a
-	// disabled install is still the provider of its rows and this is the last
-	// moment the two are certainly consistent.
-	defs, err := h.Store.ProvidedKinds(ctx, installID)
-	if err != nil {
-		return err
-	}
+	// SetEnabled fires OnChange, which takes the ceremony off offer on every
+	// replica — the breaker's disable included, since it comes through here.
 	if err := h.Store.SetEnabled(ctx, installID, false); err != nil {
 		return err
 	}
-	h.RetireKinds(defs)
 	h.evict(ctx, installID)
 	if h.Log != nil {
 		h.Log.Warn("plugin disabled", "install_id", installID, "reason", reason)

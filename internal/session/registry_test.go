@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -371,5 +372,33 @@ func TestRosterChangedIsTheRequestedKindsHook(t *testing.T) {
 	r2 := registryWith(t, a, plain)
 	if _, ok := r2.RosterChanged("kindc"); ok {
 		t.Fatal("a kind with no roster hook was handed somebody else's")
+	}
+}
+
+// Sync owns the plugin-provided kinds and nothing else: a reconcile that
+// removed poker because no install provides it would end every core room.
+func TestSyncReplacesPluginKindsAndNeverCoreKinds(t *testing.T) {
+	r := NewRegistry()
+	if err := r.Register(Kind{Name: "poker"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Sync([]Kind{{Name: "retro", OrgID: "a"}, {Name: "okr", OrgID: "b"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(r.PluginKindNames(), ","); got != "okr,retro" {
+		t.Fatalf("plugin kinds = %q", got)
+	}
+	if err := r.Sync(nil); err != nil {
+		t.Fatal(err)
+	}
+	if !r.Known("poker") || r.Known("retro") || len(r.PluginKindNames()) != 0 {
+		t.Fatalf("after an empty sync: %v", r.Names())
+	}
+	// A desired kind may never shadow a core one, nor be instance-wide.
+	if err := r.Sync([]Kind{{Name: "poker", OrgID: "a"}, {Name: "x"}}); err == nil {
+		t.Fatal("sync accepted a kind shadowing a core kind")
+	}
+	if !r.Known("poker") || r.KnownInOrg("a", "poker") != true || r.Known("x") {
+		t.Fatalf("a refused sync changed the core: %v", r.Names())
 	}
 }

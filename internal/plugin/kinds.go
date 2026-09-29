@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -126,6 +127,7 @@ func canonicalKinds(defs []KindDef) ([]KindDef, error) {
 type KindRegistry interface {
 	Register(k session.Kind) error
 	Unregister(name string) error
+	Sync(desired []session.Kind) error
 }
 
 // seedKinds writes the session_kinds rows for an install, inside the install's
@@ -183,6 +185,28 @@ func syncKinds(ctx context.Context, tx pgx.Tx, orgID, provider string, kinds []K
 		return fmt.Errorf("retiring kinds %s no longer provides: %w", provider, err)
 	}
 	return nil
+}
+
+// checkKindsFree is seedKinds' ownership refusal without the write, for kinds
+// that are only being staged.
+func checkKindsFree(ctx context.Context, tx pgx.Tx, orgID, provider string, kinds []KindDef) error {
+	names := make([]string, len(kinds))
+	for i, k := range kinds {
+		names[i] = k.Kind
+	}
+	var taken string
+	err := tx.QueryRow(ctx, `
+		select kind from session_kinds
+		where kind = any($1::text[])
+		  and not (provider = $2 and org_id is not distinct from $3)
+		limit 1`, names, provider, orgID).Scan(&taken)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("checking the kinds %s declares: %w", provider, err)
+	}
+	return fmt.Errorf("%w: %s", ErrKindTaken, taken)
 }
 
 // ErrKindTaken is returned when a plugin declares a session kind whose name
@@ -244,76 +268,44 @@ func (s *Store) ProvidesKind(ctx context.Context, installID, kind string) (bool,
 	return ok, nil
 }
 
-// OfferKinds registers everything an install provides, so that enabling a
-// plugin is what puts its ceremony on offer. It is idempotent: enabling an
-// already-enabled install re-registers the same kinds rather than failing on
-// the registry's duplicate check.
-func (h *Host) OfferKinds(ctx context.Context, installID string) error {
+// ReconcileKinds makes the live registry match the database: every
+// non-retired kind of every enabled install, across every org, and nothing
+// else. It is the only writer of plugin kinds, so every replica reaches the
+// same set from the same rows whatever notification it did or did not see.
+// Serialised, so two reconciles cannot publish their reads out of order.
+func (h *Host) ReconcileKinds(ctx context.Context) error {
 	if h.Kinds == nil {
 		return nil
 	}
-	state, err := h.Store.State(ctx, installID)
-	if err != nil {
-		return err
-	}
-	defs, err := h.Store.ProvidedKinds(ctx, installID)
-	if err != nil {
-		return err
-	}
-	for _, def := range defs {
-		_ = h.Kinds.Unregister(def.Kind)
-		if err := h.Kinds.Register(h.PluginKind(state, def)); err != nil {
-			return fmt.Errorf("offering the session kind %q: %w", def.Kind, err)
-		}
-	}
-	return nil
-}
-
-// OfferEnabledKinds registers the kinds of every install that is switched on,
-// across every org. It runs once at wiring time: the registry lives in the
-// process and an enabled install has to survive a restart with its ceremony
-// still on offer.
-func (h *Host) OfferEnabledKinds(ctx context.Context) error {
-	if h.Kinds == nil {
-		return nil
-	}
-	rows, err := h.Store.Pool.Query(ctx, `select id from plugin_installs where enabled`)
+	h.reconcileMu.Lock()
+	defer h.reconcileMu.Unlock()
+	rows, err := h.Store.Pool.Query(ctx, `
+		select p.id from plugin_installs p
+		where p.enabled and exists (
+			select 1 from session_kinds k
+			where k.provider = p.name and k.org_id = p.org_id and k.retired_at is null)`)
 	if err != nil {
 		return fmt.Errorf("listing the enabled installs: %w", err)
 	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return fmt.Errorf("reading an enabled install id: %w", err)
-		}
-		ids = append(ids, id)
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return fmt.Errorf("reading an enabled install id: %w", err)
 	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
+	var desired []session.Kind
 	for _, id := range ids {
-		if err := h.OfferKinds(ctx, id); err != nil {
+		state, err := h.Store.State(ctx, id)
+		if err != nil {
 			return err
 		}
+		defs, err := h.Store.ProvidedKinds(ctx, id)
+		if err != nil {
+			return err
+		}
+		for _, def := range defs {
+			desired = append(desired, h.PluginKind(state, def))
+		}
 	}
-	return nil
-}
-
-// RetireKinds unregisters everything an install provides. A disabled plugin's
-// ceremony stops being offered at once, without waiting for a restart.
-//
-// The rows stay: retiring in the database is the uninstall's job, and a
-// disable is reversible.
-func (h *Host) RetireKinds(defs []KindDef) {
-	if h.Kinds == nil {
-		return
-	}
-	for _, def := range defs {
-		_ = h.Kinds.Unregister(def.Kind)
-	}
+	return h.Kinds.Sync(desired)
 }
 
 // PluginKind builds the live kind for one declared ceremony. State and

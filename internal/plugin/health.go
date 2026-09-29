@@ -154,6 +154,9 @@ func (s *Store) uninstall(ctx context.Context, orgID, installID string, inTx TxH
 		// nothing at all.
 		return blocked
 	}
+	if err == nil {
+		s.changed(ctx)
+	}
 	return err
 }
 

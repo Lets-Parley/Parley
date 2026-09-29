@@ -45,6 +45,16 @@ type Store struct {
 	// Cipher encrypts plugin secrets at rest. Nil means secrets are
 	// unavailable, not that they are stored in the clear.
 	Cipher *Cipher
+	// onChange runs after every committed lifecycle write — install, enable,
+	// disable, upgrade, approval, uninstall. NewHost points it at
+	// Host.OnChange, so a write reaches the registry whichever path made it.
+	onChange func(ctx context.Context)
+}
+
+func (s *Store) changed(ctx context.Context) {
+	if s.onChange != nil {
+		s.onChange(ctx)
+	}
 }
 
 // Grant is one capability an install is allowed to use, optionally narrowed to
@@ -123,6 +133,7 @@ func (s *Store) Install(ctx context.Context, req InstallRequest) (Install, error
 	if err != nil {
 		return Install{}, err
 	}
+	s.changed(ctx)
 	return out, nil
 }
 

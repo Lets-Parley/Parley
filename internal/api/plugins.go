@@ -347,10 +347,6 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 	}
 	a.auditPlugin(r, "plugin.upgrade",
 		fmt.Sprintf("upgraded %s to %s within the capabilities already granted", pkg.Name, pkg.Version))
-	if err := a.offerPluginKinds(r.Context(), current.Install.ID); err != nil {
-		a.pluginError(w, err, "could not offer that plugin's ceremony")
-		return
-	}
 	view, err := a.installView(r.Context(), adm, current.Install.ID)
 	if err != nil {
 		http.Error(w, `{"error":"could not read the installed plugins"}`, http.StatusInternalServerError)
@@ -400,10 +396,6 @@ func (a *app) handleApproveUpgrade(w http.ResponseWriter, r *http.Request) {
 	}
 	a.auditPlugin(r, "plugin.upgrade_approved",
 		fmt.Sprintf("approved %s and the %d capabilities it asked for", pending.Version, len(pending.Grants)))
-	if err := a.offerPluginKinds(r.Context(), id); err != nil {
-		a.pluginError(w, err, "could not offer that plugin's ceremony")
-		return
-	}
 	view, err := a.installView(r.Context(), adm, id)
 	if err != nil {
 		http.Error(w, `{"error":"could not read the installed plugins"}`, http.StatusInternalServerError)
@@ -477,17 +469,6 @@ func (a *app) handleUninstallPlugin(w http.ResponseWriter, r *http.Request) {
 	// destroyed set of secrets with no record of who did it.
 	detail := fmt.Sprintf("uninstalled %s %s, destroying its stored data and secrets",
 		state.Install.Name, state.Install.Version)
-	// Read before the delete: afterwards the install is gone and there is
-	// nothing left to ask which kinds were its. The registry is only told once
-	// the uninstall has actually happened.
-	var provided []plugin.KindDef
-	if a.pluginHost != nil {
-		provided, err = a.plugins.ProvidedKinds(r.Context(), id)
-		if err != nil {
-			http.Error(w, `{"error":"could not uninstall that plugin"}`, http.StatusInternalServerError)
-			return
-		}
-	}
 	err = adm.Uninstall(r.Context(), id, func(ctx context.Context, tx pgx.Tx) error {
 		return a.auditPluginTx(ctx, tx, r, "plugin.uninstall", detail)
 	})
@@ -507,10 +488,6 @@ func (a *app) handleUninstallPlugin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		a.pluginError(w, err, "could not uninstall that plugin")
 		return
-	}
-	if a.pluginHost != nil {
-		// The ceremony stops being offered with the install that provided it.
-		a.pluginHost.RetireKinds(provided)
 	}
 	if a.pluginHost != nil {
 		a.pluginHost.Forget(r.Context(), id)
@@ -567,13 +544,6 @@ func (a *app) readPackage(w http.ResponseWriter, r *http.Request) (pluginPackage
 		return pluginPackage{}, false
 	}
 	return pkg, true
-}
-
-func (a *app) offerPluginKinds(ctx context.Context, installID string) error {
-	if a.pluginHost == nil {
-		return nil
-	}
-	return a.pluginHost.OfferKinds(ctx, installID)
 }
 
 // pluginError keeps a refusal the plugin package already worded — an
