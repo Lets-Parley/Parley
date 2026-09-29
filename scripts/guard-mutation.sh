@@ -425,7 +425,7 @@ mutate "bundle: an unlisted file" 'TestRefusesAnUnlistedFile' \
 mutate "bundle: a listed but missing file" 'TestRefusesAListedButMissingFile' \
     bundle.go 'return nil, fmt.Errorf("%q: %w", n, ErrMissing)' 'continue'
 mutate "bundle: a digest mismatch" 'TestRefusesADigestMismatch' \
-    bundle.go 'if hex.EncodeToString(sum[:]) != want {' 'if false {'
+    bundle.go 'if hex.EncodeToString(sum[:]) != want {' 'if hex.EncodeToString(sum[:]) == want && false {'
 mutate "bundle: path components" 'TestRefusesPathComponents' \
     bundle.go 'if n == "" || n == "." || n == ".." || strings.ContainsAny(n, "/\\") {' 'if false {'
 mutate "bundle: non-regular entries" 'TestRefusesSymlinksAndOtherNonRegularEntries' \
