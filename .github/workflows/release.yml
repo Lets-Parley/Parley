@@ -693,7 +693,11 @@ jobs:
         run: |
           set -eu
           if [ -z "$SIGNING_KEY" ]; then
+            # An unsigned bundle never carries the plain name.
+            bundle=$(ls plugins/retrospective/dist/retrospective-*.parley)
+            mv "$bundle" "${bundle%.parley}-UNSIGNED.parley"
             echo "::warning::PARLEY_PLUGIN_SIGNING_KEY is not set; attaching the retrospective bundle unsigned."
+            echo "The retrospective bundle on this release is UNSIGNED: $(basename "${bundle%.parley}")-UNSIGNED.parley" >> "$GITHUB_STEP_SUMMARY"
             echo "signed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -722,6 +726,10 @@ jobs:
           files=(plugins/retrospective/dist/retrospective-*.parley)
           if [ "$SIGNED" = true ]; then
             files+=(plugins/retrospective/dist/parley-plugin-signing.pub)
+          else
+            notes=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
+            printf '%s\n\n%s\n' "$notes" "The retrospective plugin bundle on this release is unsigned (\`$(basename "${files[0]}")\`)." \
+              | gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file -
           fi
           gh release upload "$TAG" "${files[@]}" \
             --repo "$GITHUB_REPOSITORY" \
@@ -772,7 +780,7 @@ jobs:
   # receipt that only repeats `needs` would confirm the workflow's opinion of
   # itself, which is the failure mode being fixed.
   publish-receipt:
-    needs: [validate, publish, publish-fips, chart, release-assets, attestation-assets, attestation-assets-fips]
+    needs: [validate, publish, publish-fips, chart, release-assets, attestation-assets, attestation-assets-fips, retrospective-bundle]
     runs-on: ubuntu-24.04
     # No registry credential, deliberately. The sbom jobs above split reading
     # the registry from writing to the release precisely so no single job holds

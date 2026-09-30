@@ -29,9 +29,12 @@ or is unsigned and `PLUGIN_ALLOW_UNSIGNED=true`.
 
 Every Parley release attaches `retrospective-<version>.parley`. When the
 project's release key is configured, the bundle is signed with it and the
-matching public key is attached beside it as `parley-plugin-signing.pub`; add
-that key's contents to `PLUGIN_TRUSTED_KEYS` to trust official bundles. A
-release without that file carries an unsigned bundle.
+matching public key is attached beside it as `parley-plugin-signing.pub`.
+Before adding that key to `PLUGIN_TRUSTED_KEYS`, check that the key id
+`parley plugin verify` prints matches the release key id published out of band:
+it will be listed in `SECURITY.md` once a release key exists. A `.pub` on the
+same release proves nothing on its own. Without a release key, the bundle is
+attached as `retrospective-<version>-UNSIGNED.parley` and the release notes say so.
 
 The grants it asks for:
 

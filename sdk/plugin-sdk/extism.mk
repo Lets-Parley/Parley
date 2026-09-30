@@ -82,4 +82,4 @@ bundle: plugin.wasm
 	$(PARLEY_PLUGIN) pack . $(if $(KEY),--key $(KEY))
 
 clean:
-	rm -rf $(BUILD) dist $(CACHE) plugin.wasm
+	rm -rf $(BUILD) $(CACHE) plugin.wasm dist/*.parley
