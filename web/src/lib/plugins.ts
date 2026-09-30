@@ -43,26 +43,29 @@ export type InstalledPlugin = {
   provides: string[];
   pending?: PendingUpgrade;
   health: PluginHealth;
-  /** The catalogue bundle it is pinned to; null means it is not in the catalogue. */
+  /** The catalog bundle it is pinned to; null means it is not in the catalog. */
   bundle?: BundleRef | null;
-  inCatalogue?: boolean;
+  inCatalog?: boolean;
   /** Every bundle it has run, newest first: the only rollback targets. */
   history?: (BundleRef & { version: string })[];
 };
 
-/** A stored bundle an install names, by the digest and key id the catalogue lists. */
+/** A stored bundle an install names, by the digest and key id the catalog lists. */
 export type BundleRef = { digest: string; key_id: string };
 
-export type CatalogueVersion = BundleRef & {
+export type CatalogVersion = BundleRef & {
   version: string;
   grants: DescribedGrant[];
   settings?: unknown;
+  /** Display names of the session kinds it declares. */
+  provides?: string[];
+  published_at?: string;
 };
 
-/** GET /api/catalogue. */
-export type Catalogue = {
+/** GET /api/catalog. */
+export type Catalog = {
   can_upload: boolean;
-  plugins: { name: string; versions: CatalogueVersion[] }[];
+  plugins: { name: string; versions: CatalogVersion[] }[];
 };
 
 export type PluginRegistry = {

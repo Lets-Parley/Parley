@@ -612,13 +612,13 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			r.Get("/orgs", a.handleListMyOrgs)
 			r.Get("/spaces", a.handleListMySpaces)
 			r.Post("/spaces", a.handleCreateSpace)
-			// The instance plugin catalogue. Reading it takes membership of
+			// The instance plugin catalog. Reading it takes membership of
 			// some org, checked in the handler; uploading takes the default
 			// org's admins. Its CSRF story is rejectCrossSite plus the upload's
 			// non-safelisted Content-Type, which forces a preflight.
-			r.Get("/catalogue", a.handleCatalogue)
-			r.With(a.requireInstanceCurator).Post("/catalogue/bundles", a.handleUploadBundle)
-			r.With(a.requireInstanceCurator).Get("/catalogue/loaded", a.handleLoadedBundles)
+			r.Get("/catalog", a.handleCatalog)
+			r.With(a.requireInstanceCurator).Post("/catalog/bundles", a.handleUploadBundle)
+			r.With(a.requireInstanceCurator).Get("/catalog/loaded", a.handleLoadedBundles)
 		})
 
 		// Everything that resolves a space slug hangs off an org, because a

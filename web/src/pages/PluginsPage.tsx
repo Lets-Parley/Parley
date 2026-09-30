@@ -2,9 +2,9 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, errorText } from "../lib/api";
-import type { BundleRef, Catalogue, DescribedGrant, InstalledPlugin, PluginPreview, PluginRegistry } from "../lib/plugins";
+import type { BundleRef, Catalog, DescribedGrant, InstalledPlugin, PluginPreview, PluginRegistry } from "../lib/plugins";
 import { direction, normalizePluginPreview, normalizePluginRegistry } from "../lib/plugins";
-import { catalogueApi, cataloguePath, pluginsApi } from "../lib/paths";
+import { catalogApi, catalogPath, pluginsApi } from "../lib/paths";
 import {
   buttonDanger,
   buttonPrimary,
@@ -330,9 +330,9 @@ function InstallPanel({
   const base = pluginsApi(org);
   const [params] = useSearchParams();
   const [chosen, setChosen] = useState<BundleRef | null>(null);
-  const catalogue = useQuery({
-    queryKey: ["catalogue"],
-    queryFn: () => api<Catalogue>("GET", catalogueApi),
+  const catalog = useQuery({
+    queryKey: ["catalog"],
+    queryFn: () => api<Catalog>("GET", catalogApi),
   });
   const [preview, setPreview] = useState<PluginPreview | null>(null);
   const [ack, setAck] = useState(false);
@@ -386,87 +386,30 @@ function InstallPanel({
     }
   }
 
-  // A link from the catalogue names one version: choose it once it loads.
+  // A link from the catalog names one version: choose it once it loads.
   const wanted = params.get("install");
   const preselected = useRef(false);
   useEffect(() => {
-    if (preselected.current || !wanted || !catalogue.data) return;
-    const hit = catalogue.data.plugins.flatMap((p) => p.versions).find((v) => `${v.digest}/${v.key_id}` === wanted);
+    if (preselected.current || !wanted || !catalog.data) return;
+    const hit = catalog.data.plugins.flatMap((p) => p.versions).find((v) => `${v.digest}/${v.key_id}` === wanted);
     if (hit) {
       preselected.current = true;
       void pick({ digest: hit.digest, key_id: hit.key_id });
     }
   });
 
-  const plugins = catalogue.data?.plugins ?? [];
+  const plugins = catalog.data?.plugins ?? [];
   const isChosen = (v: BundleRef) => chosen?.digest === v.digest && chosen?.key_id === v.key_id;
 
-  return (
-    <section aria-labelledby={headId} className="mt-5 rounded-panel border border-line bg-surface shadow-rest">
-      <h3 id={headId} className="border-b border-line px-4 py-3 font-display text-lg">
-        Install from the catalogue
-      </h3>
-      {catalogue.isLoading && <p className="px-4 py-4 text-sm text-ink-faint">Reading the catalogue…</p>}
-      {catalogue.error && (
-        <p role="alert" className="px-4 py-4 text-[13px] font-bold text-stop">
-          {errorText(catalogue.error)}
-        </p>
-      )}
-      {catalogue.data && plugins.length === 0 && (
-        <p className="px-4 py-4 text-sm text-ink-soft text-pretty">
-          The catalogue is empty; a default-org admin can add bundles at{" "}
-          <Link to={cataloguePath} className="font-bold text-accent underline underline-offset-2">
-            the plugin catalogue
-          </Link>
-          .
-        </p>
-      )}
-      {plugins.length > 0 && (
-        <div className="divide-y divide-line">
-          {plugins.map((p) => (
-            <div key={p.name} role="group" aria-label={p.name} className="px-4 py-4">
-              <p className="mb-2 font-bold break-words">{p.name}</p>
-              <div data-versions className="flex flex-wrap gap-2">
-                {p.versions.map((v) => {
-                  const key = `${v.digest}/${v.key_id}`;
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      aria-pressed={isChosen(v)}
-                      aria-label={`${p.name} ${v.version}`}
-                      onClick={() => void pick({ digest: v.digest, key_id: v.key_id })}
-                      className={
-                        "flex min-w-0 flex-col items-start gap-0.5 rounded-card border px-3 py-2 text-left " +
-                        "transition-[background-color,border-color,box-shadow] duration-[var(--dur-lift)] ease-[var(--ease-settle)] motion-reduce:transition-none " +
-                        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent " +
-                        (isChosen(v)
-                          ? "border-accent bg-accent-soft shadow-rest"
-                          : "border-line bg-surface hover:border-ink-faint hover:bg-surface-hi")
-                      }
-                    >
-                      <span className="flex items-center gap-2">
-                        <span className="font-bold tabular-nums">{v.version}</span>
-                        {running.has(key) && (
-                          <span className="rounded-chip bg-go/15 px-1.5 text-[11px] font-bold text-go">Running</span>
-                        )}
-                      </span>
-                      <span className="text-[11px] text-ink-soft">
-                        {v.key_id ? `Signed · key ${v.key_id.slice(0, 8)}` : "Unsigned"}
-                      </span>
-                      <span className="font-mono text-[11px] text-ink-faint" title={v.digest}>
-                        {v.digest.slice(0, 12)}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      {(problem || preview) && (
-      <div data-consent className="border-t border-line px-4">
+  // The consent opens under the plugin that was chosen, not after the list.
+  const consentRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!preview) return;
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    consentRef.current?.scrollIntoView?.({ block: "nearest", behavior: still ? "auto" : "smooth" });
+  }, [preview]);
+  const consent = (
+      <div ref={consentRef} data-consent className="mt-4 border-t border-line">
       {problem && (
         <p role="alert" className="mt-3 text-[13px] font-bold text-stop">
           {problem}
@@ -541,6 +484,73 @@ function InstallPanel({
         </div>
       )}
       </div>
+  );
+  const chosenName = plugins.find((p) => p.versions.some((v) => isChosen(v)))?.name;
+
+  return (
+    <section aria-labelledby={headId} className="mt-5 rounded-panel border border-line bg-surface shadow-rest">
+      <h3 id={headId} className="border-b border-line px-4 py-3 font-display text-lg">
+        Install from the catalog
+      </h3>
+      {catalog.isLoading && <p className="px-4 py-4 text-sm text-ink-faint">Reading the catalog…</p>}
+      {catalog.error && (
+        <p role="alert" className="px-4 py-4 text-[13px] font-bold text-stop">
+          {errorText(catalog.error)}
+        </p>
+      )}
+      {catalog.data && plugins.length === 0 && (
+        <p className="px-4 py-4 text-sm text-ink-soft text-pretty">
+          The catalog is empty; a default-org admin can add bundles at{" "}
+          <Link to={catalogPath} className="font-bold text-accent underline underline-offset-2">
+            the plugin catalog
+          </Link>
+          .
+        </p>
+      )}
+      {plugins.length > 0 && (
+        <div className="divide-y divide-line">
+          {plugins.map((p) => (
+            <div key={p.name} role="group" aria-label={p.name} className="px-4 py-4">
+              <p className="mb-2 font-bold break-words">{p.name}</p>
+              <div data-versions className="flex flex-wrap gap-2">
+                {p.versions.map((v) => {
+                  const key = `${v.digest}/${v.key_id}`;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      aria-pressed={isChosen(v)}
+                      aria-label={`${p.name} ${v.version}`}
+                      onClick={() => void pick({ digest: v.digest, key_id: v.key_id })}
+                      className={
+                        "flex min-w-0 flex-col items-start gap-0.5 rounded-card border px-3 py-2 text-left " +
+                        "transition-[background-color,border-color,box-shadow] duration-[var(--dur-lift)] ease-[var(--ease-settle)] motion-reduce:transition-none " +
+                        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent " +
+                        (isChosen(v)
+                          ? "border-accent bg-accent-soft shadow-rest"
+                          : "border-line bg-surface hover:border-ink-faint hover:bg-surface-hi")
+                      }
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="font-bold tabular-nums">{v.version}</span>
+                        {running.has(key) && (
+                          <span className="rounded-chip bg-go/15 px-1.5 text-[11px] font-bold text-go">Running</span>
+                        )}
+                      </span>
+                      <span className="text-[11px] text-ink-soft">
+                        {v.key_id ? `Signed · key ${v.key_id.slice(0, 8)}` : "Unsigned"}
+                      </span>
+                      <span className="font-mono text-[11px] text-ink-faint" title={v.digest}>
+                        {v.digest.slice(0, 12)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              {chosenName === p.name && (problem || preview) && consent}
+            </div>
+          ))}
+        </div>
       )}
     </section>
   );
@@ -631,7 +641,7 @@ function InstalledCard({
           <p className="mt-1 font-mono text-[11px] text-ink-faint">
             {install.bundle
               ? `Bundle ${install.bundle.digest.slice(0, 12)}`
-              : "Not in catalogue — still runs from PLUGIN_DIR"}
+              : "Not in catalog — still runs from PLUGIN_DIR"}
           </p>
           {/* Two steps, like uninstall: the first click only asks. */}
           {rollbackTo.length > 0 && (

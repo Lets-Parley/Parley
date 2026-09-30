@@ -3,9 +3,9 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderApp } from "../test/render";
 import { expectNoViolations } from "../test/axe";
-import { CataloguePage } from "./CataloguePage";
+import { CatalogPage } from "./CatalogPage";
 
-const catalogue = {
+const catalog = {
   can_upload: false,
   plugins: [
     {
@@ -25,8 +25,8 @@ const catalogue = {
 let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
-    if (path === "/api/catalogue" && (!init?.method || init.method === "GET")) {
-      return new Response(JSON.stringify(catalogue), { status: 200 });
+    if (path === "/api/catalog" && (!init?.method || init.method === "GET")) {
+      return new Response(JSON.stringify(catalog), { status: 200 });
     }
     return new Response("{}", { status: 201 });
   });
@@ -34,12 +34,12 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.unstubAllGlobals();
-  catalogue.can_upload = false;
+  catalog.can_upload = false;
 });
 
-describe("CataloguePage", () => {
+describe("CatalogPage", () => {
   it("lists bundles with the server's capability copy and offers no upload to a non-curator", async () => {
-    const { container } = renderApp(<CataloguePage />);
+    const { container } = renderApp(<CatalogPage />);
     expect(await screen.findByText("Copy written by the server.")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "retro" })).toBeTruthy();
     expect(screen.queryByLabelText("A signed .parley file")).toBeNull();
@@ -56,19 +56,47 @@ describe("CataloguePage", () => {
             ]),
             { status: 200 },
           )
-        : new Response(JSON.stringify(catalogue), { status: 200 }),
+        : new Response(JSON.stringify(catalog), { status: 200 }),
     );
-    const { container } = renderApp(<CataloguePage />);
+    const { container } = renderApp(<CatalogPage />);
     const link = await screen.findByRole("link", { name: "Install retro 1.0.0 in Acme" });
     expect(link.getAttribute("href")).toBe("/o/acme/admin/plugins?install=abc123/k1");
     expect(screen.queryByRole("link", { name: /in Beta/ })).toBeNull();
     await expectNoViolations(container);
   });
 
-  it("shows a loading line while the catalogue is pending", async () => {
+  it("summarises each plugin once and flags only what changes between versions", async () => {
+    const log = { capability: "log", scope: "", permits: "Copy written by the server." };
+    const kv = { capability: "kv", scope: "", permits: "Keeps its own notes." };
+    const saved = catalog.plugins;
+    catalog.plugins = [
+      {
+        name: "retro",
+        versions: [
+          { version: "1.0.0", digest: "abc123", key_id: "k1", grants: [log], provides: ["Retrospective"], published_at: "2026-09-01T00:00:00Z" },
+          { version: "1.1.0", digest: "def456", key_id: "k1", grants: [log, kv], provides: ["Retrospective"], published_at: "2026-09-20T00:00:00Z" },
+        ],
+      },
+    ] as unknown as typeof catalog.plugins;
+    try {
+      const { container } = renderApp(<CatalogPage />);
+      const card = await screen.findByRole("region", { name: "retro" });
+      expect(card.textContent).toContain("2 versions");
+      expect(card.textContent).toContain("Latest 1.1.0");
+      expect(card.textContent).toContain("Retrospective");
+      expect(screen.getAllByText("Copy written by the server.")).toHaveLength(1);
+      expect(screen.getByText(/adds kv/)).toBeTruthy();
+      expect(screen.getAllByRole("row").length).toBeGreaterThanOrEqual(2);
+      await expectNoViolations(container);
+    } finally {
+      catalog.plugins = saved;
+    }
+  });
+
+  it("shows a loading line while the catalog is pending", async () => {
     fetchMock.mockImplementation(() => new Promise(() => {}));
-    renderApp(<CataloguePage />);
-    expect(await screen.findByText("Loading the catalogue…")).toBeTruthy();
+    renderApp(<CatalogPage />);
+    expect(await screen.findByText("Loading the catalog…")).toBeTruthy();
   });
 
 
@@ -76,37 +104,37 @@ describe("CataloguePage", () => {
   const zone = () => screen.findByRole("button", { name: /Drop a \.parley bundle here or browse/ });
   const answerPost = (post: () => Promise<Response>) =>
     fetchMock.mockImplementation(async (_path: string, init?: RequestInit) =>
-      init?.method === "POST" ? post() : new Response(JSON.stringify(catalogue), { status: 200 }),
+      init?.method === "POST" ? post() : new Response(JSON.stringify(catalog), { status: 200 }),
     );
 
   describe("uploading", () => {
     beforeEach(() => {
-      catalogue.can_upload = true;
+      catalog.can_upload = true;
     });
 
     it("uploads a picked file at once, raw, with the bundle content type", async () => {
-      const { container } = renderApp(<CataloguePage />);
+      const { container } = renderApp(<CatalogPage />);
       await zone();
       await expectNoViolations(container);
       const file = new File([new Uint8Array([31, 139])], "retro.parley");
       await userEvent.upload(screen.getByLabelText("A signed .parley file"), file);
-      await screen.findByText("Added retro.parley to the catalogue.");
+      await screen.findByText("Added retro.parley to the catalog.");
       expect(posts()).toHaveLength(1);
       const [path, init] = posts()[0];
-      expect(path).toBe("/api/catalogue/bundles");
+      expect(path).toBe("/api/catalog/bundles");
       expect((init?.headers as Record<string, string>)["Content-Type"]).toBe("application/vnd.parley.bundle");
       expect(init?.body).toBe(file);
     });
 
     it("uploads a dropped file at once, with no click", async () => {
-      renderApp(<CataloguePage />);
+      renderApp(<CatalogPage />);
       fireEvent.drop(await zone(), { dataTransfer: { files: [new File(["x"], "retro.parley")] } });
-      await screen.findByText("Added retro.parley to the catalogue.");
+      await screen.findByText("Added retro.parley to the catalog.");
       expect(posts()).toHaveLength(1);
     });
 
     it("refuses a file that is not a .parley bundle with no upload", async () => {
-      renderApp(<CataloguePage />);
+      renderApp(<CatalogPage />);
       fireEvent.drop(await zone(), { dataTransfer: { files: [new File(["x"], "retro.zip")] } });
       expect((await screen.findByRole("alert")).textContent).toContain("retro.zip");
       expect(posts()).toHaveLength(0);
@@ -115,7 +143,7 @@ describe("CataloguePage", () => {
     it("shows the upload on the zone and ignores a second drop meanwhile", async () => {
       let finish: (r: Response) => void = () => {};
       answerPost(() => new Promise<Response>((res) => (finish = res)));
-      renderApp(<CataloguePage />);
+      renderApp(<CatalogPage />);
       const z = await zone();
       fireEvent.drop(z, { dataTransfer: { files: [new File(["x"], "one.parley")] } });
       // Announced, not only drawn on the zone.
@@ -127,7 +155,7 @@ describe("CataloguePage", () => {
       fireEvent.drop(z, { dataTransfer: { files: [new File(["y"], "two.parley")] } });
       expect(posts()).toHaveLength(1);
       finish(new Response("{}", { status: 201 }));
-      await screen.findByText("Added one.parley to the catalogue.");
+      await screen.findByText("Added one.parley to the catalog.");
       expect(z.getAttribute("aria-busy")).toBe("false");
       expect(screen.queryByText("Uploading one.parley…")).toBeNull();
     });
@@ -136,15 +164,15 @@ describe("CataloguePage", () => {
       answerPost(async () =>
         new Response(JSON.stringify({ name: "retro", versions: [{ version: "1.0.0" }] }), { status: 200 }),
       );
-      renderApp(<CataloguePage />);
+      renderApp(<CatalogPage />);
       fireEvent.drop(await zone(), { dataTransfer: { files: [new File(["x"], "retro.parley")] } });
-      expect(await screen.findByText("retro 1.0.0 is already in the catalogue.")).toBeTruthy();
+      expect(await screen.findByText("retro 1.0.0 is already in the catalog.")).toBeTruthy();
       expect(screen.queryByText(/Added/)).toBeNull();
       expect(screen.queryByRole("alert")).toBeNull();
     });
 
     it("reserves the result line before any upload, so nothing jumps", async () => {
-      const { container } = renderApp(<CataloguePage />);
+      const { container } = renderApp(<CatalogPage />);
       await zone();
       const region = container.querySelector("[data-upload-result]");
       expect(region).not.toBeNull();
@@ -156,32 +184,58 @@ describe("CataloguePage", () => {
     });
 
     it("changes its copy and state while a file is dragged over, and restores both on leave", async () => {
-      const { container } = renderApp(<CataloguePage />);
+      const { container } = renderApp(<CatalogPage />);
       const z = await zone();
       const one = { dataTransfer: { items: [{ kind: "file" }], types: ["Files"] } };
       fireEvent.dragEnter(z, one);
       expect(z.getAttribute("data-drag")).toBe("over");
-      expect(screen.getByText("Release to add it to the catalogue")).toBeTruthy();
+      expect(screen.getByText("Release to add it to the catalog")).toBeTruthy();
       // Entering a child and leaving the zone's own box must not flicker.
       fireEvent.dragEnter(z.firstElementChild as Element, one);
       fireEvent.dragLeave(z, one);
       expect(z.getAttribute("data-drag")).toBe("over");
       fireEvent.dragLeave(z.firstElementChild as Element, one);
       expect(z.getAttribute("data-drag")).toBe("idle");
-      expect(screen.queryByText("Release to add it to the catalogue")).toBeNull();
+      expect(screen.queryByText("Release to add it to the catalog")).toBeNull();
       await expectNoViolations(container);
     });
 
-    it("says one bundle at a time when several files are dragged over", async () => {
-      renderApp(<CataloguePage />);
+    it("takes several files at once and reports each one", async () => {
+      fetchMock.mockImplementation(async (_path: string, init?: RequestInit) => {
+        if (init?.method !== "POST") return new Response(JSON.stringify(catalog), { status: 200 });
+        const name = (init.body as File).name;
+        if (name === "a.parley") return new Response("{}", { status: 201 });
+        if (name === "b.parley")
+          return new Response(JSON.stringify({ name: "retro", versions: [{ version: "1.0.0" }] }), { status: 200 });
+        return new Response(JSON.stringify({ error: "another bundle already holds this plugin name and version" }), { status: 409 });
+      });
+      renderApp(<CatalogPage />);
       const z = await zone();
       fireEvent.dragEnter(z, { dataTransfer: { items: [{ kind: "file" }, { kind: "file" }], types: ["Files"] } });
-      expect(z.getAttribute("data-drag")).toBe("many");
-      expect(screen.getByText("One bundle at a time")).toBeTruthy();
+      expect(screen.getByText("Release to add them to the catalog")).toBeTruthy();
+      fireEvent.drop(z, {
+        dataTransfer: {
+          files: [
+            new File(["a"], "a.parley"),
+            new File(["b"], "b.parley"),
+            new File(["c"], "c.zip"),
+            new File(["d"], "d.parley"),
+          ],
+        },
+      });
+      expect(await screen.findByText("Added a.parley to the catalog.")).toBeTruthy();
+      expect(await screen.findByText("retro 1.0.0 is already in the catalog.")).toBeTruthy();
+      await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(2));
+      const alerts = screen.getAllByRole("alert").map((a) => a.textContent);
+      expect(alerts.some((t) => t?.includes("c.zip"))).toBe(true);
+      expect(alerts).toContain("another bundle already holds this plugin name and version");
+      expect(posts()).toHaveLength(3);
+      expect(z.getAttribute("aria-busy")).toBe("false");
+      expect((screen.getByLabelText("A signed .parley file") as HTMLInputElement).multiple).toBe(true);
     });
 
     it("opens the file picker from the keyboard", async () => {
-      renderApp(<CataloguePage />);
+      renderApp(<CatalogPage />);
       const z = await zone();
       const click = vi.spyOn(screen.getByLabelText("A signed .parley file") as HTMLInputElement, "click");
       z.focus();
@@ -199,13 +253,13 @@ describe("CataloguePage", () => {
     for (const [label, answer, text] of refusals) {
       it(`reports ${label} as an alert, resets the zone, and clears it on the next file`, async () => {
         answerPost(answer);
-        renderApp(<CataloguePage />);
+        renderApp(<CatalogPage />);
         const z = await zone();
         fireEvent.drop(z, { dataTransfer: { files: [new File(["x"], "a.parley")] } });
         expect((await screen.findByRole("alert")).textContent).toBe(text);
         expect(z.getAttribute("aria-busy")).toBe("false");
         expect((screen.getByLabelText("A signed .parley file") as HTMLInputElement).disabled).toBe(false);
-        expect(screen.queryByText(/to the catalogue\./)).toBeNull();
+        expect(screen.queryByText(/to the catalog\./)).toBeNull();
         answerPost(() => new Promise<Response>(() => {}));
         fireEvent.drop(z, { dataTransfer: { files: [new File(["y"], "b.parley")] } });
         expect(screen.queryByRole("alert")).toBeNull();

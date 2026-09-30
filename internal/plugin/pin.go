@@ -156,7 +156,7 @@ const pinLockID int64 = 0x7061726c657970
 // name and version, signed preferred. It runs at boot after the PLUGIN_DIR
 // import, under its own transaction-scoped advisory lock so replicas booting
 // together do it once. An install with no match is left alone: it keeps
-// running from loose files and shows as "not in catalogue", never disabled.
+// running from loose files and shows as "not in catalog", never disabled.
 func (s *Store) PinInstalls(ctx context.Context, trusted []string, log *slog.Logger) error {
 	var pinned int64
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {

@@ -75,7 +75,7 @@ type Install struct {
 	Enabled    bool
 	QuotaBytes int64
 	// Bundle is the stored bundle this install is pinned to, nil for an
-	// install made before the catalogue that still runs from loose files.
+	// install made before the catalog that still runs from loose files.
 	Bundle *BundleRef
 	// PinnedTo is the raw pin, set even when stale. An install with any pin
 	// only ever runs stored, trusted rows, never loose files.

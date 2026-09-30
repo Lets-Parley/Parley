@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
 import { expectNoViolations } from "../test/axe";
-import type { Catalogue, DescribedGrant, PluginPreview, PluginRegistry } from "../lib/plugins";
+import type { Catalog, DescribedGrant, PluginPreview, PluginRegistry } from "../lib/plugins";
 import { ApiError } from "../lib/api";
 import { PluginsPage } from "./PluginsPage";
 
@@ -32,7 +32,7 @@ const logGrant: DescribedGrant = {
 
 let registry: PluginRegistry;
 let preview: PluginPreview;
-let catalogue: Catalogue;
+let catalog: Catalog;
 const calls: Array<[string, string, unknown]> = [];
 
 vi.mock("../lib/api", async () => {
@@ -43,7 +43,7 @@ vi.mock("../lib/api", async () => {
       calls.push([method, path, body]);
       if (method === "GET" && path === "/api/orgs/acme/admin/plugins") return registry;
       if (method === "POST" && path.endsWith("/preview")) return preview;
-      if (method === "GET" && path === "/api/catalogue") return catalogue;
+      if (method === "GET" && path === "/api/catalog") return catalog;
       return undefined;
     }),
   };
@@ -64,7 +64,7 @@ beforeEach(() => {
   calls.length = 0;
   localStorage.clear();
   registry = { hostRunning: true, secretsAvailable: true, installs: [] };
-  catalogue = {
+  catalog = {
     can_upload: false,
     plugins: [{ name: "reporter", versions: [{ version: "1.0.0", digest: "d1", key_id: "k1", grants: [fetchGrant] }] }],
   };
@@ -424,7 +424,7 @@ describe("a viewer the server has refused", () => {
     render();
 
     expect(await screen.findByText(/only an org admin can do that/i)).toBeTruthy();
-    expect(screen.queryByText("Install from the catalogue")).toBeNull();
+    expect(screen.queryByText("Install from the catalog")).toBeNull();
   });
 });
 
@@ -450,7 +450,7 @@ it("has no accessibility violations", async () => {
 });
 
 describe("installing by digest", () => {
-  it("installs a catalogue version by its digest and key id", async () => {
+  it("installs a catalog version by its digest and key id", async () => {
     render();
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "reporter 1.0.0" }));
@@ -462,12 +462,12 @@ describe("installing by digest", () => {
     expect(install?.[2]).toEqual({ digest: "d1", key_id: "k1", grantsAccepted: true });
   });
 
-  it("shows the pin, says when an install is not in the catalogue, and rolls back", async () => {
+  it("shows the pin, says when an install is not in the catalog, and rolls back", async () => {
     registry.installs = [
       {
         id: "p1", name: "reporter", version: "2.0.0", enabled: true, grants: [logGrant], provides: [],
         health: { state: "healthy", reason: "" },
-        bundle: { digest: "d2abcdef0123456789", key_id: "k1" }, inCatalogue: true,
+        bundle: { digest: "d2abcdef0123456789", key_id: "k1" }, inCatalog: true,
         history: [
           { digest: "d2abcdef0123456789", key_id: "k1", version: "2.0.0" },
           { digest: "d1", key_id: "k1", version: "1.0.0" },
@@ -475,12 +475,12 @@ describe("installing by digest", () => {
       },
       {
         id: "p2", name: "legacy", version: "1.0.0", enabled: true, grants: [], provides: [],
-        health: { state: "healthy", reason: "" }, bundle: null, inCatalogue: false, history: [],
+        health: { state: "healthy", reason: "" }, bundle: null, inCatalog: false, history: [],
       },
     ];
     const { container } = render();
     const user = userEvent.setup();
-    expect(await screen.findByText(/Not in catalogue/)).toBeTruthy();
+    expect(await screen.findByText(/Not in catalog/)).toBeTruthy();
     expect(screen.getByText(/d2abcdef0123/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Roll back to 2.0.0" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Roll back to 1.0.0" }));
@@ -503,7 +503,7 @@ describe("installing by digest", () => {
     await expectNoViolations(container);
   });
 
-  it("says so when the catalogue cannot be read", async () => {
+  it("says so when the catalog cannot be read", async () => {
     const api = (await import("../lib/api")).api as unknown as {
       getMockImplementation: () => unknown;
       mockImplementation: (f: unknown) => void;
@@ -511,37 +511,37 @@ describe("installing by digest", () => {
     const original = api.getMockImplementation();
     const real = registry;
     api.mockImplementation(async (method: string, path: string) => {
-      if (path === "/api/catalogue") throw new ApiError(500, "could not load the catalogue");
+      if (path === "/api/catalog") throw new ApiError(500, "could not load the catalog");
       return method === "GET" ? real : undefined;
     });
     try {
       render();
-      expect((await screen.findByRole("alert")).textContent).toContain("could not load the catalogue");
+      expect((await screen.findByRole("alert")).textContent).toContain("could not load the catalog");
     } finally {
       api.mockImplementation(original);
     }
   });
 
 
-  it("shows the catalogue loading", async () => {
+  it("shows the catalog loading", async () => {
     const api = (await import("../lib/api")).api as unknown as {
       getMockImplementation: () => unknown;
       mockImplementation: (f: unknown) => void;
     };
     const original = api.getMockImplementation();
     api.mockImplementation(async (method: string, path: string) =>
-      path === "/api/catalogue" ? new Promise(() => {}) : method === "GET" ? registry : undefined,
+      path === "/api/catalog" ? new Promise(() => {}) : method === "GET" ? registry : undefined,
     );
     try {
       render();
-      expect(await screen.findByText("Reading the catalogue…")).toBeTruthy();
+      expect(await screen.findByText("Reading the catalog…")).toBeTruthy();
     } finally {
       api.mockImplementation(original);
     }
   });
 
   it("never lets a late preview overwrite a newer pick", async () => {
-    catalogue.plugins[0].versions.push({ version: "2.0.0", digest: "d2", key_id: "k1", grants: [logGrant] });
+    catalog.plugins[0].versions.push({ version: "2.0.0", digest: "d2", key_id: "k1", grants: [logGrant] });
     let answerOld: (p: PluginPreview) => void = () => {};
     const api = (await import("../lib/api")).api as unknown as {
       getMockImplementation: () => unknown;
@@ -549,7 +549,7 @@ describe("installing by digest", () => {
     };
     const original = api.getMockImplementation();
     api.mockImplementation(async (method: string, path: string, body?: { digest?: string }) => {
-      if (path === "/api/catalogue") return catalogue;
+      if (path === "/api/catalog") return catalog;
       if (path.endsWith("/preview"))
         return body?.digest === "d1"
           ? new Promise<PluginPreview>((res) => (answerOld = res))
@@ -574,7 +574,7 @@ describe("installing by digest", () => {
     registry.installs = [
       {
         id: "p1", name: "reporter", version: "0.1.0", enabled: true, grants: [], provides: [],
-        health: { state: "healthy", reason: "" }, bundle: { digest: "a0", key_id: "k1" }, inCatalogue: true,
+        health: { state: "healthy", reason: "" }, bundle: { digest: "a0", key_id: "k1" }, inCatalog: true,
         history: [
           { digest: "a0", key_id: "k1", version: "0.1.0" },
           { digest: "a1", key_id: "k1", version: "0.1.1" },
@@ -589,14 +589,14 @@ describe("installing by digest", () => {
     expect(screen.getByText(/Confirm moving reporter from 0\.1\.0 to 0\.1\.1/)).toBeTruthy();
   });
 
-  it("points an empty catalogue at the page where bundles are added", async () => {
-    catalogue.plugins = [];
+  it("points an empty catalog at the page where bundles are added", async () => {
+    catalog.plugins = [];
     render();
-    const link = await screen.findByRole("link", { name: "the plugin catalogue" });
-    expect(link.getAttribute("href")).toBe("/catalogue");
+    const link = await screen.findByRole("link", { name: "the plugin catalog" });
+    expect(link.getAttribute("href")).toBe("/catalog");
   });
 
-  it("preselects the version a catalogue link names", async () => {
+  it("preselects the version a catalog link names", async () => {
     renderApp(routed, { route: "/o/acme/admin/plugins?install=d1/k1" });
     expect(await screen.findByText(/Can send anything it holds/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "reporter 1.0.0" }).getAttribute("aria-pressed")).toBe("true");
@@ -608,10 +608,10 @@ describe("installing by digest", () => {
       registry.installs = [
         {
           id: "p1", name: "reporter", version, enabled: true, grants: [], provides: [],
-          health: { state: "healthy", reason: "" }, bundle: { digest: `r${version}`, key_id: "k1" }, inCatalogue: true, history: [],
+          health: { state: "healthy", reason: "" }, bundle: { digest: `r${version}`, key_id: "k1" }, inCatalog: true, history: [],
         },
       ];
-      catalogue.plugins = [
+      catalog.plugins = [
         {
           name: "reporter",
           versions: ["0.1.0", "0.1.1", "0.2.0"].map((v) => ({ version: v, digest: `r${v}`, key_id: "k1", grants: [] })),
@@ -673,7 +673,7 @@ describe("installing by digest", () => {
     });
 
     it("holds four plugins of several versions each", async () => {
-      catalogue.plugins = ["alpha", "beta", "gamma", "delta"].map((name, i) => ({
+      catalog.plugins = ["alpha", "beta", "gamma", "delta"].map((name, i) => ({
         name,
         versions: Array.from({ length: 3 + (i % 3) }, (_, j) => ({
           version: `1.${j}.0`, digest: `${name}${j}`.padEnd(64, "0"), key_id: j % 2 ? "" : "k1", grants: [],
@@ -685,5 +685,16 @@ describe("installing by digest", () => {
       for (const group of container.querySelectorAll("[data-versions]")) expect(group.className).toContain("flex-wrap");
       await expectNoViolations(container);
     });
+  });
+
+  it("opens the consent directly under the plugin that was chosen", async () => {
+    catalog.plugins.push({ name: "other", versions: [{ version: "3.0.0", digest: "o3", key_id: "k1", grants: [] }] });
+    render();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "reporter 1.0.0" }));
+    await screen.findByText(/Can send anything it holds/);
+    const group = screen.getByRole("group", { name: "reporter" });
+    expect(group.querySelector("[data-consent]")).not.toBeNull();
+    expect(screen.getByRole("group", { name: "other" }).querySelector("[data-consent]")).toBeNull();
   });
 });

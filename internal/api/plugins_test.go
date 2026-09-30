@@ -35,11 +35,11 @@ func pluginServer(t *testing.T) (*httptest.Server, *pgxpool.Pool, *plugin.Store,
 	return srv, pool, plugins, admin, adminID
 }
 
-// testBundleKey signs every bundle these tests put in the catalogue, and every
+// testBundleKey signs every bundle these tests put in the catalog, and every
 // test server with a plugin store trusts it.
 var testBundlePub, testBundleKey, _ = ed25519.GenerateKey(rand.Reader)
 
-// choice stores a package as a signed catalogue bundle and returns the
+// choice stores a package as a signed catalog bundle and returns the
 // {digest, key_id} fields an install names it by. The same name and version
 // again answers the bundle already stored.
 func choice(t *testing.T, pool *pgxpool.Pool, pkg string) string {

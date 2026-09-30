@@ -91,8 +91,8 @@ export function awayApi(id = ""): string {
   return id ? `/api/me/away/${encodeURIComponent(id)}` : "/api/me/away";
 }
 
-/** The SPA route for the instance plugin catalogue. It belongs to no org. */
-export const cataloguePath = "/catalogue";
+/** The SPA route for the instance plugin catalog. It belongs to no org. */
+export const catalogPath = "/catalog";
 
-/** The catalogue API: GET lists it; uploads POST to `${catalogueApi}/bundles`. */
-export const catalogueApi = "/api/catalogue";
+/** The catalog API: GET lists it; uploads POST to `${catalogApi}/bundles`. */
+export const catalogApi = "/api/catalog";

@@ -45,7 +45,7 @@ func uploadBundle(t *testing.T, srv *httptest.Server, data []byte, cookie *http.
 	return resp.StatusCode, string(body)
 }
 
-func catalogueServer(t *testing.T) (*httptest.Server, *pgxpool.Pool, ed25519.PrivateKey) {
+func catalogServer(t *testing.T) (*httptest.Server, *pgxpool.Pool, ed25519.PrivateKey) {
 	t.Helper()
 	pool := testPool(t)
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -58,7 +58,7 @@ func catalogueServer(t *testing.T) (*httptest.Server, *pgxpool.Pool, ed25519.Pri
 }
 
 func TestOnlyADefaultOrgAdminCanUploadABundle(t *testing.T) {
-	srv, pool, priv := catalogueServer(t)
+	srv, pool, priv := catalogServer(t)
 	name := "cat" + randomKindSuffix(t)
 	data := packBundle(t, priv, name, "1.0.0")
 
@@ -88,7 +88,7 @@ func TestOnlyADefaultOrgAdminCanUploadABundle(t *testing.T) {
 		t.Fatalf("the curator: got %d %s, want 201 naming %s", code, body, name)
 	}
 	var n int
-	if err := pool.QueryRow(ctx, "select count(*) from org_audit_log where action = 'plugin.catalogue.upload' and detail like $1", name+"%").Scan(&n); err != nil || n != 1 {
+	if err := pool.QueryRow(ctx, "select count(*) from org_audit_log where action = 'plugin.catalog.upload' and detail like $1", name+"%").Scan(&n); err != nil || n != 1 {
 		t.Fatalf("upload audit rows: %d (%v), want 1", n, err)
 	}
 
@@ -103,19 +103,19 @@ func TestOnlyADefaultOrgAdminCanUploadABundle(t *testing.T) {
 	if code, body := uploadBundle(t, srv, packBundle(t, priv2, name, "1.0.0"), curator); code != http.StatusUnprocessableEntity || strings.Contains(body, "/") {
 		t.Fatalf("an untrusted signer: got %d %s, want 422 with a generic message", code, body)
 	}
-	if err := pool.QueryRow(ctx, "select count(*) from org_audit_log where action = 'plugin.catalogue.refused' and actor_id = $1", curatorID).Scan(&n); err != nil || n != 1 {
+	if err := pool.QueryRow(ctx, "select count(*) from org_audit_log where action = 'plugin.catalog.refused' and actor_id = $1", curatorID).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("refusal audit rows: %d (%v), want 1", n, err)
 	}
 
 	// The other org's admin still browses it.
-	resp, got := doJSON(t, srv, "GET", "/api/catalogue", "", other)
+	resp, got := doJSON(t, srv, "GET", "/api/catalog", "", other)
 	if resp.StatusCode != http.StatusOK || got["can_upload"] != false || !strings.Contains(fmt.Sprint(got["plugins"]), name) {
 		t.Fatalf("browse as another org's admin: %d %v", resp.StatusCode, got)
 	}
 }
 
 func TestAConflictingBundleIs409(t *testing.T) {
-	srv, pool, priv := catalogueServer(t)
+	srv, pool, priv := catalogServer(t)
 	curator, id := signupWithID(t, srv, "Curator")
 	makeOrgAdmin(t, pool, id)
 	name := "cat" + randomKindSuffix(t)
@@ -138,13 +138,13 @@ func TestAConflictingBundleIs409(t *testing.T) {
 // The exemption is the exact type on the exact route: anything else on that
 // route is still held to JSON, and the type is not honoured anywhere else.
 func TestTheBundleTypeIsExemptOnlyOnTheUploadRoute(t *testing.T) {
-	srv, pool, priv := catalogueServer(t)
+	srv, pool, priv := catalogServer(t)
 	curator, id := signupWithID(t, srv, "Curator")
 	makeOrgAdmin(t, pool, id)
 	data := packBundle(t, priv, "cat"+randomKindSuffix(t), "1.0.0")
 	for _, c := range []struct{ path, ct string }{
-		{"/api/catalogue/bundles", "application/octet-stream"},
-		{"/api/catalogue/bundles/", bundleContentType},
+		{"/api/catalog/bundles", "application/octet-stream"},
+		{"/api/catalog/bundles/", bundleContentType},
 		{"/api/spaces", bundleContentType},
 	} {
 		req, _ := http.NewRequest("POST", srv.URL+c.path, bytes.NewReader(data))
@@ -170,28 +170,28 @@ func TestTheBundleTypeIsExemptOnlyOnTheUploadRoute(t *testing.T) {
 	}
 }
 
-func TestTheCatalogueNeedsAnOrgMembership(t *testing.T) {
-	srv, pool, _ := catalogueServer(t)
+func TestTheCatalogNeedsAnOrgMembership(t *testing.T) {
+	srv, pool, _ := catalogServer(t)
 	loner, id := signupWithID(t, srv, "Loner")
 	if _, err := pool.Exec(context.Background(), "update org_members set revoked_at = now() where user_id = $1", id); err != nil {
 		t.Fatal(err)
 	}
-	if resp, _ := doJSON(t, srv, "GET", "/api/catalogue", "", loner); resp.StatusCode != http.StatusForbidden {
+	if resp, _ := doJSON(t, srv, "GET", "/api/catalog", "", loner); resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("no membership: got %d, want 403", resp.StatusCode)
 	}
 }
 
 // Gotcha 26b's pattern: the response is read as raw JSON and every key is
 // checked against the allow-list, so a handler that grew a field fails here.
-func TestTheCatalogueProjectionIsAllowListed(t *testing.T) {
-	srv, pool, priv := catalogueServer(t)
+func TestTheCatalogProjectionIsAllowListed(t *testing.T) {
+	srv, pool, priv := catalogServer(t)
 	curator, id := signupWithID(t, srv, "Curator")
 	makeOrgAdmin(t, pool, id)
 	name := "cat" + randomKindSuffix(t)
 	if code, body := uploadBundle(t, srv, packBundle(t, priv, name, "1.0.0"), curator); code != http.StatusCreated {
 		t.Fatalf("upload: %d %s", code, body)
 	}
-	req, _ := http.NewRequest("GET", srv.URL+"/api/catalogue", nil)
+	req, _ := http.NewRequest("GET", srv.URL+"/api/catalog", nil)
 	req.AddCookie(curator)
 	resp, err := srv.Client().Do(req)
 	if err != nil {
@@ -206,6 +206,7 @@ func TestTheCatalogueProjectionIsAllowListed(t *testing.T) {
 		"can_upload": true, "plugins": true, "name": true, "versions": true, "version": true,
 		"digest": true, "key_id": true, "grants": true, "settings": true,
 		"capability": true, "scope": true, "permits": true, "allows": true, "refuses": true,
+		"published_at": true, "provides": true,
 	}
 	var walk func(v any, under string)
 	walk = func(v any, under string) {
@@ -213,7 +214,7 @@ func TestTheCatalogueProjectionIsAllowListed(t *testing.T) {
 		case map[string]any:
 			for k, child := range v {
 				if !allowed[k] {
-					t.Errorf("key %q is not in the catalogue allow-list", k)
+					t.Errorf("key %q is not in the catalog allow-list", k)
 				}
 				if k != "settings" { // the plugin's own schema, not ours
 					walk(child, k)
@@ -226,6 +227,9 @@ func TestTheCatalogueProjectionIsAllowListed(t *testing.T) {
 		}
 	}
 	walk(raw, "")
+	if !strings.Contains(fmt.Sprint(raw), "published_at") || !strings.Contains(fmt.Sprint(raw), "provides") {
+		t.Fatalf("a version names no publish date or kinds: %v", raw)
+	}
 	if !strings.Contains(fmt.Sprint(raw), "Can write lines into this server's log") {
 		t.Fatalf("capability copy missing: %v", raw)
 	}
@@ -245,7 +249,7 @@ func (c *countingReader) Read(p []byte) (int, error) {
 // An anonymous upload is refused before its body is buffered past the JSON
 // cap: the larger read happens only behind the curator gate.
 func TestAnAnonymousUploadIsNotBufferedPastTheJSONCap(t *testing.T) {
-	srv, _, _ := catalogueServer(t)
+	srv, _, _ := catalogServer(t)
 	body := &countingReader{r: bytes.NewReader(make([]byte, 1<<20))}
 	req := httptest.NewRequest("POST", bundleUploadPath, body)
 	req.Header.Set("Content-Type", bundleContentType)
@@ -261,7 +265,7 @@ func TestAnAnonymousUploadIsNotBufferedPastTheJSONCap(t *testing.T) {
 }
 
 func TestABundleWithNoVersionIs400(t *testing.T) {
-	srv, pool, priv := catalogueServer(t)
+	srv, pool, priv := catalogServer(t)
 	curator, id := signupWithID(t, srv, "Curator")
 	makeOrgAdmin(t, pool, id)
 	data, err := bundle.Pack(map[string][]byte{"plugin.wasm": []byte("\x00asm")},

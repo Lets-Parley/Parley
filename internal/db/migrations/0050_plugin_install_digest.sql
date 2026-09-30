@@ -3,8 +3,8 @@
 -- bundle_digest/bundle_key_id pin the plugin_bundles row the host loads;
 -- pending_* stage the row a widening upgrade or rollback is waiting to move
 -- to. All four are nullable for one release: an install made before the
--- catalogue has no row to point at and keeps running from PLUGIN_DIR's loose
--- files, shown as "not in catalogue". A later migration makes the pin NOT NULL.
+-- catalog has no row to point at and keeps running from PLUGIN_DIR's loose
+-- files, shown as "not in catalog". A later migration makes the pin NOT NULL.
 alter table plugin_installs
     add column bundle_digest  text,
     add column bundle_key_id  text,

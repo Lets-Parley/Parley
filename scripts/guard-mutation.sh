@@ -773,14 +773,14 @@ mutate "the handshake timeout" \
 # holder could already enter, never a new key.
 target internal/api
 
-mutate "the catalogue curator role check" \
+mutate "the catalog curator role check" \
     'TestOnlyADefaultOrgAdminCanUploadABundle' \
-    catalogue.go 'return org, role == store.OrgRoleAdmin, nil' 'return org, role != "", nil'
+    catalog.go 'return org, role == store.OrgRoleAdmin, nil' 'return org, role != "", nil'
 
 # The upload exemption from requireJSONBody is an exact path and an exact type.
 mutate "the bundle upload exemption's exact type" \
     'TestTheBundleTypeIsExemptOnlyOnTheUploadRoute' \
-    catalogue.go 'r.Header.Get("Content-Type") == bundleContentType' 'true'
+    catalog.go 'r.Header.Get("Content-Type") == bundleContentType' 'true'
 
 # The pre-auth middleware must not buffer the upload past the JSON cap.
 mutate "the bundle upload skipping pre-auth buffering" \
@@ -789,12 +789,12 @@ mutate "the bundle upload skipping pre-auth buffering" \
 
 mutate "the bundle upload exemption's exact path" \
     'TestTheBundleTypeIsExemptOnlyOnTheUploadRoute' \
-    catalogue.go 'r.URL.Path == bundleUploadPath &&' 'r.URL.Path != "" &&'
+    catalog.go 'r.URL.Path == bundleUploadPath &&' 'r.URL.Path != "" &&'
 
 # The raw body's only cap is in the handler, behind the curator gate.
 mutate "the bundle upload body cap" \
     'TestTheBundleTypeIsExemptOnlyOnTheUploadRoute' \
-    catalogue.go 'http.MaxBytesReader(w, r.Body, bundle.MaxUpload)' 'http.MaxBytesReader(w, r.Body, bundle.MaxUpload<<6)'
+    catalog.go 'http.MaxBytesReader(w, r.Body, bundle.MaxUpload)' 'http.MaxBytesReader(w, r.Body, bundle.MaxUpload<<6)'
 
 
 mutate "the embed switch answering 404 when no provider is enabled" \
@@ -865,7 +865,7 @@ mutate "no loose panel UI for a pinned install" \
 
 mutate "the curator gate on the loaded-bundle list" \
     'TestLoadedBundlesAreForCuratorsOnly' \
-    router.go 'r.With(a.requireInstanceCurator).Get("/catalogue/loaded"' 'r.Get("/catalogue/loaded"'
+    router.go 'r.With(a.requireInstanceCurator).Get("/catalog/loaded"' 'r.Get("/catalog/loaded"'
 
 mutate "an older version through install refused as a downgrade" \
     'TestRollbackReturnsOnlyToABundleTheInstallRan' \

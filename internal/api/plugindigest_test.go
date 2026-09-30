@@ -41,7 +41,7 @@ func digestServer(t *testing.T) digestFixture {
 	return digestFixture{srv: srv, pool: pool, admin: admin, id: adminID, priv: priv, bundle: bs}
 }
 
-// store puts a signed bundle in the catalogue and returns its choice body.
+// store puts a signed bundle in the catalog and returns its choice body.
 func (f digestFixture) store(t *testing.T, name, version, caps string) string {
 	t.Helper()
 	data, err := bundle.Pack(map[string][]byte{"plugin.wasm": []byte("\x00asm")},
@@ -68,20 +68,20 @@ func pinnedDigest(view map[string]any) string {
 	return d
 }
 
-func TestInstallFromTheCatalogueUsesTheVerifiedManifest(t *testing.T) {
+func TestInstallFromTheCatalogUsesTheVerifiedManifest(t *testing.T) {
 	f := digestServer(t)
 	name := newPluginName(t)
 	choice := f.store(t, name, "1.0.0", `[{"capability":"log"}]`)
 
 	if code, _ := f.post(t, "", `{"grantsAccepted":true,"digest":"nope","key_id":""}`); code != http.StatusNotFound {
-		t.Fatalf("a digest not in the catalogue = %d, want 404", code)
+		t.Fatalf("a digest not in the catalog = %d, want 404", code)
 	}
 	code, view := f.post(t, "", `{"grantsAccepted":true,`+choice+`}`)
 	if code != http.StatusCreated {
 		t.Fatalf("install by digest = %d: %v", code, view)
 	}
-	if view["version"] != "1.0.0" || pinnedDigest(view) == "" || view["inCatalogue"] != true {
-		t.Fatalf("install is not pinned to the catalogue bundle: %v", view)
+	if view["version"] != "1.0.0" || pinnedDigest(view) == "" || view["inCatalog"] != true {
+		t.Fatalf("install is not pinned to the catalog bundle: %v", view)
 	}
 	if grants, _ := view["grants"].([]any); len(grants) != 1 {
 		t.Fatalf("grants = %v, want the manifest's one", view["grants"])
@@ -128,12 +128,12 @@ func TestLoadedBundlesAreForCuratorsOnly(t *testing.T) {
 	store := &plugin.Store{Pool: pool}
 	srv := testServerWith(t, pool, Options{AllowedOrigin: testOrigin, Plugins: store, PluginHost: plugin.NewHost(store, plugin.HostConfig{})})
 	member := signup(t, srv, "Member")
-	if resp, _ := doJSON(t, srv, "GET", "/api/catalogue/loaded", "", member); resp.StatusCode != http.StatusForbidden {
+	if resp, _ := doJSON(t, srv, "GET", "/api/catalog/loaded", "", member); resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("a member = %d, want 403", resp.StatusCode)
 	}
 	curator, id := signupWithID(t, srv, "Curator")
 	makeOrgAdmin(t, pool, id)
-	resp, body := doJSON(t, srv, "GET", "/api/catalogue/loaded", "", curator)
+	resp, body := doJSON(t, srv, "GET", "/api/catalog/loaded", "", curator)
 	if _, ok := body["loaded"].([]any); resp.StatusCode != http.StatusOK || !ok {
 		t.Fatalf("a curator = %d %v, want 200 and a loaded list", resp.StatusCode, body)
 	}

@@ -57,8 +57,8 @@ type pluginCapReq struct {
 	Scope      string `json:"scope"`
 }
 
-// pluginChoice is a catalogue entry, by the digest and key id GET
-// /api/catalogue lists.
+// pluginChoice is a catalog entry, by the digest and key id GET
+// /api/catalog lists.
 type pluginChoice struct {
 	Digest string `json:"digest"`
 	KeyID  string `json:"key_id"`
@@ -68,7 +68,7 @@ func (c pluginChoice) ref() plugin.BundleRef {
 	return plugin.BundleRef{Digest: c.Digest, KeyID: c.KeyID}
 }
 
-// installRequest is a catalogue choice plus the operator's decision about it.
+// installRequest is a catalog choice plus the operator's decision about it.
 // Consent is a field rather than an implication: a POST that carries no
 // explicit grant decision is refused, so a client that forgot to show the
 // consent screen cannot install anything by omission.
@@ -90,11 +90,11 @@ type installView struct {
 	Provides []string         `json:"provides"`
 	Pending  *pendingView     `json:"pending,omitempty"`
 	Health   plugin.Health    `json:"health"`
-	// Bundle is the catalogue bundle the install is pinned to; null means it
-	// is not in the catalogue and still runs from PLUGIN_DIR's loose files.
-	Bundle      *plugin.BundleRef      `json:"bundle"`
-	InCatalogue bool                   `json:"inCatalogue"`
-	History     []plugin.PinnedVersion `json:"history"`
+	// Bundle is the catalog bundle the install is pinned to; null means it
+	// is not in the catalog and still runs from PLUGIN_DIR's loose files.
+	Bundle    *plugin.BundleRef      `json:"bundle"`
+	InCatalog bool                   `json:"inCatalog"`
+	History   []plugin.PinnedVersion `json:"history"`
 }
 
 // pendingView is an upgrade waiting on an operator, rendered as a diff against
@@ -213,9 +213,9 @@ func (a *app) installView(ctx context.Context, adm *plugin.Admin, id string) (in
 		// than the nil append below leaves it as when a plugin provides no
 		// session kinds — the common case, and the one that white-screened
 		// the page.
-		Provides:    []string{},
-		Bundle:      state.Install.Bundle,
-		InCatalogue: state.Install.Bundle != nil,
+		Provides:  []string{},
+		Bundle:    state.Install.Bundle,
+		InCatalog: state.Install.Bundle != nil,
 		// Enabled is durable in plugin_installs.enabled and is genuinely
 		// known without a host, so that case is decided below regardless of
 		// a.pluginHost. Everything else about an install's health is a
@@ -269,7 +269,7 @@ func (a *app) handlePreviewPlugin(w http.ResponseWriter, r *http.Request) {
 	}
 	var req pluginChoice
 	if err := httprequest.DecodeJSON(w, r, 64<<10, &req); err != nil {
-		http.Error(w, `{"error":"choose a bundle from the catalogue"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"choose a bundle from the catalog"}`, http.StatusBadRequest)
 		return
 	}
 	pkg, pin, ok := a.choose(w, r, req)
@@ -624,21 +624,21 @@ func (a *app) requirePluginStore(w http.ResponseWriter) bool {
 	return true
 }
 
-// choose resolves a catalogue choice to the package whose grants, kinds and
+// choose resolves a catalog choice to the package whose grants, kinds and
 // consent copy apply — the verified bundle's own manifest — and the bundle it
 // pins.
 func (a *app) choose(w http.ResponseWriter, r *http.Request, c pluginChoice) (pluginPackage, *plugin.BundleRef, bool) {
 	if c.Digest == "" {
-		http.Error(w, `{"error":"choose a bundle from the catalogue"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"choose a bundle from the catalog"}`, http.StatusBadRequest)
 		return pluginPackage{}, nil, false
 	}
 	b, err := a.bundles.Pinned(r.Context(), c.ref())
 	if err != nil && !errors.Is(err, plugin.ErrBundleUntrusted) && !errors.Is(err, plugin.ErrNoBundle) {
-		a.pluginError(w, err, "could not read the catalogue")
+		a.pluginError(w, err, "could not read the catalog")
 		return pluginPackage{}, nil, false
 	}
 	if err != nil {
-		http.Error(w, `{"error":"that bundle is not in the catalogue"}`, http.StatusNotFound)
+		http.Error(w, `{"error":"that bundle is not in the catalog"}`, http.StatusNotFound)
 		return pluginPackage{}, nil, false
 	}
 	out := pluginPackage{Manifest: 1, Kind: "plugin"}

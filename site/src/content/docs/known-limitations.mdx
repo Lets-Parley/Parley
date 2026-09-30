@@ -20,7 +20,7 @@ accepted and actionable.
 <Capability rows={[
   { name: "Operator administration UI", status: "built", detail: "An org admin installs, enables, disables, upgrades and uninstalls plugins from <code>/o/&lt;org&gt;/admin/plugins</code>, approving each grant on a consent screen." },
   { name: "Plugin UI", status: "built", detail: "A plugin can draw a panel, served from <code>/plugin-ui/&lt;name&gt;/&lt;version&gt;</code> and rendered in a sandboxed iframe with no network access of its own — see <a href='/security/plugin-sandbox/'>Plugin sandbox</a>." },
-  { name: "A plugin registry", status: "not-built", detail: "Signed <code>.parley</code> bundles in <code>PLUGIN_DIR</code> are verified against <code>PLUGIN_TRUSTED_KEYS</code> and stored at boot, but there is no central catalogue to fetch them from." },
+  { name: "A plugin registry", status: "not-built", detail: "Signed <code>.parley</code> bundles in <code>PLUGIN_DIR</code> are verified against <code>PLUGIN_TRUSTED_KEYS</code> and stored at boot, but there is no central catalog to fetch them from." },
   { name: "Python plugins", status: "not-built", detail: "Python is not an official Extism guest PDK. Rust, JavaScript, Go (TinyGo), Haskell, AssemblyScript, C, Zig and .NET are." },
   { name: "SQL for plugins", status: "not-built", detail: "Deliberately absent and not planned. A plugin that could reach the pool would have every other capability by implication." },
 ]} />

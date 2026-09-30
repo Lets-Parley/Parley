@@ -272,7 +272,7 @@ func testServer(t *testing.T) *httptest.Server {
 
 func testServerWith(t *testing.T, pool *pgxpool.Pool, opts Options) *httptest.Server {
 	t.Helper()
-	// A plugin store installs only from the catalogue, so it gets one that
+	// A plugin store installs only from the catalog, so it gets one that
 	// trusts the key choice() signs with.
 	if opts.Plugins != nil && opts.PluginBundles == nil {
 		opts.PluginBundles = &plugin.BundleStore{Pool: pool, Dir: opts.PluginDir, Trusted: []ed25519.PublicKey{testBundlePub}}
