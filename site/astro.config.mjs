@@ -134,6 +134,7 @@ export default defineConfig({
             "reference/database-schema",
             "reference/csv-format",
             "reference/limits-and-defaults",
+            "reference/build-your-first-plugin",
             "reference/plugin-sdk",
             "reference/plugin-protocol",
             "reference/plugin-bundle",
