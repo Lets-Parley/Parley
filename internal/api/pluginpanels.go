@@ -3,11 +3,14 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/lets-parley/parley/internal/plugin"
 )
 
 // panel is one installed plugin that ships UI, as the room needs it: what to
@@ -120,6 +123,9 @@ func (a *app) pluginPanels(ctx context.Context, orgID string) ([]panel, error) {
 		// rather than a database column keeps "has UI" a fact about what is
 		// deployed, which is the thing the frame route will answer for.
 		stored, err := a.bundles.Stored(ctx, p.Name, p.Version)
+		if errors.Is(err, plugin.ErrBundleUntrusted) {
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -132,6 +138,7 @@ func (a *app) pluginPanels(ctx context.Context, orgID string) ([]panel, error) {
 			if a.bundles.Dir == "" || !hasPluginUI(a.bundles.Dir, p.Name, p.Version) {
 				continue
 			}
+			a.bundles.WarnLoose(p.Name, p.Version, "ui.js")
 			p.Slots = readDeclaredSlots(a.bundles.Dir, p.Name, p.Version)
 		}
 		if len(p.Slots) == 0 {

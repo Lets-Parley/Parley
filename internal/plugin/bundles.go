@@ -1,15 +1,19 @@
 package plugin
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,85 +21,155 @@ import (
 	"github.com/lets-parley/parley/internal/plugin/bundle"
 )
 
-// BundleStore is the plugin_bundles table, with PLUGIN_DIR as the fallback.
+var (
+	// ErrBundleConflict is a bundle for a name and version another publisher
+	// already holds. The first signed bundle wins; an unsigned one never
+	// displaces or competes with it.
+	ErrBundleConflict = errors.New("a different bundle is already stored for this name and version")
+	// ErrBundleUntrusted is a stored bundle this instance does not trust now.
+	ErrBundleUntrusted = errors.New("the stored bundle for this name and version is not trusted by this instance")
+)
+
+// DefaultResolveTTL is how long a pod reuses which row answers a name and
+// version before asking the table again.
+const DefaultResolveTTL = 5 * time.Second
+
+// BundleStore is the plugin_bundles table, with PLUGIN_DIR's loose files as a
+// legacy fallback.
 //
-// The lookup rule, for a name and version: among the rows with that name and
-// version whose key_id this instance trusts now — a key in Trusted, or ” for
-// an unsigned bundle only while AllowUnsigned is on — the one with the latest
-// uploaded_at wins, ties broken by the smaller (digest, key_id). With no such
-// row, the files in Dir are used as before. A row is the whole bundle, so a
-// row without a ui.js means no UI; it never falls through to a file on disk.
+// The rule, for a name and version: the stored row answers — the signed one
+// if there is one, else the unsigned one. It is used only if its archive
+// verifies against the trust set this store holds now (Trusted, and unsigned
+// only under AllowUnsigned); the key_id column is an index, never authority.
+// A row that does not verify is refused and never falls back to a file. Only
+// when no row exists for that name and version are the loose files in Dir
+// read, with a warning each time: they are unsigned and legacy.
 //
-// Trust is checked at read as well as at import, so removing a key from
-// PLUGIN_TRUSTED_KEYS stops its bundles being served without deleting a row.
-//
-// Bytes are cached per pod by digest. A digest names content, so an entry is
-// never stale and the cache only ever misses: a hit still resolves the digest
-// (a narrow index read) but never re-reads the bytes.
+// Which row answers is cached for ResolveTTL, so a row stored by another pod
+// is picked up within that bound. Trust is re-checked on every resolve.
+// Verified bundles are cached by digest and key id; their bytes never change.
 type BundleStore struct {
 	Pool          *pgxpool.Pool
 	Dir           string
 	Trusted       []ed25519.PublicKey
 	AllowUnsigned bool
+	Log           *slog.Logger
+	// ResolveTTL overrides DefaultResolveTTL.
+	ResolveTTL time.Duration
 
-	mu    sync.Mutex
-	cache map[string]*bundle.Bundle
+	mu       sync.Mutex
+	cache    map[string]*bundle.Bundle
+	resolved map[string]resolution
 }
 
-func (s *BundleStore) keyIDs() []string {
-	ids := make([]string, 0, len(s.Trusted)+1)
-	for _, k := range s.Trusted {
-		ids = append(ids, bundle.KeyID(k))
-	}
-	if s.AllowUnsigned {
-		ids = append(ids, "")
-	}
-	return ids
+type resolution struct {
+	digest, keyID string
+	found         bool
+	at            time.Time
 }
 
-// Stored returns the stored bundle for name and version under the rule above,
-// or nil with no error when there is no such row.
+func (s *BundleStore) trusts(keyID string) bool {
+	if keyID == "" {
+		return s.AllowUnsigned
+	}
+	return slices.ContainsFunc(s.Trusted, func(k ed25519.PublicKey) bool { return bundle.KeyID(k) == keyID })
+}
+
+func (s *BundleStore) row(ctx context.Context, name, version string) (resolution, error) {
+	ttl := s.ResolveTTL
+	if ttl <= 0 {
+		ttl = DefaultResolveTTL
+	}
+	nv := name + "\x00" + version
+	s.mu.Lock()
+	r, ok := s.resolved[nv]
+	s.mu.Unlock()
+	if ok && time.Since(r.at) < ttl {
+		return r, nil
+	}
+	r = resolution{at: time.Now()}
+	err := s.Pool.QueryRow(ctx, `
+		select digest, key_id from plugin_bundles
+		where name = $1 and version = $2
+		order by key_id = '' limit 1`, name, version).Scan(&r.digest, &r.keyID)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+	case err != nil:
+		return r, fmt.Errorf("resolving the bundle for %s %s: %w", name, version, err)
+	default:
+		r.found = true
+	}
+	s.mu.Lock()
+	if s.resolved == nil {
+		s.resolved = map[string]resolution{}
+	}
+	s.resolved[nv] = r
+	s.mu.Unlock()
+	return r, nil
+}
+
+// Stored returns the verified stored bundle for name and version, nil with no
+// error when no row exists, or ErrBundleUntrusted when one exists but this
+// instance does not trust it now.
 func (s *BundleStore) Stored(ctx context.Context, name, version string) (*bundle.Bundle, error) {
 	if s == nil || s.Pool == nil {
 		return nil, nil
 	}
-	var digest, keyID string
-	err := s.Pool.QueryRow(ctx, `
-		select digest, key_id from plugin_bundles
-		where name = $1 and version = $2 and key_id = any($3)
-		order by uploaded_at desc, digest, key_id limit 1`,
-		name, version, s.keyIDs()).Scan(&digest, &keyID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
+	r, err := s.row(ctx, name, version)
+	if err != nil || !r.found {
+		return nil, err
 	}
-	if err != nil {
-		return nil, fmt.Errorf("resolving the bundle for %s %s: %w", name, version, err)
+	if !s.trusts(r.keyID) {
+		return nil, fmt.Errorf("%s %s: %w", name, version, ErrBundleUntrusted)
 	}
+	key := r.digest + "/" + r.keyID
 	s.mu.Lock()
-	b, ok := s.cache[digest]
+	b, ok := s.cache[key]
 	s.mu.Unlock()
 	if ok {
 		return b, nil
 	}
-	b = &bundle.Bundle{Digest: digest, KeyID: keyID}
-	var manifest string
-	if err := s.Pool.QueryRow(ctx,
-		`select manifest::text, wasm, ui, slots from plugin_bundles where digest = $1 and key_id = $2`,
-		digest, keyID).Scan(&manifest, &b.Wasm, &b.UI, &b.Slots); err != nil {
-		return nil, fmt.Errorf("reading bundle %s: %w", digest, err)
+	var archive []byte
+	if err := s.Pool.QueryRow(ctx, `select archive from plugin_bundles where digest = $1 and key_id = $2`,
+		r.digest, r.keyID).Scan(&archive); err != nil {
+		return nil, fmt.Errorf("reading bundle %s: %w", r.digest, err)
 	}
-	b.Manifest = []byte(manifest)
+	b, err = bundle.Verify(bytes.NewReader(archive), s.Trusted, s.AllowUnsigned)
+	if err != nil || b.Digest != r.digest || b.KeyID != r.keyID {
+		return nil, fmt.Errorf("%s %s: %w (%v)", name, version, ErrBundleUntrusted, err)
+	}
 	s.mu.Lock()
 	if s.cache == nil {
 		s.cache = map[string]*bundle.Bundle{}
 	}
-	s.cache[digest] = b
+	s.cache[key] = b
 	s.mu.Unlock()
 	return b, nil
 }
 
-// Load implements Bundles: a stored bundle's wasm, else "<name>-<version>.wasm"
-// in Dir.
+// Resolve implements Bundles: the identity of what name and version would run
+// now, without loading it.
+func (s *BundleStore) Resolve(ctx context.Context, name, version string) (string, error) {
+	if s.Pool != nil {
+		r, err := s.row(ctx, name, version)
+		if err != nil {
+			return "", err
+		}
+		if r.found {
+			if !s.trusts(r.keyID) {
+				return "", fmt.Errorf("%s %s: %w", name, version, ErrBundleUntrusted)
+			}
+			return r.digest + "/" + r.keyID, nil
+		}
+	}
+	if s.Dir == "" {
+		return "", fmt.Errorf("no stored bundle for %s %s and no PLUGIN_DIR: %w", name, version, ErrNoBundle)
+	}
+	return "file:" + name + "@" + version, nil
+}
+
+// Load implements Bundles: a stored bundle's wasm, else the legacy loose
+// "<name>-<version>.wasm" in Dir.
 func (s *BundleStore) Load(ctx context.Context, name, version string) ([]byte, error) {
 	b, err := s.Stored(ctx, name, version)
 	if err != nil {
@@ -107,32 +181,60 @@ func (s *BundleStore) Load(ctx context.Context, name, version string) ([]byte, e
 	if s.Dir == "" {
 		return nil, fmt.Errorf("no stored bundle for %s %s and no PLUGIN_DIR: %w", name, version, ErrNoBundle)
 	}
+	s.WarnLoose(name, version, "wasm")
 	return DirBundles(s.Dir).Load(ctx, name, version)
 }
 
-// Insert stores a verified bundle. It is idempotent: a (digest, key_id) that
-// is already there is left exactly as it was. uploadedBy is nil for a bundle
-// imported from PLUGIN_DIR at boot.
-func (s *BundleStore) Insert(ctx context.Context, b *bundle.Bundle, uploadedBy *string) error {
-	var m struct{ Name, Version string }
-	if err := json.Unmarshal(b.Manifest, &m); err != nil || m.Name == "" || m.Version == "" {
-		return fmt.Errorf("bundle %s: the manifest names no name and version", b.Digest)
+// WarnLoose logs a read of an unsigned, legacy loose file.
+func (s *BundleStore) WarnLoose(name, version, what string) {
+	log := s.Log
+	if log == nil {
+		log = slog.Default()
 	}
-	_, err := s.Pool.Exec(ctx, `
-		insert into plugin_bundles (digest, key_id, name, version, manifest, wasm, ui, slots, uploaded_by)
-		values ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)
-		on conflict do nothing`,
-		b.Digest, b.KeyID, m.Name, m.Version, string(b.Manifest), b.Wasm, b.UI, b.Slots, uploadedBy)
-	if err != nil {
-		return fmt.Errorf("storing bundle %s: %w", b.Digest, err)
-	}
-	return nil
+	log.Warn("serving an unsigned loose plugin file from PLUGIN_DIR; package it as a signed .parley bundle",
+		"name", name, "version", version, "file", what)
 }
 
-// Import verifies every *.parley file in Dir against Trusted (unsigned only
-// under AllowUnsigned) and stores the ones that pass. A refused or unreadable
-// file is logged and skipped, never fatal. Concurrent imports from several
-// replicas are safe: the insert does nothing on conflict.
+// Insert verifies archive against this store's trust set and stores it. The
+// same bundle again is not an error; a different bundle for a name and
+// version already held is ErrBundleConflict. uploadedBy is nil for a boot
+// import.
+func (s *BundleStore) Insert(ctx context.Context, archive []byte, uploadedBy *string) (*bundle.Bundle, error) {
+	b, err := bundle.Verify(bytes.NewReader(archive), s.Trusted, s.AllowUnsigned)
+	if err != nil {
+		return nil, err
+	}
+	var m struct{ Name, Version string }
+	if err := json.Unmarshal(b.Manifest, &m); err != nil || m.Name == "" || m.Version == "" {
+		return nil, fmt.Errorf("bundle %s: the manifest names no name and version", b.Digest)
+	}
+	// An unsigned bundle is only stored where nothing is; a signed one is
+	// held to one per name and version by the partial unique index.
+	tag, err := s.Pool.Exec(ctx, `
+		insert into plugin_bundles (digest, key_id, name, version, archive, manifest, wasm, ui, slots, uploaded_by)
+		select $1, $2::text, $3::text, $4::text, $5::bytea, $6::jsonb, $7::bytea, $8::bytea, $9::bytea, $10::uuid
+		where $2::text <> '' or not exists (select 1 from plugin_bundles where name = $3::text and version = $4::text)
+		on conflict do nothing`,
+		b.Digest, b.KeyID, m.Name, m.Version, archive, string(b.Manifest), b.Wasm, b.UI, b.Slots, uploadedBy)
+	if err != nil {
+		return nil, fmt.Errorf("storing bundle %s: %w", b.Digest, err)
+	}
+	if tag.RowsAffected() == 0 {
+		var same bool
+		if err := s.Pool.QueryRow(ctx, `select exists (select 1 from plugin_bundles where digest = $1 and key_id = $2)`,
+			b.Digest, b.KeyID).Scan(&same); err != nil {
+			return nil, fmt.Errorf("storing bundle %s: %w", b.Digest, err)
+		}
+		if !same {
+			return nil, fmt.Errorf("%s %s: %w", m.Name, m.Version, ErrBundleConflict)
+		}
+	}
+	return b, nil
+}
+
+// Import stores every *.parley file in Dir that verifies. A refused,
+// conflicting or unreadable file is logged and skipped, never fatal.
+// Concurrent imports from several replicas are safe.
 func (s *BundleStore) Import(ctx context.Context, log *slog.Logger) {
 	if s.Dir == "" || s.Pool == nil {
 		return
@@ -143,21 +245,36 @@ func (s *BundleStore) Import(ctx context.Context, log *slog.Logger) {
 		return
 	}
 	for _, path := range paths {
-		f, err := os.Open(path)
+		archive, err := readCapped(path)
 		if err != nil {
 			log.Warn("could not read a plugin bundle", "file", path, "error", err)
 			continue
 		}
-		b, err := bundle.Verify(f, s.Trusted, s.AllowUnsigned)
-		f.Close()
+		b, err := s.Insert(ctx, archive, nil)
+		if errors.Is(err, ErrBundleConflict) {
+			log.Error("refused a plugin bundle: another publisher's bundle already holds its name and version", "file", path, "error", err)
+			continue
+		}
 		if err != nil {
 			log.Warn("refused a plugin bundle", "file", path, "error", err)
 			continue
 		}
-		if err := s.Insert(ctx, b, nil); err != nil {
-			log.Warn("could not store a plugin bundle", "file", path, "error", err)
-			continue
-		}
 		log.Info("imported a plugin bundle", "file", path, "digest", b.Digest, "key_id", b.KeyID)
 	}
+}
+
+func readCapped(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, bundle.MaxUpload+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > bundle.MaxUpload {
+		return nil, bundle.ErrTooLarge
+	}
+	return data, nil
 }

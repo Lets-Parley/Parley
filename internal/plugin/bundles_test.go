@@ -5,10 +5,12 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -23,6 +25,8 @@ func testKey(t *testing.T) ed25519.PrivateKey {
 	}
 	return priv
 }
+
+func pubOf(k ed25519.PrivateKey) ed25519.PublicKey { return k.Public().(ed25519.PublicKey) }
 
 // packed is a .parley for name@1.0.0, signed by key or unsigned when key is nil.
 func packed(t *testing.T, name string, wasm []byte, key ed25519.PrivateKey) []byte {
@@ -40,45 +44,41 @@ func packed(t *testing.T, name string, wasm []byte, key ed25519.PrivateKey) []by
 func storedBundle(t *testing.T, pool *pgxpool.Pool, name string, wasm []byte) (*BundleStore, *bundle.Bundle) {
 	t.Helper()
 	key := testKey(t)
-	pub := key.Public().(ed25519.PublicKey)
-	b, err := bundle.Verify(bytes.NewReader(packed(t, name, wasm, key)), []ed25519.PublicKey{pub}, false)
+	s := &BundleStore{Pool: pool, Trusted: []ed25519.PublicKey{pubOf(key)}, Log: quietLogger()}
+	b, err := s.Insert(context.Background(), packed(t, name, wasm, key), nil)
 	if err != nil {
-		t.Fatal(err)
-	}
-	s := &BundleStore{Pool: pool, Trusted: []ed25519.PublicKey{pub}}
-	if err := s.Insert(context.Background(), b, nil); err != nil {
 		t.Fatal(err)
 	}
 	return s, b
 }
 
-func TestTwoHostsOnOneDatabaseLoadIdenticalBytes(t *testing.T) {
-	pool := testPool(t)
+// Two hosts, each with its own store, as two pods would be: both run the one
+// stored bundle.
+func TestTwoHostsOnOneDatabaseRunTheStoredBundle(t *testing.T) {
+	store := &Store{Pool: testPool(t)}
 	ctx := context.Background()
-	name := uniqueName(t)
-	wasm := guestPanicExporting("on_job")
-	first, stored := storedBundle(t, pool, name, wasm)
-	second := &BundleStore{Pool: pool, Trusted: first.Trusted}
-	// A second replica importing the same bundle is not an error.
-	if err := second.Insert(ctx, stored, nil); err != nil {
-		t.Fatalf("a second insert of the same bundle failed: %v", err)
+	in := install(t, store)
+	first, stored := storedBundle(t, store.Pool, in.Name, guestPanic())
+	second := &BundleStore{Pool: store.Pool, Trusted: first.Trusted}
+	if _, err := second.Insert(ctx, packed(t, in.Name, guestPanic(), nil), nil); err == nil {
+		t.Fatal("an unsigned bundle was stored beside a signed one")
 	}
-	a, err := first.Load(ctx, name, "1.0.0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := second.Load(ctx, name, "1.0.0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(a, wasm) || !bytes.Equal(b, wasm) {
-		t.Fatal("two stores on one database did not both load the stored wasm")
+	for _, s := range []*BundleStore{first, second} {
+		h := NewHost(store, HostConfig{})
+		h.Log = quietLogger()
+		h.Bundles = s
+		t.Cleanup(func() { h.Close(ctx) })
+		if _, err := h.Call(ctx, in.ID, "run", nil, ModeAsync); !errors.Is(err, ErrGuestPanic) {
+			t.Fatalf("got %v, want ErrGuestPanic from the stored bundle", err)
+		}
+		if got, _ := s.Load(ctx, in.Name, "1.0.0"); !bytes.Equal(got, stored.Wasm) {
+			t.Fatal("a store loaded bytes other than the stored wasm")
+		}
 	}
 }
 
-// A hit still resolves the digest, but the bytes come from memory: rewriting
-// the row behind the store's back does not change what it serves.
-func TestACacheHitDoesNotReadTheBytesAgain(t *testing.T) {
+// A hit never re-reads the archive; a fill always re-verifies it.
+func TestTheArchiveIsVerifiedOnEveryFillAndNotReadOnAHit(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 	name := uniqueName(t)
@@ -86,35 +86,147 @@ func TestACacheHitDoesNotReadTheBytesAgain(t *testing.T) {
 	if _, err := s.Load(ctx, name, "1.0.0"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `update plugin_bundles set wasm = 'changed' where digest = $1`, b.Digest); err != nil {
+	if _, err := pool.Exec(ctx, `update plugin_bundles set archive = 'garbage' where digest = $1`, b.Digest); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.Load(ctx, name, "1.0.0")
-	if err != nil {
-		t.Fatal(err)
+	if got, err := s.Load(ctx, name, "1.0.0"); err != nil || string(got) != "\x00asm-original" {
+		t.Fatalf("a cache hit re-read the archive: %q, %v", got, err)
 	}
-	if string(got) != "\x00asm-original" {
-		t.Fatalf("a cache hit re-read the bytes from the table: %q", got)
+	fresh := &BundleStore{Pool: pool, Trusted: s.Trusted}
+	if _, err := fresh.Load(ctx, name, "1.0.0"); !errors.Is(err, ErrBundleUntrusted) {
+		t.Fatalf("a fill served an archive that does not verify: %v", err)
 	}
 }
 
-// A row outranks the directory, and the directory answers only when there is
-// no row this instance trusts.
-func TestAStoredBundleIsPreferredOverTheDirectory(t *testing.T) {
+// key_id is an index, not authority: a row relabelled with another trusted
+// key's id is refused, because the archive says who signed it.
+func TestTheKeyIDColumnGrantsNothing(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	name := uniqueName(t)
+	signer, b := storedBundle(t, pool, name, []byte("wasm"))
+	other := testKey(t)
+	if _, err := pool.Exec(ctx, `update plugin_bundles set key_id = $1 where digest = $2`, bundle.KeyID(pubOf(other)), b.Digest); err != nil {
+		t.Fatal(err)
+	}
+	s := &BundleStore{Pool: pool, Trusted: append(signer.Trusted, pubOf(other))}
+	if _, err := s.Load(ctx, name, "1.0.0"); !errors.Is(err, ErrBundleUntrusted) {
+		t.Fatalf("a relabelled row was served: %v", err)
+	}
+}
+
+// Revocation reaches a warm host on its next call: trust is re-checked on
+// every resolve, and a refused resolve evicts the compiled module.
+func TestARevokedKeyStopsAWarmHost(t *testing.T) {
+	store := &Store{Pool: testPool(t)}
+	ctx := context.Background()
+	in := install(t, store)
+	s, _ := storedBundle(t, store.Pool, in.Name, guestPanic())
+	h := NewHost(store, HostConfig{})
+	h.Log = quietLogger()
+	h.Bundles = s
+	t.Cleanup(func() { h.Close(ctx) })
+	if _, err := h.Call(ctx, in.ID, "run", nil, ModeAsync); !errors.Is(err, ErrGuestPanic) {
+		t.Fatalf("got %v before revocation", err)
+	}
+	s.Trusted = nil
+	if _, err := h.Call(ctx, in.ID, "run", nil, ModeAsync); !errors.Is(err, ErrBundleUntrusted) {
+		t.Fatalf("a warm host ran a bundle whose key was revoked: %v", err)
+	}
+	if h.CachedModules() != 0 {
+		t.Fatal("the revoked bundle's module is still resident")
+	}
+}
+
+// When a bundle is stored for a name and version a host was running from a
+// loose file, the host moves to it within ResolveTTL, so the wasm it runs and
+// the UI the frame serves come from the same bundle.
+func TestTheHostAndTheUIDoNotSkew(t *testing.T) {
+	store := &Store{Pool: testPool(t)}
+	ctx := context.Background()
+	in := install(t, store)
+	key := testKey(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, in.Name+"-1.0.0.wasm"), guestNoop(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := &BundleStore{Pool: store.Pool, Dir: dir, Trusted: []ed25519.PublicKey{pubOf(key)}, Log: quietLogger(), ResolveTTL: time.Millisecond}
+	h := NewHost(store, HostConfig{})
+	h.Log = quietLogger()
+	h.Bundles = s
+	t.Cleanup(func() { h.Close(ctx) })
+	if _, err := h.Call(ctx, in.ID, "run", nil, ModeAsync); err != nil {
+		t.Fatalf("the loose file did not run: %v", err)
+	}
+	if _, err := s.Insert(ctx, packed(t, in.Name, guestPanic(), key), nil); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	if _, err := h.Call(ctx, in.ID, "run", nil, ModeAsync); !errors.Is(err, ErrGuestPanic) {
+		t.Fatalf("the host kept running the loose file after a bundle was stored: %v", err)
+	}
+	b, err := s.Stored(ctx, in.Name, "1.0.0")
+	if err != nil || b == nil || string(b.UI) != "//ui "+in.Name {
+		t.Fatalf("the UI does not come from the bundle the host runs: %v", err)
+	}
+}
+
+func TestOnePublisherPerNameAndVersion(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	first, second := testKey(t), testKey(t)
+	s := &BundleStore{Pool: pool, Trusted: []ed25519.PublicKey{pubOf(first), pubOf(second)}, AllowUnsigned: true}
+
+	name := uniqueName(t)
+	if _, err := s.Insert(ctx, packed(t, name, []byte("a"), first), nil); err != nil {
+		t.Fatal(err)
+	}
+	for what, archive := range map[string][]byte{
+		"another signer":             packed(t, name, []byte("a"), second),
+		"the same signer, new bytes": packed(t, name, []byte("b"), first),
+		"an unsigned bundle":         packed(t, name, []byte("a"), nil),
+	} {
+		if _, err := s.Insert(ctx, archive, nil); !errors.Is(err, ErrBundleConflict) {
+			t.Errorf("%s: got %v, want ErrBundleConflict", what, err)
+		}
+	}
+
+	// An unsigned bundle that came first does not compete with a signed one.
+	name = uniqueName(t)
+	if _, err := s.Insert(ctx, packed(t, name, []byte("unsigned"), nil), nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Insert(ctx, packed(t, name, []byte("signed"), first), nil); err != nil {
+		t.Fatalf("a signed bundle was refused beside an unsigned one: %v", err)
+	}
+	if got, _ := s.Load(ctx, name, "1.0.0"); string(got) != "signed" {
+		t.Fatalf("got %q, want the signed bundle", got)
+	}
+}
+
+// A stored row for a name and version — trusted or not — is the whole answer:
+// the loose file is read only when there is no row at all.
+func TestTheLooseFileIsReadOnlyWhenNoRowExists(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 	name := uniqueName(t)
 	s, _ := storedBundle(t, pool, name, []byte("from-table"))
-	s.Dir = t.TempDir()
-	if err := os.WriteFile(filepath.Join(s.Dir, name+"-1.0.0.wasm"), []byte("from-disk"), 0o600); err != nil {
-		t.Fatal(err)
+	dir := t.TempDir()
+	for _, n := range []string{name, name + "-loose"} {
+		if err := os.WriteFile(filepath.Join(dir, n+"-1.0.0.wasm"), []byte("from-disk"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
+	s.Dir = dir
 	if got, _ := s.Load(ctx, name, "1.0.0"); string(got) != "from-table" {
 		t.Fatalf("got %q, want the stored bundle", got)
 	}
-	untrusting := &BundleStore{Pool: pool, Dir: s.Dir}
-	if got, _ := untrusting.Load(ctx, name, "1.0.0"); string(got) != "from-disk" {
-		t.Fatalf("a store that trusts no key served %q; want the directory's file", got)
+	untrusting := &BundleStore{Pool: pool, Dir: dir, Log: quietLogger()}
+	if got, err := untrusting.Load(ctx, name, "1.0.0"); !errors.Is(err, ErrBundleUntrusted) {
+		t.Fatalf("an untrusted row fell back to the loose file: %q, %v", got, err)
+	}
+	if got, _ := untrusting.Load(ctx, name+"-loose", "1.0.0"); string(got) != "from-disk" {
+		t.Fatalf("with no row the loose file was not read: %q", got)
 	}
 }
 
@@ -123,15 +235,11 @@ func TestAnUnsignedRowIsNotServedByDefault(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 	name := uniqueName(t)
-	b, err := bundle.Verify(bytes.NewReader(packed(t, name, []byte("unsigned"), nil)), nil, true)
-	if err != nil {
+	if _, err := (&BundleStore{Pool: pool, AllowUnsigned: true}).Insert(ctx, packed(t, name, []byte("unsigned"), nil), nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := (&BundleStore{Pool: pool}).Insert(ctx, b, nil); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := (&BundleStore{Pool: pool}).Stored(ctx, name, "1.0.0"); got != nil {
-		t.Fatal("an unsigned bundle was served with PLUGIN_ALLOW_UNSIGNED off")
+	if got, err := (&BundleStore{Pool: pool}).Stored(ctx, name, "1.0.0"); got != nil || !errors.Is(err, ErrBundleUntrusted) {
+		t.Fatalf("an unsigned bundle was served with PLUGIN_ALLOW_UNSIGNED off: %v", err)
 	}
 	if got, _ := (&BundleStore{Pool: pool, AllowUnsigned: true}).Stored(ctx, name, "1.0.0"); got == nil {
 		t.Fatal("an unsigned bundle was not served with PLUGIN_ALLOW_UNSIGNED on")
@@ -158,7 +266,7 @@ func TestImportIsIdempotentAndRefusesWhatItCannotTrust(t *testing.T) {
 		}
 	}
 
-	s := &BundleStore{Pool: pool, Dir: dir, Trusted: []ed25519.PublicKey{trusted.Public().(ed25519.PublicKey)}}
+	s := &BundleStore{Pool: pool, Dir: dir, Trusted: []ed25519.PublicKey{pubOf(trusted)}}
 	s.Import(ctx, quietLogger())
 	s.Import(ctx, quietLogger())
 	for name, want := range map[string]int{good: 1, untrusted: 0, tampered: 0, unsigned: 0} {

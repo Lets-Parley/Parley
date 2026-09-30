@@ -373,12 +373,14 @@ metrics:
 #     before they are pruned, a Go duration. Default 168h.
 #   * PLUGIN_DIR — directory of plugin bundles. Every *.parley file in it is
 #     verified and stored in the database at boot; loose
-#     "<name>-<version>.wasm" files are a fallback. The plugin host runs
+#     "<name>-<version>.wasm" files are legacy and unsigned, read only when
+#     no bundle is stored for that name and version. The plugin host runs
 #     whether or not it is set. Mount the bundles read-only.
 #   * PLUGIN_TRUSTED_KEYS — comma-separated base64 Ed25519 public keys a
 #     .parley bundle may be signed by. Unset trusts none. A malformed entry
 #     stops the boot.
-#   * PLUGIN_ALLOW_UNSIGNED — also accept unsigned bundles. Default false.
+#   * PLUGIN_ALLOW_UNSIGNED — also accept unsigned bundles: exactly true or
+#     false. Default false.
 #   * PLUGIN_CALL_TIMEOUT — how long one plugin call may run. Default 2s.
 #   * PLUGIN_MEMORY_PAGES — memory cap per plugin instance in 64 KiB pages.
 #     Default 256 (16 MiB).

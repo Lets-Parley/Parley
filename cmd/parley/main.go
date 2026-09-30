@@ -273,9 +273,11 @@ func loadConfig() (config, error) {
 		}
 		cfg.PluginTrustedKeys = append(cfg.PluginTrustedKeys, ed25519.PublicKey(key))
 	}
-	cfg.PluginAllowUnsigned, err = strconv.ParseBool(envOr("PLUGIN_ALLOW_UNSIGNED", "false"))
-	if err != nil {
-		return cfg, fmt.Errorf("PLUGIN_ALLOW_UNSIGNED %q is not a boolean — use true or false", os.Getenv("PLUGIN_ALLOW_UNSIGNED"))
+	switch v := envOr("PLUGIN_ALLOW_UNSIGNED", "false"); v {
+	case "true", "false":
+		cfg.PluginAllowUnsigned = v == "true"
+	default:
+		return cfg, fmt.Errorf("PLUGIN_ALLOW_UNSIGNED %q is not true or false", v)
 	}
 	callTimeout, err := time.ParseDuration(envOr("PLUGIN_CALL_TIMEOUT", plugin.DefaultCallTimeout.String()))
 	if err != nil || callTimeout <= 0 {
@@ -455,9 +457,11 @@ func main() {
 	// in plugin_bundles too, and no module is compiled until an enabled
 	// install is first called. The import never stops a boot; a refused file
 	// is logged and skipped.
-	bundles := &plugin.BundleStore{Pool: pool, Dir: cfg.PluginDir, Trusted: cfg.PluginTrustedKeys, AllowUnsigned: cfg.PluginAllowUnsigned}
+	bundles := pluginBundles(pool, cfg, log)
 	bundles.Import(ctx, log)
 	runtime := plugin.NewRuntime(plugins, bundles, cfg.PluginLimits, log)
+	// Deferred after pool.Close, so it runs first: the workers have returned
+	// before the pool they query is closed.
 	defer runtime.Close()
 	runtime.Start(ctx)
 
@@ -489,6 +493,19 @@ func main() {
 		os.Exit(1)
 	}
 	log.Info("shut down cleanly")
+}
+
+// pluginBundles is the bundle store main serves plugins from. It is its own
+// function so a test can go from loadConfig to a served bundle through the
+// same mapping: a trust setting dropped here is dead in the shipped binary.
+func pluginBundles(pool *pgxpool.Pool, cfg config, log *slog.Logger) *plugin.BundleStore {
+	return &plugin.BundleStore{
+		Pool:          pool,
+		Dir:           cfg.PluginDir,
+		Trusted:       cfg.PluginTrustedKeys,
+		AllowUnsigned: cfg.PluginAllowUnsigned,
+		Log:           log,
+	}
 }
 
 // standupScheduleInterval bounds how late a scheduled standup opens.

@@ -40,12 +40,8 @@ func TestAStoredBundleIsServedOverTheDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := bundle.Verify(bytes.NewReader(data), []ed25519.PublicKey{pub}, false)
-	if err != nil {
-		t.Fatal(err)
-	}
 	bundles := &plugin.BundleStore{Pool: pool, Dir: dir, Trusted: []ed25519.PublicKey{pub}}
-	if err := bundles.Insert(ctx, b, nil); err != nil {
+	if _, err := bundles.Insert(ctx, data, nil); err != nil {
 		t.Fatal(err)
 	}
 	installPlugin(t, pool, name, true)

@@ -87,7 +87,12 @@ const (
 // Bundles hands the host the WASM for an install. It is an interface so the
 // host does not care whether bundles live on disk, in the image, or in a
 // table, and so a test can supply bytes without a filesystem.
+//
+// Resolve names what name and version would run right now — for a stored
+// bundle its digest and key id — and is asked on every call, so the host
+// recompiles when the answer changes and refuses when there is none.
 type Bundles interface {
+	Resolve(ctx context.Context, name, version string) (string, error)
 	Load(ctx context.Context, name, version string) ([]byte, error)
 }
 
@@ -133,7 +138,7 @@ func (c HostConfig) withDefaults() HostConfig {
 }
 
 type cachedModule struct {
-	version  string
+	key      string // what Bundles.Resolve answered when this was compiled
 	compiled *extism.CompiledPlugin
 }
 
@@ -266,17 +271,25 @@ func (h *Host) module(ctx context.Context, installID string) (*extism.CompiledPl
 	if err != nil {
 		return nil, err
 	}
+	if h.Bundles == nil {
+		return nil, ErrNoBundle
+	}
+	// The compiled module is keyed by what the bundle resolves to now, not by
+	// the version: a revoked key or a newly stored bundle changes the answer,
+	// and a module compiled from the old one must not keep running.
+	key, err := h.Bundles.Resolve(ctx, state.Install.Name, state.Install.Version)
+	if err != nil {
+		h.evict(ctx, installID)
+		return nil, fmt.Errorf("resolving the bundle for %s: %w", state.Install.Name, err)
+	}
 	h.mu.Lock()
-	if entry, ok := h.cache[installID]; ok && entry.version == state.Install.Version {
+	if entry, ok := h.cache[installID]; ok && entry.key == key {
 		h.lru = append(removeString(h.lru, installID), installID)
 		h.mu.Unlock()
 		return entry.compiled, nil
 	}
 	h.mu.Unlock()
 
-	if h.Bundles == nil {
-		return nil, ErrNoBundle
-	}
 	wasm, err := h.Bundles.Load(ctx, state.Install.Name, state.Install.Version)
 	if err != nil {
 		return nil, fmt.Errorf("loading the bundle for %s: %w", state.Install.Name, err)
@@ -305,7 +318,7 @@ func (h *Host) module(ctx context.Context, installID string) (*extism.CompiledPl
 	if old, ok := h.cache[installID]; ok {
 		defer func() { _ = old.compiled.Close(ctx) }()
 	}
-	h.cache[installID] = &cachedModule{version: state.Install.Version, compiled: compiled}
+	h.cache[installID] = &cachedModule{key: key, compiled: compiled}
 	h.lru = append(removeString(h.lru, installID), installID)
 	var overflow []*cachedModule
 	for len(h.cache) > h.cfg.MaxCachedModules {
@@ -521,6 +534,12 @@ func (h *Host) record(ctx context.Context, installID, name string, callErr error
 // refuses to follow a symlink that would leave the root, by construction
 // rather than by pattern-matching.
 type DirBundles string
+
+// Resolve implements Bundles. A loose file carries no digest, so its identity
+// is its name and version.
+func (d DirBundles) Resolve(_ context.Context, name, version string) (string, error) {
+	return "file:" + name + "@" + version, nil
+}
 
 // Load implements Bundles.
 func (d DirBundles) Load(_ context.Context, name, version string) ([]byte, error) {

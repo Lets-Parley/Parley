@@ -87,9 +87,9 @@ func (a *app) handlePluginFrame(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, pluginFrameDocument, escapeForScript(pluginFrameBootstrap), escapeForScript(string(ui)))
 }
 
-// pluginUI is a stored bundle's ui.js when one resolves, else the file in the
-// plugin directory. A stored bundle without a ui.js has no UI; it never falls
-// through to a file.
+// pluginUI is a stored bundle's ui.js, else the legacy loose file in the
+// plugin directory. Any stored row for the name and version — trusted or not,
+// with a ui.js or not — decides; it never falls through to a file.
 func (a *app) pluginUI(ctx context.Context, name, version string) ([]byte, error) {
 	stored, err := a.bundles.Stored(ctx, name, version)
 	if err != nil {
@@ -104,6 +104,7 @@ func (a *app) pluginUI(ctx context.Context, name, version string) ([]byte, error
 	if a.bundles.Dir == "" {
 		return nil, fmt.Errorf("no UI for %s %s", name, version)
 	}
+	a.bundles.WarnLoose(name, version, "ui.js")
 	return readPluginUI(a.bundles.Dir, name, version)
 }
 

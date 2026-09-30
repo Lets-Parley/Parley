@@ -358,9 +358,9 @@ mutate "the credential strip across a redirect to another host" \
     'TestCredentialsDoNotFollowARedirectToAnotherHost' \
     fetch.go 'if !sameHost && sensitiveHeaders[http.CanonicalHeaderKey(k)] {' 'if false {'
 
-mutate "the module cache's version check" \
-    'TestAnUpgradeIsRunFromTheNewBundleRatherThanTheCachedOne' \
-    host.go 'if entry, ok := h.cache[installID]; ok && entry.version == state.Install.Version {' 'if entry, ok := h.cache[installID]; ok {'
+mutate "the module cache's resolved-bundle check" \
+    'TestAnUpgradeIsRunFromTheNewBundleRatherThanTheCachedOne|TestTheHostAndTheUIDoNotSkew' \
+    host.go 'if entry, ok := h.cache[installID]; ok && entry.key == key {' 'if entry, ok := h.cache[installID]; ok {'
 
 mutate "the breaker's reset on success" \
     'TestASuccessBetweenTwoFailuresKeepsTheBreakerClosed' \
@@ -885,23 +885,34 @@ mutate "the membership guard inside the mention insert" \
     'TestTheMentionInsertRefusesOnItsOwn' \
     mentions.go '		where `+mentionable+` and exists (' '		where true or exists ('
 
-# The bundle store: the import's trust check, the trust filter on every read,
-# and PLUGIN_ALLOW_UNSIGNED defaulting to off.
+# The bundle store: the import's trust check, re-verification of the stored
+# archive, trust re-checked on every resolve, PLUGIN_ALLOW_UNSIGNED off by
+# default, and main handing its trusted keys to the store.
 target internal/plugin
 
 mutate "the bundle import refusing an unsigned bundle unless allowed" \
     'TestImportIsIdempotentAndRefusesWhatItCannotTrust' \
-    bundles.go 'bundle.Verify(f, s.Trusted, s.AllowUnsigned)' 'bundle.Verify(f, s.Trusted, true)'
+    bundles.go 'b, err := bundle.Verify(bytes.NewReader(archive), s.Trusted, s.AllowUnsigned)' 'b, err := bundle.Verify(bytes.NewReader(archive), s.Trusted, true)'
 
-mutate "a stored bundle served only under a key trusted now" \
-    'TestAStoredBundleIsPreferredOverTheDirectory|TestAnUnsignedRowIsNotServedByDefault' \
-    bundles.go 'key_id = any($3)' '$3::text[] is not null'
+mutate "the stored archive naming its own signer, not the key_id column" \
+    'TestTheKeyIDColumnGrantsNothing' \
+    bundles.go ' || b.KeyID != r.keyID {' ' {'
+
+mutate "a warm host re-checking trust on every call" \
+    'TestARevokedKeyStopsAWarmHost' \
+    bundles.go '			if !s.trusts(r.keyID) {
+				return "", ' '			if false {
+				return "", '
 
 target cmd/parley
 
 mutate "PLUGIN_ALLOW_UNSIGNED defaulting to off" \
     'TestPluginTrustDefaultsToSignedBundlesOnly' \
     main.go 'envOr("PLUGIN_ALLOW_UNSIGNED", "false")' 'envOr("PLUGIN_ALLOW_UNSIGNED", "true")'
+
+mutate "main handing PLUGIN_TRUSTED_KEYS to the bundle store" \
+    'TestMainsBundleStoreServesABundleSignedByATrustedKey' \
+    main.go 'Trusted:       cfg.PluginTrustedKeys,' 'Trusted:       nil,'
 
 restore_all
 

@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"log/slog"
+	"sync"
 )
 
 // Runtime is the plugin machinery an instance runs: the host, the bus, and the
@@ -18,6 +19,9 @@ type Runtime struct {
 	Bus    *Bus
 	Queue  *Queue
 	Outbox *Outbox
+
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 // NewRuntime wires a runtime over a bundle source. It always runs: bundles
@@ -39,11 +43,20 @@ func NewRuntime(store *Store, bundles Bundles, limits HostConfig, log *slog.Logg
 	}
 }
 
-// Start runs the outbox and job workers until ctx is done.
+// Start runs the outbox and job workers until ctx is done or Close is called.
 func (r *Runtime) Start(ctx context.Context) {
-	go r.Outbox.Run(ctx, DefaultInterval)
-	go r.Queue.RunWorker(ctx, DefaultInterval)
+	ctx, r.cancel = context.WithCancel(ctx)
+	r.wg.Add(2)
+	go func() { defer r.wg.Done(); r.Outbox.Run(ctx, DefaultInterval) }()
+	go func() { defer r.wg.Done(); r.Queue.RunWorker(ctx, DefaultInterval) }()
 }
 
-// Close releases every compiled module.
-func (r *Runtime) Close() { r.Host.Close(context.Background()) }
+// Close stops the workers, waits for them to return, and releases every
+// compiled module. The caller may close the pool once it returns.
+func (r *Runtime) Close() {
+	if r.cancel != nil {
+		r.cancel()
+	}
+	r.wg.Wait()
+	r.Host.Close(context.Background())
+}

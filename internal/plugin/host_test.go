@@ -19,6 +19,10 @@ import (
 // bundles is an in-memory bundle source keyed the way a real one is.
 type bundles map[string][]byte
 
+func (b bundles) Resolve(_ context.Context, name, version string) (string, error) {
+	return name + "@" + version, nil
+}
+
 func (b bundles) Load(_ context.Context, name, version string) ([]byte, error) {
 	wasm, ok := b[name+"@"+version]
 	if !ok {
