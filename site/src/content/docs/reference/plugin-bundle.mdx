@@ -88,8 +88,9 @@ runs the same bytes.
 
 A pin is authoritative only while its bundle carries the install's version. An
 older binary during a rolling upgrade can change an install's version without
-moving its pin; that install then resolves by name and version until the next
-boot re-pins it. Avoid plugin admin actions while a rollout is in progress.
+moving its pin. That install then runs only the trusted stored bundle for its
+new version, and is re-pinned to it; with none stored it fails closed. An
+install that has ever been pinned never runs a loose `PLUGIN_DIR` file. Avoid plugin admin actions while a rollout is in progress.
 
 `plugin_installs` and `plugin_install_history` hold foreign keys to
 `plugin_bundles`, so any future garbage collection has to leave every bundle an

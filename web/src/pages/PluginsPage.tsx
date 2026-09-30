@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, errorText } from "../lib/api";
@@ -554,10 +554,16 @@ function InstalledCard({
       onSay("Rollback recorded.");
       onDone();
     },
-    onError: (e) => onSay(errorText(e)),
+    onError: (e) => {
+      setRollingBack("");
+      onSay(errorText(e));
+    },
   });
-  // Two steps, like uninstall: the first click only asks.
   const [rollingBack, setRollingBack] = useState("");
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (rollingBack) confirmRef.current?.focus();
+  }, [rollingBack]);
   const rollbackTo = (install.history ?? []).filter((h) => h.digest !== install.bundle?.digest);
   const uninstall = useMutation({
     mutationFn: () => api("DELETE", `${base}/${install.id}`),
@@ -594,23 +600,51 @@ function InstalledCard({
               ? `Bundle ${install.bundle.digest.slice(0, 12)}`
               : "Not in catalogue — still runs from PLUGIN_DIR"}
           </p>
+          {/* Two steps, like uninstall: the first click only asks. */}
           {rollbackTo.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-2">
-              {rollbackTo.map((h) => (
-                <button
-                  key={`${h.digest}/${h.key_id}`}
-                  type="button"
-                  className={buttonQuiet}
-                  disabled={rollback.isPending}
-                  onClick={() =>
-                    rollingBack === h.digest ? rollback.mutate(h) : setRollingBack(h.digest)
-                  }
-                >
-                  {rollingBack === h.digest ? "Confirm rollback to" : "Roll back to"} {h.version}
-                </button>
-              ))}
+              {rollbackTo.map((h) =>
+                rollingBack === h.digest ? (
+                  <span
+                    key={`${h.digest}/${h.key_id}`}
+                    className="flex gap-2"
+                    onKeyDown={(e) => e.key === "Escape" && setRollingBack("")}
+                    onBlur={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setRollingBack("");
+                    }}
+                  >
+                    <button
+                      ref={confirmRef}
+                      type="button"
+                      className={buttonDanger}
+                      disabled={rollback.isPending}
+                      onClick={() => rollback.mutate(h)}
+                    >
+                      Confirm rollback to {h.version}
+                    </button>
+                    <button type="button" className={buttonQuiet} onClick={() => setRollingBack("")}>
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    key={`${h.digest}/${h.key_id}`}
+                    type="button"
+                    className={buttonQuiet}
+                    disabled={rollback.isPending}
+                    onClick={() => setRollingBack(h.digest)}
+                  >
+                    Roll back to {h.version}
+                  </button>
+                ),
+              )}
             </div>
           )}
+          <p role="status" className="sr-only">
+            {rollingBack
+              ? `Confirm rolling back ${install.name} to ${rollbackTo.find((h) => h.digest === rollingBack)?.version}, or cancel.`
+              : ""}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button

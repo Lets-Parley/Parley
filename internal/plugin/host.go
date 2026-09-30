@@ -294,6 +294,22 @@ func (h *Host) module(ctx context.Context, installID string) (*extism.CompiledPl
 	// and version, so it runs exactly the bytes it was pinned to.
 	pinned, _ := h.Bundles.(PinnedBundles)
 	pin := state.Install.Bundle
+	if pin == nil && state.Install.PinnedTo != nil {
+		// A stale pin: only a stored, trusted row for this version, never a
+		// loose file. Found, it becomes the pin.
+		if pinned == nil {
+			return nil, fmt.Errorf("%s: %w", state.Install.Name, ErrNoBundle)
+		}
+		ref, err := pinned.StoredRef(ctx, state.Install.Name, state.Install.Version)
+		if err != nil {
+			h.evict(ctx, installID)
+			return nil, fmt.Errorf("resolving the bundle for %s: %w", state.Install.Name, err)
+		}
+		if err := h.Store.Repin(ctx, installID, ref); err != nil {
+			return nil, err
+		}
+		pin = &ref
+	}
 	if pin != nil && pinned == nil {
 		return nil, fmt.Errorf("%s is pinned to %s but this host cannot load by digest: %w", state.Install.Name, pin, ErrNoBundle)
 	}

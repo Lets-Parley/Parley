@@ -77,6 +77,9 @@ type Install struct {
 	// Bundle is the stored bundle this install is pinned to, nil for an
 	// install made before the catalogue that still runs from loose files.
 	Bundle *BundleRef
+	// PinnedTo is the raw pin, set even when stale. An install with any pin
+	// only ever runs stored, trusted rows, never loose files.
+	PinnedTo *BundleRef
 }
 
 // InstallRequest is what a caller asks to install.

@@ -79,15 +79,15 @@ func (s State) Scopes(capability string) []string {
 // takes effect on the next call instead of the next restart.
 func (s *Store) State(ctx context.Context, installID string) (State, error) {
 	var out State
-	var digest, keyID *string
+	var digest, keyID, match *string
 	err := s.Pool.QueryRow(ctx, `
-		select i.id, i.org_id, i.name, i.version, i.enabled, i.kv_quota_bytes, b.digest, b.key_id
+		select i.id, i.org_id, i.name, i.version, i.enabled, i.kv_quota_bytes, i.bundle_digest, i.bundle_key_id, b.digest
 		from plugin_installs i
 		left join plugin_bundles b on b.digest = i.bundle_digest and b.key_id = i.bundle_key_id
 			and b.version = i.version
 		where i.id = $1`, installID).
 		Scan(&out.Install.ID, &out.Install.OrgID, &out.Install.Name, &out.Install.Version,
-			&out.Install.Enabled, &out.Install.QuotaBytes, &digest, &keyID)
+			&out.Install.Enabled, &out.Install.QuotaBytes, &digest, &keyID, &match)
 	if err != nil {
 		return State{}, fmt.Errorf("reading install %s: %w", installID, err)
 	}
@@ -96,7 +96,10 @@ func (s *Store) State(ctx context.Context, installID string) (State, error) {
 	// moving the pin; this install then resolves by name and version until
 	// the boot pin re-derives it.
 	if digest != nil && keyID != nil {
-		out.Install.Bundle = &BundleRef{Digest: *digest, KeyID: *keyID}
+		out.Install.PinnedTo = &BundleRef{Digest: *digest, KeyID: *keyID}
+		if match != nil {
+			out.Install.Bundle = out.Install.PinnedTo
+		}
 	}
 	rows, err := s.Pool.Query(ctx,
 		`select capability, scope from plugin_grants where install_id = $1`, installID)
@@ -339,7 +342,8 @@ func (s *Store) ApproveUpgrade(ctx context.Context, installID string) error {
 		}
 		if _, err := tx.Exec(ctx,
 			`update plugin_installs set version = $2, pending_version = null, pending_kinds = null,
-			 bundle_digest = $3, bundle_key_id = $4, pending_digest = null, pending_key_id = null where id = $1`,
+			 bundle_digest = coalesce($3, bundle_digest), bundle_key_id = coalesce($4, bundle_key_id),
+			 pending_digest = null, pending_key_id = null where id = $1`,
 			installID, *version, digest, keyID); err != nil {
 			return fmt.Errorf("approving the upgrade for %s: %w", installID, err)
 		}

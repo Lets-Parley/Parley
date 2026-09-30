@@ -5,6 +5,8 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/lets-parley/parley/internal/plugin/bundle"
@@ -203,5 +205,67 @@ func TestPinInstallsSkipsAnUntrustedBundle(t *testing.T) {
 	}
 	if rawPin(t, store, in.ID) != "" {
 		t.Fatal("the boot pin chose a bundle this instance does not trust")
+	}
+}
+
+// An install that has a pin only ever runs stored, trusted rows: a stale pin
+// never falls through to a loose file, and a stored row for its version
+// re-pins it.
+func TestAStalePinNeverRunsALooseFile(t *testing.T) {
+	store := &Store{Pool: testPool(t)}
+	ctx := context.Background()
+	key := testKey(t)
+	dir := t.TempDir()
+	bs := &BundleStore{Pool: store.Pool, Dir: dir, Trusted: []ed25519.PublicKey{pubOf(key)}, Log: quietLogger()}
+	name := uniqueName(t)
+	a, _ := bs.Insert(ctx, packVer(t, name, "1.0.0", key), nil)
+	in, err := store.Install(ctx, InstallRequest{OrgID: testOrgID, Name: name, Version: "1.0.0", QuotaBytes: 1024,
+		Bundle: &BundleRef{Digest: a.Digest, KeyID: a.KeyID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Upgrade(ctx, in.ID, "2.0.0", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name+"-2.0.0.wasm"), guestNoop(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHost(store, HostConfig{})
+	h.Log = quietLogger()
+	h.Bundles = bs
+	t.Cleanup(func() { h.Close(ctx) })
+	if _, err := h.Call(ctx, in.ID, "run", nil, ModeAsync); !errors.Is(err, ErrNoBundle) {
+		t.Fatalf("a stale-pinned install with only a loose file: got %v, want ErrNoBundle", err)
+	}
+	b, _ := bs.Insert(ctx, packVer(t, name, "2.0.0", key), nil)
+	if _, err := h.Call(ctx, in.ID, "run", nil, ModeAsync); err != nil {
+		t.Fatalf("with a stored row: %v", err)
+	}
+	if rawPin(t, store, in.ID) != b.Digest {
+		t.Fatal("the stored row did not re-pin the install")
+	}
+}
+
+// Approving an upgrade that staged no bundle keeps the pin it had.
+func TestApprovingAnUnpinnedUpgradeKeepsThePin(t *testing.T) {
+	store := &Store{Pool: testPool(t)}
+	ctx := context.Background()
+	key := testKey(t)
+	bs := &BundleStore{Pool: store.Pool, Trusted: []ed25519.PublicKey{pubOf(key)}, Log: quietLogger()}
+	name := uniqueName(t)
+	a, _ := bs.Insert(ctx, packVer(t, name, "1.0.0", key), nil)
+	in, err := store.Install(ctx, InstallRequest{OrgID: testOrgID, Name: name, Version: "1.0.0", QuotaBytes: 1024,
+		Bundle: &BundleRef{Digest: a.Digest, KeyID: a.KeyID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Upgrade(ctx, in.ID, "2.0.0", []Grant{{Capability: CapabilityLog}}, nil); !errors.Is(err, ErrUpgradePending) {
+		t.Fatalf("got %v, want pending", err)
+	}
+	if err := store.ApproveUpgrade(ctx, in.ID); err != nil {
+		t.Fatal(err)
+	}
+	if rawPin(t, store, in.ID) != a.Digest {
+		t.Fatal("approving an upgrade with no staged bundle cleared the pin")
 	}
 }

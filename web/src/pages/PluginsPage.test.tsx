@@ -501,6 +501,13 @@ describe("installing by digest", () => {
     expect(screen.queryByRole("button", { name: "Roll back to 2.0.0" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Roll back to 1.0.0" }));
     expect(calls.some(([, p]) => p.endsWith("/rollback"))).toBe(false);
+    const confirm = screen.getByRole("button", { name: "Confirm rollback to 1.0.0" });
+    expect(document.activeElement).toBe(confirm);
+    expect(screen.getByText(/Confirm rolling back reporter to 1\.0\.0, or cancel\./)).toBeTruthy();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("button", { name: "Confirm rollback to 1.0.0" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Roll back to 1.0.0" }));
+    await expectNoViolations(container);
     await user.click(screen.getByRole("button", { name: "Confirm rollback to 1.0.0" }));
     const rollback = calls.find(([m, p]) => m === "POST" && p === "/api/orgs/acme/admin/plugins/p1/rollback");
     expect(rollback?.[2]).toEqual({ digest: "d1", key_id: "k1" });
@@ -528,4 +535,53 @@ describe("installing by digest", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("could not load the catalogue");
   });
 
+
+  it("shows the catalogue loading", async () => {
+    const api = (await import("../lib/api")).api as unknown as {
+      getMockImplementation: () => unknown;
+      mockImplementation: (f: unknown) => void;
+    };
+    const original = api.getMockImplementation();
+    api.mockImplementation(async (method: string, path: string) =>
+      path === "/api/catalogue" ? new Promise(() => {}) : method === "GET" ? registry : undefined,
+    );
+    try {
+      render();
+      expect(await screen.findByText("Reading the catalogue…")).toBeTruthy();
+    } finally {
+      api.mockImplementation(original);
+    }
+  });
+
+  it("never lets a late preview overwrite a newer pick", async () => {
+    catalogue.plugins[0].versions.push({ version: "2.0.0", digest: "d2", key_id: "k1", grants: [logGrant] });
+    let answerOld: (p: PluginPreview) => void = () => {};
+    const api = (await import("../lib/api")).api as unknown as {
+      getMockImplementation: () => unknown;
+      mockImplementation: (f: unknown) => void;
+    };
+    const original = api.getMockImplementation();
+    api.mockImplementation(async (method: string, path: string, body?: { digest?: string }) => {
+      if (path === "/api/catalogue") return catalogue;
+      if (path.endsWith("/preview"))
+        return body?.digest === "d1"
+          ? new Promise<PluginPreview>((res) => (answerOld = res))
+          : { ...preview, version: "2.0.0", grants: [logGrant] };
+      return method === "GET" ? registry : undefined;
+    });
+    try {
+      render();
+      const user = userEvent.setup();
+      await screen.findByRole("option", { name: "reporter 2.0.0" });
+      const pick = screen.getByLabelText(/install from the catalogue/i);
+      await user.selectOptions(pick, "reporter 1.0.0");
+      await user.selectOptions(pick, "reporter 2.0.0");
+      expect(await screen.findByText(/reporter 2\.0\.0/, { selector: "p,h3,h4,strong,span,div" })).toBeTruthy();
+      answerOld(preview);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(screen.queryByText(/Can send anything it holds/)).toBeNull();
+    } finally {
+      api.mockImplementation(original);
+    }
+  });
 });

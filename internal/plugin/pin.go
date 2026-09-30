@@ -40,6 +40,7 @@ func (r BundleRef) String() string { return r.Digest + "/" + r.KeyID }
 // row for the same name and version never runs in its place.
 type PinnedBundles interface {
 	ResolvePinned(ctx context.Context, ref BundleRef) (string, error)
+	StoredRef(ctx context.Context, name, version string) (BundleRef, error)
 	LoadPinned(ctx context.Context, ref BundleRef) ([]byte, string, error)
 }
 
@@ -91,6 +92,37 @@ func (s *BundleStore) LoadPinned(ctx context.Context, ref BundleRef) ([]byte, st
 		return nil, "", err
 	}
 	return b.Wasm, ref.String(), nil
+}
+
+// StoredRef is the trusted stored row for name and version, ErrNoBundle when
+// there is none. It never answers with a loose file.
+func (s *BundleStore) StoredRef(ctx context.Context, name, version string) (BundleRef, error) {
+	if s == nil || s.Pool == nil {
+		return BundleRef{}, fmt.Errorf("%s %s: %w", name, version, ErrNoBundle)
+	}
+	r, err := s.row(ctx, name, version)
+	if err != nil {
+		return BundleRef{}, err
+	}
+	if !r.found {
+		return BundleRef{}, fmt.Errorf("no stored bundle for pinned %s %s: %w", name, version, ErrNoBundle)
+	}
+	if !s.trusts(r.keyID) {
+		return BundleRef{}, fmt.Errorf("%s %s: %w", name, version, ErrBundleUntrusted)
+	}
+	return BundleRef{Digest: r.digest, KeyID: r.keyID}, nil
+}
+
+// Repin moves an install whose pin went stale onto the stored row for its
+// version, and records it.
+func (s *Store) Repin(ctx context.Context, installID string, ref BundleRef) error {
+	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `update plugin_installs set bundle_digest = $2, bundle_key_id = $3 where id = $1`,
+			installID, ref.Digest, ref.KeyID); err != nil {
+			return fmt.Errorf("re-pinning %s: %w", installID, err)
+		}
+		return recordPin(ctx, tx, installID, &ref)
+	})
 }
 
 // TrustedKeyIDs is the key ids this store accepts now, ” among them only

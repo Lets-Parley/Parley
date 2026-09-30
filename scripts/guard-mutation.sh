@@ -855,6 +855,18 @@ mutate "a rollback only to a bundle the install ran" \
     'TestRollbackReturnsOnlyToABundleTheInstallRan' \
     plugins.go '	if !ran {' '	if !ran && false {'
 
+mutate "an alias install bound to the previewed digest" \
+    'TestALegacyPackageResolvesToThePreviewedStoredBundle' \
+    plugins.go 'req.Digest == "" && pin != nil && req.PreviewedDigest != pin.Digest {' 'false && req.PreviewedDigest != pin.Digest {'
+
+mutate "the alias never unpinning a catalogue install" \
+    'TestALegacyPackageResolvesToThePreviewedStoredBundle' \
+    plugins.go '	if pin == nil && current.Install.Bundle != nil {' '	if false && current.Install.Bundle != nil {'
+
+mutate "the curator gate on the loaded-bundle list" \
+    'TestLoadedBundlesAreForCuratorsOnly' \
+    router.go 'r.With(a.requireInstanceCurator).Get("/catalogue/loaded"' 'r.Get("/catalogue/loaded"'
+
 mutate "an older version through install refused as a downgrade" \
     'TestRollbackReturnsOnlyToABundleTheInstallRan' \
     plugins.go '	if versionLess(pkg.Version, current.Install.Version) {' '	if false && versionLess(pkg.Version, current.Install.Version) {'
@@ -983,6 +995,24 @@ mutate "the boot pin matching only trusted bundles" \
 mutate "approving an upgrade applying its staged pin" \
     'TestApprovingAnUpgradeAppliesAndRecordsItsPin' \
     grants.go 'installID, *version, digest, keyID); err != nil {' 'installID, *version, (*string)(nil), (*string)(nil)); err != nil {'
+
+mutate "an upgrade with no bundle keeping the pin" \
+    'TestAnUnpinnedUpgradeNeverClearsAPinAndAStalePinIsNotAuthoritative' \
+    grants.go '				 bundle_digest = coalesce($3, bundle_digest), bundle_key_id = coalesce($4, bundle_key_id),' '				 bundle_digest = $3, bundle_key_id = $4,'
+
+mutate "approving an upgrade with no staged bundle keeping the pin" \
+    'TestApprovingAnUnpinnedUpgradeKeepsThePin' \
+    grants.go 'null,
+			 bundle_digest = coalesce($3, bundle_digest), bundle_key_id = coalesce($4, bundle_key_id),' 'null,
+			 bundle_digest = $3, bundle_key_id = $4,'
+
+mutate "a pin authoritative only for its own version" \
+    'TestAnUnpinnedUpgradeNeverClearsAPinAndAStalePinIsNotAuthoritative' \
+    grants.go '			and b.version = i.version' '			and true'
+
+mutate "a pinned install never running a loose file" \
+    'TestAStalePinNeverRunsALooseFile' \
+    host.go '	if pin == nil && state.Install.PinnedTo != nil {' '	if false && state.Install.PinnedTo != nil {'
 
 # cmd/parley builds against internal/plugin: put its last mutation back first.
 restore_all
