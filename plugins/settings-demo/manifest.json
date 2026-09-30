@@ -11,7 +11,7 @@
       "greeting": { "type": "string", "title": "Greeting", "default": "Hello", "maxLength": 80 },
       "loud": { "type": "boolean", "title": "Shout it", "default": false },
       "mood": { "type": "string", "title": "Team mood", "enum": ["calm", "busy", "celebrating"], "default": "calm" },
-      "apiToken": { "type": "string", "title": "API token", "description": "Never shown to anyone once saved.", "format": "secret" }
+      "api_token": { "type": "string", "title": "API token", "description": "Never shown to anyone once saved.", "format": "secret" }
     },
     "required": ["greeting", "mood"],
     "additionalProperties": false

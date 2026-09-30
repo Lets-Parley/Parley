@@ -141,7 +141,7 @@ with `getSecret(name)`:
 import { createHost } from "@parley/plugin-sdk";
 const host = createHost(grants, call, manifest);
 const { greeting, mood } = host.getSettings();
-const token = host.getSecret("apiToken");
+const token = host.getSecret("api_token");
 ```
 
 `getSettings()` throws in the guest if the manifest declares no settings.

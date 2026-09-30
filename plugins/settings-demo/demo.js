@@ -6,7 +6,7 @@ export function roomState(host) {
   if (s.loud) text = text.toUpperCase();
   var tokenConfigured = false;
   try {
-    var secret = host.getSecret("apiToken");
+    var secret = host.getSecret("api_token");
     tokenConfigured = !!(secret && secret.value);
   } catch (e) {
     tokenConfigured = false;

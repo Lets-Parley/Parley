@@ -9,7 +9,7 @@ const schema = {
     loud: { type: "boolean" },
     mood: { type: "string", enum: ["calm", "busy"] },
     limit: { type: "integer", minimum: 1 },
-    apiToken: { type: "string", format: "secret" },
+    api_token: { type: "string", format: "secret" },
   },
   required: ["greeting", "mood"],
   additionalProperties: false,
@@ -33,8 +33,8 @@ test("getSettings fails fast in the guest when the manifest declares no settings
 test("getSecret reads a secret settings field through parley_secret_get", () => {
   const calls = [];
   const host = createHost([], (name, req) => (calls.push([name, req]), "s3cret"), { settings: schema });
-  assert.equal(host.getSecret("apiToken"), "s3cret");
-  assert.deepEqual(calls, [["parley_secret_get", { name: "apiToken" }]]);
+  assert.equal(host.getSecret("api_token"), "s3cret");
+  assert.deepEqual(calls, [["parley_secret_get", { name: "api_token" }]]);
   assert.throws(() => host.getSecret("greeting"), /secrets is not granted/);
 });
 
@@ -44,8 +44,8 @@ test("generateSettingsTypes types non-secret fields and names secret ones separa
   assert.match(ts, /loud\?: boolean;/);
   assert.match(ts, /mood: "calm" \| "busy";/);
   assert.match(ts, /limit\?: number;/);
-  assert.doesNotMatch(ts, /apiToken:|apiToken\?:/);
-  assert.match(ts, /export type SecretName = "apiToken";/);
+  assert.doesNotMatch(ts, /api_token:|api_token\?:/);
+  assert.match(ts, /export type SecretName = "api_token";/);
   // The host applies defaults, so a defaulted field is always present.
   const withDefault = generateSettingsTypes({ settings: { type: "object", properties: { n: { type: "integer", default: 3 } }, additionalProperties: false } });
   assert.match(withDefault, /  n: number;/);

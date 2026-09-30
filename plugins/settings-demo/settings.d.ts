@@ -4,4 +4,4 @@ export interface Settings {
   loud: boolean;
   mood: "calm" | "busy" | "celebrating";
 }
-export type SecretName = "apiToken";
+export type SecretName = "api_token";

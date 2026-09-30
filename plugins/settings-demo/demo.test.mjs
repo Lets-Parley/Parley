@@ -15,7 +15,7 @@ function fakeHost(settings, secret) {
   const host = createHost([], (name, req) => {
     calls.push(name);
     if (name === "parley_settings_get") return settings;
-    if (name === "parley_secret_get" && req.name === "apiToken") {
+    if (name === "parley_secret_get" && req.name === "api_token") {
       if (secret === undefined) throw new Error("secret not set");
       return { value: secret };
     }
@@ -29,8 +29,10 @@ test("the settings schema has a string, a boolean, an enum and one secret", () =
   assert.equal(p.greeting.type, "string");
   assert.equal(p.loud.type, "boolean");
   assert.deepEqual(p.mood.enum, ["calm", "busy", "celebrating"]);
-  assert.equal(p.apiToken.format, "secret");
+  assert.equal(p.api_token.format, "secret");
   assert.equal(manifest.settings.additionalProperties, false);
+  // The host refuses any other name (internal/plugin/settings.go).
+  for (const n of Object.keys(p)) assert.match(n, /^[a-z][a-z0-9_]{0,39}$/);
 });
 
 test("the room state reads every setting and never exposes the token", () => {
@@ -49,7 +51,7 @@ test("an unset token reads as not configured", () => {
 test("settings.d.ts is generated from the manifest and leaves the secret out", () => {
   const ts = readFileSync(join(dir, "settings.d.ts"), "utf8");
   assert.equal(ts, generateSettingsTypes(manifest));
-  assert.doesNotMatch(ts, /apiToken\??:/);
+  assert.doesNotMatch(ts, /api_token\??:/);
 });
 
 test("the concatenated guest runs through the Extism Host with the SDK's host.js", () => {

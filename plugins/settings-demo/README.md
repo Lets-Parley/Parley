@@ -2,8 +2,8 @@
 
 A plugin configured by an org admin. `manifest.json` declares a `settings`
 schema with a string (`greeting`), a boolean (`loud`), an enum (`mood`) and one
-secret (`apiToken`). The guest reads the plain values with `getSettings()` and
-the secret with `getSecret("apiToken")` from `@parley/plugin-sdk`, and tells
+secret (`api_token`). The guest reads the plain values with `getSettings()` and
+the secret with `getSecret("api_token")` from `@parley/plugin-sdk`, and tells
 the room only whether a token is configured, never the token.
 
 ```sh
