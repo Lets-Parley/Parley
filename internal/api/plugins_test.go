@@ -426,6 +426,8 @@ func TestOneOrgsAdminCannotTouchAnothersPlugin(t *testing.T) {
 		{"POST", "/" + victimID + "/upgrade", `{"approve":true}`},
 		{"POST", "/" + victimID + "/enabled", `{"enabled":false}`},
 		{"POST", "/" + victimID + "/rollback", `{"digest":"x","key_id":""}`},
+		{"GET", "/" + victimID + "/settings", ""},
+		{"PUT", "/" + victimID + "/settings", `{}`},
 		{"DELETE", "/" + victimID, ""},
 	} {
 		got, err := requestStatus(srv, probe.method, otherPath+probe.path, probe.body, attacker)

@@ -5,7 +5,7 @@ description: The .parley bundle, version 1 — what it contains, how it is signe
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp version="unreleased" source={["sdk/abi/bundle-v1.md", "internal/plugin/bundle/bundle.go", "cmd/parley/plugincmd.go", "internal/api/catalog.go", "internal/plugin/pin.go", "internal/api/plugins.go"]} />
+<VerifiedStamp version="unreleased" source={["sdk/abi/bundle-v1.md", "internal/plugin/bundle/bundle.go", "cmd/parley/plugincmd.go", "internal/api/catalog.go", "internal/plugin/pin.go", "internal/api/plugins.go", "internal/plugin/settings.go", "internal/api/pluginsettings.go"]} />
 
 A plugin ships as one `.parley` file: a deterministic gzip-compressed tar
 archive. The full specification, including the byte-level encoding a packer
@@ -102,6 +102,53 @@ install that has ever been pinned never runs a loose `PLUGIN_DIR` file. Avoid pl
 `plugin_installs` and `plugin_install_history` hold foreign keys to
 `plugin_bundles`, so any future garbage collection has to leave every bundle an
 install is pinned to, staged for, or ran (or clear that history first).
+
+## Settings
+
+A manifest may declare `settings`: a flat JSON Schema subset an org admin fills
+in on the install's card. The host validates it with its own code, and a
+schema outside the subset is refused at catalog upload (400) and at install.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "channel": { "type": "string", "title": "Channel", "pattern": "^#[a-z]+$", "default": "#general" },
+    "size": { "type": "integer", "minimum": 1, "maximum": 10 },
+    "mode": { "type": "string", "enum": ["fast", "slow"] },
+    "token": { "type": "string", "title": "API token", "format": "secret" }
+  },
+  "required": ["mode"],
+  "additionalProperties": false
+}
+```
+
+- `type` is `object`; `additionalProperties` is `false` or left out. Nothing
+  nests: each property is `string`, `number`, `integer` or `boolean`.
+- A property may carry `title`, `description`, `default`, `enum`, `pattern`
+  (strings, Go RE2 syntax), `minLength`/`maxLength` (strings, in characters),
+  `minimum`/`maximum` (numbers), and `format: "secret"` (strings). Any other
+  keyword is refused, so the host never ignores a rule the admin was shown.
+- At most 32 properties, each named with lowercase letters, digits and
+  underscores, starting with a letter, at most 40 characters.
+
+The plugin reads the non-secret values, with defaults applied, through
+`parley_settings_get`. It needs no grant, it is refused while the install is
+disabled, and it re-reads the database on every call.
+
+**Secrets.** A `format: "secret"` field is never stored with the other values.
+It is an implicit `secrets` grant scoped to the field's name, so it appears on
+the consent screen, and a version that adds one is a widening upgrade that waits
+for approval. It is stored encrypted like any plugin secret and read only
+through `parley_secret_get` with the field name. The admin API never returns
+its value: only whether it is set, and whether a configured key can open it.
+
+**Upgrades and rollbacks.** Moving an install to another version re-checks the
+saved values against that version's schema, at the request and again at
+approval. If any saved value does not fit, the move is refused with 409 naming
+the fields; change or clear them, then try again. Nothing is dropped silently.
+A field the new version newly requires is not a refusal, since it could not be
+filled in before; it is enforced at the next save.
 
 ## Operator commands
 

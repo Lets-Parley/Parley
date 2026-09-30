@@ -2,10 +2,13 @@ export class ApiError extends Error {
   status: number;
   /** Seconds from the response's Retry-After header, when the server sent one. */
   retryAfter?: number;
-  constructor(status: number, message: string, retryAfter?: number) {
+  /** Per-field messages, when the server refused named fields of a form. */
+  fields?: Record<string, string>;
+  constructor(status: number, message: string, retryAfter?: number, fields?: Record<string, string>) {
     super(message);
     this.status = status;
     this.retryAfter = retryAfter;
+    this.fields = fields;
   }
 }
 
@@ -87,7 +90,8 @@ export async function api<T = unknown>(
     const msg =
       (data as { error?: string } | undefined)?.error ?? "Something went wrong talking to the server.";
     const ra = Number(resp.headers?.get("Retry-After"));
-    throw new ApiError(resp.status, msg, Number.isFinite(ra) && ra > 0 ? ra : undefined);
+    const fields = (data as { fields?: Record<string, string> } | undefined)?.fields;
+    throw new ApiError(resp.status, msg, Number.isFinite(ra) && ra > 0 ? ra : undefined, fields);
   }
   return data as T;
 }

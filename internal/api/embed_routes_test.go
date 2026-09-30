@@ -132,6 +132,8 @@ var embeddedRouteTable = map[string]embedRouteClass{
 	"POST /api/orgs/{org}/admin/plugins/preview":          embedRefused,
 	"POST /api/orgs/{org}/admin/plugins/{id}/upgrade":     embedRefused,
 	"POST /api/orgs/{org}/admin/plugins/{id}/rollback":    embedRefused,
+	"GET /api/orgs/{org}/admin/plugins/{id}/settings":     embedRefused,
+	"PUT /api/orgs/{org}/admin/plugins/{id}/settings":     embedRefused,
 	"POST /api/orgs/{org}/admin/plugins/{id}/enabled":     embedRefused,
 	"DELETE /api/orgs/{org}/admin/plugins/{id}":           embedRefused,
 	"POST /api/orgs/{org}/admin/plugins/themes":           embedRefused,

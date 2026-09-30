@@ -200,6 +200,8 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	"POST /api/orgs/{org}/admin/plugins/preview":          {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/admin/plugins/{id}/upgrade":     {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/admin/plugins/{id}/rollback":    {status: http.StatusUnauthorized},
+	"GET /api/orgs/{org}/admin/plugins/{id}/settings":     {status: http.StatusUnauthorized},
+	"PUT /api/orgs/{org}/admin/plugins/{id}/settings":     {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/admin/plugins/{id}/enabled":     {status: http.StatusUnauthorized},
 	"DELETE /api/orgs/{org}/admin/plugins/{id}":           {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/admin/plugins/themes":           {status: http.StatusUnauthorized},

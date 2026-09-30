@@ -290,6 +290,13 @@ func (s *BundleStore) Add(ctx context.Context, archive []byte, uploadedBy *strin
 	if m.Name, m.Version, err = manifestNameVersion(b.Manifest); err != nil {
 		return nil, false, fmt.Errorf("bundle %s: %w", b.Digest, ErrBundleIdentity)
 	}
+	var declared struct {
+		Settings json.RawMessage `json:"settings"`
+	}
+	_ = json.Unmarshal(b.Manifest, &declared)
+	if _, err := ParseSettingsSchema(declared.Settings); err != nil {
+		return nil, false, fmt.Errorf("bundle %s: %w", b.Digest, err)
+	}
 	// An unsigned bundle is only stored where nothing is; a signed one is
 	// held to one per name and version by the partial unique index.
 	tag, err := s.Pool.Exec(ctx, `

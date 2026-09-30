@@ -154,6 +154,9 @@ func (s *Store) setEnabled(ctx context.Context, orgID, installID string, enabled
 type PendingUpgrade struct {
 	Version string
 	Grants  []Grant
+	// Bundle is the stored bundle the upgrade moves to, nil for one staged
+	// without a pin.
+	Bundle *BundleRef
 }
 
 // Upgrade moves an install to a new version.
@@ -274,9 +277,10 @@ func (s *Store) UpgradeTo(ctx context.Context, installID, version string, want [
 
 // Pending returns the upgrade waiting on an operator, if any.
 func (s *Store) Pending(ctx context.Context, installID string) (PendingUpgrade, bool, error) {
-	var version *string
+	var version, digest, keyID *string
 	if err := s.Pool.QueryRow(ctx,
-		`select pending_version from plugin_installs where id = $1`, installID).Scan(&version); err != nil {
+		`select pending_version, pending_digest, pending_key_id from plugin_installs where id = $1`,
+		installID).Scan(&version, &digest, &keyID); err != nil {
 		return PendingUpgrade{}, false, fmt.Errorf("reading the pending upgrade for %s: %w", installID, err)
 	}
 	if version == nil {
@@ -289,6 +293,9 @@ func (s *Store) Pending(ctx context.Context, installID string) (PendingUpgrade, 
 	}
 	defer rows.Close()
 	out := PendingUpgrade{Version: *version}
+	if digest != nil && keyID != nil {
+		out.Bundle = &BundleRef{Digest: *digest, KeyID: *keyID}
+	}
 	for rows.Next() {
 		var g Grant
 		if err := rows.Scan(&g.Capability, &g.Scope); err != nil {

@@ -2,13 +2,22 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, errorText } from "../lib/api";
-import type { BundleRef, Catalog, DescribedGrant, InstalledPlugin, PluginPreview, PluginRegistry } from "../lib/plugins";
+import type {
+  BundleRef,
+  Catalog,
+  DescribedGrant,
+  InstalledPlugin,
+  PluginPreview,
+  PluginRegistry,
+  PluginSettings,
+} from "../lib/plugins";
 import { direction, normalizePluginPreview, normalizePluginRegistry } from "../lib/plugins";
 import { catalogApi, catalogPath, pluginsApi } from "../lib/paths";
 import {
   buttonDanger,
   buttonPrimary,
   buttonQuiet,
+  inputClass,
   labelText,
 } from "../components/Modal";
 import { useToast } from "../lib/ui";
@@ -772,6 +781,8 @@ function InstalledCard({
         <GrantList grants={install.grants} />
       </details>
 
+      <SettingsPanel base={`${base}/${install.id}/settings`} onSay={onSay} />
+
       {install.pending && (
         <div className="mt-4 rounded-chip border border-line-strong p-4">
           <h4 className="font-display text-base">
@@ -830,6 +841,217 @@ function InstalledCard({
         </div>
       )}
     </article>
+  );
+}
+
+/* -------------------------------------------------------------- settings -- */
+
+type Draft = Record<string, string | boolean>;
+
+/**
+ * The form a plugin's manifest declares, fetched only once it is opened. A
+ * secret is write-only: the field starts empty whatever is stored, typing
+ * replaces it, and clearing is its own explicit act.
+ */
+function SettingsPanel({ base, onSay }: { base: string; onSay: (m: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details className="mt-4" onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary className="cursor-pointer text-[13px] font-bold text-ink-soft">Settings</summary>
+      {open && <SettingsForm base={base} onSay={onSay} />}
+    </details>
+  );
+}
+
+function SettingsForm({ base, onSay }: { base: string; onSay: (m: string) => void }) {
+  const current = useQuery({
+    queryKey: ["plugin-settings", base],
+    queryFn: () => api<PluginSettings>("GET", base),
+    retry: false,
+  });
+  if (current.isLoading) return <p className="mt-3 text-[13px] text-ink-faint">Reading the settings…</p>;
+  if (current.error || !current.data)
+    return (
+      <p role="alert" className="mt-3 text-[13px] font-bold text-stop">
+        {errorText(current.error)}
+      </p>
+    );
+  // Keyed on the read, so a save that refetches starts the form over from
+  // what the server now holds.
+  return (
+    <SettingsEditor
+      key={current.dataUpdatedAt}
+      data={current.data}
+      base={base}
+      onSay={onSay}
+      onSaved={() => current.refetch()}
+    />
+  );
+}
+
+function initialDraft(data: PluginSettings): Draft {
+  const next: Draft = {};
+  for (const [name, f] of Object.entries(data.schema?.properties ?? {})) {
+    if (f.format === "secret") next[name] = "";
+    else {
+      const v = data.values[name] ?? f.default;
+      next[name] = f.type === "boolean" ? v === true : v === undefined ? "" : String(v);
+    }
+  }
+  return next;
+}
+
+function SettingsEditor({
+  data,
+  base,
+  onSay,
+  onSaved,
+}: {
+  data: PluginSettings;
+  base: string;
+  onSay: (m: string) => void;
+  onSaved: () => void;
+}) {
+  const idBase = useId();
+  const [draft, setDraft] = useState<Draft>(() => initialDraft(data));
+  const [clearing, setClearing] = useState<Record<string, boolean>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const props = Object.entries(data.schema?.properties ?? {});
+  const required = new Set(data.schema?.required ?? []);
+
+  const save = useMutation({
+    mutationFn: () => {
+      const body: Record<string, unknown> = {};
+      for (const [name, f] of props) {
+        const v = draft[name];
+        if (f.format === "secret") {
+          if (typeof v === "string" && v !== "") body[name] = v;
+          else if (clearing[name]) body[name] = null;
+        } else if (f.type === "boolean") body[name] = v === true;
+        else if (typeof v === "string" && v !== "") body[name] = f.type === "string" ? v : Number(v);
+      }
+      return api<PluginSettings>("PUT", base, body);
+    },
+    onSuccess: () => {
+      onSay("Settings saved.");
+      onSaved();
+    },
+    onError: (e) => {
+      setErrors(e instanceof ApiError && e.fields ? e.fields : {});
+      onSay(errorText(e));
+    },
+  });
+
+  if (props.length === 0) return <p className="mt-3 text-[13px] text-ink-faint">This plugin has no settings.</p>;
+
+  return (
+    <form
+      className="mt-3 space-y-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save.mutate();
+      }}
+    >
+      {props.map(([name, f]) => {
+        const id = `${idBase}-${name}`;
+        const errId = `${id}-error`;
+        const hintId = `${id}-hint`;
+        const label = f.title || name;
+        const described = [f.description ? hintId : "", errors[name] ? errId : ""].filter(Boolean).join(" ") || undefined;
+        const common = {
+          id,
+          "aria-invalid": errors[name] ? true : undefined,
+          "aria-describedby": described,
+        };
+        const set = (v: string | boolean) => setDraft((d) => ({ ...d, [name]: v }));
+        const secret = data.secrets[name];
+        return (
+          <div key={name}>
+            {f.type === "boolean" ? (
+              <label htmlFor={id} className="flex items-center gap-2 text-sm">
+                <input type="checkbox" {...common} checked={draft[name] === true} onChange={(e) => set(e.target.checked)} />
+                <span>{label}</span>
+              </label>
+            ) : (
+              <>
+                <label htmlFor={id} className={`mb-1 block ${labelText}`}>
+                  {label}
+                  {f.format === "secret" && (
+                    <span className="ml-2 normal-case tracking-normal">
+                      {secret?.undecryptable
+                        ? "Set, but no configured key opens it"
+                        : secret?.set && !clearing[name]
+                          ? "Set"
+                          : clearing[name]
+                            ? "Will be cleared"
+                            : "Not set"}
+                    </span>
+                  )}
+                </label>
+                {f.format === "secret" ? (
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      className={inputClass}
+                      placeholder={secret?.set ? "Type to replace it" : "Type to set it"}
+                      {...common}
+                      value={String(draft[name] ?? "")}
+                      onChange={(e) => set(e.target.value)}
+                    />
+                    {secret?.set && (
+                      <button
+                        type="button"
+                        className={buttonQuiet}
+                        aria-pressed={clearing[name] === true}
+                        onClick={() => {
+                          set("");
+                          setClearing((c) => ({ ...c, [name]: !c[name] }));
+                        }}
+                      >
+                        Clear {label}
+                      </button>
+                    )}
+                  </div>
+                ) : f.enum ? (
+                  <select className={inputClass} {...common} value={String(draft[name] ?? "")} onChange={(e) => set(e.target.value)}>
+                    {!required.has(name) && <option value="">Default</option>}
+                    {required.has(name) && draft[name] === "" && <option value="">Choose one</option>}
+                    {f.enum.map((o) => (
+                      <option key={String(o)} value={String(o)}>
+                        {String(o)}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type={f.type === "string" ? "text" : "number"}
+                    step={f.type === "integer" ? 1 : f.type === "number" ? "any" : undefined}
+                    className={inputClass}
+                    {...common}
+                    value={String(draft[name] ?? "")}
+                    onChange={(e) => set(e.target.value)}
+                  />
+                )}
+              </>
+            )}
+            {f.description && (
+              <p id={hintId} className="mt-1 text-[12px] text-ink-soft">
+                {f.description}
+              </p>
+            )}
+            {errors[name] && (
+              <p id={errId} role="alert" className="mt-1 text-[12px] font-bold text-stop">
+                {label} {errors[name]}
+              </p>
+            )}
+          </div>
+        );
+      })}
+      <button type="submit" className={buttonPrimary} disabled={save.isPending}>
+        Save settings
+      </button>
+    </form>
   );
 }
 
