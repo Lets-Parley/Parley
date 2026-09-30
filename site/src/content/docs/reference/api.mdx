@@ -238,7 +238,7 @@ both, and an embedded session is refused.
 
 <RouteTable rows={[
   { method: "GET", path: "/api/catalogue", auth: "org member", purpose: "Every stored bundle, grouped by plugin name: for each version its digest, key_id (empty for an unsigned bundle), the grants it asks for described by the server, and its settings schema if it declares one. It names no uploader, no org and no install count. can_upload says whether the caller may upload." },
-  { method: "POST", path: "/api/catalogue/bundles", auth: "default-org admin", purpose: "Upload a .parley bundle as the raw request body with Content-Type application/vnd.parley.bundle — no JSON, no multipart. The body is capped at 16 MiB plus framing. 201 with the stored version; the same bundle again is also 201. 409 when a different bundle already holds that name and version. 400 for a malformed bundle, 422 for a signature that does not verify against a trusted key. Uploads and signature refusals are written to the org audit log." },
+  { method: "POST", path: "/api/catalogue/bundles", auth: "default-org admin", purpose: "Upload a .parley bundle as the raw request body with Content-Type application/vnd.parley.bundle — no JSON, no multipart. The body is capped at 16 MiB plus framing. 201 with the stored version; the identical bundle again is 200 with the same body, and adds nothing. 409 when a different bundle already holds that name and version. 400 for a malformed bundle, 422 for a signature that does not verify against a trusted key. Uploads and signature refusals are written to the org audit log." },
 ]} />
 
 The upload is the one `/api` write that does not take JSON. The exemption is

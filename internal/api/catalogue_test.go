@@ -93,8 +93,8 @@ func TestOnlyADefaultOrgAdminCanUploadABundle(t *testing.T) {
 	}
 
 	// The same bytes again are not a conflict; a different bundle is.
-	if code, _ := uploadBundle(t, srv, data, curator); code != http.StatusCreated {
-		t.Fatalf("re-upload of the same bundle: got %d, want 201", code)
+	if code, _ := uploadBundle(t, srv, data, curator); code != http.StatusOK {
+		t.Fatalf("re-upload of the same bundle: got %d, want 200", code)
 	}
 	_, priv2, _ := ed25519.GenerateKey(rand.Reader)
 	if code, _ := uploadBundle(t, srv, packBundle(t, priv, name, "1.0.0")[:20], curator); code != http.StatusBadRequest {
@@ -121,6 +121,9 @@ func TestAConflictingBundleIs409(t *testing.T) {
 	name := "cat" + randomKindSuffix(t)
 	if code, _ := uploadBundle(t, srv, packBundle(t, priv, name, "1.0.0"), curator); code != http.StatusCreated {
 		t.Fatalf("first upload: %d", code)
+	}
+	if code, body := uploadBundle(t, srv, packBundle(t, priv, name, "1.0.0"), curator); code != http.StatusOK || !strings.Contains(body, `"version":"1.0.0"`) {
+		t.Fatalf("an identical re-upload: got %d %s, want 200 with the projection", code, body)
 	}
 	other, err := bundle.Pack(map[string][]byte{"plugin.wasm": []byte("\x00asm2")},
 		[]byte(fmt.Sprintf(`{"name":%q,"version":"1.0.0"}`, name)), priv)

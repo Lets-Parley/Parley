@@ -197,7 +197,7 @@ func (a *app) handleUploadBundle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, _ := PrincipalFrom(r.Context())
-	b, err := a.bundles.Insert(r.Context(), archive, auditActor(p))
+	b, added, err := a.bundles.Add(r.Context(), archive, auditActor(p))
 	switch {
 	case err == nil:
 	case errors.Is(err, plugin.ErrBundleConflict):
@@ -219,8 +219,14 @@ func (a *app) handleUploadBundle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name, version, _ := manifestIdentity(b.Manifest)
-	a.auditPlugin(r, "plugin.catalogue.upload", name+" "+version+" "+b.Digest+"/"+b.KeyID)
 	out := cataloguePlugin{Name: name, Versions: []catalogueVersion{project(version, b.Digest, b.KeyID, b.Manifest)}}
+	// The identical bundle again is not an error, but nothing was added:
+	// 200, and no audit row for a write that did not happen.
+	if !added {
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	a.auditPlugin(r, "plugin.catalogue.upload", name+" "+version+" "+b.Digest+"/"+b.KeyID)
 	writeJSON(w, http.StatusCreated, out)
 }
 

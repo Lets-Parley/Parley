@@ -18,7 +18,8 @@ type Catalogue = {
 };
 
 /** The raw bundle upload. Its type is not JSON on purpose: see catalogue.go. */
-async function uploadBundle(file: Blob): Promise<void> {
+/** Uploads a bundle; true when it was added, false when it was already held. */
+async function uploadBundle(file: Blob): Promise<{ added: boolean; name: string; version: string }> {
   let resp: Response;
   try {
     resp = await fetch(`${catalogueApi}/bundles`, {
@@ -35,6 +36,10 @@ async function uploadBundle(file: Blob): Promise<void> {
     const data = (await resp.json().catch(() => undefined)) as { error?: string } | undefined;
     throw new ApiError(resp.status, data?.error ?? "The upload failed.");
   }
+  const body = (await resp.json().catch(() => undefined)) as
+    | { name?: string; versions?: { version?: string }[] }
+    | undefined;
+  return { added: resp.status !== 200, name: body?.name ?? "", version: body?.versions?.[0]?.version ?? "" };
 }
 
 /** A digest is too long to read whole: its ends identify it at a glance. */
@@ -42,12 +47,23 @@ function shortDigest(d: string): string {
   return d.length > 20 ? `${d.slice(0, 12)}…${d.slice(-6)}` : d;
 }
 
-function BundleIcon() {
+type Drag = "idle" | "over" | "many";
+
+/**
+ * A box whose lid lifts and an arrow that drops in while a bundle is held over
+ * the zone. Under reduced motion the same end state is shown without movement.
+ */
+function BundleIcon({ drag }: { drag: Drag }) {
+  const open = drag === "over";
+  const move = "motion-safe:transition-transform motion-safe:duration-[var(--dur-lift)] motion-safe:ease-[var(--ease-spring)]";
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3 4 7v10l8 4 8-4V7l-8-4Z" />
-      <path d="m4 7 8 4 8-4M12 11v10" />
-      <path d="M12 16V8m-3 3 3-3 3 3" className="text-accent" />
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-10 w-10 overflow-visible" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 11v7l8 4 8-4v-7M4 11l8 4 8-4M12 15v7" />
+      <path d="M4 11l8-4 8 4" className={`${move} ${open ? "-translate-y-[3px]" : ""}`} />
+      <path
+        d="M12 1v6m-3-3 3 3 3-3"
+        className={`${move} ${open ? "translate-y-[4px] text-accent" : drag === "many" ? "opacity-0" : "opacity-60"}`}
+      />
     </svg>
   );
 }
@@ -86,7 +102,10 @@ export function CataloguePage() {
   const hintId = useId();
   const input = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState("");
-  const [dragging, setDragging] = useState(false);
+  const [drag, setDrag] = useState<Drag>("idle");
+  // Enter and leave fire for every child the pointer crosses; the zone counts
+  // them so it only goes idle when the pointer has really left it.
+  const depth = useRef(0);
   const [status, setStatus] = useState("");
   const [failure, setFailure] = useState("");
   const catalogue = useQuery({
@@ -111,8 +130,12 @@ export function CataloguePage() {
     }
     setUploading(f.name);
     try {
-      await uploadBundle(f);
-      setStatus(`Added ${f.name} to the catalogue.`);
+      const got = await uploadBundle(f);
+      setStatus(
+        got.added
+          ? `Added ${f.name} to the catalogue.`
+          : `${got.name} ${got.version} is already in the catalogue.`,
+      );
       await qc.invalidateQueries({ queryKey: ["catalogue"] });
     } catch (e) {
       setFailure(errorText(e));
@@ -123,7 +146,13 @@ export function CataloguePage() {
   };
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
-    setDragging(false);
+    depth.current = 0;
+    setDrag("idle");
+    if ((e.dataTransfer.files?.length ?? 0) > 1) {
+      setStatus("");
+      setFailure("One bundle at a time. Drop a single .parley file.");
+      return;
+    }
     void choose(e.dataTransfer.files?.[0] ?? null);
   };
   const onKey = (e: KeyboardEvent) => {
@@ -171,19 +200,27 @@ export function CataloguePage() {
               if (!uploading) input.current?.click();
             }}
             onKeyDown={onKey}
-            onDragOver={(e) => {
+            data-drag={drag}
+            onDragEnter={(e) => {
               e.preventDefault();
-              setDragging(true);
+              depth.current += 1;
+              setDrag((e.dataTransfer?.items?.length ?? 1) > 1 ? "many" : "over");
             }}
-            onDragLeave={() => setDragging(false)}
+            onDragOver={(e) => e.preventDefault()}
+            onDragLeave={() => {
+              depth.current = Math.max(0, depth.current - 1);
+              if (depth.current === 0) setDrag("idle");
+            }}
             onDrop={onDrop}
             className={
               "mt-3 flex cursor-pointer aria-busy:cursor-progress flex-col items-center gap-2 rounded-panel border-2 border-dashed px-6 py-9 text-center " +
               "transition-[background-color,border-color,transform] duration-[var(--dur-lift)] ease-[var(--ease-settle)] motion-reduce:transition-none " +
-              "hover:border-accent hover:bg-surface-hi focus-visible:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent " +
-              (dragging
-                ? "border-accent bg-accent-soft motion-safe:scale-[1.01]"
-                : "border-line-strong bg-surface")
+              "[&>*]:pointer-events-none hover:border-ink-faint hover:bg-surface-hi focus-visible:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent " +
+              (drag === "over"
+                ? "border-solid border-accent bg-accent-soft shadow-lift motion-safe:scale-[1.015]"
+                : drag === "many"
+                  ? "border-stop bg-surface"
+                  : "border-line-strong bg-surface")
             }
           >
             {uploading ? (
@@ -195,12 +232,20 @@ export function CataloguePage() {
               </>
             ) : (
               <>
-                <span className={dragging ? "text-accent" : "text-ink-soft"}>
-                  <BundleIcon />
+                <span className={drag === "over" ? "text-accent" : drag === "many" ? "text-stop" : "text-ink-soft"}>
+                  <BundleIcon drag={drag} />
                 </span>
                 <span className="font-bold">
-                  Drop a .parley bundle here or{" "}
-                  <span className="text-accent underline underline-offset-2">browse</span>
+                  {drag === "over" ? (
+                    "Release to add it to the catalogue"
+                  ) : drag === "many" ? (
+                    "One bundle at a time"
+                  ) : (
+                    <>
+                      Drop a .parley bundle here or{" "}
+                      <span className="text-accent underline underline-offset-2">browse</span>
+                    </>
+                  )}
                 </span>
               </>
             )}
@@ -208,14 +253,17 @@ export function CataloguePage() {
               Signed bundles only, up to 16 MiB. It uploads as soon as you choose it.
             </span>
           </div>
-          <p role="status" className="mt-3 text-sm font-bold text-go empty:hidden">
-            {status}
-          </p>
-          {failure && (
-            <p role="alert" className="mt-3 text-sm font-bold text-stop">
-              {failure}
+          {/* Always rendered at a fixed height, so a result never moves the page. */}
+          <div data-upload-result className="mt-3 min-h-[3rem] text-sm font-bold">
+            <p role="status" className="text-go">
+              {status}
             </p>
-          )}
+            {failure && (
+              <p role="alert" className="text-stop">
+                {failure}
+              </p>
+            )}
+          </div>
         </section>
       )}
 

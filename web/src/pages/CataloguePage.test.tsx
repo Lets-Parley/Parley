@@ -110,6 +110,54 @@ describe("CataloguePage", () => {
       expect(screen.queryByText("Uploading one.parley…")).toBeNull();
     });
 
+    it("says a bundle already held is already there, as a status", async () => {
+      answerPost(async () =>
+        new Response(JSON.stringify({ name: "retro", versions: [{ version: "1.0.0" }] }), { status: 200 }),
+      );
+      renderApp(<CataloguePage />);
+      fireEvent.drop(await zone(), { dataTransfer: { files: [new File(["x"], "retro.parley")] } });
+      expect(await screen.findByText("retro 1.0.0 is already in the catalogue.")).toBeTruthy();
+      expect(screen.queryByText(/Added/)).toBeNull();
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("reserves the result line before any upload, so nothing jumps", async () => {
+      const { container } = renderApp(<CataloguePage />);
+      await zone();
+      const region = container.querySelector("[data-upload-result]");
+      expect(region).not.toBeNull();
+      expect(region?.className).toContain("min-h-");
+      answerPost(async () => new Response("", { status: 413 }));
+      fireEvent.drop(await zone(), { dataTransfer: { files: [new File(["x"], "a.parley")] } });
+      const alert = await screen.findByRole("alert");
+      expect(region?.contains(alert)).toBe(true);
+    });
+
+    it("changes its copy and state while a file is dragged over, and restores both on leave", async () => {
+      const { container } = renderApp(<CataloguePage />);
+      const z = await zone();
+      const one = { dataTransfer: { items: [{ kind: "file" }], types: ["Files"] } };
+      fireEvent.dragEnter(z, one);
+      expect(z.getAttribute("data-drag")).toBe("over");
+      expect(screen.getByText("Release to add it to the catalogue")).toBeTruthy();
+      // Entering a child and leaving the zone's own box must not flicker.
+      fireEvent.dragEnter(z.firstElementChild as Element, one);
+      fireEvent.dragLeave(z, one);
+      expect(z.getAttribute("data-drag")).toBe("over");
+      fireEvent.dragLeave(z.firstElementChild as Element, one);
+      expect(z.getAttribute("data-drag")).toBe("idle");
+      expect(screen.queryByText("Release to add it to the catalogue")).toBeNull();
+      await expectNoViolations(container);
+    });
+
+    it("says one bundle at a time when several files are dragged over", async () => {
+      renderApp(<CataloguePage />);
+      const z = await zone();
+      fireEvent.dragEnter(z, { dataTransfer: { items: [{ kind: "file" }, { kind: "file" }], types: ["Files"] } });
+      expect(z.getAttribute("data-drag")).toBe("many");
+      expect(screen.getByText("One bundle at a time")).toBeTruthy();
+    });
+
     it("opens the file picker from the keyboard", async () => {
       renderApp(<CataloguePage />);
       const z = await zone();
