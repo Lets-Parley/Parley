@@ -773,6 +773,26 @@ mutate "the handshake timeout" \
 # holder could already enter, never a new key.
 target internal/api
 
+mutate "the catalogue curator role check" \
+    'TestOnlyADefaultOrgAdminCanUploadABundle' \
+    catalogue.go 'return org, role == store.OrgRoleAdmin, nil' 'return org, role != "", nil'
+
+# The upload exemption from requireJSONBody is an exact path and an exact type.
+mutate "the bundle upload exemption's exact type" \
+    'TestTheBundleTypeIsExemptOnlyOnTheUploadRoute' \
+    catalogue.go 'r.Header.Get("Content-Type") == bundleContentType' 'true'
+
+mutate "the bundle upload exemption's exact path" \
+    'TestTheBundleTypeIsExemptOnlyOnTheUploadRoute' \
+    catalogue.go 'r.URL.Path == bundleUploadPath &&' 'r.URL.Path != "" &&'
+
+# The raw body is capped twice, in the middleware and in the handler; both go.
+mutate "the bundle upload body cap" \
+    'TestTheBundleTypeIsExemptOnlyOnTheUploadRoute' \
+    router.go 'limit = bundle.MaxUpload' 'limit = bundle.MaxUpload << 6' \
+    catalogue.go 'http.MaxBytesReader(w, r.Body, bundle.MaxUpload)' 'http.MaxBytesReader(w, r.Body, bundle.MaxUpload<<6)'
+
+
 mutate "the embed switch answering 404 when no provider is enabled" \
     'TestEmbedDisabledIs404AndIgnoresBearer' \
     embed.go 'if len(a.embedProviders) == 0 {

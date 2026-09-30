@@ -279,7 +279,7 @@ function ThemePanel({ org, onSay }: { org: string; onSay: (m: string) => void })
  * One capability, as a consequence. `permits`, `allows` and `refuses` are all
  * written by the server — this renders them and adds nothing.
  */
-function GrantList({ grants, tone }: { grants: DescribedGrant[]; tone?: "add" | "drop" }) {
+export function GrantList({ grants, tone }: { grants: DescribedGrant[]; tone?: "add" | "drop" }) {
   if (grants.length === 0) return null;
   return (
     <ul className="mt-2 space-y-2">
