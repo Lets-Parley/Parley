@@ -62,4 +62,33 @@ describe("CataloguePage", () => {
     );
     expect(post?.[1]?.body).toBe(file);
   });
+
+  it("shows a loading line while the catalogue is pending", async () => {
+    fetchMock.mockImplementation(() => new Promise(() => {}));
+    renderApp(<CataloguePage />);
+    expect(await screen.findByText("Loading the catalogue…")).toBeTruthy();
+  });
+
+  const refusals: Array<[string, () => Promise<Response>, string]> = [
+    ["409", async () => new Response(JSON.stringify({ error: "another bundle already holds this plugin name and version" }), { status: 409 }), "another bundle already holds this plugin name and version"],
+    ["422", async () => new Response(JSON.stringify({ error: "the bundle is not signed by a key this instance trusts" }), { status: 422 }), "the bundle is not signed by a key this instance trusts"],
+    ["413", async () => new Response("", { status: 413 }), "That bundle is too large to upload."],
+    ["a network error", async () => { throw new TypeError("Failed to fetch"); }, "Can't reach the server — check your connection and try again."],
+  ];
+  for (const [label, answer, text] of refusals) {
+    it(`reports ${label} as an alert, and clears it when a new file is chosen`, async () => {
+      catalogue.can_upload = true;
+      fetchMock.mockImplementation(async (_path: string, init?: RequestInit) =>
+        init?.method === "POST" ? answer() : new Response(JSON.stringify(catalogue), { status: 200 }),
+      );
+      renderApp(<CataloguePage />);
+      const input = await screen.findByLabelText("A signed .parley file");
+      await userEvent.upload(input, new File([new Uint8Array([1])], "a.parley"));
+      await userEvent.click(screen.getByRole("button", { name: "Upload" }));
+      expect((await screen.findByRole("alert")).textContent).toBe(text);
+      expect(screen.queryByText(/to the catalogue\./)).toBeNull();
+      await userEvent.upload(input, new File([new Uint8Array([2])], "b.parley"));
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+  }
 });

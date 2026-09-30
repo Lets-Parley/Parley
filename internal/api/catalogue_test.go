@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/lets-parley/parley/internal/httprequest"
 	"github.com/lets-parley/parley/internal/plugin"
 	"github.com/lets-parley/parley/internal/plugin/bundle"
 )
@@ -224,5 +225,48 @@ func TestTheCatalogueProjectionIsAllowListed(t *testing.T) {
 	walk(raw, "")
 	if !strings.Contains(fmt.Sprint(raw), "Can write lines into this server's log") {
 		t.Fatalf("capability copy missing: %v", raw)
+	}
+}
+
+type countingReader struct {
+	r io.Reader
+	n int
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	k, err := c.r.Read(p)
+	c.n += k
+	return k, err
+}
+
+// An anonymous upload is refused before its body is buffered past the JSON
+// cap: the larger read happens only behind the curator gate.
+func TestAnAnonymousUploadIsNotBufferedPastTheJSONCap(t *testing.T) {
+	srv, _, _ := catalogueServer(t)
+	body := &countingReader{r: bytes.NewReader(make([]byte, 1<<20))}
+	req := httptest.NewRequest("POST", bundleUploadPath, body)
+	req.Header.Set("Content-Type", bundleContentType)
+	req.Header.Set("Origin", testOrigin)
+	rec := httptest.NewRecorder()
+	srv.Config.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized && rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("anonymous upload: got %d, want 401 or 413", rec.Code)
+	}
+	if body.n > httprequest.MaxJSONBody+1 {
+		t.Fatalf("anonymous upload: %d bytes read, want at most the JSON cap", body.n)
+	}
+}
+
+func TestABundleWithNoVersionIs400(t *testing.T) {
+	srv, pool, priv := catalogueServer(t)
+	curator, id := signupWithID(t, srv, "Curator")
+	makeOrgAdmin(t, pool, id)
+	data, err := bundle.Pack(map[string][]byte{"plugin.wasm": []byte("\x00asm")},
+		[]byte(`{"name":"cat`+randomKindSuffix(t)+`"}`), priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, body := uploadBundle(t, srv, data, curator); code != http.StatusBadRequest {
+		t.Fatalf("a manifest with no version: got %d %s, want 400", code, body)
 	}
 }

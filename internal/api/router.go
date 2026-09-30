@@ -23,7 +23,6 @@ import (
 	"github.com/lets-parley/parley/internal/httprequest"
 	"github.com/lets-parley/parley/internal/hub"
 	"github.com/lets-parley/parley/internal/plugin"
-	"github.com/lets-parley/parley/internal/plugin/bundle"
 	"github.com/lets-parley/parley/internal/poker"
 	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/standup"
@@ -873,11 +872,13 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 
 func limitAPIRequestBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		limit := int64(httprequest.MaxJSONBody)
+		// The bundle upload is not buffered here, before anybody is known:
+		// its handler reads it under bundle.MaxUpload, behind the curator gate.
 		if isBundleUpload(r) {
-			limit = bundle.MaxUpload
+			next.ServeHTTP(w, r)
+			return
 		}
-		bounded := http.MaxBytesReader(w, r.Body, limit)
+		bounded := http.MaxBytesReader(w, r.Body, httprequest.MaxJSONBody)
 		body, err := io.ReadAll(bounded)
 		bounded.Close()
 		if err != nil {

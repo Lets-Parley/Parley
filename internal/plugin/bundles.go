@@ -26,6 +26,9 @@ var (
 	// already holds. The first signed bundle wins; an unsigned one never
 	// displaces or competes with it.
 	ErrBundleConflict = errors.New("a different bundle is already stored for this name and version")
+	// ErrBundleIdentity is a verified bundle whose manifest names no name
+	// or no version, so it cannot be stored under one.
+	ErrBundleIdentity = errors.New("the bundle's manifest names no name and version")
 	// ErrBundleUntrusted is a stored bundle this instance does not trust now.
 	ErrBundleUntrusted = errors.New("the stored bundle for this name and version is not trusted by this instance")
 )
@@ -278,7 +281,7 @@ func (s *BundleStore) Insert(ctx context.Context, archive []byte, uploadedBy *st
 	}
 	var m struct{ Name, Version string }
 	if m.Name, m.Version, err = manifestNameVersion(b.Manifest); err != nil {
-		return nil, fmt.Errorf("bundle %s: %w", b.Digest, err)
+		return nil, fmt.Errorf("bundle %s: %w", b.Digest, ErrBundleIdentity)
 	}
 	// An unsigned bundle is only stored where nothing is; a signed one is
 	// held to one per name and version by the partial unique index.

@@ -782,14 +782,18 @@ mutate "the bundle upload exemption's exact type" \
     'TestTheBundleTypeIsExemptOnlyOnTheUploadRoute' \
     catalogue.go 'r.Header.Get("Content-Type") == bundleContentType' 'true'
 
+# The pre-auth middleware must not buffer the upload past the JSON cap.
+mutate "the bundle upload skipping pre-auth buffering" \
+    'TestAnAnonymousUploadIsNotBufferedPastTheJSONCap' \
+    router.go '		if isBundleUpload(r) {' '		if isBundleUpload(r) { _, _ = io.ReadAll(r.Body)'
+
 mutate "the bundle upload exemption's exact path" \
     'TestTheBundleTypeIsExemptOnlyOnTheUploadRoute' \
     catalogue.go 'r.URL.Path == bundleUploadPath &&' 'r.URL.Path != "" &&'
 
-# The raw body is capped twice, in the middleware and in the handler; both go.
+# The raw body's only cap is in the handler, behind the curator gate.
 mutate "the bundle upload body cap" \
     'TestTheBundleTypeIsExemptOnlyOnTheUploadRoute' \
-    router.go 'limit = bundle.MaxUpload' 'limit = bundle.MaxUpload << 6' \
     catalogue.go 'http.MaxBytesReader(w, r.Body, bundle.MaxUpload)' 'http.MaxBytesReader(w, r.Body, bundle.MaxUpload<<6)'
 
 

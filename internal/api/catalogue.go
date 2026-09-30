@@ -189,8 +189,8 @@ func (a *app) handleUploadBundle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"the plugin catalogue is not available on this instance"}`, http.StatusServiceUnavailable)
 		return
 	}
-	// limitAPIRequestBody has already read the body under bundle.MaxUpload;
-	// this second cap is what holds if that middleware ever stops running.
+	// limitAPIRequestBody passes this body through unread, so this is its
+	// only cap, and it runs only behind requireInstanceCurator.
 	archive, err := io.ReadAll(http.MaxBytesReader(w, r.Body, bundle.MaxUpload))
 	if err != nil {
 		http.Error(w, `{"error":"the bundle is too large"}`, http.StatusRequestEntityTooLarge)
@@ -210,7 +210,7 @@ func (a *app) handleUploadBundle(w http.ResponseWriter, r *http.Request) {
 		a.auditPlugin(r, "plugin.catalogue.refused", "a bundle's signature did not verify against a trusted key")
 		http.Error(w, `{"error":"the bundle is not signed by a key this instance trusts"}`, http.StatusUnprocessableEntity)
 		return
-	case isAny(err, packingRefusals):
+	case isAny(err, packingRefusals), errors.Is(err, plugin.ErrBundleIdentity):
 		http.Error(w, `{"error":"the bundle is not a valid parley bundle"}`, http.StatusBadRequest)
 		return
 	default:

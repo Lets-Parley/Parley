@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, ApiError, errorText } from "../lib/api";
+import { api, ApiError, errorText, NetworkError } from "../lib/api";
 import type { DescribedGrant } from "../lib/plugins";
 import { catalogueApi } from "../lib/paths";
 import { buttonPrimary, labelText } from "../components/Modal";
@@ -20,12 +20,18 @@ type Catalogue = {
 
 /** The raw bundle upload. Its type is not JSON on purpose: see catalogue.go. */
 async function uploadBundle(file: Blob): Promise<void> {
-  const resp = await fetch(`${catalogueApi}/bundles`, {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/vnd.parley.bundle" },
-    body: file,
-  });
+  let resp: Response;
+  try {
+    resp = await fetch(`${catalogueApi}/bundles`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/vnd.parley.bundle" },
+      body: file,
+    });
+  } catch (e) {
+    throw new NetworkError(e instanceof Error ? e.message : "network failure");
+  }
+  if (resp.status === 413) throw new ApiError(413, "That bundle is too large to upload.");
   if (!resp.ok) {
     const data = (await resp.json().catch(() => undefined)) as { error?: string } | undefined;
     throw new ApiError(resp.status, data?.error ?? "The upload failed.");
@@ -42,6 +48,7 @@ export function CataloguePage() {
   const fileId = useId();
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState("");
+  const [failure, setFailure] = useState("");
   const [busy, setBusy] = useState(false);
   const catalogue = useQuery({
     queryKey: ["catalogue"],
@@ -52,12 +59,14 @@ export function CataloguePage() {
   const upload = async () => {
     if (!file) return;
     setBusy(true);
+    setStatus("");
+    setFailure("");
     try {
       await uploadBundle(file);
       setStatus(`Added ${file.name} to the catalogue.`);
       await qc.invalidateQueries({ queryKey: ["catalogue"] });
     } catch (e) {
-      setStatus(errorText(e));
+      setFailure(errorText(e));
     } finally {
       setBusy(false);
     }
@@ -82,7 +91,11 @@ export function CataloguePage() {
               id={fileId}
               type="file"
               accept=".parley"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              onChange={(e) => {
+                setFile(e.target.files?.[0] ?? null);
+                setStatus("");
+                setFailure("");
+              }}
             />
             <button type="button" className={buttonPrimary} disabled={!file || busy} onClick={() => void upload()}>
               {busy ? "Uploading…" : "Upload"}
@@ -91,9 +104,15 @@ export function CataloguePage() {
           <p role="status" className="mt-2 text-sm text-ink-soft">
             {status}
           </p>
+          {failure && (
+            <p role="alert" className="mt-2 text-sm font-bold text-stop">
+              {failure}
+            </p>
+          )}
         </section>
       )}
 
+      {catalogue.isPending && <p className="mt-6 text-ink-soft">Loading the catalogue…</p>}
       {catalogue.isError && (
         <p role="alert" className="mt-6 font-bold text-stop">
           {errorText(catalogue.error)}
