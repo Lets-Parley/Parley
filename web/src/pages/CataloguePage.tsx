@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, errorText, NetworkError } from "../lib/api";
 import type { DescribedGrant } from "../lib/plugins";
 import { catalogueApi } from "../lib/paths";
-import { buttonPrimary } from "../components/Modal";
 import { GrantList } from "./PluginsPage";
 
 type CatalogueVersion = {
@@ -38,12 +37,6 @@ async function uploadBundle(file: Blob): Promise<void> {
   }
 }
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 /** A digest is too long to read whole: its ends identify it at a glance. */
 function shortDigest(d: string): string {
   return d.length > 20 ? `${d.slice(0, 12)}…${d.slice(-6)}` : d;
@@ -61,7 +54,7 @@ function BundleIcon() {
 
 function Spinner() {
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4 motion-safe:animate-spin" fill="none" stroke="currentColor" strokeWidth="2.5">
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-8 w-8 motion-safe:animate-spin" fill="none" stroke="currentColor" strokeWidth="2.5">
       <path d="M21 12a9 9 0 1 1-9-9" strokeLinecap="round" />
     </svg>
   );
@@ -92,11 +85,10 @@ export function CataloguePage() {
   const fileId = useId();
   const hintId = useId();
   const input = useRef<HTMLInputElement>(null);
-  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState("");
   const [dragging, setDragging] = useState(false);
   const [status, setStatus] = useState("");
   const [failure, setFailure] = useState("");
-  const [busy, setBusy] = useState(false);
   const catalogue = useQuery({
     queryKey: ["catalogue"],
     queryFn: () => api<Catalogue>("GET", catalogueApi),
@@ -106,44 +98,39 @@ export function CataloguePage() {
   const clearInput = () => {
     if (input.current) input.current.value = "";
   };
-  const choose = (f: File | null) => {
+  // Choosing a file is the upload: it is checked, sent, and the zone empties
+  // whatever the answer. A drop while one is in flight is ignored.
+  const choose = async (f: File | null) => {
+    if (!f || uploading) return;
     setStatus("");
     setFailure("");
-    if (f && !f.name.toLowerCase().endsWith(".parley")) {
-      setFile(null);
+    if (!f.name.toLowerCase().endsWith(".parley")) {
       clearInput();
       setFailure(`“${f.name}” is not a .parley bundle. Choose a file ending in .parley.`);
       return;
     }
-    setFile(f);
-  };
-  const onDrop = (e: DragEvent) => {
-    e.preventDefault();
-    setDragging(false);
-    choose(e.dataTransfer.files?.[0] ?? null);
-  };
-  const onKey = (e: KeyboardEvent) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      input.current?.click();
-    }
-  };
-
-  const upload = async () => {
-    if (!file) return;
-    setBusy(true);
-    setStatus("");
-    setFailure("");
+    setUploading(f.name);
     try {
-      await uploadBundle(file);
-      setStatus(`Added ${file.name} to the catalogue.`);
+      await uploadBundle(f);
+      setStatus(`Added ${f.name} to the catalogue.`);
       await qc.invalidateQueries({ queryKey: ["catalogue"] });
     } catch (e) {
       setFailure(errorText(e));
     } finally {
-      setBusy(false);
-      setFile(null);
+      setUploading("");
       clearInput();
+    }
+  };
+  const onDrop = (e: DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    void choose(e.dataTransfer.files?.[0] ?? null);
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (uploading) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      input.current?.click();
     }
   };
 
@@ -172,13 +159,17 @@ export function CataloguePage() {
             accept=".parley"
             tabIndex={-1}
             className="sr-only"
-            onChange={(e) => choose(e.target.files?.[0] ?? null)}
+            disabled={!!uploading}
+            onChange={(e) => void choose(e.target.files?.[0] ?? null)}
           />
           <div
             role="button"
             tabIndex={0}
             aria-describedby={hintId}
-            onClick={() => input.current?.click()}
+            aria-busy={!!uploading}
+            onClick={() => {
+              if (!uploading) input.current?.click();
+            }}
             onKeyDown={onKey}
             onDragOver={(e) => {
               e.preventDefault();
@@ -187,7 +178,7 @@ export function CataloguePage() {
             onDragLeave={() => setDragging(false)}
             onDrop={onDrop}
             className={
-              "mt-3 flex cursor-pointer flex-col items-center gap-2 rounded-panel border-2 border-dashed px-6 py-9 text-center " +
+              "mt-3 flex cursor-pointer aria-busy:cursor-progress flex-col items-center gap-2 rounded-panel border-2 border-dashed px-6 py-9 text-center " +
               "transition-[background-color,border-color,transform] duration-[var(--dur-lift)] ease-[var(--ease-settle)] motion-reduce:transition-none " +
               "hover:border-accent hover:bg-surface-hi focus-visible:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent " +
               (dragging
@@ -195,47 +186,27 @@ export function CataloguePage() {
                 : "border-line-strong bg-surface")
             }
           >
-            <span className={dragging ? "text-accent" : "text-ink-soft"}>
-              <BundleIcon />
-            </span>
-            <span className="font-bold">
-              Drop a .parley bundle here or <span className="text-accent underline underline-offset-2">browse</span>
-            </span>
-            <span id={hintId} className="text-xs text-ink-faint">
-              Signed bundles only, up to 16 MiB.
-            </span>
-          </div>
-
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            {file && (
-              <span className="flex min-w-0 items-center gap-3 rounded-chip border border-line bg-surface-hi py-1.5 pl-3 pr-1.5 text-sm">
-                <span className="min-w-0 truncate font-bold">{file.name}</span>
-                <span className="shrink-0 text-ink-faint tabular-nums">{formatSize(file.size)}</span>
-                <button
-                  type="button"
-                  aria-label={`Remove ${file.name}`}
-                  className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-ink-soft hover:bg-felt-deep hover:text-ink"
-                  onClick={() => {
-                    setFile(null);
-                    clearInput();
-                  }}
-                >
-                  <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                    <path d="M6 6l12 12M18 6 6 18" />
-                  </svg>
-                </button>
-              </span>
+            {uploading ? (
+              <>
+                <span className="text-accent">
+                  <Spinner />
+                </span>
+                <span className="font-bold">Uploading {uploading}…</span>
+              </>
+            ) : (
+              <>
+                <span className={dragging ? "text-accent" : "text-ink-soft"}>
+                  <BundleIcon />
+                </span>
+                <span className="font-bold">
+                  Drop a .parley bundle here or{" "}
+                  <span className="text-accent underline underline-offset-2">browse</span>
+                </span>
+              </>
             )}
-            <button
-              type="button"
-              className={`${buttonPrimary} inline-flex items-center gap-2`}
-              disabled={!file || busy}
-              aria-busy={busy}
-              onClick={() => void upload()}
-            >
-              {busy && <Spinner />}
-              {busy ? "Uploading…" : "Upload"}
-            </button>
+            <span id={hintId} className="text-xs text-ink-faint">
+              Signed bundles only, up to 16 MiB. It uploads as soon as you choose it.
+            </span>
           </div>
           <p role="status" className="mt-3 text-sm font-bold text-go empty:hidden">
             {status}

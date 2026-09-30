@@ -42,25 +42,8 @@ describe("CataloguePage", () => {
     const { container } = renderApp(<CataloguePage />);
     expect(await screen.findByText("Copy written by the server.")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "retro" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Upload" })).toBeNull();
+    expect(screen.queryByLabelText("A signed .parley file")).toBeNull();
     await expectNoViolations(container);
-  });
-
-  it("uploads the raw file with the bundle content type for a curator", async () => {
-    catalogue.can_upload = true;
-    const { container } = renderApp(<CataloguePage />);
-    const input = await screen.findByLabelText("A signed .parley file");
-    await expectNoViolations(container);
-    const file = new File([new Uint8Array([31, 139])], "retro.parley");
-    await userEvent.upload(input, file);
-    await userEvent.click(screen.getByRole("button", { name: "Upload" }));
-    await screen.findByText("Added retro.parley to the catalogue.");
-    const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
-    expect(post?.[0]).toBe("/api/catalogue/bundles");
-    expect((post?.[1]?.headers as Record<string, string>)["Content-Type"]).toBe(
-      "application/vnd.parley.bundle",
-    );
-    expect(post?.[1]?.body).toBe(file);
   });
 
   it("shows a loading line while the catalogue is pending", async () => {
@@ -69,78 +52,94 @@ describe("CataloguePage", () => {
     expect(await screen.findByText("Loading the catalogue…")).toBeTruthy();
   });
 
-  const refusals: Array<[string, () => Promise<Response>, string]> = [
-    ["409", async () => new Response(JSON.stringify({ error: "another bundle already holds this plugin name and version" }), { status: 409 }), "another bundle already holds this plugin name and version"],
-    ["422", async () => new Response(JSON.stringify({ error: "the bundle is not signed by a key this instance trusts" }), { status: 422 }), "the bundle is not signed by a key this instance trusts"],
-    ["413", async () => new Response("", { status: 413 }), "That bundle is too large to upload."],
-    ["a network error", async () => { throw new TypeError("Failed to fetch"); }, "Can't reach the server — check your connection and try again."],
-  ];
-  for (const [label, answer, text] of refusals) {
-    it(`reports ${label} as an alert, and clears it when a new file is chosen`, async () => {
-      catalogue.can_upload = true;
-      fetchMock.mockImplementation(async (_path: string, init?: RequestInit) =>
-        init?.method === "POST" ? answer() : new Response(JSON.stringify(catalogue), { status: 200 }),
-      );
-      renderApp(<CataloguePage />);
-      const input = await screen.findByLabelText("A signed .parley file");
-      await userEvent.upload(input, new File([new Uint8Array([1])], "a.parley"));
-      await userEvent.click(screen.getByRole("button", { name: "Upload" }));
-      expect((await screen.findByRole("alert")).textContent).toBe(text);
-      expect(screen.queryByText(/to the catalogue\./)).toBeNull();
-      await userEvent.upload(input, new File([new Uint8Array([2])], "b.parley"));
-      expect(screen.queryByRole("alert")).toBeNull();
-    });
-  }
 
-  describe("the dropzone", () => {
+  const posts = () => fetchMock.mock.calls.filter(([, init]) => init?.method === "POST");
+  const zone = () => screen.findByRole("button", { name: /Drop a \.parley bundle here or browse/ });
+  const answerPost = (post: () => Promise<Response>) =>
+    fetchMock.mockImplementation(async (_path: string, init?: RequestInit) =>
+      init?.method === "POST" ? post() : new Response(JSON.stringify(catalogue), { status: 200 }),
+    );
+
+  describe("uploading", () => {
     beforeEach(() => {
       catalogue.can_upload = true;
     });
-    const zone = () => screen.findByRole("button", { name: /Drop a \.parley bundle here or browse/ });
 
-    it("selects a dropped .parley file and shows it with its size", async () => {
-      renderApp(<CataloguePage />);
-      const file = new File([new Uint8Array(2048)], "retro.parley");
-      fireEvent.drop(await zone(), { dataTransfer: { files: [file] } });
-      expect(await screen.findByText("retro.parley")).toBeTruthy();
-      expect(screen.getByText("2.0 KB")).toBeTruthy();
-      expect((screen.getByRole("button", { name: "Upload" }) as HTMLButtonElement).disabled).toBe(false);
+    it("uploads a picked file at once, raw, with the bundle content type", async () => {
+      const { container } = renderApp(<CataloguePage />);
+      await zone();
+      await expectNoViolations(container);
+      const file = new File([new Uint8Array([31, 139])], "retro.parley");
+      await userEvent.upload(screen.getByLabelText("A signed .parley file"), file);
+      await screen.findByText("Added retro.parley to the catalogue.");
+      expect(posts()).toHaveLength(1);
+      const [path, init] = posts()[0];
+      expect(path).toBe("/api/catalogue/bundles");
+      expect((init?.headers as Record<string, string>)["Content-Type"]).toBe("application/vnd.parley.bundle");
+      expect(init?.body).toBe(file);
     });
 
-    it("refuses a dropped file that is not a .parley bundle before any upload", async () => {
+    it("uploads a dropped file at once, with no click", async () => {
+      renderApp(<CataloguePage />);
+      fireEvent.drop(await zone(), { dataTransfer: { files: [new File(["x"], "retro.parley")] } });
+      await screen.findByText("Added retro.parley to the catalogue.");
+      expect(posts()).toHaveLength(1);
+    });
+
+    it("refuses a file that is not a .parley bundle with no upload", async () => {
       renderApp(<CataloguePage />);
       fireEvent.drop(await zone(), { dataTransfer: { files: [new File(["x"], "retro.zip")] } });
       expect((await screen.findByRole("alert")).textContent).toContain("retro.zip");
-      expect((screen.getByRole("button", { name: "Upload" }) as HTMLButtonElement).disabled).toBe(true);
-      expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+      expect(posts()).toHaveLength(0);
+    });
+
+    it("shows the upload on the zone and ignores a second drop meanwhile", async () => {
+      let finish: (r: Response) => void = () => {};
+      answerPost(() => new Promise<Response>((res) => (finish = res)));
+      renderApp(<CataloguePage />);
+      const z = await zone();
+      fireEvent.drop(z, { dataTransfer: { files: [new File(["x"], "one.parley")] } });
+      expect(await screen.findByText("Uploading one.parley…")).toBeTruthy();
+      expect(z.getAttribute("aria-busy")).toBe("true");
+      expect((screen.getByLabelText("A signed .parley file") as HTMLInputElement).disabled).toBe(true);
+      fireEvent.drop(z, { dataTransfer: { files: [new File(["y"], "two.parley")] } });
+      expect(posts()).toHaveLength(1);
+      finish(new Response("{}", { status: 201 }));
+      await screen.findByText("Added one.parley to the catalogue.");
+      expect(z.getAttribute("aria-busy")).toBe("false");
+      expect(screen.queryByText("Uploading one.parley…")).toBeNull();
     });
 
     it("opens the file picker from the keyboard", async () => {
       renderApp(<CataloguePage />);
       const z = await zone();
-      const input = screen.getByLabelText("A signed .parley file") as HTMLInputElement;
-      const click = vi.spyOn(input, "click");
+      const click = vi.spyOn(screen.getByLabelText("A signed .parley file") as HTMLInputElement, "click");
       z.focus();
       await userEvent.keyboard("{Enter}");
       await userEvent.keyboard(" ");
       expect(click).toHaveBeenCalledTimes(2);
     });
 
-    it("removes a chosen file", async () => {
-      renderApp(<CataloguePage />);
-      await userEvent.upload(await screen.findByLabelText("A signed .parley file"), new File(["x"], "retro.parley"));
-      await userEvent.click(await screen.findByRole("button", { name: "Remove retro.parley" }));
-      expect(screen.queryByText("retro.parley")).toBeNull();
-      expect((screen.getByRole("button", { name: "Upload" }) as HTMLButtonElement).disabled).toBe(true);
-    });
-
-    it("resets to empty after an upload and keeps the message", async () => {
-      renderApp(<CataloguePage />);
-      await userEvent.upload(await screen.findByLabelText("A signed .parley file"), new File(["x"], "retro.parley"));
-      await userEvent.click(screen.getByRole("button", { name: "Upload" }));
-      await screen.findByText("Added retro.parley to the catalogue.");
-      expect(screen.queryByRole("button", { name: "Remove retro.parley" })).toBeNull();
-      expect((screen.getByRole("button", { name: "Upload" }) as HTMLButtonElement).disabled).toBe(true);
-    });
+    const refusals: Array<[string, () => Promise<Response>, string]> = [
+      ["409", async () => new Response(JSON.stringify({ error: "another bundle already holds this plugin name and version" }), { status: 409 }), "another bundle already holds this plugin name and version"],
+      ["422", async () => new Response(JSON.stringify({ error: "the bundle is not signed by a key this instance trusts" }), { status: 422 }), "the bundle is not signed by a key this instance trusts"],
+      ["413", async () => new Response("", { status: 413 }), "That bundle is too large to upload."],
+      ["a network error", async () => { throw new TypeError("Failed to fetch"); }, "Can't reach the server — check your connection and try again."],
+    ];
+    for (const [label, answer, text] of refusals) {
+      it(`reports ${label} as an alert, resets the zone, and clears it on the next file`, async () => {
+        answerPost(answer);
+        renderApp(<CataloguePage />);
+        const z = await zone();
+        fireEvent.drop(z, { dataTransfer: { files: [new File(["x"], "a.parley")] } });
+        expect((await screen.findByRole("alert")).textContent).toBe(text);
+        expect(z.getAttribute("aria-busy")).toBe("false");
+        expect((screen.getByLabelText("A signed .parley file") as HTMLInputElement).disabled).toBe(false);
+        expect(screen.queryByText(/to the catalogue\./)).toBeNull();
+        answerPost(() => new Promise<Response>(() => {}));
+        fireEvent.drop(z, { dataTransfer: { files: [new File(["y"], "b.parley")] } });
+        expect(screen.queryByRole("alert")).toBeNull();
+      });
+    }
   });
 });
