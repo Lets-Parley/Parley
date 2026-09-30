@@ -24,6 +24,11 @@
       "request": { "name": "string" }
     },
     {
+      "name": "parley_settings_get",
+      "request": {},
+      "response": "object"
+    },
+    {
       "name": "parley_log",
       "capability": "log",
       "request": { "level": "string", "message": "string" }

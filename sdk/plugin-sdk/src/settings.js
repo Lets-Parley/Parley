@@ -21,7 +21,7 @@ export function generateSettingsTypes(manifest) {
     lines.push("export interface Settings {");
     for (const n of plain) {
       if (props[n].description) lines.push(`  /** ${props[n].description} */`);
-      lines.push(`  ${/^[A-Za-z_$][\w$]*$/.test(n) ? n : JSON.stringify(n)}${required.has(n) ? "" : "?"}: ${tsType(props[n])};`);
+      lines.push(`  ${/^[A-Za-z_$][\w$]*$/.test(n) ? n : JSON.stringify(n)}${required.has(n) || "default" in props[n] ? "" : "?"}: ${tsType(props[n])};`);
     }
     lines.push("}");
   }

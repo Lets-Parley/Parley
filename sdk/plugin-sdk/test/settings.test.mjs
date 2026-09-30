@@ -46,5 +46,8 @@ test("generateSettingsTypes types non-secret fields and names secret ones separa
   assert.match(ts, /limit\?: number;/);
   assert.doesNotMatch(ts, /apiToken:|apiToken\?:/);
   assert.match(ts, /export type SecretName = "apiToken";/);
+  // The host applies defaults, so a defaulted field is always present.
+  const withDefault = generateSettingsTypes({ settings: { type: "object", properties: { n: { type: "integer", default: 3 } }, additionalProperties: false } });
+  assert.match(withDefault, /  n: number;/);
   assert.match(generateSettingsTypes({}), /export type Settings = Record<string, never>;/);
 });

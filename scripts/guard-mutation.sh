@@ -781,6 +781,24 @@ mutate "the catalog curator role check" \
     'TestOnlyADefaultOrgAdminCanUploadABundle' \
     catalog.go 'return org, role == store.OrgRoleAdmin, nil' 'return org, role != "", nil'
 
+# Plugin settings: a secret is write-only, the PUT has its own cap, and an
+# install id resolves only inside the request's org.
+mutate "the settings view never carrying a secret's value" \
+    'TestSettingsRoundTripWithoutEverReturningASecret' \
+    pluginsettings.go '		out.Secrets[name] = secretStatus{Set: set, Undecryptable: undecryptable}' '		out.Secrets[name] = secretStatus{Set: set, Undecryptable: undecryptable}
+		if v, err := a.plugins.GetSecret(ctx, id, name); err == nil {
+			out.Values[name] = v
+		}'
+
+mutate "the settings PUT body cap" \
+    'TestTheSettingsBodyIsCapped' \
+    pluginsettings.go 'const maxSettingsBody = 16 << 10' 'const maxSettingsBody = 64 << 10'
+
+mutate "the settings routes resolving an install within the org" \
+    'TestOneOrgsAdminCannotTouchAnothersPlugin' \
+    pluginsettings.go 'schema, stored, err := adm.Settings(ctx, id)' 'schema, stored, err := adm.Unscoped().Settings(ctx, id)' \
+    pluginsettings.go 'state, err := adm.State(r.Context(), id)' 'state, err := adm.Unscoped().State(r.Context(), id)'
+
 # The upload exemption from requireJSONBody is an exact path and an exact type.
 mutate "the bundle upload exemption's exact type" \
     'TestTheBundleTypeIsExemptOnlyOnTheUploadRoute' \
@@ -1021,6 +1039,20 @@ mutate "a pinned install never running a loose file" \
 mutate "a re-pin only over the pin it read" \
     'TestRepinNeverOverwritesAPinThatMovedMeanwhile' \
     pin.go 'and bundle_digest is not distinct from $5 and bundle_key_id is not distinct from $6' 'and ($5::text is null or true) and ($6::text is null or true)'
+
+# The settings validator: a required field, an enum and a pattern are each
+# enforced, not just declared.
+mutate "the settings validator's required check" \
+    'TestSettingsValuesAreCheckedAgainstTheSchema' \
+    settings.go 'if s != nil && required {' 'if false && s != nil && required {'
+
+mutate "the settings validator's enum check" \
+    'TestSettingsValuesAreCheckedAgainstTheSchema' \
+    settings.go '		if !found {' '		if false && !found {'
+
+mutate "the settings validator's pattern check" \
+    'TestSettingsValuesAreCheckedAgainstTheSchema' \
+    settings.go 'if f.re != nil && !f.re.MatchString(x) {' 'if false && f.re != nil && !f.re.MatchString(x) {'
 
 # cmd/parley builds against internal/plugin: put its last mutation back first.
 restore_all

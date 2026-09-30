@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
 import { expectNoViolations } from "../test/axe";
-import type { Catalog, DescribedGrant, PluginPreview, PluginRegistry } from "../lib/plugins";
+import type { Catalog, DescribedGrant, PluginPreview, PluginRegistry, PluginSettings } from "../lib/plugins";
 import { ApiError } from "../lib/api";
 import { PluginsPage } from "./PluginsPage";
 
@@ -33,6 +33,7 @@ const logGrant: DescribedGrant = {
 let registry: PluginRegistry;
 let preview: PluginPreview;
 let catalog: Catalog;
+let settingsReply: (method: string, body: unknown) => unknown;
 const calls: Array<[string, string, unknown]> = [];
 
 vi.mock("../lib/api", async () => {
@@ -44,6 +45,7 @@ vi.mock("../lib/api", async () => {
       if (method === "GET" && path === "/api/orgs/acme/admin/plugins") return registry;
       if (method === "POST" && path.endsWith("/preview")) return preview;
       if (method === "GET" && path === "/api/catalog") return catalog;
+      if (path.endsWith("/settings")) return settingsReply(method, body);
       return undefined;
     }),
   };
@@ -62,6 +64,7 @@ function render() {
 
 beforeEach(() => {
   calls.length = 0;
+  settingsReply = () => undefined;
   localStorage.clear();
   registry = { hostRunning: true, secretsAvailable: true, installs: [] };
   catalog = {
@@ -778,5 +781,121 @@ describe("installing by digest", () => {
     } finally {
       api.mockImplementation(original);
     }
+  });
+});
+
+describe("plugin settings", () => {
+  const settings: PluginSettings = {
+    schema: {
+      properties: {
+        channel: { type: "string", title: "Channel", description: "Where reports go." },
+        mode: { type: "string", title: "Mode", enum: ["fast", "slow"] },
+        size: { type: "integer", title: "Size", minimum: 1 },
+        loud: { type: "boolean", title: "Loud", default: true },
+        token: { type: "string", title: "API token", format: "secret" },
+      },
+      required: ["mode"],
+    },
+    values: { channel: "#dev", mode: "slow" },
+    secrets: { token: { set: true, undecryptable: false } },
+  };
+
+  beforeEach(() => {
+    registry.installs = [
+      {
+        id: "p1", name: "reporter", version: "1.0.0", enabled: true, grants: [logGrant], provides: [],
+        health: { state: "healthy", reason: "" },
+      },
+    ];
+    settingsReply = (method) => (method === "GET" ? settings : settings);
+  });
+
+  const refuse = () => {
+    settingsReply = (method) => {
+      if (method === "GET") return settings;
+      throw new ApiError(400, "some settings are not valid: channel, mode", undefined, {
+        channel: "does not match the required format",
+        mode: "must be one of the listed choices",
+      });
+    };
+  };
+
+  async function open() {
+    render();
+    const user = userEvent.setup();
+    await user.click(await screen.findByText("Settings"));
+    await screen.findByLabelText("Channel");
+    return user;
+  }
+
+  it("builds the form from the schema, and says whether a secret is set without showing it", async () => {
+    await open();
+    expect((screen.getByLabelText("Channel") as HTMLInputElement).value).toBe("#dev");
+    expect((screen.getByLabelText("Mode") as HTMLSelectElement).value).toBe("slow");
+    expect((screen.getByLabelText("Size") as HTMLInputElement).type).toBe("number");
+    expect((screen.getByLabelText("Loud") as HTMLInputElement).checked).toBe(true);
+    const secret = screen.getByLabelText(/API token/) as HTMLInputElement;
+    expect(secret.type).toBe("password");
+    expect(secret.value).toBe("");
+    expect(screen.getByText("Set")).toBeTruthy();
+  });
+
+  it("sends a replaced secret as a string and a cleared one as null, leaving an untouched one out", async () => {
+    const user = await open();
+    await user.type(screen.getByLabelText(/API token/), "new-token");
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
+    let put = calls.find(([m, p]) => m === "PUT" && p.endsWith("/p1/settings"));
+    expect(put?.[2]).toEqual({ channel: "#dev", mode: "slow", loud: true, token: "new-token" });
+
+    calls.length = 0;
+    await user.clear(screen.getByLabelText(/API token/));
+    await user.click(screen.getByRole("button", { name: "Clear API token" }));
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
+    put = calls.find(([m, p]) => m === "PUT" && p.endsWith("/p1/settings"));
+    expect((put![2] as Record<string, unknown>).token).toBeNull();
+  });
+
+  it("reads nothing until the panel is opened", async () => {
+    render();
+    await screen.findByText("Settings");
+    expect(calls.some(([, p]) => p.endsWith("/settings"))).toBe(false);
+  });
+
+  it("saves, says so as a status, and reads the settings back", async () => {
+    const user = await open();
+    await user.type(screen.getByLabelText("Size"), "3");
+    await user.click(screen.getByLabelText("Loud"));
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
+    const put = calls.find(([m, p]) => m === "PUT" && p.endsWith("/p1/settings"));
+    expect(put?.[2]).toEqual({ channel: "#dev", mode: "slow", size: 3, loud: false });
+    await screen.findByText("Settings saved.");
+    expect(screen.getAllByRole("status").some((el) => el.textContent?.includes("Settings saved."))).toBe(true);
+    const gets = calls.filter(([m, p]) => m === "GET" && p.endsWith("/p1/settings"));
+    expect(gets.length).toBe(2);
+  });
+
+  it("shows the server's refusal beside each field it names", async () => {
+    refuse();
+    const user = await open();
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
+    const alerts = await screen.findAllByRole("alert");
+    const text = alerts.map((a) => a.textContent).join(" | ");
+    expect(text).toContain("does not match the required format");
+    expect(text).toContain("must be one of the listed choices");
+    expect(screen.getByLabelText("Channel").getAttribute("aria-invalid")).toBe("true");
+    // The summary is the polite status, not another alert.
+    expect(text).not.toContain("some settings are not valid");
+
+    await user.type(screen.getByLabelText("Channel"), "x");
+    expect(screen.getByLabelText("Channel").getAttribute("aria-invalid")).toBeNull();
+    expect(screen.queryByText(/does not match the required format/)).toBeNull();
+  });
+
+  it("has no accessibility violations", async () => {
+    refuse();
+    const user = await open();
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
+    await screen.findAllByRole("alert");
+    await expectNoViolations(document.body);
   });
 });

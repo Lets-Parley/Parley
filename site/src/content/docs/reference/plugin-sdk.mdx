@@ -57,7 +57,7 @@ settings. A `"format": "secret"` field is an implicit `secrets` grant for its
 own name, so `getSecret` allows it without a separate grant.
 `generateSettingsTypes(manifest)` prints TypeScript: a `Settings` interface of
 the non-secret fields (an `enum` becomes a union, a field absent from
-`required` is optional) and a `SecretName` union of the secret ones.
+`required` without a default is optional, since the host applies defaults) and a `SecretName` union of the secret ones.
 
 ## Manifest
 
