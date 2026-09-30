@@ -5,12 +5,9 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -89,14 +86,31 @@ func TestInstallFromTheCatalogueUsesTheVerifiedManifest(t *testing.T) {
 }
 
 // The deprecated package.json path resolves to the stored bundle when there
-// is one.
-func TestALegacyPackageResolvesToTheStoredBundle(t *testing.T) {
+// is one, but only the bundle that was previewed: consent is bound to a digest.
+func TestALegacyPackageResolvesToThePreviewedStoredBundle(t *testing.T) {
 	f := digestServer(t)
 	name := newPluginName(t)
 	f.store(t, name, "1.0.0", `[{"capability":"log"}]`)
-	code, view := f.post(t, "", `{"grantsAccepted":true,"package":`+pluginPkg(name, "1.0.0")+`}`)
-	if code != http.StatusCreated || pinnedDigest(view) == "" {
-		t.Fatalf("legacy install = %d %v, want it pinned to the stored bundle", code, view)
+	pkg := pluginPkg(name, "1.0.0")
+	code, preview := f.post(t, "/preview", pkg)
+	digest := pinnedDigest(preview)
+	if code != http.StatusOK || digest == "" {
+		t.Fatalf("preview = %d %v, want it to name the stored bundle", code, preview)
+	}
+	if code, _ := f.post(t, "", `{"grantsAccepted":true,"package":`+pkg+`}`); code != http.StatusConflict {
+		t.Fatalf("an alias install with no previewed digest = %d, want 409", code)
+	}
+	code, view := f.post(t, "", `{"grantsAccepted":true,"previewedDigest":"`+digest+`","package":`+pkg+`}`)
+	if code != http.StatusCreated || pinnedDigest(view) != digest {
+		t.Fatalf("legacy install = %d %v, want it pinned to the previewed bundle", code, view)
+	}
+	// Pinned now: an alias upgrade with no stored bundle must not unpin it.
+	if code, _ := f.post(t, "", `{"grantsAccepted":true,"package":`+pluginPkg(name, "1.1.0")+`}`); code != http.StatusConflict {
+		t.Fatalf("an alias upgrade of a pinned install to an unstored version = %d, want 409", code)
+	}
+	var got string
+	if err := f.pool.QueryRow(context.Background(), `select bundle_digest from plugin_installs where id = $1`, view["id"]).Scan(&got); err != nil || got != digest {
+		t.Fatalf("pin = %q %v, want %s unchanged", got, err, digest)
 	}
 }
 
@@ -134,19 +148,19 @@ func TestRollbackReturnsOnlyToABundleTheInstallRan(t *testing.T) {
 	}
 }
 
-// /readyz?verbose names what this pod has loaded, by digest.
-func TestReadyzVerboseListsTheLoadedBundles(t *testing.T) {
+// Which bundles a pod has loaded is for curators, never the public /readyz.
+func TestLoadedBundlesAreForCuratorsOnly(t *testing.T) {
 	pool := testPool(t)
 	store := &plugin.Store{Pool: pool}
 	srv := testServerWith(t, pool, Options{AllowedOrigin: testOrigin, Plugins: store, PluginHost: plugin.NewHost(store, plugin.HostConfig{})})
-	waitReady(t, srv, true, 10*time.Second)
-	resp, err := srv.Client().Get(srv.URL + "/readyz?verbose")
-	if err != nil {
-		t.Fatal(err)
+	member := signup(t, srv, "Member")
+	if resp, _ := doJSON(t, srv, "GET", "/api/catalogue/loaded", "", member); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("a member = %d, want 403", resp.StatusCode)
 	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "plugin bundles loaded on this pod:") {
-		t.Fatalf("readyz verbose = %q", body)
+	curator, id := signupWithID(t, srv, "Curator")
+	makeOrgAdmin(t, pool, id)
+	resp, body := doJSON(t, srv, "GET", "/api/catalogue/loaded", "", curator)
+	if _, ok := body["loaded"].([]any); resp.StatusCode != http.StatusOK || !ok {
+		t.Fatalf("a curator = %d %v, want 200 and a loaded list", resp.StatusCode, body)
 	}
 }

@@ -297,6 +297,7 @@ var routeScoping = map[string]string{
 	// Instance-wide: the catalogue belongs to no one org.
 	"GET /api/catalogue":          "non-slug",
 	"POST /api/catalogue/bundles": "non-slug",
+	"GET /api/catalogue/loaded":   "non-slug",
 
 	// Every space route hangs off an org.
 	"GET /api/orgs/{org}/spaces":                               "org-scoped",

@@ -79,6 +79,10 @@ func (c pluginChoice) ref() plugin.BundleRef {
 type installRequest struct {
 	pluginChoice
 	Package *pluginPackage `json:"package"`
+	// PreviewedDigest is the stored bundle the preview named for Package.
+	// Consent is to those bytes: if the alias now resolves elsewhere, the
+	// install is refused for another look.
+	PreviewedDigest string `json:"previewedDigest"`
 	// GrantsAccepted must be true. It is the operator saying the words.
 	GrantsAccepted bool `json:"grantsAccepted"`
 }
@@ -128,6 +132,9 @@ type previewResponse struct {
 	Widens   bool             `json:"widens"`
 	Provides []string         `json:"provides,omitempty"`
 	Kinds    []plugin.KindDef `json:"kinds"`
+	// Bundle is the stored bundle this preview describes, absent for an
+	// alias package with none behind it.
+	Bundle *plugin.BundleRef `json:"bundle,omitempty"`
 }
 
 func (a *app) pluginsAvailable() bool { return a.plugins != nil }
@@ -278,7 +285,7 @@ func (a *app) handlePreviewPlugin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"that is not a plugin package"}`, http.StatusBadRequest)
 		return
 	}
-	pkg, _, ok := a.choose(w, r, &req.pluginPackage, req.pluginChoice)
+	pkg, pin, ok := a.choose(w, r, &req.pluginPackage, req.pluginChoice)
 	if !ok {
 		return
 	}
@@ -298,6 +305,7 @@ func (a *app) handlePreviewPlugin(w http.ResponseWriter, r *http.Request) {
 		Added:   plugin.DescribeAll(nil),
 		Removed: plugin.DescribeAll(nil),
 		Kinds:   kinds,
+		Bundle:  pin,
 	}
 	current, found, err := a.pluginAdmin(r).ByName(r.Context(), pkg.Name)
 	if err != nil {
@@ -337,6 +345,10 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if req.Digest == "" && pin != nil && req.PreviewedDigest != pin.Digest {
+		http.Error(w, `{"error":"the bundle changed since it was previewed; review it again"}`, http.StatusConflict)
+		return
+	}
 	grants := pkg.grants()
 
 	adm := a.pluginAdmin(r)
@@ -367,6 +379,11 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 
 	// Going back is a rollback, audited and limited to what this install ran,
 	// never an install of an older version.
+	// The alias must never unpin a catalogue install onto loose files.
+	if pin == nil && current.Install.Bundle != nil {
+		http.Error(w, `{"error":"this plugin runs a catalogue bundle; install a catalogue version instead"}`, http.StatusConflict)
+		return
+	}
 	if versionLess(pkg.Version, current.Install.Version) {
 		http.Error(w, `{"error":"that is an older version; roll back to a version this plugin ran instead"}`, http.StatusConflict)
 		return

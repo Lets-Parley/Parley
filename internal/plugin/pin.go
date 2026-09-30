@@ -110,7 +110,8 @@ func (s *BundleStore) TrustedKeyIDs() []string {
 // migrationLockID (AGENTS.md gotcha 3).
 const pinLockID int64 = 0x7061726c657970
 
-// PinInstalls pins every unpinned install to the trusted stored bundle for its
+// PinInstalls pins every unpinned install, and every install whose pin names
+// another version, to the trusted stored bundle for its
 // name and version, signed preferred. It runs at boot after the PLUGIN_DIR
 // import, under its own transaction-scoped advisory lock so replicas booting
 // together do it once. An install with no match is left alone: it keeps
@@ -126,7 +127,9 @@ func (s *Store) PinInstalls(ctx context.Context, trusted []string, log *slog.Log
 				select distinct on (i.id) i.id, b.digest, b.key_id
 				from plugin_installs i
 				join plugin_bundles b on b.name = i.name and b.version = i.version
-				where i.bundle_digest is null and b.key_id = any($1)
+				where b.key_id = any($1) and (i.bundle_digest is null or not exists (
+					select 1 from plugin_bundles p where p.digest = i.bundle_digest
+					and p.key_id = i.bundle_key_id and p.version = i.version))
 				order by i.id, b.key_id = ''
 			), pinned as (
 				update plugin_installs i set bundle_digest = m.digest, bundle_key_id = m.key_id

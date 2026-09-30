@@ -123,6 +123,7 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// The catalogue is for accounts in an org; a link guest belongs to none.
 	"GET /api/catalogue":          {status: http.StatusUnauthorized},
 	"POST /api/catalogue/bundles": {status: http.StatusUnauthorized},
+	"GET /api/catalogue/loaded":   {status: http.StatusUnauthorized},
 	// The org directory. A link guest belongs to no org, so it gets nothing
 	// here — and specifically 401 from RequireUser rather than 404 from
 	// requireOrgMember, because RequireUser is mounted first. That ordering is

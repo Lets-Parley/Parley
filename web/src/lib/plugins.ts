@@ -88,6 +88,8 @@ export type PluginPreview = {
   removed: DescribedGrant[];
   widens: boolean;
   kinds: PluginKindDef[];
+  /** The stored bundle this preview describes; the install must name it back. */
+  bundle?: BundleRef;
 };
 
 /**

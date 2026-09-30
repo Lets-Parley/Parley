@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -510,14 +509,6 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		}
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
-		// The detail an operator reads when replicas disagree: which bundles
-		// this pod has compiled, by digest and key id. Nothing here reads the
-		// database beyond the ping above.
-		if req.URL.Query().Has("verbose") && a.pluginHost != nil {
-			loaded := a.pluginHost.LoadedBundles()
-			sort.Strings(loaded)
-			fmt.Fprintf(w, "\nplugin bundles loaded on this pod: %s", strings.Join(loaded, " "))
-		}
 	})
 
 	// A calendar client fetches this with the token in the path and no cookie.
@@ -627,6 +618,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			// non-safelisted Content-Type, which forces a preflight.
 			r.Get("/catalogue", a.handleCatalogue)
 			r.With(a.requireInstanceCurator).Post("/catalogue/bundles", a.handleUploadBundle)
+			r.With(a.requireInstanceCurator).Get("/catalogue/loaded", a.handleLoadedBundles)
 		})
 
 		// Everything that resolves a space slug hangs off an org, because a

@@ -208,15 +208,14 @@ func (h *Host) Config() HostConfig { return h.cfg }
 // Enable compiles an install's bundle, then switches it on, in that order: a
 // bundle that will not load leaves the install off, and `enabled` never names
 // a plugin this pod could not run. SetEnabled fires OnChange, which puts the
-// ceremony on offer on every replica only once the module exists. On any
-// failure the module is evicted and `enabled` is left as it was.
+// ceremony on offer on every replica only once the module exists. A compile
+// failure evicts the module; any failure leaves `enabled` as it was.
 func (h *Host) Enable(ctx context.Context, installID string) error {
 	if _, err := h.module(ctx, installID); err != nil {
 		h.evict(ctx, installID)
 		return err
 	}
 	if err := h.Store.SetEnabled(ctx, installID, true); err != nil {
-		h.evict(ctx, installID)
 		return err
 	}
 	h.mu.Lock()

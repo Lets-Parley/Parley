@@ -4,7 +4,10 @@ import (
 	"context"
 	"crypto/ed25519"
 	"errors"
+	"fmt"
 	"testing"
+
+	"github.com/lets-parley/parley/internal/plugin/bundle"
 )
 
 // An install pinned to one row runs that row's bytes, even once a row the
@@ -89,5 +92,116 @@ func TestEnableLeavesAnInstallOffWhenItsBundleWillNotLoad(t *testing.T) {
 	}
 	if h.CachedModules() != 0 {
 		t.Fatal("a failed enable left a module resident")
+	}
+}
+
+func packVer(t *testing.T, name, version string, key ed25519.PrivateKey) []byte {
+	t.Helper()
+	data, err := bundle.Pack(map[string][]byte{"plugin.wasm": guestNoop()},
+		[]byte(fmt.Sprintf(`{"name":%q,"version":%q}`, name, version)), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func rawPin(t *testing.T, s *Store, id string) string {
+	t.Helper()
+	var d *string
+	if err := s.Pool.QueryRow(context.Background(), `select bundle_digest from plugin_installs where id = $1`, id).Scan(&d); err != nil {
+		t.Fatal(err)
+	}
+	if d == nil {
+		return ""
+	}
+	return *d
+}
+
+// A pinned install and an upgrade that brings no bundle: the pin stays, and
+// because its version no longer matches it stops being authoritative until the
+// boot pin re-derives it.
+func TestAnUnpinnedUpgradeNeverClearsAPinAndAStalePinIsNotAuthoritative(t *testing.T) {
+	store := &Store{Pool: testPool(t)}
+	ctx := context.Background()
+	key := testKey(t)
+	bs := &BundleStore{Pool: store.Pool, Trusted: []ed25519.PublicKey{pubOf(key)}, Log: quietLogger()}
+	name := uniqueName(t)
+	a, err := bs.Insert(ctx, packVer(t, name, "1.0.0", key), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := store.Install(ctx, InstallRequest{OrgID: testOrgID, Name: name, Version: "1.0.0", QuotaBytes: 1024,
+		Bundle: &BundleRef{Digest: a.Digest, KeyID: a.KeyID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Upgrade(ctx, in.ID, "2.0.0", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if rawPin(t, store, in.ID) != a.Digest {
+		t.Fatal("an upgrade with no bundle cleared the pin")
+	}
+	if st, _ := store.State(ctx, in.ID); st.Install.Bundle != nil {
+		t.Fatalf("a pin for 1.0.0 is authoritative for 2.0.0: %+v", st.Install.Bundle)
+	}
+	b, err := bs.Insert(ctx, packVer(t, name, "2.0.0", key), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PinInstalls(ctx, bs.TrustedKeyIDs(), quietLogger()); err != nil {
+		t.Fatal(err)
+	}
+	if rawPin(t, store, in.ID) != b.Digest {
+		t.Fatal("the boot pin did not re-derive a stale pin")
+	}
+}
+
+// Install records its pin, and approving a widening upgrade applies the
+// staged one and records it too.
+func TestApprovingAnUpgradeAppliesAndRecordsItsPin(t *testing.T) {
+	store := &Store{Pool: testPool(t)}
+	ctx := context.Background()
+	key := testKey(t)
+	bs := &BundleStore{Pool: store.Pool, Trusted: []ed25519.PublicKey{pubOf(key)}, Log: quietLogger()}
+	name := uniqueName(t)
+	a, _ := bs.Insert(ctx, packVer(t, name, "1.0.0", key), nil)
+	b, _ := bs.Insert(ctx, packVer(t, name, "2.0.0", key), nil)
+	refA, refB := BundleRef{Digest: a.Digest, KeyID: a.KeyID}, BundleRef{Digest: b.Digest, KeyID: b.KeyID}
+	in, err := store.Install(ctx, InstallRequest{OrgID: testOrgID, Name: name, Version: "1.0.0", QuotaBytes: 1024, Bundle: &refA})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adm := store.InOrg(testOrgID)
+	if ran, _ := adm.Ran(ctx, in.ID, refA); !ran {
+		t.Fatal("install did not record its pin")
+	}
+	if err := store.UpgradeTo(ctx, in.ID, "2.0.0", []Grant{{Capability: CapabilityLog}}, nil, &refB); !errors.Is(err, ErrUpgradePending) {
+		t.Fatalf("got %v, want pending", err)
+	}
+	if err := store.ApproveUpgrade(ctx, in.ID); err != nil {
+		t.Fatal(err)
+	}
+	if rawPin(t, store, in.ID) != b.Digest {
+		t.Fatal("approval did not apply the staged pin")
+	}
+	if ran, _ := adm.Ran(ctx, in.ID, refB); !ran {
+		t.Fatal("approval did not record the pin")
+	}
+}
+
+// The boot pin matches only bundles trusted now.
+func TestPinInstallsSkipsAnUntrustedBundle(t *testing.T) {
+	store := &Store{Pool: testPool(t)}
+	ctx := context.Background()
+	in := install(t, store)
+	bs := &BundleStore{Pool: store.Pool, AllowUnsigned: true, Log: quietLogger()}
+	if _, err := bs.Insert(ctx, packed(t, in.Name, guestNoop(), nil), nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PinInstalls(ctx, []string{"somekey"}, quietLogger()); err != nil {
+		t.Fatal(err)
+	}
+	if rawPin(t, store, in.ID) != "" {
+		t.Fatal("the boot pin chose a bundle this instance does not trust")
 	}
 }

@@ -81,13 +81,20 @@ func (s *Store) State(ctx context.Context, installID string) (State, error) {
 	var out State
 	var digest, keyID *string
 	err := s.Pool.QueryRow(ctx, `
-		select id, org_id, name, version, enabled, kv_quota_bytes, bundle_digest, bundle_key_id
-		from plugin_installs where id = $1`, installID).
+		select i.id, i.org_id, i.name, i.version, i.enabled, i.kv_quota_bytes, b.digest, b.key_id
+		from plugin_installs i
+		left join plugin_bundles b on b.digest = i.bundle_digest and b.key_id = i.bundle_key_id
+			and b.version = i.version
+		where i.id = $1`, installID).
 		Scan(&out.Install.ID, &out.Install.OrgID, &out.Install.Name, &out.Install.Version,
 			&out.Install.Enabled, &out.Install.QuotaBytes, &digest, &keyID)
 	if err != nil {
 		return State{}, fmt.Errorf("reading install %s: %w", installID, err)
 	}
+	// A pin is authoritative only while its bundle carries the install's
+	// version. An older binary mid-rollout can bump the version without
+	// moving the pin; this install then resolves by name and version until
+	// the boot pin re-derives it.
 	if digest != nil && keyID != nil {
 		out.Install.Bundle = &BundleRef{Digest: *digest, KeyID: *keyID}
 	}
@@ -157,8 +164,10 @@ func (s *Store) Upgrade(ctx context.Context, installID, version string, want []G
 	return s.UpgradeTo(ctx, installID, version, want, kinds, nil)
 }
 
-// UpgradeTo is Upgrade that also moves the install's pin to pin, or clears
-// it when pin is nil. A widening upgrade stages the pin with the grants.
+// UpgradeTo is Upgrade that also moves the install's pin to pin. A nil pin
+// never clears an existing one: the old pin stays, stops being authoritative
+// because its version no longer matches (see State), and the boot pin
+// re-derives it. A widening upgrade stages the pin with the grants.
 func (s *Store) UpgradeTo(ctx context.Context, installID, version string, want []Grant, kinds []KindDef, pin *BundleRef) error {
 	current, err := s.State(ctx, installID)
 	if err != nil {
@@ -200,7 +209,8 @@ func (s *Store) UpgradeTo(ctx context.Context, installID, version string, want [
 		if !widens {
 			if _, err := tx.Exec(ctx,
 				`update plugin_installs set version = $2, pending_version = null, pending_kinds = null,
-				 bundle_digest = $3, bundle_key_id = $4, pending_digest = null, pending_key_id = null where id = $1`,
+				 bundle_digest = coalesce($3, bundle_digest), bundle_key_id = coalesce($4, bundle_key_id),
+				 pending_digest = null, pending_key_id = null where id = $1`,
 				installID, version, pin.digest(), pin.keyID()); err != nil {
 				return fmt.Errorf("upgrading %s: %w", installID, err)
 			}

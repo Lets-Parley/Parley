@@ -500,8 +500,32 @@ describe("installing by digest", () => {
     expect(screen.getByText(/d2abcdef0123/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Roll back to 2.0.0" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Roll back to 1.0.0" }));
+    expect(calls.some(([, p]) => p.endsWith("/rollback"))).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Confirm rollback to 1.0.0" }));
     const rollback = calls.find(([m, p]) => m === "POST" && p === "/api/orgs/acme/admin/plugins/p1/rollback");
     expect(rollback?.[2]).toEqual({ digest: "d1", key_id: "k1" });
     await expectNoViolations(container);
   });
+
+  it("binds a package's consent to the bundle the preview named", async () => {
+    preview = { ...preview, bundle: { digest: "d9", key_id: "k1" } };
+    render();
+    const user = userEvent.setup();
+    await user.upload(await screen.findByLabelText(/plugin package file/i), packageFile());
+    await user.click(await screen.findByRole("checkbox", { name: /I grant it/i }));
+    await user.click(screen.getByRole("button", { name: /grant and install/i }));
+    const install = calls.find(([m, p]) => m === "POST" && p === "/api/orgs/acme/admin/plugins");
+    expect((install?.[2] as { previewedDigest?: string }).previewedDigest).toBe("d9");
+  });
+  it("says so when the catalogue cannot be read", async () => {
+    const api = (await import("../lib/api")).api as unknown as { mockImplementation: (f: unknown) => void };
+    const real = registry;
+    api.mockImplementation(async (method: string, path: string) => {
+      if (path === "/api/catalogue") throw new ApiError(500, "could not load the catalogue");
+      return method === "GET" ? real : undefined;
+    });
+    render();
+    expect((await screen.findByRole("alert")).textContent).toContain("could not load the catalogue");
+  });
+
 });

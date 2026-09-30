@@ -82,8 +82,18 @@ widening upgrade. Because stored bundles are never deleted, every bundle an
 install ran stays available to roll back to; retention and garbage collection
 of unreferenced bundles are not implemented yet.
 
-`/readyz?verbose` names the bundles a replica has compiled, by digest and key
-id, to confirm every replica runs the same bytes.
+`GET /api/catalogue/loaded`, for default-org admins, names the bundles the
+answering replica has compiled, by digest and key id, to confirm every replica
+runs the same bytes.
+
+A pin is authoritative only while its bundle carries the install's version. An
+older binary during a rolling upgrade can change an install's version without
+moving its pin; that install then resolves by name and version until the next
+boot re-pins it. Avoid plugin admin actions while a rollout is in progress.
+
+`plugin_installs` and `plugin_install_history` hold foreign keys to
+`plugin_bundles`, so any future garbage collection has to leave every bundle an
+install is pinned to, staged for, or ran (or clear that history first).
 
 ## Operator commands
 

@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, errorText } from "../lib/api";
@@ -340,7 +340,8 @@ function InstallPanel({
   const [problem, setProblem] = useState("");
 
   const install = useMutation({
-    mutationFn: () => api("POST", base, { ...chosen, grantsAccepted: true }),
+    mutationFn: () =>
+      api("POST", base, { ...chosen, previewedDigest: preview?.bundle?.digest, grantsAccepted: true }),
     onSuccess: () => {
       setChosen(null);
       setPicked("");
@@ -352,15 +353,20 @@ function InstallPanel({
     onError: (e) => setProblem(errorText(e)),
   });
 
+  // Only the latest choice's preview may land; an older one arriving late
+  // would describe a bundle other than the one about to be installed.
+  const latest = useRef(0);
   async function describe(body: unknown, installBody: object) {
     setChosen(installBody);
+    const mine = ++latest.current;
     try {
       // The server describes what it will permit. Asking it, rather than
       // reading the manifest here, is what stops this screen and the guard
       // drifting apart.
-      setPreview(normalizePluginPreview(await api<PluginPreview>("POST", `${base}/preview`, body)));
+      const got = normalizePluginPreview(await api<PluginPreview>("POST", `${base}/preview`, body));
+      if (mine === latest.current) setPreview(got);
     } catch (e) {
-      setProblem(errorText(e));
+      if (mine === latest.current) setProblem(errorText(e));
     }
   }
 
@@ -413,6 +419,12 @@ function InstallPanel({
           )),
         )}
       </select>
+      {catalogue.isLoading && <p className="mt-2 text-sm text-ink-faint">Reading the catalogue…</p>}
+      {catalogue.error && (
+        <p role="alert" className="mt-2 text-[13px] font-bold text-stop">
+          {errorText(catalogue.error)}
+        </p>
+      )}
       <label htmlFor={fileId} className={"mt-4 block " + labelText}>
         Or a plugin package file (.json) — deprecated
       </label>
@@ -538,11 +550,14 @@ function InstalledCard({
     mutationFn: (to: BundleRef) =>
       api("POST", `${base}/${install.id}/rollback`, { digest: to.digest, key_id: to.key_id }),
     onSuccess: () => {
+      setRollingBack("");
       onSay("Rollback recorded.");
       onDone();
     },
     onError: (e) => onSay(errorText(e)),
   });
+  // Two steps, like uninstall: the first click only asks.
+  const [rollingBack, setRollingBack] = useState("");
   const rollbackTo = (install.history ?? []).filter((h) => h.digest !== install.bundle?.digest);
   const uninstall = useMutation({
     mutationFn: () => api("DELETE", `${base}/${install.id}`),
@@ -587,9 +602,11 @@ function InstalledCard({
                   type="button"
                   className={buttonQuiet}
                   disabled={rollback.isPending}
-                  onClick={() => rollback.mutate(h)}
+                  onClick={() =>
+                    rollingBack === h.digest ? rollback.mutate(h) : setRollingBack(h.digest)
+                  }
                 >
-                  Roll back to {h.version}
+                  {rollingBack === h.digest ? "Confirm rollback to" : "Roll back to"} {h.version}
                 </button>
               ))}
             </div>

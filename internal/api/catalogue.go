@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
 
 	"github.com/lets-parley/parley/internal/plugin"
 	"github.com/lets-parley/parley/internal/plugin/bundle"
@@ -234,4 +235,16 @@ func manifestIdentity(manifest []byte) (string, string, error) {
 	var m struct{ Name, Version string }
 	err := json.Unmarshal(manifest, &m)
 	return m.Name, m.Version, err
+}
+
+// handleLoadedBundles names the bundles this pod has compiled, by digest and
+// key id, so a curator can confirm every replica runs the same bytes. It is
+// instance-wide and curator-only: which code runs where is not public.
+func (a *app) handleLoadedBundles(w http.ResponseWriter, _ *http.Request) {
+	loaded := []string{}
+	if a.pluginHost != nil {
+		loaded = a.pluginHost.LoadedBundles()
+	}
+	sort.Strings(loaded)
+	writeJSON(w, http.StatusOK, map[string]any{"loaded": loaded})
 }

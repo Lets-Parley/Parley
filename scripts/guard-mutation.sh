@@ -855,6 +855,10 @@ mutate "a rollback only to a bundle the install ran" \
     'TestRollbackReturnsOnlyToABundleTheInstallRan' \
     plugins.go '	if !ran {' '	if !ran && false {'
 
+mutate "an older version through install refused as a downgrade" \
+    'TestRollbackReturnsOnlyToABundleTheInstallRan' \
+    plugins.go '	if versionLess(pkg.Version, current.Install.Version) {' '	if false && versionLess(pkg.Version, current.Install.Version) {'
+
 target internal/store
 
 mutate "an embed handoff redeeming once" \
@@ -967,6 +971,18 @@ mutate "Enable compiling before it switches an install on" \
 		return err
 	}
 ' ''
+
+mutate "recording every pin in the install's history" \
+    'TestApprovingAnUpgradeAppliesAndRecordsItsPin' \
+    pin.go '	if ref == nil {' '	if ref == nil || true {'
+
+mutate "the boot pin matching only trusted bundles" \
+    'TestPinInstallsSkipsAnUntrustedBundle' \
+    pin.go 'where b.key_id = any($1) and (' 'where (b.key_id = any($1) or true) and ('
+
+mutate "approving an upgrade applying its staged pin" \
+    'TestApprovingAnUpgradeAppliesAndRecordsItsPin' \
+    grants.go 'installID, *version, digest, keyID); err != nil {' 'installID, *version, (*string)(nil), (*string)(nil)); err != nil {'
 
 # cmd/parley builds against internal/plugin: put its last mutation back first.
 restore_all
