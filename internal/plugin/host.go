@@ -280,7 +280,11 @@ func (h *Host) module(ctx context.Context, installID string) (*extism.CompiledPl
 	// The compiled module is keyed by what the bundle resolves to now, not by
 	// the version: a revoked key or a newly stored bundle changes the answer,
 	// and a module compiled from the old one must not keep running.
-	// Only a verdict about the bundle evicts. Any other failure — a database
+	// Only a verdict about the bundle evicts. Serving the resident module
+	// through a blip cannot keep a revoked key running: the trust set is fixed
+	// for the life of the process, so a key trusted when the module was
+	// compiled is still trusted now.
+	// Any other failure — a database
 	// blip — keeps serving the module resident, on its last good resolution,
 	// rather than closing it under in-flight calls.
 	key, err := h.Bundles.Resolve(ctx, state.Install.Name, state.Install.Version)

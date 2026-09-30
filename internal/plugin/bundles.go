@@ -113,6 +113,12 @@ func (s *BundleStore) row(ctx context.Context, name, version string) (resolution
 	default:
 		r.found = true
 	}
+	// Only a found row is remembered: a name that exists nowhere is attacker
+	// choosable on the public frame route, and caching it would grow without
+	// bound.
+	if !r.found {
+		return r, nil
+	}
 	s.mu.Lock()
 	if s.resolved == nil {
 		s.resolved = map[string]resolution{}
@@ -228,12 +234,16 @@ func (s *BundleStore) Load(ctx context.Context, name, version string) ([]byte, s
 	if s.Dir == "" {
 		return nil, "", fmt.Errorf("no stored bundle for %s %s and no PLUGIN_DIR: %w", name, version, ErrNoBundle)
 	}
-	s.WarnLoose(name, version, "wasm")
-	return DirBundles(s.Dir).Load(ctx, name, version)
+	wasm, key, err := DirBundles(s.Dir).Load(ctx, name, version)
+	if err == nil {
+		s.WarnLoose(name, version, "wasm")
+	}
+	return wasm, key, err
 }
 
 // WarnLoose logs a read of an unsigned, legacy loose file, at most once per
-// name and version per ResolveTTL on this pod.
+// name and version per ResolveTTL on this pod. Call it only once the file has
+// been read, so its keys are bounded by the files that exist.
 func (s *BundleStore) WarnLoose(name, version, what string) {
 	nv := name + "\x00" + version
 	s.mu.Lock()

@@ -323,6 +323,25 @@ func TestALooseReadWarnsOncePerTTL(t *testing.T) {
 	}
 }
 
+// Names nobody stored must leave nothing behind: on the public frame route
+// they are the caller's to choose.
+func TestUnknownNamesLeaveNoCacheOrWarningBehind(t *testing.T) {
+	s := &BundleStore{Pool: testPool(t), Dir: t.TempDir(), Log: quietLogger()}
+	ctx := context.Background()
+	for i := range 1000 {
+		name := fmt.Sprintf("nobody-%d-%d-%d", i, os.Getpid(), time.Now().UnixNano())
+		if b, err := s.Stored(ctx, name, "1.0.0"); b != nil || err != nil {
+			t.Fatalf("Stored(%s): %v, %v", name, b, err)
+		}
+		if _, _, err := s.Load(ctx, name, "1.0.0"); err == nil {
+			t.Fatalf("Load(%s) found a file that does not exist", name)
+		}
+	}
+	if len(s.resolved) != 0 || len(s.warned) != 0 {
+		t.Fatalf("1000 unknown names left %d resolutions and %d warnings", len(s.resolved), len(s.warned))
+	}
+}
+
 func uniqueName(t *testing.T) string {
 	installNo++
 	return fmt.Sprintf("bundle-%d-%d", installNo, os.Getpid()) + "-" + filepath.Base(t.TempDir())

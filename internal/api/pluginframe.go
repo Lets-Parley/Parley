@@ -91,6 +91,13 @@ func (a *app) handlePluginFrame(w http.ResponseWriter, r *http.Request) {
 // plugin directory. Any stored row for the name and version — trusted or not,
 // with a ui.js or not — decides; it never falls through to a file.
 func (a *app) pluginUI(ctx context.Context, name, version string) ([]byte, error) {
+	// The route is public: refuse an unusable name before it reaches the
+	// store or a log line.
+	for _, field := range []string{name, version} {
+		if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {
+			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)
+		}
+	}
 	stored, err := a.bundles.Stored(ctx, name, version)
 	if err != nil {
 		return nil, err
@@ -104,8 +111,11 @@ func (a *app) pluginUI(ctx context.Context, name, version string) ([]byte, error
 	if a.bundles.Dir == "" {
 		return nil, fmt.Errorf("no UI for %s %s", name, version)
 	}
-	a.bundles.WarnLoose(name, version, "ui.js")
-	return readPluginUI(a.bundles.Dir, name, version)
+	ui, err := readPluginUI(a.bundles.Dir, name, version)
+	if err == nil {
+		a.bundles.WarnLoose(name, version, "ui.js")
+	}
+	return ui, err
 }
 
 // readPluginUI loads "<name>-<version>.ui.js" from the plugin directory. The

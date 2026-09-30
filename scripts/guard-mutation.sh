@@ -598,8 +598,13 @@ mutate "the screen on a design token's value" \
     'TestTheFrameBootstrapScreensATokenValueAndNotOnlyItsName' \
     pluginframe_bootstrap.js 'if (COLOR.test(value)) { root.style.setProperty("--color-" + key, value); }' 'root.style.setProperty("--color-" + key, value);'
 
+# Two sites on purpose: pluginUI screens before the store, readPluginUI
+# before the disk. Both are broken at once.
 mutate "the plugin UI bundle path screen" \
     'TestThePluginFrameRefusesANameThatClimbsOutOfThePluginDirectory' \
+    pluginframe.go 'if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {
+			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)' 'if false {
+			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)' \
     pluginframe.go 'if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {
 			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)' 'if false {
 			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)'
@@ -911,6 +916,17 @@ mutate "an unsigned bundle never stored beside a signed one" \
 mutate "a stored bundle's own manifest naming the plugin asked for" \
     'TestARelabelledRowIsRefused' \
     bundles.go 'err != nil || n != name || v != version {' 'err != nil || n+v == "" {'
+
+mutate "an unknown name never cached" \
+    'TestUnknownNamesLeaveNoCacheOrWarningBehind' \
+    bundles.go '	if !r.found {
+		return r, nil
+	}
+	s.mu.Lock()' '	s.mu.Lock()'
+
+mutate "Runtime.Close waiting for its workers" \
+    'TestCloseWaitsForTheWorkers' \
+    runtime.go '	r.wg.Wait()' ''
 
 # cmd/parley builds against internal/plugin: put its last mutation back first.
 restore_all
