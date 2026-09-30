@@ -309,6 +309,11 @@ jobs:
         run: |
           make -C plugins/retrospective
           git diff --exit-code -- plugins/retrospective/dist/retrospective-0.1.0.ui.js
+      - name: Test and bundle the example plugins
+        run: |
+          for p in hello settings-demo; do
+            make -C "plugins/$p" test bundle
+          done
 
   docker:
     name: docker build and smoke

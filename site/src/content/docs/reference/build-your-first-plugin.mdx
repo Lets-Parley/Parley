@@ -1,0 +1,170 @@
+---
+title: Build your first plugin
+description: A runbook from an empty directory to an installed, configured plugin — scaffold, implement, test, pack, sign, upload, install, settings, a new version and a rollback.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+
+<VerifiedStamp version="unreleased" source={["sdk/plugin-sdk/src/cli.js", "sdk/plugin-sdk/src/bundle.js", "sdk/plugin-sdk/src/host.js", "sdk/plugin-sdk/src/settings.js", "sdk/plugin-sdk/extism.mk", "plugins/hello/", "plugins/settings-demo/", "internal/api/catalog.go"]} />
+
+This runbook takes a plugin from an empty directory to an install running in
+an org. Every command is the `parley-plugin` CLI from `sdk/plugin-sdk`; run it
+as `node sdk/plugin-sdk/src/cli.js` from a Parley checkout. Two finished
+examples sit in the repository: `plugins/hello` (one session kind, a tiny UI,
+no capabilities) and `plugins/settings-demo` (an admin settings schema with a
+secret). Copying one is the quickest start.
+
+You need Node.js 22.2 or newer, `make`, `curl`, and an instance where you are an
+admin of the **default** org, which is who may upload to the plugin catalog.
+
+## 1. Scaffold
+
+```sh
+node sdk/plugin-sdk/src/cli.js scaffold ./my-plugin
+```
+
+This writes `manifest.json`, a JavaScript guest (`guest.js`, `guest.d.ts`) and
+`ui.js`. The manifest names the plugin, its `major.minor.patch` version, the
+capabilities it asks for, and the session kinds it provides. Ask for nothing
+you do not use: every capability is shown to the admin who installs it, in
+words that come from the server, before anything runs.
+
+## 2. Implement
+
+The guest answers two hooks. `on_session_state` returns the room state every
+participant is sent, so it must hold nothing private. `on_session_action`
+handles an action a participant posts. The UI script draws that state:
+
+```js
+window.parley.onState(function (session) {
+  document.getElementById("root").textContent = session.state.greeting;
+});
+window.parley.ready();
+```
+
+The Extism JavaScript guest has no module loader, so keep the logic in plain
+files that the Makefile concatenates, and export only the hooks through
+`module.exports`. The [Plugin SDK](/reference/plugin-sdk/) page lists the host
+methods and what each grant permits.
+
+## 3. Test
+
+Put the logic in a function you can call from Node and test it with
+`node --test`, with no WebAssembly toolchain involved. Both examples do this:
+`make test` runs their tests, which also execute the concatenated guest and the
+UI against a stand-in `Host` and `window.parley`.
+
+```sh
+make -C plugins/hello test
+node sdk/plugin-sdk/src/cli.js verify ./my-plugin
+```
+
+## 4. Pack
+
+Build `plugin.wasm`, then pack it with the manifest, `ui.js` and any
+`slots.json` into one `.parley` file. Include `sdk/plugin-sdk/extism.mk` from
+your Makefile, as the examples do, and `make bundle` does both: it downloads
+pinned, checksummed `extism-js` and `binaryen` on first use, compiles the
+guest, and writes `dist/<name>-<version>.parley`.
+
+```sh
+make -C plugins/hello bundle
+# or, with plugin.wasm already built:
+node sdk/plugin-sdk/src/cli.js pack ./my-plugin
+```
+
+`pack` prints the bundle's **digest**, its identity. Packing is deterministic:
+the same inputs always give the same bytes.
+
+## 5. Sign
+
+Make a signing key once, keep the `.key` file secret, and give the `.pub`
+contents to the instance's operator:
+
+```sh
+node sdk/plugin-sdk/src/cli.js keygen ~/.config/parley/release
+node sdk/plugin-sdk/src/cli.js sign dist/my-plugin-0.1.0.parley --key ~/.config/parley/release.key
+```
+
+`pack --key <file>` signs in the same step. The operator adds the public key
+to `PLUGIN_TRUSTED_KEYS`; the instance refuses a bundle signed by any other
+key. The format is specified in [Plugin bundle format](/reference/plugin-bundle/).
+
+## 6. Upload to the catalog
+
+Upload on the **Plugin catalog** page (`/catalog`), or from a script:
+
+```sh
+curl -X POST https://parley.example.com/api/catalog/bundles \
+  -H 'Content-Type: application/vnd.parley.bundle' \
+  -b "parley_session=$PARLEY_SESSION" \
+  --data-binary @dist/my-plugin-0.1.0.parley
+```
+
+`PARLEY_SESSION` is the value of your `parley_session` cookie. The first bundle
+stored for a name and version holds it, so every change you ship needs a new
+version.
+
+For a local development loop, `dev` packs, signs, uploads and prints the
+install link in one command:
+
+```sh
+BASE_URL=http://localhost:8080 PARLEY_SESSION=... node sdk/plugin-sdk/src/cli.js dev ./my-plugin
+```
+
+It signs with `~/.config/parley/dev.key` (or `--key <file>`), creating that
+key on first use and printing the line to trust it with. The instance must
+trust the dev key through `PLUGIN_TRUSTED_KEYS`, or, on your own machine only,
+run with `PLUGIN_ALLOW_UNSIGNED=true` and pass `--unsigned`. `dev` replaces the
+old `-tags plugindev` registration route for plugins that ship as bundles.
+
+## 7. Install
+
+Follow the install link `dev` printed, or pick the version on your org's
+**Plugins** page (`/o/<org>/admin/plugins`). The page shows what the plugin
+may do, and nothing is installed until an admin grants it. The install is
+pinned to that bundle's digest, so it runs exactly the bytes you uploaded.
+
+## 8. Settings
+
+A plugin that needs configuration declares a `settings` schema in its
+manifest: a flat object whose fields are `string`, `number`, `integer` or
+`boolean`, with optional `title`, `description`, `default`, `enum`, `pattern`,
+`minimum`, `maximum`, `minLength` and `maxLength`, and
+`"additionalProperties": false`. A field with `"format": "secret"` is a secret.
+An org admin fills the values in on the Plugins page.
+
+The guest reads the plain values with `getSettings()` and each secret by name
+with `getSecret(name)`:
+
+```js
+import { createHost } from "@parley/plugin-sdk";
+const host = createHost(grants, call, manifest);
+const { greeting, mood } = host.getSettings();
+const token = host.getSecret("api_token");
+```
+
+`getSettings()` throws in the guest if the manifest declares no settings.
+Secret values never appear in `getSettings()`. Generate TypeScript for the
+schema, in which secret fields are left out of `Settings` and listed in
+`SecretName`:
+
+```sh
+node sdk/plugin-sdk/src/cli.js types ./my-plugin > settings.d.ts
+```
+
+`plugins/settings-demo` declares a string, a boolean, an enum and one secret,
+and reads all four.
+
+## 9. Publish a new version
+
+Raise `version` in `manifest.json`, then pack, sign and upload again. Admins
+upgrade from the Plugins page. An upgrade that asks for more than the version
+in force waits for an admin to approve the wider grants.
+
+## 10. Roll back
+
+An install can move back to any earlier trusted version it has run. On the
+Plugins page, pick the version from the install's history and confirm; the
+move is audited with both versions and digests. Installing an older version
+directly is refused, so rolling back is the only way to go back.

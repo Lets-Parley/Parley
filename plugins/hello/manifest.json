@@ -1,0 +1,8 @@
+{
+  "manifest": 1,
+  "kind": "plugin",
+  "name": "hello",
+  "version": "0.1.0",
+  "capabilities": [],
+  "kinds": [{ "kind": "hello", "display": "Hello", "actions": [] }]
+}
