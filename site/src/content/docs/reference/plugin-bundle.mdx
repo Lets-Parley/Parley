@@ -80,12 +80,14 @@ trusted stored bundle for its name and version, under its own advisory lock.
 An install with no match is never disabled: it keeps running from loose files
 and the plugins page marks it **not in catalog**.
 
-Every bundle an install is pinned to is remembered. Going back to an older
-version is only possible as a rollback to one of those, and a rollback that
-asks for wider grants than the ones in force waits for approval like any
-widening upgrade. Because stored bundles are never deleted, every bundle an
-install ran stays available to roll back to; retention and garbage collection
-of unreferenced bundles are not implemented yet.
+An install can move to any trusted catalog version of the same plugin, older
+or newer. Going to an older version is a rollback, confirmed in two steps and
+audited with the version and bundle it moved from and to; it is the only way
+back, since installing an older version directly is refused. A move that asks
+for wider grants than the ones in force waits for approval like any widening
+upgrade. Every bundle an install is pinned to is remembered and shown as its
+history. Stored bundles are never deleted; retention and garbage collection of
+unreferenced bundles are not implemented yet.
 
 `GET /api/catalog/loaded`, for default-org admins, names the bundles the
 answering replica has compiled, by digest and key id, to confirm every replica

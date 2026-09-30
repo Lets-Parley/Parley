@@ -88,12 +88,13 @@ func TestInstallFromTheCatalogUsesTheVerifiedManifest(t *testing.T) {
 	}
 }
 
-func TestRollbackReturnsOnlyToABundleTheInstallRan(t *testing.T) {
+func TestRollbackMovesToAnyTrustedVersionOfTheSamePlugin(t *testing.T) {
 	f := digestServer(t)
 	name := newPluginName(t)
 	v1 := f.store(t, name, "1.0.0", `[{"capability":"log"},{"capability":"kv"}]`)
 	v2 := f.store(t, name, "2.0.0", `[{"capability":"log"}]`)
-	v3 := f.store(t, name, "3.0.0", `[{"capability":"log"}]`)
+	v0 := f.store(t, name, "0.9.0", `[{"capability":"log"}]`)
+	other := f.store(t, newPluginName(t)+"x", "0.1.0", `[{"capability":"log"}]`)
 
 	_, view := f.post(t, "", `{"grantsAccepted":true,`+v1+`}`)
 	id, _ := view["id"].(string)
@@ -104,8 +105,19 @@ func TestRollbackReturnsOnlyToABundleTheInstallRan(t *testing.T) {
 	if code, _ := f.post(t, "", `{"grantsAccepted":true,`+v1+`}`); code != http.StatusConflict {
 		t.Fatalf("a downgrade through install = %d, want 409", code)
 	}
-	if code, _ := f.post(t, "/"+id+"/rollback", `{`+v3+`}`); code != http.StatusConflict {
-		t.Fatalf("rollback to a bundle it never ran = %d, want 409", code)
+	if code, _ := f.post(t, "/"+id+"/rollback", `{`+other+`}`); code != http.StatusConflict {
+		t.Fatalf("a rollback onto another plugin's bundle = %d, want 409", code)
+	}
+	// Never ran, older, asks for nothing new: it applies at once.
+	if code, view := f.post(t, "/"+id+"/rollback", `{`+v0+`}`); code != http.StatusOK || view["version"] != "0.9.0" {
+		t.Fatalf("a downgrade to a never-run version = %d %v, want 200 on 0.9.0", code, view)
+	}
+	detail := assertAudited(t, f.pool, "plugin.rollback", f.id)
+	if !strings.Contains(detail, "from") {
+		t.Fatalf("the audit row names no from digest: %q", detail)
+	}
+	if code, view := f.post(t, "/"+id+"/rollback", `{`+v2+`}`); code != http.StatusOK || view["version"] != "2.0.0" {
+		t.Fatalf("moving forward again = %d %v", code, view)
 	}
 	// v1 asks for kv, which v2 gave up: the rollback widens and waits.
 	code, view := f.post(t, "/"+id+"/rollback", `{`+v1+`}`)
@@ -117,8 +129,8 @@ func TestRollbackReturnsOnlyToABundleTheInstallRan(t *testing.T) {
 		view["version"] != "1.0.0" || pinnedDigest(view) != first {
 		t.Fatalf("approving the rollback = %d %v, want 1.0.0 pinned to %s", code, view, first)
 	}
-	if hist, _ := view["history"].([]any); len(hist) != 2 {
-		t.Fatalf("history = %v, want the two bundles it ran", view["history"])
+	if hist, _ := view["history"].([]any); len(hist) != 3 {
+		t.Fatalf("history = %v, want the three bundles it ran", view["history"])
 	}
 }
 

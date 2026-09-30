@@ -410,8 +410,8 @@ function InstallPanel({
   }, [preview]);
   const consent = (
       <div ref={consentRef} data-consent className="mt-4 border-t border-line">
-      {problem && (
-        <p role="alert" className="mt-3 text-[13px] font-bold text-stop">
+      {problem && !preview && (
+        <p role="alert" className="py-4 text-[13px] font-bold text-stop">
           {problem}
         </p>
       )}
@@ -480,6 +480,11 @@ function InstallPanel({
                 {preview.version}
               </button>
             </>
+          )}
+          {problem && (
+            <p role="alert" className="mt-3 text-[13px] font-bold text-stop text-pretty">
+              {problem}
+            </p>
           )}
         </div>
       )}

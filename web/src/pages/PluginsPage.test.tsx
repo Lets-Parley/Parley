@@ -697,4 +697,31 @@ describe("installing by digest", () => {
     expect(group.querySelector("[data-consent]")).not.toBeNull();
     expect(screen.getByRole("group", { name: "other" }).querySelector("[data-consent]")).toBeNull();
   });
+
+  it("puts a refused install's error beside its action, not above the title", async () => {
+    const api = (await import("../lib/api")).api as unknown as {
+      getMockImplementation: () => unknown;
+      mockImplementation: (f: unknown) => void;
+    };
+    const original = api.getMockImplementation() as (...a: unknown[]) => unknown;
+    api.mockImplementation(async (method: string, path: string, body?: unknown) => {
+      if (method === "POST" && path === "/api/orgs/acme/admin/plugins") throw new ApiError(409, "the server said no");
+      return original(method, path, body);
+    });
+    try {
+      render();
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "reporter 1.0.0" }));
+      await user.click(await screen.findByRole("checkbox", { name: /I grant it/i }));
+      const action = screen.getByRole("button", { name: "Install reporter 1.0.0" });
+      await user.click(action);
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toBe("the server said no");
+      const title = screen.getByRole("heading", { name: /reporter 1\.0\.0/ });
+      expect(title.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(action.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    } finally {
+      api.mockImplementation(original);
+    }
+  });
 });

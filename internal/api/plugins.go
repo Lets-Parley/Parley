@@ -443,9 +443,10 @@ func (a *app) handleApproveUpgrade(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, view)
 }
 
-// handleRollbackPlugin returns an install to a bundle it previously ran. It
-// goes through the upgrade path, so grants wider than the ones in force wait
-// for approval exactly as a widening upgrade does.
+// handleRollbackPlugin moves an install to any trusted catalog version of the
+// same plugin, older included — the one route that may go backwards. It goes
+// through the upgrade path, so grants wider than the ones in force wait for
+// approval exactly as a widening upgrade does.
 func (a *app) handleRollbackPlugin(w http.ResponseWriter, r *http.Request) {
 	if !a.requirePluginStore(w) {
 		return
@@ -457,23 +458,27 @@ func (a *app) handleRollbackPlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	adm := a.pluginAdmin(r)
-	ran, err := adm.Ran(r.Context(), id, choice.ref())
+	state, err := adm.State(r.Context(), id)
 	if notFoundInstall(w, err) {
 		return
 	}
 	if err != nil {
-		a.pluginError(w, err, "could not read the bundles this plugin ran")
-		return
-	}
-	if !ran {
-		http.Error(w, `{"error":"this plugin never ran that bundle; a rollback can only return to one it did"}`, http.StatusConflict)
+		a.pluginError(w, err, "could not read that plugin")
 		return
 	}
 	pkg, pin, ok := a.choose(w, r, choice)
 	if !ok {
 		return
 	}
-	detail := fmt.Sprintf("%s to %s (%s)", pkg.Name, pkg.Version, pin)
+	if pkg.Name != state.Install.Name {
+		http.Error(w, `{"error":"that bundle is a different plugin"}`, http.StatusConflict)
+		return
+	}
+	from := "loose files"
+	if state.Install.PinnedTo != nil {
+		from = state.Install.PinnedTo.String()
+	}
+	detail := fmt.Sprintf("%s from %s (%s) to %s (%s)", pkg.Name, state.Install.Version, from, pkg.Version, pin)
 	code, action := http.StatusOK, "plugin.rollback"
 	err = adm.UpgradeTo(r.Context(), id, pkg.Version, pkg.grants(), pkg.Kinds, pin)
 	switch {

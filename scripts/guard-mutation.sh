@@ -851,9 +851,9 @@ mutate "sign out never falling back to the cookie beside a bearer" \
     'TestEmbedSignOutNeverFallsBackToTheCookie' \
     me.go 'err == nil && !a.bearerPresented(r) {' 'err == nil {'
 
-mutate "a rollback only to a bundle the install ran" \
-    'TestRollbackReturnsOnlyToABundleTheInstallRan' \
-    plugins.go '	if !ran {' '	if !ran && false {'
+mutate "a rollback only onto the same plugin" \
+    'TestRollbackMovesToAnyTrustedVersionOfTheSamePlugin' \
+    plugins.go '	if pkg.Name != state.Install.Name {' '	if false {'
 
 mutate "no loose frame UI for a pinned plugin name" \
     'TestAPinnedInstallGetsNoLooseUI' \
@@ -868,7 +868,7 @@ mutate "the curator gate on the loaded-bundle list" \
     router.go 'r.With(a.requireInstanceCurator).Get("/catalog/loaded"' 'r.Get("/catalog/loaded"'
 
 mutate "an older version through install refused as a downgrade" \
-    'TestRollbackReturnsOnlyToABundleTheInstallRan' \
+    'TestRollbackMovesToAnyTrustedVersionOfTheSamePlugin' \
     plugins.go '	if versionLess(pkg.Version, current.Install.Version) {' '	if false && versionLess(pkg.Version, current.Install.Version) {'
 
 target internal/store
