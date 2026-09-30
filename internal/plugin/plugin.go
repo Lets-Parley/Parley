@@ -74,6 +74,12 @@ type Install struct {
 	Version    string
 	Enabled    bool
 	QuotaBytes int64
+	// Bundle is the stored bundle this install is pinned to, nil for an
+	// install made before the catalog that still runs from loose files.
+	Bundle *BundleRef
+	// PinnedTo is the raw pin, set even when stale. An install with any pin
+	// only ever runs stored, trusted rows, never loose files.
+	PinnedTo *BundleRef
 }
 
 // InstallRequest is what a caller asks to install.
@@ -90,6 +96,9 @@ type InstallRequest struct {
 	// written in the install's own transaction, so a plugin is never installed
 	// without them and never leaves rows behind a failed install.
 	Kinds []KindDef
+	// Bundle pins the install to one stored bundle. Nil is the deprecated
+	// package.json path with no stored bundle behind it.
+	Bundle *BundleRef
 }
 
 // Install records a plugin and its grants in one transaction, so a plugin is
@@ -110,12 +119,16 @@ func (s *Store) Install(ctx context.Context, req InstallRequest) (Install, error
 	var out Install
 	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(ctx, `
-			insert into plugin_installs (org_id, name, version, kv_quota_bytes)
-			values ($1, $2, $3, $4)
+			insert into plugin_installs (org_id, name, version, kv_quota_bytes, bundle_digest, bundle_key_id)
+			values ($1, $2, $3, $4, $5, $6)
 			returning id, org_id, name, version, enabled, kv_quota_bytes`,
-			req.OrgID, req.Name, req.Version, req.QuotaBytes,
+			req.OrgID, req.Name, req.Version, req.QuotaBytes, req.Bundle.digest(), req.Bundle.keyID(),
 		).Scan(&out.ID, &out.OrgID, &out.Name, &out.Version, &out.Enabled, &out.QuotaBytes); err != nil {
 			return fmt.Errorf("inserting install: %w", err)
+		}
+		out.Bundle = req.Bundle
+		if err := recordPin(ctx, tx, out.ID, req.Bundle); err != nil {
+			return err
 		}
 		if err := seedKinds(ctx, tx, req.OrgID, req.Name, req.Kinds); err != nil {
 			return err

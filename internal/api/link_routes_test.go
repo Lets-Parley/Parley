@@ -120,9 +120,10 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	"GET /api/orgs":    {status: http.StatusUnauthorized},
 	"GET /api/spaces":  {status: http.StatusUnauthorized},
 	"POST /api/spaces": {status: http.StatusUnauthorized},
-	// The catalogue is for accounts in an org; a link guest belongs to none.
-	"GET /api/catalogue":          {status: http.StatusUnauthorized},
-	"POST /api/catalogue/bundles": {status: http.StatusUnauthorized},
+	// The catalog is for accounts in an org; a link guest belongs to none.
+	"GET /api/catalog":          {status: http.StatusUnauthorized},
+	"POST /api/catalog/bundles": {status: http.StatusUnauthorized},
+	"GET /api/catalog/loaded":   {status: http.StatusUnauthorized},
 	// The org directory. A link guest belongs to no org, so it gets nothing
 	// here — and specifically 401 from RequireUser rather than 404 from
 	// requireOrgMember, because RequireUser is mounted first. That ordering is
@@ -198,6 +199,7 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	"POST /api/orgs/{org}/admin/plugins/":                 {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/admin/plugins/preview":          {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/admin/plugins/{id}/upgrade":     {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/admin/plugins/{id}/rollback":    {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/admin/plugins/{id}/enabled":     {status: http.StatusUnauthorized},
 	"DELETE /api/orgs/{org}/admin/plugins/{id}":           {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/admin/plugins/themes":           {status: http.StatusUnauthorized},

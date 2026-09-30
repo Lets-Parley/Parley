@@ -5,7 +5,7 @@ description: The .parley bundle, version 1 — what it contains, how it is signe
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp version="unreleased" source={["sdk/abi/bundle-v1.md", "internal/plugin/bundle/bundle.go", "cmd/parley/plugincmd.go", "internal/api/catalogue.go"]} />
+<VerifiedStamp version="unreleased" source={["sdk/abi/bundle-v1.md", "internal/plugin/bundle/bundle.go", "cmd/parley/plugincmd.go", "internal/api/catalog.go", "internal/plugin/pin.go", "internal/api/plugins.go"]} />
 
 A plugin ships as one `.parley` file: a deterministic gzip-compressed tar
 archive. The full specification, including the byte-level encoding a packer
@@ -45,20 +45,63 @@ entries' declared sizes add up past it; if anything follows the gzip member; if
 a newline after every line); or if its signature does not verify, is by an
 untrusted key, or is missing and unsigned bundles are not allowed.
 
-## The catalogue
+## The catalog
 
 Verified bundles are stored in the database, so every replica serves the same
 bytes. An admin of the **default** org uploads a bundle on the **Plugin
-catalogue** page (`/catalogue`), or with
-`POST /api/catalogue/bundles`; nobody else may, including an admin of another
-org. Every org member can browse the catalogue, which shows each version's
-digest, the signer's key id and what it would be permitted to do.
+catalog** page (`/catalog`), one or several files at a time, each reported on
+its own, or with `POST /api/catalog/bundles` (one bundle per request); nobody
+else may, including an admin of another org. Every org member can browse the
+catalog: each plugin shows once what its latest version would be permitted to
+do, and each version row its signer, digest, publish date and what it adds or
+drops compared with the version before it.
 
 A bundle is accepted only if it is signed by a key in `PLUGIN_TRUSTED_KEYS`,
 or is unsigned and `PLUGIN_ALLOW_UNSIGNED=true`. The first bundle stored for a
 name and version holds it: a different bundle for the same name and version is
 refused, so a new release needs a new version. Stored bundles are never
 deleted.
+
+## Installing by digest
+
+An org admin picks a version on their org's **Plugins** page, or follows the
+**Install in `<org>`** link beside it on the catalog page, and grants what the
+server says it may do before anything is installed.
+
+An org admin installs a catalog version by its digest and key id, and the
+install is **pinned** to that row: the host loads it by digest, never by name
+and version, so the install runs exactly those bytes, and trust is still
+re-checked on every call. The grants, session kinds and consent copy come from
+the verified bundle's own manifest. A catalog bundle is the only way to
+install or upgrade; there is no upload of a bare `package.json`.
+
+At boot, after the `PLUGIN_DIR` import, every unpinned install is pinned to the
+trusted stored bundle for its name and version, under its own advisory lock.
+An install with no match is never disabled: it keeps running from loose files
+and the plugins page marks it **not in catalog**.
+
+An install can move to any trusted catalog version of the same plugin, older
+or newer. Going to an older version is a rollback, confirmed in two steps and
+audited with the version and bundle it moved from and to; it is the only way
+back, since installing an older version directly is refused. A move that asks
+for wider grants than the ones in force waits for approval like any widening
+upgrade. Every bundle an install is pinned to is remembered and shown as its
+history. Stored bundles are never deleted; retention and garbage collection of
+unreferenced bundles are not implemented yet.
+
+`GET /api/catalog/loaded`, for default-org admins, names the bundles the
+answering replica has compiled, by digest and key id, to confirm every replica
+runs the same bytes.
+
+A pin is authoritative only while its bundle carries the install's version. An
+older binary during a rolling upgrade can change an install's version without
+moving its pin. That install then runs only the trusted stored bundle for its
+new version, and is re-pinned to it; with none stored it fails closed. An
+install that has ever been pinned never runs a loose `PLUGIN_DIR` file. Avoid plugin admin actions while a rollout is in progress.
+
+`plugin_installs` and `plugin_install_history` hold foreign keys to
+`plugin_bundles`, so any future garbage collection has to leave every bundle an
+install is pinned to, staged for, or ran (or clear that history first).
 
 ## Operator commands
 

@@ -2,7 +2,10 @@ package api
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lets-parley/parley/internal/plugin"
+	"github.com/lets-parley/parley/internal/plugin/bundle"
 	"github.com/lets-parley/parley/internal/store"
 )
 
@@ -29,6 +33,38 @@ func pluginServer(t *testing.T) (*httptest.Server, *pgxpool.Pool, *plugin.Store,
 	admin, adminID := signupWithID(t, srv, "Operator")
 	makeOrgAdmin(t, pool, adminID)
 	return srv, pool, plugins, admin, adminID
+}
+
+// testBundleKey signs every bundle these tests put in the catalog, and every
+// test server with a plugin store trusts it.
+var testBundlePub, testBundleKey, _ = ed25519.GenerateKey(rand.Reader)
+
+// choice stores a package as a signed catalog bundle and returns the
+// {digest, key_id} fields an install names it by. The same name and version
+// again answers the bundle already stored.
+func choice(t *testing.T, pool *pgxpool.Pool, pkg string) string {
+	t.Helper()
+	data, err := bundle.Pack(map[string][]byte{"plugin.wasm": []byte("\x00asm")}, []byte(pkg), testBundleKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bs := &plugin.BundleStore{Pool: pool, Trusted: []ed25519.PublicKey{testBundlePub}}
+	b, err := bs.Insert(context.Background(), data, nil)
+	if errors.Is(err, plugin.ErrBundleConflict) {
+		var m struct{ Name, Version string }
+		_ = json.Unmarshal([]byte(pkg), &m)
+		var d, k string
+		if err := pool.QueryRow(context.Background(),
+			`select digest, key_id from plugin_bundles where name = $1 and version = $2 order by key_id = '' limit 1`,
+			m.Name, m.Version).Scan(&d, &k); err != nil {
+			t.Fatal(err)
+		}
+		return fmt.Sprintf(`"digest":%q,"key_id":%q`, d, k)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fmt.Sprintf(`"digest":%q,"key_id":%q`, b.Digest, b.KeyID)
 }
 
 func newPluginName(t *testing.T) string {
@@ -55,12 +91,12 @@ func pluginPkgWith(name, version string, kinds []plugin.KindDef, caps ...map[str
 // Authorization is the middleware, not the nav link. An ordinary org member is
 // refused every route on this tree, server-side.
 func TestPluginAdminIsRefusedToAnOrdinaryMember(t *testing.T) {
-	srv, _, _, _, _ := pluginServer(t)
+	srv, pool, _, _, _ := pluginServer(t)
 	member, _ := signupWithID(t, srv, "Member")
 
 	for _, probe := range []struct{ method, path, body string }{
 		{"GET", "", ""},
-		{"POST", "", `{"grantsAccepted":true,"package":` + pluginPkg("demo", "1.0.0") + `}`},
+		{"POST", "", `{"grantsAccepted":true,` + choice(t, pool, pluginPkg("demo", "1.0.0")) + `}`},
 		{"POST", "/preview", pluginPkg("demo", "1.0.0")},
 		{"POST", "/00000000-0000-0000-0000-000000000000/upgrade", `{"approve":true}`},
 		{"POST", "/00000000-0000-0000-0000-000000000000/enabled", `{"enabled":false}`},
@@ -97,18 +133,18 @@ func TestPluginAdminIsOpenToTheOperator(t *testing.T) {
 }
 
 func TestPreviewRefusesAnUnknownUISlot(t *testing.T) {
-	srv, _, _, admin, _ := pluginServer(t)
+	srv, pool, _, admin, _ := pluginServer(t)
 	pkg := `{"manifest":1,"kind":"plugin","name":"slotty","version":"1.0.0","slots":["notifications"],"capabilities":[]}`
-	resp, body := doJSON(t, srv, "POST", pluginsPath+"/preview", pkg, admin)
+	resp, body := doJSON(t, srv, "POST", pluginsPath+"/preview", "{"+choice(t, pool, pkg)+"}", admin)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("preview of a notifications slot = %d: %v, want 400", resp.StatusCode, body)
 	}
 }
 
 func TestPreviewAcceptsToolbarNavAndExportMenuSlots(t *testing.T) {
-	srv, _, _, admin, _ := pluginServer(t)
+	srv, pool, _, admin, _ := pluginServer(t)
 	pkg := `{"manifest":1,"kind":"plugin","name":"slotty","version":"1.0.0","slots":["toolbar","nav","export-menu"],"capabilities":[]}`
-	resp, body := doJSON(t, srv, "POST", pluginsPath+"/preview", pkg, admin)
+	resp, body := doJSON(t, srv, "POST", pluginsPath+"/preview", "{"+choice(t, pool, pkg)+"}", admin)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("preview of chrome slots = %d: %v", resp.StatusCode, body)
 	}
@@ -117,12 +153,12 @@ func TestPreviewAcceptsToolbarNavAndExportMenuSlots(t *testing.T) {
 // The consent screen's copy comes from the server, so the wildcard an operator
 // agrees to is expanded by the code that enforces it.
 func TestPreviewExpandsTheAllowlistAndNamesConsequences(t *testing.T) {
-	srv, _, _, admin, _ := pluginServer(t)
+	srv, pool, _, admin, _ := pluginServer(t)
 	pkg := pluginPkg(newPluginName(t), "1.0.0",
 		map[string]string{"capability": "fetch", "scope": "*.example.com"},
 		map[string]string{"capability": "session:read"})
 
-	resp, body := doJSON(t, srv, "POST", pluginsPath+"/preview", pkg, admin)
+	resp, body := doJSON(t, srv, "POST", pluginsPath+"/preview", "{"+choice(t, pool, pkg)+"}", admin)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("preview = %d: %v", resp.StatusCode, body)
 	}
@@ -162,8 +198,8 @@ func TestInstallUpgradeApproveDisableUninstallAreAudited(t *testing.T) {
 
 	// An install with no explicit grant decision is refused: a client that
 	// never showed the consent screen cannot install by omission.
-	got, err := requestStatus(srv, "POST", pluginsPath, `{"package":`+pluginPkg(name, "1.0.0",
-		map[string]string{"capability": "log"})+`}`, admin)
+	got, err := requestStatus(srv, "POST", pluginsPath, `{`+choice(t, pool, pluginPkg(name, "1.0.0",
+		map[string]string{"capability": "log"}))+`}`, admin)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,8 +208,8 @@ func TestInstallUpgradeApproveDisableUninstallAreAudited(t *testing.T) {
 	}
 
 	resp, body := doJSON(t, srv, "POST", pluginsPath,
-		`{"grantsAccepted":true,"package":`+pluginPkg(name, "1.0.0",
-			map[string]string{"capability": "log"})+`}`, admin)
+		`{"grantsAccepted":true,`+choice(t, pool, pluginPkg(name, "1.0.0",
+			map[string]string{"capability": "log"}))+`}`, admin)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("install = %d: %v", resp.StatusCode, body)
 	}
@@ -186,9 +222,9 @@ func TestInstallUpgradeApproveDisableUninstallAreAudited(t *testing.T) {
 	// An upgrade asking for more must not get it by arriving: the install
 	// keeps its old version and its old grants until somebody approves.
 	resp, body = doJSON(t, srv, "POST", pluginsPath,
-		`{"grantsAccepted":true,"package":`+pluginPkg(name, "2.0.0",
+		`{"grantsAccepted":true,`+choice(t, pool, pluginPkg(name, "2.0.0",
 			map[string]string{"capability": "log"},
-			map[string]string{"capability": "fetch", "scope": "*.example.com"})+`}`, admin)
+			map[string]string{"capability": "fetch", "scope": "*.example.com"}))+`}`, admin)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("a widening upgrade = %d, want 202: %v", resp.StatusCode, body)
 	}
@@ -270,8 +306,8 @@ func TestUninstallIsRefusedAndExplainsWhichSessionsBlockIt(t *testing.T) {
 	name := newPluginName(t)
 
 	resp, body := doJSON(t, srv, "POST", pluginsPath,
-		`{"grantsAccepted":true,"package":`+pluginPkg(name, "1.0.0",
-			map[string]string{"capability": "log"})+`}`, admin)
+		`{"grantsAccepted":true,`+choice(t, pool, pluginPkg(name, "1.0.0",
+			map[string]string{"capability": "log"}))+`}`, admin)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("install = %d: %v", resp.StatusCode, body)
 	}
@@ -338,8 +374,8 @@ func TestOneOrgsAdminCannotTouchAnothersPlugin(t *testing.T) {
 	// Org A's plugin, installed by org A's operator through the real surface.
 	name := newPluginName(t)
 	resp, body := doJSON(t, srv, "POST", pluginsPath,
-		`{"grantsAccepted":true,"package":`+pluginPkg(name, "1.0.0",
-			map[string]string{"capability": "log"})+`}`, admin)
+		`{"grantsAccepted":true,`+choice(t, pool, pluginPkg(name, "1.0.0",
+			map[string]string{"capability": "log"}))+`}`, admin)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("install = %d: %v", resp.StatusCode, body)
 	}
@@ -389,6 +425,7 @@ func TestOneOrgsAdminCannotTouchAnothersPlugin(t *testing.T) {
 	for _, probe := range []struct{ method, path, body string }{
 		{"POST", "/" + victimID + "/upgrade", `{"approve":true}`},
 		{"POST", "/" + victimID + "/enabled", `{"enabled":false}`},
+		{"POST", "/" + victimID + "/rollback", `{"digest":"x","key_id":""}`},
 		{"DELETE", "/" + victimID, ""},
 	} {
 		got, err := requestStatus(srv, probe.method, otherPath+probe.path, probe.body, attacker)
@@ -417,8 +454,8 @@ func TestOneOrgsAdminCannotTouchAnothersPlugin(t *testing.T) {
 	// The same plugin name in the second org is a different install, not a
 	// collision with the first org's: ownership is what "installed" means now.
 	resp, body = doJSON(t, srv, "POST", otherPath,
-		`{"grantsAccepted":true,"package":`+pluginPkg(name, "1.0.0",
-			map[string]string{"capability": "log"})+`}`, attacker)
+		`{"grantsAccepted":true,`+choice(t, pool, pluginPkg(name, "1.0.0",
+			map[string]string{"capability": "log"}))+`}`, attacker)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("installing the same plugin name in a second org = %d, want 201: %v", resp.StatusCode, body)
 	}
@@ -463,11 +500,11 @@ func TestApplyingAThemeIsAudited(t *testing.T) {
 // exactly as before: it is durable in plugin_installs.enabled and is known
 // without a host.
 func TestHealthWithoutAHostIsUnknownNotHealthy(t *testing.T) {
-	srv, _, _, admin, _ := pluginServer(t)
+	srv, pool, _, admin, _ := pluginServer(t)
 
 	name := newPluginName(t)
 	resp, body := doJSON(t, srv, "POST", pluginsPath,
-		`{"grantsAccepted":true,"package":`+pluginPkg(name, "1.0.0")+`}`, admin)
+		`{"grantsAccepted":true,`+choice(t, pool, pluginPkg(name, "1.0.0"))+`}`, admin)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("install = %d: %v", resp.StatusCode, body)
 	}
@@ -514,14 +551,14 @@ func TestHealthWithoutAHostIsUnknownNotHealthy(t *testing.T) {
 // value: decoding through map[string]any would collapse "obviously missing"
 // and "explicitly null" into the same nil interface and hide the bug.
 func TestPluginJSONNeverSendsNullForADeclaredArray(t *testing.T) {
-	srv, _, _, admin, _ := pluginServer(t)
+	srv, pool, _, admin, _ := pluginServer(t)
 
 	// An install that provides no session kinds is the ordinary case, not the
 	// exception — most plugins provide nothing — so this is what the page
 	// sees for essentially every install it lists.
 	name := newPluginName(t)
 	resp, body := doJSON(t, srv, "POST", pluginsPath,
-		`{"grantsAccepted":true,"package":`+pluginPkg(name, "1.0.0")+`}`, admin)
+		`{"grantsAccepted":true,`+choice(t, pool, pluginPkg(name, "1.0.0"))+`}`, admin)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("install = %d: %v", resp.StatusCode, body)
 	}
@@ -538,7 +575,7 @@ func TestPluginJSONNeverSendsNullForADeclaredArray(t *testing.T) {
 	// nothing pending. added/removed must still be arrays: the frontend type
 	// declares them non-optional, and the page reads preview.added.length
 	// unconditionally.
-	previewRaw := rawBody(t, srv, "POST", pluginsPath+"/preview", pluginPkg(newPluginName(t), "1.0.0"), admin)
+	previewRaw := rawBody(t, srv, "POST", pluginsPath+"/preview", "{"+choice(t, pool, pluginPkg(newPluginName(t), "1.0.0"))+"}", admin)
 	if strings.Contains(previewRaw, `"added":null`) || strings.Contains(previewRaw, `"removed":null`) {
 		t.Fatalf("a fresh-install preview marshals added/removed as null, which crashes preview.added.length in the browser: %s", previewRaw)
 	}
@@ -552,7 +589,7 @@ func TestPluginJSONNeverSendsNullForADeclaredArray(t *testing.T) {
 // had: InstallRequest.Kinds existed and the store wrote it, but the upload
 // never carried the field through.
 func TestInstallPackageDeclaringAKindPersistsIt(t *testing.T) {
-	srv, _, plugins, admin, _ := pluginServer(t)
+	srv, pool, plugins, admin, _ := pluginServer(t)
 	name := newPluginName(t)
 	kind := fmt.Sprintf("board-%d", time.Now().UnixNano())
 	pkg := pluginPkgWith(name, "1.0.0", []plugin.KindDef{{
@@ -561,7 +598,7 @@ func TestInstallPackageDeclaringAKindPersistsIt(t *testing.T) {
 	}})
 
 	resp, body := doJSON(t, srv, "POST", pluginsPath,
-		`{"grantsAccepted":true,"package":`+pkg+`}`, admin)
+		`{"grantsAccepted":true,`+choice(t, pool, pkg)+`}`, admin)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("install = %d: %v", resp.StatusCode, body)
 	}
@@ -585,7 +622,7 @@ func TestInstallPackageDeclaringAKindPersistsIt(t *testing.T) {
 // have to land the same way: the upgrade path used to bump the version and
 // drop the field.
 func TestUpgradePackageDeclaringKindsPersistsThem(t *testing.T) {
-	srv, _, plugins, admin, _ := pluginServer(t)
+	srv, pool, plugins, admin, _ := pluginServer(t)
 	name := newPluginName(t)
 	first := fmt.Sprintf("board-%d", time.Now().UnixNano())
 	next := fmt.Sprintf("stand-%d", time.Now().UnixNano())
@@ -594,7 +631,7 @@ func TestUpgradePackageDeclaringKindsPersistsThem(t *testing.T) {
 		Actions: []plugin.ActionDef{{Name: "add-card", Verb: "POST"}},
 	}})
 	resp, body := doJSON(t, srv, "POST", pluginsPath,
-		`{"grantsAccepted":true,"package":`+v1+`}`, admin)
+		`{"grantsAccepted":true,`+choice(t, pool, v1)+`}`, admin)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("install = %d: %v", resp.StatusCode, body)
 	}
@@ -605,7 +642,7 @@ func TestUpgradePackageDeclaringKindsPersistsThem(t *testing.T) {
 		Actions: []plugin.ActionDef{{Name: "tick", Verb: "POST"}},
 	}})
 	resp, body = doJSON(t, srv, "POST", pluginsPath,
-		`{"grantsAccepted":true,"package":`+v2+`}`, admin)
+		`{"grantsAccepted":true,`+choice(t, pool, v2)+`}`, admin)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("upgrade = %d: %v", resp.StatusCode, body)
 	}
@@ -619,7 +656,7 @@ func TestUpgradePackageDeclaringKindsPersistsThem(t *testing.T) {
 }
 
 func TestUpgradePackageWithEmptyKindsRetiresTheOldOnes(t *testing.T) {
-	srv, _, plugins, admin, _ := pluginServer(t)
+	srv, pool, plugins, admin, _ := pluginServer(t)
 	name := newPluginName(t)
 	kind := fmt.Sprintf("board-%d", time.Now().UnixNano())
 	v1 := pluginPkgWith(name, "1.0.0", []plugin.KindDef{{
@@ -627,7 +664,7 @@ func TestUpgradePackageWithEmptyKindsRetiresTheOldOnes(t *testing.T) {
 		Actions: []plugin.ActionDef{{Name: "add-card", Verb: "POST"}},
 	}})
 	resp, body := doJSON(t, srv, "POST", pluginsPath,
-		`{"grantsAccepted":true,"package":`+v1+`}`, admin)
+		`{"grantsAccepted":true,`+choice(t, pool, v1)+`}`, admin)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("install = %d: %v", resp.StatusCode, body)
 	}
@@ -635,7 +672,7 @@ func TestUpgradePackageWithEmptyKindsRetiresTheOldOnes(t *testing.T) {
 
 	v2 := pluginPkgWith(name, "2.0.0", []plugin.KindDef{})
 	resp, body = doJSON(t, srv, "POST", pluginsPath,
-		`{"grantsAccepted":true,"package":`+v2+`}`, admin)
+		`{"grantsAccepted":true,`+choice(t, pool, v2)+`}`, admin)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("upgrade = %d: %v", resp.StatusCode, body)
 	}
@@ -649,7 +686,7 @@ func TestUpgradePackageWithEmptyKindsRetiresTheOldOnes(t *testing.T) {
 }
 
 func TestUpgradePackageWithABadKindIsRefused(t *testing.T) {
-	srv, _, plugins, admin, _ := pluginServer(t)
+	srv, pool, plugins, admin, _ := pluginServer(t)
 	name := newPluginName(t)
 	kind := fmt.Sprintf("board-%d", time.Now().UnixNano())
 	v1 := pluginPkgWith(name, "1.0.0", []plugin.KindDef{{
@@ -657,7 +694,7 @@ func TestUpgradePackageWithABadKindIsRefused(t *testing.T) {
 		Actions: []plugin.ActionDef{{Name: "add-card", Verb: "POST"}},
 	}})
 	resp, body := doJSON(t, srv, "POST", pluginsPath,
-		`{"grantsAccepted":true,"package":`+v1+`}`, admin)
+		`{"grantsAccepted":true,`+choice(t, pool, v1)+`}`, admin)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("install = %d: %v", resp.StatusCode, body)
 	}
@@ -667,7 +704,7 @@ func TestUpgradePackageWithABadKindIsRefused(t *testing.T) {
 		Kind: "NOT_A_KIND", Display: "Broken",
 	}})
 	resp, body = doJSON(t, srv, "POST", pluginsPath,
-		`{"grantsAccepted":true,"package":`+v2+`}`, admin)
+		`{"grantsAccepted":true,`+choice(t, pool, v2)+`}`, admin)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("a bad-kind upgrade = %d, want 400: %v", resp.StatusCode, body)
 	}
@@ -683,14 +720,14 @@ func TestUpgradePackageWithABadKindIsRefused(t *testing.T) {
 // The consent screen is built from preview JSON. A package that declares a
 // ceremony has to show that ceremony there, not only "asks for no capabilities".
 func TestPreviewOfAPackageDeclaringAKindListsIt(t *testing.T) {
-	srv, _, _, admin, _ := pluginServer(t)
+	srv, pool, _, admin, _ := pluginServer(t)
 	name := newPluginName(t)
 	kind := fmt.Sprintf("board-%d", time.Now().UnixNano())
 	pkg := pluginPkgWith(name, "1.0.0", []plugin.KindDef{{
 		Kind: kind, Display: "Board",
 		Actions: []plugin.ActionDef{{Name: "add-card", Verb: "POST"}},
 	}})
-	resp, body := doJSON(t, srv, "POST", pluginsPath+"/preview", pkg, admin)
+	resp, body := doJSON(t, srv, "POST", pluginsPath+"/preview", "{"+choice(t, pool, pkg)+"}", admin)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("preview = %d: %v", resp.StatusCode, body)
 	}
@@ -705,8 +742,8 @@ func TestPreviewOfAPackageDeclaringAKindListsIt(t *testing.T) {
 }
 
 func TestPreviewWithoutKindsMarshalsAnEmptyArray(t *testing.T) {
-	srv, _, _, admin, _ := pluginServer(t)
-	raw := rawBody(t, srv, "POST", pluginsPath+"/preview", pluginPkg(newPluginName(t), "1.0.0"), admin)
+	srv, pool, _, admin, _ := pluginServer(t)
+	raw := rawBody(t, srv, "POST", pluginsPath+"/preview", "{"+choice(t, pool, pluginPkg(newPluginName(t), "1.0.0"))+"}", admin)
 	if strings.Contains(raw, `"kinds":null`) {
 		t.Fatalf("preview marshals kinds as null: %s", raw)
 	}
@@ -734,7 +771,7 @@ func TestInstallPackageWithABadKindNameIsRefused(t *testing.T) {
 			name := newPluginName(t)
 			pkg := pluginPkgWith(name, "1.0.0", []plugin.KindDef{tc.def})
 			resp, body := doJSON(t, srv, "POST", pluginsPath,
-				`{"grantsAccepted":true,"package":`+pkg+`}`, admin)
+				`{"grantsAccepted":true,`+choice(t, pool, pkg)+`}`, admin)
 			if resp.StatusCode != http.StatusBadRequest {
 				t.Fatalf("%s = %d, want 400: %v", tc.name, resp.StatusCode, body)
 			}
@@ -758,7 +795,7 @@ func TestInstallPackageClaimingATakenKindIsRefused(t *testing.T) {
 		Actions: []plugin.ActionDef{{Name: "vote", Verb: "POST"}},
 	}})
 	resp, body := doJSON(t, srv, "POST", pluginsPath,
-		`{"grantsAccepted":true,"package":`+pkg+`}`, admin)
+		`{"grantsAccepted":true,`+choice(t, pool, pkg)+`}`, admin)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("claiming the core kind poker = %d, want 400: %v", resp.StatusCode, body)
 	}
@@ -842,4 +879,34 @@ func containsAll(haystack string, needles ...string) bool {
 		}
 	}
 	return true
+}
+
+// A rollback onto a version that declares no kinds retires the kinds the
+// newer version provided: the bundle's silence is an empty declaration.
+func TestRollbackToAVersionWithoutKindsRetiresThem(t *testing.T) {
+	srv, pool, plugins, admin, _ := pluginServer(t)
+	name := newPluginName(t)
+	kind := fmt.Sprintf("board-%d", time.Now().UnixNano())
+	v1 := choice(t, pool, pluginPkg(name, "1.0.0"))
+	resp, body := doJSON(t, srv, "POST", pluginsPath, `{"grantsAccepted":true,`+v1+`}`, admin)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("install = %d: %v", resp.StatusCode, body)
+	}
+	id, _ := body["id"].(string)
+	v2 := choice(t, pool, pluginPkgWith(name, "2.0.0", []plugin.KindDef{{
+		Kind: kind, Display: "Board", Actions: []plugin.ActionDef{{Name: "add-card", Verb: "POST"}},
+	}}))
+	if resp, body := doJSON(t, srv, "POST", pluginsPath, `{"grantsAccepted":true,`+v2+`}`, admin); resp.StatusCode != http.StatusOK {
+		t.Fatalf("upgrade = %d: %v", resp.StatusCode, body)
+	}
+	if resp, body := doJSON(t, srv, "POST", pluginsPath+"/"+id+"/rollback", `{`+v1+`}`, admin); resp.StatusCode != http.StatusOK {
+		t.Fatalf("rollback = %d: %v", resp.StatusCode, body)
+	}
+	got, err := plugins.ProvidedKinds(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("after rolling back to a version with no kinds ProvidedKinds = %#v, want none", got)
+	}
 }

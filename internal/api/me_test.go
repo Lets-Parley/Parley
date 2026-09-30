@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/lets-parley/parley/internal/db"
 	"github.com/lets-parley/parley/internal/hub"
+	"github.com/lets-parley/parley/internal/plugin"
 	"github.com/lets-parley/parley/internal/principal"
 	"github.com/lets-parley/parley/internal/store"
 )
@@ -270,6 +272,11 @@ func testServer(t *testing.T) *httptest.Server {
 
 func testServerWith(t *testing.T, pool *pgxpool.Pool, opts Options) *httptest.Server {
 	t.Helper()
+	// A plugin store installs only from the catalog, so it gets one that
+	// trusts the key choice() signs with.
+	if opts.Plugins != nil && opts.PluginBundles == nil {
+		opts.PluginBundles = &plugin.BundleStore{Pool: pool, Dir: opts.PluginDir, Trusted: []ed25519.PublicKey{testBundlePub}}
+	}
 	// The notification listener has to be bounded or it outlives the test.
 	if opts.Context == nil {
 		opts.Context = testContext(t)

@@ -294,9 +294,10 @@ var routeScoping = map[string]string{
 	"GET /api/orgs":    "non-slug",
 	"GET /api/spaces":  "non-slug",
 	"POST /api/spaces": "non-slug",
-	// Instance-wide: the catalogue belongs to no one org.
-	"GET /api/catalogue":          "non-slug",
-	"POST /api/catalogue/bundles": "non-slug",
+	// Instance-wide: the catalog belongs to no one org.
+	"GET /api/catalog":          "non-slug",
+	"POST /api/catalog/bundles": "non-slug",
+	"GET /api/catalog/loaded":   "non-slug",
 
 	// Every space route hangs off an org.
 	"GET /api/orgs/{org}/spaces":                               "org-scoped",
@@ -341,14 +342,15 @@ var routeScoping = map[string]string{
 	// operator role that may administer them is an org role, so the tree hangs
 	// off the org for the same reason custody does: the org segment is the
 	// authorization context, and an ordinary member of it gets 403.
-	"GET /api/orgs/{org}/admin/plugins/":              "org-scoped",
-	"POST /api/orgs/{org}/admin/plugins/":             "org-scoped",
-	"POST /api/orgs/{org}/admin/plugins/preview":      "org-scoped",
-	"POST /api/orgs/{org}/admin/plugins/{id}/upgrade": "org-scoped",
-	"POST /api/orgs/{org}/admin/plugins/{id}/enabled": "org-scoped",
-	"DELETE /api/orgs/{org}/admin/plugins/{id}":       "org-scoped",
-	"POST /api/orgs/{org}/admin/plugins/themes":       "org-scoped",
-	"DELETE /api/orgs/{org}/admin/plugins/themes":     "org-scoped",
+	"GET /api/orgs/{org}/admin/plugins/":               "org-scoped",
+	"POST /api/orgs/{org}/admin/plugins/":              "org-scoped",
+	"POST /api/orgs/{org}/admin/plugins/preview":       "org-scoped",
+	"POST /api/orgs/{org}/admin/plugins/{id}/upgrade":  "org-scoped",
+	"POST /api/orgs/{org}/admin/plugins/{id}/rollback": "org-scoped",
+	"POST /api/orgs/{org}/admin/plugins/{id}/enabled":  "org-scoped",
+	"DELETE /api/orgs/{org}/admin/plugins/{id}":        "org-scoped",
+	"POST /api/orgs/{org}/admin/plugins/themes":        "org-scoped",
+	"DELETE /api/orgs/{org}/admin/plugins/themes":      "org-scoped",
 
 	"GET /api/orgs/{org}/admin/spaces":                    "org-scoped",
 	"PATCH /api/orgs/{org}/admin/spaces/{slug}":           "org-scoped",

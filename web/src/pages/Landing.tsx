@@ -20,7 +20,7 @@ import {
   type SessionSummary,
   type SpaceView,
 } from "../lib/api";
-import { cataloguePath, orgPath, pluginsPath, spaceApi, spacePath } from "../lib/paths";
+import { catalogPath, orgPath, pluginsPath, spaceApi, spacePath } from "../lib/paths";
 import { kindLabel } from "../lib/kinds";
 import { useMe, useAuthMode, NameGate, clearSessionMemory } from "../components/NameGate";
 import { isFullAccount } from "../lib/links";
@@ -905,10 +905,10 @@ export function Landing() {
                                 )}
                                 {org.role === "admin" && (
                                   <Link
-                                    to={cataloguePath}
+                                    to={catalogPath}
                                     className="py-1 text-ink-soft underline underline-offset-2 hover:text-ink"
                                   >
-                                    Catalogue
+                                    Catalog
                                   </Link>
                                 )}
                               </span>

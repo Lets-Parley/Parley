@@ -7,13 +7,15 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
+	"time"
 
 	"github.com/lets-parley/parley/internal/plugin"
 	"github.com/lets-parley/parley/internal/plugin/bundle"
 	"github.com/lets-parley/parley/internal/store"
 )
 
-// The instance plugin catalogue: signed bundles stored once for every org.
+// The instance plugin catalog: signed bundles stored once for every org.
 //
 // Uploading is an instance-wide act, so it belongs to the default org's
 // admins — the curators — and to nobody else, whatever they administer.
@@ -23,7 +25,7 @@ import (
 
 const (
 	bundleContentType = "application/vnd.parley.bundle"
-	bundleUploadPath  = "/api/catalogue/bundles"
+	bundleUploadPath  = "/api/catalog/bundles"
 )
 
 // isBundleUpload is the one request requireJSONBody lets through without a
@@ -55,7 +57,7 @@ func (a *app) requireInstanceCurator(next http.Handler) http.Handler {
 			return
 		}
 		if !curator {
-			http.Error(w, `{"error":"only an admin of the default org can manage the plugin catalogue"}`, http.StatusForbidden)
+			http.Error(w, `{"error":"only an admin of the default org can manage the plugin catalog"}`, http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), orgKey{}, org)))
@@ -82,80 +84,89 @@ func (a *app) curator(ctx context.Context, p Principal) (store.Org, bool, error)
 	return org, role == store.OrgRoleAdmin, nil
 }
 
-// catalogueVersion is one stored bundle as the catalogue shows it. Its digest
+// catalogVersion is one stored bundle as the catalog shows it. Its digest
 // and key id together name exactly one row, and are what an install names.
-type catalogueVersion struct {
+type catalogVersion struct {
 	Version  string                  `json:"version"`
 	Digest   string                  `json:"digest"`
 	KeyID    string                  `json:"key_id"`
 	Grants   []plugin.DescribedGrant `json:"grants"`
 	Settings json.RawMessage         `json:"settings,omitempty"`
+	// Provides is the display names of the session kinds it declares.
+	Provides    []string  `json:"provides"`
+	PublishedAt time.Time `json:"published_at"`
 }
 
-type cataloguePlugin struct {
-	Name     string             `json:"name"`
-	Versions []catalogueVersion `json:"versions"`
+type catalogPlugin struct {
+	Name     string           `json:"name"`
+	Versions []catalogVersion `json:"versions"`
 }
 
-type catalogueView struct {
-	CanUpload bool              `json:"can_upload"`
-	Plugins   []cataloguePlugin `json:"plugins"`
+type catalogView struct {
+	CanUpload bool            `json:"can_upload"`
+	Plugins   []catalogPlugin `json:"plugins"`
 }
 
 // project builds a version's view from its manifest alone. The capability
 // copy comes from describe.go, never from anything the bundle wrote.
-func project(version, digest, keyID string, manifest []byte) catalogueVersion {
+func project(version, digest, keyID string, manifest []byte, published time.Time) catalogVersion {
 	var m struct {
 		pluginPackage
 		Settings json.RawMessage `json:"settings"`
 	}
 	_ = json.Unmarshal(manifest, &m)
-	return catalogueVersion{
+	provides := []string{}
+	for _, k := range m.Kinds {
+		provides = append(provides, k.Display)
+	}
+	return catalogVersion{
 		Version: version, Digest: digest, KeyID: keyID,
 		Grants: plugin.DescribeAll(m.grants()), Settings: m.Settings,
+		Provides: provides, PublishedAt: published,
 	}
 }
 
-func (a *app) handleCatalogue(w http.ResponseWriter, r *http.Request) {
+func (a *app) handleCatalog(w http.ResponseWriter, r *http.Request) {
 	p, _ := PrincipalFrom(r.Context())
 	orgs, err := a.orgs.ForUser(r.Context(), p.UserID)
 	if err != nil {
-		http.Error(w, `{"error":"could not load the catalogue"}`, http.StatusInternalServerError)
+		http.Error(w, `{"error":"could not load the catalog"}`, http.StatusInternalServerError)
 		return
 	}
 	if len(orgs) == 0 {
-		http.Error(w, `{"error":"the catalogue is open to members of an org"}`, http.StatusForbidden)
+		http.Error(w, `{"error":"the catalog is open to members of an org"}`, http.StatusForbidden)
 		return
 	}
 	_, curator, err := a.curator(r.Context(), p)
 	if err != nil {
-		http.Error(w, `{"error":"could not load the catalogue"}`, http.StatusInternalServerError)
+		http.Error(w, `{"error":"could not load the catalog"}`, http.StatusInternalServerError)
 		return
 	}
-	view := catalogueView{CanUpload: curator, Plugins: []cataloguePlugin{}}
+	view := catalogView{CanUpload: curator, Plugins: []catalogPlugin{}}
 	rows, err := a.pool.Query(r.Context(), `
-		select name, version, digest, key_id, manifest from plugin_bundles
+		select name, version, digest, key_id, manifest, uploaded_at from plugin_bundles
 		order by name, uploaded_at desc, key_id desc`)
 	if err != nil {
-		http.Error(w, `{"error":"could not load the catalogue"}`, http.StatusInternalServerError)
+		http.Error(w, `{"error":"could not load the catalog"}`, http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var name, version, digest, keyID string
 		var manifest []byte
-		if err := rows.Scan(&name, &version, &digest, &keyID, &manifest); err != nil {
-			http.Error(w, `{"error":"could not load the catalogue"}`, http.StatusInternalServerError)
+		var published time.Time
+		if err := rows.Scan(&name, &version, &digest, &keyID, &manifest, &published); err != nil {
+			http.Error(w, `{"error":"could not load the catalog"}`, http.StatusInternalServerError)
 			return
 		}
 		if n := len(view.Plugins); n == 0 || view.Plugins[n-1].Name != name {
-			view.Plugins = append(view.Plugins, cataloguePlugin{Name: name})
+			view.Plugins = append(view.Plugins, catalogPlugin{Name: name})
 		}
 		last := &view.Plugins[len(view.Plugins)-1]
-		last.Versions = append(last.Versions, project(version, digest, keyID, manifest))
+		last.Versions = append(last.Versions, project(version, digest, keyID, manifest, published))
 	}
 	if rows.Err() != nil {
-		http.Error(w, `{"error":"could not load the catalogue"}`, http.StatusInternalServerError)
+		http.Error(w, `{"error":"could not load the catalog"}`, http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, view)
@@ -186,7 +197,7 @@ func (a *app) handleUploadBundle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.bundles == nil || a.bundles.Pool == nil {
-		http.Error(w, `{"error":"the plugin catalogue is not available on this instance"}`, http.StatusServiceUnavailable)
+		http.Error(w, `{"error":"the plugin catalog is not available on this instance"}`, http.StatusServiceUnavailable)
 		return
 	}
 	// limitAPIRequestBody passes this body through unread, so this is its
@@ -207,26 +218,26 @@ func (a *app) handleUploadBundle(w http.ResponseWriter, r *http.Request) {
 		// Audited: a refused signature is somebody trying to put code on
 		// every org's shelf that this instance does not trust. No bytes and
 		// no error text from the bundle are recorded.
-		a.auditPlugin(r, "plugin.catalogue.refused", "a bundle's signature did not verify against a trusted key")
+		a.auditPlugin(r, "plugin.catalog.refused", "a bundle's signature did not verify against a trusted key")
 		http.Error(w, `{"error":"the bundle is not signed by a key this instance trusts"}`, http.StatusUnprocessableEntity)
 		return
 	case isAny(err, packingRefusals), errors.Is(err, plugin.ErrBundleIdentity):
 		http.Error(w, `{"error":"the bundle is not a valid parley bundle"}`, http.StatusBadRequest)
 		return
 	default:
-		slog.Error("storing a catalogue bundle", "error", err)
+		slog.Error("storing a catalog bundle", "error", err)
 		http.Error(w, `{"error":"could not store the bundle"}`, http.StatusInternalServerError)
 		return
 	}
 	name, version, _ := manifestIdentity(b.Manifest)
-	out := cataloguePlugin{Name: name, Versions: []catalogueVersion{project(version, b.Digest, b.KeyID, b.Manifest)}}
+	out := catalogPlugin{Name: name, Versions: []catalogVersion{project(version, b.Digest, b.KeyID, b.Manifest, time.Now())}}
 	// The identical bundle again is not an error, but nothing was added:
 	// 200, and no audit row for a write that did not happen.
 	if !added {
 		writeJSON(w, http.StatusOK, out)
 		return
 	}
-	a.auditPlugin(r, "plugin.catalogue.upload", name+" "+version+" "+b.Digest+"/"+b.KeyID)
+	a.auditPlugin(r, "plugin.catalog.upload", name+" "+version+" "+b.Digest+"/"+b.KeyID)
 	writeJSON(w, http.StatusCreated, out)
 }
 
@@ -234,4 +245,16 @@ func manifestIdentity(manifest []byte) (string, string, error) {
 	var m struct{ Name, Version string }
 	err := json.Unmarshal(manifest, &m)
 	return m.Name, m.Version, err
+}
+
+// handleLoadedBundles names the bundles this pod has compiled, by digest and
+// key id, so a curator can confirm every replica runs the same bytes. It is
+// instance-wide and curator-only: which code runs where is not public.
+func (a *app) handleLoadedBundles(w http.ResponseWriter, _ *http.Request) {
+	loaded := []string{}
+	if a.pluginHost != nil {
+		loaded = a.pluginHost.LoadedBundles()
+	}
+	sort.Strings(loaded)
+	writeJSON(w, http.StatusOK, map[string]any{"loaded": loaded})
 }

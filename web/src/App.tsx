@@ -17,7 +17,7 @@ const SpaceSettingsPage = lazy(() =>
 const SessionPage = lazy(() => import("./pages/SessionPage").then((m) => ({ default: m.SessionPage })));
 const PresentPage = lazy(() => import("./pages/PresentPage").then((m) => ({ default: m.PresentPage })));
 const LinkPage = lazy(() => import("./pages/LinkPage").then((m) => ({ default: m.LinkPage })));
-const CataloguePage = lazy(() => import("./pages/CataloguePage").then((m) => ({ default: m.CataloguePage })));
+const CatalogPage = lazy(() => import("./pages/CatalogPage").then((m) => ({ default: m.CatalogPage })));
 const PluginsPage = lazy(() => import("./pages/PluginsPage").then((m) => ({ default: m.PluginsPage })));
 const MeetSidePanel = lazy(() => import("./pages/MeetAddon").then((m) => ({ default: m.MeetSidePanel })));
 const MeetMainStage = lazy(() => import("./pages/MeetAddon").then((m) => ({ default: m.MeetMainStage })));
@@ -51,7 +51,7 @@ export default function App() {
               <Route path="/o/:org/admin/plugins" element={<PluginsPage />} />
               {/* Instance-wide, so under no org: the server decides who may
                   browse it and who may upload. */}
-              <Route path="/catalogue" element={<CataloguePage />} />
+              <Route path="/catalog" element={<CatalogPage />} />
               <Route path="/o/:org/s/:slug" element={<SpacePage />} />
               <Route path="/o/:org/s/:slug/settings" element={<SpaceSettingsPage />} />
               <Route path="/session/:id" element={<SessionPage />} />

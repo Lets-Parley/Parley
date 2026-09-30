@@ -695,6 +695,10 @@ mutate "inerting a plugin frame under a modal" \
     'src/components/PluginPanel.test.tsx::marks the frame inert while a host modal is open' \
     components/PluginPanel.tsx 'el.toggleAttribute("inert", modalOpen);' 'el.toggleAttribute("inert", false);'
 
+mutate "a plugin move named by its direction" \
+    'src/pages/PluginsPage.test.tsx::labels a newer entry in the history as an upgrade, not a rollback' \
+    lib/plugins.ts 'return x[i] > y[i] ? "upgrade" : "rollback";' 'return x[i] > y[i] ? "rollback" : "upgrade";'
+
 # session:read "cannot read a planning poker or standup room, or any other
 # plugin's rooms" (internal/plugin/describe.go). A frame is built a view only of
 # a room whose ceremony its own install provides; loosening that one comparison
@@ -773,14 +777,14 @@ mutate "the handshake timeout" \
 # holder could already enter, never a new key.
 target internal/api
 
-mutate "the catalogue curator role check" \
+mutate "the catalog curator role check" \
     'TestOnlyADefaultOrgAdminCanUploadABundle' \
-    catalogue.go 'return org, role == store.OrgRoleAdmin, nil' 'return org, role != "", nil'
+    catalog.go 'return org, role == store.OrgRoleAdmin, nil' 'return org, role != "", nil'
 
 # The upload exemption from requireJSONBody is an exact path and an exact type.
 mutate "the bundle upload exemption's exact type" \
     'TestTheBundleTypeIsExemptOnlyOnTheUploadRoute' \
-    catalogue.go 'r.Header.Get("Content-Type") == bundleContentType' 'true'
+    catalog.go 'r.Header.Get("Content-Type") == bundleContentType' 'true'
 
 # The pre-auth middleware must not buffer the upload past the JSON cap.
 mutate "the bundle upload skipping pre-auth buffering" \
@@ -789,12 +793,12 @@ mutate "the bundle upload skipping pre-auth buffering" \
 
 mutate "the bundle upload exemption's exact path" \
     'TestTheBundleTypeIsExemptOnlyOnTheUploadRoute' \
-    catalogue.go 'r.URL.Path == bundleUploadPath &&' 'r.URL.Path != "" &&'
+    catalog.go 'r.URL.Path == bundleUploadPath &&' 'r.URL.Path != "" &&'
 
 # The raw body's only cap is in the handler, behind the curator gate.
 mutate "the bundle upload body cap" \
     'TestTheBundleTypeIsExemptOnlyOnTheUploadRoute' \
-    catalogue.go 'http.MaxBytesReader(w, r.Body, bundle.MaxUpload)' 'http.MaxBytesReader(w, r.Body, bundle.MaxUpload<<6)'
+    catalog.go 'http.MaxBytesReader(w, r.Body, bundle.MaxUpload)' 'http.MaxBytesReader(w, r.Body, bundle.MaxUpload<<6)'
 
 
 mutate "the embed switch answering 404 when no provider is enabled" \
@@ -850,6 +854,26 @@ mutate "the add-on documents 404 while their provider is off" \
 mutate "sign out never falling back to the cookie beside a bearer" \
     'TestEmbedSignOutNeverFallsBackToTheCookie' \
     me.go 'err == nil && !a.bearerPresented(r) {' 'err == nil {'
+
+mutate "a rollback only onto the same plugin" \
+    'TestRollbackMovesToAnyTrustedVersionOfTheSamePlugin' \
+    plugins.go '	if pkg.Name != state.Install.Name {' '	if false {'
+
+mutate "no loose frame UI for a pinned plugin name" \
+    'TestAPinnedInstallGetsNoLooseUI' \
+    pluginframe.go '	if pinned {' '	if false {'
+
+mutate "no loose panel UI for a pinned install" \
+    'TestAPinnedInstallGetsNoLooseUI' \
+    pluginpanels.go 'if p.pinned || a.bundles.Dir' 'if a.bundles.Dir'
+
+mutate "the curator gate on the loaded-bundle list" \
+    'TestLoadedBundlesAreForCuratorsOnly' \
+    router.go 'r.With(a.requireInstanceCurator).Get("/catalog/loaded"' 'r.Get("/catalog/loaded"'
+
+mutate "an older version through install refused as a downgrade" \
+    'TestRollbackMovesToAnyTrustedVersionOfTheSamePlugin' \
+    plugins.go '	if versionLess(pkg.Version, current.Install.Version) {' '	if false && versionLess(pkg.Version, current.Install.Version) {'
 
 target internal/store
 
@@ -951,6 +975,52 @@ mutate "an unknown name never cached" \
 mutate "Runtime.Close waiting for its workers" \
     'TestCloseWaitsForTheWorkers' \
     runtime.go '	r.wg.Wait()' ''
+
+mutate "a pinned install loading by its digest, not its name and version" \
+    'TestAPinnedInstallRunsExactlyTheBytesItWasPinnedTo' \
+    host.go '	pin := state.Install.Bundle' '	pin := (*BundleRef)(nil)'
+
+mutate "Enable compiling before it switches an install on" \
+    'TestEnableLeavesAnInstallOffWhenItsBundleWillNotLoad' \
+    host.go '	if _, err := h.module(ctx, installID); err != nil {
+		h.evict(ctx, installID)
+		return err
+	}
+' ''
+
+mutate "recording every pin in the install's history" \
+    'TestApprovingAnUpgradeAppliesAndRecordsItsPin' \
+    pin.go '	if ref == nil {' '	if ref == nil || true {'
+
+mutate "the boot pin matching only trusted bundles" \
+    'TestPinInstallsSkipsAnUntrustedBundle' \
+    pin.go 'where b.key_id = any($1) and (' 'where (b.key_id = any($1) or true) and ('
+
+mutate "approving an upgrade applying its staged pin" \
+    'TestApprovingAnUpgradeAppliesAndRecordsItsPin' \
+    grants.go 'installID, *version, digest, keyID); err != nil {' 'installID, *version, (*string)(nil), (*string)(nil)); err != nil {'
+
+mutate "an upgrade with no bundle keeping the pin" \
+    'TestAnUnpinnedUpgradeNeverClearsAPinAndAStalePinIsNotAuthoritative' \
+    grants.go '				 bundle_digest = coalesce($3, bundle_digest), bundle_key_id = coalesce($4, bundle_key_id),' '				 bundle_digest = $3, bundle_key_id = $4,'
+
+mutate "approving an upgrade with no staged bundle keeping the pin" \
+    'TestApprovingAnUnpinnedUpgradeKeepsThePin' \
+    grants.go 'null,
+			 bundle_digest = coalesce($3, bundle_digest), bundle_key_id = coalesce($4, bundle_key_id),' 'null,
+			 bundle_digest = $3, bundle_key_id = $4,'
+
+mutate "a pin authoritative only for its own version" \
+    'TestAnUnpinnedUpgradeNeverClearsAPinAndAStalePinIsNotAuthoritative' \
+    grants.go '			and b.version = i.version' '			and true'
+
+mutate "a pinned install never running a loose file" \
+    'TestAStalePinNeverRunsALooseFile' \
+    host.go '	if pin == nil && state.Install.PinnedTo != nil {' '	if false && state.Install.PinnedTo != nil {'
+
+mutate "a re-pin only over the pin it read" \
+    'TestRepinNeverOverwritesAPinThatMovedMeanwhile' \
+    pin.go 'and bundle_digest is not distinct from $5 and bundle_key_id is not distinct from $6' 'and ($5::text is null or true) and ($6::text is null or true)'
 
 # cmd/parley builds against internal/plugin: put its last mutation back first.
 restore_all

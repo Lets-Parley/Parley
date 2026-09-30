@@ -1,10 +1,10 @@
-import { useId, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useEffect, useId, useRef, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, errorText } from "../lib/api";
-import type { DescribedGrant, InstalledPlugin, PluginPreview, PluginRegistry } from "../lib/plugins";
-import { normalizePluginPreview, normalizePluginRegistry } from "../lib/plugins";
-import { pluginsApi } from "../lib/paths";
+import type { BundleRef, Catalog, DescribedGrant, InstalledPlugin, PluginPreview, PluginRegistry } from "../lib/plugins";
+import { direction, normalizePluginPreview, normalizePluginRegistry } from "../lib/plugins";
+import { catalogApi, catalogPath, pluginsApi } from "../lib/paths";
 import {
   buttonDanger,
   buttonPrimary,
@@ -87,8 +87,8 @@ export function PluginsPage() {
             input and an "install" button above a one-line refusal reads as
             actionable when it cannot do anything, so a viewer the server has
             already refused does not see controls that only exist to fail. */}
-        {!(registry.error instanceof ApiError && registry.error.status === 403) && (
-          <InstallPanel org={org} onDone={refresh} onSay={say} />
+        {!registry.isLoading && !(registry.error instanceof ApiError && registry.error.status === 403) && (
+          <InstallPanel org={org} installs={registry.data?.installs ?? []} onDone={refresh} onSay={say} />
         )}
 
         {registry.isLoading && <p className="mt-6 text-sm text-ink-faint">Reading the register…</p>}
@@ -316,81 +316,126 @@ export function GrantList({ grants, tone }: { grants: DescribedGrant[]; tone?: "
 
 function InstallPanel({
   org,
+  installs,
   onDone,
   onSay,
 }: {
   org: string;
+  installs: InstalledPlugin[];
   onDone: () => void;
   onSay: (m: string) => void;
 }) {
-  const fileId = useId();
   const ackId = useId();
+  const headId = useId();
   const base = pluginsApi(org);
-  const [pkg, setPkg] = useState<unknown>(null);
+  const [params] = useSearchParams();
+  const [chosen, setChosen] = useState<BundleRef | null>(null);
+  const catalog = useQuery({
+    queryKey: ["catalog"],
+    queryFn: () => api<Catalog>("GET", catalogApi),
+  });
   const [preview, setPreview] = useState<PluginPreview | null>(null);
   const [ack, setAck] = useState(false);
   const [problem, setProblem] = useState("");
+  const running = new Set(installs.map((i) => (i.bundle ? `${i.bundle.digest}/${i.bundle.key_id}` : "")));
 
+  const current = installs.find((i) => i.name === preview?.name);
+  const move0 = preview ? direction(preview.version, current?.version) : "install";
+  // The same version from another bundle, or onto a pin for an unpinned
+  // install, is a re-pin: the rollback route moves to any trusted bundle.
+  const move =
+    move0 === "same" &&
+    current &&
+    chosen &&
+    (current.bundle?.digest !== chosen.digest || current.bundle?.key_id !== chosen.key_id)
+      ? "repin"
+      : move0;
   const install = useMutation({
-    mutationFn: () => api("POST", base, { package: pkg, grantsAccepted: true }),
-    onSuccess: () => {
-      setPkg(null);
+    // Going back is a rollback on the server too, never an install.
+    mutationFn: () =>
+      (move === "rollback" || move === "repin") && current
+        ? api<InstalledPlugin>("POST", `${base}/${current.id}/rollback`, chosen)
+        : api<InstalledPlugin>("POST", base, { ...chosen, grantsAccepted: true }),
+    onSuccess: (view) => {
+      setChosen(null);
       setPreview(null);
       setAck(false);
-      onSay(preview?.upgrade ? "Upgrade recorded." : "Installed.");
+      onSay(
+        outcome(
+          view,
+          move === "rollback" ? "Rolled back." : move === "repin" ? "Re-pinned." : move === "upgrade" ? "Upgraded." : "Installed.",
+        ),
+      );
       onDone();
     },
     onError: (e) => setProblem(errorText(e)),
   });
 
-  async function readFile(file: File) {
+  // Only the latest choice's preview may land; an older one arriving late
+  // would describe a bundle other than the one about to be installed.
+  const latest = useRef(0);
+  async function pick(ref: BundleRef) {
+    // A second press on the chosen version puts it down again.
+    if (chosen?.digest === ref.digest && chosen?.key_id === ref.key_id) {
+      latest.current++;
+      setChosen(null);
+      setPreview(null);
+      setAck(false);
+      setProblem("");
+      return;
+    }
     setProblem("");
     setPreview(null);
     setAck(false);
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(await file.text());
-    } catch {
-      setProblem("that file is not JSON");
-      return;
-    }
-    setPkg(parsed);
+    setChosen(ref);
+    const mine = ++latest.current;
     try {
       // The server describes what it will permit. Asking it, rather than
       // reading the manifest here, is what stops this screen and the guard
       // drifting apart.
-      setPreview(normalizePluginPreview(await api<PluginPreview>("POST", `${base}/preview`, parsed)));
+      const got = normalizePluginPreview(await api<PluginPreview>("POST", `${base}/preview`, ref));
+      if (mine === latest.current) setPreview(got);
     } catch (e) {
-      setProblem(errorText(e));
+      if (mine === latest.current) setProblem(errorText(e));
     }
   }
 
-  return (
-    <div className="mt-5 rounded-card border border-line bg-surface p-5">
-      <label htmlFor={fileId} className={"block " + labelText}>
-        Plugin package file (.json)
-      </label>
-      <input
-        id={fileId}
-        type="file"
-        accept="application/json,.json"
-        className="mt-2 block text-sm text-ink-soft"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) void readFile(f);
-        }}
-      />
-      {problem && (
-        <p role="alert" className="mt-3 text-[13px] font-bold text-stop">
+  // A link from the catalog names one version: choose it once it loads.
+  const wanted = params.get("install");
+  const preselected = useRef(false);
+  useEffect(() => {
+    if (preselected.current || !wanted || !catalog.data) return;
+    const hit = catalog.data.plugins.flatMap((p) => p.versions).find((v) => `${v.digest}/${v.key_id}` === wanted);
+    if (hit) {
+      preselected.current = true;
+      void pick({ digest: hit.digest, key_id: hit.key_id });
+    }
+  });
+
+  const plugins = catalog.data?.plugins ?? [];
+  const isChosen = (v: BundleRef) => chosen?.digest === v.digest && chosen?.key_id === v.key_id;
+
+  // The consent opens under the plugin that was chosen, not after the list.
+  const consentRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!preview) return;
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    consentRef.current?.scrollIntoView?.({ block: "nearest", behavior: still ? "auto" : "smooth" });
+  }, [preview]);
+  const consent = (
+      <div ref={consentRef} data-consent className="mt-4 border-t border-line">
+      {problem && !preview && (
+        <p role="alert" className="py-4 text-[13px] font-bold text-stop">
           {problem}
         </p>
       )}
 
       {preview && (
-        <div className="mt-4">
+        <div className="py-5">
           <h3 className="font-display text-lg">
             {preview.name} {preview.version}
-            {preview.upgrade && " — an upgrade"}
+            {move === "upgrade" && " — an upgrade"}
+            {move === "rollback" && " — a rollback"}
           </h3>
           {preview.kinds.length > 0 && (
             <p className="mt-2 text-sm text-ink-soft">
@@ -431,32 +476,122 @@ function InstallPanel({
             </>
           )}
 
-          <label htmlFor={ackId} className="mt-4 flex items-start gap-2 text-[13px] text-pretty">
-            <input
-              id={ackId}
-              type="checkbox"
-              checked={ack}
-              onChange={(e) => setAck(e.target.checked)}
-            />
-            <span>
-              I have read what this plugin will be able to do, and I grant it.
-            </span>
-          </label>
-          <button
-            type="button"
-            className={buttonPrimary + " mt-3"}
-            disabled={!ack || install.isPending}
-            onClick={() => install.mutate()}
-          >
-            {preview.upgrade ? "Submit this upgrade" : "Grant and install"}
-          </button>
+          {move === "same" ? (
+            <p className="mt-4 text-sm font-bold text-ink-soft">This version is already running.</p>
+          ) : (
+            <>
+              <label htmlFor={ackId} className="mt-4 flex items-start gap-2 text-[13px] text-pretty">
+                <input id={ackId} type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
+                <span>I have read what this plugin will be able to do, and I grant it.</span>
+              </label>
+              <button
+                type="button"
+                className={buttonPrimary + " mt-3"}
+                disabled={!ack || install.isPending}
+                onClick={() => install.mutate()}
+              >
+                {move === "repin"
+                  ? "Re-pin to this bundle"
+                  : `${move === "upgrade" ? "Upgrade to" : move === "rollback" ? "Roll back to" : "Install"} ${preview.name} ${preview.version}`}
+              </button>
+            </>
+          )}
+          {problem && (
+            <p role="alert" className="mt-3 text-[13px] font-bold text-stop text-pretty">
+              {problem}
+            </p>
+          )}
         </div>
       )}
-    </div>
+      </div>
+  );
+  const announce = preview ? `Showing what ${preview.name} ${preview.version} may do, below.` : "";
+  const chosenName = plugins.find((p) => p.versions.some((v) => isChosen(v)))?.name;
+
+  return (
+    <section aria-labelledby={headId} className="mt-5 rounded-panel border border-line bg-surface shadow-rest">
+      <p role="status" aria-live="polite" className="sr-only">
+        {announce}
+      </p>
+      <h3 id={headId} className="border-b border-line px-4 py-3 font-display text-lg">
+        Install from the catalog
+      </h3>
+      {catalog.isLoading && <p className="px-4 py-4 text-sm text-ink-faint">Reading the catalog…</p>}
+      {catalog.error && (
+        <p role="alert" className="px-4 py-4 text-[13px] font-bold text-stop">
+          {errorText(catalog.error)}
+        </p>
+      )}
+      {catalog.data && plugins.length === 0 && (
+        <p className="px-4 py-4 text-sm text-ink-soft text-pretty">
+          The catalog is empty; a default-org admin can add bundles at{" "}
+          <Link to={catalogPath} className="font-bold text-accent underline underline-offset-2">
+            the plugin catalog
+          </Link>
+          .
+        </p>
+      )}
+      {plugins.length > 0 && (
+        <div className="divide-y divide-line">
+          {plugins.map((p) => (
+            <div key={p.name} role="group" aria-label={p.name} className="px-4 py-4">
+              <p className="mb-2 font-bold break-words">{p.name}</p>
+              <div data-versions className="flex flex-wrap gap-2">
+                {p.versions.map((v) => {
+                  const key = `${v.digest}/${v.key_id}`;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      aria-pressed={isChosen(v)}
+                      aria-label={`${p.name} ${v.version}${running.has(key) ? ", running" : ""}, ${v.key_id ? `signed by key ${v.key_id.slice(0, 8)}` : "unsigned"}`}
+                      onClick={() => void pick({ digest: v.digest, key_id: v.key_id })}
+                      className={
+                        "flex min-w-0 flex-col items-start gap-0.5 rounded-card border px-3 py-2 text-left " +
+                        "transition-[background-color,border-color,box-shadow] duration-[var(--dur-lift)] ease-[var(--ease-settle)] motion-reduce:transition-none " +
+                        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent " +
+                        (isChosen(v)
+                          ? "border-accent bg-accent-soft shadow-rest"
+                          : "border-line bg-surface hover:border-ink-faint hover:bg-surface-hi")
+                      }
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="font-bold tabular-nums">{v.version}</span>
+                        {running.has(key) && (
+                          <span className="rounded-chip bg-go/15 px-1.5 text-[11px] font-bold text-go">Running</span>
+                        )}
+                      </span>
+                      <span className="text-[11px] text-ink-soft">
+                        {v.key_id ? `Signed · key ${v.key_id.slice(0, 8)}` : "Unsigned"}
+                      </span>
+                      <span className="font-mono text-[11px] text-ink-faint" title={v.digest}>
+                        {v.digest.slice(0, 12)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              {chosenName === p.name && (problem || preview) && consent}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
+/**
+ * What to say after a move: a 202 comes back with the upgrade pending, and
+ * then it has not happened yet — it is waiting on what it would gain.
+ */
+function outcome(view: InstalledPlugin | undefined, done: string): string {
+  const added = view?.pending?.added ?? [];
+  if (!view?.pending) return done;
+  return `Waiting for approval: ${added.map((g) => (g.scope ? `${g.capability} ${g.scope}` : g.capability)).join(", ") || "the new version"}`;
+}
+
 /* ------------------------------------------------------------- installed -- */
+
 
 function InstalledCard({
   install,
@@ -488,6 +623,25 @@ function InstalledCard({
     },
     onError: (e) => onSay(errorText(e)),
   });
+  const rollback = useMutation({
+    mutationFn: (to: BundleRef) =>
+      api<InstalledPlugin>("POST", `${base}/${install.id}/rollback`, { digest: to.digest, key_id: to.key_id }),
+    onSuccess: (view) => {
+      setRollingBack("");
+      onSay(outcome(view, "Done."));
+      onDone();
+    },
+    onError: (e) => {
+      setRollingBack("");
+      onSay(errorText(e));
+    },
+  });
+  const [rollingBack, setRollingBack] = useState("");
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (rollingBack) confirmRef.current?.focus();
+  }, [rollingBack]);
+  const rollbackTo = (install.history ?? []).filter((h) => h.digest !== install.bundle?.digest);
   const uninstall = useMutation({
     mutationFn: () => api("DELETE", `${base}/${install.id}`),
     onSuccess: () => {
@@ -518,6 +672,59 @@ function InstalledCard({
               Provides: {install.provides.join(", ")}
             </p>
           )}
+          <p className="mt-1 font-mono text-[11px] text-ink-faint">
+            {install.bundle
+              ? `Bundle ${install.bundle.digest.slice(0, 12)}`
+              : "Not in catalog — still runs from PLUGIN_DIR"}
+          </p>
+          {/* Two steps, like uninstall: the first click only asks. */}
+          {rollbackTo.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {rollbackTo.map((h) =>
+                rollingBack === h.digest ? (
+                  <span
+                    key={`${h.digest}/${h.key_id}`}
+                    className="flex gap-2"
+                    onKeyDown={(e) => e.key === "Escape" && setRollingBack("")}
+                    onBlur={(e) => {
+                      // Only focus landing elsewhere disarms: a click that
+                      // does not focus (Safari) blurs with no related target.
+                      const to = e.relatedTarget as Node | null;
+                      if (to && !e.currentTarget.contains(to)) setRollingBack("");
+                    }}
+                  >
+                    <button
+                      ref={confirmRef}
+                      type="button"
+                      className={buttonDanger}
+                      disabled={rollback.isPending}
+                      onClick={() => rollback.mutate(h)}
+                    >
+                      {direction(h.version, install.version) === "upgrade" ? "Confirm upgrade to" : "Confirm rollback to"} {h.version}
+                    </button>
+                    <button type="button" className={buttonQuiet} onClick={() => setRollingBack("")}>
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    key={`${h.digest}/${h.key_id}`}
+                    type="button"
+                    className={buttonQuiet}
+                    disabled={rollback.isPending}
+                    onClick={() => setRollingBack(h.digest)}
+                  >
+                    {direction(h.version, install.version) === "upgrade" ? "Upgrade to" : "Roll back to"} {h.version}
+                  </button>
+                ),
+              )}
+            </div>
+          )}
+          <p role="status" className="sr-only">
+            {rollingBack
+              ? `Confirm moving ${install.name} from ${install.version} to ${rollbackTo.find((h) => h.digest === rollingBack)?.version}, or cancel.`
+              : ""}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
