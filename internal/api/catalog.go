@@ -110,10 +110,7 @@ type catalogView struct {
 // project builds a version's view from its manifest alone. The capability
 // copy comes from describe.go, never from anything the bundle wrote.
 func project(version, digest, keyID string, manifest []byte, published time.Time) catalogVersion {
-	var m struct {
-		pluginPackage
-		Settings json.RawMessage `json:"settings"`
-	}
+	var m pluginPackage
 	_ = json.Unmarshal(manifest, &m)
 	provides := []string{}
 	for _, k := range m.Kinds {
@@ -220,6 +217,9 @@ func (a *app) handleUploadBundle(w http.ResponseWriter, r *http.Request) {
 		// no error text from the bundle are recorded.
 		a.auditPlugin(r, "plugin.catalog.refused", "a bundle's signature did not verify against a trusted key")
 		http.Error(w, `{"error":"the bundle is not signed by a key this instance trusts"}`, http.StatusUnprocessableEntity)
+		return
+	case errors.Is(err, plugin.ErrBadSettingsSchema):
+		http.Error(w, `{"error":`+jsonString(err.Error())+`}`, http.StatusBadRequest)
 		return
 	case isAny(err, packingRefusals), errors.Is(err, plugin.ErrBundleIdentity):
 		http.Error(w, `{"error":"the bundle is not a valid parley bundle"}`, http.StatusBadRequest)

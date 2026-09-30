@@ -151,3 +151,28 @@ export function direction(target: string, running?: string): "install" | "upgrad
   for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i] ? "upgrade" : "rollback";
   return "same";
 }
+
+/** One setting a manifest declares: the flat JSON Schema subset the server accepts. */
+export type SettingField = {
+  type: "string" | "number" | "integer" | "boolean";
+  title?: string;
+  description?: string;
+  default?: string | number | boolean;
+  enum?: (string | number | boolean)[];
+  pattern?: string;
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  format?: "secret";
+};
+
+/**
+ * GET …/plugins/{id}/settings. A secret is never sent back: only whether it
+ * is set, and whether a configured key can open it.
+ */
+export type PluginSettings = {
+  schema: { properties?: Record<string, SettingField>; required?: string[] } | null;
+  values: Record<string, string | number | boolean>;
+  secrets: Record<string, { set: boolean; undecryptable: boolean }>;
+};

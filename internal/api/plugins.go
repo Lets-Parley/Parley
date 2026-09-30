@@ -50,6 +50,9 @@ type pluginPackage struct {
 	QuotaBytes   int64            `json:"quotaBytes"`
 	Kinds        []plugin.KindDef `json:"kinds"`
 	Slots        []string         `json:"slots"`
+	// Settings is the admin-set configuration the plugin declares, a flat
+	// JSON Schema subset; see plugin.ParseSettingsSchema.
+	Settings json.RawMessage `json:"settings"`
 }
 
 type pluginCapReq struct {
@@ -154,6 +157,8 @@ func (a *app) mountPlugins(r chi.Router) {
 	r.Post("/{id}/upgrade", a.handleApproveUpgrade)
 	r.Post("/{id}/enabled", a.handleSetPluginEnabled)
 	r.Post("/{id}/rollback", a.handleRollbackPlugin)
+	r.Get("/{id}/settings", a.handleGetPluginSettings)
+	r.Put("/{id}/settings", a.handlePutPluginSettings)
 	r.Delete("/{id}", a.handleUninstallPlugin)
 	// The theme tier executes nothing and lives in the operator's own browser,
 	// so there is no server-side record of it to change — but "every install
@@ -366,6 +371,9 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"that is an older version; roll back to a version this plugin ran instead"}`, http.StatusConflict)
 		return
 	}
+	if !a.settingsFit(w, r, adm, current.Install.ID, pkg) {
+		return
+	}
 	err = adm.UpgradeTo(r.Context(), current.Install.ID, pkg.Version, grants, pkg.Kinds, pin)
 	switch {
 	case errors.Is(err, plugin.ErrUpgradePending):
@@ -429,6 +437,14 @@ func (a *app) handleApproveUpgrade(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"there is no upgrade waiting on this plugin"}`, http.StatusNotFound)
 		return
 	}
+	// Settings saved while the upgrade waited are checked against the schema
+	// it brings, the same as at the request.
+	if pending.Bundle != nil {
+		pkg, _, ok := a.choose(w, r, pluginChoice{Digest: pending.Bundle.Digest, KeyID: pending.Bundle.KeyID})
+		if !ok || !a.settingsFit(w, r, adm, id, pkg) {
+			return
+		}
+	}
 	if err := adm.ApproveUpgrade(r.Context(), id); err != nil {
 		a.pluginError(w, err, "could not approve that upgrade")
 		return
@@ -472,6 +488,9 @@ func (a *app) handleRollbackPlugin(w http.ResponseWriter, r *http.Request) {
 	}
 	if pkg.Name != state.Install.Name {
 		http.Error(w, `{"error":"that bundle is a different plugin"}`, http.StatusConflict)
+		return
+	}
+	if !a.settingsFit(w, r, adm, id, pkg) {
 		return
 	}
 	from := "loose files"
@@ -678,7 +697,7 @@ func versionLess(a, b string) bool {
 // will not accept, a kind name already taken — as a 400 the operator can act
 // on, rather than flattening it into "something went wrong".
 func (a *app) pluginError(w http.ResponseWriter, err error, fallback string) {
-	if errors.Is(err, plugin.ErrNoSecretKey) || errors.Is(err, plugin.ErrAllowPattern) || errors.Is(err, plugin.ErrBadKindDef) || errors.Is(err, plugin.ErrKindTaken) {
+	if errors.Is(err, plugin.ErrNoSecretKey) || errors.Is(err, plugin.ErrAllowPattern) || errors.Is(err, plugin.ErrBadKindDef) || errors.Is(err, plugin.ErrKindTaken) || errors.Is(err, plugin.ErrBadSettingsSchema) {
 		http.Error(w, `{"error":`+jsonString(err.Error())+`}`, http.StatusBadRequest)
 		return
 	}
@@ -740,6 +759,9 @@ func (p pluginPackage) quota() int64 {
 	return defaultQuota
 }
 
+// grants is what the package asks for: its declared capabilities, plus the
+// implicit secrets:<field> grant for every secret setting, so a secret added
+// by an upgrade is a widening that waits for approval like any other.
 func (p pluginPackage) grants() []plugin.Grant {
 	out := make([]plugin.Grant, 0, len(p.Capabilities))
 	for _, c := range p.Capabilities {
@@ -747,6 +769,12 @@ func (p pluginPackage) grants() []plugin.Grant {
 			Capability: strings.TrimSpace(c.Capability),
 			Scope:      strings.TrimSpace(c.Scope),
 		})
+	}
+	schema, _ := plugin.ParseSettingsSchema(p.Settings) // validate has refused a bad one
+	for _, g := range schema.SecretGrants() {
+		if !slices.Contains(out, g) {
+			out = append(out, g)
+		}
 	}
 	return sortGrants(out)
 }
@@ -768,6 +796,9 @@ func (p pluginPackage) validate() (string, bool) {
 		return "the version must be major.minor.patch", false
 	case len(p.Capabilities) > 64:
 		return "a plugin may not request more than 64 capabilities", false
+	}
+	if _, err := plugin.ParseSettingsSchema(p.Settings); err != nil {
+		return err.Error(), false
 	}
 	for _, s := range p.Slots {
 		if !allowedUISlots[s] {

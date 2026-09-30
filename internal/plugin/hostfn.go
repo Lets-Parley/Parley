@@ -169,6 +169,7 @@ func (h *Host) hostFunctions(installID string) []extism.HostFunction {
 		fn("parley_kv_set", h.kvSet),
 		fn("parley_fetch", h.fetch),
 		fn("parley_secret_get", h.secretGet),
+		fn("parley_settings_get", h.settingsGet),
 		fn("parley_log", h.logMessage),
 		fn("parley_emit", h.emit),
 		fn("parley_session_get", h.sessionGet),
@@ -298,6 +299,18 @@ func (h *Host) secretGet(ctx context.Context, st State, _ *callInfo, raw json.Ra
 		return nil, err
 	}
 	return map[string]any{"value": value}, nil
+}
+
+// settingsGet hands a plugin its admin-set, non-secret settings with defaults
+// applied. There is no capability: this is the plugin's own configuration. The
+// wrapper has already refused a disabled install, and the values are read
+// fresh on every call.
+func (h *Host) settingsGet(ctx context.Context, st State, _ *callInfo, _ json.RawMessage) (any, error) {
+	schema, values, err := h.Store.Settings(ctx, st.Install.ID)
+	if err != nil {
+		return nil, err
+	}
+	return schema.Public(values), nil
 }
 
 func (h *Host) logMessage(_ context.Context, st State, _ *callInfo, raw json.RawMessage) (any, error) {
