@@ -68,6 +68,8 @@ func TestASettingsSchemaOutsideTheSubsetIsRefused(t *testing.T) {
 		"min above max length": `{"type":"object","properties":{"a":{"type":"string","minLength":3,"maxLength":2}}}`,
 		"negative length":      `{"type":"object","properties":{"a":{"type":"string","minLength":-1}}}`,
 		"not json":             `{`,
+		"long pattern":         `{"type":"object","properties":{"a":{"type":"string","pattern":"` + strings.Repeat("a", 257) + `"}}}`,
+		"large enum":           `{"type":"object","properties":{"a":{"type":"integer","enum":[` + strings.TrimSuffix(strings.Repeat("1,", 65), ",") + `]}}}`,
 	} {
 		if _, err := ParseSettingsSchema(json.RawMessage(raw)); !errors.Is(err, ErrBadSettingsSchema) {
 			t.Errorf("%s: got %v, want ErrBadSettingsSchema", name, err)
@@ -181,6 +183,12 @@ func TestSettingsGetReadsFreshNonSecretValues(t *testing.T) {
 	}
 	if got := get(); got["mode"] != "fast" || got["token"] != nil {
 		t.Fatalf("after a write = %v, want mode fast and no token", got)
+	}
+	// The bundle is immutable, so its parsed schema is parsed once.
+	first, _, _ := store.Settings(ctx, in.ID)
+	second, _, _ := store.Settings(ctx, in.ID)
+	if first == nil || first != second {
+		t.Fatal("the schema of an immutable bundle was parsed again on a second read")
 	}
 }
 

@@ -807,6 +807,10 @@ describe("plugin settings", () => {
         health: { state: "healthy", reason: "" },
       },
     ];
+    settingsReply = (method) => (method === "GET" ? settings : settings);
+  });
+
+  const refuse = () => {
     settingsReply = (method) => {
       if (method === "GET") return settings;
       throw new ApiError(400, "some settings are not valid: channel, mode", undefined, {
@@ -814,7 +818,7 @@ describe("plugin settings", () => {
         mode: "must be one of the listed choices",
       });
     };
-  });
+  };
 
   async function open() {
     render();
@@ -851,7 +855,27 @@ describe("plugin settings", () => {
     expect((put![2] as Record<string, unknown>).token).toBeNull();
   });
 
+  it("reads nothing until the panel is opened", async () => {
+    render();
+    await screen.findByText("Settings");
+    expect(calls.some(([, p]) => p.endsWith("/settings"))).toBe(false);
+  });
+
+  it("saves, says so as a status, and reads the settings back", async () => {
+    const user = await open();
+    await user.type(screen.getByLabelText("Size"), "3");
+    await user.click(screen.getByLabelText("Loud"));
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
+    const put = calls.find(([m, p]) => m === "PUT" && p.endsWith("/p1/settings"));
+    expect(put?.[2]).toEqual({ channel: "#dev", mode: "slow", size: 3, loud: false });
+    await screen.findByText("Settings saved.");
+    expect(screen.getAllByRole("status").some((el) => el.textContent?.includes("Settings saved."))).toBe(true);
+    const gets = calls.filter(([m, p]) => m === "GET" && p.endsWith("/p1/settings"));
+    expect(gets.length).toBe(2);
+  });
+
   it("shows the server's refusal beside each field it names", async () => {
+    refuse();
     const user = await open();
     await user.click(screen.getByRole("button", { name: "Save settings" }));
     const alerts = await screen.findAllByRole("alert");
@@ -859,9 +883,16 @@ describe("plugin settings", () => {
     expect(text).toContain("does not match the required format");
     expect(text).toContain("must be one of the listed choices");
     expect(screen.getByLabelText("Channel").getAttribute("aria-invalid")).toBe("true");
+    // The summary is the polite status, not another alert.
+    expect(text).not.toContain("some settings are not valid");
+
+    await user.type(screen.getByLabelText("Channel"), "x");
+    expect(screen.getByLabelText("Channel").getAttribute("aria-invalid")).toBeNull();
+    expect(screen.queryByText(/does not match the required format/)).toBeNull();
   });
 
   it("has no accessibility violations", async () => {
+    refuse();
     const user = await open();
     await user.click(screen.getByRole("button", { name: "Save settings" }));
     await screen.findAllByRole("alert");

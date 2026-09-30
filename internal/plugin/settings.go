@@ -9,6 +9,7 @@ import (
 	"math"
 	"regexp"
 	"sort"
+	"sync"
 	"unicode/utf8"
 )
 
@@ -25,7 +26,11 @@ import (
 // ErrBadSettingsSchema is a manifest settings schema outside the subset.
 var ErrBadSettingsSchema = errors.New("the settings schema is not one Parley accepts")
 
-const maxSettings = 32
+const (
+	maxSettings      = 32
+	maxPatternLength = 256
+	maxEnumValues    = 64
+)
 
 var settingName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,39}$`)
 
@@ -128,6 +133,10 @@ func (f *SettingField) check() error {
 		return fmt.Errorf("minimum is above maximum")
 	case f.Enum != nil && len(f.Enum) == 0:
 		return fmt.Errorf("enum is empty")
+	case len(f.Enum) > maxEnumValues:
+		return fmt.Errorf("an enum has at most %d values", maxEnumValues)
+	case f.Pattern != nil && len(*f.Pattern) > maxPatternLength:
+		return fmt.Errorf("a pattern is at most %d characters", maxPatternLength)
 	}
 	if f.Pattern != nil {
 		re, err := regexp.Compile(*f.Pattern)
@@ -302,19 +311,40 @@ func (s *SettingsSchema) SecretGrants() []Grant {
 // settingsQuery reads an install's stored values and the settings block of
 // the bundle it is pinned to. An install with no stored bundle declares none.
 const settingsQuery = `
-	select coalesce(b.manifest->'settings', 'null'::jsonb), i.settings
+	select b.digest || '/' || b.key_id, coalesce(b.manifest->'settings', 'null'::jsonb), i.settings
 	from plugin_installs i
 	left join plugin_bundles b on b.digest = i.bundle_digest and b.key_id = i.bundle_key_id
 	where i.id = $1`
 
+// schemaCache holds each stored bundle's parsed schema by digest and key id.
+// A stored bundle never changes, so an entry never goes stale; the cache grows
+// with the catalog, which is never pruned either.
+var schemaCache sync.Map
+
+func parsedSchema(ref *string, raw []byte) (*SettingsSchema, error) {
+	if ref == nil {
+		return ParseSettingsSchema(raw)
+	}
+	if s, ok := schemaCache.Load(*ref); ok {
+		return s.(*SettingsSchema), nil
+	}
+	s, err := ParseSettingsSchema(raw)
+	if err != nil {
+		return nil, err
+	}
+	schemaCache.Store(*ref, s)
+	return s, nil
+}
+
 // Settings reads an install's schema and stored non-secret values. It is
 // read on every call; there is no cache to go stale after a PUT or upgrade.
 func (s *Store) Settings(ctx context.Context, installID string) (*SettingsSchema, map[string]any, error) {
+	var ref *string
 	var rawSchema, rawValues []byte
-	if err := s.Pool.QueryRow(ctx, settingsQuery, installID).Scan(&rawSchema, &rawValues); err != nil {
+	if err := s.Pool.QueryRow(ctx, settingsQuery, installID).Scan(&ref, &rawSchema, &rawValues); err != nil {
 		return nil, nil, fmt.Errorf("reading the settings of %s: %w", installID, err)
 	}
-	schema, err := ParseSettingsSchema(rawSchema)
+	schema, err := parsedSchema(ref, rawSchema)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -373,11 +403,19 @@ func (a *Admin) SecretState(ctx context.Context, installID, name string) (set, u
 // org's installs. secrets maps a field to its new value, or to nil to clear
 // it; a field not in the map is left alone. The caller has validated both.
 //
-// The values and each secret are separate writes; a failure part way
-// leaves the earlier ones applied. The admin sees the error and saves again.
+// Refusals are decided before anything is written: a secret with no key to
+// seal it refuses the whole save. The values and each secret are then separate
+// writes, because every secret write takes its own transaction under the
+// binding-marker lock; a database failure part way leaves the earlier ones
+// applied, and the admin sees the error and saves again.
 func (a *Admin) SaveSettings(ctx context.Context, installID string, values map[string]any, secrets map[string]*string) error {
 	if err := a.own(ctx, installID); err != nil {
 		return err
+	}
+	for _, v := range secrets {
+		if v != nil && a.s.Cipher == nil {
+			return ErrNoSecretKey
+		}
 	}
 	raw, err := json.Marshal(values)
 	if err != nil {

@@ -150,6 +150,13 @@ the fields; change or clear them, then try again. Nothing is dropped silently.
 A field the new version newly requires is not a refusal, since it could not be
 filled in before; it is enforced at the next save.
 
+A saved value for a field the target version does not declare counts as not
+fitting, and that includes moving to a version with no `settings` at all: the
+move is refused until the admin clears those fields. An approval re-checks
+only when the pending upgrade names a stored bundle. An upgrade staged without
+one, from before the catalog, has no schema to check against, and its approval
+skips the check.
+
 ## Operator commands
 
 ```sh

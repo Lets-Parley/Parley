@@ -197,3 +197,23 @@ func TestABundleWithABadSettingsSchemaIs400(t *testing.T) {
 		t.Fatalf("a nested settings schema: got %d %s, want 400 naming the settings", code, body)
 	}
 }
+
+// A secret cannot be stored without a key, and a save carrying one writes
+// nothing at all rather than the values alone.
+func TestASecretWithNoKeyRefusesTheWholeSave(t *testing.T) {
+	f, _, id := settingsServer(t)
+	f.srv = testServerWith(t, f.pool, Options{AllowedOrigin: testOrigin,
+		Plugins: &plugin.Store{Pool: f.pool}, PluginBundles: f.bundle})
+	code, body := f.settings(t, "PUT", id, `{"mode":"slow","token":"x"}`)
+	if code != http.StatusBadRequest {
+		t.Fatalf("PUT with no key = %d %s, want 400", code, body)
+	}
+	var saved string
+	if err := f.pool.QueryRow(context.Background(),
+		`select settings::text from plugin_installs where id = $1`, id).Scan(&saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved != "{}" {
+		t.Fatalf("a refused save persisted %s", saved)
+	}
+}

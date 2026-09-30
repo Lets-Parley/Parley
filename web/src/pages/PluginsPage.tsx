@@ -963,7 +963,15 @@ function SettingsEditor({
           "aria-invalid": errors[name] ? true : undefined,
           "aria-describedby": described,
         };
-        const set = (v: string | boolean) => setDraft((d) => ({ ...d, [name]: v }));
+        const set = (v: string | boolean) => {
+          setDraft((d) => ({ ...d, [name]: v }));
+          // Editing a refused field is the answer to its message.
+          setErrors((e) => {
+            const rest = { ...e };
+            delete rest[name];
+            return rest;
+          });
+        };
         const secret = data.secrets[name];
         return (
           <div key={name}>
