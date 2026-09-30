@@ -252,8 +252,12 @@ that user's own authority, and it does not rise because a plugin asked. Grant
 press; withhold it from one you only want to look.
 
 The grant itself is checked in the browser bridge, the only side that knows an
-action came from a frame: the frame has an opaque origin, so a request it makes
-itself carries `Origin: null` and the `/api` cross-site guard refuses it, and the request the bridge makes is the
+action came from a frame: the frame is sandboxed with `allow-scripts` alone (no
+`allow-same-origin`, forms, popups or top navigation) and its CSP sets
+`default-src 'none'`, `connect-src 'none'` and `form-action 'none'`, so it
+cannot send a request of its own at all. As defense in depth, a request that
+did carry the frame's `Origin: null` would be refused by the `/api` cross-site
+guard, and the request the bridge makes is the
 user's own. The consent screen's sentence for `session:act` lives in
 `internal/plugin/describe.go` with the others.
 
