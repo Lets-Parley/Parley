@@ -84,7 +84,7 @@ describe("the consent conversation", () => {
   it("names what a capability permits in consequence and expands the wildcard in full", async () => {
     render();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("radio", { name: "reporter 1.0.0" }));
+    await user.click(await screen.findByRole("button", { name: "reporter 1.0.0" }));
 
     // The sentence, not the identifier.
     expect(await screen.findByText(/Can send anything it holds/)).toBeTruthy();
@@ -97,7 +97,7 @@ describe("the consent conversation", () => {
   it("cannot install a plugin without an explicit grant decision", async () => {
     render();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("radio", { name: "reporter 1.0.0" }));
+    await user.click(await screen.findByRole("button", { name: "reporter 1.0.0" }));
 
     const button = await screen.findByRole("button", { name: "Install reporter 1.0.0" });
     expect((button as HTMLButtonElement).disabled).toBe(true);
@@ -125,7 +125,7 @@ describe("the consent conversation", () => {
     };
     render();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("radio", { name: "reporter 1.0.0" }));
+    await user.click(await screen.findByRole("button", { name: "reporter 1.0.0" }));
 
     expect(await screen.findByText("This plugin asks for no capabilities at all.")).toBeTruthy();
     expect(screen.getByText(/Provides:\s*Retrospective/)).toBeTruthy();
@@ -402,7 +402,7 @@ describe("a payload shaped like the real API response", () => {
 
     render();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("radio", { name: "reporter 1.0.0" }));
+    await user.click(await screen.findByRole("button", { name: "reporter 1.0.0" }));
 
     // Before the fix this throws on preview.added.length while rendering the
     // upgrade branch of the consent screen.
@@ -453,7 +453,7 @@ describe("installing by digest", () => {
   it("installs a catalogue version by its digest and key id", async () => {
     render();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("radio", { name: "reporter 1.0.0" }));
+    await user.click(await screen.findByRole("button", { name: "reporter 1.0.0" }));
     expect(await screen.findByText(/Can send anything it holds/)).toBeTruthy();
     expect(calls.find(([m, p]) => m === "POST" && p.endsWith("/preview"))?.[2]).toEqual({ digest: "d1", key_id: "k1" });
     await user.click(screen.getByRole("checkbox", { name: /I grant it/i }));
@@ -559,8 +559,8 @@ describe("installing by digest", () => {
     try {
       render();
       const user = userEvent.setup();
-      await user.click(await screen.findByRole("radio", { name: "reporter 1.0.0" }));
-      await user.click(screen.getByRole("radio", { name: "reporter 2.0.0" }));
+      await user.click(await screen.findByRole("button", { name: "reporter 1.0.0" }));
+      await user.click(screen.getByRole("button", { name: "reporter 2.0.0" }));
       expect(await screen.findByText(/reporter 2\.0\.0/, { selector: "p,h3,h4,strong,span,div" })).toBeTruthy();
       answerOld(preview);
       await new Promise((r) => setTimeout(r, 0));
@@ -599,7 +599,91 @@ describe("installing by digest", () => {
   it("preselects the version a catalogue link names", async () => {
     renderApp(routed, { route: "/o/acme/admin/plugins?install=d1/k1" });
     expect(await screen.findByText(/Can send anything it holds/)).toBeTruthy();
-    expect((screen.getByRole("radio", { name: "reporter 1.0.0" }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole("button", { name: "reporter 1.0.0" }).getAttribute("aria-pressed")).toBe("true");
     expect((screen.getByRole("checkbox", { name: /I grant it/i }) as HTMLInputElement).checked).toBe(false);
+  });
+
+  describe("the chooser's direction and toggle", () => {
+    const running = (version: string) => {
+      registry.installs = [
+        {
+          id: "p1", name: "reporter", version, enabled: true, grants: [], provides: [],
+          health: { state: "healthy", reason: "" }, bundle: { digest: `r${version}`, key_id: "k1" }, inCatalogue: true, history: [],
+        },
+      ];
+      catalogue.plugins = [
+        {
+          name: "reporter",
+          versions: ["0.1.0", "0.1.1", "0.2.0"].map((v) => ({ version: v, digest: `r${v}`, key_id: "k1", grants: [] })),
+        },
+      ];
+    };
+
+    it("names an older version a rollback and posts it to the rollback route", async () => {
+      running("0.1.1");
+      preview = { ...preview, name: "reporter", version: "0.1.0", upgrade: true, grants: [], added: [], widens: false };
+      render();
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "reporter 0.1.0" }));
+      expect(await screen.findByText(/reporter 0\.1\.0 — a rollback/)).toBeTruthy();
+      await user.click(screen.getByRole("checkbox", { name: /I grant it/i }));
+      await user.click(screen.getByRole("button", { name: "Roll back to reporter 0.1.0" }));
+      expect(calls.find(([m, p]) => m === "POST" && p === "/api/orgs/acme/admin/plugins/p1/rollback")?.[2]).toEqual({
+        digest: "r0.1.0",
+        key_id: "k1",
+      });
+    });
+
+    it("names a newer version an upgrade", async () => {
+      running("0.1.1");
+      preview = { ...preview, name: "reporter", version: "0.2.0", upgrade: true, grants: [], added: [], widens: false };
+      render();
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "reporter 0.2.0" }));
+      expect(await screen.findByText(/reporter 0\.2\.0 — an upgrade/)).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Upgrade to reporter 0.2.0" })).toBeTruthy();
+    });
+
+    it("offers no action for the version already running", async () => {
+      running("0.1.1");
+      preview = { ...preview, name: "reporter", version: "0.1.1", upgrade: true, grants: [], added: [], widens: false };
+      render();
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "reporter 0.1.1" }));
+      expect(await screen.findByText(/already running/)).toBeTruthy();
+      expect(screen.queryByRole("button", { name: /^(Install|Upgrade to|Roll back to) reporter/ })).toBeNull();
+    });
+
+    it("deselects on a second press, by mouse or keyboard, and draws no divider when nothing is chosen", async () => {
+      const { container } = render();
+      const user = userEvent.setup();
+      const chip = await screen.findByRole("button", { name: "reporter 1.0.0" });
+      expect(container.querySelector("[data-consent]")).toBeNull();
+      await user.click(chip);
+      expect(await screen.findByText(/Can send anything it holds/)).toBeTruthy();
+      await user.click(chip);
+      expect(chip.getAttribute("aria-pressed")).toBe("false");
+      expect(screen.queryByText(/Can send anything it holds/)).toBeNull();
+      expect(container.querySelector("[data-consent]")).toBeNull();
+      chip.focus();
+      await user.keyboard(" ");
+      expect(await screen.findByText(/Can send anything it holds/)).toBeTruthy();
+      await user.keyboard("{Enter}");
+      expect(screen.queryByText(/Can send anything it holds/)).toBeNull();
+    });
+
+    it("holds four plugins of several versions each", async () => {
+      catalogue.plugins = ["alpha", "beta", "gamma", "delta"].map((name, i) => ({
+        name,
+        versions: Array.from({ length: 3 + (i % 3) }, (_, j) => ({
+          version: `1.${j}.0`, digest: `${name}${j}`.padEnd(64, "0"), key_id: j % 2 ? "" : "k1", grants: [],
+        })),
+      }));
+      const { container } = render();
+      expect(await screen.findByRole("button", { name: "gamma 1.4.0" })).toBeTruthy();
+      expect(screen.getAllByRole("button", { name: /^(alpha|beta|gamma|delta) 1\.\d\.0$/ })).toHaveLength(3 + 4 + 5 + 3);
+      for (const group of container.querySelectorAll("[data-versions]")) expect(group.className).toContain("flex-wrap");
+      await expectNoViolations(container);
+    });
   });
 });

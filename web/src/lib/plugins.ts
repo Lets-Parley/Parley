@@ -136,3 +136,15 @@ export function normalizePluginPreview(preview: PluginPreview): PluginPreview {
     kinds: orEmpty(preview.kinds),
   };
 }
+
+/**
+ * Which way moving to `target` goes from the version running now. The chooser
+ * and the history both ask this, so they can never name one move two ways.
+ */
+export function direction(target: string, running?: string): "install" | "upgrade" | "rollback" | "same" {
+  if (!running) return "install";
+  const x = target.split(".").map(Number);
+  const y = running.split(".").map(Number);
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i] ? "upgrade" : "rollback";
+  return "same";
+}

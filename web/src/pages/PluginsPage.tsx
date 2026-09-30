@@ -3,7 +3,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, errorText } from "../lib/api";
 import type { BundleRef, Catalogue, DescribedGrant, InstalledPlugin, PluginPreview, PluginRegistry } from "../lib/plugins";
-import { normalizePluginPreview, normalizePluginRegistry } from "../lib/plugins";
+import { direction, normalizePluginPreview, normalizePluginRegistry } from "../lib/plugins";
 import { catalogueApi, cataloguePath, pluginsApi } from "../lib/paths";
 import {
   buttonDanger,
@@ -339,13 +339,19 @@ function InstallPanel({
   const [problem, setProblem] = useState("");
   const running = new Set(installs.map((i) => (i.bundle ? `${i.bundle.digest}/${i.bundle.key_id}` : "")));
 
+  const current = installs.find((i) => i.name === preview?.name);
+  const move = preview ? direction(preview.version, current?.version) : "install";
   const install = useMutation({
-    mutationFn: () => api("POST", base, { ...chosen, grantsAccepted: true }),
+    // Going back is a rollback on the server too, never an install.
+    mutationFn: () =>
+      move === "rollback" && current
+        ? api("POST", `${base}/${current.id}/rollback`, chosen)
+        : api("POST", base, { ...chosen, grantsAccepted: true }),
     onSuccess: () => {
       setChosen(null);
       setPreview(null);
       setAck(false);
-      onSay(preview?.upgrade ? "Upgrade recorded." : "Installed.");
+      onSay(move === "rollback" ? "Rollback recorded." : move === "upgrade" ? "Upgrade recorded." : "Installed.");
       onDone();
     },
     onError: (e) => setProblem(errorText(e)),
@@ -355,6 +361,15 @@ function InstallPanel({
   // would describe a bundle other than the one about to be installed.
   const latest = useRef(0);
   async function pick(ref: BundleRef) {
+    // A second press on the chosen version puts it down again.
+    if (chosen?.digest === ref.digest && chosen?.key_id === ref.key_id) {
+      latest.current++;
+      setChosen(null);
+      setPreview(null);
+      setAck(false);
+      setProblem("");
+      return;
+    }
     setProblem("");
     setPreview(null);
     setAck(false);
@@ -388,17 +403,17 @@ function InstallPanel({
 
   return (
     <section aria-labelledby={headId} className="mt-5 rounded-panel border border-line bg-surface shadow-rest">
-      <h3 id={headId} className="border-b border-line px-5 py-3 font-display text-lg">
+      <h3 id={headId} className="border-b border-line px-4 py-3 font-display text-lg">
         Install from the catalogue
       </h3>
-      {catalogue.isLoading && <p className="px-5 py-4 text-sm text-ink-faint">Reading the catalogue…</p>}
+      {catalogue.isLoading && <p className="px-4 py-4 text-sm text-ink-faint">Reading the catalogue…</p>}
       {catalogue.error && (
-        <p role="alert" className="px-5 py-4 text-[13px] font-bold text-stop">
+        <p role="alert" className="px-4 py-4 text-[13px] font-bold text-stop">
           {errorText(catalogue.error)}
         </p>
       )}
       {catalogue.data && plugins.length === 0 && (
-        <p className="px-5 py-4 text-sm text-ink-soft text-pretty">
+        <p className="px-4 py-4 text-sm text-ink-soft text-pretty">
           The catalogue is empty; a default-org admin can add bundles at{" "}
           <Link to={cataloguePath} className="font-bold text-accent underline underline-offset-2">
             the plugin catalogue
@@ -406,51 +421,52 @@ function InstallPanel({
           .
         </p>
       )}
-      {plugins.map((p) => (
-        <fieldset key={p.name} className="border-b border-line px-5 py-4 last:border-b-0">
-          <legend className="float-left mb-2 w-full font-bold">{p.name}</legend>
-          <div className="clear-left flex flex-wrap gap-2">
-            {p.versions.map((v) => {
-              const key = `${v.digest}/${v.key_id}`;
-              return (
-                <label
-                  key={key}
-                  className={
-                    "flex cursor-pointer flex-col gap-0.5 rounded-card border px-3 py-2 text-left " +
-                    "transition-[background-color,border-color,box-shadow] duration-[var(--dur-lift)] ease-[var(--ease-settle)] motion-reduce:transition-none " +
-                    "has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent " +
-                    (isChosen(v)
-                      ? "border-accent bg-accent-soft shadow-rest"
-                      : "border-line bg-surface hover:border-ink-faint hover:bg-surface-hi")
-                  }
-                >
-                  <input
-                    type="radio"
-                    name="catalogue-version"
-                    className="sr-only"
-                    checked={isChosen(v)}
-                    onChange={() => void pick({ digest: v.digest, key_id: v.key_id })}
-                    aria-label={`${p.name} ${v.version}`}
-                  />
-                  <span className="flex items-center gap-2">
-                    <span className="font-bold tabular-nums">{v.version}</span>
-                    {running.has(key) && (
-                      <span className="rounded-chip bg-go/15 px-1.5 text-[11px] font-bold text-go">Running</span>
-                    )}
-                  </span>
-                  <span className="text-[11px] text-ink-soft">
-                    {v.key_id ? `Signed · key ${v.key_id.slice(0, 8)}` : "Unsigned"}
-                  </span>
-                  <span className="font-mono text-[11px] text-ink-faint" title={v.digest}>
-                    {v.digest.slice(0, 12)}
-                  </span>
-                </label>
-              );
-            })}
-          </div>
-        </fieldset>
-      ))}
-      <div className="px-5">
+      {plugins.length > 0 && (
+        <div className="divide-y divide-line">
+          {plugins.map((p) => (
+            <div key={p.name} role="group" aria-label={p.name} className="px-4 py-4">
+              <p className="mb-2 font-bold break-words">{p.name}</p>
+              <div data-versions className="flex flex-wrap gap-2">
+                {p.versions.map((v) => {
+                  const key = `${v.digest}/${v.key_id}`;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      aria-pressed={isChosen(v)}
+                      aria-label={`${p.name} ${v.version}`}
+                      onClick={() => void pick({ digest: v.digest, key_id: v.key_id })}
+                      className={
+                        "flex min-w-0 flex-col items-start gap-0.5 rounded-card border px-3 py-2 text-left " +
+                        "transition-[background-color,border-color,box-shadow] duration-[var(--dur-lift)] ease-[var(--ease-settle)] motion-reduce:transition-none " +
+                        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent " +
+                        (isChosen(v)
+                          ? "border-accent bg-accent-soft shadow-rest"
+                          : "border-line bg-surface hover:border-ink-faint hover:bg-surface-hi")
+                      }
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="font-bold tabular-nums">{v.version}</span>
+                        {running.has(key) && (
+                          <span className="rounded-chip bg-go/15 px-1.5 text-[11px] font-bold text-go">Running</span>
+                        )}
+                      </span>
+                      <span className="text-[11px] text-ink-soft">
+                        {v.key_id ? `Signed · key ${v.key_id.slice(0, 8)}` : "Unsigned"}
+                      </span>
+                      <span className="font-mono text-[11px] text-ink-faint" title={v.digest}>
+                        {v.digest.slice(0, 12)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {(problem || preview) && (
+      <div data-consent className="border-t border-line px-4">
       {problem && (
         <p role="alert" className="mt-3 text-[13px] font-bold text-stop">
           {problem}
@@ -458,10 +474,11 @@ function InstallPanel({
       )}
 
       {preview && (
-        <div className="border-t border-line py-5">
+        <div className="py-5">
           <h3 className="font-display text-lg">
             {preview.name} {preview.version}
-            {preview.upgrade && " — an upgrade"}
+            {move === "upgrade" && " — an upgrade"}
+            {move === "rollback" && " — a rollback"}
           </h3>
           {preview.kinds.length > 0 && (
             <p className="mt-2 text-sm text-ink-soft">
@@ -502,41 +519,35 @@ function InstallPanel({
             </>
           )}
 
-          <label htmlFor={ackId} className="mt-4 flex items-start gap-2 text-[13px] text-pretty">
-            <input
-              id={ackId}
-              type="checkbox"
-              checked={ack}
-              onChange={(e) => setAck(e.target.checked)}
-            />
-            <span>
-              I have read what this plugin will be able to do, and I grant it.
-            </span>
-          </label>
-          <button
-            type="button"
-            className={buttonPrimary + " mt-3"}
-            disabled={!ack || install.isPending}
-            onClick={() => install.mutate()}
-          >
-            {preview.upgrade ? `Upgrade to ${preview.name} ${preview.version}` : `Install ${preview.name} ${preview.version}`}
-          </button>
+          {move === "same" ? (
+            <p className="mt-4 text-sm font-bold text-ink-soft">This version is already running.</p>
+          ) : (
+            <>
+              <label htmlFor={ackId} className="mt-4 flex items-start gap-2 text-[13px] text-pretty">
+                <input id={ackId} type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
+                <span>I have read what this plugin will be able to do, and I grant it.</span>
+              </label>
+              <button
+                type="button"
+                className={buttonPrimary + " mt-3"}
+                disabled={!ack || install.isPending}
+                onClick={() => install.mutate()}
+              >
+                {move === "upgrade" ? "Upgrade to" : move === "rollback" ? "Roll back to" : "Install"} {preview.name}{" "}
+                {preview.version}
+              </button>
+            </>
+          )}
         </div>
       )}
       </div>
+      )}
     </section>
   );
 }
 
 /* ------------------------------------------------------------- installed -- */
 
-/** Whether version a is later than b; both are major.minor.patch. */
-function newer(a: string, b: string): boolean {
-  const x = a.split(".").map(Number);
-  const y = b.split(".").map(Number);
-  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i];
-  return false;
-}
 
 function InstalledCard({
   install,
@@ -645,7 +656,7 @@ function InstalledCard({
                       disabled={rollback.isPending}
                       onClick={() => rollback.mutate(h)}
                     >
-                      {newer(h.version, install.version) ? "Confirm upgrade to" : "Confirm rollback to"} {h.version}
+                      {direction(h.version, install.version) === "upgrade" ? "Confirm upgrade to" : "Confirm rollback to"} {h.version}
                     </button>
                     <button type="button" className={buttonQuiet} onClick={() => setRollingBack("")}>
                       Cancel
@@ -659,7 +670,7 @@ function InstalledCard({
                     disabled={rollback.isPending}
                     onClick={() => setRollingBack(h.digest)}
                   >
-                    {newer(h.version, install.version) ? "Upgrade to" : "Roll back to"} {h.version}
+                    {direction(h.version, install.version) === "upgrade" ? "Upgrade to" : "Roll back to"} {h.version}
                   </button>
                 ),
               )}
