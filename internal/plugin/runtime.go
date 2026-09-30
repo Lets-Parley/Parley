@@ -20,20 +20,16 @@ type Runtime struct {
 	Outbox *Outbox
 }
 
-// NewRuntime wires a runtime for a bundle directory, or returns nil when there
-// is no directory to serve. Nil is the "no plugins" answer on purpose: an
-// instance without PLUGIN_DIR never instantiates a WASM runtime, and making
-// that a nil Runtime rather than an `if` in the caller means both halves of
-// the decision are testable here.
-func NewRuntime(store *Store, dir string, limits HostConfig, log *slog.Logger) *Runtime {
-	if dir == "" {
-		return nil
-	}
+// NewRuntime wires a runtime over a bundle source. It always runs: bundles
+// live in plugin_bundles as well as PLUGIN_DIR, so an instance without the
+// directory still hosts the installs whose bundles are stored. A module is
+// only compiled when an enabled install is first called.
+func NewRuntime(store *Store, bundles Bundles, limits HostConfig, log *slog.Logger) *Runtime {
 	host := NewHost(store, limits)
 	host.Log = log
 	host.Bus = &Bus{Pool: store.Pool}
 	host.Queue = &Queue{Pool: store.Pool, Log: log}
-	host.Bundles = DirBundles(dir)
+	host.Bundles = bundles
 	host.Queue.Run = host.RunJob
 	return &Runtime{
 		Host:   host,

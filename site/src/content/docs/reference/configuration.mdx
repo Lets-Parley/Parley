@@ -6,7 +6,7 @@ description: Every environment variable, its default, and whether a bad value st
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import EnvVar from "../../../components/EnvVar.astro";
 
-<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "web/embed.go", "internal/store/kudos.go", "cmd/parley/configfile.go", "internal/db/tls.go", "internal/api/client_address.go", "internal/api/secevent.go", "internal/api/standup_webhook.go", "internal/api/embed.go", "internal/plugin/secrets.go"]} />
+<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "web/embed.go", "internal/store/kudos.go", "cmd/parley/configfile.go", "internal/db/tls.go", "internal/api/client_address.go", "internal/api/secevent.go", "internal/api/standup_webhook.go", "internal/api/embed.go", "internal/plugin/secrets.go", "internal/plugin/bundles.go"]} />
 
 Configuration is environment variables, optionally backed by a file that fills
 the gaps (`PARLEY_CONFIG_FILE`, below). There is no command-line flag other than
@@ -281,9 +281,9 @@ at delivery time, however it is spelled.
 
 Parley's plugin foundations — the event outbox, the job queue and plugin
 storage — are present from v0.6 onwards, and the WebAssembly host that runs
-plugins on top of them arrives with `PLUGIN_DIR`. Every variable here is
-optional, and an instance with `PLUGIN_DIR` unset never instantiates a
-WebAssembly runtime at all.
+plugins on top of them always runs. Every variable here is optional. The host
+compiles a module only when an enabled install is first called, so an instance
+with nothing installed never builds one.
 
 What a plugin can and cannot do, and the mechanism behind each claim, is in
 [Plugin sandbox](/security/plugin-sandbox/).
@@ -351,15 +351,32 @@ Deliveries that keep failing are dead-lettered after a bounded number of
 attempts, so a broken subscriber cannot pin the table open forever.
 </EnvVar>
 
-<EnvVar name="PLUGIN_DIR" badValue="Unset means no plugin host runs; a bundle that is missing fails that plugin's calls, not the boot">
-The directory plugin bundles are read from, named `<name>-<version>.wasm`.
+<EnvVar name="PLUGIN_DIR" badValue="A bundle that is missing or refused fails that plugin's calls, never the boot">
+A directory of plugin bundles. At boot every `*.parley` file in it is verified
+against `PLUGIN_TRUSTED_KEYS` and stored in the database; a refused file is
+logged and skipped. Loose files named `<name>-<version>.wasm` (with
+`.ui.js` and `.slots.json` beside them) are still read as a fallback.
 
-Leave it unset and no plugin host is created: the outbox and job workers keep
-their nil handlers, nothing is compiled, and no WebAssembly runtime exists in
-the process. Setting it is the decision to run plugin code.
+A plugin's code, UI and slots come from one source: the newest stored bundle
+with that name and version whose signing key is trusted now (or that is
+unsigned, while `PLUGIN_ALLOW_UNSIGNED` is on). Only when there is no such
+bundle are the loose files read. Unset, only stored bundles are served; the
+plugin host runs either way.
 
 A name or version containing a path separator or `..` is refused rather than
 cleaned.
+</EnvVar>
+
+<EnvVar name="PLUGIN_TRUSTED_KEYS" badValue="Refuses to start if an entry is not base64 of a 32-byte Ed25519 public key">
+Comma-separated Ed25519 public keys, in base64 — the contents of a `.pub` file
+from `parley plugin keygen`. A `.parley` bundle is imported only if one of
+these signed it, and a stored bundle stops being served as soon as its key is
+removed from this list. Unset trusts no key.
+</EnvVar>
+
+<EnvVar name="PLUGIN_ALLOW_UNSIGNED" default="false" badValue="Refuses to start if the value is not a boolean">
+Also accept unsigned `.parley` bundles, at import and when serving. Off by
+default; turning it off again stops unsigned bundles being served.
 </EnvVar>
 
 <EnvVar name="PLUGIN_CALL_TIMEOUT" default="2s" badValue="Refuses to start if the value is not a positive Go duration">

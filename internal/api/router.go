@@ -74,8 +74,9 @@ type app struct {
 	// orgs resolves the org a slug belongs to. Until an instance is divided,
 	// that is always the default org, cached behind defaultOrg.
 	orgs *store.Orgs
-	// pluginDir is Options.PluginDir; empty means no plugin UI is served.
-	pluginDir string
+	// bundles is Options.PluginBundles, or a directory-only store for a bare
+	// PluginDir; nil means no plugin UI is served.
+	bundles *plugin.BundleStore
 	// bootstrapAdmin is the (issuer, subject) pair an operator granted admin
 	// of the default org from configuration.
 	bootstrapAdmin BootstrapAdmin
@@ -131,10 +132,12 @@ type Options struct {
 	// SESSION_IDLE_TTL and SESSION_MAX_TTL. Zero means the store's default.
 	SessionIdleTTL time.Duration
 	SessionMaxTTL  time.Duration
-	// PluginDir is where installed plugin bundles live. Empty means this
-	// instance runs no plugins, and the plugin UI frame route is then not
-	// registered at all.
+	// PluginDir is where loose plugin bundle files live.
 	PluginDir string
+	// PluginBundles is where plugin UI and slots are read from: a stored
+	// bundle first, then PluginDir. Nil with an empty PluginDir means no
+	// plugin UI is served; nil with a PluginDir reads the directory alone.
+	PluginBundles *plugin.BundleStore
 
 	// Plugins is the durable side of the plugin host, and PluginHost the
 	// running one. Both are optional; without Plugins the administration
@@ -285,7 +288,6 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		allowedOrigin:  opts.AllowedOrigin,
 		sessionIdleTTL: opts.SessionIdleTTL,
 		sessionMaxTTL:  opts.SessionMaxTTL,
-		pluginDir:      opts.PluginDir,
 		authMode:       mode,
 		version:        cmp.Or(opts.Version, "dev"),
 
@@ -296,6 +298,10 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		pluginHost:       opts.PluginHost,
 		now:              opts.Now,
 		embedProviders:   opts.EmbedProviders,
+	}
+	a.bundles = opts.PluginBundles
+	if a.bundles == nil && opts.PluginDir != "" {
+		a.bundles = &plugin.BundleStore{Dir: opts.PluginDir}
 	}
 	a.embedHandoffs = &store.EmbedHandoffs{Users: a.users}
 	if a.now == nil {

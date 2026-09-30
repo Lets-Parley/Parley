@@ -885,6 +885,24 @@ mutate "the membership guard inside the mention insert" \
     'TestTheMentionInsertRefusesOnItsOwn' \
     mentions.go '		where `+mentionable+` and exists (' '		where true or exists ('
 
+# The bundle store: the import's trust check, the trust filter on every read,
+# and PLUGIN_ALLOW_UNSIGNED defaulting to off.
+target internal/plugin
+
+mutate "the bundle import refusing an unsigned bundle unless allowed" \
+    'TestImportIsIdempotentAndRefusesWhatItCannotTrust' \
+    bundles.go 'bundle.Verify(f, s.Trusted, s.AllowUnsigned)' 'bundle.Verify(f, s.Trusted, true)'
+
+mutate "a stored bundle served only under a key trusted now" \
+    'TestAStoredBundleIsPreferredOverTheDirectory|TestAnUnsignedRowIsNotServedByDefault' \
+    bundles.go 'key_id = any($3)' '$3::text[] is not null'
+
+target cmd/parley
+
+mutate "PLUGIN_ALLOW_UNSIGNED defaulting to off" \
+    'TestPluginTrustDefaultsToSignedBundlesOnly' \
+    main.go 'envOr("PLUGIN_ALLOW_UNSIGNED", "false")' 'envOr("PLUGIN_ALLOW_UNSIGNED", "true")'
+
 restore_all
 
 echo

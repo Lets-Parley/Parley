@@ -12,12 +12,18 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Without a bundle directory there is no host, and the workers keep the nil
-// handlers that make them drain nothing.
-func TestWithoutABundleDirectoryThereIsNoPluginRuntime(t *testing.T) {
+// PLUGIN_DIR no longer decides whether plugins run: a bundle stored in
+// plugin_bundles is served by a host wired with no directory at all.
+func TestTheRuntimeRunsAStoredBundleWithNoBundleDirectory(t *testing.T) {
 	store := &Store{Pool: testPool(t)}
-	if r := NewRuntime(store, "", HostConfig{}, quietLogger()); r != nil {
-		t.Fatalf("a runtime was wired with no bundle directory: %+v", r)
+	ctx := context.Background()
+	in := install(t, store, Grant{Capability: CapabilityKV})
+	bundles, _ := storedBundle(t, store.Pool, in.Name, guestPanicExporting("on_job"))
+
+	r := NewRuntime(store, bundles, HostConfig{}, quietLogger())
+	t.Cleanup(r.Close)
+	if err := r.Queue.Run(ctx, Job{InstallID: in.ID, Kind: "k"}); !errors.Is(err, ErrGuestPanic) {
+		t.Fatalf("the job handler returned %v; want ErrGuestPanic from the stored bundle", err)
 	}
 }
 
@@ -40,7 +46,7 @@ func TestTheRuntimePointsBothWorkersAtTheHost(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := NewRuntime(store, dir, HostConfig{}, quietLogger())
+	r := NewRuntime(store, DirBundles(dir), HostConfig{}, quietLogger())
 	if r == nil {
 		t.Fatal("no runtime was wired for a bundle directory")
 	}
@@ -87,7 +93,7 @@ func TestStartRunsBothWorkersWithoutAnybodyCallingTheHandlers(t *testing.T) {
 		guestPanicExporting("on_job", "on_event"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	r := NewRuntime(store, dir, HostConfig{}, quietLogger())
+	r := NewRuntime(store, DirBundles(dir), HostConfig{}, quietLogger())
 	if r == nil {
 		t.Fatal("no runtime was wired for a bundle directory")
 	}

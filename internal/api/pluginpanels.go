@@ -35,7 +35,7 @@ type panel struct {
 // from the room rather than defaulting it is what stops one link to one
 // standup listing every install on the instance.
 func (a *app) handlePluginPanels(w http.ResponseWriter, r *http.Request) {
-	if a.pluginDir == "" || a.pool == nil {
+	if a.bundles == nil || a.pool == nil {
 		writeJSON(w, http.StatusOK, []panel{})
 		return
 	}
@@ -68,7 +68,7 @@ func (a *app) handlePluginPanels(w http.ResponseWriter, r *http.Request) {
 // RequireUser, so a link guest never reaches it: org and space navigation is
 // not a bound-room capability.
 func (a *app) handleOrgPluginPanels(w http.ResponseWriter, r *http.Request) {
-	if a.pluginDir == "" || a.pool == nil {
+	if a.bundles == nil || a.pool == nil {
 		writeJSON(w, http.StatusOK, []panel{})
 		return
 	}
@@ -103,25 +103,43 @@ func (a *app) pluginPanels(ctx context.Context, orgID string) ([]panel, error) {
 	}
 	defer rows.Close()
 
-	panels := []panel{}
+	var installed []panel
 	for rows.Next() {
 		var p panel
 		if err := rows.Scan(&p.Name, &p.Version, &p.Grants); err != nil {
 			return nil, err
 		}
-		// An install with no UI bundle is not a panel. Checking the file
+		installed = append(installed, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	panels := []panel{}
+	for _, p := range installed {
+		// An install with no UI bundle is not a panel. Checking the bundle
 		// rather than a database column keeps "has UI" a fact about what is
 		// deployed, which is the thing the frame route will answer for.
-		if !hasPluginUI(a.pluginDir, p.Name, p.Version) {
-			continue
+		stored, err := a.bundles.Stored(ctx, p.Name, p.Version)
+		if err != nil {
+			return nil, err
 		}
-		p.Slots = readDeclaredSlots(a.pluginDir, p.Name, p.Version)
+		if stored != nil {
+			if stored.UI == nil {
+				continue
+			}
+			p.Slots = declaredSlots(stored.Slots, stored.Slots != nil)
+		} else {
+			if a.bundles.Dir == "" || !hasPluginUI(a.bundles.Dir, p.Name, p.Version) {
+				continue
+			}
+			p.Slots = readDeclaredSlots(a.bundles.Dir, p.Name, p.Version)
+		}
 		if len(p.Slots) == 0 {
 			continue
 		}
 		panels = append(panels, p)
 	}
-	return panels, rows.Err()
+	return panels, nil
 }
 
 func hasPluginUI(dir, name, version string) bool {
@@ -147,7 +165,11 @@ func readDeclaredSlots(dir, name, version string) []string {
 	}
 	defer root.Close()
 	body, err := root.ReadFile(name + "-" + version + ".slots.json")
-	if err != nil {
+	return declaredSlots(body, err == nil)
+}
+
+func declaredSlots(body []byte, present bool) []string {
+	if !present {
 		return []string{"panel"}
 	}
 	var slots []string

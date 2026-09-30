@@ -59,7 +59,7 @@ func TestMainsOptionsServeThePluginUI(t *testing.T) {
 		AuthMode:  api.ModeOpen,
 		PluginDir: dir,
 	}
-	opts := apiOptions(t.Context(), cfg, false, nil, nil)
+	opts := apiOptions(t.Context(), cfg, false, nil, nil, nil)
 
 	handler := api.Router(pool, opts)
 	srv := httptest.NewServer(handler)
@@ -123,7 +123,7 @@ func TestMainsOptionsMountMetrics(t *testing.T) {
 		AuthMode:       api.ModeOpen,
 		MetricsEnabled: true,
 	}
-	opts := apiOptions(t.Context(), cfg, false, nil, nil)
+	opts := apiOptions(t.Context(), cfg, false, nil, nil, nil)
 	handler := api.Router(nil, opts)
 	srv := httptest.NewServer(handler)
 	t.Cleanup(func() {
@@ -153,7 +153,7 @@ func TestMainsOptionsEnableEmbedProviders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	opts := apiOptions(t.Context(), config{BaseURL: base, AuthMode: api.ModeOpen, EmbedProviders: providers}, true, nil, nil)
+	opts := apiOptions(t.Context(), config{BaseURL: base, AuthMode: api.ModeOpen, EmbedProviders: providers}, true, nil, nil, nil)
 	handler := api.Router(nil, opts)
 	srv := httptest.NewServer(handler)
 	t.Cleanup(func() {
@@ -177,7 +177,7 @@ func TestMainsOptionsEnableEmbedProviders(t *testing.T) {
 func TestMainsOptionsPutTheBaseURLInTheShell(t *testing.T) {
 	shell := func(t *testing.T, cfg config, path string) string {
 		t.Helper()
-		handler := api.Router(nil, apiOptions(t.Context(), cfg, true, nil, nil))
+		handler := api.Router(nil, apiOptions(t.Context(), cfg, true, nil, nil, nil))
 		srv := httptest.NewServer(handler)
 		t.Cleanup(func() {
 			handler.Shutdown()
@@ -231,7 +231,7 @@ func TestMainsOptionsPutTheBaseURLInTheShell(t *testing.T) {
 // or every share card points at the SPA shell instead of a picture.
 func TestMainsOptionsServeTheShareImage(t *testing.T) {
 	base, _ := url.Parse("https://parley.example.test/")
-	handler := api.Router(nil, apiOptions(t.Context(), config{BaseURL: base, BaseURLSet: true, AuthMode: api.ModeOpen}, true, nil, nil))
+	handler := api.Router(nil, apiOptions(t.Context(), config{BaseURL: base, BaseURLSet: true, AuthMode: api.ModeOpen}, true, nil, nil, nil))
 	srv := httptest.NewServer(handler)
 	t.Cleanup(func() {
 		handler.Shutdown()
@@ -254,7 +254,7 @@ func TestMainsOptionsServeTheShareImage(t *testing.T) {
 func TestMainsOptionsLeaveMetricsUnmounted(t *testing.T) {
 	base, _ := url.Parse("http://example.test")
 	cfg := config{BaseURL: base, AuthMode: api.ModeOpen}
-	opts := apiOptions(t.Context(), cfg, false, nil, nil)
+	opts := apiOptions(t.Context(), cfg, false, nil, nil, nil)
 	handler := api.Router(nil, opts)
 	srv := httptest.NewServer(handler)
 	t.Cleanup(func() {
@@ -425,7 +425,7 @@ func TestEveryOptionMainCanSetIsActuallySet(t *testing.T) {
 		StandupWebhookHosts: []string{"hooks.example.test"},
 		EmbedProviders:      []api.EmbedProvider{{Name: "meet"}},
 	}
-	opts := apiOptions(t.Context(), cfg, true, &plugin.Store{}, &plugin.Host{})
+	opts := apiOptions(t.Context(), cfg, true, &plugin.Store{}, &plugin.Host{}, &plugin.BundleStore{})
 
 	v := reflect.ValueOf(opts)
 	for i := 0; i < v.NumField(); i++ {

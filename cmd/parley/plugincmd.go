@@ -45,7 +45,7 @@ func runPlugin(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if err := writeNew(prefix+".key", base64.StdEncoding.EncodeToString(priv.Seed())+"\n", 0o600); err != nil {
+		if err := writeKey(prefix+".key", base64.StdEncoding.EncodeToString(priv.Seed())+"\n", 0o600); err != nil {
 			os.Remove(prefix + ".pub")
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -91,14 +91,22 @@ func runPlugin(args []string, stdout, stderr io.Writer) int {
 	return 2
 }
 
+// writeKey writes the private key. It is a variable so a test can make that
+// write fail after the public half has been written.
+var writeKey = writeNew
+
 func writeNew(path, body string, mode os.FileMode) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 	if err != nil {
 		return fmt.Errorf("writing %s: %w", path, err)
 	}
-	if _, err := f.WriteString(body); err != nil {
-		f.Close()
+	_, err = f.WriteString(body)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(path)
 		return fmt.Errorf("writing %s: %w", path, err)
 	}
-	return f.Close()
+	return nil
 }

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	_ "embed"
 	"fmt"
 	"net/http"
@@ -69,12 +70,12 @@ func (a *app) mountPluginFrame(root chi.Router) {
 
 // handlePluginFrame serves the sandbox document for one installed plugin's UI.
 func (a *app) handlePluginFrame(w http.ResponseWriter, r *http.Request) {
-	if a.pluginDir == "" {
+	if a.bundles == nil {
 		http.NotFound(w, r)
 		return
 	}
 	name, version := chi.URLParam(r, "name"), chi.URLParam(r, "version")
-	ui, err := readPluginUI(a.pluginDir, name, version)
+	ui, err := a.pluginUI(r.Context(), name, version)
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -84,6 +85,26 @@ func (a *app) handlePluginFrame(w http.ResponseWriter, r *http.Request) {
 	// path — but a stale frame is a stale sandbox, so this is not cached.
 	w.Header().Set("Cache-Control", "no-store")
 	fmt.Fprintf(w, pluginFrameDocument, escapeForScript(pluginFrameBootstrap), escapeForScript(string(ui)))
+}
+
+// pluginUI is a stored bundle's ui.js when one resolves, else the file in the
+// plugin directory. A stored bundle without a ui.js has no UI; it never falls
+// through to a file.
+func (a *app) pluginUI(ctx context.Context, name, version string) ([]byte, error) {
+	stored, err := a.bundles.Stored(ctx, name, version)
+	if err != nil {
+		return nil, err
+	}
+	if stored != nil {
+		if stored.UI == nil {
+			return nil, fmt.Errorf("%s %s ships no UI", name, version)
+		}
+		return stored.UI, nil
+	}
+	if a.bundles.Dir == "" {
+		return nil, fmt.Errorf("no UI for %s %s", name, version)
+	}
+	return readPluginUI(a.bundles.Dir, name, version)
 }
 
 // readPluginUI loads "<name>-<version>.ui.js" from the plugin directory. The
