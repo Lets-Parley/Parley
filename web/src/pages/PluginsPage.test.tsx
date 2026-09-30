@@ -59,21 +59,6 @@ function render() {
   return renderApp(routed, { route: "/o/acme/admin/plugins" });
 }
 
-function packageFile(name = "reporter") {
-  return new File(
-    [
-      JSON.stringify({
-        manifest: 1,
-        kind: "plugin",
-        name,
-        version: "1.0.0",
-        capabilities: [{ capability: "fetch", scope: "*.example.com" }],
-      }),
-    ],
-    "plugin.json",
-    { type: "application/json" },
-  );
-}
 
 beforeEach(() => {
   calls.length = 0;
@@ -99,7 +84,7 @@ describe("the consent conversation", () => {
   it("names what a capability permits in consequence and expands the wildcard in full", async () => {
     render();
     const user = userEvent.setup();
-    await user.upload(await screen.findByLabelText(/plugin package file/i), packageFile());
+    await user.click(await screen.findByRole("radio", { name: "reporter 1.0.0" }));
 
     // The sentence, not the identifier.
     expect(await screen.findByText(/Can send anything it holds/)).toBeTruthy();
@@ -112,9 +97,9 @@ describe("the consent conversation", () => {
   it("cannot install a plugin without an explicit grant decision", async () => {
     render();
     const user = userEvent.setup();
-    await user.upload(await screen.findByLabelText(/plugin package file/i), packageFile());
+    await user.click(await screen.findByRole("radio", { name: "reporter 1.0.0" }));
 
-    const button = await screen.findByRole("button", { name: /grant and install/i });
+    const button = await screen.findByRole("button", { name: "Install reporter 1.0.0" });
     expect((button as HTMLButtonElement).disabled).toBe(true);
     await user.click(button);
     expect(calls.some(([m, p]) => m === "POST" && p === "/api/orgs/acme/admin/plugins")).toBe(false);
@@ -140,7 +125,7 @@ describe("the consent conversation", () => {
     };
     render();
     const user = userEvent.setup();
-    await user.upload(await screen.findByLabelText(/plugin package file/i), packageFile("retro"));
+    await user.click(await screen.findByRole("radio", { name: "reporter 1.0.0" }));
 
     expect(await screen.findByText("This plugin asks for no capabilities at all.")).toBeTruthy();
     expect(screen.getByText(/Provides:\s*Retrospective/)).toBeTruthy();
@@ -417,7 +402,7 @@ describe("a payload shaped like the real API response", () => {
 
     render();
     const user = userEvent.setup();
-    await user.upload(await screen.findByLabelText(/plugin package file/i), packageFile());
+    await user.click(await screen.findByRole("radio", { name: "reporter 1.0.0" }));
 
     // Before the fix this throws on preview.added.length while rendering the
     // upgrade branch of the consent screen.
@@ -439,7 +424,7 @@ describe("a viewer the server has refused", () => {
     render();
 
     expect(await screen.findByText(/only an org admin can do that/i)).toBeTruthy();
-    expect(screen.queryByLabelText(/plugin package file/i)).toBeNull();
+    expect(screen.queryByText("Install from the catalogue")).toBeNull();
   });
 });
 
@@ -468,12 +453,11 @@ describe("installing by digest", () => {
   it("installs a catalogue version by its digest and key id", async () => {
     render();
     const user = userEvent.setup();
-    await screen.findByRole("option", { name: "reporter 1.0.0" });
-    await user.selectOptions(screen.getByLabelText(/install from the catalogue/i), "reporter 1.0.0");
+    await user.click(await screen.findByRole("radio", { name: "reporter 1.0.0" }));
     expect(await screen.findByText(/Can send anything it holds/)).toBeTruthy();
     expect(calls.find(([m, p]) => m === "POST" && p.endsWith("/preview"))?.[2]).toEqual({ digest: "d1", key_id: "k1" });
     await user.click(screen.getByRole("checkbox", { name: /I grant it/i }));
-    await user.click(screen.getByRole("button", { name: /grant and install/i }));
+    await user.click(screen.getByRole("button", { name: "Install reporter 1.0.0" }));
     const install = calls.find(([m, p]) => m === "POST" && p === "/api/orgs/acme/admin/plugins");
     expect(install?.[2]).toEqual({ digest: "d1", key_id: "k1", grantsAccepted: true });
   });
@@ -503,7 +487,7 @@ describe("installing by digest", () => {
     expect(calls.some(([, p]) => p.endsWith("/rollback"))).toBe(false);
     const confirm = screen.getByRole("button", { name: "Confirm rollback to 1.0.0" });
     expect(document.activeElement).toBe(confirm);
-    expect(screen.getByText(/Confirm rolling back reporter to 1\.0\.0, or cancel\./)).toBeTruthy();
+    expect(screen.getByText(/Confirm moving reporter from 2\.0\.0 to 1\.0\.0, or cancel\./)).toBeTruthy();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("button", { name: "Confirm rollback to 1.0.0" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Roll back to 1.0.0" }));
@@ -519,25 +503,23 @@ describe("installing by digest", () => {
     await expectNoViolations(container);
   });
 
-  it("binds a package's consent to the bundle the preview named", async () => {
-    preview = { ...preview, bundle: { digest: "d9", key_id: "k1" } };
-    render();
-    const user = userEvent.setup();
-    await user.upload(await screen.findByLabelText(/plugin package file/i), packageFile());
-    await user.click(await screen.findByRole("checkbox", { name: /I grant it/i }));
-    await user.click(screen.getByRole("button", { name: /grant and install/i }));
-    const install = calls.find(([m, p]) => m === "POST" && p === "/api/orgs/acme/admin/plugins");
-    expect((install?.[2] as { previewedDigest?: string }).previewedDigest).toBe("d9");
-  });
   it("says so when the catalogue cannot be read", async () => {
-    const api = (await import("../lib/api")).api as unknown as { mockImplementation: (f: unknown) => void };
+    const api = (await import("../lib/api")).api as unknown as {
+      getMockImplementation: () => unknown;
+      mockImplementation: (f: unknown) => void;
+    };
+    const original = api.getMockImplementation();
     const real = registry;
     api.mockImplementation(async (method: string, path: string) => {
       if (path === "/api/catalogue") throw new ApiError(500, "could not load the catalogue");
       return method === "GET" ? real : undefined;
     });
-    render();
-    expect((await screen.findByRole("alert")).textContent).toContain("could not load the catalogue");
+    try {
+      render();
+      expect((await screen.findByRole("alert")).textContent).toContain("could not load the catalogue");
+    } finally {
+      api.mockImplementation(original);
+    }
   });
 
 
@@ -577,10 +559,8 @@ describe("installing by digest", () => {
     try {
       render();
       const user = userEvent.setup();
-      await screen.findByRole("option", { name: "reporter 2.0.0" });
-      const pick = screen.getByLabelText(/install from the catalogue/i);
-      await user.selectOptions(pick, "reporter 1.0.0");
-      await user.selectOptions(pick, "reporter 2.0.0");
+      await user.click(await screen.findByRole("radio", { name: "reporter 1.0.0" }));
+      await user.click(screen.getByRole("radio", { name: "reporter 2.0.0" }));
       expect(await screen.findByText(/reporter 2\.0\.0/, { selector: "p,h3,h4,strong,span,div" })).toBeTruthy();
       answerOld(preview);
       await new Promise((r) => setTimeout(r, 0));
@@ -588,5 +568,38 @@ describe("installing by digest", () => {
     } finally {
       api.mockImplementation(original);
     }
+  });
+
+  it("labels a newer entry in the history as an upgrade, not a rollback", async () => {
+    registry.installs = [
+      {
+        id: "p1", name: "reporter", version: "0.1.0", enabled: true, grants: [], provides: [],
+        health: { state: "healthy", reason: "" }, bundle: { digest: "a0", key_id: "k1" }, inCatalogue: true,
+        history: [
+          { digest: "a0", key_id: "k1", version: "0.1.0" },
+          { digest: "a1", key_id: "k1", version: "0.1.1" },
+        ],
+      },
+    ];
+    render();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Upgrade to 0.1.1" }));
+    expect(screen.queryByRole("button", { name: /Roll back/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Confirm upgrade to 0.1.1" })).toBeTruthy();
+    expect(screen.getByText(/Confirm moving reporter from 0\.1\.0 to 0\.1\.1/)).toBeTruthy();
+  });
+
+  it("points an empty catalogue at the page where bundles are added", async () => {
+    catalogue.plugins = [];
+    render();
+    const link = await screen.findByRole("link", { name: "the plugin catalogue" });
+    expect(link.getAttribute("href")).toBe("/catalogue");
+  });
+
+  it("preselects the version a catalogue link names", async () => {
+    renderApp(routed, { route: "/o/acme/admin/plugins?install=d1/k1" });
+    expect(await screen.findByText(/Can send anything it holds/)).toBeTruthy();
+    expect((screen.getByRole("radio", { name: "reporter 1.0.0" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("checkbox", { name: /I grant it/i }) as HTMLInputElement).checked).toBe(false);
   });
 });

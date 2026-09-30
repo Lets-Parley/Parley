@@ -1,8 +1,9 @@
 import { useId, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, ApiError, errorText, NetworkError } from "../lib/api";
+import { api, ApiError, errorText, NetworkError, type OrgMembership } from "../lib/api";
+import { Link } from "react-router-dom";
 import type { Catalogue } from "../lib/plugins";
-import { catalogueApi } from "../lib/paths";
+import { catalogueApi, pluginsPath } from "../lib/paths";
 import { GrantList } from "./PluginsPage";
 
 /**
@@ -154,6 +155,13 @@ export function CataloguePage() {
   };
 
   const plugins = catalogue.data?.plugins ?? [];
+  // The orgs this person administers, each a place a version can be installed.
+  const myOrgs = useQuery({
+    queryKey: ["my-orgs"],
+    queryFn: () => api<OrgMembership[]>("GET", "/api/orgs"),
+    retry: false,
+  });
+  const adminOrgs = Array.isArray(myOrgs.data) ? myOrgs.data.filter((o) => o.role === "admin") : [];
 
   return (
     <main className="mx-auto max-w-[860px] px-6 py-9">
@@ -303,6 +311,16 @@ export function CataloguePage() {
                       {shortDigest(v.digest)}
                     </span>
                     <CopyDigest digest={v.digest} />
+                    {adminOrgs.map((o) => (
+                      <Link
+                        key={o.slug}
+                        to={`${pluginsPath(o.slug)}?install=${v.digest}/${v.key_id}`}
+                        aria-label={`Install ${p.name} ${v.version} in ${o.name}`}
+                        className="ml-auto text-sm font-bold text-accent underline underline-offset-2"
+                      >
+                        Install in {o.name}
+                      </Link>
+                    ))}
                   </div>
                   {v.grants.length > 0 ? (
                     <GrantList grants={v.grants} />

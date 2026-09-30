@@ -46,6 +46,25 @@ describe("CataloguePage", () => {
     await expectNoViolations(container);
   });
 
+  it("offers an org admin a link that installs a version in their org", async () => {
+    fetchMock.mockImplementation(async (path: string) =>
+      path === "/api/orgs"
+        ? new Response(
+            JSON.stringify([
+              { slug: "acme", name: "Acme", role: "admin" },
+              { slug: "beta", name: "Beta", role: "member" },
+            ]),
+            { status: 200 },
+          )
+        : new Response(JSON.stringify(catalogue), { status: 200 }),
+    );
+    const { container } = renderApp(<CataloguePage />);
+    const link = await screen.findByRole("link", { name: "Install retro 1.0.0 in Acme" });
+    expect(link.getAttribute("href")).toBe("/o/acme/admin/plugins?install=abc123/k1");
+    expect(screen.queryByRole("link", { name: /in Beta/ })).toBeNull();
+    await expectNoViolations(container);
+  });
+
   it("shows a loading line while the catalogue is pending", async () => {
     fetchMock.mockImplementation(() => new Promise(() => {}));
     renderApp(<CataloguePage />);

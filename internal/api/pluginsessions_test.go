@@ -440,8 +440,8 @@ func TestANarrowingUpgradeRebuildsTheKindPluginGrants(t *testing.T) {
 	}
 
 	resp, body := doJSON(t, srv, "POST", pluginsPath,
-		`{"grantsAccepted":true,"package":`+pluginPkg(name, "1.1.0",
-			map[string]string{"capability": "session:read"})+`}`, admin)
+		`{"grantsAccepted":true,`+choice(t, pool, pluginPkg(name, "1.1.0",
+			map[string]string{"capability": "session:read"}))+`}`, admin)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("narrowing upgrade = %d: %v", resp.StatusCode, body)
 	}
@@ -471,9 +471,9 @@ func TestApprovingAnUpgradeRebuildsTheKindPluginGrants(t *testing.T) {
 	}
 
 	resp, body := doJSON(t, srv, "POST", pluginsPath,
-		`{"grantsAccepted":true,"package":`+pluginPkg(name, "2.0.0",
+		`{"grantsAccepted":true,`+choice(t, pool, pluginPkg(name, "2.0.0",
 			map[string]string{"capability": "log"},
-			map[string]string{"capability": "session:read"})+`}`, admin)
+			map[string]string{"capability": "session:read"}))+`}`, admin)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("widening upgrade = %d, want 202: %v", resp.StatusCode, body)
 	}

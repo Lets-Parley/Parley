@@ -17,7 +17,6 @@ import (
 
 	"github.com/lets-parley/parley/internal/httprequest"
 	"github.com/lets-parley/parley/internal/plugin"
-	"github.com/lets-parley/parley/internal/plugin/bundle"
 )
 
 // The operator's plugin administration surface.
@@ -40,8 +39,8 @@ import (
 // internal/plugin.Describe, next to the guards that enforce it, so the sentence
 // an operator agrees to and the rule the host applies cannot drift apart.
 
-// pluginPackage is the file an operator uploads for the code tier. It is
-// untrusted input that *requests* capabilities; nothing in it grants anything.
+// pluginPackage is a bundle's manifest. It is untrusted input that *requests*
+// capabilities; nothing in it grants anything.
 type pluginPackage struct {
 	Manifest     int              `json:"manifest"`
 	Kind         string           `json:"kind"`
@@ -73,16 +72,8 @@ func (c pluginChoice) ref() plugin.BundleRef {
 // Consent is a field rather than an implication: a POST that carries no
 // explicit grant decision is refused, so a client that forgot to show the
 // consent screen cannot install anything by omission.
-//
-// Package is the deprecated package.json alias, used only when no digest is
-// given.
 type installRequest struct {
 	pluginChoice
-	Package *pluginPackage `json:"package"`
-	// PreviewedDigest is the stored bundle the preview named for Package.
-	// Consent is to those bytes: if the alias now resolves elsewhere, the
-	// install is refused for another look.
-	PreviewedDigest string `json:"previewedDigest"`
 	// GrantsAccepted must be true. It is the operator saying the words.
 	GrantsAccepted bool `json:"grantsAccepted"`
 }
@@ -132,8 +123,7 @@ type previewResponse struct {
 	Widens   bool             `json:"widens"`
 	Provides []string         `json:"provides,omitempty"`
 	Kinds    []plugin.KindDef `json:"kinds"`
-	// Bundle is the stored bundle this preview describes, absent for an
-	// alias package with none behind it.
+	// Bundle is the stored bundle this preview describes.
 	Bundle *plugin.BundleRef `json:"bundle,omitempty"`
 }
 
@@ -277,15 +267,12 @@ func (a *app) handlePreviewPlugin(w http.ResponseWriter, r *http.Request) {
 	if !a.requirePluginStore(w) {
 		return
 	}
-	var req struct {
-		pluginPackage
-		pluginChoice
-	}
+	var req pluginChoice
 	if err := httprequest.DecodeJSON(w, r, 64<<10, &req); err != nil {
-		http.Error(w, `{"error":"that is not a plugin package"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"choose a bundle from the catalogue"}`, http.StatusBadRequest)
 		return
 	}
-	pkg, pin, ok := a.choose(w, r, &req.pluginPackage, req.pluginChoice)
+	pkg, pin, ok := a.choose(w, r, req)
 	if !ok {
 		return
 	}
@@ -341,12 +328,8 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest)
 		return
 	}
-	pkg, pin, ok := a.choose(w, r, req.Package, req.pluginChoice)
+	pkg, pin, ok := a.choose(w, r, req.pluginChoice)
 	if !ok {
-		return
-	}
-	if req.Digest == "" && pin != nil && req.PreviewedDigest != pin.Digest {
-		http.Error(w, `{"error":"the bundle changed since it was previewed; review it again"}`, http.StatusConflict)
 		return
 	}
 	grants := pkg.grants()
@@ -379,11 +362,6 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 
 	// Going back is a rollback, audited and limited to what this install ran,
 	// never an install of an older version.
-	// The alias must never unpin a catalogue install onto loose files.
-	if pin == nil && current.Install.Bundle != nil {
-		http.Error(w, `{"error":"this plugin runs a catalogue bundle; install a catalogue version instead"}`, http.StatusConflict)
-		return
-	}
 	if versionLess(pkg.Version, current.Install.Version) {
 		http.Error(w, `{"error":"that is an older version; roll back to a version this plugin ran instead"}`, http.StatusConflict)
 		return
@@ -491,7 +469,7 @@ func (a *app) handleRollbackPlugin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"this plugin never ran that bundle; a rollback can only return to one it did"}`, http.StatusConflict)
 		return
 	}
-	pkg, pin, ok := a.choose(w, r, nil, choice)
+	pkg, pin, ok := a.choose(w, r, choice)
 	if !ok {
 		return
 	}
@@ -646,45 +624,22 @@ func (a *app) requirePluginStore(w http.ResponseWriter) bool {
 	return true
 }
 
-// choose turns what the operator picked into the package whose grants, kinds
-// and consent copy apply, and the bundle it pins. A catalogue choice reads the
-// verified bundle's own manifest. A package.json is the deprecated alias: it
-// resolves to the stored bundle for its name and version when one exists, and
-// otherwise installs unpinned, as it always did.
-func (a *app) choose(w http.ResponseWriter, r *http.Request, pkg *pluginPackage, c pluginChoice) (pluginPackage, *plugin.BundleRef, bool) {
-	var b *bundle.Bundle
-	var err error
-	if c.Digest != "" {
-		b, err = a.bundles.Pinned(r.Context(), c.ref())
-		if err != nil && !errors.Is(err, plugin.ErrBundleUntrusted) && !errors.Is(err, plugin.ErrNoBundle) {
-			a.pluginError(w, err, "could not read the catalogue")
-			return pluginPackage{}, nil, false
-		}
-		if err != nil {
-			http.Error(w, `{"error":"that bundle is not in the catalogue"}`, http.StatusNotFound)
-			return pluginPackage{}, nil, false
-		}
-	} else {
-		if pkg == nil {
-			http.Error(w, `{"error":"choose a bundle from the catalogue"}`, http.StatusBadRequest)
-			return pluginPackage{}, nil, false
-		}
-		if msg, ok := pkg.validate(); !ok {
-			http.Error(w, `{"error":`+jsonString(msg)+`}`, http.StatusBadRequest)
-			return pluginPackage{}, nil, false
-		}
-		b, err = a.bundles.Stored(r.Context(), pkg.Name, pkg.Version)
-		if err != nil && !errors.Is(err, plugin.ErrBundleUntrusted) {
-			a.pluginError(w, err, "could not read the catalogue")
-			return pluginPackage{}, nil, false
-		}
-		if err != nil {
-			http.Error(w, `{"error":"the stored bundle for this name and version is not trusted by this instance"}`, http.StatusUnprocessableEntity)
-			return pluginPackage{}, nil, false
-		}
-		if b == nil {
-			return *pkg, nil, true
-		}
+// choose resolves a catalogue choice to the package whose grants, kinds and
+// consent copy apply — the verified bundle's own manifest — and the bundle it
+// pins.
+func (a *app) choose(w http.ResponseWriter, r *http.Request, c pluginChoice) (pluginPackage, *plugin.BundleRef, bool) {
+	if c.Digest == "" {
+		http.Error(w, `{"error":"choose a bundle from the catalogue"}`, http.StatusBadRequest)
+		return pluginPackage{}, nil, false
+	}
+	b, err := a.bundles.Pinned(r.Context(), c.ref())
+	if err != nil && !errors.Is(err, plugin.ErrBundleUntrusted) && !errors.Is(err, plugin.ErrNoBundle) {
+		a.pluginError(w, err, "could not read the catalogue")
+		return pluginPackage{}, nil, false
+	}
+	if err != nil {
+		http.Error(w, `{"error":"that bundle is not in the catalogue"}`, http.StatusNotFound)
+		return pluginPackage{}, nil, false
 	}
 	out := pluginPackage{Manifest: 1, Kind: "plugin"}
 	if err := json.Unmarshal(b.Manifest, &out); err != nil {

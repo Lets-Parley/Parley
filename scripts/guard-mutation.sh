@@ -855,14 +855,6 @@ mutate "a rollback only to a bundle the install ran" \
     'TestRollbackReturnsOnlyToABundleTheInstallRan' \
     plugins.go '	if !ran {' '	if !ran && false {'
 
-mutate "an alias install bound to the previewed digest" \
-    'TestALegacyPackageResolvesToThePreviewedStoredBundle' \
-    plugins.go 'req.Digest == "" && pin != nil && req.PreviewedDigest != pin.Digest {' 'false && req.PreviewedDigest != pin.Digest {'
-
-mutate "the alias never unpinning a catalogue install" \
-    'TestALegacyPackageResolvesToThePreviewedStoredBundle' \
-    plugins.go '	if pin == nil && current.Install.Bundle != nil {' '	if false && current.Install.Bundle != nil {'
-
 mutate "no loose frame UI for a pinned plugin name" \
     'TestAPinnedInstallGetsNoLooseUI' \
     pluginframe.go '	if pinned {' '	if false {'

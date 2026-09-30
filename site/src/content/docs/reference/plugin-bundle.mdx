@@ -62,13 +62,16 @@ deleted.
 
 ## Installing by digest
 
+An org admin picks a version on their org's **Plugins** page, or follows the
+**Install in <org>** link beside it on the catalogue page, and grants what the
+server says it may do before anything is installed.
+
 An org admin installs a catalogue version by its digest and key id, and the
 install is **pinned** to that row: the host loads it by digest, never by name
 and version, so the install runs exactly those bytes, and trust is still
 re-checked on every call. The grants, session kinds and consent copy come from
-the verified bundle's own manifest. Uploading a `package.json` instead still
-works but is deprecated: it resolves to the stored bundle for its name and
-version when one exists, and otherwise installs unpinned from loose files.
+the verified bundle's own manifest. A catalogue bundle is the only way to
+install or upgrade; there is no upload of a bare `package.json`.
 
 At boot, after the `PLUGIN_DIR` import, every unpinned install is pinned to the
 trusted stored bundle for its name and version, under its own advisory lock.

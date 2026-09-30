@@ -88,35 +88,6 @@ func TestInstallFromTheCatalogueUsesTheVerifiedManifest(t *testing.T) {
 	}
 }
 
-// The deprecated package.json path resolves to the stored bundle when there
-// is one, but only the bundle that was previewed: consent is bound to a digest.
-func TestALegacyPackageResolvesToThePreviewedStoredBundle(t *testing.T) {
-	f := digestServer(t)
-	name := newPluginName(t)
-	f.store(t, name, "1.0.0", `[{"capability":"log"}]`)
-	pkg := pluginPkg(name, "1.0.0")
-	code, preview := f.post(t, "/preview", pkg)
-	digest := pinnedDigest(preview)
-	if code != http.StatusOK || digest == "" {
-		t.Fatalf("preview = %d %v, want it to name the stored bundle", code, preview)
-	}
-	if code, _ := f.post(t, "", `{"grantsAccepted":true,"package":`+pkg+`}`); code != http.StatusConflict {
-		t.Fatalf("an alias install with no previewed digest = %d, want 409", code)
-	}
-	code, view := f.post(t, "", `{"grantsAccepted":true,"previewedDigest":"`+digest+`","package":`+pkg+`}`)
-	if code != http.StatusCreated || pinnedDigest(view) != digest {
-		t.Fatalf("legacy install = %d %v, want it pinned to the previewed bundle", code, view)
-	}
-	// Pinned now: an alias upgrade with no stored bundle must not unpin it.
-	if code, _ := f.post(t, "", `{"grantsAccepted":true,"package":`+pluginPkg(name, "1.1.0")+`}`); code != http.StatusConflict {
-		t.Fatalf("an alias upgrade of a pinned install to an unstored version = %d, want 409", code)
-	}
-	var got string
-	if err := f.pool.QueryRow(context.Background(), `select bundle_digest from plugin_installs where id = $1`, view["id"]).Scan(&got); err != nil || got != digest {
-		t.Fatalf("pin = %q %v, want %s unchanged", got, err, digest)
-	}
-}
-
 func TestRollbackReturnsOnlyToABundleTheInstallRan(t *testing.T) {
 	f := digestServer(t)
 	name := newPluginName(t)
