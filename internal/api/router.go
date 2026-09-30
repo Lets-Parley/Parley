@@ -612,6 +612,12 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			r.Get("/orgs", a.handleListMyOrgs)
 			r.Get("/spaces", a.handleListMySpaces)
 			r.Post("/spaces", a.handleCreateSpace)
+			// The instance plugin catalogue. Reading it takes membership of
+			// some org, checked in the handler; uploading takes the default
+			// org's admins. Its CSRF story is rejectCrossSite plus the upload's
+			// non-safelisted Content-Type, which forces a preflight.
+			r.Get("/catalogue", a.handleCatalogue)
+			r.With(a.requireInstanceCurator).Post("/catalogue/bundles", a.handleUploadBundle)
 		})
 
 		// Everything that resolves a space slug hangs off an org, because a
@@ -866,6 +872,12 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 
 func limitAPIRequestBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The bundle upload is not buffered here, before anybody is known:
+		// its handler reads it under bundle.MaxUpload, behind the curator gate.
+		if isBundleUpload(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		bounded := http.MaxBytesReader(w, r.Body, httprequest.MaxJSONBody)
 		body, err := io.ReadAll(bounded)
 		bounded.Close()
@@ -897,7 +909,7 @@ func requireJSONBody(next http.Handler) http.Handler {
 				}{io.MultiReader(bytes.NewReader(first[:n]), r.Body), r.Body}
 			}
 		}
-		if r.Method != http.MethodGet && r.ContentLength != 0 {
+		if r.Method != http.MethodGet && r.ContentLength != 0 && !isBundleUpload(r) {
 			ct := r.Header.Get("Content-Type")
 			if !strings.HasPrefix(ct, "application/json") {
 				http.Error(w, `{"error":"Content-Type must be application/json"}`, http.StatusUnsupportedMediaType)

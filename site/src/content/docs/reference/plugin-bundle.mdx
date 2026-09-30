@@ -5,7 +5,7 @@ description: The .parley bundle, version 1 — what it contains, how it is signe
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp version="unreleased" source={["sdk/abi/bundle-v1.md", "internal/plugin/bundle/bundle.go", "cmd/parley/plugincmd.go"]} />
+<VerifiedStamp version="unreleased" source={["sdk/abi/bundle-v1.md", "internal/plugin/bundle/bundle.go", "cmd/parley/plugincmd.go", "internal/api/catalogue.go"]} />
 
 A plugin ships as one `.parley` file: a deterministic gzip-compressed tar
 archive. The full specification, including the byte-level encoding a packer
@@ -44,6 +44,21 @@ entries' declared sizes add up past it; if anything follows the gzip member; if
 `MANIFEST.sha256` is not in canonical form (sorted, lowercase hex, two spaces,
 a newline after every line); or if its signature does not verify, is by an
 untrusted key, or is missing and unsigned bundles are not allowed.
+
+## The catalogue
+
+Verified bundles are stored in the database, so every replica serves the same
+bytes. An admin of the **default** org uploads a bundle on the **Plugin
+catalogue** page (`/catalogue`), or with
+`POST /api/catalogue/bundles`; nobody else may, including an admin of another
+org. Every org member can browse the catalogue, which shows each version's
+digest, the signer's key id and what it would be permitted to do.
+
+A bundle is accepted only if it is signed by a key in `PLUGIN_TRUSTED_KEYS`,
+or is unsigned and `PLUGIN_ALLOW_UNSIGNED=true`. The first bundle stored for a
+name and version holds it: a different bundle for the same name and version is
+refused, so a new release needs a new version. Stored bundles are never
+deleted.
 
 ## Operator commands
 

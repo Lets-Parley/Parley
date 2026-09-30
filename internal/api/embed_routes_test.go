@@ -82,6 +82,8 @@ var embeddedRouteTable = map[string]embedRouteClass{
 	"GET /api/orgs":                      embedAllowed,
 	"GET /api/spaces":                    embedAllowed,
 	"POST /api/spaces":                   embedRefused,
+	"GET /api/catalogue":                 embedRefused,
+	"POST /api/catalogue/bundles":        embedRefused,
 	"GET /api/orgs/{org}/spaces":         embedAllowed,
 	"GET /api/orgs/{org}/plugins/panels": embedRefused,
 	"GET /api/orgs/{org}/spaces/{slug}":  embedAllowed,

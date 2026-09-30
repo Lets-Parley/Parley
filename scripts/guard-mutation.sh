@@ -773,6 +773,30 @@ mutate "the handshake timeout" \
 # holder could already enter, never a new key.
 target internal/api
 
+mutate "the catalogue curator role check" \
+    'TestOnlyADefaultOrgAdminCanUploadABundle' \
+    catalogue.go 'return org, role == store.OrgRoleAdmin, nil' 'return org, role != "", nil'
+
+# The upload exemption from requireJSONBody is an exact path and an exact type.
+mutate "the bundle upload exemption's exact type" \
+    'TestTheBundleTypeIsExemptOnlyOnTheUploadRoute' \
+    catalogue.go 'r.Header.Get("Content-Type") == bundleContentType' 'true'
+
+# The pre-auth middleware must not buffer the upload past the JSON cap.
+mutate "the bundle upload skipping pre-auth buffering" \
+    'TestAnAnonymousUploadIsNotBufferedPastTheJSONCap' \
+    router.go '		if isBundleUpload(r) {' '		if isBundleUpload(r) { _, _ = io.ReadAll(r.Body)'
+
+mutate "the bundle upload exemption's exact path" \
+    'TestTheBundleTypeIsExemptOnlyOnTheUploadRoute' \
+    catalogue.go 'r.URL.Path == bundleUploadPath &&' 'r.URL.Path != "" &&'
+
+# The raw body's only cap is in the handler, behind the curator gate.
+mutate "the bundle upload body cap" \
+    'TestTheBundleTypeIsExemptOnlyOnTheUploadRoute' \
+    catalogue.go 'http.MaxBytesReader(w, r.Body, bundle.MaxUpload)' 'http.MaxBytesReader(w, r.Body, bundle.MaxUpload<<6)'
+
+
 mutate "the embed switch answering 404 when no provider is enabled" \
     'TestEmbedDisabledIs404AndIgnoresBearer' \
     embed.go 'if len(a.embedProviders) == 0 {

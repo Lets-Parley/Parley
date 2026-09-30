@@ -26,6 +26,9 @@ var (
 	// already holds. The first signed bundle wins; an unsigned one never
 	// displaces or competes with it.
 	ErrBundleConflict = errors.New("a different bundle is already stored for this name and version")
+	// ErrBundleIdentity is a verified bundle whose manifest names no name
+	// or no version, so it cannot be stored under one.
+	ErrBundleIdentity = errors.New("the bundle's manifest names no name and version")
 	// ErrBundleUntrusted is a stored bundle this instance does not trust now.
 	ErrBundleUntrusted = errors.New("the stored bundle for this name and version is not trusted by this instance")
 )
@@ -269,16 +272,23 @@ func (s *BundleStore) WarnLoose(name, version, what string) {
 // version already held is ErrBundleConflict. uploadedBy is nil for a boot
 // import.
 func (s *BundleStore) Insert(ctx context.Context, archive []byte, uploadedBy *string) (*bundle.Bundle, error) {
+	b, _, err := s.Add(ctx, archive, uploadedBy)
+	return b, err
+}
+
+// Add is Insert that also reports whether this call stored a new row, false
+// when the same bundle was already held.
+func (s *BundleStore) Add(ctx context.Context, archive []byte, uploadedBy *string) (*bundle.Bundle, bool, error) {
 	if len(archive) > bundle.MaxUpload {
-		return nil, bundle.ErrTooLarge
+		return nil, false, bundle.ErrTooLarge
 	}
 	b, err := bundle.Verify(bytes.NewReader(archive), s.Trusted, s.AllowUnsigned)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	var m struct{ Name, Version string }
 	if m.Name, m.Version, err = manifestNameVersion(b.Manifest); err != nil {
-		return nil, fmt.Errorf("bundle %s: %w", b.Digest, err)
+		return nil, false, fmt.Errorf("bundle %s: %w", b.Digest, ErrBundleIdentity)
 	}
 	// An unsigned bundle is only stored where nothing is; a signed one is
 	// held to one per name and version by the partial unique index.
@@ -289,19 +299,19 @@ func (s *BundleStore) Insert(ctx context.Context, archive []byte, uploadedBy *st
 		on conflict do nothing`,
 		b.Digest, b.KeyID, m.Name, m.Version, archive, string(b.Manifest), b.Wasm, b.UI, b.Slots, uploadedBy)
 	if err != nil {
-		return nil, fmt.Errorf("storing bundle %s: %w", b.Digest, err)
+		return nil, false, fmt.Errorf("storing bundle %s: %w", b.Digest, err)
 	}
 	if tag.RowsAffected() == 0 {
 		var same bool
 		if err := s.Pool.QueryRow(ctx, `select exists (select 1 from plugin_bundles where digest = $1 and key_id = $2)`,
 			b.Digest, b.KeyID).Scan(&same); err != nil {
-			return nil, fmt.Errorf("storing bundle %s: %w", b.Digest, err)
+			return nil, false, fmt.Errorf("storing bundle %s: %w", b.Digest, err)
 		}
 		if !same {
-			return nil, fmt.Errorf("%s %s: %w", m.Name, m.Version, ErrBundleConflict)
+			return nil, false, fmt.Errorf("%s %s: %w", m.Name, m.Version, ErrBundleConflict)
 		}
 	}
-	return b, nil
+	return b, tag.RowsAffected() > 0, nil
 }
 
 // Import stores every *.parley file in Dir that verifies. A refused,

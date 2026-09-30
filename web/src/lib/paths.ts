@@ -90,3 +90,9 @@ export function standupTrendApi(org: string, slug: string): string {
 export function awayApi(id = ""): string {
   return id ? `/api/me/away/${encodeURIComponent(id)}` : "/api/me/away";
 }
+
+/** The SPA route for the instance plugin catalogue. It belongs to no org. */
+export const cataloguePath = "/catalogue";
+
+/** The catalogue API: GET lists it; uploads POST to `${catalogueApi}/bundles`. */
+export const catalogueApi = "/api/catalogue";

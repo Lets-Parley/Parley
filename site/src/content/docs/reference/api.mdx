@@ -6,7 +6,7 @@ description: Every route, who may call it, and what it does.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import RouteTable from "../../../components/RouteTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/store/spaces.go", "internal/store/sessions.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/kudos.go", "internal/api/plugins.go", "internal/plugin/grants.go", "internal/api/pluginpanels.go", "internal/api/pluginframe.go", "cmd/parley/main.go", "internal/api/plugindev.go", "internal/api/standup_schedule.go", "internal/api/standup_webhook.go", "internal/api/ics.go", "internal/api/standup_mentions.go", "internal/standup/mentions.go", "internal/api/standup_away.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/store/spaces.go", "internal/store/sessions.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/kudos.go", "internal/api/plugins.go", "internal/api/catalogue.go", "internal/plugin/grants.go", "internal/api/pluginpanels.go", "internal/api/pluginframe.go", "cmd/parley/main.go", "internal/api/plugindev.go", "internal/api/standup_schedule.go", "internal/api/standup_webhook.go", "internal/api/ics.go", "internal/api/standup_mentions.go", "internal/standup/mentions.go", "internal/api/standup_away.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go"]} />
 
 There is no API token scheme. Everything authenticates with the `parley_session`
 cookie, so the API is usable from a script only by reusing a browser session's
@@ -228,6 +228,23 @@ demotes an incumbent owner.
   { method: "POST", path: "/api/orgs/{org}/admin/members/{userId}/restore", auth: "org admin", purpose: "Lift a revocation, so the next sign-in enrols them again if their claim still matches. Without it a mis-click would be permanent." },
   { method: "DELETE", path: "/api/orgs/{org}", auth: "org admin", purpose: "Purge the org: every space, every session, and the org row itself, in one transaction. Send {confirm} matching the org's own slug; without it the call is 400 and reports the exact space and session counts it would destroy, read inside the transaction that would have done it. Irreversible, and the audit records survive it. The default org cannot be purged." },
 ]} />
+
+### Plugin catalogue
+
+The instance's shelf of signed bundles, shared by every org. Reading it takes
+membership of at least one org; uploading takes an admin of the **default**
+org — an admin of any other org is refused **403**. A link guest is **401** on
+both, and an embedded session is refused.
+
+<RouteTable rows={[
+  { method: "GET", path: "/api/catalogue", auth: "org member", purpose: "Every stored bundle, grouped by plugin name: for each version its digest, key_id (empty for an unsigned bundle), the grants it asks for described by the server, and its settings schema if it declares one. It names no uploader, no org and no install count. can_upload says whether the caller may upload." },
+  { method: "POST", path: "/api/catalogue/bundles", auth: "default-org admin", purpose: "Upload a .parley bundle as the raw request body with Content-Type application/vnd.parley.bundle — no JSON, no multipart. The body is capped at 16 MiB plus framing. 201 with the stored version; the identical bundle again is 200 with the same body, and adds nothing. 409 when a different bundle already holds that name and version. 400 for a malformed bundle, 422 for a signature that does not verify against a trusted key. Uploads and signature refusals are written to the org audit log." },
+]} />
+
+The upload is the one `/api` write that does not take JSON. The exemption is
+that exact path and that exact type, and the type is not one a browser may
+send cross-site without a preflight, so the same-origin check still holds.
+Stored bundles are never deleted, so there is no route to remove one.
 
 ### Plugin administration
 
