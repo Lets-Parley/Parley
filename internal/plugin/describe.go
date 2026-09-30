@@ -83,6 +83,10 @@ func Describe(g Grant) DescribedGrant {
 		} else {
 			out.Permits = fmt.Sprintf("Can change the live state of the %q session only, and then only if that room runs a ceremony this plugin provides — move that room's phase, reveal or hide what it is showing everyone in it.", g.Scope)
 		}
+	case CapabilitySessionAct:
+		// Coarse on purpose: there is no per-action grant, and the scope is not
+		// consulted (the bridge checks the capability name alone).
+		out.Permits = "Can press any button the person viewing it could press in the room its panel is shown in — reveal a round, advance a story, or any other action that room offers, including the facilitator's controls when that person is the facilitator — at a moment of the plugin's choosing, without a further click. Parley re-checks every action as that person, so it can never do more than they could."
 	case CapabilityJobs:
 		out.Permits = "Can schedule its own work to run later on this server, outside any request a person made."
 	case CapabilityEmit:
