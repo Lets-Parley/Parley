@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -162,5 +165,37 @@ func TestLoadedBundlesAreForCuratorsOnly(t *testing.T) {
 	resp, body := doJSON(t, srv, "GET", "/api/catalogue/loaded", "", curator)
 	if _, ok := body["loaded"].([]any); resp.StatusCode != http.StatusOK || !ok {
 		t.Fatalf("a curator = %d %v, want 200 and a loaded list", resp.StatusCode, body)
+	}
+}
+
+// A pinned install never gets UI from a loose file: not in the panel list, and
+// not from the public frame route.
+func TestAPinnedInstallGetsNoLooseUI(t *testing.T) {
+	dir := t.TempDir()
+	name := newPluginName(t)
+	if err := os.WriteFile(filepath.Join(dir, name+"-1.0.0.ui.js"), []byte("//"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pool := testPool(t)
+	srv := testServerWith(t, pool, Options{AllowedOrigin: testOrigin, PluginDir: dir})
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	data, _ := bundle.Pack(map[string][]byte{"plugin.wasm": []byte("\x00asm")},
+		[]byte(fmt.Sprintf(`{"name":%q,"version":"0.9.0"}`, name)), priv)
+	b, err := (&plugin.BundleStore{Pool: pool, Trusted: []ed25519.PublicKey{pub}}).Insert(context.Background(), data, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(),
+		`insert into plugin_installs (org_id, name, version, enabled, kv_quota_bytes, bundle_digest, bundle_key_id)
+		 values ($1, $2, '1.0.0', true, 1024, $3, $4)`, defaultOrgID(t, pool), name, b.Digest, b.KeyID); err != nil {
+		t.Fatal(err)
+	}
+	if resp, body := get(t, srv, "/plugin-ui/"+name+"/1.0.0"); resp.StatusCode == http.StatusOK && strings.Contains(body, "parleyBridgeReady") && body != "" {
+		t.Fatalf("the frame route served a loose ui.js for a pinned install: %.300s", body)
+	}
+	dana := signup(t, srv, "Dana")
+	createSpace(t, srv, "Alpha Squad", dana)
+	if names := readPanels(t, srv, newPokerSession(t, srv, dana), dana); contains(names, name) {
+		t.Fatalf("a pinned install was listed from a loose ui.js: %v", names)
 	}
 }

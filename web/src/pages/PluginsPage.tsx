@@ -610,7 +610,10 @@ function InstalledCard({
                     className="flex gap-2"
                     onKeyDown={(e) => e.key === "Escape" && setRollingBack("")}
                     onBlur={(e) => {
-                      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setRollingBack("");
+                      // Only focus landing elsewhere disarms: a click that
+                      // does not focus (Safari) blurs with no related target.
+                      const to = e.relatedTarget as Node | null;
+                      if (to && !e.currentTarget.contains(to)) setRollingBack("");
                     }}
                   >
                     <button

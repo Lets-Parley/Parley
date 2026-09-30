@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/lets-parley/parley/internal/plugin/bundle"
@@ -267,5 +268,49 @@ func TestApprovingAnUnpinnedUpgradeKeepsThePin(t *testing.T) {
 	}
 	if rawPin(t, store, in.ID) != a.Digest {
 		t.Fatal("approving an upgrade with no staged bundle cleared the pin")
+	}
+}
+
+// Repin is a compare-and-set: a pin moved by an approve or rollback after the
+// host read it is left alone, and two replicas re-pinning at once agree.
+func TestRepinNeverOverwritesAPinThatMovedMeanwhile(t *testing.T) {
+	store := &Store{Pool: testPool(t)}
+	ctx := context.Background()
+	key := testKey(t)
+	bs := &BundleStore{Pool: store.Pool, Trusted: []ed25519.PublicKey{pubOf(key)}, Log: quietLogger()}
+	name := uniqueName(t)
+	a, _ := bs.Insert(ctx, packVer(t, name, "1.0.0", key), nil)
+	b, _ := bs.Insert(ctx, packVer(t, name, "2.0.0", key), nil)
+	refA, refB := BundleRef{Digest: a.Digest, KeyID: a.KeyID}, BundleRef{Digest: b.Digest, KeyID: b.KeyID}
+	in, err := store.Install(ctx, InstallRequest{OrgID: testOrgID, Name: name, Version: "1.0.0", QuotaBytes: 1024, Bundle: &refA})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Read as stale against a pin that is no longer there.
+	stale := BundleRef{Digest: "moved", KeyID: a.KeyID}
+	if err := store.Repin(ctx, in.ID, "1.0.0", &stale, refB); err != nil {
+		t.Fatal(err)
+	}
+	if rawPin(t, store, in.ID) != a.Digest {
+		t.Fatal("Repin overwrote a pin that changed after it was read")
+	}
+	if ran, _ := store.InOrg(testOrgID).Ran(ctx, in.ID, refB); ran {
+		t.Fatal("a no-op Repin recorded history")
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for range 2 {
+		wg.Add(1)
+		go func() { defer wg.Done(); errs <- store.Repin(ctx, in.ID, "1.0.0", &refA, refB) }()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if rawPin(t, store, in.ID) != b.Digest {
+		t.Fatal("concurrent Repin did not land")
 	}
 }

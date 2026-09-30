@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
@@ -508,6 +508,11 @@ describe("installing by digest", () => {
     expect(screen.queryByRole("button", { name: "Confirm rollback to 1.0.0" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Roll back to 1.0.0" }));
     await expectNoViolations(container);
+    // Tab to Cancel keeps it armed; a blur with no new focus (a click that
+    // does not focus, as in Safari) does not disarm it.
+    await user.tab();
+    expect(document.activeElement?.textContent).toBe("Cancel");
+    fireEvent.blur(document.activeElement as HTMLElement, { relatedTarget: null });
     await user.click(screen.getByRole("button", { name: "Confirm rollback to 1.0.0" }));
     const rollback = calls.find(([m, p]) => m === "POST" && p === "/api/orgs/acme/admin/plugins/p1/rollback");
     expect(rollback?.[2]).toEqual({ digest: "d1", key_id: "k1" });

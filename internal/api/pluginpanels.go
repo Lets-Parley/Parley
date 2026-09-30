@@ -20,6 +20,7 @@ type panel struct {
 	Version string   `json:"version"`
 	Grants  []string `json:"grants"`
 	Slots   []string `json:"slots,omitempty"`
+	pinned  bool
 }
 
 // handlePluginPanels lists one org's enabled installs that have a UI bundle on
@@ -95,7 +96,8 @@ func (a *app) handleOrgPluginPanels(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) pluginPanels(ctx context.Context, orgID string) ([]panel, error) {
 	rows, err := a.pool.Query(ctx, `
-		select i.name, i.version, coalesce(array_agg(g.capability) filter (where g.capability is not null), '{}')
+		select i.name, i.version, coalesce(array_agg(g.capability) filter (where g.capability is not null), '{}'),
+			bool_or(i.bundle_digest is not null)
 		from plugin_installs i
 		left join plugin_grants g on g.install_id = i.id
 		where i.enabled and i.org_id = $1
@@ -109,7 +111,7 @@ func (a *app) pluginPanels(ctx context.Context, orgID string) ([]panel, error) {
 	var installed []panel
 	for rows.Next() {
 		var p panel
-		if err := rows.Scan(&p.Name, &p.Version, &p.Grants); err != nil {
+		if err := rows.Scan(&p.Name, &p.Version, &p.Grants, &p.pinned); err != nil {
 			return nil, err
 		}
 		installed = append(installed, p)
@@ -135,7 +137,8 @@ func (a *app) pluginPanels(ctx context.Context, orgID string) ([]panel, error) {
 			}
 			p.Slots = declaredSlots(stored.Slots, stored.Slots != nil)
 		} else {
-			if a.bundles.Dir == "" || !hasPluginUI(a.bundles.Dir, p.Name, p.Version) {
+			// A pinned install never takes UI from a loose file.
+			if p.pinned || a.bundles.Dir == "" || !hasPluginUI(a.bundles.Dir, p.Name, p.Version) {
 				continue
 			}
 			a.bundles.WarnLoose(p.Name, p.Version, "ui.js")

@@ -114,12 +114,21 @@ func (s *BundleStore) StoredRef(ctx context.Context, name, version string) (Bund
 }
 
 // Repin moves an install whose pin went stale onto the stored row for its
-// version, and records it.
-func (s *Store) Repin(ctx context.Context, installID string, ref BundleRef) error {
+// version, and records it. It is a compare-and-set on the version and the pin
+// the caller read: an approve or rollback that landed meanwhile wins, and the
+// re-pin is then a no-op with no history row.
+func (s *Store) Repin(ctx context.Context, installID, version string, old *BundleRef, ref BundleRef) error {
 	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `update plugin_installs set bundle_digest = $2, bundle_key_id = $3 where id = $1`,
-			installID, ref.Digest, ref.KeyID); err != nil {
+		tag, err := tx.Exec(ctx, `
+			update plugin_installs set bundle_digest = $2, bundle_key_id = $3
+			where id = $1 and version = $4
+			and bundle_digest is not distinct from $5 and bundle_key_id is not distinct from $6`,
+			installID, ref.Digest, ref.KeyID, version, old.digest(), old.keyID())
+		if err != nil {
 			return fmt.Errorf("re-pinning %s: %w", installID, err)
+		}
+		if tag.RowsAffected() == 0 {
+			return nil
 		}
 		return recordPin(ctx, tx, installID, &ref)
 	})

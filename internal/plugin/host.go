@@ -305,7 +305,7 @@ func (h *Host) module(ctx context.Context, installID string) (*extism.CompiledPl
 			h.evict(ctx, installID)
 			return nil, fmt.Errorf("resolving the bundle for %s: %w", state.Install.Name, err)
 		}
-		if err := h.Store.Repin(ctx, installID, ref); err != nil {
+		if err := h.Store.Repin(ctx, installID, state.Install.Version, state.Install.PinnedTo, ref); err != nil {
 			return nil, err
 		}
 		pin = &ref

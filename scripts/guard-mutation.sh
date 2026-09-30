@@ -863,6 +863,14 @@ mutate "the alias never unpinning a catalogue install" \
     'TestALegacyPackageResolvesToThePreviewedStoredBundle' \
     plugins.go '	if pin == nil && current.Install.Bundle != nil {' '	if false && current.Install.Bundle != nil {'
 
+mutate "no loose frame UI for a pinned plugin name" \
+    'TestAPinnedInstallGetsNoLooseUI' \
+    pluginframe.go '	if pinned {' '	if false {'
+
+mutate "no loose panel UI for a pinned install" \
+    'TestAPinnedInstallGetsNoLooseUI' \
+    pluginpanels.go 'if p.pinned || a.bundles.Dir' 'if a.bundles.Dir'
+
 mutate "the curator gate on the loaded-bundle list" \
     'TestLoadedBundlesAreForCuratorsOnly' \
     router.go 'r.With(a.requireInstanceCurator).Get("/catalogue/loaded"' 'r.Get("/catalogue/loaded"'
@@ -1013,6 +1021,10 @@ mutate "a pin authoritative only for its own version" \
 mutate "a pinned install never running a loose file" \
     'TestAStalePinNeverRunsALooseFile' \
     host.go '	if pin == nil && state.Install.PinnedTo != nil {' '	if false && state.Install.PinnedTo != nil {'
+
+mutate "a re-pin only over the pin it read" \
+    'TestRepinNeverOverwritesAPinThatMovedMeanwhile' \
+    pin.go 'and bundle_digest is not distinct from $5 and bundle_key_id is not distinct from $6' 'and ($5::text is null or true) and ($6::text is null or true)'
 
 # cmd/parley builds against internal/plugin: put its last mutation back first.
 restore_all

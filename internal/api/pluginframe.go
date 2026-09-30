@@ -111,6 +111,17 @@ func (a *app) pluginUI(ctx context.Context, name, version string) ([]byte, error
 	if a.bundles.Dir == "" {
 		return nil, fmt.Errorf("no UI for %s %s", name, version)
 	}
+	// A pinned install only ever runs stored bundles. This route names no
+	// org, so a pin on any install of this name refuses the loose file.
+	var pinned bool
+	if err := a.pool.QueryRow(ctx,
+		`select exists (select 1 from plugin_installs where name = $1 and bundle_digest is not null)`,
+		name).Scan(&pinned); err != nil {
+		return nil, err
+	}
+	if pinned {
+		return nil, fmt.Errorf("%s is pinned to a stored bundle; no loose UI", name)
+	}
 	ui, err := readPluginUI(a.bundles.Dir, name, version)
 	if err == nil {
 		a.bundles.WarnLoose(name, version, "ui.js")
