@@ -2,9 +2,9 @@ import { useId, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, errorText } from "../lib/api";
-import type { DescribedGrant, InstalledPlugin, PluginPreview, PluginRegistry } from "../lib/plugins";
+import type { BundleRef, Catalogue, DescribedGrant, InstalledPlugin, PluginPreview, PluginRegistry } from "../lib/plugins";
 import { normalizePluginPreview, normalizePluginRegistry } from "../lib/plugins";
-import { pluginsApi } from "../lib/paths";
+import { catalogueApi, pluginsApi } from "../lib/paths";
 import {
   buttonDanger,
   buttonPrimary,
@@ -87,7 +87,7 @@ export function PluginsPage() {
             input and an "install" button above a one-line refusal reads as
             actionable when it cannot do anything, so a viewer the server has
             already refused does not see controls that only exist to fail. */}
-        {!(registry.error instanceof ApiError && registry.error.status === 403) && (
+        {!registry.isLoading && !(registry.error instanceof ApiError && registry.error.status === 403) && (
           <InstallPanel org={org} onDone={refresh} onSay={say} />
         )}
 
@@ -324,17 +324,26 @@ function InstallPanel({
   onSay: (m: string) => void;
 }) {
   const fileId = useId();
+  const pickId = useId();
   const ackId = useId();
   const base = pluginsApi(org);
-  const [pkg, setPkg] = useState<unknown>(null);
+  // What the install POST carries besides the consent: a catalogue choice,
+  // or the deprecated {package}.
+  const [chosen, setChosen] = useState<object | null>(null);
+  const [picked, setPicked] = useState("");
+  const catalogue = useQuery({
+    queryKey: ["catalogue"],
+    queryFn: () => api<Catalogue>("GET", catalogueApi),
+  });
   const [preview, setPreview] = useState<PluginPreview | null>(null);
   const [ack, setAck] = useState(false);
   const [problem, setProblem] = useState("");
 
   const install = useMutation({
-    mutationFn: () => api("POST", base, { package: pkg, grantsAccepted: true }),
+    mutationFn: () => api("POST", base, { ...chosen, grantsAccepted: true }),
     onSuccess: () => {
-      setPkg(null);
+      setChosen(null);
+      setPicked("");
       setPreview(null);
       setAck(false);
       onSay(preview?.upgrade ? "Upgrade recorded." : "Installed.");
@@ -343,10 +352,37 @@ function InstallPanel({
     onError: (e) => setProblem(errorText(e)),
   });
 
-  async function readFile(file: File) {
+  async function describe(body: unknown, installBody: object) {
+    setChosen(installBody);
+    try {
+      // The server describes what it will permit. Asking it, rather than
+      // reading the manifest here, is what stops this screen and the guard
+      // drifting apart.
+      setPreview(normalizePluginPreview(await api<PluginPreview>("POST", `${base}/preview`, body)));
+    } catch (e) {
+      setProblem(errorText(e));
+    }
+  }
+
+  function reset() {
     setProblem("");
     setPreview(null);
     setAck(false);
+    setChosen(null);
+  }
+
+  function pick(value: string) {
+    reset();
+    setPicked(value);
+    if (!value) return;
+    const [digest, key_id] = value.split("/");
+    const ref: BundleRef = { digest, key_id };
+    void describe(ref, ref);
+  }
+
+  async function readFile(file: File) {
+    reset();
+    setPicked("");
     let parsed: unknown;
     try {
       parsed = JSON.parse(await file.text());
@@ -354,21 +390,31 @@ function InstallPanel({
       setProblem("that file is not JSON");
       return;
     }
-    setPkg(parsed);
-    try {
-      // The server describes what it will permit. Asking it, rather than
-      // reading the manifest here, is what stops this screen and the guard
-      // drifting apart.
-      setPreview(normalizePluginPreview(await api<PluginPreview>("POST", `${base}/preview`, parsed)));
-    } catch (e) {
-      setProblem(errorText(e));
-    }
+    await describe(parsed, { package: parsed });
   }
 
   return (
     <div className="mt-5 rounded-card border border-line bg-surface p-5">
-      <label htmlFor={fileId} className={"block " + labelText}>
-        Plugin package file (.json)
+      <label htmlFor={pickId} className={"block " + labelText}>
+        Install from the catalogue
+      </label>
+      <select
+        id={pickId}
+        className="mt-2 block rounded-md border border-line bg-surface px-2 py-1 text-sm"
+        value={picked}
+        onChange={(e) => pick(e.target.value)}
+      >
+        <option value="">Choose a plugin version…</option>
+        {catalogue.data?.plugins.flatMap((p) =>
+          p.versions.map((v) => (
+            <option key={`${v.digest}/${v.key_id}`} value={`${v.digest}/${v.key_id}`}>
+              {p.name} {v.version}
+            </option>
+          )),
+        )}
+      </select>
+      <label htmlFor={fileId} className={"mt-4 block " + labelText}>
+        Or a plugin package file (.json) — deprecated
       </label>
       <input
         id={fileId}
@@ -488,6 +534,16 @@ function InstalledCard({
     },
     onError: (e) => onSay(errorText(e)),
   });
+  const rollback = useMutation({
+    mutationFn: (to: BundleRef) =>
+      api("POST", `${base}/${install.id}/rollback`, { digest: to.digest, key_id: to.key_id }),
+    onSuccess: () => {
+      onSay("Rollback recorded.");
+      onDone();
+    },
+    onError: (e) => onSay(errorText(e)),
+  });
+  const rollbackTo = (install.history ?? []).filter((h) => h.digest !== install.bundle?.digest);
   const uninstall = useMutation({
     mutationFn: () => api("DELETE", `${base}/${install.id}`),
     onSuccess: () => {
@@ -517,6 +573,26 @@ function InstalledCard({
             <p className="mt-1 text-[13px] text-ink-soft">
               Provides: {install.provides.join(", ")}
             </p>
+          )}
+          <p className="mt-1 font-mono text-[11px] text-ink-faint">
+            {install.bundle
+              ? `Bundle ${install.bundle.digest.slice(0, 12)}`
+              : "Not in catalogue — still runs from PLUGIN_DIR"}
+          </p>
+          {rollbackTo.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {rollbackTo.map((h) => (
+                <button
+                  key={`${h.digest}/${h.key_id}`}
+                  type="button"
+                  className={buttonQuiet}
+                  disabled={rollback.isPending}
+                  onClick={() => rollback.mutate(h)}
+                >
+                  Roll back to {h.version}
+                </button>
+              ))}
+            </div>
           )}
         </div>
         <div className="flex flex-wrap gap-2">

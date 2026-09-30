@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderApp } from "../test/render";
 import { expectNoViolations } from "../test/axe";
@@ -99,7 +99,10 @@ describe("CataloguePage", () => {
       renderApp(<CataloguePage />);
       const z = await zone();
       fireEvent.drop(z, { dataTransfer: { files: [new File(["x"], "one.parley")] } });
-      expect(await screen.findByText("Uploading one.parley…")).toBeTruthy();
+      // Announced, not only drawn on the zone.
+      await waitFor(() =>
+        expect(document.querySelector("[data-upload-result] [role=status]")?.textContent).toBe("Uploading one.parley…"),
+      );
       expect(z.getAttribute("aria-busy")).toBe("true");
       expect((screen.getByLabelText("A signed .parley file") as HTMLInputElement).disabled).toBe(true);
       fireEvent.drop(z, { dataTransfer: { files: [new File(["y"], "two.parley")] } });

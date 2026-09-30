@@ -1,24 +1,14 @@
 import { useId, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, errorText, NetworkError } from "../lib/api";
-import type { DescribedGrant } from "../lib/plugins";
+import type { Catalogue } from "../lib/plugins";
 import { catalogueApi } from "../lib/paths";
 import { GrantList } from "./PluginsPage";
 
-type CatalogueVersion = {
-  version: string;
-  digest: string;
-  key_id: string;
-  grants: DescribedGrant[];
-  settings?: unknown;
-};
-type Catalogue = {
-  can_upload: boolean;
-  plugins: { name: string; versions: CatalogueVersion[] }[];
-};
-
-/** The raw bundle upload. Its type is not JSON on purpose: see catalogue.go. */
-/** Uploads a bundle; true when it was added, false when it was already held. */
+/**
+ * Uploads a bundle as the raw body; its type is not JSON on purpose (see
+ * catalogue.go). `added` is false when the bundle was already held.
+ */
 async function uploadBundle(file: Blob): Promise<{ added: boolean; name: string; version: string }> {
   let resp: Response;
   try {
@@ -256,7 +246,7 @@ export function CataloguePage() {
           {/* Always rendered at a fixed height, so a result never moves the page. */}
           <div data-upload-result className="mt-3 min-h-[3rem] text-sm font-bold">
             <p role="status" className="text-go">
-              {status}
+              {uploading ? `Uploading ${uploading}…` : status}
             </p>
             {failure && (
               <p role="alert" className="text-stop">

@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -52,9 +54,15 @@ func TestPluginKindsReachEveryReplicaWithoutARestart(t *testing.T) {
 	eventually(t, 5*time.Second, "the disable to reach the second replica", func() bool {
 		return !regB.Known(kind)
 	})
-	// There is no bundle to compile, so Enable errors after the enable has
-	// committed — which is all this needs.
-	_ = hostA.Enable(ctx, in.ID)
+	// Enable compiles before it commits, so hostA needs a module it can load.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, in.Name+"-"+in.Version+".wasm"), []byte("\x00asm\x01\x00\x00\x00"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hostA.Bundles = plugin.DirBundles(dir)
+	if err := hostA.Enable(ctx, in.ID); err != nil {
+		t.Fatal(err)
+	}
 	eventually(t, 5*time.Second, "the re-enable to reach the second replica", func() bool {
 		return regB.KnownInOrg(orgID, kind)
 	})

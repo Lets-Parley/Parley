@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -16,6 +17,7 @@ import (
 
 	"github.com/lets-parley/parley/internal/httprequest"
 	"github.com/lets-parley/parley/internal/plugin"
+	"github.com/lets-parley/parley/internal/plugin/bundle"
 )
 
 // The operator's plugin administration surface.
@@ -56,12 +58,27 @@ type pluginCapReq struct {
 	Scope      string `json:"scope"`
 }
 
-// installRequest is a package plus the operator's decision about it. Consent is
-// a field rather than an implication: a POST that carries a package and no
+// pluginChoice is a catalogue entry, by the digest and key id GET
+// /api/catalogue lists.
+type pluginChoice struct {
+	Digest string `json:"digest"`
+	KeyID  string `json:"key_id"`
+}
+
+func (c pluginChoice) ref() plugin.BundleRef {
+	return plugin.BundleRef{Digest: c.Digest, KeyID: c.KeyID}
+}
+
+// installRequest is a catalogue choice plus the operator's decision about it.
+// Consent is a field rather than an implication: a POST that carries no
 // explicit grant decision is refused, so a client that forgot to show the
 // consent screen cannot install anything by omission.
+//
+// Package is the deprecated package.json alias, used only when no digest is
+// given.
 type installRequest struct {
-	Package pluginPackage `json:"package"`
+	pluginChoice
+	Package *pluginPackage `json:"package"`
 	// GrantsAccepted must be true. It is the operator saying the words.
 	GrantsAccepted bool `json:"grantsAccepted"`
 }
@@ -78,6 +95,11 @@ type installView struct {
 	Provides []string         `json:"provides"`
 	Pending  *pendingView     `json:"pending,omitempty"`
 	Health   plugin.Health    `json:"health"`
+	// Bundle is the catalogue bundle the install is pinned to; null means it
+	// is not in the catalogue and still runs from PLUGIN_DIR's loose files.
+	Bundle      *plugin.BundleRef      `json:"bundle"`
+	InCatalogue bool                   `json:"inCatalogue"`
+	History     []plugin.PinnedVersion `json:"history"`
 }
 
 // pendingView is an upgrade waiting on an operator, rendered as a diff against
@@ -134,6 +156,7 @@ func (a *app) mountPlugins(r chi.Router) {
 	r.Post("/", a.handleInstallPlugin)
 	r.Post("/{id}/upgrade", a.handleApproveUpgrade)
 	r.Post("/{id}/enabled", a.handleSetPluginEnabled)
+	r.Post("/{id}/rollback", a.handleRollbackPlugin)
 	r.Delete("/{id}", a.handleUninstallPlugin)
 	// The theme tier executes nothing and lives in the operator's own browser,
 	// so there is no server-side record of it to change — but "every install
@@ -193,7 +216,9 @@ func (a *app) installView(ctx context.Context, adm *plugin.Admin, id string) (in
 		// than the nil append below leaves it as when a plugin provides no
 		// session kinds — the common case, and the one that white-screened
 		// the page.
-		Provides: []string{},
+		Provides:    []string{},
+		Bundle:      state.Install.Bundle,
+		InCatalogue: state.Install.Bundle != nil,
 		// Enabled is durable in plugin_installs.enabled and is genuinely
 		// known without a host, so that case is decided below regardless of
 		// a.pluginHost. Everything else about an install's health is a
@@ -211,6 +236,12 @@ func (a *app) installView(ctx context.Context, adm *plugin.Admin, id string) (in
 	}
 	if a.pluginHost != nil {
 		out.Health = a.pluginHost.Health(id, state.Install.Enabled)
+	}
+	if out.History, err = adm.History(ctx, id); err != nil {
+		return installView{}, err
+	}
+	if out.History == nil {
+		out.History = []plugin.PinnedVersion{}
 	}
 	blocking, err := adm.BlockingSessions(ctx, id)
 	if err != nil {
@@ -239,7 +270,15 @@ func (a *app) handlePreviewPlugin(w http.ResponseWriter, r *http.Request) {
 	if !a.requirePluginStore(w) {
 		return
 	}
-	pkg, ok := a.readPackage(w, r)
+	var req struct {
+		pluginPackage
+		pluginChoice
+	}
+	if err := httprequest.DecodeJSON(w, r, 64<<10, &req); err != nil {
+		http.Error(w, `{"error":"that is not a plugin package"}`, http.StatusBadRequest)
+		return
+	}
+	pkg, _, ok := a.choose(w, r, &req.pluginPackage, req.pluginChoice)
 	if !ok {
 		return
 	}
@@ -294,11 +333,10 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest)
 		return
 	}
-	if msg, ok := req.Package.validate(); !ok {
-		http.Error(w, `{"error":`+jsonString(msg)+`}`, http.StatusBadRequest)
+	pkg, pin, ok := a.choose(w, r, req.Package, req.pluginChoice)
+	if !ok {
 		return
 	}
-	pkg := req.Package
 	grants := pkg.grants()
 
 	adm := a.pluginAdmin(r)
@@ -310,7 +348,7 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 	if !found {
 		in, err := adm.Install(r.Context(), plugin.InstallRequest{
 			Name: pkg.Name, Version: pkg.Version, Grants: grants,
-			QuotaBytes: pkg.quota(), Kinds: pkg.Kinds,
+			QuotaBytes: pkg.quota(), Kinds: pkg.Kinds, Bundle: pin,
 		})
 		if err != nil {
 			a.pluginError(w, err, "could not install that plugin")
@@ -327,7 +365,13 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = adm.Upgrade(r.Context(), current.Install.ID, pkg.Version, grants, pkg.Kinds)
+	// Going back is a rollback, audited and limited to what this install ran,
+	// never an install of an older version.
+	if versionLess(pkg.Version, current.Install.Version) {
+		http.Error(w, `{"error":"that is an older version; roll back to a version this plugin ran instead"}`, http.StatusConflict)
+		return
+	}
+	err = adm.UpgradeTo(r.Context(), current.Install.ID, pkg.Version, grants, pkg.Kinds, pin)
 	switch {
 	case errors.Is(err, plugin.ErrUpgradePending):
 		// The install keeps its old version and its old grants. This is the
@@ -402,6 +446,58 @@ func (a *app) handleApproveUpgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, view)
+}
+
+// handleRollbackPlugin returns an install to a bundle it previously ran. It
+// goes through the upgrade path, so grants wider than the ones in force wait
+// for approval exactly as a widening upgrade does.
+func (a *app) handleRollbackPlugin(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePluginStore(w) {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	var choice pluginChoice
+	if err := decodeOptional(w, r, &choice); err != nil {
+		http.Error(w, `{"error":"that is not a bundle"}`, http.StatusBadRequest)
+		return
+	}
+	adm := a.pluginAdmin(r)
+	ran, err := adm.Ran(r.Context(), id, choice.ref())
+	if notFoundInstall(w, err) {
+		return
+	}
+	if err != nil {
+		a.pluginError(w, err, "could not read the bundles this plugin ran")
+		return
+	}
+	if !ran {
+		http.Error(w, `{"error":"this plugin never ran that bundle; a rollback can only return to one it did"}`, http.StatusConflict)
+		return
+	}
+	pkg, pin, ok := a.choose(w, r, nil, choice)
+	if !ok {
+		return
+	}
+	detail := fmt.Sprintf("%s to %s (%s)", pkg.Name, pkg.Version, pin)
+	code, action := http.StatusOK, "plugin.rollback"
+	err = adm.UpgradeTo(r.Context(), id, pkg.Version, pkg.grants(), pkg.Kinds, pin)
+	switch {
+	case errors.Is(err, plugin.ErrUpgradePending):
+		code, action = http.StatusAccepted, "plugin.rollback_requested"
+		detail = "requested a rollback of " + detail + " with wider capabilities; it is waiting for approval"
+	case err != nil:
+		a.pluginError(w, err, "could not roll back that plugin")
+		return
+	default:
+		detail = "rolled back " + detail
+	}
+	a.auditPlugin(r, action, detail)
+	view, err := a.installView(r.Context(), adm, id)
+	if err != nil {
+		http.Error(w, `{"error":"could not read the installed plugins"}`, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, code, view)
 }
 
 func (a *app) handleSetPluginEnabled(w http.ResponseWriter, r *http.Request) {
@@ -533,17 +629,65 @@ func (a *app) requirePluginStore(w http.ResponseWriter) bool {
 	return true
 }
 
-func (a *app) readPackage(w http.ResponseWriter, r *http.Request) (pluginPackage, bool) {
-	var pkg pluginPackage
-	if err := httprequest.DecodeJSON(w, r, 64<<10, &pkg); err != nil {
-		http.Error(w, `{"error":"that is not a plugin package"}`, http.StatusBadRequest)
-		return pluginPackage{}, false
+// choose turns what the operator picked into the package whose grants, kinds
+// and consent copy apply, and the bundle it pins. A catalogue choice reads the
+// verified bundle's own manifest. A package.json is the deprecated alias: it
+// resolves to the stored bundle for its name and version when one exists, and
+// otherwise installs unpinned, as it always did.
+func (a *app) choose(w http.ResponseWriter, r *http.Request, pkg *pluginPackage, c pluginChoice) (pluginPackage, *plugin.BundleRef, bool) {
+	var b *bundle.Bundle
+	var err error
+	if c.Digest != "" {
+		b, err = a.bundles.Pinned(r.Context(), c.ref())
+		if err != nil && !errors.Is(err, plugin.ErrBundleUntrusted) && !errors.Is(err, plugin.ErrNoBundle) {
+			a.pluginError(w, err, "could not read the catalogue")
+			return pluginPackage{}, nil, false
+		}
+		if err != nil {
+			http.Error(w, `{"error":"that bundle is not in the catalogue"}`, http.StatusNotFound)
+			return pluginPackage{}, nil, false
+		}
+	} else {
+		if pkg == nil {
+			http.Error(w, `{"error":"choose a bundle from the catalogue"}`, http.StatusBadRequest)
+			return pluginPackage{}, nil, false
+		}
+		if msg, ok := pkg.validate(); !ok {
+			http.Error(w, `{"error":`+jsonString(msg)+`}`, http.StatusBadRequest)
+			return pluginPackage{}, nil, false
+		}
+		b, err = a.bundles.Stored(r.Context(), pkg.Name, pkg.Version)
+		if err != nil && !errors.Is(err, plugin.ErrBundleUntrusted) {
+			a.pluginError(w, err, "could not read the catalogue")
+			return pluginPackage{}, nil, false
+		}
+		if err != nil {
+			http.Error(w, `{"error":"the stored bundle for this name and version is not trusted by this instance"}`, http.StatusUnprocessableEntity)
+			return pluginPackage{}, nil, false
+		}
+		if b == nil {
+			return *pkg, nil, true
+		}
 	}
-	if msg, ok := pkg.validate(); !ok {
+	out := pluginPackage{Manifest: 1, Kind: "plugin"}
+	if err := json.Unmarshal(b.Manifest, &out); err != nil {
+		http.Error(w, `{"error":"the bundle's manifest is not a plugin package"}`, http.StatusBadRequest)
+		return pluginPackage{}, nil, false
+	}
+	if msg, ok := out.validate(); !ok {
 		http.Error(w, `{"error":`+jsonString(msg)+`}`, http.StatusBadRequest)
-		return pluginPackage{}, false
+		return pluginPackage{}, nil, false
 	}
-	return pkg, true
+	return out, &plugin.BundleRef{Digest: b.Digest, KeyID: b.KeyID}, true
+}
+
+// versionLess compares two major.minor.patch versions, which validate has
+// already screened.
+func versionLess(a, b string) bool {
+	var x, y [3]int
+	fmt.Sscanf(a, "%d.%d.%d", &x[0], &x[1], &x[2])
+	fmt.Sscanf(b, "%d.%d.%d", &y[0], &y[1], &y[2])
+	return slices.Compare(x[:], y[:]) < 0
 }
 
 // pluginError keeps a refusal the plugin package already worded — an

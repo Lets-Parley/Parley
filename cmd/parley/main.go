@@ -459,6 +459,13 @@ func main() {
 	// is logged and skipped.
 	bundles := pluginBundles(pool, cfg, log)
 	bundles.Import(ctx, log)
+	// Then pin every install made before the catalogue to the stored bundle
+	// for its name and version. One that matches nothing keeps running from
+	// loose files, shown as "not in catalogue"; a failure here never stops a
+	// boot.
+	if err := plugins.PinInstalls(ctx, bundles.TrustedKeyIDs(), log); err != nil {
+		log.Error("could not pin plugin installs to their stored bundles", "error", err)
+	}
 	runtime := plugin.NewRuntime(plugins, bundles, cfg.PluginLimits, log)
 	// Deferred after pool.Close, so it runs first: the workers have returned
 	// before the pool they query is closed.

@@ -43,6 +43,26 @@ export type InstalledPlugin = {
   provides: string[];
   pending?: PendingUpgrade;
   health: PluginHealth;
+  /** The catalogue bundle it is pinned to; null means it is not in the catalogue. */
+  bundle?: BundleRef | null;
+  inCatalogue?: boolean;
+  /** Every bundle it has run, newest first: the only rollback targets. */
+  history?: (BundleRef & { version: string })[];
+};
+
+/** A stored bundle an install names, by the digest and key id the catalogue lists. */
+export type BundleRef = { digest: string; key_id: string };
+
+export type CatalogueVersion = BundleRef & {
+  version: string;
+  grants: DescribedGrant[];
+  settings?: unknown;
+};
+
+/** GET /api/catalogue. */
+export type Catalogue = {
+  can_upload: boolean;
+  plugins: { name: string; versions: CatalogueVersion[] }[];
 };
 
 export type PluginRegistry = {
@@ -91,6 +111,7 @@ export function normalizePluginRegistry(reg: PluginRegistry): PluginRegistry {
       ...install,
       grants: orEmpty(install.grants),
       provides: orEmpty(install.provides),
+      history: orEmpty(install.history),
       pending: install.pending
         ? {
             ...install.pending,

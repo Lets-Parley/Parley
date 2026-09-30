@@ -205,20 +205,24 @@ func (h *Host) changed(ctx context.Context) {
 // Config exposes the budget in force, for the startup log and for tests.
 func (h *Host) Config() HostConfig { return h.cfg }
 
-// Enable compiles an install's bundle once and puts it in the cache, so the
-// first call after an enable is not also the first compile.
+// Enable compiles an install's bundle, then switches it on, in that order: a
+// bundle that will not load leaves the install off, and `enabled` never names
+// a plugin this pod could not run. SetEnabled fires OnChange, which puts the
+// ceremony on offer on every replica only once the module exists. On any
+// failure the module is evicted and `enabled` is left as it was.
 func (h *Host) Enable(ctx context.Context, installID string) error {
+	if _, err := h.module(ctx, installID); err != nil {
+		h.evict(ctx, installID)
+		return err
+	}
 	if err := h.Store.SetEnabled(ctx, installID, true); err != nil {
+		h.evict(ctx, installID)
 		return err
 	}
 	h.mu.Lock()
 	delete(h.breakers, installID)
 	h.mu.Unlock()
-	// SetEnabled has already put the ceremony on offer through OnChange,
-	// before the compile, so a bundle that will not compile still leaves the
-	// kind offered consistently with `enabled`.
-	_, err := h.module(ctx, installID)
-	return err
+	return nil
 }
 
 // Disable switches an install off and evicts its compiled module, rather than
@@ -287,7 +291,19 @@ func (h *Host) module(ctx context.Context, installID string) (*extism.CompiledPl
 	// Any other failure — a database
 	// blip — keeps serving the module resident, on its last good resolution,
 	// rather than closing it under in-flight calls.
-	key, err := h.Bundles.Resolve(ctx, state.Install.Name, state.Install.Version)
+	// A pinned install is served by its digest and key id, never by its name
+	// and version, so it runs exactly the bytes it was pinned to.
+	pinned, _ := h.Bundles.(PinnedBundles)
+	pin := state.Install.Bundle
+	if pin != nil && pinned == nil {
+		return nil, fmt.Errorf("%s is pinned to %s but this host cannot load by digest: %w", state.Install.Name, pin, ErrNoBundle)
+	}
+	var key string
+	if pin != nil {
+		key, err = pinned.ResolvePinned(ctx, *pin)
+	} else {
+		key, err = h.Bundles.Resolve(ctx, state.Install.Name, state.Install.Version)
+	}
 	if errors.Is(err, ErrBundleUntrusted) || errors.Is(err, ErrNoBundle) {
 		h.evict(ctx, installID)
 		return nil, fmt.Errorf("resolving the bundle for %s: %w", state.Install.Name, err)
@@ -303,7 +319,12 @@ func (h *Host) module(ctx context.Context, installID string) (*extism.CompiledPl
 		return nil, fmt.Errorf("resolving the bundle for %s: %w", state.Install.Name, err)
 	}
 
-	wasm, key, err := h.Bundles.Load(ctx, state.Install.Name, state.Install.Version)
+	var wasm []byte
+	if pin != nil {
+		wasm, key, err = pinned.LoadPinned(ctx, *pin)
+	} else {
+		wasm, key, err = h.Bundles.Load(ctx, state.Install.Name, state.Install.Version)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("loading the bundle for %s: %w", state.Install.Name, err)
 	}

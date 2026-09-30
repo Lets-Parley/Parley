@@ -851,6 +851,10 @@ mutate "sign out never falling back to the cookie beside a bearer" \
     'TestEmbedSignOutNeverFallsBackToTheCookie' \
     me.go 'err == nil && !a.bearerPresented(r) {' 'err == nil {'
 
+mutate "a rollback only to a bundle the install ran" \
+    'TestRollbackReturnsOnlyToABundleTheInstallRan' \
+    plugins.go '	if !ran {' '	if !ran && false {'
+
 target internal/store
 
 mutate "an embed handoff redeeming once" \
@@ -951,6 +955,18 @@ mutate "an unknown name never cached" \
 mutate "Runtime.Close waiting for its workers" \
     'TestCloseWaitsForTheWorkers' \
     runtime.go '	r.wg.Wait()' ''
+
+mutate "a pinned install loading by its digest, not its name and version" \
+    'TestAPinnedInstallRunsExactlyTheBytesItWasPinnedTo' \
+    host.go '	pin := state.Install.Bundle' '	pin := (*BundleRef)(nil)'
+
+mutate "Enable compiling before it switches an install on" \
+    'TestEnableLeavesAnInstallOffWhenItsBundleWillNotLoad' \
+    host.go '	if _, err := h.module(ctx, installID); err != nil {
+		h.evict(ctx, installID)
+		return err
+	}
+' ''
 
 # cmd/parley builds against internal/plugin: put its last mutation back first.
 restore_all

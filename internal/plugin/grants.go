@@ -79,13 +79,17 @@ func (s State) Scopes(capability string) []string {
 // takes effect on the next call instead of the next restart.
 func (s *Store) State(ctx context.Context, installID string) (State, error) {
 	var out State
+	var digest, keyID *string
 	err := s.Pool.QueryRow(ctx, `
-		select id, org_id, name, version, enabled, kv_quota_bytes
+		select id, org_id, name, version, enabled, kv_quota_bytes, bundle_digest, bundle_key_id
 		from plugin_installs where id = $1`, installID).
 		Scan(&out.Install.ID, &out.Install.OrgID, &out.Install.Name, &out.Install.Version,
-			&out.Install.Enabled, &out.Install.QuotaBytes)
+			&out.Install.Enabled, &out.Install.QuotaBytes, &digest, &keyID)
 	if err != nil {
 		return State{}, fmt.Errorf("reading install %s: %w", installID, err)
+	}
+	if digest != nil && keyID != nil {
+		out.Install.Bundle = &BundleRef{Digest: *digest, KeyID: *keyID}
 	}
 	rows, err := s.Pool.Query(ctx,
 		`select capability, scope from plugin_grants where install_id = $1`, installID)
@@ -150,6 +154,12 @@ type PendingUpgrade struct {
 // a non-nil slice — including empty — is canonicalised and written in the same
 // transaction as the version (or pending_version) bump.
 func (s *Store) Upgrade(ctx context.Context, installID, version string, want []Grant, kinds []KindDef) error {
+	return s.UpgradeTo(ctx, installID, version, want, kinds, nil)
+}
+
+// UpgradeTo is Upgrade that also moves the install's pin to pin, or clears
+// it when pin is nil. A widening upgrade stages the pin with the grants.
+func (s *Store) UpgradeTo(ctx context.Context, installID, version string, want []Grant, kinds []KindDef, pin *BundleRef) error {
 	current, err := s.State(ctx, installID)
 	if err != nil {
 		return err
@@ -189,9 +199,13 @@ func (s *Store) Upgrade(ctx context.Context, installID, version string, want []G
 		}
 		if !widens {
 			if _, err := tx.Exec(ctx,
-				`update plugin_installs set version = $2, pending_version = null, pending_kinds = null where id = $1`,
-				installID, version); err != nil {
+				`update plugin_installs set version = $2, pending_version = null, pending_kinds = null,
+				 bundle_digest = $3, bundle_key_id = $4, pending_digest = null, pending_key_id = null where id = $1`,
+				installID, version, pin.digest(), pin.keyID()); err != nil {
 				return fmt.Errorf("upgrading %s: %w", installID, err)
+			}
+			if err := recordPin(ctx, tx, installID, pin); err != nil {
+				return err
 			}
 			if err := replaceGrants(ctx, tx, installID, want); err != nil {
 				return err
@@ -211,8 +225,9 @@ func (s *Store) Upgrade(ctx context.Context, installID, version string, want []G
 				}
 			}
 			if _, err := tx.Exec(ctx,
-				`update plugin_installs set pending_version = $2, pending_kinds = $3 where id = $1`,
-				installID, version, staged); err != nil {
+				`update plugin_installs set pending_version = $2, pending_kinds = $3,
+				 pending_digest = $4, pending_key_id = $5 where id = $1`,
+				installID, version, staged, pin.digest(), pin.keyID()); err != nil {
 				return fmt.Errorf("recording the pending upgrade for %s: %w", installID, err)
 			}
 			for _, g := range want {
@@ -285,11 +300,11 @@ func (s *Store) ApproveUpgrade(ctx context.Context, installID string) error {
 	// Everything the approval acts on is read under the row lock, so an
 	// upload that lands meanwhile cannot swap the grants being approved.
 	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
-		var version *string
+		var version, digest, keyID *string
 		var staged []byte
 		if err := tx.QueryRow(ctx,
-			`select pending_version, pending_kinds from plugin_installs where id = $1 for update`,
-			installID).Scan(&version, &staged); err != nil {
+			`select pending_version, pending_kinds, pending_digest, pending_key_id from plugin_installs where id = $1 for update`,
+			installID).Scan(&version, &staged, &digest, &keyID); err != nil {
 			return fmt.Errorf("reading the pending upgrade for %s: %w", installID, err)
 		}
 		if version == nil {
@@ -313,9 +328,15 @@ func (s *Store) ApproveUpgrade(ctx context.Context, installID string) error {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
-			`update plugin_installs set version = $2, pending_version = null, pending_kinds = null where id = $1`,
-			installID, *version); err != nil {
+			`update plugin_installs set version = $2, pending_version = null, pending_kinds = null,
+			 bundle_digest = $3, bundle_key_id = $4, pending_digest = null, pending_key_id = null where id = $1`,
+			installID, *version, digest, keyID); err != nil {
 			return fmt.Errorf("approving the upgrade for %s: %w", installID, err)
+		}
+		if digest != nil && keyID != nil {
+			if err := recordPin(ctx, tx, installID, &BundleRef{Digest: *digest, KeyID: *keyID}); err != nil {
+				return err
+			}
 		}
 		// NULL: the upgrade declared no kinds, so the current ones stay. A
 		// declared set, even an empty one, is applied — and syncKinds'

@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
 import { expectNoViolations } from "../test/axe";
-import type { DescribedGrant, PluginPreview, PluginRegistry } from "../lib/plugins";
+import type { Catalogue, DescribedGrant, PluginPreview, PluginRegistry } from "../lib/plugins";
 import { ApiError } from "../lib/api";
 import { PluginsPage } from "./PluginsPage";
 
@@ -32,6 +32,7 @@ const logGrant: DescribedGrant = {
 
 let registry: PluginRegistry;
 let preview: PluginPreview;
+let catalogue: Catalogue;
 const calls: Array<[string, string, unknown]> = [];
 
 vi.mock("../lib/api", async () => {
@@ -42,6 +43,7 @@ vi.mock("../lib/api", async () => {
       calls.push([method, path, body]);
       if (method === "GET" && path === "/api/orgs/acme/admin/plugins") return registry;
       if (method === "POST" && path.endsWith("/preview")) return preview;
+      if (method === "GET" && path === "/api/catalogue") return catalogue;
       return undefined;
     }),
   };
@@ -77,6 +79,10 @@ beforeEach(() => {
   calls.length = 0;
   localStorage.clear();
   registry = { hostRunning: true, secretsAvailable: true, installs: [] };
+  catalogue = {
+    can_upload: false,
+    plugins: [{ name: "reporter", versions: [{ version: "1.0.0", digest: "d1", key_id: "k1", grants: [fetchGrant] }] }],
+  };
   preview = {
     name: "reporter",
     version: "1.0.0",
@@ -456,4 +462,46 @@ it("has no accessibility violations", async () => {
   const { container } = render();
   await screen.findByRole("heading", { name: /reporter/i });
   await expectNoViolations(container);
+});
+
+describe("installing by digest", () => {
+  it("installs a catalogue version by its digest and key id", async () => {
+    render();
+    const user = userEvent.setup();
+    await screen.findByRole("option", { name: "reporter 1.0.0" });
+    await user.selectOptions(screen.getByLabelText(/install from the catalogue/i), "reporter 1.0.0");
+    expect(await screen.findByText(/Can send anything it holds/)).toBeTruthy();
+    expect(calls.find(([m, p]) => m === "POST" && p.endsWith("/preview"))?.[2]).toEqual({ digest: "d1", key_id: "k1" });
+    await user.click(screen.getByRole("checkbox", { name: /I grant it/i }));
+    await user.click(screen.getByRole("button", { name: /grant and install/i }));
+    const install = calls.find(([m, p]) => m === "POST" && p === "/api/orgs/acme/admin/plugins");
+    expect(install?.[2]).toEqual({ digest: "d1", key_id: "k1", grantsAccepted: true });
+  });
+
+  it("shows the pin, says when an install is not in the catalogue, and rolls back", async () => {
+    registry.installs = [
+      {
+        id: "p1", name: "reporter", version: "2.0.0", enabled: true, grants: [logGrant], provides: [],
+        health: { state: "healthy", reason: "" },
+        bundle: { digest: "d2abcdef0123456789", key_id: "k1" }, inCatalogue: true,
+        history: [
+          { digest: "d2abcdef0123456789", key_id: "k1", version: "2.0.0" },
+          { digest: "d1", key_id: "k1", version: "1.0.0" },
+        ],
+      },
+      {
+        id: "p2", name: "legacy", version: "1.0.0", enabled: true, grants: [], provides: [],
+        health: { state: "healthy", reason: "" }, bundle: null, inCatalogue: false, history: [],
+      },
+    ];
+    const { container } = render();
+    const user = userEvent.setup();
+    expect(await screen.findByText(/Not in catalogue/)).toBeTruthy();
+    expect(screen.getByText(/d2abcdef0123/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Roll back to 2.0.0" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Roll back to 1.0.0" }));
+    const rollback = calls.find(([m, p]) => m === "POST" && p === "/api/orgs/acme/admin/plugins/p1/rollback");
+    expect(rollback?.[2]).toEqual({ digest: "d1", key_id: "k1" });
+    await expectNoViolations(container);
+  });
 });
