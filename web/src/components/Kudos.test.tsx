@@ -569,7 +569,7 @@ describe("Kudos letter", () => {
     expect(after?.[0].kudoWaiting).toBe(true);
   });
 
-  it("is a labelled group, and says without a number that another is waiting", async () => {
+  it("is a labeled group, and says without a number that another is waiting", async () => {
     kudos = [letter("k1")];
     const { unmount } = mount();
     const one = await screen.findByRole("group", { name: "A thank-you waiting for you" });
@@ -1043,7 +1043,7 @@ describe("Kudos letter", () => {
     await new Promise((r) => setTimeout(r, 600));
     const repeat = new KeyboardEvent("keydown", { key: "Enter", code: "Enter", repeat: true, bubbles: true, cancelable: true });
     button.dispatchEvent(repeat);
-    // A browser activates a button on an uncancelled Enter keydown; a repeat must be cancelled.
+    // A browser activates a button on an uncanceled Enter keydown; a repeat must be canceled.
     expect(repeat.defaultPrevented).toBe(true);
     await userEvent.keyboard("{/Enter}");
     const seens = vi.mocked(api).mock.calls.filter((c) => c[0] === "POST" && String(c[1]).endsWith("/seen"));

@@ -44,9 +44,9 @@ export function StoryQueue({
     const idx = stories.findIndex((s) => s.id === story.id);
     const swap = stories[idx + dir];
     if (!swap) return;
-    const neighbour = stories[idx + dir * 2];
-    // Insert between the swap target and its neighbour — positions never renumber.
-    const pos = neighbour ? (swap.position + neighbour.position) / 2 : swap.position + dir;
+    const neighbor = stories[idx + dir * 2];
+    // Insert between the swap target and its neighbor — positions never renumber.
+    const pos = neighbor ? (swap.position + neighbor.position) / 2 : swap.position + dir;
     run(() => action(sessionId, "story", { storyId: story.id, position: pos }));
   }
 

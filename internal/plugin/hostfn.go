@@ -193,7 +193,7 @@ func decode[T any](raw json.RawMessage, into *T) error {
 // that picks the length picks how much of the table one row takes.
 const maxKVKeyBytes = 512
 
-// namespacedKey is the whole of the cross-install defence on the key side. The
+// namespacedKey is the whole of the cross-install defense on the key side. The
 // install is a database column the guest never touches, so forging a key can
 // only ever reach another *scope*, and a key that tries is refused.
 //

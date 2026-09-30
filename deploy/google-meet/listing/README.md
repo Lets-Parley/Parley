@@ -69,7 +69,7 @@ The App Details language entry is required, and everything text-related
 lives inside it: application name, short description and detailed
 description, all within Google's stated limits. That row starts collapsed
 ("English —"); click it to expand **Edit Language**, paste the text in,
-then click **Done**. **Publish** and **Save draft** both stay greyed out
+then click **Done**. **Publish** and **Save draft** both stay grayed out
 until every required field is filled, including that hidden row — check
 it first if either button looks disabled.
 

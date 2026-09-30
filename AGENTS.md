@@ -65,7 +65,7 @@ cd web && npm run lint          # oxlint — CI does NOT run this, so you must
 
 Without `TEST_DATABASE_URL` the database-backed tests **fail**; they do not
 skip. `PARLEY_SKIP_DB_TESTS=1` is the only opt-out — it is parsed strictly, so
-`PARLEY_SKIP_DB_TESTS=0` runs the tests and an unrecognised value is a hard
+`PARLEY_SKIP_DB_TESTS=0` runs the tests and an unrecognized value is a hard
 failure — it prints a warning naming the packages it silenced (visible in a
 terminal, or under `-v`/`-json`; see CONTRIBUTING.md), and CI rejects both the
 variable and any skipped test. Do not reintroduce a silent skip — roughly two thirds of the suite is
@@ -76,7 +76,7 @@ database-backed, so a skip is a green run that verified nothing.
 - **Never report a passing test run without saying whether the database was
   set.** Without `TEST_DATABASE_URL` the database-backed tests fail rather than
   skip, so a green run is meaningful — but only if the opt-out was not used.
-- Behavioural changes need a test, and the test must have been *seen to fail*
+- Behavioral changes need a test, and the test must have been *seen to fail*
   before the fix.
 - Style: stdlib `testing`, no assertion library, `httptest.Server` against a
   real `pgxpool`, helpers colocated in the package's `_test.go` files.
@@ -88,7 +88,7 @@ database-backed, so a skip is a green run that verified nothing.
 - Accessibility is checked by axe-core: `src/test/axe.ts` exposes
   `expectNoViolations(container)`, and `src/components/a11y.test.tsx` runs it
   over the props-only components. A component that owns fetches asserts it in
-  its own test, where the mock already exists. jsdom has no layout, so colour
+  its own test, where the mock already exists. jsdom has no layout, so color
   contrast and target size are not covered — those still need a real browser.
 - **A feature gated on an `api.Options` field is dead unless `main` sets it,
   and no handler test can tell you that.** Every test in `internal/api`
@@ -103,7 +103,7 @@ database-backed, so a skip is a green run that verified nothing.
   built from that mapping, and enumerates every exported field so the next
   absent wire fails rather than ships. The same shape applies to any
   configuration that reaches a subsystem through a struct literal in `main`.
-- Frontend behaviour changes need a test too, and the same rule applies: it
+- Frontend behavior changes need a test too, and the same rule applies: it
   must have been seen to fail first. Every defect this project has shipped in
   `web/` — the dead claim button, the member card, the frozen standup timer —
   passed a green build.
@@ -116,6 +116,7 @@ migration and embedding mistakes that unit tests miss.
 
 - Go is `gofmt`-formatted and must pass `go vet ./...`. There is no
   golangci-lint config; don't add one as a drive-by.
+- Write US English (en-US) everywhere — UI copy, consent text, errors, comments and docs. No en-GB spellings.
 - Wrap errors in library code: `fmt.Errorf("reading foo: %w", err)`.
 - HTTP handlers return literal JSON error bodies —
   ``http.Error(w, `{"error":"session not found"}`, http.StatusNotFound)`` — and
@@ -162,7 +163,7 @@ migration and embedding mistakes that unit tests miss.
    `requireJSONBody` are registered inside `r.Route("/api", ...)`
    (`internal/api/router.go`). A new top-level route gets neither — `/auth` sits
    outside on purpose because identity-provider redirects are browser
-   navigations, and it carries its own CSRF defence in the sign-in cookie's
+   navigations, and it carries its own CSRF defense in the sign-in cookie's
    state value. If you add a route group, decide its CSRF story explicitly.
 7. **`/healthz` must never touch the database; `/readyz` does.** A database blip
    restarting the process would drop every live WebSocket. Preserve the split.
@@ -221,7 +222,7 @@ migration and embedding mistakes that unit tests miss.
 14. **A signed link's expiry lives on the session token it mints**
     (`session_tokens.expires_at`), never on a timer or a sweeper. `hub.validate`
     already re-reads token validity on a ticker, so that column is the whole of
-    mid-session severance. `ResolveToken` and `TokenExpiry` must both honour it —
+    mid-session severance. `ResolveToken` and `TokenExpiry` must both honor it —
     one of them skipping it leaves a lapsed link either answering requests or
     holding a socket.
 15. **Every hub callback that reaches the database from its own goroutine goes
@@ -269,7 +270,7 @@ migration and embedding mistakes that unit tests miss.
     restores a revoked row and re-applies the role. Every sign-in re-grants
     from the claim, so a grant that cleared `revoked_at` would undo an admin's
     removal at the revoked person's next login. Sign-in mapping and open-mode
-    enrolment both go through `GrantMember`.
+    enrollment both go through `GrantMember`.
 19. **The org in a request comes from `requireOrgMember`, never from chi twice.**
     Space routes are mounted under `/api/orgs/{org}/`. `orgSlugFromRoute`
     (`internal/api/authz.go`) is the only reader of that URL segment, and
@@ -327,7 +328,7 @@ migration and embedding mistakes that unit tests miss.
     constant blocks are the deliberate price. (b) They answer with
     `CustodySpace` and nothing else; a test reads the response as raw JSON and
     rejects any key outside the allow-list, because reflecting over the struct
-    would not catch a handler marshalling an untyped map. (c) Custody may only
+    would not catch a handler marshaling an untyped map. (c) Custody may only
     make a space **more** private: `private` → `org` is 403 there and stays
     the space owner's alone, or an admin widens a private space, joins it as an
     ordinary org member and has everything by a different door. (d) Ownership
@@ -403,7 +404,7 @@ issue first. For anything large, open an issue before writing code.
   the motivation. Squash merges append `(#NN)`.
 - Branches are `type/kebab-slug`, e.g. `feat/oidc-and-hardening`,
   `docs/roadmap-structure`.
-- Behaviour changes update the `site/` docs in the same PR.
+- Behavior changes update the `site/` docs in the same PR.
 - Report verification honestly: name the commands you ran and whether
   `TEST_DATABASE_URL` was set. Never claim a check passed that you did not run.
 
@@ -522,7 +523,7 @@ issue first. For anything large, open an issue before writing code.
     branch green. The frontend is in the set on purpose: a ceremony that can only
     be rendered by editing `web/src/lib/kinds.ts` has been merged into Parley,
     not extended onto it.
-43. **An inbound `X-Request-Id` is honoured only from a socket peer in
+43. **An inbound `X-Request-Id` is honored only from a socket peer in
     `TrustedProxyCIDRs`.** `acceptTrustedRequestID` runs before
     `trustedProxyHeaders` rewrites `RemoteAddr`, so the peer checked is the TCP
     peer, not the forwarded client. Do not move it after the rewrite, and do not

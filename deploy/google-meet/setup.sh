@@ -211,7 +211,7 @@ Four steps have no API and stay manual:
      except the Terms of service, Privacy policy, Support and Regions
      choices, which have to be your own (see its README.md). Click Save
      draft first, then Publish — Publish stays disabled until Save draft
-     has been clicked once, and both stay greyed out until every required
+     has been clicked once, and both stay grayed out until every required
      field is filled, including the hidden language row and step 2's
      consent screen. A Private app publishes immediately, with no Google review
      — but it is not installable by anyone until this step is

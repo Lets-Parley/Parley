@@ -38,7 +38,7 @@ func TestTLSSettingsResolvesTheEffectiveMode(t *testing.T) {
 
 // libpq's environment fallbacks are real: an operator who set PGSSLMODE has a
 // TLS connection, and refusing it would be a false alarm.
-func TestTLSSettingsHonoursThePGEnvironment(t *testing.T) {
+func TestTLSSettingsHonorsThePGEnvironment(t *testing.T) {
 	t.Setenv("PGSSLMODE", "verify-full")
 	t.Setenv("PGSSLROOTCERT", "/etc/ssl/ca.pem")
 

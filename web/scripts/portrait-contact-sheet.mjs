@@ -83,7 +83,7 @@ function portrait(id, x, y, px) {
     </g>`;
 }
 
-/** A stable per-id hue, so the sheet spreads the whole 185°–290° arc rather than one colour. */
+/** A stable per-id hue, so the sheet spreads the whole 185°–290° arc rather than one color. */
 function hueOf(id) {
   return (ids.indexOf(id) * 360) / ids.length;
 }

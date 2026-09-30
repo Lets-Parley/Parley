@@ -480,7 +480,7 @@ func TestEmbedSignOutWithBearerAndCookieSpendsOnlyTheBearer(t *testing.T) {
 		t.Fatalf("GET /api/me with the cookie after a bearer sign out: %d, want 200", got)
 	}
 
-	// Control: unchanged cookie-only sign-out behaviour still clears the
+	// Control: unchanged cookie-only sign-out behavior still clears the
 	// cookie and spends its token.
 	req2, _ := http.NewRequest("DELETE", srv.URL+"/api/me", nil)
 	req2.AddCookie(ada)

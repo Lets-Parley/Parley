@@ -63,7 +63,7 @@ func TestKudoRejectsANonMemberAndALinkGuest(t *testing.T) {
 
 	// And a real link guest. A guest holds a users row but no members row, so
 	// the foreign key will not catch this — the membership check is the only
-	// defence, and this is the test that says so.
+	// defense, and this is the test that says so.
 	clearIdentityBuckets(t, pool)
 	links := &Links{Pool: pool}
 	link, _ := newLink(t, links, sess.ID, members[0].ID, LinkLifetime)
@@ -184,7 +184,7 @@ func TestKudoRejectsANonMemberAndALinkGuestAsSender(t *testing.T) {
 
 	// The sending half of the same invariant: guests neither send nor receive.
 	// The from_user_id foreign key points at users, not members, so it will not
-	// catch either of these — the membership check is the only defence.
+	// catch either of these — the membership check is the only defense.
 	outsider, _ := newUser(t, pool, "Outsider")
 	if _, err := kudos.Create(ctx, sess.SpaceID, outsider.ID, members[0].ID, "nice work", "", testKudoCap); !errors.Is(err, ErrNotAMember) {
 		t.Fatalf("kudo from a non-member: got %v, want ErrNotAMember", err)

@@ -236,7 +236,7 @@ func TestAnUnanswerableOwnershipQuestionRefusesRatherThanGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	if sess.Revealed {
-		t.Fatal("a patch that could not be authorised revealed the room anyway")
+		t.Fatal("a patch that could not be authorized revealed the room anyway")
 	}
 }
 
@@ -630,7 +630,7 @@ func TestAPluginPatchIsBoundedAndRefusedOnAnEndedRoom(t *testing.T) {
 // A kind registered at runtime is dispatched on exactly the ladder a core kind
 // is: an unknown action is 404, the wrong verb 405, a facilitator-only action
 // asked by a member 403, and anything at all on an ended room 409.
-func TestAPluginProvidedKindGoesThroughTheSameAuthorisationLadder(t *testing.T) {
+func TestAPluginProvidedKindGoesThroughTheSameAuthorizationLadder(t *testing.T) {
 	srv, pool, plugins, host := hostServer(t)
 	ctx := context.Background()
 	orgID := defaultOrg(t, pool)

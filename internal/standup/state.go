@@ -32,7 +32,7 @@ type Config struct {
 func (c Config) async() bool { return c.Mode == "async" }
 
 // Validate is called by session.Registry.ParseConfig after the strict decode,
-// before the config is re-marshalled for storage. "sync" is folded to no mode
+// before the config is re-marshaled for storage. "sync" is folded to no mode
 // so a live standup stores the same document it did before async existed.
 func (c *Config) Validate() error {
 	switch c.Mode {
@@ -105,7 +105,7 @@ type WireCommitment struct {
 // Ids and text only: names come off the envelope's participants, as they do
 // for every other slice of this state. There is deliberately no count and no
 // per-person total — see 0033_kudos.sql. This payload is broadcast to every
-// socket in the room, guests included, which is the accepted behaviour: a
+// socket in the room, guests included, which is the accepted behavior: a
 // guest reads what is said in the room it is in, and the wall around it stays
 // out of reach.
 type WireKudo struct {

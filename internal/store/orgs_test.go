@@ -271,10 +271,10 @@ func TestOrgsByClaimValues(t *testing.T) {
 	}
 }
 
-// TestGrantMemberHonoursTheTombstone is the revocation rule: a claim keeps
+// TestGrantMemberHonorsTheTombstone is the revocation rule: a claim keeps
 // arriving on every sign-in, so a grant that cleared revoked_at would undo an
 // admin's removal at the revoked person's next login.
-func TestGrantMemberHonoursTheTombstone(t *testing.T) {
+func TestGrantMemberHonorsTheTombstone(t *testing.T) {
 	ctx := context.Background()
 	pool := testPool(t)
 	orgs := &Orgs{Pool: pool}

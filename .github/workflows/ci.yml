@@ -624,7 +624,7 @@ jobs:
           own_count=$(grep -Ec '^[[:space:]]*(- )?matchLabelKeys:' /tmp/spread-own.yaml)
           test "$own_count" = 1 \
             || { echo "expected exactly one matchLabelKeys key, found $own_count"; exit 1; }
-          # And an explicit opt-out is honoured rather than overwritten. This
+          # And an explicit opt-out is honored rather than overwritten. This
           # one needs a values file: `--set key=[]` assigns the two-character
           # string "[]", not an empty list, so it would not exercise the case.
           cat > /tmp/optout-values.yaml <<'YAML'

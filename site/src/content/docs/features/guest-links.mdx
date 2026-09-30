@@ -45,7 +45,7 @@ which is never a guest's to take.
 ## What the guest gets, and what they do not
 
 The link is a capability for one room. Redeeming it creates an ordinary user —
-a name and a seat colour, present on the roster, attributed in the CSV export
+a name and a seat color, present on the roster, attributed in the CSV export
 the room's members can take — flagged as link-bound. They cannot pick a
 portrait, because that is one of the identity routes they are refused.
 
@@ -173,7 +173,7 @@ keeps a leaked link from minting accounts without bound.
 ## What is not here
 
 <Capability rows={[
-  { name: "Choosing an expiry or labelling a link", status: "out-of-scope", detail: "One lifetime and one cap are server constants. A facilitator handing out a link has no better idea of the right number than the server does, and a chooser in the UI would be a second, softer copy of a rule the server already owns." },
+  { name: "Choosing an expiry or labeling a link", status: "out-of-scope", detail: "One lifetime and one cap are server constants. A facilitator handing out a link has no better idea of the right number than the server does, and a chooser in the UI would be a second, softer copy of a rule the server already owns." },
   { name: "A link to a whole space", status: "out-of-scope", detail: "A link names one room and grants nothing beyond it. To let somebody into everything a space holds, add them to the space with its <a href='/features/spaces-and-room-codes/'>passcode</a>." },
   { name: "Spectating as a guest", status: "not-built", detail: "Spectator mode is a flag on a space membership, which a guest has none of, so the toggle is refused rather than silently accepted." },
   { name: "Turning a guest into an account", status: "not-built", detail: "A guest cannot rename itself or sign in. When the link expires the identity stops working; what they contributed stays." },

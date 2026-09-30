@@ -3,7 +3,7 @@
 
    Only accent, background and hairline tokens are overridden: Starlight uses
    its gray scale and --sl-color-white for foreground text, and redefining
-   those paints type the same colour as the page it sits on.
+   those paints type the same color as the page it sits on.
 
    Note the ramp inverts between themes, matching Starlight's own props.css:
    in dark, --sl-color-text-accent resolves to --sl-color-accent-high (so that
@@ -30,7 +30,7 @@
   --sl-color-hairline-light: #2a3648;
   --sl-color-hairline-shade: #0a101b;
 
-  /* Starlight builds its aside colours from these hues. Overriding hue only
+  /* Starlight builds its aside colors from these hues. Overriding hue only
      keeps its own lightness ramp, so contrast stays where it was; without
      this the callouts render stock blue/orange/red on a maritime page.
      Purple collapses onto the accent because Parley has no purple. */

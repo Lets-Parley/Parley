@@ -32,7 +32,7 @@ there is no second driver and no plan for one.
   { name: "0024_org_members_user_idx", value: "org_members (user_id) where revoked_at is null", note: "Partial index for \"which orgs is this user in\". Regular create index — migrate.go wraps each file in a transaction, so concurrently is unavailable" },
   { name: "0028_standup_commitments", value: "standup_commitments", note: "New table, so no backfill. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
   { name: "0029_commitment_carry_idempotency", value: "standup_commitments.carried_session_id", note: "Which standup last moved the carry count. Nullable with no backfill — an existing row reads as \"not answered in any session yet\", so its first answer counts normally. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
-  { name: "0030_commitment_origin_survives", value: "standup_commitments.opened_session_id", note: "Makes the column nullable and on delete set null, so deleting the room a commitment was opened in no longer deletes the commitment. Rewrites delete behaviour on rows that already exist — nothing is backfilled, but an existing row that used to vanish with its origin room now survives with a null. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
+  { name: "0030_commitment_origin_survives", value: "standup_commitments.opened_session_id", note: "Makes the column nullable and on delete set null, so deleting the room a commitment was opened in no longer deletes the commitment. Rewrites delete behavior on rows that already exist — nothing is backfilled, but an existing row that used to vanish with its origin room now survives with a null. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
   { name: "0031_plugins", value: "plugin_installs, plugin_grants, plugin_secrets, plugin_kv, plugin_events, plugin_deliveries, plugin_jobs", note: "The plugin foundations. All new tables, so no backfill and nothing existing is rewritten. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
   { name: "0034_plugin_installs_org", value: "plugin_installs.org_id, unique (org_id, name)", note: "Installs belong to an org. Added nullable, backfilled to the default org, then set not null — and deliberately with no retained DEFAULT, unlike spaces.org_id in 0021: an install is a rare deliberate operator action rather than something users create constantly, so a write that does not name an org must fail rather than land silently in the default org. Replaces the instance-wide unique (name), so two orgs can install the same plugin as two separate installs" },
   { name: "0035_session_kinds_org", value: "session_kinds.org_id, session_kinds.actions", note: "A session kind belongs to an org, or to the instance. Nullable, and null means instance-wide: the two core kinds belong to no org and stay available to every one of them, which is the whole backfill. A plugin-provided row carries the installing org, so one org's ceremony is not on offer to the instance and its rooms cannot block another org's uninstall. actions carries the dispatch table a manifest declared, so it survives a restart" },
@@ -230,7 +230,7 @@ function — a second copy in SQL would be a copy that drifts.
 |---|---|---|
 | `space_id` | uuid | References `spaces`, `on delete cascade` |
 | `from_user_id` | uuid | References `users`, `on delete cascade`. The sender, and the only person who can delete the row |
-| `to_user_id` | uuid | References `users`, `on delete cascade`. A `check` forbids it equalling the sender |
+| `to_user_id` | uuid | References `users`, `on delete cascade`. A `check` forbids it equaling the sender |
 | `text` | text | 1–280 characters |
 | `session_id` | uuid | Nullable, references `sessions`, **`on delete set null`** — deleting the room must not erase the thank-you |
 | `created_at` | timestamptz | Indexed with `space_id`, descending: the only read is one space's kudos, newest first |
@@ -250,7 +250,7 @@ would have to argue with it.
 
 Membership is not expressible in the schema. A link guest holds a `users` row
 but no `members` row, so the recipient foreign key would accept one; the
-membership check in `internal/store/kudos.go` is the only defence, and it is
+membership check in `internal/store/kudos.go` is the only defense, and it is
 tested as such. Guests neither send nor receive. A kudo survives its recipient
 leaving the space.
 

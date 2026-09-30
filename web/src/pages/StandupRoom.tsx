@@ -162,7 +162,7 @@ export function Timer({
   // Server clock offset estimated from the latest frame; the countdown is
   // display-only and identical on every screen. Captured once per frame
   // (not per render) so Date.now() actually advances against a fixed
-  // offset instead of cancelling out on every tick.
+  // offset instead of canceling out on every tick.
   const offset = useRef(Date.parse(serverTime) - Date.now());
   useEffect(() => {
     offset.current = Date.parse(serverTime) - Date.now();
@@ -824,7 +824,7 @@ export function StandupRoom({
           />
           <EntryForm draft={draft} update={update} saveState={saveState} failed={failed} />
           {/* Who the room is waiting on, in words — a dot or a tint alone would
-              leave the only copy of this fact in colour. Only the people still
+              leave the only copy of this fact in color. Only the people still
               writing are named: the other rows carried one bit each and said
               the thing nobody is waiting to hear. */}
           <div data-testid="ready-roster" className="text-sm">
@@ -1176,7 +1176,7 @@ export function StandupRoom({
 /** Matches maxKudoChars in internal/standup/kudos.go and the check in 0033_kudos.sql. */
 const MAX_KUDO_RUNES = 280;
 
-/** One prompt per field. Two of the three used to sit there unlabelled. */
+/** One prompt per field. Two of the three used to sit there unlabeled. */
 const PROMPTS = {
   yesterday: "What did you get done?",
   today: "What are you picking up?",
@@ -1298,7 +1298,7 @@ function DaybreakArt() {
     <div data-testid="daybreak-art" className="relative h-24 w-[120px]">
       {/* The sky clips the disc at the horizon, so the sun rises through the
           line rather than sitting on top of it. Filled, not outlined — an
-          unfilled disc on a surface-coloured panel is just an arc. */}
+          unfilled disc on a surface-colored panel is just an arc. */}
       <span className="absolute inset-x-0 top-4 bottom-10 overflow-hidden">
         <span className="absolute top-0 left-1/2 h-20 w-20 -translate-x-1/2 rounded-full border-2 border-pip bg-pip/25" />
       </span>

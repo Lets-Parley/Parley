@@ -530,7 +530,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	// The top-level half of the embedded-session handoff: an ordinary Parley
 	// page, X-Frame-Options DENY like every other, where a signed-in person
 	// binds a frame's request by typing the code the frame shows. It is
-	// outside /api, so it brings its own CSRF defence: rejectCrossSite here,
+	// outside /api, so it brings its own CSRF defense: rejectCrossSite here,
 	// plus the Lax cookie.
 	// Cookies only — a bearer never binds a handoff.
 	r.Route("/embed", func(r chi.Router) {
@@ -791,7 +791,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			r.Use(a.requireSessionMember)
 			// A plugin panel proposes; this performs, as the user. The
 			// header names the plugin so the change is attributable — it
-			// authorises nothing, and the gates above have already run.
+			// authorizes nothing, and the gates above have already run.
 			r.Use(a.pluginRouteAudit)
 			r.Get("/", a.handleGetSession)
 			// What has UI to frame in this room. Open to anyone in it,

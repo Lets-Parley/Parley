@@ -9,7 +9,7 @@ Application name, Short description and Detailed description all live
 inside the App Details language entry (English), which is itself required.
 That row starts collapsed, showing only "English —": click it to expand
 **Edit Language**, paste the three texts below plus the Language itself
-(English), then click **Done**. Publish and Save draft both stay greyed
+(English), then click **Done**. Publish and Save draft both stay grayed
 out until this row is filled in, along with every other required field.
 
 ## Application name

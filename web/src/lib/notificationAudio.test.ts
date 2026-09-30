@@ -228,7 +228,7 @@ describe("impact sounds", () => {
     vi.restoreAllMocks();
   });
 
-  it("is cancelled by its own cleanup and by stop, but not by a cue", async () => {
+  it("is canceled by its own cleanup and by stop, but not by a cue", async () => {
     const { sources } = fakeAudio();
     const audio = new NotificationAudio();
     audio.enabled = true;

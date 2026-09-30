@@ -229,7 +229,7 @@ trustedProxyCIDRs: ""
 networkPolicy:
   enabled: false
   # Which pods may reach Parley. Both selectors must match the same peer, so
-  # this is "pods labelled X, in namespace Y" — not either alone.
+  # this is "pods labeled X, in namespace Y" — not either alone.
   #
   # The defaults describe ingress-nginx in its own namespace. For Traefik as
   # shipped with k3s:
@@ -397,7 +397,7 @@ metrics:
 #     Postgres unencrypted. Boot refuses an sslmode that is absent, disable,
 #     allow or prefer without it. Prefer putting
 #     ?sslmode=verify-full&sslrootcert=... on the database-url secret over
-#     setting this. PGSSLMODE and PGSSLROOTCERT are honoured as libpq
+#     setting this. PGSSLMODE and PGSSLROOTCERT are honored as libpq
 #     fallbacks when the connection string says nothing.
 #
 # PORT is deliberately not one of them. Probes and containerPort target 8080;

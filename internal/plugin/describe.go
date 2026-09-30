@@ -100,7 +100,7 @@ func Describe(g Grant) DescribedGrant {
 	default:
 		// Unknown is not harmless. An operator must be told the host cannot
 		// explain what they are about to agree to.
-		out.Permits = fmt.Sprintf("Parley does not recognise the capability %q and cannot say what it permits. Do not grant it.", g.Capability)
+		out.Permits = fmt.Sprintf("Parley does not recognize the capability %q and cannot say what it permits. Do not grant it.", g.Capability)
 	}
 	return out
 }

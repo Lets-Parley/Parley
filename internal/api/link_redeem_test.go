@@ -159,7 +159,7 @@ func TestRedeemLinkIsChargedAgainstTheIdentityLimit(t *testing.T) {
 	}
 }
 
-func TestRedeemLinkHonoursTheRedemptionCap(t *testing.T) {
+func TestRedeemLinkHonorsTheRedemptionCap(t *testing.T) {
 	srv := testServer(t)
 	fac, _, id := setupSession(t, srv, "Cap Space")
 	_, minted := mintLink(t, srv, id, fac)
@@ -399,7 +399,7 @@ func TestRedeemedTokenExpiresWithTheLink(t *testing.T) {
 // The browsing session is the browser, not the tab: closing the room tab while
 // another window stays open leaves this cookie alive, and the seat with it.
 // Leave room is what ends a seat on demand. Real cookie lifetime is a browser
-// behaviour httptest cannot evaluate; what is pinned here is the header.
+// behavior httptest cannot evaluate; what is pinned here is the header.
 func TestRedeemedCookieEndsWithTheBrowserSession(t *testing.T) {
 	srv := testServer(t)
 	fac, _, id := setupSession(t, srv, "Session Cookie Space")

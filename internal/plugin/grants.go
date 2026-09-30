@@ -27,7 +27,7 @@ const (
 	CapabilitySessionPatch = "session:patch"
 	// CapabilitySessionAct is proposing an action of a room's kind from the
 	// plugin's frame. The browser bridge checks it (GRANT_SESSION_ACT in
-	// web/src/lib/pluginBridge.ts) and the server re-authorises the action as
+	// web/src/lib/pluginBridge.ts) and the server re-authorizes the action as
 	// the viewing user, exactly as if they had clicked it.
 	CapabilitySessionAct = "session:act"
 	// CapabilityJobs is enqueueing deferred work.
@@ -169,7 +169,7 @@ type PendingUpgrade struct {
 //
 // kinds is the session kinds this version provides. A nil slice leaves the
 // kinds already on the record alone (callers that are not carrying a package);
-// a non-nil slice — including empty — is canonicalised and written in the same
+// a non-nil slice — including empty — is canonicalized and written in the same
 // transaction as the version (or pending_version) bump.
 func (s *Store) Upgrade(ctx context.Context, installID, version string, want []Grant, kinds []KindDef) error {
 	return s.UpgradeTo(ctx, installID, version, want, kinds, nil)
@@ -403,7 +403,7 @@ func replaceGrants(ctx context.Context, tx pgx.Tx, installID string, grants []Gr
 	return nil
 }
 
-// checkGrants refuses a grant set the host could not honour. Secrets without a
+// checkGrants refuses a grant set the host could not honor. Secrets without a
 // key would mean storing them in the clear, and a fetch allowlist entry the
 // guard cannot enforce honestly is worse than no entry at all — both are
 // caught here, before the install exists, rather than at the first call.

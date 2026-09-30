@@ -66,7 +66,7 @@ func defaultOrgID(t *testing.T, pool *pgxpool.Pool) string {
 }
 
 // The plugin never holds a credential: the action arrives on the user's own
-// cookie, is authorised as that user, and the log records which surface
+// cookie, is authorized as that user, and the log records which surface
 // proposed it.
 func TestAPluginMediatedActionIsRecordedWithThePluginAsTheRoute(t *testing.T) {
 	pool := testPool(t)
@@ -273,7 +273,7 @@ func TestARefusedPluginActionIsNotRecorded(t *testing.T) {
 	}
 }
 
-// The header authorises nothing. It is a label on a request the user's own
+// The header authorizes nothing. It is a label on a request the user's own
 // session already had the right to make, so it must not turn a refusal into
 // a success for anyone.
 func TestThePluginRouteHeaderGrantsNothing(t *testing.T) {

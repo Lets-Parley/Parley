@@ -186,7 +186,7 @@ export function AppShell({
                   <li key={s.id}>
                     <Link
                       to={`/session/${s.id}`}
-                      /* Spelt out so the kind reaches the accessible name
+                      /* Spelled out so the kind reaches the accessible name
                          separated from the title, rather than run together
                          with it as concatenated text would be. */
                       aria-label={`${kindLabel(s.kind)} · ${s.title}${s.endedAt ? " · ended" : ""}`}
@@ -195,7 +195,7 @@ export function AppShell({
                         (s.id === activeSessionId ? "bg-felt-deep" : "")
                       }
                     >
-                      {/* A fixed slot, centred: the card and the seat ring
+                      {/* A fixed slot, centered: the card and the seat ring
                           differ in width, and the titles should still start
                           in one column. */}
                       <span className="flex w-6 shrink-0 justify-center">

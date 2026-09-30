@@ -277,7 +277,7 @@ func (a *app) handleRemoveParticipant(w http.ResponseWriter, r *http.Request) {
 	// payload. pg_notify refuses a payload over 8000 bytes, and that failure
 	// is best-effort — an untruncated message would leave every other replica
 	// never hearing about the removal at all. The hub truncates again for its
-	// own close frame; that defence is independent of this one and neither
+	// own close frame; that defense is independent of this one and neither
 	// relies on the other.
 	body.Message = hub.TruncateCloseReason(body.Message)
 

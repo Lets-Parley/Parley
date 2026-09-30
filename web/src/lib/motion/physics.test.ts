@@ -48,7 +48,7 @@ describe("solveThrow", () => {
 });
 
 describe("solveContact", () => {
-  it("finds the first touch of the two circles, not the centre crossing", () => {
+  it("finds the first touch of the two circles, not the center crossing", () => {
     const p0 = { x: 0, y: 300 };
     const center = { x: 240, y: 300 };
     const radius = 40;
@@ -69,7 +69,7 @@ describe("bounceOff", () => {
   const center = { x: 0, y: 0 };
 
   it("reflects a head-on hit straight back out along the normal", () => {
-    // Struck dead centre from the left: the normal is -x, and nothing is
+    // Struck dead center from the left: the normal is -x, and nothing is
     // tangential, so the recoil is pure normal and reversed.
     const { velocity } = bounceOff({
       hit: { x: -10, y: 0 },
@@ -166,7 +166,7 @@ describe("simulateThrow", () => {
     const last = at(frames[frames.length - 1], p0);
     expect(gone({ x: last.x - 12, y: last.y - 12 })).toBe(true);
     // The dissolve belongs to the exit: it starts while the emoji is already
-    // travelling off, never while it is sitting in the middle of the felt.
+    // traveling off, never while it is sitting in the middle of the felt.
     const fading = frames.filter((f) => f.opacity < 1);
     expect(fading.length).toBeGreaterThan(0);
     expect(new Set(fading.map((f) => f.transform)).size).toBe(fading.length);

@@ -13,7 +13,7 @@
 ## Checklist
 
 - [ ] This pull request addresses one concern and contains no unrelated refactor.
-- [ ] Behaviour changes include a test that was observed failing before the fix.
+- [ ] Behavior changes include a test that was observed failing before the fix.
 - [ ] Documentation and verification stamps reflect changed limits, defaults, or security properties.
 - [ ] Migrations are new, additive, and do not edit a shipped migration.
 - [ ] Every commit includes a DCO sign-off created with `git commit -s`.

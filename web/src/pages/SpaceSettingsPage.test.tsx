@@ -454,7 +454,7 @@ describe("SpaceSettingsPage standup schedule", () => {
     );
   });
 
-  it("normalises a time the browser reports with seconds to HH:MM", async () => {
+  it("normalizes a time the browser reports with seconds to HH:MM", async () => {
     schedule = saved;
     renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
     const p = await panel();
@@ -628,7 +628,7 @@ describe("SpaceSettingsPage standup schedule", () => {
     }
   });
 
-  // The fallback behaviour of supportedZones() itself — including a browser
+  // The fallback behavior of supportedZones() itself — including a browser
   // that lacks Intl.supportedValuesOf entirely — is unit-tested directly in
   // StandupSchedulePanel.test.ts, since ZONES is computed once at module
   // import and stubbing the API inside a test body here runs too late to

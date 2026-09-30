@@ -410,7 +410,7 @@ export function Landing() {
   //
   // Past a successful POST the space exists: if navigate then fails, the latch
   // stays shut so a second press cannot buy another. A clean success releases
-  // it (and busy), which is the ordinary in-flight-guard behaviour.
+  // it (and busy), which is the ordinary in-flight-guard behavior.
   const creating = useRef(false);
   const doCreate = useCallback(
     async (spaceName: string, org?: string) => {
@@ -519,7 +519,7 @@ export function Landing() {
   // The stranger's page is for someone deciding: signed out, or an account
   // whose list answered and was empty. Everyone else — a full account still
   // loading, one whose list failed, one with tables — gets the signed-in
-  // shell from the first paint, because swapping the narrow centred column
+  // shell from the first paint, because swapping the narrow centered column
   // for the wide top-aligned one once the list lands was the page's biggest
   // layout shift, and a failed read is not evidence of having no tables.
   const stranger = !fullAccount || (mine.isSuccess && !known);
@@ -547,9 +547,9 @@ export function Landing() {
       </div>
 
       {/* text-center used to cascade from here into every paragraph. Prose
-          reads left; only the lockup and the CTA row are centred. A returning
-          account's page is a list to act on, so it is top-aligned: a centred
-          column re-centred itself on every filter click. */}
+          reads left; only the lockup and the CTA row are centered. A returning
+          account's page is a list to act on, so it is top-aligned: a centered
+          column re-centered itself on every filter click. */}
       <main
         className={
           "mx-auto flex w-full flex-1 flex-col items-center gap-7 px-4 py-6 sm:px-6 " +
@@ -1016,7 +1016,7 @@ export function Landing() {
       </main>
 
       {/* A stranger had no way to learn more and no exit. These are the things
-          that exist and are checkable — docs, source, licence, releases.
+          that exist and are checkable — docs, source, license, releases.
           Nothing here claims adoption, customers or benchmarks, because none
           exist. Outside main, so it is the page's contentinfo landmark. */}
       <footer className="flex flex-wrap items-center justify-center gap-x-5 px-4 pb-6 pt-2 font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">

@@ -181,7 +181,7 @@ func TestAFetchRedirectedToADisallowedHostIsBlockedOnTheHop(t *testing.T) {
 func TestASynchronousHookCannotFetchThroughTheHostFunction(t *testing.T) {
 	h, in := hosted(t, guestCallsHost("parley_fetch"), HostConfig{},
 		1024, Grant{Capability: CapabilityFetch, Scope: "api.example.com"})
-	h.Fetcher = &Fetcher{tlsConfig: &tls.Config{InsecureSkipVerify: true}} //nolint:gosec // never dialled
+	h.Fetcher = &Fetcher{tlsConfig: &tls.Config{InsecureSkipVerify: true}} //nolint:gosec // never dialed
 
 	req, _ := json.Marshal(FetchRequest{URL: "https://api.example.com/"})
 	_, report, err := h.CallWithReport(context.Background(), in.ID, "run", req, ModeSync)

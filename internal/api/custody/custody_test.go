@@ -597,7 +597,7 @@ func TestTheSuccessorIsTheMostRecentlySeen(t *testing.T) {
 // being stranded, and a space with a second owner is not stranded. Promoting
 // anyway would quietly hand ownership to a bystander nobody chose — a
 // privilege escalation that arrives as a side effect of somebody else's
-// revoke — so the owners-count check is a boundary, not an optimisation.
+// revoke — so the owners-count check is a boundary, not an optimization.
 func TestRevokingOneOfTwoOwnersPromotesNobody(t *testing.T) {
 	ctx := context.Background()
 	pool := testPool(t)

@@ -332,14 +332,14 @@ describe("themes", () => {
     expect((audit![2] as { contrastAcknowledged: boolean }).contrastAcknowledged).toBe(true);
   });
 
-  it("offers a reset drawn in literal colours, so a hostile pack cannot hide it", async () => {
+  it("offers a reset drawn in literal colors, so a hostile pack cannot hide it", async () => {
     render();
     const reset = await screen.findByRole("button", { name: /reset to the built-in palette/i });
     // Not a single themeable token: a control painted in --color-accent on
     // --color-surface is exactly what a hostile pack turns invisible.
     const style = (reset.getAttribute("style") ?? "").toLowerCase();
     expect(style).not.toContain("var(--color-");
-    // Literal values, present and opaque — jsdom serialises the hex as rgb().
+    // Literal values, present and opaque — jsdom serializes the hex as rgb().
     expect(style).toMatch(/background:\s*rgb\(/);
     expect(style).toMatch(/color:\s*rgb\(/);
     expect(style).toMatch(/border:\s*2px solid rgb\(/);

@@ -172,7 +172,7 @@ function SigninGate({ onCancel, because }: { onCancel?: () => void; because?: st
       <div className="flex flex-col gap-3">
         <p className="text-sm text-ink-soft text-pretty">
           {because ? `${because} ` : ""}This Parley signs you in through your
-          organisation. You'll come straight back here, and what you have typed
+          organization. You'll come straight back here, and what you have typed
           is held while you go.
         </p>
         <a

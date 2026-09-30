@@ -85,7 +85,7 @@ run_tests() {
         # rather than pick an environment to be correct in.
         # NO_COLOR: this harness reads vitest's summary line to tell a real
         # run from one that matched no test. A terminal-less local pipe is
-        # already plain, but the runner gets colour, and the escapes land
+        # already plain, but the runner gets color, and the escapes land
         # between "Tests" and the count -- so the check silently stopped
         # matching in CI and every web guard reported as unscored.
         (cd web && NO_COLOR=1 NODE_OPTIONS=$WEB_NODE_OPTIONS \
@@ -459,11 +459,11 @@ mutate "the retirement and enabled filters on the kind-ownership answer" \
     'TestASwitchedOffInstallAndARetiredKindProvideNothing' \
     kinds.go 'where p.id = $1 and k.kind = $2 and k.retired_at is null and p.enabled)' 'where p.id = $1 and k.kind = $2)'
 
-# A manifest's action verb is canonicalised and then screened against a closed
+# A manifest's action verb is canonicalized and then screened against a closed
 # set. Without the screen a manifest declaring anything at all installs, and the
 # action it declares is either dead or reaches the dispatcher unscreened.
 mutate "the closed set of verbs an action may answer" \
-    'TestAManifestDeclaringAKindTheHostWillNotHonourIsRefusedAtInstall' \
+    'TestAManifestDeclaringAKindTheHostWillNotHonorIsRefusedAtInstall' \
     kinds.go 'if !actionVerbs[a.Verb] {' 'if false {'
 
 # The .parley bundle's refusals. Each is the whole of the check it names:
@@ -737,7 +737,7 @@ mutate "the clear when the user leaves a plugin's own room" \
     lib/pluginBridge.ts 'if (!holdsView) return;' 'if (!holdsView || true) return;'
 
 # The action name is a path segment, and an unscreened one is a path
-# expression: "../../../me" is normalised out of the actions path by the same
+# expression: "../../../me" is normalized out of the actions path by the same
 # URL parser fetch uses, and the request that results carries the user's own
 # cookie, is same-origin, and lands outside the only route group that audits
 # plugin actions. Screened in the bridge, before it can be a URL...
@@ -980,7 +980,7 @@ mutate "an unsigned bundle never stored beside a signed one" \
     bundles.go "where \$2::text <> '' or not exists" "where true or not exists"
 
 mutate "a stored bundle's own manifest naming the plugin asked for" \
-    'TestARelabelledRowIsRefused' \
+    'TestARelabeledRowIsRefused' \
     bundles.go 'err != nil || n != name || v != version {' 'err != nil || n+v == "" {'
 
 mutate "an unknown name never cached" \

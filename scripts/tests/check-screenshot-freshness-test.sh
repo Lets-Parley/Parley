@@ -225,7 +225,7 @@ fi
 
 # `depicts` entries are literal paths, not git pathspec globs. A glob-looking
 # entry matches nothing, and is reported as the missing path the report already
-# displays it as, so the behaviour and the report agree.
+# displays it as, so the behavior and the report agree.
 head=$(git -C "$test_repo" rev-parse HEAD)
 write_manifest <<JSON
 {

@@ -99,10 +99,10 @@ export class NotificationAudio {
     const t0 = performance.now();
     const request = this.hitRequest;
     const mine: AudioScheduledSourceNode[] = [];
-    let cancelled = false;
+    let canceled = false;
     void Promise.all([this.activate(), origin ?? t0]).then(([ready, start]) => {
       const ctx = this.context;
-      if (!ready || !ctx || cancelled || request !== this.hitRequest) return;
+      if (!ready || !ctx || canceled || request !== this.hitRequest) return;
       // Page time → the context time that will be *leaving the speaker* then.
       // The output timestamp carries the device latency; before the first
       // render quantum it is zero, so fall back to the reported latency.
@@ -122,7 +122,7 @@ export class NotificationAudio {
       });
     });
     return () => {
-      cancelled = true;
+      canceled = true;
       halt(mine, this.context);
     };
   }

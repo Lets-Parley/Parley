@@ -76,7 +76,7 @@ describe("StoryQueue", () => {
   });
 
   it("adds a ref-only ticket to the queue", async () => {
-    // The submit guard is behaviour, not an attribute: a ref with no title has
+    // The submit guard is behavior, not an attribute: a ref with no title has
     // to actually reach the server. Asserting on `disabled` alone leaves the
     // guard free to be an && and nobody notices.
     const fetchSpy = vi

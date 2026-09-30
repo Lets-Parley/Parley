@@ -64,7 +64,7 @@ func Summarize(deck Deck, values []string) Results {
 		med = (nums[len(nums)/2-1] + nums[len(nums)/2]) / 2
 	}
 	// Individually finite cards can still sum past float64: an overflowed
-	// average is +Inf, which encoding/json refuses, and Results is marshalled
+	// average is +Inf, which encoding/json refuses, and Results is marshaled
 	// into the state payload every client in the room reads. Omitting the
 	// number beats poisoning the whole broadcast.
 	if finite(avg) && finite(med) {

@@ -14,7 +14,7 @@ import (
 
 // guardedWebhookSend posts a delivery through the plugin fetch guard: https
 // only, the host on the operator's STANDUP_WEBHOOK_HOSTS, resolved once,
-// every record screened, the screened address dialled. A redirect is not
+// every record screened, the screened address dialed. A redirect is not
 // followed; the 3xx is the attempt's result.
 func guardedWebhookSend(f *plugin.Fetcher, hosts []string) func(context.Context, string, map[string]string, []byte) (int, error) {
 	return func(ctx context.Context, u string, headers map[string]string, body []byte) (int, error) {

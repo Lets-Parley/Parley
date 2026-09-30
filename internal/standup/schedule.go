@@ -136,7 +136,7 @@ func (s Schedule) upcoming(now time.Time) ([]feedWindow, error) {
 	// walk ends on until's local date, whatever hour until falls at. Each day
 	// is built at noon, which exists in every zone: local midnight does not
 	// on a day whose clocks jump at 00:00 (Santiago, Havana), and time.Date
-	// would move it onto the neighbouring date. Candidates are still filtered
+	// would move it onto the neighboring date. Candidates are still filtered
 	// below by their real open instant, not by this anchor.
 	ny, nm, nd := now.In(loc).Date()
 	ly, lm, ld := until.In(loc).Date()
@@ -258,7 +258,7 @@ func Tick(ctx context.Context, pool *pgxpool.Pool, now time.Time, sessionLimit i
 	// One schedule failing does not keep the rest shut: its slot is retried
 	// on the next pass, and every other schedule still opens on this one.
 	// The failures come back joined, each naming its schedule, for the
-	// caller to log. Only a cancelled context ends the pass early.
+	// caller to log. Only a canceled context ends the pass early.
 	var touched []string
 	var failed []error
 	for _, d := range due {

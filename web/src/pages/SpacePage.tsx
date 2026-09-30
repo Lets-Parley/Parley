@@ -764,7 +764,7 @@ function LiveCard({
           <p className="mt-2.5 flex items-center gap-2.5 text-[13px] text-ink-soft">
             {/* Decoration beside the sentence that names them. Each face sits
                 over the one after it, so the facilitator's brass dot, first
-                in line, is never covered by its neighbour. */}
+                in line, is never covered by its neighbor. */}
             <span data-faces aria-hidden="true" className="flex shrink-0">
               {s.present.map((p, i) => {
                 const m = members.find((x) => x.userId === p.id);
@@ -817,7 +817,7 @@ function SessionRow({ s, showKind, onManage }: { s: SessionSummary; showKind: bo
   const outcome = ended ? progressText(s.progress, true) : "";
   return (
     // With Manage beside it the row must be taller than the 44px button, or
-    // neighbouring buttons meet across the divider.
+    // neighboring buttons meet across the divider.
     <li className={"flex items-center gap-2 " + (onManage ? "py-1.5 pr-3" : "")}>
       <Link
         to={`/session/${s.id}`}

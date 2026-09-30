@@ -73,8 +73,8 @@ the bundled `docker-compose.yml` sets it because both containers sit on one
 host-local bridge network. On Kubernetes, across a VPC, or against managed
 Postgres, set `sslmode` on the connection string instead.
 
-The libpq environment fallbacks `PGSSLMODE` and `PGSSLROOTCERT` are honoured
-where the connection string says nothing, exactly as the driver honours them —
+The libpq environment fallbacks `PGSSLMODE` and `PGSSLROOTCERT` are honored
+where the connection string says nothing, exactly as the driver honors them —
 so a `PGSSLMODE=verify-full` deployment is not falsely refused.
 </EnvVar>
 
@@ -253,7 +253,7 @@ still stops working when this elapses, and the person has to sign in again.
 
 Set it shorter than `SESSION_IDLE_TTL` and it is the cap that ends every
 session. The cookie's `Max-Age` is the smaller of the two, so the browser never
-holds a cookie the server has stopped honouring.
+holds a cookie the server has stopped honoring.
 
 Rows past either lifetime are deleted by a background pass that runs hourly, so
 lapsed credential hashes do not accumulate.
