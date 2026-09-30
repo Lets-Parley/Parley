@@ -695,6 +695,10 @@ mutate "inerting a plugin frame under a modal" \
     'src/components/PluginPanel.test.tsx::marks the frame inert while a host modal is open' \
     components/PluginPanel.tsx 'el.toggleAttribute("inert", modalOpen);' 'el.toggleAttribute("inert", false);'
 
+mutate "a plugin move named by its direction" \
+    'src/pages/PluginsPage.test.tsx::labels a newer entry in the history as an upgrade, not a rollback' \
+    lib/plugins.ts 'return x[i] > y[i] ? "upgrade" : "rollback";' 'return x[i] > y[i] ? "rollback" : "upgrade";'
+
 # session:read "cannot read a planning poker or standup room, or any other
 # plugin's rooms" (internal/plugin/describe.go). A frame is built a view only of
 # a room whose ceremony its own install provides; loosening that one comparison

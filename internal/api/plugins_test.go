@@ -880,3 +880,33 @@ func containsAll(haystack string, needles ...string) bool {
 	}
 	return true
 }
+
+// A rollback onto a version that declares no kinds retires the kinds the
+// newer version provided: the bundle's silence is an empty declaration.
+func TestRollbackToAVersionWithoutKindsRetiresThem(t *testing.T) {
+	srv, pool, plugins, admin, _ := pluginServer(t)
+	name := newPluginName(t)
+	kind := fmt.Sprintf("board-%d", time.Now().UnixNano())
+	v1 := choice(t, pool, pluginPkg(name, "1.0.0"))
+	resp, body := doJSON(t, srv, "POST", pluginsPath, `{"grantsAccepted":true,`+v1+`}`, admin)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("install = %d: %v", resp.StatusCode, body)
+	}
+	id, _ := body["id"].(string)
+	v2 := choice(t, pool, pluginPkgWith(name, "2.0.0", []plugin.KindDef{{
+		Kind: kind, Display: "Board", Actions: []plugin.ActionDef{{Name: "add-card", Verb: "POST"}},
+	}}))
+	if resp, body := doJSON(t, srv, "POST", pluginsPath, `{"grantsAccepted":true,`+v2+`}`, admin); resp.StatusCode != http.StatusOK {
+		t.Fatalf("upgrade = %d: %v", resp.StatusCode, body)
+	}
+	if resp, body := doJSON(t, srv, "POST", pluginsPath+"/"+id+"/rollback", `{`+v1+`}`, admin); resp.StatusCode != http.StatusOK {
+		t.Fatalf("rollback = %d: %v", resp.StatusCode, body)
+	}
+	got, err := plugins.ProvidedKinds(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("after rolling back to a version with no kinds ProvidedKinds = %#v, want none", got)
+	}
+}

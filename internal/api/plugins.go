@@ -360,8 +360,8 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Going back is a rollback, audited and limited to what this install ran,
-	// never an install of an older version.
+	// Going back is only ever the audited rollback route, never an install
+	// of an older version.
 	if versionLess(pkg.Version, current.Install.Version) {
 		http.Error(w, `{"error":"that is an older version; roll back to a version this plugin ran instead"}`, http.StatusConflict)
 		return
@@ -480,7 +480,13 @@ func (a *app) handleRollbackPlugin(w http.ResponseWriter, r *http.Request) {
 	}
 	detail := fmt.Sprintf("%s from %s (%s) to %s (%s)", pkg.Name, state.Install.Version, from, pkg.Version, pin)
 	code, action := http.StatusOK, "plugin.rollback"
-	err = adm.UpgradeTo(r.Context(), id, pkg.Version, pkg.grants(), pkg.Kinds, pin)
+	// A version that declares no kinds is an empty declaration here: moving
+	// onto it retires the kinds a newer version provided.
+	kinds := pkg.Kinds
+	if kinds == nil {
+		kinds = []plugin.KindDef{}
+	}
+	err = adm.UpgradeTo(r.Context(), id, pkg.Version, pkg.grants(), kinds, pin)
 	switch {
 	case errors.Is(err, plugin.ErrUpgradePending):
 		code, action = http.StatusAccepted, "plugin.rollback_requested"

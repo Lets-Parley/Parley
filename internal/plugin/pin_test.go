@@ -65,12 +65,11 @@ func TestPinInstallsLeavesAnUnmatchedInstallRunning(t *testing.T) {
 	if st.Install.Bundle != nil || !st.Install.Enabled {
 		t.Fatalf("unmatched install = %+v, want unpinned and still enabled", st.Install)
 	}
-	adm := store.InOrg(testOrgID)
-	if ran, err := adm.Ran(ctx, matched.ID, BundleRef{Digest: b.Digest, KeyID: b.KeyID}); err != nil || !ran {
-		t.Fatalf("Ran(pinned) = %v, %v, want true", ran, err)
+	if ok, err := ran(t, store, matched.ID, BundleRef{Digest: b.Digest, KeyID: b.KeyID}); err != nil || !ok {
+		t.Fatalf("Ran(pinned) = %v, %v, want true", ok, err)
 	}
-	if ran, err := adm.Ran(ctx, matched.ID, BundleRef{Digest: "other", KeyID: b.KeyID}); err != nil || ran {
-		t.Fatalf("Ran(never pinned) = %v, %v, want false", ran, err)
+	if ok, err := ran(t, store, matched.ID, BundleRef{Digest: "other", KeyID: b.KeyID}); err != nil || ok {
+		t.Fatalf("Ran(never pinned) = %v, %v, want false", ok, err)
 	}
 }
 
@@ -174,8 +173,7 @@ func TestApprovingAnUpgradeAppliesAndRecordsItsPin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	adm := store.InOrg(testOrgID)
-	if ran, _ := adm.Ran(ctx, in.ID, refA); !ran {
+	if ok, _ := ran(t, store, in.ID, refA); !ok {
 		t.Fatal("install did not record its pin")
 	}
 	if err := store.UpgradeTo(ctx, in.ID, "2.0.0", []Grant{{Capability: CapabilityLog}}, nil, &refB); !errors.Is(err, ErrUpgradePending) {
@@ -187,7 +185,7 @@ func TestApprovingAnUpgradeAppliesAndRecordsItsPin(t *testing.T) {
 	if rawPin(t, store, in.ID) != b.Digest {
 		t.Fatal("approval did not apply the staged pin")
 	}
-	if ran, _ := adm.Ran(ctx, in.ID, refB); !ran {
+	if ok, _ := ran(t, store, in.ID, refB); !ok {
 		t.Fatal("approval did not record the pin")
 	}
 }
@@ -294,7 +292,7 @@ func TestRepinNeverOverwritesAPinThatMovedMeanwhile(t *testing.T) {
 	if rawPin(t, store, in.ID) != a.Digest {
 		t.Fatal("Repin overwrote a pin that changed after it was read")
 	}
-	if ran, _ := store.InOrg(testOrgID).Ran(ctx, in.ID, refB); ran {
+	if ok, _ := ran(t, store, in.ID, refB); ok {
 		t.Fatal("a no-op Repin recorded history")
 	}
 	var wg sync.WaitGroup
@@ -313,4 +311,13 @@ func TestRepinNeverOverwritesAPinThatMovedMeanwhile(t *testing.T) {
 	if rawPin(t, store, in.ID) != b.Digest {
 		t.Fatal("concurrent Repin did not land")
 	}
+}
+
+// ran reads the install's history directly: whether it was ever pinned to ref.
+func ran(t *testing.T, s *Store, installID string, ref BundleRef) (bool, error) {
+	t.Helper()
+	var ok bool
+	err := s.Pool.QueryRow(context.Background(), `select exists (select 1 from plugin_install_history
+		where install_id = $1 and digest = $2 and key_id = $3)`, installID, ref.Digest, ref.KeyID).Scan(&ok)
+	return ok, err
 }

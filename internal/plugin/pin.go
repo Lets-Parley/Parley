@@ -194,22 +194,6 @@ func (s *Store) PinInstalls(ctx context.Context, trusted []string, log *slog.Log
 	return nil
 }
 
-// Ran reports whether this org's install was ever pinned to ref. It is the
-// whole rollback check: a rollback names a bundle the install already ran.
-func (a *Admin) Ran(ctx context.Context, installID string, ref BundleRef) (bool, error) {
-	if err := a.own(ctx, installID); err != nil {
-		return false, err
-	}
-	var ran bool
-	err := a.s.Pool.QueryRow(ctx, `
-		select exists (select 1 from plugin_install_history
-		where install_id = $1 and digest = $2 and key_id = $3)`, installID, ref.Digest, ref.KeyID).Scan(&ran)
-	if err != nil {
-		return false, fmt.Errorf("reading the bundles %s ran: %w", installID, err)
-	}
-	return ran, nil
-}
-
 // PinnedVersion is one bundle an install ran, with the version it carries.
 type PinnedVersion struct {
 	BundleRef

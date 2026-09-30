@@ -136,7 +136,7 @@ describe("CatalogPage", () => {
     it("refuses a file that is not a .parley bundle with no upload", async () => {
       renderApp(<CatalogPage />);
       fireEvent.drop(await zone(), { dataTransfer: { files: [new File(["x"], "retro.zip")] } });
-      expect((await screen.findByRole("alert")).textContent).toContain("retro.zip");
+      expect(await screen.findByText(/retro\.zip/)).toBeTruthy();
       expect(posts()).toHaveLength(0);
     });
 
@@ -179,8 +179,8 @@ describe("CatalogPage", () => {
       expect(region?.className).toContain("min-h-");
       answerPost(async () => new Response("", { status: 413 }));
       fireEvent.drop(await zone(), { dataTransfer: { files: [new File(["x"], "a.parley")] } });
-      const alert = await screen.findByRole("alert");
-      expect(region?.contains(alert)).toBe(true);
+      const line = await screen.findByText("That bundle is too large to upload.");
+      expect(region?.contains(line)).toBe(true);
     });
 
     it("changes its copy and state while a file is dragged over, and restores both on leave", async () => {
@@ -225,10 +225,14 @@ describe("CatalogPage", () => {
       });
       expect(await screen.findByText("Added a.parley to the catalog.")).toBeTruthy();
       expect(await screen.findByText("retro 1.0.0 is already in the catalog.")).toBeTruthy();
-      await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(2));
-      const alerts = screen.getAllByRole("alert").map((a) => a.textContent);
-      expect(alerts.some((t) => t?.includes("c.zip"))).toBe(true);
-      expect(alerts).toContain("another bundle already holds this plugin name and version");
+      expect(await screen.findByText("1 added, 1 already there, 2 refused.")).toBeTruthy();
+      expect(screen.getByText(/c\.zip/)).toBeTruthy();
+      expect(screen.getByText("another bundle already holds this plugin name and version")).toBeTruthy();
+      // One polite live region carries every result; no row interrupts.
+      expect(screen.queryAllByRole("alert")).toHaveLength(0);
+      const live = document.querySelector("[data-upload-result] [aria-live=polite]");
+      expect(live?.textContent).toContain("1 added, 1 already there, 2 refused.");
+      expect(live?.textContent).toContain("c.zip");
       expect(posts()).toHaveLength(3);
       expect(z.getAttribute("aria-busy")).toBe("false");
       expect((screen.getByLabelText("A signed .parley file") as HTMLInputElement).multiple).toBe(true);
@@ -256,13 +260,13 @@ describe("CatalogPage", () => {
         renderApp(<CatalogPage />);
         const z = await zone();
         fireEvent.drop(z, { dataTransfer: { files: [new File(["x"], "a.parley")] } });
-        expect((await screen.findByRole("alert")).textContent).toBe(text);
+        expect(await screen.findByText(text)).toBeTruthy();
         expect(z.getAttribute("aria-busy")).toBe("false");
         expect((screen.getByLabelText("A signed .parley file") as HTMLInputElement).disabled).toBe(false);
         expect(screen.queryByText(/to the catalog\./)).toBeNull();
         answerPost(() => new Promise<Response>(() => {}));
         fireEvent.drop(z, { dataTransfer: { files: [new File(["y"], "b.parley")] } });
-        expect(screen.queryByRole("alert")).toBeNull();
+        expect(screen.queryByText(text)).toBeNull();
       });
     }
   });

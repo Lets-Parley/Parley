@@ -340,18 +340,32 @@ function InstallPanel({
   const running = new Set(installs.map((i) => (i.bundle ? `${i.bundle.digest}/${i.bundle.key_id}` : "")));
 
   const current = installs.find((i) => i.name === preview?.name);
-  const move = preview ? direction(preview.version, current?.version) : "install";
+  const move0 = preview ? direction(preview.version, current?.version) : "install";
+  // The same version from another bundle, or onto a pin for an unpinned
+  // install, is a re-pin: the rollback route moves to any trusted bundle.
+  const move =
+    move0 === "same" &&
+    current &&
+    chosen &&
+    (current.bundle?.digest !== chosen.digest || current.bundle?.key_id !== chosen.key_id)
+      ? "repin"
+      : move0;
   const install = useMutation({
     // Going back is a rollback on the server too, never an install.
     mutationFn: () =>
-      move === "rollback" && current
-        ? api("POST", `${base}/${current.id}/rollback`, chosen)
-        : api("POST", base, { ...chosen, grantsAccepted: true }),
-    onSuccess: () => {
+      (move === "rollback" || move === "repin") && current
+        ? api<InstalledPlugin>("POST", `${base}/${current.id}/rollback`, chosen)
+        : api<InstalledPlugin>("POST", base, { ...chosen, grantsAccepted: true }),
+    onSuccess: (view) => {
       setChosen(null);
       setPreview(null);
       setAck(false);
-      onSay(move === "rollback" ? "Rollback recorded." : move === "upgrade" ? "Upgrade recorded." : "Installed.");
+      onSay(
+        outcome(
+          view,
+          move === "rollback" ? "Rolled back." : move === "repin" ? "Re-pinned." : move === "upgrade" ? "Upgraded." : "Installed.",
+        ),
+      );
       onDone();
     },
     onError: (e) => setProblem(errorText(e)),
@@ -476,8 +490,9 @@ function InstallPanel({
                 disabled={!ack || install.isPending}
                 onClick={() => install.mutate()}
               >
-                {move === "upgrade" ? "Upgrade to" : move === "rollback" ? "Roll back to" : "Install"} {preview.name}{" "}
-                {preview.version}
+                {move === "repin"
+                  ? "Re-pin to this bundle"
+                  : `${move === "upgrade" ? "Upgrade to" : move === "rollback" ? "Roll back to" : "Install"} ${preview.name} ${preview.version}`}
               </button>
             </>
           )}
@@ -490,10 +505,14 @@ function InstallPanel({
       )}
       </div>
   );
+  const announce = preview ? `Showing what ${preview.name} ${preview.version} may do, below.` : "";
   const chosenName = plugins.find((p) => p.versions.some((v) => isChosen(v)))?.name;
 
   return (
     <section aria-labelledby={headId} className="mt-5 rounded-panel border border-line bg-surface shadow-rest">
+      <p role="status" aria-live="polite" className="sr-only">
+        {announce}
+      </p>
       <h3 id={headId} className="border-b border-line px-4 py-3 font-display text-lg">
         Install from the catalog
       </h3>
@@ -525,7 +544,7 @@ function InstallPanel({
                       key={key}
                       type="button"
                       aria-pressed={isChosen(v)}
-                      aria-label={`${p.name} ${v.version}`}
+                      aria-label={`${p.name} ${v.version}${running.has(key) ? ", running" : ""}, ${v.key_id ? `signed by key ${v.key_id.slice(0, 8)}` : "unsigned"}`}
                       onClick={() => void pick({ digest: v.digest, key_id: v.key_id })}
                       className={
                         "flex min-w-0 flex-col items-start gap-0.5 rounded-card border px-3 py-2 text-left " +
@@ -559,6 +578,16 @@ function InstallPanel({
       )}
     </section>
   );
+}
+
+/**
+ * What to say after a move: a 202 comes back with the upgrade pending, and
+ * then it has not happened yet — it is waiting on what it would gain.
+ */
+function outcome(view: InstalledPlugin | undefined, done: string): string {
+  const added = view?.pending?.added ?? [];
+  if (!view?.pending) return done;
+  return `Waiting for approval: ${added.map((g) => (g.scope ? `${g.capability} ${g.scope}` : g.capability)).join(", ") || "the new version"}`;
 }
 
 /* ------------------------------------------------------------- installed -- */
@@ -596,10 +625,10 @@ function InstalledCard({
   });
   const rollback = useMutation({
     mutationFn: (to: BundleRef) =>
-      api("POST", `${base}/${install.id}/rollback`, { digest: to.digest, key_id: to.key_id }),
-    onSuccess: () => {
+      api<InstalledPlugin>("POST", `${base}/${install.id}/rollback`, { digest: to.digest, key_id: to.key_id }),
+    onSuccess: (view) => {
       setRollingBack("");
-      onSay("Rollback recorded.");
+      onSay(outcome(view, "Done."));
       onDone();
     },
     onError: (e) => {

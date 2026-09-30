@@ -42,7 +42,20 @@ function shortDigest(d: string): string {
 type Drag = "idle" | "over" | "many";
 
 /** One file of an upload batch and what became of it. */
-type Result = { file: string; ok: boolean; text: string };
+type Result = { file: string; ok: boolean; kind: "added" | "held" | "refused"; text: string };
+
+/** One sentence for the whole batch, e.g. "2 added, 1 already there, 1 refused." */
+function summary(results: Result[]): string {
+  if (results.length === 0) return "";
+  const n = (k: Result["kind"]) => results.filter((r) => r.kind === k).length;
+  return [
+    n("added") && `${n("added")} added`,
+    n("held") && `${n("held")} already there`,
+    n("refused") && `${n("refused")} refused`,
+  ]
+    .filter(Boolean)
+    .join(", ") + ".";
+}
 
 /**
  * A box whose lid lifts and an arrow that drops in while a bundle is held over
@@ -120,7 +133,7 @@ export function CatalogPage() {
     const add = (r: Result) => setResults((rs) => [...rs, r]);
     for (const f of files) {
       if (!f.name.toLowerCase().endsWith(".parley")) {
-        add({ file: f.name, ok: false, text: `“${f.name}” is not a .parley bundle. Choose a file ending in .parley.` });
+        add({ file: f.name, ok: false, kind: "refused", text: `“${f.name}” is not a .parley bundle. Choose a file ending in .parley.` });
         continue;
       }
       setUploading(f.name);
@@ -129,10 +142,11 @@ export function CatalogPage() {
         add({
           file: f.name,
           ok: true,
+          kind: got.added ? "added" : "held",
           text: got.added ? `Added ${f.name} to the catalog.` : `${got.name} ${got.version} is already in the catalog.`,
         });
       } catch (e) {
-        add({ file: f.name, ok: false, text: errorText(e) });
+        add({ file: f.name, ok: false, kind: "refused", text: errorText(e) });
       }
     }
     setUploading("");
@@ -251,35 +265,30 @@ export function CatalogPage() {
           </div>
           {/* Always rendered at a fixed height, so a result never moves the page. */}
           <div data-upload-result className="mt-3 min-h-[3rem] max-h-48 overflow-y-auto text-sm">
-            <p role="status" className="font-bold text-ink-soft">
-              {uploading ? `Uploading ${uploading}…` : ""}
-            </p>
-            {results.length > 0 && (
-              <ul className="mt-1 flex flex-col gap-1">
-                {results.map((r, i) => (
-                  <li key={i} className="flex items-baseline gap-2">
-                    <span
-                      className={
-                        "shrink-0 rounded-chip px-1.5 text-[11px] font-bold " +
-                        (r.ok ? "bg-go/15 text-go" : "bg-stop/10 text-stop")
-                      }
-                    >
-                      {r.ok ? "Done" : "Refused"}
-                    </span>
-                    {r.ok ? (
-                      <span className="font-bold text-ink">{r.text}</span>
-                    ) : (
-                      <span className="min-w-0 break-words">
-                        <span className="sr-only">{r.file}: </span>
-                        <span role="alert" className="font-bold text-stop">
-                          {r.text}
-                        </span>
+            {/* One polite region carries progress, the summary and every row. */}
+            <div role="status" aria-live="polite">
+              <p className="font-bold text-ink-soft">{uploading ? `Uploading ${uploading}…` : summary(results)}</p>
+              {results.length > 0 && (
+                <ul className="mt-1 flex flex-col gap-1">
+                  {results.map((r, i) => (
+                    <li key={i} className="flex items-baseline gap-2">
+                      <span
+                        className={
+                          "shrink-0 rounded-chip px-1.5 text-[11px] font-bold " +
+                          (r.ok ? "bg-go/15 text-go" : "bg-stop/10 text-stop")
+                        }
+                      >
+                        {r.ok ? "Done" : "Refused"}
                       </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
+                      <span className={"min-w-0 break-words font-bold " + (r.ok ? "text-ink" : "text-stop")}>
+                        {r.ok || r.text.includes(r.file) ? "" : <span className="font-normal text-ink-soft">{r.file}: </span>}
+                        {r.text}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
         </section>
       )}

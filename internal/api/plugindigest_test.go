@@ -182,3 +182,28 @@ func TestAPinnedInstallGetsNoLooseUI(t *testing.T) {
 		t.Fatalf("a pinned install was listed from a loose ui.js: %v", names)
 	}
 }
+
+// Re-pinning to another bundle of the same version goes through the rollback
+// route, which the chooser calls for it.
+func TestRepinningToAnotherBundleOfTheSameVersion(t *testing.T) {
+	f := digestServer(t)
+	f.bundle.AllowUnsigned = true
+	name := newPluginName(t)
+	data, err := bundle.Pack(map[string][]byte{"plugin.wasm": []byte("\x00asm")},
+		[]byte(fmt.Sprintf(`{"manifest":1,"kind":"plugin","name":%q,"version":"1.0.0","capabilities":[{"capability":"log"}]}`, name)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unsigned, err := f.bundle.Insert(context.Background(), data, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, view := f.post(t, "", fmt.Sprintf(`{"grantsAccepted":true,"digest":%q,"key_id":""}`, unsigned.Digest))
+	id, _ := view["id"].(string)
+	signed := f.store(t, name, "1.0.0", `[{"capability":"log"}]`)
+	code, view := f.post(t, "/"+id+"/rollback", `{`+signed+`}`)
+	pinned, _ := view["bundle"].(map[string]any)
+	if code != http.StatusOK || pinned["key_id"] == "" || pinned["key_id"] == nil {
+		t.Fatalf("re-pin = %d %v", code, view)
+	}
+}
