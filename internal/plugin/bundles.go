@@ -31,8 +31,12 @@ var (
 )
 
 // DefaultResolveTTL is how long a pod reuses which row answers a name and
-// version before asking the table again.
+// version before asking the table again. It also spaces out the warning a
+// loose-file read logs.
 const DefaultResolveTTL = 5 * time.Second
+
+// maxVerifiedBundles bounds the per-pod cache of verified bundles.
+const maxVerifiedBundles = 64
 
 // BundleStore is the plugin_bundles table, with PLUGIN_DIR's loose files as a
 // legacy fallback.
@@ -47,7 +51,12 @@ const DefaultResolveTTL = 5 * time.Second
 //
 // Which row answers is cached for ResolveTTL, so a row stored by another pod
 // is picked up within that bound. Trust is re-checked on every resolve.
-// Verified bundles are cached by digest and key id; their bytes never change.
+// Verified bundles are cached by digest and key id, least recently used out
+// past maxVerifiedBundles; their bytes never change.
+//
+// A row whose key is later removed from the trust set keeps its name and
+// version: it is refused, not replaced, so republishing under a rotated key
+// needs a new version.
 type BundleStore struct {
 	Pool          *pgxpool.Pool
 	Dir           string
@@ -59,7 +68,9 @@ type BundleStore struct {
 
 	mu       sync.Mutex
 	cache    map[string]*bundle.Bundle
+	lru      []string // cache keys, least recently used first
 	resolved map[string]resolution
+	warned   map[string]time.Time
 }
 
 type resolution struct {
@@ -75,16 +86,19 @@ func (s *BundleStore) trusts(keyID string) bool {
 	return slices.ContainsFunc(s.Trusted, func(k ed25519.PublicKey) bool { return bundle.KeyID(k) == keyID })
 }
 
-func (s *BundleStore) row(ctx context.Context, name, version string) (resolution, error) {
-	ttl := s.ResolveTTL
-	if ttl <= 0 {
-		ttl = DefaultResolveTTL
+func (s *BundleStore) ttl() time.Duration {
+	if s.ResolveTTL > 0 {
+		return s.ResolveTTL
 	}
+	return DefaultResolveTTL
+}
+
+func (s *BundleStore) row(ctx context.Context, name, version string) (resolution, error) {
 	nv := name + "\x00" + version
 	s.mu.Lock()
 	r, ok := s.resolved[nv]
 	s.mu.Unlock()
-	if ok && time.Since(r.at) < ttl {
+	if ok && time.Since(r.at) < s.ttl() {
 		return r, nil
 	}
 	r = resolution{at: time.Now()}
@@ -119,32 +133,58 @@ func (s *BundleStore) Stored(ctx context.Context, name, version string) (*bundle
 	if err != nil || !r.found {
 		return nil, err
 	}
+	return s.verified(ctx, r, name, version)
+}
+
+// verified is the bundle a found row names, only if its archive verifies
+// under the trust set held now and its own manifest names the requested name
+// and version: the columns are an index, and a relabelled row is refused.
+func (s *BundleStore) verified(ctx context.Context, r resolution, name, version string) (*bundle.Bundle, error) {
 	if !s.trusts(r.keyID) {
 		return nil, fmt.Errorf("%s %s: %w", name, version, ErrBundleUntrusted)
 	}
 	key := r.digest + "/" + r.keyID
 	s.mu.Lock()
 	b, ok := s.cache[key]
-	s.mu.Unlock()
 	if ok {
-		return b, nil
+		s.lru = append(removeString(s.lru, key), key)
 	}
-	var archive []byte
-	if err := s.Pool.QueryRow(ctx, `select archive from plugin_bundles where digest = $1 and key_id = $2`,
-		r.digest, r.keyID).Scan(&archive); err != nil {
-		return nil, fmt.Errorf("reading bundle %s: %w", r.digest, err)
-	}
-	b, err = bundle.Verify(bytes.NewReader(archive), s.Trusted, s.AllowUnsigned)
-	if err != nil || b.Digest != r.digest || b.KeyID != r.keyID {
-		return nil, fmt.Errorf("%s %s: %w (%v)", name, version, ErrBundleUntrusted, err)
-	}
-	s.mu.Lock()
-	if s.cache == nil {
-		s.cache = map[string]*bundle.Bundle{}
-	}
-	s.cache[key] = b
 	s.mu.Unlock()
+	if !ok {
+		var archive []byte
+		if err := s.Pool.QueryRow(ctx, `select archive from plugin_bundles where digest = $1 and key_id = $2`,
+			r.digest, r.keyID).Scan(&archive); err != nil {
+			return nil, fmt.Errorf("reading bundle %s: %w", r.digest, err)
+		}
+		var err error
+		b, err = bundle.Verify(bytes.NewReader(archive), s.Trusted, s.AllowUnsigned)
+		if err != nil || b.Digest != r.digest || b.KeyID != r.keyID {
+			return nil, fmt.Errorf("%s %s: %w (%v)", name, version, ErrBundleUntrusted, err)
+		}
+		s.mu.Lock()
+		if s.cache == nil {
+			s.cache = map[string]*bundle.Bundle{}
+		}
+		s.cache[key] = b
+		s.lru = append(removeString(s.lru, key), key)
+		for len(s.lru) > maxVerifiedBundles {
+			delete(s.cache, s.lru[0])
+			s.lru = s.lru[1:]
+		}
+		s.mu.Unlock()
+	}
+	if n, v, err := manifestNameVersion(b.Manifest); err != nil || n != name || v != version {
+		return nil, fmt.Errorf("%s %s: the stored bundle's manifest names another plugin: %w", name, version, ErrBundleUntrusted)
+	}
 	return b, nil
+}
+
+func manifestNameVersion(manifest []byte) (string, string, error) {
+	var m struct{ Name, Version string }
+	if err := json.Unmarshal(manifest, &m); err != nil || m.Name == "" || m.Version == "" {
+		return "", "", errors.New("the manifest names no name and version")
+	}
+	return m.Name, m.Version, nil
 }
 
 // Resolve implements Bundles: the identity of what name and version would run
@@ -168,25 +208,44 @@ func (s *BundleStore) Resolve(ctx context.Context, name, version string) (string
 	return "file:" + name + "@" + version, nil
 }
 
-// Load implements Bundles: a stored bundle's wasm, else the legacy loose
-// "<name>-<version>.wasm" in Dir.
-func (s *BundleStore) Load(ctx context.Context, name, version string) ([]byte, error) {
-	b, err := s.Stored(ctx, name, version)
-	if err != nil {
-		return nil, err
-	}
-	if b != nil {
-		return b.Wasm, nil
+// Load implements Bundles: a stored bundle's wasm and its identity, else the
+// legacy loose "<name>-<version>.wasm" in Dir. One resolution answers both,
+// so the bytes are always the ones the key names.
+func (s *BundleStore) Load(ctx context.Context, name, version string) ([]byte, string, error) {
+	if s.Pool != nil {
+		r, err := s.row(ctx, name, version)
+		if err != nil {
+			return nil, "", err
+		}
+		if r.found {
+			b, err := s.verified(ctx, r, name, version)
+			if err != nil {
+				return nil, "", err
+			}
+			return b.Wasm, r.digest + "/" + r.keyID, nil
+		}
 	}
 	if s.Dir == "" {
-		return nil, fmt.Errorf("no stored bundle for %s %s and no PLUGIN_DIR: %w", name, version, ErrNoBundle)
+		return nil, "", fmt.Errorf("no stored bundle for %s %s and no PLUGIN_DIR: %w", name, version, ErrNoBundle)
 	}
 	s.WarnLoose(name, version, "wasm")
 	return DirBundles(s.Dir).Load(ctx, name, version)
 }
 
-// WarnLoose logs a read of an unsigned, legacy loose file.
+// WarnLoose logs a read of an unsigned, legacy loose file, at most once per
+// name and version per ResolveTTL on this pod.
 func (s *BundleStore) WarnLoose(name, version, what string) {
+	nv := name + "\x00" + version
+	s.mu.Lock()
+	if last, ok := s.warned[nv]; ok && time.Since(last) < s.ttl() {
+		s.mu.Unlock()
+		return
+	}
+	if s.warned == nil {
+		s.warned = map[string]time.Time{}
+	}
+	s.warned[nv] = time.Now()
+	s.mu.Unlock()
 	log := s.Log
 	if log == nil {
 		log = slog.Default()
@@ -200,13 +259,16 @@ func (s *BundleStore) WarnLoose(name, version, what string) {
 // version already held is ErrBundleConflict. uploadedBy is nil for a boot
 // import.
 func (s *BundleStore) Insert(ctx context.Context, archive []byte, uploadedBy *string) (*bundle.Bundle, error) {
+	if len(archive) > bundle.MaxUpload {
+		return nil, bundle.ErrTooLarge
+	}
 	b, err := bundle.Verify(bytes.NewReader(archive), s.Trusted, s.AllowUnsigned)
 	if err != nil {
 		return nil, err
 	}
 	var m struct{ Name, Version string }
-	if err := json.Unmarshal(b.Manifest, &m); err != nil || m.Name == "" || m.Version == "" {
-		return nil, fmt.Errorf("bundle %s: the manifest names no name and version", b.Digest)
+	if m.Name, m.Version, err = manifestNameVersion(b.Manifest); err != nil {
+		return nil, fmt.Errorf("bundle %s: %w", b.Digest, err)
 	}
 	// An unsigned bundle is only stored where nothing is; a signed one is
 	// held to one per name and version by the partial unique index.

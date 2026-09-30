@@ -90,10 +90,9 @@ type app struct {
 	// through.
 	custody *custody.Handlers
 	// plugins and pluginHost are the operator's plugin administration surface.
-	// Both are nil on an instance with no plugin store wired, and pluginHost is
-	// nil whenever PLUGIN_DIR is unset — an instance with no plugins never
-	// instantiates a WASM runtime, so the screen reports that rather than
-	// pretending to know a health it cannot observe.
+	// main wires both on every boot. Either is nil only where a caller built
+	// Options without them, and the screen then reports that no host is
+	// running rather than pretending to know a health it cannot observe.
 	plugins    *plugin.Store
 	pluginHost *plugin.Host
 	// pluginReconcile wakes the one goroutine that re-reads the plugin kinds

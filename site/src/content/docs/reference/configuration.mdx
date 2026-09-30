@@ -373,7 +373,9 @@ A running host re-checks which bundle answers at most every 5 seconds, so a
 bundle stored by another replica replaces a loose file within that bound. Trust
 is checked on every call: a bundle whose key is no longer trusted stops running
 on the next call. The trust set is read at boot, so revoking a key means
-removing it from `PLUGIN_TRUSTED_KEYS` and restarting each replica.
+removing it from `PLUGIN_TRUSTED_KEYS` and restarting each replica. A bundle whose key
+is no longer trusted keeps its name and version, refused rather than replaced,
+so republishing under a rotated key needs a new version.
 
 A name or version containing a path separator or `..` is refused rather than
 cleaned.

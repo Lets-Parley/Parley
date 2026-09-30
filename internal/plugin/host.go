@@ -93,7 +93,10 @@ const (
 // recompiles when the answer changes and refuses when there is none.
 type Bundles interface {
 	Resolve(ctx context.Context, name, version string) (string, error)
-	Load(ctx context.Context, name, version string) ([]byte, error)
+	// Load returns the bytes together with the Resolve answer they are, from
+	// one resolution, so a module is never cached under a key its bytes do
+	// not have.
+	Load(ctx context.Context, name, version string) (wasm []byte, key string, err error)
 }
 
 // Sessions is the read and patch surface a plugin sees of live session state.
@@ -277,20 +280,26 @@ func (h *Host) module(ctx context.Context, installID string) (*extism.CompiledPl
 	// The compiled module is keyed by what the bundle resolves to now, not by
 	// the version: a revoked key or a newly stored bundle changes the answer,
 	// and a module compiled from the old one must not keep running.
+	// Only a verdict about the bundle evicts. Any other failure — a database
+	// blip — keeps serving the module resident, on its last good resolution,
+	// rather than closing it under in-flight calls.
 	key, err := h.Bundles.Resolve(ctx, state.Install.Name, state.Install.Version)
-	if err != nil {
+	if errors.Is(err, ErrBundleUntrusted) || errors.Is(err, ErrNoBundle) {
 		h.evict(ctx, installID)
 		return nil, fmt.Errorf("resolving the bundle for %s: %w", state.Install.Name, err)
 	}
 	h.mu.Lock()
-	if entry, ok := h.cache[installID]; ok && entry.key == key {
+	if entry, ok := h.cache[installID]; ok && (err != nil || entry.key == key) {
 		h.lru = append(removeString(h.lru, installID), installID)
 		h.mu.Unlock()
 		return entry.compiled, nil
 	}
 	h.mu.Unlock()
+	if err != nil {
+		return nil, fmt.Errorf("resolving the bundle for %s: %w", state.Install.Name, err)
+	}
 
-	wasm, err := h.Bundles.Load(ctx, state.Install.Name, state.Install.Version)
+	wasm, key, err := h.Bundles.Load(ctx, state.Install.Name, state.Install.Version)
 	if err != nil {
 		return nil, fmt.Errorf("loading the bundle for %s: %w", state.Install.Name, err)
 	}
@@ -542,7 +551,13 @@ func (d DirBundles) Resolve(_ context.Context, name, version string) (string, er
 }
 
 // Load implements Bundles.
-func (d DirBundles) Load(_ context.Context, name, version string) ([]byte, error) {
+func (d DirBundles) Load(ctx context.Context, name, version string) ([]byte, string, error) {
+	key, _ := d.Resolve(ctx, name, version)
+	wasm, err := d.load(name, version)
+	return wasm, key, err
+}
+
+func (d DirBundles) load(name, version string) ([]byte, error) {
 	for _, field := range []string{name, version} {
 		if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {
 			return nil, fmt.Errorf("%q is not a usable bundle name or version", field)

@@ -360,7 +360,7 @@ mutate "the credential strip across a redirect to another host" \
 
 mutate "the module cache's resolved-bundle check" \
     'TestAnUpgradeIsRunFromTheNewBundleRatherThanTheCachedOne|TestTheHostAndTheUIDoNotSkew' \
-    host.go 'if entry, ok := h.cache[installID]; ok && entry.key == key {' 'if entry, ok := h.cache[installID]; ok {'
+    host.go 'if entry, ok := h.cache[installID]; ok && (err != nil || entry.key == key) {' 'if entry, ok := h.cache[installID]; ok {'
 
 mutate "the breaker's reset on success" \
     'TestASuccessBetweenTwoFailuresKeepsTheBreakerClosed' \
@@ -904,6 +904,16 @@ mutate "a warm host re-checking trust on every call" \
 				return "", ' '			if false {
 				return "", '
 
+mutate "an unsigned bundle never stored beside a signed one" \
+    'TestTwoHostsOnOneDatabaseRunTheStoredBundle' \
+    bundles.go "where \$2::text <> '' or not exists" "where true or not exists"
+
+mutate "a stored bundle's own manifest naming the plugin asked for" \
+    'TestARelabelledRowIsRefused' \
+    bundles.go 'err != nil || n != name || v != version {' 'err != nil || n+v == "" {'
+
+# cmd/parley builds against internal/plugin: put its last mutation back first.
+restore_all
 target cmd/parley
 
 mutate "PLUGIN_ALLOW_UNSIGNED defaulting to off" \

@@ -540,8 +540,8 @@ func apiOptions(ctx context.Context, cfg config, secureCookies bool, plugins *pl
 		// The same store the host loads from, so the frame, the panel list
 		// and the WASM all come from one source.
 		PluginBundles: bundles,
-		// The administration surface reads the store even with no host
-		// running, so an operator is told when the host is not running.
+		// The host runs on every boot; the administration surface reads the
+		// store and the host's health from these two.
 		Plugins:        plugins,
 		PluginHost:     pluginHost,
 		MetricsEnabled: cfg.MetricsEnabled,

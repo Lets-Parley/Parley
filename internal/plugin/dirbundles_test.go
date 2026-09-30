@@ -20,10 +20,10 @@ func TestDirBundlesRefusesANameThatClimbsOutOfTheDirectory(t *testing.T) {
 
 	d := DirBundles(dir)
 	for _, field := range []string{"../escape", "..", `..\escape`, "sub/escape", ""} {
-		if _, err := d.Load(context.Background(), field, "1.0.0"); err == nil {
+		if _, _, err := d.Load(context.Background(), field, "1.0.0"); err == nil {
 			t.Fatalf("name %q was accepted", field)
 		}
-		if _, err := d.Load(context.Background(), "demo", field); err == nil {
+		if _, _, err := d.Load(context.Background(), "demo", field); err == nil {
 			t.Fatalf("version %q was accepted", field)
 		}
 	}
@@ -31,7 +31,7 @@ func TestDirBundlesRefusesANameThatClimbsOutOfTheDirectory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "demo-1.0.0.wasm"), []byte("ok"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.Load(context.Background(), "demo", "1.0.0"); err != nil {
+	if _, _, err := d.Load(context.Background(), "demo", "1.0.0"); err != nil {
 		t.Fatalf("a legitimate bundle was refused: %v", err)
 	}
 }
@@ -62,7 +62,7 @@ func TestDirBundlesRefusesASymlinkThatEscapesTheDirectory(t *testing.T) {
 	}
 
 	d := DirBundles(dir)
-	if _, err := d.Load(context.Background(), "demo", "1.0.0"); err == nil {
+	if _, _, err := d.Load(context.Background(), "demo", "1.0.0"); err == nil {
 		t.Fatalf("a symlink inside the bundle directory was followed outside it")
 	}
 

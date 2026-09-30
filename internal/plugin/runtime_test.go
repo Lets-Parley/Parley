@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -158,4 +159,35 @@ func deliveryAttempts(t *testing.T, s *Store, installID, subject string) int {
 		t.Fatal(err)
 	}
 	return attempts
+}
+
+// Close returns only once both workers have: main closes the pool right
+// after, and a worker still running would query a closed pool.
+func TestCloseWaitsForTheWorkers(t *testing.T) {
+	store := &Store{Pool: testPool(t)}
+	ctx := context.Background()
+	in := install(t, store, Grant{Capability: CapabilityJobs})
+	r := NewRuntime(store, DirBundles(t.TempDir()), HostConfig{}, quietLogger())
+	started := make(chan struct{}, 1)
+	var finished atomic.Bool
+	r.Queue.Run = func(ctx context.Context, _ Job) error {
+		started <- struct{}{}
+		<-ctx.Done()
+		time.Sleep(100 * time.Millisecond)
+		finished.Store(true)
+		return nil
+	}
+	if _, err := r.Queue.Enqueue(ctx, Job{InstallID: in.ID, Kind: "work"}); err != nil {
+		t.Fatal(err)
+	}
+	r.Start(ctx)
+	select {
+	case <-started:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the job worker never ran")
+	}
+	r.Close()
+	if !finished.Load() {
+		t.Fatal("Close returned while a worker was still running")
+	}
 }

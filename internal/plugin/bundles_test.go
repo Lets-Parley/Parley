@@ -7,8 +7,10 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,9 +61,11 @@ func TestTwoHostsOnOneDatabaseRunTheStoredBundle(t *testing.T) {
 	ctx := context.Background()
 	in := install(t, store)
 	first, stored := storedBundle(t, store.Pool, in.Name, guestPanic())
-	second := &BundleStore{Pool: store.Pool, Trusted: first.Trusted}
-	if _, err := second.Insert(ctx, packed(t, in.Name, guestPanic(), nil), nil); err == nil {
-		t.Fatal("an unsigned bundle was stored beside a signed one")
+	// AllowUnsigned, so the unsigned bundle passes Verify and it is the
+	// insert's own guard that refuses it.
+	second := &BundleStore{Pool: store.Pool, Trusted: first.Trusted, AllowUnsigned: true}
+	if _, err := second.Insert(ctx, packed(t, in.Name, guestPanic(), nil), nil); !errors.Is(err, ErrBundleConflict) {
+		t.Fatalf("an unsigned bundle beside a signed one: got %v, want ErrBundleConflict", err)
 	}
 	for _, s := range []*BundleStore{first, second} {
 		h := NewHost(store, HostConfig{})
@@ -71,7 +75,7 @@ func TestTwoHostsOnOneDatabaseRunTheStoredBundle(t *testing.T) {
 		if _, err := h.Call(ctx, in.ID, "run", nil, ModeAsync); !errors.Is(err, ErrGuestPanic) {
 			t.Fatalf("got %v, want ErrGuestPanic from the stored bundle", err)
 		}
-		if got, _ := s.Load(ctx, in.Name, "1.0.0"); !bytes.Equal(got, stored.Wasm) {
+		if got, _, _ := s.Load(ctx, in.Name, "1.0.0"); !bytes.Equal(got, stored.Wasm) {
 			t.Fatal("a store loaded bytes other than the stored wasm")
 		}
 	}
@@ -83,17 +87,17 @@ func TestTheArchiveIsVerifiedOnEveryFillAndNotReadOnAHit(t *testing.T) {
 	ctx := context.Background()
 	name := uniqueName(t)
 	s, b := storedBundle(t, pool, name, []byte("\x00asm-original"))
-	if _, err := s.Load(ctx, name, "1.0.0"); err != nil {
+	if _, _, err := s.Load(ctx, name, "1.0.0"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `update plugin_bundles set archive = 'garbage' where digest = $1`, b.Digest); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := s.Load(ctx, name, "1.0.0"); err != nil || string(got) != "\x00asm-original" {
+	if got, _, err := s.Load(ctx, name, "1.0.0"); err != nil || string(got) != "\x00asm-original" {
 		t.Fatalf("a cache hit re-read the archive: %q, %v", got, err)
 	}
 	fresh := &BundleStore{Pool: pool, Trusted: s.Trusted}
-	if _, err := fresh.Load(ctx, name, "1.0.0"); !errors.Is(err, ErrBundleUntrusted) {
+	if _, _, err := fresh.Load(ctx, name, "1.0.0"); !errors.Is(err, ErrBundleUntrusted) {
 		t.Fatalf("a fill served an archive that does not verify: %v", err)
 	}
 }
@@ -110,7 +114,7 @@ func TestTheKeyIDColumnGrantsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &BundleStore{Pool: pool, Trusted: append(signer.Trusted, pubOf(other))}
-	if _, err := s.Load(ctx, name, "1.0.0"); !errors.Is(err, ErrBundleUntrusted) {
+	if _, _, err := s.Load(ctx, name, "1.0.0"); !errors.Is(err, ErrBundleUntrusted) {
 		t.Fatalf("a relabelled row was served: %v", err)
 	}
 }
@@ -199,7 +203,7 @@ func TestOnePublisherPerNameAndVersion(t *testing.T) {
 	if _, err := s.Insert(ctx, packed(t, name, []byte("signed"), first), nil); err != nil {
 		t.Fatalf("a signed bundle was refused beside an unsigned one: %v", err)
 	}
-	if got, _ := s.Load(ctx, name, "1.0.0"); string(got) != "signed" {
+	if got, _, _ := s.Load(ctx, name, "1.0.0"); string(got) != "signed" {
 		t.Fatalf("got %q, want the signed bundle", got)
 	}
 }
@@ -218,14 +222,14 @@ func TestTheLooseFileIsReadOnlyWhenNoRowExists(t *testing.T) {
 		}
 	}
 	s.Dir = dir
-	if got, _ := s.Load(ctx, name, "1.0.0"); string(got) != "from-table" {
+	if got, _, _ := s.Load(ctx, name, "1.0.0"); string(got) != "from-table" {
 		t.Fatalf("got %q, want the stored bundle", got)
 	}
 	untrusting := &BundleStore{Pool: pool, Dir: dir, Log: quietLogger()}
-	if got, err := untrusting.Load(ctx, name, "1.0.0"); !errors.Is(err, ErrBundleUntrusted) {
+	if got, _, err := untrusting.Load(ctx, name, "1.0.0"); !errors.Is(err, ErrBundleUntrusted) {
 		t.Fatalf("an untrusted row fell back to the loose file: %q, %v", got, err)
 	}
-	if got, _ := untrusting.Load(ctx, name+"-loose", "1.0.0"); string(got) != "from-disk" {
+	if got, _, _ := untrusting.Load(ctx, name+"-loose", "1.0.0"); string(got) != "from-disk" {
 		t.Fatalf("with no row the loose file was not read: %q", got)
 	}
 }
@@ -277,6 +281,45 @@ func TestImportIsIdempotentAndRefusesWhatItCannotTrust(t *testing.T) {
 		if n != want {
 			t.Errorf("%s: %d rows after two imports, want %d", name, n, want)
 		}
+	}
+}
+
+// The manifest inside the archive names the plugin; the name and version
+// columns are an index. A row relabelled to another name is refused, cached
+// or not.
+func TestARelabelledRowIsRefused(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	name := uniqueName(t)
+	s, b := storedBundle(t, pool, name, []byte("wasm"))
+	if _, err := s.Stored(ctx, name, "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	other := name + "-relabelled"
+	if _, err := pool.Exec(ctx, `update plugin_bundles set name = $1, version = '9.9.9' where digest = $2`, other, b.Digest); err != nil {
+		t.Fatal(err)
+	}
+	for _, store := range []*BundleStore{s, {Pool: pool, Trusted: s.Trusted}} {
+		if _, err := store.Stored(ctx, other, "9.9.9"); !errors.Is(err, ErrBundleUntrusted) {
+			t.Fatalf("a relabelled row was served: %v", err)
+		}
+	}
+}
+
+func TestInsertRefusesAnArchiveOverTheUploadCap(t *testing.T) {
+	s := &BundleStore{Pool: testPool(t)}
+	if _, err := s.Insert(context.Background(), make([]byte, bundle.MaxUpload+1), nil); !errors.Is(err, bundle.ErrTooLarge) {
+		t.Fatalf("got %v, want ErrTooLarge", err)
+	}
+}
+
+func TestALooseReadWarnsOncePerTTL(t *testing.T) {
+	var buf bytes.Buffer
+	s := &BundleStore{Log: slog.New(slog.NewTextHandler(&buf, nil))}
+	s.WarnLoose("demo", "1.0.0", "ui.js")
+	s.WarnLoose("demo", "1.0.0", "ui.js")
+	if n := strings.Count(buf.String(), "\n"); n != 1 {
+		t.Fatalf("two loose reads logged %d lines, want 1", n)
 	}
 }
 
