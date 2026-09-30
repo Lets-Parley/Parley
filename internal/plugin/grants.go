@@ -25,6 +25,11 @@ const (
 	CapabilitySessionRead = "session:read"
 	// CapabilitySessionPatch is proposing a change to session state.
 	CapabilitySessionPatch = "session:patch"
+	// CapabilitySessionAct is proposing an action of a room's kind from the
+	// plugin's frame. The browser bridge checks it (GRANT_SESSION_ACT in
+	// web/src/lib/pluginBridge.ts) and the server re-authorises the action as
+	// the viewing user, exactly as if they had clicked it.
+	CapabilitySessionAct = "session:act"
 	// CapabilityJobs is enqueueing deferred work.
 	CapabilityJobs = "jobs"
 	// CapabilityEmit is publishing an event of the plugin's own. It is
