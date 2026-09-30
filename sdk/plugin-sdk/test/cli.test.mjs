@@ -133,3 +133,54 @@ test("dev packs, signs with the given key, uploads to the catalog and prints the
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+async function devAgainst(status, keyArgs) {
+  const { createServer } = await import("node:http");
+  const { spawn } = await import("node:child_process");
+  const dir = mkdtempSync(join(tmpdir(), "parley-dev-"));
+  let hits = 0;
+  const server = createServer((req, res) => {
+    req.resume();
+    req.on("end", () => {
+      hits += 1;
+      res.writeHead(status, { "Content-Type": "application/json" }).end('{"error":"x"}');
+    });
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  try {
+    assert.equal(run("scaffold", dir).status, 0);
+    writeFileSync(join(dir, "plugin.wasm"), "\0asm");
+    const child = spawn(process.execPath, [cli, "dev", dir, ...keyArgs(dir)], {
+      env: { ...process.env, BASE_URL: `http://127.0.0.1:${server.address().port}` },
+    });
+    let out = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (out += d));
+    const code = await new Promise((r) => child.on("close", r));
+    return { code, out, hits, dir };
+  } finally {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const testKey = () => ["--key", join(dirname(cli), "..", "..", "abi", "bundle-v1", "TEST-ONLY-signing.key")];
+
+test("dev explains a 409: the name and version are taken", async () => {
+  const r = await devAgainst(409, testKey);
+  assert.notEqual(r.code, 0);
+  assert.match(r.out, /a different bundle already holds example 0\.1\.0; bump the version in manifest\.json/);
+});
+
+test("dev explains a 403: only default-org admins may upload", async () => {
+  const r = await devAgainst(403, testKey);
+  assert.notEqual(r.code, 0);
+  assert.match(r.out, /only admins of the default org may upload to the catalog/);
+});
+
+test("dev refuses an explicit --key that does not exist instead of creating it", async () => {
+  const r = await devAgainst(201, (dir) => ["--key", join(dir, "nope", "missing.key")]);
+  assert.notEqual(r.code, 0);
+  assert.match(r.out, /missing\.key/);
+  assert.equal(r.hits, 0);
+});

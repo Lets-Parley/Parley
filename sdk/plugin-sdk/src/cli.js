@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
@@ -60,7 +60,7 @@ async function main() {
 
 function writeKey(path) {
   const k = keygen();
-  mkdirSync(dirname(path + ".key"), { recursive: true });
+  mkdirSync(dirname(path + ".key"), { recursive: true, mode: 0o700 });
   writeFileSync(path + ".key", k.key, { mode: 0o600, flag: "wx" });
   writeFileSync(path + ".pub", k.pub);
   return k;
@@ -104,9 +104,15 @@ function packCmd(root) {
 
 function signCmd(file) {
   if (!file || !opts.key) throw new Error("usage: parley-plugin sign <bundle.parley> --key <file>");
-  const out = opts.out || file;
   const bytes = sign(readFileSync(file), seedFrom(opts.key));
-  writeFileSync(out, bytes);
+  const out = opts.out || file;
+  if (opts.out) {
+    writeFileSync(out, bytes);
+  } else {
+    // In place: a failed write must not leave a truncated bundle behind.
+    writeFileSync(out + ".tmp", bytes);
+    renameSync(out + ".tmp", out);
+  }
   report(out, bytes);
 }
 
@@ -206,19 +212,24 @@ async function dev(root) {
   let seed;
   if (!opts.unsigned) {
     const keyPath = opts.key || join(homedir(), ".config", "parley", "dev.key");
+    if (opts.key && !existsSync(keyPath)) throw new Error(`${keyPath} does not exist; run keygen first`);
     if (!existsSync(keyPath)) {
       const k = writeKey(keyPath.replace(/\.key$/, ""));
       process.stderr.write(`created a dev key; trust it with PLUGIN_TRUSTED_KEYS=${k.pub.trim()}\n`);
     }
     seed = seedFrom(keyPath);
   }
-  const { archive } = packArchive(root, seed);
+  const { pkg, archive } = packArchive(root, seed);
   const base = (process.env.BASE_URL || "http://localhost:8080").replace(/\/$/, "");
   const org = process.env.PARLEY_ORG || "default";
   const headers = { "Content-Type": "application/vnd.parley.bundle" };
   if (process.env.PARLEY_SESSION) headers.Cookie = `parley_session=${process.env.PARLEY_SESSION}`;
   const res = await fetch(`${base}/api/catalog/bundles`, { method: "POST", headers, body: archive });
   const text = await res.text();
+  if (res.status === 409) {
+    throw new Error(`a different bundle already holds ${pkg.name} ${pkg.version}; bump the version in manifest.json`);
+  }
+  if (res.status === 403) throw new Error("only admins of the default org may upload to the catalog");
   if (!res.ok) {
     throw new Error(
       `upload ${res.status}: ${text}\n` +

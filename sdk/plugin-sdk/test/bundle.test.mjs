@@ -80,3 +80,8 @@ test("cli keygen, pack --key and sign reproduce the golden vector", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("pack refuses a tar stream over 16 MiB, like the reference MaxTotal", () => {
+  const big = { "plugin.wasm": Buffer.alloc(9 << 20), "ui.js": Buffer.alloc(8 << 20) };
+  assert.throws(() => pack(Buffer.from("{}"), big), /over 16 MiB/);
+});

@@ -8,6 +8,7 @@ const SUMS = "MANIFEST.sha256";
 const SIG = "MANIFEST.sig";
 const CONTEXT = Buffer.from("parley-bundle-v1\n");
 const MAX_WASM = 10 << 20;
+const MAX_TOTAL = 16 << 20; // bundle.MaxTotal: the whole tar stream
 // PKCS#8 DER prefix for a raw 32-byte Ed25519 seed.
 const PKCS8 = Buffer.from("302e020100300506032b657004220420", "hex");
 
@@ -103,7 +104,9 @@ export function pack(manifest, files, seed) {
     const sig = edSign(null, Buffer.concat([CONTEXT, sums]), privateKey(seed));
     entries[SIG] = Buffer.concat([publicKey(seed), sig]);
   }
-  return gzip(tar(entries));
+  const t = tar(entries);
+  if (t.length > MAX_TOTAL) throw new Error("the bundle's tar stream is over 16 MiB");
+  return gzip(t);
 }
 
 /** Unpack a bundle's entries; no signature check (the server verifies). */
