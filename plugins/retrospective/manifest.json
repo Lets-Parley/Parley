@@ -1,0 +1,25 @@
+{
+  "manifest": 1,
+  "kind": "plugin",
+  "name": "retrospective",
+  "version": "0.1.0",
+  "quotaBytes": 1048576,
+  "capabilities": [
+    { "capability": "kv", "scope": "board" },
+    { "capability": "session:read" },
+    { "capability": "session:act" }
+  ],
+  "kinds": [
+    {
+      "kind": "retrospective",
+      "display": "Retrospective",
+      "actions": [
+        { "name": "add-card", "verb": "POST" },
+        { "name": "group-cards", "verb": "POST" },
+        { "name": "vote", "verb": "POST" },
+        { "name": "reveal", "verb": "POST", "facilitatorOnly": true },
+        { "name": "add-action", "verb": "POST" }
+      ]
+    }
+  ]
+}

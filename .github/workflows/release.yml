@@ -666,6 +666,67 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --clobber
 
+  # The retrospective ships as a .parley bundle beside the image. It depends on
+  # nothing but the validated commit, so a failed image publish does not keep
+  # it off the release, nor it the image.
+  retrospective-bundle:
+    needs: [validate]
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.release_commit }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 26
+      - name: Test and pack the retrospective
+        run: make -C plugins/retrospective test bundle
+      # The seed is written to a 0600 file under RUNNER_TEMP and never printed;
+      # the public key is derived from it so the two cannot drift apart.
+      - name: Sign the bundle with the release key
+        id: sign
+        env:
+          SIGNING_KEY: ${{ secrets.PARLEY_PLUGIN_SIGNING_KEY }}
+        run: |
+          set -eu
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "::warning::PARLEY_PLUGIN_SIGNING_KEY is not set; attaching the retrospective bundle unsigned."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          key="$RUNNER_TEMP/parley-plugin-signing.key"
+          (umask 077 && printf '%s\n' "$SIGNING_KEY" > "$key")
+          bundle=$(ls plugins/retrospective/dist/retrospective-*.parley)
+          node sdk/plugin-sdk/src/cli.js sign "$bundle" --key "$key"
+          KEY_FILE="$key" node -e '
+            const c = require("node:crypto"), fs = require("node:fs");
+            const seed = Buffer.from(fs.readFileSync(process.env.KEY_FILE, "utf8").trim(), "base64");
+            const der = Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), seed]);
+            const x = c.createPublicKey(c.createPrivateKey({ key: der, format: "der", type: "pkcs8" })).export({ format: "jwk" }).x;
+            process.stdout.write(Buffer.from(x, "base64url").toString("base64") + "\n");
+          ' > plugins/retrospective/dist/parley-plugin-signing.pub
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+      - name: Remove the signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/parley-plugin-signing.key"
+      - name: Attach the retrospective bundle
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.validate.outputs.tag }}
+          SIGNED: ${{ steps.sign.outputs.signed }}
+        run: |
+          set -eu
+          files=(plugins/retrospective/dist/retrospective-*.parley)
+          if [ "$SIGNED" = true ]; then
+            files+=(plugins/retrospective/dist/parley-plugin-signing.pub)
+          fi
+          gh release upload "$TAG" "${files[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
   release-assets:
     needs: [validate, publish, chart]
     runs-on: ubuntu-24.04

@@ -7,24 +7,42 @@ It does not live in `internal/` or `web/src`. The host already frames an unknown
 kind in the full-room slot and exports the guest's `on_session_state` document as
 CSV. This package is that guest, plus the iframe UI.
 
-## What to put in `PLUGIN_DIR`
+## Build, sign and install
 
-After `make dist`:
+```sh
+make test bundle                     # dist/retrospective-0.1.0.parley, unsigned
+make bundle KEY=path/to/signing.key  # the same, signed
+```
 
-- `dist/retrospective-0.1.0.wasm`
-- `dist/retrospective-0.1.0.ui.js`
+`make bundle` downloads the pinned `extism-js` and Binaryen from
+`sdk/plugin-sdk/extism.mk` into `.cache/`, compiles `board.js` + `guest.js` to
+`plugin.wasm`, and packs it with `manifest.json` and `ui.js`. Make a key with
+`node ../../sdk/plugin-sdk/src/cli.js keygen <prefix>` (or
+`parley plugin keygen`); check a bundle with
+`parley plugin verify -key "$(cat <prefix>.pub)" dist/retrospective-0.1.0.parley`.
 
-Copy those two files into the directory `PLUGIN_DIR` points at. Names are
-load-bearing: the host looks up `<name>-<version>.wasm` and `<name>-<version>.ui.js`.
+To install, an admin of the default org uploads the `.parley` file on the
+**Plugin catalog** page (`/catalog`), then an
+org admin installs it from their org's **Plugins** page and accepts the grants.
+The server accepts it only if it is signed by a key in `PLUGIN_TRUSTED_KEYS`,
+or is unsigned and `PLUGIN_ALLOW_UNSIGNED=true`.
 
-## Install
+Every Parley release attaches `retrospective-<version>.parley`. When the
+project's release key is configured, the bundle is signed with it and the
+matching public key is attached beside it as `parley-plugin-signing.pub`; add
+that key's contents to `PLUGIN_TRUSTED_KEYS` to trust official bundles. A
+release without that file carries an unsigned bundle.
 
-Upload `package.json` as the install package (`manifest` 1, `kind` `"plugin"`)
-and accept the grants. It asks for:
+The grants it asks for:
 
 - `kv` scoped to `board` — one document per session
 - `session:read` — so the iframe is allowed to see the envelope
 - `session:act` — so the iframe can propose the kind's actions
+
+`make dist` still writes the legacy `PLUGIN_DIR` pair,
+`dist/retrospective-0.1.0.wasm` and `dist/retrospective-0.1.0.ui.js`.
+`package.json` is a copy of `manifest.json` kept for the host's consent-copy
+test; the unit tests fail if the two differ.
 
 ## Storage (open question 2)
 
@@ -34,13 +52,6 @@ dot-voting therefore live on **one namespaced document** per session (`scope=boa
 reads, mutates, writes. Concurrent writes are last-write-wins. Compare-and-swap
 is still the right next step before #22 freezes the wire protocol; it is not
 required to express the board.
-
-## Build
-
-`make dist` downloads a pinned `extism-js` (`v1.7.0`) and Binaryen (`wasm-merge`)
-into `.cache/` and compiles `board.js` + `guest.js` to Wasm. `make test` is
-`node --test` on the files next to this README. Python is not an Extism guest
-PDK; this guest is JavaScript.
 
 ## Disable and uninstall
 
