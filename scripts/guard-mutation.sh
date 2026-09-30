@@ -358,9 +358,9 @@ mutate "the credential strip across a redirect to another host" \
     'TestCredentialsDoNotFollowARedirectToAnotherHost' \
     fetch.go 'if !sameHost && sensitiveHeaders[http.CanonicalHeaderKey(k)] {' 'if false {'
 
-mutate "the module cache's version check" \
-    'TestAnUpgradeIsRunFromTheNewBundleRatherThanTheCachedOne' \
-    host.go 'if entry, ok := h.cache[installID]; ok && entry.version == state.Install.Version {' 'if entry, ok := h.cache[installID]; ok {'
+mutate "the module cache's resolved-bundle check" \
+    'TestAnUpgradeIsRunFromTheNewBundleRatherThanTheCachedOne|TestTheHostAndTheUIDoNotSkew' \
+    host.go 'if entry, ok := h.cache[installID]; ok && (err != nil || entry.key == key) {' 'if entry, ok := h.cache[installID]; ok {'
 
 mutate "the breaker's reset on success" \
     'TestASuccessBetweenTwoFailuresKeepsTheBreakerClosed' \
@@ -598,8 +598,13 @@ mutate "the screen on a design token's value" \
     'TestTheFrameBootstrapScreensATokenValueAndNotOnlyItsName' \
     pluginframe_bootstrap.js 'if (COLOR.test(value)) { root.style.setProperty("--color-" + key, value); }' 'root.style.setProperty("--color-" + key, value);'
 
+# Two sites on purpose: pluginUI screens before the store, readPluginUI
+# before the disk. Both are broken at once.
 mutate "the plugin UI bundle path screen" \
     'TestThePluginFrameRefusesANameThatClimbsOutOfThePluginDirectory' \
+    pluginframe.go 'if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {
+			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)' 'if false {
+			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)' \
     pluginframe.go 'if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {
 			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)' 'if false {
 			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)'
@@ -884,6 +889,56 @@ mutate "only an undecryptable secret gives up on a delivery" \
 mutate "the membership guard inside the mention insert" \
     'TestTheMentionInsertRefusesOnItsOwn' \
     mentions.go '		where `+mentionable+` and exists (' '		where true or exists ('
+
+# The bundle store: the import's trust check, re-verification of the stored
+# archive, trust re-checked on every resolve, PLUGIN_ALLOW_UNSIGNED off by
+# default, and main handing its trusted keys to the store.
+target internal/plugin
+
+mutate "the bundle import refusing an unsigned bundle unless allowed" \
+    'TestImportIsIdempotentAndRefusesWhatItCannotTrust' \
+    bundles.go 'b, err := bundle.Verify(bytes.NewReader(archive), s.Trusted, s.AllowUnsigned)' 'b, err := bundle.Verify(bytes.NewReader(archive), s.Trusted, true)'
+
+mutate "the stored archive naming its own signer, not the key_id column" \
+    'TestTheKeyIDColumnGrantsNothing' \
+    bundles.go ' || b.KeyID != r.keyID {' ' {'
+
+mutate "a warm host re-checking trust on every call" \
+    'TestARevokedKeyStopsAWarmHost' \
+    bundles.go '			if !s.trusts(r.keyID) {
+				return "", ' '			if false {
+				return "", '
+
+mutate "an unsigned bundle never stored beside a signed one" \
+    'TestTwoHostsOnOneDatabaseRunTheStoredBundle' \
+    bundles.go "where \$2::text <> '' or not exists" "where true or not exists"
+
+mutate "a stored bundle's own manifest naming the plugin asked for" \
+    'TestARelabelledRowIsRefused' \
+    bundles.go 'err != nil || n != name || v != version {' 'err != nil || n+v == "" {'
+
+mutate "an unknown name never cached" \
+    'TestUnknownNamesLeaveNoCacheOrWarningBehind' \
+    bundles.go '	if !r.found {
+		return r, nil
+	}
+	s.mu.Lock()' '	s.mu.Lock()'
+
+mutate "Runtime.Close waiting for its workers" \
+    'TestCloseWaitsForTheWorkers' \
+    runtime.go '	r.wg.Wait()' ''
+
+# cmd/parley builds against internal/plugin: put its last mutation back first.
+restore_all
+target cmd/parley
+
+mutate "PLUGIN_ALLOW_UNSIGNED defaulting to off" \
+    'TestPluginTrustDefaultsToSignedBundlesOnly' \
+    main.go 'envOr("PLUGIN_ALLOW_UNSIGNED", "false")' 'envOr("PLUGIN_ALLOW_UNSIGNED", "true")'
+
+mutate "main handing PLUGIN_TRUSTED_KEYS to the bundle store" \
+    'TestMainsBundleStoreServesABundleSignedByATrustedKey' \
+    main.go 'Trusted:       cfg.PluginTrustedKeys,' 'Trusted:       nil,'
 
 restore_all
 

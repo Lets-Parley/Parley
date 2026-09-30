@@ -19,12 +19,52 @@ import (
 // bundles is an in-memory bundle source keyed the way a real one is.
 type bundles map[string][]byte
 
-func (b bundles) Load(_ context.Context, name, version string) ([]byte, error) {
+func (b bundles) Resolve(_ context.Context, name, version string) (string, error) {
+	return name + "@" + version, nil
+}
+
+func (b bundles) Load(_ context.Context, name, version string) ([]byte, string, error) {
 	wasm, ok := b[name+"@"+version]
 	if !ok {
-		return nil, fmt.Errorf("no bundle for %s %s", name, version)
+		return nil, "", fmt.Errorf("no bundle for %s %s", name, version)
 	}
-	return wasm, nil
+	return wasm, name + "@" + version, nil
+}
+
+// flaky answers Resolve with err while it is set, as a database blip would.
+type flaky struct {
+	bundles
+	err error
+}
+
+func (f *flaky) Resolve(ctx context.Context, name, version string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.bundles.Resolve(ctx, name, version)
+}
+
+// A failed lookup is not a verdict on the bundle: the resident module keeps
+// serving rather than being closed under in-flight calls.
+func TestAResolveBlipKeepsTheResidentModule(t *testing.T) {
+	store := &Store{Pool: testPool(t)}
+	ctx := context.Background()
+	in := install(t, store)
+	src := &flaky{bundles: bundles{in.Name + "@1.0.0": guestNoop()}}
+	h := NewHost(store, HostConfig{})
+	h.Log = quietLogger()
+	h.Bundles = src
+	t.Cleanup(func() { h.Close(ctx) })
+	if _, err := h.Call(ctx, in.ID, "run", nil, ModeAsync); err != nil {
+		t.Fatal(err)
+	}
+	src.err = errors.New("connection reset")
+	if _, err := h.Call(ctx, in.ID, "run", nil, ModeAsync); err != nil {
+		t.Fatalf("a resolve blip failed the call: %v", err)
+	}
+	if h.CachedModules() != 1 {
+		t.Fatal("a resolve blip evicted the resident module")
+	}
 }
 
 func quietLogger() *slog.Logger {

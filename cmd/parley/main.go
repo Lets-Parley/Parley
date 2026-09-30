@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	cryptofips "crypto/fips140"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -74,10 +76,16 @@ type config struct {
 	SessionMaxTTL  time.Duration
 	// PluginEventRetention is how long a fully-delivered plugin event is kept.
 	PluginEventRetention time.Duration
-	// PluginDir is the directory plugin bundles are read from. Empty means no
-	// plugin host runs at all, which is the default: an instance that has not
-	// been given plugins does not gain a WASM runtime by upgrading.
+	// PluginDir is where loose bundle files are read from and *.parley
+	// bundles are imported from at boot. Empty means only bundles already in
+	// plugin_bundles are served; the host runs either way, and compiles a
+	// module only when an enabled install is first called.
 	PluginDir string
+	// PluginTrustedKeys are the Ed25519 keys a .parley bundle may be signed
+	// by, from PLUGIN_TRUSTED_KEYS. PluginAllowUnsigned also admits unsigned
+	// bundles; it is off unless PLUGIN_ALLOW_UNSIGNED is true.
+	PluginTrustedKeys   []ed25519.PublicKey
+	PluginAllowUnsigned bool
 	// PluginLimits is the containment budget one plugin call gets.
 	PluginLimits plugin.HostConfig
 	// MetricsEnabled mounts an unauthenticated Prometheus exposition at
@@ -255,6 +263,22 @@ func loadConfig() (config, error) {
 	}
 
 	cfg.PluginDir = strings.TrimSpace(os.Getenv("PLUGIN_DIR"))
+	for _, raw := range strings.Split(os.Getenv("PLUGIN_TRUSTED_KEYS"), ",") {
+		if raw = strings.TrimSpace(raw); raw == "" {
+			continue
+		}
+		key, err := base64.StdEncoding.DecodeString(raw)
+		if err != nil || len(key) != ed25519.PublicKeySize {
+			return cfg, fmt.Errorf("PLUGIN_TRUSTED_KEYS entry %q is not a base64 Ed25519 public key — use the contents of a .pub file from \"parley plugin keygen\"", raw)
+		}
+		cfg.PluginTrustedKeys = append(cfg.PluginTrustedKeys, ed25519.PublicKey(key))
+	}
+	switch v := envOr("PLUGIN_ALLOW_UNSIGNED", "false"); v {
+	case "true", "false":
+		cfg.PluginAllowUnsigned = v == "true"
+	default:
+		return cfg, fmt.Errorf("PLUGIN_ALLOW_UNSIGNED %q is not true or false", v)
+	}
 	callTimeout, err := time.ParseDuration(envOr("PLUGIN_CALL_TIMEOUT", plugin.DefaultCallTimeout.String()))
 	if err != nil || callTimeout <= 0 {
 		return cfg, fmt.Errorf("PLUGIN_CALL_TIMEOUT %q is not a positive duration — use a Go duration such as 2s", os.Getenv("PLUGIN_CALL_TIMEOUT"))
@@ -428,17 +452,20 @@ func main() {
 	// it, and the table only grows.
 	go sessionSweeper(pool, cfg).RunSessionSweep(ctx, time.Hour, log)
 
-	// The host, and with it the outbox and job handlers. Without PLUGIN_DIR
-	// there is no host: the workers keep their nil handlers and drain nothing,
-	// so an instance with no plugins never instantiates a WASM runtime.
-	var pluginHost *plugin.Host
-	if runtime := plugin.NewRuntime(plugins, cfg.PluginDir, cfg.PluginLimits, log); runtime != nil {
-		defer runtime.Close()
-		runtime.Start(ctx)
-		pluginHost = runtime.Host
-	}
+	// The bundle store, then the host, and with it the outbox and job
+	// handlers. The host runs whether or not PLUGIN_DIR is set: bundles live
+	// in plugin_bundles too, and no module is compiled until an enabled
+	// install is first called. The import never stops a boot; a refused file
+	// is logged and skipped.
+	bundles := pluginBundles(pool, cfg, log)
+	bundles.Import(ctx, log)
+	runtime := plugin.NewRuntime(plugins, bundles, cfg.PluginLimits, log)
+	// Deferred after pool.Close, so it runs first: the workers have returned
+	// before the pool they query is closed.
+	defer runtime.Close()
+	runtime.Start(ctx)
 
-	opts := apiOptions(ctx, cfg, secureCookies, plugins, pluginHost)
+	opts := apiOptions(ctx, cfg, secureCookies, plugins, runtime.Host, bundles)
 	if opts.OIDC != nil {
 		// A one-time, non-gating diagnostic. A wrong issuer otherwise passes
 		// every automated check and only surfaces when a person tries to sign
@@ -468,6 +495,19 @@ func main() {
 	log.Info("shut down cleanly")
 }
 
+// pluginBundles is the bundle store main serves plugins from. It is its own
+// function so a test can go from loadConfig to a served bundle through the
+// same mapping: a trust setting dropped here is dead in the shipped binary.
+func pluginBundles(pool *pgxpool.Pool, cfg config, log *slog.Logger) *plugin.BundleStore {
+	return &plugin.BundleStore{
+		Pool:          pool,
+		Dir:           cfg.PluginDir,
+		Trusted:       cfg.PluginTrustedKeys,
+		AllowUnsigned: cfg.PluginAllowUnsigned,
+		Log:           log,
+	}
+}
+
 // standupScheduleInterval bounds how late a scheduled standup opens.
 const standupScheduleInterval = 30 * time.Second
 
@@ -478,7 +518,7 @@ const standupScheduleInterval = 30 * time.Second
 // dead in the shipped binary if this mapping omits it, and every handler test
 // that constructs api.Options itself will still pass. Extracted, the mapping
 // can be exercised directly, and an app built from it can be driven over HTTP.
-func apiOptions(ctx context.Context, cfg config, secureCookies bool, plugins *plugin.Store, pluginHost *plugin.Host) api.Options {
+func apiOptions(ctx context.Context, cfg config, secureCookies bool, plugins *plugin.Store, pluginHost *plugin.Host, bundles *plugin.BundleStore) api.Options {
 	opts := api.Options{
 		// The signal context, so SIGTERM stops the cross-replica listener
 		// along with everything else rather than leaving it dialling.
@@ -497,9 +537,11 @@ func apiOptions(ctx context.Context, cfg config, secureCookies bool, plugins *pl
 		// both take their empty-directory early return, and the whole plugin
 		// UI feature is dead however well the WASM host is wired.
 		PluginDir: cfg.PluginDir,
-		// The administration surface reads the store even with no host
-		// running, so an operator on an instance without PLUGIN_DIR still sees
-		// what is installed and is told the host is not running.
+		// The same store the host loads from, so the frame, the panel list
+		// and the WASM all come from one source.
+		PluginBundles: bundles,
+		// The host runs on every boot; the administration surface reads the
+		// store and the host's health from these two.
 		Plugins:        plugins,
 		PluginHost:     pluginHost,
 		MetricsEnabled: cfg.MetricsEnabled,

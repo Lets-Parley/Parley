@@ -64,3 +64,23 @@ func TestPluginKeygenWritesThePrivateKeyOwnerOnly(t *testing.T) {
 		t.Fatalf("output: %s", out.String())
 	}
 }
+
+// A failed private-key write must not leave the public half behind.
+func TestKeygenRemovesThePublicKeyWhenThePrivateWriteFails(t *testing.T) {
+	prefix := filepath.Join(t.TempDir(), "k")
+	orig := writeKey
+	writeKey = func(path, body string, mode os.FileMode) error {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		return writeNew(path, body, mode) // a directory at the .key path
+	}
+	t.Cleanup(func() { writeKey = orig })
+	var out, errb bytes.Buffer
+	if code := runPlugin([]string{"keygen", prefix}, &out, &errb); code == 0 {
+		t.Fatal("keygen succeeded with a directory at the .key path")
+	}
+	if _, err := os.Lstat(prefix + ".pub"); !os.IsNotExist(err) {
+		t.Fatalf("keygen left %s.pub behind: %v", prefix, err)
+	}
+}

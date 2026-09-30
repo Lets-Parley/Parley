@@ -6,7 +6,7 @@ description: What a Parley plugin can and cannot do, and the mechanism behind ea
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/plugin/host.go", "internal/plugin/hostfn.go", "internal/plugin/fetch.go", "internal/plugin/breaker.go", "internal/plugin/kinds.go", "internal/plugin/grants.go", "internal/session/registry.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/db/migrations/0031_plugins.sql", "internal/db/migrations/0032_plugin_pending_upgrade.sql", "internal/db/migrations/0047_plugin_pending_kinds.sql", "internal/api/fanout.go", "web/src/pages/SessionPage.tsx", "web/src/lib/pluginBridge.ts", "web/src/components/PluginPanel.tsx", "scripts/guard-mutation.sh", "internal/api/standup_webhook.go", "internal/plugin/describe.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/plugin/host.go", "internal/plugin/hostfn.go", "internal/plugin/fetch.go", "internal/plugin/breaker.go", "internal/plugin/kinds.go", "internal/plugin/grants.go", "internal/session/registry.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/db/migrations/0031_plugins.sql", "internal/db/migrations/0032_plugin_pending_upgrade.sql", "internal/db/migrations/0047_plugin_pending_kinds.sql", "internal/api/fanout.go", "web/src/pages/SessionPage.tsx", "web/src/lib/pluginBridge.ts", "web/src/components/PluginPanel.tsx", "scripts/guard-mutation.sh", "internal/plugin/bundles.go", "internal/plugin/runtime.go", "internal/api/pluginframe.go", "internal/api/standup_webhook.go", "internal/plugin/describe.go"]} />
 
 A Parley plugin is a WebAssembly module run in-process by
 [Extism](https://extism.org/) over [wazero](https://wazero.io/). Both are pure
@@ -521,7 +521,9 @@ library.
 
 ## What is out of scope
 
-There is no central plugin registry and no signature verification: an operator
-places a bundle in `PLUGIN_DIR` and approves its grants, and that approval is
-the trust decision. There are no per-plugin Postgres schemas and no
+There is no central plugin registry. A `.parley` bundle in `PLUGIN_DIR` is
+verified against `PLUGIN_TRUSTED_KEYS` at boot and stored in the database, and a
+stored bundle is re-verified by each replica and runs only while its signing
+key is still trusted. Loose `.wasm` files in `PLUGIN_DIR` are legacy and
+unsigned, read only where no bundle is stored for that name and version. Approving the grants is still the operator's decision. There are no per-plugin Postgres schemas and no
 auth-provider plugins.

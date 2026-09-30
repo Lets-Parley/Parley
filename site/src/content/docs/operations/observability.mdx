@@ -179,7 +179,7 @@ their log line.
   `"session token sweep failed"` at `ERROR` (`"session token sweep failed;
   will retry on the next tick"`).
 - **Plugin outbox worker** (`internal/plugin/outbox.go`, started from
-  `runtime.Start` when `PLUGIN_DIR` is set) — drains `plugin_deliveries` and
+  `runtime.Start` at every boot) — drains `plugin_deliveries` and
   hands events to installed plugins. Stuck: `"plugin outbox failed; will
   retry on the next tick"` at `ERROR`, or `"plugin outbox has no Deliver
   handler configured; deliveries will accumulate undelivered"` at `WARN` if
@@ -189,8 +189,9 @@ their log line.
   queue failed; will retry on the next tick"` at `ERROR`, or `"plugin job
   queue has no Run handler configured; jobs will accumulate unrun"` at `WARN`.
 
-The plugin outbox and job workers only start when `PLUGIN_DIR` is configured;
-an instance with no plugins never runs them.
+The plugin outbox and job workers start at every boot, whether or not
+`PLUGIN_DIR` is set, because bundles can be stored in the database; with
+nothing installed they find no work.
 
 ## `/metrics`
 
