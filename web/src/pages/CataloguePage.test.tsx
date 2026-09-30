@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderApp } from "../test/render";
 import { expectNoViolations } from "../test/axe";
@@ -91,4 +91,56 @@ describe("CataloguePage", () => {
       expect(screen.queryByRole("alert")).toBeNull();
     });
   }
+
+  describe("the dropzone", () => {
+    beforeEach(() => {
+      catalogue.can_upload = true;
+    });
+    const zone = () => screen.findByRole("button", { name: /Drop a \.parley bundle here or browse/ });
+
+    it("selects a dropped .parley file and shows it with its size", async () => {
+      renderApp(<CataloguePage />);
+      const file = new File([new Uint8Array(2048)], "retro.parley");
+      fireEvent.drop(await zone(), { dataTransfer: { files: [file] } });
+      expect(await screen.findByText("retro.parley")).toBeTruthy();
+      expect(screen.getByText("2.0 KB")).toBeTruthy();
+      expect((screen.getByRole("button", { name: "Upload" }) as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it("refuses a dropped file that is not a .parley bundle before any upload", async () => {
+      renderApp(<CataloguePage />);
+      fireEvent.drop(await zone(), { dataTransfer: { files: [new File(["x"], "retro.zip")] } });
+      expect((await screen.findByRole("alert")).textContent).toContain("retro.zip");
+      expect((screen.getByRole("button", { name: "Upload" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+    });
+
+    it("opens the file picker from the keyboard", async () => {
+      renderApp(<CataloguePage />);
+      const z = await zone();
+      const input = screen.getByLabelText("A signed .parley file") as HTMLInputElement;
+      const click = vi.spyOn(input, "click");
+      z.focus();
+      await userEvent.keyboard("{Enter}");
+      await userEvent.keyboard(" ");
+      expect(click).toHaveBeenCalledTimes(2);
+    });
+
+    it("removes a chosen file", async () => {
+      renderApp(<CataloguePage />);
+      await userEvent.upload(await screen.findByLabelText("A signed .parley file"), new File(["x"], "retro.parley"));
+      await userEvent.click(await screen.findByRole("button", { name: "Remove retro.parley" }));
+      expect(screen.queryByText("retro.parley")).toBeNull();
+      expect((screen.getByRole("button", { name: "Upload" }) as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it("resets to empty after an upload and keeps the message", async () => {
+      renderApp(<CataloguePage />);
+      await userEvent.upload(await screen.findByLabelText("A signed .parley file"), new File(["x"], "retro.parley"));
+      await userEvent.click(screen.getByRole("button", { name: "Upload" }));
+      await screen.findByText("Added retro.parley to the catalogue.");
+      expect(screen.queryByRole("button", { name: "Remove retro.parley" })).toBeNull();
+      expect((screen.getByRole("button", { name: "Upload" }) as HTMLButtonElement).disabled).toBe(true);
+    });
+  });
 });
