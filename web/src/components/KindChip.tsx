@@ -17,10 +17,10 @@ import { kindLabel } from "../lib/kinds";
  * id, whatever `label` says — never another kind's object, never nothing.
  */
 type Size = "md" | "lg";
-type Props = { kind: string; label?: boolean; size?: Size };
+type Props = { kind: string; display?: string; label?: boolean; size?: Size };
 
-export function KindChip({ kind, label = true, size = "md" }: Props) {
-  const name = kindLabel(kind);
+export function KindChip({ kind, display, label = true, size = "md" }: Props) {
+  const name = kindLabel(kind, display);
   const object =
     kind === "poker" ? (
       <Card size={size} />
@@ -33,7 +33,10 @@ export function KindChip({ kind, label = true, size = "md" }: Props) {
 
   if (!object) {
     return (
-      <span className="inline-flex shrink-0 items-center rounded-full border border-line px-2 py-0.5 text-[11px] font-semibold text-ink-soft">
+      <span
+        title={name}
+        className="inline-block max-w-full min-w-0 truncate rounded-full border border-line px-2 py-0.5 align-middle text-[11px] font-semibold text-ink-soft"
+      >
         {name}
       </span>
     );

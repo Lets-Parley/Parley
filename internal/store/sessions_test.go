@@ -417,6 +417,22 @@ func TestAKindOwnedByAnotherOrgCannotBeCreated(t *testing.T) {
 	if containsOptionKind(optsB, kind, true) {
 		t.Errorf("org B's kind options %v include another org's kind %q", optsB, kind)
 	}
+	// A session list names its kinds the same way, scoped to the asking org:
+	// another org's display name must never resolve.
+	dispA, err := sessions.KindDisplays(ctx, orgA, []string{kind, "poker"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dispA[kind] != "Retro" || dispA["poker"] != "Planning Poker" {
+		t.Errorf("org A's kind displays = %v, want its own kind and poker named", dispA)
+	}
+	dispB, err := sessions.KindDisplays(ctx, orgB, []string{kind, "poker"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, leaked := dispB[kind]; leaked {
+		t.Errorf("org B resolved another org's kind %q: %v", kind, dispB)
+	}
 	if _, err := pool.Exec(ctx, "update plugin_installs set enabled = false where name = $1", provider); err != nil {
 		t.Fatal(err)
 	}

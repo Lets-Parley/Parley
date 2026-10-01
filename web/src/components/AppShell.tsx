@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api, type Me, type Person, type SessionSummary } from "../lib/api";
 import { safeDisplayName } from "../lib/displayName";
-import { kindLabel } from "../lib/kinds";
+import { getKind, kindLabel } from "../lib/kinds";
 import type { ConnectionStatus } from "../lib/socket";
 import { useMediaQuery } from "../lib/ui";
 import { SIDEBAR_RAIL_QUERY, TOUCH_HIT } from "../lib/breakpoints";
@@ -189,7 +189,7 @@ export function AppShell({
                       /* Spelled out so the kind reaches the accessible name
                          separated from the title, rather than run together
                          with it as concatenated text would be. */
-                      aria-label={`${kindLabel(s.kind)} · ${s.title}${s.endedAt ? " · ended" : ""}`}
+                      aria-label={`${kindLabel(s.kind, s.kindDisplay)} · ${s.title}${s.endedAt ? " · ended" : ""}`}
                       className={
                         "flex items-center gap-2 rounded-chip px-2.5 py-1.5 hover:bg-felt-deep " +
                         (s.id === activeSessionId ? "bg-felt-deep" : "")
@@ -198,8 +198,12 @@ export function AppShell({
                       {/* A fixed slot, centered: the card and the seat ring
                           differ in width, and the titles should still start
                           in one column. */}
-                      <span className="flex w-6 shrink-0 justify-center">
-                        <KindChip kind={s.kind} label={false} />
+                      <span
+                        className={
+                          getKind(s.kind) ? "flex w-6 shrink-0 justify-center" : "flex min-w-0 max-w-[6.5rem] shrink-0"
+                        }
+                      >
+                        <KindChip kind={s.kind} display={s.kindDisplay} label={false} />
                       </span>
                       <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{s.title}</span>
                       {s.endedAt && (

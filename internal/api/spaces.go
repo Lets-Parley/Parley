@@ -64,6 +64,11 @@ type sessionView struct {
 	// Progress is pokerProgress, standupProgress, or null for a kind that
 	// reports none (a plugin kind).
 	Progress any `json:"progress"`
+	// KindDisplay is the kind's display name, resolved in the space's own
+	// org, or the bare id when no row in reach names it. The browser keeps no
+	// table of plugin kinds, so this is where a plugin session's name comes
+	// from.
+	KindDisplay string `json:"kindDisplay"`
 }
 
 // presentLimit is how many present people a session row names. The rest are
@@ -332,13 +337,27 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 			for _, m := range roster {
 				names[m.UserID] = m.Name
 			}
+			sessionKinds := make([]string, len(sessions))
+			for i, sess := range sessions {
+				sessionKinds[i] = sess.Kind
+			}
+			displays, err := a.sessions.KindDisplays(r.Context(), org.ID, sessionKinds)
+			if err != nil {
+				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+				return
+			}
 			sessionViews := make([]sessionView, len(sessions))
 			for i, sess := range sessions {
+				display, ok := displays[sess.Kind]
+				if !ok {
+					display = sess.Kind
+				}
 				sessionViews[i] = sessionView{
 					Session: sess.Session, Here: len(here[sess.ID]),
 					LastActivityAt: sess.LastActivityAt.UTC(),
 					Present:        presentIn(sess.Session, here[sess.ID], names),
 					Progress:       progressOf(sess),
+					KindDisplay:    display,
 				}
 			}
 			views := make([]memberView, len(roster))

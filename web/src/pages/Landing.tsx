@@ -305,17 +305,17 @@ function ReturnTable({ space, orgName }: { space: Membership; orgName: string | 
               >
                 <SeatedCards here={s.here} />
                 <span className="min-w-0 flex-1">
-                  <span className="line-clamp-2 font-bold">{s.title || kindLabel(s.kind)}</span>
+                  <span className="line-clamp-2 font-bold">{s.title || kindLabel(s.kind, s.kindDisplay)}</span>
                   <span className="block text-sm text-ink-soft">{whoIsHere(s, members)}</span>
                 </span>
                 {/* Below sm there is no room for the word, but poker and
                     standup still have to be told apart: the kind's object
                     alone, which names itself to a screen reader. */}
                 <span className="shrink-0 sm:hidden">
-                  <KindChip kind={s.kind} label={false} />
+                  <KindChip kind={s.kind} display={s.kindDisplay} label={false} />
                 </span>
                 <span className="hidden sm:inline-flex">
-                  <KindChip kind={s.kind} />
+                  <KindChip kind={s.kind} display={s.kindDisplay} />
                 </span>
                 {/* An empty round is a door, not an invitation: nobody is
                     waiting on you, so it does not get the accent's weight. */}

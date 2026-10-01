@@ -42,12 +42,11 @@ import {
   isChosen,
   kindLabel,
   getKind,
-  rememberKindLabels,
   type KindChoice,
 } from "../lib/kinds";
 
-// "" is the All tab; every other value is a registered kind's wire id.
-const KIND_TABS = [{ id: "", label: "All" }, ...KINDS];
+// "" is the All tab; every other value is a kind's wire id.
+const CORE_TABS = [{ id: "", label: "All" }, ...KINDS];
 const SORTS = ["Recent", "Active first", "A\u2013Z"] as const;
 type Sort = (typeof SORTS)[number];
 
@@ -252,7 +251,7 @@ export function SpacePage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
-  const [kind, setKind] = useState("");
+  const [picked, setKind] = useState("");
   const [sort, setSort] = useState<Sort>("Recent");
   // Per space: a logbook opened in one space says nothing about another's.
   // Held by key, not as one flag, because moving between spaces keeps this
@@ -428,6 +427,18 @@ export function SpacePage() {
   }
 
   const all = sp.sessions ?? [];
+  // Plugin kinds follow the built-ins: the ones the space offers, then any a
+  // listed session still carries (an install since disabled). Each is named
+  // by the data it came with.
+  const kindTabs = [...CORE_TABS];
+  for (const [id, display] of [
+    ...(sp.kindOptions ?? []).filter((o) => o.plugin).map((o) => [o.kind, o.display] as const),
+    ...all.map((o) => [o.kind, o.kindDisplay] as const),
+  ])
+    if (!kindTabs.some((t) => t.id === id)) kindTabs.push({ id, label: kindLabel(id, display) });
+  // A picked kind that has left the list (its last session was deleted) is
+  // All again, rather than an empty list with nothing pressed.
+  const kind = kindTabs.some((t) => t.id === picked) ? picked : "";
   // A kind's name only tells rows apart when the list mixes kinds.
   const mixedKinds = !kind && all.some((o) => o.kind !== all[0].kind);
   const q = query.trim().toLowerCase();
@@ -457,7 +468,6 @@ export function SpacePage() {
   // What a new session may be: the server omits any kind retired in place.
   // An older server sends no list at all, and offers everything as before.
   // Plugin kinds follow the built-ins, offered by the server's display name.
-  rememberKindLabels(sp.kindOptions);
   const offered: KindChoice[] = [
     ...KINDS.filter((k) => sp.kinds?.includes(k.id) ?? true),
     ...(sp.kindOptions ?? [])
@@ -534,18 +544,20 @@ export function SpacePage() {
                 /
               </kbd>
             </label>
-            <div role="group" aria-label="Filter by kind" className="flex gap-0.5 rounded-full bg-felt-deep p-[3px]">
-              {KIND_TABS.map((k) => (
+            <div role="group" aria-label="Filter by kind" className="flex max-w-full gap-0.5 overflow-x-auto rounded-full bg-felt-deep p-[3px]">
+              {kindTabs.map((k) => (
                 <button
                   key={k.id}
                   onClick={() => setKind(k.id)}
                   aria-pressed={kind === k.id}
                   className={
-                    `${TOUCH_HIT} inline-flex items-center rounded-full px-4 text-xs font-bold ` +
+                    `${TOUCH_HIT} inline-flex max-w-[11rem] shrink-0 items-center rounded-full px-4 text-xs font-bold ` +
                     (kind === k.id ? "bg-surface text-ink shadow-rest" : "text-ink-soft")
                   }
                 >
-                  {k.label}
+                  <span className="truncate" title={k.label}>
+                    {k.label}
+                  </span>
                 </button>
               ))}
             </div>
@@ -597,7 +609,7 @@ export function SpacePage() {
         ) : filtered.length === 0 ? (
           <p className="px-2 py-9 text-center text-sm text-ink-soft">
             Nothing matches {q ? `“${query}”` : "these filters"}
-            {kind ? ` in ${kindLabel(kind)} sessions` : ""}.
+            {kind ? ` in ${kindTabs.find((t) => t.id === kind)!.label} sessions` : ""}.
           </p>
         ) : (
           <div className="flex flex-col gap-5">
@@ -764,7 +776,7 @@ function LiveCard({
         </p>
         <p className="mt-1 truncate text-[19px] font-bold tracking-tight">{s.title}</p>
         <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-soft">
-          <KindChip kind={s.kind} label={showKind} />
+          <KindChip kind={s.kind} display={s.kindDisplay} label={showKind} />
           <span className="font-mono text-[12px] font-semibold text-go">{`${s.here} here`}</span>
           {progress && <span className="tabular-nums">{progress}</span>}
           <span>{sessionDate(s.createdAt)}</span>
@@ -830,7 +842,7 @@ function SessionRow({ s, showKind, onManage }: { s: SessionSummary; showKind: bo
     <li className={"flex items-center gap-2 " + (onManage ? "py-1.5 pr-3" : "")}>
       <Link
         to={`/session/${s.id}`}
-        aria-label={[kindLabel(s.kind), s.title, ended ? "ended" : age, outcome].filter(Boolean).join(" · ")}
+        aria-label={[kindLabel(s.kind, s.kindDisplay), s.title, ended ? "ended" : age, outcome].filter(Boolean).join(" · ")}
         // On a phone the chip sits above the title, so the title keeps the
         // row's width instead of truncating beside it.
         className={
@@ -840,8 +852,13 @@ function SessionRow({ s, showKind, onManage }: { s: SessionSummary; showKind: bo
       >
         {/* A fixed column, so titles line up whether the kind reads "Poker"
             or "Standup" — or shows its object alone. */}
-        <span className={"flex shrink-0 max-sm:w-auto " + (showKind ? "w-24" : "w-6 justify-center")}>
-          <KindChip kind={s.kind} label={showKind} />
+        <span
+          className={
+            "flex min-w-0 shrink-0 max-sm:w-auto max-sm:max-w-full " +
+            (showKind || !getKind(s.kind) ? "w-24" : "w-6 justify-center")
+          }
+        >
+          <KindChip kind={s.kind} display={s.kindDisplay} label={showKind} />
         </span>
         {ended ? (
           <>
@@ -1264,7 +1281,7 @@ function NewSessionModal({
                     setError("");
                   }}
                 />
-                <KindChip kind={k.id} size="lg" />
+                <KindChip kind={k.id} display={k.label} size="lg" />
               </label>
             ))}
           </div>

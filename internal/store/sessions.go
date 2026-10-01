@@ -177,6 +177,30 @@ func (s *Sessions) OfferableKindOptions(ctx context.Context, orgID string) ([]Ki
 	return out, rows.Err()
 }
 
+// KindDisplays maps each of kinds to its display name for a session list in
+// orgID. It does not filter on retired or enabled — a room outlives the kind
+// that opened it — but it does filter on the org: a kind belonging to another
+// org resolves to nothing, so its name never leaks. A kind with no row in
+// reach is absent, and the caller falls back to the id.
+func (s *Sessions) KindDisplays(ctx context.Context, orgID string, kinds []string) (map[string]string, error) {
+	rows, err := s.Pool.Query(ctx,
+		"select kind, display from session_kinds where kind = any($1) and (org_id is null or org_id = $2)",
+		kinds, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("reading session kind display names: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var k, d string
+		if err := rows.Scan(&k, &d); err != nil {
+			return nil, fmt.Errorf("scanning a session kind display name: %w", err)
+		}
+		out[k] = d
+	}
+	return out, rows.Err()
+}
+
 func (s *Sessions) ByID(ctx context.Context, id string) (Session, error) {
 	return scanSession(s.Pool.QueryRow(ctx, "select "+sessionCols+" from sessions where id = $1", id))
 }
