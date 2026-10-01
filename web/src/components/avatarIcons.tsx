@@ -8,7 +8,7 @@
  * api.dicebear.com at runtime: a self-hosted room must not leak one request
  * per person to a third party.
  *
- * A portrait carries its own colours, so it sits on the identity-hue disc
+ * A portrait carries its own colors, so it sits on the identity-hue disc
  * rather than borrowing `currentColor` from it the way the retired
  * silhouettes did. The disc still supplies the hue around and behind it.
  *

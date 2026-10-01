@@ -95,14 +95,14 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger, fsys fs.
 // migration commits in its own transaction: a pg_advisory_xact_lock would be
 // released by the first commit and let a second replica in halfway through.
 //
-// The connection is dialled outside the pool, for the same reason the session
+// The connection is dialed outside the pool, for the same reason the session
 // listener is: a pooled connection parked in a blocking pg_advisory_lock is a
 // connection pool.Close() waits forever to get back, and it would also spend
 // one of the pool's ten connections for the duration.
 //
 // Release is guaranteed on every path by the deferred Close: ending the session
 // drops every advisory lock it holds, so even a failed explicit unlock, a
-// panic, or a cancelled context cannot leak the lock and wedge future boots.
+// panic, or a canceled context cannot leak the lock and wedge future boots.
 func withMigrationLock(ctx context.Context, pool *pgxpool.Pool, fn func() error) error {
 	cfg := pool.Config().ConnConfig.Copy()
 	if cfg.RuntimeParams == nil {
@@ -114,8 +114,8 @@ func withMigrationLock(ctx context.Context, pool *pgxpool.Pool, fn func() error)
 		return fmt.Errorf("connecting to take the migration lock: %w", err)
 	}
 	defer func() {
-		// Not ctx: by the time this runs ctx may be cancelled, and a query on
-		// a cancelled context never reaches the server, so the explicit unlock
+		// Not ctx: by the time this runs ctx may be canceled, and a query on
+		// a canceled context never reaches the server, so the explicit unlock
 		// below would fail on every interrupted boot and leave the release to
 		// the socket close alone.
 		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

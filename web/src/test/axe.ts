@@ -4,8 +4,8 @@ import { expect } from "vitest";
 /**
  * Fails the test with axe's own description of every WCAG 2 A/AA violation it
  * finds in `container`. jsdom has no layout, so the rules that need geometry
- * (colour contrast, target size) sit this out — those belong to a real browser.
- * What this does catch is the bulk of what regresses in review: unlabelled
+ * (color contrast, target size) sit this out — those belong to a real browser.
+ * What this does catch is the bulk of what regresses in review: unlabeled
  * controls, wrong roles, missing alt text, skipped heading levels, broken aria.
  */
 export async function expectNoViolations(container: HTMLElement) {

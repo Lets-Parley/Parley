@@ -110,8 +110,8 @@ podman login internal-registry.example.com
 token exchange, and the image is distroless with only the public Mozilla root
 set baked in. An internal Keycloak, Dex, or any identity provider behind an
 enterprise CA fails TLS verification with no further configuration. Go's
-standard library honours `SSL_CERT_FILE` (and `SSL_CERT_DIR`) to add trust
-roots without rebuilding the image, and pgx (Parley's Postgres driver) honours
+standard library honors `SSL_CERT_FILE` (and `SSL_CERT_DIR`) to add trust
+roots without rebuilding the image, and pgx (Parley's Postgres driver) honors
 `sslrootcert` on the connection string for the same reason on the database
 leg.
 

@@ -11,7 +11,7 @@
 
    Theme resolution: the palette below is the light default. Dark applies when
    the system asks for it and the user has not pinned light, or when the user
-   has pinned dark. Never define a colour only inside a media/[data-theme] block
+   has pinned dark. Never define a color only inside a media/[data-theme] block
    — the toggle has to win in both directions. */
 
 :root {
@@ -331,7 +331,7 @@ a {
 }
 /* A joining seat falls into its slot and takes one light bounce. Static, and
    it can be: fallT = √(2d/G) and bounceT = 2r·fallT, so the shape in
-   normalised time is fixed by the restitution alone (r = 0.35 — see
+   normalized time is fixed by the restitution alone (r = 0.35 — see
    DROP_RESTITUTION) and the distance enters only as the --drop-d scale factor.
    Contact is at 1/(1+2r) = 58.8%, the apex of the hop is r²·d. Linear, because
    the fast-slow-fast is gravity in the stops rather than a bezier imitating

@@ -77,7 +77,7 @@ func DSN(t *testing.T) string {
 		warnOnce.Do(func() { warn(pkg) })
 		t.Skipf("%s set; skipping database-backed test", EnvOptOut)
 	case failBadOptOut:
-		t.Fatalf("%s=%q is not a recognised value: set %s=1 to skip database-backed tests, "+
+		t.Fatalf("%s=%q is not a recognized value: set %s=1 to skip database-backed tests, "+
 			"or unset it to run them. It is parsed strictly so that a typo cannot quietly "+
 			"silence most of the suite.", EnvOptOut, optOut, EnvOptOut)
 	default:

@@ -975,7 +975,7 @@ describe("Landing across orgs", () => {
     expect(document.activeElement).toBe(browse);
   });
 
-  // axe in both render passes. It deliberately skips colour contrast — jsdom
+  // axe in both render passes. It deliberately skips color contrast — jsdom
   // has no layout — so contrast on these controls stays a review item.
   for (const theme of ["light", "dark"] as const) {
     it(`has no axe violations in the ${theme} pass, directory door with no spaces`, async () => {
@@ -1275,7 +1275,7 @@ describe("Landing, coming back to the table", () => {
     expect(list.getByRole("link", { name: /^Platform Team\W+passcode$/i })).toBeTruthy();
   });
 
-  // The load used to lay out the stranger's narrow centred column and snap to
+  // The load used to lay out the stranger's narrow centered column and snap to
   // the wide top-aligned one when the list landed — the page's biggest layout
   // shift. A full account gets the signed-in shell, and a skeleton in the same
   // two columns, from the first paint.

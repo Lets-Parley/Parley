@@ -170,7 +170,7 @@ func TestFetchScreensEveryResolvedRecordNotOnlyTheFirst(t *testing.T) {
 func TestFetchDialsTheScreenedAddressRatherThanTheHostname(t *testing.T) {
 	// The resolver answers once with a loopback address and then, as a
 	// rebinding attacker's would, with the metadata address. Only the first
-	// answer was screened, and it is the one that must be dialled.
+	// answer was screened, and it is the one that must be dialed.
 	srv, port := serve(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
 	})

@@ -72,7 +72,7 @@ func TestEveryCapabilityIsDescribedByConsequence(t *testing.T) {
 			t.Errorf("%s has no description at all", capability)
 			continue
 		}
-		if strings.Contains(d.Permits, "does not recognise") {
+		if strings.Contains(d.Permits, "does not recognize") {
 			t.Errorf("%s falls through to the unknown-capability text", capability)
 		}
 		// The copy names a consequence, not the identifier. "Can send…",
@@ -134,7 +134,7 @@ func TestAnUnscopedGrantSaysSoAndAScopedOneNamesIt(t *testing.T) {
 
 // A shipped plugin whose manifest asks for something the consent screen cannot
 // explain would tell every operator installing it "Do not grant it".
-func TestShippedPluginCapabilitiesAreAllRecognised(t *testing.T) {
+func TestShippedPluginCapabilitiesAreAllRecognized(t *testing.T) {
 	raw, err := os.ReadFile("../../plugins/retrospective/package.json")
 	if err != nil {
 		t.Fatal(err)
@@ -149,7 +149,7 @@ func TestShippedPluginCapabilitiesAreAllRecognised(t *testing.T) {
 		t.Fatal("the retrospective manifest declares no capabilities; the test is reading the wrong thing")
 	}
 	for _, g := range m.Capabilities {
-		if d := Describe(g); strings.Contains(d.Permits, "does not recognise") {
+		if d := Describe(g); strings.Contains(d.Permits, "does not recognize") {
 			t.Errorf("the retrospective asks for %q and the consent screen cannot explain it", g.Capability)
 		}
 	}

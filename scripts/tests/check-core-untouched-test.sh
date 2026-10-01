@@ -2,9 +2,9 @@
 set -eu
 
 # The guarantee the plugin epic rests on is that a whole ceremony can be
-# delivered as a plugin without editing the host. An honour claim in a pull
+# delivered as a plugin without editing the host. An honor claim in a pull
 # request description is not that guarantee, so a checker enforces it — and a
-# checker nobody tests is the same honour claim one level down.
+# checker nobody tests is the same honor claim one level down.
 
 repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 checker="$repo_root/scripts/check-core-untouched.sh"

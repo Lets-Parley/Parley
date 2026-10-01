@@ -126,7 +126,7 @@ export function PluginsPage() {
 /**
  * The escape hatch, and why it is styled the way it is.
  *
- * A theme pack owns every colour token in the app, including the ones a button
+ * A theme pack owns every color token in the app, including the ones a button
  * is drawn with. A reset control painted in `--color-accent` on
  * `--color-surface` can be made invisible by the very pack it exists to undo,
  * so this one is drawn in literal hex with its own `colorScheme`. It never
@@ -203,7 +203,7 @@ function ThemePanel({ org, onSay }: { org: string; onSay: (m: string) => void })
         <div>
           <h2 className="font-display text-xl">Theme packs</h2>
           <p className="mt-1 max-w-prose text-sm text-ink-soft text-pretty">
-            A theme pack is a value map — sixteen colours and nothing else. It
+            A theme pack is a value map — sixteen colors and nothing else. It
             runs no code, reads nothing, and asks for no capabilities, so there
             is no grant to make. {installed ? `Applied: ${installed.name} ${installed.version}.` : "None applied."}
           </p>

@@ -214,9 +214,9 @@ handed nothing at all, in any room.
 A plugin proposes; the host performs, using the user's own cookie against the
 same route the user's own click would hit. The plugin never receives a
 credential and can only ask for what the user could already do — and the server
-re-authorises every call regardless of what was asked. `X-Parley-Plugin-Route`
+re-authorizes every call regardless of what was asked. `X-Parley-Plugin-Route`
 names the plugin so `org_audit_log` records which surface an action came from.
-It authorises nothing, and it is checked against **this org's** installs before
+It authorizes nothing, and it is checked against **this org's** installs before
 it is written: an unchecked header would let any visitor write arbitrary text
 into an org's audit log, and an unscoped check would let a plugin any tenant
 installed vouch for an action in every other tenant's room. The record names the
@@ -243,7 +243,7 @@ the acting user is the facilitator, that includes the facilitator's own
 controls.
 
 What bounds it is the server, not the plugin. Every proposed action is
-re-authorised host-side as if the user had clicked it: an action the kind does
+re-authorized host-side as if the user had clicked it: an action the kind does
 not register is a 404, the wrong verb a 405, a facilitator-only action from
 someone who is not the facilitator a 403, and anything at all in an ended
 session a 409. So a plugin can never *exceed* the acting user — the ceiling is
@@ -402,7 +402,7 @@ those verbs, so such an action would be a write with no protection at all.
 The manifest is screened before any of that, at install: a kind name and an
 action name must be 1–64 characters of `a-z`, `0-9` and dashes, and a verb is
 upper-cased and then has to be one of `POST`, `PUT`, `PATCH` or `DELETE`. The
-normalisation is the point of the whitelist as much as the whitelist is: a
+normalization is the point of the whitelist as much as the whitelist is: a
 manifest writing `"get"` used to pass the registry's comparison against `GET`
 and then never match the dispatcher's exact comparison either, which is a dead
 action rather than an exposed one — confusing, and confusion in a security
@@ -478,7 +478,7 @@ part of the boundary rather than as copy:
   request carries `grantsAccepted`, and the server refuses without it.
 - **An upgrade that widens capabilities renders as a diff and approval is never
   the default action.** The plugin keeps running on the old version under the
-  old grants until an operator ticks the acknowledgement and presses a
+  old grants until an operator ticks the acknowledgment and presses a
   deliberately secondary control; keeping the current capabilities is the
   primary one.
 - **Uninstall is a distinct, irreversible act, never a disable.** It cascades to
@@ -496,7 +496,7 @@ part of the boundary rather than as copy:
 - **Health is visible, and never asserted past what the server can see.** A
   plugin the circuit breaker has degraded or disabled says so on the page, with
   its reason and its last error, instead of silently doing nothing. The
-  breaker's judgement stays in memory, where it belongs — a persisted cooldown
+  breaker's judgment stays in memory, where it belongs — a persisted cooldown
   could not be cleared by a restart — and is read out through the
   administration API; the durable half, whether an install is enabled, was
   already in `plugin_installs`. When no plugin host is running at all, an
@@ -515,8 +515,8 @@ part of the boundary rather than as copy:
   Overstating is its own defect — an operator who reads every grant as total
   cannot tell the plugin that needs the access from the one asking for the
   world.
-- **The theme reset is drawn in literal colours.** A theme pack owns every
-  colour token in the app, so a reset control styled with those tokens can be
+- **The theme reset is drawn in literal colors.** A theme pack owns every
+  color token in the app, so a reset control styled with those tokens can be
   made invisible by the pack it exists to undo. That one control uses no theme
   variable at all.
 

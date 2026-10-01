@@ -208,7 +208,7 @@ export function Commitments({
                 c={c}
                 /* No question was asked, so there is no answer to offer. It is
                    still yours to withdraw, with the same two-step confirm, the
-                   same focus handling and the same behaviour at 375px as a
+                   same focus handling and the same behavior at 375px as a
                    carried-over row. */
                 answerable={false}
                 leaving={false}
@@ -394,7 +394,7 @@ function CommitmentRow({
         if (!ok) return;
         setAnswer(next);
         // Done and dropped have both just closed this commitment. Ask to be
-        // held for a beat, so the acknowledgement is not gone before the eye
+        // held for a beat, so the acknowledgment is not gone before the eye
         // reaches it.
         if (next !== "carried") onLanded();
         // The control that was clicked has just gone. The row it belonged to is
@@ -459,7 +459,7 @@ function CommitmentRow({
           least room, and where there is not even room for that the line wraps
           and the withdraw action drops below the answers rather than ahead of
           them; from sm a hairline stands between them. Structure, not
-          colour: stop is reserved for destructive confirms, and a red control
+          color: stop is reserved for destructive confirms, and a red control
           on every row would put back the reprimand this list exists without. */}
       <span className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 sm:ml-auto sm:shrink-0 sm:flex-nowrap sm:justify-end">
         {answerable && (
@@ -544,7 +544,7 @@ function CommitmentRow({
               className={`flex items-center gap-1 ${divider}`}
               /* Scoped to the row on purpose: a document listener here would
                  also swallow Escape from the page's native <dialog>, which
-                 closes itself. The stop keeps this Escape from travelling on
+                 closes itself. The stop keeps this Escape from traveling on
                  to any surface above the row. */
               onKeyDown={(e) => {
                 if (e.key !== "Escape") return;

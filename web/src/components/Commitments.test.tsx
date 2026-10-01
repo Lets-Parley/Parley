@@ -70,7 +70,7 @@ describe("a confirmed remove", () => {
 });
 
 describe("follow-through", () => {
-  it("answers a carried-over commitment with done, still on it or dropped, as one labelled group", () => {
+  it("answers a carried-over commitment with done, still on it or dropped, as one labeled group", () => {
     renderApp(<Commitments {...props} onDrop={async () => true} commitments={[commitment()]} />);
     const group = screen.getByRole("group", { name: "How did it go?" });
     const names = within(group).getAllByRole("button").map((b) => b.textContent);

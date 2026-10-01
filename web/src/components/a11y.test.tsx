@@ -27,7 +27,7 @@ vi.mock("../lib/api", async () => {
 /**
  * One axe sweep per screen part that renders from props alone. It is a floor,
  * not a certificate: axe catches roughly the machine-checkable half of WCAG,
- * and in jsdom it cannot see colour or layout at all. Anything failing here is
+ * and in jsdom it cannot see color or layout at all. Anything failing here is
  * a real defect; passing here means the obvious ones are gone.
  *
  * Components that own fetches assert their own accessibility inside their own
@@ -71,8 +71,8 @@ const cases: [string, () => React.ReactElement][] = [
       </ul>
     ),
   ],
-  ["KindChip (poker, labelled)", () => <KindChip kind="poker" />],
-  ["KindChip (standup, labelled)", () => <KindChip kind="standup" />],
+  ["KindChip (poker, labeled)", () => <KindChip kind="poker" />],
+  ["KindChip (standup, labeled)", () => <KindChip kind="standup" />],
   ["KindChip (poker, label dropped)", () => <KindChip kind="poker" label={false} />],
   ["KindChip (standup, label dropped)", () => <KindChip kind="standup" label={false} />],
   ["KindChip (picker size)", () => <KindChip kind="standup" size="lg" />],
@@ -115,7 +115,7 @@ describe("the kudos give form", () => {
     makePerson({ userId: "dana", name: "Dana Whitfield" }),
   ];
 
-  it("is reachable, labelled and announces what it did, from the keyboard alone", async () => {
+  it("is reachable, labeled and announces what it did, from the keyboard alone", async () => {
     renderApp(<Kudos org="acme" slug="platform-team" members={members} meId="marcus" />);
     await userEvent.click(await screen.findByRole("button", { name: "Thank someone" }));
     const picker = screen.getByLabelText("To");

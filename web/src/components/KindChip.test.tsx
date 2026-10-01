@@ -17,7 +17,7 @@ function classes(el: Element | null): string[] {
  * Each kind is a small object taken from its own room: poker is the face-down
  * card the table deals, standup is the round of speakers with the current one
  * marked. The assertions name the design tokens by hand — a class list derived
- * from the component would agree with any colour it happened to use.
+ * from the component would agree with any color it happened to use.
  */
 describe("KindChip", () => {
   it("draws poker as the table's face-down card, with its pip", () => {

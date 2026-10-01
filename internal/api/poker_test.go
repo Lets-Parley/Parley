@@ -483,7 +483,7 @@ func TestStoryTicketRef(t *testing.T) {
 
 // An estimate is a card, not whatever the client happened to be rendering. The
 // dash placeholder and the coffee glyph both reached this endpoint from the UI
-// and were stored verbatim, then travelled on into the CSV export.
+// and were stored verbatim, then traveled on into the CSV export.
 func TestEstimateMustBeACardFromTheDeck(t *testing.T) {
 	srv := testServer(t)
 	fac, _, id := setupSession(t, srv, "Estimate Guard Space")

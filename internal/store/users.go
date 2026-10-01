@@ -241,7 +241,7 @@ const tokenExpiryExpr = `least(last_used_at + $2::interval, created_at + $3::int
 
 // tokenLiveClause is the whole definition of a usable token, and both
 // ResolveToken and TokenExpiry must apply it: an absolute expiry that only one
-// of them honoured would leave a lapsed link either answering requests or
+// of them honored would leave a lapsed link either answering requests or
 // holding a socket.
 const tokenLiveClause = `token_hash = $1 and last_used_at > now() - $2::interval
 		  and created_at > now() - $3::interval

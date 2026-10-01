@@ -23,7 +23,7 @@ func TestDecide(t *testing.T) {
 		{"zero does not opt out", "", "0", failLoudly},
 		{"false does not opt out", "", "false", failLoudly},
 		{"no does not opt out", "", "No", failLoudly},
-		{"an unrecognised value is a failure", "", "maybe", failBadOptOut},
+		{"an unrecognized value is a failure", "", "maybe", failBadOptOut},
 		{"a typo is a failure, not an opt-out", "", "ture", failBadOptOut},
 	} {
 		if got := decide(tc.dsn, tc.optOut); got != tc.want {
@@ -68,9 +68,9 @@ func TestDSN(t *testing.T) {
 			wantOut: []string{EnvDSN + " is not set", "FAIL"},
 		},
 		{
-			name:    "an unrecognised opt-out fails loudly",
+			name:    "an unrecognized opt-out fails loudly",
 			optOut:  "maybe",
-			wantOut: []string{EnvOptOut + `="maybe" is not a recognised value`, "FAIL"},
+			wantOut: []string{EnvOptOut + `="maybe" is not a recognized value`, "FAIL"},
 		},
 		{
 			name:    "a dsn is returned, trimmed",

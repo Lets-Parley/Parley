@@ -71,14 +71,14 @@ Four things hold that line, and they hold it together:
   `archivedAt` — so "carries no session content" is enforced by the compiler
   rather than by a reviewer remembering the forbidden field names. A test
   intercepts the response as raw JSON and fails on any key outside that list,
-  which also catches a handler that marshalled an untyped map instead.
+  which also catches a handler that marshaled an untyped map instead.
 - **The handlers cannot reach session content.** They live in
   `internal/api/custody`, which does not import the session, presence, hub or
   store packages at all. A test asserts that with `go list -deps`. The types
   that hold what was said in a space are not linked into the package.
 - **Custody may only make a space more private.** `org` → `private` is
   permitted; `private` → `org` is refused with 403 and stays the space owner's
-  alone. Without this the rest is theatre: an admin flips a private space to
+  alone. Without this the rest is theater: an admin flips a private space to
   org-visible, finds it in the directory, joins as an ordinary org member, and
   has everything — through a different door, with every custody handler still
   perfectly pure.

@@ -27,7 +27,7 @@ import (
 //
 // The live half is a session.Kind registered into the router's registry while
 // the install is enabled, and unregistered when it is disabled or uninstalled.
-// The kind's behaviour is entirely the plugin's: its state payload and each of
+// The kind's behavior is entirely the plugin's: its state payload and each of
 // its actions is a call into the guest, contained by every guard the host
 // already applies to a call.
 
@@ -65,8 +65,8 @@ var ErrBadKindDef = fmt.Errorf("that session kind declaration is not valid")
 
 // kindNamePattern is what a kind or action name may be. It is the same shape a
 // URL segment and a database key both want, and it is deliberately narrower
-// than anything downstream needs: session_kinds.kind is a parameterised value
-// and an action name is a map key, so this is not a defence against injection
+// than anything downstream needs: session_kinds.kind is a parameterized value
+// and an action name is a map key, so this is not a defense against injection
 // but against a manifest naming a ceremony nobody can type or read.
 var kindNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$`)
 
@@ -82,7 +82,7 @@ var actionVerbs = map[string]bool{
 	http.MethodPatch: true, http.MethodDelete: true,
 }
 
-// canonicalKinds screens and normalises what a manifest declares, returning a
+// canonicalKinds screens and normalizes what a manifest declares, returning a
 // copy. The install path calls it before the transaction opens, so a refused
 // manifest writes nothing at all.
 func canonicalKinds(defs []KindDef) ([]KindDef, error) {
@@ -273,7 +273,7 @@ func (s *Store) ProvidesKind(ctx context.Context, installID, kind string) (bool,
 // non-retired kind of every enabled install, across every org, and nothing
 // else. It is the only writer of plugin kinds, so every replica reaches the
 // same set from the same rows whatever notification it did or did not see.
-// Serialised, so two reconciles cannot publish their reads out of order.
+// Serialized, so two reconciles cannot publish their reads out of order.
 func (h *Host) ReconcileKinds(ctx context.Context) error {
 	if h.Kinds == nil {
 		return nil
@@ -407,7 +407,7 @@ func (h *Host) kindState(ctx context.Context, installID, kind string, sess store
 }
 
 // runAction hands one action to the guest. The dispatcher has already run the
-// whole authorisation ladder — unknown name, wrong verb, facilitator-only,
+// whole authorization ladder — unknown name, wrong verb, facilitator-only,
 // ended session — so by the time this runs, the caller is allowed to be here.
 func (h *Host) runAction(w http.ResponseWriter, r *http.Request, installID, kind, action string, ac session.ActionCtx) {
 	body, err := readActionBody(r)

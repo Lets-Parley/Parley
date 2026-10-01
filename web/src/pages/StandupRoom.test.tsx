@@ -45,7 +45,7 @@ describe("StandupRoom Timer", () => {
 
   it("counts down between WebSocket frames instead of freezing", async () => {
     // The shipped bug recomputed the server offset on every render, so the two
-    // Date.now() calls cancelled and the countdown showed the same number until
+    // Date.now() calls canceled and the countdown showed the same number until
     // the next frame landed. Nothing here changes serverTime — only wall clock
     // moves — so a frozen clock fails this test.
     render(<Timer startedAt={START} seconds={90} serverTime={START} live />);
@@ -279,7 +279,7 @@ describe("StandupRoom turn accessibility", () => {
     expect(seat("Marcus Okonjo").textContent).not.toMatch(/skipped/i);
   });
 
-  it("de-emphasises a skipped seat without dimming its text below AA", () => {
+  it("de-emphasizes a skipped seat without dimming its text below AA", () => {
     renderApp(<StandupRoom env={envelope()} me={me} />);
     const priya = seat("Priya Raman");
     // A group opacity wrapper multiplies through the name and drops it to
@@ -419,7 +419,7 @@ describe("StandupRoom re-reading entries", () => {
     expect(nameOf("Priya Raman")).toContain("underline-offset-8");
   });
 
-  it("marks the picked seat in more than colour, and keeps aria-current on the row", () => {
+  it("marks the picked seat in more than color, and keeps aria-current on the row", () => {
     renderApp(<StandupRoom env={envelope({ state: filledState("dana") })} me={me} />);
     act(() => seatButton("Priya Raman").click());
     expect(seatButton("Priya Raman").getAttribute("aria-pressed")).toBe("true");
@@ -694,7 +694,7 @@ describe("StandupRoom ending the session", () => {
     // The second click used to land while the flush was still held. It cannot
     // any more: confirming unmounts the modal and disables End session for the
     // duration, so the race is closed structurally rather than only by the ref.
-    // The ref guard stays as defence for any caller that is not the modal.
+    // The ref guard stays as defense for any caller that is not the modal.
     act(() => {
       endButton()!.click();
     });
@@ -819,7 +819,7 @@ describe("StandupRoom readiness", () => {
     expect(JSON.parse(init.body as string)).toEqual({ ready: false });
   });
 
-  it("says who is ready in text, not colour alone", () => {
+  it("says who is ready in text, not color alone", () => {
     renderApp(
       <StandupRoom
         env={gathering({}, [
@@ -832,7 +832,7 @@ describe("StandupRoom readiness", () => {
     );
     // The roster names who the room is waiting on rather than listing every
     // speaker with one bit each. Readiness is still carried in words: the
-    // heading says what the names mean, and colour is never the only copy.
+    // heading says what the names mean, and color is never the only copy.
     const who = screen.getByTestId("ready-roster");
     expect(who.textContent).toMatch(/still writing/i);
     expect(who.textContent).toMatch(/Marcus Okonjo/);
@@ -1499,7 +1499,7 @@ describe("StandupRoom carrying over", () => {
     expect(within(row("alpha")).getByRole("button", { name: /^remove$/i })).toBeDefined();
   });
 
-  it("returns focus to Remove after the confirm is cancelled", async () => {
+  it("returns focus to Remove after the confirm is canceled", async () => {
     mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
     // Escape path: the confirm is a fresh node, so the restored Remove is too.
@@ -1552,7 +1552,7 @@ describe("StandupRoom carrying over", () => {
     await userEvent.click(within(row("alpha")).getByRole("button", { name: /^done$/i }));
     await waitFor(() => expect(row("alpha").textContent).toMatch(/landed/i));
     // Yes closes the commitment server-side, so the very next broadcast no
-    // longer carries it. Without the hold the acknowledgement is a flash.
+    // longer carries it. Without the hold the acknowledgment is a flash.
     rerender(<StandupRoom env={carrying([{ id: "c2", text: "beta" }])} me={me} />);
     expect(row("alpha").textContent).toMatch(/landed/i);
     // And it does leave: the hold is a beat, not a cache.
@@ -2231,7 +2231,7 @@ describe("StandupRoom async mode", () => {
   });
 
   it("says out loud when an answer could not be saved", async () => {
-    // The only word of a failed autosave was small grey text beside the
+    // The only word of a failed autosave was small gray text beside the
     // form, which a screen reader never hears: the answer is lost silently.
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
@@ -2370,7 +2370,7 @@ describe("StandupRoom async follow-through and mentions", () => {
     expect(f.mock.calls.some((c) => String(c[0]) === "/api/sessions/sess-1/mentions")).toBe(true);
   });
 
-  it("asks a space member for help from a labelled picker", async () => {
+  it("asks a space member for help from a labeled picker", async () => {
     const f = serveRoom();
     const user = userEvent.setup();
     renderApp(<StandupRoom env={asyncRoom()} me={me} />);
@@ -2492,7 +2492,7 @@ describe("StandupRoom away days", () => {
     expect(screen.queryByRole("region", { name: "Away" })).toBeNull();
   });
 
-  it("sets away days from labelled date fields, keyboard only", async () => {
+  it("sets away days from labeled date fields, keyboard only", async () => {
     const f = serveAway();
     const user = userEvent.setup();
     renderApp(<StandupRoom env={awayRoom()} me={me} />);

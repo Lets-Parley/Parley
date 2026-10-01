@@ -90,7 +90,7 @@ The script prints these remaining steps and their console URLs:
    except the Terms of service, Privacy policy, Support and Regions
    choices, which have to be your own. Click **Save draft** first, then
    **Publish** — Publish stays disabled until Save draft has been clicked
-   once, and both stay greyed out until every required field is filled,
+   once, and both stay grayed out until every required field is filled,
    including the hidden language row and step 2's consent screen. A
    **Private** app publishes immediately, with no Google review, but
    nobody can install it until this step is done. Google then shows the

@@ -22,7 +22,7 @@ import (
 // is what records that somebody belongs to this session, and that record is
 // durable: it outlives the connection, so a round opened later still waits for
 // them even though they have gone. Reading the opening frame is the
-// handshake's own acknowledgement that the join has landed, which is what
+// handshake's own acknowledgment that the join has landed, which is what
 // makes this deterministic instead of a sleep.
 func joinRoom(t *testing.T, srv *httptest.Server, sessionID string, c *http.Cookie) *websocket.Conn {
 	t.Helper()

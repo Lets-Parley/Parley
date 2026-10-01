@@ -26,7 +26,7 @@ into a scoreboard.
 
 Standup already carries what you said you would do today into tomorrow's
 "yesterday". It then asks nothing about it. A day's work is never falsified, so
-a stuck item can quietly stay stuck for a fortnight while every individual
+a stuck item can quietly stay stuck for two weeks while every individual
 morning feels fine.
 
 A commitment is a line you add beside the narrative. It carries into the next
@@ -107,7 +107,7 @@ Accepted direction, not currently scheduled.
 
 ### A parking lot with an owner and a clock
 
-"Let's take that offline" is the most-spoken and least-honoured sentence in any
+"Let's take that offline" is the most-spoken and least-honored sentence in any
 ceremony. A first-class parking lot refuses to accept the deferral without a
 person and a date attached, then puts the item back in front of the room at the
 next session until somebody deals with it.
@@ -376,7 +376,7 @@ Ideas under consideration, not committed to.
   from filename prefixes rather than array position, and an unknown kind that
   refuses instead of silently rendering the wrong room
 - The poker round reads as a table someone sits down at, with a waiting count
-  the whole room can see and the agreed estimate in its own colour
+  the whole room can see and the agreed estimate in its own color
 - The standup room is a room rather than a form with a timer in the corner: it
   says where the round is, how long is left, and who is ready
 - Any standup entry can be re-read, and a standup can be ended

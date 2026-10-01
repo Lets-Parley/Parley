@@ -141,7 +141,7 @@ export function ProfileDialog({ me, onClose }: { me: Me; onClose: () => void }) 
 
       {oidc ? (
         <p className="mt-4 text-[12px] text-ink-soft text-pretty">
-          Your name comes from your organisation's sign-in, so it is not
+          Your name comes from your organization's sign-in, so it is not
           editable here.
         </p>
       ) : (
@@ -197,7 +197,7 @@ export function ProfileDialog({ me, onClose }: { me: Me; onClose: () => void }) 
               key={id}
               className={
                 "relative flex min-h-11 flex-col items-center justify-center gap-1.5 rounded-chip border-2 p-2 text-center text-[11px] font-bold focus-within:outline focus-within:outline-2 focus-within:outline-accent " +
-                // Never colour alone: the selected card takes the accent
+                // Never color alone: the selected card takes the accent
                 // border and the corner pip below.
                 (picked === id ? "border-accent bg-felt-deep" : "border-line hover:bg-felt-deep") +
                 // No portrait is a real choice, and a dashed card says so.

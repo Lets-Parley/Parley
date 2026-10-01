@@ -137,7 +137,7 @@ func TestParseConfigRejectsBadDocuments(t *testing.T) {
 
 func TestParseConfigNormalizesOutput(t *testing.T) {
 	r := registryWith(t, testKind())
-	// Whatever the client sent, what gets stored is a re-marshalled struct:
+	// Whatever the client sent, what gets stored is a re-marshaled struct:
 	// key order is the struct's and nothing outside it survives.
 	out, err := r.ParseConfig("kindtest", []byte(`{"seconds": 90, "deck":  "fibonacci"}`))
 	if err != nil {
@@ -240,7 +240,7 @@ func TestRedactForGuest(t *testing.T) {
 	// copy, but a mutation that broke that guarantee (e.g. a pointer receiver)
 	// would otherwise leak a mutated base into later subtests and mask itself
 	// — sharing one envelope across subtests defeats the very test meant to
-	// pin the copy behaviour.
+	// pin the copy behavior.
 	newBase := func() Envelope {
 		return Envelope{
 			FacilitatorID: "fac-1",
@@ -366,7 +366,7 @@ func TestRosterChangedIsTheRequestedKindsHook(t *testing.T) {
 	}
 
 	// And a kind without one is reported as having none, rather than
-	// borrowing a neighbour's.
+	// borrowing a neighbor's.
 	plain := testKind()
 	plain.Name = "kindc"
 	r2 := registryWith(t, a, plain)

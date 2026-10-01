@@ -88,7 +88,7 @@ export function hopStartsAt(index: number): number {
  * When the result numeral stamps in.
  *
  * After the last card is face-up, never during: the payoff of the moment does
- * not land while the thing it is summarising is still moving.
+ * not land while the thing it is summarizing is still moving.
  */
 export function resultStampsAt(seatCount: number): number {
   return flipEndsAt(seatCount) + RESULT_BEAT_MS;
@@ -152,7 +152,7 @@ export type PileOnGeometry = {
 
 export type PlannedThrow = {
   emoji: string;
-  /** Where the emoji's centre starts, in the overlay's own coordinates. */
+  /** Where the emoji's center starts, in the overlay's own coordinates. */
   originX: number;
   originY: number;
   frames: Frame[];
@@ -188,7 +188,7 @@ export const STRAGGLER_MS = 1000;
  *
  * A fixed gap lands every impact on the same beat, which is what made the
  * pile-on read as a machine gun rather than a room. The gaps are jittered
- * around the budgeted stagger and then normalised back onto it, so the last
+ * around the budgeted stagger and then normalized back onto it, so the last
  * emoji still leaves at exactly the same moment a uniform stagger would.
  */
 function offsets(count: number, stagger: number): number[] {
@@ -384,7 +384,7 @@ export type KickPlan = {
  *
  * The boot waits to the RIGHT of its target and swings left, which is a
  * deliberate cost rather than an oversight: for a seat near the right edge it
- * rests over its neighbour, and that is the price of "appears beside the
+ * rests over its neighbor, and that is the price of "appears beside the
  * avatar". Time-to-reflow depends on how far the seat has to travel to leave
  * the viewport, so a seat on the right takes noticeably longer than one on the
  * left — correct, not a timing bug, and neither is pinned to a constant.

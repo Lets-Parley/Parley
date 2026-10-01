@@ -86,7 +86,7 @@ describe("Modal", () => {
   it("returns focus to the opener even when its effect is mounted twice", () => {
     // React remounts every effect in StrictMode — mount, unmount, mount —
     // without tearing the dialog's DOM node down. Two things that only a real
-    // <dialog> does make that sequence bite, so both are modelled here: a
+    // <dialog> does make that sequence bite, so both are modeled here: a
     // second showModal() on an open dialog throws InvalidStateError, and
     // showModal() pulls focus inside the dialog and makes the rest of the page
     // inert. Between them, a naive effect records the close button as the

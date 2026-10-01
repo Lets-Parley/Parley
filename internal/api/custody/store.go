@@ -506,7 +506,7 @@ type Counts struct {
 //
 // A purge reports what it destroyed, not what it expected to destroy: the
 // numbers come back from the delete itself, so a space committed by somebody
-// else while the purge was running is counted rather than quietly vaporised.
+// else while the purge was running is counted rather than quietly vaporized.
 // The counts read before the confirmation is checked are a preview and are
 // reported only on the refusal path, where nothing has been destroyed at all.
 //

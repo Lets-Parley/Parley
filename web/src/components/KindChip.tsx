@@ -42,7 +42,7 @@ export function KindChip({ kind, label = true, size = "md" }: Props) {
     <span
       className={
         "inline-flex shrink-0 items-center " +
-        // The picker's label sets its own size, weight and colour (it bolds
+        // The picker's label sets its own size, weight and color (it bolds
         // the chosen kind); a row's token sets them here.
         (size === "lg" ? "gap-3" : "gap-2 text-[13px] font-semibold text-ink-soft")
       }
@@ -90,9 +90,9 @@ function Card({ size }: { size: Size }) {
 
 /*
  * Four seats in a round, and the speaker: a larger accent marker parked on one
- * of them. The marker is its own element, pushed out from the centre by
+ * of them. The marker is its own element, pushed out from the center by
  * `transform` and swung round by the separate `rotate` property — which
- * applies after `transform`, about the ring's centre — so stepping to the next
+ * applies after `transform`, about the ring's center — so stepping to the next
  * seat is one rotate transition along the ring, and the seat it leaves is
  * still there underneath.
  */

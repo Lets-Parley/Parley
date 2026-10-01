@@ -51,7 +51,7 @@ type Kudo struct {
 	// Answer is the recipient's one line back, public like the kudo. Absent,
 	// never empty, when there is none: nothing marks a kudo "unanswered".
 	Answer string `json:"answer,omitempty"`
-	// Unread is never serialised here: the API shows it to the recipient
+	// Unread is never serialized here: the API shows it to the recipient
 	// alone, so the sender never learns a kudo was read.
 	Unread bool `json:"-"`
 }
@@ -83,7 +83,7 @@ func scanKudo(row pgx.Row) (Kudo, error) {
 // the shape Decks.Create uses — so racing sends cannot both pass the cap, and
 // neither party can be waved through by leaving the space mid-insert. Guests
 // neither send nor receive: a link guest holds a users row but no members row,
-// so the foreign keys catch neither, and this check is the only defence.
+// so the foreign keys catch neither, and this check is the only defense.
 //
 // sessionID may be empty, for a kudo given outside a room.
 func (s *Kudos) Create(ctx context.Context, spaceID, fromUserID, toUserID, text, sessionID string, limit int) (Kudo, error) {

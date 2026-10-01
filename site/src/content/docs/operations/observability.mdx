@@ -134,7 +134,7 @@ for that table), and those same writes also emit this line.
 | `space.claim`, `space.delete`, `space.add_owner`, `org.purge` | The matching `org_audit_log` write |
 | `plugin.install`, `plugin.upgrade`, `plugin.upgrade_requested`, `plugin.upgrade_approved`, `plugin.enable`, `plugin.disable`, `plugin.uninstall`, `plugin.action`, `theme.install`, `theme.reset` | The matching `org_audit_log` write |
 
-An inbound `X-Request-Id` is honoured only when the socket peer is inside
+An inbound `X-Request-Id` is honored only when the socket peer is inside
 `TRUSTED_PROXY_CIDRS` and the value is at most 128 bytes of printable ASCII
 (no newlines). Anything else is discarded and Parley generates an id. The
 response always echoes the id that was used.
@@ -146,7 +146,7 @@ response always echoes the id that was used.
   { name: "Liveness and readiness endpoints", status: "built", detail: "<code>/healthz</code> and <code>/readyz</code> — see <a href='/operations/architecture/'>Architecture</a>." },
   { name: "Metrics endpoint", status: "built", detail: "<code>/metrics</code> is off by default. <code>METRICS_ENABLED=true</code> mounts an unauthenticated Prometheus exposition on the same port as the app — Go runtime, pgxpool stats, WebSocket count, listener reconnects, and the passcode and identity throttles. Keep it off a public ingress; scrape from the cluster network. The metrics themselves are listed below." },
   { name: "Distributed tracing", status: "not-built", detail: "Single process, single database — a trace would have two spans. Proxy access logs give you the same latency picture." },
-  { name: "Request IDs", status: "built", detail: "Every response echoes <code>X-Request-Id</code>. An inbound id is honoured only from a peer in <code>TRUSTED_PROXY_CIDRS</code>, capped at 128 printable ASCII characters. Correlate proxy access logs with security-event lines on that field." },
+  { name: "Request IDs", status: "built", detail: "Every response echoes <code>X-Request-Id</code>. An inbound id is honored only from a peer in <code>TRUSTED_PROXY_CIDRS</code>, capped at 128 printable ASCII characters. Correlate proxy access logs with security-event lines on that field." },
   { name: "HTTP access log", status: "not-built", detail: "<code>middleware.Logger</code> is not mounted. Use the proxy's access log — it is the same data, and you already ship it. <code>LOG_LEVEL=debug</code> logs only how the client address was resolved: no method, path or status." },
   { name: "Audit log", status: "built", detail: "One stdout JSON <code>security event</code> line per sign-in, sign-out, space create and delete, passcode rotate and remove, member add, remove and role change, guest-link mint and revoke, calendar-feed mint, revoke and fetch, and every <code>org_audit_log</code> write. Schema: <code>event</code>, <code>actor_user_id</code>, <code>actor_subject</code>, <code>org</code>, <code>space</code>, <code>target</code>, <code>outcome</code>, <code>client_addr</code>, <code>request_id</code>. Cookies, tokens, passcodes and request bodies are never logged. A calendar fetch's path is rewritten to <code>/ics/[redacted]</code> before the line is written. The Postgres table remains write-only — no read API or screen (<a href='https://github.com/Lets-Parley/Parley/issues/399'>#399</a>)." },
   { name: "Error reporting integration", status: "out-of-scope", detail: "Panics are recovered and logged; scrape them from stdout." },
@@ -272,5 +272,5 @@ the fan-out listener.
 What `/metrics` adds is the capacity picture that used to require querying the
 database: WebSocket count on this replica, pool saturation, and whether the
 room-code or identity throttles are firing. If you are running Parley for a
-team, you can leave it off. If you are running it for an organisation, turn it
+team, you can leave it off. If you are running it for an organization, turn it
 on and scrape it from inside the cluster.

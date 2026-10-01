@@ -38,7 +38,7 @@ try {
     const count = (await res.json()).stargazers_count;
     // A low count argues against the project more effectively than silence
     // does, and zero is not the only number that does it. Below the floor the
-    // row still carries the licence and the verified version — the chip is the
+    // row still carries the license and the verified version — the chip is the
     // optional third signal, not a load-bearing one.
     if (typeof count === "number" && count >= STAR_FLOOR) stars = count;
   }

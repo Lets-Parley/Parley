@@ -530,13 +530,13 @@ func TestAKindDeclaringOneActionNameTwiceIsRefused(t *testing.T) {
 	}
 }
 
-// A manifest is untrusted, and a declaration the host will not honour is
+// A manifest is untrusted, and a declaration the host will not honor is
 // refused at install rather than at enable. The verb is the case that matters
 // most: it is upper-cased before it is screened, because a manifest writing
 // "get" used to pass session.Registry's comparison against http.MethodGet and
 // then never match the dispatcher's exact comparison either — an action that
 // installed, enabled and could never be called.
-func TestAManifestDeclaringAKindTheHostWillNotHonourIsRefusedAtInstall(t *testing.T) {
+func TestAManifestDeclaringAKindTheHostWillNotHonorIsRefusedAtInstall(t *testing.T) {
 	pool := testPool(t)
 	s := &Store{Pool: pool}
 	ctx := context.Background()
@@ -586,9 +586,9 @@ func TestAManifestDeclaringAKindTheHostWillNotHonourIsRefusedAtInstall(t *testin
 		}
 	}
 
-	// And a well-formed manifest whose verb merely needs canonicalising is
+	// And a well-formed manifest whose verb merely needs canonicalizing is
 	// accepted, with the canonical form stored — so the screen is a
-	// normalisation and not only a refusal.
+	// normalization and not only a refusal.
 	kind := kindName(t)
 	in := installWithKinds(t, s, testOrgID, KindDef{
 		Kind: kind, Display: "Retrospective",
@@ -599,7 +599,7 @@ func TestAManifestDeclaringAKindTheHostWillNotHonourIsRefusedAtInstall(t *testin
 		t.Fatal(err)
 	}
 	if len(defs) != 1 || len(defs[0].Actions) != 1 || defs[0].Actions[0].Verb != http.MethodPost {
-		t.Fatalf("the stored actions are %+v, want the verb canonicalised to POST", defs)
+		t.Fatalf("the stored actions are %+v, want the verb canonicalized to POST", defs)
 	}
 }
 
@@ -742,7 +742,7 @@ func TestAnUnreadableInstallKeepsItsKindsAndBlocksNothing(t *testing.T) {
 
 // What a widening upgrade says about kinds is kept exactly: no declaration
 // leaves the current kinds alone, and an empty declaration retires them all.
-func TestApprovalHonoursAnOmittedAndAnEmptyKindDeclaration(t *testing.T) {
+func TestApprovalHonorsAnOmittedAndAnEmptyKindDeclaration(t *testing.T) {
 	pool := testPool(t)
 	s := &Store{Pool: pool}
 	ctx := context.Background()

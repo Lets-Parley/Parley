@@ -224,7 +224,7 @@ func (a *app) installView(ctx context.Context, adm *plugin.Admin, id string) (in
 		// Enabled is durable in plugin_installs.enabled and is genuinely
 		// known without a host, so that case is decided below regardless of
 		// a.pluginHost. Everything else about an install's health is a
-		// running judgement the host holds in memory: with no host running,
+		// running judgment the host holds in memory: with no host running,
 		// there is nothing to assert, so an enabled install defaults to
 		// HealthUnknown rather than the HealthOK a missing host cannot back
 		// up.

@@ -14,7 +14,7 @@
   // means a CSS url() has nowhere to egress to, so this is not an exfiltration
   // hole — but "the value is screened as well as the name" is a cheaper thing
   // to keep true than "no CSS feature will ever make an unscreened declaration
-  // matter". Colour-shaped is all a design token here ever is.
+  // matter". Color-shaped is all a design token here ever is.
   var COLOR = /^(#[0-9a-fA-F]{3,8}|[a-z]{3,20}|(rgb|hsl)a?\([0-9a-fA-F.,%\/ +-]{1,64}\))$/;
 
   function applyTokens(t) {

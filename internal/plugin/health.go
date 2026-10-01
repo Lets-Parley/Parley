@@ -22,7 +22,7 @@ const (
 	// HealthUnknown is what an enabled install reports when there is no
 	// plugin host running to ask. It is not "healthy" — nobody has looked —
 	// and it is not "degraded" or "disabled" either, since neither of those
-	// is known to be true. The breaker's judgement lives entirely in the
+	// is known to be true. The breaker's judgment lives entirely in the
 	// host's memory, so with no host there is nothing to report.
 	HealthUnknown = "unknown"
 )
@@ -30,7 +30,7 @@ const (
 // Health is what the administration surface says about one install.
 //
 // The breaker's state is deliberately still in memory — it is a running
-// judgement about this process, and persisting it would mean a restart could
+// judgment about this process, and persisting it would mean a restart could
 // not clear a cooldown that has already expired. What was missing was any way
 // to *see* it: a degraded plugin simply stopped doing anything, and no screen
 // could tell that apart from a plugin with nothing to do. So the state is left
@@ -50,7 +50,7 @@ type Health struct {
 	RecoversAt *time.Time `json:"recoversAt,omitempty"`
 }
 
-// Health reports the host's live judgement of one install. enabled comes from
+// Health reports the host's live judgment of one install. enabled comes from
 // the caller's already-loaded install record rather than a second query, and is
 // the durable half of the answer.
 func (h *Host) Health(installID string, enabled bool) Health {
@@ -166,7 +166,7 @@ func (s *Store) uninstall(ctx context.Context, orgID, installID string, inTx TxH
 }
 
 // Forget drops everything this process was holding about an install that no
-// longer exists: its compiled module and the breaker's judgement of it. Without
+// longer exists: its compiled module and the breaker's judgment of it. Without
 // it a later install reusing the name would inherit a cooldown earned by code
 // that has been deleted.
 func (h *Host) Forget(ctx context.Context, installID string) {

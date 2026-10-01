@@ -121,7 +121,7 @@ describe("AppShell", () => {
 
   // Sign-out moved into the profile dialog, where the name lives too: the
   // header button was hidden below sm, so on a phone there was no way to sign
-  // out at all. The mode-gated behaviour is asserted in ProfileDialog.test.
+  // out at all. The mode-gated behavior is asserted in ProfileDialog.test.
   // The header no longer asks the server anything about auth at all, which is
   // what makes the missing button a decision rather than a race with a probe.
   it("keeps sign-out out of the header, and stops probing the auth mode for it", async () => {
@@ -207,9 +207,9 @@ describe("what the sidebar admits it is hiding", () => {
   });
 
   // registry.go: "Nothing stops a guest choosing a member's display name, so
-  // the roster has to say which seat is which." The table has always honoured
+  // the roster has to say which seat is which." The table has always honored
   // that. The header did not have to while it was fed space members — a link
-  // guest is never one — but it is fed the room's roster now, so an unlabelled
+  // guest is never one — but it is fed the room's roster now, so an unlabeled
   // twin is an impersonation the header renders for free.
   it("tells a link guest from the member whose name they took", async () => {
     stubAuthMode("open");
@@ -354,7 +354,7 @@ describe("getting to the table", () => {
     expect(screen.getByText("reconnecting").closest("[aria-live]")).toBeTruthy();
   });
 
-  it("says online or offline in words, not only as a coloured dot", () => {
+  it("says online or offline in words, not only as a colored dot", () => {
     stubAuthMode("open");
     renderShell({ members: roster.slice(0, 2), presence: ["dana"] });
     const list = screen.getByRole("heading", { name: /Members/ }).parentElement!;
@@ -450,7 +450,7 @@ describe("sidebar kind labels", () => {
     { id: "s4", kind: "poker", title: "Sprint 11", createdAt: "", endedAt: "2024-01-01", here: 0, ...idle },
   ];
 
-  // Colour alone is not a distinction, but a repeated "Poker" down a narrow
+  // Color alone is not a distinction, but a repeated "Poker" down a narrow
   // list is noise: each row carries the kind's object without its label, and
   // the object still names its kind to assistive tech.
   it("marks each row with the kind's object and no visible label", () => {

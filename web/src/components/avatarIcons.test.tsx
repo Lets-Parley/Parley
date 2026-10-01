@@ -47,7 +47,7 @@ describe("the portrait sheet", () => {
 });
 
 /**
- * The licence audit. Every committed portrait must be CC0 1.0 DiceBear
+ * The license audit. Every committed portrait must be CC0 1.0 DiceBear
  * "voxel-art" output — 14 of DiceBear's 55 styles are CC BY 4.0 and none of
  * them may ever be committed here — and none may reach for api.dicebear.com at
  * render time, which would leak one request per person from a self-hosted app.

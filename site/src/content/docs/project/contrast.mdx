@@ -1,5 +1,5 @@
 ---
-title: Colour contrast
+title: Color contrast
 description: Measured contrast ratios for the text on the room surfaces, in both themes.
 ---
 
@@ -79,7 +79,7 @@ The row that stays on `--color-felt-deep` — the story the room is on — reuse
 combinations already listed here: `--color-ink-faint`, `--color-brass` and
 `--color-ink` on `--color-felt-deep` all appear above at their measured values.
 
-The two rows that carry a de-emphasised state — the skipped speaker and the
+The two rows that carry a de-emphasized state — the skipped speaker and the
 disabled card — were both measured through their old wrappers first, and both
 missed. They are listed above at what they measure now; the second pass below
 says what moved.
@@ -168,7 +168,7 @@ Reaching AA would mean redesigning the dimmed state, not tuning it.
 
 The initials are not held to the threshold, because every avatar carries the
 name as text — in `aria-label` on the chip, and beside it in the roster, the
-member card and the sheet. The glyphs are a redundant mark on a labelled
+member card and the sheet. The glyphs are a redundant mark on a labeled
 control, in the same class as the card pip. The floor moved to `0.7` for
 legibility rather than compliance, which is also the least dimming that still
 reads as "not here" against a live seat.
@@ -202,7 +202,7 @@ per theme.
   light={portraitsLight}
   dark={portraitsDark}
   width={832}
-  alt="A contact sheet of thirty voxel-art portraits, each drawn twice — at 46 pixels and at 38 pixels — inside a coloured disc on the page surface, labelled with its id."
+  alt="A contact sheet of thirty voxel-art portraits, each drawn twice — at 46 pixels and at 38 pixels — inside a colored disc on the page surface, labeled with its id."
   caption="One sheet per theme, rendered 1:1. The committed PNGs under site/src/assets are the artifact; view them at 100% rather than scaled in the page."
 />
 
@@ -217,20 +217,20 @@ node scripts/portrait-contact-sheet.mjs --scale=3   # an oversampled copy for cl
 
 The script reads `--color-surface` out of `web/src/tokens.css` for both themes
 and stamps the value it used into the sheet, so a sheet shot against a stale
-surface colour is visible on its face. resvg is not a dependency and not a
+surface color is visible on its face. resvg is not a dependency and not a
 build step.
 
 ### What the sheets show
 
 Read at 1:1, all thirty portraits resolve into a distinct face at both sizes:
-hair shape and colour, skin tone, and the presence or absence of eyewear all
+hair shape and color, skin tone, and the presence or absence of eyewear all
 survive 38px. None of them reads as mush, so none is being replaced. Three are
 the weakest reads and are accepted as-is, with the reason recorded rather than
 left to be rediscovered:
 
 - **`vik`** and **`zeke`** — both wear a dark visor across the eyes. At 38px the
   eyes themselves are gone and the visor is a single dark bar. They stay
-  identifiable as *the two with the bar*, and are told apart by hair colour, but
+  identifiable as *the two with the bar*, and are told apart by hair color, but
   they are the pair most likely to be confused with each other.
 - **`xiu`** — white hair against the light theme's `#F7F6F2` surface. The
   silhouette's top edge softens where it meets the page; the face is unaffected,
@@ -240,7 +240,7 @@ left to be rediscovered:
 disappearing into the dark theme's `#162032`: the disc sits behind the whole
 portrait, so the hair reads against the chip, not against the page.
 
-Nothing here is asserted by a test — legibility is a judgement, and a rendered
+Nothing here is asserted by a test — legibility is a judgment, and a rendered
 snapshot pinned in CI would be pinning the rasteriser, not the art. What CI does
 hold is that the art itself has not changed underneath this page: every portrait
 is pinned by a sha256 in `web/src/assets/avatars/portraits.sha256`, checked by

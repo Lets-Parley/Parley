@@ -877,7 +877,7 @@ func TestCreateSpaceRequiresOrgMembership(t *testing.T) {
 	ada, adaID := signupWithID(t, srv, "Ada")
 	// Signing up enrols the caller in the default org, so the outsider has to
 	// be made one: this is the account an identity provider hands back with no
-	// claim any org here recognises.
+	// claim any org here recognizes.
 	if _, err := pool.Exec(ctx,
 		"update org_members set revoked_at = now() where user_id = $1", adaID); err != nil {
 		t.Fatal(err)

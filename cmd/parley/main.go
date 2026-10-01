@@ -528,7 +528,7 @@ const standupScheduleInterval = 30 * time.Second
 func apiOptions(ctx context.Context, cfg config, secureCookies bool, plugins *plugin.Store, pluginHost *plugin.Host, bundles *plugin.BundleStore) api.Options {
 	opts := api.Options{
 		// The signal context, so SIGTERM stops the cross-replica listener
-		// along with everything else rather than leaving it dialling.
+		// along with everything else rather than leaving it dialing.
 		Context:           ctx,
 		SecureCookies:     secureCookies,
 		AllowedOrigin:     cfg.BaseURL.Scheme + "://" + cfg.BaseURL.Host,

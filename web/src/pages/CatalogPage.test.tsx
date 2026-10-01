@@ -65,7 +65,7 @@ describe("CatalogPage", () => {
     await expectNoViolations(container);
   });
 
-  it("summarises each plugin once and flags only what changes between versions", async () => {
+  it("summarizes each plugin once and flags only what changes between versions", async () => {
     const log = { capability: "log", scope: "", permits: "Copy written by the server." };
     const kv = { capability: "kv", scope: "", permits: "Keeps its own notes." };
     const saved = catalog.plugins;

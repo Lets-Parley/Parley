@@ -42,7 +42,7 @@ was broadcasting could send a frame on an already-closed channel, and the
 resulting panic ran in a timer goroutine with nothing above it to recover —
 so the process exited, taking down every room on the instance, not just the
 one the client was in. No authentication was required beyond whatever it takes
-to join a space, and no unusual client behaviour: a normal tab close at an
+to join a space, and no unusual client behavior: a normal tab close at an
 unlucky moment was enough.
 
 Fixed in v0.2.2. Denial of service only — no data disclosure, no write access,
@@ -57,7 +57,7 @@ v0.2.0 by making proxy-header trust opt-in via `TRUST_PROXY_HEADERS`.
 
 No vulnerable tag or container image is ever **moved** onto fixed code.
 Retagging would silently change what a version means for anyone who had already
-pulled it, and would break digest verification. A clearly-labelled bad version
+pulled it, and would break digest verification. A clearly-labeled bad version
 is safer than a mutated one, so v0.1.0, v0.2.0 and v0.2.1 all still point at the
 code they shipped with.
 

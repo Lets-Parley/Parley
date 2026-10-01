@@ -136,7 +136,7 @@ func TestAConflictingBundleIs409(t *testing.T) {
 }
 
 // The exemption is the exact type on the exact route: anything else on that
-// route is still held to JSON, and the type is not honoured anywhere else.
+// route is still held to JSON, and the type is not honored anywhere else.
 func TestTheBundleTypeIsExemptOnlyOnTheUploadRoute(t *testing.T) {
 	srv, pool, priv := catalogServer(t)
 	curator, id := signupWithID(t, srv, "Curator")

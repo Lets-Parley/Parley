@@ -36,7 +36,7 @@ import { THEME_TOKENS, type ThemeToken } from "./theme";
  * The largest single message either side may send, in bytes of UTF-8.
  *
  * 64 KiB is comfortably more than a session envelope for a room of fifty and
- * comfortably less than a payload that costs a frame to serialise. The cap is
+ * comfortably less than a payload that costs a frame to serialize. The cap is
  * on the encoded string because that is the thing that actually crosses, and
  * because measuring it is what stops a plugin wedging the host tab by handing
  * it a megabyte to parse on the main thread.
@@ -79,7 +79,7 @@ export const MAX_MESSAGES_PER_SECOND = 30;
  * The floor between two state pushes into the frame, in milliseconds.
  *
  * This is the host's own half of the bound: a room in a fast round can change
- * state many times a second, and re-serialising the envelope each time would
+ * state many times a second, and re-serializing the envelope each time would
  * let the room's traffic — not the plugin's — become the load. Pushes coalesce
  * and the newest state wins, so the frame is never shown a stale frame it
  * cannot recover from.
@@ -169,7 +169,7 @@ export function redactSession(env: Envelope, grants: readonly string[], plugin: 
   };
 }
 
-/** The design tokens as the frame receives them: name to colour, nothing else. */
+/** The design tokens as the frame receives them: name to color, nothing else. */
 export function currentTokens(root: HTMLElement = document.documentElement): Record<string, string> {
   const computed = getComputedStyle(root);
   const tokens: Record<string, string> = {};
@@ -323,7 +323,7 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
       return;
     }
     // The name the frame sent becomes a path segment. Unscreened it is a path
-    // expression rather than a name: "../../../me" is normalised out of
+    // expression rather than a name: "../../../me" is normalized out of
     // /api/sessions/{id}/actions/ by the same URL parser fetch uses, and the
     // request that results carries the user's own cookie, is genuinely
     // same-origin, and lands outside the only route group that audits plugin
@@ -345,7 +345,7 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
   }
 
   // The pending push is held as the finished body rather than as the envelope.
-  // Redacting and serialising is the expensive half, the size check needs the
+  // Redacting and serializing is the expensive half, the size check needs the
   // finished string anyway, and doing it once per sendState rather than once
   // for the check and again at the flush is the difference between one pass
   // over the envelope and three.

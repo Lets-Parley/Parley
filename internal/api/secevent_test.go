@@ -49,7 +49,7 @@ func TestRequestIDIsEchoed(t *testing.T) {
 	}
 }
 
-func TestRequestIDHonoursInboundFromATrustedProxy(t *testing.T) {
+func TestRequestIDHonorsInboundFromATrustedProxy(t *testing.T) {
 	const inbound = "proxy-generated-request-id-001"
 	got := requestIDThrough(t, Options{
 		TrustedProxyCIDRs: []netip.Prefix{netip.MustParsePrefix("192.0.2.0/24")},
@@ -68,7 +68,7 @@ func TestRequestIDIgnoresInboundFromAnUntrustedPeer(t *testing.T) {
 		t.Fatal("X-Request-Id was not echoed")
 	}
 	if got == inbound {
-		t.Fatal("an untrusted peer's X-Request-Id was honoured")
+		t.Fatal("an untrusted peer's X-Request-Id was honored")
 	}
 }
 
@@ -79,7 +79,7 @@ func TestRequestIDIgnoresInboundWhenNoTrustedProxiesAreConfigured(t *testing.T) 
 		t.Fatal("X-Request-Id was not echoed")
 	}
 	if got == inbound {
-		t.Fatal("an inbound X-Request-Id was honoured with no trusted proxies")
+		t.Fatal("an inbound X-Request-Id was honored with no trusted proxies")
 	}
 }
 
@@ -96,7 +96,7 @@ func TestRequestIDRejectsAHostileInboundId(t *testing.T) {
 			t.Errorf("hostile inbound %q: X-Request-Id was not echoed", inbound)
 		}
 		if got == inbound {
-			t.Errorf("hostile inbound %q was honoured", inbound)
+			t.Errorf("hostile inbound %q was honored", inbound)
 		}
 		if strings.ContainsAny(got, "\n\r\t") {
 			t.Errorf("echoed id %q still carries a control character", got)

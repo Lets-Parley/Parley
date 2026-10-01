@@ -122,7 +122,7 @@ export function Hand({
                   // 70% still reads as spent without falling under AA. The
                   // border goes to ink-faint underneath it because line at 70%
                   // over felt-deep lands at 1.26:1 and the cards merge into one
-                  // grey slab.
+                  // gray slab.
                   (disabled ? " cursor-not-allowed opacity-70" : "")
                 }
                 style={
