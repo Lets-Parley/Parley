@@ -95,9 +95,9 @@ func castFixtureVote(ac session.ActionCtx, storyID string) *httptest.ResponseRec
 	return rec
 }
 
-// cancelOnQuery is a pgx.QueryTracer that hands a pre-cancelled context to
+// cancelOnQuery is a pgx.QueryTracer that hands a pre-canceled context to
 // any query whose SQL contains match, leaving every other query on the same
-// pool untouched. It reproduces a transport fault (a cancelled context, a
+// pool untouched. It reproduces a transport fault (a canceled context, a
 // closed or poisoned pool) for one specific statement without touching the
 // database's schema, so it can't leak damage into other tests the way
 // dropping a column would.
@@ -143,7 +143,7 @@ func TestVoteReportsDatabaseErrorNotSpectator(t *testing.T) {
 // context itself (not merely a query's child context) must be genuinely done
 // by the time writeMutationError runs, or the ERROR branch still fires and
 // the finding this test guards is unproven.
-func TestVoteReportsCancelledRequestAtDebugNotError(t *testing.T) {
+func TestVoteReportsCanceledRequestAtDebugNotError(t *testing.T) {
 	var logs bytes.Buffer
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
@@ -158,10 +158,10 @@ func TestVoteReportsCancelledRequestAtDebugNotError(t *testing.T) {
 	castVote(rec, req, ac, storyID, "5")
 
 	if strings.Contains(logs.String(), `level=ERROR msg="could not record vote"`) {
-		t.Fatalf("expected no ERROR log for the cancelled vote request, got %q", logs.String())
+		t.Fatalf("expected no ERROR log for the canceled vote request, got %q", logs.String())
 	}
 	if !strings.Contains(logs.String(), `level=DEBUG msg="could not record vote"`) {
-		t.Fatalf("expected a DEBUG log for the cancelled vote request, got %q", logs.String())
+		t.Fatalf("expected a DEBUG log for the canceled vote request, got %q", logs.String())
 	}
 }
 

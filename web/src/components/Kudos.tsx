@@ -84,7 +84,7 @@ function reducedMotion(): boolean {
  * read in order, so the exact minute matters far less than "this morning" —
  * and the machine-readable instant travels on the <time> element regardless.
  *
- * `now` is a parameter rather than a call to Date.now inside, so the behaviour
+ * `now` is a parameter rather than a call to Date.now inside, so the behavior
  * is testable without freezing the clock for the whole suite.
  */
 export function ago(iso: string, now: number = Date.now()): string {
@@ -157,7 +157,7 @@ export function Kudos({
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   // The cursor is the last row's createdAt exactly as the server sent it:
-  // re-serialising it through Date would drop the microseconds and skip rows.
+  // re-serializing it through Date would drop the microseconds and skip rows.
   const kudos = useInfiniteQuery({
     queryKey: ["kudos", org, slug],
     queryFn: ({ pageParam }) =>

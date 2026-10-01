@@ -110,7 +110,7 @@ func (f *fakeIdP) signIDToken(t *testing.T) string {
 	seg := func(v any) string {
 		b, err := json.Marshal(v)
 		if err != nil {
-			t.Fatalf("marshalling a token segment: %v", err)
+			t.Fatalf("marshaling a token segment: %v", err)
 		}
 		return base64.RawURLEncoding.EncodeToString(b)
 	}

@@ -328,7 +328,7 @@ func vote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 
 func castVote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, storyID, value string) {
 	// Read before the transaction opens: presence is a separate query, and
-	// holding the session row lock across it serialises every other write.
+	// holding the session row lock across it serializes every other write.
 	connected, err := ac.Presence.InSession(r.Context(), ac.Session.ID)
 	if err != nil {
 		// Fail towards not revealing, but say so: a presence query that keeps

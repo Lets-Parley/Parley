@@ -482,12 +482,12 @@ func TestSpaceNeverMarshalsItsSecrets(t *testing.T) {
 	}
 	for _, key := range []string{"passcode", "Passcode", "visibility", "Visibility"} {
 		if _, ok := got[key]; ok {
-			t.Errorf("marshalled Space carries %q: %s", key, b)
+			t.Errorf("marshaled Space carries %q: %s", key, b)
 		}
 	}
 	for _, key := range []string{"id", "slug", "name"} {
 		if _, ok := got[key]; !ok {
-			t.Errorf("marshalled Space is missing %q: %s", key, b)
+			t.Errorf("marshaled Space is missing %q: %s", key, b)
 		}
 	}
 }

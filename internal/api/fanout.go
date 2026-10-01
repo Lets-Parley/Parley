@@ -233,7 +233,7 @@ func guardedListen(ctx context.Context, once func(context.Context) error) (err e
 }
 
 func (a *app) listenOnce(ctx context.Context) error {
-	// A connection of its own, dialled outside the pool rather than borrowed
+	// A connection of its own, dialed outside the pool rather than borrowed
 	// from it. Borrowing deadlocks shutdown: pool.Close waits for every
 	// connection to come back, and this one is parked in WaitForNotification
 	// waiting for a notification that will never arrive because the process is
@@ -245,7 +245,7 @@ func (a *app) listenOnce(ctx context.Context) error {
 	}
 	defer func() {
 		// Not ctx: by the time this runs ctx is usually the reason we are
-		// closing, and a cancelled context closes nothing.
+		// closing, and a canceled context closes nothing.
 		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := conn.Close(closeCtx); err != nil {

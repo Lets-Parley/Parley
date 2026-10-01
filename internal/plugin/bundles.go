@@ -147,7 +147,7 @@ func (s *BundleStore) Stored(ctx context.Context, name, version string) (*bundle
 
 // verified is the bundle a found row names, only if its archive verifies
 // under the trust set held now and its own manifest names the requested name
-// and version: the columns are an index, and a relabelled row is refused.
+// and version: the columns are an index, and a relabeled row is refused.
 func (s *BundleStore) verified(ctx context.Context, r resolution, name, version string) (*bundle.Bundle, error) {
 	if !s.trusts(r.keyID) {
 		return nil, fmt.Errorf("%s %s: %w", name, version, ErrBundleUntrusted)

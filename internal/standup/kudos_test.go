@@ -257,7 +257,7 @@ func TestGiveKudoRefusesSelfKudo(t *testing.T) {
 
 // The space cap is the store's, and it comes down the action context the way
 // poker's story cap does.
-func TestGiveKudoHonoursTheSpaceCap(t *testing.T) {
+func TestGiveKudoHonorsTheSpaceCap(t *testing.T) {
 	pool := testPool(t)
 	sess, ids := seed(t, pool, `{}`, "Dana Whitfield", "Ruth Okafor")
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"to":"`+ids[1]+`","text":"one too many"}`))

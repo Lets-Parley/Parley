@@ -192,7 +192,7 @@ func TestAScriptCloseTagInAUIBundleCannotBreakOutOfTheFrameScript(t *testing.T) 
 		t.Fatalf("a UI bundle broke out of the host's script element:\n%s", body)
 	}
 	if !strings.Contains(body, `<\/script>`) {
-		t.Fatalf("the close tag was not neutralised:\n%s", body)
+		t.Fatalf("the close tag was not neutralized:\n%s", body)
 	}
 }
 
@@ -201,7 +201,7 @@ func TestAScriptCloseTagInAUIBundleCannotBreakOutOfTheFrameScript(t *testing.T) 
 // web/src/lib/pluginFrameBootstrap.test.ts loads those same bytes into jsdom
 // and drives real message events at them — a sender that is not the embedder,
 // a message without the host's marker, a handshake with no port, and a second
-// handshake after the first. That is behaviour rather than text, which the
+// handshake after the first. That is behavior rather than text, which the
 // assertion that used to stand here was not: it checked that two condition
 // expressions were present and in order, so a guard whose body had been
 // emptied still passed it, while a rephrasing of the same condition failed.
@@ -227,7 +227,7 @@ func TestTheFrameBootstrapServedIsTheSourceTheFrontendTests(t *testing.T) {
 // A design token's value is written into a style declaration. The name was
 // screened and the value was not. connect-src 'none' means a CSS url() has
 // nowhere to reach, so this was never an exfiltration hole — but the value is
-// only ever a colour, and screening it is cheaper to keep true than the
+// only ever a color, and screening it is cheaper to keep true than the
 // argument for why an unscreened declaration is safe.
 func TestTheFrameBootstrapScreensATokenValueAndNotOnlyItsName(t *testing.T) {
 	js := pluginFrameBootstrap

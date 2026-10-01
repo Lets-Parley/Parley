@@ -269,7 +269,7 @@ func TestDiscoverSurvivesTheFirstCallerGivingUp(t *testing.T) {
 	close(release)
 
 	if err := <-done; err != nil {
-		t.Fatalf("discovery was cancelled by the caller that started it: %v", err)
+		t.Fatalf("discovery was canceled by the caller that started it: %v", err)
 	}
 }
 

@@ -264,7 +264,7 @@ describe("createPluginBridge", () => {
   });
 
   // The action name is a path segment. Left unscreened it is a path
-  // *expression*: dot segments are normalised by the same URL parser fetch
+  // *expression*: dot segments are normalized by the same URL parser fetch
   // uses, so "../../../me" leaves /api/sessions/{id}/actions/ entirely and
   // POSTs to /api/me — renaming the user — on the user's own cookie, with no
   // audit record, because pluginRouteAudit is only mounted under

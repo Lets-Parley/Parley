@@ -77,7 +77,7 @@ type attemptLimiter struct {
 	// timestamp these statements compare is taken from Postgres, so replicas
 	// whose clocks have drifted apart still agree on when a window ends: one
 	// running fast cannot write a window_start in the future for the others to
-	// honour, and cannot sweep away rows whose window has not elapsed. The seam
+	// honor, and cannot sweep away rows whose window has not elapsed. The seam
 	// stays so a test can hand a limiter a deliberately wrong clock and prove
 	// the shared budget does not move with it.
 	now func() time.Time

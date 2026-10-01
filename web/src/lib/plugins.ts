@@ -99,7 +99,7 @@ export type PluginPreview = {
  * The server declares these fields as arrays and, as of the fix in
  * internal/api/plugins.go, always marshals them as `[]` rather than `null`
  * for an install or a diff with nothing in it — a Go test pins that at the
- * wire. This is a second, independent line of defence on the read side: it
+ * wire. This is a second, independent line of defense on the read side: it
  * costs one `?? []` per field, and it means a stray `null` reaching the
  * browser (an older cached response, a future producer that forgets the
  * same discipline) degrades to "shows nothing" rather than white-screening

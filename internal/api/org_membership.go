@@ -28,7 +28,7 @@ func (b BootstrapAdmin) matches(ident auth.Identity) bool {
 // mapOrgMembership translates a completed sign-in into org membership: the
 // identity provider owns who is in which team, Parley owns which orgs exist.
 // Only a claim value an admin already registered on an org matches, exactly
-// and case-sensitively, and an unrecognised value grants nothing rather than
+// and case-sensitively, and an unrecognized value grants nothing rather than
 // creating anything.
 //
 // Membership granted here never overrides a revocation tombstone: the claim

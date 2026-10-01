@@ -170,7 +170,7 @@ func (s *Spaces) BySlugInOrg(ctx context.Context, orgSlug, slug string) (Space, 
 // a slug that exists in an org the caller cannot reach than for one that exists
 // nowhere, which is a cross-org existence oracle. Two rows is all the caller of
 // this needs — one is a redirect, anything else is not — so the scan stops
-// there rather than materialising every collision on the instance.
+// there rather than materializing every collision on the instance.
 func (s *Spaces) OrgSlugsForMemberSpaceSlug(ctx context.Context, userID, slug string) ([]string, error) {
 	rows, err := s.Pool.Query(ctx, `
 		select o.slug

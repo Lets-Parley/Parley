@@ -347,7 +347,7 @@ describe("SessionPage wiring", () => {
   });
 
   // The kind fan-out used to be a ternary whose else-branch was standup, so a
-  // session of any unrecognised kind silently rendered the standup room —
+  // session of any unrecognized kind silently rendered the standup room —
   // wrong controls, wrong actions, against real session state.
   it("renders no room at all for a kind it does not know", async () => {
     mockKind = "acme.retro";
@@ -637,7 +637,7 @@ describe("SessionPage for a link guest whose storage was cleared", () => {
   // whole browser, or clicking Leave room, actually ends it.
   //
   // Limitation named, per the issue: real cookie lifetime is a browser
-  // behaviour neither jsdom nor Go's httptest can evaluate. What this pins is
+  // behavior neither jsdom nor Go's httptest can evaluate. What this pins is
   // the half that is ours — an empty session storage is not by itself enough to
   // unseat a guest.
   it("is reseated from the cookie alone when the tab's storage is gone", async () => {

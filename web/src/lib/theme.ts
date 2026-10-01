@@ -8,10 +8,10 @@ import { useMediaQuery } from "./ui";
  * tokens and calls `setProperty` for each one. Author text is never
  * concatenated into CSS, so a selector, an `@import` or a `url()` beacon has
  * nowhere to land, and a token the pack does not name simply cannot be set —
- * which is how motion stays unthemeable and reduced-motion stays honoured.
+ * which is how motion stays unthemeable and reduced-motion stays honored.
  */
 
-/** The frozen contract: the sixteen colour tokens declared in tokens.css. */
+/** The frozen contract: the sixteen color tokens declared in tokens.css. */
 export const THEME_TOKENS = [
   "felt",
   "felt-deep",
@@ -170,8 +170,8 @@ export const UNGATED_TOKENS: { token: string; why: string }[] = [
     why: "not themeable at all — the playing-card faces are artwork, not palette.",
   },
   {
-    token: "colour-blind separability",
-    why: "a ratio check cannot see hue. A pack can pass every pair and still make go and stop the same colour to a viewer with deuteranopia.",
+    token: "color-blind separability",
+    why: "a ratio check cannot see hue. A pack can pass every pair and still make go and stop the same color to a viewer with deuteranopia.",
   },
 ];
 
@@ -242,7 +242,7 @@ function announce() {
 
 /**
  * Install a pack. A pack that fails the contrast gate is refused unless the
- * caller passes an acknowledgement — the operator has to say the words.
+ * caller passes an acknowledgment — the operator has to say the words.
  */
 export function installThemePack(pack: ThemePack, opts?: { acknowledgeContrast?: boolean }): void {
   const failures = contrastFailures(pack);

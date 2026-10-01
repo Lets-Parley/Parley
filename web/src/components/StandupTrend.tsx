@@ -16,7 +16,7 @@ function weekOf(iso: string) {
  * How much of the team answered its scheduled async standups, week by week.
  * A team ratio to one decimal and nothing else: the server sends no names,
  * ids or counts, each day is counted once when it is over, and a day with
- * fewer than four eligible people is left out. Nothing here is coloured as
+ * fewer than four eligible people is left out. Nothing here is colored as
  * good or bad. The viewer's own away days sit here too, so they can be set
  * without waiting for a standup to open.
  */

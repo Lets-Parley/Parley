@@ -43,7 +43,7 @@ function errors(input: unknown): string[] {
 }
 
 describe("the frozen token contract", () => {
-  it("is the sixteen colour tokens tokens.css declares, and nothing else", () => {
+  it("is the sixteen color tokens tokens.css declares, and nothing else", () => {
     expect([...THEME_TOKENS]).toEqual([
       "felt",
       "felt-deep",
@@ -136,7 +136,7 @@ describe("the contrast gate", () => {
   });
 
   it("gates the text drawn on brass", () => {
-    // `brass` is a ground, never a text colour: the shipped UI draws
+    // `brass` is a ground, never a text color: the shipped UI draws
     // `accent-ink` on it. Gating ink/brass would gate a pair nothing renders.
     expect(GATED_PAIRS).toContainEqual(
       expect.objectContaining({ foreground: "accent-ink", background: "brass" }),
@@ -286,7 +286,7 @@ describe("installing and resetting", () => {
     document.documentElement.removeAttribute("style");
   });
 
-  it("refuses a pack that fails the gate without an explicit acknowledgement", () => {
+  it("refuses a pack that fails the gate without an explicit acknowledgment", () => {
     expect(() => installThemePack(ok(pack()))).toThrow(/contrast/i);
     expect(installedThemePack()).toBeNull();
   });

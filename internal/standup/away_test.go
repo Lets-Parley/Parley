@@ -15,7 +15,7 @@ func TestValidateAwayRange(t *testing.T) {
 		ok         bool
 	}{
 		{"one day", "2026-09-22", "2026-09-22", true},
-		{"a fortnight ahead", "2026-10-05", "2026-10-16", true},
+		{"two weeks ahead", "2026-10-05", "2026-10-16", true},
 		{"ninety days is the longest", "2026-10-01", "2026-12-29", true},
 		{"ninety-one days is too long", "2026-10-01", "2026-12-30", false},
 		{"the end before the start", "2026-09-25", "2026-09-24", false},

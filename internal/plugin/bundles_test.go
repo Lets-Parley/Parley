@@ -102,7 +102,7 @@ func TestTheArchiveIsVerifiedOnEveryFillAndNotReadOnAHit(t *testing.T) {
 	}
 }
 
-// key_id is an index, not authority: a row relabelled with another trusted
+// key_id is an index, not authority: a row relabeled with another trusted
 // key's id is refused, because the archive says who signed it.
 func TestTheKeyIDColumnGrantsNothing(t *testing.T) {
 	pool := testPool(t)
@@ -115,7 +115,7 @@ func TestTheKeyIDColumnGrantsNothing(t *testing.T) {
 	}
 	s := &BundleStore{Pool: pool, Trusted: append(signer.Trusted, pubOf(other))}
 	if _, _, err := s.Load(ctx, name, "1.0.0"); !errors.Is(err, ErrBundleUntrusted) {
-		t.Fatalf("a relabelled row was served: %v", err)
+		t.Fatalf("a relabeled row was served: %v", err)
 	}
 }
 
@@ -285,9 +285,9 @@ func TestImportIsIdempotentAndRefusesWhatItCannotTrust(t *testing.T) {
 }
 
 // The manifest inside the archive names the plugin; the name and version
-// columns are an index. A row relabelled to another name is refused, cached
+// columns are an index. A row relabeled to another name is refused, cached
 // or not.
-func TestARelabelledRowIsRefused(t *testing.T) {
+func TestARelabeledRowIsRefused(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 	name := uniqueName(t)
@@ -295,13 +295,13 @@ func TestARelabelledRowIsRefused(t *testing.T) {
 	if _, err := s.Stored(ctx, name, "1.0.0"); err != nil {
 		t.Fatal(err)
 	}
-	other := name + "-relabelled"
+	other := name + "-relabeled"
 	if _, err := pool.Exec(ctx, `update plugin_bundles set name = $1, version = '9.9.9' where digest = $2`, other, b.Digest); err != nil {
 		t.Fatal(err)
 	}
 	for _, store := range []*BundleStore{s, {Pool: pool, Trusted: s.Trusted}} {
 		if _, err := store.Stored(ctx, other, "9.9.9"); !errors.Is(err, ErrBundleUntrusted) {
-			t.Fatalf("a relabelled row was served: %v", err)
+			t.Fatalf("a relabeled row was served: %v", err)
 		}
 	}
 }

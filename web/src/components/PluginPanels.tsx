@@ -50,7 +50,7 @@ export function PluginPanels({
           // Host-mediated: the plugin proposes, this performs, with the user's
           // own cookie and against the same route the user's own click would
           // hit. The plugin never receives a credential, and the server
-          // re-authorises the call as the user regardless of what the plugin
+          // re-authorizes the call as the user regardless of what the plugin
           // asked for. The header names the plugin as the route so the action
           // is attributable.
           onAction={(name, payload) => action(env.id, name, payload, { "X-Parley-Plugin-Route": p.name })}

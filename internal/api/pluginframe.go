@@ -156,7 +156,7 @@ func readPluginUI(dir, name, version string) ([]byte, error) {
 	return body, nil
 }
 
-// escapeForScript neutralises the two byte sequences that can end an HTML
+// escapeForScript neutralizes the two byte sequences that can end an HTML
 // script element from inside it. Both replacements are valid JavaScript
 // wherever the original could legally appear — in a string, a regular
 // expression or a comment — and outside those the original cannot appear at

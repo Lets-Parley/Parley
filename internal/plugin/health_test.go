@@ -156,7 +156,7 @@ func TestAnEndedSessionStillBlocksAnUninstall(t *testing.T) {
 	}
 }
 
-// The circuit breaker's judgement lives in memory. Before this it lived only
+// The circuit breaker's judgment lives in memory. Before this it lived only
 // in memory *and* in the log, so a degraded plugin was indistinguishable on
 // any screen from a plugin with nothing to do.
 func TestHealthSurfacesTheBreakerState(t *testing.T) {

@@ -271,7 +271,7 @@ func TestStandupTrendWindowIsFixed(t *testing.T) {
 }
 
 // The response is a team aggregate and nothing else. This reads the raw JSON
-// rather than decoding into a struct, so a handler that marshalled an untyped
+// rather than decoding into a struct, so a handler that marshaled an untyped
 // map with a per-person field in it would be caught.
 func TestStandupTrendResponseCarriesOnlyAllowedKeys(t *testing.T) {
 	srv, pool := trendServer(t)

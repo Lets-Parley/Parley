@@ -948,7 +948,7 @@ describe("SpacePage last-opened stamp", () => {
 
     // Opening a space is one visit however many times the page re-renders.
     // Driving real re-renders is what makes "once" an assertion rather than
-    // an artefact of the harness rendering once and stopping: an effect with
+    // an artifact of the harness rendering once and stopping: an effect with
     // no dependency array would fire again on each of these.
     await userEvent.click(screen.getByRole("button", { name: "Poker" }));
     await userEvent.click(screen.getByRole("button", { name: "Standup" }));

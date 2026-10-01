@@ -14,7 +14,7 @@
  * text initials the baseline is the text baseline inside the disc and the
  * descender fits in space that already exists. Measured in Chrome that is 53px
  * against 46px — enough to knock a poker seat's card visibly out of line with
- * its neighbour's.
+ * its neighbor's.
  */
 export const avatarSizes = { xs: 24, sm: 28, md: 38, lg: 46 } as const;
 

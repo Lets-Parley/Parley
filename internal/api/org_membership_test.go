@@ -98,7 +98,7 @@ func newOrg(t *testing.T, pool *pgxpool.Pool, claim string) string {
 
 // TestSignInMapsMappedClaimsOnly is the whole of phase 2: the identity
 // provider says which groups someone is in, and Parley translates only the
-// ones an admin already registered on an org. An unrecognised value grants
+// ones an admin already registered on an org. An unrecognized value grants
 // nothing and creates nothing.
 func TestSignInMapsMappedClaimsOnly(t *testing.T) {
 	idp := newFakeIdP(t)
@@ -130,14 +130,14 @@ func TestSignInMapsMappedClaimsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	if orgs != 0 {
-		t.Error("an unrecognised claim value created an org")
+		t.Error("an unrecognized claim value created an org")
 	}
 }
 
-// TestSignInHonoursRevocation: the claim arrives again on every sign-in, so
+// TestSignInHonorsRevocation: the claim arrives again on every sign-in, so
 // without the tombstone rule an admin's removal would last until the revoked
 // person next logged in.
-func TestSignInHonoursRevocation(t *testing.T) {
+func TestSignInHonorsRevocation(t *testing.T) {
 	ctx := context.Background()
 	idp := newFakeIdP(t)
 	suffix := randomSlugSuffix(t)

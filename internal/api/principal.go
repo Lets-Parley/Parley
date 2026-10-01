@@ -177,7 +177,7 @@ func setLinkSessionCookie(w http.ResponseWriter, value string, secure bool) {
 // setSessionCookie writes the ordinary session cookie with a Max-Age equal to
 // the shorter of the two session lifetimes. The cookie must not outlive the
 // token behind it: a browser still presenting a cookie the server stopped
-// honouring reads to the person as a session that silently broke.
+// honoring reads to the person as a session that silently broke.
 func (a *app) setSessionCookie(w http.ResponseWriter, value string) {
 	ttl := cmp.Or(a.sessionIdleTTL, store.DefaultSessionIdleTTL)
 	if maxTTL := cmp.Or(a.sessionMaxTTL, store.DefaultSessionMaxTTL); maxTTL < ttl {

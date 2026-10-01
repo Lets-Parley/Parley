@@ -49,7 +49,7 @@ const ARC = {
 export type Theme = keyof typeof ARC;
 
 /**
- * The field colour at one cue step, 0..3. The single source of the arc: both
+ * The field color at one cue step, 0..3. The single source of the arc: both
  * tokens.css's literals and the contrast test come from here, so no test ever
  * restates the interpolation.
  */

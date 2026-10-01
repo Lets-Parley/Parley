@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
  *
  * It now lives in one .js file that Go embeds and this test reads, so what is
  * executed here is byte-for-byte what ships in the frame. The assertions below
- * are about behaviour — whether a port is accepted — not about the shape of
+ * are about behavior — whether a port is accepted — not about the shape of
  * the source, so rephrasing a condition cannot turn them red and gutting one
  * cannot leave them green.
  */

@@ -63,7 +63,7 @@ var linkGuestActionVerbs = map[string]map[string]linkGuestVerb{
 		"story": {refused: true, body: `{"storyId":"{storyId}","title":"Renamed"}`},
 	},
 	"standup": {
-		// next and skip are literally the same handler, so behaviour alone
+		// next and skip are literally the same handler, so behavior alone
 		// cannot tell them apart. They are enumerated separately anyway: the
 		// point of the table is that a new verb forces a decision.
 		"start":   {facilitatorOnly: true, refused: true},

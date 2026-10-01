@@ -237,7 +237,7 @@ spec:
       #
       # pod-template-hash is set by the Deployment controller. The field is beta
       # and on by default from Kubernetes 1.27; an older API server prunes it
-      # silently, which leaves exactly today's behaviour rather than an error.
+      # silently, which leaves exactly today's behavior rather than an error.
       #
       # hasKey rather than a truthiness test, so an operator who writes an
       # explicit `matchLabelKeys: []` to opt out gets what they asked for. An

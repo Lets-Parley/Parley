@@ -116,7 +116,7 @@ describe("plugin panels in a poker room", () => {
     expect(frame.hasAttribute("inert")).toBe(false);
     // Reset the round is the facilitator's confirmation modal. What is
     // asserted here is that opening it sets `inert` on the frame; jsdom does
-    // not implement what `inert` then does, so the focus behaviour it buys —
+    // not implement what `inert` then does, so the focus behavior it buys —
     // a Tab from the dialog not walking into content the overlay has covered —
     // is verified in a real browser rather than here.
     await user.click(screen.getByRole("button", { name: "Reset" }));

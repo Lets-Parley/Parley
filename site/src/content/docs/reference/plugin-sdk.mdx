@@ -11,7 +11,7 @@ import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 fast in the guest when a grant is missing, then still call the Extism bridge,
 which remains the enforcing check. `@parley/plugin-ui` is optional CSS: add a
 class (`parley-btn`, `parley-panel`, `parley-input`) and the rule uses the host
-colour tokens (`--color-accent`, `--color-surface`, `--color-ink`).
+color tokens (`--color-accent`, `--color-surface`, `--color-ink`).
 
 ```sh
 node sdk/plugin-sdk/src/cli.js scaffold ./my-plugin
@@ -88,4 +88,4 @@ Quoted from `Describe` in `internal/plugin/describe.go`:
 - **emit**: "Can publish events of its own, which other plugins receive as though Parley had raised them."
 - **events** (unscoped): "Is sent a copy of every event Parley raises, payload included."
 
-An unknown capability is described as: "Parley does not recognise the capability … and cannot say what it permits. Do not grant it."
+An unknown capability is described as: "Parley does not recognize the capability … and cannot say what it permits. Do not grant it."

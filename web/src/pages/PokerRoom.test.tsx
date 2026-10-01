@@ -889,9 +889,9 @@ describe("PokerRoom waiting list", () => {
     expect(line.textContent).not.toContain("\u202E");
   });
 
-  // It sits under a centred table, beside a centred tally; flush left it read
+  // It sits under a centered table, beside a centered tally; flush left it read
   // as a misalignment rather than as a line of its own.
-  it("centres the waiting line like the tally above it", () => {
+  it("centers the waiting line like the tally above it", () => {
     const env = envelope();
     env.state.stories[0].votedUserIds = ["dana"];
     renderApp(<PokerRoom env={env} me={me} />);

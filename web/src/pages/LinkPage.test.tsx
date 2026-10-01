@@ -114,7 +114,7 @@ describe("LinkPage", () => {
   // The fragment is wiped on arrival and the token then lives only in React
   // state, so a dismissed prompt is unrecoverable — no reload can bring the
   // token back. Escape must therefore leave the prompt standing. jsdom fires
-  // no `cancel`, so Escape is modelled the way Modal.test.tsx models it.
+  // no `cancel`, so Escape is modeled the way Modal.test.tsx models it.
   it("keeps the prompt up when Escape cancels it, since the token is unrecoverable", async () => {
     renderApp(<LinkPage />, { route: "/link" });
 

@@ -261,7 +261,7 @@ describe("Meet sign-in", () => {
   });
 
   it(
-    "keeps polling through a dropped connection and a 503 (honouring Retry-After), then signs in",
+    "keeps polling through a dropped connection and a 503 (honoring Retry-After), then signs in",
     async () => {
       sessionResponses = ["network", { status: 503, retryAfter: 1 }, { token: "fresh" }];
       renderApp(<MeetSidePanel />);

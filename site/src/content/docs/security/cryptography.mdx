@@ -72,7 +72,7 @@ P-384 on those peers.
 There is no local password authentication, so there is no bcrypt, argon2, or
 PBKDF. Passcodes are stored in plaintext on purpose — see
 [Data and privacy](/security/data-and-privacy/). Cookies are the raw session
-token, not a signed blob. Cross-site defence is Origin / Sec-Fetch-Site and a
+token, not a signed blob. Cross-site defense is Origin / Sec-Fetch-Site and a
 JSON content-type check, not a CSRF token.
 
 | What | Algorithm | Where | Key material |
@@ -95,7 +95,7 @@ JSON content-type check, not a CSRF token.
 | WebSocket accept key | SHA-1 (RFC 6455 §1.3) | `internal/api/ws.go:83` via gorilla/websocket | Not a secret. Why the image is `on`, not `only`. |
 
 `hash/fnv` in `internal/store/users.go:321-325` (`AvatarHue`) is not
-cryptography. It picks a colour. It is not in `crypto/` and FIPS 140-3 mode
+cryptography. It picks a color. It is not in `crypto/` and FIPS 140-3 mode
 does not touch it.
 
 `crypto/md5`, `golang.org/x/crypto/chacha20`, `ed25519`, `x25519`, bcrypt and

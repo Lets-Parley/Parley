@@ -113,7 +113,7 @@ describe("Table", () => {
     const name = mine.getByText("skippy");
     const tells = mine.getByTestId("seat-tells");
 
-    // Both tells survive, and the guest one especially: it is a defence, not
+    // Both tells survive, and the guest one especially: it is a defense, not
     // a decoration — any name is available to a link guest.
     expect(tells.textContent).toBe("you · guest");
     // The name is not sharing its line with them any more. Asserted on the
@@ -328,7 +328,7 @@ describe("Table", () => {
     expect(live[0].textContent).toBe("1 of 3 voted");
   });
 
-  // The cue is a wash of colour, and its step names are internal codenames.
+  // The cue is a wash of color, and its step names are internal codenames.
   // Printing them told a user nothing the "n of m voted" line does not.
   it("never spells the cue's codename out on screen", () => {
     for (const state of ["overcast", "first-light", "daybreak", "day"] as const) {
@@ -1094,18 +1094,18 @@ describe("the kick", () => {
   // survive a kick landing on somebody else's seat.
   // jsdom implements no WAAPI at all, so the adapter's feature detection makes
   // both animations no-op there. A stand-in gives the test something to watch:
-  // whose animation was started, and whether anything cancelled it.
+  // whose animation was started, and whether anything canceled it.
   function recordAnimations() {
-    const seen: { el: Element; cancelled: boolean }[] = [];
+    const seen: { el: Element; canceled: boolean }[] = [];
     const proto = Element.prototype as unknown as { animate?: unknown };
     const had = "animate" in proto;
     const previous = proto.animate;
     proto.animate = function (this: Element) {
-      const rec = { el: this, cancelled: false };
+      const rec = { el: this, canceled: false };
       seen.push(rec);
       return {
         cancel: () => {
-          rec.cancelled = true;
+          rec.canceled = true;
         },
         finish: () => {},
       } as unknown as Animation;
@@ -1152,10 +1152,10 @@ describe("the kick", () => {
 
       // The boot is in the air and the seat is still leaving, and the pile-on
       // holds exactly what it held: nothing of the kick's was added to it, and
-      // nothing of its own was taken away or cancelled.
+      // nothing of its own was taken away or canceled.
       act(() => vi.advanceTimersByTime(400));
       expect(pileon.children.length).toBe(before);
-      expect(inFlight.filter((a) => a.cancelled)).toHaveLength(0);
+      expect(inFlight.filter((a) => a.canceled)).toHaveLength(0);
       expect(inFlight.every((a) => pileon.contains(a.el))).toBe(true);
     } finally {
       restore();
@@ -1199,10 +1199,10 @@ describe("the kick", () => {
       act(() => vi.advanceTimersByTime(400));
 
       // Her fall is untouched: the same animation, from the same distance, not
-      // restarted and not cancelled.
+      // restarted and not canceled.
       expect(falling().style.animation).toBe(drop);
       expect(falling().style.getPropertyValue("--drop-d")).toBe(distance);
-      expect(seen.filter((a) => a.el === falling() && a.cancelled)).toHaveLength(0);
+      expect(seen.filter((a) => a.el === falling() && a.canceled)).toHaveLength(0);
     } finally {
       restore();
       rects.mockRestore();

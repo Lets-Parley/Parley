@@ -80,11 +80,11 @@ type PluginUI struct {
 // install is enabled and unregistered when it is disabled or uninstalled, so
 // the map is written to while rooms are dispatching against it.
 //
-// The synchronisation is copy-on-write behind an atomic pointer rather than a
+// The synchronization is copy-on-write behind an atomic pointer rather than a
 // mutex on the read path. Registration is rare — an operator enabling an
 // install — and reads happen on every dispatch, every session create and every
 // envelope build, so the shape that costs a reader nothing but an atomic load
-// is the right one. Writers serialise on mu and publish a whole new map; a
+// is the right one. Writers serialize on mu and publish a whole new map; a
 // reader either sees the map before the write or the map after it, never a map
 // mid-update.
 type Registry struct {
