@@ -1,0 +1,556 @@
+---
+title: Plugin API reference
+description: Every contract a plugin has with Parley — the hooks the host calls and what they receive, the host functions a guest may call and what each returns, the browser bridge the UI talks to, and the limits on all three.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+
+<VerifiedStamp version="unreleased" source={["sdk/abi/v1.json", "internal/plugin/hostfn.go", "internal/plugin/kinds.go", "internal/plugin/host.go", "internal/plugin/fetch.go", "internal/plugin/bus.go", "internal/plugin/outbox.go", "internal/plugin/grants.go", "internal/api/pluginsessions.go", "internal/api/dispatch.go", "internal/api/pluginframe.go", "internal/api/pluginframe_bootstrap.js", "internal/api/plugins.go", "internal/session/registry.go", "web/src/lib/pluginBridge.ts", "web/src/lib/api.ts", "web/src/components/PluginPanel.tsx", "web/src/lib/theme.ts", "sdk/plugin-sdk/src/host.js", "sdk/plugin-ui/parley.css"]} />
+
+This page is the lookup table for plugin authors: what Parley hands your code,
+what your code may ask of Parley, and the exact shape of each. For a guided
+first run, start with [Build your first plugin](/reference/build-your-first-plugin/).
+For why each boundary exists, see [Plugin sandbox](/security/plugin-sandbox/).
+
+## The three surfaces
+
+A plugin has two halves that never talk to each other directly.
+
+| Surface | Where it runs | What it is for |
+| --- | --- | --- |
+| [Hooks](#hooks) | Server, in WebAssembly | Parley calls your guest: build room state, handle an action, receive an event, run a job |
+| [Host functions](#host-functions) | Server, in WebAssembly | Your guest calls Parley: storage, settings, secrets, fetch, sessions, jobs, events, logging |
+| [UI bridge](#ui-bridge) | Browser, in a sandboxed iframe | Your `ui.js` receives room state and proposes actions through `window.parley` |
+
+The round trip for one action:
+
+1. `ui.js` calls `window.parley.act("add-card", { text: "..." })`.
+2. Parley sends that as the signed-in user to `/api/sessions/{id}/actions/add-card`, and authorizes it as it would the user's own click.
+3. Parley calls your guest's `on_session_action`. The guest saves what changed, usually with `parley_kv_set`.
+4. Parley calls `on_session_state` and broadcasts the result to everyone in the room.
+5. Every `ui.js` in the room gets the new state through `window.parley.onState`.
+
+The UI has no other path to the guest.
+
+## Hooks
+
+A hook is a function your guest exports. Parley writes one JSON document as the
+call's input, and reads whatever the guest writes as output. In the JavaScript
+PDK that is `Host.inputString()` and `Host.outputString()`.
+
+| Export | Called when | Mode | May `fetch` |
+| --- | --- | --- | --- |
+| `on_session_state` | A room of your kind needs its state: on load and after every change | Synchronous | No |
+| `on_session_action` | A participant runs one of your kind's actions | Synchronous | No |
+| `on_event` | An event you hold an `events` grant for was published | Asynchronous | Yes |
+| `on_job` | A job you enqueued is due | Asynchronous | Yes |
+
+Export only the hooks you use. A plugin that provides a session kind needs the
+first two.
+
+### `on_session_state`
+
+Input:
+
+```json
+{
+  "session": "c0a8012e-...",
+  "kind": "retrospective",
+  "phase": "collect",
+  "config": {}
+}
+```
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `session` | string | The room's id. Use it as your storage key |
+| `kind` | string | Which of your kinds the room runs |
+| `phase` | string | The room's shared phase. Yours to define; set it with `parley_session_patch` |
+| `config` | JSON | The config document the room was created with, passed through unchanged |
+
+Output: any JSON document. It becomes `state` in the room envelope and is sent
+to **every participant**, so write only what all of them may see. Hide a card's
+author until reveal by leaving the field out, as `plugins/retrospective` does.
+An empty output is read as `{}`. Output that is not JSON fails the call.
+
+There is no `user` in this input: one state document is built and broadcast to
+the whole room, so it cannot differ per person.
+
+### `on_session_action`
+
+Input:
+
+```json
+{
+  "session": "c0a8012e-...",
+  "kind": "retrospective",
+  "action": "add-card",
+  "user": "5f2b9d0c-...",
+  "body": { "columnId": "went-well", "text": "Shipped on time" }
+}
+```
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `session` | string | The room's id |
+| `kind` | string | Which of your kinds the room runs |
+| `action` | string | The action name, one your manifest declares |
+| `user` | string | The id of the person who acted. It matches `userId` in the roster |
+| `body` | JSON | The request body; `{}` when the caller sent none. At most 1 MiB |
+
+By the time the hook runs, Parley has already refused an unknown action (404),
+the wrong verb (405), a `facilitatorOnly` action from somebody else (403), and
+any action in an ended room (409). Validating `body` is your job.
+
+Output is ignored. What matters is whether the call succeeds:
+
+| Guest outcome | HTTP answer | Then |
+| --- | --- | --- |
+| Returns normally | `204 No Content` | The room's state is rebuilt and broadcast |
+| Not reached: the body is over 1 MiB or is not JSON | `400` with `{"error":"invalid JSON body"}` | The hook is not called |
+| Throws, traps or times out | `502` with `{"error":"the plugin could not run that action"}` | Nothing is broadcast; the failure is logged on the server |
+
+Throwing is the way to reject an action. The caller is not sent your error
+text, so put anything the room should read into the state instead.
+
+### `on_event`
+
+Input: `{ "topic": "plugin.other.card-added", "payload": {} }`. `payload` is
+`{}` when the publisher sent none. Output is ignored.
+
+### `on_job`
+
+Input: `{ "kind": "sync", "payload": {} }`, the `kind` and `payload` you passed
+to `parley_job_enqueue`. Output is ignored.
+
+### Delivery for `on_event` and `on_job`
+
+Both are **at-least-once**, so a handler must be safe to run twice. A call
+that fails is retried with a delay that starts at 5 seconds and doubles, capped
+at 10 minutes. After 8 attempts it is set aside and not retried again.
+
+## Host functions
+
+A guest calls Parley by passing one JSON request and reading one JSON response.
+Every response is the same envelope:
+
+```json
+{ "ok": true, "data": { "found": true, "value": "eyJjb2x1bW5zIjpbXX0=" } }
+```
+
+```json
+{ "ok": false, "error": "kv in scope \"board\": the plugin does not hold this capability" }
+```
+
+A refusal is data, not a trap: check `ok` and decide what to do. The examples
+wrap this once:
+
+```js
+function hostCall(fn, req) {
+  var mem = Memory.fromString(JSON.stringify(req));
+  var env = JSON.parse(Memory.find(fn(mem.offset)).readString());
+  if (!env.ok) throw new Error(env.error || "host refused");
+  return env.data;
+}
+
+var fns = Host.getFunctions();
+var data = hostCall(fns.parley_kv_get, { scope: "board", key: input.session });
+```
+
+A JavaScript guest must also declare each host function it calls in
+`guest.d.ts`, or the build does not link it:
+
+```ts
+declare module "extism:host" {
+  interface user {
+    parley_kv_get(ptr: I64): I64;
+    parley_kv_set(ptr: I64): I64;
+  }
+}
+```
+
+**Bytes are base64.** `value` in the two `kv` functions and `body` in `fetch`
+are byte fields. Send them as base64 strings and decode what comes back.
+`plugins/retrospective/guest.js` has `utf8ToB64` and `b64ToUtf8` helpers you
+can copy.
+
+### Summary
+
+| Function | Grant | Request | `data` on success |
+| --- | --- | --- | --- |
+| `parley_kv_get` | `kv` | `scope`, `key` | `found`, `value` |
+| `parley_kv_set` | `kv` | `scope`, `key`, `value` | `written` |
+| `parley_settings_get` | none | none | the settings object |
+| `parley_secret_get` | `secrets`, or a secret settings field | `name` | `value` |
+| `parley_session_get` | `session:read` | `session` | `state` |
+| `parley_session_patch` | `session:patch` | `session`, `patch` | `applied` |
+| `parley_fetch` | `fetch` | `method`, `url`, `headers`, `body` | `status`, `headers`, `body` |
+| `parley_job_enqueue` | `jobs` | `kind`, `payload`, `delay_ms`, `cron` | `job_id` |
+| `parley_emit` | `emit` | `topic`, `payload` | `topic` |
+| `parley_log` | `log` | `level`, `message` | `logged` |
+
+Grants are read from the install record on every call, so a grant an admin
+revokes stops working on the next call.
+
+### `parley_kv_get` and `parley_kv_set`
+
+Your plugin's private storage. Another plugin cannot read it, and neither can
+another org's install of the same plugin.
+
+| Request field | Type | Notes |
+| --- | --- | --- |
+| `scope` | string | Must match a granted `kv` scope, unless the grant is unscoped |
+| `key` | string | Required. `scope` and `key` together are at most 512 bytes |
+| `value` | base64 string | `parley_kv_set` only. Replaces the whole value |
+
+`parley_kv_get` returns `{ "found": true, "value": "<base64>" }`, or
+`{ "found": false, "value": null }` for a key that was never written.
+`parley_kv_set` returns `{ "written": <bytes> }`.
+
+- There is no list, prefix scan or delete. Keep one document per room, keyed by the session id.
+- A write replaces the whole value. Two actions racing on one document can lose an update; keep each action's read-modify-write short.
+- Storage is capped by `quotaBytes` in the manifest (default 1 MiB). A write past the quota is refused with `plugin storage quota exceeded` and changes nothing.
+
+### `parley_settings_get`
+
+Takes `{}`. Returns the admin-set, non-secret settings as one object with
+defaults applied, for example `{ "greeting": "Hello", "loud": false }`. It
+needs no grant. Secret fields are never included.
+
+### `parley_secret_get`
+
+Request `{ "name": "api_token" }`, response `{ "value": "..." }` as a plain
+string. A settings field marked `"format": "secret"` is readable by its field
+name with no separate grant; any other name needs a `secrets` grant. A secret
+no admin has set yet is a refusal, not an empty string.
+
+### `parley_session_get`
+
+Request `{ "session": "<id>" }`. Returns `{ "state": <envelope> }`, the same
+document a browser in that room is sent:
+
+| Envelope field | Type | Meaning |
+| --- | --- | --- |
+| `id`, `kind`, `title` | string | The room |
+| `phase` | string | The shared phase |
+| `revealed` | boolean | The shared reveal flag |
+| `version` | number | Rises by one on every change |
+| `facilitatorId` | string | The facilitator's user id |
+| `facilitatorConnected` | boolean | Whether the facilitator is connected |
+| `endedAt` | timestamp or `null` | Set once the room has ended |
+| `presence` | string array | User ids connected now |
+| `participants` | array | `userId`, `name`, `avatarHue`, `spectator`, `guest`, `avatarIcon` for each seat |
+| `spaceSlug`, `orgSlug` | string | Where the room lives |
+| `facilitatorOfflineSince` | timestamp | Present only while the facilitator is disconnected |
+| `plugin` | object | `name`, `version` and `grants` of the install providing the kind |
+| `kindUnavailable` | boolean | Present and `true` when the kind is not currently on offer; `state` is then `null` |
+| `serverTime` | timestamp | When the envelope was built |
+| `state` | JSON | Your own `on_session_state` output |
+
+It reads only rooms in the install's own org that run a kind this plugin
+provides. Any other id, including one that exists, answers `no such session`.
+Do not call it from `on_session_state` for the room being built; the input
+already carries what you need.
+
+### `parley_session_patch`
+
+Request `{ "session": "<id>", "patch": { "phase": "vote", "revealed": true } }`.
+Returns `{ "applied": true }` and broadcasts the room.
+
+| Patch field | Type | Notes |
+| --- | --- | --- |
+| `phase` | string | 1 to 64 characters. Your own vocabulary |
+| `revealed` | boolean | The shared reveal flag |
+
+Both are optional. Any other field is refused, as is a patch to an ended room.
+The same own-org, own-kind rule as `parley_session_get` applies.
+
+### `parley_fetch`
+
+Outbound HTTP, available **only inside `on_event` and `on_job`**. Called from
+`on_session_state` or `on_session_action` it is refused whatever was granted,
+because those run while the room waits. To show remote data in a room, fetch
+it in a job, store it with `parley_kv_set`, and read it back in the hook.
+
+| Request field | Type | Notes |
+| --- | --- | --- |
+| `method` | string | For example `GET` or `POST` |
+| `url` | string | `https` only. The host must match a granted `fetch` scope |
+| `headers` | object | Optional; string to string |
+| `body` | base64 string | Optional |
+
+Response `{ "status": 200, "headers": { ... }, "body": "<base64>" }`.
+
+Each `fetch` grant's scope is one hostname, optionally with a single leading
+`*.` label. Defaults: 10 second timeout, at most 5 redirects with every hop
+screened, and a 1 MiB response body. Only public addresses are reachable:
+private, loopback, link-local and every other non-public address is refused. [The fetch guard](/security/plugin-sandbox/#the-fetch-guard) has
+the full rules.
+
+### `parley_job_enqueue`
+
+Schedules a later call to your `on_job`.
+
+| Request field | Type | Notes |
+| --- | --- | --- |
+| `kind` | string | Your own label. Must match a granted `jobs` scope, unless the grant is unscoped |
+| `payload` | JSON | Optional; handed back to `on_job` |
+| `delay_ms` | number | Optional; run this long from now |
+| `cron` | string | Optional; five numeric fields, minute hour day-of-month month day-of-week, read in UTC |
+
+Returns `{ "job_id": "..." }`. With neither `delay_ms` nor `cron` the job is
+due immediately. Setting both is refused. A `cron` schedules **one** run at
+the next matching time; to repeat, enqueue the next run from inside `on_job`.
+
+### `parley_emit`
+
+Request `{ "topic": "card-added", "payload": { ... } }`. The topic is
+published as `plugin.<your plugin name>.<topic>`, and the response returns
+that full name: `{ "topic": "plugin.retrospective.card-added" }`.
+
+To receive an event, a plugin holds an `events` grant whose scope is the full
+published topic, for example
+`{ "capability": "events", "scope": "plugin.retrospective.card-added" }`.
+
+### `parley_log`
+
+Request `{ "level": "info", "message": "..." }`. `level` is `debug`, `info`,
+`warn` or `error`; anything else is logged as `info`. Returns
+`{ "logged": true }`. The line appears in the server log as `plugin log` with
+your plugin's name and your message as an attribute.
+
+## Using `@parley/plugin-sdk` in a guest
+
+`createHost(grants, call, manifest)` wraps the host functions as methods and
+fails fast, inside the guest, when the grant a call needs is missing from
+`grants`. The host still checks every call.
+
+| Method | Calls |
+| --- | --- |
+| `getSettings()` | `parley_settings_get` |
+| `getSecret(name)`, `secretGet(req)` | `parley_secret_get` |
+| `kvGet(req)`, `kvSet(req)` | `parley_kv_get`, `parley_kv_set` |
+| `sessionGet(req)`, `sessionPatch(req)` | `parley_session_get`, `parley_session_patch` |
+| `fetch(req)` | `parley_fetch` |
+| `jobEnqueue(req)` | `parley_job_enqueue` |
+| `emit(req)` | `parley_emit` |
+| `log(req)` | `parley_log` |
+
+Each takes the request documented above and returns whatever your `call`
+function returns. The Extism JavaScript guest has no module loader, so the SDK
+is not imported: list `sdk/plugin-sdk/src/host.js` first in your Makefile's
+`GUEST_SRC` and it is concatenated in.
+
+`createHost` needs the manifest as a value, and nothing defines one for you.
+`plugins/settings-demo` generates it in its Makefile and lists the result in
+`GUEST_SRC` after `host.js`:
+
+```make
+GUEST_SRC := ../../sdk/plugin-sdk/src/host.js .build/manifest.js demo.js guest.js
+
+.build/manifest.js: manifest.json
+	mkdir -p .build
+	{ printf 'var MANIFEST = '; cat manifest.json; printf ';\n'; } > $@
+```
+
+With that in place the guest can build a host. The manifest lists what the
+plugin asks for, not what an admin granted, so the guest-side check only
+catches a call the manifest never declared; the host decides the rest.
+
+```js
+var fns = Host.getFunctions();
+var host = createHost(MANIFEST.capabilities, function (name, req) {
+  return hostCall(fns[name], req);
+}, MANIFEST);
+var settings = host.getSettings();
+```
+
+## UI bridge
+
+`ui.js` runs in an iframe with an opaque origin, under a Content-Security-Policy
+that refuses network requests. Parley
+builds the document, which contains one empty `<div id="root"></div>`, and
+defines `window.parley` before your script runs.
+
+| Method | Purpose |
+| --- | --- |
+| `parley.onState(fn)` | Calls `fn(session)` on every state push, and immediately if state has already arrived |
+| `parley.state()` | The latest session, or `null` |
+| `parley.act(name, payload)` | Proposes one of your kind's actions. `payload` becomes the hook's `body` |
+| `parley.onTokens(fn)` | Calls `fn(tokens)` when the color tokens arrive, and immediately if they already have |
+| `parley.ready()` | Announces that the UI has loaded. The host does not wait for it |
+
+```js
+var root = document.getElementById("root");
+
+window.parley.onState(function (session) {
+  if (!session) { root.textContent = ""; return; }
+  root.textContent = session.title + ": " + session.state.cards.length + " cards";
+});
+
+document.addEventListener("click", function () {
+  window.parley.act("add-card", { columnId: "went-well", text: "Shipped" });
+});
+
+window.parley.ready();
+```
+
+### The UI needs grants too
+
+| To do this | The manifest must ask for |
+| --- | --- |
+| Receive state through `onState` | `session:read` |
+| Propose actions through `act` | `session:act` |
+
+Without `session:read`, `onState` is never called. Without `session:act`, a
+call to `act` is dropped and nothing tells the user or your script.
+
+### The `session` object
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `id`, `kind`, `title` | string | The room |
+| `phase` | string | The shared phase |
+| `revealed` | boolean | The shared reveal flag |
+| `version` | number | Rises by one on every change |
+| `facilitatorId` | string | Compare with a participant's `userId` |
+| `endedAt` | string or `null` | Set once the room has ended |
+| `presence` | string array | User ids connected now |
+| `participants` | array | `userId`, `name`, `avatarHue`, `spectator` for each seat |
+| `state` | JSON | Your `on_session_state` output |
+
+The frame is not told which participant is viewing it, nor the room's space or
+org. `onState` receives `null` when the viewer moves to a room your plugin does
+not provide, which matters for `toolbar` and `export-menu` frames that stay
+mounted; treat `null` as "no room".
+
+### `act`
+
+`act` returns nothing and reports no result. A successful action shows up as a
+new state push; a refused one shows up as nothing. Design the UI around the
+state, not around the call.
+
+- The name must be 1 to 64 characters of letters, digits, `_` and `-`. Nothing else about the name is checked in the browser.
+- The request goes to the room the viewer has open, as that viewer, and the server decides: an action that room's kind does not have is refused, and so is a `facilitatorOnly` action from anybody else.
+- `act` sends `POST`. Declare your actions with `"verb": "POST"`; one declared `PUT`, `PATCH` or `DELETE` is refused when called through `act`.
+- Do not name an action `standup`, `ready`, `story`, `config` or `mention`. Those names are sent with a core kind's verb and a `POST` action by that name is refused.
+- `act` needs no click. A UI holding `session:act` can call it at any moment, and it runs with the viewer's authority, including the facilitator's controls when the viewer is the facilitator. That is what the admin is told at install, so call it only in response to something the person did.
+- `act` throws when the serialized message is longer than 65,536 characters. The host separately caps a message at 64 KiB of UTF-8 and drops one over it without telling the frame, so non-ASCII text can be dropped without a throw. Keep payloads well under 64 KiB.
+
+### Theme and styling
+
+Parley sets its color tokens as CSS custom properties on the frame's root
+element when the frame loads, so `var(--color-surface)` works with no
+JavaScript. The tokens are `felt`, `felt-deep`, `surface`,
+`surface-hi`, `ink`, `ink-soft`, `ink-faint`, `line`, `line-strong`, `accent`,
+`accent-ink`, `accent-soft`, `brass`, `settled`, `go` and `stop`, each as
+`--color-<name>`.
+
+`sdk/plugin-ui/parley.css` offers three classes built on them: `parley-panel`,
+`parley-btn` and `parley-input`. The frame cannot load a stylesheet, so create
+a `<style>` element from your script, or set styles inline.
+
+### What the frame cannot do
+
+- No network requests: the frame's Content-Security-Policy refuses `fetch`, WebSocket, remote images, fonts and external scripts. A `data:` image works.
+- No cookies, no storage shared with Parley, and no reading of the parent page.
+- Messages are capped at 64 KiB each way and 30 a second from the frame. Exceeding the rate closes the bridge.
+- State pushes are coalesced to one every 100 ms, newest wins.
+
+## Manifest
+
+```json
+{
+  "manifest": 1,
+  "kind": "plugin",
+  "name": "retrospective",
+  "version": "0.1.0",
+  "quotaBytes": 1048576,
+  "capabilities": [
+    { "capability": "kv", "scope": "board" },
+    { "capability": "session:read" },
+    { "capability": "session:act" }
+  ],
+  "kinds": [
+    {
+      "kind": "retrospective",
+      "display": "Retrospective",
+      "actions": [
+        { "name": "add-card", "verb": "POST" },
+        { "name": "reveal", "verb": "POST", "facilitatorOnly": true }
+      ]
+    }
+  ],
+  "slots": ["room"]
+}
+```
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `manifest` | Yes | Always `1` |
+| `kind` | Yes | Always `"plugin"` |
+| `name` | Yes | The plugin's name; it prefixes emitted topics |
+| `version` | Yes | `major.minor.patch`. Every upload needs a new one |
+| `quotaBytes` | No | Key-value storage cap. Default 1048576 |
+| `capabilities` | No | What the plugin asks for. Each entry is `capability` plus optional `scope`. At most 64 entries; a scope is at most 253 characters |
+| `kinds` | No | The session kinds the plugin provides |
+| `slots` | No | Where the UI appears: `panel`, `room`, `toolbar`, `nav`, `export-menu` |
+| `settings` | No | The admin settings schema; see [Settings](/reference/plugin-sdk/#settings) |
+
+Rules for `kinds`:
+
+- `kind` and each action `name` are 1 to 64 characters of `a-z`, `0-9` and dashes, starting and ending with a letter or digit.
+- `display` is 1 to 64 characters.
+- `verb` is `POST`, `PUT`, `PATCH` or `DELETE`.
+- `facilitatorOnly` defaults to `false`.
+- A kind name is unique across the whole instance. Installing a plugin whose kind another org or the core already owns is refused.
+
+### Capabilities and scopes
+
+A grant with no `scope` covers the whole capability. A grant with a scope
+covers only a request that names exactly that scope. `fetch` and `events` are
+the exceptions: both need a scope, and a grant without one allows nothing.
+
+| Capability | Unlocks | Scope means |
+| --- | --- | --- |
+| `kv` | `parley_kv_get`, `parley_kv_set` | The `scope` field of the request |
+| `secrets` | `parley_secret_get` | The secret's name |
+| `session:read` | `parley_session_get`; state in the UI | One session id, for `parley_session_get`. The UI is sent state whatever the scope |
+| `session:patch` | `parley_session_patch` | One session id |
+| `session:act` | `parley.act` in the UI | Not used |
+| `fetch` | `parley_fetch` | One allowed hostname; required |
+| `jobs` | `parley_job_enqueue` | The job `kind` |
+| `emit` | `parley_emit` | The topic, before the prefix is added |
+| `events` | Delivery to `on_event` | The full published topic; required |
+| `log` | `parley_log` | Not used |
+
+### Handling secrets and personal data
+
+- `on_session_state` output goes to everyone in the room. Never put a secret or one person's private data in it.
+- Keep secrets out of `parley_log` messages and `parley_emit` payloads. A log line is read by operators, and an event is delivered to every plugin that holds a grant for its topic.
+- A plugin that holds both a secret and a `fetch` grant can send that secret to the allowed host. Send it only where it is needed.
+- Treat an action's `body` as untrusted input from a participant.
+
+Ask only for what you use: every grant is shown to the admin who installs the
+plugin, in the words listed under
+[What each grant actually permits](/reference/plugin-sdk/#what-each-grant-actually-permits).
+
+## Limits
+
+| Limit | Default |
+| --- | --- |
+| Time for one hook call | 2 seconds |
+| Guest memory | 16 MiB |
+| Concurrent calls per install | 2 |
+| Action body | 1 MiB |
+| Key-value quota | 1 MiB, or `quotaBytes` |
+| Key-value `scope` plus `key` | 512 bytes |
+| Phase length | 64 characters |
+| Fetch timeout, redirects, response body | 10 seconds, 5, 1 MiB |
+| Event and job attempts | 8 |
+| UI message size, each way | 64 KiB |
+| UI messages from the frame | 30 a second |
+
+A guest has no filesystem, no sockets and no SQL. An install that keeps
+failing is switched off by a circuit breaker until an admin re-enables it; see
+[Containment](/security/plugin-sandbox/#containment).

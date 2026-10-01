@@ -5,7 +5,7 @@ description: A runbook from an empty directory to an installed, configured plugi
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp version="unreleased" source={["sdk/plugin-sdk/src/cli.js", "sdk/plugin-sdk/src/bundle.js", "sdk/plugin-sdk/src/host.js", "sdk/plugin-sdk/src/settings.js", "sdk/plugin-sdk/extism.mk", "plugins/hello/", "plugins/settings-demo/", "internal/api/catalog.go"]} />
+<VerifiedStamp version="unreleased" source={["sdk/plugin-sdk/src/cli.js", "sdk/plugin-sdk/src/bundle.js", "sdk/plugin-sdk/src/host.js", "sdk/plugin-sdk/src/settings.js", "web/src/lib/pluginBridge.ts", "sdk/plugin-sdk/extism.mk", "plugins/hello/", "plugins/settings-demo/", "internal/api/catalog.go"]} />
 
 This runbook takes a plugin from an empty directory to an install running in
 an org. Every command is the `parley-plugin` CLI from `sdk/plugin-sdk`; run it
@@ -44,8 +44,11 @@ window.parley.ready();
 
 The Extism JavaScript guest has no module loader, so keep the logic in plain
 files that the Makefile concatenates, and export only the hooks through
-`module.exports`. The [Plugin SDK](/reference/plugin-sdk/) page lists the host
-methods and what each grant permits.
+`module.exports`. The [Plugin API reference](/reference/plugin-api/) gives the
+exact input of each hook, every host function with its request and response,
+and the whole of `window.parley`. A UI is sent state only if the manifest asks
+for `session:read`, and may call `act` only with `session:act`. The
+[Plugin SDK](/reference/plugin-sdk/) page quotes what each grant permits.
 
 ## 3. Test
 
