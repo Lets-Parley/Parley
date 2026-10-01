@@ -2,7 +2,7 @@
   "manifest": 1,
   "kind": "plugin",
   "name": "retrospective",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "quotaBytes": 1048576,
   "capabilities": [
     { "capability": "kv", "scope": "board" },

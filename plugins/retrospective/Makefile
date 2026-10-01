@@ -3,8 +3,8 @@
 # it). The toolchain pins live in sdk/plugin-sdk/extism.mk.
 #
 # `make dist` still writes the legacy PLUGIN_DIR pair
-# (`<name>-<version>.wasm` and `<name>-<version>.ui.js`); do not hand-edit the
-# .wasm.
+# (`<name>-<version>.wasm`, `<name>-<version>.ui.js` and
+# `<name>-<version>.slots.json`); do not hand-edit the .wasm.
 
 GUEST_SRC := board.js guest.js
 STEM      := retrospective-$(shell node -p 'require("./manifest.json").version')
@@ -27,8 +27,13 @@ $(DIST)/$(STEM).ui.js: ui.js
 	mkdir -p $(DIST)
 	cp ui.js $@
 
-dist: $(DIST)/$(STEM).wasm $(DIST)/$(STEM).ui.js
+$(DIST)/$(STEM).slots.json: slots.json
+	mkdir -p $(DIST)
+	cp slots.json $@
+
+dist: $(DIST)/$(STEM).wasm $(DIST)/$(STEM).ui.js $(DIST)/$(STEM).slots.json
 
 check-dist: dist
 	cmp -s ui.js $(DIST)/$(STEM).ui.js
+	cmp -s slots.json $(DIST)/$(STEM).slots.json
 	test -s $(DIST)/$(STEM).wasm
