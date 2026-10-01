@@ -140,15 +140,6 @@ export const GRANT_SESSION_READ = "session:read";
 export const GRANT_SESSION_ACT = "session:act";
 
 /**
- * The plugin's view of a session, built from the envelope a grant at a time.
- *
- * Returns null when the plugin holds no `session:read` grant — no grant means
- * no state, not a smaller state — and null for any room whose ceremony this
- * plugin does not provide. The second is the consent screen's promise, and it
- * is all or nothing: a frame in the chrome of a poker or standup room is told
- * neither the room's state nor who is seated in it.
- */
-/**
  * Whether a plugin may be told anything about a room: it holds `session:read`
  * and the room runs a ceremony it provides.
  *
@@ -159,6 +150,15 @@ export function seesRoom(env: Envelope, grants: readonly string[], plugin: strin
   return grants.includes(GRANT_SESSION_READ) && providesRoom(env, plugin);
 }
 
+/**
+ * The plugin's view of a session, built from the envelope a grant at a time.
+ *
+ * Returns null when the plugin holds no `session:read` grant — no grant means
+ * no state, not a smaller state — and null for any room whose ceremony this
+ * plugin does not provide. The second is the consent screen's promise, and it
+ * is all or nothing: a frame in the chrome of a poker or standup room is told
+ * neither the room's state nor who is seated in it.
+ */
 export function redactSession(
   env: Envelope,
   grants: readonly string[],
