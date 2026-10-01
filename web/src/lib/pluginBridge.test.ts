@@ -365,9 +365,9 @@ describe("createPluginBridge", () => {
   // would pass for any payload the projection happened to type-check against.
   it("pushes the plugin's own room into the frame, and exactly that", () => {
     const sent: string[] = [];
-    const { b } = bridge({ selfId: "u2", send: (body: string) => sent.push(body) });
+    const { b } = bridge({ send: (body: string) => sent.push(body) });
     b.handshake();
-    b.sendState(pluginKindEnvelope());
+    b.sendState(pluginKindEnvelope(), "u2");
     vi.advanceTimersByTime(500);
     expect(sent.length).toBe(1);
     const message = JSON.parse(sent[0]) as Record<string, unknown>;
@@ -407,10 +407,80 @@ describe("createPluginBridge", () => {
     b.close();
   });
 
+  // A toolbar or export-menu frame sits in poker and standup rooms too, where
+  // its plugin has no session:read. What the server answered there says
+  // whether the viewer is the facilitator, whether the room has ended and
+  // which actions its kind has — so in a room the plugin does not provide the
+  // frame is told one thing whatever happened.
+  it("reports a real outcome only in a room the plugin provides", async () => {
+    const outcomes: Array<[() => Promise<unknown>, string]> = [
+      [() => Promise.reject(new ApiError(403, "only the facilitator can do that")), '"ok":false,"reason":"forbidden"'],
+      [() => Promise.reject(new ApiError(404, "no such action")), '"ok":false,"reason":"not-found"'],
+      [() => Promise.reject(new ApiError(409, "this session has ended")), '"ok":false,"reason":"conflict"'],
+      [() => Promise.resolve(), '"ok":true'],
+    ];
+    for (const [onAction, real] of outcomes) {
+      const rooms: Array<[Envelope | null, string]> = [
+        [pluginKindEnvelope(), real],
+        [standupEnvelope(), '"ok":false,"reason":"unknown"'],
+        [envelope(), '"ok":false,"reason":"unknown"'],
+        [pluginKindEnvelope({ plugin: { name: "other", version: "1.0.0", grants: [] } } as Partial<Envelope>), '"ok":false,"reason":"unknown"'],
+        // Chrome with no room at all.
+        [null, '"ok":false,"reason":"unknown"'],
+      ];
+      for (const [room, want] of rooms) {
+        const sent: string[] = [];
+        const { b, actions } = bridge({
+          send: (body: string) => sent.push(body),
+          onAction: (action: string, payload: unknown) => {
+            actions.push({ action, payload });
+            return onAction();
+          },
+        });
+        b.handshake();
+        if (room) b.sendState(room);
+        vi.advanceTimersByTime(500);
+        sent.length = 0;
+        b.receive(JSON.stringify({ type: "act", id: 3, action: "reveal", payload: {} }));
+        await vi.waitFor(() => expect(sent.length).toBe(1));
+        expect(sent[0]).toBe(`{"type":"result","id":3,${want}}`);
+        // Whether the action is performed is not what changed.
+        expect(actions).toEqual([{ action: "reveal", payload: {} }]);
+        b.close();
+      }
+    }
+  });
+
+  it("announces result support in the handshake and tells the frame when it closes", () => {
+    const sent: string[] = [];
+    const { b, posted } = bridge({ send: (body: string) => sent.push(body) });
+    b.handshake();
+    expect(posted).toEqual([{ parley: "bridge", results: true }]);
+    b.close();
+    expect(sent).toEqual(['{"type":"closed"}']);
+    b.close();
+    expect(sent.length).toBe(1);
+  });
+
+  it("uses the viewer id given with each push, so a changed viewer reaches the frame", () => {
+    const sent: string[] = [];
+    const { b } = bridge({ send: (body: string) => sent.push(body) });
+    b.handshake();
+    b.sendState(pluginKindEnvelope(), "u1");
+    vi.advanceTimersByTime(500);
+    b.sendState(pluginKindEnvelope(), "u2");
+    vi.advanceTimersByTime(500);
+    expect(sent.map((body) => (JSON.parse(body) as { state: { selfId: string } }).state.selfId)).toEqual(["u1", "u2"]);
+    b.close();
+  });
+
   it("tells the frame an action it proposed was accepted", async () => {
     const sent: string[] = [];
     const { b } = bridge({ send: (body: string) => sent.push(body) });
     b.handshake();
+    b.sendState(pluginKindEnvelope());
+    vi.advanceTimersByTime(500);
+    sent.length = 0;
     b.receive(JSON.stringify({ type: "act", id: 4, action: "reveal", payload: {} }));
     await vi.waitFor(() => expect(sent.length).toBe(1));
     expect(sent[0]).toBe('{"type":"result","id":4,"ok":true}');
@@ -438,6 +508,9 @@ describe("createPluginBridge", () => {
         onAction: () => Promise.reject(error),
       });
       b.handshake();
+      b.sendState(pluginKindEnvelope());
+      vi.advanceTimersByTime(500);
+      sent.length = 0;
       b.receive(JSON.stringify({ type: "act", id: 1, action: "reveal", payload: {} }));
       await vi.waitFor(() => expect(sent.length).toBe(1));
       expect(sent[0]).toBe(`{"type":"result","id":1,"ok":false,"reason":"${reason}"}`);

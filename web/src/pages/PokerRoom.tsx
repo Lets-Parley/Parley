@@ -442,7 +442,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
 
       {/* Plugin UI, each in its own sandboxed frame. Frames are marked inert
           while a modal is open so focus cannot tab underneath the overlay. */}
-      <PluginPanels env={env} modalOpen={Boolean(confirmEnd || confirmReset || confirmRemove)} />
+      <PluginPanels env={env} selfId={me.id} modalOpen={Boolean(confirmEnd || confirmReset || confirmRemove)} />
 
       {confirmEnd && (
         <Modal title="End this session?" onClose={() => setConfirmEnd(false)}>

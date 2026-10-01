@@ -181,4 +181,100 @@ describe("PluginPanel", () => {
     expect(handshakes).toHaveBeenCalledTimes(1);
     expect(screen.getByTitle("retro plugin panel")).toBe(frame);
   });
+
+  const ownRoom = { ...env, kind: "acme-retro", plugin: { name: "retro", version: "1.0.0", grants: [] } } as unknown as Envelope;
+
+  it("pushes a changed viewer id into a frame that is already open", async () => {
+    const posted = vi.spyOn(MessagePort.prototype, "postMessage");
+    const view = panel({ env: ownRoom, selfId: "u1" });
+    const states = () =>
+      posted.mock.calls
+        .map((c) => JSON.parse(String(c[0])) as { type: string; state?: { selfId: string } })
+        .filter((m) => m.type === "state")
+        .map((m) => m.state!.selfId);
+    await waitFor(() => expect(states()).toEqual(["u1"]));
+    view.rerender(
+      <PluginPanel name="retro" version="1.0.0" grants={["session:read"]} env={ownRoom} selfId="u2" onAction={() => Promise.resolve()} />,
+    );
+    await waitFor(() => expect(states()).toEqual(["u1", "u2"]));
+  });
+
+  it("re-sends when a theme pack rewrites the root's inline style and data-theme does not move", async () => {
+    const root = document.documentElement;
+    root.setAttribute("data-theme", "dark");
+    root.style.setProperty("--color-surface", "#111111");
+    const posted = vi.spyOn(MessagePort.prototype, "postMessage");
+    panel();
+    fireEvent.load(screen.getByTitle("retro plugin panel"));
+    root.style.setProperty("--color-surface", "#1d2b3a");
+    await waitFor(() => expect(posted.mock.calls.length).toBe(2));
+    expect(posted.mock.calls.map((c) => c[0])).toEqual([
+      '{"type":"tokens","tokens":{"surface":"#111111"},"scheme":"dark"}',
+      '{"type":"tokens","tokens":{"surface":"#1d2b3a"},"scheme":"dark"}',
+    ]);
+  });
+
+  /** jsdom has no matchMedia; this one is flipped by hand. */
+  function stubMatchMedia() {
+    const listeners = new Set<() => void>();
+    const mql = {
+      matches: false,
+      addEventListener: (_: string, fn: () => void) => listeners.add(fn),
+      removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
+    };
+    vi.stubGlobal("matchMedia", (query: string) => {
+      expect(query).toBe("(prefers-color-scheme: dark)");
+      return mql;
+    });
+    return {
+      listeners,
+      flip(dark: boolean) {
+        mql.matches = dark;
+        for (const fn of [...listeners]) fn();
+      },
+    };
+  }
+
+  it("follows the OS scheme when no theme is pinned", () => {
+    const os = stubMatchMedia();
+    const posted = vi.spyOn(MessagePort.prototype, "postMessage");
+    panel();
+    fireEvent.load(screen.getByTitle("retro plugin panel"));
+    os.flip(true);
+    expect(posted.mock.calls.map((c) => c[0])).toEqual([
+      '{"type":"tokens","tokens":{},"scheme":"light"}',
+      '{"type":"tokens","tokens":{},"scheme":"dark"}',
+    ]);
+    vi.unstubAllGlobals();
+  });
+
+  it("stops watching the theme once the panel is gone", async () => {
+    const os = stubMatchMedia();
+    const view = panel();
+    fireEvent.load(screen.getByTitle("retro plugin panel"));
+    expect(os.listeners.size).toBe(1);
+    view.unmount();
+    expect(os.listeners.size).toBe(0);
+    const posted = vi.spyOn(MessagePort.prototype, "postMessage");
+    document.documentElement.setAttribute("data-theme", "dark");
+    document.documentElement.style.setProperty("--color-ink", "#f0f0f0");
+    // Long enough for a MutationObserver that was still attached to fire.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(posted).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("survives a theme change before the frame has loaded and hands it the current theme once", async () => {
+    const root = document.documentElement;
+    const posted = vi.spyOn(MessagePort.prototype, "postMessage");
+    panel();
+    const frame = screen.getByTitle("retro plugin panel") as HTMLIFrameElement;
+    const handshakes = vi.spyOn(frame.contentWindow!, "postMessage").mockImplementation(() => {});
+    root.style.setProperty("--color-ink", "#f0f0f0");
+    root.setAttribute("data-theme", "dark");
+    await waitFor(() => expect(posted.mock.calls.length).toBe(1));
+    fireEvent.load(frame);
+    expect(handshakes).toHaveBeenCalledTimes(1);
+    expect(posted.mock.calls.map((c) => c[0])).toEqual(['{"type":"tokens","tokens":{"ink":"#f0f0f0"},"scheme":"dark"}']);
+  });
 });

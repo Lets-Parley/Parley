@@ -1,10 +1,11 @@
 (function () {
   "use strict";
   var port = null, queue = [], state = null, tokens = null, scheme = null;
-  // Actions waiting on the host's answer, by the id this frame chose. A host
-  // that predates results never answers, so the oldest entry is dropped as a
-  // new one is added rather than the table growing for the life of the frame.
-  var pending = {}, nextId = 0, MAX_PENDING = 64;
+  // Actions waiting on the host's answer, by the id this frame chose. Every
+  // one of them settles: with the host's answer, or as "unknown" when it is
+  // pushed out by newer ones, when the host closes the bridge, or when the
+  // host turns out to be one that never answers.
+  var pending = {}, nextId = 0, MAX_PENDING = 64, results = false;
   var REASON = /^[a-z-]{1,32}$/;
   var handlers = { state: [], tokens: [] };
   var MAX_BYTES = 65536;
@@ -39,6 +40,16 @@
     if (value === "light" || value === "dark") { scheme = value; document.documentElement.style.setProperty("color-scheme", value); }
   }
 
+  function unknown() { return { ok: false, reason: "unknown" }; }
+
+  function settleAll() {
+    var waiting = pending;
+    pending = {};
+    for (var id in waiting) {
+      if (Object.prototype.hasOwnProperty.call(waiting, id)) { waiting[id](unknown()); }
+    }
+  }
+
   function settle(message) {
     if (!Object.prototype.hasOwnProperty.call(pending, message.id)) { return; }
     var resolve = pending[message.id];
@@ -59,10 +70,17 @@
     onTokens: function (fn) { handlers.tokens.push(fn); if (tokens) { fn(tokens); } },
     state: function () { return state; },
     scheme: function () { return scheme; },
+    supports: function (feature) { return feature === "results" && results; },
     act: function (action, payload) {
       var id = ++nextId;
       send({ type: "act", id: id, action: action, payload: payload || {} });
-      delete pending[id - MAX_PENDING];
+      if (port && !results) { return Promise.resolve(unknown()); }
+      var oldest = id - MAX_PENDING;
+      if (Object.prototype.hasOwnProperty.call(pending, oldest)) {
+        var evicted = pending[oldest];
+        delete pending[oldest];
+        evicted(unknown());
+      }
       return new Promise(function (resolve) { pending[id] = resolve; });
     },
     ready: function () { send({ type: "ready" }); }
@@ -75,6 +93,7 @@
     if (message.type === "state") { state = message.state; emit("state", state); }
     else if (message.type === "tokens") { tokens = message.tokens; applyTokens(tokens); applyScheme(message.scheme); emit("tokens", tokens); }
     else if (message.type === "result") { settle(message); }
+    else if (message.type === "closed") { results = false; settleAll(); }
   }
 
   function onHandshake(event) {
@@ -91,6 +110,8 @@
     if (!event.ports || event.ports.length !== 1) { return; }
     window.removeEventListener("message", onHandshake);
     port = event.ports[0];
+    results = event.data.results === true;
+    if (!results) { settleAll(); }
     port.onmessage = onPort;
     port.start();
     while (queue.length) { port.postMessage(queue.shift()); }

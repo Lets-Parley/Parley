@@ -72,7 +72,6 @@ export function PluginPanel({
       target,
       plugin: name,
       grants,
-      selfId,
       onAction,
       onFailure: (reason) => {
         setFailure(reason);
@@ -94,8 +93,8 @@ export function PluginPanel({
   // is no second websocket, and nothing crosses that redactSession did not
   // build. Chrome with no session (org nav) has nothing to push.
   useEffect(() => {
-    if (env) bridge.current?.sendState(env);
-  }, [env]);
+    if (env) bridge.current?.sendState(env, selfId);
+  }, [env, selfId]);
 
   // The host theme can change under a live frame: a pinned theme writes
   // `data-theme`, a theme pack writes the root's inline style, and an unpinned
@@ -165,7 +164,7 @@ export function PluginPanel({
         onLoad={() => {
           bridge.current?.handshake();
           bridge.current?.sendTokens(currentTokens(), currentScheme());
-          if (env) bridge.current?.sendState(env);
+          if (env) bridge.current?.sendState(env, selfId);
         }}
       />
     </section>

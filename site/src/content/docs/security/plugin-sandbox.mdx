@@ -6,7 +6,7 @@ description: What a Parley plugin can and cannot do, and the mechanism behind ea
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/plugin/host.go", "internal/plugin/hostfn.go", "internal/plugin/fetch.go", "internal/plugin/breaker.go", "internal/plugin/kinds.go", "internal/plugin/grants.go", "internal/session/registry.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/db/migrations/0031_plugins.sql", "internal/db/migrations/0032_plugin_pending_upgrade.sql", "internal/db/migrations/0047_plugin_pending_kinds.sql", "internal/api/fanout.go", "web/src/pages/SessionPage.tsx", "web/src/lib/pluginBridge.ts", "web/src/components/PluginPanel.tsx", "scripts/guard-mutation.sh", "internal/plugin/bundles.go", "internal/plugin/runtime.go", "internal/api/pluginframe.go", "internal/api/standup_webhook.go", "internal/plugin/describe.go", "internal/plugin/pin.go", "internal/db/migrations/0050_plugin_install_digest.sql", "internal/api/security.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/plugin/host.go", "internal/plugin/hostfn.go", "internal/plugin/fetch.go", "internal/plugin/breaker.go", "internal/plugin/kinds.go", "internal/plugin/grants.go", "internal/session/registry.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/db/migrations/0031_plugins.sql", "internal/db/migrations/0032_plugin_pending_upgrade.sql", "internal/db/migrations/0047_plugin_pending_kinds.sql", "internal/api/fanout.go", "web/src/pages/SessionPage.tsx", "web/src/lib/pluginBridge.ts", "web/src/components/PluginPanel.tsx", "scripts/guard-mutation.sh", "internal/plugin/bundles.go", "internal/plugin/runtime.go", "internal/api/pluginframe.go", "internal/api/pluginframe_bootstrap.js", "internal/api/standup_webhook.go", "internal/plugin/describe.go", "internal/plugin/pin.go", "internal/db/migrations/0050_plugin_install_digest.sql", "internal/api/security.go"]} />
 
 A Parley plugin is a WebAssembly module run in-process by
 [Extism](https://extism.org/) over [wazero](https://wazero.io/). Both are pure
@@ -203,8 +203,16 @@ view produces no viewer either.
 
 A frame that proposes an action is told whether it was accepted, as `ok` or a
 reason code from a fixed list (`forbidden`, `invalid`, `not-found`, `conflict`,
-`rate-limited`, `ungranted`, `unreachable`, `failed`). The server's error text
-and response body never cross the bridge.
+`rate-limited`, `ungranted`, `unreachable`, `failed`, `unknown`). The server's
+error text and response body never cross the bridge.
+
+The outcome itself is room data: a refusal says the viewer is not the
+facilitator, a conflict that the room has ended, a 404 which actions its kind
+has. So a real outcome is reported only in a room the frame's own install
+provides, the same test that decides whether it is sent state. In a planning
+poker room, a standup room, another plugin's room or no room, every result is
+`unknown`, whatever the server answered. Whether the action is performed is
+unchanged.
 
 A toolbar or export-menu frame stays mounted as the user moves between rooms,
 so when they leave a room the plugin provides for one it does not, the frame is

@@ -167,13 +167,16 @@ type FrameApi = {
   act: (action: string, payload?: unknown) => Promise<{ ok: boolean; reason?: string }> | undefined;
   onTokens: (fn: (tokens: Record<string, string>) => void) => void;
   scheme: () => string | null;
+  supports: (feature: string) => boolean;
 };
 
 /**
  * Completes the handshake as the host would and returns the host's end of the
  * port, with everything the frame has sent on it so far.
  */
-async function connect(): Promise<{ host: MessagePort; fromFrame: Array<Record<string, unknown>> }> {
+async function connect(
+  handshake: Record<string, unknown> = { parley: "bridge", results: true },
+): Promise<{ host: MessagePort; fromFrame: Array<Record<string, unknown>> }> {
   const channel = new MessageChannel();
   cleanups.push(() => {
     channel.port1.close();
@@ -185,7 +188,7 @@ async function connect(): Promise<{ host: MessagePort; fromFrame: Array<Record<s
   };
   channel.port2.start();
   window.dispatchEvent(
-    new MessageEvent("message", { data: { parley: "bridge" }, source: window.parent, ports: [channel.port1] }),
+    new MessageEvent("message", { data: handshake, source: window.parent, ports: [channel.port1] }),
   );
   await vi.waitFor(() => expect(fromFrame.some((m) => m.type === "hello")).toBe(true));
   return { host: channel.port2, fromFrame };
@@ -306,5 +309,69 @@ describe("the plugin frame's action results", () => {
     const bare = frameApi().act("reveal")!;
     host.postMessage(JSON.stringify({ type: "result", id: 2, ok: false }));
     expect(await bare).toEqual({ ok: false, reason: "failed" });
+  });
+});
+
+/** Settles to the value, or to "pending" if the promise has not resolved yet. */
+function peek(p: Promise<unknown>): Promise<unknown> {
+  return Promise.race([p, new Promise((resolve) => setTimeout(() => resolve("pending"), 50))]);
+}
+
+describe("the plugin frame's act promise always settles", () => {
+  it("says whether the host reports results, and only once the host has said so", async () => {
+    loadBootstrap();
+    expect(frameApi().supports("results")).toBe(false);
+    await connect();
+    expect(frameApi().supports("results")).toBe(true);
+    expect(frameApi().supports("anything-else")).toBe(false);
+  });
+
+  it("answers unknown at once on a host that does not report results, and still sends the action", async () => {
+    loadBootstrap();
+    // An action proposed before the port exists waits for the handshake to
+    // learn which kind of host this is.
+    const early = frameApi().act("reveal")!;
+    const { fromFrame } = await connect({ parley: "bridge" });
+    expect(frameApi().supports("results")).toBe(false);
+    expect(await peek(early)).toEqual({ ok: false, reason: "unknown" });
+
+    expect(await peek(frameApi().act("add-card", { text: "x" })!)).toEqual({ ok: false, reason: "unknown" });
+    await vi.waitFor(() => expect(fromFrame.filter((m) => m.type === "act").length).toBe(2));
+    expect(fromFrame.filter((m) => m.type === "act").map((m) => m.action)).toEqual(["reveal", "add-card"]);
+  });
+
+  it("settles the oldest unanswered action as unknown when a sixty-fifth is proposed", async () => {
+    loadBootstrap();
+    await connect();
+    const first = frameApi().act("reveal")!;
+    const second = frameApi().act("reveal")!;
+    for (let i = 0; i < 62; i++) void frameApi().act("reveal");
+    expect(await peek(first)).toBe("pending");
+    void frameApi().act("reveal");
+    expect(await peek(first)).toEqual({ ok: false, reason: "unknown" });
+    expect(await peek(second)).toBe("pending");
+  });
+
+  it("settles everything outstanding as unknown when the host closes the bridge, and everything after", async () => {
+    loadBootstrap();
+    const { host } = await connect();
+    const a = frameApi().act("reveal")!;
+    const b = frameApi().act("add-card")!;
+    host.postMessage(JSON.stringify({ type: "closed" }));
+    expect(await a).toEqual({ ok: false, reason: "unknown" });
+    expect(await b).toEqual({ ok: false, reason: "unknown" });
+    expect(frameApi().supports("results")).toBe(false);
+    expect(await peek(frameApi().act("reveal")!)).toEqual({ ok: false, reason: "unknown" });
+  });
+
+  it("still throws on a message too large to send, and leaves nothing waiting behind it", async () => {
+    loadBootstrap();
+    const { host, fromFrame } = await connect();
+    expect(() => frameApi().act("add-card", { text: "x".repeat(70_000) })).toThrow("message too large");
+    const next = frameApi().act("reveal")!;
+    await vi.waitFor(() => expect(fromFrame.filter((m) => m.type === "act").length).toBe(1));
+    const id = fromFrame.filter((m) => m.type === "act")[0].id;
+    host.postMessage(JSON.stringify({ type: "result", id, ok: true }));
+    expect(await next).toEqual({ ok: true });
   });
 });

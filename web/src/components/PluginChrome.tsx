@@ -54,7 +54,7 @@ export function PluginChrome({
             env
               ? (name, payload) =>
                   action(env.id, name, payload, { "X-Parley-Plugin-Route": p.name })
-              : () => Promise.reject(new Error("no room to act on"))
+              : async () => undefined
           }
         />
       ))}

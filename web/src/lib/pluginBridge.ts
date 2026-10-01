@@ -267,8 +267,6 @@ export type PluginBridgeOptions = {
   /** The install this frame belongs to. Only its own rooms are pushed. */
   plugin: string;
   grants: readonly string[];
-  /** The viewer's own user id, which the frame is told beside its room. */
-  selfId?: string;
   /**
    * Performs an action the plugin proposed, using the user's own session. The
    * plugin never sees a credential, and can only ask for what the user could
@@ -288,7 +286,7 @@ export type PluginBridge = {
    * Pushes redacted state into the frame, coalesced; a `null` state, once,
    * when the user leaves one of the plugin's own rooms for one it does not provide.
    */
-  sendState: (env: Envelope) => void;
+  sendState: (env: Envelope, selfId?: string) => void;
   /** Pushes the current design tokens so plugin UI re-themes with the app. */
   sendTokens: (tokens: Record<string, string>, scheme?: "light" | "dark") => void;
   /** Test seam: feed one raw inbound message as the port would. */
@@ -307,6 +305,9 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
   // by install name, so it and this bridge outlive a move to another room.
   let holdsView = false;
   let lastTheme = "";
+  // The room the frame is in, as last pushed. It decides what an action's
+  // result may say.
+  let room: Envelope | null = null;
   const stamps: number[] = [];
 
   const timeout = setTimeout(() => {
@@ -387,16 +388,26 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
     // The frame learns how its action went only if it sent an id to answer by,
     // and the id is echoed only if it is a plain counter: an older frame sends
     // none and is told nothing, as before.
-    const answer = (result: { ok: true } | { ok: false; reason: string }) => {
+    //
+    // What the server answered is information about the room: a refusal says
+    // the viewer is not the facilitator, a conflict that the room has ended,
+    // a 404 which actions its kind has. That is session:read's to give, and it
+    // covers only a room this plugin provides — so anywhere else the frame is
+    // told one thing whatever happened.
+    const disclose = room !== null && providesRoom(room, opts.plugin);
+    const reply = (result: { ok: true } | { ok: false; reason: string }) => {
       if (typeof id === "number" && Number.isSafeInteger(id) && id >= 0) {
         post({ type: "result", id, ...result }, "oversize-outbound");
       }
     };
+    const answer = (result: { ok: true } | { ok: false; reason: string }) =>
+      reply(disclose ? result : { ok: false, reason: "unknown" });
     if (!opts.grants.includes(GRANT_SESSION_ACT)) {
       // The grant is checked here, on the host side, because this is the only
       // side that can be trusted to check it.
       opts.onFailure("ungranted");
-      answer({ ok: false, reason: "ungranted" });
+      // The plugin's own manifest, not the room: said plainly everywhere.
+      reply({ ok: false, reason: "ungranted" });
       return;
     }
     opts.onAction(action, payload ?? {}).then(
@@ -420,6 +431,9 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
 
   function close(): void {
     if (closed) return;
+    // The last thing the frame hears, so no action it proposed is left
+    // waiting on an answer that can no longer come.
+    send('{"type":"closed"}');
     closed = true;
     clearTimeout(timeout);
     if (pushTimer) clearTimeout(pushTimer);
@@ -439,11 +453,14 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
       // "*" is the only target origin an opaque frame can be addressed by, and
       // it is safe precisely because the payload is a port and nothing else:
       // there is no secret in this message to misdirect.
-      opts.target.postMessage({ parley: "bridge" }, "*", [channel.port2]);
+      // `results` tells the frame this host answers each action, so one that
+      // does not is something the frame can know rather than wait out.
+      opts.target.postMessage({ parley: "bridge", results: true }, "*", [channel.port2]);
     },
-    sendState(env: Envelope) {
+    sendState(env: Envelope, selfId?: string) {
       if (closed) return;
-      const session = redactSession(env, opts.grants, opts.plugin, opts.selfId);
+      room = env;
+      const session = redactSession(env, opts.grants, opts.plugin, selfId);
       let body: string;
       if (session) {
         body = JSON.stringify({ type: "state", state: session });

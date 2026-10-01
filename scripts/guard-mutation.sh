@@ -700,6 +700,12 @@ mutate "the frame sandbox attribute" \
     'src/components/PluginPanel.test.tsx::sandboxes the frame without allow-same-origin' \
     lib/pluginBridge.ts 'export const PLUGIN_SANDBOX = "allow-scripts";' 'export const PLUGIN_SANDBOX = "allow-scripts allow-same-origin";'
 
+# What the server answered an action with is information about the room, so a
+# frame outside its plugin's own rooms is told one thing whatever happened.
+mutate "the room gate on an action's result" \
+    'src/lib/pluginBridge.test.ts::reports a real outcome only in a room the plugin provides' \
+    lib/pluginBridge.ts 'const disclose = room !== null && providesRoom(room, opts.plugin);' 'const disclose = room !== null;'
+
 # A refused action is reported to the frame as a code from a fixed list. The
 # server's sentence, or an unexpected error's, never crosses.
 mutate "the refusal reason a frame is told" \
