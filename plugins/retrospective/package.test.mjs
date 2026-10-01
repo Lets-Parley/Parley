@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { test } from "node:test";
 
 const require = createRequire(import.meta.url);
-const pkg = require("./package.json");
+const pkg = require("./manifest.json");
 
 test("the install package declares the retrospective kind and the grants it needs", () => {
   assert.equal(pkg.manifest, 1);
@@ -22,4 +22,8 @@ test("the install package declares the retrospective kind and the grants it need
   assert.equal(actions.reveal.verb, "POST");
   assert.equal(actions.reveal.facilitatorOnly, true);
   assert.equal(actions["add-action"].verb, "POST");
+});
+
+test("package.json, still read by the host's consent-copy test, matches manifest.json", () => {
+  assert.deepEqual(require("./package.json"), pkg);
 });

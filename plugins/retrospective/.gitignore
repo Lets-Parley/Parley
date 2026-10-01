@@ -1,2 +1,4 @@
 .cache/
 .build/
+plugin.wasm
+dist/*.parley
