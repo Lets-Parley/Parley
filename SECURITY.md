@@ -97,8 +97,13 @@ operator's `PLUGIN_TRUSTED_KEYS`; unsigned bundles are refused unless the
 operator sets `PLUGIN_ALLOW_UNSIGNED=true`. Trusting a key is the operator's
 decision, so confirm a key id through a channel other than the one that
 delivered the key or the bundle. The key that signs the plugins the project
-releases will be published here: key id **to be published** (a maintainer fills
-this in; there is no key to trust until then).
+releases:
+
+- key id: `0cd66eaa7f49d7b6`
+- public key (for `PLUGIN_TRUSTED_KEYS`): `oim8Oxx2DAbMZeEceLTowuabh+KnJ+mEsde1ijmiH4E=`
+
+The key id is the first 8 bytes of the SHA-256 of the raw public key, so
+`parley plugin verify -key <public key> FILE` printing this key id confirms both.
 
 `AUTH_MODE=open` is suitable only for a trusted network. A public deployment
 needs a space passcode or external SSO/authentication proxy plus ingress abuse
