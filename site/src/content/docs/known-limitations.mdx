@@ -6,7 +6,7 @@ description: Everything Parley does not do, in one place, with the workaround wh
 import VerifiedStamp from "../../components/VerifiedStamp.astro";
 import Capability from "../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/db/db.go", "cmd/parley/main.go", "ROADMAP.md", "plugins/retrospective", "web/src/pages/PluginsPage.tsx", "internal/api", "internal/api/metrics.go", "internal/hub/hub.go", "internal/poker/routes.go", ".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/dependabot.yml"]} />
+<VerifiedStamp version="unreleased" source={["internal/db/db.go", "cmd/parley/main.go", "ROADMAP.md", "plugins/retrospective", "web/src/pages/PluginsPage.tsx", "internal/api/catalog.go", "internal/plugin/pin.go", "internal/api", "internal/api/metrics.go", "internal/hub/hub.go", "internal/poker/routes.go", ".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/dependabot.yml"]} />
 
 Every gap in the product, collected, so that the rest of this documentation is
 worth believing. Read it before you deploy, not after.
@@ -20,7 +20,10 @@ accepted and actionable.
 <Capability rows={[
   { name: "Operator administration UI", status: "built", detail: "An org admin installs, enables, disables, upgrades and uninstalls plugins from <code>/o/&lt;org&gt;/admin/plugins</code>, approving each grant on a consent screen." },
   { name: "Plugin UI", status: "built", detail: "A plugin can draw a panel, served from <code>/plugin-ui/&lt;name&gt;/&lt;version&gt;</code> and rendered in a sandboxed iframe with no network access of its own — see <a href='/security/plugin-sandbox/'>Plugin sandbox</a>." },
-  { name: "A plugin registry", status: "not-built", detail: "Signed <code>.parley</code> bundles in <code>PLUGIN_DIR</code> are verified against <code>PLUGIN_TRUSTED_KEYS</code> and stored at boot, but there is no central catalog to fetch them from." },
+  { name: "An instance plugin catalog", status: "built", detail: "Signed <code>.parley</code> bundles are stored in Postgres, uploaded by default-org admins at <code>/catalog</code> and installed per org, pinned by digest, with upgrade, rollback and re-pin to any trusted version. See <a href='/operations/plugins/'>Plugins: operate</a>." },
+  { name: "A plugin marketplace", status: "not-built", detail: "The catalog is one instance's own. There is no public registry to browse or fetch from, and its only curators are the admins of the default org. Tracked in <a href='https://github.com/Lets-Parley/Parley/issues/727'>#727</a>." },
+  { name: "Garbage collection of stored bundles", status: "not-built", detail: "Stored bundles are append-only: every uploaded bundle stays in the database, and nothing deletes an unreferenced one. Tracked in <a href='https://github.com/Lets-Parley/Parley/issues/737'>#737</a>." },
+  { name: "A warning on a trust-lowering re-pin", status: "not-built", detail: "With <code>PLUGIN_ALLOW_UNSIGNED=true</code>, a running signed install can be moved to an unsigned bundle of the same version with no extra warning. Leave unsigned bundles off to rule it out. Tracked in <a href='https://github.com/Lets-Parley/Parley/issues/737'>#737</a>." },
   { name: "Python plugins", status: "not-built", detail: "Python is not an official Extism guest PDK. Rust, JavaScript, Go (TinyGo), Haskell, AssemblyScript, C, Zig and .NET are." },
   { name: "SQL for plugins", status: "not-built", detail: "Deliberately absent and not planned. A plugin that could reach the pool would have every other capability by implication." },
 ]} />
@@ -78,7 +81,7 @@ accepted and actionable.
 
 <Capability rows={[
   { name: "Story mapping, a sprint board, and other ceremonies", status: "not-built", detail: "Poker and standup are the two core session kinds, and a retrospective ships as a plugin. The rest is roadmap; most of it is expected to arrive as plugins." },
-  { name: "A preinstalled retrospective", status: "not-built", detail: "The retrospective is a plugin, not part of the image or the chart. An operator builds it, puts it in <code>PLUGIN_DIR</code>, and installs and enables it for an org. See <a href=\"/features/retrospective/\">Retrospective</a>." },
+  { name: "A preinstalled retrospective", status: "not-built", detail: "The retrospective is a plugin, not part of the image or the chart. An operator takes its <code>.parley</code> bundle, uploads it to the catalog, and installs and enables it for an org. See <a href=\"/features/retrospective/\">Retrospective</a>." },
   { name: "A verified mobile layout", status: "not-built", detail: "Foundation in progress (<a href=\"https://github.com/Lets-Parley/Parley/pull/475\">#475</a>): named breakpoints, touch targets on key controls, and safe-area insets on the shell and hand. Participant voting is the first-class mobile target; standup, settings, and facilitator workflows are not yet verified on a handset." },
   { name: "Custom decks", status: "built", detail: "Four built-in decks, plus any a space owner saves under Settings → Decks. A saved deck is a template: a session copies the cards when it is created, so editing or deleting a deck leaves existing rooms alone. Sharing a deck between spaces is not built. See <a href='/features/planning-poker/#decks-of-your-own'>Planning poker</a>." },
   { name: "Configurable standup timer", status: "not-built", detail: "The server takes a <code>secondsPerPerson</code> value but no UI sets it, so 90 seconds is effectively fixed." },

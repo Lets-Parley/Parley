@@ -99,6 +99,7 @@ export default defineConfig({
             "operations/scaling-and-limits",
             "operations/backups-and-recovery",
             "operations/upgrading",
+            "operations/plugins",
             "operations/air-gapped",
             "operations/google-meet",
             "operations/runbook",

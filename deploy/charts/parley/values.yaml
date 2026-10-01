@@ -378,9 +378,22 @@ metrics:
 #     whether or not it is set. Mount the bundles read-only.
 #   * PLUGIN_TRUSTED_KEYS — comma-separated base64 Ed25519 public keys a
 #     .parley bundle may be signed by. Unset trusts none. A malformed entry
-#     stops the boot.
+#     stops the boot. Public keys are not secret, so a ConfigMap is fine; the
+#     value is read at boot, so changing it needs a restart of every replica.
+#     Confirm each key's id (printed by "parley plugin keygen" and
+#     "parley plugin verify") out of band before adding it. For example:
+#
+#         extraEnv:
+#           - name: PLUGIN_TRUSTED_KEYS
+#             valueFrom:
+#               configMapKeyRef:
+#                 name: parley-plugin-keys
+#                 key: trusted-keys
+#
+#     or inline, for one publisher: value: "BASE64_PUBLIC_KEY".
 #   * PLUGIN_ALLOW_UNSIGNED — also accept unsigned bundles: exactly true or
-#     false. Default false.
+#     false. Default false. Leave it off unless you build every bundle
+#     yourself; it also allows moving a signed install onto an unsigned bundle.
 #   * PLUGIN_CALL_TIMEOUT — how long one plugin call may run. Default 2s.
 #   * PLUGIN_MEMORY_PAGES — memory cap per plugin instance in 64 KiB pages.
 #     Default 256 (16 MiB).

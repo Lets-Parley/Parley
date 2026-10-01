@@ -82,15 +82,23 @@ their shared-store session at least every 30 seconds and close with policy code
 1008 when a token is revoked or expires; logout disconnects the token's sockets
 synchronously.
 
-Plugins, when `PLUGIN_DIR` is set, run as WebAssembly in-process with no
+Plugins run as WebAssembly in-process with no
 sockets, no filesystem and no SQL. Every effect goes through a host function
 that checks a capability grant against the install record immediately before
 acting, outbound HTTP is https-only against an operator-approved allowlist with
 every resolved address screened and every redirect hop rechecked, and an
 upgrade asking for wider capabilities waits for an operator while the old
 grants stay in force. The mechanism behind each of those claims is documented
-at <https://www.letsparley.io/security/plugin-sandbox/>. With `PLUGIN_DIR`
-unset no plugin host exists at all.
+at <https://www.letsparley.io/security/plugin-sandbox/>. With no plugin installed
+nothing is compiled or run.
+
+Plugin bundles are signed with Ed25519 and run only if their signer is in the
+operator's `PLUGIN_TRUSTED_KEYS`; unsigned bundles are refused unless the
+operator sets `PLUGIN_ALLOW_UNSIGNED=true`. Trusting a key is the operator's
+decision, so confirm a key id through a channel other than the one that
+delivered the key or the bundle. The key that signs the plugins the project
+releases will be published here: key id **to be published** (a maintainer fills
+this in; there is no key to trust until then).
 
 `AUTH_MODE=open` is suitable only for a trusted network. A public deployment
 needs a space passcode or external SSO/authentication proxy plus ingress abuse

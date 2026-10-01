@@ -30,11 +30,12 @@ document, so it is not in the file.
 
 ## Installing it
 
-Build with `make dist` in `plugins/retrospective`, copy
-`retrospective-0.1.0.wasm` and `retrospective-0.1.0.ui.js` into `PLUGIN_DIR`,
-and upload `package.json` as the install package. The grants it asks for are
-`kv` (scope `board`), `session:read`, and `session:act`. Consent copy for those
-comes from the host, not from this page.
+Take the retrospective's `.parley` bundle (a release asset, signed when the
+release key is configured, otherwise named `-UNSIGNED.parley`), trust its signer,
+upload it on the plugin catalog page, and install it for an org; see
+[Plugins: operate](/operations/plugins/). The grants it asks for are `kv` (scope
+`board`), `session:read`, and `session:act`. Consent copy for those comes from
+the host, not from this page.
 
 Disable mid-session and the room shows the existing "kind unavailable" state;
 enable it again and the kind returns. Uninstall is refused while any

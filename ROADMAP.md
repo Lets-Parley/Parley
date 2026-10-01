@@ -216,6 +216,9 @@ Ideas under consideration, not committed to.
   ([#385](https://github.com/lets-parley/parley/issues/385))
 - Reactions and comments on a standup entry or a story — cheap once the storage
   boundary exists, and worth little before it ([#387](https://github.com/lets-parley/parley/issues/387))
+- A plugin marketplace — a public registry an instance can browse and fetch
+  signed bundles from, on top of the instance catalog that now ships
+  ([#727](https://github.com/lets-parley/parley/issues/727))
 
 ## Completed
 
