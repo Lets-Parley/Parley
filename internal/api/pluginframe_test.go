@@ -414,3 +414,27 @@ func TestPluginPanelsListsOnlyEnabledInstallsThatShipUI(t *testing.T) {
 		t.Fatalf("a disabled install was listed: %v", names)
 	}
 }
+
+// A UI bundle is ordinary JavaScript, and "</" is ordinary JavaScript too: it
+// is how a regular expression that matches "<" ends. Escaping every "</"
+// turned /</g into /<\/g, an unterminated literal, and the retrospective's
+// frame died on a syntax error before it drew anything.
+func TestEscapingAUIBundleLeavesARegexThatEndsInALessThanAlone(t *testing.T) {
+	for _, js := range []string{
+		`s.replace(/</g, "&lt;")`,
+		`if (a</b/.exec(s).length) {}`,
+	} {
+		if got := escapeForScript(js); got != js {
+			t.Errorf("escapeForScript(%q) = %q, want it unchanged", js, got)
+		}
+	}
+	for js, want := range map[string]string{
+		`"</script>"`:  `"<\/script>"`,
+		`"</SCRIPT >"`: `"<\/SCRIPT >"`,
+		`"<!--"`:       `"<\!--"`,
+	} {
+		if got := escapeForScript(js); got != want {
+			t.Errorf("escapeForScript(%q) = %q, want %q", js, got, want)
+		}
+	}
+}

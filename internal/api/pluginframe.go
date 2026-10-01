@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -157,13 +158,20 @@ func readPluginUI(dir, name, version string) ([]byte, error) {
 }
 
 // escapeForScript neutralizes the two byte sequences that can end an HTML
-// script element from inside it. Both replacements are valid JavaScript
-// wherever the original could legally appear — in a string, a regular
-// expression or a comment — and outside those the original cannot appear at
-// all, so this changes no program's meaning.
+// script element from inside it: a script close tag, in any case, and the
+// opening of an HTML comment. Both replacements are valid JavaScript wherever
+// the original could legally appear — in a string, a regular expression or a
+// comment — so this changes no program's meaning.
+//
+// It matches "</script" and not every "</": a bare "</" is also how a regular
+// expression matching "<" ends, and escaping that one turns /</g into an
+// unterminated literal.
 func escapeForScript(js string) string {
-	return strings.NewReplacer("</", `<\/`, "<!--", `<\!--`).Replace(js)
+	js = scriptCloseTag.ReplaceAllString(js, `<\/$1`)
+	return strings.ReplaceAll(js, "<!--", `<\!--`)
 }
+
+var scriptCloseTag = regexp.MustCompile(`(?i)</(script)`)
 
 // pluginFrameDocument is the whole sandbox. It loads nothing: the policy above
 // forbids it, so the bridge bootstrap and the plugin's UI are both inlined.
