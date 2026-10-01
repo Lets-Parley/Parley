@@ -2449,3 +2449,60 @@ describe("SpacePage kudos rail", () => {
     expect(await region.findByText("80%")).toBeTruthy();
   });
 });
+
+// Last on purpose: rememberKindLabels keeps display names for the whole file.
+describe("SpacePage plugin kinds", () => {
+  const withRetrospective = async (run: () => Promise<void>) => {
+    space.kindOptions = [
+      { kind: "acme.retro", display: "Retrospective", plugin: true },
+      { kind: "poker", display: "Planning Poker", plugin: false },
+      { kind: "standup", display: "Standup", plugin: false },
+    ];
+    try {
+      await run();
+    } finally {
+      delete space.kindOptions;
+    }
+  };
+
+  it("offers a kind present in the listed sessions even when the server named none", async () => {
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+    await userEvent.click(screen.getByRole("button", { name: /^(acme\.retro|Retrospective)$/ }));
+    expect(within(screen.getByRole("main")).queryByText("Daily")).toBe(null);
+  });
+
+  it("filters to a plugin kind by its display name", async () => {
+    await withRetrospective(async () => {
+      renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+      const main = () => within(screen.getByRole("main"));
+      await screen.findAllByText("Sprint 12 grooming");
+      await userEvent.click(screen.getByRole("button", { name: "Retrospective" }));
+      expect(main().getByText("Retro of record")).toBeTruthy();
+      expect(main().queryByText("Sprint 12 grooming")).toBe(null);
+      expect(main().queryByText("Daily")).toBe(null);
+    });
+  });
+
+  it("keeps a long kind label inside a row chip that truncates and names itself in full", async () => {
+    await withRetrospective(async () => {
+      // Only plugin sessions: the list is not mixed, so a bare object would
+      // get the 24px slot. A name must not.
+      view = {
+        ...space,
+        sessions: [
+          { id: "e3", kind: "acme.retro", title: "Plugin room", createdAt: "2026-08-18T08:00:00.000Z", endedAt: "2026-08-18T08:30:00.000Z", here: 0, lastActivityAt: "2026-08-18T08:30:00.000Z", present: [], progress: null },
+        ],
+      } as unknown as SpaceView;
+      renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+      await screen.findAllByText("Plugin room");
+      const row = within(screen.getByRole("main")).getByText("Plugin room").closest("li")!;
+      const chip = within(row).getByText("Retrospective");
+      expect(chip.getAttribute("title")).toBe("Retrospective");
+      expect([...chip.classList]).toContain("truncate");
+      const slot = chip.parentElement!;
+      expect([...slot.classList]).not.toContain("w-6");
+      expect([...slot.classList]).toContain("min-w-0");
+    });
+  });
+});

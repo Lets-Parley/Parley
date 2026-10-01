@@ -46,8 +46,8 @@ import {
   type KindChoice,
 } from "../lib/kinds";
 
-// "" is the All tab; every other value is a registered kind's wire id.
-const KIND_TABS = [{ id: "", label: "All" }, ...KINDS];
+// "" is the All tab; every other value is a kind's wire id.
+const CORE_TABS = [{ id: "", label: "All" }, ...KINDS];
 const SORTS = ["Recent", "Active first", "A\u2013Z"] as const;
 type Sort = (typeof SORTS)[number];
 
@@ -446,6 +446,12 @@ export function SpacePage() {
   const live = filtered.filter((s) => !s.endedAt && s.here > 0);
   const open = filtered.filter((s) => !s.endedAt && s.here === 0);
   const ended = filtered.filter((s) => !!s.endedAt);
+  // Plugin kinds follow the built-ins: the ones the space offers, then any a
+  // listed session still carries (an install since disabled).
+  rememberKindLabels(sp.kindOptions);
+  const kindTabs = [...CORE_TABS];
+  for (const id of [...(sp.kindOptions ?? []).filter((o) => o.plugin).map((o) => o.kind), ...all.map((o) => o.kind)])
+    if (!kindTabs.some((t) => t.id === id)) kindTabs.push({ id, label: kindLabel(id) });
   const narrowed = !!q || !!kind;
   const filtersOn = narrowed || sort !== "Recent";
   const matchCount =
@@ -457,7 +463,6 @@ export function SpacePage() {
   // What a new session may be: the server omits any kind retired in place.
   // An older server sends no list at all, and offers everything as before.
   // Plugin kinds follow the built-ins, offered by the server's display name.
-  rememberKindLabels(sp.kindOptions);
   const offered: KindChoice[] = [
     ...KINDS.filter((k) => sp.kinds?.includes(k.id) ?? true),
     ...(sp.kindOptions ?? [])
@@ -534,18 +539,18 @@ export function SpacePage() {
                 /
               </kbd>
             </label>
-            <div role="group" aria-label="Filter by kind" className="flex gap-0.5 rounded-full bg-felt-deep p-[3px]">
-              {KIND_TABS.map((k) => (
+            <div role="group" aria-label="Filter by kind" className="flex max-w-full gap-0.5 overflow-x-auto rounded-full bg-felt-deep p-[3px]">
+              {kindTabs.map((k) => (
                 <button
                   key={k.id}
                   onClick={() => setKind(k.id)}
                   aria-pressed={kind === k.id}
                   className={
-                    `${TOUCH_HIT} inline-flex items-center rounded-full px-4 text-xs font-bold ` +
+                    `${TOUCH_HIT} inline-flex max-w-[11rem] shrink-0 items-center rounded-full px-4 text-xs font-bold ` +
                     (kind === k.id ? "bg-surface text-ink shadow-rest" : "text-ink-soft")
                   }
                 >
-                  {k.label}
+                  <span className="truncate">{k.label}</span>
                 </button>
               ))}
             </div>
@@ -840,7 +845,12 @@ function SessionRow({ s, showKind, onManage }: { s: SessionSummary; showKind: bo
       >
         {/* A fixed column, so titles line up whether the kind reads "Poker"
             or "Standup" — or shows its object alone. */}
-        <span className={"flex shrink-0 max-sm:w-auto " + (showKind ? "w-24" : "w-6 justify-center")}>
+        <span
+          className={
+            "flex min-w-0 shrink-0 max-sm:w-auto max-sm:max-w-full " +
+            (showKind || !getKind(s.kind) ? "w-24" : "w-6 justify-center")
+          }
+        >
           <KindChip kind={s.kind} label={showKind} />
         </span>
         {ended ? (

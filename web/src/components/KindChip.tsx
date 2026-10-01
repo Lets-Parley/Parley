@@ -33,7 +33,10 @@ export function KindChip({ kind, label = true, size = "md" }: Props) {
 
   if (!object) {
     return (
-      <span className="inline-flex shrink-0 items-center rounded-full border border-line px-2 py-0.5 text-[11px] font-semibold text-ink-soft">
+      <span
+        title={name}
+        className="inline-block max-w-full min-w-0 truncate rounded-full border border-line px-2 py-0.5 align-middle text-[11px] font-semibold text-ink-soft"
+      >
         {name}
       </span>
     );

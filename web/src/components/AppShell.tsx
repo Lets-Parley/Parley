@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api, type Me, type Person, type SessionSummary } from "../lib/api";
 import { safeDisplayName } from "../lib/displayName";
-import { kindLabel } from "../lib/kinds";
+import { getKind, kindLabel } from "../lib/kinds";
 import type { ConnectionStatus } from "../lib/socket";
 import { useMediaQuery } from "../lib/ui";
 import { SIDEBAR_RAIL_QUERY, TOUCH_HIT } from "../lib/breakpoints";
@@ -198,7 +198,11 @@ export function AppShell({
                       {/* A fixed slot, centered: the card and the seat ring
                           differ in width, and the titles should still start
                           in one column. */}
-                      <span className="flex w-6 shrink-0 justify-center">
+                      <span
+                        className={
+                          getKind(s.kind) ? "flex w-6 shrink-0 justify-center" : "flex min-w-0 max-w-[6.5rem] shrink-0"
+                        }
+                      >
                         <KindChip kind={s.kind} label={false} />
                       </span>
                       <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{s.title}</span>
