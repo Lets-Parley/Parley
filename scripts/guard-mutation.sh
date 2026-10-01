@@ -568,6 +568,10 @@ mutate "the script-close-tag escape in the frame document" \
     'TestAScriptCloseTagInAUIBundleCannotBreakOutOfTheFrameScript' \
     pluginframe.go 'js = scriptCloseTag.ReplaceAllString(js, `<\/$1`)' '_ = scriptCloseTag'
 
+mutate "the comment-open escape in the frame document" \
+    'TestEscapingAUIBundleLeavesARegexThatEndsInALessThanAlone' \
+    pluginframe.go 'return strings.ReplaceAll(js, "<!--", `<\!--`)' 'return js'
+
 # A sibling plugin's frame can postMessage to this one. Whoever answers the
 # handshake first supplies the port, so without a sender screen plugin A hands
 # plugin B a channel A controls — forged state in, B's action proposals out.
