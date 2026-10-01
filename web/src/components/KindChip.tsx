@@ -13,7 +13,7 @@ import { kindLabel } from "../lib/kinds";
  * accessibility tree. `size="lg"` is the create dialog's picker: the same
  * objects scaled up, answering hover on the nearest `group` ancestor.
  *
- * An unregistered kind has no object. It keeps a quiet text chip with its wire
+ * An unregistered kind has no object (in the picker, a neutral plugin piece). It keeps a quiet text chip with its wire
  * id, whatever `label` says — never another kind's object, never nothing.
  */
 type Size = "md" | "lg";
@@ -22,7 +22,14 @@ type Props = { kind: string; label?: boolean; size?: Size };
 export function KindChip({ kind, label = true, size = "md" }: Props) {
   const name = kindLabel(kind);
   const object =
-    kind === "poker" ? <Card size={size} /> : kind === "standup" ? <Round size={size} /> : null;
+    kind === "poker" ? (
+      <Card size={size} />
+    ) : kind === "standup" ? (
+      <Round size={size} />
+    ) : size === "lg" ? (
+      // The picker offers plugin kinds too; they get one neutral piece.
+      <Piece />
+    ) : null;
 
   if (!object) {
     return (
@@ -131,5 +138,25 @@ function Round({ size }: { size: Size }) {
         style={{ ...at(speaker), transform: `translateY(-${radius}px)` }}
       />
     </span>
+  );
+}
+
+/* A plugin kind in the picker: a neutral puzzle piece, never another kind's object. */
+function Piece() {
+  return (
+    <svg
+      data-token="plugin"
+      aria-hidden="true"
+      width="40"
+      height="40"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinejoin="round"
+      className="shrink-0 text-ink-soft"
+    >
+      <path d="M5 8h3.5a2 2 0 1 1 4 0H16v3.5a2 2 0 1 1 0 4V19H5z" />
+    </svg>
   );
 }

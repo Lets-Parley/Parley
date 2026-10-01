@@ -314,10 +314,14 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
 				return
 			}
-			kinds, err := a.sessions.OfferableKinds(r.Context(), org.ID)
+			kindOpts, err := a.sessions.OfferableKindOptions(r.Context(), org.ID)
 			if err != nil {
 				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
 				return
+			}
+			kinds := make([]string, len(kindOpts))
+			for i, o := range kindOpts {
+				kinds[i] = o.Kind
 			}
 			// The count is the same map the seats came from — InSessions
 			// stays exactly one query for the whole page. `here` only ever
@@ -355,7 +359,7 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 			// in the member view — roster, sessions, kinds, visibility —
 			// stays, since none of it is a credential.
 			body := map[string]any{
-				"slug": sp.Slug, "name": sp.Name, "members": views, "sessions": sessionViews, "kinds": kinds,
+				"slug": sp.Slug, "name": sp.Name, "members": views, "sessions": sessionViews, "kinds": kinds, "kindOptions": kindOpts,
 				"protected": sp.Passcode != "", "visibility": sp.Visibility,
 			}
 			if !p.Embedded {

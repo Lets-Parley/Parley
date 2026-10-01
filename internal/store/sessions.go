@@ -131,11 +131,33 @@ func refusedKind(ctx context.Context, tx pgx.Tx, spaceID, kind string) error {
 // order. Retiring a kind keeps its row — existing sessions still resolve
 // through the foreign key — so this is what stops it being offered again.
 func (s *Sessions) OfferableKinds(ctx context.Context, orgID string) ([]string, error) {
+	opts, err := s.OfferableKindOptions(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, len(opts))
+	for i, o := range opts {
+		out[i] = o.Kind
+	}
+	return out, nil
+}
+
+// KindOption is one offerable kind as the create dialog shows it. Plugin is
+// true for a kind an install provides, which the browser has no room of its
+// own for and offers by its display name alone.
+type KindOption struct {
+	Kind    string `json:"kind"`
+	Display string `json:"display"`
+	Plugin  bool   `json:"plugin"`
+}
+
+// OfferableKindOptions is OfferableKinds with each kind's display name.
+func (s *Sessions) OfferableKindOptions(ctx context.Context, orgID string) ([]KindOption, error) {
 	// A kind whose install is switched off stops being offered at once: the
 	// row survives a disable, because a disable is reversible, so it is the
 	// install's own enabled flag that decides.
 	rows, err := s.Pool.Query(ctx, `
-		select k.kind from session_kinds k
+		select k.kind, k.display, k.org_id is not null from session_kinds k
 		left join plugin_installs p on p.name = k.provider and p.org_id = k.org_id
 		where k.retired_at is null
 		  and (k.org_id is null or (k.org_id = $1 and p.enabled))
@@ -144,13 +166,13 @@ func (s *Sessions) OfferableKinds(ctx context.Context, orgID string) ([]string, 
 		return nil, fmt.Errorf("listing offerable session kinds: %w", err)
 	}
 	defer rows.Close()
-	out := []string{}
+	out := []KindOption{}
 	for rows.Next() {
-		var kind string
-		if err := rows.Scan(&kind); err != nil {
+		var o KindOption
+		if err := rows.Scan(&o.Kind, &o.Display, &o.Plugin); err != nil {
 			return nil, fmt.Errorf("scanning an offerable session kind: %w", err)
 		}
-		out = append(out, kind)
+		out = append(out, o)
 	}
 	return out, rows.Err()
 }

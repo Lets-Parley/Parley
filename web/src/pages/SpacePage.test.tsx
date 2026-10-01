@@ -757,6 +757,40 @@ describe("SpacePage create dialog", () => {
     }
   });
 
+  it("offers a server-offered plugin kind by its display name and creates it with an empty config", async () => {
+    space.kinds = ["acme.retro", "poker", "standup"];
+    space.kindOptions = [
+      { kind: "acme.retro", display: "Retrospective", plugin: true },
+      { kind: "poker", display: "Planning Poker", plugin: false },
+      { kind: "standup", display: "Standup", plugin: false },
+    ];
+    const defaultApi = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation((async (method: string, path: string, _body?: unknown) => {
+      if (method === "POST" && path === "/api/orgs/acme/spaces/platform-team/sessions") return { id: "new-1" };
+      return defaultApi(method, path, _body);
+    }) as typeof defaultApi);
+    try {
+      renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+      // The session row names the plugin kind by its display name, not its id.
+      expect(await screen.findAllByRole("link", { name: /^Retrospective · Retro of record/ })).not.toHaveLength(0);
+      await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+      const dialog = within(screen.getByRole("dialog"));
+      await userEvent.click(dialog.getByRole("radio", { name: "Retrospective" }));
+      await userEvent.type(dialog.getByLabelText("Title"), "Sprint 12 retro");
+      await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+      await waitFor(() => {
+        const create = vi.mocked(api).mock.calls.find(
+          ([m, p]) => m === "POST" && String(p).endsWith("/sessions"),
+        );
+        expect(create?.[2]).toEqual({ kind: "acme.retro", title: "Sprint 12 retro", config: {} });
+      });
+    } finally {
+      delete space.kinds;
+      delete space.kindOptions;
+      vi.mocked(api).mockImplementation(defaultApi);
+    }
+  });
+
   it("offers open voting in the create dialog and says what it changes", async () => {
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await userEvent.click(await screen.findByRole("button", { name: "New session" }));

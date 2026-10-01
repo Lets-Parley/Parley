@@ -915,6 +915,18 @@ mutate "the verifier matching the handoff's challenge" \
     'TestEmbedHandoffBindsAndRedeemsOnce' \
     embed.go 'where challenge_hash = $1 and expires_at > now() and used_at is null' 'where $1::bytea is not null and expires_at > now() and used_at is null'
 
+# The create dialog's kind options are scoped exactly like OfferableKinds:
+# drop the org and enabled check and another org's, or a disabled install's,
+# plugin kind is put on every space's dialog.
+mutate "offered kind options scoped to the org's enabled installs" \
+    'TestAKindOwnedByAnotherOrgCannotBeCreated' \
+    sessions.go 'select k.kind, k.display, k.org_id is not null from session_kinds k
+		left join plugin_installs p on p.name = k.provider and p.org_id = k.org_id
+		where k.retired_at is null
+		  and (k.org_id is null or (k.org_id = $1 and p.enabled))' 'select k.kind, k.display, k.org_id is not null from session_kinds k
+		left join plugin_installs p on p.name = k.provider and p.org_id = k.org_id
+		where k.retired_at is null and $1::uuid is not null'
+
 # The last wire, and the one no handler test can see. Every guard above is
 # broken inside a package whose own tests construct the app directly — which is
 # exactly how the plugin UI shipped dead: main built api.Options and never set

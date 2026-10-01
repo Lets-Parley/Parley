@@ -120,6 +120,12 @@ export type KindDef = {
 };
 
 /**
+ * A kind as the create dialog offers it. A plugin kind has no room in this
+ * bundle and no fields: it is offered by its server display name, config {}.
+ */
+export type KindChoice = Omit<KindDef, "Room">;
+
+/**
  * The built-in kinds, in the order they're offered. Built-in stays built-in:
  * this is a typed module, not a config file or a fetch — adding a kind means
  * adding an entry here alongside its room.
@@ -191,13 +197,21 @@ export function getKind(id: string): KindDef | undefined {
   return KINDS.find((k) => k.id === id);
 }
 
-/** What to call a kind in the UI: its label, or the bare wire id if unknown. */
+// Display names the server sent for plugin kinds, kept for every label site.
+const pluginLabels = new Map<string, string>();
+
+/** Remember the server's display names for the plugin kinds it offered. */
+export function rememberKindLabels(opts: { kind: string; display: string; plugin: boolean }[] | undefined) {
+  for (const o of opts ?? []) if (o.plugin) pluginLabels.set(o.kind, o.display);
+}
+
+/** What to call a kind in the UI: its label, a plugin's display name, or the bare wire id. */
 export function kindLabel(id: string): string {
-  return getKind(id)?.label ?? id;
+  return getKind(id)?.label ?? pluginLabels.get(id) ?? id;
 }
 
 /** The config a new session of this kind starts with: each field's default. */
-export function defaultConfig(kind: KindDef): Record<string, ConfigValue> {
+export function defaultConfig(kind: KindChoice): Record<string, ConfigValue> {
   return {
     ...Object.fromEntries((kind.fields ?? []).map((f) => [f.key, f.options[0].value])),
     ...Object.fromEntries((kind.toggles ?? []).map((t) => [t.key, t.default])),
