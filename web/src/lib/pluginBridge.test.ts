@@ -451,6 +451,50 @@ describe("createPluginBridge", () => {
     }
   });
 
+  // The outcome is room information, and room information is session:read's.
+  // A plugin that may act but not read learns nothing from acting — not even
+  // whether the room it is in is one of its own.
+  it("reports no outcome to a plugin that holds session:act without session:read", async () => {
+    const outcomes: Array<() => Promise<unknown>> = [
+      () => Promise.reject(new ApiError(403, "only the facilitator can do that")),
+      () => Promise.reject(new ApiError(409, "this session has ended")),
+      () => Promise.reject(new ApiError(404, "no such action")),
+      () => Promise.resolve(),
+    ];
+    for (const onAction of outcomes) {
+      const sent: string[] = [];
+      const { b } = bridge({ grants: ["session:act"], send: (body: string) => sent.push(body), onAction });
+      b.handshake();
+      b.sendState(pluginKindEnvelope(), "u1");
+      vi.advanceTimersByTime(500);
+      expect(sent).toEqual([]);
+      b.receive(JSON.stringify({ type: "act", id: 5, action: "reveal", payload: {} }));
+      await vi.waitFor(() => expect(sent.length).toBe(1));
+      expect(sent[0]).toBe('{"type":"result","id":5,"ok":false,"reason":"unknown"}');
+      b.close();
+    }
+  });
+
+  it("stops reporting outcomes once the viewer has moved from its own room to a poker room", async () => {
+    const sent: string[] = [];
+    const { b } = bridge({
+      send: (body: string) => sent.push(body),
+      onAction: () => Promise.reject(new ApiError(403, "only the facilitator can do that")),
+    });
+    b.handshake();
+    b.sendState(pluginKindEnvelope(), "u1");
+    vi.advanceTimersByTime(500);
+    expect(sent.length).toBe(1);
+    expect(sent[0]).toContain('"kind":"acme-retro"');
+    b.sendState(envelope(), "u1");
+    vi.advanceTimersByTime(500);
+    expect(sent[1]).toBe('{"type":"state","state":null}');
+    b.receive(JSON.stringify({ type: "act", id: 9, action: "reveal", payload: {} }));
+    await vi.waitFor(() => expect(sent.length).toBe(3));
+    expect(sent[2]).toBe('{"type":"result","id":9,"ok":false,"reason":"unknown"}');
+    b.close();
+  });
+
   it("announces result support in the handshake and tells the frame when it closes", () => {
     const sent: string[] = [];
     const { b, posted } = bridge({ send: (body: string) => sent.push(body) });

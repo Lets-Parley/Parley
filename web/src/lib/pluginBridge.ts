@@ -148,14 +148,24 @@ export const GRANT_SESSION_ACT = "session:act";
  * is all or nothing: a frame in the chrome of a poker or standup room is told
  * neither the room's state nor who is seated in it.
  */
+/**
+ * Whether a plugin may be told anything about a room: it holds `session:read`
+ * and the room runs a ceremony it provides.
+ *
+ * One predicate, used both to decide whether a view is built and whether an
+ * action's outcome is reported, so the two cannot drift apart.
+ */
+export function seesRoom(env: Envelope, grants: readonly string[], plugin: string): boolean {
+  return grants.includes(GRANT_SESSION_READ) && providesRoom(env, plugin);
+}
+
 export function redactSession(
   env: Envelope,
   grants: readonly string[],
   plugin: string,
   selfId?: string,
 ): PluginSession | null {
-  if (!grants.includes(GRANT_SESSION_READ)) return null;
-  if (!providesRoom(env, plugin)) return null;
+  if (!seesRoom(env, grants, plugin)) return null;
   const revealed = env.revealed === true;
   return {
     id: env.id,
@@ -391,10 +401,10 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
     //
     // What the server answered is information about the room: a refusal says
     // the viewer is not the facilitator, a conflict that the room has ended,
-    // a 404 which actions its kind has. That is session:read's to give, and it
-    // covers only a room this plugin provides — so anywhere else the frame is
-    // told one thing whatever happened.
-    const disclose = room !== null && providesRoom(room, opts.plugin);
+    // a 404 which actions its kind has. So it is reported exactly where a view
+    // of the room would be built, and anywhere else the frame is told one
+    // thing whatever happened.
+    const disclose = room !== null && seesRoom(room, opts.grants, opts.plugin);
     const reply = (result: { ok: true } | { ok: false; reason: string }) => {
       if (typeof id === "number" && Number.isSafeInteger(id) && id >= 0) {
         post({ type: "result", id, ...result }, "oversize-outbound");

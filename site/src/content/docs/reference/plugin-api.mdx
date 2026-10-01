@@ -436,7 +436,9 @@ room".
 
 ### `act`
 
-`act` returns a promise that always settles and never rejects:
+`act` returns a promise that never rejects. Once the frame is connected to the
+host it always settles; a call made before the connection waits for it, and
+is answered when it arrives.
 
 ```js
 window.parley.act("add-card", { text: "Shipped" }).then(function (result) {
@@ -467,6 +469,8 @@ as `failed`.
   such as a `toolbar` frame in a planning poker room or a `nav` frame. The
   action is sent as before, but what the server said about another kind's
   room is not yours to read, so every outcome there is `unknown`.
+- Your manifest asks for `session:act` without `session:read`. Outcomes are
+  room information, so they are reported only where state is.
 - The host does not report results: a web bundle older than this feature.
   `act` resolves `unknown` at once rather than waiting.
 - More than 64 calls are unanswered; the oldest resolves `unknown`.

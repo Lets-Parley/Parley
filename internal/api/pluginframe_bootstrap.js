@@ -113,6 +113,9 @@
     results = event.data.results === true;
     if (!results) { settleAll(); }
     port.onmessage = onPort;
+    // Where the browser reports it, a port whose other end has gone is treated
+    // as the host having closed the bridge.
+    port.addEventListener("close", function () { results = false; settleAll(); });
     port.start();
     while (queue.length) { port.postMessage(queue.shift()); }
     send({ type: "hello" });

@@ -364,6 +364,15 @@ describe("the plugin frame's act promise always settles", () => {
     expect(await peek(frameApi().act("reveal")!)).toEqual({ ok: false, reason: "unknown" });
   });
 
+  it("settles everything outstanding when the host's port goes away without a word", async () => {
+    loadBootstrap();
+    const { host } = await connect();
+    const a = frameApi().act("reveal")!;
+    host.close();
+    expect(await a).toEqual({ ok: false, reason: "unknown" });
+    expect(await peek(frameApi().act("reveal")!)).toEqual({ ok: false, reason: "unknown" });
+  });
+
   it("still throws on a message too large to send, and leaves nothing waiting behind it", async () => {
     loadBootstrap();
     const { host, fromFrame } = await connect();

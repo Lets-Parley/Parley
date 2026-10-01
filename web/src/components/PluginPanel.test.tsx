@@ -253,8 +253,10 @@ describe("PluginPanel", () => {
     const view = panel();
     fireEvent.load(screen.getByTitle("retro plugin panel"));
     expect(os.listeners.size).toBe(1);
+    const disconnect = vi.spyOn(MutationObserver.prototype, "disconnect");
     view.unmount();
     expect(os.listeners.size).toBe(0);
+    expect(disconnect).toHaveBeenCalledTimes(1);
     const posted = vi.spyOn(MessagePort.prototype, "postMessage");
     document.documentElement.setAttribute("data-theme", "dark");
     document.documentElement.style.setProperty("--color-ink", "#f0f0f0");
@@ -276,5 +278,15 @@ describe("PluginPanel", () => {
     fireEvent.load(frame);
     expect(handshakes).toHaveBeenCalledTimes(1);
     expect(posted.mock.calls.map((c) => c[0])).toEqual(['{"type":"tokens","tokens":{"ink":"#f0f0f0"},"scheme":"dark"}']);
+  });
+
+  it("posts no state and no viewer id into a frame in a standup room", async () => {
+    const standup = { ...env, kind: "standup", phase: "open", state: { entries: [] } } as unknown as Envelope;
+    const posted = vi.spyOn(MessagePort.prototype, "postMessage");
+    panel({ env: standup, selfId: "u1" });
+    fireEvent.load(screen.getByTitle("retro plugin panel"));
+    // Longer than the push interval, so a view that was built would have landed.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(posted.mock.calls.map((c) => c[0])).toEqual(['{"type":"tokens","tokens":{},"scheme":"light"}']);
   });
 });

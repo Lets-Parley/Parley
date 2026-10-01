@@ -208,11 +208,12 @@ error text and response body never cross the bridge.
 
 The outcome itself is room data: a refusal says the viewer is not the
 facilitator, a conflict that the room has ended, a 404 which actions its kind
-has. So a real outcome is reported only in a room the frame's own install
-provides, the same test that decides whether it is sent state. In a planning
-poker room, a standup room, another plugin's room or no room, every result is
-`unknown`, whatever the server answered. Whether the action is performed is
-unchanged.
+has. So a real outcome is reported under exactly the condition a view of the
+room is built: the install holds `session:read` and the room runs a ceremony
+it provides. One predicate decides both. In a planning poker room, a standup
+room, another plugin's room or no room, and for an install that holds
+`session:act` without `session:read`, every result is `unknown`, whatever the
+server answered. Whether the action is performed is unchanged.
 
 A toolbar or export-menu frame stays mounted as the user moves between rooms,
 so when they leave a room the plugin provides for one it does not, the frame is
