@@ -69,7 +69,7 @@ grep -Fq 'release_commit: ${{ steps.release.outputs.release_commit }}' "$workflo
 # out some other ref leaves the count untouched. chart deliberately checks out
 # the tag, so a blanket per-job assertion would need an allow-list.
 checkout_count=$(grep -Fc 'ref: ${{ needs.validate.outputs.release_commit }}' "$workflow")
-test "$checkout_count" -eq 7
+test "$checkout_count" -eq 8
 tag_resolution_count=$(grep -Fc 'git rev-parse "$TAG^{commit}"' "$workflow")
 test "$tag_resolution_count" -eq 3
 grep -Fq 'STAGING_TAG: staging-${{ github.run_id }}-${{ github.run_attempt }}' "$workflow"
@@ -310,6 +310,10 @@ printf '%s\n' "$attestation_assets_fips_block" | grep -v '^[[:space:]]*#' \
 attestation_assets_block=$(job_block attestation-assets)
 test -n "$attestation_assets_block"
 require_needs attestation-assets publish
+# The retrospective bundle is built from the validated commit and the receipt
+# waits on it, so a failed bundle job is not hidden behind a green receipt.
+require_needs retrospective-bundle validate
+require_needs publish-receipt retrospective-bundle
 
 printf '%s\n' "$attestation_assets_block" | grep -v '^[[:space:]]*#' \
   | grep -Fq 'parley-$TAG.sigstore.json' \
