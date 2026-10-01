@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
  * The frame's half of the bridge is served inline inside a document the Go
@@ -160,5 +160,227 @@ describe("the plugin frame's handshake", () => {
     // A second handshake, impeccably formed and from the embedder itself, is
     // ignored: the listener is gone, so there is no second port to swap in.
     expect(await offerPort({ source: window.parent, data: { parley: "bridge" } })).toBe(false);
+  });
+});
+
+type FrameApi = {
+  act: (action: string, payload?: unknown) => Promise<{ ok: boolean; reason?: string }> | undefined;
+  onTokens: (fn: (tokens: Record<string, string>) => void) => void;
+  scheme: () => string | null;
+  supports: (feature: string) => boolean;
+};
+
+/**
+ * Completes the handshake as the host would and returns the host's end of the
+ * port, with everything the frame has sent on it so far.
+ */
+async function connect(
+  handshake: Record<string, unknown> = { parley: "bridge", results: true },
+): Promise<{ host: MessagePort; fromFrame: Array<Record<string, unknown>> }> {
+  const channel = new MessageChannel();
+  cleanups.push(() => {
+    channel.port1.close();
+    channel.port2.close();
+  });
+  const fromFrame: Array<Record<string, unknown>> = [];
+  channel.port2.onmessage = (e: MessageEvent) => {
+    fromFrame.push(JSON.parse(String(e.data)) as Record<string, unknown>);
+  };
+  channel.port2.start();
+  window.dispatchEvent(
+    new MessageEvent("message", { data: handshake, source: window.parent, ports: [channel.port1] }),
+  );
+  await vi.waitFor(() => expect(fromFrame.some((m) => m.type === "hello")).toBe(true));
+  return { host: channel.port2, fromFrame };
+}
+
+function frameApi(): FrameApi {
+  return (window as unknown as { parley: FrameApi }).parley;
+}
+
+describe("the plugin frame's theme", () => {
+  afterEach(() => document.documentElement.removeAttribute("style"));
+
+  it("sets color-scheme from the host's scheme so native controls follow the theme", async () => {
+    loadBootstrap();
+    const { host } = await connect();
+    const root = document.documentElement;
+
+    host.postMessage(JSON.stringify({ type: "tokens", tokens: { ink: "#f0f0f0" }, scheme: "dark" }));
+    await vi.waitFor(() => expect(root.style.getPropertyValue("color-scheme")).toBe("dark"));
+    expect(frameApi().scheme()).toBe("dark");
+  });
+
+  it("refuses a scheme that is not light or dark", async () => {
+    loadBootstrap();
+    const { host } = await connect();
+    const root = document.documentElement;
+
+    host.postMessage(JSON.stringify({ type: "tokens", tokens: { ink: "#f0f0f0" }, scheme: "dark" }));
+    await vi.waitFor(() => expect(root.style.getPropertyValue("color-scheme")).toBe("dark"));
+
+    // A value CSS would accept but the host never sends, and one it would not.
+    for (const scheme of ["light dark", "only light", "dark; background: url(x)", 7, null]) {
+      host.postMessage(JSON.stringify({ type: "tokens", tokens: { ink: "#0a0a0a" }, scheme }));
+    }
+    // The tokens beside the last refused scheme did land, so the refusal was
+    // read and not merely still in flight.
+    await vi.waitFor(() => expect(root.style.getPropertyValue("--color-ink")).toBe("#0a0a0a"));
+    expect(root.style.getPropertyValue("color-scheme")).toBe("dark");
+    expect(frameApi().scheme()).toBe("dark");
+  });
+
+  it("re-themes on a second tokens message over the same port", async () => {
+    loadBootstrap();
+    const { host } = await connect();
+    const root = document.documentElement;
+    const seen: Array<Record<string, string>> = [];
+    frameApi().onTokens((t) => seen.push(t));
+
+    host.postMessage(JSON.stringify({ type: "tokens", tokens: { surface: "#ffffff" }, scheme: "light" }));
+    await vi.waitFor(() => expect(root.style.getPropertyValue("--color-surface")).toBe("#ffffff"));
+    host.postMessage(JSON.stringify({ type: "tokens", tokens: { surface: "#111111" }, scheme: "dark" }));
+    await vi.waitFor(() => expect(root.style.getPropertyValue("--color-surface")).toBe("#111111"));
+
+    expect(root.style.getPropertyValue("color-scheme")).toBe("dark");
+    expect(seen).toEqual([{ surface: "#ffffff" }, { surface: "#111111" }]);
+  });
+
+  it("keeps working for a host that sends no scheme at all", async () => {
+    loadBootstrap();
+    const { host } = await connect();
+    const root = document.documentElement;
+
+    host.postMessage(JSON.stringify({ type: "tokens", tokens: { surface: "#ffffff" } }));
+    await vi.waitFor(() => expect(root.style.getPropertyValue("--color-surface")).toBe("#ffffff"));
+    expect(root.style.getPropertyValue("color-scheme")).toBe("");
+    expect(frameApi().scheme()).toBe(null);
+  });
+});
+
+describe("the plugin frame's action results", () => {
+  it("resolves act with the host's answer for that action", async () => {
+    loadBootstrap();
+    const { host, fromFrame } = await connect();
+
+    const accepted = frameApi().act("add-card", { text: "Shipped" })!;
+    const refused = frameApi().act("reveal")!;
+    await vi.waitFor(() => expect(fromFrame.filter((m) => m.type === "act").length).toBe(2));
+    const [first, second] = fromFrame.filter((m) => m.type === "act");
+    expect(first).toEqual({ type: "act", id: 1, action: "add-card", payload: { text: "Shipped" } });
+    expect(second).toEqual({ type: "act", id: 2, action: "reveal", payload: {} });
+
+    // Answered out of order, so the id and not the arrival order is the match.
+    host.postMessage(JSON.stringify({ type: "result", id: 2, ok: false, reason: "forbidden" }));
+    host.postMessage(JSON.stringify({ type: "result", id: 1, ok: true }));
+    expect(await refused).toEqual({ ok: false, reason: "forbidden" });
+    expect(await accepted).toEqual({ ok: true });
+  });
+
+  it("ignores a result for an id it never sent, and a second result for one it did", async () => {
+    loadBootstrap();
+    const { host } = await connect();
+
+    const settled: unknown[] = [];
+    void frameApi().act("reveal")!.then((r) => settled.push(r));
+
+    host.postMessage(JSON.stringify({ type: "result", id: 99, ok: true }));
+    host.postMessage(JSON.stringify({ type: "result", id: "constructor", ok: true }));
+    host.postMessage(JSON.stringify({ type: "result", id: 1, ok: false, reason: "conflict" }));
+    host.postMessage(JSON.stringify({ type: "result", id: 1, ok: true }));
+    // A later message proves the four above were all read.
+    host.postMessage(JSON.stringify({ type: "tokens", tokens: { ink: "#222222" } }));
+    await vi.waitFor(() =>
+      expect(document.documentElement.style.getPropertyValue("--color-ink")).toBe("#222222"),
+    );
+    expect(settled).toEqual([{ ok: false, reason: "conflict" }]);
+  });
+
+  it("hands the plugin a short reason code and nothing longer", async () => {
+    loadBootstrap();
+    const { host } = await connect();
+
+    const wordy = frameApi().act("reveal")!;
+    host.postMessage(
+      JSON.stringify({ type: "result", id: 1, ok: false, reason: "only the facilitator can do that" }),
+    );
+    expect(await wordy).toEqual({ ok: false, reason: "failed" });
+
+    const bare = frameApi().act("reveal")!;
+    host.postMessage(JSON.stringify({ type: "result", id: 2, ok: false }));
+    expect(await bare).toEqual({ ok: false, reason: "failed" });
+  });
+});
+
+/** Settles to the value, or to "pending" if the promise has not resolved yet. */
+function peek(p: Promise<unknown>): Promise<unknown> {
+  return Promise.race([p, new Promise((resolve) => setTimeout(() => resolve("pending"), 50))]);
+}
+
+describe("the plugin frame's act promise always settles", () => {
+  it("says whether the host reports results, and only once the host has said so", async () => {
+    loadBootstrap();
+    expect(frameApi().supports("results")).toBe(false);
+    await connect();
+    expect(frameApi().supports("results")).toBe(true);
+    expect(frameApi().supports("anything-else")).toBe(false);
+  });
+
+  it("answers unknown at once on a host that does not report results, and still sends the action", async () => {
+    loadBootstrap();
+    // An action proposed before the port exists waits for the handshake to
+    // learn which kind of host this is.
+    const early = frameApi().act("reveal")!;
+    const { fromFrame } = await connect({ parley: "bridge" });
+    expect(frameApi().supports("results")).toBe(false);
+    expect(await peek(early)).toEqual({ ok: false, reason: "unknown" });
+
+    expect(await peek(frameApi().act("add-card", { text: "x" })!)).toEqual({ ok: false, reason: "unknown" });
+    await vi.waitFor(() => expect(fromFrame.filter((m) => m.type === "act").length).toBe(2));
+    expect(fromFrame.filter((m) => m.type === "act").map((m) => m.action)).toEqual(["reveal", "add-card"]);
+  });
+
+  it("settles the oldest unanswered action as unknown when a sixty-fifth is proposed", async () => {
+    loadBootstrap();
+    await connect();
+    const first = frameApi().act("reveal")!;
+    const second = frameApi().act("reveal")!;
+    for (let i = 0; i < 62; i++) void frameApi().act("reveal");
+    expect(await peek(first)).toBe("pending");
+    void frameApi().act("reveal");
+    expect(await peek(first)).toEqual({ ok: false, reason: "unknown" });
+    expect(await peek(second)).toBe("pending");
+  });
+
+  it("settles everything outstanding as unknown when the host closes the bridge, and everything after", async () => {
+    loadBootstrap();
+    const { host } = await connect();
+    const a = frameApi().act("reveal")!;
+    const b = frameApi().act("add-card")!;
+    host.postMessage(JSON.stringify({ type: "closed" }));
+    expect(await a).toEqual({ ok: false, reason: "unknown" });
+    expect(await b).toEqual({ ok: false, reason: "unknown" });
+    expect(frameApi().supports("results")).toBe(false);
+    expect(await peek(frameApi().act("reveal")!)).toEqual({ ok: false, reason: "unknown" });
+  });
+
+  it("settles everything outstanding when the host's port goes away without a word", async () => {
+    loadBootstrap();
+    const { host } = await connect();
+    const a = frameApi().act("reveal")!;
+    host.close();
+    expect(await a).toEqual({ ok: false, reason: "unknown" });
+    expect(await peek(frameApi().act("reveal")!)).toEqual({ ok: false, reason: "unknown" });
+  });
+
+  it("still throws on a message too large to send, and leaves nothing waiting behind it", async () => {
+    loadBootstrap();
+    const { host, fromFrame } = await connect();
+    expect(() => frameApi().act("add-card", { text: "x".repeat(70_000) })).toThrow("message too large");
+    const next = frameApi().act("reveal")!;
+    await vi.waitFor(() => expect(fromFrame.filter((m) => m.type === "act").length).toBe(1));
+    const id = fromFrame.filter((m) => m.type === "act")[0].id;
+    host.postMessage(JSON.stringify({ type: "result", id, ok: true }));
+    expect(await next).toEqual({ ok: true });
   });
 });

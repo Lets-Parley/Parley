@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PokerRoom } from "../pages/PokerRoom";
 import { makePerson, renderApp } from "../test/render";
@@ -127,5 +127,22 @@ describe("plugin panels in a poker room", () => {
     // not left permanently unreachable by the keyboard.
     await user.click(screen.getByRole("button", { name: "Keep votes" }));
     await waitFor(() => expect(frame.hasAttribute("inert")).toBe(false));
+  });
+
+  // The nested panel is handed the viewer's id like any other slot, and in a
+  // poker room that must come to nothing: no view, so no viewer.
+  it("posts no state and no viewer id into a panel frame in a poker room", async () => {
+    servePanels([{ name: "retro", version: "1.0.0", grants: ["session:read", "session:act"] }]);
+    const posted = vi.spyOn(MessagePort.prototype, "postMessage");
+    renderApp(<PokerRoom env={envelope()} me={me} />);
+    fireEvent.load(await screen.findByTitle("retro plugin panel"));
+    // Longer than the push interval, so a view that was built would have landed.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const bodies = posted.mock.calls.map((c) => String(c[0]));
+    expect(bodies.length).toBe(1);
+    expect(bodies[0]).toContain('"type":"tokens"');
+    expect(bodies.join("")).not.toContain("dana");
+    expect(bodies.join("")).not.toContain("state");
+    posted.mockRestore();
   });
 });

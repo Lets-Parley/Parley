@@ -3,6 +3,7 @@ import type { Envelope } from "../lib/api";
 import {
   CrashBreaker,
   createPluginBridge,
+  currentScheme,
   currentTokens,
   pluginFramePath,
   PLUGIN_SANDBOX,
@@ -18,6 +19,8 @@ export type PluginPanelProps = {
   /** What this install was granted. The bridge redacts against it. */
   grants: readonly string[];
   env?: Envelope;
+  /** The viewer's own user id, passed to the frame beside its room. */
+  selfId?: string;
   onAction: (action: string, payload: unknown) => Promise<unknown>;
   /**
    * True while a host modal is open. The frame is marked `inert` so focus
@@ -47,6 +50,7 @@ export function PluginPanel({
   version,
   grants,
   env,
+  selfId,
   onAction,
   modalOpen = false,
   slot = "panel",
@@ -89,8 +93,24 @@ export function PluginPanel({
   // is no second websocket, and nothing crosses that redactSession did not
   // build. Chrome with no session (org nav) has nothing to push.
   useEffect(() => {
-    if (env) bridge.current?.sendState(env);
-  }, [env]);
+    if (env) bridge.current?.sendState(env, selfId);
+  }, [env, selfId]);
+
+  // The host theme can change under a live frame: a pinned theme writes
+  // `data-theme`, a theme pack writes the root's inline style, and an unpinned
+  // page follows the OS. Each re-sends over the port the frame already holds,
+  // so nothing is reloaded and the plugin keeps its state.
+  useEffect(() => {
+    const resend = () => bridge.current?.sendTokens(currentTokens(), currentScheme());
+    const observer = new MutationObserver(resend);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "style"] });
+    const mql = typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : null;
+    mql?.addEventListener("change", resend);
+    return () => {
+      observer.disconnect();
+      mql?.removeEventListener("change", resend);
+    };
+  }, []);
 
   useEffect(() => {
     const el = frame.current;
@@ -143,8 +163,8 @@ export function PluginPanel({
         className={`${frameClass(slot)} ${failure === "handshake-timeout" ? "hidden" : ""}`}
         onLoad={() => {
           bridge.current?.handshake();
-          bridge.current?.sendTokens(currentTokens());
-          if (env) bridge.current?.sendState(env);
+          bridge.current?.sendTokens(currentTokens(), currentScheme());
+          if (env) bridge.current?.sendState(env, selfId);
         }}
       />
     </section>

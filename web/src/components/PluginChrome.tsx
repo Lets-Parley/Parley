@@ -14,11 +14,14 @@ import { type Panel, panelHasSlot } from "./PluginPanels";
 export function PluginChrome({
   slot,
   env,
+  selfId,
   orgSlug,
   modalOpen = false,
 }: {
   slot: Exclude<PluginSlot, "room">;
   env?: Envelope;
+  /** The viewer's own user id, for a frame in one of its plugin's own rooms. */
+  selfId?: string;
   orgSlug?: string;
   modalOpen?: boolean;
 }) {
@@ -45,6 +48,7 @@ export function PluginChrome({
           version={p.version}
           grants={p.grants}
           env={env}
+          selfId={selfId}
           modalOpen={modalOpen}
           onAction={
             env

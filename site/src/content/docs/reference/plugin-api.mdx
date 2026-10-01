@@ -376,8 +376,10 @@ defines `window.parley` before your script runs.
 | --- | --- |
 | `parley.onState(fn)` | Calls `fn(session)` on every state push, and immediately if state has already arrived |
 | `parley.state()` | The latest session, or `null` |
-| `parley.act(name, payload)` | Proposes one of your kind's actions. `payload` becomes the hook's `body` |
-| `parley.onTokens(fn)` | Calls `fn(tokens)` when the color tokens arrive, and immediately if they already have |
+| `parley.act(name, payload)` | Proposes one of your kind's actions. `payload` becomes the hook's `body`. Returns a promise of the [result](#act) |
+| `parley.onTokens(fn)` | Calls `fn(tokens)` when the color tokens arrive and again whenever the viewer's theme changes, and immediately if they already have |
+| `parley.scheme()` | `"light"`, `"dark"`, or `null` before the first tokens arrive |
+| `parley.supports("results")` | `true` once connected to a host that reports [action results](#act) |
 | `parley.ready()` | Announces that the UI has loaded. The host does not wait for it |
 
 ```js
@@ -403,7 +405,7 @@ window.parley.ready();
 | Propose actions through `act` | `session:act` |
 
 Without `session:read`, `onState` is never called. Without `session:act`, a
-call to `act` is dropped and nothing tells the user or your script.
+call to `act` is not performed and its result is `ungranted`.
 
 ### The `session` object
 
@@ -414,37 +416,99 @@ call to `act` is dropped and nothing tells the user or your script.
 | `revealed` | boolean | The shared reveal flag |
 | `version` | number | Rises by one on every change |
 | `facilitatorId` | string | Compare with a participant's `userId` |
+| `selfId` | string or `null` | The viewer's own user id. Compare with a participant's `userId`, or with `facilitatorId` to show facilitator controls |
 | `endedAt` | string or `null` | Set once the room has ended |
 | `presence` | string array | User ids connected now |
 | `participants` | array | `userId`, `name`, `avatarHue`, `spectator` for each seat |
 | `state` | JSON | Your `on_session_state` output |
 
-The frame is not told which participant is viewing it, nor the room's space or
-org. `onState` receives `null` when the viewer moves to a room your plugin does
-not provide, which matters for `toolbar` and `export-menu` frames that stay
-mounted; treat `null` as "no room".
+`selfId` is the id of whoever is looking at this frame, in this browser. A
+signed-link guest, a spectator and a viewer inside a meeting client each hold a
+seat and get their own id like anybody else. It is `null` only when the host
+does not know it, and absent on a Parley older than the release that added it,
+so treat a missing `selfId` as "unknown" rather than as nobody. It is for
+presentation: the server decides who may do what, whatever the UI shows.
+
+The frame is not told the room's space or org. `onState` receives `null` when
+the viewer moves to a room your plugin does not provide, which matters for
+`toolbar` and `export-menu` frames that stay mounted; treat `null` as "no
+room".
 
 ### `act`
 
-`act` returns nothing and reports no result. A successful action shows up as a
-new state push; a refused one shows up as nothing. Design the UI around the
-state, not around the call.
+`act` returns a promise that never rejects. Once the frame is connected to the
+host it always settles; a call made before the connection waits for it, and
+is answered when it arrives.
+
+```js
+window.parley.act("add-card", { text: "Shipped" }).then(function (result) {
+  if (!result.ok) { showError(result.reason); }
+});
+```
+
+| Result | Meaning |
+| --- | --- |
+| `{ ok: true }` | The action was accepted. The new state arrives through `onState` as usual |
+| `{ ok: false, reason: "forbidden" }` | The viewer may not do that, for example a `facilitatorOnly` action from anybody else. A viewer whose sign-in has lapsed (401) is reported the same way |
+| `{ ok: false, reason: "invalid" }` | The server refused the request as malformed |
+| `{ ok: false, reason: "not-found" }` | The room's kind has no such action, or the room is gone |
+| `{ ok: false, reason: "conflict" }` | The request conflicts with the room as it stands, for example it has ended |
+| `{ ok: false, reason: "rate-limited" }` | Too many requests |
+| `{ ok: false, reason: "ungranted" }` | The install holds no `session:act` grant |
+| `{ ok: false, reason: "unreachable" }` | The request never reached the server |
+| `{ ok: false, reason: "failed" }` | Anything else the server answered |
+| `{ ok: false, reason: "unknown" }` | The outcome is not available to this frame. The action may have been performed |
+
+The reason is a code from this list and nothing more: the server's own error
+text and the response body stay in the host. Treat a code you do not recognize
+as `failed`.
+
+`unknown` means "no answer for you", not "refused". It is the result when:
+
+- The frame is in a room your plugin does not provide, or in no room at all,
+  such as a `toolbar` frame in a planning poker room or a `nav` frame. The
+  action is sent as before, but what the server said about another kind's
+  room is not yours to read, so every outcome there is `unknown`.
+- Your manifest asks for `session:act` without `session:read`. Outcomes are
+  room information, so they are reported only where state is.
+- The host does not report results: a web bundle older than this feature.
+  `act` resolves `unknown` at once rather than waiting.
+- More than 64 calls are unanswered; the oldest resolves `unknown`.
+- The host closed the bridge, for example after a message flood. Everything
+  outstanding resolves `unknown`, and so does every later call.
+
+`ungranted` is reported in any room, because it describes your own manifest.
+
+To tell a host that reports results from one that does not:
+
+```js
+if (window.parley.supports && window.parley.supports("results")) { /* ... */ }
+var pending = window.parley.act("reveal");
+if (pending && pending.then) { pending.then(onResult); }
+```
+
+`supports` is `false` until the frame is connected. On a server older than
+this feature `supports` does not exist and `act` returns `undefined`, hence
+both checks. A successful action still shows up as a new state push, so keep
+rendering from the state.
 
 - The name must be 1 to 64 characters of letters, digits, `_` and `-`. Nothing else about the name is checked in the browser.
 - The request goes to the room the viewer has open, as that viewer, and the server decides: an action that room's kind does not have is refused, and so is a `facilitatorOnly` action from anybody else.
 - `act` sends `POST`. Declare your actions with `"verb": "POST"`; one declared `PUT`, `PATCH` or `DELETE` is refused when called through `act`.
 - Do not name an action `standup`, `ready`, `story`, `config` or `mention`. Those names are sent with a core kind's verb and a `POST` action by that name is refused.
 - `act` needs no click. A UI holding `session:act` can call it at any moment, and it runs with the viewer's authority, including the facilitator's controls when the viewer is the facilitator. That is what the admin is told at install, so call it only in response to something the person did.
-- `act` throws when the serialized message is longer than 65,536 characters. The host separately caps a message at 64 KiB of UTF-8 and drops one over it without telling the frame, so non-ASCII text can be dropped without a throw. Keep payloads well under 64 KiB.
+- `act` throws when the serialized message is longer than 65,536 characters, as it always has; nothing is sent and no promise is returned. The host separately caps a message at 64 KiB of UTF-8 and drops one over it without telling the frame, so non-ASCII text can be dropped without a throw. Keep payloads well under 64 KiB.
 
 ### Theme and styling
 
 Parley sets its color tokens as CSS custom properties on the frame's root
-element when the frame loads, so `var(--color-surface)` works with no
-JavaScript. The tokens are `felt`, `felt-deep`, `surface`,
-`surface-hi`, `ink`, `ink-soft`, `ink-faint`, `line`, `line-strong`, `accent`,
-`accent-ink`, `accent-soft`, `brass`, `settled`, `go` and `stop`, each as
-`--color-<name>`.
+element when the frame loads, and again whenever the viewer changes theme, so
+`var(--color-surface)` works with no JavaScript and follows the app without a
+reload. It also sets the root's `color-scheme` to `light` or `dark` to match,
+so native controls and scrollbars are drawn for the theme in use. The tokens
+are `felt`, `felt-deep`, `surface`, `surface-hi`, `ink`, `ink-soft`,
+`ink-faint`, `line`, `line-strong`, `accent`, `accent-ink`, `accent-soft`,
+`brass`, `settled`, `go` and `stop`, each as `--color-<name>`.
 
 `sdk/plugin-ui/parley.css` offers three classes built on them: `parley-panel`,
 `parley-btn` and `parley-input`. The frame cannot load a stylesheet, so create

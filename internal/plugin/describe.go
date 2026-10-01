@@ -73,9 +73,9 @@ func Describe(g Grant) DescribedGrant {
 		out.Permits = "Can write lines into this server's log, where they sit alongside Parley's own."
 	case CapabilitySessionRead:
 		if g.Scope == "" {
-			out.Permits = "Can read the live state of every room running a ceremony this plugin itself provides, in any space in this org: who is seated, and whatever that ceremony records. It cannot read a planning poker or standup room, or any other plugin's rooms."
+			out.Permits = "Can read the live state of every room running a ceremony this plugin itself provides, in any space in this org: who is seated, which of them is looking at its panel, and whatever that ceremony records. It cannot read a planning poker or standup room, or any other plugin's rooms."
 		} else {
-			out.Permits = fmt.Sprintf("Can read the live state of the %q session only, and then only if that room runs a ceremony this plugin provides: who is seated, and whatever that ceremony records.", g.Scope)
+			out.Permits = fmt.Sprintf("Can read the live state of the %q session only, and then only if that room runs a ceremony this plugin provides: who is seated, which of them is looking at its panel, and whatever that ceremony records.", g.Scope)
 		}
 	case CapabilitySessionPatch:
 		if g.Scope == "" {
