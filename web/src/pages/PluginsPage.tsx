@@ -12,7 +12,8 @@ import type {
   PluginSettings,
 } from "../lib/plugins";
 import { direction, normalizePluginPreview, normalizePluginRegistry } from "../lib/plugins";
-import { catalogApi, catalogPath, pluginsApi } from "../lib/paths";
+import { catalogApi, catalogPath, orgPath, pluginsApi } from "../lib/paths";
+import { Logo } from "../components/Brand";
 import {
   buttonDanger,
   buttonPrimary,
@@ -66,7 +67,19 @@ export function PluginsPage() {
 
   return (
     <main className="mx-auto max-w-[860px] px-6 py-9">
-      <h1 className="font-display text-3xl">Plugins</h1>
+      <header className="flex items-center gap-3">
+        <Link to="/" className="flex items-center gap-3 font-bold tracking-tight">
+          <Logo size={20} />
+          Parley
+        </Link>
+      </header>
+      <Link
+        to={orgPath(org)}
+        className="mt-6 inline-block text-[13px] font-bold text-accent hover:underline"
+      >
+        ← Back to {org}
+      </Link>
+      <h1 className="mt-3 font-display text-3xl">Plugins</h1>
       <p className="mt-2 max-w-prose text-sm text-ink-soft text-pretty">
         Everything installed on this instance, and everything it is allowed to
         do. Only an operator can reach this page; the server refuses these

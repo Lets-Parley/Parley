@@ -899,3 +899,12 @@ describe("plugin settings", () => {
     await expectNoViolations(document.body);
   });
 });
+
+describe("navigation", () => {
+  it("offers a way back to the org and home, so the page is not a dead end", async () => {
+    render();
+    await screen.findByRole("heading", { name: "Plugins" });
+    expect(screen.getByRole("link", { name: "Parley" }).getAttribute("href")).toBe("/");
+    expect(screen.getByRole("link", { name: /Back to acme/ }).getAttribute("href")).toBe("/o/acme");
+  });
+});
