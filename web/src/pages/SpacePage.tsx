@@ -41,7 +41,9 @@ import {
   instantShown,
   isChosen,
   kindLabel,
-  type KindDef,
+  getKind,
+  rememberKindLabels,
+  type KindChoice,
 } from "../lib/kinds";
 
 // "" is the All tab; every other value is a registered kind's wire id.
@@ -454,7 +456,14 @@ export function SpacePage() {
         : `${filtered.length} sessions match`;
   // What a new session may be: the server omits any kind retired in place.
   // An older server sends no list at all, and offers everything as before.
-  const offered = KINDS.filter((k) => sp.kinds?.includes(k.id) ?? true);
+  // Plugin kinds follow the built-ins, offered by the server's display name.
+  rememberKindLabels(sp.kindOptions);
+  const offered: KindChoice[] = [
+    ...KINDS.filter((k) => sp.kinds?.includes(k.id) ?? true),
+    ...(sp.kindOptions ?? [])
+      .filter((o) => o.plugin && !getKind(o.kind))
+      .map((o) => ({ id: o.kind, label: o.display })),
+  ];
   // Hiding a control is a courtesy; the server enforces the same rule and
   // answers 403 to a member who reaches the route another way.
   const canManage = (sp.members ?? []).find((m) => m.userId === me.data?.id)?.role === "owner";
@@ -1135,8 +1144,8 @@ function NewSessionModal({
 }: {
   org: string;
   slug: string;
-  /** The kinds this space may start, in registry order. Never empty. */
-  kinds: KindDef[];
+  /** The kinds this space may start, built-ins first. Never empty. */
+  kinds: KindChoice[];
   onClose: () => void;
 }) {
   const navigate = useNavigate();

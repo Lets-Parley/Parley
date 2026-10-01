@@ -170,6 +170,8 @@ export type SpaceView = {
   orgSlug?: string;
   /** The kinds a new session may use — retired kinds are omitted. Members only. */
   kinds?: string[];
+  /** The same kinds with their display names; `plugin` marks one an install provides. */
+  kindOptions?: { kind: string; display: string; plugin: boolean }[];
 };
 /**
  * A card template saved by a space. It is never joined to at vote time: a

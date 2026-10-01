@@ -397,6 +397,54 @@ func TestAKindOwnedByAnotherOrgCannotBeCreated(t *testing.T) {
 			t.Errorf("org B is offered %v, want the instance-wide kind %q", offeredB, core)
 		}
 	}
+
+	// The create dialog reads the same list with display names, so it must be
+	// scoped exactly the same way.
+	optsA, err := sessions.OfferableKindOptions(ctx, orgA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsOption(optsA, KindOption{Kind: kind, Display: "Retro", Plugin: true}) {
+		t.Errorf("org A's kind options are %v, want {%s Retro plugin}", optsA, kind)
+	}
+	if !containsOption(optsA, KindOption{Kind: "poker", Display: "Planning Poker", Plugin: false}) {
+		t.Errorf("org A's kind options are %v, want poker as a built-in", optsA)
+	}
+	optsB, err := sessions.OfferableKindOptions(ctx, orgB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsOptionKind(optsB, kind, true) {
+		t.Errorf("org B's kind options %v include another org's kind %q", optsB, kind)
+	}
+	if _, err := pool.Exec(ctx, "update plugin_installs set enabled = false where name = $1", provider); err != nil {
+		t.Fatal(err)
+	}
+	optsA, err = sessions.OfferableKindOptions(ctx, orgA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsOptionKind(optsA, kind, true) {
+		t.Errorf("a disabled install's kind is still offered: %v", optsA)
+	}
+}
+
+func containsOption(opts []KindOption, want KindOption) bool {
+	for _, o := range opts {
+		if o == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsOptionKind(opts []KindOption, kind string, plugin bool) bool {
+	for _, o := range opts {
+		if o.Kind == kind && o.Plugin == plugin {
+			return true
+		}
+	}
+	return false
 }
 
 func contains(xs []string, want string) bool {
