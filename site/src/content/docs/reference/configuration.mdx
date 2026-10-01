@@ -366,7 +366,7 @@ A stored bundle that is not trusted is refused; it never falls back to a file.
 
 Loose files named `<name>-<version>.wasm` (with `.ui.js` and `.slots.json`
 beside them) are legacy and unsigned. They are read only when no bundle at all
-is stored for that name and version, and each read logs a warning. Unset, only
+is stored for that name and version, and a read logs a warning, at most once every few seconds per plugin version. Unset, only
 stored bundles are served; the plugin host runs either way.
 
 A running host re-checks which bundle answers at most every 5 seconds, so a

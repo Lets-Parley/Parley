@@ -75,8 +75,8 @@ re-checked on every call. The grants, session kinds and consent copy come from
 the verified bundle's own manifest. A catalog bundle is the only way to
 install or upgrade; there is no upload of a bare `package.json`.
 
-At boot, after the `PLUGIN_DIR` import, every unpinned install is pinned to the
-trusted stored bundle for its name and version, under its own advisory lock.
+At boot, after the `PLUGIN_DIR` import, every install with no pin, or a pin that no longer matches its version, is pinned to the
+trusted stored bundle for its name and version (signed preferred), under its own advisory lock.
 An install with no match is never disabled: it keeps running from loose files
 and the plugins page marks it **not in catalog**.
 
