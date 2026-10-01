@@ -737,3 +737,36 @@ func randomKindSuffix(t *testing.T) string {
 	}
 	return hex.EncodeToString(b[:])
 }
+
+// The create dialog offers what the space view lists in kindOptions, display
+// name included, and creates through the space's sessions route with an empty
+// config. Both halves are what the dialog depends on.
+func TestThePluginKindOnOfferIsCreatableFromTheSpace(t *testing.T) {
+	srv, pool, plugins, host := hostServer(t)
+	kind := "retro" + randomKindSuffix(t)
+	in := installCeremony(t, plugins, defaultOrg(t, pool), newPluginName(t), kind)
+	registerPluginKindWithStubState(t, host, plugins, in, kind)
+
+	fac := signup(t, srv, "Ines")
+	_, sp := createSpace(t, srv, "Offered Ceremony Room", fac)
+	slug := sp["slug"].(string)
+	resp, body := doJSON(t, srv, "GET", "/api/orgs/default/spaces/"+slug, "", fac)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("reading the space: %d %v", resp.StatusCode, body)
+	}
+	opts, _ := body["kindOptions"].([]any)
+	found := false
+	for _, o := range opts {
+		m, _ := o.(map[string]any)
+		if m["kind"] == kind {
+			found = m["display"] == "Retrospective" && m["plugin"] == true
+		}
+	}
+	if !found {
+		t.Fatalf("kindOptions = %v, want %s offered as the plugin kind Retrospective", body["kindOptions"], kind)
+	}
+	resp, body = createSession(t, srv, slug, kind, "Retro", fac)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("creating the offered plugin kind with {}: %d %v", resp.StatusCode, body)
+	}
+}
