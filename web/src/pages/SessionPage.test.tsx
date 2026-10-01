@@ -382,6 +382,8 @@ describe("SessionPage wiring", () => {
     // The frame is told which install it is, or its own room's state is
     // withheld from it as if it were somebody else's.
     expect((bridgeOpts as unknown as { plugin?: string }).plugin).toBe("retro");
+    // And who is looking, so the plugin can mark the viewer's own notes.
+    expect(bridgeOpts.selfId).toBe("marcus");
 
     await bridgeOpts.onAction("gather", { col: "went-well" });
     expect(vi.mocked(action)).toHaveBeenCalledWith("sess-1", "gather", { col: "went-well" }, {

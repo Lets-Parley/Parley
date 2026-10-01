@@ -595,6 +595,12 @@ mutate "the handshake happening only once" \
     'src/lib/pluginFrameBootstrap.test.ts::takes the embedder'"'"'s port and then stops listening to the window' \
     pluginframe_bootstrap.js 'window.removeEventListener("message", onHandshake);' '/* the frame goes on listening */'
 
+# color-scheme is written into a style declaration like a token is, so it is
+# one of two words or it is not applied.
+mutate "the allow-list on the frame's color-scheme" \
+    'src/lib/pluginFrameBootstrap.test.ts::refuses a scheme that is not light or dark' \
+    pluginframe_bootstrap.js 'if (value === "light" || value === "dark") { scheme = value;' 'if (value) { scheme = value;'
+
 target internal/api
 
 mutate "the screen on a design token's value" \
@@ -693,6 +699,12 @@ target web/src web
 mutate "the frame sandbox attribute" \
     'src/components/PluginPanel.test.tsx::sandboxes the frame without allow-same-origin' \
     lib/pluginBridge.ts 'export const PLUGIN_SANDBOX = "allow-scripts";' 'export const PLUGIN_SANDBOX = "allow-scripts allow-same-origin";'
+
+# A refused action is reported to the frame as a code from a fixed list. The
+# server's sentence, or an unexpected error's, never crosses.
+mutate "the refusal reason a frame is told" \
+    'src/lib/pluginBridge.test.ts::tells the frame an action was refused with a code, never the server'"'"'s own words' \
+    lib/pluginBridge.ts '(e: unknown) => answer({ ok: false, reason: refusalReason(e) }),' '(e: unknown) => answer({ ok: false, reason: String((e as Error).message) }),'
 
 mutate "inerting a plugin frame under a modal" \
     'src/components/PluginPanel.test.tsx::marks the frame inert while a host modal is open' \

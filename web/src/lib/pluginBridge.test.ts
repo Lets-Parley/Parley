@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import type { Envelope } from "./api";
+import { ApiError, NetworkError, type Envelope } from "./api";
 import {
   MAX_MESSAGE_BYTES,
   MAX_MESSAGES_PER_SECOND,
@@ -106,6 +106,7 @@ describe("redactSession", () => {
         "phase",
         "presence",
         "revealed",
+        "selfId",
         "state",
         "title",
         "version",
@@ -116,6 +117,14 @@ describe("redactSession", () => {
     expect(out!.state).toEqual({ columns: ["went-well"], hidden: "ok-from-statefunc" });
     expect(JSON.stringify(out)).not.toContain("alpha-squad");
     expect(JSON.stringify(out)).not.toContain('"plugin"');
+  });
+
+  it("tells the frame which participant is looking, and null when the host does not know", () => {
+    expect(redactSession(pluginKindEnvelope(), READ, RETRO, "u2")!.selfId).toBe("u2");
+    expect(redactSession(pluginKindEnvelope(), READ, RETRO)!.selfId).toBe(null);
+    // The viewer is part of the view, so a room that gets no view gets no viewer.
+    expect(redactSession(standupEnvelope(), READ, RETRO, "u2")).toBe(null);
+    expect(redactSession(pluginKindEnvelope(), [], RETRO, "u2")).toBe(null);
   });
 
   it("hands a plugin with no session:read grant nothing at all", () => {
@@ -356,7 +365,7 @@ describe("createPluginBridge", () => {
   // would pass for any payload the projection happened to type-check against.
   it("pushes the plugin's own room into the frame, and exactly that", () => {
     const sent: string[] = [];
-    const { b } = bridge({ send: (body: string) => sent.push(body) });
+    const { b } = bridge({ selfId: "u2", send: (body: string) => sent.push(body) });
     b.handshake();
     b.sendState(pluginKindEnvelope());
     vi.advanceTimersByTime(500);
@@ -372,6 +381,7 @@ describe("createPluginBridge", () => {
       revealed: false,
       version: 7,
       facilitatorId: "u1",
+      selfId: "u2",
       endedAt: null,
       presence: ["u1", "u2"],
       participants: [
@@ -381,6 +391,84 @@ describe("createPluginBridge", () => {
       state: { columns: ["went-well"], hidden: "ok-from-statefunc" },
     });
     b.close();
+  });
+
+  it("sends the scheme beside the tokens, and not the same theme twice", () => {
+    const sent: string[] = [];
+    const { b } = bridge({ send: (body: string) => sent.push(body) });
+    b.handshake();
+    b.sendTokens({ ink: "#101010" }, "light");
+    b.sendTokens({ ink: "#101010" }, "light");
+    b.sendTokens({ ink: "#f0f0f0" }, "dark");
+    expect(sent).toEqual([
+      '{"type":"tokens","tokens":{"ink":"#101010"},"scheme":"light"}',
+      '{"type":"tokens","tokens":{"ink":"#f0f0f0"},"scheme":"dark"}',
+    ]);
+    b.close();
+  });
+
+  it("tells the frame an action it proposed was accepted", async () => {
+    const sent: string[] = [];
+    const { b } = bridge({ send: (body: string) => sent.push(body) });
+    b.handshake();
+    b.receive(JSON.stringify({ type: "act", id: 4, action: "reveal", payload: {} }));
+    await vi.waitFor(() => expect(sent.length).toBe(1));
+    expect(sent[0]).toBe('{"type":"result","id":4,"ok":true}');
+    b.close();
+  });
+
+  // The server's sentence is written for the person, and a 500's could say
+  // anything. The frame gets a code from a fixed list and nothing else.
+  it("tells the frame an action was refused with a code, never the server's own words", async () => {
+    const refusals: Array<[unknown, string]> = [
+      [new ApiError(403, "only the facilitator can do that"), "forbidden"],
+      [new ApiError(401, "sign in first"), "forbidden"],
+      [new ApiError(400, "text is required"), "invalid"],
+      [new ApiError(404, "no such action"), "not-found"],
+      [new ApiError(409, "this session has ended"), "conflict"],
+      [new ApiError(429, "slow down"), "rate-limited"],
+      [new ApiError(500, "pq: relation plugin_kv does not exist"), "failed"],
+      [new NetworkError("Failed to fetch"), "unreachable"],
+      [new Error("anything else"), "failed"],
+    ];
+    for (const [error, reason] of refusals) {
+      const sent: string[] = [];
+      const { b } = bridge({
+        send: (body: string) => sent.push(body),
+        onAction: () => Promise.reject(error),
+      });
+      b.handshake();
+      b.receive(JSON.stringify({ type: "act", id: 1, action: "reveal", payload: {} }));
+      await vi.waitFor(() => expect(sent.length).toBe(1));
+      expect(sent[0]).toBe(`{"type":"result","id":1,"ok":false,"reason":"${reason}"}`);
+      b.close();
+    }
+  });
+
+  it("answers an ungranted action as refused rather than leaving the frame waiting", async () => {
+    const sent: string[] = [];
+    const { b, actions } = bridge({ grants: ["session:read"], send: (body: string) => sent.push(body) });
+    b.handshake();
+    b.receive(JSON.stringify({ type: "act", id: 2, action: "reveal", payload: {} }));
+    await Promise.resolve();
+    expect(actions).toEqual([]);
+    expect(sent).toEqual(['{"type":"result","id":2,"ok":false,"reason":"ungranted"}']);
+    b.close();
+  });
+
+  it("performs an action with no usable id and answers nothing, as it always did", async () => {
+    for (const id of [undefined, "7", 1.5, -1, 2 ** 60, { toString: "x" }, "x".repeat(4000)]) {
+      const sent: string[] = [];
+      const { b, actions, failures } = bridge({ send: (body: string) => sent.push(body) });
+      b.handshake();
+      b.receive(JSON.stringify({ type: "act", id, action: "reveal", payload: {} }));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(actions).toEqual([{ action: "reveal", payload: {} }]);
+      expect(sent).toEqual([]);
+      expect(failures).toEqual([]);
+      b.close();
+    }
   });
 
   it("pushes nothing into the frame from a standup room", () => {

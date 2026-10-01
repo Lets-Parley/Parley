@@ -84,7 +84,7 @@ Quoted from `Describe` in `internal/plugin/describe.go`:
 - **kv** (scoped): "Can store and read back data of its own on this server, under keys beginning \<scope\>. It cannot see what another plugin stored."
 - **secrets** (unscoped): "Can store and read back every secret on this instance — API tokens, passwords — encrypted on this server. Combined with any outbound access below, it can send them."
 - **log**: "Can write lines into this server's log, where they sit alongside Parley's own."
-- **session:read** (unscoped): "Can read the live state of every room running a ceremony this plugin itself provides, in any space in this org: who is seated, and whatever that ceremony records. It cannot read a planning poker or standup room, or any other plugin's rooms."
+- **session:read** (unscoped): "Can read the live state of every room running a ceremony this plugin itself provides, in any space in this org: who is seated, which of them is looking at its panel, and whatever that ceremony records. It cannot read a planning poker or standup room, or any other plugin's rooms."
 - **session:patch** (unscoped): "Can change the live state of every room running a ceremony this plugin itself provides, in any space in this org — move that room's phase, reveal or hide what it is showing everyone in it. It cannot touch a planning poker or standup room, or any other plugin's rooms."
 - **jobs**: "Can schedule its own work to run later on this server, outside any request a person made."
 - **emit**: "Can publish events of its own, which other plugins receive as though Parley had raised them."

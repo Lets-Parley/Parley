@@ -1,4 +1,4 @@
-import { isActionName, type Envelope, type Person } from "./api";
+import { ApiError, NetworkError, isActionName, type Envelope, type Person } from "./api";
 import { THEME_TOKENS, type ThemeToken } from "./theme";
 
 /**
@@ -105,6 +105,13 @@ export type PluginSession = {
   revealed: boolean;
   version: number;
   facilitatorId: string;
+  /**
+   * The user id of whoever is looking at this frame, to compare with a
+   * participant's `userId`; null when the host does not know. A signed-link
+   * guest, a spectator and an embedded viewer are each a seat in the room and
+   * are told their own id like anybody else.
+   */
+  selfId: string | null;
   endedAt: string | null;
   presence: string[];
   participants: PluginPerson[];
@@ -141,7 +148,12 @@ export const GRANT_SESSION_ACT = "session:act";
  * is all or nothing: a frame in the chrome of a poker or standup room is told
  * neither the room's state nor who is seated in it.
  */
-export function redactSession(env: Envelope, grants: readonly string[], plugin: string): PluginSession | null {
+export function redactSession(
+  env: Envelope,
+  grants: readonly string[],
+  plugin: string,
+  selfId?: string,
+): PluginSession | null {
   if (!grants.includes(GRANT_SESSION_READ)) return null;
   if (!providesRoom(env, plugin)) return null;
   const revealed = env.revealed === true;
@@ -153,6 +165,9 @@ export function redactSession(env: Envelope, grants: readonly string[], plugin: 
     revealed,
     version: env.version,
     facilitatorId: env.facilitatorId,
+    // Which of the seats below is this browser's own. It is written here, in
+    // the projection, so a room that gets no view gets no viewer either.
+    selfId: selfId ?? null,
     endedAt: env.endedAt,
     presence: [...env.presence],
     // Nothing about the space or the org: which team a room belongs to is not
@@ -178,6 +193,37 @@ export function currentTokens(root: HTMLElement = document.documentElement): Rec
     if (value) tokens[token] = value;
   }
   return tokens;
+}
+
+/** The host's light or dark, which the frame applies as its `color-scheme`. */
+export function currentScheme(root: HTMLElement = document.documentElement): "light" | "dark" {
+  const pinned = root.getAttribute("data-theme");
+  if (pinned === "light" || pinned === "dark") return pinned;
+  return typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+
+const REFUSALS: Record<number, string> = {
+  400: "invalid",
+  401: "forbidden",
+  403: "forbidden",
+  404: "not-found",
+  409: "conflict",
+  429: "rate-limited",
+};
+
+/**
+ * Why an action was refused, as the frame is told it.
+ *
+ * A code from this list and nothing else. The server's own sentence is written
+ * for the person and stays in the host; an unexpected failure's message could
+ * say anything at all, so it is never the thing that crosses.
+ */
+export function refusalReason(e: unknown): string {
+  if (e instanceof NetworkError) return "unreachable";
+  if (e instanceof ApiError) return REFUSALS[e.status] ?? "failed";
+  return "failed";
 }
 
 /**
@@ -221,6 +267,8 @@ export type PluginBridgeOptions = {
   /** The install this frame belongs to. Only its own rooms are pushed. */
   plugin: string;
   grants: readonly string[];
+  /** The viewer's own user id, which the frame is told beside its room. */
+  selfId?: string;
   /**
    * Performs an action the plugin proposed, using the user's own session. The
    * plugin never sees a credential, and can only ask for what the user could
@@ -242,7 +290,7 @@ export type PluginBridge = {
    */
   sendState: (env: Envelope) => void;
   /** Pushes the current design tokens so plugin UI re-themes with the app. */
-  sendTokens: (tokens: Record<string, string>) => void;
+  sendTokens: (tokens: Record<string, string>, scheme?: "light" | "dark") => void;
   /** Test seam: feed one raw inbound message as the port would. */
   receive: (body: unknown) => void;
   close: () => void;
@@ -258,6 +306,7 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
   // queued, cleared when the clear is. A toolbar or export-menu frame is keyed
   // by install name, so it and this bridge outlive a move to another room.
   let holdsView = false;
+  let lastTheme = "";
   const stamps: number[] = [];
 
   const timeout = setTimeout(() => {
@@ -316,7 +365,7 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
       opts.onFailure("malformed");
       return;
     }
-    const { type, action, payload } = message as Record<string, unknown>;
+    const { type, id, action, payload } = message as Record<string, unknown>;
     if (type === "hello" || type === "ready") return;
     if (type !== "act" || typeof action !== "string") {
       opts.onFailure("malformed");
@@ -335,13 +384,25 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
       opts.onFailure("malformed");
       return;
     }
+    // The frame learns how its action went only if it sent an id to answer by,
+    // and the id is echoed only if it is a plain counter: an older frame sends
+    // none and is told nothing, as before.
+    const answer = (result: { ok: true } | { ok: false; reason: string }) => {
+      if (typeof id === "number" && Number.isSafeInteger(id) && id >= 0) {
+        post({ type: "result", id, ...result }, "oversize-outbound");
+      }
+    };
     if (!opts.grants.includes(GRANT_SESSION_ACT)) {
       // The grant is checked here, on the host side, because this is the only
       // side that can be trusted to check it.
       opts.onFailure("ungranted");
+      answer({ ok: false, reason: "ungranted" });
       return;
     }
-    void opts.onAction(action, payload ?? {});
+    opts.onAction(action, payload ?? {}).then(
+      () => answer({ ok: true }),
+      (e: unknown) => answer({ ok: false, reason: refusalReason(e) }),
+    );
   }
 
   // The pending push is held as the finished body rather than as the envelope.
@@ -382,7 +443,7 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
     },
     sendState(env: Envelope) {
       if (closed) return;
-      const session = redactSession(env, opts.grants, opts.plugin);
+      const session = redactSession(env, opts.grants, opts.plugin, opts.selfId);
       let body: string;
       if (session) {
         body = JSON.stringify({ type: "state", state: session });
@@ -412,8 +473,13 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
       if (pushTimer) return;
       pushTimer = setTimeout(flush, STATE_PUSH_INTERVAL_MS);
     },
-    sendTokens(tokens: Record<string, string>) {
-      post({ type: "tokens", tokens }, "oversize-outbound");
+    sendTokens(tokens: Record<string, string>, scheme?: "light" | "dark") {
+      const body = JSON.stringify({ type: "tokens", tokens, scheme });
+      // A theme change is announced by more than one signal, and the frame
+      // needs to hear about it once.
+      if (body === lastTheme) return;
+      lastTheme = body;
+      post({ type: "tokens", tokens, scheme }, "oversize-outbound");
     },
     receive,
     close,

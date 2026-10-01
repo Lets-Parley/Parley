@@ -1,4 +1,4 @@
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, afterEach } from "vitest";
 import type { Envelope } from "../lib/api";
@@ -42,7 +42,12 @@ function panel(over: Record<string, unknown> = {}) {
   );
 }
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  document.documentElement.removeAttribute("data-theme");
+  document.documentElement.removeAttribute("style");
+});
 
 describe("PluginPanel", () => {
   it("sandboxes the frame without allow-same-origin", () => {
@@ -152,5 +157,28 @@ describe("PluginPanel", () => {
     panel({ breaker });
     await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(screen.getByTitle("retro plugin panel")).toBeTruthy();
+  });
+
+  // The frame keeps its state across a theme change: the same element, the
+  // same port, one handshake — only a second tokens message.
+  it("re-sends the tokens and scheme over the same port when the host theme changes", async () => {
+    const root = document.documentElement;
+    root.setAttribute("data-theme", "light");
+    root.style.setProperty("--color-ink", "#101010");
+    const posted = vi.spyOn(MessagePort.prototype, "postMessage");
+    panel();
+    const frame = screen.getByTitle("retro plugin panel") as HTMLIFrameElement;
+    const handshakes = vi.spyOn(frame.contentWindow!, "postMessage").mockImplementation(() => {});
+    fireEvent.load(frame);
+    expect(posted.mock.calls.map((c) => c[0])).toEqual([
+      '{"type":"tokens","tokens":{"ink":"#101010"},"scheme":"light"}',
+    ]);
+
+    root.style.setProperty("--color-ink", "#f0f0f0");
+    root.setAttribute("data-theme", "dark");
+    await waitFor(() => expect(posted.mock.calls.length).toBe(2));
+    expect(posted.mock.calls[1][0]).toBe('{"type":"tokens","tokens":{"ink":"#f0f0f0"},"scheme":"dark"}');
+    expect(handshakes).toHaveBeenCalledTimes(1);
+    expect(screen.getByTitle("retro plugin panel")).toBe(frame);
   });
 });

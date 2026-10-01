@@ -196,6 +196,16 @@ rooms is shown the design tokens and no room data. That is what the consent
 screen promises for `session:read`, and it is the same line the session host
 functions hold on the server.
 
+The view of a plugin's own room also names the viewer: `selfId` is the user id
+of whoever is looking, one of the participants the frame is already given. The
+consent screen says so in the `session:read` sentence. A room that produces no
+view produces no viewer either.
+
+A frame that proposes an action is told whether it was accepted, as `ok` or a
+reason code from a fixed list (`forbidden`, `invalid`, `not-found`, `conflict`,
+`rate-limited`, `ungranted`, `unreachable`, `failed`). The server's error text
+and response body never cross the bridge.
+
 A toolbar or export-menu frame stays mounted as the user moves between rooms,
 so when they leave a room the plugin provides for one it does not, the frame is
 sent a `state` message whose `state` is `null` — once, however many such rooms

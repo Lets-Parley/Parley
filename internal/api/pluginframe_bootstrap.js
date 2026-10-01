@@ -1,6 +1,11 @@
 (function () {
   "use strict";
-  var port = null, queue = [], state = null, tokens = null;
+  var port = null, queue = [], state = null, tokens = null, scheme = null;
+  // Actions waiting on the host's answer, by the id this frame chose. A host
+  // that predates results never answers, so the oldest entry is dropped as a
+  // new one is added rather than the table growing for the life of the frame.
+  var pending = {}, nextId = 0, MAX_PENDING = 64;
+  var REASON = /^[a-z-]{1,32}$/;
   var handlers = { state: [], tokens: [] };
   var MAX_BYTES = 65536;
 
@@ -27,6 +32,21 @@
     }
   }
 
+  // color-scheme decides how the browser draws native controls and scrollbars.
+  // It is one of two words or it is not applied: the value goes into a style
+  // declaration, exactly as a token does.
+  function applyScheme(value) {
+    if (value === "light" || value === "dark") { scheme = value; document.documentElement.style.setProperty("color-scheme", value); }
+  }
+
+  function settle(message) {
+    if (!Object.prototype.hasOwnProperty.call(pending, message.id)) { return; }
+    var resolve = pending[message.id];
+    delete pending[message.id];
+    if (message.ok === true) { resolve({ ok: true }); return; }
+    resolve({ ok: false, reason: typeof message.reason === "string" && REASON.test(message.reason) ? message.reason : "failed" });
+  }
+
   function send(message) {
     var body = JSON.stringify(message);
     if (body.length > MAX_BYTES) { throw new Error("message too large"); }
@@ -38,7 +58,13 @@
     onState: function (fn) { handlers.state.push(fn); if (state) { fn(state); } },
     onTokens: function (fn) { handlers.tokens.push(fn); if (tokens) { fn(tokens); } },
     state: function () { return state; },
-    act: function (action, payload) { send({ type: "act", action: action, payload: payload || {} }); },
+    scheme: function () { return scheme; },
+    act: function (action, payload) {
+      var id = ++nextId;
+      send({ type: "act", id: id, action: action, payload: payload || {} });
+      delete pending[id - MAX_PENDING];
+      return new Promise(function (resolve) { pending[id] = resolve; });
+    },
     ready: function () { send({ type: "ready" }); }
   };
 
@@ -47,7 +73,8 @@
     try { message = JSON.parse(event.data); } catch (e) { return; }
     if (!message || typeof message !== "object") { return; }
     if (message.type === "state") { state = message.state; emit("state", state); }
-    else if (message.type === "tokens") { tokens = message.tokens; applyTokens(tokens); emit("tokens", tokens); }
+    else if (message.type === "tokens") { tokens = message.tokens; applyTokens(tokens); applyScheme(message.scheme); emit("tokens", tokens); }
+    else if (message.type === "result") { settle(message); }
   }
 
   function onHandshake(event) {
