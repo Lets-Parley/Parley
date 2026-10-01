@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import type { Catalog, CatalogVersion, DescribedGrant } from "../lib/plugins";
 import { direction } from "../lib/plugins";
 import { catalogApi, pluginsPath } from "../lib/paths";
+import { Logo } from "../components/Brand";
 import { GrantList } from "./PluginsPage";
 
 /**
@@ -178,7 +179,19 @@ export function CatalogPage() {
 
   return (
     <main className="mx-auto max-w-[860px] px-6 py-9">
-      <h1 className="font-display text-3xl">Plugin catalog</h1>
+      <header className="flex items-center gap-3">
+        <Link to="/" className="flex items-center gap-3 font-bold tracking-tight">
+          <Logo size={20} />
+          Parley
+        </Link>
+      </header>
+      <Link
+        to={"/"}
+        className="mt-6 inline-block text-[13px] font-bold text-accent hover:underline"
+      >
+        ← Back to your spaces
+      </Link>
+      <h1 className="mt-3 font-display text-3xl">Plugin catalog</h1>
       <p className="mt-2 max-w-prose text-sm text-ink-soft text-pretty">
         Signed plugin bundles this instance holds, for any org to install.
         Every bundle was verified against a key this instance trusts.
