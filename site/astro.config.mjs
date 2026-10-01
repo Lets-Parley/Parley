@@ -137,6 +137,7 @@ export default defineConfig({
             "reference/limits-and-defaults",
             "reference/build-your-first-plugin",
             "reference/plugin-sdk",
+            "reference/plugin-api",
             "reference/plugin-protocol",
             "reference/plugin-bundle",
           ],

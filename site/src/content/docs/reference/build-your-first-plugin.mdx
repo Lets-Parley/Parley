@@ -44,8 +44,11 @@ window.parley.ready();
 
 The Extism JavaScript guest has no module loader, so keep the logic in plain
 files that the Makefile concatenates, and export only the hooks through
-`module.exports`. The [Plugin SDK](/reference/plugin-sdk/) page lists the host
-methods and what each grant permits.
+`module.exports`. The [Plugin API reference](/reference/plugin-api/) gives the
+exact input of each hook, every host function with its request and response,
+and the whole of `window.parley`. A UI is sent state only if the manifest asks
+for `session:read`, and may call `act` only with `session:act`. The
+[Plugin SDK](/reference/plugin-sdk/) page quotes what each grant permits.
 
 ## 3. Test
 
