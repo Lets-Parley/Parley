@@ -197,17 +197,13 @@ export function getKind(id: string): KindDef | undefined {
   return KINDS.find((k) => k.id === id);
 }
 
-// Display names the server sent for plugin kinds, kept for every label site.
-const pluginLabels = new Map<string, string>();
-
-/** Remember the server's display names for the plugin kinds it offered. */
-export function rememberKindLabels(opts: { kind: string; display: string; plugin: boolean }[] | undefined) {
-  for (const o of opts ?? []) if (o.plugin) pluginLabels.set(o.kind, o.display);
-}
-
-/** What to call a kind in the UI: its label, a plugin's display name, or the bare wire id. */
-export function kindLabel(id: string): string {
-  return getKind(id)?.label ?? pluginLabels.get(id) ?? id;
+/**
+ * What to call a kind in the UI: a built-in's label, else the display name the
+ * server sent with the thing being rendered, else the bare wire id. There is
+ * no table of plugin kinds here: a name belongs to the data it came with.
+ */
+export function kindLabel(id: string, display?: string): string {
+  return getKind(id)?.label ?? (display || id);
 }
 
 /** The config a new session of this kind starts with: each field's default. */

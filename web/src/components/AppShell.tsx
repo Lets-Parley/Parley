@@ -189,7 +189,7 @@ export function AppShell({
                       /* Spelled out so the kind reaches the accessible name
                          separated from the title, rather than run together
                          with it as concatenated text would be. */
-                      aria-label={`${kindLabel(s.kind)} · ${s.title}${s.endedAt ? " · ended" : ""}`}
+                      aria-label={`${kindLabel(s.kind, s.kindDisplay)} · ${s.title}${s.endedAt ? " · ended" : ""}`}
                       className={
                         "flex items-center gap-2 rounded-chip px-2.5 py-1.5 hover:bg-felt-deep " +
                         (s.id === activeSessionId ? "bg-felt-deep" : "")
@@ -203,7 +203,7 @@ export function AppShell({
                           getKind(s.kind) ? "flex w-6 shrink-0 justify-center" : "flex min-w-0 max-w-[6.5rem] shrink-0"
                         }
                       >
-                        <KindChip kind={s.kind} label={false} />
+                        <KindChip kind={s.kind} display={s.kindDisplay} label={false} />
                       </span>
                       <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{s.title}</span>
                       {s.endedAt && (

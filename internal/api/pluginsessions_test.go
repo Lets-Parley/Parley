@@ -769,4 +769,17 @@ func TestThePluginKindOnOfferIsCreatableFromTheSpace(t *testing.T) {
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("creating the offered plugin kind with {}: %d %v", resp.StatusCode, body)
 	}
+	// Each listed session names its kind in full, so no browser-side table of
+	// plugin kinds is needed to label a row or the sidebar.
+	createSession(t, srv, slug, "poker", "Plan", fac)
+	_, body = doJSON(t, srv, "GET", "/api/orgs/default/spaces/"+slug, "", fac)
+	got := map[string]any{}
+	list, _ := body["sessions"].([]any)
+	for _, o := range list {
+		m, _ := o.(map[string]any)
+		got[m["kind"].(string)] = m["kindDisplay"]
+	}
+	if got[kind] != "Retrospective" || got["poker"] != "Planning Poker" {
+		t.Fatalf("kindDisplay by kind = %v, want %s: Retrospective and poker: Planning Poker", got, kind)
+	}
 }

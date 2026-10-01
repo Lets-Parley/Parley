@@ -119,6 +119,8 @@ vi.mock("../lib/api", async () => {
 // count calls need the log to be about their own render and nothing else.
 beforeEach(() => {
   vi.mocked(api).mockClear();
+  view = space;
+  failSpace = false;
   decks = [];
   kudos = [];
   trend = { weeks: [] };
@@ -764,6 +766,7 @@ describe("SpacePage create dialog", () => {
       { kind: "poker", display: "Planning Poker", plugin: false },
       { kind: "standup", display: "Standup", plugin: false },
     ];
+    view = { ...space, sessions: withKindDisplay(space.sessions, "acme.retro", "Retrospective") } as SpaceView;
     const defaultApi = vi.mocked(api).getMockImplementation()!;
     vi.mocked(api).mockImplementation((async (method: string, path: string, _body?: unknown) => {
       if (method === "POST" && path === "/api/orgs/acme/spaces/platform-team/sessions") return { id: "new-1" };
@@ -2450,59 +2453,79 @@ describe("SpacePage kudos rail", () => {
   });
 });
 
-// Last on purpose: rememberKindLabels keeps display names for the whole file.
-describe("SpacePage plugin kinds", () => {
-  const withRetrospective = async (run: () => Promise<void>) => {
-    space.kindOptions = [
-      { kind: "acme.retro", display: "Retrospective", plugin: true },
-      { kind: "poker", display: "Planning Poker", plugin: false },
-      { kind: "standup", display: "Standup", plugin: false },
-    ];
-    try {
-      await run();
-    } finally {
-      delete space.kindOptions;
-    }
-  };
+function withKindDisplay(sessions: SpaceView["sessions"], kind: string, display: string) {
+  return (sessions ?? []).map((x) => (x.kind === kind ? { ...x, kindDisplay: display } : x));
+}
 
-  it("offers a kind present in the listed sessions even when the server named none", async () => {
-    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+describe("SpacePage plugin kinds", () => {
+  // Every test builds its own view: a display name comes with the session it
+  // names, so nothing here may leave state behind for the next test to read.
+  const retro = (over: Record<string, unknown> = {}) =>
+    ({
+      ...space,
+      kindOptions: [
+        { kind: "acme.retro", display: "Retrospective", plugin: true },
+        { kind: "poker", display: "Planning Poker", plugin: false },
+        { kind: "standup", display: "Standup", plugin: false },
+      ],
+      sessions: withKindDisplay(space.sessions, "acme.retro", "Retrospective"),
+      ...over,
+    }) as unknown as SpaceView;
+  const open = () => renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+  const main = () => within(screen.getByRole("main"));
+
+  it("offers a kind present in the listed sessions, named by the id when the server sent no name", async () => {
+    open();
     await screen.findAllByText("Sprint 12 grooming");
-    await userEvent.click(screen.getByRole("button", { name: /^(acme\.retro|Retrospective)$/ }));
-    expect(within(screen.getByRole("main")).queryByText("Daily")).toBe(null);
+    await userEvent.click(screen.getByRole("button", { name: "acme.retro" }));
+    expect(main().getByText("Retro of record")).toBeTruthy();
+    expect(main().queryByText("Daily")).toBe(null);
   });
 
   it("filters to a plugin kind by its display name", async () => {
-    await withRetrospective(async () => {
-      renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
-      const main = () => within(screen.getByRole("main"));
-      await screen.findAllByText("Sprint 12 grooming");
-      await userEvent.click(screen.getByRole("button", { name: "Retrospective" }));
-      expect(main().getByText("Retro of record")).toBeTruthy();
-      expect(main().queryByText("Sprint 12 grooming")).toBe(null);
-      expect(main().queryByText("Daily")).toBe(null);
-    });
+    view = retro();
+    open();
+    await screen.findAllByText("Sprint 12 grooming");
+    const tab = screen.getByRole("button", { name: "Retrospective" });
+    expect(tab.querySelector("span")!.getAttribute("title")).toBe("Retrospective");
+    await userEvent.click(tab);
+    expect(tab.getAttribute("aria-pressed")).toBe("true");
+    expect(main().getByText("Retro of record")).toBeTruthy();
+    expect(main().queryByText("Sprint 12 grooming")).toBe(null);
+    expect(main().queryByText("Daily")).toBe(null);
+  });
+
+  it("falls back to All when the picked kind has left the list", async () => {
+    view = retro();
+    const { queryClient } = open();
+    await screen.findAllByText("Sprint 12 grooming");
+    await userEvent.click(screen.getByRole("button", { name: "Retrospective" }));
+    expect(main().queryByText("Daily")).toBe(null);
+    // The room is deleted and the install gone: the tab no longer exists.
+    view = retro({ sessions: space.sessions!.filter((x) => x.kind !== "acme.retro"), kindOptions: [] });
+    await queryClient.invalidateQueries();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Retrospective" })).toBe(null));
+    expect(screen.getByRole("button", { name: "All" }).getAttribute("aria-pressed")).toBe("true");
+    expect(main().getByText("Daily")).toBeTruthy();
   });
 
   it("keeps a long kind label inside a row chip that truncates and names itself in full", async () => {
-    await withRetrospective(async () => {
-      // Only plugin sessions: the list is not mixed, so a bare object would
-      // get the 24px slot. A name must not.
-      view = {
-        ...space,
-        sessions: [
-          { id: "e3", kind: "acme.retro", title: "Plugin room", createdAt: "2026-08-18T08:00:00.000Z", endedAt: "2026-08-18T08:30:00.000Z", here: 0, lastActivityAt: "2026-08-18T08:30:00.000Z", present: [], progress: null },
-        ],
-      } as unknown as SpaceView;
-      renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
-      await screen.findAllByText("Plugin room");
-      const row = within(screen.getByRole("main")).getByText("Plugin room").closest("li")!;
-      const chip = within(row).getByText("Retrospective");
-      expect(chip.getAttribute("title")).toBe("Retrospective");
-      expect([...chip.classList]).toContain("truncate");
-      const slot = chip.parentElement!;
-      expect([...slot.classList]).not.toContain("w-6");
-      expect([...slot.classList]).toContain("min-w-0");
-    });
+    // Only plugin sessions: the list is not mixed, so a bare object would
+    // get the 24px slot. A name must not.
+    view = {
+      ...space,
+      sessions: [
+        { id: "e3", kind: "acme.retro", kindDisplay: "Retrospective", title: "Plugin room", createdAt: "2026-08-18T08:00:00.000Z", endedAt: "2026-08-18T08:30:00.000Z", here: 0, lastActivityAt: "2026-08-18T08:30:00.000Z", present: [], progress: null },
+      ],
+    } as unknown as SpaceView;
+    open();
+    await screen.findAllByText("Plugin room");
+    const row = main().getByText("Plugin room").closest("li")!;
+    const chip = within(row).getByText("Retrospective");
+    expect(chip.getAttribute("title")).toBe("Retrospective");
+    expect([...chip.classList]).toContain("truncate");
+    const slot = chip.parentElement!;
+    expect([...slot.classList]).not.toContain("w-6");
+    expect([...slot.classList]).toContain("min-w-0");
   });
 });

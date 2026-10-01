@@ -240,6 +240,8 @@ export type OrgMembership = {
 export type SessionSummary = {
   id: string;
   kind: string;
+  /** The kind's display name, resolved in the space's org; the id when none. */
+  kindDisplay?: string;
   title: string;
   createdAt: string;
   endedAt: string | null;

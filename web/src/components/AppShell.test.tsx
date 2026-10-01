@@ -648,11 +648,11 @@ describe("sidebar session chip for a plugin kind", () => {
   it("gives a long kind name room, truncates it and names it in full", () => {
     stubAuthMode("open");
     const sessions = [
-      { id: "r1", kind: "acme.retrospective-of-record", title: "Sprint retro", createdAt: "2026-08-18T08:00:00.000Z", endedAt: null, here: 0 },
+      { id: "r1", kind: "acme.retro", kindDisplay: "Retrospective of record", title: "Sprint retro", createdAt: "2026-08-18T08:00:00.000Z", endedAt: null, here: 0 },
     ];
     renderShell({ sessions: sessions as never });
     const link = screen.getByRole("link", { name: /Sprint retro/ });
-    const chip = within(link).getByTitle("acme.retrospective-of-record");
+    const chip = within(link).getByTitle("Retrospective of record");
     expect([...chip.classList]).toContain("truncate");
     expect([...chip.parentElement!.classList]).not.toContain("w-6");
     expect([...chip.parentElement!.classList]).toContain("min-w-0");
