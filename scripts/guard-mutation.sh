@@ -566,8 +566,11 @@ mutate "the framed document's frame-ancestors" \
 
 mutate "the script-close-tag escape in the frame document" \
     'TestAScriptCloseTagInAUIBundleCannotBreakOutOfTheFrameScript' \
-    pluginframe.go 'return strings.NewReplacer("</", `<\/`, "<!--", `<\!--`).Replace(js)' 'return js //nolint
-'
+    pluginframe.go 'js = scriptCloseTag.ReplaceAllString(js, `<\/$1`)' '_ = scriptCloseTag'
+
+mutate "the comment-open escape in the frame document" \
+    'TestEscapingAUIBundleLeavesARegexThatEndsInALessThanAlone' \
+    pluginframe.go 'return strings.ReplaceAll(js, "<!--", `<\!--`)' 'return js'
 
 # A sibling plugin's frame can postMessage to this one. Whoever answers the
 # handshake first supplies the port, so without a sender screen plugin A hands
