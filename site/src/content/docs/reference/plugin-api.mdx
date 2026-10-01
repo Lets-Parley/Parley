@@ -30,7 +30,7 @@ The round trip for one action:
 4. Parley calls `on_session_state` and broadcasts the result to everyone in the room.
 5. Every `ui.js` in the room gets the new state through `window.parley.onState`.
 
-The UI cannot reach the guest or the network any other way.
+The UI has no other path to the guest.
 
 ## Hooks
 
@@ -353,7 +353,9 @@ GUEST_SRC := ../../sdk/plugin-sdk/src/host.js .build/manifest.js demo.js guest.j
 	{ printf 'var MANIFEST = '; cat manifest.json; printf ';\n'; } > $@
 ```
 
-With that in place the guest can build a host:
+With that in place the guest can build a host. The manifest lists what the
+plugin asks for, not what an admin granted, so the guest-side check only
+catches a call the manifest never declared; the host decides the rest.
 
 ```js
 var fns = Host.getFunctions();
@@ -365,7 +367,8 @@ var settings = host.getSettings();
 
 ## UI bridge
 
-`ui.js` runs in an iframe with an opaque origin and no network access. Parley
+`ui.js` runs in an iframe with an opaque origin, under a Content-Security-Policy
+that refuses network requests. Parley
 builds the document, which contains one empty `<div id="root"></div>`, and
 defines `window.parley` before your script runs.
 
@@ -427,12 +430,12 @@ mounted; treat `null` as "no room".
 new state push; a refused one shows up as nothing. Design the UI around the
 state, not around the call.
 
-- The name must be 1 to 64 characters of letters, digits, `_` and `-`. Nothing else is checked in the browser.
+- The name must be 1 to 64 characters of letters, digits, `_` and `-`. Nothing else about the name is checked in the browser.
 - The request goes to the room the viewer has open, as that viewer, and the server decides: an action that room's kind does not have is refused, and so is a `facilitatorOnly` action from anybody else.
 - `act` sends `POST`. Declare your actions with `"verb": "POST"`; one declared `PUT`, `PATCH` or `DELETE` is refused when called through `act`.
 - Do not name an action `standup`, `ready`, `story`, `config` or `mention`. Those names are sent with a core kind's verb and a `POST` action by that name is refused.
 - `act` needs no click. A UI holding `session:act` can call it at any moment, and it runs with the viewer's authority, including the facilitator's controls when the viewer is the facilitator. That is what the admin is told at install, so call it only in response to something the person did.
-- A payload that makes the message larger than 64 KiB makes `act` throw.
+- `act` throws when the serialized message is longer than 65,536 characters. The host separately caps a message at 64 KiB of UTF-8 and drops one over it without telling the frame, so non-ASCII text can be dropped without a throw. Keep payloads well under 64 KiB.
 
 ### Theme and styling
 
