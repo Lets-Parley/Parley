@@ -22,6 +22,14 @@ shipped frontend.
 - Cards in the same column can be grouped.
 - Each person may put one dot on a card (a second click does not stack).
 - Action items are a list on the same board, with an optional owner.
+- Revealing authors asks for a second confirmation and cannot be undone. Once
+  revealed, each card shows its author's name.
+- Selecting cards opens a bar that says how many are selected and why they can
+  or cannot be grouped yet.
+- A strip at the top (Write, Group, Vote, Decide) reflects how far the board
+  has come. It is a marker only and never blocks an action.
+- Typing is never interrupted: other people's changes update the board in
+  place and are announced to screen readers.
 
 CSV export is the host's: it flattens the guest's `on_session_state` document
 (`revealed`, `columns`, `cards`, `groups`, `actionItems`) next to
