@@ -96,15 +96,19 @@ whether it is set and whether a configured key can open it. Secrets need
 
 ## Upgrade, roll back, re-pin
 
-An install can move to any trusted catalog version of the same plugin, from its
-card. Moving to an older one is a rollback: it takes two clicks and is audited
+An install can move to any trusted catalog version of the same plugin, chosen
+from the install chooser (the Plugins page, or an **Install** link on `/catalog`).
+The install's own card offers only the versions it has already run. Moving to an older one is a rollback: it takes two clicks and is audited
 with the version and bundle it moved from and to. Installing an older version
 directly is refused. Saved settings must fit the target version's schema, or the
 move is refused with 409 naming the fields.
 
-Moving an install to another bundle of the **same version** re-pins it. The one
-case that matters: moving a running signed install onto an unsigned bundle of the
-same version, which is possible only with `PLUGIN_ALLOW_UNSIGNED=true`. It lowers
+A name and version holds one signed bundle. An unsigned bundle is stored only
+when nothing holds that name and version, but a signed one is still accepted
+after it, so one version can have both. Moving an install to another bundle of
+the **same version** re-pins it. The one case that matters: moving a running
+signed install onto the unsigned bundle of the same version, which is possible
+only with `PLUGIN_ALLOW_UNSIGNED=true`. It lowers
 the trust the install runs under and today has no extra warning
 ([#737](https://github.com/Lets-Parley/Parley/issues/737)). Leave
 `PLUGIN_ALLOW_UNSIGNED` off and that move is not available.
@@ -150,8 +154,8 @@ full behavior, including the bound and unbound forms, is under
   to confirm they all run the same bytes.
 - A plugin card shows its health and last error, and the bundle digest it is
   pinned to.
-- Plugin admin actions are in `org_audit_log`. A loose-file read logs a warning
-  every time, which is the signal that something has not been moved to the catalog.
+- Plugin admin actions are in `org_audit_log`. A loose-file read logs a warning, at
+  most once every few seconds per plugin version, which is the signal that something has not been moved to the catalog.
 - At boot Parley logs how many secrets are not yet under the current key.
 
 ## Moving from loose PLUGIN_DIR files to the catalog
@@ -167,9 +171,10 @@ legacy and unsigned. They keep working, and moving off them is a few steps:
 3. **Put the bundle in the catalog.** Either upload it on `/catalog`, or drop the
    `.parley` file into `PLUGIN_DIR`: at boot every `*.parley` file there is
    verified and stored, and one that is refused is logged and skipped.
-4. **Restart once.** After the import, every install that has no pin is pinned to
-   the trusted stored bundle for its own name and version, under its own advisory
-   lock so replicas booting together agree. The install is not disabled or
+4. **Restart once.** After the import, every install with no pin, or a pin that no
+   longer matches the install's version, is pinned to the trusted stored bundle
+   for its own name and version (a signed bundle is preferred over an unsigned
+   one), under its own advisory lock so replicas booting together agree. The install is not disabled or
    changed; it now runs the bundle by digest.
 5. **Check the plugins page.** An install with no matching bundle is never
    disabled: it keeps running from the loose files and shows **Not in catalog —
