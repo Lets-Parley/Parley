@@ -804,6 +804,7 @@
   function openPop(anchor, node, patch) {
     closePop(false);
     pop = { anchor: anchor, el: node, patch: patch };
+    setBehind(true);
     anchor.setAttribute("aria-expanded", "true");
     layer.appendChild(node);
     placePop();
@@ -829,7 +830,18 @@
     pop = null;
     was.anchor.setAttribute("aria-expanded", "false");
     layer.removeChild(was.el);
+    setBehind(false);
     if (refocus) was.anchor.focus();
+  }
+
+  // While something floats over the board, the board under it is inert: a
+  // press outside closes the popover and does nothing else, and a control
+  // half covered by it is not a target anybody has to aim at.
+  function setBehind(on) {
+    [topRow, mainRow].forEach(function (part) {
+      if (on) part.setAttribute("inert", "");
+      else part.removeAttribute("inert");
+    });
   }
 
   // The control that opens a popover also closes it.
@@ -3229,26 +3241,28 @@
 
   // No h1: the frame sits under the host page's own, and a screen reader reads
   // the two documents as one outline. The lanes and the actions are its h2s.
-  const main = el("main", { class: "board", "aria-label": "Retrospective board" }, [
-    el("div", { class: "top" }, [
-      el("section", { class: "progress", "aria-label": "Stage" }, [
-        el("div", { class: "steps-wrap" }, [
-          thumb,
-          el(
-            "ol",
-            { class: "steps" },
-            stepViews.map(function (v) {
-              return v.el;
-            }),
-          ),
-        ]),
-        timerSlot,
-        el("div", { class: "hints" }, hints),
-        stageNav,
+  const topRow = el("div", { class: "top" }, [
+    el("section", { class: "progress", "aria-label": "Stage" }, [
+      el("div", { class: "steps-wrap" }, [
+        thumb,
+        el(
+          "ol",
+          { class: "steps" },
+          stepViews.map(function (v) {
+            return v.el;
+          }),
+        ),
       ]),
-      authorship,
+      timerSlot,
+      el("div", { class: "hints" }, hints),
+      stageNav,
     ]),
-    el("div", { class: "main" }, [lanes, actions]),
+    authorship,
+  ]);
+  const mainRow = el("div", { class: "main" }, [lanes, actions]);
+  const main = el("main", { class: "board", "aria-label": "Retrospective board" }, [
+    topRow,
+    mainRow,
     el("div", { class: "dock" }, [el("div", { role: "status" }, [toast]), selectBar]),
     layer,
     stampHelp,
