@@ -232,10 +232,12 @@ func TestARoomFullOfViewersSurvivesOnePersonActingQuickly(t *testing.T) {
 		}
 	}
 
-	// Only this room's lines: the logger is the process's, and a test that
-	// ran earlier can still be writing to it.
+	// Only this room's lines, and only the refusal itself: the logger is the
+	// process's, and the server of a test that ran earlier is still listening
+	// for notifications with its pool closed, so it logs a failed build of
+	// its own for every broadcast here.
 	for _, line := range strings.Split(logs.String(), "\n") {
-		if strings.Contains(line, id) && strings.Contains(line, "could not build session state") {
+		if strings.Contains(line, id) && strings.Contains(line, "too many plugin calls") {
 			t.Fatalf("a state build was refused during the burst: %s", line)
 		}
 	}
