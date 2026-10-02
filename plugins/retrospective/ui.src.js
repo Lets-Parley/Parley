@@ -2854,6 +2854,8 @@
     const beforeId = aim.before ? ownerOfNode(aim.before) : null;
     restless();
     clearTimeout(d.scroll);
+    // Left where it was, the spot would keep the page a little taller.
+    scrollSpot.style.top = "0px";
     mark("note", "merge", null);
     mark("group", "dropzone", null);
     mark("lane", "dropzone", null);
