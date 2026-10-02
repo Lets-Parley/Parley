@@ -241,7 +241,7 @@ const RETRO_FONTS = [
   const HINTS = [
     "Write what went well, what to improve and what puzzles you. The three dots on a note open its options: stickers, moving, actions.",
     "Drag a note onto another to group them, or select several and group them. Drag the important ones to the top.",
-    "Vote for the notes that matter most. One vote per person per note.",
+    "Vote each note up or down. One vote per person per note; press your thumb again to take it back.",
     "Agree on what to change and who owns it. Start an action from any note.",
   ];
   const PRESETS = [1, 3, 5, 10];
@@ -488,15 +488,30 @@ const RETRO_FONTS = [
     ".person{grid-column:2/-1;display:flex;align-items:center;gap:8px;min-width:0;padding-bottom:5px;font-size:13px;color:var(--color-ink-soft)}",
     ".person-name{min-width:0;overflow-wrap:anywhere}",
     ".disc{flex:none;display:grid;place-items:center;width:24px;height:24px;margin:3px;border-radius:50%;font-size:9px;font-weight:700;color:#F4F8FB;background:#3F5466;box-shadow:0 0 0 2px var(--color-surface-hi),0 0 0 3px var(--color-line)}",
-    ".vote{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 10px;border:1px solid var(--color-line-strong);border-radius:999px;background:var(--color-surface-hi);color:var(--color-ink-soft);font-size:13px;font-weight:700;transition:background-color .15s,border-color .15s}",
-    ".vote:hover{background:var(--color-felt-deep)}",
-    ".board:not(.stage-2) .vote,.board:not(.stage-3) .target{min-height:24px;height:24px;padding:0 8px;border-color:var(--color-line);font-size:12px}",
-    ".vote-dot{width:8px;height:8px;border:1.5px solid currentColor;border-radius:50%}",
-    ".vote.has-votes{color:var(--color-ink)}",
-    ".vote.has-votes .vote-dot{background:currentColor}",
-    ".vote .mono{display:inline-block}",
-    '.vote[aria-pressed="true"]{border-color:var(--color-accent);background:var(--color-accent-soft)}',
-    '.vote[aria-pressed="true"] .vote-dot{border-color:var(--color-accent);background:var(--color-accent)}',
+    // The two thumbs: one of a pair with the stickers, die-cut with an ink
+    // line and a paper border. A thumb is paper until it is the viewer's
+    // own vote, and then it is filled and its pill is ringed: told by the
+    // fill and the ring, not by the color. Down is the same thumb turned
+    // over, in a calm color: it is a vote, not a warning.
+    ".thumb{display:inline-flex;align-items:center;gap:3px;min-height:32px;padding:0 9px 0 5px;border:1px solid var(--color-line-strong);border-radius:999px;background:var(--color-surface-hi);color:var(--color-ink);font-size:13px;font-weight:700;transition:background-color .15s,border-color .15s}",
+    ".thumb:hover{background:var(--color-felt-deep)}",
+    ".thumb .mono{display:inline-block}",
+    ".thumb:has(.mono[hidden]){padding:0 5px}",
+    '.thumb[aria-pressed="true"]{border-color:var(--color-accent);background:var(--color-accent-soft);box-shadow:inset 0 0 0 1px var(--color-accent)}',
+    ".board:not(.stage-2) .thumb{min-height:24px;height:24px;padding:0 7px 0 3px;border-color:var(--color-line);font-size:12px}",
+    ".board:not(.stage-2) .thumb:has(.mono[hidden]){padding:0 3px}",
+    ".board:not(.stage-3) .target{min-height:24px;height:24px;padding:0 8px;border-color:var(--color-line);font-size:12px}",
+    ".tb{flex:none;display:block;width:24px;height:24px}",
+    ".board:not(.stage-2) .tb{width:18px;height:18px}",
+    ".tb svg{display:block;width:100%;height:100%;overflow:visible}",
+    ".tb path{fill:none;stroke-linejoin:round;stroke-linecap:round}",
+    ".tb .e{stroke:var(--st-edge);stroke-width:10;fill:var(--st-edge)}",
+    ".tb .w{stroke:var(--st-paper);stroke-width:8;fill:var(--st-paper)}",
+    ".tb .o{stroke:var(--st-ink);stroke-width:3.2}",
+    ".tb .c{fill:var(--st-paper)}",
+    ".tb .s{stroke:var(--st-ink);stroke-width:1.8}",
+    '.thumb[aria-pressed="true"] .tb .c{fill:var(--k)}',
+    ".thumb.down .tb svg{scale:1 -1}",
     // A note on its way to the server: same place, drawn as not yet real.
     ".ghost{border-style:dashed;background:transparent;box-shadow:none}",
     ".ghost .note-text{grid-column:2/-1;color:var(--color-ink-soft)}",
@@ -647,9 +662,9 @@ const RETRO_FONTS = [
     ".link-list li{display:flex;flex-wrap:wrap;align-items:center;gap:8px}",
     ".link-list span{flex:1 1 5rem;min-width:0;overflow-wrap:anywhere}",
 
-    "@media (pointer:coarse){.btn,.menu-item,.stage-2 .vote{min-height:44px}.pick,.grip,.more{width:44px;height:44px}.stage-3 .target{min-width:44px;height:44px}.board:not(.stage-2) .vote,.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.trail,.chips{min-height:44px}.chips{padding-bottom:0}.note-text{padding:12px 0}" +
+    "@media (pointer:coarse){.btn,.menu-item,.stage-2 .thumb{min-height:44px}.pick,.grip,.more{width:44px;height:44px}.stage-3 .target{min-width:44px;height:44px}.board:not(.stage-2) .thumb,.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.trail,.chips{min-height:44px}.chips{padding-bottom:0}.note-text{padding:12px 0}" +
       // What is drawn smaller than a fingertip is still pressed over 44px.
-      '.vote,.target{position:relative;justify-content:center;min-width:44px}.board:not(.stage-2) .vote::after,.board:not(.stage-3) .target::after{content:"";position:absolute;inset:-7px -1px}.st::after{content:"";position:absolute;inset:-1px}.add-st::after{content:"";position:absolute;inset:-7px}}',
+      '.thumb,.target{position:relative;justify-content:center;min-width:44px}.board:not(.stage-2) .thumb::after,.board:not(.stage-3) .target::after{content:"";position:absolute;inset:-7px -1px}.st::after{content:"";position:absolute;inset:-1px}.add-st::after{content:"";position:absolute;inset:-7px}}',
 
     // A phone. The header is two short rows and a hint: the steps shrink to
     // their numbers around the current one, the hint is one line that opens,
@@ -823,6 +838,10 @@ const RETRO_FONTS = [
     return value === undefined || value === null ? "" : String(value);
   }
 
+  function count(value) {
+    return Math.max(0, Math.floor(Number(value)) || 0);
+  }
+
   function unit(value) {
     return Math.max(0, Math.min(1, Number(value) || 0));
   }
@@ -859,7 +878,11 @@ const RETRO_FONTS = [
           groupId: typeof c.groupId === "string" ? c.groupId : null,
           text: words(c.text),
           edited: c.edited === true,
-          votes: Math.max(0, Math.floor(Number(c.voteCount)) || 0),
+          // Ups and downs; a server from before there were two sends one count, all up.
+          up: count(c.up !== undefined ? c.up : c.voteCount),
+          down: count(c.down),
+          // What a note is ranked by: ups less downs.
+          votes: count(c.up !== undefined ? c.up : c.voteCount) - count(c.down),
           authorId: typeof c.authorId === "string" ? c.authorId : null,
         };
       }),
@@ -913,17 +936,20 @@ const RETRO_FONTS = [
     board.cards.forEach(function (c) {
       if (c.columnId !== columnId) return;
       const g = c.groupId && groupById(c.groupId);
-      if (!g || g.columnId !== columnId) items.push({ id: c.id, cards: [c], votes: c.votes });
+      if (!g || g.columnId !== columnId) items.push({ id: c.id, cards: [c], votes: c.votes, up: c.up, down: c.down });
       else if (seen[g.id]) {
         seen[g.id].cards.push(c);
         seen[g.id].votes += c.votes;
-      } else items.push((seen[g.id] = { id: g.id, group: g, cards: [c], votes: c.votes }));
+        seen[g.id].up += c.up;
+        seen[g.id].down += c.down;
+      } else items.push((seen[g.id] = { id: g.id, group: g, cards: [c], votes: c.votes, up: c.up, down: c.down }));
     });
     return items;
   }
 
+  // By ups less downs; of two the same, the one with more ups first.
   function byVotes(a, b) {
-    return b.votes - a.votes;
+    return b.votes - a.votes || b.up - a.up;
   }
 
   function actionsFrom(sourceId) {
@@ -1352,6 +1378,7 @@ const RETRO_FONTS = [
     };
     hideToast();
     watching.push(item);
+    item.asked = false;
     item.timer = setTimeout(function () {
       expire(item);
     }, WAIT_MS);
@@ -1360,6 +1387,7 @@ const RETRO_FONTS = [
     try {
       const answer = parley.act(action, payload);
       if (answer && typeof answer.then === "function") {
+        item.asked = true;
         answer.then(function (result) {
           hear(item, result);
         }, unsent);
@@ -1466,14 +1494,9 @@ const RETRO_FONTS = [
       if (!hadGroups[g.id]) said.push("Notes grouped as " + g.title + " in " + columnTitle(g.columnId) + ".");
     });
 
-    const voted = after.cards.filter(function (c) {
-      const old = before.cards.filter(function (o) {
-        return o.id === c.id;
-      })[0];
-      return old && old.votes !== c.votes;
-    });
-    if (voted.length === 1) said.push(plural(voted[0].votes, "vote") + " on: " + short(voted[0].text) + ".");
-    if (voted.length > 1) said.push("Votes changed on " + voted.length + " notes.");
+    // Votes are not read out as they arrive: in the Vote stage that would be
+    // the whole room talking at once. Each thumb carries its counts in its
+    // name, and a person hears the outcome of their own vote.
 
     if (after.revealed && !before.revealed) said.push("Authors are now visible to everyone.");
     if (!after.revealed && before.revealed) said.push("Authors are hidden again.");
@@ -1966,7 +1989,7 @@ const RETRO_FONTS = [
   // ------------------------------------------------------------------ lanes
 
   const lanes = el("div", { class: "lanes" });
-  const SORTED_OFF = "Sorted by votes. Show shared order to move notes here.";
+  const SORTED_OFF = "Sorted by rating. Show shared order to move notes here.";
 
   function buildLane(col) {
     const meta = LANES[col.id] || OTHER_LANE;
@@ -1980,7 +2003,7 @@ const RETRO_FONTS = [
       // "Most votes" is a lens for one reader: `sorted` holds the ranking as
       // it stood when it was switched on, and nothing is written anywhere.
       sorted: null,
-      sortToggle: el("button", { type: "button", class: "sort", "aria-pressed": "false" }, [icon(GLYPH.bars), el("span", { class: "sort-word", text: "Votes" })]),
+      sortToggle: el("button", { type: "button", class: "sort", "aria-pressed": "false" }, [icon(GLYPH.bars), el("span", { class: "sort-word", text: "Top rated" })]),
       resort: el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Re-sort" }),
       unsort: el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Show shared order" }),
       share: el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Use this order for everyone" }),
@@ -1997,7 +2020,7 @@ const RETRO_FONTS = [
     };
     lane.row = el("div", { class: "composer-row" }, [lane.input, lane.add]);
     lane.sortLine = el("div", { class: "sort-line row" }, [
-      el("p", { class: "fine", text: "Sorted by votes, only for you." }),
+      el("p", { class: "fine", text: "Top rated first, only for you: ups less downs." }),
       lane.resort,
       lane.unsort,
       lane.share,
@@ -2268,9 +2291,11 @@ const RETRO_FONTS = [
   // touch path for every pointer gesture on the board.
   function buildNote(id) {
     const note = {
-      votes: null,
       linked: null,
-      mine: false,
+      // This viewer's vote on the note, as far as this visit knows: "up",
+      // "down", "none", or null when it has not been heard from the server.
+      mine: null,
+      pending: null,
       voting: false,
       box: el("input", { type: "checkbox" }),
       grip: el("button", { type: "button", class: "grip", "aria-describedby": "grip-help" }, [icon(GLYPH.grip)]),
@@ -2279,9 +2304,8 @@ const RETRO_FONTS = [
       author: buildPerson(),
       target: el("button", { type: "button", class: "target", "aria-haspopup": "dialog" }, [icon(GLYPH.target)]),
       targetCount: el("span", { class: "mono" }),
-      vote: el("button", { type: "button", class: "vote" }),
-      word: el("span", { text: "Vote" }),
-      count: el("span", { class: "mono" }),
+      up: buildThumb("up"),
+      down: buildThumb("down"),
       stamps: el("ul", { class: "stamps", "aria-label": "Stickers" }),
       add: el("button", { type: "button", class: "add-st", "aria-haspopup": "dialog" }, [icon(GLYPH.plus)]),
       sig: "",
@@ -2291,11 +2315,8 @@ const RETRO_FONTS = [
     // the words keep the width of the note whatever it has gathered.
     // Said in a word, not a color: the words were changed after they were written.
     note.mark = el("span", { class: "edited", text: "edited", title: "This note was edited after it was written" });
-    note.chips = el("span", { class: "chips" }, [note.mark, note.target, note.vote]);
+    note.chips = el("span", { class: "chips" }, [note.mark, note.target, note.up.btn, note.down.btn]);
     note.target.appendChild(note.targetCount);
-    note.vote.appendChild(el("span", { class: "vote-dot", "aria-hidden": "true" }));
-    note.vote.appendChild(note.word);
-    note.vote.appendChild(note.count);
     note.el = el("li", { class: "note" }, [
       el("span", { class: "lead" }, [note.grip, note.pick]),
       note.text,
@@ -2313,8 +2334,10 @@ const RETRO_FONTS = [
       selected[id] = note.box.checked;
       patchSelection();
     });
-    note.vote.addEventListener("click", function () {
-      castVote(id);
+    ["up", "down"].forEach(function (way) {
+      note[way].btn.addEventListener("click", function () {
+        castVote(id, way);
+      });
     });
     toggles(note.more, function () {
       openNoteMenu(id, note.more);
@@ -2361,6 +2384,12 @@ const RETRO_FONTS = [
         return;
       }
       if (ev.target.tagName === "TEXTAREA") return;
+      // U and D vote, from anywhere on the note but a sticker.
+      if (plain && /^[uUdD]$/.test(ev.key)) {
+        ev.preventDefault();
+        castVote(id, /u/i.test(ev.key) ? "up" : "down");
+        return;
+      }
       // S opens the stickers from anywhere on the note but a sticker.
       if ((ev.key === "s" || ev.key === "S") && !ev.altKey && !ev.ctrlKey && !ev.metaKey && !pop && !contains(note.stamps, ev.target)) {
         ev.preventDefault();
@@ -2409,17 +2438,23 @@ const RETRO_FONTS = [
     note.more.setAttribute("aria-label", "Options for note: " + brief);
     note.add.setAttribute("aria-label", "Add a sticker to: " + brief);
 
-    note.vote.hidden = board.stage !== 2 && card.votes === 0;
-    note.vote.setAttribute("aria-label", "Vote for: " + brief + ". " + plural(card.votes, "vote") + "." + (note.mine ? " You voted." : ""));
-    if (note.mine) note.vote.setAttribute("aria-pressed", "true");
-    note.vote.classList.toggle("has-votes", card.votes > 0);
-    note.word.hidden = card.votes > 0;
-    note.count.hidden = card.votes === 0;
-    if (note.votes !== card.votes) {
-      setText(note.count, String(card.votes));
-      if (note.votes !== null && card.votes > 0) tick(note.count);
-      note.votes = card.votes;
-    }
+    // The thumbs are there in the Vote stage, and wherever a note has votes.
+    // A count of none is not written.
+    const shown = note.pending !== null ? note.pending : note.mine;
+    ["up", "down"].forEach(function (way) {
+      const thumb = note[way];
+      const n = card[way];
+      thumb.btn.hidden = board.stage !== 2 && card.up + card.down === 0;
+      thumb.btn.setAttribute("aria-label", "Vote " + way + ": " + brief + ". " + card.up + " up, " + card.down + " down." + (shown === way ? " Your vote." : ""));
+      thumb.btn.setAttribute("aria-pressed", shown === way ? "true" : "false");
+      thumb.count.hidden = n === 0;
+      if (thumb.n !== n) {
+        setText(thumb.count, String(n));
+        if (thumb.n !== null && n > 0) tick(thumb.count);
+        thumb.n = n;
+      }
+    });
+    note.votes = card.up + ":" + card.down;
 
     note.target.hidden = board.stage !== 3 && linked === 0;
     note.target.classList.toggle("linked", linked > 0);
@@ -2429,46 +2464,87 @@ const RETRO_FONTS = [
     if (note.linked === 0 && linked > 0 && motionOn()) animate(note.target, { transform: "scale(.4)" }, POP);
     note.linked = linked;
     note.mark.hidden = !card.edited;
-    note.chips.hidden = note.vote.hidden && note.target.hidden && note.mark.hidden;
+    note.chips.hidden = note.up.btn.hidden && note.target.hidden && note.mark.hidden;
 
     const named = board.revealed && card.authorId;
     note.author.el.hidden = !named;
     if (named) showPerson(note.author, personById(card.authorId));
     // A stage change can take away the control somebody was on.
-    if ((held === note.vote && note.vote.hidden) || (held === note.target && note.target.hidden)) leadOf(note).focus();
+    if (((held === note.up.btn || held === note.down.btn) && note.up.btn.hidden) || (held === note.target && note.target.hidden)) leadOf(note).focus();
   }
 
-  // The state carries a count per note and nothing about whose votes they
-  // are, so "mine" is only ever what the host confirmed in this sitting. On a
-  // host that reports nothing, a count that did not move is the only signal.
-  function castVote(id) {
+  // The thumb, drawn once and used both ways up: the fist and its cuff are
+  // one outline, die-cut like a sticker.
+  const THUMB = "M8.5 18.5h5v14h-5zM16 18.6l4.6-10.4c2.6-.3 4.3 1.9 3.7 4.4l-1 4.4h6.2c2.1 0 3.6 1.9 3.1 3.9l-2.1 8.6c-.4 1.7-1.9 2.9-3.7 2.9H16z";
+
+  function buildThumb(way) {
+    const thumb = { n: null, count: el("span", { class: "mono" }) };
+    thumb.icon = el("span", { class: "tb k-" + (way === "up" ? "quick-win" : "chat") }, [svgOf("3 3 34 34", [["e", THUMB], ["w", THUMB], ["o", THUMB], ["c", THUMB], ["s", "M13.5 20v11"]])]);
+    thumb.btn = el("button", { type: "button", class: "thumb " + way, "aria-pressed": "false" }, [thumb.icon, thumb.count]);
+    return thumb;
+  }
+
+  // Voting sets a vote; it does not flip one. The state carries counts and
+  // nothing about whose votes they are, so which thumb is this viewer's is
+  // known only from what the host has answered in this visit:
+  //
+  //   known up    press up: take it back (none)   press down: switch to down
+  //   known down  press down: take it back        press up: switch to up
+  //   none, or not known (after a reload)         press either: set it
+  //
+  // Not knowing, a press on the thumb somebody already holds sets it again,
+  // which the server takes and which changes nothing: no vote is ever lost
+  // by making sure of it. The host's yes then says it is theirs, and only a
+  // second press takes it back. A vote set to what it already was shows
+  // nothing new in the state, so for a vote the host's yes is enough.
+  function castVote(id, way) {
     const note = view.notes[id];
     const card = cardById(id);
-    if (!note || !card) return;
-    if (note.mine) {
-      notify("You have already voted for this note. Each person has one vote per note.");
-      return;
-    }
-    if (note.voting) return;
-    const before = card.votes;
+    if (!note || !card || note.voting) return;
+    const value = note.mine === way ? "none" : way;
+    const before = { up: card.up, down: card.down };
     note.voting = true;
-    propose("vote", { cardId: id }, {
-      landed: function () {
-        const now = cardById(id);
-        return !now || now.votes > before;
+    note.pending = value;
+    patchNote(note, card);
+    const again = function () {
+      note.voting = false;
+      note.pending = null;
+      if (cardById(id)) patchNote(note, cardById(id));
+    };
+    // Declared first: a send the bridge refuses settles before propose returns.
+    let watch = null;
+    watch = propose("vote", { cardId: id, value: value }, {
+      landed: function (b) {
+        const now = b.cards.filter(function (c) {
+          return c.id === id;
+        })[0];
+        if (!now) return true;
+        return value === "none" ? now[way] < before[way] : now[value] > before[value];
       },
       refused: { "not-found": NOTE_GONE, conflict: "That vote was not counted. The board has all the votes it can hold." },
-      unsure: "No change. Each person has one vote per note, so yours may already be counted.",
-      // A second vote for the same note changes nothing the state can show,
-      // so here the host's yes is all there is to go on.
+      unsure: value === "none" ? "Could not confirm that your vote was taken back." : "No change to show. Your vote may already have been counted that way.",
       yesIsEnough: true,
       settle: function (outcome) {
         if (outcome === "accepted") {
-          note.mine = true;
-          if (cardById(id)) patchNote(note, cardById(id));
+          // The host took it: it is this viewer's, whatever the counts did.
+          note.mine = value;
+          again();
+          setText(live, value === "none" ? "Vote taken back." : "Voted " + value + ".");
+          if (value !== "none" && motionOn()) animate(note[value].icon, { transform: value === "up" ? "translateY(-5px) rotate(-14deg) scale(1.3)" : "translateY(5px) rotate(-14deg) scale(1.3)" }, SLAP);
           return;
         }
-        note.voting = false;
+        // The state moved before the host answered: the answer, which says
+        // whose it was, is still to come. A host that answers nothing leaves
+        // it unknown, and a count that moved may be a teammate's.
+        if (outcome === "landed" && watch && watch.asked && !watch.accepted) {
+          note.voting = false;
+          // An answer that never comes does not leave the thumb looking held.
+          setTimeout(function () {
+            if (!watch.accepted && note.pending === value) again();
+          }, WAIT_MS);
+          return;
+        }
+        if (!(watch && watch.accepted)) again();
       },
     });
   }
@@ -2481,14 +2557,15 @@ const RETRO_FONTS = [
     const off = view.lanes[card.columnId].sorted ? SORTED_OFF : "";
     const linked = actionsFrom(id).length;
     const items = [];
-    if (!note.mine) {
+    [["up", "U"], ["down", "D"]].forEach(function (way) {
       items.push({
-        label: "Vote for this note",
+        label: note.mine === way[0] ? "Take back your " + way[0] + " vote" : "Vote " + way[0],
+        keys: way[1],
         run: function () {
-          castVote(id);
+          castVote(id, way[0]);
         },
       });
-    }
+    });
     items.push({
       label: "Add a sticker…",
       keys: "S",
@@ -2842,7 +2919,7 @@ const RETRO_FONTS = [
     const title = item.group.title;
     setText(group.title, title);
     group.title.setAttribute("title", title);
-    setText(group.meta, plural(item.cards.length, "note") + " · " + plural(item.votes, "vote"));
+    setText(group.meta, plural(item.cards.length, "note") + (item.up ? " · " + item.up + " up" : "") + (item.down ? " · " + item.down + " down" : ""));
     group.grip.setAttribute("aria-label", "Drag to reorder group: " + title);
     group.more.setAttribute("aria-label", "Options for group: " + title);
     group.target.hidden = board.stage !== 3 && linked === 0;
@@ -2977,7 +3054,7 @@ const RETRO_FONTS = [
       " of " +
       places.length +
       "." +
-      (lane && lane.sorted ? " That lane is sorted by votes for you: this is its place in the shared order." : "")
+      (lane && lane.sorted ? " That lane is sorted by rating for you: this is its place in the shared order." : "")
     );
   }
 
@@ -3338,7 +3415,7 @@ const RETRO_FONTS = [
     if (aim.type === "into") return "Drop into " + groupById(aim.groupId).title;
     if (aim.type === "stay") return SORTED_OFF;
     const title = columnTitle(aim.lane.id);
-    if (aim.lane.sorted) return "Drop to add to " + title + ". That lane is sorted by votes for you, so no place in it can be picked.";
+    if (aim.lane.sorted) return "Drop to add to " + title + ". That lane is sorted by rating for you, so no place in it can be picked.";
     const id = aim.before && ownerOfNode(aim.before);
     if (!id) return "Drop at the end of " + title;
     return view.notes[id] ? "Drop to move before: " + short(cardById(id).text) : "Drop to move before the group " + groupById(id).title;
@@ -4727,12 +4804,12 @@ const RETRO_FONTS = [
 
       // The lens is offered once there is something to rank by.
       const voted = shared.some(function (item) {
-        return item.votes > 0;
+        return item.up + item.down > 0;
       });
       lane.sortToggle.hidden = !lane.sorted && (shared.length < 2 || !(voted || board.stage >= 2));
       lane.sortToggle.setAttribute("aria-pressed", lane.sorted ? "true" : "false");
-      lane.sortToggle.setAttribute("aria-label", "Most votes first in " + col.title + ", only for you");
-      lane.sortToggle.setAttribute("title", "Most votes first, only for you");
+      lane.sortToggle.setAttribute("aria-label", "Top rated first in " + col.title + ", only for you");
+      lane.sortToggle.setAttribute("title", "Top rated first, only for you");
       lane.sortLine.hidden = !lane.sorted;
       lane.resort.hidden = !lane.sorted || JSON.stringify(lane.sorted) === JSON.stringify(rankOf(shared));
       lane.share.hidden = viewerRole() === "participant";

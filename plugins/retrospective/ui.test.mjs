@@ -359,6 +359,8 @@ const labeled = (node, start) => all(node, (n) => visible(n) && (n.getAttribute(
 const menuItem = (root, label) => all(root, (n) => n.getAttribute("role") === "menuitem" && n.textContent.startsWith(label))[0];
 const noteOrder = (root, title) => byClass(lane(root, title), "note").map((n) => one(n, "note-text").textContent).join(" ");
 const liveOf = (root) => one(root, "live").textContent;
+// A note's thumb, up or down.
+const thumb = (root, text, way) => byClass(noteWith(root, text), "thumb").find((n) => n.className.split(" ").includes(way));
 const FACILITATOR = { selfId: "u-alice" };
 const PARTICIPANT = { selfId: "u-bo" };
 
@@ -449,7 +451,7 @@ test("focus on a note survives the note moving into a group", () => {
   const { root, document, push } = load();
   const cards = [card("c1", "went-well", "one"), card("c2", "went-well", "two")];
   push(session({ stage: 2, cards }));
-  const vote = button(noteWith(root, "one"), "Vote");
+  const vote = thumb(root, "one", "up");
   vote.focus();
   push(
     session({
@@ -695,30 +697,31 @@ test("a note that lands after the wait is not reported lost and cannot be sent t
 });
 
 test("a teammate's vote is never shown as the viewer's own", async () => {
-  const pressed = (root) => button(noteWith(root, "one"), "Vote").getAttribute("aria-pressed");
+  const pressed = (root, way = "up") => thumb(root, "one", way).getAttribute("aria-pressed");
   const before = session({ stage: 2, cards: [card("c1", "went-well", "one")] });
-  const after = session({ stage: 2, cards: [card("c1", "went-well", "one", { voteCount: 1 })] });
+  const after = session({ stage: 2, cards: [card("c1", "went-well", "one", { up: 1, down: 1 })] });
 
   const watcher = load({ host: "new" });
   watcher.push(before);
   watcher.push(after);
-  assert.notEqual(pressed(watcher.root), "true");
+  assert.deepEqual([pressed(watcher.root, "up"), pressed(watcher.root, "down")], ["false", "false"]);
+  assert.equal(liveOf(watcher.root), "", "and other people's votes are not read out");
 
   // An older host cannot say whose vote moved the count.
   const old = load();
   old.push(before);
-  button(noteWith(old.root, "one"), "Vote").click();
+  thumb(old.root, "one", "up").click();
+  assert.equal(pressed(old.root), "true", "pressed while it is on its way");
   old.push(after);
-  assert.notEqual(pressed(old.root), "true");
+  assert.equal(pressed(old.root), "false", "the count moved, but whose vote it was is not known");
 
   const voter = load({ host: "new" });
   voter.push(before);
-  button(noteWith(voter.root, "one"), "Vote").click();
+  thumb(voter.root, "one", "up").click();
   voter.acts[0].answer({ ok: true });
   await settled();
   assert.equal(pressed(voter.root), "true");
-  button(noteWith(voter.root, "one"), "Vote").click();
-  assert.equal(voter.acts.length, 1, "a counted vote is not sent again");
+  assert.match(thumb(voter.root, "one", "up").getAttribute("aria-label"), /Your vote\.$/);
 });
 
 test("malformed state is drawn as far as it makes sense and never throws", () => {
@@ -857,7 +860,7 @@ test("a note waiting for a lane that is removed is reported, not left stuck", ()
 test("a yes that arrives after the wait still marks the vote as the viewer's", async () => {
   const { root, push, acts, runTimers } = load({ host: "new" });
   push(session({ cards: [card("c1", "went-well", "one", { voteCount: 1 })] }));
-  const vote = button(noteWith(root, "one"), "Vote");
+  const vote = thumb(root, "one", "up");
   vote.click();
   runTimers(WAIT);
   assert.equal(toastOf(root).hidden, false);
@@ -934,7 +937,7 @@ test("the strip shows the stage the facilitator set, not one guessed from the bo
   push(session({ stage: 2 }));
   assert.match(one(root, "current").textContent, /Vote, current/);
   assert.equal(byClass(root, "reached").length, 2);
-  assert.match(shownHint(root)[0].textContent, /^Vote for the notes that matter most/);
+  assert.match(shownHint(root)[0].textContent, /^Vote each note up or down/);
   assert.equal(byClass(root, "hint").length, 4, "every hint stays in the strip, so its height never changes");
 });
 
@@ -968,7 +971,7 @@ test("a stage change is announced once, with who moved the room and what to do n
   const { root, push } = load({ host: "new" });
   push(session({ stage: 1 }, PARTICIPANT));
   push(session({ stage: 2 }, PARTICIPANT));
-  assert.equal(liveOf(root), "Alice Ng moved the room to Vote. Vote for the notes that matter most. One vote per person per note.");
+  assert.equal(liveOf(root), "Alice Ng moved the room to Vote. Vote each note up or down. One vote per person per note; press your thumb again to take it back.");
   push(session({ stage: 2 }, PARTICIPANT));
   assert.equal(liveOf(root), "", "the same state again says nothing");
   push(session({ stage: 1 }, PARTICIPANT));
@@ -985,7 +988,7 @@ test("a note's handle and its menu button are there in every stage, in the same 
   const expected = [
     ["grip", ""],
     ["grip pick", ""],
-    ["grip", "vote"],
+    ["grip", "thumb thumb"],
     ["grip", "target"],
   ];
   expected.forEach(([lead, chips], stage) => {
@@ -1000,8 +1003,8 @@ test("a note's handle and its menu button are there in every stage, in the same 
   same(one(note(), "trail").lastChild, more, "the menu button is the last control on the note");
   // A vote already cast stays in sight in every stage.
   push(session({ stage: 0, cards: [card("c1", "went-well", "one", { voteCount: 2 })] }));
-  assert.equal(shown("vote"), true);
-  assert.equal(row("chips"), "vote");
+  assert.equal(shown("thumb"), true);
+  assert.equal(row("chips"), "thumb thumb");
   assert.equal(row("trail"), "more");
 });
 
@@ -1048,10 +1051,10 @@ test("the stage focuses the board and blocks nothing: a late note and a late vot
   box.fire("keydown", ENTER);
 
   one(noteWith(root, "one"), "more").click();
-  menuItem(root, "Vote for this note").click();
+  menuItem(root, "Vote up").click();
   assert.deepEqual(sent(), [
     { action: "add-card", payload: { columnId: "went-well", text: "a late thought" } },
-    { action: "vote", payload: { cardId: "c1" } },
+    { action: "vote", payload: { cardId: "c1", value: "up" } },
   ]);
 });
 
@@ -1064,7 +1067,7 @@ test("focus follows the control when a stage change takes it away", () => {
   push(session({ stage: 1, cards }));
   same(document.activeElement, one(note, "grip"), "the handle stays where it is, and focus with it");
   push(session({ stage: 2, cards }));
-  one(note, "vote").focus();
+  thumb(root, "one", "down").focus();
   push(session({ stage: 3, cards }));
   same(document.activeElement, one(note, "more"), "a control that went away hands focus to the note's menu button");
 });
@@ -1079,13 +1082,13 @@ test("a menu is walked with the arrow keys and a typed letter, and Escape hands 
   const menu = one(root, "menu");
   assert.equal(menu.getAttribute("role"), "menu");
   assert.equal(grip.getAttribute("aria-expanded"), "true");
-  same(document.activeElement, menuItem(root, "Vote for this note"), "the first item has focus");
+  same(document.activeElement, menuItem(root, "Vote up"), "the first item has focus");
   menu.fire("keydown", { key: "ArrowDown" });
-  same(document.activeElement, menuItem(root, "Add a sticker"), "down");
+  same(document.activeElement, menuItem(root, "Vote down"), "down");
   menu.fire("keydown", { key: "End" });
   same(document.activeElement, menuItem(root, "Delete note"), "end");
   menu.fire("keydown", { key: "ArrowDown" });
-  same(document.activeElement, menuItem(root, "Vote for this note"), "and round again");
+  same(document.activeElement, menuItem(root, "Vote up"), "and round again");
   menu.fire("keydown", { key: "s" });
   same(document.activeElement, menuItem(root, "Start an action"), "a letter goes to the next item that starts with it");
   menu.fire("keydown", { key: "s" });
@@ -1186,14 +1189,14 @@ const voted = [card("c1", "went-well", "one"), card("c2", "went-well", "two", { 
 test("Most votes re-sorts a lane for one reader and sends nothing", () => {
   const { root, push, sent } = load();
   push(session({ cards: three }));
-  assert.ok(!button(lane(root, "Went well"), "Votes"), "nothing to rank by yet");
+  assert.ok(!button(lane(root, "Went well"), "Top rated"), "nothing to rank by yet");
   push(session({ cards: voted }));
-  assert.ok(!button(lane(root, "Puzzles"), "Votes"), "an empty lane has nothing to sort");
-  const toggle = button(lane(root, "Went well"), "Votes");
+  assert.ok(!button(lane(root, "Puzzles"), "Top rated"), "an empty lane has nothing to sort");
+  const toggle = button(lane(root, "Went well"), "Top rated");
   toggle.click();
   assert.equal(toggle.getAttribute("aria-pressed"), "true");
   assert.equal(noteOrder(root, "Went well"), "two three one");
-  assert.match(lane(root, "Went well").textContent, /Sorted by votes, only for you\./);
+  assert.match(lane(root, "Went well").textContent, /Top rated first, only for you: ups less downs\./);
   assert.deepEqual(sent(), []);
 
   // New votes change the counts at once and the places only when asked.
@@ -1212,9 +1215,9 @@ test("Most votes re-sorts a lane for one reader and sends nothing", () => {
 test("a sorted lane cannot be reordered, and says why", () => {
   const { root, push, sent } = load();
   push(session({ cards: voted }));
-  button(lane(root, "Went well"), "Votes").click();
+  button(lane(root, "Went well"), "Top rated").click();
   noteWith(root, "one").fire("keydown", { key: "ArrowUp", altKey: true });
-  assert.match(toastOf(root).textContent, /Sorted by votes\. Show shared order to move notes here\./);
+  assert.match(toastOf(root).textContent, /Sorted by rating\. Show shared order to move notes here\./);
   one(noteWith(root, "one"), "more").click();
   assert.equal(menuItem(root, "Move up").getAttribute("aria-disabled"), "true");
   menuItem(root, "Move up").click();
@@ -1225,16 +1228,16 @@ test("a sorted lane cannot be reordered, and says why", () => {
 test("the facilitator can make the vote order everyone's; a participant is not offered it", () => {
   const lead = load({ host: "new" });
   lead.push(session({ cards: voted }, FACILITATOR));
-  button(lane(lead.root, "Went well"), "Votes").click();
+  button(lane(lead.root, "Went well"), "Top rated").click();
   button(lead.root, "Use this order for everyone").click();
   assert.deepEqual(lead.sent(), [{ action: "order-by-votes", payload: { columnId: "went-well" } }]);
   lead.push(session({ cards: [voted[1], voted[2], voted[0]] }, FACILITATOR));
-  assert.equal(button(lane(lead.root, "Went well"), "Votes").getAttribute("aria-pressed"), "false", "the lens is off: the shared order is now the sorted one");
+  assert.equal(button(lane(lead.root, "Went well"), "Top rated").getAttribute("aria-pressed"), "false", "the lens is off: the shared order is now the sorted one");
   assert.equal(noteOrder(lead.root, "Went well"), "two three one");
 
   const member = load({ host: "new" });
   member.push(session({ cards: voted }, PARTICIPANT));
-  button(lane(member.root, "Went well"), "Votes").click();
+  button(lane(member.root, "Went well"), "Top rated").click();
   assert.ok(!button(member.root, "Use this order for everyone"));
 });
 
@@ -2209,13 +2212,13 @@ test("a note deleted while it is carried is not moved, and the board says it is 
 test("a note in a lane sorted by votes can be lifted, but a drop inside that lane moves nothing and says why", () => {
   const ui = load();
   ui.push(session({ cards: voted }));
-  button(lane(ui.root, "Went well"), "Votes").click();
+  button(lane(ui.root, "Went well"), "Top rated").click();
   carry(ui, "one", 110);
   assert.equal(byClass(ui.root, "drag").length, 1, "it can still be carried to another lane");
-  assert.equal(liveOf(ui.root), "Sorted by votes. Show shared order to move notes here.");
+  assert.equal(liveOf(ui.root), "Sorted by rating. Show shared order to move notes here.");
   ui.fireWindow("pointerup", { clientX: 10, clientY: 110 });
   assert.deepEqual(ui.sent(), []);
-  assert.equal(toastOf(ui.root).textContent, "Sorted by votes. Show shared order to move notes here.");
+  assert.equal(toastOf(ui.root).textContent, "Sorted by rating. Show shared order to move notes here.");
   assert.equal(noteOrder(ui.root, "Went well"), "two three one");
 });
 
@@ -2297,8 +2300,8 @@ test("ids and kinds that are names the language already uses are drawn, or left 
   assert.equal(byClass(one(ui.root, "action"), "src").length, 3, "four sources: two chips and the rest");
 
   one(noteWith(ui.root, "note __proto__"), "more").click();
-  menuItem(ui.root, "Vote for this note").click();
-  assert.deepEqual(ui.sent(), [{ action: "vote", payload: { cardId: "__proto__" } }]);
+  menuItem(ui.root, "Vote up").click();
+  assert.deepEqual(ui.sent(), [{ action: "vote", payload: { cardId: "__proto__", value: "up" } }]);
   ui.acts[0].answer({ ok: false, reason: "constructor" });
   ui.push(session({ cards: [] }, PARTICIPANT));
   assert.equal(byClass(ui.root, "note").length, 0);
@@ -2833,21 +2836,21 @@ test("a grouped note dropped among loose notes, or in another lane, leaves its g
 test("a lane sorted by votes takes a note from another lane, at its end, and says the sort is the viewer's own", () => {
   const cards = [...three, card("c4", "to-improve", "four", { voteCount: 1 }), card("c5", "to-improve", "five", { voteCount: 3 })];
   const ui = board5({ cards });
-  button(lane(ui.root, "To improve"), "Votes").click();
+  button(lane(ui.root, "To improve"), "Top rated").click();
   assert.equal(noteOrder(ui.root, "To improve"), "five four");
   carryTo(ui, "one", 400, 105);
-  assert.equal(liveOf(ui.root), "Drop to add to To improve. That lane is sorted by votes for you, so no place in it can be picked.");
+  assert.equal(liveOf(ui.root), "Drop to add to To improve. That lane is sorted by rating for you, so no place in it can be picked.");
   drop(ui, 400, 105);
   assert.deepEqual(ui.sent(), [{ action: "move-card", payload: { cardId: "c1", columnId: "to-improve" } }], "no place is asked for");
   assert.equal(noteOrder(ui.root, "To improve"), "five four one");
-  assert.equal(liveOf(ui.root), "Moved to To improve, position 3 of 3. That lane is sorted by votes for you: this is its place in the shared order.");
+  assert.equal(liveOf(ui.root), "Moved to To improve, position 3 of 3. That lane is sorted by rating for you: this is its place in the shared order.");
 });
 
 test("a note can be carried out of a lane sorted by votes", () => {
   const ui = load({ host: "new" });
   ui.push(session({ cards: voted }, PARTICIPANT));
   lanesLaid2(ui);
-  button(lane(ui.root, "Went well"), "Votes").click();
+  button(lane(ui.root, "Went well"), "Top rated").click();
   carryTo(ui, "one", 700, 300);
   drop(ui, 700, 300);
   assert.deepEqual(ui.sent(), [{ action: "move-card", payload: { cardId: "c1", columnId: "puzzles" } }]);
@@ -3291,8 +3294,8 @@ test("on a touch screen the checkbox, the handle, the menu button and the action
   assert.match(coarse, /\.stage-3 \.target\{min-width:44px;height:44px\}/);
   assert.doesNotMatch(src, /width:36px;height:44px/);
   const reach = src.split("\n").find((line) => line.includes(".st::after"));
-  assert.match(reach, /\.vote,\.target\{position:relative;justify-content:center;min-width:44px\}/);
-  assert.match(reach, /\.board:not\(\.stage-2\) \.vote::after,\.board:not\(\.stage-3\) \.target::after\{content:"";position:absolute;inset:-7px -1px\}/);
+  assert.match(reach, /\.thumb,\.target\{position:relative;justify-content:center;min-width:44px\}/);
+  assert.match(reach, /\.board:not\(\.stage-2\) \.thumb::after,\.board:not\(\.stage-3\) \.target::after\{content:"";position:absolute;inset:-7px -1px\}/);
   assert.match(reach, /\.st::after\{content:"";position:absolute;inset:-1px\}/);
   assert.match(reach, /\.add-st::after\{content:"";position:absolute;inset:-7px\}/);
 });
@@ -3402,7 +3405,7 @@ test("a note's words share their row with the handle and the menu only: the vote
   for (const text of ["plain", "voted", "linked"]) {
     const note = noteWith(root, text);
     assert.deepEqual(one(note, "trail").children.map((n) => n.className), ["more"], "beside the words: the menu and nothing else");
-    assert.deepEqual(one(note, "chips").children.map((n) => n.className.split(" ")[0]), ["edited", "target", "vote"]);
+    assert.deepEqual(one(note, "chips").children.map((n) => n.className.split(" ")[0]), ["edited", "target", "thumb", "thumb"]);
     same(one(note, "chips").parentNode, note, "the chips are a row of the note, not part of the first one");
   }
   assert.equal(one(noteWith(root, "plain"), "chips").hidden, true, "nothing to show, no row: the note stays one line");
@@ -4109,4 +4112,191 @@ test("a note deleted while it is being edited does not take the draft with it: t
   // And an edit made by its author is announced to the others without a name.
   ui.push(session({ stage: 1, cards: [{ ...three[2], text: "three, reworded", edited: true }] }, PARTICIPANT));
   assert.equal(liveOf(ui.root), "A note in Went well was edited.");
+});
+
+// ---- thumbs up and down
+
+const pressedOf = (ui, text = "one") => ["up", "down"].map((way) => thumb(ui.root, text, way).getAttribute("aria-pressed")).join(" ");
+
+test("a vote is set, not flipped: up, a switch to down in one press, and the held thumb pressed again takes it back", async () => {
+  const ui = load({ host: "new" });
+  const cards = (up, down) => [card("c1", "went-well", "one", { up, down })];
+  ui.push(session({ stage: 2, cards: cards(0, 0) }, PARTICIPANT));
+  const up = thumb(ui.root, "one", "up");
+  const down = thumb(ui.root, "one", "down");
+  assert.equal(up.getAttribute("aria-label"), "Vote up: one. 0 up, 0 down.");
+  assert.equal(down.getAttribute("aria-label"), "Vote down: one. 0 up, 0 down.");
+  assert.equal(pressedOf(ui), "false false");
+  assert.deepEqual([up, down].map((b) => one(b, "mono").hidden), [true, true], "a count of none is not written");
+
+  up.click();
+  assert.deepEqual(ui.sent().at(-1), { action: "vote", payload: { cardId: "c1", value: "up" } });
+  assert.equal(pressedOf(ui), "true false", "pressed at once, while it is on its way");
+  down.click();
+  assert.equal(ui.sent().length, 1, "one at a time: a second press waits for the first");
+  ui.acts[0].answer({ ok: true });
+  await settled();
+  ui.push(session({ stage: 2, cards: cards(1, 0) }, PARTICIPANT));
+  assert.equal(pressedOf(ui), "true false");
+  assert.equal(up.getAttribute("aria-label"), "Vote up: one. 1 up, 0 down. Your vote.");
+  assert.equal(one(up, "mono").textContent, "1");
+  assert.equal(liveOf(ui.root), "", "the push that shows it says nothing more");
+
+  down.click();
+  assert.deepEqual(ui.sent().at(-1), { action: "vote", payload: { cardId: "c1", value: "down" } }, "one press switches");
+  ui.acts[1].answer({ ok: true });
+  await settled();
+  assert.equal(liveOf(ui.root), "Voted down.");
+  ui.push(session({ stage: 2, cards: cards(0, 1) }, PARTICIPANT));
+  assert.equal(pressedOf(ui), "false true");
+
+  down.click();
+  assert.deepEqual(ui.sent().at(-1), { action: "vote", payload: { cardId: "c1", value: "none" } }, "the held thumb, pressed again, takes the vote back");
+  assert.equal(pressedOf(ui), "false false");
+  ui.acts[2].answer({ ok: true });
+  await settled();
+  assert.equal(liveOf(ui.root), "Vote taken back.");
+  ui.push(session({ stage: 2, cards: cards(0, 0) }, PARTICIPANT));
+  assert.equal(pressedOf(ui), "false false");
+  // Known to have none: the next press sets again.
+  up.click();
+  assert.deepEqual(ui.sent().at(-1), { action: "vote", payload: { cardId: "c1", value: "up" } });
+});
+
+test("after a reload a press on the thumb somebody already holds sets it again and never removes it", async () => {
+  // This viewer voted up before reloading. The board shows one up vote and cannot say whose.
+  const ui = load({ host: "new" });
+  const cards = [card("c1", "went-well", "one", { up: 1, down: 0 })];
+  ui.push(session({ stage: 2, cards }, PARTICIPANT));
+  assert.equal(pressedOf(ui), "false false", "not known to be theirs");
+  thumb(ui.root, "one", "up").click();
+  assert.deepEqual(ui.sent(), [{ action: "vote", payload: { cardId: "c1", value: "up" } }], "it asks for up, which they already have: never for none");
+  // The server takes it and nothing changes: no push comes. The yes is all there is.
+  ui.acts[0].answer({ ok: true });
+  await settled();
+  assert.equal(pressedOf(ui), "true false", "now known to be theirs");
+  assert.equal(liveOf(ui.root), "Voted up.");
+  ui.runTimers(WAIT);
+  assert.equal(toastOf(ui.root).hidden, true, "and a yes with nothing to show for it is not called unconfirmed");
+  assert.equal(pressedOf(ui), "true false");
+  // Only now does the same thumb take it back.
+  thumb(ui.root, "one", "up").click();
+  assert.deepEqual(ui.sent().at(-1), { action: "vote", payload: { cardId: "c1", value: "none" } });
+
+  // A host that answers nothing: the board stays not knowing, says so once, and still never sends none.
+  const old = load();
+  old.push(session({ stage: 2, cards }));
+  thumb(old.root, "one", "up").click();
+  old.runTimers(WAIT);
+  assert.match(toastOf(old.root).textContent, /No change to show\. Your vote may already have been counted that way\./);
+  assert.equal(pressedOf(old), "false false");
+  thumb(old.root, "one", "up").click();
+  assert.deepEqual(old.sent().map((a) => a.payload.value), ["up", "up"]);
+});
+
+test("a refused vote is put back and says why; the state arriving before the answer does not lose it", async () => {
+  const ui = load({ host: "new" });
+  const cards = (up) => [card("c1", "went-well", "one", { up })];
+  ui.push(session({ stage: 2, cards: cards(0) }, PARTICIPANT));
+  thumb(ui.root, "one", "up").click();
+  ui.acts[0].answer({ ok: false, reason: "conflict" });
+  await settled();
+  assert.equal(pressedOf(ui), "false false");
+  assert.equal(toastOf(ui.root).textContent, "That vote was not counted. The board has all the votes it can hold.");
+  // The push first, the yes after.
+  thumb(ui.root, "one", "up").click();
+  ui.push(session({ stage: 2, cards: cards(1) }, PARTICIPANT));
+  assert.equal(pressedOf(ui), "true false", "still shown as on its way");
+  ui.acts[1].answer({ ok: true });
+  await settled();
+  assert.equal(pressedOf(ui), "true false");
+  assert.match(thumb(ui.root, "one", "up").getAttribute("aria-label"), /Your vote\.$/);
+  // U and D on the note do what the thumbs do.
+  noteWith(ui.root, "one").fire("keydown", { key: "d" });
+  assert.deepEqual(ui.sent().at(-1), { action: "vote", payload: { cardId: "c1", value: "down" } });
+  ui.acts[2].answer({ ok: true });
+  await settled();
+  noteWith(ui.root, "one").fire("keydown", { key: "D" });
+  assert.deepEqual(ui.sent().at(-1), { action: "vote", payload: { cardId: "c1", value: "none" } });
+  noteWith(ui.root, "one").fire("keydown", { key: "u", ctrlKey: true });
+  assert.equal(ui.sent().length, 4, "a chord is not a vote");
+});
+
+test("the thumbs are on every note in the Vote stage, and elsewhere only on a note that has votes: a bare note keeps one row", () => {
+  const { root, push } = load();
+  const cards = [card("c1", "went-well", "bare"), card("c2", "went-well", "liked", { up: 2 }), card("c3", "went-well", "disliked", { down: 1 })];
+  const rows = () => ["bare", "liked", "disliked"].map((t) => !one(noteWith(root, t), "chips").hidden);
+  for (const stage of [0, 1, 3]) {
+    push(session({ stage, cards }));
+    // (In Decide every note has its row, for the action button; the thumbs on a bare note are still away.)
+    assert.deepEqual(rows(), [stage === 3, true, true], "stage " + stage);
+    assert.deepEqual(["up", "down"].map((w) => visible(thumb(root, "bare", w))), [false, false], "stage " + stage);
+    assert.deepEqual(["up", "down"].map((w) => visible(thumb(root, "disliked", w))), [true, true], "both thumbs, so a vote the other way is one press");
+  }
+  push(session({ stage: 2, cards }));
+  assert.deepEqual(rows(), [true, true, true]);
+  assert.deepEqual(["up", "down"].map((w) => one(thumb(root, "liked", w), "mono").hidden), [false, true]);
+  assert.equal(one(thumb(root, "liked", "up"), "mono").textContent, "2");
+  assert.equal(thumb(root, "liked", "up").getAttribute("aria-label"), "Vote up: liked. 2 up, 0 down.");
+  // The thumb is drawn, not written: the same outline four times, die-cut like a sticker, and turned over for down.
+  const paths = one(thumb(root, "liked", "up"), "tb").children[0].children.map((p) => p.getAttribute("class"));
+  assert.deepEqual(paths, ["e", "w", "o", "c", "s"]);
+  assert.match(src, /\.thumb\.down \.tb svg\{scale:1 -1\}/);
+  assert.match(src, /\.thumb\[aria-pressed="true"\] \.tb \.c\{fill:var\(--k\)\}/);
+  assert.match(src, /\.thumb\[aria-pressed="true"\]\{border-color:var\(--color-accent\);background:var\(--color-accent-soft\);box-shadow:inset 0 0 0 1px var\(--color-accent\)\}/);
+});
+
+test("Top rated ranks by ups less downs, then by more ups, and a group says its ups and downs", () => {
+  const { root, push } = load();
+  const cards = [
+    card("c1", "went-well", "one", { up: 1 }),
+    card("c2", "went-well", "two", { up: 4, down: 3 }),
+    card("c3", "went-well", "three", { down: 2 }),
+    card("c4", "went-well", "four", { up: 3 }),
+    card("c5", "went-well", "five"),
+  ];
+  push(session({ cards }));
+  const toggle = button(lane(root, "Went well"), "Top rated");
+  assert.equal(toggle.getAttribute("aria-label"), "Top rated first in Went well, only for you");
+  toggle.click();
+  // four is 3; two and one are both 1, two with more ups; five is 0; three is -2.
+  assert.equal(noteOrder(root, "Went well"), "four two one five three");
+
+  // A lane with only down votes can be sorted too.
+  const down = load();
+  down.push(session({ cards: [card("c1", "puzzles", "a", { down: 1 }), card("c2", "puzzles", "b")] }));
+  button(lane(down.root, "Puzzles"), "Top rated").click();
+  assert.equal(noteOrder(down.root, "Puzzles"), "b a");
+
+  const grouped = load();
+  const g = [{ id: "g1", columnId: "went-well", title: "Pair" }];
+  grouped.push(session({ cards: [card("c1", "went-well", "one", { groupId: "g1", up: 6 }), card("c2", "went-well", "two", { groupId: "g1", up: 0, down: 1 })], groups: g }));
+  assert.equal(one(grouped.root, "group-meta").textContent, "2 notes · 6 up · 1 down");
+  grouped.push(session({ cards: [card("c1", "went-well", "one", { groupId: "g1" }), card("c2", "went-well", "two", { groupId: "g1" })], groups: g }));
+  assert.equal(one(grouped.root, "group-meta").textContent, "2 notes", "nothing to say, nothing said");
+  // A server from before there were two directions sends one count, which is all ups.
+  grouped.push(session({ cards: [card("c1", "went-well", "one", { groupId: "g1", voteCount: 3 }), card("c2", "went-well", "two", { groupId: "g1" })], groups: g }));
+  assert.equal(one(grouped.root, "group-meta").textContent, "2 notes · 3 up");
+});
+
+test("the viewer's own vote gets a small press and a teammate's does not; nothing moves where less motion is asked for", async () => {
+  const ui = load({ host: "new", motion: true });
+  ui.push(session({ stage: 2, cards: [card("c1", "went-well", "one")] }, PARTICIPANT));
+  ui.document.animations.length = 0;
+  ui.push(session({ stage: 2, cards: [card("c1", "went-well", "one", { up: 1 })] }, PARTICIPANT));
+  const onIcon = () => ui.document.animations.filter((a) => a.target.className.split(" ").includes("tb"));
+  assert.equal(onIcon().length, 0, "a teammate's vote does not press the thumb");
+  assert.equal(ui.document.animations.filter((a) => a.target.className === "mono").length, 1, "its count ticks");
+  thumb(ui.root, "one", "down").click();
+  ui.acts[0].answer({ ok: true });
+  await settled();
+  assert.equal(onIcon().length, 1, "the viewer's own does");
+  same(onIcon()[0].target, one(thumb(ui.root, "one", "down"), "tb"));
+
+  const still = load({ host: "new" });
+  still.push(session({ stage: 2, cards: [card("c1", "went-well", "one")] }, PARTICIPANT));
+  thumb(still.root, "one", "up").click();
+  still.acts[0].answer({ ok: true });
+  await settled();
+  assert.equal(still.document.animations.length, 0);
 });
