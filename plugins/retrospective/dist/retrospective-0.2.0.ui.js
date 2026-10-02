@@ -154,16 +154,19 @@ const RETRO_FONTS = [
   });
   const STAMP_SIZE = 32;
   const STAMP_STEP = 6;
-  // A stamp's center runs from this far above its note's top edge to this far
-  // above its bottom edge, so one can hang over the top and the sides but
+  // A stamp's center runs from STAMP_RISE above its note's top edge to 16px
+  // above its bottom edge (STAMP_SPAN is the two together), so one can hang over the top and the sides but
   // never over the note underneath.
-  const STAMP_RISE = 6;
-  const STAMP_SPAN = 10;
+  const STAMP_RISE = 5;
+  const STAMP_SPAN = 11;
   const ONLY_PRESSER = "Only the person who pressed a stamp, or the facilitator, can move or remove it.";
   const NOT_KNOWN_MINE = "You can move a stamp you pressed in this visit. Open an older one of yours to remove it.";
   const ONLY_AUTHOR = "Only the person who wrote a note, or the facilitator, can delete it.";
   const NOTE_GONE = "That note is no longer on the board.";
-  const STAMP_CAPS = "That stamp was not pressed. A note holds twelve stamps, three per person.";
+  // The board answers "conflict" for a limit reached and for a store that is
+  // full, and the code does not say which.
+  const OR_STORE = " If that is not it, this organization's storage for the plugin is full: delete notes or actions, or ask an admin.";
+  const STAMP_CAPS = "That stamp was not pressed. A note holds twelve stamps, three per person." + OR_STORE;
 
   // A lane is told apart by its glyph and its title; the hue only agrees.
   const LANES = bag({
@@ -192,7 +195,7 @@ const RETRO_FONTS = [
     forbidden: "You are not allowed to do that in this room.",
     invalid: "The server did not accept that as written.",
     "not-found": "That is no longer on the board. If nothing works, reload the page.",
-    conflict: "The board could not take that: it is full, or the room has ended.",
+    conflict: "The board could not take that. The room has ended, or this organization's storage for the plugin is full: delete notes or actions, or ask an admin.",
     "rate-limited": "Too many changes at once. Wait a moment, then try again.",
     ungranted: "This plugin is not allowed to change the room. An org admin can check its grants.",
     unreachable: "Could not reach the server. Check your connection, then try again.",
@@ -361,11 +364,12 @@ const RETRO_FONTS = [
     ".left{margin-top:6px;font-size:13px;color:var(--color-ink-faint)}",
     ".empty{font-size:13px;color:var(--color-ink-faint);text-wrap:pretty}",
 
-    ".notes{display:flex;flex-direction:column;gap:8px}",
+    // Notes stand 22px apart, under a group's heading and under the composer
+    // too: a stamp hangs 21px over a note's top edge, and that room is always
+    // there, so nothing moves when the first one lands.
+    ".notes{display:flex;flex-direction:column;gap:22px}",
+    ".lane>.notes:not(:empty){margin-top:10px}",
     ".note{position:relative;display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:start;column-gap:6px;padding:5px 8px 5px 4px;background:var(--color-surface-hi);border:1px solid var(--color-line);border-radius:14px;box-shadow:var(--shadow-rest);transition:background-color .15s,border-color .15s}",
-    // Room for its stamps to hang over its top edge without reaching the
-    // note above: a stamp rises 22px, and the notes are 8px apart.
-    ".note.stamped{margin-top:16px}",
     ".note.selected{background:var(--color-accent-soft);border-color:var(--color-accent);box-shadow:0 0 0 1px var(--color-accent),var(--shadow-rest)}",
     // A note's controls are drawn over its stamps, and over a neighbor's:
     // a stamp may cover text, which shows through it, but never a control.
@@ -384,7 +388,7 @@ const RETRO_FONTS = [
     ".lit{outline:2px solid var(--color-accent);outline-offset:1px}",
     ".note.spot,.group.spot{box-shadow:0 0 0 2px var(--color-accent),var(--shadow-rest)}",
     // A note being dragged: the copy under the pointer, and the slot it left.
-    ".note.drag,.note.drag.stamped{position:fixed;z-index:4;margin:0;pointer-events:none;box-shadow:var(--shadow-lift)}",
+    ".note.drag{position:fixed;z-index:4;margin:0;pointer-events:none;box-shadow:var(--shadow-lift)}",
     ".note.slot{border:1.5px dashed var(--color-accent);background:transparent;box-shadow:none}",
     ".note.slot>*{visibility:hidden}",
     ".dragging,.dragging *{user-select:none;cursor:grabbing!important}",
@@ -409,7 +413,7 @@ const RETRO_FONTS = [
     ".ghost .note-text{grid-column:2/-1;color:var(--color-ink-soft)}",
     ".ghost-foot{grid-column:2/-1;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding-bottom:5px;font-size:13px;color:var(--color-ink-faint)}",
     ".group{padding:8px;border-radius:14px;background:var(--color-felt-deep);box-shadow:var(--shadow-well)}",
-    ".group-head{position:relative;z-index:2;display:flex;align-items:flex-start;gap:6px;margin:0 0 6px}",
+    ".group-head{position:relative;z-index:2;display:flex;align-items:flex-start;gap:6px;margin:0 0 22px}",
     ".group-title{flex:1;min-width:0;padding-top:4px}",
 
     // A stamp is an ink impression: a ring and a glyph in one hue, with
@@ -984,6 +988,18 @@ const RETRO_FONTS = [
   function openPop(anchor, node, patch) {
     closePop(false);
     pop = { anchor: anchor, el: node, patch: patch };
+    // A menu closes on Tab. A sheet keeps Tab inside itself: the board under
+    // it is inert, so the next stop would be the host page.
+    if (node.getAttribute("role") !== "menu") {
+      node.addEventListener("keydown", function (ev) {
+        if (ev.key !== "Tab") return;
+        const stops = tabStops(node, []);
+        if (!stops.length) return;
+        const at = stops.indexOf(document.activeElement);
+        ev.preventDefault();
+        stops[(at + (ev.shiftKey ? -1 : 1) + stops.length) % stops.length].focus();
+      });
+    }
     setBehind(true);
     anchor.setAttribute("aria-expanded", "true");
     layer.appendChild(node);
@@ -992,6 +1008,16 @@ const RETRO_FONTS = [
     // asks to be brought into sight.
     if (node.scrollIntoView) node.scrollIntoView({ block: "nearest" });
     if (motionOn()) animate(node, { transform: "translateY(-6px) scale(.97)", opacity: 0 }, POP);
+  }
+
+  function tabStops(node, found) {
+    for (let i = 0; i < node.children.length; i++) {
+      const kid = node.children[i];
+      if (kid.hidden) continue;
+      if (/^(BUTTON|INPUT|TEXTAREA)$/.test(kid.tagName) && !kid.disabled && kid.getAttribute("tabindex") !== "-1") found.push(kid);
+      else tabStops(kid, found);
+    }
+    return found;
   }
 
   // Under its control, or above it when there is no room below; never off
@@ -1117,7 +1143,7 @@ const RETRO_FONTS = [
   let watching = [];
 
   function propose(action, payload, how) {
-    const item = { landed: how.landed, settle: how.settle || function () {}, unsure: how.unsure, refused: bag(how.refused) };
+    const item = { landed: how.landed, settle: how.settle || function () {}, unsure: how.unsure, refused: bag(how.refused), yesIsEnough: how.yesIsEnough };
     const unsent = function () {
       refuse(item, "That could not be sent. Try again.");
     };
@@ -1149,11 +1175,14 @@ const RETRO_FONTS = [
     if (watching.indexOf(item) === -1) {
       // The state showed the change before the answer came. The yes still
       // says something the state cannot: that the change was this viewer's.
-      if (item.shown && result.ok === true) item.settle("accepted");
+      if (item.shown && result.ok === true) {
+        item.accepted = true;
+        item.settle("accepted");
+      }
       return;
     }
     if (result.ok === true) {
-      retract(item.notice);
+      if (item.yesIsEnough) retract(item.notice);
       item.accepted = true;
       item.settle("accepted");
       return;
@@ -1170,17 +1199,19 @@ const RETRO_FONTS = [
     notify(message);
   }
 
-  // The wait is over and the state does not show the change. If the host said
-  // yes, the state is only slow and nothing is reported. Otherwise it is
-  // "unsure". In both cases the action stays watched for a while longer.
+  // The wait is over and the state does not show the change. That is
+  // "unsure" whatever the host answered: a host that cannot say no answers
+  // yes to a change the board declined, so a yes is believed only once the
+  // state agrees. Whatever was drawn ahead of the state is taken back by
+  // `settle`. The action stays watched for a while longer, and if the change
+  // does turn up, the message is taken back and it has landed after all.
   function expire(item) {
-    if (!item.accepted) {
+    if (!(item.accepted && item.yesIsEnough)) {
       item.settle("unsure");
       item.notice = notify(item.unsure);
     }
     item.timer = setTimeout(function () {
       forget(item);
-      if (item.accepted) item.settle("landed");
     }, LATE_MS);
   }
 
@@ -1988,7 +2019,7 @@ const RETRO_FONTS = [
       landed: function (b) {
         return ghostLanded(next, b);
       },
-      refused: { conflict: "That note was not saved. A board holds 120 notes, 30 from each person." },
+      refused: { conflict: "That note was not saved. A board holds 120 notes, 30 from each person." + OR_STORE },
       unsure: "Could not confirm that your note was saved. It is waiting in its lane.",
       settle: function (outcome) {
         if (outcome === "landed") {
@@ -2137,6 +2168,9 @@ const RETRO_FONTS = [
       },
       refused: { "not-found": NOTE_GONE, conflict: "That vote was not counted. The board has all the votes it can hold." },
       unsure: "No change. Each person has one vote per note, so yours may already be counted.",
+      // A second vote for the same note changes nothing the state can show,
+      // so here the host's yes is all there is to go on.
+      yesIsEnough: true,
       settle: function (outcome) {
         if (outcome === "accepted") {
           note.mine = true;
@@ -2147,6 +2181,8 @@ const RETRO_FONTS = [
       },
     });
   }
+
+  const notMyNotes = bag();
 
   function openNoteMenu(id, opener) {
     const card = cardById(id);
@@ -2224,7 +2260,9 @@ const RETRO_FONTS = [
     // Before the reveal nothing says whose a note is, and what this viewer
     // wrote is not remembered past a reload, so Delete is offered to everyone
     // and the server answers. After the reveal the board does know.
-    const others = board.revealed && card.authorId && viewerRole() === "participant" && card.authorId !== session.selfId;
+    // A note the server has already said is somebody else's stays that way
+    // for the visit.
+    const others = (viewerRole() !== "facilitator" && notMyNotes[id]) || (board.revealed && card.authorId && viewerRole() === "participant" && card.authorId !== session.selfId);
     items.push({
       label: "Delete note…",
       off: others ? ONLY_AUTHOR : "",
@@ -2241,7 +2279,7 @@ const RETRO_FONTS = [
   // the facilitator. Everyone else asks as themselves, and the server answers
   // no unless the note is theirs.
   function deleteNote(id) {
-    propose(viewerRole() === "facilitator" ? "moderate-card" : "delete-card", { cardId: id }, {
+    const watch = propose(viewerRole() === "facilitator" ? "moderate-card" : "delete-card", { cardId: id }, {
       landed: function (b) {
         return !b.cards.some(function (c) {
           return c.id === id;
@@ -2249,6 +2287,9 @@ const RETRO_FONTS = [
       },
       refused: { forbidden: ONLY_AUTHOR, "not-found": NOTE_GONE },
       unsure: "Could not confirm that the note was deleted.",
+      settle: function (outcome) {
+        if (outcome === "refused" && watch && watch.reason === "forbidden") notMyNotes[id] = true;
+      },
     });
   }
 
@@ -2375,7 +2416,7 @@ const RETRO_FONTS = [
       unsure: "Could not confirm that move. The order may not have changed for everyone.",
       settle: function (outcome) {
         // A state that arrived since is the server's own order already.
-        if (outcome !== "refused" || board !== mine) return;
+        if ((outcome !== "refused" && outcome !== "unsure") || board !== mine) return;
         reflow(function () {
           board.cards = was.map(function (w) {
             w.card.columnId = w.columnId;
@@ -2466,8 +2507,15 @@ const RETRO_FONTS = [
   // can pick the drag up again. `active` is set once something is being carried.
   let gesture = null;
 
-  function follow(move, stop) {
+  function follow(pointerId, heard, stop) {
     const g = { active: false };
+    // A second finger on the screen is not this drag.
+    const other = function (e) {
+      return e.pointerId !== undefined && pointerId !== undefined && e.pointerId !== pointerId;
+    };
+    const move = function (e) {
+      if (!other(e)) heard(e);
+    };
     const cancel = function () {
       g.end({ type: "pointercancel" });
     };
@@ -2476,7 +2524,7 @@ const RETRO_FONTS = [
       if (e.target === main) cancel();
     };
     g.end = function (e) {
-      if (gesture !== g) return;
+      if (gesture !== g || other(e)) return;
       gesture = null;
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", g.end);
@@ -2524,6 +2572,7 @@ const RETRO_FONTS = [
       const start = { x: ev.clientX, y: ev.clientY };
       let over = false;
       const g = follow(
+        ev.pointerId,
         function (e) {
           if (over) return;
           if (!drag) {
@@ -2644,8 +2693,9 @@ const RETRO_FONTS = [
   // ----------------------------------------------------------------- stamps
 
   // A stamp is pressed onto a note and stays where it was put: it sits over
-  // the note, may hang over its edge, and takes up no room, so nothing moves
-  // when one arrives. The state says what each stamp is and where, and never
+  // the note, may hang over its top and its sides, and takes up no room. The
+  // gap between notes is wide enough for the overhang (see .notes), so
+  // nothing moves when one arrives or leaves. The state says what each stamp is and where, and never
   // who pressed it. Which ones are this viewer's own is known only from what
   // happened in this visit: a stamp that appeared exactly as it was sent, and
   // a move the server accepted or refused.
@@ -2784,7 +2834,12 @@ const RETRO_FONTS = [
       refused: { forbidden: ONLY_PRESSER, failed: ONLY_PRESSER, "not-found": "That stamp is no longer on the board." },
       unsure: remove ? "Could not confirm that the stamp was removed." : "Could not confirm that the stamp moved.",
       settle: function (outcome) {
-        if (outcome === "accepted") mineStamps[id] = true;
+        // The stamp is this viewer's once the server said yes and the state
+        // shows the change: a yes the state contradicts proves nothing.
+        if (watch && watch.accepted && watch.shown && !mineStamps[id]) {
+          mineStamps[id] = true;
+          patchStamps();
+        }
         if (outcome !== "refused" && outcome !== "unsure") return;
         if (watch && (watch.reason === "failed" || watch.reason === "forbidden")) notMine[id] = true;
         if (stampAt[id] === at) delete stampAt[id];
@@ -2926,6 +2981,7 @@ const RETRO_FONTS = [
       let moved = false;
       let over = false;
       const g = follow(
+        ev.pointerId,
         function (e) {
           const now = stampById(id);
           if (!now || over) return;
@@ -3035,8 +3091,6 @@ const RETRO_FONTS = [
         }),
       );
       note.stamps.hidden = list.length === 0;
-      // A note with stamps keeps room above it for them to hang into.
-      note.el.classList.toggle("stamped", list.length > 0);
       patchStampStops(cardId);
     }
     forgetMissing(view.stamps, kept);
@@ -3319,7 +3373,7 @@ const RETRO_FONTS = [
     grouping = true;
     propose("group-cards", { cardIds: ids, title: groupTitle.value.trim().slice(0, TITLE_LIMIT) }, {
       landed: made,
-      refused: { "not-found": "Not grouped: one of those notes is no longer on the board.", conflict: "Not grouped. A board holds 40 groups." },
+      refused: { "not-found": "Not grouped: one of those notes is no longer on the board.", conflict: "Not grouped. A board holds 40 groups." + OR_STORE },
       unsure: "Could not confirm that the notes were grouped. They are still selected.",
       settle: function (outcome) {
         if (outcome === "accepted") return;
@@ -3369,8 +3423,8 @@ const RETRO_FONTS = [
     actionList,
     el("div", { class: "action-foot" }, [actionReopen, actionForm]),
   ]);
-  const ACTIONS_FULL = "That action was not saved. A board holds 30 action items.";
-  const LINKS_FULL = "That link was not made. An action holds twelve links.";
+  const ACTIONS_FULL = "That action was not saved. A board holds 30 action items." + OR_STORE;
+  const LINKS_FULL = "That link was not made. An action holds twelve links." + OR_STORE;
   let addingAction = false;
   let actionOpen = false;
 
@@ -3820,6 +3874,19 @@ const RETRO_FONTS = [
       });
       lost = { id: c.id, columnId: c.columnId, at: lane.indexOf(c) };
     });
+    // Focus inside a sheet belongs, for this purpose, to the note or the
+    // action the sheet was opened from.
+    const inPop = pop && contains(pop.el, wasFocused);
+    const fromActions = inPop && contains(actions, pop.anchor);
+    if (inPop) {
+      board.cards.forEach(function (c) {
+        if (!view.notes[c.id] || !contains(view.notes[c.id].el, pop.anchor)) return;
+        const lane = board.cards.filter(function (o) {
+          return o.columnId === c.columnId;
+        });
+        lost = { id: c.id, columnId: c.columnId, at: lane.indexOf(c) };
+      });
+    }
 
     session = next;
     board = boardOf(next);
@@ -3838,6 +3905,7 @@ const RETRO_FONTS = [
     if (pop && !pop.anchor.isConnected) {
       closePop(false);
       notify("That was removed from the board while you had it open.");
+      if (fromActions && document.activeElement === document.body) (actionForm.hidden ? actionReopen : actionText).focus({ preventScroll: true });
     }
     if (pop && pop.patch) pop.patch();
     // The board is first shown with its content already in it, so nothing

@@ -34,12 +34,24 @@ function loadBoard(kvGet, session) {
   return board;
 }
 
+// The store is one quota for every room of the org. When it is full the host
+// function says so in words (internal/plugin/kv.go, ErrQuotaExceeded), and
+// that is the room's to hear as "no", not a fault of the plugin: false means
+// the board did not fit. Anything else the host refuses is thrown on.
+var STORE_FULL = "plugin storage quota exceeded";
+
 function saveBoard(kvSet, session, board) {
-  hostCall(kvSet, {
-    scope: "board",
-    key: session,
-    value: utf8ToB64(JSON.stringify(board)),
-  });
+  try {
+    hostCall(kvSet, {
+      scope: "board",
+      key: session,
+      value: utf8ToB64(JSON.stringify(board)),
+    });
+  } catch (err) {
+    if (String(err && err.message).indexOf(STORE_FULL) !== -1) return false;
+    throw err;
+  }
+  return true;
 }
 
 function on_session_state() {
@@ -62,7 +74,7 @@ function on_session_action() {
     body: input.body || {},
     now: Date.now(),
   });
-  if (!answer.refused) saveBoard(fns.parley_kv_set, input.session, board);
+  if (!answer.refused && !saveBoard(fns.parley_kv_set, input.session, board)) answer = { refused: "conflict" };
   Host.outputString(JSON.stringify(answer));
 }
 

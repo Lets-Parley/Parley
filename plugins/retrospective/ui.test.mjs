@@ -33,6 +33,11 @@ function same(actual, expected, message) {
   assert.ok(actual === expected, message);
 }
 
+// That a lookup found nothing. A node is never handed to an assertion.
+function absent(node, message) {
+  assert.ok(node === undefined || node === null, message);
+}
+
 // The smallest document ui.js can run against. It models the two things the
 // tests are about: a tree of nodes, and focus that is lost when the focused
 // node is removed or moved, the way a browser loses it.
@@ -144,7 +149,7 @@ class FakeNode {
     return copy;
   }
   fire(type, event = {}) {
-    const ev = { type, preventDefault() {}, stopPropagation() {}, target: this, ...event };
+    const ev = { type, preventDefault() {}, stopPropagation() {}, target: this, ...(type.startsWith("pointer") ? { pointerId: 1 } : {}), ...event };
     for (const fn of [...(this.listeners[type] || [])]) fn(ev);
   }
   focus() {
@@ -228,7 +233,7 @@ function load({ host = "old" } = {}) {
     performance: { now: () => clock.t },
   };
   const fireWindow = (type, event = {}) => {
-    for (const fn of [...(window.listeners[type] || [])]) fn({ type, preventDefault() {}, ...event });
+    for (const fn of [...(window.listeners[type] || [])]) fn({ type, preventDefault() {}, ...(type.startsWith("pointer") ? { pointerId: 1 } : {}), ...event });
   };
   const hearing = (type) => (window.listeners[type] || []).length;
   const setTimeout = (fn, ms) => {
@@ -751,13 +756,17 @@ test("a note the host accepted stays in sight until the state shows it", async (
   composer(root, "Went well").fire("keydown", ENTER);
   acts[0].answer({ ok: true });
   await settled();
+  assert.match(byClass(root, "ghost")[0].textContent, /Saving/, "a yes is not the note: it waits for the state");
   runTimers(WAIT);
+  // A host that cannot say no says yes to a note the board declined, so a
+  // yes the state has not borne out by now is called unconfirmed.
   assert.match(byClass(root, "ghost")[0].textContent, /accepted/);
-  assert.match(byClass(root, "ghost")[0].textContent, /Saving/);
-  assert.equal(toastOf(root).hidden, true, "a slow state is not reported as a problem");
+  assert.match(byClass(root, "ghost")[0].textContent, /Not confirmed yet\./);
+  assert.match(toastOf(root).textContent, /Could not confirm that your note was saved\./);
 
   push(session({ cards: [card("c1", "went-well", "accepted")] }));
   assert.equal(byClass(root, "ghost").length, 0);
+  assert.equal(toastOf(root).hidden, true, "and the doubt is taken back when the state shows it");
   assert.equal(byClass(root, "note").length, 1);
 });
 
@@ -1120,7 +1129,7 @@ test("the facilitator can make the vote order everyone's; a participant is not o
 const stampsOf = (root, text) => byClass(noteWith(root, text), "stamp");
 const leftOf = (node) => Math.round(parseFloat(node.style.left) * 10) / 10;
 
-const TOP = "calc(0 * (100% - 10px) - 6px)";
+const TOP = "calc(0 * (100% - 11px) - 5px)";
 
 test("a stamp is pressed from the note's menu, lands under focus, and is moved and removed by key", () => {
   const { root, document, push, sent, runTimers } = load({ host: "new" });
@@ -1133,10 +1142,11 @@ test("a stamp is pressed from the note's menu, lands under focus, and is moved a
   button(root, "Quick win").click();
 
   const { rot, ...where } = sent()[0].payload;
+  const bare = noteWith(root, "one").className;
   assert.equal(sent()[0].action, "stamp");
   // The note cannot be measured here, so it is taken to be 240 by 44. The
   // default spot hangs off the top-left corner: 6 in from the left, 6/240,
-  // and at the very top of the stamp's travel, which is drawn 6 above the edge.
+  // and at the very top of the stamp's travel, which is drawn 5 above the edge.
   assert.deepEqual(where, { cardId: "c1", kind: "quick-win", x: 0.025, y: 0 });
   assert.ok(Math.abs(rot) <= 9, "the tilt is a small one");
 
@@ -1145,7 +1155,11 @@ test("a stamp is pressed from the note's menu, lands under focus, and is moved a
   assert.equal(stamp.getAttribute("aria-label"), "Quick win stamp, 1 of 1 on this note");
   assert.equal(stamp.style.left, "2.5%");
   assert.equal(stamp.style.top, TOP);
-  assert.ok(noteWith(root, "one").className.includes("stamped"), "the note keeps room above it for the stamp");
+  // The room a stamp hangs into is the gap every note already has: the note
+  // is given no class and no style of its own for having one.
+  assert.equal(noteWith(root, "one").className, bare, "a first stamp changes nothing about its note");
+  assert.equal(noteWith(root, "one").style.marginTop, undefined);
+  assert.doesNotMatch(src, /\.stamped/);
   assert.ok(!stamp.className.includes("fixed"), "a stamp this viewer pressed looks movable");
   same(document.activeElement, stamp, "the stamp just pressed has focus, ready for the keys");
 
@@ -1167,7 +1181,7 @@ test("a stamp is pressed from the note's menu, lands under focus, and is moved a
   assert.deepEqual(sent()[2], { action: "remove-stamp", payload: { stampId: "s1" } });
   push(session({ cards }, PARTICIPANT));
   assert.equal(stampsOf(root, "one").length, 0);
-  assert.ok(!noteWith(root, "one").className.includes("stamped"));
+  assert.equal(noteWith(root, "one").className, bare);
   same(document.activeElement, one(noteWith(root, "one"), "grip"), "focus falls back to the note");
 });
 
@@ -1270,8 +1284,8 @@ test("the facilitator moves and removes any stamp, through the action kept for t
   assert.ok(!stamp.className.includes("fixed"));
   stamp.fire("keydown", { key: "ArrowDown", shiftKey: true });
   runTimers(500);
-  // One step is 6 of the 34 a stamp can travel down a note 44 high: 0.5 + 6/34 = 0.676.
-  assert.deepEqual(sent()[0], { action: "moderate-stamp", payload: { stampId: "s9", x: 0.5, y: 0.676 } });
+  // One step is 6 of the 33 a stamp can travel down a note 44 high: 0.5 + 6/33 = 0.682.
+  assert.deepEqual(sent()[0], { action: "moderate-stamp", payload: { stampId: "s9", x: 0.5, y: 0.682 } });
   stamp.click();
   menuItem(root, "Remove stamp").click();
   assert.deepEqual(sent()[1], { action: "moderate-stamp", payload: { stampId: "s9", remove: true } });
@@ -1619,7 +1633,7 @@ test("a teammate's change waits while a note is carried, and is there when it is
   ui.push(session({ cards: three }, PARTICIPANT));
   carry(ui, "three", 110);
   ui.push(session({ cards: [...three, card("c4", "went-well", "four")] }, PARTICIPANT));
-  assert.equal(noteWith(ui.root, "four"), undefined, "the lane is not shuffled under the hand");
+  absent(noteWith(ui.root, "four"), "the lane is not shuffled under the hand");
   ui.fireWindow("pointerup", { clientX: 10, clientY: 110 });
   assert.ok(noteWith(ui.root, "four"));
   assert.deepEqual(ui.sent(), [{ action: "move-card", payload: { cardId: "c3", groupId: null, beforeId: "c1" } }]);
@@ -1666,11 +1680,11 @@ test("a stamp is dragged to a point on its note and sent once, when it is let go
   const { stamp } = pressed(ui);
   stamp.fire("pointerdown", { clientX: 6, clientY: 0 });
   ui.fireWindow("pointermove", { clientX: 60, clientY: 5 });
-  ui.fireWindow("pointermove", { clientX: 120, clientY: 11 });
+  ui.fireWindow("pointermove", { clientX: 120, clientY: 11.5 });
   assert.ok(stamp.className.includes("lift"));
   assert.equal(ui.sent().length, 1, "only the press so far");
-  ui.fireWindow("pointerup", { clientX: 120, clientY: 11 });
-  // 120 of 240 across; 11 down is 17 of the 34 it can travel, counted from 6 above the edge.
+  ui.fireWindow("pointerup", { clientX: 120, clientY: 11.5 });
+  // 120 of 240 across; 11.5 down is 16.5 of the 33 it can travel, counted from 5 above the edge.
   assert.deepEqual(ui.sent()[1], { action: "move-stamp", payload: { stampId: "s1", x: 0.5, y: 0.5 } });
   assert.ok(!stamp.className.includes("lift"));
 });
@@ -1891,14 +1905,25 @@ test("a cap the board answers with is explained as that cap, not as a room that 
   button(ui.root, "Blocker").click();
   ui.acts[0].answer({ ok: false, reason: "conflict" });
   await settled();
-  assert.equal(toastOf(ui.root).textContent, "That stamp was not pressed. A note holds twelve stamps, three per person.");
+  assert.equal(
+    toastOf(ui.root).textContent,
+    "That stamp was not pressed. A note holds twelve stamps, three per person. If that is not it, this organization's storage for the plugin is full: delete notes or actions, or ask an admin.",
+  );
 
   const input = composer(ui.root, "Went well");
   input.type("one more");
   input.fire("keydown", ENTER);
   ui.acts[1].answer({ ok: false, reason: "conflict" });
   await settled();
-  assert.equal(toastOf(ui.root).textContent, "That note was not saved. A board holds 120 notes, 30 from each person.");
+  assert.match(toastOf(ui.root).textContent, /^That note was not saved\. A board holds 120 notes, 30 from each person\. If that is not it, this organization's storage for the plugin is full/);
+
+  // A change with no limit of its own: the store being full is the likely reason.
+  one(noteWith(ui.root, "one"), "grip").click();
+  menuItem(ui.root, "Move down").click();
+  ui.acts[2].answer({ ok: false, reason: "conflict" });
+  await settled();
+  assert.equal(toastOf(ui.root).textContent, "The board could not take that. The room has ended, or this organization's storage for the plugin is full: delete notes or actions, or ask an admin.");
+  assert.equal(noteOrder(ui.root, "Went well"), "one two three one more", "and the move is taken back; the unsaved note still waits");
 });
 
 test("somebody else's change to the timer is not taken for this one landing", () => {
@@ -1928,4 +1953,234 @@ test("the hint opens and closes from its own control, and Back is named in full 
   assert.equal(more.getAttribute("aria-expanded"), "false");
   assert.equal(button(ui.root, "Back").getAttribute("aria-label"), "Back to Write");
   assert.equal(button(ui.root, "Back").textContent, "Back to Write");
+});
+
+// ---- a yes the state does not bear out
+
+// Each change the board can make ahead of, or apart from, the state: how it
+// is made, and what the board must look like once it is clear that the state
+// never agreed. A host without refusals answers yes to all of them.
+const others9 = { cards: three, stamps: [{ id: "s9", cardId: "c1", kind: "chat", x: 0.5, y: 0.5, rot: 0 }], actionItems: [{ id: "a1", text: "fix it", owner: "", sourceIds: [] }] };
+const unborne = [
+  {
+    name: "a stamp move",
+    who: FACILITATOR,
+    make: (ui) => {
+      stampsOf(ui.root, "one")[0].fire("keydown", { key: "ArrowRight", shiftKey: true });
+      ui.runTimers(500);
+    },
+    action: "moderate-stamp",
+    drawnAhead: (ui) => leftOf(stampsOf(ui.root, "one")[0]) === 52.5,
+    back: (ui) => leftOf(stampsOf(ui.root, "one")[0]) === 50,
+    said: /Could not confirm that the stamp moved\./,
+  },
+  {
+    name: "a stamp removal",
+    who: PARTICIPANT,
+    make: (ui) => stampsOf(ui.root, "one")[0].fire("keydown", { key: "Delete" }),
+    action: "remove-stamp",
+    drawnAhead: (ui) => stampsOf(ui.root, "one").length === 1,
+    back: (ui) => stampsOf(ui.root, "one").length === 1 && stampsOf(ui.root, "one")[0].className.split(" ").includes("fixed"),
+    said: /Could not confirm that the stamp was removed\./,
+  },
+  {
+    name: "a note move",
+    who: PARTICIPANT,
+    make: (ui) => noteWith(ui.root, "three").fire("keydown", { key: "ArrowUp", altKey: true }),
+    action: "move-card",
+    drawnAhead: (ui) => noteOrder(ui.root, "Went well") === "one three two",
+    back: (ui) => noteOrder(ui.root, "Went well") === "one two three",
+    said: /Could not confirm that move\./,
+  },
+  {
+    name: "a note deletion",
+    who: PARTICIPANT,
+    make: (ui) => {
+      one(noteWith(ui.root, "two"), "grip").click();
+      menuItem(ui.root, "Delete note").click();
+      button(one(ui.root, "sheet"), "Delete note").click();
+    },
+    action: "delete-card",
+    drawnAhead: (ui) => noteOrder(ui.root, "Went well") === "one two three",
+    back: (ui) => noteOrder(ui.root, "Went well") === "one two three",
+    said: /Could not confirm that the note was deleted\./,
+  },
+  {
+    name: "an owner",
+    who: PARTICIPANT,
+    make: (ui) => {
+      labeled(ui.root, "Options for action: fix it").click();
+      menuItem(ui.root, "Set an owner").click();
+      const field = all(ui.root, (n) => n.getAttribute("id") === "owner-name")[0];
+      field.type("Cy Park");
+      field.fire("keydown", ENTER);
+    },
+    action: "set-owner",
+    drawnAhead: (ui) => visible(one(one(ui.root, "action"), "unowned")),
+    back: (ui) => visible(one(one(ui.root, "action"), "unowned")),
+    said: /Could not confirm the owner\./,
+  },
+  {
+    name: "an action deletion",
+    who: PARTICIPANT,
+    make: (ui) => {
+      labeled(ui.root, "Options for action: fix it").click();
+      menuItem(ui.root, "Delete action").click();
+      button(one(ui.root, "sheet"), "Delete action").click();
+    },
+    action: "delete-action",
+    drawnAhead: (ui) => byClass(ui.root, "action").length === 1,
+    back: (ui) => byClass(ui.root, "action").length === 1,
+    said: /Could not confirm that the action was deleted\./,
+  },
+];
+
+test("on a host that answers nothing, a change the state never shows is taken back and called unconfirmed", () => {
+  for (const c of unborne) {
+    const ui = load({ host: "old" });
+    ui.push(session(others9, c.who));
+    c.make(ui);
+    assert.equal(ui.sent().at(-1).action, c.action, c.name);
+    assert.ok(c.drawnAhead(ui), c.name + ": as it stands while it is on its way");
+    ui.runTimers(WAIT);
+    assert.ok(c.back(ui), c.name + ": taken back");
+    assert.match(toastOf(ui.root).textContent, c.said, c.name);
+  }
+});
+
+test("a yes from the host is believed only when the state shows the change", async () => {
+  for (const c of unborne) {
+    const ui = load({ host: "new" });
+    ui.push(session(others9, c.who));
+    c.make(ui);
+    ui.acts.at(-1).answer({ ok: true });
+    await settled();
+    assert.ok(c.drawnAhead(ui), c.name + ": a yes alone changes nothing on screen");
+    assert.equal(toastOf(ui.root).hidden, true, c.name + ": and nothing is said yet");
+    ui.runTimers(WAIT);
+    assert.ok(c.back(ui), c.name + ": taken back when the state never agreed");
+    assert.match(toastOf(ui.root).textContent, c.said, c.name);
+  }
+});
+
+test("a stamp is the viewer's once the server said yes and the state shows it, in either order, and not before", async () => {
+  const moved = { ...others9, stamps: [{ ...others9.stamps[0], x: 0.6 }] };
+  const mine = (ui) => !stampsOf(ui.root, "one")[0].className.split(" ").includes("fixed");
+  // Removing is the one change a participant can ask for on a stamp not known
+  // to be theirs, so the stamp is first made theirs by a press of their own.
+  const press = (ui) => {
+    one(noteWith(ui.root, "one"), "grip").click();
+    menuItem(ui.root, "Add a stamp").click();
+    button(ui.root, "Blocker").click();
+    return { id: "s1", ...ui.sent()[0].payload };
+  };
+
+  const ui = load({ host: "new" });
+  ui.push(session({ cards: three }, PARTICIPANT));
+  const s = press(ui);
+  ui.acts[0].answer({ ok: true });
+  await settled();
+  ui.runTimers(WAIT);
+  assert.equal(stampsOf(ui.root, "one").length, 0, "a yes with no stamp in the state draws no stamp");
+  ui.push(session({ cards: three, stamps: [s] }, PARTICIPANT));
+  assert.ok(mine(ui), "the press that the state then shows is the viewer's");
+
+  // The facilitator's every stamp is movable; a participant's yes for a move
+  // the state contradicts must not make somebody else's stamp theirs.
+  const other = load({ host: "new" });
+  other.push(session(others9, PARTICIPANT));
+  stampsOf(other.root, "one")[0].fire("keydown", { key: "Delete" });
+  other.acts[0].answer({ ok: true });
+  await settled();
+  other.runTimers(WAIT);
+  assert.ok(!mine(other), "yes to a removal that never happened proves nothing");
+  other.push(session(moved, PARTICIPANT));
+  assert.ok(!mine(other), "and a later change by somebody else does not either");
+});
+
+// ---- one pointer per drag
+
+test("a second finger does not drive, drop or commit a drag", () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ cards: three }, PARTICIPANT));
+  carry(ui, "three", 110);
+  ui.fireWindow("pointermove", { pointerId: 2, clientX: 10, clientY: 500 });
+  ui.fireWindow("pointerup", { pointerId: 2, clientX: 10, clientY: 500 });
+  assert.equal(byClass(ui.root, "drag").length, 1, "the first finger still holds the note");
+  assert.deepEqual(ui.sent(), []);
+  ui.fireWindow("pointercancel", { pointerId: 2 });
+  assert.equal(byClass(ui.root, "drag").length, 1);
+  ui.fireWindow("pointerup", { pointerId: 1, clientX: 10, clientY: 110 });
+  assert.deepEqual(ui.sent(), [{ action: "move-card", payload: { cardId: "c3", groupId: null, beforeId: "c1" } }], "where the first finger left it, not the second");
+});
+
+// ---- sheets hold focus
+
+test("Tab and Shift+Tab go round inside a sheet; a menu still closes on Tab", () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ cards: three }, PARTICIPANT));
+  one(noteWith(ui.root, "two"), "grip").click();
+  menuItem(ui.root, "Delete note").click();
+  const sheet = one(ui.root, "sheet");
+  const keep = button(sheet, "Keep it");
+  const go = button(sheet, "Delete note");
+  same(ui.document.activeElement, keep);
+  sheet.fire("keydown", { key: "Tab" });
+  same(ui.document.activeElement, go, "Tab goes on");
+  sheet.fire("keydown", { key: "Tab" });
+  same(ui.document.activeElement, keep, "and round, not out to the page");
+  sheet.fire("keydown", { key: "Tab", shiftKey: true });
+  same(ui.document.activeElement, go, "Shift+Tab goes back round");
+  assert.deepEqual(ui.sent(), [], "going round deletes nothing");
+  ui.press("Escape");
+
+  // A field that cannot be used just now is not a stop.
+  one(noteWith(ui.root, "two"), "grip").click();
+  menuItem(ui.root, "Start an action").click();
+  const form = one(ui.root, "sheet");
+  const text = all(form, (n) => n.getAttribute("id") === "link-text")[0];
+  same(ui.document.activeElement, text);
+  form.fire("keydown", { key: "Tab", shiftKey: true });
+  same(ui.document.activeElement, button(form, "Cancel"), "the disabled Add action is passed over");
+});
+
+test("when the note a confirmation was opened from is deleted, focus goes to the note in its place", () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ cards: three, actionItems: [{ id: "a1", text: "fix it", owner: "", sourceIds: [] }] }, PARTICIPANT));
+  one(noteWith(ui.root, "two"), "grip").click();
+  menuItem(ui.root, "Delete note").click();
+  ui.push(session({ cards: [three[0], three[2]], actionItems: [{ id: "a1", text: "fix it", owner: "", sourceIds: [] }] }, PARTICIPANT));
+  assert.equal(byClass(ui.root, "sheet").length, 0);
+  same(ui.document.activeElement, one(noteWith(ui.root, "three"), "grip"), "not the page");
+
+  labeled(ui.root, "Options for action: fix it").click();
+  menuItem(ui.root, "Delete action").click();
+  ui.push(session({ cards: [three[0], three[2]] }, PARTICIPANT));
+  assert.equal(byClass(ui.root, "sheet").length, 0);
+  same(ui.document.activeElement, button(one(ui.root, "actions"), "Add an action"), "an action's goes to the way to add one");
+});
+
+// ---- a refused delete is remembered
+
+test("after the server says a note is not the viewer's, Delete is shown as unavailable, with the reason", async () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ cards: three }, PARTICIPANT));
+  const remove = () => {
+    one(noteWith(ui.root, "two"), "grip").click();
+    menuItem(ui.root, "Delete note").click();
+  };
+  remove();
+  button(one(ui.root, "sheet"), "Delete note").click();
+  ui.acts[0].answer({ ok: false, reason: "forbidden" });
+  await settled();
+
+  one(noteWith(ui.root, "two"), "grip").click();
+  assert.equal(menuItem(ui.root, "Delete note").getAttribute("aria-disabled"), "true");
+  menuItem(ui.root, "Delete note").click();
+  assert.equal(toastOf(ui.root).textContent, "Only the person who wrote a note, or the facilitator, can delete it.");
+  assert.equal(byClass(ui.root, "sheet").length, 0, "the question is not asked again");
+  assert.equal(ui.acts.length, 1);
+  ui.press("Escape");
+  one(noteWith(ui.root, "one"), "grip").click();
+  assert.equal(menuItem(ui.root, "Delete note").getAttribute("aria-disabled"), null, "another note is still asked about");
 });

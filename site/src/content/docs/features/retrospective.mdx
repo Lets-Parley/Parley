@@ -28,7 +28,9 @@ shipped frontend.
   the note's menu, after a confirmation. Its votes, stamps and links go with
   it. Before the reveal the board does not know whose a note is, so Delete is
   offered to everyone and the server answers; the removal is announced as "A
-  note was removed", never as whose.
+  note was removed", never as whose. Anonymity before the reveal means that
+  nobody else can see who wrote a note; the server will still tell you a note
+  is not yours when you try to delete it.
 - Revealing authors asks for a second confirmation. Once revealed, each card
   shows its author's name. The facilitator can **hide authors again** in one
   press: the wire state stops carrying them, though anyone who was looking has
@@ -53,9 +55,9 @@ shipped frontend.
   facilitator can apply the vote order for everyone.
 - **Stamps.** Anyone can press one of seven stamps (Me too, Thank you, Great
   idea, Quick win, Needs a chat, Blocker, Made me laugh) onto a card from its
-  menu. It lands hanging off the card's top edge, clear of the words, and each
-  of the twelve a card holds gets a spot of its own; a card with stamps keeps a
-  little room above it for them. Whoever pressed it can drag it anywhere on the
+  menu. It lands hanging off the card's top edge, clear of the words, into the
+  gap every card already has above it, so nothing moves when one arrives; each
+  of the twelve a card holds gets a spot of its own. Whoever pressed it can drag it anywhere on the
   card, nudge it with `Shift`+arrow keys, or remove it with `Delete`; so can
   the facilitator. The arrow keys alone go between a card's stamps, which are
   one Tab stop. **Nobody can see who pressed a stamp**: the server records it
@@ -116,10 +118,13 @@ older host treats a declined request as accepted with no change.
 - A timer runs from **10 seconds to 3 hours**.
 - An action links to at most **12** cards or groups.
 - A group is removed when its last card leaves it.
+- An action's owner is a typed name; a bare user id is declined.
 
 Every board of an org shares the plugin's one storage quota (1 MiB). A board
 at every limit at once, written in characters that take three bytes each, is
-about 340 KB; an ordinary one is a few tens of kilobytes.
+about 340 KB; an ordinary one is a few tens of kilobytes. When that store is
+full, a change that would grow a board is declined and the board says so;
+deleting cards or action items still works, and frees room.
 
 The new actions do not change what the plugin is granted. An upgrade from
 0.1.0 asks for the same three grants, so it applies without a new consent.

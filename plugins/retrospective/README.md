@@ -76,7 +76,13 @@ the parts worth copying:
   acts on the answer at once and puts the reason for a refusal into words. On
   an older host, where `act` returns nothing, it watches the state instead:
   three seconds without the change is reported as unconfirmed, never as lost,
-  and if the change turns up late the message is taken back. A note waits in
+  and if the change turns up late the message is taken back. A yes from the
+  host is believed only once the state shows the change, because a host that
+  cannot decline answers yes to a request the board declined: whatever was
+  drawn ahead of the state (a moved stamp, a moved note) is put back after
+  the same three seconds, and a stamp becomes "the viewer's" only when both
+  the yes and the state are in. The one exception is a vote, which the state
+  cannot show when it was already counted. A note waits in
   its lane as a dashed ghost from Enter until the state shows the real one, so
   the box is free for the next thought and nothing is sent twice or dropped.
 - **Feature-detect the host.** `session.selfId`, the promise from
@@ -96,11 +102,14 @@ the parts worth copying:
   elsewhere, and hands focus back. The board under it is inert while it is
   open. A resize puts it back beside its control and does not close it (a
   phone's keyboard resizes the frame); if a teammate deletes the note it hangs
-  from, it closes and says so. At 480px and under every popover is a sheet
-  along the bottom edge, at most 70% of the frame high.
+  from, it closes, says so, and puts focus on the note in its place. Tab and
+  Shift+Tab go round inside a sheet (a menu closes on Tab). At 480px and under
+  every popover is a sheet along the bottom edge, at most 70% of the frame
+  high.
 - **A drag is followed on the window, and ends once.** `follow()` owns the
-  listeners for one gesture and takes them off on release, cancel, Escape, the
-  window losing focus or the capture being taken away. State pushes wait while
+  listeners for one gesture and one pointer, and takes them off on release,
+  cancel, Escape, the window losing focus or the capture being taken away. A
+  second finger's events are not that pointer's and are ignored. State pushes wait while
   a note is carried and are applied when it is put down, also when the note
   itself was deleted meanwhile.
 - **State strings never index a plain object.** Ids and kinds come from the
@@ -133,18 +142,27 @@ viewer. So after a reload a stamp of the viewer's own looks like anybody's: it
 can still be removed from its menu ("Remove, if you pressed it"), the server
 refuses unless it is theirs, and the board remembers the refusal.
 
-A stamp's `y` runs from 6px above its note's top edge (0) to 16px above the
+A stamp's `y` runs from 5px above its note's top edge (0) to 16px above the
 bottom edge (1), and `x` from the left edge to the right. A stamp can
-therefore hang over the top and the sides, into the gutters, and never over
-the note underneath; a note with stamps keeps 16px of extra room above it.
-The default spot is on the top edge, above the first line of text.
+therefore hang over the top and the sides and never over the note underneath.
+The default spot is on the top edge, above the first line of text, where a
+stamp rises 21px over the edge. Notes stand 22px apart everywhere (under a
+group's heading and under the composer too), so that room is always there:
+nothing moves when a first stamp lands or a last one leaves, and a note is
+given no class or style for having stamps.
 
 Deleting works the same way as stamps. Before the reveal the state does not
 say whose a note is, and what the viewer wrote is not remembered past a
 reload, so "Delete note" is offered to everyone and the server answers; hiding
 it from non-authors would hide it from the author after a reload. After the
 reveal the board does know, and says so without asking. The removal is
-announced as "A note was removed from <lane>" and nothing else.
+announced as "A note was removed from <lane>" and nothing else. A refusal is
+remembered for the visit, and Delete for that note is then shown as
+unavailable with the same reason.
+
+Anonymity before the reveal means that nobody else can see who wrote a note.
+It does not mean the server pretends not to know: when you try to delete a
+note that is not yours, it tells you so.
 
 ## Actions
 
@@ -195,7 +213,7 @@ accepted action answers `{}`.
 | `invalid` | 400 | empty, non-text or too-long text; a bad coordinate, stage, timer operation or duration; fewer than two notes to group; an unknown action |
 | `forbidden` | 403 | somebody else's note or stamp |
 | `not-found` | 404 | a note, group, stamp, action item or column the board does not hold |
-| `conflict` | 409 | a limit reached; pause, resume or add with no timer set |
+| `conflict` | 409 | a limit reached; pause, resume or add with no timer set; the org's plugin storage is full |
 
 The guest throws only for a real fault: a stored document it cannot read, a
 host function that fails, a missing clock. Before this, every one of the above
@@ -243,7 +261,12 @@ That is 32% of the quota: three boards at every limit fit, a fourth does not.
 An ordinary board (60 notes of 120 ASCII characters, 100 votes, 40 stamps) is
 about 25 KB, so the quota holds some forty of them. The limits bound a board,
 not the number of rooms: an org that keeps hundreds of finished retrospectives
-will reach the quota, and saving then fails. A group is deleted when its last
+will reach the quota. A full store declines every write that grows a board
+(`conflict`; `guest.js` reads the host function's quota error and answers
+with it rather than failing), and still takes one that shrinks it, so deleting
+notes or action items is the way out, as is an admin removing old rooms. The
+frame cannot tell a full store from a full board by the code, so its messages
+for `conflict` name both. A group is deleted when its last
 note leaves it, and notes and action items can be deleted, so a full board can
 be brought back under its limits by the people in the room.
 
@@ -254,7 +277,9 @@ guest's two-second budget (`board.test.mjs` asserts under 200 ms).
 A blank owner is nobody. Version 0.1.0 stored the creator's user id when the
 owner was left blank; beside a linked note that hints at who wrote the note,
 and nobody ever typed it, so an owner that is a bare user id is dropped when
-the board is read. A typed name is kept.
+the board is read. A typed name is kept. For the same reason an owner that is
+a bare user id is declined as `invalid` by `add-action` and `set-owner`, so
+one can never be stored or published.
 
 The timer is stamped by the server: the guest reads its own clock
 (`Date.now()`, which the host provides as wall time) and publishes the time

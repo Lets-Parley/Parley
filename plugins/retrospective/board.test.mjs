@@ -599,6 +599,17 @@ test("nobody owns an action until somebody is named, and anyone can name them la
   assert.equal(board.cards.length, 3, "deleting an action deletes no note");
 });
 
+test("a user id is not accepted as an owner, so one can never be published", () => {
+  const { board } = threeNotes();
+  const item = act(board, "add-action", "alice", { text: "fix it", owner: "Cy" });
+  const id = "00000000-0000-0000-0000-0000000002C0";
+  assert.equal(code(board, "set-owner", "bob", { actionId: item.id, owner: id }), "invalid");
+  assert.equal(code(board, "set-owner", "bob", { actionId: item.id, owner: "  " + id.toLowerCase() + " " }), "invalid");
+  assert.equal(code(board, "add-action", "bob", { text: "x", owner: id }), "invalid");
+  assert.equal(item.owner, "Cy");
+  assert.equal(JSON.stringify(redactBoard(board, T0)).includes("0002"), false);
+});
+
 test("an owner stored by 0.1.0 as a bare user id is dropped; a typed name is kept", () => {
   const board = emptyBoard();
   board.actionItems.push(

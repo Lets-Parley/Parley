@@ -110,6 +110,14 @@ function text(value, limit, what, optional) {
   return s;
 }
 
+// An owner is a name somebody typed. A user id is not one, and published
+// beside a linked note it would point at a person, so it is sent back.
+function ownerName(value) {
+  const name = text(value, LIMITS.owner, "an owner", true);
+  if (USER_ID.test(name)) refuse("invalid", "an owner is a name, not a user id");
+  return name;
+}
+
 function full(count, limit, message) {
   if (count >= limit) refuse("conflict", message);
 }
@@ -427,7 +435,7 @@ function applyAction(board, { action, user, body, now }) {
       const words = text(body.text, LIMITS.actionText, "an action");
       // Nobody owns an action until somebody is named: a blank owner is not
       // the person who wrote it down.
-      const owner = text(body.owner, LIMITS.owner, "an owner", true);
+      const owner = ownerName(body.owner);
       full(board.actionItems.length, LIMITS.actions, "the board is full of action items");
       const known = sourceIds(board);
       const wanted = Array.isArray(body.sourceIds) ? body.sourceIds.slice(0, LIMITS.sourcesPerAction) : [];
@@ -444,7 +452,7 @@ function applyAction(board, { action, user, body, now }) {
     }
     case "set-owner": {
       const item = find(board.actionItems, body.actionId, "action item");
-      item.owner = text(body.owner, LIMITS.owner, "an owner", true);
+      item.owner = ownerName(body.owner);
       return item;
     }
     case "delete-action": {
