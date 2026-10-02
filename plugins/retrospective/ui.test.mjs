@@ -1129,7 +1129,7 @@ test("the facilitator can make the vote order everyone's; a participant is not o
 const stampsOf = (root, text) => byClass(noteWith(root, text), "stamp");
 const leftOf = (node) => Math.round(parseFloat(node.style.left) * 10) / 10;
 
-const TOP = "calc(0 * (100% - 11px) - 5px)";
+const TOP = "calc(0 * (100% - 10px) - 6px)";
 
 test("a stamp is pressed from the note's menu, lands under focus, and is moved and removed by key", () => {
   const { root, document, push, sent, runTimers } = load({ host: "new" });
@@ -1146,7 +1146,7 @@ test("a stamp is pressed from the note's menu, lands under focus, and is moved a
   assert.equal(sent()[0].action, "stamp");
   // The note cannot be measured here, so it is taken to be 240 by 44. The
   // default spot hangs off the top-left corner: 6 in from the left, 6/240,
-  // and at the very top of the stamp's travel, which is drawn 5 above the edge.
+  // and at the very top of the stamp's travel, which is drawn 6 above the edge.
   assert.deepEqual(where, { cardId: "c1", kind: "quick-win", x: 0.025, y: 0 });
   assert.ok(Math.abs(rot) <= 9, "the tilt is a small one");
 
@@ -1284,8 +1284,8 @@ test("the facilitator moves and removes any stamp, through the action kept for t
   assert.ok(!stamp.className.includes("fixed"));
   stamp.fire("keydown", { key: "ArrowDown", shiftKey: true });
   runTimers(500);
-  // One step is 6 of the 33 a stamp can travel down a note 44 high: 0.5 + 6/33 = 0.682.
-  assert.deepEqual(sent()[0], { action: "moderate-stamp", payload: { stampId: "s9", x: 0.5, y: 0.682 } });
+  // One step is 6 of the 34 a stamp can travel down a note 44 high: 0.5 + 6/34 = 0.676.
+  assert.deepEqual(sent()[0], { action: "moderate-stamp", payload: { stampId: "s9", x: 0.5, y: 0.676 } });
   stamp.click();
   menuItem(root, "Remove stamp").click();
   assert.deepEqual(sent()[1], { action: "moderate-stamp", payload: { stampId: "s9", remove: true } });
@@ -1680,11 +1680,11 @@ test("a stamp is dragged to a point on its note and sent once, when it is let go
   const { stamp } = pressed(ui);
   stamp.fire("pointerdown", { clientX: 6, clientY: 0 });
   ui.fireWindow("pointermove", { clientX: 60, clientY: 5 });
-  ui.fireWindow("pointermove", { clientX: 120, clientY: 11.5 });
+  ui.fireWindow("pointermove", { clientX: 120, clientY: 11 });
   assert.ok(stamp.className.includes("lift"));
   assert.equal(ui.sent().length, 1, "only the press so far");
-  ui.fireWindow("pointerup", { clientX: 120, clientY: 11.5 });
-  // 120 of 240 across; 11.5 down is 16.5 of the 33 it can travel, counted from 5 above the edge.
+  ui.fireWindow("pointerup", { clientX: 120, clientY: 11 });
+  // 120 of 240 across; 11 down is 17 of the 34 it can travel, counted from 6 above the edge.
   assert.deepEqual(ui.sent()[1], { action: "move-stamp", payload: { stampId: "s1", x: 0.5, y: 0.5 } });
   assert.ok(!stamp.className.includes("lift"));
 });

@@ -142,11 +142,13 @@ viewer. So after a reload a stamp of the viewer's own looks like anybody's: it
 can still be removed from its menu ("Remove, if you pressed it"), the server
 refuses unless it is theirs, and the board remembers the refusal.
 
-A stamp's `y` runs from 5px above its note's top edge (0) to 16px above the
+A stamp's `y` runs from 6px above its note's top edge (0) to 16px above the
 bottom edge (1), and `x` from the left edge to the right. A stamp can
 therefore hang over the top and the sides and never over the note underneath.
 The default spot is on the top edge, above the first line of text, where a
-stamp rises 21px over the edge. Notes stand 22px apart everywhere (under a
+stamp rises 21px past the note's border and stops 1px short of the first
+line. The tilt is applied to the glyph, not the ring, so a stamp takes up
+exactly its 32px. Notes stand 22px apart everywhere (under a
 group's heading and under the composer too), so that room is always there:
 nothing moves when a first stamp lands or a last one leaves, and a note is
 given no class or style for having stamps.

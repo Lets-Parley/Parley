@@ -157,8 +157,8 @@ const RETRO_FONTS = [
   // A stamp's center runs from STAMP_RISE above its note's top edge to 16px
   // above its bottom edge (STAMP_SPAN is the two together), so one can hang over the top and the sides but
   // never over the note underneath.
-  const STAMP_RISE = 5;
-  const STAMP_SPAN = 11;
+  const STAMP_RISE = 6;
+  const STAMP_SPAN = 10;
   const ONLY_PRESSER = "Only the person who pressed a stamp, or the facilitator, can move or remove it.";
   const NOT_KNOWN_MINE = "You can move a stamp you pressed in this visit. Open an older one of yours to remove it.";
   const ONLY_AUTHOR = "Only the person who wrote a note, or the facilitator, can delete it.";
@@ -365,7 +365,7 @@ const RETRO_FONTS = [
     ".empty{font-size:13px;color:var(--color-ink-faint);text-wrap:pretty}",
 
     // Notes stand 22px apart, under a group's heading and under the composer
-    // too: a stamp hangs 21px over a note's top edge, and that room is always
+    // too: a stamp hangs 22px over a note's top edge, 21px past its border, and that room is always
     // there, so nothing moves when the first one lands.
     ".notes{display:flex;flex-direction:column;gap:22px}",
     ".lane>.notes:not(:empty){margin-top:10px}",
@@ -421,7 +421,10 @@ const RETRO_FONTS = [
     // its center, as a fraction of the note, and may hang over the edge.
     ".stamps{position:absolute;inset:0;z-index:1;pointer-events:none}",
     ".stamp,.stamp-face{display:grid;place-items:center;width:32px;height:32px;padding:0;border:2px solid var(--hue);border-radius:50%;outline:1px solid var(--hue);outline-offset:-6px;color:var(--hue);background:color-mix(in srgb,var(--hue) 10%,transparent)}",
-    ".stamp{position:absolute;margin:-16px 0 0 -16px;rotate:var(--rot);opacity:.9;pointer-events:auto;cursor:grab;touch-action:none;transition:opacity .15s,box-shadow .4s}",
+    ".stamp{position:absolute;margin:-16px 0 0 -16px;opacity:.9;pointer-events:auto;cursor:grab;touch-action:none;transition:opacity .15s,box-shadow .4s}",
+    // The tilt is the glyph's. The ring is a circle and looks the same turned,
+    // and left unturned the stamp takes up exactly its 32px.
+    ".stamp svg{rotate:var(--rot)}",
     ".stamp.new{opacity:1;box-shadow:0 0 0 3px color-mix(in srgb,var(--hue) 40%,transparent)}",
     ".stamp:hover,.stamp:focus-visible,.stamp.lift{opacity:1;background:color-mix(in srgb,var(--hue) 10%,var(--color-surface-hi))}",
     ".stamp:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}",
