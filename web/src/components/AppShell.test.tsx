@@ -208,6 +208,8 @@ describe("what the sidebar admits it is hiding", () => {
     expect(screen.queryByRole("link", { name: /12 sessions/ })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Show all 12 sessions" }));
     expect(onShowAllSessions).toHaveBeenCalledTimes(1);
+    // Only the phone sheet gets out of the way; the rail is beside the list.
+    expect(screen.getByRole("button", { name: "Toggle sidebar" }).getAttribute("aria-expanded")).toBe("true");
   });
 
   it("says nothing about more sessions when the list is whole", () => {

@@ -2602,7 +2602,7 @@ describe("SpacePage sidebar: show all sessions", () => {
       expect(screen.queryByRole("dialog", { name: "Platform Team" })).toBe(null);
       expect(logbook().open).toBe(true);
       // A boolean, so a failure does not print two DOM trees.
-    expect(document.activeElement === logbook().querySelector("summary")).toBe(true);
+      expect(document.activeElement === logbook().querySelector("summary")).toBe(true);
     } finally {
       vi.unstubAllGlobals();
     }
