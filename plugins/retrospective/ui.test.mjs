@@ -3318,9 +3318,11 @@ test("on a touch screen the checkbox, the handle, the menu button and the action
   assert.match(reach, /\.target\{position:relative;justify-content:center;min-width:44px\}/);
   assert.match(reach, /\.board:not\(\.stage-3\) \.target::after\{content:"";position:absolute;inset:-7px -1px\}/);
   assert.match(reach, /\.st::after\{content:"";position:absolute;inset:-1px\}/);
-  // The plus and the thumbs: 32 drawn, 44 pressed (6 more on every side), 44 apart (12 between).
+  // The plus and the thumbs: 32 drawn with a 1px ring, so 30 inside it and 7 more on
+  // every side is 44 pressed; 44 apart (12 between); and 60 in from the note's edge, so
+  // the 7 around the last one stop short of the menu button, which starts 52 in.
   const edge = src.split("\n").find((line) => line.includes(".rb::after"));
-  assert.match(edge, /\.rx\{gap:12px;bottom:-16px;right:52px\}\.rb\{width:32px;height:32px;opacity:1\}\.rb::after\{content:"";position:absolute;inset:-6px\}/);
+  assert.match(edge, /\.rx\{gap:12px;bottom:-16px;right:60px\}\.rb\{width:32px;height:32px;opacity:1\}\.rb::after\{content:"";position:absolute;inset:-7px\}/);
 });
 
 // Drop the third note on the second, whose text is `text`, and read the name the sheet offers.

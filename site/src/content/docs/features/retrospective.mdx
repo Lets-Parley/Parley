@@ -50,7 +50,7 @@ shipped frontend.
   the server refuses, the reason is shown and the text is kept.
 - The facilitator moves the room through four **stages**: Write, Group, Vote,
   Decide, forward or back. A stage changes what the board puts in front of
-  people (the composer in Write, checkboxes in Group, the thumbs in Vote,
+  people (the composer in Write, checkboxes in Group, the thumbs kept in sight in Vote,
   the action target in Decide) and **blocks nothing**: a late card, vote or
   action is still accepted in any stage.
 - Each control on a card does one thing. The **handle** in front of its text
@@ -80,11 +80,22 @@ shipped frontend.
   menu item ("Move to…" a column or a group, or Select to group and the Group
   bar), `Escape` puts the card back, and holding it at the top or bottom edge
   scrolls the page.
-- **Voting is a thumb up and a thumb down** on every card: one vote per
-  person per card. Press a thumb to vote; press the other to switch; press
-  your own again to take it back. Nobody can see who voted which way. After a
-  reload the board no longer knows which thumb is yours, so the first press
-  sets it again (which changes nothing) rather than removing it.
+- **Voting is a thumb up and a thumb down** on every card, in every stage: one
+  vote per person per card. The two thumbs are small buttons on the card's
+  lower edge; point at the card (or Tab to them) to see them, and they are
+  always in sight in the Vote stage and on a touch screen. Press a thumb to
+  vote; press the other to switch; press your own again to take it back; or
+  press `U` or `D` with focus on the card's words. Nobody can see who voted
+  which way. After a reload the board no longer knows which thumb is yours, so
+  the first press sets it again (which changes nothing) rather than removing
+  it.
+- **A card's score is its ups less its downs**, written with its sign on a
+  small tag on the card's top corner: six up and one down is **+5**, a tie is
+  **±0**, and a card nobody has voted on has no tag. Point at the card to see
+  the split ("6 up · 1 down"). A group's heading gives the group's score the
+  same way. If a vote does not go through, the board tries once more by
+  itself and then says so on the card, with a **Try again** button; the score
+  does not change until a vote lands.
 - **Top rated** re-sorts a column for one reader only, by ups less downs, and
   writes nothing.
   While it is on, cards in that column cannot be given a new place, and it says

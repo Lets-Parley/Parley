@@ -92,9 +92,10 @@ the parts worth copying:
 - **One control, one job.** The handle in front of a note drags it and does
   nothing else: pressed without a drag it opens nothing and reads out how a
   move is made. The three dots after the text are the note's menu, in every
-  stage and always last on the note's first row. The vote and the action count
-  are a row of their own under the words, there only when there is one to
-  show, so the words keep the note's width and never break inside a word.
+  stage and always last on the note's first row. The action count and the
+  "edited" mark are a row of their own under the words, there only when there
+  is one to show, so the words keep the note's width and never break inside a
+  word; votes are never in that row.
   Editing, adding a sticker, selecting, moving and starting an action are all
   in that menu, which makes it the keyboard and touch path for every pointer
   gesture: a drag is never the only way (`openMenu`, `moveNote`, `toLane`, and
@@ -121,10 +122,12 @@ the parts worth copying:
   menu. The rows are asked for again whenever the board changes, so an open
   menu keeps up with it.
 - **Tab order on a note** follows what is seen, row by row: the handle, the
-  checkbox while notes are being picked, the words, the three dots, then the
-  row under the words (the action count and the thumbs), then the stickers
-  (one stop for the pile) and the dashed plus. The three dots are the last
-  stop of the note's first row, not of the note.
+  checkbox while notes are being picked, the words, the three dots, the
+  action count when it is showing, then the three buttons on the lower edge
+  (the dashed plus, thumb up, thumb down), then the stickers (one stop for
+  the pile). The three dots are the last stop of the note's first row, not of
+  the note. The buttons on the lower edge are Tab stops while they are out of
+  sight, and show when one has focus.
 - **A drop aims at one of three things** (`aimAt`): a place in a lane, which
   may be another lane; a group, which the note joins where it is dropped; or a
   loose note in the same lane, which it is grouped with. The middle half of a
@@ -189,13 +192,39 @@ nothing, and the yes tells the board the thumb is theirs. The rule on the
 board: a thumb known to be yours, pressed again, takes the vote back (`none`);
 the other thumb switches in one press; a thumb not known to be yours is set.
 
-The thumbs are on every note in the Vote stage, and in the other stages only
-on a note that has votes, so a note with nothing on it stays one row. "Top
-rated" (a lens for one reader) and the facilitator's order-for-everyone rank by
-ups less downs, then by more ups, then leave the order as it was. A group's
-heading says its ups and downs. Other people's votes are not read out as they
+A note's **score** is its ups less its downs, and is written with its sign on
+a small tag on the note's top corner: six up and one down is `+5`, never a
+count of the votes cast; a tie that has votes is `±0`; a note nobody has
+voted on has no tag. Green for a score above nothing and red for one below
+agree with the sign and say nothing by themselves, and a note with both ups
+and downs has a rule under the number, drawn to the share that is up. The
+split ("6 up · 1 down") is written beside the tag while the note is pointed
+at or holds focus, always on a touch screen, and is the tag's name ("Score
++5: 6 up, 1 down"). The tag is a picture, not a control: a press on that
+corner reaches the menu button.
+
+The two thumbs are small round buttons on the note's lower edge, with the
+dashed plus, in every stage. They carry no counts and take no room, so a
+one-line note is the same height in the Vote stage as in Write. They are in
+sight while the note is pointed at or holds focus, always in the Vote stage
+and on a touch screen, and on a note where the viewer's own vote is known;
+out of sight they are still Tab stops. Pressed is a filled thumb and a ring.
+
+A vote the host could not take just now (`busy`, `failed`, `rate-limited`,
+`unreachable`, or a message the bridge would not carry) is sent once more
+600ms later, quietly: it is a set, so sending it twice counts once. If that
+fails too, the thumb goes back to what it was, the previous vote stays shown,
+and the note says "Your vote did not go through." with a Try again button.
+A no that asking again would not change is said in the same place without
+the button. The tag never moves until a vote lands, and the server's own
+words are never shown.
+
+"Top rated" (a lens for one reader) and the facilitator's order-for-everyone
+rank by that same score, then by more ups, then leave the order as it was. A
+group's heading gives its score first and the split when there are downs:
+"2 notes · +5 (6 up · 1 down)". Other people's votes are not read out as they
 arrive (in the Vote stage that would be the whole room at once): each thumb
-carries both counts in its name, and a person hears the outcome of their own
+carries the score in its name, and a person hears the outcome of their own
 vote. `U` and `D` on a note's words vote up and down. A second press of the
 same thumb within 400ms is taken as part of the first, so a double click does
 not set a vote and take it back. A thumb says whether it is pressed only when
@@ -249,9 +278,14 @@ sticker lands on no word: the note's lines are measured, and of the corner
 under the handle, the handle's column and the bottom edge, only places where
 the sticker would cover no word are used. When every one is taken the next
 stickers pile where the first went, on each other and still off the words.
-Only a sticker somebody drags can lie on the words. The dashed plus stands at
-the far end of the note's foot, clear of stickers, words and controls, and is
-not shown when there is no such place or the note or the viewer is at a cap.
+Only a sticker somebody drags can lie on the words. A place is also never on,
+or within 6px of, the note's handle, its checkbox (or where the checkbox will
+stand in the Group stage), its menu button, or the strip its three lower
+buttons stand on (`controlsOf`). The dashed plus stands with the thumbs on
+the note's lower edge, and is not there when the note or the viewer is at a
+cap. A sticker keeps the place it was given as a fraction of its note, so one
+placed at one width can come to lie near a control at another; the controls
+are drawn above it and stay pressable.
 
 The vinyl set keeps the small tilt it was placed with. A pixel sticker is
 never tilted (the stored `rot` is ignored for the `p-` kinds) and is sized so
