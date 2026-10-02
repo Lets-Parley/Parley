@@ -1463,7 +1463,8 @@ const RETRO_FONTS = [
       const count = after.stamps.filter(function (o) {
         return o.cardId === s.cardId;
       }).length;
-      return STAMPS[s.kind].label + " sticker " + verb + ": " + short(on ? on.text : "a note") + ". " + plural(count, "sticker") + " on that note.";
+      // A note that ends its own sentence is not given a second full stop.
+      return STAMPS[s.kind].label + " sticker " + verb + ": " + short(on ? on.text : "a note").replace(/\.+$/, "") + ". " + plural(count, "sticker") + " on that note.";
     };
     const shifted = after.stamps.filter(function (s) {
       return was[s.id] && (was[s.id].x !== s.x || was[s.id].y !== s.y);

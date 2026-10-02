@@ -1580,7 +1580,8 @@ test("stickers lying over a note's words are marked, and step back while the wor
 
 test("a sticker is announced by what it is and how many there are, never by who or by which set", () => {
   const { root, push } = load({ host: "new" });
-  const cards = [card("c1", "went-well", "Flaky", { authorId: "u-cy" })];
+  // The note ends with a full stop of its own, which is not said twice.
+  const cards = [card("c1", "went-well", "Flaky.", { authorId: "u-cy" })];
   const say = (stamps) => {
     push(session({ revealed: true, cards, stamps }, PARTICIPANT));
     return liveOf(root);
