@@ -542,14 +542,17 @@ issue first. For anything large, open an issue before writing code.
     key is inspected, because output was ignored before and old guests must
     keep working. Anyone in a room — a link guest included — can send an
     action, so `Host.record` does not charge an action the guest itself
-    reported as failed (`ErrGuestReported`: it ran to its end), and counts an
+    reported as failed (`ErrGuestReported`: it ran to its end, in no more than
+    half its call timeout), and counts an
     action that had to be stopped in `breaker.actionFailures`, which opens the
     cooldown and never trips. Do not merge that counter back into `failures`.
 45. **A room's actions run one at a time, in two stages, and the order of the
     stages is the capacity bound.** `Host.callAction` lines a room's actions up
     in-process first (`enterRoom`, holding nothing), so one room has at most
     one call in flight and one connection parked per replica. Only then does
-    `call` take the in-flight slot and, after it, `lockRoom`'s advisory lock
+    `call` wait for the in-flight slot (`acquireBy`: actions wait, oldest
+    first, to the same deadline; every other hook is still refused at once)
+    and, after it, take `lockRoom`'s advisory lock
     (two-key form, class `actionLockClass`, never the single-key ids of gotcha
     3), which holds a pooled connection for the whole guest call. Taking the
     lock before the in-flight slot, or before the in-process line, lets one

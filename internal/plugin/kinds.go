@@ -528,16 +528,17 @@ type roomQueue struct {
 // action is read, change, write inside the guest and the store's write is
 // last-wins, so two that overlap lose one of the changes.
 //
-// It is two stages. A room's actions first line up in this process, in arrival
-// order and holding nothing, so one room never has more than one call in
-// flight or one connection parked here however many requests it is sent. The
-// one at the head then takes its in-flight slot and, inside call, the
-// Postgres advisory lock that keeps the other replicas out. Rooms share no
-// line: a busy one cannot hold a quiet one back, only use up the in-flight
-// caps every plugin call already answers to.
+// It is three waits under one deadline. A room's actions first line up in
+// this process, in arrival order and holding nothing, so one room never has
+// more than one call in flight or one connection parked here however many
+// requests it is sent. The one at the head then waits for an in-flight slot,
+// still holding nothing, and only with that takes the Postgres advisory lock
+// that keeps the other replicas out. Rooms share no line: a busy one cannot
+// hold a quiet one back, only use the in-flight slots every plugin call
+// answers to.
 //
-// Both waits end at one deadline, and a caller that runs out of it is told
-// the room is busy rather than left hanging.
+// A caller that runs out of the deadline is told the room is busy, or the
+// plugin at capacity, rather than left hanging.
 func (h *Host) callAction(ctx context.Context, installID, sessionID string, in []byte) ([]byte, error) {
 	by := time.Now().Add(2 * h.cfg.CallTimeout)
 	wait, cancel := context.WithDeadline(ctx, by)
@@ -593,7 +594,7 @@ func (h *Host) lockRoom(ctx context.Context, sessionID string, by time.Time) (fu
 	tx, err := pool.Begin(ctx)
 	if err == nil {
 		if _, err = tx.Exec(ctx, `select pg_advisory_xact_lock($1, hashtext($2))`, actionLockClass, sessionID); err != nil {
-			_ = tx.Rollback(context.WithoutCancel(ctx))
+			endRoomLock(tx)
 		}
 	}
 	if err != nil {
@@ -604,13 +605,18 @@ func (h *Host) lockRoom(ctx context.Context, sessionID string, by time.Time) (fu
 		return nil, fmt.Errorf("%w: session %s: %v", errRoomLock, sessionID, err)
 	}
 	return func() {
-		// Ending the transaction is what releases the lock. If that fails the
-		// connection is dead, and the server dropped the lock with it.
-		end, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = tx.Rollback(end)
+		endRoomLock(tx)
 		h.roomLocks.Add(-1)
 	}, nil
+}
+
+// endRoomLock ends the lock's transaction, which is what releases the lock.
+// It is bounded, and if it fails the connection is dead and the server
+// dropped the lock with it.
+func endRoomLock(tx pgx.Tx) {
+	end, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = tx.Rollback(end)
 }
 
 // readActionBody reads the request body a plugin action was called with. An

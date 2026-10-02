@@ -180,6 +180,8 @@ type Host struct {
 	inflight map[string]int
 	total    int
 	rooms    map[string]*roomQueue
+	// slotWaiters are actions waiting for an in-flight slot, oldest first.
+	slotWaiters []*slotWaiter
 
 	roomLocks atomic.Int32 // connections parked on room locks
 }
@@ -421,7 +423,13 @@ func (h *Host) call(ctx context.Context, installID, fn string, input []byte, mod
 	if !h.breakerAllows(installID) {
 		return nil, fmt.Errorf("%s: %w", state.Install.Name, ErrCircuitOpen)
 	}
-	if !h.acquire(installID) {
+	// An action waits for its slot, up to the deadline it already has for the
+	// room; every other call is refused at once, as it always was.
+	if info.room != "" {
+		if !h.acquireBy(ctx, installID, info.lockBy) {
+			return nil, fmt.Errorf("%s: %w", state.Install.Name, ErrTooBusy)
+		}
+	} else if !h.acquire(installID) {
 		return nil, fmt.Errorf("%s: %w", state.Install.Name, ErrTooBusy)
 	}
 	defer h.release(installID)
@@ -442,7 +450,9 @@ func (h *Host) call(ctx context.Context, installID, fn string, input []byte, mod
 		defer unlock()
 	}
 
+	started := time.Now()
 	out, err := h.invoke(ctx, compiled, fn, input, info)
+	elapsed := time.Since(started)
 	// An action is the one export a room participant calls at will.
 	action := fn == ExportSessionAction
 	if err == nil && action {
@@ -450,7 +460,9 @@ func (h *Host) call(ctx context.Context, installID, fn string, input []byte, mod
 		// only a reply that is not a refusal the host knows is a fault.
 		_, err = actionRefusal(out)
 	}
-	h.record(ctx, installID, state.Install.Name, err, action)
+	// A reported error is free only when the call was cheap; see record.
+	free := action && errors.Is(err, ErrGuestReported) && cheap(elapsed, h.cfg.CallTimeout)
+	h.record(ctx, installID, state.Install.Name, err, action, free)
 	return out, err
 }
 
@@ -527,7 +539,7 @@ func exceedsAMemoryBound(msg string) bool {
 func (h *Host) acquire(installID string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.total >= h.cfg.MaxConcurrentCalls || h.inflight[installID] >= h.cfg.MaxConcurrentPerInstall {
+	if !h.hasSlot(installID) {
 		return false
 	}
 	h.total++
@@ -543,6 +555,79 @@ func (h *Host) release(installID string) {
 	if h.inflight[installID] <= 0 {
 		delete(h.inflight, installID)
 	}
+	h.grantSlots()
+}
+
+// cheap reports whether a call that took elapsed cost little enough that a
+// guest reporting an error from it is validation rather than waste.
+func cheap(elapsed, timeout time.Duration) bool { return elapsed <= timeout/2 }
+
+// slotWaiter is one action waiting for an in-flight slot.
+type slotWaiter struct {
+	installID string
+	granted   chan struct{}
+}
+
+func (h *Host) hasSlot(installID string) bool {
+	return h.total < h.cfg.MaxConcurrentCalls && h.inflight[installID] < h.cfg.MaxConcurrentPerInstall
+}
+
+// grantSlots hands freed slots to waiting actions, oldest first, skipping any
+// whose own install is still full. Called with h.mu held.
+func (h *Host) grantSlots() {
+	kept := h.slotWaiters[:0]
+	for _, w := range h.slotWaiters {
+		if !h.hasSlot(w.installID) {
+			kept = append(kept, w)
+			continue
+		}
+		h.total++
+		h.inflight[w.installID]++
+		close(w.granted)
+	}
+	clear(h.slotWaiters[len(kept):])
+	h.slotWaiters = kept
+}
+
+// acquireBy is acquire for an action: it waits for a slot until by. Waiting
+// holds no connection. A freed slot is handed over inside release, to the
+// action that has waited longest among those its install has room for, so no
+// slot is ever free while such an action waits and a newcomer cannot take one
+// past it: a room that keeps sending goes to the back each time.
+func (h *Host) acquireBy(ctx context.Context, installID string, by time.Time) bool {
+	h.mu.Lock()
+	if h.hasSlot(installID) {
+		h.total++
+		h.inflight[installID]++
+		h.mu.Unlock()
+		return true
+	}
+	w := &slotWaiter{installID: installID, granted: make(chan struct{})}
+	h.slotWaiters = append(h.slotWaiters, w)
+	h.mu.Unlock()
+
+	ctx, cancel := context.WithDeadline(ctx, by)
+	defer cancel()
+	select {
+	case <-w.granted:
+		return true
+	case <-ctx.Done():
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	select {
+	case <-w.granted:
+		// Granted as it gave up: the slot is this call's, so use it.
+		return true
+	default:
+	}
+	for i, other := range h.slotWaiters {
+		if other == w {
+			h.slotWaiters = append(h.slotWaiters[:i], h.slotWaiters[i+1:]...)
+			break
+		}
+	}
+	return false
 }
 
 // breakerFor must be called with h.mu held. Every field of a breaker is
@@ -574,9 +659,11 @@ func (h *Host) breakerAllows(installID string) bool {
 // the trip that switches a plugin off for the whole org. An action the guest
 // itself reported as failed is not counted at all: it ran to its end, cost
 // what a successful call costs, and is what a guest that validates by
-// throwing does with bad input. A trap, a timeout or a memory stop on an
-// action still opens the cooldown.
-func (h *Host) record(ctx context.Context, installID, name string, callErr error, action bool) {
+// throwing does with bad input — unless it used more than half its call
+// timeout getting there, which is a guest burning its budget rather than
+// validating. That, a trap, a timeout or a memory stop on an action still
+// opens the cooldown.
+func (h *Host) record(ctx context.Context, installID, name string, callErr error, action, free bool) {
 	h.mu.Lock()
 	b := h.breakerFor(installID)
 	if callErr == nil {
@@ -587,7 +674,7 @@ func (h *Host) record(ctx context.Context, installID, name string, callErr error
 	// A refusal by the containment layer is the host working, not the plugin
 	// failing; charging it would let load disable a healthy plugin.
 	if errors.Is(callErr, ErrTooBusy) || errors.Is(callErr, ErrCircuitOpen) || errors.Is(callErr, ErrDisabled) ||
-		(action && errors.Is(callErr, ErrGuestReported)) {
+		free {
 		h.mu.Unlock()
 		return
 	}

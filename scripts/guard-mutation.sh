@@ -330,8 +330,8 @@ mutate "the memory cap" \
     host.go 'RuntimeConfig: wazero.NewRuntimeConfig().WithMemoryLimitPages(h.cfg.MemoryPages).WithCloseOnContextDone(true),' 'RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),'
 
 mutate "the in-flight cap" \
-    'TestInFlightCallsAreCappedPerInstallAndInTotal|TestAnActionPastTheInFlightCapIsToldThePluginIsAtCapacity' \
-    host.go 'if h.total >= h.cfg.MaxConcurrentCalls || h.inflight[installID] >= h.cfg.MaxConcurrentPerInstall {' 'if false {'
+    'TestInFlightCallsAreCappedPerInstallAndInTotal|TestAnActionThatNeverGetsASlotIsToldThePluginIsAtCapacity' \
+    host.go 'return h.total < h.cfg.MaxConcurrentCalls && h.inflight[installID] < h.cfg.MaxConcurrentPerInstall' 'return true'
 
 mutate "the circuit breaker" \
     'TestARepeatedlyFailingPluginIsDegradedAndThenDisabled' \
@@ -388,7 +388,11 @@ mutate "failed actions counted apart from the failures that disable" \
 
 mutate "no charge for an action the guest reported as failed" \
     'TestOnlyAnActionThatHadToBeStoppedIsCharged' \
-    host.go '(action && errors.Is(callErr, ErrGuestReported)) {' '(false && errors.Is(callErr, ErrGuestReported)) {'
+    host.go 'free := action && errors.Is(err, ErrGuestReported) && cheap(elapsed, h.cfg.CallTimeout)' 'free := false && errors.Is(err, ErrGuestReported) && cheap(elapsed, h.cfg.CallTimeout)'
+
+mutate "the charge for a reported error that used most of its call" \
+    'TestOnlyACheapReportedErrorIsFree' \
+    host.go 'func cheap(elapsed, timeout time.Duration) bool { return elapsed <= timeout/2 }' 'func cheap(elapsed, timeout time.Duration) bool { return true }'
 
 mutate "a stopped call is never read as a reported error" \
     'TestOnlyAnActionThatHadToBeStoppedIsCharged' \
@@ -403,6 +407,20 @@ mutate "the per-room action lock across replicas" \
 mutate "one action per room at the lock" \
     'TestABusyRoomHoldsOneConnectionAndDoesNotDelayAnother' \
     kinds.go 'q = &roomQueue{turn: make(chan struct{}, 1)}' 'q = &roomQueue{turn: make(chan struct{}, 64)}'
+
+# An action waits for an in-flight slot rather than failing a whole burst, and
+# that wait ends at the action's deadline.
+mutate "the wait for an in-flight slot" \
+    'TestActionsPastTheInFlightCapWaitForASlot' \
+    host.go 'if !h.acquireBy(ctx, installID, info.lockBy) {' 'if !h.acquire(installID) {'
+
+mutate "the deadline on waiting for an in-flight slot" \
+    'TestAnActionThatNeverGetsASlotIsToldThePluginIsAtCapacity' \
+    host.go 'ctx, cancel := context.WithDeadline(ctx, by)' 'ctx, cancel := context.WithCancel(ctx)'
+
+mutate "waiting actions served oldest first" \
+    'TestSlotsGoToWaitingActionsInOrder' \
+    host.go 'h.slotWaiters = append(h.slotWaiters, w)' 'h.slotWaiters = append([]*slotWaiter{w}, h.slotWaiters...)'
 
 mutate "the pool reserve room locks leave free" \
     'TestRoomLocksLeaveTheReserveOfThePoolFree' \

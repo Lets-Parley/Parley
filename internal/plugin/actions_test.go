@@ -295,11 +295,11 @@ func queued(h *Host, sessionID string) int {
 func released(t *testing.T, h *Host, in Install, sessionID string) {
 	t.Helper()
 	h.mu.Lock()
-	inflight, total, rooms := h.inflight[in.ID], h.total, len(h.rooms)
+	inflight, total, rooms, waiting := h.inflight[in.ID], h.total, len(h.rooms), len(h.slotWaiters)
 	h.mu.Unlock()
-	if inflight != 0 || total != 0 || rooms != 0 || h.roomLocks.Load() != 0 {
-		t.Fatalf("left behind: %d in flight for the install, %d in total, %d room queues, %d lock connections",
-			inflight, total, rooms, h.roomLocks.Load())
+	if inflight != 0 || total != 0 || rooms != 0 || waiting != 0 || h.roomLocks.Load() != 0 {
+		t.Fatalf("left behind: %d in flight for the install, %d in total, %d room queues, %d slot waiters, %d lock connections",
+			inflight, total, rooms, waiting, h.roomLocks.Load())
 	}
 	if n := roomLocks(t, h, sessionID, true) + roomLocks(t, h, sessionID, false); n != 0 {
 		t.Fatalf("%d connections still hold or wait on the room's lock", n)
@@ -509,38 +509,119 @@ func TestABusyRoomHoldsOneConnectionAndDoesNotDelayAnother(t *testing.T) {
 	released(t, h, in, "busy")
 }
 
-// The in-flight caps are the capacity bound, and a room waiting for its lock
-// counts against them: with one call allowed per install, a second room is
-// told the plugin is at capacity, at once, and nothing is charged.
-func TestAnActionPastTheInFlightCapIsToldThePluginIsAtCapacity(t *testing.T) {
-	h, in := hosted(t, guestAppends(), HostConfig{CallTimeout: 10 * time.Second, MaxConcurrentPerInstall: 1},
-		1<<20, Grant{Capability: CapabilityKV})
+func slotWaiters(h *Host) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.slotWaiters)
+}
+
+// With every slot of the install taken, a burst across several rooms waits
+// for slots instead of draining as failures: each room's head waits, and the
+// rest of each room stays in its line behind it.
+func TestActionsPastTheInFlightCapWaitForASlot(t *testing.T) {
+	h, in := hosted(t, guestAppends(), HostConfig{CallTimeout: 10 * time.Second}, 1<<20, Grant{Capability: CapabilityKV})
 	r := actionRoom(t, h, in)
-	release := holdRoom(t, h, "busy")
+	key, _ := namespacedKey("", "n")
+	if err := h.Store.Put(context.Background(), in.ID, key, []byte("AAA")); err != nil {
+		t.Fatal(err)
+	}
+	// Compile the module first: this is about slots, not about two first
+	// calls compiling the same module at once.
+	if status, body := r.actIn(t, "warm"); status != http.StatusNoContent {
+		t.Fatalf("got %d %s, want 204", status, body)
+	}
+	// Both of the install's slots are busy with something else.
+	for range 2 {
+		if !h.acquire(in.ID) {
+			t.Fatal("could not take a slot")
+		}
+	}
 
-	done := make(chan int, 1)
-	go func() {
-		status, _ := r.actIn(t, "busy")
-		done <- status
-	}()
-	eventually(t, "the busy room's action is at the lock", func() bool { return roomLocks(t, h, "busy", false) == 1 })
+	rooms := []string{"one", "two", "three"}
+	var wg sync.WaitGroup
+	for _, id := range rooms {
+		for range 2 {
+			wg.Go(func() {
+				if status, body := r.actIn(t, id); status != http.StatusNoContent {
+					t.Errorf("room %s got %d %s, want 204 once a slot was free", id, status, body)
+				}
+			})
+		}
+	}
+	eventually(t, "each room's head is waiting for a slot", func() bool { return slotWaiters(h) == len(rooms) })
+	if n := h.roomLocks.Load(); n != 0 {
+		t.Fatalf("%d connections are held by actions that are only waiting for a slot", n)
+	}
+	h.release(in.ID)
+	h.release(in.ID)
+	wg.Wait()
+	released(t, h, in, "one")
+}
 
-	started := time.Now()
-	status, body := r.actIn(t, "quiet")
+// The wait for a slot ends at the action's deadline, as a plugin at capacity
+// and not as a busy room, and leaves nothing behind.
+func TestAnActionThatNeverGetsASlotIsToldThePluginIsAtCapacity(t *testing.T) {
+	h, in := hosted(t, guestAppends(), HostConfig{CallTimeout: 150 * time.Millisecond}, 1<<20, Grant{Capability: CapabilityKV})
+	r := actionRoom(t, h, in)
+	for range 2 {
+		if !h.acquire(in.ID) {
+			t.Fatal("could not take a slot")
+		}
+	}
+	status, body := r.act(t)
 	if status != http.StatusServiceUnavailable || body != `{"error":"the plugin is at capacity, try again"}` {
 		t.Fatalf("got %d %s, want 503", status, body)
-	}
-	if waited := time.Since(started); waited > 5*time.Second {
-		t.Fatalf("the refusal took %s; it should not wait", waited)
 	}
 	if n := failuresCharged(h, in.ID); n != 0 {
 		t.Fatalf("%d failures were charged for a host at capacity", n)
 	}
-	release()
-	if status := <-done; status != http.StatusNoContent {
-		t.Fatalf("the busy room's action got %d, want 204", status)
+	h.release(in.ID)
+	h.release(in.ID)
+	released(t, h, in, r.session)
+}
+
+// Slots are handed to waiting actions oldest first, inside release, so one is
+// never free for a newcomer while an action waits.
+func TestSlotsGoToWaitingActionsInOrder(t *testing.T) {
+	h := &Host{cfg: HostConfig{MaxConcurrentCalls: 1, MaxConcurrentPerInstall: 1}.withDefaults(), inflight: map[string]int{}}
+	if !h.acquire("a") {
+		t.Fatal("could not take the slot")
 	}
-	released(t, h, in, "busy")
+	by := time.Now().Add(time.Minute)
+	order := make(chan string, 2)
+	wait := func(name string) {
+		go func() {
+			if h.acquireBy(context.Background(), "a", by) {
+				order <- name
+			}
+		}()
+	}
+	wait("first")
+	eventually(t, "the first is waiting", func() bool { return slotWaiters(h) == 1 })
+	wait("second")
+	eventually(t, "the second is waiting", func() bool { return slotWaiters(h) == 2 })
+
+	h.release("a")
+	if got := <-order; got != "first" {
+		t.Fatalf("the slot went to the %s waiter", got)
+	}
+	h.release("a")
+	if got := <-order; got != "second" {
+		t.Fatalf("the slot went to the %s waiter", got)
+	}
+	if h.acquire("a") {
+		t.Fatal("a slot was free while a granted waiter held it")
+	}
+}
+
+func TestOnlyACheapReportedErrorIsFree(t *testing.T) {
+	const timeout = 2 * time.Second
+	if !cheap(time.Second, timeout) {
+		t.Fatal("a call that took half its timeout should still be cheap")
+	}
+	if cheap(time.Second+time.Millisecond, timeout) {
+		t.Fatal("a call that took more than half its timeout was treated as cheap")
+	}
 }
 
 // Room locks never take the pool's last connections: the guest holding a lock
@@ -631,15 +712,18 @@ func TestOnlyAnActionThatHadToBeStoppedIsCharged(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		guest   []byte
+		timeout time.Duration
 		charged bool
 	}{
-		{"reported", guestReports("no such card"), false},
-		{"trapped", guestTraps(), true},
-		{"timed out", guestHangs(), true},
+		// A guest that returns in microseconds gets a budget of seconds, so a
+		// slow runner cannot push it past the timeout or past half of it.
+		{"reported", guestReports("no such card"), time.Minute, false},
+		{"trapped", guestTraps(), time.Minute, true},
+		{"timed out", guestHangs(), 200 * time.Millisecond, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h, in := hosted(t, tc.guest, HostConfig{
-				CallTimeout: 200 * time.Millisecond, BreakerFailures: 2, BreakerCooldown: time.Hour,
+				CallTimeout: tc.timeout, BreakerFailures: 2, BreakerCooldown: time.Hour,
 			}, 1024)
 			r := actionRoom(t, h, in)
 			for range 2 {
