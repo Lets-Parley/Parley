@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -174,7 +175,39 @@ func guestAppends() []byte {
 		storeBytes(storeU8, req, setTail),
 		[]byte{opLocalGet, out, opCall, byte(kvSet), opDrop},
 		i32Const(0), []byte{opEnd})
-	return b.buildAction([]wasm.ValueType{i64, i64, i64, i64, i64, i32}, body)
+	// on_session_state: the stored value, as kv_get answered it. The envelope
+	// is JSON, which is all a state payload has to be.
+	outputSet := b.importFunc("extism:host/env", "output_set", []wasm.ValueType{i64, i64}, nil)
+	var state []byte
+	for _, part := range [][]byte{
+		i64Const(len(getReq)), {opCall, byte(alloc), opLocalSet, 0},
+		storeBytes(storeU8, 0, getReq),
+		{opLocalGet, 0, opCall, byte(kvGet), opLocalSet, 1},
+		{opLocalGet, 1, opLocalGet, 1, opCall, byte(length), opCall, byte(outputSet)},
+		i32Const(0), {opEnd},
+	} {
+		state = append(state, part...)
+	}
+	return b.buildActionAndState([]wasm.ValueType{i64, i64, i64, i64, i64, i32}, body, []wasm.ValueType{i64, i64}, state)
+}
+
+// buildActionAndState is buildAction with a second function exported as
+// on_session_state.
+func (b *guestBuilder) buildActionAndState(locals []wasm.ValueType, action []byte, stateLocals []wasm.ValueType, state []byte) []byte {
+	b.types = append(b.types, &wasm.FunctionType{Results: []wasm.ValueType{wasm.ValueTypeI32}})
+	fn := uint32(len(b.types) - 1)
+	first := uint32(len(b.imports))
+	m := &wasm.Module{
+		TypeSection:     b.types,
+		ImportSection:   b.imports,
+		FunctionSection: []wasm.Index{fn, fn},
+		ExportSection: []*wasm.Export{
+			{Type: wasm.ExternTypeFunc, Name: ExportSessionAction, Index: first},
+			{Type: wasm.ExternTypeFunc, Name: ExportSessionState, Index: first + 1},
+		},
+		CodeSection: []*wasm.Code{{LocalTypes: locals, Body: action}, {LocalTypes: stateLocals, Body: state}},
+	}
+	return binary.EncodeModule(m)
 }
 
 // room serves one plugin action over HTTP the way the dispatcher hands it to
@@ -525,11 +558,6 @@ func TestActionsPastTheInFlightCapWaitForASlot(t *testing.T) {
 	if err := h.Store.Put(context.Background(), in.ID, key, []byte("AAA")); err != nil {
 		t.Fatal(err)
 	}
-	// Compile the module first: this is about slots, not about two first
-	// calls compiling the same module at once.
-	if status, body := r.actIn(t, "warm"); status != http.StatusNoContent {
-		t.Fatalf("got %d %s, want 204", status, body)
-	}
 	// Both of the install's slots are busy with something else.
 	for range 2 {
 		if !h.acquire(in.ID) {
@@ -777,5 +805,268 @@ func TestARefusalKeyIsMatchedExactly(t *testing.T) {
 	r := actionRoom(t, h, in)
 	if status, body := r.act(t); status != http.StatusNoContent {
 		t.Fatalf("got %d %s, want 204: only the exact key is a refusal", status, body)
+	}
+}
+
+// The same reported error, from the same guest, is free or charged by how
+// long the call took. The host's clock is driven here, so neither side
+// depends on how fast the runner is.
+func TestAReportedActionErrorIsChargedOnceItUsedMostOfItsCall(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		took    time.Duration
+		charged bool
+	}{
+		{"a tenth of the timeout", 6 * time.Second, false},
+		{"two thirds of the timeout", 40 * time.Second, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, in := hosted(t, guestReports("no such card"), HostConfig{
+				CallTimeout: time.Minute, BreakerFailures: 2, BreakerCooldown: time.Hour,
+			}, 1024)
+			// Each reading of the clock is tc.took after the one before, and
+			// a call reads it once before the guest runs and once after.
+			var tick atomic.Int64
+			h.now = func() time.Time { return time.Unix(0, 0).Add(time.Duration(tick.Add(1)) * tc.took) }
+			r := actionRoom(t, h, in)
+			for range 2 {
+				if status, body := r.act(t); status != http.StatusBadGateway {
+					t.Fatalf("got %d %s, want 502", status, body)
+				}
+			}
+			if degraded := !h.breakerAllows(in.ID); degraded != tc.charged {
+				t.Fatalf("degraded = %v after two reported errors that each took %s of a minute, want %v", degraded, tc.took, tc.charged)
+			}
+		})
+	}
+}
+
+// stateRoom is actionRoom whose broadcast builds the room's state the way the
+// API does after an action, and keeps every result.
+type stateRoom struct {
+	*httptest.Server
+	mu     sync.Mutex
+	states []string
+	errs   []error
+}
+
+func actionRoomWithState(t *testing.T, h *Host, in Install) *stateRoom {
+	t.Helper()
+	st, err := h.Store.State(context.Background(), in.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kind := h.PluginKind(st, KindDef{Kind: "k", Actions: []ActionDef{{Name: "act", Verb: http.MethodPost}}})
+	r := &stateRoom{}
+	r.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		kind.Actions["act"].Do(w, req, session.ActionCtx{
+			Session: store.Session{ID: req.URL.Query().Get("room")},
+			UserID:  "someone",
+			Broadcast: func(ctx context.Context, id string) {
+				state, err := kind.State(ctx, nil, store.Session{ID: id})
+				r.mu.Lock()
+				defer r.mu.Unlock()
+				if err != nil {
+					r.errs = append(r.errs, err)
+					return
+				}
+				r.states = append(r.states, string(state.(json.RawMessage)))
+			},
+		})
+	}))
+	t.Cleanup(r.Close)
+	return r
+}
+
+// While actions are queued for slots, every freed slot goes to the next one
+// in line. The state build after each action has to get its turn in that
+// line too, or the room is told nothing changed.
+func TestQueuedActionsDoNotStarveTheStateBuildAfterEachAction(t *testing.T) {
+	h, in := hosted(t, guestAppends(), HostConfig{CallTimeout: 10 * time.Second}, 1<<20, Grant{Capability: CapabilityKV})
+	r := actionRoomWithState(t, h, in)
+	ctx := context.Background()
+	key, _ := namespacedKey("", "n")
+	if err := h.Store.Put(ctx, in.ID, key, []byte("AAA")); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if !h.acquire(in.ID) {
+			t.Fatal("could not take a slot")
+		}
+	}
+	rooms := []string{"one", "two", "three"}
+	const each = 3
+	var wg sync.WaitGroup
+	for _, id := range rooms {
+		for range each {
+			wg.Go(func() {
+				resp, err := http.Post(r.URL+"?room="+id, "application/json", strings.NewReader(`{}`))
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				resp.Body.Close()
+				if resp.StatusCode != http.StatusNoContent {
+					t.Errorf("room %s got %d, want 204", id, resp.StatusCode)
+				}
+			})
+		}
+	}
+	eventually(t, "each room's head is waiting for a slot", func() bool { return slotWaiters(h) == len(rooms) })
+	h.release(in.ID)
+	h.release(in.ID)
+	wg.Wait()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.errs) != 0 {
+		t.Fatalf("%d of %d state builds failed while actions were queued; the first: %v", len(r.errs), len(rooms)*each, r.errs[0])
+	}
+	// The stored value only grows, so the longest state any client was sent
+	// is the newest, and it has to be the value the burst left behind.
+	final, err := h.kindState(ctx, in.ID, "k", store.Session{ID: "one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	newest := ""
+	for _, s := range r.states {
+		if len(s) > len(newest) {
+			newest = s
+		}
+	}
+	if want := string(final.(json.RawMessage)); newest != want {
+		t.Fatalf("the newest state broadcast is not the state the burst left:\n got %s\nwant %s", newest, want)
+	}
+}
+
+// A page load is a state build with no action in front of it. It waits for a
+// slot rather than failing because the plugin is busy.
+func TestAStateBuildWaitsForASlot(t *testing.T) {
+	h, in := hosted(t, guestAppends(), HostConfig{CallTimeout: 10 * time.Second}, 1<<20, Grant{Capability: CapabilityKV})
+	for range 2 {
+		if !h.acquire(in.ID) {
+			t.Fatal("could not take a slot")
+		}
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := h.kindState(context.Background(), in.ID, "k", store.Session{ID: "one"})
+		done <- err
+	}()
+	eventually(t, "the state build is waiting for a slot", func() bool { return slotWaiters(h) == 1 })
+	h.release(in.ID)
+	h.release(in.ID)
+	if err := <-done; err != nil {
+		t.Fatalf("a state build that waited for a slot failed: %v", err)
+	}
+}
+
+// A state build that runs out of its wait is refused by the host, which is
+// not the plugin failing.
+func TestAStateBuildThatNeverGetsASlotIsNotCharged(t *testing.T) {
+	h, in := hosted(t, guestAppends(), HostConfig{CallTimeout: 100 * time.Millisecond}, 1<<20, Grant{Capability: CapabilityKV})
+	for range 2 {
+		if !h.acquire(in.ID) {
+			t.Fatal("could not take a slot")
+		}
+	}
+	if _, err := h.kindState(context.Background(), in.ID, "k", store.Session{ID: "one"}); !errors.Is(err, ErrTooBusy) {
+		t.Fatalf("got %v, want ErrTooBusy", err)
+	}
+	if n := failuresCharged(h, in.ID); n != 0 {
+		t.Fatalf("%d failures were charged for a state build the host refused", n)
+	}
+	if n := slotWaiters(h); n != 0 {
+		t.Fatalf("%d slot waiters were left behind", n)
+	}
+}
+
+// Events and jobs still do not wait: they are retried by their own queues.
+func TestAnEventPastTheInFlightCapIsStillRefusedAtOnce(t *testing.T) {
+	h, in := hosted(t, guestNoop(), HostConfig{CallTimeout: time.Minute}, 1024)
+	for range 2 {
+		if !h.acquire(in.ID) {
+			t.Fatal("could not take a slot")
+		}
+	}
+	started := time.Now()
+	if _, err := h.Call(context.Background(), in.ID, "run", nil, ModeAsync); !errors.Is(err, ErrTooBusy) {
+		t.Fatalf("got %v, want ErrTooBusy", err)
+	}
+	if waited := time.Since(started); waited > 10*time.Second {
+		t.Fatalf("the call waited %s", waited)
+	}
+}
+
+// gated is a bundle source whose Load waits to be let through, and counts.
+type gated struct {
+	bundles
+	loads atomic.Int64
+	gate  chan struct{}
+}
+
+func (g *gated) Load(ctx context.Context, name, version string) ([]byte, string, error) {
+	g.loads.Add(1)
+	<-g.gate
+	return g.bundles.Load(ctx, name, version)
+}
+
+// Several first calls to an install nobody has compiled yet share one
+// compile. Each compiling its own, the later ones replaced the module the
+// earlier ones were running on and closed it under them.
+func TestConcurrentFirstCallsCompileTheModuleOnce(t *testing.T) {
+	const callers = 6
+	h, in := hosted(t, guestNoop(), HostConfig{MaxConcurrentCalls: callers, MaxConcurrentPerInstall: callers}, 1024)
+	src := &gated{bundles: h.Bundles.(bundles), gate: make(chan struct{})}
+	h.Bundles = src
+
+	errs := make(chan error, callers)
+	for range callers {
+		go func() {
+			_, err := h.Call(context.Background(), in.ID, "run", nil, ModeAsync)
+			errs <- err
+		}()
+	}
+	eventually(t, "every call is in flight and one is loading the bundle", func() bool {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		return h.total == callers && src.loads.Load() >= 1
+	})
+	close(src.gate)
+	for range callers {
+		if err := <-errs; err != nil {
+			t.Errorf("a first call failed: %v", err)
+		}
+	}
+	if n := src.loads.Load(); n != 1 {
+		t.Fatalf("the bundle was loaded %d times for %d concurrent first calls, want 1", n, callers)
+	}
+}
+
+// A module pushed out of the cache while a call is running on it stays open
+// until that call is done with it.
+func TestAModuleEvictedUnderACallIsNotClosedUntilTheCallIsDone(t *testing.T) {
+	ctx := context.Background()
+	h, first := hosted(t, guestNoop(), HostConfig{MaxCachedModules: 1}, 1024)
+	second := install(t, h.Store)
+	h.Bundles.(bundles)[second.Name+"@1.0.0"] = guestNoop()
+
+	held, err := h.module(ctx, first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Another install's first call fills the one-module cache.
+	if _, err := h.Call(ctx, second.ID, "run", nil, ModeAsync); err != nil {
+		t.Fatal(err)
+	}
+	if h.CachedModules() != 1 {
+		t.Fatalf("%d modules are cached, want 1", h.CachedModules())
+	}
+	if _, err := h.invoke(ctx, held.compiled, "run", nil, &callInfo{}); err != nil {
+		t.Fatalf("the evicted module was closed under the call holding it: %v", err)
+	}
+	h.unuse(ctx, held)
+	if _, err := h.invoke(ctx, held.compiled, "run", nil, &callInfo{}); err == nil {
+		t.Fatal("the evicted module is still open after its last call let go of it")
 	}
 }

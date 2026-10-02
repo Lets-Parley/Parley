@@ -422,9 +422,10 @@ to, room actions leave the last two free and answer `503` past that.
 How many calls one install may have in flight, so one plugin cannot take the
 whole budget from the others. A room runs one action at a time, so this is
 also how many rooms of one plugin can be mid-action at once on a replica. An
-action past it waits, holding no database connection, for up to twice
-`PLUGIN_CALL_TIMEOUT`, and is answered `503` if no call has finished by then.
-Other plugin calls past the cap are refused at once.
+action or a state build past it waits, holding no database connection, for up
+to twice `PLUGIN_CALL_TIMEOUT`; an action is answered `503` if no call has
+finished by then. Events and jobs past the cap are refused at once and
+retried.
 </EnvVar>
 
 <EnvVar name="PLUGIN_MODULE_CACHE_SIZE" default="16" badValue="Refuses to start if the value is not a positive integer">

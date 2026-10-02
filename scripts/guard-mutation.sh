@@ -391,8 +391,12 @@ mutate "no charge for an action the guest reported as failed" \
     host.go 'free := action && errors.Is(err, ErrGuestReported) && cheap(elapsed, h.cfg.CallTimeout)' 'free := false && errors.Is(err, ErrGuestReported) && cheap(elapsed, h.cfg.CallTimeout)'
 
 mutate "the charge for a reported error that used most of its call" \
-    'TestOnlyACheapReportedErrorIsFree' \
+    'TestOnlyACheapReportedErrorIsFree|TestAReportedActionErrorIsChargedOnceItUsedMostOfItsCall' \
     host.go 'func cheap(elapsed, timeout time.Duration) bool { return elapsed <= timeout/2 }' 'func cheap(elapsed, timeout time.Duration) bool { return true }'
+
+mutate "the call site's use of how long a reported error took" \
+    'TestAReportedActionErrorIsChargedOnceItUsedMostOfItsCall' \
+    host.go 'free := action && errors.Is(err, ErrGuestReported) && cheap(elapsed, h.cfg.CallTimeout)' 'free := action && errors.Is(err, ErrGuestReported) && (cheap(elapsed, h.cfg.CallTimeout) || true)'
 
 mutate "a stopped call is never read as a reported error" \
     'TestOnlyAnActionThatHadToBeStoppedIsCharged' \
@@ -413,6 +417,23 @@ mutate "one action per room at the lock" \
 mutate "the wait for an in-flight slot" \
     'TestActionsPastTheInFlightCapWaitForASlot' \
     host.go 'if !h.acquireBy(ctx, installID, info.lockBy) {' 'if !h.acquire(installID) {'
+
+# Freed slots go straight to waiting actions, so a state build that did not
+# wait in the same line would be refused for as long as any action was queued.
+mutate "the wait for a slot by a state build" \
+    'TestQueuedActionsDoNotStarveTheStateBuildAfterEachAction|TestAStateBuildWaitsForASlot' \
+    host.go 'if fn == ExportSessionState {' 'if false {'
+
+# A module is compiled once however many first calls arrive together, and is
+# never closed under a call that is running on it.
+mutate "one compile per install at a time" \
+    'TestConcurrentFirstCallsCompileTheModuleOnce' \
+    host.go 'compiling.Lock()' '_ = compiling' \
+    host.go 'defer compiling.Unlock()' '_ = compiling'
+
+mutate "no close of a module a call is running on" \
+    'TestAModuleEvictedUnderACallIsNotClosedUntilTheCallIsDone' \
+    host.go 'return entry.users == 0' 'return true'
 
 mutate "the deadline on waiting for an in-flight slot" \
     'TestAnActionThatNeverGetsASlotIsToldThePluginIsAtCapacity' \

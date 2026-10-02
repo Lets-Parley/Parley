@@ -550,8 +550,11 @@ issue first. For anything large, open an issue before writing code.
     stages is the capacity bound.** `Host.callAction` lines a room's actions up
     in-process first (`enterRoom`, holding nothing), so one room has at most
     one call in flight and one connection parked per replica. Only then does
-    `call` wait for the in-flight slot (`acquireBy`: actions wait, oldest
-    first, to the same deadline; every other hook is still refused at once)
+    `call` wait for the in-flight slot (`acquireBy`: actions and state builds
+    wait, oldest first; events and jobs are still refused at once). State
+    builds must stay in that line: `release` hands a freed slot straight to
+    the oldest waiter, so a call that does not wait finds none while any
+    action is queued, and the broadcast after every action fails silently
     and, after it, take `lockRoom`'s advisory lock
     (two-key form, class `actionLockClass`, never the single-key ids of gotcha
     3), which holds a pooled connection for the whole guest call. Taking the
@@ -559,3 +562,10 @@ issue first. For anything large, open an issue before writing code.
     room or one install park the pool. `lockReserve` keeps the last two
     connections free for the guest's own key-value calls. The lock is released
     by `defer` before the broadcast; do not hold it across one.
+46. **A compiled plugin module is never closed under a call.** `Host.module`
+    hands out a held `cachedModule` and the caller must `unuse` it; eviction
+    and replacement only `retire` it, and the last `unuse` closes it. Compiles
+    are single-flight per install (`Host.compiles`). Calling `Close` on a
+    cached module directly, or compiling outside that mutex, brings back
+    `module closed` failures on concurrent first calls — which are charged to
+    the breaker.

@@ -175,8 +175,11 @@ of the two to finish. Waiting actions are served oldest first, and waiting
 holds no database connection. All of an action's waiting, for its room, for a
 call slot and for the lock, ends at one deadline of twice the call timeout; an
 action still waiting for a slot then is answered `503`, which `parley.act`
-reports as `failed`. Only actions wait: the other hooks are refused at once
-when the plugin is at its allowance, as before.
+reports as `failed`. A state build waits for a slot in the same line, for up
+to twice the call timeout, so the broadcast after an action and a page load
+are not refused merely because actions are queued. `on_event` and `on_job`
+are refused at once when the plugin is at its allowance, as before, and are
+retried by their queues.
 
 ### `on_event`
 
