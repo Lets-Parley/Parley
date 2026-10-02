@@ -62,6 +62,11 @@ var (
 	// ErrGuestPanic is returned when guest code traps or the call site
 	// recovers a panic.
 	ErrGuestPanic = errors.New("the plugin call trapped")
+	// ErrGuestReported is returned when the guest ran to completion and said
+	// the call failed: a throw in a JavaScript guest, an error return in any
+	// other. It is the guest's own verdict, not something that had to be
+	// stopped.
+	ErrGuestReported = errors.New("the plugin reported an error")
 	// ErrNoBundle is returned when no bundle source is configured.
 	ErrNoBundle = errors.New("no plugin bundle source is configured")
 )
@@ -174,6 +179,8 @@ type Host struct {
 	breakers map[string]*breaker
 	inflight map[string]int
 	total    int
+	// now is the clock a call's duration is read from; nil means time.Now.
+	now func() time.Time
 }
 
 // NewHost builds a host with the containment budget filled in.
@@ -422,8 +429,19 @@ func (h *Host) call(ctx context.Context, installID, fn string, input []byte, mod
 		return nil, err
 	}
 
+	started := h.clock()
 	out, err := h.invoke(ctx, compiled, fn, input, info)
-	h.record(ctx, installID, state.Install.Name, err)
+	elapsed := h.clock().Sub(started)
+	// An action is the one export a room participant calls at will.
+	action := fn == ExportSessionAction
+	if err == nil && action {
+		// A refusal is the guest working, so it reaches record as a success;
+		// only a reply that is not a refusal the host knows is a fault.
+		_, err = actionRefusal(out)
+	}
+	// A reported error is free only when the call was cheap; see record.
+	free := action && errors.Is(err, ErrGuestReported) && cheap(elapsed, h.cfg.CallTimeout)
+	h.record(ctx, installID, state.Install.Name, err, action, free)
 	return out, err
 }
 
@@ -453,6 +471,12 @@ func (h *Host) invoke(ctx context.Context, compiled *extism.CompiledPlugin, fn s
 
 	_, output, err := instance.CallWithContext(ctx, fn, input)
 	if err != nil {
+		// A guest that ran to its end and reported an error left that error
+		// in Extism's error slot; a trap or a stopped call is the runtime's
+		// own error and does not match it.
+		if reported := instance.GetErrorWithContext(ctx); ctx.Err() == nil && reported != "" && reported == err.Error() {
+			return nil, fmt.Errorf("%w: %.256s", ErrGuestReported, reported)
+		}
 		return nil, h.classify(ctx, started, err)
 	}
 	return output, nil
@@ -512,6 +536,17 @@ func (h *Host) release(installID string) {
 	}
 }
 
+// cheap reports whether a call that took elapsed cost little enough that a
+// guest reporting an error from it is validation rather than waste.
+func cheap(elapsed, timeout time.Duration) bool { return elapsed <= timeout/2 }
+
+func (h *Host) clock() time.Time {
+	if h.now != nil {
+		return h.now()
+	}
+	return time.Now()
+}
+
 // breakerFor must be called with h.mu held. Every field of a breaker is
 // touched under that lock: the administration surface reads the same state a
 // call path is writing, and a struct read from another goroutine while a call
@@ -534,7 +569,18 @@ func (h *Host) breakerAllows(installID string) bool {
 // record feeds the breaker and disables an install that has degraded too many
 // times. Disabling is durable: a plugin that has proved it cannot run does not
 // come back on the next restart.
-func (h *Host) record(ctx context.Context, installID, name string, callErr error) {
+//
+// A failed action is counted apart from every other failure and never
+// disables. Anyone in the room, a signed link's guest included, can send an
+// action a guest fails on, so those failures must not add up to, or toward,
+// the trip that switches a plugin off for the whole org. An action the guest
+// itself reported as failed is not counted at all: it ran to its end, cost
+// what a successful call costs, and is what a guest that validates by
+// throwing does with bad input — unless it used more than half its call
+// timeout getting there, which is a guest burning its budget rather than
+// validating. That, a trap, a timeout or a memory stop on an action still
+// opens the cooldown.
+func (h *Host) record(ctx context.Context, installID, name string, callErr error, action, free bool) {
 	h.mu.Lock()
 	b := h.breakerFor(installID)
 	if callErr == nil {
@@ -544,14 +590,20 @@ func (h *Host) record(ctx context.Context, installID, name string, callErr error
 	}
 	// A refusal by the containment layer is the host working, not the plugin
 	// failing; charging it would let load disable a healthy plugin.
-	if errors.Is(callErr, ErrTooBusy) || errors.Is(callErr, ErrCircuitOpen) || errors.Is(callErr, ErrDisabled) {
+	if errors.Is(callErr, ErrTooBusy) || errors.Is(callErr, ErrCircuitOpen) || errors.Is(callErr, ErrDisabled) ||
+		free {
 		h.mu.Unlock()
 		return
 	}
 	// Recorded before the switch, so the operator screen can name the failure
 	// whatever stage the breaker reached.
 	b.lastErr = callErr.Error()
-	outcome := b.failure(time.Now(), h.cfg.BreakerCooldown)
+	var outcome breakerOutcome
+	if action {
+		outcome = b.actionFailure(time.Now(), h.cfg.BreakerCooldown)
+	} else {
+		outcome = b.failure(time.Now(), h.cfg.BreakerCooldown)
+	}
 	switch outcome {
 	case breakerDegraded:
 		b.reason = "it failed repeatedly, so calls to it are being refused until the cooldown expires"

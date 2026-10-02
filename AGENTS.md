@@ -534,3 +534,15 @@ issue first. For anything large, open an issue before writing code.
     `internal/api/secevent.go` (and the matching `slog` call in
     `internal/api/custody/store.go`); do not log cookies, tokens, passcodes or
     bodies onto that line.
+
+44. **A plugin refusing an action is not a plugin failing, and nobody in a
+    room can get an install switched off.** `on_session_action` answers
+    `{"refused":"<code>"}` to decline; `actionRefusal` in
+    `internal/plugin/kinds.go` reads it, and only output carrying that exact
+    key is inspected, because output was ignored before and old guests must
+    keep working. Anyone in a room — a link guest included — can send an
+    action, so `Host.record` does not charge an action the guest itself
+    reported as failed (`ErrGuestReported`: it ran to its end, in no more than
+    half its call timeout), and counts an
+    action that had to be stopped in `breaker.actionFailures`, which opens the
+    cooldown and never trips. Do not merge that counter back into `failures`.

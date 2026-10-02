@@ -260,6 +260,15 @@ export function SpacePage() {
   const [logbookToggled, setLogbookToggled] = useState<Record<string, boolean>>({});
   const logbookOpen = logbookToggled[logbookKey] ?? logbookRemembered(logbookKey);
   const searchRef = useRef<HTMLInputElement>(null);
+  const sessionsHeading = useRef<HTMLHeadingElement>(null);
+  const logbookSummary = useRef<HTMLElement>(null);
+  // Counts requests from the sidebar to show every session. Focus moves in an
+  // effect because the Logbook may only exist once the filters are cleared,
+  // and the phone sheet has to finish handing focus back before it is taken.
+  const [showAll, setShowAll] = useState(0);
+  useEffect(() => {
+    if (showAll) (logbookSummary.current ?? sessionsHeading.current)?.focus();
+  }, [showAll]);
   // Held across the name prompt so a joiner presents the invite exactly once.
   const [pending, setPending] = useState<Invite>({});
   // Read on the first render, before anything can navigate: an invite link
@@ -493,6 +502,14 @@ export function SpacePage() {
       canManage={canManage}
       navExtra={<PluginChrome slot="nav" orgSlug={org} />}
       onThank={(userId) => setThank({ userId })}
+      onShowAllSessions={() => {
+        // The sidebar counts every session; a filter or a shut Logbook would
+        // leave this page showing fewer than it just promised.
+        setQuery("");
+        setKind("");
+        setLogbookToggled((t) => ({ ...t, [logbookKey]: true }));
+        setShowAll((n) => n + 1);
+      }}
     >
       {/* Two columns from xl: the sessions, and beside them the space's own
           things — kudos, then standup participation. Narrower, the same
@@ -503,7 +520,9 @@ export function SpacePage() {
         <InviteStrip org={org} slug={sp.slug} passcode={sp.passcode ?? ""} />
 
         <div className="mb-5 flex items-center justify-between gap-4">
-          <h2 className="text-[22px] font-bold tracking-tight">Sessions</h2>
+          <h2 ref={sessionsHeading} tabIndex={-1} className="text-[22px] font-bold tracking-tight">
+            Sessions
+          </h2>
           {offered.length > 0 && (
             <button className={buttonPrimary} onClick={() => setCreating(true)}>
               New session
@@ -652,7 +671,7 @@ export function SpacePage() {
                 }}
                 className="group overflow-hidden rounded-card border border-line bg-surface"
               >
-                <summary className="flex min-h-11 list-none items-center gap-2 px-5 py-2.5 text-[13px] font-bold text-ink-soft hover:bg-surface-hi [&::-webkit-details-marker]:hidden">
+                <summary ref={logbookSummary} className="flex min-h-11 list-none items-center gap-2 px-5 py-2.5 text-[13px] font-bold text-ink-soft hover:bg-surface-hi [&::-webkit-details-marker]:hidden">
                   <svg
                     aria-hidden="true"
                     width="12"
