@@ -179,8 +179,11 @@ type Host struct {
 	breakers map[string]*breaker
 	inflight map[string]int
 	total    int
-	// now is the clock a call's duration is read from; nil means time.Now.
-	now func() time.Time
+	rooms    map[string]*roomQueue
+	// slotWaiters are actions waiting for an in-flight slot, oldest first.
+	slotWaiters []*slotWaiter
+
+	roomLocks atomic.Int32 // connections parked on room locks
 }
 
 // NewHost builds a host with the containment budget filled in.
@@ -192,6 +195,7 @@ func NewHost(store *Store, cfg HostConfig) *Host {
 		cache:    map[string]*cachedModule{},
 		breakers: map[string]*breaker{},
 		inflight: map[string]int{},
+		rooms:    map[string]*roomQueue{},
 	}
 	store.onChange = h.changed
 	return h
@@ -419,7 +423,13 @@ func (h *Host) call(ctx context.Context, installID, fn string, input []byte, mod
 	if !h.breakerAllows(installID) {
 		return nil, fmt.Errorf("%s: %w", state.Install.Name, ErrCircuitOpen)
 	}
-	if !h.acquire(installID) {
+	// An action waits for its slot, up to the deadline it already has for the
+	// room; every other call is refused at once, as it always was.
+	if info.room != "" {
+		if !h.acquireBy(ctx, installID, info.lockBy) {
+			return nil, fmt.Errorf("%s: %w", state.Install.Name, ErrTooBusy)
+		}
+	} else if !h.acquire(installID) {
 		return nil, fmt.Errorf("%s: %w", state.Install.Name, ErrTooBusy)
 	}
 	defer h.release(installID)
@@ -429,9 +439,20 @@ func (h *Host) call(ctx context.Context, installID, fn string, input []byte, mod
 		return nil, err
 	}
 
-	started := h.clock()
+	if info.room != "" {
+		// After the in-flight slot, so locks parked on connections are bounded
+		// by the same caps as the calls themselves; released when this
+		// returns, which is before the caller broadcasts.
+		unlock, err := h.lockRoom(ctx, info.room, info.lockBy)
+		if err != nil {
+			return nil, err
+		}
+		defer unlock()
+	}
+
+	started := time.Now()
 	out, err := h.invoke(ctx, compiled, fn, input, info)
-	elapsed := h.clock().Sub(started)
+	elapsed := time.Since(started)
 	// An action is the one export a room participant calls at will.
 	action := fn == ExportSessionAction
 	if err == nil && action {
@@ -518,7 +539,7 @@ func exceedsAMemoryBound(msg string) bool {
 func (h *Host) acquire(installID string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.total >= h.cfg.MaxConcurrentCalls || h.inflight[installID] >= h.cfg.MaxConcurrentPerInstall {
+	if !h.hasSlot(installID) {
 		return false
 	}
 	h.total++
@@ -534,17 +555,79 @@ func (h *Host) release(installID string) {
 	if h.inflight[installID] <= 0 {
 		delete(h.inflight, installID)
 	}
+	h.grantSlots()
 }
 
 // cheap reports whether a call that took elapsed cost little enough that a
 // guest reporting an error from it is validation rather than waste.
 func cheap(elapsed, timeout time.Duration) bool { return elapsed <= timeout/2 }
 
-func (h *Host) clock() time.Time {
-	if h.now != nil {
-		return h.now()
+// slotWaiter is one action waiting for an in-flight slot.
+type slotWaiter struct {
+	installID string
+	granted   chan struct{}
+}
+
+func (h *Host) hasSlot(installID string) bool {
+	return h.total < h.cfg.MaxConcurrentCalls && h.inflight[installID] < h.cfg.MaxConcurrentPerInstall
+}
+
+// grantSlots hands freed slots to waiting actions, oldest first, skipping any
+// whose own install is still full. Called with h.mu held.
+func (h *Host) grantSlots() {
+	kept := h.slotWaiters[:0]
+	for _, w := range h.slotWaiters {
+		if !h.hasSlot(w.installID) {
+			kept = append(kept, w)
+			continue
+		}
+		h.total++
+		h.inflight[w.installID]++
+		close(w.granted)
 	}
-	return time.Now()
+	clear(h.slotWaiters[len(kept):])
+	h.slotWaiters = kept
+}
+
+// acquireBy is acquire for an action: it waits for a slot until by. Waiting
+// holds no connection. A freed slot is handed over inside release, to the
+// action that has waited longest among those its install has room for, so no
+// slot is ever free while such an action waits and a newcomer cannot take one
+// past it: a room that keeps sending goes to the back each time.
+func (h *Host) acquireBy(ctx context.Context, installID string, by time.Time) bool {
+	h.mu.Lock()
+	if h.hasSlot(installID) {
+		h.total++
+		h.inflight[installID]++
+		h.mu.Unlock()
+		return true
+	}
+	w := &slotWaiter{installID: installID, granted: make(chan struct{})}
+	h.slotWaiters = append(h.slotWaiters, w)
+	h.mu.Unlock()
+
+	ctx, cancel := context.WithDeadline(ctx, by)
+	defer cancel()
+	select {
+	case <-w.granted:
+		return true
+	case <-ctx.Done():
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	select {
+	case <-w.granted:
+		// Granted as it gave up: the slot is this call's, so use it.
+		return true
+	default:
+	}
+	for i, other := range h.slotWaiters {
+		if other == w {
+			h.slotWaiters = append(h.slotWaiters[:i], h.slotWaiters[i+1:]...)
+			break
+		}
+	}
+	return false
 }
 
 // breakerFor must be called with h.mu held. Every field of a breaker is
