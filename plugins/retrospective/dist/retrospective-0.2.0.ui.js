@@ -4306,6 +4306,18 @@ const RETRO_FONTS = [
     else if (armed) arm(false);
     else if (selectedIds().length) clearSelection();
   });
+  // A press of the pointer a gesture is still following means its release was
+  // never heard, as happens when the button is let go outside the frame. The
+  // old gesture ends here, before the press reaches whatever it is on, so
+  // nothing it held (the carried copy, the state that waited, the pointer's
+  // capture) outlives it.
+  document.addEventListener(
+    "pointerdown",
+    function (ev) {
+      if (gesture) gesture.end({ type: "pointercancel", pointerId: ev.pointerId });
+    },
+    true,
+  );
   document.addEventListener("pointerdown", function (ev) {
     clearSpot();
     unswallow();

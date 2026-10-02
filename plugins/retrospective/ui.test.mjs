@@ -2582,3 +2582,17 @@ test("the click that ends a drag is not a press, and the next press anywhere is 
   grip.click();
   assert.match(liveOf(ui.root), /^Drag to move this/);
 });
+
+test("a press while a drag is still open, its release never heard, ends that drag before anything else", () => {
+  const ui = board5();
+  carryTo(ui, "one", 400, 160);
+  ui.push(session({ cards: [...five, card("c6", "puzzles", "six")] }, PARTICIPANT));
+  assert.equal(marked(ui.root, "drag"), 1);
+  ui.pressOn(lane(ui.root, "Puzzles"));
+  assert.equal(marked(ui.root, "drag") + marked(ui.root, "slot") + marked(ui.root, "dropzone"), 0);
+  assert.equal(ui.hearing("pointermove") + ui.hearing("pointerup"), 0, "the window is let go");
+  assert.equal(ui.document.documentElement.className, "");
+  assert.deepEqual(ui.sent(), [], "it is a cancel, not a drop");
+  assert.ok(noteWith(ui.root, "six"), "and the state that waited is shown");
+  assert.equal(noteOrder(ui.root, "Went well"), "one two three");
+});
