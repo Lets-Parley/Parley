@@ -102,16 +102,50 @@ By the time the hook runs, Parley has already refused an unknown action (404),
 the wrong verb (405), a `facilitatorOnly` action from somebody else (403), and
 any action in an ended room (409). Validating `body` is your job.
 
-Output is ignored. What matters is whether the call succeeds:
+Output is how the guest accepts or refuses the action. Refusing is not
+failing: validating `body` and saying no is the plugin working.
 
 | Guest outcome | HTTP answer | Then |
 | --- | --- | --- |
-| Returns normally | `204 No Content` | The room's state is rebuilt and broadcast |
+| Returns with no output, `{}`, or any output that has no `refused` key | `204 No Content` | The room's state is rebuilt and broadcast |
+| Returns `{"refused":"invalid"}` | `400` | Nothing is broadcast, and nothing counts against the plugin |
+| Returns `{"refused":"forbidden"}` | `403` | The same |
+| Returns `{"refused":"not-found"}` | `404` | The same |
+| Returns `{"refused":"conflict"}` | `409` | The same |
 | Not reached: the body is over 1 MiB or is not JSON | `400` with `{"error":"invalid JSON body"}` | The hook is not called |
-| Throws, traps or times out | `502` with `{"error":"the plugin could not run that action"}` | Nothing is broadcast; the failure is logged on the server |
+| Not reached: the room stayed busy with other actions for twice the call timeout | `409` with `{"error":"the room is busy with another action, try again"}` | The hook is not called |
+| Throws, traps, times out, or returns a `refused` that is not one of the four codes | `502` with `{"error":"the plugin could not run that action"}` | Nothing is broadcast; the failure is logged on the server and counts toward the [circuit breaker](/security/plugin-sandbox/#containment) |
 
-Throwing is the way to reject an action. The caller is not sent your error
-text, so put anything the room should read into the state instead.
+```js
+function on_session_action() {
+  var input = JSON.parse(Host.inputString() || "{}");
+  if (!input.body || !input.body.text) {
+    Host.outputString(JSON.stringify({ refused: "invalid" }));
+    return;
+  }
+  // load, change, save
+  Host.outputString("{}");
+}
+```
+
+Refuse with a code; do not throw. The caller's `parley.act` promise resolves
+with the same code as its [`reason`](#act). The error text of a refusal is
+Parley's own, one fixed sentence for each code, so nothing your guest writes
+reaches the response. Put anything the room should read into the state
+instead. Refuse before you save: Parley does not undo what a refusing call
+already wrote.
+
+A throw is a fault. Five in a row put the install in a cooldown during which
+every call to it is refused, for every room in the org. Failed actions never
+go further than that cooldown, because anybody in a room can send an action;
+only failures in the other hooks count toward switching the install off. A
+refusal is a successful call and clears the count.
+
+Actions on one room run one at a time, on every replica: your hook can load a
+document, change it and save it without another action on the same room
+running in between. That covers `on_session_action` only. An `on_event` or
+`on_job` handler is not held behind a room's actions, so do not have one
+rewrite a document an action also rewrites.
 
 ### `on_event`
 
@@ -449,10 +483,10 @@ window.parley.act("add-card", { text: "Shipped" }).then(function (result) {
 | Result | Meaning |
 | --- | --- |
 | `{ ok: true }` | The action was accepted. The new state arrives through `onState` as usual |
-| `{ ok: false, reason: "forbidden" }` | The viewer may not do that, for example a `facilitatorOnly` action from anybody else. A viewer whose sign-in has lapsed (401) is reported the same way |
-| `{ ok: false, reason: "invalid" }` | The server refused the request as malformed |
-| `{ ok: false, reason: "not-found" }` | The room's kind has no such action, or the room is gone |
-| `{ ok: false, reason: "conflict" }` | The request conflicts with the room as it stands, for example it has ended |
+| `{ ok: false, reason: "forbidden" }` | The viewer may not do that, for example a `facilitatorOnly` action from anybody else, or your guest refused it as `forbidden`. A viewer whose sign-in has lapsed (401) is reported the same way |
+| `{ ok: false, reason: "invalid" }` | The server refused the request as malformed, or your guest refused it as `invalid` |
+| `{ ok: false, reason: "not-found" }` | The room's kind has no such action, the room is gone, or your guest refused it as `not-found` |
+| `{ ok: false, reason: "conflict" }` | The request conflicts with the room as it stands: it has ended, it stayed busy with other actions, or your guest refused it as `conflict` |
 | `{ ok: false, reason: "rate-limited" }` | Too many requests |
 | `{ ok: false, reason: "ungranted" }` | The install holds no `session:act` grant |
 | `{ ok: false, reason: "unreachable" }` | The request never reached the server |

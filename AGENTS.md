@@ -534,3 +534,15 @@ issue first. For anything large, open an issue before writing code.
     `internal/api/secevent.go` (and the matching `slog` call in
     `internal/api/custody/store.go`); do not log cookies, tokens, passcodes or
     bodies onto that line.
+
+44. **A plugin refusing an action is not a plugin failing, and a failed action
+    never disables an install.** `on_session_action` answers
+    `{"refused":"<code>"}` to decline; `actionRefusal` in
+    `internal/plugin/kinds.go` reads it, and only output carrying a `refused`
+    key is inspected, because output was ignored before and old guests must
+    keep working. Anyone in a room — a link guest included — can send an
+    action, so `Host.record` lets a failed action degrade but not count toward
+    the durable disable. A room's actions run under `lockRoom`'s advisory lock
+    (two-key form, class `actionLockClass`, never the single-key ids of gotcha
+    3); it holds a pooled connection for the guest call, which is why
+    `actionLockSlots` is small. Do not hold it across the broadcast.

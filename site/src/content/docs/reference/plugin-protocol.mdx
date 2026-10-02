@@ -64,5 +64,10 @@ and no row is stored.
 `on_session_state`, `on_session_action`, `on_event`, `on_job`. Event and job
 handlers must be idempotent: delivery is at-least-once.
 
+`on_session_action` may answer `{"refused":"<code>"}` with `invalid`,
+`forbidden`, `not-found` or `conflict` to decline an action without failing.
+This is a compatible extension of protocol 1: a guest that never refuses is
+unchanged, and any output without a `refused` key is still an accepted action.
+
 The request, response and input shapes of all of these are in the
 [Plugin API reference](/reference/plugin-api/).

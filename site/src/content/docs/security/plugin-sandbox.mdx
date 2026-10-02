@@ -116,7 +116,8 @@ reaches a hook from a cache that a job filled.
   { name: "Memory cap", status: "built", detail: "Enforced both by the wazero runtime page limit and by the manifest. Default 256 pages (16 MiB); <code>PLUGIN_MEMORY_PAGES</code>." },
   { name: "Recover at every call site", status: "built", detail: "A trap in guest code ends the call, not the goroutine that scheduled it." },
   { name: "In-flight call cap", status: "built", detail: "Total and per install. Per-call limits bound one call; without a concurrency cap a plugin still exhausts the process with many individually well-behaved calls." },
-  { name: "Circuit breaker", status: "built", detail: "Consecutive failures degrade a plugin for a cooldown; repeated degradation disables it durably, in the database, so it does not come back on the next restart." },
+  { name: "Circuit breaker", status: "built", detail: "Consecutive failures degrade a plugin for a cooldown; repeated degradation disables it durably, in the database, so it does not come back on the next restart. An action a guest refuses is not a failure, and a failed action degrades but never counts toward the disable: anyone in a room can send one." },
+  { name: "One action at a time per room", status: "built", detail: "A room's actions run under a per-session Postgres advisory lock, so two overlapping read-change-write actions cannot lose a write, on one replica or across several. The wait is bounded and answers 409." },
   { name: "Bounded module cache", status: "built", detail: "Compiled once at enable time, evicted least-recently-used past the bound, and evicted outright when a plugin is disabled rather than left resident." },
 ]} />
 
