@@ -4799,8 +4799,8 @@ test("after a drop, focus is on the handle of the note that was carried", () => 
   const ui = load({ host: "new" });
   ui.push(session({ cards: three }, PARTICIPANT));
   const grip = one(noteWith(ui.root, "three"), "grip");
-  // As a press of the mouse does.
-  grip.focus();
+  // Carried with the mouse, focus is nowhere by the time it is let go.
+  same(ui.document.activeElement, ui.document.body);
   carry(ui, "three", 110);
   ui.fireWindow("pointerup", { clientX: 10, clientY: 110 });
   assert.equal(noteOrder(ui.root, "Went well"), "three one two");
