@@ -318,7 +318,9 @@
     // The lens says what it is in words wherever its lane has room for them.
     ".lane{container-type:inline-size}",
     ".sort{flex:none;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px 0 6px;border:1px solid var(--color-line-strong);border-radius:999px;background:transparent;color:var(--color-ink-soft);font-size:12px;font-weight:700;line-height:16px;white-space:nowrap;transition:background-color .15s,border-color .15s}",
-    "@container (max-width:239px){.sort{padding:0 6px}.sort-word{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}}",
+    // Below a lane width where the title would wrap beside the words, the
+    // lens is its icon alone; its name is still read, and shown on hover.
+    "@container (max-width:319px){.sort{padding:0 6px}.sort-word{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}}",
     ".sort:hover{background:var(--color-felt-deep)}",
     '.sort[aria-pressed="true"]{border-color:var(--color-accent);background:var(--color-accent-soft);color:var(--color-ink)}',
     ".sort-line .fine{flex:1 1 100%}",
@@ -544,7 +546,9 @@
     ".menu-item:hover,.menu-item:focus-visible,.strip button:hover,.strip button:focus-visible{background:var(--color-felt-deep)}",
     ".menu-item:focus-visible{outline-offset:-2px}",
     '.menu-item[aria-disabled="true"],.menu-item[aria-disabled="true"] svg{color:var(--color-ink-faint)}',
-    ".menu-item.danger,.menu-item.danger svg{color:var(--color-stop)}",
+    // The words take the ink the Delete buttons take, which holds its
+    // contrast in the dark theme too; the icon is the stop color itself.
+    ".menu-item.danger{color:color-mix(in srgb,var(--color-stop) 75%,var(--color-ink))}.menu-item.danger svg{color:var(--color-stop)}",
     ".menu-item.danger:hover,.menu-item.danger:focus-visible{background:color-mix(in srgb,var(--color-stop) 12%,var(--color-surface-hi))}",
     ".menu-item.back{font-weight:700}",
     ".menu-done{display:none}",
@@ -2123,7 +2127,7 @@
       // "Top rated" is a lens for one reader: `sorted` holds the ranking as
       // it stood when it was switched on, and nothing is written anywhere.
       sorted: null,
-      sortToggle: el("button", { type: "button", class: "sort", "aria-pressed": "false" }, [icon(GLYPH.bars), el("span", { class: "sort-word", text: "Top rated" })]),
+      sortToggle: el("button", { type: "button", class: "sort", "aria-pressed": "false", title: "Top rated" }, [icon(GLYPH.bars), el("span", { class: "sort-word", text: "Top rated" })]),
       resort: el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Re-sort" }),
       unsort: el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Show shared order" }),
       share: el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Use this order for everyone" }),
@@ -4685,7 +4689,7 @@
     const going = stamp.btn.animate([{ transform: "none", opacity: 1 }, { transform: own ? "translate(7px,-13px) rotate(9deg) scale(1.16)" : "translate(2px,-6px) scale(1.05)", opacity: 0 }], timing);
     if (own) stamp.art.animate([{ filter: AT_REST }, { filter: "drop-shadow(0 4px 2px rgb(var(--sh)/.2)) drop-shadow(0 18px 12px rgb(var(--sh)/.26))" }], timing);
     // It ends once, however it ends: the animation finishing, or being
-    // cancelled (the note hidden by a stage change, the tab put away), or,
+    // canceled (the note hidden by a stage change, the tab put away), or,
     // if neither is ever heard, a little after the spring would have rested.
     let over = false;
     const done = function () {

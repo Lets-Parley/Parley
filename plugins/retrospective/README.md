@@ -94,11 +94,37 @@ the parts worth copying:
   move is made. The three dots after the text are the note's menu, in every
   stage and always last on the note's first row. The vote and the action count
   are a row of their own under the words, there only when there is one to
-  show, so the words keep the note's width and never break inside a word. Voting, adding a sticker, selecting, moving and starting an
-  action are all in that menu, which makes it the keyboard and touch path for
-  every pointer gesture: a drag is never the only way (`openMenu`, `moveNote`,
-  `toLane`, and `Alt`+arrow keys, Left and Right for the next lane). Groups
-  have the same pair in their heading.
+  show, so the words keep the note's width and never break inside a word.
+  Editing, adding a sticker, selecting, moving and starting an action are all
+  in that menu, which makes it the keyboard and touch path for every pointer
+  gesture: a drag is never the only way (`openMenu`, `moveNote`, `toLane`, and
+  `Alt`+arrow keys, Left and Right for the next lane). Voting is not in it:
+  the thumbs are on the note, and `U` and `D` are the keys. Groups have the
+  same pair in their heading.
+- **The menu is short, and never leaves the frame.** A note's menu
+  (`noteRows`) is a title, "Edit note…" (`E`), "Add a sticker…" (`S`; with
+  stickers on the note it reads "Stickers (3)…" and opens the list, which also
+  adds one), "Start an action…", "Select to group" where the checkbox is not
+  showing, a **Reorder** strip of four buttons (to top, up, down, to bottom),
+  **Move to…**, and "Delete note…" alone under a rule. The strip's buttons
+  keep the menu open, so a note can be walked up a lane, and each sends what
+  `Alt` and an arrow sends. "Move to…" is one step in, under a Back row: out
+  of the note's group, the other lanes, the other groups. A group's menu is
+  "Start an action…", the strip and "Move to…"; an action's is its owner and
+  "Delete action…". A row that cannot be used says why under itself. Keys:
+  Up and Down between rows (the strip is one row), Left and Right along the
+  strip, Right or Enter into "Move to…", Left or Escape back out, Home and
+  End, a letter for the next item that starts with it, Escape to close, Tab
+  to close and move on. `placePop` hangs a menu from the right edge of its
+  button, under it; above it when there is no room below; and otherwise as
+  low as it fits, scrolling inside itself only in a frame shorter than the
+  menu. The rows are asked for again whenever the board changes, so an open
+  menu keeps up with it.
+- **Tab order on a note** follows what is seen, row by row: the handle, the
+  checkbox while notes are being picked, the words, the three dots, then the
+  row under the words (the action count and the thumbs), then the stickers
+  (one stop for the pile) and the dashed plus. The three dots are the last
+  stop of the note's first row, not of the note.
 - **A drop aims at one of three things** (`aimAt`): a place in a lane, which
   may be another lane; a group, which the note joins where it is dropped; or a
   loose note in the same lane, which it is grouped with. The middle half of a
@@ -122,7 +148,8 @@ the parts worth copying:
   from, it closes, says so, and puts focus on the note in its place. Tab and
   Shift+Tab go round inside a sheet (a menu closes on Tab). At 480px and under
   every popover is a sheet along the bottom edge, at most 70% of the frame
-  high.
+  high; there a menu is a sheet too, over a scrim, with rows 48px high, a
+  visible Done, and Tab kept inside it.
 - **A drag is followed on the window, and ends once.** `follow()` owns the
   listeners for one gesture and one pointer, and takes them off on release,
   cancel, Escape, the window losing focus or the capture being taken away. A
@@ -247,7 +274,7 @@ the pile, bottom to top: placing appends, and `move-stamp` (and a
 up goes back down on top and "Bring to front" is a move to where the sticker
 already is. Nothing is grouped, counted or spread out. The topmost sticker is
 the one a pointer hits; one underneath is reached with Page Up and Page Down
-from a focused sticker, or from "Stickers on this note" in the note's menu. A
+from a focused sticker, or from "Stickers (n)…" in the note's menu. A
 note's controls are drawn above every sticker and stay clickable. Stickers
 lying over a note's words go faint while the words are pointed at, while one
 of the note's controls has keyboard focus, or after a tap on the words.
@@ -431,6 +458,6 @@ required to express the board.
 
 ## Disable and uninstall
 
-Switching the install off is host behaviour: the room becomes `kindUnavailable`.
+Switching the install off is host behavior: the room becomes `kindUnavailable`.
 Switching it back on restores the kind. Uninstall is refused while sessions of
 `retrospective` still exist. This plugin does not reimplement those.

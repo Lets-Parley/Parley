@@ -74,7 +74,7 @@ class FakeNode {
       },
     };
     // With `motion` the document animates: each call is kept, and a test
-    // ends it by hand, as finished or as cancelled.
+    // ends it by hand, as finished or as canceled.
     if (doc.motion) {
       this.animate = (frames, timing) => {
         const animation = {
@@ -1591,7 +1591,7 @@ test("a sticker is dragged anywhere on its note, held where it was taken hold of
   assert.deepEqual(placeOf(sticker), AT(1, 1));
   assert.equal(liveOf(ui.root), "Needs a chat sticker moved.");
 
-  // A press that barely moves is a click, and a cancelled drag puts it back.
+  // A press that barely moves is a click, and a canceled drag puts it back.
   sticker.fire("pointerdown", { clientX: 332, clientY: 248 });
   ui.fireWindow("pointermove", { clientX: 333, clientY: 249 });
   ui.fireWindow("pointerup", { clientX: 333, clientY: 249 });
@@ -3109,7 +3109,7 @@ test("a second finger set down on a sticker, or on another handle, does not end 
   ui.fireWindow("pointerup", { pointerId: 1, clientX: 10, clientY: 110 });
   assert.deepEqual(ui.sent(), [{ action: "move-card", payload: { cardId: "c3", groupId: null, beforeId: "c1" } }], "the first finger's drop is the one that counts");
 
-  // A press that has not yet become a drag is not cancelled either.
+  // A press that has not yet become a drag is not canceled either.
   const early = load({ host: "new" });
   early.push(session(state, FACILITATOR));
   place(early.root, ["one", "two", "three"]);
@@ -3217,7 +3217,7 @@ test("every way a drag ends stops the scrolling with it", () => {
     Escape: (ui) => ui.press("Escape"),
     "the window losing focus": (ui) => ui.fireWindow("blur"),
     "the capture being taken away": (ui) => main(ui.root).fire("lostpointercapture"),
-    "the pointer being cancelled": (ui) => ui.fireWindow("pointercancel"),
+    "the pointer being canceled": (ui) => ui.fireWindow("pointercancel"),
     "the page being hidden": (ui) => {
       ui.document.hidden = true;
       ui.fireDocument("visibilitychange");
@@ -3608,7 +3608,7 @@ function peeling() {
   return { ui, cards, stamps, leaving, peel, gone: () => byClass(noteWith(ui.root, "one"), "leaving").length === 0 && stickersOf(ui.root, "one").length === 1 };
 }
 
-test("a removed sticker peels off and is always gone afterwards: when the peel finishes, when it is cancelled, and when neither is ever heard", () => {
+test("a removed sticker peels off and is always gone afterwards: when the peel finishes, when it is canceled, and when neither is ever heard", () => {
   const during = peeling();
   assert.equal(during.leaving.length, 1, "it is still there, leaving");
   const node = during.leaving[0];
@@ -3628,11 +3628,11 @@ test("a removed sticker peels off and is always gone afterwards: when the peel f
   during.ui.runTimers();
   assert.ok(during.gone(), "ending it again is harmless");
 
-  const cancelled = peeling();
-  cancelled.peel.cancel();
-  assert.ok(cancelled.gone(), "gone when the peel is cancelled: the note was hidden, or the tab put away");
-  cancelled.ui.push(session({ cards: cancelled.cards, stamps: [cancelled.stamps[0]] }, FACILITATOR));
-  assert.ok(cancelled.gone(), "and the next push does not bring a ghost back");
+  const canceled = peeling();
+  canceled.peel.cancel();
+  assert.ok(canceled.gone(), "gone when the peel is canceled: the note was hidden, or the tab put away");
+  canceled.ui.push(session({ cards: canceled.cards, stamps: [canceled.stamps[0]] }, FACILITATOR));
+  assert.ok(canceled.gone(), "and the next push does not bring a ghost back");
 
   const silent = peeling();
   silent.ui.runTimers(400);
@@ -3906,7 +3906,7 @@ test("dust is for a fresh landing by its placer only: not a teammate's, not the 
   assert.equal(dustOf(own.ui).length, 0, "a move, a bring to front and a redraw raise none");
 });
 
-test("dust is always swept up: when an arc finishes, when it is cancelled, when neither is heard, and when the note goes", () => {
+test("dust is always swept up: when an arc finishes, when it is canceled, when neither is heard, and when the note goes", () => {
   const finished = landed("Thank you, pixel");
   finished.arcs().forEach((a) => a.finish());
   assert.equal(dustOf(finished.ui).length, 0);
@@ -3914,9 +3914,9 @@ test("dust is always swept up: when an arc finishes, when it is cancelled, when 
   finished.ui.runTimers();
   assert.equal(dustOf(finished.ui).length, 0, "ending twice is harmless");
 
-  const cancelled = landed("Thank you, pixel");
-  cancelled.arcs().forEach((a) => a.cancel());
-  assert.equal(dustOf(cancelled.ui).length, 0, "cancelled: the note was hidden, or the tab put away");
+  const canceled = landed("Thank you, pixel");
+  canceled.arcs().forEach((a) => a.cancel());
+  assert.equal(dustOf(canceled.ui).length, 0, "canceled: the note was hidden, or the tab put away");
 
   const silent = landed("Thank you, pixel");
   silent.ui.runTimers(300);
@@ -4017,7 +4017,7 @@ test("a note's words are edited in place from its menu, E, F2 or a double click;
   noteWith(ui.root, "one").fire("keydown", { key: "e", ctrlKey: true });
   noteWith(ui.root, "one").fire("keydown", { key: "e", target: editorOf(ui.root) || { tagName: "TEXTAREA" } });
   absent(editorOf(ui.root), "a chord, or an e typed into a box, opens nothing");
-  assert.equal(ui.sent().length, 1, "cancelling sent nothing");
+  assert.equal(ui.sent().length, 1, "canceling sent nothing");
   // Saving words that did not change sends nothing either.
   noteWith(ui.root, "one").fire("keydown", { key: "e" });
   editorOf(ui.root).fire("keydown", ENTER);
