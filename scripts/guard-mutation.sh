@@ -364,7 +364,7 @@ mutate "the module cache's resolved-bundle check" \
 
 mutate "the breaker's reset on success" \
     'TestASuccessBetweenTwoFailuresKeepsTheBreakerClosed' \
-    breaker.go 'func (b *breaker) success() { b.failures = 0 }' 'func (b *breaker) success() {}'
+    breaker.go 'func (b *breaker) success() { b.failures, b.actionFailures = 0, 0 }' 'func (b *breaker) success() {}'
 
 # A guest that declines an action has done its job. Treated as an accepted
 # action the refusal is broadcast as though something changed; treated as a
