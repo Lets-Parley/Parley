@@ -76,7 +76,6 @@
     "Vote for the notes that matter most. One vote per person per note.",
     "Agree on what to change and who owns it. Start an action from any note.",
   ];
-  const TIMES_UP = "Time is up. Wrap up when you are ready.";
   const PRESETS = [1, 3, 5, 10];
   const MINUTE = 60000;
 
@@ -240,7 +239,7 @@
     // The lens says what it is in words wherever its lane has room for them.
     ".lane{container-type:inline-size}",
     ".sort{flex:none;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px 0 6px;border:1px solid var(--color-line-strong);border-radius:999px;background:transparent;color:var(--color-ink-soft);font-size:12px;font-weight:700;line-height:16px;white-space:nowrap;transition:background-color .15s,border-color .15s}",
-    "@container (max-width:290px){.sort{padding:0 6px}.sort-word{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}}",
+    "@container (max-width:239px){.sort{padding:0 6px}.sort-word{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}}",
     ".sort:hover{background:var(--color-felt-deep)}",
     '.sort[aria-pressed="true"]{border-color:var(--color-accent);background:var(--color-accent-soft);color:var(--color-ink)}',
     ".sort-line .fine{flex:1 1 100%}",
@@ -330,7 +329,7 @@
     ".action{padding:4px 12px 8px;border:1px solid var(--color-line);border-radius:14px}",
     ".action-head{display:flex;align-items:flex-start;gap:6px}",
     ".action-text{flex:1;min-width:0;padding-top:6px;font-weight:700;overflow-wrap:anywhere}",
-    ".action .more{margin-right:-6px}",
+    ".action .more{order:0;margin-right:-6px}",
     ".unowned{padding-top:4px;font-size:13px;color:var(--color-ink-faint)}",
     ".sheet-title{font-size:15px;font-weight:700}",
     ".actions.deciding{box-shadow:0 0 0 1px var(--color-accent),var(--shadow-rest)}",
@@ -369,6 +368,8 @@
     ".keys{font:11px/16px var(--mono);color:var(--color-ink-faint)}",
     ".sheet{display:flex;flex-direction:column;gap:10px;width:20rem;padding:14px}",
     ".sheet .row .field{flex:1 1 4rem;padding:5px 10px}",
+    // A sheet is a column: its fields take the height they need, no more.
+    ".sheet .stack{flex:none}",
     ".stamp-face.small{flex:none;width:24px;height:24px;outline:0}",
     ".stamp-face.small svg{width:12px;height:12px}",
     ".stamp-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}",
@@ -398,7 +399,7 @@
     ".timer-paused{display:none}",
     ".timer-open{order:4}",
     ".timer-open>span{display:none}",
-    ".hints{order:2;flex:1 1 100%;display:flex;align-items:flex-start;gap:4px;margin:0 2px;cursor:pointer}",
+    ".hints{order:2;flex:1 1 100%;min-width:0;display:flex;align-items:flex-start;gap:4px;margin:0 2px;cursor:pointer}",
     ".hint{display:none;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
     ".hint.shown{display:block}",
     ".hints.open .hint{white-space:normal}",
@@ -1615,7 +1616,7 @@
       // "Most votes" is a lens for one reader: `sorted` holds the ranking as
       // it stood when it was switched on, and nothing is written anywhere.
       sorted: null,
-      sortToggle: el("button", { type: "button", class: "sort", "aria-pressed": "false" }, [icon(GLYPH.bars), el("span", { class: "sort-word", text: "Most votes" })]),
+      sortToggle: el("button", { type: "button", class: "sort", "aria-pressed": "false" }, [icon(GLYPH.bars), el("span", { class: "sort-word", text: "Votes" })]),
       resort: el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Re-sort" }),
       unsort: el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Show shared order" }),
       share: el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Use this order for everyone" }),

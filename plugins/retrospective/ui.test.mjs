@@ -1063,10 +1063,10 @@ const voted = [card("c1", "went-well", "one"), card("c2", "went-well", "two", { 
 test("Most votes re-sorts a lane for one reader and sends nothing", () => {
   const { root, push, sent } = load();
   push(session({ cards: three }));
-  assert.ok(!button(lane(root, "Went well"), "Most votes"), "nothing to rank by yet");
+  assert.ok(!button(lane(root, "Went well"), "Votes"), "nothing to rank by yet");
   push(session({ cards: voted }));
-  assert.ok(!button(lane(root, "Puzzles"), "Most votes"), "an empty lane has nothing to sort");
-  const toggle = button(lane(root, "Went well"), "Most votes");
+  assert.ok(!button(lane(root, "Puzzles"), "Votes"), "an empty lane has nothing to sort");
+  const toggle = button(lane(root, "Went well"), "Votes");
   toggle.click();
   assert.equal(toggle.getAttribute("aria-pressed"), "true");
   assert.equal(noteOrder(root, "Went well"), "two three one");
@@ -1089,7 +1089,7 @@ test("Most votes re-sorts a lane for one reader and sends nothing", () => {
 test("a sorted lane cannot be reordered, and says why", () => {
   const { root, push, sent } = load();
   push(session({ cards: voted }));
-  button(lane(root, "Went well"), "Most votes").click();
+  button(lane(root, "Went well"), "Votes").click();
   noteWith(root, "one").fire("keydown", { key: "ArrowUp", altKey: true });
   assert.match(toastOf(root).textContent, /Sorted by votes\. Show shared order to move notes here\./);
   one(noteWith(root, "one"), "grip").click();
@@ -1102,16 +1102,16 @@ test("a sorted lane cannot be reordered, and says why", () => {
 test("the facilitator can make the vote order everyone's; a participant is not offered it", () => {
   const lead = load({ host: "new" });
   lead.push(session({ cards: voted }, FACILITATOR));
-  button(lane(lead.root, "Went well"), "Most votes").click();
+  button(lane(lead.root, "Went well"), "Votes").click();
   button(lead.root, "Use this order for everyone").click();
   assert.deepEqual(lead.sent(), [{ action: "order-by-votes", payload: { columnId: "went-well" } }]);
   lead.push(session({ cards: [voted[1], voted[2], voted[0]] }, FACILITATOR));
-  assert.equal(button(lane(lead.root, "Went well"), "Most votes").getAttribute("aria-pressed"), "false", "the lens is off: the shared order is now the sorted one");
+  assert.equal(button(lane(lead.root, "Went well"), "Votes").getAttribute("aria-pressed"), "false", "the lens is off: the shared order is now the sorted one");
   assert.equal(noteOrder(lead.root, "Went well"), "two three one");
 
   const member = load({ host: "new" });
   member.push(session({ cards: voted }, PARTICIPANT));
-  button(lane(member.root, "Went well"), "Most votes").click();
+  button(lane(member.root, "Went well"), "Votes").click();
   assert.ok(!button(member.root, "Use this order for everyone"));
 });
 
@@ -1640,7 +1640,7 @@ test("a note deleted while it is carried is not moved, and the board says it is 
 test("a note in a lane sorted by votes is not lifted, and the reason is given", () => {
   const ui = load();
   ui.push(session({ cards: voted }));
-  button(lane(ui.root, "Went well"), "Most votes").click();
+  button(lane(ui.root, "Went well"), "Votes").click();
   carry(ui, "one", 110);
   assert.equal(byClass(ui.root, "drag").length, 0);
   assert.equal(toastOf(ui.root).textContent, "Sorted by votes. Show shared order to move notes here.");

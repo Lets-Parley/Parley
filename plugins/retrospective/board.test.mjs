@@ -3,7 +3,9 @@ import { createRequire } from "node:module";
 import { test } from "node:test";
 
 const require = createRequire(import.meta.url);
-const { emptyBoard, redactBoard, applyAction, answerAction, LIMITS } = require("./board.js");
+// RETRO_BOARD_SRC points the suite at another copy of the source, for checking
+// that a test can fail. The tracked file is never edited for that.
+const { emptyBoard, redactBoard, applyAction, answerAction, LIMITS } = require(process.env.RETRO_BOARD_SRC || "./board.js");
 
 test("an empty board has three columns and no cards", () => {
   const board = emptyBoard();
