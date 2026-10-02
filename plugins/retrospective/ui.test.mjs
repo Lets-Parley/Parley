@@ -73,6 +73,25 @@ class FakeNode {
         node.className = (on ? [...rest, name] : rest).join(" ");
       },
     };
+    // With `motion` the document animates: each call is kept, and a test
+    // ends it by hand, as finished or as cancelled.
+    if (doc.motion) {
+      this.animate = (frames, timing) => {
+        const animation = {
+          target: this,
+          frames,
+          timing,
+          finish() {
+            if (this.onfinish) this.onfinish();
+          },
+          cancel() {
+            if (this.oncancel) this.oncancel();
+          },
+        };
+        doc.animations.push(animation);
+        return animation;
+      };
+    }
     this.value = "";
     this.text = "";
     this.disabled = false;
@@ -172,7 +191,7 @@ class FakeNode {
 
 // `host: "old"` is a Parley that returns nothing from an action. `host: "new"`
 // returns a promise per action, which the test settles through acts[n].answer.
-function load({ host = "old" } = {}) {
+function load({ host = "old", motion = false, phone = false, dpr, fonts = false } = {}) {
   // Timers are kept by id, and an id is never used twice, so clearing a timer
   // that has already run cannot cancel a different one.
   const timers = new Map();
@@ -182,10 +201,13 @@ function load({ host = "old" } = {}) {
   const clock = { t: 0 };
   const acts = [];
   const scrolls = [];
+  const observers = [];
   const document = {
     activeElement: null,
     hidden: false,
     rectReads: 0,
+    motion,
+    animations: [],
     listeners: {},
     createElement: (tag) => new FakeNode(document, tag),
     createElementNS: (_, tag) => new FakeNode(document, tag),
@@ -253,7 +275,30 @@ function load({ host = "old" } = {}) {
       this.listeners[type] = (this.listeners[type] || []).filter((other) => other !== fn);
     },
     performance: { now: () => clock.t },
+    // Size observers do nothing until a test says a node has changed size.
+    ResizeObserver: class {
+      constructor(heard) {
+        this.heard = heard;
+        this.nodes = [];
+        observers.push(this);
+      }
+      observe(node) {
+        this.nodes.push(node);
+      }
+      unobserve(node) {
+        this.nodes = this.nodes.filter((other) => other !== node);
+      }
+    },
   };
+  if (phone) window.matchMedia = (query) => ({ matches: query.includes("max-width:480px") });
+  if (dpr) window.devicePixelRatio = dpr;
+  let fontsReady = () => {};
+  if (fonts) document.fonts = { ready: new Promise((resolve) => (fontsReady = resolve)) };
+  // Tell whoever watches `node` that it is now `width` wide.
+  const resize = (node, width) => {
+    for (const o of observers) if (o.nodes.includes(node)) o.heard([{ target: node, contentRect: { width } }]);
+  };
+  const watched = (node) => observers.reduce((n, o) => n + o.nodes.filter((other) => other === node).length, 0);
   const fireWindow = (type, event = {}) => {
     for (const fn of [...(window.listeners[type] || [])]) fn({ type, preventDefault() {}, ...(type.startsWith("pointer") ? { pointerId: 1 } : {}), ...event });
   };
@@ -288,7 +333,7 @@ function load({ host = "old" } = {}) {
   const fireDocument = (type) => {
     for (const fn of document.listeners[type] || []) fn({ type });
   };
-  return { root, document, push, acts, sent, runTimers, bridge, clock, press, pressOn, fireWindow, fireDocument, hearing, scrolls };
+  return { root, document, push, acts, sent, runTimers, bridge, clock, press, pressOn, fireWindow, fireDocument, hearing, scrolls, resize, watched, window, fontsReady, timerCount: () => timers.size };
 }
 
 // Lets a settled promise's callbacks run.
@@ -3443,7 +3488,7 @@ test("the book says how many are left only when it can know: not for stickers th
   ui.press("Escape");
 
   // A note that was bare when this visit began: everything on it is known.
-  const bare = load();
+  const bare = load({ phone: true });
   bare.push(session({ cards }));
   bare.push(session({ cards, stamps: [st("mate", "chat", 0.5, 0.5)] }));
   addOf(bare.root, "one").click();
@@ -3529,4 +3574,251 @@ test("a note's name in an announcement is cut at a word, with an ellipsis, and n
   push(session({ cards }, PARTICIPANT));
   push(session({ cards, stamps: [st("s1", "thanks", 0.5, 0.5)] }, PARTICIPANT));
   assert.equal(liveOf(root), "Thank you sticker placed on: We should stop doing the thing where everyone waits for the release train and… 1 sticker on that note.");
+});
+
+// ---- small fix round: the peel, the observer, Done, cuts, peek, fonts, sizes
+
+function peeling() {
+  const ui = load({ host: "new", motion: true });
+  const cards = [card("c1", "went-well", "one")];
+  const stamps = [st("s1", "idea", 0.2, 0.5), st("s2", "p-laugh", 0.6, 0.5)];
+  ui.push(session({ cards, stamps }, FACILITATOR));
+  ui.document.animations.length = 0;
+  ui.push(session({ cards, stamps: [stamps[0]] }, FACILITATOR));
+  const leaving = byClass(noteWith(ui.root, "one"), "leaving");
+  const peel = ui.document.animations.find((a) => a.target.className.includes("leaving"));
+  return { ui, cards, stamps, leaving, peel, gone: () => byClass(noteWith(ui.root, "one"), "leaving").length === 0 && stickersOf(ui.root, "one").length === 1 };
+}
+
+test("a removed sticker peels off and is always gone afterwards: when the peel finishes, when it is cancelled, and when neither is ever heard", () => {
+  const during = peeling();
+  assert.equal(during.leaving.length, 1, "it is still there, leaving");
+  const node = during.leaving[0];
+  assert.equal(node.getAttribute("tabindex"), "-1");
+  assert.equal(node.getAttribute("aria-hidden"), "true");
+  assert.match(src, /\.st\.leaving\{pointer-events:none\}/);
+  assert.equal(during.peel.timing.fill, "forwards");
+  assert.deepEqual(stickersOf(during.ui.root, "one").filter((n) => n.getAttribute("tabindex") === "0").map((n) => n.className.includes("leaving")), [false], "the Tab stop is the sticker that is staying");
+  // A teammate's change while it leaves does not cut the peel short or double it.
+  during.ui.push(session({ cards: during.cards, stamps: [during.stamps[0]] }, FACILITATOR));
+  during.ui.push(session({ cards: during.cards, stamps: [{ ...during.stamps[0], x: 0.3 }] }, FACILITATOR));
+  assert.equal(byClass(noteWith(during.ui.root, "one"), "leaving").length, 1, "one node, still leaving, through two more pushes");
+  during.peel.finish();
+  assert.ok(during.gone(), "gone when the peel finishes");
+  during.peel.finish();
+  during.peel.cancel();
+  during.ui.runTimers();
+  assert.ok(during.gone(), "ending it again is harmless");
+
+  const cancelled = peeling();
+  cancelled.peel.cancel();
+  assert.ok(cancelled.gone(), "gone when the peel is cancelled: the note was hidden, or the tab put away");
+  cancelled.ui.push(session({ cards: cancelled.cards, stamps: [cancelled.stamps[0]] }, FACILITATOR));
+  assert.ok(cancelled.gone(), "and the next push does not bring a ghost back");
+
+  const silent = peeling();
+  silent.ui.runTimers(400);
+  assert.equal(silent.leaving.length, 1);
+  assert.ok(!silent.gone(), "not before the spring would have rested");
+  silent.ui.runTimers(600);
+  assert.ok(silent.gone(), "gone a little after it, with neither end heard");
+
+  // The same sticker put back while its old self is still leaving: one live sticker.
+  const back = peeling();
+  back.ui.push(session({ cards: back.cards, stamps: back.stamps }, FACILITATOR));
+  const live = stickersOf(back.ui.root, "one").filter((n) => !n.className.includes("leaving"));
+  assert.equal(live.length, 2);
+  assert.equal(byClass(noteWith(back.ui.root, "one"), "leaving").length, 1);
+  back.peel.cancel();
+  assert.equal(stickersOf(back.ui.root, "one").length, 2, "and the old one goes without taking the new one with it");
+
+  // The note itself removed mid-peel: nothing is left to end, and ending it does not throw.
+  const noteGone = peeling();
+  noteGone.ui.push(session({ cards: [] }, FACILITATOR));
+  noteGone.peel.finish();
+  noteGone.ui.runTimers();
+  assert.equal(byClass(noteGone.ui.root, "leaving").length, 0);
+});
+
+test("a note that changes size has its own stickers looked at again, and only its own; nothing follows from a look that changes nothing", () => {
+  const ui = load({ host: "new" });
+  const cards = [card("c1", "went-well", "one"), card("c2", "went-well", "two")];
+  const stamps = [st("s1", "idea", 0.5, 0.4), st("s2", "idea", 0.5, 0.4, "c2")];
+  ui.push(session({ cards }, PARTICIPANT));
+  for (const text of ["one", "two"]) {
+    noteWith(ui.root, text).box = { left: 0, top: 0, width: 240, height: 60 };
+    one(noteWith(ui.root, text), "note-text").box = { left: 40, top: 5, width: 150, height: 32 };
+  }
+  ui.push(session({ cards, stamps }, PARTICIPANT));
+  const over = (text) => stickersOf(ui.root, text)[0].className.includes("over");
+  assert.deepEqual([over("one"), over("two")], [true, true]);
+  // Both notes are re-laid by the page (their words move down), but only
+  // "one" is reported as having changed size.
+  for (const text of ["one", "two"]) one(noteWith(ui.root, text), "note-text").box = { left: 40, top: 80, width: 150, height: 32 };
+  noteWith(ui.root, "one").box = { left: 0, top: 0, width: 240, height: 130 };
+  const timersBefore = ui.timerCount();
+  ui.resize(noteWith(ui.root, "one"), 240);
+  assert.deepEqual([over("one"), over("two")], [false, true], "only the note that was reported");
+  const reads = ui.document.rectReads;
+  ui.resize(noteWith(ui.root, "one"), 240);
+  assert.ok(ui.document.rectReads - reads <= 6, "one note's worth of measuring, not the board's");
+  assert.equal(ui.timerCount(), timersBefore, "and nothing is scheduled by a look");
+  assert.deepEqual([over("one"), over("two")], [false, true]);
+
+  // A lane says when it is narrow, and when it no longer is.
+  const laneEl = lane(ui.root, "Went well");
+  ui.resize(laneEl, 280);
+  assert.ok(laneEl.className.split(" ").includes("narrow"));
+  ui.resize(laneEl, 420);
+  assert.ok(!laneEl.className.split(" ").includes("narrow"));
+
+  // Watched once, and not at all once it has left the board.
+  const first = noteWith(ui.root, "one");
+  assert.equal(ui.watched(first), 1);
+  ui.push(session({ cards, stamps }, PARTICIPANT));
+  assert.equal(ui.watched(first), 1, "a push does not watch it again");
+  ui.push(session({ cards: [cards[1]] }, PARTICIPANT));
+  assert.equal(ui.watched(first), 0, "a removed note is let go");
+  ui.push(session({ cards }, PARTICIPANT));
+  assert.equal(ui.watched(noteWith(ui.root, "one")), 1, "and put back, it is watched once");
+  const puzzles = lane(ui.root, "Puzzles");
+  assert.equal(ui.watched(puzzles), 1);
+  ui.push(session({ columns: columns.slice(0, 2), cards }, PARTICIPANT));
+  assert.equal(ui.watched(puzzles), 0, "a removed lane too");
+});
+
+test("on a phone the book's Done is a Tab stop inside the book, after the two sheets", () => {
+  const ui = load({ host: "new", phone: true });
+  ui.push(session({ cards: [card("c1", "went-well", "one")] }, PARTICIPANT));
+  openBook(ui.root, "one");
+  const book = bookOf(ui.root);
+  const done = button(book, "Done");
+  assert.equal(done.hidden, false);
+  assert.equal(done.getAttribute("tabindex"), null, "an ordinary stop");
+  const at = () => (ui.document.activeElement === done ? "Done" : ui.document.activeElement.getAttribute("aria-label"));
+  const tab = (shiftKey = false) => book.fire("keydown", { key: "Tab", shiftKey });
+  assert.equal(at(), "Me too, vinyl");
+  tab();
+  assert.equal(at(), "Me too, pixel");
+  tab();
+  assert.equal(at(), "Done");
+  tab();
+  assert.equal(at(), "Me too, vinyl", "and round, not out to the page");
+  tab(true);
+  assert.equal(at(), "Done", "Shift+Tab goes back");
+  done.click();
+  assert.equal(byClass(ui.root, "book-pop").length, 0);
+
+  // On a wide screen there is no Done, and Tab goes between the sheets as before.
+  const wide = load({ host: "new" });
+  wide.push(session({ cards: [card("c1", "went-well", "one")] }, PARTICIPANT));
+  openBook(wide.root, "one");
+  assert.equal(all(bookOf(wide.root), (n) => n.textContent === "Done" && n.tagName === "BUTTON")[0].hidden, true);
+  bookOf(wide.root).fire("keydown", { key: "Tab" });
+  bookOf(wide.root).fire("keydown", { key: "Tab" });
+  assert.equal(wide.document.activeElement.getAttribute("aria-label"), "Me too, vinyl");
+});
+
+test("a long note's name is cut between whole characters, never through an emoji", () => {
+  const { root, push } = load({ host: "new" });
+  const family = "\u{1f469}‍\u{1f469}‍\u{1f467}‍\u{1f466}";
+  // Eleven code units each, no spaces: seven fit in 77, the eighth would not.
+  const cards = [card("c1", "went-well", family.repeat(20)), card("c2", "puzzles", "ab " + "\u{1f389}".repeat(60))];
+  push(session({ cards }, PARTICIPANT));
+  const label = (i) => byClass(root, "note")[i].children[2].children[0].getAttribute("aria-label");
+  assert.equal(label(0), "Options for note: " + family.repeat(7) + "…");
+  // "ab " and then two units a piece: 3 + 37 * 2 = 77.
+  assert.equal(label(1), "Options for note: ab " + "\u{1f389}".repeat(37) + "…");
+  for (const i of [0, 1]) assert.doesNotMatch(label(i), loneSurrogate);
+});
+
+test("peek does not stick when the sticker that was pointed at is removed, or the pointer leaves the note", () => {
+  const { root, push } = load({ host: "new" });
+  const cards = [card("c1", "went-well", "one")];
+  push(session({ cards }, PARTICIPANT));
+  const note = noteWith(root, "one");
+  note.box = { left: 0, top: 0, width: 240, height: 60 };
+  one(note, "note-text").box = { left: 40, top: 5, width: 150, height: 32 };
+  const stamps = [st("s1", "idea", 0.5, 0.4), st("s2", "chat", 0.4, 0.4)];
+  push(session({ cards, stamps }, PARTICIPANT));
+  stickersOf(root, "one")[0].fire("pointerenter", { pointerType: "mouse" });
+  assert.ok(note.className.includes("peek"));
+  // A teammate removes it from under the pointer: no pointerleave is ever heard.
+  push(session({ cards, stamps: [stamps[1]] }, PARTICIPANT));
+  assert.ok(!note.className.includes("peek"), "the note is no longer peeking");
+
+  stickersOf(root, "one")[0].fire("pointerenter", { pointerType: "mouse" });
+  assert.ok(note.className.includes("peek"));
+  note.fire("pointerleave", { pointerType: "mouse" });
+  assert.ok(!note.className.includes("peek"), "leaving the note ends it too");
+  // A sticker other than the one pointed at going away changes nothing.
+  push(session({ cards, stamps }, PARTICIPANT));
+  stickersOf(root, "one")[0].fire("pointerenter", { pointerType: "mouse" });
+  push(session({ cards, stamps: [stamps[1]] }, PARTICIPANT));
+  assert.ok(!note.className.includes("peek"));
+});
+
+test("when the faces finish loading, every note's stickers are looked at again", async () => {
+  const ui = load({ host: "new", fonts: true });
+  const cards = [card("c1", "went-well", "one")];
+  ui.push(session({ cards }, PARTICIPANT));
+  const note = noteWith(ui.root, "one");
+  note.box = { left: 0, top: 0, width: 240, height: 60 };
+  one(note, "note-text").box = { left: 40, top: 5, width: 150, height: 32 };
+  ui.push(session({ cards, stamps: [st("s1", "idea", 0.5, 0.4)] }, PARTICIPANT));
+  assert.equal(stickersOf(ui.root, "one")[0].className.includes("over"), true);
+  // The face arrives, the words set narrower, and the note's size is the same.
+  one(note, "note-text").box = { left: 40, top: 5, width: 40, height: 32 };
+  assert.equal(stickersOf(ui.root, "one")[0].className.includes("over"), true, "stale until then");
+  ui.fontsReady();
+  await settled();
+  assert.equal(stickersOf(ui.root, "one")[0].className.includes("over"), false);
+  // A document with no font set is left alone.
+  assert.doesNotThrow(() => load());
+});
+
+test("a pixel sticker is a whole number of device pixels a cell at every zoom, and is measured at that size", () => {
+  // Fourteen cells of round(3 * ratio) device pixels: 3, 3, 4, 5, 6 and 9.
+  const table = [[1, 42], [1.1, 38.18], [1.25, 44.8], [1.5, 46.67], [2, 42], [3, 42]];
+  for (const [dpr, px] of table) {
+    const ui = load({ dpr });
+    const size = parseFloat(ui.document.documentElement.style["--px"]);
+    assert.equal(Math.round(size * 100) / 100, px, "at " + dpr);
+    assert.match(ui.document.documentElement.style["--px"], /px$/);
+  }
+  // The zoom changes: the window is resized, and the size follows.
+  const ui = load({ dpr: 1 });
+  ui.window.devicePixelRatio = 1.5;
+  ui.fireWindow("resize");
+  assert.equal(Math.round(parseFloat(ui.document.documentElement.style["--px"]) * 100) / 100, 46.67);
+
+  // At 1.5 a pixel sticker is 46.67 across, 23.3 to its rim, and 19.3 counts
+  // for lying on the words; a vinyl one is 21 and 17. Words begin 139 across:
+  // a center at 120 reaches 139.3 as pixel art and 137 as vinyl.
+  const big = load({ host: "new", dpr: 1.5 });
+  const cards = [card("c1", "went-well", "one")];
+  big.push(session({ cards }, PARTICIPANT));
+  const note = noteWith(big.root, "one");
+  note.box = { left: 0, top: 0, width: 240, height: 60 };
+  one(note, "note-text").box = { left: 139, top: 5, width: 60, height: 32 };
+  big.push(session({ cards, stamps: [st("s1", "p-idea", 0.5, 0.4), st("s2", "idea", 0.5, 0.4)] }, PARTICIPANT));
+  assert.deepEqual(stickersOf(big.root, "one").map((n) => n.className.includes("over")), [true, false]);
+  // And where one lands from the book: words from 38 to 112 on a note 44
+  // tall. At 134 on the bottom edge a vinyl sticker reaches back to 113 and
+  // is clear; a pixel one at this zoom reaches 110.7, so it goes on to 164.
+  const lay = () => {
+    const ui = load({ dpr: 1.5 });
+    ui.push(session({ cards, stamps: [st("t0", "chat", 0.027, 1)] }));
+    noteWith(ui.root, "one").box = { left: 0, top: 0, width: 240, height: 44 };
+    one(noteWith(ui.root, "one"), "note-text").lines = [[38, 11, 112, 31]];
+    return ui;
+  };
+  const pick = (name) => {
+    const ui = lay();
+    openBook(ui.root, "one");
+    labeled(bookOf(ui.root), name).click();
+    return ui.sent()[0].payload.x;
+  };
+  assert.equal(pick("Blocker, vinyl"), 0.563, "134");
+  assert.equal(pick("Blocker, pixel"), 0.696, "164");
 });

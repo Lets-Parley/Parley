@@ -628,7 +628,7 @@ const RETRO_FONTS = [
     ".choice:disabled{opacity:.4}",
     ".spine{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));padding:3px 0;font-size:10.5px;line-height:13px;text-align:center;color:var(--color-ink-soft);text-wrap:balance}",
     ".spine span{display:flex;flex-direction:column;align-items:center;padding:0 1px}",
-    ".scrim,.book-done{display:none}",
+    ".scrim{display:none}",
     ".from{padding:6px 10px;border-radius:8px;background:var(--color-felt-deep);color:var(--color-ink-soft);font-size:13px;overflow-wrap:anywhere}",
     ".link-list{display:flex;flex-direction:column;gap:6px;max-height:10rem;overflow-y:auto}",
     ".link-list li{display:flex;flex-wrap:wrap;align-items:center;gap:8px}",
@@ -768,9 +768,22 @@ const RETRO_FONTS = [
   // A note's words, as a name for it: cut at the end of a word when long.
   function short(text) {
     if (text.length <= 80) return text;
-    const cut = text.slice(0, 77);
-    const at = text[77] === " " ? 77 : cut.lastIndexOf(" ");
+    // Whole characters only: an emoji is never cut in half.
+    const parts = graphemes(text);
+    let cut = "";
+    let i = 0;
+    for (; i < parts.length && cut.length + parts[i].length <= 77; i++) cut += parts[i];
+    const at = parts[i] === " " ? cut.length : cut.lastIndexOf(" ");
     return (at > 40 ? cut.slice(0, at) : cut) + "\u2026";
+  }
+
+  // Text as the characters a reader sees: a family emoji is one of them.
+  function graphemes(text) {
+    return typeof Intl !== "undefined" && Intl.Segmenter
+      ? Array.from(new Intl.Segmenter().segment(text), function (part) {
+          return part.segment;
+        })
+      : Array.from(text);
   }
 
   function idsOf(rows) {
@@ -1162,7 +1175,7 @@ const RETRO_FONTS = [
     pop = { anchor: anchor, el: node, patch: patch, alive: alive };
     // A menu closes on Tab. A sheet keeps Tab inside itself: the board under
     // it is inert, so the next stop would be the host page.
-    if (node.getAttribute("role") !== "menu") {
+    if (node.getAttribute("role") !== "menu" && !node.ownTab) {
       node.addEventListener("keydown", function (ev) {
         if (ev.key !== "Tab") return;
         const stops = tabStops(node, []);
@@ -2308,6 +2321,9 @@ const RETRO_FONTS = [
       layoutStickers([id]);
       note.el.classList.toggle("peek", !note.el.classList.contains("peek"));
     });
+    note.el.addEventListener("pointerleave", function (ev) {
+      if (ev.pointerType === "mouse") note.el.classList.remove("peek");
+    });
     note.el.addEventListener("keydown", function (ev) {
       // S opens the stickers from anywhere on the note but a sticker.
       if ((ev.key === "s" || ev.key === "S") && !ev.altKey && !ev.ctrlKey && !ev.metaKey && !pop && !contains(note.stamps, ev.target)) {
@@ -3375,6 +3391,11 @@ const RETRO_FONTS = [
     if (sizes) sizes.observe(node);
   }
 
+  // What has left the board is no longer watched, or it would be kept alive.
+  function unwatch(views, kept) {
+    for (const id in views) if (!kept[id] && sizes) sizes.unobserve(views[id].el);
+  }
+
   function setPixelSize() {
     document.documentElement.style.setProperty("--px", pixelSize() + "px");
   }
@@ -3457,6 +3478,11 @@ const RETRO_FONTS = [
   function pixelSize() {
     const dpr = window.devicePixelRatio || 1;
     return (14 * Math.max(1, Math.round(3 * dpr))) / dpr;
+  }
+
+  // From a sticker's center to its rim: the pixel set is not always 42 across.
+  function halfOf(kind) {
+    return (STAMPS[kind] && STAMPS[kind].set === "pixel" && kind !== UNKNOWN_KIND ? pixelSize() : 42) / 2;
   }
 
   function stickerClass(kind) {
@@ -3613,10 +3639,11 @@ const RETRO_FONTS = [
   // 14px of it. With every one of them taken, stickers pile up where the
   // first one went, a little off each time: on each other, never on the
   // words. A sticker still on its way counts.
-  function freeSpot(cardId, box) {
+  function freeSpot(cardId, box, kind) {
     const there = centersOn(cardId, box);
+    const half = halfOf(kind);
     const clear = slots(box.width, box.height, box.kept).filter(function (p) {
-      return !onWords(p, 21, box.lines || []);
+      return !onWords(p, half, box.lines || []);
     });
     const places = clear.length ? clear : slots(box.width, box.height, box.kept).slice(0, 1);
     let spot = places.filter(function (p) {
@@ -3627,7 +3654,7 @@ const RETRO_FONTS = [
     if (!spot) {
       const base = places[there.length % places.length];
       spot = [base[0] + Math.random() * 6 - 3, base[1] - Math.random() * 4];
-      if (onWords(spot, 21, box.lines || [])) spot = base;
+      if (onWords(spot, half, box.lines || [])) spot = base;
     }
     return fractionAt(spot[0], spot[1], box);
   }
@@ -3654,7 +3681,7 @@ const RETRO_FONTS = [
   }
 
   function pressStamp(cardId, kind) {
-    const spot = freeSpot(cardId, noteBox(cardId));
+    const spot = freeSpot(cardId, noteBox(cardId), kind);
     // The tilt is the hand's: a little different every time.
     const wait = { at: clockNow(), had: idsOf(board.stamps), body: { cardId: cardId, kind: kind, x: spot.x, y: spot.y, rot: Math.round((Math.random() * 18 - 9) * 10) / 10 } };
     pressing.push(wait);
@@ -3943,7 +3970,10 @@ const RETRO_FONTS = [
     // Pointing at a sticker that lies on the words is pointing at the words.
     stamp.btn.addEventListener("pointerenter", function (ev) {
       const note = view.notes[stamp.cardId];
-      if (ev.pointerType === "mouse" && note && stamp.btn.classList.contains("over")) note.el.classList.add("peek");
+      if (ev.pointerType === "mouse" && note && stamp.btn.classList.contains("over")) {
+        note.el.classList.add("peek");
+        note.peekBy = id;
+      }
     });
     stamp.btn.addEventListener("pointerleave", function (ev) {
       const note = view.notes[stamp.cardId];
@@ -4054,13 +4084,23 @@ const RETRO_FONTS = [
     const timing = Object.assign({}, PEEL, { fill: "forwards" });
     const going = stamp.btn.animate([{ transform: "none", opacity: 1 }, { transform: own ? "translate(7px,-13px) rotate(9deg) scale(1.16)" : "translate(2px,-6px) scale(1.05)", opacity: 0 }], timing);
     if (own) stamp.art.animate([{ filter: AT_REST }, { filter: "drop-shadow(0 4px 2px rgb(var(--sh)/.2)) drop-shadow(0 18px 12px rgb(var(--sh)/.26))" }], timing);
-    going.onfinish = function () {
+    // It ends once, however it ends: the animation finishing, or being
+    // cancelled (the note hidden by a stage change, the tab put away), or,
+    // if neither is ever heard, a little after the spring would have rested.
+    let over = false;
+    const done = function () {
+      if (over) return;
+      over = true;
+      clearTimeout(backstop);
       note.leaving = note.leaving.filter(function (other) {
         return other !== stamp.el;
       });
       if (stamp.el.parentNode) stamp.el.parentNode.removeChild(stamp.el);
       if (note.stamps.children.length === 0) note.stamps.hidden = true;
     };
+    const backstop = setTimeout(done, PEEL.duration + 250);
+    going.onfinish = done;
+    going.oncancel = done;
   }
 
   // What needs the note measured: which stickers lie over its words, and
@@ -4079,9 +4119,9 @@ const RETRO_FONTS = [
       });
     measured.forEach(function (m) {
       const w = m.words;
-      // A sticker is 42px across; four of those at its rim are let go.
-      const r = 17;
       pileOf(m.cardId).forEach(function (s) {
+        // Four pixels at a sticker's rim are let go.
+        const r = halfOf(s.kind) - 4;
         const stamp = view.stamps[s.id];
         if (!stamp) return;
         const c = centerOf(stampAt[s.id] || s, m.box);
@@ -4106,6 +4146,12 @@ const RETRO_FONTS = [
       if (pop && pop.anchor === view.stamps[id].btn) closePop(false);
       clearTimeout(view.stamps[id].timer);
       delete stampAt[id];
+      // A sticker that goes while it is pointed at never hears the pointer leave.
+      const from = view.notes[view.stamps[id].cardId];
+      if (from && from.peekBy === id) {
+        from.peekBy = null;
+        from.el.classList.remove("peek");
+      }
       peelOff(view.stamps[id], removing[id]);
       delete removing[id];
     }
@@ -4241,7 +4287,8 @@ const RETRO_FONTS = [
     const count = el("span");
     const fine = el("p", { class: "fine", tabindex: -1 });
     // Shown on a phone, where Escape and the dimmed page are not obvious ways out.
-    const done = el("button", { type: "button", class: "btn btn-quiet btn-small book-done", tabindex: -1, text: "Done" });
+    const done = el("button", { type: "button", class: "btn btn-quiet btn-small book-done", text: "Done" });
+    done.hidden = !(window.matchMedia && window.matchMedia("(max-width:480px)").matches);
     const sheet = el("div", { class: "pop sheet book-pop", role: "dialog", "aria-label": "Add a sticker to: " + short(card.text) }, [
       el("div", { class: "book-head" }, [el("p", { class: "label", text: "Add a sticker" }), el("span", { class: "left3" }, pips.concat([count]))]),
       el("div", { class: "book" }, [leaves.vinyl.tag, leaves.vinyl.row, spine, leaves.pixel.row, leaves.pixel.tag]),
@@ -4279,7 +4326,17 @@ const RETRO_FONTS = [
       if (key >= "1" && key <= "7" && key.length === 1) choose(here.kinds[Number(key) - 1]);
       else if (key === "v" || key === "p") to = [key === "v" ? "vinyl" : "pixel", col];
       else if (key === "ArrowLeft" || key === "ArrowRight") to = [stickerSet, (col + (key === "ArrowRight" ? 1 : 6)) % 7];
-      else if (key === "ArrowUp" || key === "ArrowDown" || key === "Tab") to = [other, col];
+      else if (key === "Tab" && !done.hidden) {
+        // With Done in sight, Tab goes round three stops: a sheet, the other
+        // sheet, Done.
+        ev.preventDefault();
+        const stops = [leaves.vinyl.cells[col], leaves.pixel.cells[col], done];
+        const at = document.activeElement === done ? 2 : stickerSet === "vinyl" ? 0 : 1;
+        const next = (at + (ev.shiftKey ? 2 : 1)) % 3;
+        if (next < 2) mark(next === 0 ? "vinyl" : "pixel");
+        if (next === 2 || !off) stops[next].focus();
+        return;
+      } else if (key === "ArrowUp" || key === "ArrowDown" || key === "Tab") to = [other, col];
       else return;
       ev.preventDefault();
       if (!to) return;
@@ -4288,6 +4345,7 @@ const RETRO_FONTS = [
       if (!off) leaves[to[0]].cells[to[1]].focus();
     });
     patch();
+    sheet.ownTab = true;
     openPop(opener, sheet, patch);
     // On a phone the book is a sheet along the bottom, over a scrim.
     pop.under = el("div", { class: "scrim", "aria-hidden": "true" });
@@ -4372,6 +4430,7 @@ const RETRO_FONTS = [
       patchNote(view.notes[card.id], card);
     });
     const kept = idsOf(board.cards);
+    unwatch(view.notes, kept);
     forgetMissing(view.notes, kept);
     forgetMissing(selected, kept);
     // A handful of new notes each get set down. A flood (a reconnect, a paste
@@ -4433,6 +4492,7 @@ const RETRO_FONTS = [
     });
     const columns = idsOf(board.columns);
     for (const id in view.lanes) if (!columns[id]) loseGhosts(view.lanes[id]);
+    unwatch(view.lanes, columns);
     forgetMissing(view.lanes, columns);
     forgetMissing(view.groups, idsOf(board.groups));
     sync(
@@ -4625,12 +4685,7 @@ const RETRO_FONTS = [
   function firstWords(text) {
     const clean = text.replace(/[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b\u200e\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g, " ");
     const three = clean.trim().split(/\s+/).slice(0, 3).join(" ");
-    const parts =
-      typeof Intl !== "undefined" && Intl.Segmenter
-        ? Array.from(new Intl.Segmenter().segment(three), function (part) {
-            return part.segment;
-          })
-        : Array.from(three);
+    const parts = graphemes(three);
     let name = "";
     for (let i = 0; i < parts.length && name.length + parts[i].length <= TITLE_LIMIT; i++) name += parts[i];
     return name.replace(/[\u200c\u200d\ud800-\udbff]+$/, "").trim();
@@ -5260,6 +5315,13 @@ const RETRO_FONTS = [
   patchAuthorship();
   patchActionForm();
   patchSelection();
+  // The faces can arrive after the first layout: the lines of every note then
+  // move without any note changing size, so the stickers are looked at again.
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(function () {
+      layoutStickers(Object.keys(view.notes));
+    });
+  }
   parley.onTokens(applyScheme);
   parley.onState(onState);
   parley.ready();
