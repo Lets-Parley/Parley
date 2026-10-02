@@ -139,14 +139,20 @@ function withDefaults(board) {
   if (!board.timer) board.timer = null;
   if (!board.timerRev) board.timerRev = 0;
   if (!Array.isArray(board.stamps)) board.stamps = [];
-  // Votes stored before there were two directions were all up: a count of
-  // them becomes that many, and anything that is not a down is an up.
+  // Votes stored before there were two directions were all up. A bare count
+  // becomes that many nameless up votes, no more across the whole board than
+  // the board may hold. In a map, a vote is exactly 1 or -1: anything else
+  // stored there is not a vote and is dropped.
+  let nameless = 0;
   for (const c of board.cards) {
     if (typeof c.votes === "number") {
       const made = {};
-      for (let i = 0; i < Math.min(Math.max(0, Math.floor(c.votes)), LIMITS.votes); i++) made["earlier-" + i] = 1;
+      const n = Math.min(Math.max(0, Math.floor(c.votes) || 0), LIMITS.votes - nameless);
+      for (let i = 0; i < n; i++) made["earlier-" + i] = 1;
+      nameless += n;
       c.votes = made;
     } else if (!c.votes || typeof c.votes !== "object" || Array.isArray(c.votes)) c.votes = {};
+    else for (const who of Object.keys(c.votes)) if (c.votes[who] !== 1 && c.votes[who] !== -1) delete c.votes[who];
   }
   for (const item of board.actionItems) {
     if (!Array.isArray(item.sourceIds)) item.sourceIds = [];
@@ -174,12 +180,20 @@ function votesOf(row) {
 
 function upOf(row) {
   let n = 0;
-  for (const who of Object.keys(row.votes)) if (row.votes[who] !== -1) n += 1;
+  for (const who of Object.keys(row.votes)) if (row.votes[who] === 1) n += 1;
   return n;
 }
 
 function downOf(row) {
-  return votesOf(row) - upOf(row);
+  let n = 0;
+  for (const who of Object.keys(row.votes)) if (row.votes[who] === -1) n += 1;
+  return n;
+}
+
+// Whether a stored author and a caller are the same person. Neither a note
+// with no author on record nor a call with no user is anybody's.
+function isAuthor(row, user) {
+  return typeof user === "string" && user !== "" && typeof row.authorId === "string" && row.authorId === user;
 }
 
 // What a note is ranked by: ups less downs.
@@ -298,7 +312,7 @@ function applyAction(board, { action, user, body, now }) {
     case "delete-card":
     case "moderate-card": {
       const row = card(board, body.cardId);
-      if (action === "delete-card" && row.authorId !== user) refuse("forbidden", "only the person who wrote a note can delete it");
+      if (action === "delete-card" && !isAuthor(row, user)) refuse("forbidden", "only the person who wrote a note can delete it");
       removeCard(board, row);
       return row;
     }
@@ -310,7 +324,7 @@ function applyAction(board, { action, user, body, now }) {
     // it is its author, which is published only while authors are revealed.
     case "edit-card": {
       const row = card(board, body.cardId);
-      if (row.authorId !== user) refuse("forbidden", "only the person who wrote a note can edit it");
+      if (!isAuthor(row, user)) refuse("forbidden", "only the person who wrote a note can edit it");
       const words = text(body.text, LIMITS.noteText, "a note");
       // The same words again change nothing and mark nothing.
       if (words !== row.text) {
