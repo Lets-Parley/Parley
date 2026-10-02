@@ -24,6 +24,14 @@ shipped frontend.
 - Action items are a list on the same board. An action with no owner typed
   reads **Unassigned**; anyone can name an owner later, or delete the action,
   from its menu.
+- **A note's words can be edited** by whoever wrote it, and by nobody else,
+  the facilitator included. "Edit note" in its menu, `E` or `F2` on the card,
+  or a double click on the words edits them in place: `Enter` saves,
+  `Shift`+`Enter` is a new line, `Escape` cancels. The card keeps its place,
+  group, votes, stickers and links, and says "edited" from then on, since votes
+  cast on the old words now sit on the new ones. Who edited is never shown.
+  Before the reveal the board does not know whose a card is, so Edit is offered
+  to everyone and the server answers.
 - **A note can be deleted** by whoever wrote it, or by the facilitator, from
   the note's menu, after a confirmation. Its votes, stickers and links go with
   it. Before the reveal the board does not know whose a note is, so Delete is
@@ -42,7 +50,7 @@ shipped frontend.
   the server refuses, the reason is shown and the text is kept.
 - The facilitator moves the room through four **stages**: Write, Group, Vote,
   Decide, forward or back. A stage changes what the board puts in front of
-  people (the composer in Write, checkboxes in Group, the vote button in Vote,
+  people (the composer in Write, checkboxes in Group, the thumbs in Vote,
   the action target in Decide) and **blocks nothing**: a late card, vote or
   action is still accepted in any stage.
 - Each control on a card does one thing. The **handle** in front of its text
@@ -67,7 +75,13 @@ shipped frontend.
   menu item (Move to a column, Add to group, or Select to group and the Group
   bar), `Escape` puts the card back, and holding it at the top or bottom edge
   scrolls the page.
-- **Most votes** re-sorts a column for one reader only and writes nothing.
+- **Voting is a thumb up and a thumb down** on every card: one vote per
+  person per card. Press a thumb to vote; press the other to switch; press
+  your own again to take it back. Nobody can see who voted which way. After a
+  reload the board no longer knows which thumb is yours, so the first press
+  sets it again (which changes nothing) rather than removing it.
+- **Top rated** re-sorts a column for one reader only, by ups less downs, and
+  writes nothing.
   While it is on, cards in that column cannot be given a new place, and it says
   so; a card can still be carried out of it, into one of its groups, or into
   it from another column, where it is added at the end of the shared order.
@@ -121,6 +135,8 @@ placed a sticker are never in it.
 | --- | --- | --- |
 | `add-card`, `group-cards`, `vote`, `add-action` | anyone in the room | as before; `add-action` also takes `sourceIds`, and a blank `owner` means nobody |
 | `delete-card` | the card's author | delete a card with its votes, stickers and links |
+| `edit-card` | the card's author | change a card's words; everything else on it stays |
+| `vote` | anyone | `value` is `up`, `down` or `none`; it sets the caller's vote and never toggles it |
 | `set-owner`, `delete-action` | anyone | name or clear an action's owner; delete an action |
 | `move-card`, `move-group` | anyone | reorder a card or a group, move a card to another column or group, move a group to another column |
 | `stamp`, `move-stamp`, `remove-stamp` | anyone; move and remove only for whoever placed it | place, move (which also puts it on top), remove a sticker; the actions keep their first name |
@@ -128,7 +144,7 @@ placed a sticker are never in it.
 | `reveal`, `conceal` | facilitator | show or hide authors |
 | `set-stage` | facilitator | set the stage, 0 to 3 |
 | `timer` | facilitator | `start`, `pause`, `resume`, `add`, `clear` |
-| `order-by-votes` | facilitator | reorder one column by votes for everyone |
+| `order-by-votes` | facilitator | reorder one column by ups less downs for everyone |
 | `moderate-stamp` | facilitator | move or remove any sticker |
 | `moderate-card` | facilitator | delete any card |
 

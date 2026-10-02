@@ -81,8 +81,8 @@ the parts worth copying:
   cannot decline answers yes to a request the board declined: whatever was
   drawn ahead of the state (a moved sticker, a moved note) is put back after
   the same three seconds, and a sticker becomes "the viewer's" only when both
-  the yes and the state are in. The one exception is a vote, which the state
-  cannot show when it was already counted. A note waits in
+  the yes and the state are in. The one exception is a vote: setting a vote to what it already was
+  shows nothing new in the state, so there the host's yes is enough. A note waits in
   its lane as a dashed ghost from Enter until the state shows the real one, so
   the box is free for the next thought and nothing is sent twice or dropped.
 - **Feature-detect the host.** `session.selfId`, the promise from
@@ -107,7 +107,7 @@ the parts worth copying:
   (`zoneOf`); the quarters above and below mean before and after. Grouping by
   drop asks for the group's name first and sends nothing until it has one,
   because a group cannot be renamed. Every drop sends exactly the body the
-  menu sends for the same move. A lane sorted by "Most votes" takes a note
+  menu sends for the same move. A lane sorted by "Top rated" takes a note
   from another lane at its end and takes no positions; a whole group is
   carried by the handle in its heading. A group left with one note stays a
   group; an empty one is removed.
@@ -147,10 +147,42 @@ the parts worth copying:
   polite live region. The frame has no `h1`: it sits under the host page's
   own, and the lanes and the actions are its `h2`s.
 
-The state carries a vote count per note and nothing about whose votes they
-are, so a note is marked as voted only for the rest of the visit in which the
-host confirmed the vote. Showing it after a reload would need the plugin to
-publish who voted, which it deliberately does not.
+Voting is a thumb up and a thumb down on every note: one vote per person per
+note, up, down or none. The state carries the two counts per note (`up`,
+`down`) and nothing about whose votes they are, so a thumb is shown as the
+viewer's only for the rest of the visit in which the host confirmed it.
+Showing it after a reload would need the plugin to publish who voted, which it
+deliberately does not.
+
+That is why `vote` **sets** a vote and never flips one. After a reload the
+board cannot tell someone which thumb is theirs; with a toggle, pressing the
+thumb they already hold would silently take their vote away. With a set, the
+same press asks for what they already have, the server takes it and changes
+nothing, and the yes tells the board the thumb is theirs. The rule on the
+board: a thumb known to be yours, pressed again, takes the vote back (`none`);
+the other thumb switches in one press; a thumb not known to be yours is set.
+
+The thumbs are on every note in the Vote stage, and in the other stages only
+on a note that has votes, so a note with nothing on it stays one row. "Top
+rated" (a lens for one reader) and the facilitator's order-for-everyone rank by
+ups less downs, then by more ups, then leave the order as it was. A group's
+heading says its ups and downs. Other people's votes are not read out as they
+arrive (in the Vote stage that would be the whole room at once): each thumb
+carries both counts in its name, and a person hears the outcome of their own
+vote. `U` and `D` on a focused note vote up and down.
+
+A note's words can be edited by whoever wrote it, and by nobody else: there is
+no facilitator's way in. "Edit note" in the menu, `E` or `F2` on the note, or
+a double click on its words turns them into a box in place; Enter saves,
+Shift+Enter is a new line, Escape cancels. The note keeps its place, group,
+votes, stickers and links. Because votes cast on the old words now sit on the
+new ones, an edited note is published with `edited: true` and says "edited";
+who edited is never published (it is the author, who is published only while
+authors are revealed). Edits are allowed in every stage. As with Delete, the
+board does not know whose a note is before the reveal, so Edit is offered to
+everyone, the server answers, and a refusal is remembered for the visit. A
+teammate's change never touches a draft; if the note is deleted while it is
+being edited, the words typed go to its lane's box for a new note.
 
 Stickers follow the same rule. There are fourteen: seven meanings (Me too,
 Thank you, Great idea, Quick win, Needs a chat, Blocker, Made me laugh), each
@@ -244,7 +276,8 @@ note that is not yours, it tells you so.
 | `add-card` | `{columnId, text}` | anyone |
 | `delete-card` | `{cardId}` | whoever wrote it |
 | `group-cards` | `{cardIds, title}` | anyone |
-| `vote` | `{cardId}` | anyone |
+| `edit-card` | `{cardId, text}`; text as for `add-card`; the same text again is accepted and marks nothing | whoever wrote it |
+| `vote` | `{cardId, value}` with `value` `up`, `down` or `none`; sets, never toggles; without `value` it is `up` | anyone |
 | `move-card` | `{cardId, beforeId?, columnId?, groupId?}`; a `groupId` with a `columnId` the group is not in is `invalid` | anyone |
 | `move-group` | `{groupId, beforeId?, columnId?}` | anyone |
 | `stamp` (place a sticker) | `{cardId, kind, x, y, rot?}`; `kind` is one of the fourteen ids | anyone |
@@ -309,7 +342,7 @@ Every board of an org is a key in one store with one quota: `quotaBytes`,
 | Notes, 500 characters each | 120 | 30 |
 | Groups, title 80 characters | 40 | |
 | Notes named in one `group-cards` | 50 | |
-| Votes | 1,000 | one per note |
+| Votes, up or down | 1,000 | one per note |
 | Stickers | 300; 12 per note | 60; 3 per note |
 | Action items, text 500 and owner 64 characters | 30 | |
 | Links per action | 12 | |
@@ -324,13 +357,14 @@ document these allow, stored as JSON with 36-character user ids:
 | --- | --- | --- |
 | Note text | 120 × 500 × 3 | 180,000 |
 | Note structure | 120 × about 120 | 14,600 |
-| Votes | 1,000 × 41 (`"<user id>":1,`) | 41,000 |
+| Votes | 1,000 × 42 (`"<user id>":-1,`) | 42,000 |
 | Stickers | 300 × about 124 | 37,200 |
 | Groups | 40 × (240 + about 48) | 11,500 |
 | Action items | 30 × (1,500 + 192 + about 130) | 54,700 |
 | **Total** | measured by `board.test.mjs` | **339,312** |
 
-That is 32% of the quota: three boards at every limit fit, a fourth does not.
+(Measured with every vote up and no note edited; down votes and edited marks
+add about 3,000 bytes.) That is 32% of the quota: three boards at every limit fit, a fourth does not.
 An ordinary board (60 notes of 120 ASCII characters, 100 votes, 40 stickers) is
 about 25 KB, so the quota holds some forty of them. The limits bound a board,
 not the number of rooms: an org that keeps hundreds of finished retrospectives
