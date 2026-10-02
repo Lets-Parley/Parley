@@ -11,6 +11,12 @@
 
   // ---------------------------------------------------------------- content
 
+  // A map that holds only what was put in it. State strings index these, and
+  // a note called "constructor" must not find Object's.
+  function bag(from) {
+    return Object.assign(Object.create(null), from);
+  }
+
   const CIRCLE = "M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 0 0 0-12.5z";
   const GLYPH = {
     check: "M3.5 8.4l3 3 6-6.4",
@@ -25,11 +31,13 @@
     bars: "M3 4h10M3 8h7M3 12h4",
     target: CIRCLE + "M8 5.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 0 0 0-5z",
     clock: CIRCLE + "M8 4.5V8l2.4 1.6",
+    pause: "M5.5 3.5v9M10.5 3.5v9",
+    chevron: "M4.5 6.5L8 10l3.5-3.5",
   };
 
   // A stamp is told apart by its glyph and its name; the hue only agrees.
   // `press` is where the glyph starts from as it settles after being pressed.
-  const STAMPS = {
+  const STAMPS = bag({
     "me-too": { label: "Me too", hue: "settled", press: "translateX(-5px) rotate(-8deg)", glyph: "M6 3.25a3.75 3.75 0 1 0 0 7.5a3.75 3.75 0 0 0 0-7.5zM10 5.25a3.75 3.75 0 1 0 0 7.5a3.75 3.75 0 0 0 0-7.5z" },
     thanks: { label: "Thank you", hue: "brass", press: "scale(1.45)", glyph: "M8 13.5S2.5 10.2 2.5 6.3A2.9 2.9 0 0 1 8 5a2.9 2.9 0 0 1 5.5 1.3C13.5 10.2 8 13.5 8 13.5z" },
     idea: { label: "Great idea", hue: "accent", press: "rotate(-80deg) scale(1.2)", glyph: "M8 1.8l1.5 4.7 4.7 1.5-4.7 1.5L8 14.2l-1.5-4.7L1.8 8l4.7-1.5z" },
@@ -37,17 +45,26 @@
     chat: { label: "Needs a chat", hue: "accent", press: "rotate(-14deg) translateY(2px)", glyph: "M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" },
     blocker: { label: "Blocker", hue: "stop", press: "rotate(18deg)", glyph: "M4 14V2.5M4 3h8l-1.8 2.8L12 8.6H4" },
     laugh: { label: "Made me laugh", hue: "brass", press: "scaleX(1.2) scaleY(.7)", glyph: CIRCLE + "M5.2 9.2a3 3 0 0 0 5.6 0M6 6.4v.1M10 6.4v.1" },
-  };
+  });
   const STAMP_SIZE = 32;
   const STAMP_STEP = 6;
+  // A stamp's center runs from this far above its note's top edge to this far
+  // above its bottom edge, so one can hang over the top and the sides but
+  // never over the note underneath.
+  const STAMP_RISE = 6;
+  const STAMP_SPAN = 10;
   const ONLY_PRESSER = "Only the person who pressed a stamp, or the facilitator, can move or remove it.";
+  const NOT_KNOWN_MINE = "You can move a stamp you pressed in this visit. Open an older one of yours to remove it.";
+  const ONLY_AUTHOR = "Only the person who wrote a note, or the facilitator, can delete it.";
+  const NOTE_GONE = "That note is no longer on the board.";
+  const STAMP_CAPS = "That stamp was not pressed. A note holds twelve stamps, three per person.";
 
   // A lane is told apart by its glyph and its title; the hue only agrees.
-  const LANES = {
+  const LANES = bag({
     "went-well": { hue: "go", glyph: GLYPH.wentWell, prompt: "What made the sprint better?", empty: "No wins written down yet." },
     "to-improve": { hue: "brass", glyph: GLYPH.toImprove, prompt: "What slowed us down?", empty: "Nothing flagged yet." },
     puzzles: { hue: "settled", glyph: GLYPH.puzzles, prompt: "What are we still unsure about?", empty: "No open questions yet." },
-  };
+  });
   const OTHER_LANE = { hue: "accent", glyph: GLYPH.other, prompt: "What belongs here?", empty: "No notes yet." };
 
   // The stage is the facilitator's to set. It changes what the board puts in
@@ -63,18 +80,19 @@
   const PRESETS = [1, 3, 5, 10];
   const MINUTE = 60000;
 
-  // What the host's answer to a refused action means, in words. The host sends
-  // a code from this list and nothing else.
-  const REFUSALS = {
+  // What the answer to a refused action means, in words. The host sends a code
+  // from this list and nothing else, and the board itself answers with four of
+  // them (board.js), so each action also brings its own words for those.
+  const REFUSALS = bag({
     forbidden: "You are not allowed to do that in this room.",
     invalid: "The server did not accept that as written.",
-    "not-found": "This board is no longer available. Reload the page.",
-    conflict: "This room has ended, so the board can no longer change.",
+    "not-found": "That is no longer on the board. If nothing works, reload the page.",
+    conflict: "The board could not take that: it is full, or the room has ended.",
     "rate-limited": "Too many changes at once. Wait a moment, then try again.",
     ungranted: "This plugin is not allowed to change the room. An org admin can check its grants.",
     unreachable: "Could not reach the server. Check your connection, then try again.",
     failed: "The server could not do that. Try again.",
-  };
+  });
 
   const NOTE_LIMIT = 500;
   const TITLE_LIMIT = 80;
@@ -156,15 +174,16 @@
 
     "button{font:inherit;cursor:pointer}",
     "button:disabled{cursor:default}",
-    ".btn{flex:none;border-radius:999px;font-size:14px;font-weight:700;line-height:20px;transition:box-shadow .15s,background-color .15s,opacity .15s}",
+    ".btn{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:999px;font-size:14px;font-weight:700;line-height:20px;transition:box-shadow .15s,background-color .15s,opacity .15s}",
     ".btn:disabled{opacity:.5}",
     ".btn-primary,.btn-brass{border:0;padding:10px 20px;color:var(--color-accent-ink);box-shadow:var(--shadow-rest)}",
     ".btn-primary{background:var(--color-accent)}",
     ".btn-brass{background:var(--color-brass)}",
     ".btn-primary:hover:not(:disabled),.btn-brass:hover:not(:disabled){box-shadow:var(--shadow-lift)}",
-    ".btn-quiet{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--color-line-strong);padding:8px 16px;background:transparent;color:var(--color-ink-soft)}",
+    ".btn-quiet{border:1px solid var(--color-line-strong);padding:8px 16px;background:transparent;color:var(--color-ink-soft)}",
     ".btn-quiet:hover{background:var(--color-felt-deep)}",
-    ".btn-small{padding:5px 12px;font-size:13px}",
+    ".btn-small{min-height:32px;padding:5px 12px;font-size:13px}",
+    ".danger{border-color:var(--color-stop);color:var(--color-stop)}",
     ".field{display:block;width:100%;min-width:0;border:1px solid var(--color-line-strong);border-radius:8px;background:var(--color-surface-hi);color:var(--color-ink);padding:10px 14px;font:inherit;font-size:14px;line-height:20px;caret-color:var(--color-accent)}",
     ".field:focus-visible{outline-offset:1px;border-color:var(--color-accent)}",
     ".field:read-only{color:var(--color-ink-soft)}",
@@ -183,7 +202,8 @@
     ".step{position:relative;display:flex;align-items:center;gap:6px;min-height:32px;padding:0 12px 0 8px;border-radius:999px;font-weight:700;color:var(--color-ink-faint)}",
     ".step.reached,.step.current{color:var(--color-ink)}",
     ".stage-nav{flex-wrap:nowrap;justify-content:flex-end;align-self:end}",
-    ".stage-next{display:inline-flex;align-items:center;gap:6px}",
+    ".stage-next{gap:6px}",
+    ".stage-back{gap:0;white-space:pre}",
     ".timer-slot{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-height:34px}",
     ".timer-face{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 10px 0 6px;border:1px solid transparent;border-radius:999px;font-size:16px;font-weight:700;white-space:nowrap}",
     ".timer-face .track{stroke:var(--color-line-strong);opacity:.35}",
@@ -198,6 +218,7 @@
     ".step-mark{display:grid;place-items:center;width:16px;font:11px var(--mono);color:var(--color-ink-faint)}",
     ".step svg{color:var(--color-go)}",
     ".hints{display:grid;margin:0 8px}",
+    ".hint-more{display:none}",
     ".hint{grid-area:1/1;max-width:65ch;color:var(--color-ink-soft);text-wrap:pretty;visibility:hidden}",
     ".hint.shown{visibility:visible}",
     ".authorship{flex:0 1 27rem;display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;min-width:0;padding:12px 16px 12px 20px}",
@@ -216,7 +237,10 @@
     ".lane-title{flex:1;min-width:0}",
     ".prompt{font-size:13px;line-height:18px;color:var(--color-ink-soft);text-wrap:pretty}",
     ".lane-glyph{flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:8px;color:var(--hue);background:color-mix(in srgb,var(--hue) 14%,transparent)}",
-    ".sort{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:1px solid var(--color-line-strong);border-radius:8px;background:transparent;color:var(--color-ink-soft);transition:background-color .15s,border-color .15s}",
+    // The lens says what it is in words wherever its lane has room for them.
+    ".lane{container-type:inline-size}",
+    ".sort{flex:none;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px 0 6px;border:1px solid var(--color-line-strong);border-radius:999px;background:transparent;color:var(--color-ink-soft);font-size:12px;font-weight:700;line-height:16px;white-space:nowrap;transition:background-color .15s,border-color .15s}",
+    "@container (max-width:290px){.sort{padding:0 6px}.sort-word{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}}",
     ".sort:hover{background:var(--color-felt-deep)}",
     '.sort[aria-pressed="true"]{border-color:var(--color-accent);background:var(--color-accent-soft);color:var(--color-ink)}',
     ".sort-line .fine{flex:1 1 100%}",
@@ -233,6 +257,9 @@
 
     ".notes{display:flex;flex-direction:column;gap:8px}",
     ".note{position:relative;display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:start;column-gap:6px;padding:5px 8px 5px 4px;background:var(--color-surface-hi);border:1px solid var(--color-line);border-radius:14px;box-shadow:var(--shadow-rest);transition:background-color .15s,border-color .15s}",
+    // Room for its stamps to hang over its top edge without reaching the
+    // note above: a stamp rises 22px, and the notes are 8px apart.
+    ".note.stamped{margin-top:16px}",
     ".note.selected{background:var(--color-accent-soft);border-color:var(--color-accent);box-shadow:0 0 0 1px var(--color-accent),var(--shadow-rest)}",
     // A note's controls are drawn over its stamps, and over a neighbor's:
     // a stamp may cover text, which shows through it, but never a control.
@@ -251,7 +278,7 @@
     ".lit{outline:2px solid var(--color-accent);outline-offset:1px}",
     ".note.spot,.group.spot{box-shadow:0 0 0 2px var(--color-accent),var(--shadow-rest)}",
     // A note being dragged: the copy under the pointer, and the slot it left.
-    ".note.drag{position:fixed;z-index:4;margin:0;pointer-events:none;box-shadow:var(--shadow-lift)}",
+    ".note.drag,.note.drag.stamped{position:fixed;z-index:4;margin:0;pointer-events:none;box-shadow:var(--shadow-lift)}",
     ".note.slot{border:1.5px dashed var(--color-accent);background:transparent;box-shadow:none}",
     ".note.slot>*{visibility:hidden}",
     ".dragging,.dragging *{user-select:none;cursor:grabbing!important}",
@@ -284,20 +311,28 @@
     // its center, as a fraction of the note, and may hang over the edge.
     ".stamps{position:absolute;inset:0;z-index:1;pointer-events:none}",
     ".stamp,.stamp-face{display:grid;place-items:center;width:32px;height:32px;padding:0;border:2px solid var(--hue);border-radius:50%;outline:1px solid var(--hue);outline-offset:-6px;color:var(--hue);background:color-mix(in srgb,var(--hue) 10%,transparent)}",
-    ".stamp{position:absolute;margin:-16px 0 0 -16px;rotate:var(--rot);opacity:.9;pointer-events:auto;cursor:grab;touch-action:none;transition:opacity .15s}",
+    ".stamp{position:absolute;margin:-16px 0 0 -16px;rotate:var(--rot);opacity:.9;pointer-events:auto;cursor:grab;touch-action:none;transition:opacity .15s,box-shadow .4s}",
+    ".stamp.new{opacity:1;box-shadow:0 0 0 3px color-mix(in srgb,var(--hue) 40%,transparent)}",
     ".stamp:hover,.stamp:focus-visible,.stamp.lift{opacity:1;background:color-mix(in srgb,var(--hue) 10%,var(--color-surface-hi))}",
     ".stamp:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}",
     ".stamp.lift{scale:1.15;box-shadow:var(--shadow-lift);cursor:grabbing}",
-    ".stamp.fixed{cursor:default}",
-    "h3{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-size:14px;font-weight:700;line-height:20px;overflow-wrap:anywhere}",
+    // Somebody else's stamp, or one not known to be the viewer's: it opens,
+    // and it does not offer to be dragged.
+    ".stamp.fixed{cursor:pointer;touch-action:auto}",
+    // A group's name is at most 80 characters and is shown whole.
+    "h3{font-size:14px;font-weight:700;line-height:20px;overflow-wrap:anywhere}",
     ".group-meta{font:11px/16px var(--mono);color:var(--color-ink-faint)}",
 
     ".actions{min-width:0;padding:16px 20px 20px}",
     ".actions-head{display:flex;align-items:baseline;gap:10px}",
     ".actions-head h2{flex:1}",
     ".action-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}",
-    ".action{padding:8px 12px;border:1px solid var(--color-line);border-radius:14px}",
-    ".action-text{font-weight:700;overflow-wrap:anywhere}",
+    ".action{padding:4px 12px 8px;border:1px solid var(--color-line);border-radius:14px}",
+    ".action-head{display:flex;align-items:flex-start;gap:6px}",
+    ".action-text{flex:1;min-width:0;padding-top:6px;font-weight:700;overflow-wrap:anywhere}",
+    ".action .more{margin-right:-6px}",
+    ".unowned{padding-top:4px;font-size:13px;color:var(--color-ink-faint)}",
+    ".sheet-title{font-size:15px;font-weight:700}",
     ".actions.deciding{box-shadow:0 0 0 1px var(--color-accent),var(--shadow-rest)}",
     ".sources{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}",
     ".sources li{min-width:0;max-width:100%}",
@@ -325,7 +360,7 @@
 
     // Menus and sheets float in one layer that scrolls with the page.
     ".layer{position:absolute;top:0;left:0;z-index:3}",
-    ".pop{position:absolute;width:max-content;max-width:calc(100vw - 16px);border:1px solid var(--color-line);border-radius:14px;background:var(--color-surface-hi);box-shadow:var(--shadow-lift);transform-origin:0 0}",
+    ".pop{position:absolute;width:max-content;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow-y:auto;border:1px solid var(--color-line);border-radius:14px;background:var(--color-surface-hi);box-shadow:var(--shadow-lift);transform-origin:0 0}",
     ".menu{display:flex;flex-direction:column;min-width:13rem;padding:6px}",
     ".menu-item{display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:32px;padding:0 10px;border:0;border-radius:8px;background:transparent;color:var(--color-ink);text-align:left}",
     ".menu-item:hover,.menu-item:focus-visible{background:var(--color-felt-deep)}",
@@ -344,7 +379,44 @@
     ".link-list li{display:flex;align-items:center;gap:8px}",
     ".link-list span{flex:1;min-width:0;overflow-wrap:anywhere}",
 
-    "@media (pointer:coarse){.btn,.menu-item,.stage-2 .vote{min-height:44px}.pick,.grip,.more,.stage-3 .target{width:36px;height:44px}.board:not(.stage-2) .vote,.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{width:36px;height:36px}.note{grid-template-columns:36px minmax(0,1fr) auto}.note-text{padding:12px 0}}",
+    "@media (pointer:coarse){.btn,.menu-item,.stage-2 .vote{min-height:44px}.pick,.grip,.more,.stage-3 .target{width:36px;height:44px}.board:not(.stage-2) .vote,.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.note{grid-template-columns:36px minmax(0,1fr) auto}.note-text{padding:12px 0}}",
+
+    // A phone. The header is two short rows and a hint: the steps shrink to
+    // their numbers around the current one, the hint is one line that opens,
+    // and authorship is a sentence and a button. Everything that floats is a
+    // sheet along the bottom edge, never taller than the screen.
+    "@media (max-width:600px){",
+    ".top{gap:10px}",
+    ".progress{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:8px 12px}",
+    ".steps-wrap{flex:1 1 auto}",
+    ".steps{flex-wrap:nowrap;gap:2px}",
+    ".step{min-height:28px;padding:0 6px}",
+    ".step.current{padding:0 10px 0 6px}",
+    ".step:not(.current) .step-name{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}",
+    ".timer-slot{display:contents}",
+    ".timer-face{min-height:28px;font-size:13px}",
+    ".timer-paused{display:none}",
+    ".timer-open{order:4}",
+    ".timer-open>span{display:none}",
+    ".hints{order:2;flex:1 1 100%;display:flex;align-items:flex-start;gap:4px;margin:0 2px;cursor:pointer}",
+    ".hint{display:none;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+    ".hint.shown{display:block}",
+    ".hints.open .hint{white-space:normal}",
+    ".hint-more{flex:none;display:grid;place-items:center;width:24px;height:24px;margin-top:-2px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--color-ink-soft);transition:rotate .15s}",
+    ".hints.open .hint-more{rotate:180deg}",
+    ".stage-nav{order:3;flex:1 1 auto;justify-content:flex-start}",
+    ".back-to{display:none}",
+    ".authorship{padding:8px 12px 8px 16px;gap:6px 12px}",
+    ".auth-text{flex:1 1 6rem}",
+    ".auth-title{font-size:14px}",
+    ".authorship:not(.armed) .fine{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}",
+    "}",
+    "@media (max-width:600px) and (pointer:coarse){.top .btn{min-height:36px}}",
+    "@media (max-width:480px){",
+    ".pop{position:fixed;left:8px!important;right:8px;top:auto!important;bottom:8px;width:auto;max-width:none;max-height:min(70vh,480px);border-radius:20px}",
+    ".sheet{width:auto}",
+    ".link-list{max-height:none}",
+    "}",
 
     // The host's own keyframes for a note being set down: a short fall under
     // gravity, then a slide that friction brings to a dead stop.
@@ -434,7 +506,7 @@
   }
 
   function idsOf(rows) {
-    const ids = {};
+    const ids = bag();
     rows.forEach(function (row) {
       ids[row.id] = true;
     });
@@ -511,11 +583,11 @@
     };
   }
 
-  const view = { lanes: {}, notes: {}, groups: {}, actions: {}, stamps: {} };
+  const view = { lanes: bag(), notes: bag(), groups: bag(), actions: bag(), stamps: bag() };
   let session = null;
   let board = boardOf(null);
   let drawn = false;
-  let selected = {};
+  let selected = bag();
 
   function cardById(id) {
     return board.cards.filter(function (c) {
@@ -540,7 +612,7 @@
   // which is the one order everybody shares.
   function itemsOf(columnId) {
     const items = [];
-    const seen = {};
+    const seen = bag();
     board.cards.forEach(function (c) {
       if (c.columnId !== columnId) return;
       const g = c.groupId && groupById(c.groupId);
@@ -589,8 +661,8 @@
     return person && words(person.name).trim() ? person : null;
   }
 
-  // An owner is either a participant's id (the server's default when the field
-  // is left blank), a participant's name, or whatever somebody typed.
+  // An owner is a participant's name, or whatever somebody typed. A board
+  // from an older version may still hold a participant's id.
   function ownerOf(owner) {
     const typed = owner.trim().toLowerCase();
     const person =
@@ -709,7 +781,7 @@
   }
 
   function measure() {
-    const boxes = {};
+    const boxes = bag();
     for (const id in view.notes) boxes[id] = rectOf(view.notes[id].el);
     return boxes;
   }
@@ -808,6 +880,9 @@
     anchor.setAttribute("aria-expanded", "true");
     layer.appendChild(node);
     placePop();
+    // The frame cannot see how far the host page is scrolled, so the sheet
+    // asks to be brought into sight.
+    if (node.scrollIntoView) node.scrollIntoView({ block: "nearest" });
     if (motionOn()) animate(node, { transform: "translateY(-6px) scale(.97)", opacity: 0 }, POP);
   }
 
@@ -896,6 +971,27 @@
     buttons[0].focus();
   }
 
+  // Deleting cannot be taken back, so it is asked about. The sheet opens with
+  // focus on the way out: no single key, held or repeated, deletes anything.
+  function openConfirm(anchor, title, detail, label, run) {
+    const keep = el("button", { type: "button", class: "btn btn-primary btn-small", text: "Keep it" });
+    const go = el("button", { type: "button", class: "btn btn-quiet btn-small danger", text: label });
+    const panel = el("div", { class: "pop sheet", role: "alertdialog", "aria-label": title, "aria-describedby": "confirm-detail" }, [
+      el("p", { class: "sheet-title", text: title }),
+      el("p", { id: "confirm-detail", class: "fine", text: detail }),
+      el("div", { class: "row" }, [keep, go]),
+    ]);
+    keep.addEventListener("click", function () {
+      closePop(true);
+    });
+    go.addEventListener("click", function () {
+      closePop(true);
+      run();
+    });
+    openPop(anchor, panel);
+    keep.focus();
+  }
+
   // ---------------------------------------------------------------- actions
 
   // Every change the board makes goes through propose(). An action has three
@@ -913,7 +1009,7 @@
   let watching = [];
 
   function propose(action, payload, how) {
-    const item = { landed: how.landed, settle: how.settle || function () {}, unsure: how.unsure, refused: how.refused || {} };
+    const item = { landed: how.landed, settle: how.settle || function () {}, unsure: how.unsure, refused: bag(how.refused) };
     const unsent = function () {
       refuse(item, "That could not be sent. Try again.");
     };
@@ -1007,6 +1103,13 @@
     if (fresh.length === 1) said.push("New note in " + columnTitle(fresh[0].columnId) + ".");
     if (fresh.length > 1) said.push(fresh.length + " new notes.");
 
+    const kept = idsOf(after.cards);
+    const gone = before.cards.filter(function (c) {
+      return !kept[c.id];
+    });
+    if (gone.length === 1) said.push("A note was removed from " + columnTitle(gone[0].columnId) + ".");
+    if (gone.length > 1) said.push(gone.length + " notes were removed.");
+
     const hadGroups = idsOf(before.groups);
     after.groups.forEach(function (g) {
       if (!hadGroups[g.id]) said.push("Notes grouped as " + g.title + " in " + columnTitle(g.columnId) + ".");
@@ -1053,8 +1156,9 @@
     const pressed = after.stamps.filter(function (s) {
       return !hadStamps[s.id];
     });
+    // A stamp that left with its note is not a stamp somebody lifted.
     const lifted = before.stamps.filter(function (s) {
-      return !hasStamps[s.id];
+      return !hasStamps[s.id] && kept[s.cardId];
     });
     const stampWords = function (s, verb) {
       const on = after.cards.filter(function (c) {
@@ -1086,7 +1190,9 @@
       const now = after.actionItems.filter(function (a) {
         return a.id === old.id;
       })[0];
-      if (now && now.sourceIds.join() !== old.sourceIds.join()) said.push("The notes behind an action changed: " + short(now.text) + ".");
+      if (!now) said.push("Action removed: " + short(old.text) + ".");
+      else if (now.sourceIds.join() !== old.sourceIds.join()) said.push("The notes behind an action changed: " + short(now.text) + ".");
+      if (now && now.owner !== old.owner) said.push((now.owner ? ownerOf(now.owner).name + " now owns: " : "Nobody owns: ") + short(now.text) + ".");
     });
     return said.join(" ");
   }
@@ -1105,14 +1211,23 @@
     const status = el("span", { class: "sr-only" });
     const item = el("li", { class: "step" }, [
       el("span", { class: "step-mark", "aria-hidden": "true" }, [number, check]),
-      el("span", { text: name }),
+      el("span", { class: "step-name", text: name }),
       status,
     ]);
     return { el: item, number: number, check: check, status: status };
   });
   const stageNextWord = el("span");
   const stageNext = el("button", { type: "button", class: "btn btn-primary btn-small stage-next" }, [stageNextWord, icon(GLYPH.arrow)]);
-  const stageBack = el("button", { type: "button", class: "btn btn-quiet btn-small" });
+  const stageBackTo = el("span", { class: "back-to" });
+  const stageBack = el("button", { type: "button", class: "btn btn-quiet btn-small stage-back" }, [el("span", { text: "Back" }), stageBackTo]);
+  // On a phone the hint is one line, and this opens the rest of it.
+  const hintMore = el("button", { type: "button", class: "hint-more", "aria-expanded": "false", "aria-label": "Show the whole hint" }, [icon(GLYPH.chevron)]);
+  const hintRow = el("div", { class: "hints" }, hints.concat([hintMore]));
+  hintRow.addEventListener("click", function () {
+    const open = !hintRow.classList.contains("open");
+    hintRow.classList.toggle("open", open);
+    hintMore.setAttribute("aria-expanded", open ? "true" : "false");
+  });
   const stageNav = el("div", { class: "row stage-nav" }, [stageBack, stageNext]);
   let staging = false;
 
@@ -1147,7 +1262,10 @@
     stageBack.hidden = stage === 0;
     stageNext.disabled = stageBack.disabled = staging;
     if (!stageNext.hidden) setText(stageNextWord, "Move to " + STEPS[stage + 1]);
-    if (!stageBack.hidden) setText(stageBack, "Back to " + STEPS[stage - 1]);
+    if (!stageBack.hidden) {
+      setText(stageBackTo, " to " + STEPS[stage - 1]);
+      stageBack.setAttribute("aria-label", "Back to " + STEPS[stage - 1]);
+    }
     // The button that was pressed may be the one that just went away.
     if (held === stageNext && stageNext.hidden) stageBack.focus();
     if (held === stageBack && stageBack.hidden) stageNext.focus();
@@ -1201,11 +1319,14 @@
   // arrives a little late cannot nudge the countdown.
   const RING = 2 * Math.PI * 8;
   const timerArc = ringPart("arc");
-  const timerText = el("span", { class: "mono timer-text" });
-  const timerFace = el("span", { class: "timer-face", role: "timer", "aria-live": "off" }, [
-    ringSvg([ringPart("track"), timerArc]),
-    timerText,
-  ]);
+  // A paused timer shows two bars where the ring was and says so in a word;
+  // on a phone there is room for the bars only.
+  const timerPaused = el("span", { class: "timer-paused" });
+  const timerDigits = el("span");
+  const timerText = el("span", { class: "mono timer-text" }, [timerPaused, timerDigits]);
+  const timerRing = ringSvg([ringPart("track"), timerArc]);
+  const timerBars = icon(GLYPH.pause);
+  const timerFace = el("span", { class: "timer-face", role: "timer", "aria-live": "off" }, [timerRing, timerBars, timerText]);
   const timerWord = el("span", { text: "Timer" });
   const timerButton = el("button", { type: "button", class: "btn btn-quiet btn-small timer-open", "aria-haspopup": "dialog" }, [
     icon(GLYPH.clock),
@@ -1273,7 +1394,11 @@
     const t = board.timer;
     const left = timeLeft();
     const second = Math.ceil(left / 1000);
-    setText(timerText, left <= 0 ? "Time's up" : (t.running ? "" : "Paused ") + clockFace(left));
+    const paused = !t.running && left > 0;
+    setText(timerPaused, paused ? "Paused " : "");
+    setText(timerDigits, left <= 0 ? "Time's up" : clockFace(left));
+    timerRing.setAttribute("style", paused ? "display:none" : "");
+    timerBars.setAttribute("style", paused ? "" : "display:none");
     timerFace.classList.toggle("ending", left <= 10000);
     timerArc.setAttribute("stroke-dashoffset", (RING * (1 - Math.min(1, left / t.duration))).toFixed(2));
     if (second !== timerSecond) {
@@ -1300,10 +1425,16 @@
     const was = key(board);
     closePop(true);
     propose("timer", body, {
+      // The timer changed, and to what was asked for: somebody else's change
+      // to it is not this one landing.
       landed: function (b) {
-        return key(b) !== was;
+        const t = b.timer;
+        if (key(b) === was) return false;
+        if (body.op === "clear") return !t;
+        if (body.op === "pause") return !!t && !t.running;
+        return !!t && (body.op === "add" || t.running);
       },
-      refused: { forbidden: onlyFacilitator("set the timer") },
+      refused: { forbidden: onlyFacilitator("set the timer"), conflict: "No timer is set." },
       unsure: "Could not confirm the timer change. " + onlyFacilitator("set the timer"),
     });
   }
@@ -1357,14 +1488,14 @@
 
   const authTitle = el("p", { class: "auth-title" });
   const authLine = el("p", { class: "fine" });
-  const revealButton = el("button", { type: "button", class: "btn btn-quiet" }, [
+  const revealButton = el("button", { type: "button", class: "btn btn-quiet btn-small" }, [
     el("span", { class: "brass-dot", "aria-hidden": "true" }),
     el("span", { text: "Reveal authors" }),
   ]);
-  const revealConfirm = el("button", { type: "button", class: "btn btn-brass", text: "Reveal to everyone" });
-  const revealCancel = el("button", { type: "button", class: "btn btn-quiet", text: "Not yet" });
+  const revealConfirm = el("button", { type: "button", class: "btn btn-brass btn-small", text: "Reveal to everyone" });
+  const revealCancel = el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Not yet" });
   const revealArmed = el("div", { class: "row" }, [revealConfirm, revealCancel]);
-  const concealButton = el("button", { type: "button", class: "btn btn-quiet", text: "Hide authors again" });
+  const concealButton = el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Hide authors again" });
   const authorship = el("section", { class: "authorship panel", "aria-label": "Authorship" }, [
     el("div", { class: "auth-text" }, [authTitle, authLine]),
     revealButton,
@@ -1484,7 +1615,7 @@
       // "Most votes" is a lens for one reader: `sorted` holds the ranking as
       // it stood when it was switched on, and nothing is written anywhere.
       sorted: null,
-      sortToggle: el("button", { type: "button", class: "sort", "aria-pressed": "false" }, [icon(GLYPH.bars), el("span", { class: "sr-only", text: "Most votes" })]),
+      sortToggle: el("button", { type: "button", class: "sort", "aria-pressed": "false" }, [icon(GLYPH.bars), el("span", { class: "sort-word", text: "Most votes" })]),
       resort: el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Re-sort" }),
       unsort: el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Show shared order" }),
       share: el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Use this order for everyone" }),
@@ -1582,7 +1713,7 @@
   // The ranking of a lane by votes: a group by the votes of its notes
   // together, and the notes inside it by their own. Ties keep the shared order.
   function rankOf(items) {
-    const rank = {};
+    const rank = bag();
     items.slice().sort(byVotes).forEach(function (item, i) {
       rank[item.id] = i;
       if (!item.group) return;
@@ -1749,6 +1880,7 @@
       landed: function (b) {
         return ghostLanded(next, b);
       },
+      refused: { conflict: "That note was not saved. A board holds 120 notes, 30 from each person." },
       unsure: "Could not confirm that your note was saved. It is waiting in its lane.",
       settle: function (outcome) {
         if (outcome === "landed") {
@@ -1895,6 +2027,7 @@
         const now = cardById(id);
         return !now || now.votes > before;
       },
+      refused: { "not-found": NOTE_GONE, conflict: "That vote was not counted. The board has all the votes it can hold." },
       unsure: "No change. Each person has one vote per note, so yours may already be counted.",
       settle: function (outcome) {
         if (outcome === "accepted") {
@@ -1980,7 +2113,35 @@
         },
       });
     });
+    // Before the reveal nothing says whose a note is, and what this viewer
+    // wrote is not remembered past a reload, so Delete is offered to everyone
+    // and the server answers. After the reveal the board does know.
+    const others = board.revealed && card.authorId && viewerRole() === "participant" && card.authorId !== session.selfId;
+    items.push({
+      label: "Delete note…",
+      off: others ? ONLY_AUTHOR : "",
+      run: function () {
+        openConfirm(opener, "Delete this note?", "Its votes, stamps and links to actions go with it. This cannot be undone.", "Delete note", function () {
+          deleteNote(id);
+        });
+      },
+    });
     openMenu(opener, "Options for note: " + short(card.text), items);
+  }
+
+  // The facilitator deletes any note, through an action the host keeps for
+  // the facilitator. Everyone else asks as themselves, and the server answers
+  // no unless the note is theirs.
+  function deleteNote(id) {
+    propose(viewerRole() === "facilitator" ? "moderate-card" : "delete-card", { cardId: id }, {
+      landed: function (b) {
+        return !b.cards.some(function (c) {
+          return c.id === id;
+        });
+      },
+      refused: { forbidden: ONLY_AUTHOR, "not-found": NOTE_GONE },
+      unsure: "Could not confirm that the note was deleted.",
+    });
   }
 
   // ----------------------------------------------------------------- groups
@@ -2102,6 +2263,7 @@
       landed: function (b) {
         return orderKey(b) === key;
       },
+      refused: { "not-found": NOTE_GONE },
       unsure: "Could not confirm that move. The order may not have changed for everyone.",
       settle: function (outcome) {
         // A state that arrived since is the server's own order already.
@@ -2190,16 +2352,39 @@
   // Hear a pointer from a press until it is let go, wherever it goes. The
   // listeners are on the window because the thing pressed may itself be moved
   // in the document while it is dragged, which would drop them.
+  // One gesture at a time. It ends once, whatever ends it: a release, a
+  // cancel, Escape, the window losing focus or the capture being taken away.
+  // Each of those takes the listeners off, so nothing that moves afterwards
+  // can pick the drag up again. `active` is set once something is being carried.
+  let gesture = null;
+
   function follow(move, stop) {
-    const end = function (e) {
+    const g = { active: false };
+    const cancel = function () {
+      g.end({ type: "pointercancel" });
+    };
+    const lost = function (e) {
+      // The event bubbles: only main losing the capture ends the drag.
+      if (e.target === main) cancel();
+    };
+    g.end = function (e) {
+      if (gesture !== g) return;
+      gesture = null;
       window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", end);
-      window.removeEventListener("pointercancel", end);
+      window.removeEventListener("pointerup", g.end);
+      window.removeEventListener("pointercancel", g.end);
+      window.removeEventListener("blur", cancel);
+      main.removeEventListener("lostpointercapture", lost);
       stop(e);
     };
+    if (gesture) gesture.end({ type: "pointercancel" });
+    gesture = g;
     window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", end);
-    window.addEventListener("pointercancel", end);
+    window.addEventListener("pointerup", g.end);
+    window.addEventListener("pointercancel", g.end);
+    window.addEventListener("blur", cancel);
+    main.addEventListener("lostpointercapture", lost);
+    return g;
   }
 
   // Keep hearing the pointer if it leaves the frame mid-drag.
@@ -2230,13 +2415,14 @@
       }
       const start = { x: ev.clientX, y: ev.clientY };
       let over = false;
-      follow(
+      const g = follow(
         function (e) {
           if (over) return;
           if (!drag) {
             if (Math.abs(e.clientX - start.x) + Math.abs(e.clientY - start.y) < 4) return;
             over = !lift(id, start);
             if (over) return;
+            g.active = true;
             hold(ev);
           }
           e.preventDefault();
@@ -2319,7 +2505,13 @@
       heldState = null;
       onState(waiting);
     }
-    if (commit && (home !== d.home || next !== d.next) && cardById(d.id)) {
+    if (!cardById(d.id)) {
+      // It was deleted while it was being carried.
+      patchLanes();
+      notify(NOTE_GONE);
+      return;
+    }
+    if (commit && (home !== d.home || next !== d.next)) {
       const groupId = home === d.lane.list ? null : ownerOfNode(home);
       const body = { cardId: d.id, groupId: groupId };
       const beforeId = next && ownerOfNode(next);
@@ -2349,11 +2541,11 @@
   // who pressed it. Which ones are this viewer's own is known only from what
   // happened in this visit: a stamp that appeared exactly as it was sent, and
   // a move the server accepted or refused.
-  const stampHelp = el("p", { id: "stamp-help", class: "sr-only", text: "Arrow keys move it. Delete removes it. Enter opens its options." });
-  const mineStamps = {};
-  const notMine = {};
+  const stampHelp = el("p", { id: "stamp-help", class: "sr-only", text: "Left and Right go between this note's stamps. Shift with an arrow key moves this one. Delete removes it. Enter opens its options." });
+  const mineStamps = bag();
+  const notMine = bag();
   // Where a stamp has been put by this viewer, until the state agrees.
-  const stampAt = {};
+  const stampAt = bag();
   let pressing = [];
 
   function round3(n) {
@@ -2366,26 +2558,45 @@
     return { left: box.left, top: box.top, width: box.width || 240, height: box.height || 44 };
   }
 
-  // Where a stamp lands when no spot is pointed at: on the bottom edge, half
-  // over it, starting left of the note's own controls and working leftwards
-  // to the first place no other stamp is sitting.
+  // How far a stamp's center can travel down its note, in pixels.
+  function stampRun(box) {
+    return Math.max(1, box.height - STAMP_SPAN);
+  }
+
+  // Where a stamp lands when no spot is pointed at: hanging off the note's top
+  // edge, above the first line of text, starting over the top-left corner and
+  // working right, short of the note's own controls. Once that row is full the
+  // next stamps go between the ones already there, so each of the twelve a
+  // note holds gets a place of its own. A stamp still on its way counts.
   function freeSpot(cardId) {
     const box = noteBox(cardId);
-    const there = board.stamps.filter(function (s) {
-      return s.cardId === cardId;
-    });
-    const perRow = Math.max(1, Math.floor((box.width - 92) / 30) + 1);
-    const y = round3((box.height - 2) / box.height);
-    let x = 0;
-    for (let i = 0; i < 12; i++) {
-      const cx = box.width - 72 - 30 * (i % perRow) - 15 * (Math.floor(i / perRow) % 2);
-      x = round3(cx / box.width);
-      const taken = there.some(function (s) {
-        return Math.abs(s.x - x) * box.width < 20 && Math.abs(s.y - y) * box.height < 20;
+    const run = stampRun(box);
+    const there = board.stamps
+      .concat(
+        pressing.map(function (wait) {
+          return wait.body;
+        }),
+      )
+      .filter(function (s) {
+        return s.cardId === cardId && s.y * run < 12;
       });
-      if (!taken) break;
-    }
-    return { x: x, y: y };
+    const last = Math.max(6, box.width - 100);
+    let best = 6;
+    let room = -1;
+    [0, 13, 6.5, 19.5].some(function (shift) {
+      for (let cx = 6 + shift; cx <= last; cx += 26) {
+        const gap = there.reduce(function (least, s) {
+          return Math.min(least, Math.abs(s.x * box.width - cx));
+        }, Infinity);
+        if (gap > room) {
+          room = gap;
+          best = cx;
+        }
+        if (gap >= 6) return true;
+      }
+      return false;
+    });
+    return { x: round3(best / box.width), y: 0 };
   }
 
   function isPress(s, wait) {
@@ -2396,7 +2607,11 @@
   function pressStamp(cardId, kind) {
     const spot = freeSpot(cardId);
     // The tilt is the hand's: a little different every time.
-    const wait = { had: idsOf(board.stamps), body: { cardId: cardId, kind: kind, x: spot.x, y: spot.y, rot: Math.round((Math.random() * 18 - 9) * 10) / 10 } };
+    // A press nobody answered is not waited for forever.
+    pressing = pressing.filter(function (old) {
+      return clockNow() - old.at < WAIT_MS + LATE_MS;
+    });
+    const wait = { at: clockNow(), had: idsOf(board.stamps), body: { cardId: cardId, kind: kind, x: spot.x, y: spot.y, rot: Math.round((Math.random() * 18 - 9) * 10) / 10 } };
     pressing.push(wait);
     propose("stamp", wait.body, {
       landed: function (b) {
@@ -2404,7 +2619,7 @@
           return isPress(s, wait);
         });
       },
-      refused: { failed: "That stamp was not pressed. A note holds twelve stamps, three from each person." },
+      refused: { conflict: STAMP_CAPS, failed: STAMP_CAPS, "not-found": NOTE_GONE },
       unsure: "Could not confirm that the stamp was pressed.",
       settle: function (outcome) {
         if (outcome !== "refused") return;
@@ -2415,8 +2630,24 @@
     });
   }
 
-  function mayChange(id) {
-    if (viewerRole() === "facilitator" || !notMine[id]) return true;
+  // The state is one payload for every viewer, so it cannot say which stamps
+  // are whose. A stamp is known to be this viewer's when it was pressed, or
+  // the server took a change to it, in this visit; the facilitator may change
+  // any. Only those look movable.
+  function ownStamp(id) {
+    return viewerRole() === "facilitator" || !!mineStamps[id];
+  }
+
+  function mayMove(id) {
+    if (ownStamp(id)) return true;
+    notify(notMine[id] ? ONLY_PRESSER : NOT_KNOWN_MINE);
+    return false;
+  }
+
+  // Removing is asked of the server for any stamp it has not already refused:
+  // it knows whose a stamp is after a reload, and the board does not.
+  function mayRemove(id) {
+    if (ownStamp(id) || !notMine[id]) return true;
     notify(ONLY_PRESSER);
     return false;
   }
@@ -2427,6 +2658,7 @@
   function sendStamp(id, remove) {
     const lead = viewerRole() === "facilitator";
     const at = stampAt[id];
+    if (!remove && !at) return;
     const body = { stampId: id };
     if (remove && lead) body.remove = true;
     if (!remove) {
@@ -2440,12 +2672,12 @@
         })[0];
         return remove ? !now : !now || (now.x === at.x && now.y === at.y);
       },
-      refused: { failed: ONLY_PRESSER },
+      refused: { forbidden: ONLY_PRESSER, failed: ONLY_PRESSER, "not-found": "That stamp is no longer on the board." },
       unsure: remove ? "Could not confirm that the stamp was removed." : "Could not confirm that the stamp moved.",
       settle: function (outcome) {
         if (outcome === "accepted") mineStamps[id] = true;
         if (outcome !== "refused" && outcome !== "unsure") return;
-        if (watch && watch.reason === "failed") notMine[id] = true;
+        if (watch && (watch.reason === "failed" || watch.reason === "forbidden")) notMine[id] = true;
         if (stampAt[id] === at) delete stampAt[id];
         patchStamps();
       },
@@ -2454,10 +2686,15 @@
 
   function nudgeStamp(id, dx, dy) {
     const s = stampById(id);
-    if (!s || !mayChange(id)) return;
+    if (!s || !mayMove(id)) return;
     const box = noteBox(s.cardId);
     const from = stampAt[id] || s;
-    stampAt[id] = { x: round3(unit(from.x + (dx * STAMP_STEP) / box.width)), y: round3(unit(from.y + (dy * STAMP_STEP) / box.height)) };
+    const to = { x: round3(unit(from.x + (dx * STAMP_STEP) / box.width)), y: round3(unit(from.y + (dy * STAMP_STEP) / stampRun(box))) };
+    if (to.x === from.x && to.y === from.y) {
+      setText(live, "At the edge of the note.");
+      return;
+    }
+    stampAt[id] = to;
     patchStamps();
     // Several presses of an arrow key are one move.
     const stamp = view.stamps[id];
@@ -2473,11 +2710,40 @@
     if (!stamp || !stamp.timer) return;
     clearTimeout(stamp.timer);
     stamp.timer = 0;
-    if (s && stampAt[id] && (stampAt[id].x !== s.x || stampAt[id].y !== s.y)) sendStamp(id, false);
+    if (s && stampAt[id] && (stampAt[id].x !== s.x || stampAt[id].y !== s.y)) {
+      setText(live, STAMPS[s.kind].label + " stamp moved.");
+      sendStamp(id, false);
+    }
   }
 
   function removeStamp(id) {
-    if (mayChange(id)) sendStamp(id, true);
+    if (mayRemove(id)) sendStamp(id, true);
+  }
+
+  // A note's stamps are one stop for the Tab key: the last one focused, or
+  // the first. The arrow keys go between them.
+  function patchStampStops(cardId) {
+    const note = view.notes[cardId];
+    if (!note) return;
+    const on = board.stamps.filter(function (s) {
+      return s.cardId === cardId && view.stamps[s.id];
+    });
+    const stop =
+      on.filter(function (s) {
+        return s.id === note.stampStop;
+      })[0] || on[0];
+    on.forEach(function (s) {
+      view.stamps[s.id].btn.setAttribute("tabindex", s === stop ? "0" : "-1");
+    });
+  }
+
+  function stepStamp(id, by) {
+    const s = stampById(id);
+    const on = board.stamps.filter(function (o) {
+      return o.cardId === s.cardId;
+    });
+    const next = on[(on.indexOf(s) + by + on.length) % on.length];
+    view.stamps[next.id].btn.focus();
   }
 
   function stampById(id) {
@@ -2494,40 +2760,53 @@
     stamp.el = el("li", {}, [stamp.btn]);
 
     stamp.btn.addEventListener("keydown", function (ev) {
-      const step = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[ev.key];
-      if (step && !ev.altKey) nudgeStamp(id, step[0], step[1]);
+      const step = bag({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] })[ev.key];
+      if (step && ev.altKey) return;
+      if (step && ev.shiftKey) nudgeStamp(id, step[0], step[1]);
+      else if (step) stepStamp(id, step[0] + step[1]);
       else if (ev.key === "Delete" || ev.key === "Backspace") removeStamp(id);
       else return;
       ev.preventDefault();
       ev.stopPropagation();
+    });
+    stamp.btn.addEventListener("focus", function () {
+      if (!view.notes[stamp.cardId]) return;
+      view.notes[stamp.cardId].stampStop = id;
+      patchStampStops(stamp.cardId);
     });
     stamp.btn.addEventListener("blur", function () {
       settleStamp(id);
     });
     toggles(stamp.btn, function () {
       if (stamp.dragged) return;
-      const nudge = function (label, dx, dy) {
+      const nudge = function (label, keys, dx, dy) {
         return {
           label: label,
+          keys: keys,
           stay: true,
           run: function () {
             nudgeStamp(id, dx, dy);
           },
         };
       };
-      openMenu(stamp.btn, kind.label + " stamp", [
-        nudge("Move left", -1, 0),
-        nudge("Move right", 1, 0),
-        nudge("Move up", 0, -1),
-        nudge("Move down", 0, 1),
-        {
-          label: "Remove stamp",
+      const remove = function (label) {
+        return {
+          label: label,
           keys: "Delete",
+          off: !ownStamp(id) && notMine[id] ? ONLY_PRESSER : "",
           run: function () {
             removeStamp(id);
           },
-        },
-      ]);
+        };
+      };
+      // Moving is offered only for a stamp known to be the viewer's own.
+      openMenu(
+        stamp.btn,
+        kind.label + " stamp",
+        ownStamp(id)
+          ? [nudge("Move left", "Shift+Left", -1, 0), nudge("Move right", "Shift+Right", 1, 0), nudge("Move up", "Shift+Up", 0, -1), nudge("Move down", "Shift+Down", 0, 1), remove("Remove stamp")]
+          : [remove("Remove, if you pressed it")],
+      );
     });
     // Dragging puts the stamp anywhere on its note. It follows the pointer
     // directly, and is sent once, when it is let go.
@@ -2537,21 +2816,22 @@
       const start = { x: ev.clientX, y: ev.clientY };
       let moved = false;
       let over = false;
-      follow(
+      const g = follow(
         function (e) {
           const now = stampById(id);
           if (!now || over) return;
           if (!moved) {
             if (Math.abs(e.clientX - start.x) + Math.abs(e.clientY - start.y) < 4) return;
-            over = !mayChange(id);
+            over = !mayMove(id);
             if (over) return;
             moved = true;
+            g.active = true;
             closePop(false);
             hold(ev);
             stamp.btn.classList.add("lift");
           }
           const box = noteBox(now.cardId);
-          stampAt[id] = { x: round3(unit((e.clientX - box.left) / box.width)), y: round3(unit((e.clientY - box.top) / box.height)) };
+          stampAt[id] = { x: round3(unit((e.clientX - box.left) / box.width)), y: round3(unit((e.clientY - box.top + STAMP_RISE) / stampRun(box))) };
           patchStamps();
         },
         function (e) {
@@ -2559,6 +2839,11 @@
           if (!moved) return;
           swallowClick(stamp);
           stamp.btn.classList.remove("lift");
+          // A teammate, or the facilitator, removed it while it was held.
+          if (!stampById(id) || !stampAt[id]) {
+            notify("That stamp is no longer on the board.");
+            return;
+          }
           if (e.type !== "pointerup") delete stampAt[id];
           else {
             if (motionOn()) animate(stamp.btn, { transform: "scale(1.2)" }, SLAP);
@@ -2581,11 +2866,23 @@
     };
     view.notes[s.cardId].el.animate([{ transform: "translateY(2.5px)" }, { transform: "none" }], after(NUDGE));
     stamp.glyph.animate([{ transform: STAMPS[s.kind].press }, { transform: "none" }], after(FLICK));
+    // Ink: a ring of the stamp's own color spreads from under it as it lands.
+    stamp.btn.animate(
+      [{ boxShadow: "0 0 0 0 color-mix(in srgb,var(--hue) 50%,transparent)" }, { boxShadow: "0 0 0 10px transparent" }],
+      { duration: 320, delay: SLAP.hit, easing: "cubic-bezier(0.22,1,0.36,1)" },
+    );
+  }
+
+  // A teammate's stamp comes down the same way from less high, and the note
+  // gives a little. It is smaller than the viewer's own press on purpose.
+  function setDown(stamp, s) {
+    animate(stamp.btn, { transform: "translate(-3px,-14px) scale(1.4)", opacity: 0 }, SLAP);
+    view.notes[s.cardId].el.animate([{ transform: "translateY(1px)" }, { transform: "none" }], Object.assign({}, NUDGE, { delay: SLAP.hit, fill: "none" }));
   }
 
   function patchStamps() {
     const kept = idsOf(board.stamps);
-    const byNote = {};
+    const byNote = bag();
     const fresh = [];
     let orphan = null;
     let claimed = null;
@@ -2621,14 +2918,17 @@
           const at = stampAt[s.id] || s;
           if (stampAt[s.id] && !stamp.timer && at.x === s.x && at.y === s.y) delete stampAt[s.id];
           stamp.btn.style.left = at.x * 100 + "%";
-          stamp.btn.style.top = at.y * 100 + "%";
+          stamp.btn.style.top = "calc(" + at.y + " * (100% - " + STAMP_SPAN + "px) - " + STAMP_RISE + "px)";
           stamp.btn.style.setProperty("--rot", s.rot + "deg");
-          stamp.btn.classList.toggle("fixed", !!notMine[s.id] && viewerRole() !== "facilitator");
+          stamp.btn.classList.toggle("fixed", !ownStamp(s.id));
           stamp.btn.setAttribute("aria-label", STAMPS[s.kind].label + " stamp, " + (i + 1) + " of " + list.length + " on this note");
           return stamp.el;
         }),
       );
       note.stamps.hidden = list.length === 0;
+      // A note with stamps keeps room above it for them to hang into.
+      note.el.classList.toggle("stamped", list.length > 0);
+      patchStampStops(cardId);
     }
     forgetMissing(view.stamps, kept);
     if (orphan && view.notes[orphan]) leadOf(view.notes[orphan]).focus();
@@ -2638,11 +2938,18 @@
       const held = document.activeElement;
       if (held === document.body || contains(view.notes[claimed.cardId].el, held)) claimed.btn.focus({ preventScroll: true });
     }
-    if (!motionOn() || fresh.length > 3) return;
+    if (!drawn || fresh.length > 3) return;
+    // A new stamp is ringed for a moment. That is a change of state, not a
+    // movement, so it is also what somebody who asked for less motion sees.
     fresh.forEach(function (s) {
       const stamp = view.stamps[s.id];
+      stamp.btn.classList.add("new");
+      setTimeout(function () {
+        stamp.btn.classList.remove("new");
+      }, 1600);
+      if (!motionOn()) return;
       if (stamp === claimed) pressDown(stamp, s);
-      else animate(stamp.btn, { transform: "scale(.5)", opacity: 0 }, POP);
+      else setDown(stamp, s);
     });
   }
 
@@ -2670,7 +2977,7 @@
     const sheet = el("div", { class: "pop sheet", role: "dialog", "aria-label": "Stamps for: " + short(card.text) }, [
       el("p", { class: "label", text: "Press a stamp" }),
       grid,
-      el("p", { class: "fine", text: "Nobody can see who pressed a stamp. Drag yours to move it, or use the arrow keys." }),
+      el("p", { class: "fine", text: "Nobody can see who pressed a stamp. Drag yours to move it, or hold Shift and use the arrow keys." }),
     ]);
     openPop(opener, sheet);
     choices[0].focus();
@@ -2694,24 +3001,37 @@
     const rows = on.map(function (s, i) {
       const kind = STAMPS[s.kind];
       const name = kind.label + " stamp, " + (i + 1) + " of " + on.length;
-      return el("li", {}, [
-        el("span", { class: "stamp-face small", style: "--hue:var(--color-" + kind.hue + ")" }, [icon(kind.glyph)]),
-        el("span", { text: kind.label }),
-        control("Move", name, function () {
-          view.stamps[s.id].btn.focus();
-          setText(live, name + ". " + stampHelp.textContent);
-        }),
-        control("Remove", name, function () {
-          removeStamp(s.id);
-        }),
-      ]);
+      const parts = [el("span", { class: "stamp-face small", style: "--hue:var(--color-" + kind.hue + ")" }, [icon(kind.glyph)]), el("span", { text: kind.label })];
+      if (ownStamp(s.id)) {
+        parts.push(
+          control("Move", name, function () {
+            view.stamps[s.id].btn.focus();
+            setText(live, name + ". " + stampHelp.textContent);
+          }),
+        );
+      }
+      if (ownStamp(s.id) || !notMine[s.id]) {
+        parts.push(
+          control("Remove", name, function () {
+            removeStamp(s.id);
+          }),
+        );
+      }
+      return el("li", {}, parts);
     });
+    const first = rows
+      .map(function (row) {
+        return row.children[2];
+      })
+      .filter(Boolean)[0];
+    const note = el("p", { class: "fine", tabindex: -1, text: viewerRole() === "facilitator" ? "As facilitator you can move or remove any stamp." : "You can move a stamp you pressed in this visit, and remove any that is yours." });
     const sheet = el("div", { class: "pop sheet", role: "dialog", "aria-label": "Stamps on: " + short(card.text) }, [
       el("p", { class: "label", text: "Stamps on this note" }),
       el("ul", { class: "link-list" }, rows),
+      note,
     ]);
     openPop(opener, sheet);
-    rows[0].children[2].focus();
+    (first || note).focus();
   }
 
   // ----------------------------------------------------------- lanes, drawn
@@ -2827,7 +3147,7 @@
     const ids = selectedIds().filter(function (id) {
       return view.lanes[cardById(id).columnId];
     });
-    const laneIds = {};
+    const laneIds = bag();
     ids.forEach(function (id) {
       laneIds[cardById(id).columnId] = true;
     });
@@ -2868,7 +3188,7 @@
 
   function clearSelection() {
     const first = selectedIds()[0];
-    selected = {};
+    selected = bag();
     patchSelection();
     if (first) leadOf(view.notes[first]).focus();
   }
@@ -2890,6 +3210,7 @@
     grouping = true;
     propose("group-cards", { cardIds: ids, title: groupTitle.value.trim().slice(0, TITLE_LIMIT) }, {
       landed: made,
+      refused: { "not-found": "Not grouped: one of those notes is no longer on the board.", conflict: "Not grouped. A board holds 40 groups." },
       unsure: "Could not confirm that the notes were grouped. They are still selected.",
       settle: function (outcome) {
         if (outcome === "accepted") return;
@@ -2897,7 +3218,7 @@
         const group = outcome === "landed" && made(board) && view.groups[made(board).id];
         if (outcome === "landed") {
           const heldFocus = contains(selectBar, document.activeElement);
-          selected = {};
+          selected = bag();
           groupTitle.value = "";
           patchSelection();
           if (heldFocus && group) group.title.focus();
@@ -2925,7 +3246,7 @@
     text: "Nothing decided yet. When the notes settle, name one change and who owns it.",
   });
   const actionText = el("input", { id: "action-text", class: "field", maxlength: NOTE_LIMIT, dir: "auto" });
-  const actionOwner = el("input", { id: "action-owner", class: "field", maxlength: OWNER_LIMIT, placeholder: "Me", dir: "auto" });
+  const actionOwner = el("input", { id: "action-owner", class: "field", maxlength: OWNER_LIMIT, placeholder: "Nobody yet", dir: "auto" });
   const actionAdd = el("button", { type: "button", class: "btn btn-primary", text: "Add action" });
   const actionReopen = el("button", { type: "button", class: "reopen" }, [icon(GLYPH.plus), el("span", { text: "Add an action" })]);
   const actionForm = el("div", { class: "action-form" }, [
@@ -2939,6 +3260,8 @@
     actionList,
     el("div", { class: "action-foot" }, [actionReopen, actionForm]),
   ]);
+  const ACTIONS_FULL = "That action was not saved. A board holds 30 action items.";
+  const LINKS_FULL = "That link was not made. An action holds twelve links.";
   let addingAction = false;
   let actionOpen = false;
 
@@ -3004,17 +3327,89 @@
     return chip;
   }
 
-  function buildAction() {
+  function actionById(id) {
+    return board.actionItems.filter(function (a) {
+      return a.id === id;
+    })[0];
+  }
+
+  // Anyone can say who owns an action, or that nobody does yet.
+  function openOwner(id, anchor) {
+    const item = actionById(id);
+    const owner = el("input", { id: "owner-name", class: "field", maxlength: OWNER_LIMIT, placeholder: "Nobody yet", dir: "auto" });
+    const save = el("button", { type: "button", class: "btn btn-primary btn-small", text: "Save" });
+    const cancel = el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Cancel" });
+    const panel = el("div", { class: "pop sheet", role: "dialog", "aria-label": "Owner of action: " + short(item.text) }, [
+      el("div", { class: "stack" }, [el("label", { class: "label", for: "owner-name", text: "Owner" }), owner]),
+      el("p", { class: "fine", text: "Leave it empty and the action is unassigned." }),
+      el("div", { class: "row" }, [save, cancel]),
+    ]);
+    const submit = function () {
+      const name = owner.value.trim().slice(0, OWNER_LIMIT);
+      closePop(true);
+      propose("set-owner", { actionId: id, owner: name }, {
+        landed: function (b) {
+          return b.actionItems.some(function (a) {
+            return a.id === id && a.owner === name;
+          });
+        },
+        refused: { "not-found": "That action is no longer on the board." },
+        unsure: "Could not confirm the owner.",
+      });
+    };
+    owner.value = ownerOf(item.owner).name === FORMER ? "" : item.owner && ownerOf(item.owner).name;
+    save.addEventListener("click", submit);
+    cancel.addEventListener("click", function () {
+      closePop(true);
+    });
+    owner.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter" && !ev.isComposing) submit();
+    });
+    openPop(anchor, panel);
+    owner.focus();
+  }
+
+  function buildAction(id) {
     const row = {
       text: el("p", { class: "action-text", dir: "auto" }),
       owner: buildPerson(),
       sources: el("ul", { class: "sources", "aria-label": "From" }),
+      unowned: el("p", { class: "unowned", text: "Unassigned" }),
+      menu: el("button", { type: "button", class: "more", "aria-haspopup": "menu" }, [icon(GLYPH.dots)]),
       more: el("button", { type: "button", class: "src" }),
-      chips: {},
+      chips: bag(),
       wide: false,
     };
     row.moreItem = el("li", {}, [row.more]);
-    row.el = el("li", { class: "action" }, [row.text, row.sources, row.owner.el]);
+    row.el = el("li", { class: "action" }, [el("div", { class: "action-head" }, [row.text, row.menu]), row.sources, row.owner.el, row.unowned]);
+    toggles(row.menu, function () {
+      const item = actionById(id);
+      if (!item) return;
+      openMenu(row.menu, "Options for action: " + short(item.text), [
+        {
+          label: item.owner ? "Change owner…" : "Set an owner…",
+          run: function () {
+            openOwner(id, row.menu);
+          },
+        },
+        {
+          label: "Delete action…",
+          run: function () {
+            openConfirm(row.menu, "Delete this action?", "Anyone in the room can delete an action. This cannot be undone.", "Delete action", function () {
+              propose("delete-action", { actionId: id }, {
+                landed: function (b) {
+                  return !b.actionItems.some(function (a) {
+                    return a.id === id;
+                  });
+                },
+                refused: { "not-found": "That action is no longer on the board." },
+                unsure: "Could not confirm that the action was deleted.",
+              });
+            });
+          },
+        },
+      ]);
+    });
     row.more.addEventListener("click", function () {
       row.wide = true;
       patchActions();
@@ -3024,11 +3419,12 @@
     return row;
   }
 
-  // Up to two of the notes an action came from are shown; the rest open in
-  // place. A source that has left the board is simply not drawn.
+  // Up to three of the notes an action came from are shown. With more, two
+  // are, and the rest open in place: a chip that hides one chip saves nothing.
+  // A source that has left the board is simply not drawn.
   function patchSources(row, item) {
     const sources = item.sourceIds.filter(sourceOf);
-    const shown = row.wide ? sources : sources.slice(0, 2);
+    const shown = row.wide || sources.length <= 3 ? sources : sources.slice(0, 2);
     const listed = shown.map(function (id) {
       const chip = row.chips[id] || (row.chips[id] = buildSource(id));
       const source = sourceOf(id);
@@ -3057,12 +3453,15 @@
     const fresh = [];
     const listed = board.actionItems.map(function (item) {
       if (!view.actions[item.id]) {
-        view.actions[item.id] = buildAction();
+        view.actions[item.id] = buildAction(item.id);
         fresh.push(view.actions[item.id]);
       }
       const row = view.actions[item.id];
       setText(row.text, item.text);
-      showPerson(row.owner, ownerOf(item.owner));
+      row.owner.el.hidden = !item.owner;
+      row.unowned.hidden = !!item.owner;
+      if (item.owner) showPerson(row.owner, ownerOf(item.owner));
+      row.menu.setAttribute("aria-label", "Options for action: " + short(item.text));
       patchSources(row, item);
       return row.el;
     });
@@ -3102,6 +3501,7 @@
           return !had[a.id] && a.text === text;
         });
       },
+      refused: { conflict: ACTIONS_FULL },
       unsure: "Could not confirm that the action was saved. It is still in the box.",
       settle: function (outcome) {
         if (outcome === "accepted") return;
@@ -3146,12 +3546,12 @@
   function openLinks(sourceId, opener) {
     const source = sourceOf(sourceId);
     const text = el("input", { id: "link-text", class: "field", maxlength: NOTE_LIMIT, placeholder: "What will we change?", dir: "auto" });
-    const owner = el("input", { id: "link-owner", class: "field", maxlength: OWNER_LIMIT, placeholder: "Me", dir: "auto" });
+    const owner = el("input", { id: "link-owner", class: "field", maxlength: OWNER_LIMIT, placeholder: "Nobody yet", dir: "auto" });
     const add = el("button", { type: "button", class: "btn btn-primary btn-small", text: "Add action" });
     const cancel = el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Cancel" });
     const list = el("ul", { class: "link-list" });
     const listLabel = el("p", { class: "label", text: "Or tie it to an action already here" });
-    const rows = {};
+    const rows = bag();
     const panel = el("div", { class: "pop sheet", role: "dialog", "aria-label": "Actions from " + source.kind + ": " + short(source.name) }, [
       el("p", { class: "from", dir: "auto", text: (source.kind === "group" ? "Group: " : "From: ") + short(source.name) }),
       el("div", { class: "stack" }, [el("label", { class: "label", for: "link-text", text: "Action" }), text]),
@@ -3188,7 +3588,7 @@
                     return a.id === item.id && linkedTo(a) === want;
                   });
                 },
-                refused: { failed: "That link was not made. An action holds twelve links." },
+                refused: { conflict: LINKS_FULL, failed: LINKS_FULL, "not-found": "That link was not made: the note or the action is no longer on the board." },
                 unsure: "Could not confirm that link.",
               });
             });
@@ -3212,6 +3612,7 @@
             return !had[a.id] && a.text === words;
           });
         },
+        refused: { conflict: ACTIONS_FULL },
         unsure: "Could not confirm that the action was saved. It is still in the box.",
         settle: function (outcome) {
           if (outcome === "accepted") return;
@@ -3254,7 +3655,7 @@
         ),
       ]),
       timerSlot,
-      el("div", { class: "hints" }, hints),
+      hintRow,
       stageNav,
     ]),
     authorship,
@@ -3301,6 +3702,15 @@
       : [];
     const wasFocused = document.activeElement;
     const boxes = motionOn() ? measure() : null;
+    // The note focus is in, and its place in its lane, in case it is deleted.
+    let lost = null;
+    board.cards.forEach(function (c) {
+      if (!view.notes[c.id] || !contains(view.notes[c.id].el, wasFocused)) return;
+      const lane = board.cards.filter(function (o) {
+        return o.columnId === c.columnId;
+      });
+      lost = { id: c.id, columnId: c.columnId, at: lane.indexOf(c) };
+    });
 
     session = next;
     board = boardOf(next);
@@ -3314,6 +3724,12 @@
     patchAuthorship();
     patchSelection();
     patchTimer();
+    // A teammate can delete the note a menu or a form was opened from. The
+    // board under it is inert while it is open, so it cannot be left there.
+    if (pop && !pop.anchor.isConnected) {
+      closePop(false);
+      notify("That was removed from the board while you had it open.");
+    }
     if (pop && pop.patch) pop.patch();
     // The board is first shown with its content already in it, so nothing
     // jumps into place a moment after it appears.
@@ -3328,6 +3744,16 @@
     if (wasFocused && wasFocused !== document.activeElement && wasFocused.isConnected && document.activeElement === document.body) {
       wasFocused.focus({ preventScroll: true });
     }
+    // Focus on a note that was deleted goes to the note now in its place, or
+    // to the lane's composer when the lane is empty.
+    if (lost && !view.notes[lost.id] && view.lanes[lost.columnId] && document.activeElement === document.body) {
+      const left = board.cards.filter(function (c) {
+        return c.columnId === lost.columnId;
+      });
+      const lane = view.lanes[lost.columnId];
+      const heir = left.length ? leadOf(view.notes[left[Math.min(lost.at, left.length - 1)].id]) : lane.row.hidden ? lane.reopen : lane.input;
+      heir.focus({ preventScroll: true });
+    }
     if (boxes) glideFrom(boxes);
     if (motionOn() && board.revealed && !before.revealed) revealWave();
     if (motionOn() && !board.revealed && before.revealed) concealWave(named);
@@ -3338,8 +3764,12 @@
   document.addEventListener("keydown", function (ev) {
     clearSpot();
     if (ev.key !== "Escape") return;
-    if (drag) putDown(false);
-    else if (pop) closePop(true);
+    if (gesture) {
+      const carrying = gesture.active;
+      gesture.end({ type: "pointercancel" });
+      if (carrying) return;
+    }
+    if (pop) closePop(true);
     else if (armed) arm(false);
     else if (selectedIds().length) clearSelection();
   });
@@ -3350,7 +3780,9 @@
   window.addEventListener("resize", function () {
     reserveForBar();
     placeThumb(false);
-    closePop(false);
+    // A phone's keyboard resizes the frame when it opens. The form somebody
+    // is typing in stays; it is only put back beside its control.
+    placePop();
   });
   // The step pill is measured, and the measure changes when the faces load
   // or the steps wrap.
