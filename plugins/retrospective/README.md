@@ -50,39 +50,63 @@ test; the unit tests fail if the two differ.
 
 ## The board UI
 
-`ui.js` is plain JavaScript with no build step and no dependencies. It runs in
-the host's sandboxed frame and talks only to `window.parley`. If you are writing
-your own plugin UI, these are the parts worth copying:
+`ui.src.js` is the board: plain JavaScript, no build step of its own and no
+dependencies. It runs in the host's sandboxed frame and talks only to
+`window.parley`. `make` builds `ui.js`, the file the host loads, by putting
+`ui.fonts.js` (the embedded typefaces) in front of it; `ui.js` is never edited
+and is not tracked, and `dist/retrospective-<version>.ui.js` is the built copy
+CI checks. If you are writing your own plugin UI, read `ui.src.js`. These are
+the parts worth copying:
 
 - **Build once, then patch.** The shell is created a single time. Each state
   push updates notes, groups and action items by id and leaves every other node
   alone, so a teammate's vote never costs anyone the text they were typing,
-  their focus or their place on the page. Nothing is ever written as markup.
+  their focus or their place on the page. Nothing is ever written as markup,
+  and the state is read through one function that tolerates missing or
+  malformed parts.
 - **Colors come from the host, everything else is mirrored.** The frame is
   handed sixteen `--color-*` tokens and nothing more. Radii, shadows, type
   sizes, the pill buttons and the focus ring are the values from
   `web/src/tokens.css` written out as literals in the stylesheet at the top of
-  `ui.js`, with both palettes as the fallback until the tokens arrive. The two
-  typefaces are embedded as `data:` URIs, the only font source the frame's
-  policy allows.
-- **An action is a proposal.** `parley.act` returns nothing, so the UI checks
-  what `board.js` would refuse before sending (an empty note, a group of fewer
-  than two notes or of notes from two lanes), keeps typed text until the state
-  shows it landed, and says so in words if it never does. Revealing authors is
-  the facilitator's alone: the server enforces that, and the UI explains it.
+  `ui.src.js`, with both palettes as the fallback until the tokens arrive.
+- **An action is a proposal, and every proposal has an end.** `propose()` is
+  the one place the board calls `parley.act`. On a host that reports results it
+  acts on the answer at once and puts the reason for a refusal into words. On
+  an older host, where `act` returns nothing, it watches the state instead:
+  three seconds without the change is reported as unconfirmed, never as lost,
+  and if the change turns up late the message is taken back. A note waits in
+  its lane as a dashed ghost from Enter until the state shows the real one, so
+  the box is free for the next thought and nothing is sent twice or dropped.
+- **Feature-detect the host.** `session.selfId`, the promise from
+  `parley.act`, `parley.supports("results")` and `parley.scheme()` are all used
+  when present and never assumed. With `selfId`, only the facilitator is
+  offered Reveal; without it, the control is shown with the rule spelled out.
 - **Motion reports a change and then stops.** A note is set down, a count ticks
   on a spring that runs to rest, notes glide into a new group, and the reveal
   uncovers names across the board once. Nothing moves on first paint, and
   nothing moves under `prefers-reduced-motion`.
 - **No forms.** The frame is sandboxed without `allow-forms`, so Enter is a
   `keydown` handler. Changes made by other people are announced through a
-  polite live region.
+  polite live region. The frame has no `h1`: it sits under the host page's
+  own, and the lanes and the actions are its `h2`s.
+
+The state carries a vote count per note and nothing about whose votes they
+are, so a note is marked as voted only for the rest of the visit in which the
+host confirmed the vote. Showing it after a reload would need the plugin to
+publish who voted, which it deliberately does not.
 
 `slots.json` is `["room"]`: the board is the room of a retrospective session and
 is not offered as a side panel in other rooms.
 
-Instrument Sans and JetBrains Mono are embedded under the SIL Open Font License
-1.1.
+### Fonts
+
+`ui.fonts.js` embeds Instrument Sans and JetBrains Mono (latin subset) as
+`data:` URIs, the only font source the frame's policy allows. Both are licensed
+under the SIL Open Font License 1.1; the license text and the copyright notices
+are in `OFL.txt`, and the notices are repeated at the top of `ui.fonts.js`, so
+they travel inside `ui.js` in the bundle. A `.parley` bundle holds exactly
+`manifest.json`, `plugin.wasm`, `ui.js` and `slots.json` and refuses any other
+file, so `OFL.txt` itself cannot ride along.
 
 ## Storage (open question 2)
 

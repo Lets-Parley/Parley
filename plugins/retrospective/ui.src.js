@@ -105,8 +105,10 @@
     "*,*::before,*::after{box-sizing:border-box}",
     "*{scrollbar-color:var(--color-line-strong) transparent;scrollbar-width:thin}",
     // The frame document sets 14px on the root; the host's rem is 16px.
-    "html{font-size:16px}",
-    "html,body{background:var(--color-felt);color:var(--color-ink);font:14px/20px var(--sans);-webkit-font-smoothing:antialiased}",
+    "html{background:var(--color-felt);font-size:16px}",
+    "body{background:var(--color-felt);color:var(--color-ink);font:16px/24px var(--sans);-webkit-font-smoothing:antialiased}",
+    // Prose is the host's 16px. Controls, notes and rows are its 14px, as in the story queue and the kudos wall.
+    ".steps,.authorship,.lane,.actions,.select-bar,.toast{font-size:14px;line-height:20px}",
     "::selection{background:var(--color-accent-soft);color:var(--color-ink)}",
     "::placeholder{color:var(--color-ink-faint);opacity:1}",
     ":focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}",
@@ -138,10 +140,10 @@
     ".btn-quiet{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--color-line-strong);padding:8px 16px;background:transparent;color:var(--color-ink-soft)}",
     ".btn-quiet:hover{background:var(--color-felt-deep)}",
     ".btn-small{padding:5px 12px;font-size:13px}",
-    ".field{display:block;width:100%;min-width:0;border:1px solid var(--color-line-strong);border-radius:8px;background:var(--color-surface-hi);color:var(--color-ink);padding:9px 14px;font:inherit;caret-color:var(--color-accent)}",
+    ".field{display:block;width:100%;min-width:0;border:1px solid var(--color-line-strong);border-radius:8px;background:var(--color-surface-hi);color:var(--color-ink);padding:10px 14px;font:inherit;font-size:14px;line-height:20px;caret-color:var(--color-accent)}",
     ".field:focus-visible{outline-offset:1px;border-color:var(--color-accent)}",
     ".field:read-only{color:var(--color-ink-soft)}",
-    "textarea.field{height:40px;max-height:120px;padding:9px 12px;resize:none;overflow-y:auto}",
+    "textarea.field{height:42px;max-height:122px;padding:10px 12px;resize:none;overflow-y:auto}",
 
     // Progress and authorship are two things, in two boxes.
     ".top{display:flex;flex-wrap:wrap;align-items:stretch;gap:16px 20px}",
@@ -155,7 +157,7 @@
     ".hint{margin:6px 8px 0;max-width:65ch;color:var(--color-ink-soft);text-wrap:pretty}",
     ".authorship{flex:0 1 27rem;display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;min-width:0;padding:12px 16px 12px 20px}",
     ".auth-text{flex:1 1 11rem;min-width:0}",
-    ".auth-title{font-weight:700;text-wrap:pretty}",
+    ".auth-title{font-size:15px;font-weight:700;text-wrap:pretty}",
     ".brass-dot{width:10px;height:10px;border-radius:50%;background:var(--color-brass)}",
     ".badge{display:inline-flex;align-items:center;gap:6px;font-weight:700}",
 
@@ -169,7 +171,8 @@
     ".lane-glyph{flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:8px;color:var(--hue);background:color-mix(in srgb,var(--hue) 14%,transparent)}",
     ".count{display:inline-block;margin-left:auto;font:12px/24px var(--mono);font-variant-numeric:tabular-nums;color:var(--color-ink-faint)}",
     ".composer-row{display:flex;align-items:flex-end;gap:8px}",
-    ".reopen{display:flex;align-items:center;gap:8px;width:100%;height:40px;padding:0 12px;border:1px dashed var(--color-line-strong);border-radius:8px;background:transparent;color:var(--color-ink-soft);font-weight:700;transition:background-color .15s}",
+    ".composer-row .btn{padding:11px 18px}",
+    ".reopen{display:flex;align-items:center;gap:8px;width:100%;height:42px;padding:0 12px;border:1px dashed var(--color-line-strong);border-radius:8px;background:transparent;color:var(--color-ink-soft);font-weight:700;transition:background-color .15s}",
     ".reopen:hover{background:var(--color-felt-deep)}",
     ".left{margin-top:6px;font-size:13px;color:var(--color-ink-faint)}",
     ".empty{font-size:13px;color:var(--color-ink-faint);text-wrap:pretty}",
@@ -885,7 +888,7 @@
     setText(lane.left, room <= 100 ? plural(room, "character") + " left" : "");
     lane.left.hidden = room > 100;
     input.style.height = "";
-    if (input.scrollHeight > 40) input.style.height = input.scrollHeight + 2 + "px";
+    if (input.scrollHeight > 42) input.style.height = input.scrollHeight + 2 + "px";
   }
 
   // ------------------------------------------------------- notes on the way

@@ -6,7 +6,7 @@ description: A retrospective ceremony delivered entirely as a plugin — columns
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["plugins/retrospective/package.json", "plugins/retrospective/board.js", "plugins/retrospective/guest.js", "plugins/retrospective/ui.js", "plugins/retrospective/Makefile"]} />
+<VerifiedStamp source={["plugins/retrospective/package.json", "plugins/retrospective/board.js", "plugins/retrospective/guest.js", "plugins/retrospective/ui.src.js", "plugins/retrospective/Makefile"]} />
 
 A retrospective in Parley is not a core session kind. It is a plugin: the
 package under `plugins/retrospective/` declares the kind, the Wasm guest stores
@@ -23,9 +23,12 @@ shipped frontend.
 - Each person may put one dot on a card (a second click does not stack).
 - Action items are a list on the same board, with an optional owner.
 - Revealing authors asks for a second confirmation and cannot be undone. Once
-  revealed, each card shows its author's name.
+  revealed, each card shows its author's name. Only the facilitator is offered
+  the control; everyone else is told who holds it.
 - Selecting cards opens a bar that says how many are selected and why they can
-  or cannot be grouped yet.
+  or cannot be grouped yet. A group is named when it is made.
+- A card you add waits in its lane, drawn dashed, until the server has it. If
+  the server refuses, the reason is shown and the text is kept.
 - A strip at the top (Write, Group, Vote, Decide) reflects how far the board
   has come. It is a marker only and never blocks an action.
 - Typing is never interrupted: other people's changes update the board in
@@ -63,3 +66,6 @@ sees arrives over the MessageChannel bridge, including design tokens.
   { name: "Core kind in the binary", status: "not-built", detail: "On purpose. A retrospective that needed a commit under internal/ or web/src would mean the extension points were not enough." },
   { name: "Compare-and-swap on the board document", status: "not-built", detail: "Last-write-wins is enough to express grouping and dots. CAS belongs with the wire-protocol freeze, not this ceremony." },
 ]} />
+
+The UI embeds Instrument Sans and JetBrains Mono, both under the SIL Open Font
+License 1.1. The license text is in `plugins/retrospective/OFL.txt`.
