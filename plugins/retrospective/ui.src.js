@@ -285,6 +285,7 @@
     ".lit{outline:2px solid var(--color-accent);outline-offset:1px}",
     ".note.spot,.group.spot{box-shadow:0 0 0 2px var(--color-accent),var(--shadow-rest)}",
     // A note being dragged: the copy under the pointer, and the slot it left.
+    ".scroll-spot{position:absolute;left:0;width:1px;height:1px;pointer-events:none}",
     ".drag{position:fixed;z-index:4;margin:0;list-style:none;pointer-events:none;box-shadow:var(--shadow-lift)}",
     ".note.slot{border:1.5px dashed var(--color-accent);background:transparent;box-shadow:none}",
     ".group.slot{outline:1.5px dashed var(--color-accent);outline-offset:-1px;background:transparent;box-shadow:none}",
@@ -2622,12 +2623,17 @@
             hold(ev);
           }
           e.preventDefault();
+          drag.py = e.clientY;
+          drag.seen = sightTop();
           dragTo(e.clientX, e.clientY);
         },
         function (e) {
           if (!drag) return;
           // The press that ends a drag is not a click on the handle.
           swallowClick(owner);
+          // The release says where the pointer really is: the page may have
+          // been scrolling under it since it last moved.
+          if (e.type === "pointerup" && typeof e.clientY === "number") dragTo(e.clientX, e.clientY);
           putDown(e.type === "pointerup");
         },
       );
@@ -2803,17 +2809,39 @@
     const said = aimSaid(aim);
     if (said !== d.said) setText(live, (d.said = said));
 
-    // Held near the top or the bottom of the frame, the page keeps scrolling
-    // for as long as the pointer stays there, moving or not: that is how a
-    // note gets from one lane to another on a phone, where lanes are stacked.
+    // Held near the top or the bottom of what is in sight, the page keeps
+    // scrolling for as long as the pointer stays there, moving or not: that
+    // is how a note gets from one lane to another on a phone, where lanes are
+    // stacked. The pointer stays where it is on the screen while the board
+    // moves under it, so its place on the board is worked out from how far
+    // the board has moved since it was last heard from.
     clearTimeout(d.scroll);
-    const by = y < EDGE ? -14 : y > (window.innerHeight || 0) - EDGE ? 14 : 0;
+    const sight = inSight || { top: 0, bottom: window.innerHeight || 0 };
+    const by = y < sight.top + EDGE ? -1 : y > sight.bottom - EDGE ? 1 : 0;
     if (by) {
-      window.scrollBy(0, by);
+      scrollPage(by, sight);
       d.scroll = setTimeout(function () {
-        if (drag === d) dragTo(d.x, d.y);
+        if (drag === d) dragTo(d.x, d.py + sightTop() - d.seen);
       }, 16);
     }
+  }
+
+  // The frame is as tall as the board and does not scroll: the host page
+  // does, and the frame cannot ask how far. What it can learn is which part of
+  // the board is in sight, in its own coordinates, and it can ask for a spot
+  // just outside that part to be brought into sight.
+  let inSight = null;
+  const scrollSpot = el("div", { class: "scroll-spot", "aria-hidden": "true" });
+
+  function sightTop() {
+    return inSight ? inSight.top : 0;
+  }
+
+  function scrollPage(by, sight) {
+    window.scrollBy(0, by * 14);
+    if (!inSight || !scrollSpot.scrollIntoView) return;
+    scrollSpot.style.top = (by < 0 ? sight.top - 15 : sight.bottom + 14) - rectOf(layer).top + "px";
+    scrollSpot.scrollIntoView({ block: "nearest" });
   }
 
   // Every way a drag ends comes through here, and every one of them takes the
@@ -4081,6 +4109,19 @@
     stampHelp,
     gripHelp,
   ]);
+  layer.appendChild(scrollSpot);
+  if (window.IntersectionObserver) {
+    const steps = [];
+    for (let i = 0; i <= 400; i++) steps.push(i / 400);
+    new window.IntersectionObserver(
+      function (entries) {
+        const seen = entries[entries.length - 1].intersectionRect;
+        inSight = seen.height ? { top: seen.top, bottom: seen.bottom } : null;
+      },
+      { threshold: steps },
+    ).observe(main);
+  }
+
 
   // A host that sends the scheme has already set color-scheme on the root. An
   // older one sends only colors, and the surface token says which theme it is.
