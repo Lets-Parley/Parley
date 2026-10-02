@@ -2282,7 +2282,9 @@ const RETRO_FONTS = [
   // the facilitator. Everyone else asks as themselves, and the server answers
   // no unless the note is theirs.
   function deleteNote(id) {
-    const watch = propose(viewerRole() === "facilitator" ? "moderate-card" : "delete-card", { cardId: id }, {
+    // Declared first: a send the bridge refuses settles before propose returns.
+    let watch = null;
+    watch = propose(viewerRole() === "facilitator" ? "moderate-card" : "delete-card", { cardId: id }, {
       landed: function (b) {
         return !b.cards.some(function (c) {
           return c.id === id;
@@ -2827,7 +2829,9 @@ const RETRO_FONTS = [
       body.x = at.x;
       body.y = at.y;
     }
-    const watch = propose(lead ? "moderate-stamp" : remove ? "remove-stamp" : "move-stamp", body, {
+    // Declared first: a send the bridge refuses settles before propose returns.
+    let watch = null;
+    watch = propose(lead ? "moderate-stamp" : remove ? "remove-stamp" : "move-stamp", body, {
       landed: function (b) {
         const now = b.stamps.filter(function (s) {
           return s.id === id;

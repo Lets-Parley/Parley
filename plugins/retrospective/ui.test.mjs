@@ -1828,6 +1828,20 @@ test("deleting a note is asked about, with focus on the way out, and sent as the
   assert.deepEqual(lead.sent(), [{ action: "moderate-card", payload: { cardId: "c2" } }]);
 });
 
+test("a delete the bridge will not carry is refused at once and leaves the note", async () => {
+  for (const fail of ["throw", "reject"]) {
+    const ui = load({ host: "new" });
+    ui.push(session({ cards: three }, PARTICIPANT));
+    ui.bridge.fail = fail;
+    one(noteWith(ui.root, "two"), "grip").click();
+    menuItem(ui.root, "Delete note").click();
+    button(one(ui.root, "sheet"), "Delete note").click();
+    await settled();
+    assert.match(toastOf(ui.root).textContent, /could not be sent/, fail);
+    assert.ok(noteWith(ui.root, "two"), fail);
+  }
+});
+
 test("a deleted note is announced without a word about whose it was, and focus moves to the note in its place", () => {
   const ui = load({ host: "new" });
   const stamps = [{ id: "s1", cardId: "c2", kind: "idea", x: 0, y: 0, rot: 0 }];
