@@ -55,7 +55,11 @@ class FakeNode {
     this.parentNode = null;
     this.attrs = {};
     this.listeners = {};
-    this.style = { setProperty() {} };
+    this.style = {
+      setProperty(name, value) {
+        this[name] = value;
+      },
+    };
     this.className = "";
     this.readOnly = false;
     const node = this;
@@ -185,6 +189,16 @@ function load({ host = "old" } = {}) {
     listeners: {},
     createElement: (tag) => new FakeNode(document, tag),
     createElementNS: (_, tag) => new FakeNode(document, tag),
+    // The boxes of a paragraph's lines of words: a test says where they are
+    // by setting `lines` on the paragraph; otherwise there are none.
+    createRange: () => ({
+      selectNodeContents(node) {
+        this.node = node;
+      },
+      getClientRects() {
+        return (this.node.lines || []).map(([left, top, right, bottom]) => ({ left, top, right, bottom, width: right - left }));
+      },
+    }),
     getElementById: (id) => (id === "root" ? root : null),
     addEventListener(type, fn) {
       (this.listeners[type] ||= []).push(fn);
@@ -1369,13 +1383,14 @@ test("the book counts what is left: three per person on a note, twelve on a note
 
   // Twelve on the note, none of them this viewer's.
   const other = load();
-  const twelve = Array.from({ length: 12 }, (_, i) => st("t" + i, i % 2 ? "p-chat" : "chat", i / 12, 1));
+  const twelve = Array.from({ length: 12 }, (_, i) => st("t" + i, i % 2 ? "p-chat" : "chat", i / 12, 0));
   other.push(session({ cards, stamps: twelve.slice(0, 11) }));
   assert.equal(addOf(other.root, "one").hidden, false);
   other.push(session({ cards, stamps: twelve }));
   assert.equal(addOf(other.root, "one").hidden, true, "and at twelve on the note");
   openBook(other.root, "one");
-  assert.match(bookOf(other.root).textContent, /3 of 3 left on this note/);
+  assert.doesNotMatch(bookOf(other.root).textContent, /of 3 left/, "whose those twelve are is not known, so no number is claimed");
+  assert.match(bookOf(other.root).textContent, /Up to 3 of yours on a note/);
   assert.match(bookOf(other.root).textContent, /This note is full: twelve stickers\./);
   bookOf(other.root).fire("keydown", { key: "5" });
   assert.deepEqual(other.sent(), []);
@@ -1575,9 +1590,20 @@ test("stickers lying over a note's words are marked, and step back while the wor
   assert.ok(!note.className.includes("peek"), "and a second tap puts them back");
   words.fire("pointerup", { pointerType: "mouse" });
   assert.ok(!note.className.includes("peek"), "a mouse click is not a tap");
+  // The words under a sticker are pointed at by pointing at the sticker:
+  // one that lies on the words peeks the note, one that does not does not.
+  const [onWords, offWords] = stickersOf(root, "one");
+  onWords.fire("pointerenter", { pointerType: "mouse" });
+  assert.ok(note.className.includes("peek"), "pointing at a sticker over the words shows the words");
+  onWords.fire("pointerleave", { pointerType: "mouse" });
+  assert.ok(!note.className.includes("peek"));
+  offWords.fire("pointerenter", { pointerType: "mouse" });
+  assert.ok(!note.className.includes("peek"), "a sticker beside the words is only a sticker");
+  onWords.fire("pointerenter", { pointerType: "touch" });
+  assert.ok(!note.className.includes("peek"));
   assert.equal(words.textContent, "one", "the words themselves are never taken away");
   // The rule that thins them, and the one for a control in the note holding focus.
-  assert.match(src, /\.note\.peek \.st\.over,\.note:has\(\.lead :focus-visible,\.trail :focus-visible,\.chips :focus-visible\) \.st\.over\{opacity:\.2/);
+  assert.match(src, /\.note\.peek \.st\.over:not\(\.lift\):not\(:focus-visible\),\.note:has\(\.lead :focus-visible,\.trail :focus-visible,\.chips :focus-visible\) \.st\.over\{opacity:\.2/);
 });
 
 test("a sticker is announced by what it is and how many there are, never by who or by which set", () => {
@@ -1611,9 +1637,23 @@ test("a sticker not known to be the viewer's does not look movable, does not com
   sticker.fire("pointerdown", { clientX: 120, clientY: 22 });
   fireWindow("pointermove", { clientX: 180, clientY: 30 });
   assert.ok(!sticker.className.includes("lift"), "a drag does not carry it");
-  fireWindow("pointerup", { clientX: 180, clientY: 30 });
+  const why = "You can move a sticker you placed in this visit. Open an older one of yours to remove it.";
+  assert.equal(toastOf(root).textContent, why, "and the pull says why, as the keys do");
+  toastOf(root).text = "";
+  fireWindow("pointermove", { clientX: 190, clientY: 40 });
+  fireWindow("pointermove", { clientX: 200, clientY: 50 });
+  assert.equal(toastOf(root).textContent, "", "once, not at every move");
+  fireWindow("pointerup", { clientX: 200, clientY: 50 });
   assert.deepEqual(placeOf(sticker), AT(0.5, 0.5));
-  assert.equal(toastOf(root).hidden, true, "and it does not complain about a press");
+  sticker.click();
+  assert.equal(byClass(root, "menu").length, 0, "the release of that pull is not a click");
+  runTimers(0);
+  // A press that does not pull says nothing.
+  toastOf(root).hidden = true;
+  sticker.fire("pointerdown", { clientX: 120, clientY: 22 });
+  fireWindow("pointermove", { clientX: 121, clientY: 22 });
+  fireWindow("pointerup", { clientX: 121, clientY: 22 });
+  assert.equal(toastOf(root).hidden, true);
 
   for (const key of ["ArrowLeft", "f"]) {
     sticker.fire("keydown", { key });
@@ -1785,25 +1825,43 @@ test("every sticker on a note can be reached from the note's menu, without aimin
   assert.match(one(member.root, "sheet").textContent, /You can move a sticker you placed in this visit, and remove any that is yours\./);
 });
 
-test("a sticker nobody can place is not drawn, and one off the note is brought back onto it", () => {
-  const { root, push } = load();
+test("a sticker of a kind this version does not know is drawn plain, named, counted and removable; one off the note is brought back onto it", () => {
+  const { root, push, sent } = load({ host: "new" });
+  const cards = [card("c1", "went-well", "one")];
   push(
-    session({
-      cards: [card("c1", "went-well", "one")],
-      stamps: [
-        { id: "s1", cardId: "c1", kind: "<img>", x: 0.5, y: 0.5 },
-        { id: "s2", cardId: "c1", kind: "p-idea", x: 7, y: -3, rot: "x" },
-        { id: "s3", cardId: "c404", kind: "idea", x: 0.5, y: 0.5 },
-        { id: "s4", cardId: "c1", kind: "p-", x: 0.5, y: 0.5 },
-        { id: "s5", cardId: "c1", kind: "v-idea", x: 0.5, y: 0.5 },
-        { id: "s6", cardId: "c1", kind: "constructor", x: 0.5, y: 0.5 },
-        null,
-      ],
-    }),
+    session(
+      {
+        cards,
+        stamps: [
+          { id: "s1", cardId: "c1", kind: "<img>", x: 0.5, y: 0.5 },
+          { id: "s2", cardId: "c1", kind: "p-idea", x: 7, y: -3, rot: "x" },
+          { id: "s3", cardId: "c404", kind: "idea", x: 0.5, y: 0.5 },
+          { id: "s4", cardId: "c1", kind: "p-sparkle", x: 0.2, y: 0.5 },
+          { id: "s5", cardId: "c1", kind: "constructor", x: 0.3, y: 0.5 },
+          { id: "s6", cardId: "c1", kind: 7, x: 0.3, y: 0.5 },
+          null,
+        ],
+      },
+      PARTICIPANT,
+    ),
   );
-  const drawn = byClass(root, "st");
-  assert.equal(drawn.length, 1);
-  assert.deepEqual(placeOf(drawn[0]), AT(1, 0));
+  const drawn = stickersOf(root, "one");
+  assert.deepEqual(drawn.map((n) => n.getAttribute("aria-label").split(" on this")[0]), ["Sticker, 1 of 4", "Great idea, pixel sticker, 2 of 4", "Sticker, 3 of 4", "Sticker, 4 of 4"]);
+  assert.deepEqual(drawn.map((n) => n.className.includes("k-other")), [true, false, true, true]);
+  assert.deepEqual(placeOf(drawn[1]), AT(1, 0));
+  assert.equal(all(root, (n) => n.tagName === "IMG").length, 0);
+  // It counts: with these four the book has eight places left to give, not twelve.
+  openBook(root, "one");
+  assert.match(bookOf(root).textContent, /Up to 3 of yours on a note/);
+  // Its menu opens, and whoever placed it can take it off.
+  drawn[0].click();
+  assert.equal(one(root, "menu").getAttribute("aria-label"), "Sticker");
+  menuItem(root, "Remove, if you placed it").click();
+  assert.deepEqual(sent(), [{ action: "remove-stamp", payload: { stampId: "s1" } }]);
+  push(session({ cards, stamps: [{ id: "s4", cardId: "c1", kind: "p-sparkle", x: 0.2, y: 0.5 }] }, PARTICIPANT));
+  assert.match(liveOf(root), /^Stickers changed on the board\.$/);
+  push(session({ cards, stamps: [] }, PARTICIPANT));
+  assert.equal(liveOf(root), "Sticker removed from: one. 0 stickers on that note.");
 });
 
 // ---- hiding authors again
@@ -2188,7 +2246,8 @@ test("ids and kinds that are names the language already uses are drawn, or left 
   ui.push(session(state, PARTICIPANT));
   assert.equal(byClass(ui.root, "note").length, 4);
   assert.equal(noteOrder(ui.root, "Odd lane"), "note toString");
-  assert.equal(byClass(ui.root, "st").length, 1, "a kind that is not a sticker is not drawn as one");
+  assert.equal(byClass(ui.root, "st").length, 5, "every one is drawn, the four of no known kind as plain stickers");
+  assert.equal(byClass(ui.root, "k-other").length, 4);
   assert.doesNotMatch(ui.root.textContent, /undefined/);
   assert.equal(byClass(one(ui.root, "action"), "src").length, 3, "four sources: two chips and the rest");
 
@@ -3309,4 +3368,165 @@ test("a note's words share their row with the handle and the menu only: the vote
   assert.match(src, /\.chips\{grid-column:2\/-1;justify-self:end/);
   assert.match(src, /\.note-text\{padding:6px 0;white-space:pre-wrap;overflow-wrap:break-word\}/);
   assert.doesNotMatch(src, /word-break:break-all|overflow-wrap:anywhere\}".*note-text/);
+});
+
+// ---- design review round
+
+test("a pixel sticker is never tilted, whatever tilt is stored; a vinyl one keeps its own", () => {
+  const { root, push } = load();
+  push(session({ cards: [card("c1", "went-well", "one")], stamps: [{ ...st("s1", "p-idea", 0.2, 0.5), rot: 8.3 }, { ...st("s2", "idea", 0.6, 0.5), rot: -7.5 }, { ...st("s3", "p-laugh", 0.8, 0.5), rot: -1.3 }] }));
+  assert.deepEqual(stickersOf(root, "one").map((n) => n.style["--rot"]), ["0deg", "-7.5deg", "0deg"]);
+  assert.match(src, /\.st\.px svg\{rotate:none\}/);
+  assert.match(src, /\.st\.px\{width:var\(--px,42px\);height:var\(--px,42px\)/);
+});
+
+test("a sticker picked from the book lands on no word: beside the last line where there is room, and otherwise on the pile in the corner", () => {
+  const pick = (ui, name) => {
+    openBook(ui.root, "one");
+    labeled(bookOf(ui.root), name).click();
+    const { x, y } = ui.sent().at(-1).payload;
+    return [x, y];
+  };
+  const laid = (lines, more = {}) => {
+    const ui = load();
+    ui.push(session({ cards: [card("c1", "went-well", "one")], ...more }));
+    const note = noteWith(ui.root, "one");
+    note.box = { left: 0, top: 0, width: 240, height: 44 };
+    one(note, "note-text").lines = lines;
+    return ui;
+  };
+  // One line of words from 38 to 110 across and 11 to 31 down. A sticker is
+  // 21 from its center to its rim and sits 48 down, so it reaches up to 27:
+  // on the bottom edge it is on the words anywhere from 17 to 131 across.
+  // 14 is clear (in the handle's column); 44, 74 and 104 are not; 134 is.
+  const short = laid([[38, 11, 110, 31]]);
+  assert.deepEqual(pick(short, "Blocker, vinyl"), [0.027, 1], "the corner under the handle");
+  assert.deepEqual(pick(short, "Blocker, pixel"), [0.563, 1], "then past the end of the words: 134, not 44");
+  assert.deepEqual(pick(short, "Thank you, vinyl"), [0.696, 1], "then 164");
+
+  // Words across the whole line: nowhere on the bottom edge is clear but the
+  // corner, so the second and the third go onto the first, 3px either way
+  // at most, and not one of them onto the words.
+  const full = laid([[38, 11, 200, 31]]);
+  const spots = ["Me too, vinyl", "Me too, pixel", "Thank you, pixel"].map((name) => pick(full, name));
+  assert.deepEqual(spots[0], [0.027, 1]);
+  for (const [x, y] of spots.slice(1)) {
+    const cx = 8 + x * 224;
+    const cy = y * 52 - 4;
+    assert.ok(cx >= 11 && cx <= 17 && cy >= 44 && cy <= 48, "piled in the corner: " + cx + ", " + cy);
+    assert.ok(cx + 21 <= 38 || cy - 21 >= 31, "and off the words");
+  }
+  // The plus stands at the far end of the foot, where nothing is.
+  const bare = laid([[38, 11, 110, 31]]);
+  bare.push(session({ cards: [card("c1", "went-well", "one")], stamps: [st("t0", "chat", 0.1, 0.1)] }));
+  const plus = addOf(bare.root, "one");
+  assert.equal(plus.hidden, false);
+  assert.equal(plus.style.left, AT(0.938, 1)[0], "218 of 240: 22 in from the far edge");
+  // With a sticker there, it steps back toward the handle, 36 at a time,
+  // until it is 38 clear of every sticker: 182 is 36 from that one, 146 is 72.
+  const taken = laid([[38, 11, 110, 31]], { stamps: [st("t1", "idea", 0.938, 1)] });
+  taken.push(session({ cards: [card("c1", "went-well", "one")], stamps: [st("t1", "idea", 0.938, 1), st("t2", "chat", 0.1, 0.1)] }));
+  assert.equal(addOf(taken.root, "one").style.left, AT(0.616, 1)[0], "146 of 240");
+});
+
+test("the book says how many are left only when it can know: not for stickers that were there before this visit", () => {
+  const cards = [card("c1", "went-well", "one")];
+  const ui = load();
+  ui.push(session({ cards, stamps: [st("old", "idea", 0.5, 0.5)] }));
+  addOf(ui.root, "one").click();
+  assert.match(one(bookOf(ui.root), "left3").textContent, /^Up to 3 of yours on a note$/);
+  assert.ok(all(one(bookOf(ui.root), "left3"), (n) => n.tagName === "I").every((pip) => pip.hidden), "no pips for a number that is not known");
+  bookOf(ui.root).fire("keydown", { key: "1" });
+  ui.push(session({ cards, stamps: [st("old", "idea", 0.5, 0.5), { id: "new", ...ui.sent()[0].payload }] }));
+  openBook(ui.root, "one");
+  assert.match(one(bookOf(ui.root), "left3").textContent, /^2 of 3 left on this note$/, "one placed in this visit is one the board knows of");
+  ui.press("Escape");
+
+  // A note that was bare when this visit began: everything on it is known.
+  const bare = load();
+  bare.push(session({ cards }));
+  bare.push(session({ cards, stamps: [st("mate", "chat", 0.5, 0.5)] }));
+  addOf(bare.root, "one").click();
+  assert.match(one(bookOf(bare.root), "left3").textContent, /^3 of 3 left on this note$/);
+  // The book has a Done of its own, for a phone.
+  const done = button(bookOf(bare.root), "Done");
+  assert.ok(done);
+  done.click();
+  assert.equal(byClass(bare.root, "book-pop").length, 0);
+});
+
+test("the list of a note's stickers keeps up: one a teammate removes leaves the list, and a press on a row that is gone says so", () => {
+  const cards = [card("c1", "went-well", "one")];
+  const stamps = [st("s1", "p-idea", 0.5, 0.5), st("s2", "laugh", 0.5, 0.5)];
+  const ui = load({ host: "new" });
+  ui.push(session({ cards, stamps }, FACILITATOR));
+  one(noteWith(ui.root, "one"), "more").click();
+  menuItem(ui.root, "Stickers on this note (2)").click();
+  const sheet = one(ui.root, "sheet");
+  const rows = () => all(sheet, (n) => n.tagName === "LI").length;
+  assert.equal(rows(), 2);
+  const stale = labeled(sheet, "Bring to front Great idea, pixel sticker, 1 of 2");
+  ui.push(session({ cards, stamps: [stamps[1]] }, FACILITATOR));
+  assert.equal(rows(), 1, "the removed sticker's row is gone");
+  assert.ok(labeled(sheet, "Remove Made me laugh, vinyl sticker, 1 of 1"), "and the one left is counted again");
+  assert.equal(byClass(ui.root, "sheet").length, 1, "the list stays open");
+  // A press that was already on its way to the old row.
+  stale.click();
+  assert.deepEqual(ui.sent(), [], "nothing is sent for a sticker that is gone");
+  assert.equal(toastOf(ui.root).textContent, "That sticker is no longer on the board.");
+
+  one(noteWith(ui.root, "one"), "more").click();
+  menuItem(ui.root, "Stickers on this note (1)").click();
+  ui.push(session({ cards, stamps: [] }, FACILITATOR));
+  assert.match(one(ui.root, "sheet").textContent, /There are no stickers on this note now\./);
+  ui.push(session({ cards: [] }, FACILITATOR));
+  assert.equal(byClass(ui.root, "sheet").length, 0, "with the note gone the list closes");
+  assert.equal(toastOf(ui.root).textContent, "That was removed from the board while you had it open.");
+});
+
+test("which stickers lie on the words is worked out again when a vote gives the note its row of chips", () => {
+  const { root, push } = load({ host: "new" });
+  const cards = [card("c1", "went-well", "one")];
+  const stamps = [st("s1", "idea", 0.5, 0.4)];
+  push(session({ cards }, PARTICIPANT));
+  const note = noteWith(root, "one");
+  const words = one(note, "note-text");
+  note.box = { left: 0, top: 0, width: 240, height: 60 };
+  words.box = { left: 40, top: 5, width: 150, height: 32 };
+  push(session({ cards, stamps }, PARTICIPANT));
+  assert.equal(stickersOf(root, "one")[0].className.includes("over"), true);
+  // A first vote: the note grows by its chips row and the words move within
+  // it. The sticker is where it was, as fractions, and no longer on them.
+  note.box = { left: 0, top: 0, width: 240, height: 120 };
+  words.box = { left: 40, top: 60, width: 150, height: 32 };
+  push(session({ cards: [card("c1", "went-well", "one", { voteCount: 1 })], stamps }, PARTICIPANT));
+  assert.equal(stickersOf(root, "one")[0].className.includes("over"), false, "measured again, not remembered");
+});
+
+test("a held arrow key is one move, sent once when it rests, and says the edge once", () => {
+  const { root, push, sent, runTimers } = load({ host: "new" });
+  push(session({ cards: [card("c1", "went-well", "one")], stamps: [st("s9", "chat", 0.9, 0.5)] }, FACILITATOR));
+  const sticker = stickersOf(root, "one")[0];
+  const live = one(root, "live");
+  sticker.fire("keydown", { key: "ArrowRight" });
+  for (let i = 0; i < 30; i++) sticker.fire("keydown", { key: "ArrowRight", repeat: true });
+  assert.deepEqual(sent(), [], "nothing is sent while the key is down");
+  assert.deepEqual(placeOf(sticker), AT(1, 0.5), "it stops at the note's edge");
+  assert.notEqual(live.textContent, "At the edge of the note.", "a key held against the edge is not announced on every repeat");
+  runTimers(500);
+  assert.deepEqual(sent(), [{ action: "moderate-stamp", payload: { stampId: "s9", x: 1, y: 0.5 } }], "one move for the whole hold");
+  sticker.fire("keydown", { key: "ArrowRight" });
+  assert.equal(live.textContent, "At the edge of the note.", "a fresh press against the edge says so");
+  live.text = "";
+  for (let i = 0; i < 5; i++) sticker.fire("keydown", { key: "ArrowRight", repeat: true });
+  assert.equal(live.textContent, "", "and its repeats do not say it again");
+});
+
+test("a note's name in an announcement is cut at a word, with an ellipsis, and not ended twice", () => {
+  const { root, push } = load({ host: "new" });
+  const text = "We should stop doing the thing where everyone waits for the release train and then nobody is on it when it leaves";
+  const cards = [card("c1", "went-well", text)];
+  push(session({ cards }, PARTICIPANT));
+  push(session({ cards, stamps: [st("s1", "thanks", 0.5, 0.5)] }, PARTICIPANT));
+  assert.equal(liveOf(root), "Thank you sticker placed on: We should stop doing the thing where everyone waits for the release train and… 1 sticker on that note.");
 });

@@ -99,6 +99,9 @@
     STAMPS[m[0]] = { meaning: m[0], label: m[1], set: "vinyl" };
     STAMPS["p-" + m[0]] = { meaning: m[0], label: m[1], set: "pixel" };
   });
+  const UNKNOWN_KIND = "?";
+  STAMPS[UNKNOWN_KIND] = { meaning: "other", label: "Sticker", set: "vinyl" };
+  VINYL.other = ["M20 7a13 13 0 1 0 0 26a13 13 0 0 0 0-26z"];
   // A sticker's center may be anywhere from ST_PAD_X inside its note's left
   // and right edges to ST_PAD_Y outside its top and bottom ones. It is 42px
   // across, so it hangs at most 15px over a side, inside the lane's padding,
@@ -182,13 +185,13 @@
     "--color-brass:#D9AE54;--color-settled:#C89BD1;--color-go:#5FBFA6;--color-stop:#E3695C;",
   ].join("");
   const LIGHT_DEPTH = [
-    "color-scheme:light;--sh:18 32 47;",
+    "color-scheme:light;--sh:18 32 47;--st-edge:color-mix(in srgb,var(--color-ink) 45%,var(--color-line-strong));",
     "--shadow-rest:0 1px 2px rgb(18 32 47/.1),0 2px 8px rgb(18 32 47/.08);",
     "--shadow-lift:0 2px 4px rgb(18 32 47/.12),0 10px 24px rgb(18 32 47/.16);",
     "--shadow-well:inset 0 2px 6px rgb(18 32 47/.12);",
   ].join("");
   const DARK_DEPTH = [
-    "color-scheme:dark;--sh:0 0 0;",
+    "color-scheme:dark;--sh:0 0 0;--st-edge:var(--color-line-strong);",
     "--shadow-rest:0 1px 2px rgb(0 0 0/.4),0 2px 8px rgb(0 0 0/.3);",
     "--shadow-lift:0 2px 4px rgb(0 0 0/.45),0 12px 28px rgb(0 0 0/.4);",
     "--shadow-well:inset 0 2px 6px rgb(0 0 0/.45);",
@@ -334,6 +337,7 @@
     // there only when there is one to show, so the words are never squeezed
     // between controls and a one-line note with nothing to show stays one line.
     ".trail{gap:4px;min-height:32px}",
+    "@media (pointer:fine){.narrow .lead,.note.narrow .lead{flex-direction:column}.narrow .note .grip,.narrow .note .pick,.note.narrow .grip,.note.narrow .pick{height:24px}}",
     ".chips{grid-column:2/-1;justify-self:end;position:relative;z-index:2;display:flex;align-items:center;gap:4px;padding-bottom:3px}",
     ".pick,.grip,.more,.target{display:grid;place-items:center;width:28px;height:32px}",
     ".pick{cursor:pointer}",
@@ -347,7 +351,7 @@
     ".note.spot,.group.spot{box-shadow:0 0 0 2px var(--color-accent),var(--shadow-rest)}",
     // A note being dragged: the copy under the pointer, and the slot it left.
     ".scroll-spot{position:absolute;left:0;width:1px;height:1px;pointer-events:none}",
-    ".drag{position:fixed;z-index:4;margin:0;list-style:none;pointer-events:none;box-shadow:var(--shadow-lift)}",
+    ".drag{position:fixed;z-index:4;margin:0;list-style:none;pointer-events:none;box-shadow:var(--shadow-lift);font-size:14px;line-height:20px}",
     ".note.slot{border:1.5px dashed var(--color-accent);background:transparent;box-shadow:none}",
     ".group.slot{outline:1.5px dashed var(--color-accent);outline-offset:-1px;background:transparent;box-shadow:none}",
     ".slot>*{visibility:hidden}",
@@ -399,20 +403,24 @@
       "--st-paper:oklch(from var(--color-brass) .985 .008 h);--st-ink:oklch(from var(--color-accent) .25 .04 h)}}",
     MEANINGS.map(function (m) {
       return ".k-" + m[0] + "{--k:var(--k-" + m[0] + ")}";
-    }).join(""),
+    }).join("") + ".k-other{--k:var(--color-felt-deep)}",
     ".stamps{position:absolute;inset:0;z-index:1;pointer-events:none}",
     ".st{position:absolute;display:block;width:42px;height:42px;margin:-21px 0 0 -21px;padding:0;border:0;border-radius:50%;background:none;pointer-events:auto;cursor:grab;touch-action:none;transition:opacity .2s .15s}",
     ".st svg{display:block;width:100%;height:100%;overflow:visible;rotate:var(--rot,0deg);filter:var(--st-rest);transition:translate .18s cubic-bezier(.22,1,.36,1),scale .18s cubic-bezier(.22,1,.36,1),filter .18s}",
     ".st path{fill:none;stroke-linejoin:round;stroke-linecap:round}",
-    ".st .e{stroke:var(--color-line-strong);stroke-width:9.2;fill:var(--color-line-strong)}",
+    ".st .e{stroke:var(--st-edge);stroke-width:10;fill:var(--st-edge)}",
     ".st .w{stroke:var(--st-paper);stroke-width:8;fill:var(--st-paper)}",
     ".st .o{stroke:var(--st-ink);stroke-width:3.2}",
     ".st .c{fill:var(--k)}.st .f{fill:var(--st-ink)}.st .q{fill:var(--st-paper)}",
     ".st .s{stroke:var(--st-ink);stroke-width:1.6}.st .p{stroke:var(--st-paper);stroke-width:1.8;opacity:.85}",
     // Pixel: the units are cells, three pixels each at this size, so the
     // sticker has to be exactly 42px or the cells leave the pixel grid.
+    // It is never tilted, and its size is a whole number of device pixels
+    // a cell (--px, set from the device's pixel ratio), so no cell is uneven.
+    ".st.px{width:var(--px,42px);height:var(--px,42px);margin:calc(var(--px,42px) / -2) 0 0 calc(var(--px,42px) / -2)}",
+    ".st.px svg{rotate:none}",
     ".st.px path{stroke-linejoin:miter}",
-    ".st.px .e{stroke-width:2}.st.px .w{stroke-width:1.6}.st.px .o{stroke:none;fill:var(--st-ink)}",
+    ".st.px .e{stroke-width:2.34}.st.px .w{stroke-width:1.6}.st.px .o{stroke:none;fill:var(--st-ink)}",
     ".st:hover svg{translate:0 -2px;scale:1.06;filter:drop-shadow(0 2px 1px rgb(var(--sh)/.26)) drop-shadow(0 6px 6px rgb(var(--sh)/.24))}",
     // Drawn on top while it is pointed at or focused; the pile does not change.
     ".st:hover,.st:focus-visible{z-index:3}",
@@ -425,7 +433,9 @@
     ".st.fixed:hover svg{translate:none;scale:1;filter:var(--st-rest)}",
     // Peek: stickers lying over a note's words go faint while the words are
     // pointed at, or while one of the note's controls has keyboard focus.
-    ".note.peek .st.over,.note:has(.lead :focus-visible,.trail :focus-visible,.chips :focus-visible) .st.over{opacity:.2;transition:opacity .12s}",
+    ".note.peek .st.over:not(.lift):not(:focus-visible),.note:has(.lead :focus-visible,.trail :focus-visible,.chips :focus-visible) .st.over{opacity:.2;transition:opacity .12s}",
+    // A sticker on its way off the note is not there to be pressed.
+    ".st.leaving{pointer-events:none}",
     // Where the next sticker would land: a dashed plus, shown with the note.
     // It is over the stickers and under the note's controls, like them.
     ".add-st{position:absolute;z-index:1;display:grid;place-items:center;width:32px;height:32px;margin:-16px 0 0 -16px;padding:0;border:1.5px dashed var(--color-line-strong);border-radius:50%;background:var(--color-surface-hi);color:var(--color-ink-soft);opacity:0;transition:opacity .15s,background-color .15s}",
@@ -489,7 +499,7 @@
     ".menu-note{max-width:15rem;padding:4px 10px 6px}",
     // The sticker book: two sheets of the same seven, with what they mean
     // written once, between them.
-    ".st.small{position:static;flex:none;width:28px;height:28px;margin:0;pointer-events:none}",
+    ".st.small,.st.px.small{position:static;flex:none;width:28px;height:28px;margin:0;pointer-events:none}",
     ".book-pop{width:372px;gap:8px;padding:12px}",
     ".book-head{display:flex;align-items:center;justify-content:space-between;gap:8px}",
     ".left3{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--color-ink-soft)}",
@@ -504,14 +514,14 @@
     ".set .on{display:none;color:var(--color-accent)}",
     ".set.active .on{display:inline}",
     ".choice{display:grid;place-items:center;height:50px;padding:0;border:0;border-radius:9px;background:transparent}",
-    ".choice .st{position:static;margin:0;pointer-events:none}",
+    ".choice .st,.choice .st.px{position:static;margin:0;pointer-events:none}",
     ".choice:hover{background:var(--color-felt-deep)}",
     ".choice:hover .st svg{translate:0 -3px;scale:1.08}",
     ".choice:focus-visible{outline-offset:-2px}",
     ".choice:disabled{opacity:.4}",
     ".spine{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));padding:3px 0;font-size:10.5px;line-height:13px;text-align:center;color:var(--color-ink-soft);text-wrap:balance}",
     ".spine span{display:flex;flex-direction:column;align-items:center;padding:0 1px}",
-    ".scrim{display:none}",
+    ".scrim,.book-done{display:none}",
     ".from{padding:6px 10px;border-radius:8px;background:var(--color-felt-deep);color:var(--color-ink-soft);font-size:13px;overflow-wrap:anywhere}",
     ".link-list{display:flex;flex-direction:column;gap:6px;max-height:10rem;overflow-y:auto}",
     ".link-list li{display:flex;flex-wrap:wrap;align-items:center;gap:8px}",
@@ -561,6 +571,7 @@
     '.book-pop::before{content:"";flex:none;width:36px;height:4px;margin:0 auto;border-radius:2px;background:var(--color-line-strong)}',
     ".choice{height:52px}",
     ".scrim{display:block;position:fixed;inset:0;background:rgb(var(--sh)/.35)}",
+    ".book-done{display:block;align-self:flex-end;min-width:88px;min-height:44px}",
     "}",
     "@media (max-width:340px){.book-pop{padding-inline:4px}.book{padding:6px 2px}}",
 
@@ -647,8 +658,12 @@
     return n + " " + word + (n === 1 ? "" : "s");
   }
 
+  // A note's words, as a name for it: cut at the end of a word when long.
   function short(text) {
-    return text.length > 80 ? text.slice(0, 77) + "..." : text;
+    if (text.length <= 80) return text;
+    const cut = text.slice(0, 77);
+    const at = text[77] === " " ? 77 : cut.lastIndexOf(" ");
+    return (at > 40 ? cut.slice(0, at) : cut) + "\u2026";
   }
 
   function idsOf(rows) {
@@ -694,10 +709,12 @@
       },
       stamps: rows(b.stamps)
         .filter(function (s) {
-          return STAMPS[s.kind] && typeof s.cardId === "string";
+          return typeof s.kind === "string" && typeof s.cardId === "string";
         })
         .map(function (s) {
-          return { id: s.id, cardId: s.cardId, kind: s.kind, x: unit(s.x), y: unit(s.y), rot: Math.max(-12, Math.min(12, Number(s.rot) || 0)) };
+          // A kind this version does not know, from a newer one, is still
+          // there and still counts against the caps: it is drawn plain.
+          return { id: s.id, cardId: s.cardId, kind: STAMPS[s.kind] ? s.kind : UNKNOWN_KIND, x: unit(s.x), y: unit(s.y), rot: Math.max(-12, Math.min(12, Number(s.rot) || 0)) };
         }),
       columns: rows(b.columns).map(function (c) {
         return { id: c.id, title: words(c.title) || c.id };
@@ -1361,8 +1378,10 @@
       const count = after.stamps.filter(function (o) {
         return o.cardId === s.cardId;
       }).length;
-      // A note that ends its own sentence is not given a second full stop.
-      return STAMPS[s.kind].label + " sticker " + verb + ": " + short(on ? on.text : "a note").replace(/\.+$/, "") + ". " + plural(count, "sticker") + " on that note.";
+      // A note that ends its own sentence, or was cut short, is not given a
+      // full stop on top of what it ends with.
+      const name = short(on ? on.text : "a note").replace(/\.+$/, "");
+      return saidKind(s.kind) + " " + verb + ": " + name + (/\u2026$/.test(name) ? " " : ". ") + plural(count, "sticker") + " on that note.";
     };
     const shifted = after.stamps.filter(function (s) {
       return was[s.id] && (was[s.id].x !== s.x || was[s.id].y !== s.y);
@@ -1373,8 +1392,8 @@
     if (placed.length === 1 && !lifted.length) said.push(stickerSaid(placed[0], "placed on"));
     else if (lifted.length === 1 && !placed.length) said.push(stickerSaid(lifted[0], "removed from"));
     else if (placed.length + lifted.length || shifted.length > 1) said.push("Stickers changed on the board.");
-    else if (shifted.length) said.push(STAMPS[shifted[0].kind].label + " sticker moved.");
-    else if (raised.length) said.push(STAMPS[raised[0].kind].label + " sticker brought to the front.");
+    else if (shifted.length) said.push(saidKind(shifted[0].kind) + " moved.");
+    else if (raised.length) said.push(saidKind(raised[0].kind) + " brought to the front.");
 
     const a = after.timer;
     const b = before.timer;
@@ -2142,6 +2161,8 @@
       note.add,
     ]);
     note.add.hidden = true;
+    note.leaving = [];
+    watchSize(note.el, "cardId", id);
 
     note.box.addEventListener("change", function () {
       selected[id] = note.box.checked;
@@ -2850,6 +2871,8 @@
     copy.setAttribute("aria-hidden", "true");
     copy.setAttribute("inert", "");
     copy.style.width = box.width + "px";
+    // Outside its lane the copy would not hear the lane's width: it is told.
+    if (node.classList.contains("note") && lanesNarrow[from]) copy.classList.add("narrow");
     main.appendChild(copy);
     node.classList.add("slot");
     document.documentElement.classList.add("dragging");
@@ -3216,6 +3239,37 @@
   // The sheet last placed from, for this visit. The frame has no storage.
   let stickerSet = "vinyl";
   const FLY = spring(360, 23);
+  const PEEL = spring(520, 40);
+  // Stickers this viewer has asked to have removed: theirs peel off, a
+  // teammate's only lifts away.
+  const removing = bag();
+  // A lane too narrow for the handle and the checkbox to stand side by side.
+  const lanesNarrow = bag();
+  // One observer for every lane and every note. A lane says whether it is
+  // narrow; a note that changes size has its stickers looked at again, which
+  // changes the size of nothing, so it does not feed itself.
+  const sizes = window.ResizeObserver
+    ? new window.ResizeObserver(function (entries) {
+        const ids = [];
+        entries.forEach(function (entry) {
+          const node = entry.target;
+          if (node.laneId !== undefined) {
+            lanesNarrow[node.laneId] = entry.contentRect.width < 340;
+            node.classList.toggle("narrow", lanesNarrow[node.laneId]);
+          } else if (view.notes[node.cardId]) ids.push(node.cardId);
+        });
+        if (ids.length) layoutStickers(ids);
+      })
+    : null;
+
+  function watchSize(node, key, id) {
+    node[key] = id;
+    if (sizes) sizes.observe(node);
+  }
+
+  function setPixelSize() {
+    document.documentElement.style.setProperty("--px", pixelSize() + "px");
+  }
   const AT_REST = "drop-shadow(0 1px .6px rgb(var(--sh)/.3)) drop-shadow(0 2px 3px rgb(var(--sh)/.2))";
 
   function round3(n) {
@@ -3290,6 +3344,13 @@
     return svgOf("3 3 34 34", parts);
   }
 
+  // Fourteen cells across, each a whole number of device pixels: 42px where
+  // a pixel is a pixel or two, and the nearest such size at any other zoom.
+  function pixelSize() {
+    const dpr = window.devicePixelRatio || 1;
+    return (14 * Math.max(1, Math.round(3 * dpr))) / dpr;
+  }
+
   function stickerClass(kind) {
     return "st k-" + STAMPS[kind].meaning + (STAMPS[kind].set === "pixel" ? " px" : "");
   }
@@ -3299,8 +3360,15 @@
     return el("span", { class: stickerClass(kind) + (more || "") }, [stickerArt(kind)]);
   }
 
+  // "Thank you, pixel": the meaning first, then the set, which is how a
+  // colleague looking at it will refer to it.
   function nameOf(kind) {
-    return STAMPS[kind].label + ", " + STAMPS[kind].set;
+    return kind === UNKNOWN_KIND ? "Unknown" : STAMPS[kind].label + ", " + STAMPS[kind].set;
+  }
+
+  // What a sticker is called when something is said about it.
+  function saidKind(kind) {
+    return kind === UNKNOWN_KIND ? "Sticker" : STAMPS[kind].label + " sticker";
   }
 
   // The size a note is taken to be when it cannot be measured.
@@ -3309,7 +3377,29 @@
     const note = view.notes[cardId];
     // The row of chips at the foot of a note is not somewhere a sticker lands.
     const kept = note.chips.hidden ? 0 : rectOf(note.chips).width + 33;
-    return { left: box.left, top: box.top, width: box.width || 240, height: box.height || 44, kept: kept };
+    return { left: box.left, top: box.top, width: box.width || 240, height: box.height || 44, kept: kept, lines: linesOf(note, box) };
+  }
+
+  // Where the words of a note are, line by line, from the note's corner:
+  // each box is as wide as the words on that line, not as the paragraph.
+  function linesOf(note, box) {
+    if (!document.createRange) return [];
+    const range = document.createRange();
+    range.selectNodeContents(note.text);
+    const lines = [];
+    const rects = range.getClientRects();
+    for (let i = 0; i < rects.length; i++) {
+      const r = rects[i];
+      if (r.width > 0) lines.push({ left: r.left - box.left, top: r.top - box.top, right: r.right - box.left, bottom: r.bottom - box.top });
+    }
+    return lines;
+  }
+
+  // Whether something `r` across, centered on a point, would lie on words.
+  function onWords(point, r, lines) {
+    return lines.some(function (l) {
+      return point[0] + r > l.left && point[0] - r < l.right && point[1] + r > l.top && point[1] - r < l.bottom;
+    });
   }
 
   // A sticker's center on its note, in pixels from the note's corner, and
@@ -3364,13 +3454,25 @@
     return Math.max(0, PER_PERSON - mine - pressingOn(cardId).length);
   }
 
+  // Whose the stickers on a note are is never published, so how many of them
+  // are this viewer's is known only when every one of them arrived during
+  // this visit: after a reload, an older one may be the viewer's own.
+  const sawArrive = bag();
+
+  function countKnown(cardId) {
+    return pileOf(cardId).every(function (s) {
+      return sawArrive[s.id];
+    });
+  }
+
   function roomOn(cardId) {
     return Math.max(0, PER_NOTE - pileOf(cardId).length - pressingOn(cardId).length);
   }
 
   // Where a sticker lands when it is picked from the book: clear of the
   // words. The corner under the note's handle when the note is tall enough
-  // to have one, then along the bottom edge, then between those.
+  // to have one, then along the bottom edge, then between those; of these,
+  // only the places where the sticker would lie on no word.
   function slots(width, height, kept) {
     const out = [];
     const coarse = window.matchMedia && window.matchMedia("(pointer:coarse)").matches;
@@ -3382,11 +3484,8 @@
     return out.length ? out : [[14, height + ST_PAD_Y]];
   }
 
-  // The first of those places with no sticker within 14px of it. With every
-  // one taken, they are gone round again, a little off each time. A sticker
-  // still on its way counts.
-  function freeSpot(cardId, box, loose) {
-    const there = pileOf(cardId)
+  function centersOn(cardId, box) {
+    return pileOf(cardId)
       .map(function (s) {
         return stampAt[s.id] || s;
       })
@@ -3398,17 +3497,44 @@
       .map(function (at) {
         return centerOf(at, box);
       });
-    const places = slots(box.width, box.height, box.kept);
+  }
+
+  // The first of those places that is on no word and has no sticker within
+  // 14px of it. With every one of them taken, stickers pile up where the
+  // first one went, a little off each time: on each other, never on the
+  // words. A sticker still on its way counts.
+  function freeSpot(cardId, box) {
+    const there = centersOn(cardId, box);
+    const clear = slots(box.width, box.height, box.kept).filter(function (p) {
+      return !onWords(p, 21, box.lines || []);
+    });
+    const places = clear.length ? clear : slots(box.width, box.height, box.kept).slice(0, 1);
     let spot = places.filter(function (p) {
       return !there.some(function (c) {
-        return Math.abs(c[0] - p[0]) < 14 && Math.abs(c[1] - p[1]) < 14 && Math.hypot(c[0] - p[0], c[1] - p[1]) < 14;
+        return Math.hypot(c[0] - p[0], c[1] - p[1]) < 14;
       });
     })[0];
     if (!spot) {
       const base = places[there.length % places.length];
-      spot = loose ? [base[0] + Math.random() * 8 - 4, base[1] - Math.random() * 6] : base;
+      spot = [base[0] + Math.random() * 6 - 3, base[1] - Math.random() * 4];
+      if (onWords(spot, 21, box.lines || [])) spot = base;
     }
     return fractionAt(spot[0], spot[1], box);
+  }
+
+  // Where the plus stands: the foot of the note at its far end, short of the
+  // chips, stepping back toward the handle until it is on no sticker and no
+  // word. With nowhere like that, there is no plus: S and the menu remain.
+  function plusSpot(cardId, box) {
+    const there = centersOn(cardId, box);
+    for (let x = box.width - Math.max(22, (box.kept || 0) - 8); x >= 60; x -= 36) {
+      const p = [x, box.height + ST_PAD_Y];
+      const taken = there.some(function (c) {
+        return Math.hypot(c[0] - p[0], c[1] - p[1]) < 38;
+      });
+      if (!taken && !onWords(p, 16, box.lines || [])) return fractionAt(p[0], p[1], box);
+    }
+    return null;
   }
 
   function isPress(s, wait) {
@@ -3417,7 +3543,7 @@
   }
 
   function pressStamp(cardId, kind) {
-    const spot = freeSpot(cardId, noteBox(cardId), true);
+    const spot = freeSpot(cardId, noteBox(cardId));
     // The tilt is the hand's: a little different every time.
     const wait = { at: clockNow(), had: idsOf(board.stamps), body: { cardId: cardId, kind: kind, x: spot.x, y: spot.y, rot: Math.round((Math.random() * 18 - 9) * 10) / 10 } };
     pressing.push(wait);
@@ -3491,6 +3617,7 @@
     if (!remove && !at) return;
     const body = { stampId: id };
     if (remove && lead) body.remove = true;
+    if (remove) removing[id] = true;
     if (!remove) {
       body.x = at.x;
       body.y = at.y;
@@ -3526,7 +3653,7 @@
     });
   }
 
-  function nudgeStamp(id, dx, dy, far) {
+  function nudgeStamp(id, dx, dy, far, held) {
     const s = stampById(id);
     if (!s || !mayMove(id)) return;
     const box = noteBox(s.cardId);
@@ -3535,7 +3662,8 @@
     const step = ST_STEP * (far ? 4 : 1);
     const to = fractionAt(c[0] + dx * step, c[1] + dy * step, box);
     if (to.x === from.x && to.y === from.y) {
-      setText(live, "At the edge of the note.");
+      // Said once for a key that is held down, not on every repeat.
+      if (!held) setText(live, "At the edge of the note.");
       return;
     }
     to.n = ++moves;
@@ -3556,7 +3684,7 @@
     clearTimeout(stamp.timer);
     stamp.timer = 0;
     if (s && stampAt[id] && (stampAt[id].x !== s.x || stampAt[id].y !== s.y)) {
-      setText(live, STAMPS[s.kind].label + " sticker moved.");
+      setText(live, saidKind(s.kind) + " moved.");
       sendStamp(id, false);
     }
   }
@@ -3581,7 +3709,7 @@
     stampAt[id] = { x: from.x, y: from.y, n: ++moves };
     patchStamps();
     if (motionOn()) animate(stamp.art, { transform: "scale(1.2)" }, SLAP);
-    setText(live, STAMPS[s.kind].label + " sticker brought to the front.");
+    setText(live, saidKind(s.kind) + " brought to the front.");
     sendStamp(id, false, true);
   }
 
@@ -3645,7 +3773,7 @@
       const step = STEPS_BY_KEY[ev.key];
       // Alt with an arrow moves the note, and a chord is the browser's.
       if (ev.altKey || ev.ctrlKey || ev.metaKey) return;
-      if (step) nudgeStamp(id, step[0], step[1], ev.shiftKey);
+      if (step) nudgeStamp(id, step[0], step[1], ev.shiftKey, ev.repeat === true);
       else if (PILE_KEYS[ev.key]) walkPile(id, ev.key);
       else if (ev.key === "f" || ev.key === "F") frontStamp(id);
       else if (ev.key === "Delete" || ev.key === "Backspace") removeStamp(id);
@@ -3667,7 +3795,7 @@
       const remove = function () {
         removeStamp(id);
       };
-      const label = nameOf(s.kind) + " sticker";
+      const label = s.kind === UNKNOWN_KIND ? "Sticker" : nameOf(s.kind) + " sticker";
       if (!ownStamp(id)) {
         // Whose it is cannot be seen. It is not offered as movable, and
         // removing it is the server's to refuse, once.
@@ -3701,19 +3829,48 @@
     // Dragging puts the sticker anywhere on its note. It follows the pointer
     // directly, held where it was taken hold of, and is sent once, when it
     // is let go. One that is not the viewer's to move does not come along.
+    // Pointing at a sticker that lies on the words is pointing at the words.
+    stamp.btn.addEventListener("pointerenter", function (ev) {
+      const note = view.notes[stamp.cardId];
+      if (ev.pointerType === "mouse" && note && stamp.btn.classList.contains("over")) note.el.classList.add("peek");
+    });
+    stamp.btn.addEventListener("pointerleave", function (ev) {
+      const note = view.notes[stamp.cardId];
+      if (ev.pointerType === "mouse" && note) note.el.classList.remove("peek");
+    });
     stamp.btn.addEventListener("pointerdown", function (ev) {
-      if (ev.button || !ownStamp(id) || !stampById(id)) return;
-      ev.stopPropagation();
+      if (ev.button || !stampById(id)) return;
       const start = { x: ev.clientX, y: ev.clientY };
+      if (!ownStamp(id)) {
+        // It does not come along, and says why: once, when the pull begins.
+        let said = false;
+        follow(
+          ev.pointerId,
+          function (e) {
+            if (said || Math.abs(e.clientX - start.x) + Math.abs(e.clientY - start.y) < 4) return;
+            said = true;
+            mayMove(id);
+          },
+          function () {
+            if (said) swallowClick(stamp);
+          },
+        );
+        return;
+      }
+      ev.stopPropagation();
       let grab = null;
+      let box = null;
       const g = follow(
         ev.pointerId,
         function (e) {
           const now = stampById(id);
           if (!now) return;
-          const box = noteBox(now.cardId);
           if (!grab) {
             if (Math.abs(e.clientX - start.x) + Math.abs(e.clientY - start.y) < 4) return;
+            // Measured once: the note does not move while one of its
+            // stickers is carried.
+            const raw = rectOf(view.notes[now.cardId].el);
+            box = { left: raw.left, top: raw.top, width: raw.width || 240, height: raw.height || 44 };
             const c = centerOf(stampAt[id] || now, box);
             grab = [start.x - box.left - c[0], start.y - box.top - c[1]];
             g.active = true;
@@ -3740,7 +3897,7 @@
           if (e.type !== "pointerup") delete stampAt[id];
           else {
             if (motionOn()) animate(stamp.art, { transform: "scale(1.2)" }, SLAP);
-            setText(live, kind.label + " sticker moved.");
+            setText(live, saidKind(s.kind) + " moved.");
             sendStamp(id, false);
           }
           patchStamps();
@@ -3771,6 +3928,30 @@
     view.notes[s.cardId].el.animate([{ transform: "translateY(1px)" }, { transform: "none" }], Object.assign({}, NUDGE, { delay: FLY.hit, fill: "none" }));
   }
 
+  // A sticker that is removed comes off the note: it lifts, turns a little
+  // and is gone, its shadow falling away under it. A teammate's only lifts.
+  // It stays in the note's list while it leaves, takes no press and no
+  // focus, and nothing else moves. With less motion asked for, or on the
+  // first paint, it is simply gone.
+  function peelOff(stamp, own) {
+    const note = view.notes[stamp.cardId];
+    if (!note || !drawn || !motionOn() || !stamp.el.parentNode) return;
+    note.leaving.push(stamp.el);
+    stamp.btn.classList.add("leaving");
+    stamp.btn.setAttribute("tabindex", "-1");
+    stamp.btn.setAttribute("aria-hidden", "true");
+    const timing = Object.assign({}, PEEL, { fill: "forwards" });
+    const going = stamp.btn.animate([{ transform: "none", opacity: 1 }, { transform: own ? "translate(7px,-13px) rotate(9deg) scale(1.16)" : "translate(2px,-6px) scale(1.05)", opacity: 0 }], timing);
+    if (own) stamp.art.animate([{ filter: AT_REST }, { filter: "drop-shadow(0 4px 2px rgb(var(--sh)/.2)) drop-shadow(0 18px 12px rgb(var(--sh)/.26))" }], timing);
+    going.onfinish = function () {
+      note.leaving = note.leaving.filter(function (other) {
+        return other !== stamp.el;
+      });
+      if (stamp.el.parentNode) stamp.el.parentNode.removeChild(stamp.el);
+      if (note.stamps.children.length === 0) note.stamps.hidden = true;
+    };
+  }
+
   // What needs the note measured: which stickers lie over its words, and
   // where the next one would land. Every note is measured before anything is
   // written, so the page is laid out once however many notes there are.
@@ -3793,11 +3974,21 @@
         const stamp = view.stamps[s.id];
         if (!stamp) return;
         const c = centerOf(stampAt[s.id] || s, m.box);
+        // A pixel sticker is set on whole device pixels: its corner is
+        // nudged by the fraction of a pixel it would otherwise be off by.
+        if (STAMPS[s.kind].set === "pixel" && s.kind !== UNKNOWN_KIND) {
+          const dpr = window.devicePixelRatio || 1;
+          const off = function (v) {
+            return Math.round(Math.round(v * dpr) / dpr * 1000 - v * 1000) / 1000;
+          };
+          const half = pixelSize() / 2;
+          stamp.btn.style.translate = off(m.box.left + c[0] - half) + "px " + off(m.box.top + c[1] - half) + "px";
+        }
         stamp.btn.classList.toggle("over", w.width > 0 && w.height > 0 && c[0] + r > w.left && c[0] - r < w.left + w.width && c[1] + r > w.top && c[1] - r < w.top + w.height);
       });
-      const full = roomOn(m.cardId) === 0 || leftFor(m.cardId) === 0;
-      if (m.note.add.hidden !== full) m.note.add.hidden = full;
-      if (!full) putAt(m.note.add, freeSpot(m.cardId, m.box, false));
+      const spot = roomOn(m.cardId) === 0 || leftFor(m.cardId) === 0 ? null : plusSpot(m.cardId, m.box);
+      if (m.note.add.hidden !== !spot) m.note.add.hidden = !spot;
+      if (spot) putAt(m.note.add, spot);
     });
   }
 
@@ -3814,6 +4005,8 @@
       if (pop && pop.anchor === view.stamps[id].btn) closePop(false);
       clearTimeout(view.stamps[id].timer);
       delete stampAt[id];
+      peelOff(view.stamps[id], removing[id]);
+      delete removing[id];
     }
     for (const cardId in view.notes) {
       const pile = drawnPile(cardId);
@@ -3826,6 +4019,7 @@
           if (!stamp) {
             stamp = view.stamps[s.id] = buildStamp(s);
             fresh.push(s);
+            if (drawn) sawArrive[s.id] = true;
             const wait = pressing.filter(function (w) {
               return isPress(s, w);
             })[0];
@@ -3837,16 +4031,18 @@
           }
           stamp.at = i;
           putAt(stamp.btn, stampAt[s.id] || s);
-          stamp.btn.style.setProperty("--rot", s.rot + "deg");
+          // The tilt is the vinyl set's. Pixel art is drawn square to the
+          // screen, so the stored tilt of a pixel sticker is not used.
+          stamp.btn.style.setProperty("--rot", (STAMPS[s.kind].set === "pixel" ? 0 : s.rot) + "deg");
           stamp.btn.classList.toggle("fixed", !ownStamp(s.id));
-          stamp.btn.setAttribute("aria-label", nameOf(s.kind) + " sticker, " + (i + 1) + " of " + pile.length + " on this note, counting from the bottom of the pile");
+          stamp.btn.setAttribute("aria-label", (s.kind === UNKNOWN_KIND ? "Sticker, " : nameOf(s.kind) + " sticker, ") + (i + 1) + " of " + pile.length + " on this note, counting from the bottom of the pile");
           return stamp.el;
-        }),
+        }).concat(note.leaving),
       );
-      note.stamps.hidden = pile.length === 0;
+      note.stamps.hidden = pile.length + note.leaving.length === 0;
       patchStampStops(cardId, pile);
       // Measured again only when something that could move things has changed.
-      const sig = [board.stage, board.revealed, card ? card.text.length : 0, leftFor(cardId), roomOn(cardId)]
+      const sig = [board.stage, board.revealed, card ? card.text.length : 0, leftFor(cardId), roomOn(cardId), note.chips.hidden, note.linked, note.votes, note.pick.hidden]
         .concat(
           pile.map(function (s) {
             const at = stampAt[s.id] || s;
@@ -3943,19 +4139,28 @@
     });
     const count = el("span");
     const fine = el("p", { class: "fine", tabindex: -1 });
+    // Shown on a phone, where Escape and the dimmed page are not obvious ways out.
+    const done = el("button", { type: "button", class: "btn btn-quiet btn-small book-done", tabindex: -1, text: "Done" });
     const sheet = el("div", { class: "pop sheet book-pop", role: "dialog", "aria-label": "Add a sticker to: " + short(card.text) }, [
       el("div", { class: "book-head" }, [el("p", { class: "label", text: "Add a sticker" }), el("span", { class: "left3" }, pips.concat([count]))]),
       el("div", { class: "book" }, [leaves.vinyl.tag, leaves.vinyl.row, spine, leaves.pixel.row, leaves.pixel.tag]),
       fine,
+      done,
     ]);
+    done.addEventListener("click", function () {
+      closePop(true);
+    });
     // A teammate can fill the note while the book is open.
     const patch = function () {
       const left = leftFor(cardId);
+      const known = countKnown(cardId) || left < PER_PERSON;
       off = left === 0 || roomOn(cardId) === 0;
       pips.forEach(function (pip, i) {
         pip.className = i < left ? "have" : "";
+        pip.hidden = !known;
       });
-      setText(count, left + " of " + PER_PERSON + " left on this note");
+      // A number is shown only when it is one the board can know.
+      setText(count, known ? left + " of " + PER_PERSON + " left on this note" : "Up to " + PER_PERSON + " of yours on a note");
       setText(fine, left === 0 ? "You have placed your three on this note." : off ? "This note is full: twelve stickers." : "Pick one and it lands clear of the words; then drag it anywhere. Nobody can see who placed a sticker.");
       for (const name in leaves) {
         leaves[name].cells.forEach(function (cell) {
@@ -3994,52 +4199,56 @@
   // hit. This list reaches every sticker on a note without aiming.
   function openStampList(cardId, opener) {
     const card = cardById(cardId);
-    const pile = drawnPile(cardId);
-    const control = function (label, said, run) {
+    const gone = "That sticker is no longer on the board.";
+    const control = function (label, said, id, run) {
       const btn = el("button", { type: "button", class: "btn btn-quiet btn-small", text: label, "aria-label": said });
       btn.addEventListener("click", function () {
         closePop(true);
-        run();
+        // A teammate may have removed it since the list was drawn.
+        if (stampById(id) && view.stamps[id]) run();
+        else notify(gone);
       });
       return btn;
     };
-    const rows = pile.map(function (s, i) {
-      const name = nameOf(s.kind) + " sticker, " + (i + 1) + " of " + pile.length;
-      const parts = [face(s.kind, " small"), el("span", { text: nameOf(s.kind) })];
-      if (ownStamp(s.id)) {
-        parts.push(
-          control("Move", "Move " + name, function () {
-            view.stamps[s.id].btn.focus();
-            setText(live, name + ". " + stampHelp.textContent);
-          }),
-          control("To front", "Bring to front " + name, function () {
-            view.stamps[s.id].btn.focus();
-            frontStamp(s.id);
-          }),
-        );
-      }
-      if (ownStamp(s.id) || !notMine[s.id]) {
-        parts.push(
-          control("Remove", "Remove " + name, function () {
-            removeStamp(s.id);
-          }),
-        );
-      }
-      return el("li", {}, parts);
-    });
-    const first = rows
-      .map(function (row) {
-        return row.children[2];
-      })
-      .filter(Boolean)[0];
-    const note = el("p", { class: "fine", tabindex: -1, text: (viewerRole() === "facilitator" ? "As facilitator you can move or remove any sticker." : "You can move a sticker you placed in this visit, and remove any that is yours.") + " They are listed from the bottom of the pile up." });
-    const sheet = el("div", { class: "pop sheet", role: "dialog", "aria-label": "Stickers on: " + short(card.text) }, [
-      el("p", { class: "label", text: "Stickers on this note" }),
-      el("ul", { class: "link-list" }, rows),
-      note,
-    ]);
-    openPop(opener, sheet);
-    (first || note).focus();
+    const list = el("ul", { class: "link-list" });
+    const note = el("p", { class: "fine", tabindex: -1 });
+    const words = (viewerRole() === "facilitator" ? "As facilitator you can move or remove any sticker." : "You can move a sticker you placed in this visit, and remove any that is yours.") + " They are listed from the bottom of the pile up.";
+    // Drawn again whenever the board changes, so a row never outlives its sticker.
+    const fill = function () {
+      const pile = drawnPile(cardId);
+      const held = contains(list, document.activeElement);
+      while (list.children.length) list.removeChild(list.lastChild);
+      pile.forEach(function (s, i) {
+        const name = (s.kind === UNKNOWN_KIND ? "Sticker, " : nameOf(s.kind) + " sticker, ") + (i + 1) + " of " + pile.length;
+        const parts = [face(s.kind, " small"), el("span", { text: nameOf(s.kind) })];
+        if (ownStamp(s.id)) {
+          parts.push(
+            control("Move", "Move " + name, s.id, function () {
+              view.stamps[s.id].btn.focus();
+              setText(live, name + ". " + stampHelp.textContent);
+            }),
+            control("To front", "Bring to front " + name, s.id, function () {
+              view.stamps[s.id].btn.focus();
+              frontStamp(s.id);
+            }),
+          );
+        }
+        if (ownStamp(s.id) || !notMine[s.id]) {
+          parts.push(
+            control("Remove", "Remove " + name, s.id, function () {
+              removeStamp(s.id);
+            }),
+          );
+        }
+        list.appendChild(el("li", {}, parts));
+      });
+      setText(note, pile.length ? words : "There are no stickers on this note now.");
+      const first = tabStops(list, [])[0];
+      if (held || document.activeElement === document.body) (first || note).focus();
+    };
+    const sheet = el("div", { class: "pop sheet", role: "dialog", "aria-label": "Stickers on: " + short(card.text) }, [el("p", { class: "label", text: "Stickers on this note" }), list, note]);
+    openPop(opener, sheet, fill);
+    fill();
   }
 
   // ----------------------------------------------------------- lanes, drawn
@@ -4075,7 +4284,11 @@
 
   function patchLanes() {
     board.columns.forEach(function (col) {
-      const lane = view.lanes[col.id] || (view.lanes[col.id] = buildLane(col));
+      let lane = view.lanes[col.id];
+      if (!lane) {
+        lane = view.lanes[col.id] = buildLane(col);
+        watchSize(lane.el, "laneId", col.id);
+      }
       const shared = itemsOf(col.id);
       const count = shared.reduce(function (sum, item) {
         return sum + item.cards.length;
@@ -4918,6 +5131,7 @@
   window.addEventListener("scroll", forgetBoxes);
   window.addEventListener("resize", function () {
     forgetBoxes();
+    setPixelSize();
     reserveForBar();
     placeThumb(false);
     // A phone's keyboard resizes the frame when it opens. The form somebody
@@ -4936,6 +5150,7 @@
   }
 
   document.head.appendChild(el("style", { text: fontFaces() + STYLES }));
+  setPixelSize();
   // A live region is only listened to if it was there before its first
   // message, so it is mounted now and the board joins it with the first state.
   root.appendChild(live);
