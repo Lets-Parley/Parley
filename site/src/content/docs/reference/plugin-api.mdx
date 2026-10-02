@@ -175,11 +175,20 @@ of the two to finish. Waiting actions are served oldest first, and waiting
 holds no database connection. All of an action's waiting, for its room, for a
 call slot and for the lock, ends at one deadline of twice the call timeout; an
 action still waiting for a slot then is answered `503`, which `parley.act`
-reports as `failed`. A state build waits for a slot in the same line, for up
+reports as `busy`: nothing was done, and the same action may succeed a moment
+later. A state build waits for a slot in the same line, for up
 to twice the call timeout, so the broadcast after an action and a page load
 are not refused merely because actions are queued. `on_event` and `on_job`
 are refused at once when the plugin is at its allowance, as before, and are
 retried by their queues.
+
+One action costs two guest calls on the replica that received it, whoever is
+watching: `on_session_action`, then one `on_session_state` whose result is
+sent to every connected client. Viewers do not multiply it. A room's
+broadcasts are built and sent one at a time, so the last frame a client gets
+is the newest state, and broadcasts that pile up behind one another share a
+state build, so a burst of actions costs fewer state builds than actions.
+Every other replica builds the state once more for its own clients.
 
 ### `on_event`
 
@@ -524,7 +533,8 @@ window.parley.act("add-card", { text: "Shipped" }).then(function (result) {
 | `{ ok: false, reason: "rate-limited" }` | Too many requests |
 | `{ ok: false, reason: "ungranted" }` | The install holds no `session:act` grant |
 | `{ ok: false, reason: "unreachable" }` | The request never reached the server |
-| `{ ok: false, reason: "failed" }` | Anything else the server answered, including a guest that threw (502) and a plugin at its call capacity (503) |
+| `{ ok: false, reason: "busy" }` | The server could not take the request right now (503), for example the plugin stayed at its call capacity. Nothing was done; an idempotent action can be retried, and otherwise tell the person to try again. A host older than this reason reports the same case as `failed` |
+| `{ ok: false, reason: "failed" }` | Anything else the server answered, including a guest that threw (502) |
 | `{ ok: false, reason: "unknown" }` | The outcome is not available to this frame. The action may have been performed |
 
 The reason is a code from this list and nothing more: the server's own error

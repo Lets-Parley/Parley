@@ -541,6 +541,7 @@ describe("createPluginBridge", () => {
       [new ApiError(404, "no such action"), "not-found"],
       [new ApiError(409, "this session has ended"), "conflict"],
       [new ApiError(429, "slow down"), "rate-limited"],
+      [new ApiError(503, "the plugin is at capacity, try again"), "busy"],
       [new ApiError(500, "pq: relation plugin_kv does not exist"), "failed"],
       [new NetworkError("Failed to fetch"), "unreachable"],
       [new Error("anything else"), "failed"],

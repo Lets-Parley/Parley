@@ -402,41 +402,9 @@ mutate "a stopped call is never read as a reported error" \
     'TestOnlyAnActionThatHadToBeStoppedIsCharged' \
     host.go 'ctx.Err() == nil && reported != "" && reported == err.Error() {' 'true {'
 
-# A guest that declines an action has done its job. Treated as an accepted
-# action the refusal is broadcast as though something changed; treated as a
-# failure it is charged, and a participant sending bad input switches the
-# plugin off.
-mutate "the action refusal" \
-    'TestAPluginRefusesAnActionWithoutBeingChargedForIt' \
-    kinds.go 'if code, _ := actionRefusal(out); code != "" {' 'if code, _ := actionRefusal(out); code != "" && false {'
-
-mutate "the fault on a refusal code the host does not know" \
-    'TestAMalformedRefusalIsAPluginFault' \
-    host.go '_, err = actionRefusal(out)' '_, _ = actionRefusal(out)'
-
-# Anyone in a room can send an action, so what a failed one may cost the
-# plugin is bounded three ways: counted apart from the failures that trip,
-# not counted at all when the guest itself reported it, and never read as
-# reported when the call had to be stopped.
-mutate "failed actions counted apart from the failures that disable" \
-    'TestFailingActionsDegradeAPluginButNeverDisableIt|TestFailedActionsDoNotCountTowardAHookTrip' \
-    host.go 'outcome = b.actionFailure(time.Now(), h.cfg.BreakerCooldown)' 'outcome = b.failure(time.Now(), h.cfg.BreakerCooldown)'
-
-mutate "no charge for an action the guest reported as failed" \
-    'TestOnlyAnActionThatHadToBeStoppedIsCharged' \
-    host.go 'free := action && errors.Is(err, ErrGuestReported) && cheap(elapsed, h.cfg.CallTimeout)' 'free := false && errors.Is(err, ErrGuestReported) && cheap(elapsed, h.cfg.CallTimeout)'
-
-mutate "the charge for a reported error that used most of its call" \
-    'TestOnlyACheapReportedErrorIsFree|TestAReportedActionErrorIsChargedOnceItUsedMostOfItsCall' \
-    host.go 'func cheap(elapsed, timeout time.Duration) bool { return elapsed <= timeout/2 }' 'func cheap(elapsed, timeout time.Duration) bool { return true }'
-
-mutate "the call site's use of how long a reported error took" \
-    'TestAReportedActionErrorIsChargedOnceItUsedMostOfItsCall' \
-    host.go 'free := action && errors.Is(err, ErrGuestReported) && cheap(elapsed, h.cfg.CallTimeout)' 'free := action && errors.Is(err, ErrGuestReported) && (cheap(elapsed, h.cfg.CallTimeout) || true)'
-
-mutate "a stopped call is never read as a reported error" \
-    'TestOnlyAnActionThatHadToBeStoppedIsCharged' \
-    host.go 'ctx.Err() == nil && reported != "" && reported == err.Error() {' 'true {'
+mutate "no charge for a call its caller abandoned" \
+    'TestTheRoomIsReleasedWhenTheCallerGoesAwayMidCall' \
+    host.go 'if err != nil && errors.Is(ctx.Err(), context.Canceled) {' 'if false {'
 
 # The lock in Postgres is what holds the other replicas out; the line in the
 # process is what keeps one room to one connection. Each is broken alone.
@@ -833,6 +801,10 @@ mutate "the refusal reason a frame is told" \
     'src/lib/pluginBridge.test.ts::tells the frame an action was refused with a code, never the server'"'"'s own words' \
     lib/pluginBridge.ts '(e: unknown) => answer({ ok: false, reason: refusalReason(e) }),' '(e: unknown) => answer({ ok: false, reason: String((e as Error).message) }),'
 
+mutate "the busy reason for a server that could not take the request" \
+    'src/lib/pluginBridge.test.ts::tells the frame an action was refused with a code, never the server'"'"'s own words' \
+    lib/pluginBridge.ts '  503: "busy",' ''
+
 mutate "inerting a plugin frame under a modal" \
     'src/components/PluginPanel.test.tsx::marks the frame inert while a host modal is open' \
     components/PluginPanel.tsx 'el.toggleAttribute("inert", modalOpen);' 'el.toggleAttribute("inert", false);'
@@ -1040,6 +1012,12 @@ mutate "the curator gate on the loaded-bundle list" \
 mutate "an older version through install refused as a downgrade" \
     'TestRollbackMovesToAnyTrustedVersionOfTheSamePlugin' \
     plugins.go '	if versionLess(pkg.Version, current.Install.Version) {' '	if false && versionLess(pkg.Version, current.Install.Version) {'
+
+# A burst of changes to one room shares state builds. A build per change is
+# what used up a plugin's call slots in an ordinary room.
+mutate "the broadcast a newer one already covered" \
+    'TestABurstOfBroadcastsOnOneRoomSharesStateBuilds' \
+    sessions.go 'if c.sent >= mine {' 'if false {'
 
 target internal/store
 

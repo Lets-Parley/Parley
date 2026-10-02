@@ -405,8 +405,9 @@ default is 16 MiB. Enforced both by the wazero runtime and by the manifest.
 </EnvVar>
 
 <EnvVar name="PLUGIN_MAX_CONCURRENT_CALLS" default="8" badValue="Refuses to start if the value is not a positive integer">
-How many plugin calls may be in flight across all installs at once. Calls past
-the cap are refused rather than queued.
+How many plugin calls may be in flight across all installs at once. A room
+action or a state build past the cap waits, for up to twice
+`PLUGIN_CALL_TIMEOUT`; an event or a job past it is refused and retried.
 
 A per-call timeout and a memory cap bound one call. Without this cap a plugin
 still exhausts the process by making many calls that are each individually
@@ -426,6 +427,17 @@ action or a state build past it waits, holding no database connection, for up
 to twice `PLUGIN_CALL_TIMEOUT`; an action is answered `503` if no call has
 finished by then. Events and jobs past the cap are refused at once and
 retried.
+
+Sizing for interactive plugins: one action is two calls on the replica that
+received it, the action and one state build shared by everyone watching, and
+a call of a typical ceremony plugin takes a few milliseconds. Two slots
+therefore serve a few hundred actions a second for one plugin on one replica,
+and a burst waits in line instead of failing. Raise this if one plugin's rooms
+regularly answer `503 the plugin is at capacity`, or if its calls are slow;
+raise `PLUGIN_MAX_CONCURRENT_CALLS` with it when several plugins are busy at
+once, and keep that at or below the database pool size minus two. A `409 the
+room is busy` means one room's own actions queued for longer than twice the
+call timeout, which more slots do not fix: the plugin's actions are slow.
 </EnvVar>
 
 <EnvVar name="PLUGIN_MODULE_CACHE_SIZE" default="16" badValue="Refuses to start if the value is not a positive integer">

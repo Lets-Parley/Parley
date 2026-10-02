@@ -562,6 +562,13 @@ issue first. For anything large, open an issue before writing code.
     room or one install park the pool. `lockReserve` keeps the last two
     connections free for the guest's own key-value calls. The lock is released
     by `defer` before the broadcast; do not hold it across one.
+47. **A room's broadcasts are built and sent one at a time, and may be
+    skipped.** `broadcastLocal` (`internal/api/sessions.go`) holds a per-room
+    mutex across the build and the send, so the last frame sent is the newest
+    state, and returns without building when a broadcast that began after it
+    was asked for has already been sent. Do not move the send outside that
+    mutex, and do not "fix" the skip: a state build per change is what
+    exhausted the plugin call slots in an ordinary room.
 46. **A compiled plugin module is never closed under a call.** `Host.module`
     hands out a held `cachedModule` and the caller must `unuse` it; eviction
     and replacement only `retire` it, and the last `unuse` closes it. Compiles

@@ -204,7 +204,7 @@ view produces no viewer either.
 
 A frame that proposes an action is told whether it was accepted, as `ok` or a
 reason code from a fixed list (`forbidden`, `invalid`, `not-found`, `conflict`,
-`rate-limited`, `ungranted`, `unreachable`, `failed`, `unknown`). The server's
+`rate-limited`, `busy`, `ungranted`, `unreachable`, `failed`, `unknown`). The server's
 error text and response body never cross the bridge.
 
 The outcome itself is room data: a refusal says the viewer is not the
