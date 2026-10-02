@@ -195,7 +195,9 @@ that each of its fourteen cells is a whole number of device pixels at the
 current zoom, so no cell is uneven. A sticker of a kind this version does not
 know, from a newer one, is drawn as a plain sticker named "Sticker": it still
 counts against the caps, and whoever placed it can remove it. A removed
-sticker peels off (271ms); a teammate's only lifts away.
+sticker peels off (271ms); a teammate's only lifts away. When its placer sets a pixel sticker down, four of its cells are
+kicked up as dust at the moment of contact and are gone within a third of a
+second; a teammate's pixel sticker, and every vinyl one, lands without.
 
 The book says "N of 3 left on this note" only when it can know: when every
 sticker on the note arrived during this visit. Otherwise it says "Up to 3 of

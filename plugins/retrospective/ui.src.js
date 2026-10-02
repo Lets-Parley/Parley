@@ -435,6 +435,8 @@
     // Peek: stickers lying over a note's words go faint while the words are
     // pointed at, or while one of the note's controls has keyboard focus.
     ".note.peek .st.over:not(.lift):not(:focus-visible),.note:has(.lead :focus-visible,.trail :focus-visible,.chips :focus-visible) .st.over{opacity:.2;transition:opacity .12s}",
+    // Dust: the few cells a pixel sticker kicks up where it lands.
+    ".dust{position:absolute;z-index:1;pointer-events:none}",
     // A sticker on its way off the note is not there to be pressed.
     ".st.leaving{pointer-events:none}",
     // Where the next sticker would land: a dashed plus, shown with the note.
@@ -3956,6 +3958,50 @@
     stamp.art.animate([{ transform: SETTLE[STAMPS[s.kind].meaning] }, { transform: "none" }], after(FLICK));
   }
 
+  // A pixel sticker kicks up dust where it lands: four cells thrown out from
+  // under it at the moment of contact, each on its own arc under gravity,
+  // moving a whole cell at a time, and gone when it comes back down. A cell
+  // is the sticker's own cell, so the dust is as crisp as the sticker. Only
+  // the placer's own landing does this; a teammate's arrives without. The
+  // cells are not stickers: they are not in the pile, take no press and no
+  // focus, and are never measured. Each is taken away when its arc ends,
+  // however it ends, and no more than DUST_MAX are ever on the board.
+  const DUST = [[-150, -190], [-80, -250], [90, -240], [160, -180]];
+  const DUST_MAX = 24;
+  let dustLive = 0;
+
+  function kickDust(stamp, s) {
+    const note = view.notes[s.cardId];
+    if (!note || dustLive + DUST.length > DUST_MAX) return;
+    const cell = pixelSize() / 14;
+    const snap = function (v) {
+      return Math.round(v / cell) * cell;
+    };
+    DUST.forEach(function (vel, i) {
+      const bit = el("i", { class: "dust k-" + STAMPS[s.kind].meaning, "aria-hidden": "true" });
+      bit.style.cssText = "width:" + cell + "px;height:" + cell + "px;left:" + stamp.btn.style.left + ";top:calc(" + stamp.btn.style.top + " + " + cell * 6 + "px);background:var(" + (i % 3 ? "--k" : "--st-ink") + ")";
+      note.el.appendChild(bit);
+      dustLive += 1;
+      // Up at `vel`, down under 1500px a second squared, until it is level again.
+      const time = (-2 * vel[1]) / 1500;
+      const frames = [{ transform: "scale(0)", easing: "step-end" }];
+      for (let t = 0; t <= time; t += 1 / 60) frames.push({ transform: "translate(" + snap(vel[0] * t) + "px," + snap(vel[1] * t + 750 * t * t) + "px)", easing: "step-end" });
+      frames.push({ transform: "translate(" + snap(vel[0] * time) + "px,0)" });
+      let over = false;
+      const done = function () {
+        if (over) return;
+        over = true;
+        clearTimeout(backstop);
+        dustLive -= 1;
+        if (bit.parentNode) bit.parentNode.removeChild(bit);
+      };
+      const backstop = setTimeout(done, FLY.hit + time * 1000 + 250);
+      const arc = bit.animate(frames, { duration: time * 1000, delay: FLY.hit, fill: "backwards" });
+      arc.onfinish = done;
+      arc.oncancel = done;
+    });
+  }
+
   // A teammate's comes down the same way from less high, and the note gives
   // a little. It is smaller than the viewer's own on purpose.
   function landOther(stamp, s) {
@@ -4121,8 +4167,11 @@
     if (!drawn || fresh.length > 3 || !motionOn()) return;
     fresh.forEach(function (s) {
       const stamp = view.stamps[s.id];
-      if (stamp === claimed) landOwn(stamp, s);
-      else landOther(stamp, s);
+      if (stamp !== claimed) landOther(stamp, s);
+      else {
+        landOwn(stamp, s);
+        if (STAMPS[s.kind].set === "pixel") kickDust(stamp, s);
+      }
     });
   }
 

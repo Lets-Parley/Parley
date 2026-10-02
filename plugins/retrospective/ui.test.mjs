@@ -3822,3 +3822,112 @@ test("a pixel sticker is a whole number of device pixels a cell at every zoom, a
   assert.equal(pick("Blocker, vinyl"), 0.563, "134");
   assert.equal(pick("Blocker, pixel"), 0.696, "164");
 });
+
+// ---- pixel dust
+
+const dustOf = (ui) => byClass(ui.root, "dust");
+// Place one sticker from the book on the note "one" and let it land.
+function landed(name, opts = { host: "new", motion: true }, who = PARTICIPANT) {
+  const ui = load(opts);
+  const cards = [card("c1", "went-well", "one"), card("c2", "went-well", "two")];
+  ui.push(session({ cards }, who));
+  openBook(ui.root, "one");
+  labeled(bookOf(ui.root), name).click();
+  ui.document.animations.length = 0;
+  const stamps = [{ id: "s1", ...ui.sent()[0].payload }];
+  ui.push(session({ cards, stamps }, who));
+  return { ui, cards, stamps, arcs: () => ui.document.animations.filter((a) => a.target.className.includes("dust")) };
+}
+
+test("a pixel sticker kicks up four cells of dust when its placer sets it down, and a vinyl one does not", () => {
+  const pixel = landed("Great idea, pixel");
+  const bits = dustOf(pixel.ui);
+  assert.equal(bits.length, 4);
+  assert.equal(pixel.arcs().length, 4);
+  for (const bit of bits) {
+    assert.equal(bit.tagName, "I", "not a control");
+    assert.equal(bit.getAttribute("aria-hidden"), "true");
+    assert.equal(bit.getAttribute("tabindex"), null);
+    same(bit.parentNode, noteWith(pixel.ui.root, "one"), "on the note, outside the list of stickers");
+    assert.match(bit.style.cssText, /^width:3px;height:3px;left:calc\(8px \+ 0\.027 \* \(100% - 16px\)\);top:calc\(calc\(1 \* \(100% \+ 8px\) - 4px\) \+ 18px\);background:var\(--(k|st-ink)\)$/);
+  }
+  assert.match(src, /\.dust\{position:absolute;z-index:1;pointer-events:none\}/);
+  assert.equal(stickersOf(pixel.ui.root, "one").length, 1, "dust is not a sticker");
+  assert.equal(stickersOf(pixel.ui.root, "one")[0].getAttribute("aria-label"), "Great idea, pixel sticker, 1 of 1 on this note, counting from the bottom of the pile");
+  // It starts at the moment of contact and each arc is the flight of that cell:
+  // thrown up at 190, 250, 240 and 180 a second under 1500, so 253, 333, 320 and 240ms.
+  assert.deepEqual(pixel.arcs().map((a) => [a.timing.delay, Math.round(a.timing.duration)]), [[142, 253], [142, 333], [142, 320], [142, 240]]);
+  // Every step is a whole number of cells from where it began.
+  for (const arc of pixel.arcs()) for (const f of arc.frames.slice(1)) for (const n of f.transform.match(/-?[\d.]+(?=px)/g) || []) assert.equal(Math.abs(Number(n)) % 3, 0, f.transform);
+
+  assert.equal(dustOf(landed("Great idea, vinyl").ui).length, 0, "vinyl lands as it did");
+  assert.equal(dustOf(landed("Great idea, pixel", { host: "new" }).ui).length, 0, "nothing where nothing moves");
+});
+
+test("dust is for a fresh landing by its placer only: not a teammate's, not the first paint, not a move", () => {
+  const cards = [card("c1", "went-well", "one")];
+  const mate = load({ host: "new", motion: true });
+  mate.push(session({ cards }, PARTICIPANT));
+  mate.push(session({ cards, stamps: [st("s1", "p-idea", 0.5, 1)] }, PARTICIPANT));
+  assert.equal(dustOf(mate).length, 0, "a teammate's arrives lighter, without");
+  assert.ok(mate.document.animations.some((a) => a.target.className.includes("st ")), "though it does arrive");
+
+  const first = load({ host: "new", motion: true });
+  first.push(session({ cards, stamps: [st("s1", "p-idea", 0.5, 1), st("s2", "p-laugh", 0.2, 1)] }, PARTICIPANT));
+  assert.equal(dustOf(first).length, 0, "nothing on the first paint");
+
+  const own = landed("Blocker, pixel", { host: "new", motion: true }, FACILITATOR);
+  own.arcs().forEach((a) => a.finish());
+  assert.equal(dustOf(own.ui).length, 0);
+  const sticker = stickersOf(own.ui.root, "one")[0];
+  sticker.fire("keydown", { key: "ArrowRight" });
+  sticker.fire("keydown", { key: "f" });
+  own.ui.runTimers(500);
+  own.ui.push(session({ cards: own.cards, stamps: [{ ...own.stamps[0], x: 0.5 }] }, FACILITATOR));
+  own.ui.push(session({ cards: own.cards, stamps: [{ ...own.stamps[0], x: 0.5 }, st("s9", "chat", 0.1, 0.1)] }, FACILITATOR));
+  assert.equal(dustOf(own.ui).length, 0, "a move, a bring to front and a redraw raise none");
+});
+
+test("dust is always swept up: when an arc finishes, when it is cancelled, when neither is heard, and when the note goes", () => {
+  const finished = landed("Thank you, pixel");
+  finished.arcs().forEach((a) => a.finish());
+  assert.equal(dustOf(finished.ui).length, 0);
+  finished.arcs().forEach((a) => a.cancel());
+  finished.ui.runTimers();
+  assert.equal(dustOf(finished.ui).length, 0, "ending twice is harmless");
+
+  const cancelled = landed("Thank you, pixel");
+  cancelled.arcs().forEach((a) => a.cancel());
+  assert.equal(dustOf(cancelled.ui).length, 0, "cancelled: the note was hidden, or the tab put away");
+
+  const silent = landed("Thank you, pixel");
+  silent.ui.runTimers(300);
+  assert.equal(dustOf(silent.ui).length, 4, "not before the arcs would have ended");
+  silent.ui.runTimers(800);
+  assert.equal(dustOf(silent.ui).length, 0, "and gone a little after, with nothing heard");
+
+  const gone = landed("Thank you, pixel");
+  gone.ui.push(session({ cards: [gone.cards[1]] }, PARTICIPANT));
+  assert.equal(dustOf(gone.ui).length, 0, "the note took its dust with it");
+  gone.arcs().forEach((a) => a.finish());
+  gone.ui.runTimers();
+  assert.equal(dustOf(gone.ui).length, 0);
+
+  // Never more than twenty-four cells at once, however fast stickers land:
+  // six bursts are on the board, and the seventh and later raise none.
+  const ui = load({ host: "new", motion: true });
+  const cards = Array.from({ length: 9 }, (_, i) => card("c" + i, "went-well", "note " + i));
+  const stamps = [];
+  ui.push(session({ cards }, PARTICIPANT));
+  for (let i = 0; i < 9; i++) {
+    one(byClass(ui.root, "note")[i], "more").click();
+    menuItem(ui.root, "Add a sticker").click();
+    labeled(bookOf(ui.root), "Me too, pixel").click();
+    stamps.push({ id: "s" + i, ...ui.sent()[i].payload });
+    ui.push(session({ cards, stamps }, PARTICIPANT));
+  }
+  assert.equal(dustOf(ui).length, 24);
+  assert.equal(byClass(ui.root, "st").length, 9, "every sticker landed all the same");
+  ui.document.animations.filter((a) => a.target.className.includes("dust")).forEach((a) => a.finish());
+  assert.equal(dustOf(ui).length, 0);
+});
