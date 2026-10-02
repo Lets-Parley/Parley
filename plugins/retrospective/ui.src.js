@@ -472,7 +472,7 @@
     while (step < 480 && (Math.abs(1 - x) > 0.001 || Math.abs(v) > 0.01)) {
       v += (stiffness * (1 - x) - damping * v) * dt;
       x += v * dt;
-      if (step % 4 === 0) points.push(x.toFixed(3));
+      if (step % 4 === 0 && points.length < 200) points.push(x.toFixed(3));
       step += 1;
     }
     points.push(1);
@@ -594,45 +594,62 @@
 
   function propose(action, payload, how) {
     const item = { landed: how.landed, settle: how.settle || function () {}, unsure: how.unsure, forbidden: how.forbidden };
+    const unsent = function () {
+      refuse(item, "That could not be sent. Try again.");
+    };
     hideToast();
     watching.push(item);
     item.timer = setTimeout(function () {
       expire(item);
     }, WAIT_MS);
-    const answer = parley.act(action, payload);
-    if (answer && typeof answer.then === "function") {
-      answer.then(function (result) {
-        hear(item, result);
-      });
+    // The bridge throws for a message it will not carry, and a promise can
+    // reject. Either way the action never left, and the board says so now.
+    try {
+      const answer = parley.act(action, payload);
+      if (answer && typeof answer.then === "function") {
+        answer.then(function (result) {
+          hear(item, result);
+        }, unsent);
+      }
+    } catch (err) {
+      unsent();
     }
     return item;
   }
 
+  // The host's answer. It is heard for as long as the action is watched, so
+  // one that comes after the wait still counts: a late yes is a yes, and a
+  // late no replaces "could not confirm" with the reason.
   function hear(item, result) {
-    if (watching.indexOf(item) === -1 || item.expired || !result) return;
+    if (watching.indexOf(item) === -1 || !result) return;
     if (result.ok === true) {
+      retract(item.notice);
       item.accepted = true;
       item.settle("accepted");
       return;
     }
     if (result.reason === "unknown") return;
-    const message = (result.reason === "forbidden" && item.forbidden) || REFUSALS[result.reason] || REFUSALS.failed;
+    refuse(item, (result.reason === "forbidden" && item.forbidden) || REFUSALS[result.reason] || REFUSALS.failed);
+  }
+
+  function refuse(item, message) {
+    if (watching.indexOf(item) === -1) return;
     forget(item);
     item.settle("refused");
     notify(message);
   }
 
+  // The wait is over and the state does not show the change. If the host said
+  // yes, the state is only slow and nothing is reported. Otherwise it is
+  // "unsure". In both cases the action stays watched for a while longer.
   function expire(item) {
-    if (item.accepted) {
-      forget(item);
-      item.settle("landed");
-      return;
+    if (!item.accepted) {
+      item.settle("unsure");
+      item.notice = notify(item.unsure);
     }
-    item.expired = true;
-    item.settle("unsure");
-    item.notice = notify(item.unsure);
     item.timer = setTimeout(function () {
       forget(item);
+      if (item.accepted) item.settle("landed");
     }, LATE_MS);
   }
 
@@ -929,6 +946,11 @@
     ]);
     ghost.retry.addEventListener("click", function () {
       if (ghost.watch) forget(ghost.watch);
+      // The first send may have landed since it was called unconfirmed.
+      if (ghostLanded(ghost, board)) {
+        dropGhost(ghost);
+        return;
+      }
       ghost.status = "queued";
       patchGhost(ghost);
       sendNext();
@@ -950,12 +972,45 @@
 
   function dropGhost(ghost) {
     if (ghost.watch) forget(ghost.watch);
+    ghost.watch = null;
     if (sending === ghost) sending = null;
     ghost.lane.ghosts = ghost.lane.ghosts.filter(function (other) {
       return other !== ghost;
     });
     patchLanes();
     sendNext();
+  }
+
+  // A ghost has landed when the state holds a note that was not there when
+  // the ghost was first sent, in its lane, with its text.
+  function ghostLanded(ghost, b) {
+    return (
+      !!ghost.had &&
+      b.cards.some(function (c) {
+        return !ghost.had[c.id] && c.columnId === ghost.lane.id && c.text === ghost.text;
+      })
+    );
+  }
+
+  // Run on every state push, whether or not the send is still being watched:
+  // a note that turns up a minute late must not leave its ghost beside it.
+  function reconcileGhosts() {
+    for (const id in view.lanes) {
+      view.lanes[id].ghosts.slice().forEach(function (ghost) {
+        if (ghost.status !== "refused" && ghostLanded(ghost, board)) dropGhost(ghost);
+      });
+    }
+  }
+
+  // A lane can leave the state while a note for it is still waiting. The note
+  // cannot be saved any more, and it is not allowed to vanish without a word.
+  function loseGhosts(lane) {
+    lane.ghosts.slice().forEach(function (ghost) {
+      if (ghost.watch) forget(ghost.watch);
+      if (sending === ghost) sending = null;
+      notify("That lane is gone, so your note was not saved: " + short(ghost.text));
+    });
+    lane.ghosts = [];
   }
 
   function sendNext() {
@@ -967,25 +1022,22 @@
       });
     }
     if (!next) return;
-    const had = idsOf(board.cards);
+    next.had = next.had || idsOf(board.cards);
     sending = next;
     next.status = "saving";
     patchGhost(next);
     next.watch = propose("add-card", { columnId: next.lane.id, text: next.text }, {
       landed: function (b) {
-        return b.cards.some(function (c) {
-          return !had[c.id] && c.columnId === next.lane.id && c.text === next.text;
-        });
+        return ghostLanded(next, b);
       },
       unsure: "Could not confirm that your note was saved. It is waiting in its lane.",
       settle: function (outcome) {
-        if (outcome === "accepted") return;
-        if (sending === next) sending = null;
         if (outcome === "landed") {
           dropGhost(next);
           return;
         }
-        next.status = outcome;
+        if (outcome !== "accepted" && sending === next) sending = null;
+        next.status = outcome === "accepted" ? "saving" : outcome;
         patchGhost(next);
         sendNext();
       },
@@ -1161,7 +1213,9 @@
       lane.empty.hidden = cards.length + ghosts.length > 0;
       patchComposer(lane);
     });
-    forgetMissing(view.lanes, idsOf(board.columns));
+    const columns = idsOf(board.columns);
+    for (const id in view.lanes) if (!columns[id]) loseGhosts(view.lanes[id]);
+    forgetMissing(view.lanes, columns);
     forgetMissing(view.groups, idsOf(board.groups));
     sync(
       lanes,
@@ -1428,6 +1482,7 @@
     // jumps into place a moment after it appears.
     if (!drawn) root.appendChild(main);
     settleLanded();
+    reconcileGhosts();
     sendNext();
 
     // Moving a node drops its focus. Nothing a teammate does may take focus

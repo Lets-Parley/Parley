@@ -102,11 +102,12 @@ is not offered as a side panel in other rooms.
 
 `ui.fonts.js` embeds Instrument Sans and JetBrains Mono (latin subset) as
 `data:` URIs, the only font source the frame's policy allows. Both are licensed
-under the SIL Open Font License 1.1; the license text and the copyright notices
-are in `OFL.txt`, and the notices are repeated at the top of `ui.fonts.js`, so
-they travel inside `ui.js` in the bundle. A `.parley` bundle holds exactly
-`manifest.json`, `plugin.wasm`, `ui.js` and `slots.json` and refuses any other
-file, so `OFL.txt` itself cannot ride along.
+under the SIL Open Font License 1.1. The copyright notices and the full license
+text are in the header comment of `ui.fonts.js`, so they travel inside `ui.js`
+in every bundle; `OFL.txt` holds the same text as a file for anyone reading the
+repository. A `.parley` bundle holds exactly `manifest.json`, `plugin.wasm`,
+`ui.js` and `slots.json` and refuses any other file, which is why the license
+rides in the script rather than beside it.
 
 ## Storage (open question 2)
 

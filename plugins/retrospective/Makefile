@@ -19,8 +19,10 @@ all: test dist check-dist
 ui.js: ui.fonts.js ui.src.js
 	cat ui.fonts.js ui.src.js > $@
 
+# The limits are there so a test that runs away fails instead of taking the
+# machine with it.
 test: $(DIST)/$(STEM).ui.js
-	node --test board.test.mjs ui.test.mjs package.test.mjs
+	node --max-old-space-size=512 --test --test-timeout=10000 board.test.mjs ui.test.mjs package.test.mjs
 
 bundle: ui.js
 

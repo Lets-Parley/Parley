@@ -8,9 +8,23 @@ import { fileURLToPath } from "node:url";
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const { version } = createRequire(import.meta.url)("./manifest.json");
-const src = readFileSync(join(dir, "ui.src.js"), "utf8");
+// RETRO_UI_SRC points the suite at another copy of the source, for checking
+// that a test can fail. The tracked file is never edited for that.
+const srcPath = process.env.RETRO_UI_SRC || join(dir, "ui.src.js");
+const src = readFileSync(srcPath, "utf8");
 const fontSrc = readFileSync(join(dir, "ui.fonts.js"), "utf8");
 const distSrc = readFileSync(join(dir, "dist", `retrospective-${version}.ui.js`), "utf8");
+
+// A parent chain longer than this is a bug in the UI or in this fake, and a
+// loop that follows one must stop rather than run until memory is gone.
+const MAX_DEPTH = 1000;
+function* upFrom(node) {
+  let hops = 0;
+  for (let n = node; n; n = n.parentNode) {
+    if (++hops > MAX_DEPTH) throw new Error("parent chain is longer than " + MAX_DEPTH + ": a cycle");
+    yield n;
+  }
+}
 
 // The smallest document ui.js can run against. It models the two things the
 // tests are about: a tree of nodes, and focus that is lost when the focused
@@ -44,7 +58,7 @@ class FakeNode {
     this.hidden = false;
   }
   get isConnected() {
-    for (let n = this; n; n = n.parentNode) if (n === this.ownerDocument.body) return true;
+    for (const n of upFrom(this)) if (n === this.ownerDocument.body) return true;
     return false;
   }
   get lastChild() {
@@ -61,13 +75,17 @@ class FakeNode {
     throw new Error("ui.js must build nodes, not markup");
   }
   holdsFocus() {
-    for (let n = this.ownerDocument.activeElement; n; n = n.parentNode) if (n === this) return true;
+    for (const n of upFrom(this.ownerDocument.activeElement)) if (n === this) return true;
     return false;
   }
   appendChild(child) {
     return this.insertBefore(child, null);
   }
   insertBefore(child, ref) {
+    // As a real DOM does: a node cannot be put inside itself, and the
+    // reference has to be a child of this node.
+    for (const n of upFrom(this)) if (n === child) throw new Error("HierarchyRequestError: the new child contains the parent");
+    if (ref && ref.parentNode !== this) throw new Error("NotFoundError: the reference node is not a child of this node");
     if (child.parentNode) child.parentNode.removeChild(child);
     const at = ref ? this.children.indexOf(ref) : this.children.length;
     this.children.splice(at, 0, child);
@@ -75,6 +93,7 @@ class FakeNode {
     return child;
   }
   removeChild(child) {
+    if (child.parentNode !== this || !this.children.includes(child)) throw new Error("NotFoundError: not a child of this node");
     if (child.holdsFocus()) this.ownerDocument.activeElement = this.ownerDocument.body;
     this.children.splice(this.children.indexOf(child), 1);
     child.parentNode = null;
@@ -94,7 +113,7 @@ class FakeNode {
   }
   fire(type, event = {}) {
     const ev = { preventDefault() {}, target: this, ...event };
-    for (const fn of this.listeners[type] || []) fn(ev);
+    for (const fn of [...(this.listeners[type] || [])]) fn(ev);
   }
   focus() {
     if (this.isConnected) this.ownerDocument.activeElement = this;
@@ -111,7 +130,11 @@ class FakeNode {
 // `host: "old"` is a Parley that returns nothing from an action. `host: "new"`
 // returns a promise per action, which the test settles through acts[n].answer.
 function load({ host = "old" } = {}) {
-  const timers = [];
+  // Timers are kept by id, and an id is never used twice, so clearing a timer
+  // that has already run cannot cancel a different one.
+  const timers = new Map();
+  let lastTimer = 0;
+  const bridge = { fail: null, scheme: "dark", tokens: null };
   const acts = [];
   const document = {
     activeElement: null,
@@ -131,7 +154,9 @@ function load({ host = "old" } = {}) {
   document.body.appendChild(root);
   let push;
   const parley = {
-    onTokens() {},
+    onTokens(fn) {
+      bridge.tokens = fn;
+    },
     onState(fn) {
       push = fn;
     },
@@ -140,6 +165,8 @@ function load({ host = "old" } = {}) {
       // Round-tripped so the objects belong to this realm, not the UI's.
       const sent = JSON.parse(JSON.stringify({ action, payload }));
       acts.push(sent);
+      if (bridge.fail === "throw") throw new Error("message too large");
+      if (bridge.fail === "reject") return Promise.reject(new Error("bridge closed"));
       if (host === "old") return undefined;
       return new Promise((resolve) => {
         sent.answer = resolve;
@@ -148,18 +175,28 @@ function load({ host = "old" } = {}) {
   };
   if (host === "new") {
     parley.supports = (feature) => feature === "results";
-    parley.scheme = () => "dark";
+    parley.scheme = () => bridge.scheme;
   }
   const window = { parley, addEventListener() {} };
-  const setTimeout = (fn) => timers.push(fn);
+  const setTimeout = (fn, ms) => {
+    timers.set(++lastTimer, { fn, ms });
+    return lastTimer;
+  };
   const clearTimeout = (id) => {
-    timers[id - 1] = null;
+    timers.delete(id);
   };
   runInContext(src, createContext({ window, document, setTimeout, clearTimeout }));
   assert.equal(typeof push, "function");
-  const runTimers = () => timers.splice(0).forEach((fn) => fn && fn());
+  // Runs the timers pending now whose delay is at most `upTo`. Timers they
+  // set in turn wait for the next call.
+  const runTimers = (upTo = Infinity) => {
+    for (const [id, timer] of [...timers]) {
+      if (timer.ms > upTo || !timers.delete(id)) continue;
+      timer.fn();
+    }
+  };
   const sent = () => acts.map(({ action, payload }) => ({ action, payload }));
-  return { root, document, push, acts, sent, runTimers };
+  return { root, document, push, acts, sent, runTimers, bridge };
 }
 
 // Lets a settled promise's callbacks run.
@@ -171,7 +208,7 @@ function all(node, test, out = []) {
   return out;
 }
 const visible = (node) => {
-  for (let n = node; n; n = n.parentNode) if (n.hidden) return false;
+  for (const n of upFrom(node)) if (n.hidden) return false;
   return true;
 };
 const byClass = (node, name) => all(node, (n) => n.className.split(" ").includes(name));
@@ -227,7 +264,14 @@ test("the UI talks only over the host bridge", () => {
 });
 
 test("the shipped ui.js is the fonts followed by the readable source", () => {
-  assert.equal(distSrc, fontSrc + src);
+  assert.equal(distSrc, fontSrc + readFileSync(join(dir, "ui.src.js"), "utf8"));
+});
+
+test("the font license travels inside the shipped file", () => {
+  assert.match(distSrc, /SIL OPEN FONT LICENSE Version 1\.1/);
+  assert.match(distSrc, /Copyright 2022 The Instrument Sans Project Authors/);
+  assert.match(distSrc, /Copyright 2020 The JetBrains Mono Project Authors/);
+  assert.match(distSrc, /PERMISSION & CONDITIONS/);
 });
 
 test("the UI never writes markup, so no state can become an element", () => {
@@ -566,4 +610,135 @@ test("the progress strip follows the board, and a reveal is not progress", () =>
   assert.match(current(), /Write/);
   push(session({ revealed: true, actionItems: [{ id: "a1", text: "x", owner: "u-bo", done: false }] }));
   assert.match(current(), /Decide/);
+});
+
+const WAIT = 3000;
+
+test("an action the bridge will not carry is refused at once and leaves nothing pending", async () => {
+  for (const fail of ["throw", "reject"]) {
+    const { root, push, bridge, runTimers, sent } = load({ host: "new" });
+    push(session({ cards: [card("c1", "went-well", "one")] }));
+    bridge.fail = fail;
+    composer(root, "Puzzles").type("too big");
+    composer(root, "Puzzles").fire("keydown", ENTER);
+    await settled();
+    assert.match(toastOf(root).textContent, /could not be sent/, fail);
+    assert.match(byClass(root, "ghost")[0].textContent, /Not saved/, fail);
+
+    bridge.fail = null;
+    composer(root, "Puzzles").type("fits");
+    composer(root, "Puzzles").fire("keydown", ENTER);
+    assert.equal(sent().length, 2, "the queue is not stuck behind the failed send");
+    runTimers(WAIT);
+    assert.match(byClass(root, "ghost")[0].textContent, /Not saved/, "and no second verdict arrives for it");
+  }
+});
+
+test("a note that lands long after its send was forgotten does not leave its ghost beside it", () => {
+  const { root, push, runTimers, sent } = load();
+  push(session({}));
+  composer(root, "Went well").type("very slow");
+  composer(root, "Went well").fire("keydown", ENTER);
+  runTimers(WAIT);
+  runTimers();
+  assert.match(byClass(root, "ghost")[0].textContent, /Not confirmed/);
+
+  push(session({ cards: [card("c1", "went-well", "very slow")] }));
+  assert.equal(byClass(root, "ghost").length, 0);
+  assert.equal(byClass(root, "note").length, 1);
+  assert.equal(sent().length, 1);
+});
+
+test("Send again is one more send, and the first landing settles the note", () => {
+  const { root, push, runTimers, sent } = load();
+  push(session({}));
+  composer(root, "Went well").type("once");
+  composer(root, "Went well").fire("keydown", ENTER);
+  runTimers(WAIT);
+  button(byClass(root, "ghost")[0], "Send again").click();
+  assert.equal(sent().length, 2);
+
+  push(session({ cards: [card("c1", "went-well", "once")] }));
+  assert.equal(byClass(root, "ghost").length, 0, "whichever send it was, the note is on the board");
+  runTimers(WAIT);
+  assert.equal(sent().length, 2, "nothing further is sent");
+});
+
+test("a note the host accepted stays in sight until the state shows it", async () => {
+  const { root, push, acts, runTimers } = load({ host: "new" });
+  push(session({}));
+  composer(root, "Went well").type("accepted");
+  composer(root, "Went well").fire("keydown", ENTER);
+  acts[0].answer({ ok: true });
+  await settled();
+  runTimers(WAIT);
+  assert.match(byClass(root, "ghost")[0].textContent, /accepted/);
+  assert.match(byClass(root, "ghost")[0].textContent, /Saving/);
+  assert.equal(toastOf(root).hidden, true, "a slow state is not reported as a problem");
+
+  push(session({ cards: [card("c1", "went-well", "accepted")] }));
+  assert.equal(byClass(root, "ghost").length, 0);
+  assert.equal(byClass(root, "note").length, 1);
+});
+
+test("a note waiting for a lane that is removed is reported, not left stuck", () => {
+  const { root, push, sent } = load();
+  push(session({}));
+  composer(root, "Puzzles").type("orphan");
+  composer(root, "Puzzles").fire("keydown", ENTER);
+  push(session({ columns: columns.slice(0, 2) }));
+  assert.equal(byClass(root, "ghost").length, 0);
+  assert.match(toastOf(root).textContent, /lane is gone.*orphan/);
+
+  composer(root, "Went well").type("next");
+  composer(root, "Went well").fire("keydown", ENTER);
+  assert.equal(sent().length, 2, "the queue moves on");
+});
+
+test("a yes that arrives after the wait still marks the vote as the viewer's", async () => {
+  const { root, push, acts, runTimers } = load({ host: "new" });
+  push(session({ cards: [card("c1", "went-well", "one", { voteCount: 1 })] }));
+  const vote = button(noteWith(root, "one"), "Vote");
+  vote.click();
+  runTimers(WAIT);
+  assert.equal(toastOf(root).hidden, false);
+  acts[0].answer({ ok: true });
+  await settled();
+  assert.equal(vote.getAttribute("aria-pressed"), "true");
+  assert.equal(toastOf(root).hidden, true, "the doubt is taken back");
+});
+
+test("a theme sent again re-schemes the board without rebuilding it", () => {
+  const old = load();
+  old.push(session({ cards: [card("c1", "went-well", "one")] }));
+  const html = old.document.documentElement;
+  const box = composer(old.root, "Went well");
+  box.type("still here");
+  old.bridge.tokens({ surface: "#162032" });
+  assert.equal(html.getAttribute("data-scheme"), "dark");
+  old.bridge.tokens({ surface: "#F7F6F2" });
+  assert.equal(html.getAttribute("data-scheme"), "light");
+  assert.equal(composer(old.root, "Went well"), box);
+  assert.equal(box.value, "still here");
+
+  // A host that names the scheme is believed over the color.
+  const named = load({ host: "new" });
+  named.push(session({}));
+  named.bridge.scheme = "dark";
+  named.bridge.tokens({ surface: "#F7F6F2" });
+  assert.equal(named.document.documentElement.getAttribute("data-scheme"), "dark");
+  named.bridge.scheme = "light";
+  named.bridge.tokens({ surface: "#F7F6F2" });
+  assert.equal(named.document.documentElement.getAttribute("data-scheme"), "light");
+});
+
+test("the fake document refuses what a real one refuses", () => {
+  const { document } = load();
+  const a = document.createElement("div");
+  const b = document.createElement("div");
+  a.appendChild(b);
+  assert.throws(() => b.appendChild(a), /HierarchyRequestError/);
+  assert.throws(() => a.appendChild(a), /HierarchyRequestError/);
+  assert.throws(() => b.removeChild(a), /NotFoundError/);
+  assert.throws(() => a.insertBefore(document.createElement("p"), document.createElement("p")), /NotFoundError/);
 });
