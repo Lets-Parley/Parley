@@ -364,7 +364,43 @@ mutate "the module cache's resolved-bundle check" \
 
 mutate "the breaker's reset on success" \
     'TestASuccessBetweenTwoFailuresKeepsTheBreakerClosed' \
-    breaker.go 'func (b *breaker) success() { b.failures = 0 }' 'func (b *breaker) success() {}'
+    breaker.go 'func (b *breaker) success() { b.failures, b.actionFailures = 0, 0 }' 'func (b *breaker) success() {}'
+
+# A guest that declines an action has done its job. Treated as an accepted
+# action the refusal is broadcast as though something changed; treated as a
+# failure it is charged, and a participant sending bad input switches the
+# plugin off.
+mutate "the action refusal" \
+    'TestAPluginRefusesAnActionWithoutBeingChargedForIt' \
+    kinds.go 'if code, _ := actionRefusal(out); code != "" {' 'if code, _ := actionRefusal(out); code != "" && false {'
+
+mutate "the fault on a refusal code the host does not know" \
+    'TestAMalformedRefusalIsAPluginFault' \
+    host.go '_, err = actionRefusal(out)' '_, _ = actionRefusal(out)'
+
+# Anyone in a room can send an action, so what a failed one may cost the
+# plugin is bounded three ways: counted apart from the failures that trip,
+# not counted at all when the guest itself reported it, and never read as
+# reported when the call had to be stopped.
+mutate "failed actions counted apart from the failures that disable" \
+    'TestFailingActionsDegradeAPluginButNeverDisableIt|TestFailedActionsDoNotCountTowardAHookTrip' \
+    host.go 'outcome = b.actionFailure(time.Now(), h.cfg.BreakerCooldown)' 'outcome = b.failure(time.Now(), h.cfg.BreakerCooldown)'
+
+mutate "no charge for an action the guest reported as failed" \
+    'TestOnlyAnActionThatHadToBeStoppedIsCharged' \
+    host.go 'free := action && errors.Is(err, ErrGuestReported) && cheap(elapsed, h.cfg.CallTimeout)' 'free := false && errors.Is(err, ErrGuestReported) && cheap(elapsed, h.cfg.CallTimeout)'
+
+mutate "the charge for a reported error that used most of its call" \
+    'TestOnlyACheapReportedErrorIsFree|TestAReportedActionErrorIsChargedOnceItUsedMostOfItsCall' \
+    host.go 'func cheap(elapsed, timeout time.Duration) bool { return elapsed <= timeout/2 }' 'func cheap(elapsed, timeout time.Duration) bool { return true }'
+
+mutate "the call site's use of how long a reported error took" \
+    'TestAReportedActionErrorIsChargedOnceItUsedMostOfItsCall' \
+    host.go 'free := action && errors.Is(err, ErrGuestReported) && cheap(elapsed, h.cfg.CallTimeout)' 'free := action && errors.Is(err, ErrGuestReported) && (cheap(elapsed, h.cfg.CallTimeout) || true)'
+
+mutate "a stopped call is never read as a reported error" \
+    'TestOnlyAnActionThatHadToBeStoppedIsCharged' \
+    host.go 'ctx.Err() == nil && reported != "" && reported == err.Error() {' 'true {'
 
 # A guest that declines an action has done its job. Treated as an accepted
 # action the refusal is broadcast as though something changed; treated as a
