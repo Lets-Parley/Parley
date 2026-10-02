@@ -1094,30 +1094,44 @@ test("a stamp is pressed from the note's menu, lands under focus, and is moved a
 
   const { rot, ...where } = sent()[0].payload;
   assert.equal(sent()[0].action, "stamp");
-  // The note cannot be measured here, so it is taken to be 240 by 44: the
-  // default spot is 20 in from the right and 2 up from the bottom edge.
-  assert.deepEqual(where, { cardId: "c1", kind: "quick-win", x: 0.917, y: 0.955 });
+  // The note cannot be measured here, so it is taken to be 240 by 44. The
+  // default spot is 72 in from the right, clear of the note's own controls,
+  // and 2 up from the bottom edge: 168/240 and 42/44.
+  assert.deepEqual(where, { cardId: "c1", kind: "quick-win", x: 0.7, y: 0.955 });
   assert.ok(Math.abs(rot) <= 9, "the tilt is a small one");
 
   push(session({ cards, stamps: [{ id: "s1", ...where, rot }] }, PARTICIPANT));
   const stamp = stampsOf(root, "one")[0];
   assert.equal(stamp.getAttribute("aria-label"), "Quick win stamp, 1 of 1 on this note");
-  assert.equal(stamp.style.left, "91.7%");
+  assert.equal(stamp.style.left, "70%");
   assert.equal(stamp.style.top, "95.5%");
   same(document.activeElement, stamp, "the stamp just pressed has focus, ready for the arrow keys");
 
   stamp.fire("keydown", { key: "ArrowRight" });
   stamp.fire("keydown", { key: "ArrowRight" });
-  assert.equal(leftOf(stamp), 96.7, "it moves at once");
+  // One step is 6 of the note's 240: 0.7 + 0.025 + 0.025.
+  assert.equal(leftOf(stamp), 75, "it moves at once");
   assert.equal(sent().length, 1, "and is not sent until the keys rest");
   runTimers(500);
-  assert.deepEqual(sent()[1], { action: "move-stamp", payload: { stampId: "s1", x: 0.967, y: 0.955 } });
+  assert.deepEqual(sent()[1], { action: "move-stamp", payload: { stampId: "s1", x: 0.75, y: 0.955 } });
 
   stamp.fire("keydown", { key: "Delete" });
   assert.deepEqual(sent()[2], { action: "remove-stamp", payload: { stampId: "s1" } });
   push(session({ cards }, PARTICIPANT));
   assert.equal(stampsOf(root, "one").length, 0);
   same(document.activeElement, one(noteWith(root, "one"), "grip"), "focus falls back to the note");
+});
+
+test("a second stamp from the menu lands beside the first, not on it", () => {
+  const { root, push, sent } = load();
+  const cards = [card("c1", "went-well", "one")];
+  push(session({ cards, stamps: [{ id: "s1", cardId: "c1", kind: "idea", x: 0.7, y: 0.955, rot: 0 }] }));
+  one(noteWith(root, "one"), "grip").click();
+  menuItem(root, "Add a stamp").click();
+  button(root, "Blocker").click();
+  // The next place along is 30 further left: 138/240.
+  assert.equal(sent()[0].payload.x, 0.575);
+  assert.equal(sent()[0].payload.y, 0.955);
 });
 
 test("a stamp is announced by what it is and how many there are, never by who", () => {
@@ -1167,6 +1181,25 @@ test("the facilitator moves and removes any stamp, through the action kept for t
   stamp.click();
   menuItem(root, "Remove stamp").click();
   assert.deepEqual(sent()[1], { action: "moderate-stamp", payload: { stampId: "s9", remove: true } });
+});
+
+test("every stamp on a note can be reached from the note's menu, without aiming at it", () => {
+  const { root, document, push, sent } = load({ host: "new" });
+  const stamps = [
+    { id: "s1", cardId: "c1", kind: "idea", x: 0.5, y: 0.5, rot: 0 },
+    { id: "s2", cardId: "c1", kind: "laugh", x: 0.5, y: 0.5, rot: 0 },
+  ];
+  push(session({ cards: [card("c1", "went-well", "one")], stamps }, FACILITATOR));
+  one(noteWith(root, "one"), "grip").click();
+  menuItem(root, "Stamps on this note (2)").click();
+  labeled(root, "Move Made me laugh stamp, 2 of 2").click();
+  same(document.activeElement, stampsOf(root, "one")[1], "Move puts focus on that stamp, for the arrow keys");
+  assert.match(liveOf(root), /Arrow keys move it\. Delete removes it\./);
+
+  one(noteWith(root, "one"), "grip").click();
+  menuItem(root, "Stamps on this note (2)").click();
+  labeled(root, "Remove Great idea stamp, 1 of 2").click();
+  assert.deepEqual(sent(), [{ action: "moderate-stamp", payload: { stampId: "s1", remove: true } }]);
 });
 
 test("a stamp nobody can place is not drawn, and one off the note is brought back onto it", () => {

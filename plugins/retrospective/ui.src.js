@@ -240,7 +240,7 @@
     // After the text: the control the stage promotes, on top, and under it
     // what the note has already gathered, kept small.
     ".trail{flex-direction:column;align-items:flex-end;gap:2px}",
-    ".more,.stage-2 .vote,.stage-3 .target{order:-1}",
+    ".more,.stage-2 .trail .vote,.stage-3 .trail .target{order:-1}",
     ".pick,.grip,.more,.target{display:grid;place-items:center;width:28px;height:32px}",
     ".pick{cursor:pointer}",
     ".grip,.more,.target{padding:0;border:0;border-radius:8px;background:transparent;color:var(--color-ink-faint);transition:background-color .15s,color .15s}",
@@ -334,6 +334,8 @@
     ".keys{font:11px/16px var(--mono);color:var(--color-ink-faint)}",
     ".sheet{display:flex;flex-direction:column;gap:10px;width:20rem;padding:14px}",
     ".sheet .row .field{flex:1 1 4rem;padding:5px 10px}",
+    ".stamp-face.small{flex:none;width:24px;height:24px;outline:0}",
+    ".stamp-face.small svg{width:12px;height:12px}",
     ".stamp-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}",
     ".stamp-choice{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 2px;border:0;border-radius:10px;background:transparent;color:var(--color-ink-soft);font-size:12px;line-height:16px;text-wrap:balance}",
     ".stamp-choice:hover{background:var(--color-felt-deep);color:var(--color-ink)}",
@@ -1913,6 +1915,17 @@
         openStamps(id, opener);
       },
     });
+    const pressed = board.stamps.filter(function (s) {
+      return s.cardId === id;
+    }).length;
+    if (pressed) {
+      items.push({
+        label: "Stamps on this note (" + pressed + ")…",
+        run: function () {
+          openStampList(id, opener);
+        },
+      });
+    }
     items.push({
       label: linked ? "Actions from this note (" + linked + ")…" : "Start an action from this note…",
       run: function () {
@@ -2341,16 +2354,26 @@
     return { left: box.left, top: box.top, width: box.width || 240, height: box.height || 44 };
   }
 
-  // Where a stamp lands when no spot is pointed at: along the bottom edge
-  // from the right, clear of the text and of the stamps already there.
+  // Where a stamp lands when no spot is pointed at: on the bottom edge, half
+  // over it, starting left of the note's own controls and working leftwards
+  // to the first place no other stamp is sitting.
   function freeSpot(cardId) {
     const box = noteBox(cardId);
-    const n = board.stamps.filter(function (s) {
+    const there = board.stamps.filter(function (s) {
       return s.cardId === cardId;
-    }).length;
-    const perRow = Math.max(1, Math.floor((box.width - 40) / 30));
-    const cx = box.width - 20 - 30 * (n % perRow) - 15 * (Math.floor(n / perRow) % 2);
-    return { x: round3(cx / box.width), y: round3((box.height - 2) / box.height) };
+    });
+    const perRow = Math.max(1, Math.floor((box.width - 92) / 30) + 1);
+    const y = round3((box.height - 2) / box.height);
+    let x = 0;
+    for (let i = 0; i < 12; i++) {
+      const cx = box.width - 72 - 30 * (i % perRow) - 15 * (Math.floor(i / perRow) % 2);
+      x = round3(cx / box.width);
+      const taken = there.some(function (s) {
+        return Math.abs(s.x - x) * box.width < 20 && Math.abs(s.y - y) * box.height < 20;
+      });
+      if (!taken) break;
+    }
+    return { x: x, y: y };
   }
 
   function isPress(s, wait) {
@@ -2639,6 +2662,44 @@
     ]);
     openPop(opener, sheet);
     choices[0].focus();
+  }
+
+  // Stamps may be pressed one over another, and then the one underneath is
+  // hard to hit. This list reaches every stamp on a note without aiming.
+  function openStampList(cardId, opener) {
+    const card = cardById(cardId);
+    const on = board.stamps.filter(function (s) {
+      return s.cardId === cardId;
+    });
+    const control = function (label, name, run) {
+      const btn = el("button", { type: "button", class: "btn btn-quiet btn-small", text: label, "aria-label": label + " " + name });
+      btn.addEventListener("click", function () {
+        closePop(true);
+        run();
+      });
+      return btn;
+    };
+    const rows = on.map(function (s, i) {
+      const kind = STAMPS[s.kind];
+      const name = kind.label + " stamp, " + (i + 1) + " of " + on.length;
+      return el("li", {}, [
+        el("span", { class: "stamp-face small", style: "--hue:var(--color-" + kind.hue + ")" }, [icon(kind.glyph)]),
+        el("span", { text: kind.label }),
+        control("Move", name, function () {
+          view.stamps[s.id].btn.focus();
+          setText(live, name + ". " + stampHelp.textContent);
+        }),
+        control("Remove", name, function () {
+          removeStamp(s.id);
+        }),
+      ]);
+    });
+    const sheet = el("div", { class: "pop sheet", role: "dialog", "aria-label": "Stamps on: " + short(card.text) }, [
+      el("p", { class: "label", text: "Stamps on this note" }),
+      el("ul", { class: "link-list" }, rows),
+    ]);
+    openPop(opener, sheet);
+    rows[0].children[2].focus();
   }
 
   // ----------------------------------------------------------- lanes, drawn
@@ -3277,10 +3338,14 @@
     placeThumb(false);
     closePop(false);
   });
-  // The step pill is measured, and the measure changes when the faces load.
-  if (document.fonts && document.fonts.ready) {
-    document.fonts.ready.then(function () {
+  // The step pill is measured, and the measure changes when the faces load
+  // or the steps wrap.
+  if (window.ResizeObserver) {
+    const watcher = new window.ResizeObserver(function () {
       placeThumb(false);
+    });
+    stepViews.forEach(function (v) {
+      watcher.observe(v.el);
     });
   }
 
