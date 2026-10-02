@@ -3849,7 +3849,7 @@ test("a pixel sticker kicks up four cells of dust when its placer sets it down, 
     assert.equal(bit.getAttribute("aria-hidden"), "true");
     assert.equal(bit.getAttribute("tabindex"), null);
     same(bit.parentNode, noteWith(pixel.ui.root, "one"), "on the note, outside the list of stickers");
-    assert.match(bit.style.cssText, /^width:3px;height:3px;left:calc\(8px \+ 0\.027 \* \(100% - 16px\)\);top:calc\(calc\(1 \* \(100% \+ 8px\) - 4px\) \+ 18px\);background:var\(--(k|st-ink)\)$/);
+    assert.match(bit.style.cssText, /^width:3px;height:3px;left:calc\(8px \+ 0\.027 \* \(100% - 16px\)\);top:calc\(calc\(1 \* \(100% \+ 8px\) - 4px\) \+ 18px\);background:var\(--(k|color-ink-soft)\)$/);
   }
   assert.match(src, /\.dust\{position:absolute;z-index:1;pointer-events:none\}/);
   assert.equal(stickersOf(pixel.ui.root, "one").length, 1, "dust is not a sticker");

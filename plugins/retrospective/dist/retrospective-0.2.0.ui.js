@@ -4085,7 +4085,7 @@ const RETRO_FONTS = [
     };
     DUST.forEach(function (vel, i) {
       const bit = el("i", { class: "dust k-" + STAMPS[s.kind].meaning, "aria-hidden": "true" });
-      bit.style.cssText = "width:" + cell + "px;height:" + cell + "px;left:" + stamp.btn.style.left + ";top:calc(" + stamp.btn.style.top + " + " + cell * 6 + "px);background:var(" + (i % 3 ? "--k" : "--st-ink") + ")";
+      bit.style.cssText = "width:" + cell + "px;height:" + cell + "px;left:" + stamp.btn.style.left + ";top:calc(" + stamp.btn.style.top + " + " + cell * 6 + "px);background:var(" + (i % 3 ? "--k" : "--color-ink-soft") + ")";
       note.el.appendChild(bit);
       dustLive += 1;
       // Up at `vel`, down under 1500px a second squared, until it is level again.
