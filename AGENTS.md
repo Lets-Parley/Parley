@@ -535,14 +535,24 @@ issue first. For anything large, open an issue before writing code.
     `internal/api/custody/store.go`); do not log cookies, tokens, passcodes or
     bodies onto that line.
 
-44. **A plugin refusing an action is not a plugin failing, and a failed action
-    never disables an install.** `on_session_action` answers
+44. **A plugin refusing an action is not a plugin failing, and nobody in a
+    room can get an install switched off.** `on_session_action` answers
     `{"refused":"<code>"}` to decline; `actionRefusal` in
-    `internal/plugin/kinds.go` reads it, and only output carrying a `refused`
+    `internal/plugin/kinds.go` reads it, and only output carrying that exact
     key is inspected, because output was ignored before and old guests must
     keep working. Anyone in a room — a link guest included — can send an
-    action, so `Host.record` lets a failed action degrade but not count toward
-    the durable disable. A room's actions run under `lockRoom`'s advisory lock
+    action, so `Host.record` does not charge an action the guest itself
+    reported as failed (`ErrGuestReported`: it ran to its end), and counts an
+    action that had to be stopped in `breaker.actionFailures`, which opens the
+    cooldown and never trips. Do not merge that counter back into `failures`.
+45. **A room's actions run one at a time, in two stages, and the order of the
+    stages is the capacity bound.** `Host.callAction` lines a room's actions up
+    in-process first (`enterRoom`, holding nothing), so one room has at most
+    one call in flight and one connection parked per replica. Only then does
+    `call` take the in-flight slot and, after it, `lockRoom`'s advisory lock
     (two-key form, class `actionLockClass`, never the single-key ids of gotcha
-    3); it holds a pooled connection for the guest call, which is why
-    `actionLockSlots` is small. Do not hold it across the broadcast.
+    3), which holds a pooled connection for the whole guest call. Taking the
+    lock before the in-flight slot, or before the in-process line, lets one
+    room or one install park the pool. `lockReserve` keeps the last two
+    connections free for the guest's own key-value calls. The lock is released
+    by `defer` before the broadcast; do not hold it across one.

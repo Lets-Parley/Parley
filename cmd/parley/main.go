@@ -486,7 +486,9 @@ func main() {
 	defer handler.Shutdown()
 	srv := newHTTPServer(cfg.BindAddr, cfg.Port, handler)
 
+	drained := make(chan struct{})
 	go func() {
+		defer close(drained)
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -499,6 +501,10 @@ func main() {
 		log.Error("FATAL: server exited", "error", err)
 		os.Exit(1)
 	}
+	// ListenAndServe returns the moment Shutdown is called, not when it has
+	// finished. Returning here would run the deferred pool.Close under
+	// requests still being drained.
+	<-drained
 	log.Info("shut down cleanly")
 }
 

@@ -427,23 +427,24 @@ func (h *Host) runAction(w http.ResponseWriter, r *http.Request, installID, kind
 		http.Error(w, `{"error":"could not run that action"}`, http.StatusInternalServerError)
 		return
 	}
-	unlock, err := h.lockRoom(r.Context(), ac.Session.ID)
-	if errors.Is(err, errRoomBusy) {
+	out, err := h.callAction(r.Context(), installID, ac.Session.ID, in)
+	switch {
+	case err == nil:
+	case errors.Is(err, errRoomBusy):
 		http.Error(w, `{"error":"the room is busy with another action, try again"}`, http.StatusConflict)
 		return
-	}
-	if err != nil {
+	case errors.Is(err, ErrTooBusy):
+		// Not a conflict with the room: the host has no free call for this
+		// plugin right now, and the same request may succeed a moment later.
+		http.Error(w, `{"error":"the plugin is at capacity, try again"}`, http.StatusServiceUnavailable)
+		return
+	case errors.Is(err, errRoomLock):
 		if h.Log != nil {
 			h.Log.Warn("could not take a room's action lock", "install_id", installID, "kind", kind, "error", err)
 		}
 		http.Error(w, `{"error":"could not run that action"}`, http.StatusServiceUnavailable)
 		return
-	}
-	out, err := h.Call(r.Context(), installID, ExportSessionAction, in, ModeSync)
-	// Released before the broadcast: that is a second guest call, and the
-	// room's next action has no reason to wait for it.
-	unlock()
-	if err != nil {
+	default:
 		if h.Log != nil {
 			h.Log.Warn("a plugin action failed", "install_id", installID, "kind", kind, "action", action, "error", err)
 		}
@@ -481,19 +482,22 @@ var actionRefusals = map[string]struct {
 var ErrBadRefusal = errors.New("the plugin's refusal is not one of the known codes")
 
 // actionRefusal reads the code out of an action's output. Only a JSON object
-// with a "refused" key is a refusal; everything else is an accepted action,
-// because what a guest printed there was ignored before refusals existed and
-// a guest built then must keep working.
+// with a "refused" key, spelled exactly so, is a refusal; everything else is
+// an accepted action, because what a guest printed there was ignored before
+// refusals existed and a guest built then must keep working.
 func actionRefusal(out []byte) (string, error) {
-	var reply struct {
-		Refused json.RawMessage `json:"refused"`
+	// A map, not a struct: struct tags match keys case-insensitively.
+	var reply map[string]json.RawMessage
+	if json.Unmarshal(out, &reply) != nil {
+		return "", nil
 	}
-	if json.Unmarshal(out, &reply) != nil || reply.Refused == nil {
+	refused, ok := reply["refused"]
+	if !ok {
 		return "", nil
 	}
 	var code string
-	if err := json.Unmarshal(reply.Refused, &code); err != nil || actionRefusals[code].status == 0 {
-		return "", fmt.Errorf("%w: %.64q", ErrBadRefusal, reply.Refused)
+	if err := json.Unmarshal(refused, &code); err != nil || actionRefusals[code].status == 0 {
+		return "", fmt.Errorf("%w: %.64q", ErrBadRefusal, refused)
 	}
 	return code, nil
 }
@@ -504,40 +508,100 @@ func actionRefusal(out []byte) (string, error) {
 // block on either (AGENTS.md gotcha 3).
 const actionLockClass int32 = 0x70616374
 
-// actionLockSlots bounds how many pooled connections this process may park on
-// room locks. Each lock holds a connection for the length of a guest call,
-// and the guest's own key-value reads need connections from the same pool.
-const actionLockSlots = 2
+// lockReserve is how many pooled connections room locks always leave free. A
+// lock holds its connection for the whole guest call and the guest's own
+// key-value calls draw on the same pool, so locks may never take all of it.
+const lockReserve = 2
 
-var errRoomBusy = errors.New("the room is busy with another action")
+var (
+	errRoomBusy = errors.New("the room is busy with another action")
+	errRoomLock = errors.New("could not lock the room for an action")
+)
 
-// lockRoom makes a room's actions run one at a time on every replica. An
+// roomQueue is one room's line on this replica.
+type roomQueue struct {
+	turn    chan struct{}
+	waiters int // guarded by Host.mu
+}
+
+// callAction runs one action with the room to itself, on every replica. An
 // action is read, change, write inside the guest and the store's write is
 // last-wins, so two that overlap lose one of the changes.
 //
-// The wait is bounded, and a caller that runs out of it is told the room is
-// busy rather than left hanging. Two hash-colliding rooms share a lock, which
-// costs them a wait and nothing else.
-func (h *Host) lockRoom(ctx context.Context, sessionID string) (func(), error) {
-	ctx, cancel := context.WithTimeout(ctx, 2*h.cfg.CallTimeout)
-	defer cancel()
+// It is two stages. A room's actions first line up in this process, in arrival
+// order and holding nothing, so one room never has more than one call in
+// flight or one connection parked here however many requests it is sent. The
+// one at the head then takes its in-flight slot and, inside call, the
+// Postgres advisory lock that keeps the other replicas out. Rooms share no
+// line: a busy one cannot hold a quiet one back, only use up the in-flight
+// caps every plugin call already answers to.
+//
+// Both waits end at one deadline, and a caller that runs out of it is told
+// the room is busy rather than left hanging.
+func (h *Host) callAction(ctx context.Context, installID, sessionID string, in []byte) ([]byte, error) {
+	by := time.Now().Add(2 * h.cfg.CallTimeout)
+	wait, cancel := context.WithDeadline(ctx, by)
+	leave, err := h.enterRoom(wait, sessionID)
+	cancel()
+	if err != nil {
+		return nil, err
+	}
+	defer leave()
+	info := &callInfo{installID: installID, mode: ModeSync, room: sessionID, lockBy: by}
+	return h.call(ctx, installID, ExportSessionAction, in, ModeSync, info)
+}
+
+// enterRoom waits for the room's turn in this process. The returned func
+// gives the turn up and must be called exactly once.
+func (h *Host) enterRoom(ctx context.Context, sessionID string) (func(), error) {
+	h.mu.Lock()
+	q := h.rooms[sessionID]
+	if q == nil {
+		q = &roomQueue{turn: make(chan struct{}, 1)}
+		h.rooms[sessionID] = q
+	}
+	q.waiters++
+	h.mu.Unlock()
+	forget := func() {
+		h.mu.Lock()
+		if q.waiters--; q.waiters == 0 {
+			delete(h.rooms, sessionID)
+		}
+		h.mu.Unlock()
+	}
 	select {
-	case h.actionSlots <- struct{}{}:
+	case q.turn <- struct{}{}:
+		return func() { <-q.turn; forget() }, nil
 	case <-ctx.Done():
+		forget()
 		return nil, errRoomBusy
 	}
-	tx, err := h.Store.Pool.Begin(ctx)
+}
+
+// lockRoom takes the room's advisory lock, which is what holds the other
+// replicas out. The returned func releases it and must be called exactly
+// once. Two hash-colliding rooms share a lock, which costs them a wait and
+// nothing else.
+func (h *Host) lockRoom(ctx context.Context, sessionID string, by time.Time) (func(), error) {
+	pool := h.Store.Pool
+	if h.roomLocks.Add(1) > max(1, pool.Config().MaxConns-lockReserve) {
+		h.roomLocks.Add(-1)
+		return nil, ErrTooBusy
+	}
+	ctx, cancel := context.WithDeadline(ctx, by)
+	defer cancel()
+	tx, err := pool.Begin(ctx)
 	if err == nil {
 		if _, err = tx.Exec(ctx, `select pg_advisory_xact_lock($1, hashtext($2))`, actionLockClass, sessionID); err != nil {
 			_ = tx.Rollback(context.WithoutCancel(ctx))
 		}
 	}
 	if err != nil {
-		<-h.actionSlots
+		h.roomLocks.Add(-1)
 		if ctx.Err() != nil {
 			return nil, errRoomBusy
 		}
-		return nil, fmt.Errorf("locking session %s for an action: %w", sessionID, err)
+		return nil, fmt.Errorf("%w: session %s: %v", errRoomLock, sessionID, err)
 	}
 	return func() {
 		// Ending the transaction is what releases the lock. If that fails the
@@ -545,7 +609,7 @@ func (h *Host) lockRoom(ctx context.Context, sessionID string) (func(), error) {
 		end, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = tx.Rollback(end)
-		<-h.actionSlots
+		h.roomLocks.Add(-1)
 	}, nil
 }
 

@@ -330,7 +330,7 @@ mutate "the memory cap" \
     host.go 'RuntimeConfig: wazero.NewRuntimeConfig().WithMemoryLimitPages(h.cfg.MemoryPages).WithCloseOnContextDone(true),' 'RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),'
 
 mutate "the in-flight cap" \
-    'TestInFlightCallsAreCappedPerInstallAndInTotal' \
+    'TestInFlightCallsAreCappedPerInstallAndInTotal|TestAnActionPastTheInFlightCapIsToldThePluginIsAtCapacity' \
     host.go 'if h.total >= h.cfg.MaxConcurrentCalls || h.inflight[installID] >= h.cfg.MaxConcurrentPerInstall {' 'if false {'
 
 mutate "the circuit breaker" \
@@ -378,13 +378,39 @@ mutate "the fault on a refusal code the host does not know" \
     'TestAMalformedRefusalIsAPluginFault' \
     host.go '_, err = actionRefusal(out)' '_, _ = actionRefusal(out)'
 
-mutate "no durable disable from failed actions" \
-    'TestFailingActionsDegradeAPluginButNeverDisableIt' \
-    host.go 'if action && outcome != breakerHealthy {' 'if false {'
+# Anyone in a room can send an action, so what a failed one may cost the
+# plugin is bounded three ways: counted apart from the failures that trip,
+# not counted at all when the guest itself reported it, and never read as
+# reported when the call had to be stopped.
+mutate "failed actions counted apart from the failures that disable" \
+    'TestFailingActionsDegradeAPluginButNeverDisableIt|TestFailedActionsDoNotCountTowardAHookTrip' \
+    host.go 'outcome = b.actionFailure(time.Now(), h.cfg.BreakerCooldown)' 'outcome = b.failure(time.Now(), h.cfg.BreakerCooldown)'
 
-mutate "the per-room action lock" \
-    'TestConcurrentActionsOnOneRoomDoNotLoseUpdates|TestAnActionThatCannotGetTheRoomIsRefusedRatherThanLeftWaiting' \
+mutate "no charge for an action the guest reported as failed" \
+    'TestOnlyAnActionThatHadToBeStoppedIsCharged' \
+    host.go '(action && errors.Is(callErr, ErrGuestReported)) {' '(false && errors.Is(callErr, ErrGuestReported)) {'
+
+mutate "a stopped call is never read as a reported error" \
+    'TestOnlyAnActionThatHadToBeStoppedIsCharged' \
+    host.go 'ctx.Err() == nil && reported != "" && reported == err.Error() {' 'true {'
+
+# The lock in Postgres is what holds the other replicas out; the line in the
+# process is what keeps one room to one connection. Each is broken alone.
+mutate "the per-room action lock across replicas" \
+    'TestAnActionThatCannotGetTheRoomIsRefusedRatherThanLeftWaiting' \
     kinds.go 'select pg_advisory_xact_lock($1, hashtext($2))' 'select $1::int, $2::text'
+
+mutate "one action per room at the lock" \
+    'TestABusyRoomHoldsOneConnectionAndDoesNotDelayAnother' \
+    kinds.go 'q = &roomQueue{turn: make(chan struct{}, 1)}' 'q = &roomQueue{turn: make(chan struct{}, 64)}'
+
+mutate "the pool reserve room locks leave free" \
+    'TestRoomLocksLeaveTheReserveOfThePoolFree' \
+    kinds.go 'if h.roomLocks.Add(1) > max(1, pool.Config().MaxConns-lockReserve) {' 'if h.roomLocks.Add(1) < 0 {'
+
+mutate "the one deadline on waiting for a room" \
+    'TestAnActionThatCannotGetTheRoomIsRefusedRatherThanLeftWaiting|TestAnActionWaitingInLineGivesUpAtTheSameDeadline' \
+    kinds.go 'by := time.Now().Add(2 * h.cfg.CallTimeout)' 'by := time.Now().Add(time.Hour)'
 
 # Uninstall destroys a plugin's key-value store and its unrecoverable encrypted
 # secrets. The refusal while sessions of a provided kind exist is the only thing

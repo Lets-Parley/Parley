@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -36,17 +37,19 @@ func i64Const(v int) []byte {
 	return append([]byte{opI64Const}, leb128.EncodeInt64(int64(v))...)
 }
 
-// buildAction finishes the module with one on_session_action export, which is
-// the export the action path calls.
+// buildAction finishes the module with one function exported twice: as
+// on_session_action, which the action path calls, and as "run", so the same
+// guest can be called the way every other hook is.
 func (b *guestBuilder) buildAction(locals []wasm.ValueType, body []byte) []byte {
 	b.types = append(b.types, &wasm.FunctionType{Results: []wasm.ValueType{wasm.ValueTypeI32}})
 	m := &wasm.Module{
 		TypeSection:     b.types,
 		ImportSection:   b.imports,
 		FunctionSection: []wasm.Index{uint32(len(b.types) - 1)},
-		ExportSection: []*wasm.Export{{
-			Type: wasm.ExternTypeFunc, Name: ExportSessionAction, Index: uint32(len(b.imports)),
-		}},
+		ExportSection: []*wasm.Export{
+			{Type: wasm.ExternTypeFunc, Name: ExportSessionAction, Index: uint32(len(b.imports))},
+			{Type: wasm.ExternTypeFunc, Name: "run", Index: uint32(len(b.imports))},
+		},
 		CodeSection: []*wasm.Code{{LocalTypes: locals, Body: body}},
 	}
 	return binary.EncodeModule(m)
@@ -82,6 +85,35 @@ func guestReplies(reply string) []byte {
 	body = append(body, opCall, byte(outputSet))
 	body = append(body, i32Const(0)...)
 	return b.buildAction([]wasm.ValueType{i64}, append(body, opEnd))
+}
+
+// guestReports runs to its end and says it failed, which is what a throw in a
+// JavaScript guest becomes: the message goes in Extism's error slot and the
+// export returns non-zero.
+func guestReports(message string) []byte {
+	var b guestBuilder
+	i64, i32 := wasm.ValueTypeI64, wasm.ValueTypeI32
+	alloc := b.importFunc("extism:host/env", "alloc", []wasm.ValueType{i64}, []wasm.ValueType{i64})
+	storeU8 := b.importFunc("extism:host/env", "store_u8", []wasm.ValueType{i64, i32}, nil)
+	errorSet := b.importFunc("extism:host/env", "error_set", []wasm.ValueType{i64}, nil)
+
+	body := append(i64Const(len(message)), opCall, byte(alloc), opLocalSet, 0)
+	body = append(body, storeBytes(storeU8, 0, message)...)
+	body = append(body, opLocalGet, 0, opCall, byte(errorSet))
+	body = append(body, i32Const(1)...)
+	return b.buildAction([]wasm.ValueType{i64}, append(body, opEnd))
+}
+
+// guestHangs never returns from an action.
+func guestHangs() []byte {
+	var b guestBuilder
+	return b.buildAction(nil, []byte{opLoop, blockTypeEmpty, opBr, 0x00, opEnd, opUnreachable, opEnd})
+}
+
+// guestTraps traps on an action, and on "run".
+func guestTraps() []byte {
+	var b guestBuilder
+	return b.buildAction(nil, []byte{opUnreachable, opEnd})
 }
 
 // guestAppends is the shape every ceremony's action has: read a document from
@@ -162,8 +194,12 @@ func actionRoom(t *testing.T, h *Host, in Install) *room {
 	kind := h.PluginKind(st, KindDef{Kind: "k", Actions: []ActionDef{{Name: "act", Verb: http.MethodPost}}})
 	r := &room{session: "room-" + in.ID}
 	r.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		id := r.session
+		if other := req.URL.Query().Get("room"); other != "" {
+			id = other
+		}
 		kind.Actions["act"].Do(w, req, session.ActionCtx{
-			Session:   store.Session{ID: r.session},
+			Session:   store.Session{ID: id},
 			UserID:    "someone",
 			Broadcast: func(context.Context, string) { r.broadcasts.Add(1) },
 		})
@@ -174,7 +210,16 @@ func actionRoom(t *testing.T, h *Host, in Install) *room {
 
 func (r *room) act(t *testing.T) (int, string) {
 	t.Helper()
-	resp, err := http.Post(r.URL, "application/json", strings.NewReader(`{}`))
+	return r.actIn(t, "")
+}
+
+// actIn acts in a named room of the same install. The client gives up long
+// before the test would, so a wait that has lost its bound fails the test
+// instead of hanging it.
+func (r *room) actIn(t *testing.T, id string) (int, string) {
+	t.Helper()
+	client := http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Post(r.URL+"?room="+id, "application/json", strings.NewReader(`{}`))
 	if err != nil {
 		t.Error(err)
 		return 0, ""
@@ -187,7 +232,78 @@ func (r *room) act(t *testing.T) (int, string) {
 func failuresCharged(h *Host, installID string) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.breakerFor(installID).failures
+	b := h.breakerFor(installID)
+	return b.failures + b.actionFailures
+}
+
+// holdRoom takes a room's advisory lock on a connection of its own, the way
+// another replica mid-action holds it, and returns what lets go of it.
+func holdRoom(t *testing.T, h *Host, sessionID string) func() {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := h.Store.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1, hashtext($2))`, actionLockClass, sessionID); err != nil {
+		t.Fatal(err)
+	}
+	var once sync.Once
+	release := func() { once.Do(func() { _ = tx.Rollback(ctx) }) }
+	t.Cleanup(release)
+	return release
+}
+
+// roomLocks counts this database's connections holding (granted) or parked on
+// (not granted) a given room's action lock.
+func roomLocks(t *testing.T, h *Host, sessionID string, granted bool) int {
+	t.Helper()
+	var n int
+	err := h.Store.Pool.QueryRow(context.Background(), `
+		select count(*) from pg_locks
+		where locktype = 'advisory' and database = (select oid from pg_database where datname = current_database())
+		  and classid = $1::int::oid and objid = hashtext($2)::oid and granted = $3`,
+		actionLockClass, sessionID, granted).Scan(&n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// eventually waits for a condition another goroutine is driving toward.
+func eventually(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		if cond() {
+			return
+		}
+	}
+	t.Fatalf("timed out waiting until %s", what)
+}
+
+func queued(h *Host, sessionID string) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if q := h.rooms[sessionID]; q != nil {
+		return q.waiters
+	}
+	return 0
+}
+
+// released fails unless nothing of the room is left behind in the host or in
+// Postgres.
+func released(t *testing.T, h *Host, in Install, sessionID string) {
+	t.Helper()
+	h.mu.Lock()
+	inflight, total, rooms := h.inflight[in.ID], h.total, len(h.rooms)
+	h.mu.Unlock()
+	if inflight != 0 || total != 0 || rooms != 0 || h.roomLocks.Load() != 0 {
+		t.Fatalf("left behind: %d in flight for the install, %d in total, %d room queues, %d lock connections",
+			inflight, total, rooms, h.roomLocks.Load())
+	}
+	if n := roomLocks(t, h, sessionID, true) + roomLocks(t, h, sessionID, false); n != 0 {
+		t.Fatalf("%d connections still hold or wait on the room's lock", n)
+	}
 }
 
 func TestAPluginRefusesAnActionWithoutBeingChargedForIt(t *testing.T) {
@@ -330,15 +446,7 @@ func TestAnActionThatCannotGetTheRoomIsRefusedRatherThanLeftWaiting(t *testing.T
 		t.Fatal(err)
 	}
 
-	// Another replica, mid-action on the same room.
-	tx, err := h.Store.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1, hashtext($2))`, actionLockClass, r.session); err != nil {
-		t.Fatal(err)
-	}
+	holdRoom(t, h, r.session)
 
 	started := time.Now()
 	status, body := r.act(t)
@@ -353,5 +461,237 @@ func TestAnActionThatCannotGetTheRoomIsRefusedRatherThanLeftWaiting(t *testing.T
 	}
 	if value, _, _ := h.Store.Get(ctx, in.ID, key); len(value) != 3 {
 		t.Fatal("the guest ran without the room's lock")
+	}
+}
+
+// A busy room is one room's problem. However many actions it is sent, it has
+// one of them at the lock and the rest in line holding nothing, so it parks
+// one connection and takes one in-flight slot, and the room next door runs.
+func TestABusyRoomHoldsOneConnectionAndDoesNotDelayAnother(t *testing.T) {
+	h, in := hosted(t, guestAppends(), HostConfig{CallTimeout: 10 * time.Second}, 1<<20, Grant{Capability: CapabilityKV})
+	r := actionRoom(t, h, in)
+	ctx := context.Background()
+	key, _ := namespacedKey("", "n")
+	if err := h.Store.Put(ctx, in.ID, key, []byte("AAA")); err != nil {
+		t.Fatal(err)
+	}
+	release := holdRoom(t, h, "busy")
+
+	const senders = 4
+	var wg sync.WaitGroup
+	for range senders {
+		wg.Go(func() {
+			if status, body := r.actIn(t, "busy"); status != http.StatusNoContent {
+				t.Errorf("got %d %s, want 204 once the room was free", status, body)
+			}
+		})
+	}
+	eventually(t, "every action for the busy room is in line and its head is at the lock", func() bool {
+		return queued(h, "busy") == senders && roomLocks(t, h, "busy", false) == 1
+	})
+	if n := roomLocks(t, h, "busy", false); n != 1 {
+		t.Fatalf("%d connections are parked on one room's lock, want 1", n)
+	}
+	if n := h.roomLocks.Load(); n != 1 {
+		t.Fatalf("the host counts %d lock connections, want 1", n)
+	}
+
+	started := time.Now()
+	if status, body := r.actIn(t, "quiet"); status != http.StatusNoContent {
+		t.Fatalf("the quiet room got %d %s, want 204", status, body)
+	}
+	if waited := time.Since(started); waited > 5*time.Second {
+		t.Fatalf("the quiet room waited %s behind the busy one", waited)
+	}
+
+	release()
+	wg.Wait()
+	released(t, h, in, "busy")
+}
+
+// The in-flight caps are the capacity bound, and a room waiting for its lock
+// counts against them: with one call allowed per install, a second room is
+// told the plugin is at capacity, at once, and nothing is charged.
+func TestAnActionPastTheInFlightCapIsToldThePluginIsAtCapacity(t *testing.T) {
+	h, in := hosted(t, guestAppends(), HostConfig{CallTimeout: 10 * time.Second, MaxConcurrentPerInstall: 1},
+		1<<20, Grant{Capability: CapabilityKV})
+	r := actionRoom(t, h, in)
+	release := holdRoom(t, h, "busy")
+
+	done := make(chan int, 1)
+	go func() {
+		status, _ := r.actIn(t, "busy")
+		done <- status
+	}()
+	eventually(t, "the busy room's action is at the lock", func() bool { return roomLocks(t, h, "busy", false) == 1 })
+
+	started := time.Now()
+	status, body := r.actIn(t, "quiet")
+	if status != http.StatusServiceUnavailable || body != `{"error":"the plugin is at capacity, try again"}` {
+		t.Fatalf("got %d %s, want 503", status, body)
+	}
+	if waited := time.Since(started); waited > 5*time.Second {
+		t.Fatalf("the refusal took %s; it should not wait", waited)
+	}
+	if n := failuresCharged(h, in.ID); n != 0 {
+		t.Fatalf("%d failures were charged for a host at capacity", n)
+	}
+	release()
+	if status := <-done; status != http.StatusNoContent {
+		t.Fatalf("the busy room's action got %d, want 204", status)
+	}
+	released(t, h, in, "busy")
+}
+
+// Room locks never take the pool's last connections: the guest holding a lock
+// needs one for its own key-value calls.
+func TestRoomLocksLeaveTheReserveOfThePoolFree(t *testing.T) {
+	h, in := hosted(t, guestAppends(), HostConfig{CallTimeout: 10 * time.Second}, 1<<20, Grant{Capability: CapabilityKV})
+	r := actionRoom(t, h, in)
+	// As though the pool were down to its reserve plus one.
+	h.roomLocks.Add(h.Store.Pool.Config().MaxConns - lockReserve - 1)
+	release := holdRoom(t, h, "busy")
+
+	done := make(chan int, 1)
+	go func() {
+		status, _ := r.actIn(t, "busy")
+		done <- status
+	}()
+	eventually(t, "the busy room's action is at the lock", func() bool { return roomLocks(t, h, "busy", false) == 1 })
+	if status, body := r.actIn(t, "quiet"); status != http.StatusServiceUnavailable {
+		t.Fatalf("got %d %s, want 503 with the lock allowance spent", status, body)
+	}
+	release()
+	if status := <-done; status != http.StatusNoContent {
+		t.Fatalf("the busy room's action got %d, want 204", status)
+	}
+}
+
+// The line in this process and the lock in Postgres end at one deadline.
+func TestAnActionWaitingInLineGivesUpAtTheSameDeadline(t *testing.T) {
+	h, in := hosted(t, guestAppends(), HostConfig{CallTimeout: 150 * time.Millisecond}, 1<<20, Grant{Capability: CapabilityKV})
+	r := actionRoom(t, h, in)
+	holdRoom(t, h, r.session)
+
+	var wg sync.WaitGroup
+	for range 3 {
+		wg.Go(func() {
+			if status, body := r.act(t); status != http.StatusConflict {
+				t.Errorf("got %d %s, want 409", status, body)
+			}
+		})
+	}
+	wg.Wait()
+	if n := roomLocks(t, h, r.session, false); n != 0 {
+		t.Fatalf("%d connections are still parked on the room's lock", n)
+	}
+}
+
+func TestTheRoomIsReleasedAfterAGuestFault(t *testing.T) {
+	h, in := hosted(t, guestTraps(), HostConfig{}, 1024)
+	r := actionRoom(t, h, in)
+	if status, body := r.act(t); status != http.StatusBadGateway {
+		t.Fatalf("got %d %s, want 502", status, body)
+	}
+	released(t, h, in, r.session)
+}
+
+func TestTheRoomIsReleasedWhenTheCallerGoesAwayMidCall(t *testing.T) {
+	h, in := hosted(t, guestHangs(), HostConfig{CallTimeout: time.Minute}, 1024)
+	st, err := h.Store.State(context.Background(), in.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kind := h.PluginKind(st, KindDef{Kind: "k", Actions: []ActionDef{{Name: "act", Verb: http.MethodPost}}})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`)).WithContext(ctx)
+		kind.Actions["act"].Do(httptest.NewRecorder(), req, session.ActionCtx{
+			Session: store.Session{ID: "gone"}, Broadcast: func(context.Context, string) {},
+		})
+	}()
+	eventually(t, "the guest is running under the room's lock", func() bool { return roomLocks(t, h, "gone", true) == 1 })
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the action outlived its caller")
+	}
+	released(t, h, in, "gone")
+}
+
+// What kind of failure an action was decides what it costs the plugin. A
+// guest that ran to its end and reported an error is not charged: that is all
+// a guest validating by throwing does with bad input, and anyone in the room
+// can send bad input. A guest that had to be stopped is charged.
+func TestOnlyAnActionThatHadToBeStoppedIsCharged(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		guest   []byte
+		charged bool
+	}{
+		{"reported", guestReports("no such card"), false},
+		{"trapped", guestTraps(), true},
+		{"timed out", guestHangs(), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, in := hosted(t, tc.guest, HostConfig{
+				CallTimeout: 200 * time.Millisecond, BreakerFailures: 2, BreakerCooldown: time.Hour,
+			}, 1024)
+			r := actionRoom(t, h, in)
+			for range 2 {
+				if status, body := r.act(t); status != http.StatusBadGateway {
+					t.Fatalf("got %d %s, want 502", status, body)
+				}
+			}
+			if degraded := !h.breakerAllows(in.ID); degraded != tc.charged {
+				t.Fatalf("degraded = %v after two such actions, want %v", degraded, tc.charged)
+			}
+		})
+	}
+}
+
+// The same reported error from any other hook is charged as it always was:
+// nobody in a room chooses when those run.
+func TestAReportedErrorOutsideAnActionIsStillCharged(t *testing.T) {
+	h, in := hosted(t, guestReports("no"), HostConfig{BreakerFailures: 2, BreakerCooldown: time.Hour}, 1024)
+	for range 2 {
+		if _, err := h.Call(context.Background(), in.ID, "run", nil, ModeAsync); !errors.Is(err, ErrGuestReported) {
+			t.Fatalf("got %v, want ErrGuestReported", err)
+		}
+	}
+	if h.breakerAllows(in.ID) {
+		t.Fatal("two reported errors from a hook did not degrade the plugin")
+	}
+}
+
+// Failed actions are counted apart, so a room cannot bring the count one
+// short of a trip and leave an unrelated hook failure to finish it.
+func TestFailedActionsDoNotCountTowardAHookTrip(t *testing.T) {
+	h, in := hosted(t, guestTraps(), HostConfig{BreakerFailures: 2, BreakerTripLimit: 1, BreakerCooldown: time.Hour}, 1024)
+	r := actionRoom(t, h, in)
+	if status, body := r.act(t); status != http.StatusBadGateway {
+		t.Fatalf("got %d %s, want 502", status, body)
+	}
+	if _, err := h.Call(context.Background(), in.ID, "run", nil, ModeAsync); !errors.Is(err, ErrGuestPanic) {
+		t.Fatalf("got %v, want ErrGuestPanic", err)
+	}
+	state, err := h.Store.State(context.Background(), in.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Install.Enabled || !h.breakerAllows(in.ID) {
+		t.Fatal("one failed action and one failed hook tripped a breaker set to two failures")
+	}
+}
+
+func TestARefusalKeyIsMatchedExactly(t *testing.T) {
+	h, in := hosted(t, guestReplies(`{"REFUSED":"invalid"}`), HostConfig{}, 1024)
+	r := actionRoom(t, h, in)
+	if status, body := r.act(t); status != http.StatusNoContent {
+		t.Fatalf("got %d %s, want 204: only the exact key is a refusal", status, body)
 	}
 }

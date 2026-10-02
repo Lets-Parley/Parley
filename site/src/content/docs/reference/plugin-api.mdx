@@ -113,8 +113,11 @@ failing: validating `body` and saying no is the plugin working.
 | Returns `{"refused":"not-found"}` | `404` | The same |
 | Returns `{"refused":"conflict"}` | `409` | The same |
 | Not reached: the body is over 1 MiB or is not JSON | `400` with `{"error":"invalid JSON body"}` | The hook is not called |
+| Throws, or otherwise returns an error | `502` with `{"error":"the plugin could not run that action"}` | Nothing is broadcast. The failure is logged on the server and does not count against the plugin |
+| Traps, times out, runs out of memory, or returns a `refused` that is not one of the four codes | `502` with the same body | Nothing is broadcast. The failure is logged and counts toward a cooldown, never toward switching the plugin off |
 | Not reached: the room stayed busy with other actions for twice the call timeout | `409` with `{"error":"the room is busy with another action, try again"}` | The hook is not called |
-| Throws, traps, times out, or returns a `refused` that is not one of the four codes | `502` with `{"error":"the plugin could not run that action"}` | Nothing is broadcast; the failure is logged on the server and counts toward the [circuit breaker](/security/plugin-sandbox/#containment) |
+| Not reached: the plugin already has as many calls running as it is allowed | `503` with `{"error":"the plugin is at capacity, try again"}` | The hook is not called |
+| Not reached: the room's lock could not be taken for another reason, such as the database being unreachable | `503` with `{"error":"could not run that action"}` | The hook is not called |
 
 ```js
 function on_session_action() {
@@ -135,17 +138,38 @@ reaches the response. Put anything the room should read into the state
 instead. Refuse before you save: Parley does not undo what a refusing call
 already wrote.
 
-A throw is a fault. Five in a row put the install in a cooldown during which
-every call to it is refused, for every room in the org. Failed actions never
-go further than that cooldown, because anybody in a room can send an action;
-only failures in the other hooks count toward switching the install off. A
-refusal is a successful call and clears the count.
+The `refused` key is matched exactly, in lower case.
+
+What a failed action costs the plugin depends on how it failed, because
+anybody in a room can send one:
+
+- A throw, or any error the guest returns after running to its end, costs
+  nothing. It answers `502` and is logged. Refusing is still better: the
+  caller learns why.
+- A call Parley had to stop (a trap, a timeout, the memory cap) counts. Five
+  in a row put the install in a cooldown, during which every call to it is
+  refused, for every room in the org. That is as far as failed actions go.
+  They are counted apart from other failures and never switch the install off.
+- A failure in `on_session_state`, `on_event` or `on_job` counts as it always
+  has, whatever kind it was, and repeated cooldowns from those do switch the
+  install off.
+
+A refusal is a successful call and clears both counts.
 
 Actions on one room run one at a time, on every replica: your hook can load a
 document, change it and save it without another action on the same room
-running in between. That covers `on_session_action` only. An `on_event` or
-`on_job` handler is not held behind a room's actions, so do not have one
-rewrite a document an action also rewrites.
+running in between. Actions for one room wait in arrival order on the replica
+that received them; across replicas the order is whichever takes the lock
+first. An action that has waited twice the call timeout is answered `409`.
+That covers `on_session_action` only. An `on_event` or `on_job` handler is not
+held behind a room's actions, so do not have one rewrite a document an action
+also rewrites.
+
+A room never has more than one action running, so one busy room uses one of
+the plugin's concurrent calls, and other rooms are not held up behind it.
+Rooms do share the plugin's allowance: with the default of two concurrent
+calls for each plugin, a third room acting at the same instant is answered
+`503` straight away. `parley.act` reports a `503` as `failed`.
 
 ### `on_event`
 
@@ -490,7 +514,7 @@ window.parley.act("add-card", { text: "Shipped" }).then(function (result) {
 | `{ ok: false, reason: "rate-limited" }` | Too many requests |
 | `{ ok: false, reason: "ungranted" }` | The install holds no `session:act` grant |
 | `{ ok: false, reason: "unreachable" }` | The request never reached the server |
-| `{ ok: false, reason: "failed" }` | Anything else the server answered |
+| `{ ok: false, reason: "failed" }` | Anything else the server answered, including a guest that threw (502) and a plugin at its call capacity (503) |
 | `{ ok: false, reason: "unknown" }` | The outcome is not available to this frame. The action may have been performed |
 
 The reason is a code from this list and nothing more: the server's own error

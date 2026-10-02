@@ -62,6 +62,11 @@ var (
 	// ErrGuestPanic is returned when guest code traps or the call site
 	// recovers a panic.
 	ErrGuestPanic = errors.New("the plugin call trapped")
+	// ErrGuestReported is returned when the guest ran to completion and said
+	// the call failed: a throw in a JavaScript guest, an error return in any
+	// other. It is the guest's own verdict, not something that had to be
+	// stopped.
+	ErrGuestReported = errors.New("the plugin reported an error")
 	// ErrNoBundle is returned when no bundle source is configured.
 	ErrNoBundle = errors.New("no plugin bundle source is configured")
 )
@@ -174,8 +179,9 @@ type Host struct {
 	breakers map[string]*breaker
 	inflight map[string]int
 	total    int
+	rooms    map[string]*roomQueue
 
-	actionSlots chan struct{}
+	roomLocks atomic.Int32 // connections parked on room locks
 }
 
 // NewHost builds a host with the containment budget filled in.
@@ -187,8 +193,7 @@ func NewHost(store *Store, cfg HostConfig) *Host {
 		cache:    map[string]*cachedModule{},
 		breakers: map[string]*breaker{},
 		inflight: map[string]int{},
-
-		actionSlots: make(chan struct{}, actionLockSlots),
+		rooms:    map[string]*roomQueue{},
 	}
 	store.onChange = h.changed
 	return h
@@ -426,6 +431,17 @@ func (h *Host) call(ctx context.Context, installID, fn string, input []byte, mod
 		return nil, err
 	}
 
+	if info.room != "" {
+		// After the in-flight slot, so locks parked on connections are bounded
+		// by the same caps as the calls themselves; released when this
+		// returns, which is before the caller broadcasts.
+		unlock, err := h.lockRoom(ctx, info.room, info.lockBy)
+		if err != nil {
+			return nil, err
+		}
+		defer unlock()
+	}
+
 	out, err := h.invoke(ctx, compiled, fn, input, info)
 	// An action is the one export a room participant calls at will.
 	action := fn == ExportSessionAction
@@ -464,6 +480,12 @@ func (h *Host) invoke(ctx context.Context, compiled *extism.CompiledPlugin, fn s
 
 	_, output, err := instance.CallWithContext(ctx, fn, input)
 	if err != nil {
+		// A guest that ran to its end and reported an error left that error
+		// in Extism's error slot; a trap or a stopped call is the runtime's
+		// own error and does not match it.
+		if reported := instance.GetErrorWithContext(ctx); ctx.Err() == nil && reported != "" && reported == err.Error() {
+			return nil, fmt.Errorf("%w: %.256s", ErrGuestReported, reported)
+		}
 		return nil, h.classify(ctx, started, err)
 	}
 	return output, nil
@@ -546,12 +568,14 @@ func (h *Host) breakerAllows(installID string) bool {
 // times. Disabling is durable: a plugin that has proved it cannot run does not
 // come back on the next restart.
 //
-// A failed action degrades and never disables. Anyone in the room, a signed
-// link's guest included, can send an action a guest throws on, so counting
-// those toward the trip limit would let one participant switch a plugin off
-// for the whole org. The cooldown still contains a guest that fails every
-// action; giving up on it for good is left to the calls nobody in a room
-// chooses.
+// A failed action is counted apart from every other failure and never
+// disables. Anyone in the room, a signed link's guest included, can send an
+// action a guest fails on, so those failures must not add up to, or toward,
+// the trip that switches a plugin off for the whole org. An action the guest
+// itself reported as failed is not counted at all: it ran to its end, cost
+// what a successful call costs, and is what a guest that validates by
+// throwing does with bad input. A trap, a timeout or a memory stop on an
+// action still opens the cooldown.
 func (h *Host) record(ctx context.Context, installID, name string, callErr error, action bool) {
 	h.mu.Lock()
 	b := h.breakerFor(installID)
@@ -562,20 +586,19 @@ func (h *Host) record(ctx context.Context, installID, name string, callErr error
 	}
 	// A refusal by the containment layer is the host working, not the plugin
 	// failing; charging it would let load disable a healthy plugin.
-	if errors.Is(callErr, ErrTooBusy) || errors.Is(callErr, ErrCircuitOpen) || errors.Is(callErr, ErrDisabled) {
+	if errors.Is(callErr, ErrTooBusy) || errors.Is(callErr, ErrCircuitOpen) || errors.Is(callErr, ErrDisabled) ||
+		(action && errors.Is(callErr, ErrGuestReported)) {
 		h.mu.Unlock()
 		return
 	}
 	// Recorded before the switch, so the operator screen can name the failure
 	// whatever stage the breaker reached.
 	b.lastErr = callErr.Error()
-	outcome := b.failure(time.Now(), h.cfg.BreakerCooldown)
-	if action && outcome != breakerHealthy {
-		// Take back the trip failure just counted, and open the cooldown it
-		// skips when it reports exhaustion.
-		b.trips--
-		b.openTill = time.Now().Add(h.cfg.BreakerCooldown)
-		outcome = breakerDegraded
+	var outcome breakerOutcome
+	if action {
+		outcome = b.actionFailure(time.Now(), h.cfg.BreakerCooldown)
+	} else {
+		outcome = b.failure(time.Now(), h.cfg.BreakerCooldown)
 	}
 	switch outcome {
 	case breakerDegraded:

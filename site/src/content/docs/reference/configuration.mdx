@@ -411,11 +411,18 @@ the cap are refused rather than queued.
 A per-call timeout and a memory cap bound one call. Without this cap a plugin
 still exhausts the process by making many calls that are each individually
 well-behaved.
+
+A room action also holds one database connection while it runs, to keep the
+room's actions one at a time across replicas, so this is the most connections
+plugin actions can hold on one replica. The pool has ten. Whatever this is set
+to, room actions leave the last two free and answer `503` past that.
 </EnvVar>
 
 <EnvVar name="PLUGIN_MAX_CALLS_PER_PLUGIN" default="2" badValue="Refuses to start if the value is not a positive integer">
 How many calls one install may have in flight, so one plugin cannot take the
-whole budget from the others.
+whole budget from the others. A room runs one action at a time, so this is
+also how many rooms of one plugin can be mid-action at once on a replica; an
+action past it is answered `503` at once, not queued.
 </EnvVar>
 
 <EnvVar name="PLUGIN_MODULE_CACHE_SIZE" default="16" badValue="Refuses to start if the value is not a positive integer">
