@@ -288,7 +288,8 @@ const RETRO_FONTS = [
     ".btn-quiet{border:1px solid var(--color-line-strong);padding:8px 16px;background:transparent;color:var(--color-ink-soft)}",
     ".btn-quiet:hover{background:var(--color-felt-deep)}",
     ".btn-small{min-height:32px;padding:5px 12px;font-size:13px}",
-    ".danger{border-color:var(--color-stop);color:var(--color-stop)}",
+    // The red is mixed toward the ink so the words hold 4.5:1 in both themes.
+    ".danger{border-color:var(--color-stop);color:color-mix(in srgb,var(--color-stop) 75%,var(--color-ink))}",
     ".field{display:block;width:100%;min-width:0;border:1px solid var(--color-line-strong);border-radius:8px;background:var(--color-surface-hi);color:var(--color-ink);padding:10px 14px;font:inherit;font-size:14px;line-height:20px;caret-color:var(--color-accent)}",
     ".field:focus-visible{outline-offset:1px;border-color:var(--color-accent)}",
     ".field:read-only{color:var(--color-ink-soft)}",
@@ -2687,7 +2688,8 @@ const RETRO_FONTS = [
       .filter(function (s) {
         return s.cardId === cardId && s.y * run < 12;
       });
-    const last = Math.max(6, box.width - 100);
+    // The row stops where the note's menu begins.
+    const last = Math.max(6, box.width - 52);
     let best = 6;
     let room = -1;
     [0, 13, 6.5, 19.5].some(function (shift) {

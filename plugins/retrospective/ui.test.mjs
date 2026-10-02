@@ -1184,12 +1184,12 @@ test("each of the twelve stamps a note holds lands on a spot of its own, along t
     stamps.push({ id: "s" + i, cardId: "c1", kind: "blocker", x, y, rot: 0 });
     push(session({ cards, stamps }));
   }
-  // On a note 240 wide the row runs from 6 to 140, short of the note's own
-  // controls, in steps of 26: 6, 32, 58, 84, 110, 136. The next five go
-  // halfway between those, from 19, and the twelfth halfway again, at 12.5.
+  // On a note 240 wide the row runs from 6 to 188, where the note's menu
+  // begins, in steps of 26: 6, 32, 58, 84, 110, 136, 162, 188. The next four
+  // go halfway between those: 19, 45, 71, 97.
   assert.deepEqual(
     stamps.map((s) => s.x),
-    [0.025, 0.133, 0.242, 0.35, 0.458, 0.567, 0.079, 0.188, 0.296, 0.404, 0.513, 0.052],
+    [0.025, 0.133, 0.242, 0.35, 0.458, 0.567, 0.675, 0.783, 0.079, 0.188, 0.296, 0.404],
   );
   assert.ok(stamps.every((s) => s.y === 0), "none of them is put lower, where the words are");
 });
