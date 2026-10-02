@@ -3421,12 +3421,12 @@ test("a sticker picked from the book lands on no word: beside the last line wher
   bare.push(session({ cards: [card("c1", "went-well", "one")], stamps: [st("t0", "chat", 0.1, 0.1)] }));
   const plus = addOf(bare.root, "one");
   assert.equal(plus.hidden, false);
-  assert.equal(plus.style.left, AT(0.938, 1)[0], "218 of 240: 22 in from the far edge");
-  // With a sticker there, it steps back toward the handle, 36 at a time,
-  // until it is 38 clear of every sticker: 182 is 36 from that one, 146 is 72.
-  const taken = laid([[38, 11, 110, 31]], { stamps: [st("t1", "idea", 0.938, 1)] });
-  taken.push(session({ cards: [card("c1", "went-well", "one")], stamps: [st("t1", "idea", 0.938, 1), st("t2", "chat", 0.1, 0.1)] }));
-  assert.equal(addOf(taken.root, "one").style.left, AT(0.616, 1)[0], "146 of 240");
+  assert.equal(plus.style.left, AT(0.786, 1)[0], "184 of 240: 56 in from the far edge, clear of the menu button");
+  // With a sticker there, it steps back toward the handle 36 at a time until
+  // it is 38 clear of that sticker's center: 148 is only 36 away, 112 is 72.
+  const taken = laid([[38, 11, 110, 31]], { stamps: [st("t1", "idea", 0.786, 1)] });
+  taken.push(session({ cards: [card("c1", "went-well", "one")], stamps: [st("t1", "idea", 0.786, 1), st("t2", "chat", 0.1, 0.1)] }));
+  assert.equal(addOf(taken.root, "one").style.left, AT(0.464, 1)[0], "112 of 240");
 });
 
 test("the book says how many are left only when it can know: not for stickers that were there before this visit", () => {

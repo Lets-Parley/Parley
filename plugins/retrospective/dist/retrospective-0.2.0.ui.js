@@ -522,7 +522,8 @@ const RETRO_FONTS = [
     // Pixel: the units are cells, three pixels each at this size, so the
     // sticker has to be exactly 42px or the cells leave the pixel grid.
     // It is never tilted, and its size is a whole number of device pixels
-    // a cell (--px, set from the device's pixel ratio), so no cell is uneven.
+    // a cell (--px, set from the device's pixel ratio). With crisp edges
+    // every cell then rounds the same way, wherever the sticker sits.
     ".st.px{width:var(--px,42px);height:var(--px,42px);margin:calc(var(--px,42px) / -2) 0 0 calc(var(--px,42px) / -2)}",
     ".st.px svg{rotate:none}",
     ".st.px path{stroke-linejoin:miter}",
@@ -3345,7 +3346,8 @@ const RETRO_FONTS = [
   // The sheet last placed from, for this visit. The frame has no storage.
   let stickerSet = "vinyl";
   const FLY = spring(360, 23);
-  const PEEL = spring(520, 40);
+  // 271ms to rest: a sticker comes off quicker than it goes on.
+  const PEEL = spring(1100, 60);
   // Stickers this viewer has asked to have removed: theirs peel off, a
   // teammate's only lifts away.
   const removing = bag();
@@ -3633,7 +3635,8 @@ const RETRO_FONTS = [
   // word. With nowhere like that, there is no plus: S and the menu remain.
   function plusSpot(cardId, box) {
     const there = centersOn(cardId, box);
-    for (let x = box.width - Math.max(22, (box.kept || 0) - 8); x >= 60; x -= 36) {
+    // 56 in from the far edge is clear of the menu button above it.
+    for (let x = box.width - Math.max(56, (box.kept || 0) - 8); x >= 60; x -= 36) {
       const p = [x, box.height + ST_PAD_Y];
       const taken = there.some(function (c) {
         return Math.hypot(c[0] - p[0], c[1] - p[1]) < 38;
@@ -4080,16 +4083,6 @@ const RETRO_FONTS = [
         const stamp = view.stamps[s.id];
         if (!stamp) return;
         const c = centerOf(stampAt[s.id] || s, m.box);
-        // A pixel sticker is set on whole device pixels: its corner is
-        // nudged by the fraction of a pixel it would otherwise be off by.
-        if (STAMPS[s.kind].set === "pixel" && s.kind !== UNKNOWN_KIND) {
-          const dpr = window.devicePixelRatio || 1;
-          const off = function (v) {
-            return Math.round(Math.round(v * dpr) / dpr * 1000 - v * 1000) / 1000;
-          };
-          const half = pixelSize() / 2;
-          stamp.btn.style.translate = off(m.box.left + c[0] - half) + "px " + off(m.box.top + c[1] - half) + "px";
-        }
         stamp.btn.classList.toggle("over", w.width > 0 && w.height > 0 && c[0] + r > w.left && c[0] - r < w.left + w.width && c[1] + r > w.top && c[1] - r < w.top + w.height);
       });
       const spot = roomOn(m.cardId) === 0 || leftFor(m.cardId) === 0 ? null : plusSpot(m.cardId, m.box);
