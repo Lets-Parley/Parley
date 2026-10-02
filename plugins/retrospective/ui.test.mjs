@@ -730,7 +730,7 @@ test("a teammate's vote is never shown as the viewer's own", async () => {
   voter.acts[0].answer({ ok: true });
   await settled();
   assert.equal(pressed(voter.root), "true");
-  assert.match(thumb(voter.root, "one", "up").getAttribute("aria-label"), /Your vote\.$/);
+  assert.match(thumb(voter.root, "one", "up").getAttribute("aria-label"), /Your vote\. Press to take it back\.$/);
 });
 
 test("malformed state is drawn as far as it makes sense and never throws", () => {
@@ -980,7 +980,7 @@ test("a stage change is announced once, with who moved the room and what to do n
   const { root, push } = load({ host: "new" });
   push(session({ stage: 1 }, PARTICIPANT));
   push(session({ stage: 2 }, PARTICIPANT));
-  assert.equal(liveOf(root), "Alice Ng moved the room to Vote. Vote each note up or down. One vote per person per note; press your thumb again to take it back.");
+  assert.equal(liveOf(root), "Alice Ng moved the room to Vote. Vote each note up or down. One vote per person per note; press your thumb again to take it back. The tag on a note's corner is its ups less its downs.");
   push(session({ stage: 2 }, PARTICIPANT));
   assert.equal(liveOf(root), "", "the same state again says nothing");
   push(session({ stage: 1 }, PARTICIPANT));
@@ -997,7 +997,7 @@ test("a note's handle and its menu button are there in every stage, in the same 
   const expected = [
     ["grip", ""],
     ["grip pick", ""],
-    ["grip", "rate rate"],
+    ["grip", ""],
     ["grip", "target"],
   ];
   expected.forEach(([lead, chips], stage) => {
@@ -1005,6 +1005,8 @@ test("a note's handle and its menu button are there in every stage, in the same 
     assert.equal(row("lead"), lead, "in front of the text, stage " + stage);
     assert.equal(row("trail"), "more", "after the text, the menu and only the menu, stage " + stage);
     assert.equal(visible(one(note(), "chips")) ? row("chips") : "", chips, "under the text, stage " + stage);
+    assert.deepEqual(one(note(), "rx").children.map((n) => n.className), ["rb add-st", "rb rate up", "rb rate down"], "on the lower edge: the plus and the two thumbs, stage " + stage);
+    assert.deepEqual(byClass(note(), "rate").map(visible), [true, true], "the thumbs are never taken out of the note, stage " + stage);
   });
   const more = one(note(), "more");
   assert.equal(more.getAttribute("aria-haspopup"), "menu");
@@ -1013,7 +1015,8 @@ test("a note's handle and its menu button are there in every stage, in the same 
   // A vote already cast stays in sight in every stage.
   push(session({ stage: 0, cards: [card("c1", "went-well", "one", { voteCount: 2 })] }));
   assert.equal(shown("rate"), true);
-  assert.equal(row("chips"), "rate rate");
+  assert.equal(one(note(), "tally").hidden, false, "as a tag on the corner");
+  assert.equal(one(note(), "chips").hidden, true, "and no row under the words");
   assert.equal(row("trail"), "more");
 });
 
@@ -1077,6 +1080,9 @@ test("focus follows the control when a stage change takes it away", () => {
   push(session({ stage: 2, cards }));
   thumb(root, "one", "down").focus();
   push(session({ stage: 3, cards }));
+  same(document.activeElement, thumb(root, "one", "down"), "a thumb is there in every stage, so focus on it stays");
+  one(note, "target").focus();
+  push(session({ stage: 0, cards }));
   same(document.activeElement, one(note, "more"), "a control that went away hands focus to the note's menu button");
 });
 
@@ -1666,7 +1672,7 @@ test("stickers lying over a note's words are marked, and step back while the wor
   assert.ok(!note.className.includes("peek"));
   assert.equal(words.textContent, "one", "the words themselves are never taken away");
   // The rule that thins them, and the one for a control in the note holding focus.
-  assert.match(src, /\.note\.peek \.st\.over:not\(\.lift\):not\(:focus-visible\),\.note:has\(\.lead :focus-visible,\.trail :focus-visible,\.chips :focus-visible\) \.st\.over\{opacity:\.2/);
+  assert.match(src, /\.note\.peek \.st\.over:not\(\.lift\):not\(:focus-visible\),\.note:has\(\.lead :focus-visible,\.trail :focus-visible,\.chips :focus-visible,\.rx :focus-visible\) \.st\.over\{opacity:\.2/);
 });
 
 test("a sticker is announced by what it is and how many there are, never by who or by which set", () => {
@@ -3309,10 +3315,12 @@ test("on a touch screen the checkbox, the handle, the menu button and the action
   assert.match(coarse, /\.stage-3 \.target\{min-width:44px;height:44px\}/);
   assert.doesNotMatch(src, /width:36px;height:44px/);
   const reach = src.split("\n").find((line) => line.includes(".st::after"));
-  assert.match(reach, /\.rate,\.target\{position:relative;justify-content:center;min-width:44px\}/);
-  assert.match(reach, /\.board:not\(\.stage-2\) \.rate::after,\.board:not\(\.stage-3\) \.target::after\{content:"";position:absolute;inset:-7px -1px\}/);
+  assert.match(reach, /\.target\{position:relative;justify-content:center;min-width:44px\}/);
+  assert.match(reach, /\.board:not\(\.stage-3\) \.target::after\{content:"";position:absolute;inset:-7px -1px\}/);
   assert.match(reach, /\.st::after\{content:"";position:absolute;inset:-1px\}/);
-  assert.match(reach, /\.add-st::after\{content:"";position:absolute;inset:-7px\}/);
+  // The plus and the thumbs: 32 drawn, 44 pressed (6 more on every side), 44 apart (12 between).
+  const edge = src.split("\n").find((line) => line.includes(".rb::after"));
+  assert.match(edge, /\.rx\{gap:12px;bottom:-16px;right:52px\}\.rb\{width:32px;height:32px;opacity:1\}\.rb::after\{content:"";position:absolute;inset:-6px\}/);
 });
 
 // Drop the third note on the second, whose text is `text`, and read the name the sheet offers.
@@ -3411,7 +3419,7 @@ test("a handle says how a move is made every time it is pressed, and once for a 
   assert.equal(liveOf(root), "New note in Puzzles.");
 });
 
-test("a note's words share their row with the handle and the menu only: the vote and the action count are a row under them, there only when there is one", () => {
+test("a note's words share their row with the handle and the menu only: the action count and the edited mark are a row under them, there only when there is one, and votes are never in it", () => {
   const { root, push } = load({ host: "new" });
   const cards = [card("c1", "went-well", "plain"), card("c2", "went-well", "voted", { voteCount: 2 }), card("c3", "went-well", "linked")];
   push(session({ stage: 1, cards, actionItems: [{ id: "a1", text: "fix", owner: "", sourceIds: ["c3"] }] }, PARTICIPANT));
@@ -3420,15 +3428,15 @@ test("a note's words share their row with the handle and the menu only: the vote
   for (const text of ["plain", "voted", "linked"]) {
     const note = noteWith(root, text);
     assert.deepEqual(one(note, "trail").children.map((n) => n.className), ["more"], "beside the words: the menu and nothing else");
-    assert.deepEqual(one(note, "chips").children.map((n) => n.className.split(" ")[0]), ["edited", "target", "rate", "rate"]);
+    assert.deepEqual(one(note, "chips").children.map((n) => n.className.split(" ")[0]), ["edited", "target"], "no vote is in the row under the words");
     same(one(note, "chips").parentNode, note, "the chips are a row of the note, not part of the first one");
   }
   assert.equal(one(noteWith(root, "plain"), "chips").hidden, true, "nothing to show, no row: the note stays one line");
-  assert.equal(one(noteWith(root, "voted"), "chips").hidden, false);
+  assert.equal(one(noteWith(root, "voted"), "chips").hidden, true, "votes do not make a row: they are a tag on the corner");
   assert.equal(one(noteWith(root, "linked"), "chips").hidden, false);
   push(session({ stage: 2, cards }, PARTICIPANT));
-  assert.equal(one(noteWith(root, "plain"), "chips").hidden, false, "in the Vote stage every note has its vote");
-  assert.match(src, /\.chips\{grid-column:2\/-1;justify-self:end/);
+  assert.deepEqual(["plain", "voted"].map((t) => one(noteWith(root, t), "chips").hidden), [true, true], "in the Vote stage too: a one-line note has no footer");
+  assert.match(src, /\.chips\{grid-column:2\/-1;justify-self:start/);
   assert.match(src, /\.note-text\{padding:6px 0;white-space:pre-wrap;overflow-wrap:break-word;border-radius:4px\}/);
   assert.doesNotMatch(src, /word-break:break-all|overflow-wrap:anywhere\}".*note-text/);
 });
@@ -3479,17 +3487,13 @@ test("a sticker picked from the book lands on no word: beside the last line wher
     assert.ok(cx >= 11 && cx <= 17 && cy >= 44 && cy <= 48, "piled in the corner: " + cx + ", " + cy);
     assert.ok(cx + 21 <= 38 || cy - 21 >= 31, "and off the words");
   }
-  // The plus stands at the far end of the foot, where nothing is.
+  // The plus is not placed: it stands with the thumbs on the note's lower edge.
   const bare = laid([[38, 11, 110, 31]]);
   bare.push(session({ cards: [card("c1", "went-well", "one")], stamps: [st("t0", "chat", 0.1, 0.1)] }));
   const plus = addOf(bare.root, "one");
   assert.equal(plus.hidden, false);
-  assert.equal(plus.style.left, AT(0.786, 1)[0], "184 of 240: 56 in from the far edge, clear of the menu button");
-  // With a sticker there, it steps back toward the handle 36 at a time until
-  // it is 38 clear of that sticker's center: 148 is only 36 away, 112 is 72.
-  const taken = laid([[38, 11, 110, 31]], { stamps: [st("t1", "idea", 0.786, 1)] });
-  taken.push(session({ cards: [card("c1", "went-well", "one")], stamps: [st("t1", "idea", 0.786, 1), st("t2", "chat", 0.1, 0.1)] }));
-  assert.equal(addOf(taken.root, "one").style.left, AT(0.464, 1)[0], "112 of 240");
+  same(plus.parentNode, one(noteWith(bare.root, "one"), "rx"));
+  assert.equal(plus.style.left, undefined, "nothing moves it about");
 });
 
 test("the book says how many are left only when it can know: not for stickers that were there before this visit", () => {
@@ -4132,6 +4136,10 @@ test("a note deleted while it is being edited does not take the draft with it: t
 
 // ---- thumbs up and down
 
+// A note's score tag as it reads, or null where there is none.
+const tallyOf = (root, text) => one(noteWith(root, text), "tally");
+const tagOf = (root, text) => (tallyOf(root, text).hidden ? null : one(tallyOf(root, text), "score").textContent);
+const tagClass = (root, text) => one(tallyOf(root, text), "score").className;
 // "unknown" where the thumb says nothing about being pressed.
 const pressedOf = (ui, text = "one") => ["up", "down"].map((way) => thumb(ui.root, text, way).getAttribute("aria-pressed") ?? "unknown").join(" ");
 // Long enough after a press that the next one is a press of its own.
@@ -4143,10 +4151,12 @@ test("a vote is set, not flipped: up, a switch to down in one press, and the hel
   ui.push(session({ stage: 2, cards: cards(0, 0) }, PARTICIPANT));
   const up = thumb(ui.root, "one", "up");
   const down = thumb(ui.root, "one", "down");
-  assert.equal(up.getAttribute("aria-label"), "Vote up: one. 0 up, 0 down.");
-  assert.equal(down.getAttribute("aria-label"), "Vote down: one. 0 up, 0 down.");
+  assert.equal(up.getAttribute("aria-label"), "Vote up: one. No votes yet.");
+  assert.equal(down.getAttribute("aria-label"), "Vote down: one. No votes yet.");
+  assert.equal(up.getAttribute("title"), "Vote up (U)");
+  assert.equal(down.getAttribute("title"), "Vote down (D)");
   assert.equal(pressedOf(ui), "unknown unknown", "nothing is claimed before the server has been heard");
-  assert.deepEqual([up, down].map((b) => one(b, "mono").hidden), [true, true], "a count of none is not written");
+  assert.equal(up.textContent + down.textContent, "", "the thumbs carry no counts");
 
   up.click();
   assert.deepEqual(ui.sent().at(-1), { action: "vote", payload: { cardId: "c1", value: "up" } });
@@ -4157,8 +4167,9 @@ test("a vote is set, not flipped: up, a switch to down in one press, and the hel
   await settled();
   ui.push(session({ stage: 2, cards: cards(1, 0) }, PARTICIPANT));
   assert.equal(pressedOf(ui), "true false");
-  assert.equal(up.getAttribute("aria-label"), "Vote up: one. 1 up, 0 down. Your vote.");
-  assert.equal(one(up, "mono").textContent, "1");
+  assert.equal(up.getAttribute("aria-label"), "Vote up: one. Score +1: 1 up, 0 down. Your vote. Press to take it back.");
+  assert.equal(up.getAttribute("title"), "Your vote. Press to take it back (U)");
+  assert.equal(tagOf(ui.root, "one"), "+1");
   assert.equal(liveOf(ui.root), "", "the push that shows it says nothing more");
 
   down.click();
@@ -4226,7 +4237,13 @@ test("a refused vote is put back and says why; the state arriving before the ans
   ui.acts[0].answer({ ok: false, reason: "conflict" });
   await settled();
   assert.equal(pressedOf(ui), "unknown unknown");
-  assert.equal(toastOf(ui.root).textContent, "That vote was not counted. The board has all the votes it can hold.");
+  // Said on the note, and with no Try again: asking again would get the same answer.
+  const oops = one(noteWith(ui.root, "one"), "oops");
+  assert.equal(oops.textContent, "That vote was not counted. The board has all the votes it can hold.");
+  absent(button(oops, "Try again"));
+  assert.equal(ui.sent().length, 1, "and it is not sent again");
+  labeled(oops, "Dismiss").click();
+  assert.equal(byClass(ui.root, "oops").length, 0);
   // The push first, the yes after.
   later(ui);
   thumb(ui.root, "one", "up").click();
@@ -4235,7 +4252,7 @@ test("a refused vote is put back and says why; the state arriving before the ans
   ui.acts[1].answer({ ok: true });
   await settled();
   assert.equal(pressedOf(ui), "true false");
-  assert.match(thumb(ui.root, "one", "up").getAttribute("aria-label"), /Your vote\.$/);
+  assert.match(thumb(ui.root, "one", "up").getAttribute("aria-label"), /Your vote\. Press to take it back\.$/);
   // U and D on the note do what the thumbs do.
   noteWith(ui.root, "one").fire("keydown", { key: "d" });
   assert.deepEqual(ui.sent().at(-1), { action: "vote", payload: { cardId: "c1", value: "down" } });
@@ -4248,31 +4265,33 @@ test("a refused vote is put back and says why; the state arriving before the ans
   assert.equal(ui.sent().length, 4, "a chord is not a vote");
 });
 
-test("the thumbs are on every note in the Vote stage, and elsewhere only on a note that has votes: a bare note keeps one row", () => {
+test("the thumbs are buttons on every note in every stage, with no counts in them; a note with votes has no row for them", () => {
   const { root, push } = load();
   const cards = [card("c1", "went-well", "bare"), card("c2", "went-well", "liked", { up: 2 }), card("c3", "went-well", "disliked", { down: 1 })];
-  const rows = () => ["bare", "liked", "disliked"].map((t) => !one(noteWith(root, t), "chips").hidden);
-  for (const stage of [0, 1, 3]) {
+  for (const stage of [0, 1, 2, 3]) {
     push(session({ stage, cards }));
-    // (In Decide every note has its row, for the action button; the thumbs on a bare note are still away.)
-    assert.deepEqual(rows(), [stage === 3, true, true], "stage " + stage);
-    assert.deepEqual(["up", "down"].map((w) => visible(thumb(root, "bare", w))), [false, false], "stage " + stage);
-    assert.deepEqual(["up", "down"].map((w) => visible(thumb(root, "disliked", w))), [true, true], "both thumbs, so a vote the other way is one press");
+    for (const text of ["bare", "liked", "disliked"]) {
+      assert.deepEqual(["up", "down"].map((w) => visible(thumb(root, text, w))), [true, true], text + ", stage " + stage);
+      assert.equal(one(noteWith(root, text), "chips").hidden, stage !== 3, "no row under the words for votes: " + text + ", stage " + stage);
+    }
   }
-  push(session({ stage: 2, cards }));
-  assert.deepEqual(rows(), [true, true, true]);
-  assert.deepEqual(["up", "down"].map((w) => one(thumb(root, "liked", w), "mono").hidden), [false, true]);
-  assert.equal(one(thumb(root, "liked", "up"), "mono").textContent, "2");
-  assert.equal(thumb(root, "liked", "up").getAttribute("aria-label"), "Vote up: liked. 2 up, 0 down.");
-  // The thumb is drawn, not written: the same outline four times, die-cut like a sticker, and turned over for down.
-  const paths = one(thumb(root, "liked", "up"), "tb").children[0].children.map((p) => p.getAttribute("class"));
-  assert.deepEqual(paths, ["e", "w", "o", "c", "s"]);
-  assert.match(src, /\.rate\.down \.tb svg\{scale:1 -1\}/);
-  assert.match(src, /\.rate\[aria-pressed="true"\] \.tb \.c\{fill:var\(--k\)\}/);
-  assert.match(src, /\.rate\[aria-pressed="true"\]\{border-color:var\(--color-accent\);background:var\(--color-accent-soft\);box-shadow:inset 0 0 0 1px var\(--color-accent\)\}/);
+  assert.equal(thumb(root, "liked", "up").getAttribute("aria-label"), "Vote up: liked. Score +2: 2 up, 0 down.");
+  // The thumb is one outline, drawn as a line in a box set on its own bounds, and turned over for down.
+  const glyph = thumb(root, "liked", "up").children[0];
+  assert.equal(glyph.getAttribute("viewBox"), "6.1 5.84 29 29");
+  assert.equal(glyph.children.length, 1);
+  assert.equal(glyph.children[0].getAttribute("stroke"), "currentColor");
+  assert.match(src, /\.rate\.down svg\{transform:scaleY\(-1\)\}/);
+  // Shown: pointed at or focused, in the Vote stage, or with the viewer's own vote known. Hidden is faint, not gone.
+  assert.match(src, /\.rb\{[^}]*opacity:0;/);
+  assert.match(src, /\.note:hover \.rb,\.note:focus-within \.rb,\.stage-2 \.rate,\.rate\.known,\.add-st\[aria-expanded="true"\]\{opacity:1\}/);
+  assert.doesNotMatch(src, /\.rb\{[^}]*display:none/);
+  // Pressed is a filled thumb and a ring, not a color alone.
+  assert.match(src, /\.rate\[aria-pressed="true"\]\{border-color:var\(--color-accent\);background:var\(--color-accent-soft\);box-shadow:0 0 0 1px var\(--color-accent\);color:var\(--color-accent\)\}/);
+  assert.match(src, /\.rate\[aria-pressed="true"\] path\{fill:currentColor\}/);
 });
 
-test("Top rated ranks by ups less downs, then by more ups, and a group says its ups and downs", () => {
+test("Top rated ranks by ups less downs, then by more ups, and a group says its score and its ups and downs", () => {
   const { root, push } = load();
   const cards = [
     card("c1", "went-well", "one", { up: 1 }),
@@ -4297,34 +4316,230 @@ test("Top rated ranks by ups less downs, then by more ups, and a group says its 
   const grouped = load();
   const g = [{ id: "g1", columnId: "went-well", title: "Pair" }];
   grouped.push(session({ cards: [card("c1", "went-well", "one", { groupId: "g1", up: 6 }), card("c2", "went-well", "two", { groupId: "g1", up: 0, down: 1 })], groups: g }));
-  assert.equal(one(grouped.root, "group-meta").textContent, "2 notes · 6 up · 1 down");
+  assert.equal(one(grouped.root, "group-meta").textContent, "2 notes · +5 (6 up · 1 down)", "six up and one down is five, not seven");
   grouped.push(session({ cards: [card("c1", "went-well", "one", { groupId: "g1" }), card("c2", "went-well", "two", { groupId: "g1" })], groups: g }));
   assert.equal(one(grouped.root, "group-meta").textContent, "2 notes", "nothing to say, nothing said");
   // A server from before there were two directions sends one count, which is all ups.
   grouped.push(session({ cards: [card("c1", "went-well", "one", { groupId: "g1", voteCount: 3 }), card("c2", "went-well", "two", { groupId: "g1" })], groups: g }));
-  assert.equal(one(grouped.root, "group-meta").textContent, "2 notes · 3 up");
+  assert.equal(one(grouped.root, "group-meta").textContent, "2 notes · +3", "no downs, no split");
+  grouped.push(session({ cards: [card("c1", "went-well", "one", { groupId: "g1", up: 2, down: 2 }), card("c2", "went-well", "two", { groupId: "g1", up: 3, down: 3 })], groups: g }));
+  assert.equal(one(grouped.root, "group-meta").textContent, "2 notes · \u00b10 (5 up · 5 down)");
+  grouped.push(session({ cards: [card("c1", "went-well", "one", { groupId: "g1", down: 2 }), card("c2", "went-well", "two", { groupId: "g1" })], groups: g }));
+  assert.equal(one(grouped.root, "group-meta").textContent, "2 notes · \u22122 (2 down)");
 });
 
-test("the viewer's own vote gets a small press and a teammate's does not; nothing moves where less motion is asked for", async () => {
+test("the viewer's own vote gets a small press and a teammate's only moves the number; nothing moves on first load or where less motion is asked for", async () => {
   const ui = load({ host: "new", motion: true });
-  ui.push(session({ stage: 2, cards: [card("c1", "went-well", "one")] }, PARTICIPANT));
+  ui.push(session({ stage: 2, cards: [card("c1", "went-well", "one", { up: 2 }), card("c2", "went-well", "two")] }, PARTICIPANT));
+  const on = (name) => ui.document.animations.filter((a) => a.target.className.split(" ").includes(name) || a.target.tagName === name);
+  assert.equal(on("score").length + on("B").length + on("SVG").length, 0, "nothing moves on the first load");
+  ui.push(session({ stage: 2, cards: [card("c1", "went-well", "one", { up: 3 }), card("c2", "went-well", "two", { up: 1 })] }, PARTICIPANT));
+  assert.equal(on("SVG").length, 0, "a teammate's vote does not press a thumb");
+  assert.equal(on("B").length, 1, "the number that changed ticks");
+  same(on("B")[0].target, one(tallyOf(ui.root, "one"), "score").children[0]);
+  assert.equal(on("score").length, 1, "and a note's first tag pops in");
+  same(on("score")[0].target, one(tallyOf(ui.root, "two"), "score"));
   ui.document.animations.length = 0;
-  ui.push(session({ stage: 2, cards: [card("c1", "went-well", "one", { up: 1 })] }, PARTICIPANT));
-  const onIcon = () => ui.document.animations.filter((a) => a.target.className.split(" ").includes("tb"));
-  assert.equal(onIcon().length, 0, "a teammate's vote does not press the thumb");
-  assert.equal(ui.document.animations.filter((a) => a.target.className === "mono").length, 1, "its count ticks");
   thumb(ui.root, "one", "down").click();
   ui.acts[0].answer({ ok: true });
   await settled();
-  assert.equal(onIcon().length, 1, "the viewer's own does");
-  same(onIcon()[0].target, one(thumb(ui.root, "one", "down"), "tb"));
+  assert.equal(on("SVG").length, 1, "the viewer's own presses the thumb");
+  same(on("SVG")[0].target, thumb(ui.root, "one", "down").children[0]);
+  assert.equal(on("score").length, 1, "and the tag takes the hit");
 
   const still = load({ host: "new" });
   still.push(session({ stage: 2, cards: [card("c1", "went-well", "one")] }, PARTICIPANT));
   thumb(still.root, "one", "up").click();
   still.acts[0].answer({ ok: true });
   await settled();
+  still.push(session({ stage: 2, cards: [card("c1", "went-well", "one", { up: 1 })] }, PARTICIPANT));
   assert.equal(still.document.animations.length, 0);
+});
+
+test("the tag is ups less downs with its sign: six up and one down is +5, never a count of votes", () => {
+  const { root, push } = load();
+  // up, down -> the tag, its classes, its name, the split beside it, the share of the rule that is up.
+  const table = [
+    [6, 1, "+5", "score pos mixed", "Score +5: 6 up, 1 down", "6 up \u00b7 1 down", "86%"],
+    [5, 5, "\u00b10", "score mixed", "Score 0: 5 up, 5 down", "5 up \u00b7 5 down", "50%"],
+    [0, 2, "\u22122", "score neg", "Score \u22122: 0 up, 2 down", "0 up \u00b7 2 down", "0%"],
+    [3, 0, "+3", "score pos", "Score +3: 3 up, 0 down", "3 up \u00b7 0 down", "100%"],
+    [1, 2, "\u22121", "score neg mixed", "Score \u22121: 1 up, 2 down", "1 up \u00b7 2 down", "33%"],
+    [4, 1, "+3", "score pos mixed", "Score +3: 4 up, 1 down", "4 up \u00b7 1 down", "80%"],
+  ];
+  for (const [up, down, tag, cls, name, split, share] of table) {
+    push(session({ cards: [card("c1", "went-well", "one", { up, down })] }));
+    const what = up + " up, " + down + " down";
+    assert.equal(tagOf(root, "one"), tag, what);
+    assert.equal(tagClass(root, "one"), cls, what);
+    assert.equal(tallyOf(root, "one").getAttribute("aria-label"), name, what);
+    assert.equal(one(tallyOf(root, "one"), "brk").textContent, split, what);
+    assert.equal(one(tallyOf(root, "one"), "score").style["--u"], share, what);
+    assert.equal(thumb(root, "one", "down").getAttribute("aria-label"), "Vote down: one. " + name + ".", what);
+  }
+  // No votes: no tag at all, and the thumbs say so.
+  push(session({ cards: [card("c1", "went-well", "one", { up: 0, down: 0 })] }));
+  assert.equal(tagOf(root, "one"), null);
+  assert.equal(thumb(root, "one", "up").getAttribute("aria-label"), "Vote up: one. No votes yet.");
+  // It is a picture with a name, not a control, and a press on its corner goes through it.
+  assert.equal(tallyOf(root, "one").getAttribute("role"), "img");
+  assert.equal(all(tallyOf(root, "one"), (n) => n.tagName === "BUTTON").length, 0);
+  assert.match(src, /\.tally\{[^}]*pointer-events:none\}/);
+  // A down count the server sends below nothing is nothing, not a negative number to add.
+  push(session({ cards: [card("c1", "went-well", "one", { up: 6, down: -1 })] }));
+  assert.equal(tagOf(root, "one"), "+6");
+  assert.equal(one(tallyOf(root, "one"), "brk").textContent, "6 up \u00b7 0 down");
+});
+
+test("Top rated sorts on the same score the tags show, ties by more ups, then as they stood", () => {
+  const { root, push } = load();
+  const cards = [
+    card("c1", "went-well", "aa", { up: 6, down: 1 }),
+    card("c2", "went-well", "bb", { up: 7, down: 0 }),
+    card("c3", "went-well", "cc", { up: 5, down: 0 }),
+    card("c4", "went-well", "dd", { up: 5, down: 5 }),
+    card("c5", "went-well", "ee"),
+    card("c6", "went-well", "ff", { down: 2 }),
+  ];
+  push(session({ cards }));
+  assert.deepEqual(["aa", "bb", "cc", "dd", "ee", "ff"].map((t) => tagOf(root, t)), ["+5", "+7", "+5", "\u00b10", null, "\u22122"]);
+  button(lane(root, "Went well"), "Top rated").click();
+  // bb is 7; aa and cc are both 5, aa with more ups; dd and ee are both 0, dd with more ups; ff is -2.
+  assert.equal(noteOrder(root, "Went well"), "bb aa cc dd ee ff");
+});
+
+test("the thumbs stay in sight once the viewer's own vote is known, and not before", async () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ stage: 0, cards: [card("c1", "went-well", "one", { up: 1 })] }, PARTICIPANT));
+  const known = () => ["up", "down"].map((w) => thumb(ui.root, "one", w).className.split(" ").includes("known")).join(" ");
+  assert.equal(known(), "false false", "after a reload whose vote that is is not known");
+  thumb(ui.root, "one", "up").click();
+  assert.equal(known(), "true true", "shown while it is on its way");
+  ui.acts[0].answer({ ok: true });
+  await settled();
+  assert.equal(known(), "true true", "and once it is theirs: both, so a switch is one press");
+  later(ui);
+  thumb(ui.root, "one", "up").click();
+  ui.acts[1].answer({ ok: true });
+  await settled();
+  assert.equal(known(), "false false", "taken back, there is no vote of theirs to keep in sight");
+  assert.equal(pressedOf(ui), "false false");
+});
+
+test("a vote that does not go through is sent once more, quietly; if that fails too, the note says so and offers to try again", async () => {
+  for (const reason of ["busy", "failed", "unreachable", "rate-limited"]) {
+    const ui = load({ host: "new" });
+    ui.push(session({ stage: 2, cards: [card("c1", "went-well", "one", { up: 4, down: 1 })] }, PARTICIPANT));
+    const up = thumb(ui.root, "one", "up");
+    up.click();
+    ui.acts[0].answer({ ok: false, reason });
+    await settled();
+    assert.equal(ui.sent().length, 1, reason + ": not at once");
+    assert.equal(pressedOf(ui), "true false", reason + ": still shown as on its way");
+    assert.equal(toastOf(ui.root).hidden, true, reason + ": and nothing is said yet");
+    assert.equal(byClass(ui.root, "oops").length, 0);
+    up.click();
+    assert.equal(ui.sent().length, 1, "a press while it waits sends nothing");
+    ui.runTimers(600);
+    assert.deepEqual(ui.sent(), [{ action: "vote", payload: { cardId: "c1", value: "up" } }, { action: "vote", payload: { cardId: "c1", value: "up" } }], reason + ": the same vote, once more");
+    ui.acts[1].answer({ ok: false, reason });
+    await settled();
+    ui.runTimers(600);
+    assert.equal(ui.sent().length, 2, reason + ": and not a third time by itself");
+    assert.equal(pressedOf(ui), "unknown unknown", reason + ": the thumb is back as it was");
+    assert.equal(tagOf(ui.root, "one"), "+3", reason + ": the tag never moved");
+    const oops = one(noteWith(ui.root, "one"), "oops");
+    assert.equal(oops.getAttribute("role"), "group");
+    assert.equal(oops.getAttribute("aria-label"), "Vote not counted");
+    assert.equal(oops.textContent, "Your vote did not go through.Try again", reason + ": the board's words, never the server's");
+    assert.equal(toastOf(ui.root).hidden, true, "said on the note, not in a toast a screen away");
+    same(ui.document.activeElement, button(oops, "Try again"));
+    assert.equal(liveOf(ui.root), "Your vote on this note did not go through. Try again is available.");
+    assert.ok(up.className.split(" ").includes("failed"));
+
+    button(oops, "Try again").click();
+    assert.equal(byClass(ui.root, "oops").length, 0);
+    assert.ok(!up.className.split(" ").includes("failed"));
+    same(ui.document.activeElement, up);
+    assert.deepEqual(ui.sent().at(-1), { action: "vote", payload: { cardId: "c1", value: "up" } });
+    ui.acts[2].answer({ ok: true });
+    await settled();
+    assert.equal(pressedOf(ui), "true false");
+    assert.equal(liveOf(ui.root), "Voted up.");
+  }
+});
+
+test("a quiet second try that lands leaves no trace, and a known vote stays shown when a switch fails", async () => {
+  const ui = load({ host: "new" });
+  const cards = (up, down) => [card("c1", "went-well", "one", { up, down })];
+  ui.push(session({ stage: 2, cards: cards(0, 0) }, PARTICIPANT));
+  thumb(ui.root, "one", "up").click();
+  ui.acts[0].answer({ ok: false, reason: "busy" });
+  await settled();
+  ui.runTimers(600);
+  ui.acts[1].answer({ ok: true });
+  await settled();
+  ui.push(session({ stage: 2, cards: cards(1, 0) }, PARTICIPANT));
+  assert.equal(pressedOf(ui), "true false");
+  assert.equal(byClass(ui.root, "oops").length, 0);
+  assert.equal(toastOf(ui.root).hidden, true);
+  assert.equal(tagOf(ui.root, "one"), "+1");
+
+  // Now a switch to down that fails twice: the up vote is still theirs, and still shown.
+  later(ui);
+  thumb(ui.root, "one", "down").click();
+  assert.equal(pressedOf(ui), "false true");
+  assert.equal(tagOf(ui.root, "one"), "+1", "the tag waits for the vote to land");
+  ui.acts[2].answer({ ok: false, reason: "failed" });
+  await settled();
+  ui.runTimers(600);
+  ui.acts[3].answer({ ok: false, reason: "failed" });
+  await settled();
+  assert.equal(pressedOf(ui), "true false", "the previous vote stays shown");
+  assert.equal(tagOf(ui.root, "one"), "+1");
+  // Dismissed, it is gone, and focus is on the thumb that was pressed.
+  labeled(one(ui.root, "oops"), "Dismiss").click();
+  assert.equal(byClass(ui.root, "oops").length, 0);
+  same(ui.document.activeElement, thumb(ui.root, "one", "down"));
+});
+
+test("a vote the bridge cannot carry is tried again the same way", () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ stage: 2, cards: [card("c1", "went-well", "one")] }, PARTICIPANT));
+  ui.bridge.fail = "throw";
+  thumb(ui.root, "one", "up").click();
+  assert.equal(byClass(ui.root, "oops").length, 0);
+  ui.runTimers(600);
+  assert.equal(ui.sent().length, 2);
+  assert.equal(one(ui.root, "oops").textContent, "Your vote did not go through.Try again");
+  assert.equal(pressedOf(ui), "unknown unknown");
+});
+
+test("a sticker's default spot keeps off the buttons on the note's lower edge", () => {
+  const ui = load();
+  ui.push(session({ cards: [card("c1", "went-well", "one")] }));
+  const note = noteWith(ui.root, "one");
+  note.box = { left: 0, top: 0, width: 240, height: 44 };
+  // The three buttons stand from 116 to 200 across, 32 to 56 down. A sticker
+  // on the bottom edge is 27 to 69 down, so it must end 6 short of 116:
+  // its center at 89 or less. 14, 44 and 74 are; 104 is not; of the row
+  // between, 29, 59 and 89 are.
+  one(note, "rx").box = { left: 116, top: 32, width: 84, height: 24 };
+  const picks = ["Blocker, vinyl", "Blocker, pixel", "Thank you, vinyl", "Me too, vinyl"].map((name) => {
+    openBook(ui.root, "one");
+    labeled(bookOf(ui.root), name).click();
+    return ui.sent().at(-1).payload.x;
+  });
+  assert.deepEqual(picks.slice(0, 3), [0.027, 0.161, 0.295]);
+  // The fourth is another viewer's limit of three: nothing more is sent.
+  assert.equal(ui.sent().length, 3);
+  const more = load();
+  more.push(session({ cards: [card("c1", "went-well", "one")], stamps: [0.027, 0.161, 0.295].map((x, i) => st("t" + i, "laugh", x, 1)) }));
+  noteWith(more.root, "one").box = { left: 0, top: 0, width: 240, height: 44 };
+  one(noteWith(more.root, "one"), "rx").box = { left: 116, top: 32, width: 84, height: 24 };
+  openBook(more.root, "one");
+  labeled(bookOf(more.root), "Great idea, vinyl").click();
+  assert.equal(more.sent()[0].payload.x, 0.094, "then 29: between the first two, not 104 under the buttons");
 });
 
 // ---- review round: keys, double presses, leaving the editor

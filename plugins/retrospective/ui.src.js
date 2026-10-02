@@ -149,7 +149,7 @@
   const HINTS = [
     "Write what went well, what to improve and what puzzles you. The three dots on a note open its menu: edit it, add a sticker, start an action, move it.",
     "Drag a note onto another to group them, or select several and group them. Drag the important ones to the top.",
-    "Vote each note up or down. One vote per person per note; press your thumb again to take it back.",
+    "Vote each note up or down. One vote per person per note; press your thumb again to take it back. The tag on a note's corner is its ups less its downs.",
     "Agree on what to change and who owns it. Start an action from any note.",
   ];
   const PRESETS = [1, 3, 5, 10];
@@ -368,9 +368,12 @@
     ".edit-row.asking .edit-said{flex-basis:100%}",
     ".edit-row .btn{white-space:nowrap}",
     ".note.editing .st.over{opacity:.2}",
-    ".note.editing .add-st{display:none}",
+    ".note.editing .rx{display:none}",
     ".edited{font:11px/16px var(--mono);color:var(--color-ink-soft);margin-right:auto}",
-    ".chips{grid-column:2/-1;justify-self:end;max-width:100%;position:relative;z-index:2;display:flex;align-items:center;gap:4px;padding-bottom:3px}",
+    // What a note has gathered besides votes: the word "edited" and the
+    // count of its actions. They stand at the start of a row of their own,
+    // clear above the buttons on the note's lower edge.
+    ".chips{grid-column:2/-1;justify-self:start;max-width:100%;position:relative;z-index:2;display:flex;align-items:center;gap:4px;padding-bottom:13px}",
     ".pick,.grip,.more,.target{display:grid;place-items:center;width:28px;height:32px}",
     ".pick{cursor:pointer}",
     ".grip,.more,.target{padding:0;border:0;border-radius:8px;background:transparent;color:var(--color-ink-faint);transition:background-color .15s,color .15s}",
@@ -404,30 +407,48 @@
     ".person{grid-column:2/-1;display:flex;align-items:center;gap:8px;min-width:0;padding-bottom:5px;font-size:13px;color:var(--color-ink-soft)}",
     ".person-name{min-width:0;overflow-wrap:anywhere}",
     ".disc{flex:none;display:grid;place-items:center;width:24px;height:24px;margin:3px;border-radius:50%;font-size:9px;font-weight:700;color:#F4F8FB;background:#3F5466;box-shadow:0 0 0 2px var(--color-surface-hi),0 0 0 3px var(--color-line)}",
-    // The two thumbs: one of a pair with the stickers, die-cut with an ink
-    // line and a paper border. A thumb is paper until it is the viewer's
-    // own vote, and then it is filled and its pill is ringed: told by the
-    // fill and the ring, not by the color. Down is the same thumb turned
-    // over, in a calm color: it is a vote, not a warning.
-    ".rate{display:inline-flex;align-items:center;gap:3px;min-height:32px;padding:0 9px 0 5px;border:1px solid var(--color-line-strong);border-radius:999px;background:var(--color-surface-hi);color:var(--color-ink);font-size:13px;font-weight:700;transition:background-color .15s,border-color .15s}",
-    ".rate:hover{background:var(--color-felt-deep)}",
-    ".rate .mono{display:inline-block}",
-    ".rate:has(.mono[hidden]){padding:0 5px}",
-    '.rate[aria-pressed="true"]{border-color:var(--color-accent);background:var(--color-accent-soft);box-shadow:inset 0 0 0 1px var(--color-accent)}',
-    ".board:not(.stage-2) .rate{min-height:24px;height:24px;padding:0 7px 0 3px;border-color:var(--color-line);font-size:12px}",
-    ".board:not(.stage-2) .rate:has(.mono[hidden]){padding:0 3px}",
+    // The score: a small tag on the note's top corner, its ups less its
+    // downs with the sign written. Green above nothing and red below it agree
+    // with the sign and say nothing by themselves; a note with both ups and
+    // downs has a rule under the number, drawn to the share that is up, so a
+    // tie never looks like a note nobody has voted on. It is not a control: a
+    // press on that corner reaches the menu button under it. The split is
+    // written beside it while the note is pointed at or holds focus.
+    ".tally{position:absolute;top:-10px;right:-6px;z-index:3;display:flex;flex-direction:row-reverse;align-items:center;gap:4px;pointer-events:none}",
+    ".score,.brk{display:grid;place-items:center;height:20px;border:1px solid var(--st-edge);border-radius:999px;background:var(--color-surface-hi);font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}",
+    ".score{position:relative;min-width:28px;padding:0 6px;font-size:12px;font-weight:700;line-height:18px;color:var(--color-ink-soft);box-shadow:var(--shadow-rest)}",
+    ".score.pos{color:color-mix(in srgb,var(--color-go) 78%,var(--color-ink))}",
+    ".score.neg{color:color-mix(in srgb,var(--color-stop) 78%,var(--color-ink))}",
+    '.score.mixed::after{content:"";position:absolute;left:6px;right:6px;bottom:2px;height:2px;border-radius:1px;background:linear-gradient(90deg,currentColor calc(var(--u) - 1px),transparent calc(var(--u) - 1px),transparent calc(var(--u) + 1px),var(--color-line-strong) calc(var(--u) + 1px))}',
+    ".score b{display:block}",
+    ".score.mixed b{translate:0 -1px}",
+    ".brk{padding:0 7px;font-size:11px;line-height:18px;color:var(--color-ink-soft);border-color:var(--color-line-strong);opacity:0;transition:opacity .15s}",
+    ".note:hover .brk,.note:focus-within .brk{opacity:1}",
+    // Under the words, on the note's lower edge: the dashed plus for a
+    // sticker, a thumb up and a thumb down. They take no room from the note,
+    // and are shown with it: pointed at, focused, in the Vote stage, or once
+    // the viewer's own vote is known. Hidden is not gone: each is a Tab stop
+    // and shows when it has focus. Pressed is a filled thumb and a ring.
+    ".rx{position:absolute;right:40px;bottom:-12px;z-index:2;display:flex;gap:4px}",
+    ".rb{position:relative;flex:none;display:grid;place-items:center;width:24px;height:24px;padding:0;border:1px solid var(--color-line-strong);border-radius:50%;background:var(--color-surface-hi);color:var(--color-ink-soft);opacity:0;transition:opacity .15s,background-color .15s,color .15s,transform .07s ease-out}",
+    ".rb.add-st{border-style:dashed}",
+    ".rb svg{display:block;width:16px;height:16px;overflow:visible}",
+    ".add-st svg{width:14px;height:14px}",
+    ".rate.down svg{transform:scaleY(-1)}",
+    '.rb:hover,.add-st[aria-expanded="true"]{background:var(--color-felt-deep);color:var(--color-ink)}',
+    ".rb:active{transform:translateY(1px) scale(.94)}",
+    '.note:hover .rb,.note:focus-within .rb,.stage-2 .rate,.rate.known,.add-st[aria-expanded="true"]{opacity:1}',
+    "@media (hover:none){.rb{opacity:1}}",
+    '.rate[aria-pressed="true"]{border-color:var(--color-accent);background:var(--color-accent-soft);box-shadow:0 0 0 1px var(--color-accent);color:var(--color-accent)}',
+    '.rate[aria-pressed="true"] path{fill:currentColor}',
+    ".rb:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}",
+    ".rate.failed{border-style:dashed;border-color:var(--color-stop)}",
+    // A vote that did not go through says so on its note, with the way to
+    // send it again.
+    ".oops{position:absolute;right:8px;top:calc(100% + 18px);z-index:5;display:flex;align-items:center;gap:8px;max-width:calc(100% - 16px);padding:6px 6px 6px 12px;border:1px solid var(--color-line);border-radius:14px;background:var(--color-surface-hi);box-shadow:var(--shadow-lift);font-size:13px;line-height:18px}",
+    ".oops-x{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--color-ink-soft)}",
+    ".oops-x:hover{background:var(--color-felt-deep)}",
     ".board:not(.stage-3) .target{min-height:24px;height:24px;padding:0 8px;border-color:var(--color-line);font-size:12px}",
-    ".tb{flex:none;display:block;width:24px;height:24px}",
-    ".board:not(.stage-2) .tb{width:18px;height:18px}",
-    ".tb svg{display:block;width:100%;height:100%;overflow:visible}",
-    ".tb path{fill:none;stroke-linejoin:round;stroke-linecap:round}",
-    ".tb .e{stroke:var(--st-edge);stroke-width:10;fill:var(--st-edge)}",
-    ".tb .w{stroke:var(--st-paper);stroke-width:8;fill:var(--st-paper)}",
-    ".tb .o{stroke:var(--st-ink);stroke-width:3.2}",
-    ".tb .c{fill:var(--st-paper)}",
-    ".tb .s{stroke:var(--st-ink);stroke-width:1.8}",
-    '.rate[aria-pressed="true"] .tb .c{fill:var(--k)}',
-    ".rate.down .tb svg{scale:1 -1}",
     // A note on its way to the server: same place, drawn as not yet real.
     ".ghost{border-style:dashed;background:transparent;box-shadow:none}",
     ".ghost .note-text{grid-column:2/-1;color:var(--color-ink-soft)}",
@@ -482,21 +503,14 @@
     ".st.fixed:hover svg{translate:none;scale:1;filter:var(--st-rest)}",
     // Peek: stickers lying over a note's words go faint while the words are
     // pointed at, or while one of the note's controls has keyboard focus.
-    ".note.peek .st.over:not(.lift):not(:focus-visible),.note:has(.lead :focus-visible,.trail :focus-visible,.chips :focus-visible) .st.over{opacity:.2;transition:opacity .12s}",
+    ".note.peek .st.over:not(.lift):not(:focus-visible),.note:has(.lead :focus-visible,.trail :focus-visible,.chips :focus-visible,.rx :focus-visible) .st.over{opacity:.2;transition:opacity .12s}",
     // Dust: the few cells a pixel sticker kicks up where it lands.
     ".dust{position:absolute;z-index:1;pointer-events:none}",
     // A sticker on its way off the note is not there to be pressed.
     ".st.leaving{pointer-events:none}",
-    // Where the next sticker would land: a dashed plus, shown with the note.
-    // It is over the stickers and under the note's controls, like them.
-    ".add-st{position:absolute;z-index:1;display:grid;place-items:center;width:32px;height:32px;margin:-16px 0 0 -16px;padding:0;border:1.5px dashed var(--color-line-strong);border-radius:50%;background:var(--color-surface-hi);color:var(--color-ink-soft);opacity:0;transition:opacity .15s,background-color .15s}",
-    '.note:hover .add-st,.note:focus-within .add-st,.add-st[aria-expanded="true"]{opacity:1}',
-    "@media (hover:none){.add-st{opacity:1}}",
-    '.add-st:hover,.add-st[aria-expanded="true"]{border-color:var(--color-accent);background:var(--color-accent-soft);color:var(--color-ink)}',
-    ".add-st svg{width:14px;height:14px}",
     // A group's name is at most 80 characters and is shown whole.
     "h3{font-size:14px;font-weight:700;line-height:20px;overflow-wrap:break-word}",
-    ".group-meta{font:11px/16px var(--mono);color:var(--color-ink-faint)}",
+    ".group-meta{font:11px/16px var(--mono);color:var(--color-ink-soft)}",
 
     ".actions{min-width:0;padding:16px 20px 20px}",
     ".actions-head{display:flex;align-items:baseline;gap:10px}",
@@ -597,9 +611,11 @@
     ".link-list li{display:flex;flex-wrap:wrap;align-items:center;gap:8px}",
     ".link-list span{flex:1 1 5rem;min-width:0;overflow-wrap:anywhere}",
 
-    "@media (pointer:coarse){.btn,.menu-item,.stage-2 .rate{min-height:44px}.pick,.grip,.more{width:44px;height:44px}.stage-3 .target{min-width:44px;height:44px}.board:not(.stage-2) .rate,.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.strip button{width:44px;height:44px}.trail,.chips{min-height:44px}.chips{padding-bottom:0}.note-text{padding:12px 0}" +
+    "@media (pointer:coarse){.btn,.menu-item{min-height:44px}.pick,.grip,.more{width:44px;height:44px}.stage-3 .target{min-width:44px;height:44px}.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.strip button{width:44px;height:44px}.trail{min-height:44px}.chips{padding-bottom:20px}.note-text{padding:12px 0}" +
       // What is drawn smaller than a fingertip is still pressed over 44px.
-      '.rate,.target{position:relative;justify-content:center;min-width:44px}.board:not(.stage-2) .rate::after,.board:not(.stage-3) .target::after{content:"";position:absolute;inset:-7px -1px}.st::after{content:"";position:absolute;inset:-1px}.add-st::after{content:"";position:absolute;inset:-7px}}',
+      '.target{position:relative;justify-content:center;min-width:44px}.board:not(.stage-3) .target::after{content:"";position:absolute;inset:-7px -1px}.st::after{content:"";position:absolute;inset:-1px}' +
+      // The three buttons on a note's lower edge: 32 across, 44 apart, each pressed over 44.
+      '.rx{gap:12px;bottom:-16px;right:52px}.rb{width:32px;height:32px;opacity:1}.rb::after{content:"";position:absolute;inset:-6px}.brk{opacity:1}.oops{top:calc(100% + 26px)}}',
 
     // A phone. The header is two short rows and a hint: the steps shrink to
     // their numbers around the current one, the hint is one line that opens,
@@ -1010,10 +1026,10 @@
     };
   }
   const POP = spring(380, 22);
+  const NUDGE = spring(700, 26);
   const GLIDE = spring(260, 30);
   const TICK = spring(900, 44);
   const SLAP = spring(520, 15);
-  const NUDGE = spring(700, 26);
   const FLICK = spring(900, 14);
 
   // The frame's own clock, used only to count a timer down from the time
@@ -1491,7 +1507,7 @@
   let watching = [];
 
   function propose(action, payload, how) {
-    const item = { landed: how.landed, settle: how.settle || function () {}, unsure: how.unsure, refused: bag(how.refused), yesIsEnough: how.yesIsEnough };
+    const item = { landed: how.landed, settle: how.settle || function () {}, unsure: how.unsure, refused: bag(how.refused), yesIsEnough: how.yesIsEnough, says: how.says };
     const unsent = function () {
       refuse(item, "That could not be sent. Try again.");
     };
@@ -1546,7 +1562,10 @@
     if (watching.indexOf(item) === -1) return;
     forget(item);
     item.settle("refused");
-    notify(message);
+    // An action that says its own refusals where they happened does so;
+    // everything else is said in the toast.
+    if (item.says) item.says(message, item.reason);
+    else notify(message);
   }
 
   // The wait is over and the state does not show the change. That is
@@ -2432,8 +2451,12 @@
       targetCount: el("span", { class: "mono" }),
       up: buildThumb("up"),
       down: buildThumb("down"),
+      // What the tag shows, so that a number is seen to change only when it does.
+      score: null,
+      scoreText: el("b"),
+      split: el("span", { class: "brk" }),
       stamps: el("ul", { class: "stamps", "aria-label": "Stickers" }),
-      add: el("button", { type: "button", class: "add-st", "aria-haspopup": "dialog" }, [icon(GLYPH.plus)]),
+      add: el("button", { type: "button", class: "rb add-st", "aria-haspopup": "dialog" }, [icon(GLYPH.plus)]),
       sig: "",
     };
     note.pick = el("label", { class: "pick" }, [note.box]);
@@ -2441,7 +2464,11 @@
     // the words keep the width of the note whatever it has gathered.
     // Said in a word, not a color: the words were changed after they were written.
     note.mark = el("span", { class: "edited", text: "edited", title: "This note was edited after it was written" });
-    note.chips = el("span", { class: "chips" }, [note.mark, note.target, note.up.btn, note.down.btn]);
+    note.chips = el("span", { class: "chips" }, [note.mark, note.target]);
+    note.scoreTag = el("span", { class: "score" }, [note.scoreText]);
+    note.tally = el("div", { class: "tally", role: "img" }, [note.scoreTag, note.split]);
+    note.tally.hidden = true;
+    note.rx = el("div", { class: "rx" }, [note.add, note.up.btn, note.down.btn]);
     note.target.appendChild(note.targetCount);
     note.el = el("li", { class: "note" }, [
       el("span", { class: "lead" }, [note.grip, note.pick]),
@@ -2449,8 +2476,9 @@
       el("span", { class: "trail" }, [note.more]),
       note.chips,
       note.author.el,
+      note.rx,
       note.stamps,
-      note.add,
+      note.tally,
     ]);
     note.add.hidden = true;
     note.leaving = [];
@@ -2570,25 +2598,41 @@
     note.more.setAttribute("aria-label", "Options for note: " + brief);
     note.add.setAttribute("aria-label", "Add a sticker to: " + brief);
 
-    // The thumbs are there in the Vote stage, and wherever a note has votes.
-    // A count of none is not written.
+    // A vote is one press on the note in every stage. Pressed or not is said
+    // only when it is known: after a reload it is not, and "not pressed"
+    // would be a claim.
     const shown = note.pending !== null ? note.pending : note.mine;
+    const said = scoreSaid(card.up, card.down);
     ["up", "down"].forEach(function (way) {
-      const thumb = note[way];
-      const n = card[way];
-      thumb.btn.hidden = board.stage !== 2 && card.up + card.down === 0;
-      thumb.btn.setAttribute("aria-label", "Vote " + way + ": " + brief + ". " + card.up + " up, " + card.down + " down." + (shown === way ? " Your vote." : ""));
-      // Pressed or not is said only when it is known: after a reload it is
-      // not, and "not pressed" would be a claim.
-      if (shown === null) thumb.btn.removeAttribute("aria-pressed");
-      else thumb.btn.setAttribute("aria-pressed", shown === way ? "true" : "false");
-      thumb.count.hidden = n === 0;
-      if (thumb.n !== n) {
-        setText(thumb.count, String(n));
-        if (thumb.n !== null && n > 0) tick(thumb.count);
-        thumb.n = n;
-      }
+      const btn = note[way].btn;
+      const key = way === "up" ? "U" : "D";
+      btn.setAttribute("aria-label", "Vote " + way + ": " + brief + ". " + said + "." + (shown === way ? " Your vote. Press to take it back." : ""));
+      btn.setAttribute("title", shown === way ? "Your vote. Press to take it back (" + key + ")" : "Vote " + way + " (" + key + ")");
+      if (shown === null) btn.removeAttribute("aria-pressed");
+      else btn.setAttribute("aria-pressed", shown === way ? "true" : "false");
+      // With the viewer's own vote known, the pair stays in sight.
+      btn.classList.toggle("known", shown === "up" || shown === "down");
     });
+    // The tag: ups less downs. No votes, no tag.
+    const any = card.up + card.down > 0;
+    const net = card.up - card.down;
+    const firstTag = note.tally.hidden && any;
+    note.tally.hidden = !any;
+    note.tally.setAttribute("aria-label", said);
+    note.scoreTag.className = "score" + (net > 0 ? " pos" : net < 0 ? " neg" : "") + (card.up && card.down ? " mixed" : "");
+    if (any) note.scoreTag.style.setProperty("--u", Math.round((100 * card.up) / (card.up + card.down)) + "%");
+    setText(note.split, card.up + " up \u00b7 " + card.down + " down");
+    const score = any ? signed(net) : "";
+    if (note.score !== score) {
+      setText(note.scoreText, score);
+      // Nothing moves on the first load; after it, a new tag pops and a
+      // changed number ticks, whoever's vote it was.
+      if (note.score !== null && any && motionOn()) {
+        if (firstTag) animate(note.scoreTag, { transform: "scale(.4)" }, POP);
+        else tick(note.scoreText);
+      }
+      note.score = score;
+    }
     note.votes = card.up + ":" + card.down;
 
     note.target.hidden = board.stage !== 3 && linked === 0;
@@ -2599,25 +2643,46 @@
     if (note.linked === 0 && linked > 0 && motionOn()) animate(note.target, { transform: "scale(.4)" }, POP);
     note.linked = linked;
     note.mark.hidden = !card.edited;
-    note.chips.hidden = note.up.btn.hidden && note.target.hidden && note.mark.hidden;
+    note.chips.hidden = note.target.hidden && note.mark.hidden;
 
     const named = board.revealed && card.authorId;
     note.author.el.hidden = !named;
     if (named) showPerson(note.author, personById(card.authorId));
     // A stage change can take away the control somebody was on.
-    if (((held === note.up.btn || held === note.down.btn) && note.up.btn.hidden) || (held === note.target && note.target.hidden)) leadOf(note).focus();
+    if (held === note.target && note.target.hidden) leadOf(note).focus();
   }
 
-  // The thumb, drawn once and used both ways up: the fist and its cuff are
-  // one outline, die-cut like a sticker.
+  // A score, written: ups less downs, with its sign. The minus is the real
+  // one, and a tie that has votes is "±0".
+  function signed(net) {
+    return net > 0 ? "+" + net : net < 0 ? "−" + -net : "±0";
+  }
+
+  // The same thing in words, with the two counts it comes from.
+  function scoreSaid(up, down) {
+    if (up + down === 0) return "No votes yet";
+    const net = up - down;
+    return "Score " + (net === 0 ? "0" : signed(net)) + ": " + up + " up, " + down + " down";
+  }
+
+  // The thumb: the vote sticker's outline as a line glyph, in a view box set
+  // on the outline's own bounds so the ink sits on the button's center. Down
+  // is the same glyph turned over.
   const THUMB = "M8.5 18.5h5v14h-5zM16 18.6l4.6-10.4c2.6-.3 4.3 1.9 3.7 4.4l-1 4.4h6.2c2.1 0 3.6 1.9 3.1 3.9l-2.1 8.6c-.4 1.7-1.9 2.9-3.7 2.9H16z";
 
   const DOUBLE_MS = 400;
+  const RETRY_MS = 600;
+  // What a host answers when the vote may well go through a moment later.
+  // `busy` is what newer hosts say for a server that is not ready.
+  const PASSING = bag({ failed: true, "rate-limited": true, unreachable: true, busy: true, unsent: true });
+  const VOTE_LOST = "Your vote did not go through.";
 
   function buildThumb(way) {
-    const thumb = { n: null, count: el("span", { class: "mono" }) };
-    thumb.icon = el("span", { class: "tb k-" + (way === "up" ? "quick-win" : "chat") }, [svgOf("3 3 34 34", [["e", THUMB], ["w", THUMB], ["o", THUMB], ["c", THUMB], ["s", "M13.5 20v11"]])]);
-    thumb.btn = el("button", { type: "button", class: "rate " + way }, [thumb.icon, thumb.count]);
+    const thumb = {};
+    thumb.icon = svgOf("6.1 5.84 29 29", [["", THUMB]]);
+    const line = { fill: "none", stroke: "currentColor", "stroke-width": 3.1, "stroke-linejoin": "round", "stroke-linecap": "round" };
+    for (const key in line) thumb.icon.children[0].setAttribute(key, line[key]);
+    thumb.btn = el("button", { type: "button", class: "rb rate " + way }, [thumb.icon]);
     return thumb;
   }
 
@@ -2643,8 +2708,21 @@
     const now = clockNow();
     if (note.pressed && note.pressed.way === way && now - note.pressed.at < DOUBLE_MS) return;
     note.pressed = { way: way, at: now };
-    const value = note.mine === way ? "none" : way;
+    sendVote(id, way, note.mine === way ? "none" : way, true);
+  }
+
+  // The thumb shows pressed at once; the tag does not change until the state
+  // does. A vote the host could not take just now is sent once more, quietly,
+  // a moment later: it is a set, so sending it twice counts once. If that
+  // fails too, the thumb goes back to what it was and the note says so, with
+  // the way to try again. A no that trying again would not change is said
+  // the same way, without the button.
+  function sendVote(id, way, value, first) {
+    const note = view.notes[id];
+    const card = cardById(id);
+    if (!note || !card) return;
     const before = { up: card.up, down: card.down };
+    clearOops(note);
     note.voting = true;
     note.pending = value;
     patchNote(note, card);
@@ -2663,16 +2741,36 @@
         if (!now) return true;
         return value === "none" ? now[way] < before[way] : now[value] > before[value];
       },
-      refused: { "not-found": NOTE_GONE, conflict: "That vote was not counted. The board has all the votes it can hold." },
+      refused: { "not-found": NOTE_GONE, conflict: "That vote was not counted. The board has all the votes it can hold.", forbidden: "You are not allowed to vote in this room." },
       unsure: value === "none" ? "Could not confirm that your vote was taken back." : "No change to show. Your vote may already have been counted that way.",
       yesIsEnough: true,
+      says: function (message, reason) {
+        if (!view.notes[id] || !cardById(id)) return notify(message);
+        const passing = PASSING[reason || "unsent"];
+        if (passing && first) {
+          // Still shown as pressed, and still not to be pressed again.
+          note.voting = true;
+          note.pending = value;
+          patchNote(note, cardById(id));
+          note.retry = setTimeout(function () {
+            note.retry = 0;
+            sendVote(id, way, value, false);
+          }, RETRY_MS);
+          return;
+        }
+        showOops(id, way, value, passing ? VOTE_LOST : message, !!passing);
+      },
       settle: function (outcome) {
         if (outcome === "accepted") {
           // The host took it: it is this viewer's, whatever the counts did.
           note.mine = value;
           again();
           setText(live, value === "none" ? "Vote taken back." : "Voted " + value + ".");
-          if (value !== "none" && motionOn()) animate(note[value].icon, { transform: value === "up" ? "translateY(-5px) rotate(-14deg) scale(1.3)" : "translateY(5px) rotate(-14deg) scale(1.3)" }, SLAP);
+          // A small press back from the thumb, and the tag takes the hit.
+          if (value !== "none" && motionOn()) {
+            animate(note[value].icon, { transform: "scale(1.22)" }, NUDGE);
+            if (!note.tally.hidden) animate(note.scoreTag, { transform: "translateY(" + (value === "up" ? -2 : 2) + "px)" }, NUDGE, 60);
+          }
           return;
         }
         // The state moved before the host answered: the answer, which says
@@ -2689,6 +2787,44 @@
         if (!(watch && watch.accepted)) again();
       },
     });
+  }
+
+  // On the note, under the buttons: what went wrong with the vote, and, when
+  // trying again could help, the button that does. It stays until it is
+  // used or dismissed, or a vote on the note is sent.
+  function showOops(id, way, value, message, retry) {
+    const note = view.notes[id];
+    clearOops(note);
+    const close = el("button", { type: "button", class: "oops-x", "aria-label": "Dismiss" }, [icon("M4.5 4.5l7 7M11.5 4.5l-7 7")]);
+    const parts = [el("span", { text: message })];
+    let go = null;
+    if (retry) {
+      go = el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Try again" });
+      go.addEventListener("click", function () {
+        clearOops(note);
+        note[way].btn.focus();
+        sendVote(id, way, value, true);
+      });
+      parts.push(go);
+    }
+    parts.push(close);
+    close.addEventListener("click", function () {
+      clearOops(note);
+      note[way].btn.focus();
+    });
+    note.oops = el("div", { class: "oops", role: "group", "aria-label": "Vote not counted" }, parts);
+    note.failed = note[way].btn;
+    note.failed.classList.add("failed");
+    note.el.appendChild(note.oops);
+    (go || close).focus();
+    setText(live, retry ? "Your vote on this note did not go through. Try again is available." : message);
+  }
+
+  function clearOops(note) {
+    if (!note.oops) return;
+    if (note.oops.parentNode) note.oops.parentNode.removeChild(note.oops);
+    note.failed.classList.remove("failed");
+    note.oops = null;
   }
 
   const notMyNotes = bag();
@@ -3161,7 +3297,8 @@
     const title = item.group.title;
     setText(group.title, title);
     group.title.setAttribute("title", title);
-    setText(group.meta, plural(item.cards.length, "note") + (item.up ? " · " + item.up + " up" : "") + (item.down ? " · " + item.down + " down" : ""));
+    // The score first, and the split only when there are downs to tell apart.
+    setText(group.meta, plural(item.cards.length, "note") + (item.up + item.down ? " · " + signed(item.up - item.down) + (item.down ? " (" + (item.up ? item.up + " up · " : "") + item.down + " down)" : "") : ""));
     group.grip.setAttribute("aria-label", "Drag to reorder group: " + title);
     group.more.setAttribute("aria-label", "Options for group: " + title);
     group.target.hidden = board.stage !== 3 && linked === 0;
@@ -4039,16 +4176,19 @@
   }
 
   // Where the note's controls are, from the note's corner: the handle with
-  // the checkbox, and the menu button. With the checkbox hidden, the room it
+  // the checkbox, the menu button, and the buttons on the lower edge. With the checkbox hidden, the room it
   // takes when it is shown is counted too (under the handle in a narrow lane,
   // beside it otherwise), so a sticker placed in one stage is not on a
   // checkbox in the next.
   function controlsOf(cardId, note, box) {
     const card = cardById(cardId);
     const fine = !(window.matchMedia && window.matchMedia("(pointer:coarse)").matches);
-    return [note.grip.parentNode, note.more]
+    return [note.grip.parentNode, note.more, note.rx]
       .map(function (node, i) {
         const r = rectOf(node);
+        // The strip the three buttons stand on, whichever of them is there:
+        // 84 across, or 120 where they are a finger's size.
+        if (i === 2) return { left: r.right - box.left - (fine ? 84 : 120), top: r.top - box.top, right: r.right - box.left, bottom: r.bottom - box.top, width: r.width };
         const grow = i === 0 && note.pick.hidden;
         const grip = grow ? rectOf(note.grip) : r;
         const stacked = fine && card && lanesNarrow[card.columnId];
@@ -4217,22 +4357,6 @@
       if (onWords(spot, half, box.lines || []) || onControls(spot, half, controls)) spot = base;
     }
     return fractionAt(spot[0], spot[1], box);
-  }
-
-  // Where the plus stands: the foot of the note at its far end, short of the
-  // chips, stepping back toward the handle until it is on no sticker and no
-  // word. With nowhere like that, there is no plus: S and the menu remain.
-  function plusSpot(cardId, box) {
-    const there = centersOn(cardId, box);
-    // 56 in from the far edge is clear of the menu button above it.
-    for (let x = box.width - Math.max(56, (box.kept || 0) - 8); x >= 60; x -= 36) {
-      const p = [x, box.height + ST_PAD_Y];
-      const taken = there.some(function (c) {
-        return Math.hypot(c[0] - p[0], c[1] - p[1]) < 38;
-      });
-      if (!taken && !onWords(p, 16, box.lines || [])) return fractionAt(p[0], p[1], box);
-    }
-    return null;
   }
 
   function isPress(s, wait) {
@@ -4731,9 +4855,9 @@
         const c = centerOf(stampAt[s.id] || s, m.box);
         stamp.btn.classList.toggle("over", w.width > 0 && w.height > 0 && c[0] + r > w.left && c[0] - r < w.left + w.width && c[1] + r > w.top && c[1] - r < w.top + w.height);
       });
-      const spot = roomOn(m.cardId) === 0 || leftFor(m.cardId) === 0 ? null : plusSpot(m.cardId, m.box);
-      if (m.note.add.hidden !== !spot) m.note.add.hidden = !spot;
-      if (spot) putAt(m.note.add, spot);
+      // The plus is there while this viewer can add one.
+      const full = roomOn(m.cardId) === 0 || leftFor(m.cardId) === 0;
+      if (m.note.add.hidden !== full) m.note.add.hidden = full;
     });
   }
 
