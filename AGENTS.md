@@ -546,16 +546,3 @@ issue first. For anything large, open an issue before writing code.
     half its call timeout), and counts an
     action that had to be stopped in `breaker.actionFailures`, which opens the
     cooldown and never trips. Do not merge that counter back into `failures`.
-45. **A room's actions run one at a time, in two stages, and the order of the
-    stages is the capacity bound.** `Host.callAction` lines a room's actions up
-    in-process first (`enterRoom`, holding nothing), so one room has at most
-    one call in flight and one connection parked per replica. Only then does
-    `call` wait for the in-flight slot (`acquireBy`: actions wait, oldest
-    first, to the same deadline; every other hook is still refused at once)
-    and, after it, take `lockRoom`'s advisory lock
-    (two-key form, class `actionLockClass`, never the single-key ids of gotcha
-    3), which holds a pooled connection for the whole guest call. Taking the
-    lock before the in-flight slot, or before the in-process line, lets one
-    room or one install park the pool. `lockReserve` keeps the last two
-    connections free for the guest's own key-value calls. The lock is released
-    by `defer` before the broadcast; do not hold it across one.

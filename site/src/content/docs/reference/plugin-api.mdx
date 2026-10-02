@@ -115,9 +115,6 @@ failing: validating `body` and saying no is the plugin working.
 | Not reached: the body is over 1 MiB or is not JSON | `400` with `{"error":"invalid JSON body"}` | The hook is not called |
 | Throws, or otherwise returns an error | `502` with `{"error":"the plugin could not run that action"}` | Nothing is broadcast. The failure is logged on the server and does not count against the plugin |
 | Traps, times out, runs out of memory, or returns a `refused` that is not one of the four codes | `502` with the same body | Nothing is broadcast. The failure is logged and counts toward a cooldown, never toward switching the plugin off |
-| Not reached: the room stayed busy with other actions for twice the call timeout | `409` with `{"error":"the room is busy with another action, try again"}` | The hook is not called |
-| Not reached: the plugin had as many calls running as it is allowed, for twice the call timeout | `503` with `{"error":"the plugin is at capacity, try again"}` | The hook is not called |
-| Not reached: the room's lock could not be taken for another reason, such as the database being unreachable | `503` with `{"error":"could not run that action"}` | The hook is not called |
 
 ```js
 function on_session_action() {
@@ -158,25 +155,9 @@ anybody in a room can send one:
 
 A refusal is a successful call and clears both counts.
 
-Actions on one room run one at a time, on every replica: your hook can load a
-document, change it and save it without another action on the same room
-running in between. Actions for one room wait in arrival order on the replica
-that received them; across replicas the order is whichever takes the lock
-first. An action that has waited twice the call timeout is answered `409`.
-That covers `on_session_action` only. An `on_event` or `on_job` handler is not
-held behind a room's actions, so do not have one rewrite a document an action
-also rewrites.
-
-A room never has more than one action running, so one busy room uses one of
-the plugin's concurrent calls, and other rooms are not held up behind it.
-Rooms do share the plugin's allowance: with the default of two concurrent
-calls for each plugin, a third room acting at the same instant waits for one
-of the two to finish. Waiting actions are served oldest first, and waiting
-holds no database connection. All of an action's waiting, for its room, for a
-call slot and for the lock, ends at one deadline of twice the call timeout; an
-action still waiting for a slot then is answered `503`, which `parley.act`
-reports as `failed`. Only actions wait: the other hooks are refused at once
-when the plugin is at its allowance, as before.
+Actions are not serialized: two actions on one room can run at the same time,
+and `parley_kv_set` is last-write-wins, so a hook that loads a document,
+changes it and saves it can lose one of two simultaneous changes.
 
 ### `on_event`
 
@@ -517,11 +498,11 @@ window.parley.act("add-card", { text: "Shipped" }).then(function (result) {
 | `{ ok: false, reason: "forbidden" }` | The viewer may not do that, for example a `facilitatorOnly` action from anybody else, or your guest refused it as `forbidden`. A viewer whose sign-in has lapsed (401) is reported the same way |
 | `{ ok: false, reason: "invalid" }` | The server refused the request as malformed, or your guest refused it as `invalid` |
 | `{ ok: false, reason: "not-found" }` | The room's kind has no such action, the room is gone, or your guest refused it as `not-found` |
-| `{ ok: false, reason: "conflict" }` | The request conflicts with the room as it stands: it has ended, it stayed busy with other actions, or your guest refused it as `conflict` |
+| `{ ok: false, reason: "conflict" }` | The request conflicts with the room as it stands, for example it has ended, or your guest refused it as `conflict` |
 | `{ ok: false, reason: "rate-limited" }` | Too many requests |
 | `{ ok: false, reason: "ungranted" }` | The install holds no `session:act` grant |
 | `{ ok: false, reason: "unreachable" }` | The request never reached the server |
-| `{ ok: false, reason: "failed" }` | Anything else the server answered, including a guest that threw (502) and a plugin at its call capacity (503) |
+| `{ ok: false, reason: "failed" }` | Anything else the server answered, including a guest that threw (502) |
 | `{ ok: false, reason: "unknown" }` | The outcome is not available to this frame. The action may have been performed |
 
 The reason is a code from this list and nothing more: the server's own error

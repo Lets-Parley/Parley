@@ -56,10 +56,6 @@ type callKey struct{}
 type callInfo struct {
 	installID string
 	mode      CallMode
-	// room, when set, is the session whose action lock the call runs under,
-	// and lockBy is when waiting for that lock gives up.
-	room   string
-	lockBy time.Time
 
 	mu     sync.Mutex
 	errors []error
