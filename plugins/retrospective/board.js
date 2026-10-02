@@ -231,6 +231,7 @@ function redactBoard(board, now) {
         text: c.text,
         voteCount: votesOf(c),
       };
+      if (c.edited === true) row.edited = true;
       if (board.revealed) row.authorId = c.authorId;
       return row;
     }),
@@ -271,6 +272,23 @@ function applyAction(board, { action, user, body, now }) {
       const row = card(board, body.cardId);
       if (action === "delete-card" && row.authorId !== user) refuse("forbidden", "only the person who wrote a note can delete it");
       removeCard(board, row);
+      return row;
+    }
+    // A note's words are changed by whoever wrote it, and by nobody else:
+    // there is no facilitator's way in, because they are that person's words.
+    // Everything that hangs on the note stays: its place, its group, its
+    // votes, its stickers and its links. The votes were cast on the old
+    // words, so the note is marked as edited for the room to see; who edited
+    // it is its author, which is published only while authors are revealed.
+    case "edit-card": {
+      const row = card(board, body.cardId);
+      if (row.authorId !== user) refuse("forbidden", "only the person who wrote a note can edit it");
+      const words = text(body.text, LIMITS.noteText, "a note");
+      // The same words again change nothing and mark nothing.
+      if (words !== row.text) {
+        row.text = words;
+        row.edited = true;
+      }
       return row;
     }
     case "group-cards": {

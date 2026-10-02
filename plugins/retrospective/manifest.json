@@ -16,6 +16,7 @@
       "actions": [
         { "name": "add-card", "verb": "POST" },
         { "name": "delete-card", "verb": "POST" },
+        { "name": "edit-card", "verb": "POST" },
         { "name": "moderate-card", "verb": "POST", "facilitatorOnly": true },
         { "name": "group-cards", "verb": "POST" },
         { "name": "vote", "verb": "POST" },

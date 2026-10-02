@@ -828,3 +828,61 @@ test("a group set down in front of a note of another lane stays in its own lane,
   assert.equal(order(board), "a b c p q");
   assert.deepEqual([g.columnId, a.columnId, c.columnId], ["went-well", "went-well", "to-improve"]);
 });
+
+test("a note's words are edited by whoever wrote it, and everything on the note stays as it was", () => {
+  const board = emptyBoard();
+  const [a, b, c] = ["first words", "b", "c"].map((t) => note(board, "alice", "to-improve", t));
+  const g = act(board, "group-cards", "bob", { cardIds: [a.id, b.id], title: "pair" });
+  act(board, "vote", "bob", { cardId: a.id });
+  act(board, "vote", "carol", { cardId: a.id });
+  const s = act(board, "stamp", "bob", { cardId: a.id, kind: "p-idea", x: 0.5, y: 0.5 });
+  const item = act(board, "add-action", "bob", { text: "fix", sourceIds: [a.id] });
+  const before = redactBoard(board, 0);
+  assert.equal("edited" in before.cards[0], false, "a note nobody edited says nothing about editing");
+
+  const row = act(board, "edit-card", "alice", { cardId: a.id, text: "  better words\u0007  " });
+  assert.equal(row.text, "better words", "cleaned and trimmed as a new note is");
+  const after = redactBoard(board, 0);
+  assert.deepEqual(after.cards[0], { ...before.cards[0], text: "better words", edited: true });
+  assert.deepEqual(after.cards.slice(1), before.cards.slice(1));
+  assert.deepEqual(after.stamps, before.stamps);
+  assert.deepEqual(after.groups, before.groups);
+  assert.deepEqual(after.actionItems, before.actionItems);
+  assert.equal(order(board), "better words b c");
+  assert.deepEqual([a.id, a.columnId, a.groupId, a.authorId], [before.cards[0].id, "to-improve", g.id, "alice"]);
+  assert.equal(s.cardId, a.id);
+  assert.deepEqual(item.sourceIds, [a.id]);
+
+  // Nothing about who edited: the author is published only while revealed, as before.
+  assert.equal(JSON.stringify(after).includes("alice"), false);
+  board.revealed = true;
+  assert.equal(redactBoard(board, 0).cards[0].authorId, "alice");
+  act(board, "edit-card", "alice", { cardId: a.id, text: "after the reveal" });
+  board.revealed = false;
+  act(board, "edit-card", "alice", { cardId: a.id, text: "hidden again" });
+  const hidden = redactBoard(board, 0);
+  assert.equal(hidden.cards[0].text, "hidden again");
+  assert.equal(JSON.stringify(hidden).includes("alice"), false);
+  assert.deepEqual(Object.keys(hidden.cards[0]).sort(), ["columnId", "edited", "groupId", "id", "text", "voteCount"]);
+
+  // The same words again are accepted and mark nothing.
+  const fresh = emptyBoard();
+  const n = note(fresh, "alice", "went-well", "same");
+  assert.deepEqual(answerAction(fresh, { action: "edit-card", user: "alice", body: { cardId: n.id, text: " same " } }), {});
+  assert.equal("edited" in redactBoard(fresh, 0).cards[0], false);
+  assert.equal(c.text, "c");
+});
+
+test("nobody else edits a note, the facilitator included, and a bad edit changes nothing", () => {
+  const { board, a } = threeNotes();
+  const stored = JSON.stringify(board);
+  const refused = (user, body) => answerAction(board, { action: "edit-card", user, body }).refused;
+  assert.equal(refused("bob", { cardId: a.id, text: "mine now" }), "forbidden");
+  assert.equal(refused("facilitator", { cardId: a.id, text: "mine now" }), "forbidden");
+  assert.equal(refused(undefined, { cardId: a.id, text: "x" }), "forbidden");
+  for (const cardId of ["c404", "constructor", "__proto__", "toString", null, undefined, 7, { id: a.id }, [a.id]]) assert.equal(refused("alice", { cardId, text: "x" }), "not-found", JSON.stringify(cardId));
+  for (const text of [undefined, null, 7, ["x"], { toString: () => "x" }, "", "   ", "\n\t", "\u0000\u0007", "x".repeat(501)]) assert.equal(refused("alice", { cardId: a.id, text }), "invalid", String(JSON.stringify(text)).slice(0, 30));
+  assert.equal(refused("alice", null), "not-found");
+  assert.equal(JSON.stringify(board), stored, "not one refusal wrote anything");
+  assert.deepEqual(answerAction(board, { action: "edit-card", user: "alice", body: { cardId: a.id, text: "x".repeat(500) } }), {}, "five hundred is allowed");
+});

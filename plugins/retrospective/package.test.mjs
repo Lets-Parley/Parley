@@ -31,7 +31,7 @@ test("the actions only the facilitator may call are marked so, and no others are
   const only = pkg.kinds[0].actions.filter((a) => a.facilitatorOnly).map((a) => a.name);
   assert.deepEqual(only, ["moderate-card", "reveal", "conceal", "set-stage", "timer", "order-by-votes", "moderate-stamp"]);
   const open = pkg.kinds[0].actions.filter((a) => !a.facilitatorOnly).map((a) => a.name);
-  assert.deepEqual(open, ["add-card", "delete-card", "group-cards", "vote", "move-card", "move-group", "stamp", "move-stamp", "remove-stamp", "add-action", "set-owner", "delete-action", "link-action"]);
+  assert.deepEqual(open, ["add-card", "delete-card", "edit-card", "group-cards", "vote", "move-card", "move-group", "stamp", "move-stamp", "remove-stamp", "add-action", "set-owner", "delete-action", "link-action"]);
   assert.ok(pkg.kinds[0].actions.every((a) => a.verb === "POST"));
 });
 
