@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { test } from "node:test";
 
 const require = createRequire(import.meta.url);
-const { emptyBoard, redactBoard, applyAction } = require("./board.js");
+const { emptyBoard, redactBoard, applyAction, answerAction, LIMITS } = require("./board.js");
 
 test("an empty board has three columns and no cards", () => {
   const board = emptyBoard();
@@ -314,9 +314,16 @@ test("stamps are capped per person per note, per note, and per board", () => {
   assert.equal(board.stamps.filter((s) => s.cardId === a.id).length, 12);
   assert.throws(() => press("p4", a), /this note is full/);
 
+  // Sixty from one person on one board, however they are spread.
+  const one = emptyBoard();
+  const twenty = Array.from({ length: 21 }, (_, i) => note(one, "author" + (i % 2), "went-well", "n" + i));
+  for (let i = 0; i < 60; i++) act(one, "stamp", "bob", { cardId: twenty[Math.floor(i / 3)].id, kind: "laugh", x: 0, y: 0 });
+  assert.throws(() => act(one, "stamp", "bob", { cardId: twenty[20].id, kind: "laugh", x: 0, y: 0 }), /one person may press on one board/);
+  act(one, "stamp", "carol", { cardId: twenty[20].id, kind: "laugh", x: 0, y: 0 });
+
   const full = emptyBoard();
-  const rows = Array.from({ length: 101 }, (_, i) => note(full, "u", "went-well", "n" + i));
-  for (let i = 0; i < 300; i++) act(full, "stamp", "p" + (i % 3), { cardId: rows[Math.floor(i / 3)].id, kind: "laugh", x: 0, y: 0 });
+  const rows = Array.from({ length: 101 }, (_, i) => note(full, "author" + (i % 5), "went-well", "n" + i));
+  for (let i = 0; i < 300; i++) act(full, "stamp", "p" + (i % 3) + "/" + Math.floor(i / 150), { cardId: rows[Math.floor(i / 3)].id, kind: "laugh", x: 0, y: 0 });
   assert.throws(() => act(full, "stamp", "p9", { cardId: rows[100].id, kind: "laugh", x: 0, y: 0 }), /board is full/);
 });
 
@@ -410,4 +417,274 @@ test("changing the stage clears the timer", () => {
   act(board, "timer", "fac", { op: "start", durationMs: 60_000 }, T0);
   act(board, "set-stage", "fac", { stage: 1 });
   assert.equal(redactBoard(board, T0).timer, null);
+});
+
+// ---- refusals, caps, deletion, owners
+
+// The code the guest hands the host for a request, or "" when it was applied.
+const code = (board, action, user, body, now = T0) => answerAction(board, { action, user, body, now }).refused || "";
+
+test("every request the board declines is answered with a code, and nothing is thrown", () => {
+  const { board, a, b } = threeNotes();
+  const s = act(board, "stamp", "bob", { cardId: a.id, kind: "idea", x: 0.5, y: 0.5 });
+  const item = act(board, "add-action", "bob", { text: "do it" });
+  const g = act(board, "group-cards", "bob", { cardIds: [a.id, b.id], title: "pair" });
+  const before = JSON.stringify(board);
+  const declined = [
+    ["add-card", { columnId: "nope", text: "x" }, "not-found"],
+    ["add-card", { columnId: "went-well", text: "" }, "invalid"],
+    ["add-card", { columnId: "went-well", text: "   " }, "invalid"],
+    ["add-card", { columnId: "went-well", text: "x".repeat(501) }, "invalid"],
+    ["add-card", { columnId: "went-well", text: 7 }, "invalid"],
+    ["add-card", { columnId: "went-well", text: ["x"] }, "invalid"],
+    ["add-card", { columnId: "went-well" }, "invalid"],
+    ["delete-card", { cardId: "c404" }, "not-found"],
+    ["delete-card", { cardId: a.id }, "forbidden"],
+    ["moderate-card", { cardId: null }, "not-found"],
+    ["group-cards", { cardIds: [a.id] }, "invalid"],
+    ["group-cards", { cardIds: [a.id, a.id] }, "invalid"],
+    ["group-cards", { cardIds: "c1c2" }, "invalid"],
+    ["group-cards", { cardIds: [a.id, "c404"] }, "not-found"],
+    ["group-cards", { cardIds: [a.id, { id: b.id }] }, "not-found"],
+    ["group-cards", { cardIds: [a.id, b.id], title: "t".repeat(81) }, "invalid"],
+    ["group-cards", { cardIds: [a.id, b.id], title: { toString: () => "x" } }, "invalid"],
+    ["group-cards", { cardIds: Array(51).fill(a.id) }, "invalid"],
+    ["vote", { cardId: "c404" }, "not-found"],
+    ["set-stage", { stage: 9 }, "invalid"],
+    ["timer", { op: "explode" }, "invalid"],
+    ["timer", { op: "start", durationMs: 5 }, "invalid"],
+    ["timer", { op: "pause" }, "conflict"],
+    ["move-card", { cardId: "c404" }, "not-found"],
+    ["move-card", { cardId: a.id, columnId: "nope" }, "not-found"],
+    ["move-card", { cardId: a.id, groupId: "g404" }, "not-found"],
+    ["move-group", { groupId: "g404" }, "not-found"],
+    ["order-by-votes", { columnId: 3 }, "not-found"],
+    ["stamp", { cardId: "c404", kind: "idea", x: 0, y: 0 }, "not-found"],
+    ["stamp", { cardId: a.id, kind: "thumbs-up", x: 0, y: 0 }, "invalid"],
+    ["stamp", { cardId: a.id, kind: "idea", x: NaN, y: 0 }, "invalid"],
+    ["stamp", { cardId: a.id, kind: "idea", x: 0, y: 1.5 }, "invalid"],
+    ["move-stamp", { stampId: "s404", x: 0, y: 0 }, "not-found"],
+    ["move-stamp", { stampId: s.id, x: 0, y: 0 }, "forbidden"],
+    ["remove-stamp", { stampId: s.id }, "forbidden"],
+    ["moderate-stamp", { stampId: s.id, x: "left", y: 0 }, "invalid"],
+    ["add-action", { text: "" }, "invalid"],
+    ["add-action", { text: "x", owner: 7 }, "invalid"],
+    ["add-action", { text: "x", owner: "o".repeat(65) }, "invalid"],
+    ["add-action", { text: "x".repeat(501) }, "invalid"],
+    ["set-owner", { actionId: "a404", owner: "bob" }, "not-found"],
+    ["set-owner", { actionId: item.id, owner: ["bob"] }, "invalid"],
+    ["delete-action", { actionId: g.id }, "not-found"],
+    ["link-action", { actionId: "a404", sourceId: a.id, linked: true }, "not-found"],
+    ["link-action", { actionId: item.id, sourceId: "c404", linked: true }, "not-found"],
+    ["link-action", { actionId: item.id, sourceId: a.id, linked: "yes" }, "invalid"],
+    ["explode", {}, "invalid"],
+    [undefined, {}, "invalid"],
+  ];
+  for (const [action, body, want] of declined) {
+    assert.equal(code(board, action, "carol", body), want, action + " " + JSON.stringify(body).slice(0, 60));
+  }
+  assert.equal(JSON.stringify(board), before, "a declined request leaves the board as it was");
+  assert.equal(code(board, "vote", "carol", { cardId: a.id }), "", "an accepted one answers with no code");
+});
+
+test("a name the language already uses is not a note, a stamp or a lane", () => {
+  const { board, a, b } = threeNotes();
+  const item = act(board, "add-action", "bob", { text: "do it" });
+  for (const id of ["__proto__", "constructor", "toString", "hasOwnProperty", "valueOf", "length"]) {
+    assert.equal(code(board, "vote", "bob", { cardId: id }), "not-found", id);
+    assert.equal(code(board, "add-card", "bob", { columnId: id, text: "x" }), "not-found", id);
+    assert.equal(code(board, "stamp", "bob", { cardId: a.id, kind: id, x: 0, y: 0 }), "invalid", id);
+    assert.equal(code(board, "group-cards", "bob", { cardIds: [a.id, id] }), "not-found", id);
+    assert.equal(code(board, "move-group", "bob", { groupId: id }), "not-found", id);
+    assert.equal(code(board, "link-action", "bob", { actionId: item.id, sourceId: id, linked: true }), "not-found", id);
+    assert.equal(code(board, "timer", "fac", { op: id }), "invalid", id);
+    assert.deepEqual(act(board, "add-action", "bob", { text: "x", sourceIds: [id, b.id] }).sourceIds, [b.id], id);
+  }
+  // A voter the host names that way is still one voter, counted once.
+  act(board, "vote", "toString", { cardId: a.id });
+  act(board, "vote", "constructor", { cardId: a.id });
+  act(board, "vote", "constructor", { cardId: a.id });
+  assert.equal(redactBoard(board, T0).cards[0].voteCount, 2);
+  assert.equal({}.polluted, undefined);
+});
+
+test("a fault is thrown, not answered: the host has to hear that something is broken", () => {
+  const board = emptyBoard();
+  act(board, "timer", "fac", { op: "start", durationMs: 60_000 }, T0);
+  assert.throws(() => answerAction(board, { action: "timer", user: "fac", body: { op: "pause" }, now: undefined }), /needs a clock/);
+  assert.throws(() => answerAction({ columns: [] }, { action: "vote", user: "u", body: {}, now: T0 }), TypeError, "a stored document with no notes in it is corrupt");
+});
+
+test("text is stored as written or sent back; control characters never reach the document", () => {
+  const board = emptyBoard();
+  const row = note(board, "alice", "went-well", "  two\nlines\u0000\u0007 \ud83d\ude00 \ud800 ");
+  assert.equal(row.text, "two\nlines \ud83d\ude00");
+  assert.equal(code(board, "add-card", "alice", { columnId: "went-well", text: "\u0000\u0001" }), "invalid", "nothing but control characters is nothing");
+  assert.equal(note(board, "alice", "went-well", "x".repeat(500)).text.length, 500);
+});
+
+test("the author deletes their own note; the facilitator's way in is its own action", () => {
+  const { board, a, b, c } = threeNotes();
+  assert.equal(code(board, "delete-card", "bob", { cardId: a.id }), "forbidden", "a is alice's");
+  assert.equal(code(board, "delete-card", undefined, { cardId: a.id }), "forbidden");
+  act(board, "delete-card", "alice", { cardId: a.id });
+  assert.equal(order(board), "b c");
+  // The host lets only the facilitator call moderate-card, so it does not ask who wrote the note.
+  act(board, "moderate-card", "fac", { cardId: b.id });
+  assert.equal(order(board), "c");
+  assert.equal(code(board, "moderate-card", "fac", { cardId: b.id }), "not-found", "deleting twice is not deleting once");
+  assert.equal(c.authorId, "carol");
+});
+
+test("a deleted note takes its votes, its stamps and its links with it, and says nothing about who wrote it", () => {
+  const { board, a, b, c } = threeNotes();
+  const g = act(board, "group-cards", "bob", { cardIds: [a.id, b.id], title: "pair" });
+  act(board, "vote", "bob", { cardId: a.id });
+  act(board, "stamp", "bob", { cardId: a.id, kind: "idea", x: 0.5, y: 0.5 });
+  const kept = act(board, "stamp", "bob", { cardId: c.id, kind: "idea", x: 0.5, y: 0.5 });
+  const both = act(board, "add-action", "bob", { text: "both", sourceIds: [a.id, c.id, g.id] });
+  const only = act(board, "add-action", "bob", { text: "only", sourceIds: [a.id] });
+
+  act(board, "delete-card", "alice", { cardId: a.id });
+  assert.deepEqual(board.stamps.map((s) => s.id), [kept.id]);
+  assert.deepEqual(both.sourceIds, [c.id, g.id], "the group still holds b");
+  assert.deepEqual(only.sourceIds, [], "an action with no source left stays");
+  assert.equal(board.actionItems.length, 2);
+  const out = JSON.stringify(redactBoard(board, T0));
+  assert.equal(out.includes("alice"), false);
+  assert.equal(out.includes('"' + a.id + '"'), false, "nothing published still names the note");
+
+  act(board, "moderate-card", "fac", { cardId: b.id });
+  assert.deepEqual(board.groups, [], "a group goes when its last note does");
+  assert.deepEqual(both.sourceIds, [c.id]);
+});
+
+test("a group lasts as long as it holds a note: regrouping the same notes leaves one group", () => {
+  const { board, a, b, c } = threeNotes();
+  for (let i = 0; i < 5; i++) act(board, "group-cards", "bob", { cardIds: [a.id, b.id], title: "again " + i });
+  assert.deepEqual(board.groups.map((g) => g.title), ["again 4"]);
+  act(board, "move-card", "bob", { cardId: a.id, groupId: null });
+  assert.equal(board.groups.length, 1, "b is still in it");
+  act(board, "move-card", "bob", { cardId: b.id, columnId: "puzzles" });
+  assert.deepEqual(board.groups, []);
+
+  // A board stored with empty groups, and a note pointing at a group that is gone, is tidied when read.
+  board.groups.push({ id: "g77", columnId: "went-well", title: "empty" });
+  c.groupId = "g78";
+  const out = redactBoard(board, T0);
+  assert.deepEqual(out.groups, []);
+  assert.equal(out.cards.find((row) => row.id === c.id).groupId, null);
+});
+
+test("nobody owns an action until somebody is named, and anyone can name them later or delete it", () => {
+  const { board, a } = threeNotes();
+  const blank = act(board, "add-action", "alice-the-author", { text: "fix it", sourceIds: [a.id] });
+  assert.equal(blank.owner, "");
+  assert.equal(act(board, "add-action", "alice-the-author", { text: "x", owner: "   " }).owner, "");
+  assert.equal(act(board, "add-action", "alice-the-author", { text: "x", owner: null }).owner, "");
+  assert.equal(act(board, "add-action", "alice-the-author", { text: "x", owner: " Bo " }).owner, "Bo");
+  assert.equal(JSON.stringify(redactBoard(board, T0)).includes("alice-the-author"), false, "who wrote an action down never leaves the server");
+
+  act(board, "set-owner", "carol", { actionId: blank.id, owner: "Cy Park" });
+  assert.equal(redactBoard(board, T0).actionItems[0].owner, "Cy Park");
+  act(board, "set-owner", "bob", { actionId: blank.id, owner: "" });
+  assert.equal(blank.owner, "");
+  act(board, "set-owner", "bob", { actionId: blank.id });
+  assert.equal(blank.owner, "");
+
+  act(board, "delete-action", "carol", { actionId: blank.id });
+  assert.equal(board.actionItems.some((item) => item.id === blank.id), false);
+  assert.equal(board.cards.length, 3, "deleting an action deletes no note");
+});
+
+test("an owner stored by 0.1.0 as a bare user id is dropped; a typed name is kept", () => {
+  const board = emptyBoard();
+  board.actionItems.push(
+    { id: "a1", text: "old default", owner: "00000000-0000-0000-0000-0000000002c0", done: false, sourceIds: [] },
+    { id: "a2", text: "typed", owner: "Dana", done: false, sourceIds: [] },
+    { id: "a3", text: "typed, and it looks odd", owner: "team-0000", done: false, sourceIds: [] },
+    { id: "a4", text: "not text", owner: { id: "x" }, done: false, sourceIds: [] },
+  );
+  assert.deepEqual(redactBoard(board, T0).actionItems.map((item) => item.owner), ["", "Dana", "team-0000", ""]);
+});
+
+test("the caps: notes, groups, votes and action items, per board and per person", () => {
+  const board = emptyBoard();
+  for (let i = 0; i < LIMITS.notesPerPerson; i++) note(board, "alice", "went-well", "n" + i);
+  assert.equal(code(board, "add-card", "alice", { columnId: "went-well", text: "one more" }), "conflict");
+  assert.equal(code(board, "add-card", "bob", { columnId: "went-well", text: "bob has room" }), "");
+  // Deleting one makes room for one.
+  act(board, "delete-card", "alice", { cardId: board.cards[0].id });
+  assert.equal(code(board, "add-card", "alice", { columnId: "went-well", text: "room again" }), "");
+
+  for (let i = board.cards.length; i < LIMITS.notes; i++) note(board, "p" + (i % 6), "went-well", "n" + i);
+  assert.equal(board.cards.length, 120);
+  assert.equal(code(board, "add-card", "zed", { columnId: "went-well", text: "one too many" }), "conflict");
+
+  for (let i = 0; i < LIMITS.groups; i++) act(board, "group-cards", "bob", { cardIds: [board.cards[2 * i].id, board.cards[2 * i + 1].id], title: "g" + i });
+  assert.equal(board.groups.length, 40);
+  assert.equal(code(board, "group-cards", "bob", { cardIds: [board.cards[100].id, board.cards[101].id], title: "g" }), "conflict");
+  assert.equal(code(board, "group-cards", "bob", { cardIds: [board.cards[0].id, board.cards[1].id], title: "renamed" }), "", "regrouping a whole group frees the one it replaces");
+  assert.equal(board.groups.length, 40);
+
+  for (let v = 0; v < 9; v++) for (let i = 0; i < 120 && v * 120 + i < LIMITS.votes; i++) act(board, "vote", "voter" + v, { cardId: board.cards[i].id });
+  assert.equal(code(board, "vote", "voter9", { cardId: board.cards[0].id }), "conflict");
+  assert.equal(code(board, "vote", "voter0", { cardId: board.cards[0].id }), "", "a vote already counted is not a new one");
+
+  for (let i = 0; i < LIMITS.actions; i++) act(board, "add-action", "bob", { text: "a" + i });
+  assert.equal(code(board, "add-action", "bob", { text: "one too many" }), "conflict");
+  act(board, "delete-action", "carol", { actionId: board.actionItems[0].id });
+  assert.equal(code(board, "add-action", "bob", { text: "room again" }), "");
+});
+
+// The largest document the caps allow: every text at its limit in characters
+// that take three bytes each, every list full, user ids as long as the host's.
+function worstBoard() {
+  const board = emptyBoard();
+  const wide = (n) => "\u8a9e".repeat(n);
+  const who = (i) => "00000000-0000-4000-8000-" + String(i).padStart(12, "0");
+  for (let i = 0; i < LIMITS.notes; i++) note(board, who(i % 8), ["went-well", "to-improve", "puzzles"][i % 3], wide(LIMITS.noteText));
+  const lanes = ["went-well", "to-improve", "puzzles"].map((id) => board.cards.filter((c) => c.columnId === id));
+  for (let i = 0; i < LIMITS.groups; i++) act(board, "group-cards", who(0), { cardIds: [lanes[i % 3][Math.floor(i / 3)].id, lanes[i % 3][39 - Math.floor(i / 3)].id].slice(0, 2), title: wide(LIMITS.groupTitle) });
+  for (let i = 0; i < LIMITS.votes; i++) act(board, "vote", who(Math.floor(i / LIMITS.notes)), { cardId: board.cards[i % LIMITS.notes].id });
+  for (let i = 0; i < LIMITS.stamps; i++) act(board, "stamp", who(Math.floor(i / 60)), { cardId: board.cards[Math.floor(i / 3)].id, kind: "quick-win", x: 0.123, y: 0.456, rot: -11.5 });
+  for (let i = 0; i < LIMITS.actions; i++) act(board, "add-action", who(0), { text: wide(LIMITS.actionText), owner: wide(LIMITS.owner), sourceIds: board.cards.slice(i, i + 12).map((c) => c.id) });
+  act(board, "timer", who(0), { op: "start", durationMs: 10_800_000 }, T0);
+  return board;
+}
+
+test("a board at every cap is about a third of the store's quota, and nothing more can be added to it", () => {
+  const board = worstBoard();
+  assert.deepEqual(
+    [board.cards.length, board.groups.length, board.stamps.length, board.actionItems.length],
+    [LIMITS.notes, LIMITS.groups, LIMITS.stamps, LIMITS.actions],
+  );
+  const bytes = Buffer.byteLength(JSON.stringify(board), "utf8");
+  // By hand (README.md): 120 notes of 1,500 bytes of text and about 140 of
+  // structure; 1,000 votes of 41; 300 stamps of about 135; 40 groups of about
+  // 290; 30 actions of about 1,900. Roughly 340,000 bytes of 1,048,576.
+  assert.ok(bytes > 300_000 && bytes < 360_000, "the worst board is " + bytes + " bytes");
+  assert.ok(bytes * 3 < require("./manifest.json").quotaBytes, "three of them fit in the quota");
+  for (const [action, body] of [
+    ["add-card", { columnId: "went-well", text: "x" }],
+    ["vote", { cardId: board.cards[0].id }],
+    ["stamp", { cardId: board.cards[119].id, kind: "idea", x: 0, y: 0 }],
+    ["add-action", { text: "x" }],
+  ]) {
+    assert.equal(code(board, action, "newcomer", body), "conflict", action);
+  }
+});
+
+test("building the state of a board at every cap, and regrouping on it, takes milliseconds", () => {
+  const board = worstBoard();
+  const ids = board.cards.filter((c) => c.columnId === "went-well").map((c) => c.id);
+  const started = performance.now();
+  for (let i = 0; i < 10; i++) redactBoard(board, T0);
+  act(board, "group-cards", "u", { cardIds: ids, title: "all" });
+  act(board, "moderate-card", "fac", { cardId: ids[0] });
+  const each = (performance.now() - started) / 12;
+  // The guest has two seconds a call. Under node this is well under a
+  // millisecond; the bound is loose so a slow runner does not fail it.
+  assert.ok(each < 200, "one call took " + each.toFixed(1) + " ms");
+  assert.equal(redactBoard(board, T0).actionItems.every((item) => item.sourceIds.length <= 12), true);
 });

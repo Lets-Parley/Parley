@@ -25,13 +25,13 @@ test("the install package declares the retrospective kind and the grants it need
 });
 
 // The host refuses a facilitator-only action for anyone else before the guest
-// runs, and the guest is never told who the facilitator is: for these six,
+// runs, and the guest is never told who the facilitator is: for these seven,
 // this list is the whole of the check.
 test("the actions only the facilitator may call are marked so, and no others are", () => {
   const only = pkg.kinds[0].actions.filter((a) => a.facilitatorOnly).map((a) => a.name);
-  assert.deepEqual(only, ["reveal", "conceal", "set-stage", "timer", "order-by-votes", "moderate-stamp"]);
+  assert.deepEqual(only, ["moderate-card", "reveal", "conceal", "set-stage", "timer", "order-by-votes", "moderate-stamp"]);
   const open = pkg.kinds[0].actions.filter((a) => !a.facilitatorOnly).map((a) => a.name);
-  assert.deepEqual(open, ["add-card", "group-cards", "vote", "move-card", "move-group", "stamp", "move-stamp", "remove-stamp", "add-action", "link-action"]);
+  assert.deepEqual(open, ["add-card", "delete-card", "group-cards", "vote", "move-card", "move-group", "stamp", "move-stamp", "remove-stamp", "add-action", "set-owner", "delete-action", "link-action"]);
   assert.ok(pkg.kinds[0].actions.every((a) => a.verb === "POST"));
 });
 
