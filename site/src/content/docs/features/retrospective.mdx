@@ -45,14 +45,33 @@ shipped frontend.
   people (the composer in Write, checkboxes in Group, the vote button in Vote,
   the action target in Decide) and **blocks nothing**: a late card, vote or
   action is still accepted in any stage.
-- Everything a card can do is in its **menu** (the handle in front of its
-  text), which is also the keyboard and touch path for every pointer gesture.
+- Each control on a card does one thing. The **handle** in front of its text
+  drags it and opens nothing. The **three dots** after its text open its
+  **menu**, in every stage and always in the same place; everything a card can
+  do is there, which makes the menu the keyboard and touch path for every
+  pointer gesture. A group has the same pair in its heading.
 - **Order is shared.** Drag a card by its handle, use Move up / Move down /
   Move to top / Move to bottom / Move to another column in its menu, or press
-  `Alt`+`↑`/`↓` (`Shift` for top and bottom). A group moves as one from its own
-  menu. **Most votes** re-sorts a column for one reader only and writes
-  nothing; while it is on, that column cannot be reordered, and says so. The
-  facilitator can apply the vote order for everyone.
+  `Alt`+`↑`/`↓` (`Shift` for top and bottom) and `Alt`+`←`/`→` for the next
+  column. A group moves as one, by its own handle or from its own menu, also
+  to another column.
+- **A drop goes where it is aimed.** Dragged over another column, that column
+  is outlined and the card lands where the dashed slot shows, or at the end
+  when dropped on empty space. Dragged over a group, the group is outlined and
+  the card joins it at that place, also from another column. Held for a moment
+  over the middle of a loose card in the same column, that card is marked
+  "Group with this": dropping there asks for the group's name and makes a
+  group of the two, and Cancel leaves both where they were. A grouped card
+  dropped among loose cards or in another column leaves its group; a group
+  keeps going with one card. Every drop sends the same request as the matching
+  menu item (Move to a column, Add to group, or Select to group and the Group
+  bar), `Escape` puts the card back, and holding it at the top or bottom edge
+  scrolls the page.
+- **Most votes** re-sorts a column for one reader only and writes nothing.
+  While it is on, cards in that column cannot be given a new place, and it says
+  so; a card can still be carried out of it, into one of its groups, or into
+  it from another column, where it is added at the end of the shared order.
+  The facilitator can apply the vote order for everyone.
 - **Stamps.** Anyone can press one of seven stamps (Me too, Thank you, Great
   idea, Quick win, Needs a chat, Blocker, Made me laugh) onto a card from its
   menu. It lands hanging off the card's top edge, clear of the words, into the
@@ -90,7 +109,7 @@ pressed a stamp are never in it.
 | `add-card`, `group-cards`, `vote`, `add-action` | anyone in the room | as before; `add-action` also takes `sourceIds`, and a blank `owner` means nobody |
 | `delete-card` | the card's author | delete a card with its votes, stamps and links |
 | `set-owner`, `delete-action` | anyone | name or clear an action's owner; delete an action |
-| `move-card`, `move-group` | anyone | reorder a card or a group, move a card to another column or group |
+| `move-card`, `move-group` | anyone | reorder a card or a group, move a card to another column or group, move a group to another column |
 | `stamp`, `move-stamp`, `remove-stamp` | anyone; move and remove only for the stamp's presser | press, move, lift a stamp |
 | `link-action` | anyone | tie a card or group to an action, or untie it |
 | `reveal`, `conceal` | facilitator | show or hide authors |

@@ -89,11 +89,27 @@ the parts worth copying:
   `parley.act`, `parley.supports("results")` and `parley.scheme()` are all used
   when present and never assumed. With `selfId`, only the facilitator is
   offered Reveal; without it, the control is shown with the rule spelled out.
-- **One menu holds the long tail.** A note shows one control in front of its
-  text and the one the current stage promotes after it. Voting, stamping,
-  selecting, moving and starting an action are all in the note's menu, which
-  makes the menu the keyboard and touch path for every pointer gesture: a drag
-  is never the only way (`openMenu`, `moveNote`, and `Alt`+arrow keys).
+- **One control, one job.** The handle in front of a note drags it and does
+  nothing else: pressed without a drag it opens nothing and reads out how a
+  move is made. The three dots after the text are the note's menu, in every
+  stage and always last on the note, so the vote and action chips stay on its
+  first line at any width. Voting, stamping, selecting, moving and starting an
+  action are all in that menu, which makes it the keyboard and touch path for
+  every pointer gesture: a drag is never the only way (`openMenu`, `moveNote`,
+  `toLane`, and `Alt`+arrow keys, Left and Right for the next lane). Groups
+  have the same pair in their heading.
+- **A drop aims at one of three things** (`aimAt`): a place in a lane, which
+  may be another lane; a group, which the note joins where it is dropped; or a
+  loose note in the same lane, which it is grouped with. The middle half of a
+  note means "group with this" only after the pointer has rested there for
+  300ms, and is then kept until the pointer is nearly off the note
+  (`zoneOf`); the quarters above and below mean before and after. Grouping by
+  drop asks for the group's name first and sends nothing until it has one,
+  because a group cannot be renamed. Every drop sends exactly the body the
+  menu sends for the same move. A lane sorted by "Most votes" takes a note
+  from another lane at its end and takes no positions; a whole group is
+  carried by the handle in its heading. A group left with one note stays a
+  group; an empty one is removed.
 - **Optimistic, and taken back.** A move is applied to the board at once and
   sent; if the host refuses, the board is put back (`sendMove`). A stamp is
   dragged locally and sent once, on release.
@@ -112,6 +128,11 @@ the parts worth copying:
   second finger's events are not that pointer's and are ignored. State pushes wait while
   a note is carried and are applied when it is put down, also when the note
   itself was deleted meanwhile.
+  A press while a gesture is still open means its release was never heard:
+  that gesture is ended first, and every ending gives the pointer capture
+  back. Held at the edge of what is in sight, the page keeps scrolling: the
+  frame may be as tall as the board, so it learns what is in sight from an
+  `IntersectionObserver` and asks for a spot just past that edge.
 - **State strings never index a plain object.** Ids and kinds come from the
   state, so every map they index is made by `bag()`, which has no inherited
   keys: a note called `constructor` is a note.
@@ -175,7 +196,7 @@ note that is not yours, it tells you so.
 | `group-cards` | `{cardIds, title}` | anyone |
 | `vote` | `{cardId}` | anyone |
 | `move-card` | `{cardId, beforeId?, columnId?, groupId?}` | anyone |
-| `move-group` | `{groupId, beforeId?}` | anyone |
+| `move-group` | `{groupId, beforeId?, columnId?}` | anyone |
 | `stamp` | `{cardId, kind, x, y, rot?}` | anyone |
 | `move-stamp` | `{stampId, x, y}` | whoever pressed it |
 | `remove-stamp` | `{stampId}` | whoever pressed it |
