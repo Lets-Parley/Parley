@@ -454,6 +454,7 @@ const RETRO_FONTS = [
     ".edit-row{position:absolute;z-index:3;top:calc(100% + 5px);right:6px;display:flex;align-items:center;gap:6px;max-width:calc(100% - 12px);padding:4px 4px 4px 10px;border:1px solid var(--color-line);border-radius:12px;background:var(--color-surface-hi);box-shadow:var(--shadow-lift)}",
     ".edit-said{font-size:12px;color:var(--color-ink-soft)}",
     ".note.editing .st.over{opacity:.2}",
+    ".note.editing .add-st{display:none}",
     ".edited{font:11px/16px var(--mono);color:var(--color-ink-soft);margin-right:auto}",
     ".chips{grid-column:2/-1;justify-self:end;max-width:100%;position:relative;z-index:2;display:flex;align-items:center;gap:4px;padding-bottom:3px}",
     ".pick,.grip,.more,.target{display:grid;place-items:center;width:28px;height:32px}",
@@ -493,13 +494,13 @@ const RETRO_FONTS = [
     // own vote, and then it is filled and its pill is ringed: told by the
     // fill and the ring, not by the color. Down is the same thumb turned
     // over, in a calm color: it is a vote, not a warning.
-    ".thumb{display:inline-flex;align-items:center;gap:3px;min-height:32px;padding:0 9px 0 5px;border:1px solid var(--color-line-strong);border-radius:999px;background:var(--color-surface-hi);color:var(--color-ink);font-size:13px;font-weight:700;transition:background-color .15s,border-color .15s}",
-    ".thumb:hover{background:var(--color-felt-deep)}",
-    ".thumb .mono{display:inline-block}",
-    ".thumb:has(.mono[hidden]){padding:0 5px}",
-    '.thumb[aria-pressed="true"]{border-color:var(--color-accent);background:var(--color-accent-soft);box-shadow:inset 0 0 0 1px var(--color-accent)}',
-    ".board:not(.stage-2) .thumb{min-height:24px;height:24px;padding:0 7px 0 3px;border-color:var(--color-line);font-size:12px}",
-    ".board:not(.stage-2) .thumb:has(.mono[hidden]){padding:0 3px}",
+    ".rate{display:inline-flex;align-items:center;gap:3px;min-height:32px;padding:0 9px 0 5px;border:1px solid var(--color-line-strong);border-radius:999px;background:var(--color-surface-hi);color:var(--color-ink);font-size:13px;font-weight:700;transition:background-color .15s,border-color .15s}",
+    ".rate:hover{background:var(--color-felt-deep)}",
+    ".rate .mono{display:inline-block}",
+    ".rate:has(.mono[hidden]){padding:0 5px}",
+    '.rate[aria-pressed="true"]{border-color:var(--color-accent);background:var(--color-accent-soft);box-shadow:inset 0 0 0 1px var(--color-accent)}',
+    ".board:not(.stage-2) .rate{min-height:24px;height:24px;padding:0 7px 0 3px;border-color:var(--color-line);font-size:12px}",
+    ".board:not(.stage-2) .rate:has(.mono[hidden]){padding:0 3px}",
     ".board:not(.stage-3) .target{min-height:24px;height:24px;padding:0 8px;border-color:var(--color-line);font-size:12px}",
     ".tb{flex:none;display:block;width:24px;height:24px}",
     ".board:not(.stage-2) .tb{width:18px;height:18px}",
@@ -510,8 +511,8 @@ const RETRO_FONTS = [
     ".tb .o{stroke:var(--st-ink);stroke-width:3.2}",
     ".tb .c{fill:var(--st-paper)}",
     ".tb .s{stroke:var(--st-ink);stroke-width:1.8}",
-    '.thumb[aria-pressed="true"] .tb .c{fill:var(--k)}',
-    ".thumb.down .tb svg{scale:1 -1}",
+    '.rate[aria-pressed="true"] .tb .c{fill:var(--k)}',
+    ".rate.down .tb svg{scale:1 -1}",
     // A note on its way to the server: same place, drawn as not yet real.
     ".ghost{border-style:dashed;background:transparent;box-shadow:none}",
     ".ghost .note-text{grid-column:2/-1;color:var(--color-ink-soft)}",
@@ -662,9 +663,9 @@ const RETRO_FONTS = [
     ".link-list li{display:flex;flex-wrap:wrap;align-items:center;gap:8px}",
     ".link-list span{flex:1 1 5rem;min-width:0;overflow-wrap:anywhere}",
 
-    "@media (pointer:coarse){.btn,.menu-item,.stage-2 .thumb{min-height:44px}.pick,.grip,.more{width:44px;height:44px}.stage-3 .target{min-width:44px;height:44px}.board:not(.stage-2) .thumb,.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.trail,.chips{min-height:44px}.chips{padding-bottom:0}.note-text{padding:12px 0}" +
+    "@media (pointer:coarse){.btn,.menu-item,.stage-2 .rate{min-height:44px}.pick,.grip,.more{width:44px;height:44px}.stage-3 .target{min-width:44px;height:44px}.board:not(.stage-2) .rate,.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.trail,.chips{min-height:44px}.chips{padding-bottom:0}.note-text{padding:12px 0}" +
       // What is drawn smaller than a fingertip is still pressed over 44px.
-      '.thumb,.target{position:relative;justify-content:center;min-width:44px}.board:not(.stage-2) .thumb::after,.board:not(.stage-3) .target::after{content:"";position:absolute;inset:-7px -1px}.st::after{content:"";position:absolute;inset:-1px}.add-st::after{content:"";position:absolute;inset:-7px}}',
+      '.rate,.target{position:relative;justify-content:center;min-width:44px}.board:not(.stage-2) .rate::after,.board:not(.stage-3) .target::after{content:"";position:absolute;inset:-7px -1px}.st::after{content:"";position:absolute;inset:-1px}.add-st::after{content:"";position:absolute;inset:-7px}}',
 
     // A phone. The header is two short rows and a hint: the steps shrink to
     // their numbers around the current one, the hint is one line that opens,
@@ -2480,7 +2481,7 @@ const RETRO_FONTS = [
   function buildThumb(way) {
     const thumb = { n: null, count: el("span", { class: "mono" }) };
     thumb.icon = el("span", { class: "tb k-" + (way === "up" ? "quick-win" : "chat") }, [svgOf("3 3 34 34", [["e", THUMB], ["w", THUMB], ["o", THUMB], ["c", THUMB], ["s", "M13.5 20v11"]])]);
-    thumb.btn = el("button", { type: "button", class: "thumb " + way, "aria-pressed": "false" }, [thumb.icon, thumb.count]);
+    thumb.btn = el("button", { type: "button", class: "rate " + way, "aria-pressed": "false" }, [thumb.icon, thumb.count]);
     return thumb;
   }
 

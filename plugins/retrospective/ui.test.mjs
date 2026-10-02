@@ -360,7 +360,7 @@ const menuItem = (root, label) => all(root, (n) => n.getAttribute("role") === "m
 const noteOrder = (root, title) => byClass(lane(root, title), "note").map((n) => one(n, "note-text").textContent).join(" ");
 const liveOf = (root) => one(root, "live").textContent;
 // A note's thumb, up or down.
-const thumb = (root, text, way) => byClass(noteWith(root, text), "thumb").find((n) => n.className.split(" ").includes(way));
+const thumb = (root, text, way) => byClass(noteWith(root, text), "rate").find((n) => n.className.split(" ").includes(way));
 const FACILITATOR = { selfId: "u-alice" };
 const PARTICIPANT = { selfId: "u-bo" };
 
@@ -988,7 +988,7 @@ test("a note's handle and its menu button are there in every stage, in the same 
   const expected = [
     ["grip", ""],
     ["grip pick", ""],
-    ["grip", "thumb thumb"],
+    ["grip", "rate rate"],
     ["grip", "target"],
   ];
   expected.forEach(([lead, chips], stage) => {
@@ -1003,8 +1003,8 @@ test("a note's handle and its menu button are there in every stage, in the same 
   same(one(note(), "trail").lastChild, more, "the menu button is the last control on the note");
   // A vote already cast stays in sight in every stage.
   push(session({ stage: 0, cards: [card("c1", "went-well", "one", { voteCount: 2 })] }));
-  assert.equal(shown("thumb"), true);
-  assert.equal(row("chips"), "thumb thumb");
+  assert.equal(shown("rate"), true);
+  assert.equal(row("chips"), "rate rate");
   assert.equal(row("trail"), "more");
 });
 
@@ -3294,8 +3294,8 @@ test("on a touch screen the checkbox, the handle, the menu button and the action
   assert.match(coarse, /\.stage-3 \.target\{min-width:44px;height:44px\}/);
   assert.doesNotMatch(src, /width:36px;height:44px/);
   const reach = src.split("\n").find((line) => line.includes(".st::after"));
-  assert.match(reach, /\.thumb,\.target\{position:relative;justify-content:center;min-width:44px\}/);
-  assert.match(reach, /\.board:not\(\.stage-2\) \.thumb::after,\.board:not\(\.stage-3\) \.target::after\{content:"";position:absolute;inset:-7px -1px\}/);
+  assert.match(reach, /\.rate,\.target\{position:relative;justify-content:center;min-width:44px\}/);
+  assert.match(reach, /\.board:not\(\.stage-2\) \.rate::after,\.board:not\(\.stage-3\) \.target::after\{content:"";position:absolute;inset:-7px -1px\}/);
   assert.match(reach, /\.st::after\{content:"";position:absolute;inset:-1px\}/);
   assert.match(reach, /\.add-st::after\{content:"";position:absolute;inset:-7px\}/);
 });
@@ -3405,7 +3405,7 @@ test("a note's words share their row with the handle and the menu only: the vote
   for (const text of ["plain", "voted", "linked"]) {
     const note = noteWith(root, text);
     assert.deepEqual(one(note, "trail").children.map((n) => n.className), ["more"], "beside the words: the menu and nothing else");
-    assert.deepEqual(one(note, "chips").children.map((n) => n.className.split(" ")[0]), ["edited", "target", "thumb", "thumb"]);
+    assert.deepEqual(one(note, "chips").children.map((n) => n.className.split(" ")[0]), ["edited", "target", "rate", "rate"]);
     same(one(note, "chips").parentNode, note, "the chips are a row of the note, not part of the first one");
   }
   assert.equal(one(noteWith(root, "plain"), "chips").hidden, true, "nothing to show, no row: the note stays one line");
@@ -4241,9 +4241,9 @@ test("the thumbs are on every note in the Vote stage, and elsewhere only on a no
   // The thumb is drawn, not written: the same outline four times, die-cut like a sticker, and turned over for down.
   const paths = one(thumb(root, "liked", "up"), "tb").children[0].children.map((p) => p.getAttribute("class"));
   assert.deepEqual(paths, ["e", "w", "o", "c", "s"]);
-  assert.match(src, /\.thumb\.down \.tb svg\{scale:1 -1\}/);
-  assert.match(src, /\.thumb\[aria-pressed="true"\] \.tb \.c\{fill:var\(--k\)\}/);
-  assert.match(src, /\.thumb\[aria-pressed="true"\]\{border-color:var\(--color-accent\);background:var\(--color-accent-soft\);box-shadow:inset 0 0 0 1px var\(--color-accent\)\}/);
+  assert.match(src, /\.rate\.down \.tb svg\{scale:1 -1\}/);
+  assert.match(src, /\.rate\[aria-pressed="true"\] \.tb \.c\{fill:var\(--k\)\}/);
+  assert.match(src, /\.rate\[aria-pressed="true"\]\{border-color:var\(--color-accent\);background:var\(--color-accent-soft\);box-shadow:inset 0 0 0 1px var\(--color-accent\)\}/);
 });
 
 test("Top rated ranks by ups less downs, then by more ups, and a group says its ups and downs", () => {
