@@ -1134,7 +1134,7 @@ const RETRO_FONTS = [
             return c.columnId === col.id && shared[c.id];
           })
           .map(function (c) {
-            return c.id + "/" + c.groupId;
+            return c.id;
           })
           .join(" ");
       };
