@@ -322,7 +322,7 @@ const RETRO_FONTS = [
     ".lane-title{flex:1;min-width:0}",
     ".prompt{font-size:13px;line-height:18px;color:var(--color-ink-soft);text-wrap:pretty}",
     ".lane-glyph{flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:8px;color:var(--hue);background:color-mix(in srgb,var(--hue) 14%,transparent)}",
-    ".sort{flex:none;display:inline-flex;align-items:center;gap:6px;min-height:24px;margin-top:2px;padding:0 10px 0 8px;border:1px solid var(--color-line-strong);border-radius:999px;background:transparent;color:var(--color-ink-soft);font-size:12px;font-weight:700;line-height:16px;transition:background-color .15s,border-color .15s}",
+    ".sort{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:1px solid var(--color-line-strong);border-radius:8px;background:transparent;color:var(--color-ink-soft);transition:background-color .15s,border-color .15s}",
     ".sort:hover{background:var(--color-felt-deep)}",
     '.sort[aria-pressed="true"]{border-color:var(--color-accent);background:var(--color-accent-soft);color:var(--color-ink)}',
     ".sort-line .fine{flex:1 1 100%}",
@@ -342,14 +342,18 @@ const RETRO_FONTS = [
     ".note.selected{background:var(--color-accent-soft);border-color:var(--color-accent);box-shadow:0 0 0 1px var(--color-accent),var(--shadow-rest)}",
     // A note's controls are drawn over its stamps, and over a neighbor's:
     // a stamp may cover text, which shows through it, but never a control.
-    ".lead,.trail{position:relative;z-index:2;display:flex;align-items:center;gap:4px}",
+    ".lead,.trail{position:relative;z-index:2;display:flex;align-items:center}",
+    // After the text: the control the stage promotes, on top, and under it
+    // what the note has already gathered, kept small.
+    ".trail{flex-direction:column;align-items:flex-end;gap:2px}",
+    ".more,.stage-2 .vote,.stage-3 .target{order:-1}",
     ".pick,.grip,.more,.target{display:grid;place-items:center;width:28px;height:32px}",
     ".pick{cursor:pointer}",
     ".grip,.more,.target{padding:0;border:0;border-radius:8px;background:transparent;color:var(--color-ink-faint);transition:background-color .15s,color .15s}",
     ".grip:hover,.more:hover,.target:hover{background:var(--color-felt-deep);color:var(--color-ink)}",
     ".grip{cursor:grab;touch-action:none}",
     ".target{color:var(--color-ink-soft)}",
-    ".target.linked{display:inline-flex;gap:4px;width:auto;padding:0 6px;color:var(--color-brass);font-size:13px;font-weight:700}",
+    ".target.linked{display:inline-flex;align-items:center;gap:4px;width:auto;padding:0 6px;color:var(--color-brass);font-size:13px;font-weight:700}",
     ".lit{outline:2px solid var(--color-accent);outline-offset:1px}",
     ".note.spot,.group.spot{box-shadow:0 0 0 2px var(--color-accent),var(--shadow-rest)}",
     // A note being dragged: the copy under the pointer, and the slot it left.
@@ -366,6 +370,7 @@ const RETRO_FONTS = [
     ".disc{flex:none;display:grid;place-items:center;width:24px;height:24px;margin:3px;border-radius:50%;font-size:9px;font-weight:700;color:#F4F8FB;background:#3F5466;box-shadow:0 0 0 2px var(--color-surface-hi),0 0 0 3px var(--color-line)}",
     ".vote{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 10px;border:1px solid var(--color-line-strong);border-radius:999px;background:var(--color-surface-hi);color:var(--color-ink-soft);font-size:13px;font-weight:700;transition:background-color .15s,border-color .15s}",
     ".vote:hover{background:var(--color-felt-deep)}",
+    ".board:not(.stage-2) .vote,.board:not(.stage-3) .target{min-height:24px;height:24px;padding:0 8px;border-color:var(--color-line);font-size:12px}",
     ".vote-dot{width:8px;height:8px;border:1.5px solid currentColor;border-radius:50%}",
     ".vote.has-votes{color:var(--color-ink)}",
     ".vote.has-votes .vote-dot{background:currentColor}",
@@ -443,7 +448,7 @@ const RETRO_FONTS = [
     ".link-list li{display:flex;align-items:center;gap:8px}",
     ".link-list span{flex:1;min-width:0;overflow-wrap:anywhere}",
 
-    "@media (pointer:coarse){.btn,.vote,.menu-item{min-height:44px}.pick,.grip,.more,.target{width:36px;height:44px}.sort{min-height:32px}.note{grid-template-columns:36px minmax(0,1fr) auto}.note-text{padding:12px 0}}",
+    "@media (pointer:coarse){.btn,.menu-item,.stage-2 .vote{min-height:44px}.pick,.grip,.more,.stage-3 .target{width:36px;height:44px}.board:not(.stage-2) .vote,.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{width:36px;height:36px}.note{grid-template-columns:36px minmax(0,1fr) auto}.note-text{padding:12px 0}}",
 
     // The host's own keyframes for a note being set down: a short fall under
     // gravity, then a slide that friction brings to a dead stop.
@@ -1213,6 +1218,7 @@ const RETRO_FONTS = [
   function patchProgress() {
     const stage = board.stage;
     const held = document.activeElement;
+    main.className = "board stage-" + stage;
     stepViews.forEach(function (v, i) {
       const current = i === stage;
       const done = i < stage;
@@ -1570,7 +1576,7 @@ const RETRO_FONTS = [
       // "Most votes" is a lens for one reader: `sorted` holds the ranking as
       // it stood when it was switched on, and nothing is written anywhere.
       sorted: null,
-      sortToggle: el("button", { type: "button", class: "sort", "aria-pressed": "false" }, [icon(GLYPH.bars), el("span", { text: "Most votes" })]),
+      sortToggle: el("button", { type: "button", class: "sort", "aria-pressed": "false" }, [icon(GLYPH.bars), el("span", { class: "sr-only", text: "Most votes" })]),
       resort: el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Re-sort" }),
       unsort: el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Show shared order" }),
       share: el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Use this order for everyone" }),
@@ -1895,8 +1901,7 @@ const RETRO_FONTS = [
     });
     [note.grip, note.more].forEach(function (opener) {
       toggles(opener, function () {
-        if (note.dragged) note.dragged = false;
-        else openNoteMenu(id, opener);
+        if (!note.dragged) openNoteMenu(id, opener);
       });
     });
     toggles(note.target, function () {
@@ -2263,6 +2268,35 @@ const RETRO_FONTS = [
     return null;
   }
 
+  // Hear a pointer from a press until it is let go, wherever it goes. The
+  // listeners are on the window because the thing pressed may itself be moved
+  // in the document while it is dragged, which would drop them.
+  function follow(move, stop) {
+    const end = function (e) {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      stop(e);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  }
+
+  // Keep hearing the pointer if it leaves the frame mid-drag.
+  function hold(ev) {
+    if (main.setPointerCapture) main.setPointerCapture(ev.pointerId);
+  }
+
+  // A drag ends with a release, and a release on a button is a click. That
+  // one click is not a request to open anything.
+  function swallowClick(owner) {
+    owner.dragged = true;
+    setTimeout(function () {
+      owner.dragged = false;
+    }, 0);
+  }
+
   function dragsNote(handle, id) {
     handle.addEventListener("pointerdown", function (ev) {
       const note = view.notes[id];
@@ -2277,33 +2311,25 @@ const RETRO_FONTS = [
       }
       const start = { x: ev.clientX, y: ev.clientY };
       let over = false;
-      note.dragged = false;
-      const move = function (e) {
-        if (over) return;
-        if (!drag) {
-          if (Math.abs(e.clientX - start.x) + Math.abs(e.clientY - start.y) < 4) return;
-          if (!lift(id, start)) {
-            over = true;
-            return;
+      follow(
+        function (e) {
+          if (over) return;
+          if (!drag) {
+            if (Math.abs(e.clientX - start.x) + Math.abs(e.clientY - start.y) < 4) return;
+            over = !lift(id, start);
+            if (over) return;
+            hold(ev);
           }
-          handle.setPointerCapture(ev.pointerId);
-        }
-        e.preventDefault();
-        dragTo(e.clientX, e.clientY);
-      };
-      const stop = function (e) {
-        handle.removeEventListener("pointermove", move);
-        handle.removeEventListener("pointerup", stop);
-        handle.removeEventListener("pointercancel", stop);
-        if (drag && !over) {
+          e.preventDefault();
+          dragTo(e.clientX, e.clientY);
+        },
+        function (e) {
+          if (!drag || over) return;
           // The press that ends a drag is not a click on the handle.
-          note.dragged = handle === note.grip;
+          swallowClick(note);
           putDown(e.type === "pointerup");
-        }
-      };
-      handle.addEventListener("pointermove", move);
-      handle.addEventListener("pointerup", stop);
-      handle.addEventListener("pointercancel", stop);
+        },
+      );
     });
   }
 
@@ -2550,10 +2576,7 @@ const RETRO_FONTS = [
       settleStamp(id);
     });
     toggles(stamp.btn, function () {
-      if (stamp.dragged) {
-        stamp.dragged = false;
-        return;
-      }
+      if (stamp.dragged) return;
       const nudge = function (label, dx, dy) {
         return {
           label: label,
@@ -2584,39 +2607,37 @@ const RETRO_FONTS = [
       ev.stopPropagation();
       const start = { x: ev.clientX, y: ev.clientY };
       let moved = false;
-      stamp.dragged = false;
-      const move = function (e) {
-        const now = stampById(id);
-        if (!now) return;
-        if (!moved) {
-          if (Math.abs(e.clientX - start.x) + Math.abs(e.clientY - start.y) < 4) return;
-          if (!mayChange(id)) return stop(e);
-          moved = true;
-          closePop(false);
-          stamp.btn.setPointerCapture(ev.pointerId);
-          stamp.btn.classList.add("lift");
-        }
-        const box = noteBox(now.cardId);
-        stampAt[id] = { x: round3(unit((e.clientX - box.left) / box.width)), y: round3(unit((e.clientY - box.top) / box.height)) };
-        patchStamps();
-      };
-      const stop = function (e) {
-        stamp.btn.removeEventListener("pointermove", move);
-        stamp.btn.removeEventListener("pointerup", stop);
-        stamp.btn.removeEventListener("pointercancel", stop);
-        if (!moved) return;
-        stamp.dragged = e.type === "pointerup";
-        stamp.btn.classList.remove("lift");
-        if (e.type !== "pointerup") delete stampAt[id];
-        else {
-          if (motionOn()) animate(stamp.btn, { transform: "scale(1.2)" }, SLAP);
-          sendStamp(id, false);
-        }
-        patchStamps();
-      };
-      stamp.btn.addEventListener("pointermove", move);
-      stamp.btn.addEventListener("pointerup", stop);
-      stamp.btn.addEventListener("pointercancel", stop);
+      let over = false;
+      follow(
+        function (e) {
+          const now = stampById(id);
+          if (!now || over) return;
+          if (!moved) {
+            if (Math.abs(e.clientX - start.x) + Math.abs(e.clientY - start.y) < 4) return;
+            over = !mayChange(id);
+            if (over) return;
+            moved = true;
+            closePop(false);
+            hold(ev);
+            stamp.btn.classList.add("lift");
+          }
+          const box = noteBox(now.cardId);
+          stampAt[id] = { x: round3(unit((e.clientX - box.left) / box.width)), y: round3(unit((e.clientY - box.top) / box.height)) };
+          patchStamps();
+        },
+        function (e) {
+          if (over) swallowClick(stamp);
+          if (!moved) return;
+          swallowClick(stamp);
+          stamp.btn.classList.remove("lift");
+          if (e.type !== "pointerup") delete stampAt[id];
+          else {
+            if (motionOn()) animate(stamp.btn, { transform: "scale(1.2)" }, SLAP);
+            sendStamp(id, false);
+          }
+          patchStamps();
+        },
+      );
     });
     return stamp;
   }
@@ -2795,6 +2816,7 @@ const RETRO_FONTS = [
       lane.sortToggle.hidden = !lane.sorted && (shared.length < 2 || !(voted || board.stage >= 2));
       lane.sortToggle.setAttribute("aria-pressed", lane.sorted ? "true" : "false");
       lane.sortToggle.setAttribute("aria-label", "Most votes first in " + col.title + ", only for you");
+      lane.sortToggle.setAttribute("title", "Most votes first, only for you");
       lane.sortLine.hidden = !lane.sorted;
       lane.resort.hidden = !lane.sorted || JSON.stringify(lane.sorted) === JSON.stringify(rankOf(shared));
       lane.share.hidden = viewerRole() === "participant";
