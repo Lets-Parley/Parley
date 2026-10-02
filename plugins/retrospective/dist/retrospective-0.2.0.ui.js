@@ -172,6 +172,9 @@ const RETRO_FONTS = [
     ".hint{margin:6px 8px 0;max-width:65ch;color:var(--color-ink-soft);text-wrap:pretty}",
     ".authorship{flex:0 1 27rem;display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;min-width:0;padding:12px 16px 12px 20px}",
     ".auth-text{flex:1 1 11rem;min-width:0}",
+    // The confirmation needs more room than the resting control. It takes it
+    // sideways, from the progress strip, so the board below does not move.
+    ".authorship.armed{flex-basis:36rem}",
     ".auth-title{font-size:15px;font-weight:700;text-wrap:pretty}",
     ".brass-dot{width:10px;height:10px;border-radius:50%;background:var(--color-brass)}",
     ".badge{display:inline-flex;align-items:center;gap:6px;font-weight:700}",
@@ -239,7 +242,7 @@ const RETRO_FONTS = [
     ".select-info{flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:baseline;gap:0 8px;min-width:0}",
     "@media (min-width:640px){.select-info{flex:1 1 12rem}}",
     ".select-count{font-weight:700}",
-    ".select-name{flex:1 1 8rem;min-width:0}",
+    ".select-name{flex:1 1 6rem;min-width:0}",
     ".toast{max-width:34rem;padding:12px 24px;border:1px solid var(--color-line);border-radius:22px;background:var(--color-surface-hi);box-shadow:var(--shadow-lift);font-weight:700;text-align:center;text-wrap:pretty}",
 
     "@media (pointer:coarse){.btn,.vote{min-height:44px}.pick{width:36px;height:44px}.note{grid-template-columns:36px minmax(0,1fr) auto}.note-text{padding:12px 0}}",
@@ -776,6 +779,7 @@ const RETRO_FONTS = [
     const who = facilitator();
     const offered = !board.revealed && role !== "participant" && board.cards.length > 0;
     if (!offered) armed = false;
+    authorship.classList.toggle("armed", armed);
 
     authText.hidden = board.revealed;
     revealDone.hidden = !board.revealed;
