@@ -74,8 +74,8 @@
   // front of people and refuses nothing: a late note or vote is still taken.
   const STEPS = ["Write", "Group", "Vote", "Decide"];
   const HINTS = [
-    "Write what went well, what to improve and what puzzles you. A note's menu holds the rest: stamps, moving, actions.",
-    "Select notes that belong together and group them. Drag the important ones to the top.",
+    "Write what went well, what to improve and what puzzles you. The three dots on a note open its options: stamps, moving, actions.",
+    "Drag a note onto another to group them, or select several and group them. Drag the important ones to the top.",
     "Vote for the notes that matter most. One vote per person per note.",
     "Agree on what to change and who owns it. Start an action from any note.",
   ];
@@ -165,7 +165,9 @@
     ".sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}",
 
     // Page: the poker room's gutters and gaps, and its main-plus-aside split.
-    ".board{flex:1;display:flex;flex-direction:column;gap:20px;width:100%;min-width:0;padding:20px}",
+    // On a very wide window the board stops growing: a lane wider than a line
+    // of text can be read is no use to anybody.
+    ".board{flex:1;display:flex;flex-direction:column;gap:20px;width:100%;max-width:1760px;min-width:0;margin:0 auto;padding:20px}",
     "@media (min-width:640px){.board{gap:24px;padding:28px}}",
     ".panel{background:var(--color-surface);border:1px solid var(--color-line);border-radius:20px;box-shadow:var(--shadow-rest)}",
     ".label{font:10px/15px var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--color-ink-faint)}",
@@ -263,28 +265,38 @@
     // there, so nothing moves when the first one lands.
     ".notes{display:flex;flex-direction:column;gap:22px}",
     ".lane>.notes:not(:empty){margin-top:10px}",
-    ".note{position:relative;display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:start;column-gap:6px;padding:5px 8px 5px 4px;background:var(--color-surface-hi);border:1px solid var(--color-line);border-radius:14px;box-shadow:var(--shadow-rest);transition:background-color .15s,border-color .15s}",
+    ".note{position:relative;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;column-gap:6px;padding:5px 8px 5px 4px;background:var(--color-surface-hi);border:1px solid var(--color-line);border-radius:14px;box-shadow:var(--shadow-rest);transition:background-color .15s,border-color .15s}",
     ".note.selected{background:var(--color-accent-soft);border-color:var(--color-accent);box-shadow:0 0 0 1px var(--color-accent),var(--shadow-rest)}",
     // A note's controls are drawn over its stamps, and over a neighbor's:
     // a stamp may cover text, which shows through it, but never a control.
     ".lead,.trail{position:relative;z-index:2;display:flex;align-items:center}",
-    // After the text: the control the stage promotes, on top, and under it
-    // what the note has already gathered, kept small.
-    ".trail{flex-direction:column;align-items:flex-end;gap:2px}",
-    ".more,.stage-2 .trail .vote,.stage-3 .trail .target{order:-1}",
+    // In front of the text: the handle, and the checkbox while notes are being
+    // picked. After it, on the first line whatever the width: what the note
+    // has gathered, then its menu, which is always the last thing on the row.
+    ".trail{gap:4px;min-height:32px}",
     ".pick,.grip,.more,.target{display:grid;place-items:center;width:28px;height:32px}",
     ".pick{cursor:pointer}",
     ".grip,.more,.target{padding:0;border:0;border-radius:8px;background:transparent;color:var(--color-ink-faint);transition:background-color .15s,color .15s}",
     ".grip:hover,.more:hover,.target:hover{background:var(--color-felt-deep);color:var(--color-ink)}",
     ".grip{cursor:grab;touch-action:none}",
+    ".more{color:var(--color-ink-soft)}",
     ".target{color:var(--color-ink-soft)}",
     ".target.linked{display:inline-flex;align-items:center;gap:4px;width:auto;padding:0 6px;color:var(--color-brass);font-size:13px;font-weight:700}",
     ".lit{outline:2px solid var(--color-accent);outline-offset:1px}",
     ".note.spot,.group.spot{box-shadow:0 0 0 2px var(--color-accent),var(--shadow-rest)}",
     // A note being dragged: the copy under the pointer, and the slot it left.
-    ".note.drag{position:fixed;z-index:4;margin:0;pointer-events:none;box-shadow:var(--shadow-lift)}",
+    ".drag{position:fixed;z-index:4;margin:0;list-style:none;pointer-events:none;box-shadow:var(--shadow-lift)}",
     ".note.slot{border:1.5px dashed var(--color-accent);background:transparent;box-shadow:none}",
-    ".note.slot>*{visibility:hidden}",
+    ".group.slot{outline:1.5px dashed var(--color-accent);outline-offset:-1px;background:transparent;box-shadow:none}",
+    ".slot>*{visibility:hidden}",
+    // Where a drop would go: the lane it would change to, the group it would
+    // join, or the note it would be grouped with. While a note is the target
+    // the slot steps back, so there is one answer on screen, not two.
+    ".lane.dropzone{border-color:var(--color-accent);background:color-mix(in srgb,var(--color-accent) 7%,var(--color-surface));box-shadow:0 0 0 2px var(--color-accent),var(--shadow-rest)}",
+    ".group.dropzone{box-shadow:0 0 0 2px var(--color-accent),var(--shadow-well)}",
+    ".note.merge{border-color:var(--color-accent);background:var(--color-accent-soft);box-shadow:0 0 0 2px var(--color-accent),var(--shadow-rest)}",
+    '.note.merge::after{content:"Group with this";position:absolute;z-index:3;top:-12px;right:10px;padding:1px 10px;border-radius:999px;background:var(--color-accent);color:var(--color-accent-ink);font-size:12px;font-weight:700;line-height:20px}',
+    ".note.slot.faded{border-color:transparent}",
     ".dragging,.dragging *{user-select:none;cursor:grabbing!important}",
     ".pick input{appearance:none;display:grid;place-items:center;width:14px;height:14px;margin:0;border:1px solid var(--color-line-strong);border-radius:4px;background:transparent;cursor:pointer;transition:background-color .15s,border-color .15s}",
     ".pick input:checked{border-color:var(--color-accent);background:var(--color-accent)}",
@@ -388,7 +400,7 @@
     ".link-list li{display:flex;align-items:center;gap:8px}",
     ".link-list span{flex:1;min-width:0;overflow-wrap:anywhere}",
 
-    "@media (pointer:coarse){.btn,.menu-item,.stage-2 .vote{min-height:44px}.pick,.grip,.more,.stage-3 .target{width:36px;height:44px}.board:not(.stage-2) .vote,.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.note{grid-template-columns:36px minmax(0,1fr) auto}.note-text{padding:12px 0}}",
+    "@media (pointer:coarse){.btn,.menu-item,.stage-2 .vote{min-height:44px}.pick,.grip,.more,.stage-3 .target{width:36px;height:44px}.board:not(.stage-2) .vote,.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.trail{min-height:44px}.note-text{padding:12px 0}}",
 
     // A phone. The header is two short rows and a hint: the steps shrink to
     // their numbers around the current one, the hint is one line that opens,
@@ -1933,10 +1945,10 @@
 
   // ------------------------------------------------------------------ notes
 
-  // A note's face holds one control in front of its text and at most a
-  // couple after it; which ones depends on the stage. Everything else a note
-  // can do is in its menu, which is also the keyboard and touch path for
-  // every pointer gesture on the board.
+  // Each control on a note does one thing. The handle in front of the text
+  // drags it and nothing else. The three dots after it open its menu, in every
+  // stage and always in the same place; the menu is also the keyboard and
+  // touch path for every pointer gesture on the board.
   function buildNote(id) {
     const note = {
       votes: null,
@@ -1944,7 +1956,7 @@
       mine: false,
       voting: false,
       box: el("input", { type: "checkbox" }),
-      grip: el("button", { type: "button", class: "grip", "aria-haspopup": "menu" }, [icon(GLYPH.grip)]),
+      grip: el("button", { type: "button", class: "grip", "aria-describedby": "grip-help" }, [icon(GLYPH.grip)]),
       more: el("button", { type: "button", class: "more", "aria-haspopup": "menu" }, [icon(GLYPH.dots)]),
       text: el("p", { class: "note-text", dir: "auto" }),
       author: buildPerson(),
@@ -1961,7 +1973,7 @@
     note.vote.appendChild(note.word);
     note.vote.appendChild(note.count);
     note.el = el("li", { class: "note" }, [
-      el("span", { class: "lead" }, [note.pick, note.grip]),
+      el("span", { class: "lead" }, [note.grip, note.pick]),
       note.text,
       el("span", { class: "trail" }, [note.target, note.vote, note.more]),
       note.author.el,
@@ -1975,11 +1987,10 @@
     note.vote.addEventListener("click", function () {
       castVote(id);
     });
-    [note.grip, note.more].forEach(function (opener) {
-      toggles(opener, function () {
-        if (!note.dragged) openNoteMenu(id, opener);
-      });
+    toggles(note.more, function () {
+      openNoteMenu(id, note.more);
     });
+    saysHowToMove(note.grip, note);
     toggles(note.target, function () {
       openLinks(id, note.target);
     });
@@ -1989,20 +2000,33 @@
       });
     });
     note.el.addEventListener("keydown", function (ev) {
-      if (!ev.altKey || (ev.key !== "ArrowUp" && ev.key !== "ArrowDown")) return;
+      const way = ev.altKey && ARROWS[ev.key];
+      if (!way) return;
       ev.preventDefault();
-      const up = ev.key === "ArrowUp";
-      moveNote(id, ev.shiftKey ? (up ? "top" : "bottom") : up ? "up" : "down");
+      if (way === "left" || way === "right") sideways("note", id, way === "left" ? -1 : 1);
+      else moveNote(id, ev.shiftKey ? (way === "up" ? "top" : "bottom") : way);
     });
-    dragsNote(note.grip, id);
-    dragsNote(note.el, id);
+    drags(note.grip, "note", id);
+    drags(note.el, "note", id);
     return note;
   }
 
-  // The control in front of a note's text: its checkbox while notes are being
-  // picked, its handle otherwise.
+  const ARROWS = bag({ ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" });
+  const MOVE_HELP = "Drag to move this. With the keyboard: Alt and the Up or Down arrow move it within its lane, Alt and Left or Right move it to the next lane. The options menu has every move.";
+  const gripHelp = el("p", { id: "grip-help", class: "sr-only", text: MOVE_HELP });
+
+  // A handle is for dragging. Pressed without being dragged, or with Enter, it
+  // opens nothing and moves nothing: it says how a move is made.
+  function saysHowToMove(grip, owner) {
+    grip.addEventListener("click", function () {
+      if (!owner.dragged) setText(live, MOVE_HELP);
+    });
+  }
+
+  // The control focus goes to when it is sent to a note: its checkbox while
+  // notes are being picked, its menu button otherwise.
   function leadOf(note) {
-    return note.pick.hidden ? note.grip : note.box;
+    return note.pick.hidden ? note.more : note.box;
   }
 
   // The vote control is quiet until a note has votes: "Vote" at zero, the
@@ -2014,7 +2038,7 @@
     const brief = short(card.text);
     setText(note.text, card.text);
     note.box.setAttribute("aria-label", "Select note: " + brief);
-    note.grip.setAttribute("aria-label", "Options for note: " + brief);
+    note.grip.setAttribute("aria-label", "Drag to reorder: " + brief);
     note.more.setAttribute("aria-label", "Options for note: " + brief);
 
     note.vote.hidden = board.stage !== 2 && card.votes === 0;
@@ -2150,10 +2174,34 @@
       items.push({
         label: "Move to " + col.title,
         run: function () {
-          sendMove("move-card", { cardId: id, columnId: col.id }, "Moved to " + col.title + ".");
+          toLane("note", id, col.id);
         },
       });
     });
+    const groups = board.groups.filter(function (g) {
+      return g.id !== card.groupId;
+    });
+    if (groups.length) {
+      items.push({
+        label: "Add to group…",
+        run: function () {
+          openMenu(
+            opener,
+            "Add to group",
+            groups.map(function (g) {
+              return {
+                label: g.title + (g.columnId === card.columnId ? "" : " (" + columnTitle(g.columnId) + ")"),
+                run: function () {
+                  sendMove("move-card", { cardId: id, groupId: g.id }, function () {
+                    return placeSaid("note", id);
+                  });
+                },
+              };
+            }),
+          );
+        },
+      });
+    }
     // Before the reveal nothing says whose a note is, and what this viewer
     // wrote is not remembered past a reload, so Delete is offered to everyone
     // and the server answers. After the reveal the board does know.
@@ -2196,7 +2244,8 @@
 
   function buildGroup(id) {
     const group = {
-      grip: el("button", { type: "button", class: "grip", "aria-haspopup": "menu" }, [icon(GLYPH.grip)]),
+      grip: el("button", { type: "button", class: "grip", "aria-describedby": "grip-help" }, [icon(GLYPH.grip)]),
+      more: el("button", { type: "button", class: "more", "aria-haspopup": "menu" }, [icon(GLYPH.dots)]),
       title: el("h3", { tabindex: -1, dir: "auto" }),
       meta: el("p", { class: "group-meta" }),
       target: el("button", { type: "button", class: "target", "aria-haspopup": "dialog" }, [icon(GLYPH.target)]),
@@ -2204,11 +2253,11 @@
       list: el("ul", { class: "notes" }),
     };
     group.target.appendChild(group.targetCount);
-    group.head = el("div", { class: "group-head" }, [group.grip, el("div", { class: "group-title" }, [group.title, group.meta]), group.target]);
+    group.head = el("div", { class: "group-head" }, [group.grip, el("div", { class: "group-title" }, [group.title, group.meta]), group.target, group.more]);
     group.el = el("li", { class: "group" }, [group.head, group.list]);
 
     const ways = [["up", "Move group up", "Alt+Up"], ["down", "Move group down", "Alt+Down"], ["top", "Move group to top", "Alt+Shift+Up"], ["bottom", "Move group to bottom", "Alt+Shift+Down"]];
-    toggles(group.grip, function () {
+    toggles(group.more, function () {
       const g = groupById(id);
       const off = view.lanes[g.columnId].sorted ? SORTED_OFF : "";
       const linked = actionsFrom(id).length;
@@ -2225,19 +2274,32 @@
       items.unshift({
         label: linked ? "Actions from this group (" + linked + ")…" : "Start an action from this group…",
         run: function () {
-          openLinks(id, group.grip);
+          openLinks(id, group.more);
         },
       });
-      openMenu(group.grip, "Options for group: " + g.title, items);
+      board.columns.forEach(function (col) {
+        if (col.id === g.columnId) return;
+        items.push({
+          label: "Move group to " + col.title,
+          run: function () {
+            toLane("group", id, col.id);
+          },
+        });
+      });
+      openMenu(group.more, "Options for group: " + g.title, items);
     });
+    saysHowToMove(group.grip, group);
+    drags(group.grip, "group", id);
+    drags(group.head, "group", id);
     toggles(group.target, function () {
       openLinks(id, group.target);
     });
     group.head.addEventListener("keydown", function (ev) {
-      if (!ev.altKey || (ev.key !== "ArrowUp" && ev.key !== "ArrowDown")) return;
+      const way = ev.altKey && ARROWS[ev.key];
+      if (!way) return;
       ev.preventDefault();
-      const up = ev.key === "ArrowUp";
-      moveGroup(id, ev.shiftKey ? (up ? "top" : "bottom") : up ? "up" : "down");
+      if (way === "left" || way === "right") sideways("group", id, way === "left" ? -1 : 1);
+      else moveGroup(id, ev.shiftKey ? (way === "up" ? "top" : "bottom") : way);
     });
     return group;
   }
@@ -2248,7 +2310,8 @@
     setText(group.title, title);
     group.title.setAttribute("title", title);
     setText(group.meta, plural(item.cards.length, "note") + " · " + plural(item.votes, "vote"));
-    group.grip.setAttribute("aria-label", "Options for group: " + title);
+    group.grip.setAttribute("aria-label", "Drag to reorder group: " + title);
+    group.more.setAttribute("aria-label", "Options for group: " + title);
     group.target.hidden = board.stage !== 3 && linked === 0;
     group.target.classList.toggle("linked", linked > 0);
     group.target.setAttribute("aria-label", linked ? plural(linked, "action") + " from group: " + title + ". Open." : "Start an action from group: " + title);
@@ -2266,6 +2329,11 @@
       .map(function (c) {
         return c.id + "/" + c.columnId + "/" + c.groupId;
       })
+      .concat(
+        b.groups.map(function (g) {
+          return g.id + "/" + g.columnId;
+        }),
+      )
       .join(" ");
   }
 
@@ -2280,6 +2348,12 @@
     rest.forEach(function (c, i) {
       if (at === rest.length && (c.id === body.beforeId || c.groupId === body.beforeId)) at = i;
     });
+    if (action === "move-group" && body.columnId) {
+      groupById(body.groupId).columnId = body.columnId;
+      moved.forEach(function (c) {
+        c.columnId = body.columnId;
+      });
+    }
     if (action === "move-card") {
       const card = moved[0];
       if (body.columnId && body.columnId !== card.columnId) {
@@ -2299,6 +2373,9 @@
     const mine = board;
     const was = board.cards.map(function (c) {
       return { card: c, columnId: c.columnId, groupId: c.groupId };
+    });
+    const lanesWere = board.groups.map(function (g) {
+      return { group: g, columnId: g.columnId };
     });
     reflow(function () {
       applyMove(action, body);
@@ -2322,6 +2399,9 @@
             w.card.groupId = w.groupId;
             return w.card;
           });
+          lanesWere.forEach(function (w) {
+            w.group.columnId = w.columnId;
+          });
           patchLanes();
           patchSelection();
         });
@@ -2338,6 +2418,47 @@
       return -1;
     }
     return to;
+  }
+
+  // Where a note or a group is now, in words, once it has been moved.
+  function placeSaid(kind, id) {
+    const thing = kind === "group" ? groupById(id) : cardById(id);
+    const group = kind === "note" && thing.groupId && groupById(thing.groupId);
+    const places = group ? membersOf(group.id) : itemsOf(thing.columnId);
+    const at = places.findIndex(function (p) {
+      return p.id === id;
+    });
+    const lane = view.lanes[thing.columnId];
+    return (
+      (kind === "group" ? "Group " + thing.title + " moved" : "Moved") +
+      " to " +
+      (group ? "the group " + group.title : columnTitle(thing.columnId)) +
+      ", position " +
+      (at + 1) +
+      " of " +
+      places.length +
+      "." +
+      (lane && lane.sorted ? " That lane is sorted by votes for you: this is its place in the shared order." : "")
+    );
+  }
+
+  // To another lane, at its end. The menu, Alt with Left or Right and a drop
+  // on a lane's empty space all come through here, so they ask for the same thing.
+  function toLane(kind, id, columnId) {
+    sendMove(kind === "group" ? "move-group" : "move-card", kind === "group" ? { groupId: id, columnId: columnId } : { cardId: id, columnId: columnId }, function () {
+      return placeSaid(kind, id);
+    });
+  }
+
+  function sideways(kind, id, step) {
+    const thing = kind === "group" ? groupById(id) : cardById(id);
+    if (!thing) return;
+    const at = board.columns.findIndex(function (c) {
+      return c.id === thing.columnId;
+    });
+    const to = board.columns[at + step];
+    if (to) toLane(kind, id, to.id);
+    else setText(live, "Already in the " + (step < 0 ? "first" : "last") + " lane.");
   }
 
   // A note moves among the notes of its group, or among the items of its lane.
@@ -2384,12 +2505,19 @@
 
   // ------------------------------------------------------------------- drag
 
-  // Dragging is the pointer's way to do what the menu and Alt+Arrow do. The
-  // note itself stays in the list as an empty slot that shows where it would
-  // land; a copy follows the pointer. State pushes wait until it is put down,
-  // so a teammate's change cannot shuffle the lane under the hand.
+  // Dragging is the pointer's way to do what the menu and the Alt+Arrow keys
+  // do, and a drop sends the request the menu would. The thing itself stays in
+  // the list as an empty slot that shows where it would land; a copy follows
+  // the pointer. State pushes wait until it is put down, so a teammate's
+  // change cannot shuffle the lane under the hand.
   let drag = null;
   let heldState = null;
+  // How long the pointer rests on the middle of a note before a drop there
+  // means "group with this". Shorter, and a quick reorder flickers into it.
+  const DWELL_MS = 300;
+  // How near the top or bottom of the frame a drag starts to scroll it.
+  const EDGE = 56;
+  const GONE = "That is no longer on the board.";
 
   function ownerOfNode(node) {
     for (const id in view.notes) if (view.notes[id].el === node) return id;
@@ -2430,6 +2558,10 @@
       window.removeEventListener("pointercancel", g.end);
       window.removeEventListener("blur", cancel);
       main.removeEventListener("lostpointercapture", lost);
+      // However the gesture ended, the board gives the pointer back: a
+      // capture left on it would send every later press to the board itself
+      // instead of to the button under the pointer.
+      if (main.hasPointerCapture && main.hasPointerCapture(pointerId)) main.releasePointerCapture(pointerId);
       stop(e);
     };
     if (gesture) gesture.end({ type: "pointercancel" });
@@ -2448,36 +2580,44 @@
   }
 
   // A drag ends with a release, and a release on a button is a click. That
-  // one click is not a request to open anything.
+  // one click is not a press of the button. The mark is taken off on the next
+  // turn, and by the next press anywhere, whichever comes first.
+  let swallowed = [];
+
   function swallowClick(owner) {
     owner.dragged = true;
-    setTimeout(function () {
-      owner.dragged = false;
-    }, 0);
+    swallowed.push(owner);
+    setTimeout(unswallow, 0);
   }
 
-  function dragsNote(handle, id) {
+  function unswallow() {
+    swallowed.forEach(function (owner) {
+      owner.dragged = false;
+    });
+    swallowed = [];
+  }
+
+  // A note is dragged by its handle, with anything; a group by the handle in
+  // its heading. With a mouse the rest of the note or the heading drags too,
+  // but never from a control: a finger there is scrolling, and a press on a
+  // button is a press.
+  function drags(handle, kind, id) {
     handle.addEventListener("pointerdown", function (ev) {
-      const note = view.notes[id];
-      if (ev.button || drag || !note) return;
-      // On the note's body only a mouse drags, and never from a control: a
-      // finger there is scrolling, and a press on a button is a press.
-      if (handle === note.el) {
+      const owner = (kind === "group" ? view.groups : view.notes)[id];
+      if (ev.button || drag || !owner) return;
+      if (handle !== owner.grip) {
         if (ev.pointerType !== "mouse") return;
         for (let n = ev.target; n && n !== handle; n = n.parentNode) {
           if (/^(BUTTON|INPUT|LABEL)$/.test(n.tagName)) return;
         }
       }
       const start = { x: ev.clientX, y: ev.clientY };
-      let over = false;
       const g = follow(
         ev.pointerId,
         function (e) {
-          if (over) return;
           if (!drag) {
             if (Math.abs(e.clientX - start.x) + Math.abs(e.clientY - start.y) < 4) return;
-            over = !lift(id, start);
-            if (over) return;
+            lift(kind, id, start);
             g.active = true;
             hold(ev);
           }
@@ -2485,104 +2625,254 @@
           dragTo(e.clientX, e.clientY);
         },
         function (e) {
-          if (!drag || over) return;
+          if (!drag) return;
           // The press that ends a drag is not a click on the handle.
-          swallowClick(note);
+          swallowClick(owner);
           putDown(e.type === "pointerup");
         },
       );
     });
   }
 
-  function lift(id, start) {
-    const card = cardById(id);
-    const node = view.notes[id].el;
-    if (view.lanes[card.columnId].sorted) {
-      notify(SORTED_OFF);
-      return false;
-    }
+  function lift(kind, id, start) {
+    const node = (kind === "group" ? view.groups : view.notes)[id].el;
+    const from = (kind === "group" ? groupById(id) : cardById(id)).columnId;
     closePop(false);
     const box = rectOf(node);
     const copy = node.cloneNode(true);
-    copy.className = "note drag";
+    copy.className = kind + " drag";
     copy.setAttribute("aria-hidden", "true");
+    copy.setAttribute("inert", "");
     copy.style.width = box.width + "px";
     main.appendChild(copy);
     node.classList.add("slot");
     document.documentElement.classList.add("dragging");
-    drag = { id: id, node: node, copy: copy, lane: view.lanes[card.columnId], dx: start.x - box.left, dy: start.y - box.top, lastX: start.x, tilt: 0, home: node.parentNode, next: node.nextElementSibling };
-    return true;
+    drag = {
+      kind: kind,
+      id: id,
+      node: node,
+      copy: copy,
+      from: from,
+      lane: view.lanes[from],
+      dx: start.x - box.left,
+      dy: start.y - box.top,
+      x: start.x,
+      y: start.y,
+      lastX: start.x,
+      tilt: 0,
+      home: node.parentNode,
+      next: node.nextElementSibling,
+      aim: { type: "stay" },
+      marks: bag(),
+      said: "",
+      dwell: null,
+      ripe: false,
+      timer: 0,
+      scroll: 0,
+    };
+  }
+
+  // Which part of a note the pointer is over. Its middle half means "group
+  // with this"; the quarter above and the quarter below mean "set down before
+  // or after it". Once the middle is held it is kept until the pointer is
+  // nearly off the note, so a hand resting on the line between two parts does
+  // not flicker between two answers.
+  function zoneOf(y, top, height, held) {
+    const at = height ? (y - top) / height : 0;
+    const edge = held ? 0.1 : 0.25;
+    if (at >= edge && at <= 1 - edge) return "onto";
+    return at < 0.5 ? "before" : "after";
+  }
+
+  // What a drop at this point would do. One of:
+  //   onto  the note is grouped with the loose note under the pointer
+  //   into  it joins the group under the pointer, in front of `before`
+  //   lane  it is set down in the lane, in front of `before` or at its end
+  //   stay  nothing: a lane sorted by votes takes no positions
+  function aimAt(x, y) {
+    const d = drag;
+    for (const id in view.lanes) {
+      const box = rectOf(view.lanes[id].el);
+      if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) d.lane = view.lanes[id];
+    }
+    const lane = d.lane;
+    // The slot goes in front of the first thing the pointer is above.
+    const firstBelow = function (list) {
+      for (let i = 0; i < list.children.length; i++) {
+        const child = list.children[i];
+        if (child === d.node) continue;
+        const box = rectOf(child);
+        if (child.classList.contains("ghost") || y < box.top + box.height / 2) return child;
+      }
+      return null;
+    };
+    let onto = null;
+    if (d.kind === "note") {
+      for (const gid in view.groups) {
+        const group = view.groups[gid];
+        const box = rectOf(group.el);
+        if (contains(lane.list, group.el) && y >= box.top && y <= box.bottom) {
+          restless();
+          // In a sorted lane a group can be joined, at its end, but a note
+          // already in it has nowhere new to go.
+          if (lane.sorted && cardById(d.id).groupId === gid) return { type: "stay", lane: lane };
+          return { type: "into", lane: lane, groupId: gid, list: group.list, before: lane.sorted ? null : firstBelow(group.list) };
+        }
+      }
+      // Two notes are grouped inside one lane, so only a loose note in the
+      // dragged note's own lane can be dropped on.
+      for (let i = 0; i < lane.list.children.length && lane.id === d.from; i++) {
+        const child = lane.list.children[i];
+        const id = child !== d.node && ownerOfNode(child);
+        const box = rectOf(child);
+        if (id && view.notes[id] && y >= box.top && y <= box.bottom && zoneOf(y, box.top, box.height, d.dwell === id) === "onto") onto = id;
+      }
+    }
+    if (!onto) restless();
+    else if (d.dwell !== onto) {
+      restless();
+      d.dwell = onto;
+      d.timer = setTimeout(function () {
+        if (drag !== d) return;
+        d.ripe = true;
+        dragTo(d.x, d.y);
+      }, DWELL_MS);
+    }
+    if (onto && d.ripe) return { type: "onto", lane: lane, noteId: onto };
+    if (lane.sorted) return lane.id === d.from ? { type: "stay", lane: lane } : { type: "lane", lane: lane, list: lane.list, before: null };
+    return { type: "lane", lane: lane, list: lane.list, before: firstBelow(lane.list) };
+  }
+
+  // The pointer is not resting on the middle of a note.
+  function restless() {
+    clearTimeout(drag.timer);
+    drag.dwell = null;
+    drag.ripe = false;
+  }
+
+  function aimSaid(aim) {
+    if (aim.type === "onto") return "Drop to group with: " + short(cardById(aim.noteId).text);
+    if (aim.type === "into") return "Drop into " + groupById(aim.groupId).title;
+    if (aim.type === "stay") return SORTED_OFF;
+    const title = columnTitle(aim.lane.id);
+    if (aim.lane.sorted) return "Drop to add to " + title + ". That lane is sorted by votes for you, so no place in it can be picked.";
+    const id = aim.before && ownerOfNode(aim.before);
+    if (!id) return "Drop at the end of " + title;
+    return view.notes[id] ? "Drop to move before: " + short(cardById(id).text) : "Drop to move before the group " + groupById(id).title;
+  }
+
+  // One lane, one group and one note at most wear the mark of a drop target.
+  function mark(key, name, node) {
+    const marks = drag.marks;
+    if (marks[key] === node) return;
+    if (marks[key]) marks[key].classList.remove(name);
+    if (node) node.classList.add(name);
+    marks[key] = node;
   }
 
   function dragTo(x, y) {
-    const lively = motionOn();
+    const d = drag;
+    d.x = x;
+    d.y = y;
     // The copy leans into the direction it is being carried.
-    drag.tilt += (Math.max(-4, Math.min(4, (x - drag.lastX) * 0.6)) - drag.tilt) * 0.25;
-    drag.lastX = x;
-    drag.copy.style.left = x - drag.dx + "px";
-    drag.copy.style.top = y - drag.dy + "px";
-    drag.copy.style.transform = lively ? "rotate(" + drag.tilt.toFixed(2) + "deg) scale(1.025)" : "";
+    d.tilt += (Math.max(-4, Math.min(4, (x - d.lastX) * 0.6)) - d.tilt) * 0.25;
+    d.lastX = x;
+    d.copy.style.left = x - d.dx + "px";
+    d.copy.style.top = y - d.dy + "px";
+    d.copy.style.transform = motionOn() ? "rotate(" + d.tilt.toFixed(2) + "deg) scale(1.025)" : "";
 
-    // Over a group, the slot goes among that group's notes; otherwise among
-    // the lane's items. It sits in front of the first one the pointer is above.
-    let home = drag.lane.list;
-    for (const gid in view.groups) {
-      const list = view.groups[gid].list;
-      const box = rectOf(list);
-      if (contains(drag.lane.list, list) && y >= box.top && y <= box.bottom) home = list;
+    const aim = (d.aim = aimAt(x, y));
+    // Over a note it would be grouped with, the slot stays where it is and
+    // steps back: taking it out would move the note under the pointer.
+    if (aim.type !== "onto") {
+      const list = aim.list || d.home;
+      const before = aim.list ? aim.before : d.next;
+      if (d.node.parentNode !== list || d.node.nextElementSibling !== before) {
+        reflow(function () {
+          list.insertBefore(d.node, before);
+        });
+      }
     }
-    let before = null;
-    for (let i = 0; i < home.children.length && !before; i++) {
-      const child = home.children[i];
-      if (child === drag.node) continue;
-      const box = rectOf(child);
-      if (child.classList.contains("ghost") || y < box.top + box.height / 2) before = child;
+    d.node.classList.toggle("faded", aim.type === "onto");
+    mark("note", "merge", aim.type === "onto" ? view.notes[aim.noteId].el : null);
+    mark("group", "dropzone", aim.type === "into" ? view.groups[aim.groupId].el : null);
+    mark("lane", "dropzone", aim.lane.id !== d.from ? aim.lane.el : null);
+    const said = aimSaid(aim);
+    if (said !== d.said) setText(live, (d.said = said));
+
+    // Held near the top or the bottom of the frame, the page keeps scrolling
+    // for as long as the pointer stays there, moving or not: that is how a
+    // note gets from one lane to another on a phone, where lanes are stacked.
+    clearTimeout(d.scroll);
+    const by = y < EDGE ? -14 : y > (window.innerHeight || 0) - EDGE ? 14 : 0;
+    if (by) {
+      window.scrollBy(0, by);
+      d.scroll = setTimeout(function () {
+        if (drag === d) dragTo(d.x, d.y);
+      }, 16);
     }
-    if (drag.node.parentNode !== home || drag.node.nextElementSibling !== before) {
-      reflow(function () {
-        home.insertBefore(drag.node, before);
-      });
-    }
-    if (y < 48) window.scrollBy(0, -12);
-    else if (y > window.innerHeight - 48) window.scrollBy(0, 12);
   }
 
+  // Every way a drag ends comes through here, and every one of them takes the
+  // copy, the marks and the timers away and lets the held state through.
   function putDown(commit) {
     const d = drag;
+    const aim = d.aim;
     const from = rectOf(d.copy);
-    const home = d.node.parentNode;
-    const next = d.node.nextElementSibling;
+    const moved = d.node.parentNode !== d.home || d.node.nextElementSibling !== d.next;
+    const beforeId = aim.before ? ownerOfNode(aim.before) : null;
+    restless();
+    clearTimeout(d.scroll);
+    mark("note", "merge", null);
+    mark("group", "dropzone", null);
+    mark("lane", "dropzone", null);
     drag = null;
     main.removeChild(d.copy);
     d.node.classList.remove("slot");
+    d.node.classList.remove("faded");
     document.documentElement.classList.remove("dragging");
     if (heldState) {
       const waiting = heldState;
       heldState = null;
       onState(waiting);
     }
-    if (!cardById(d.id)) {
+    const group = d.kind === "group";
+    const thing = group ? groupById(d.id) : cardById(d.id);
+    if (!thing) {
       // It was deleted while it was being carried.
       patchLanes();
-      notify(NOTE_GONE);
+      notify(group ? GONE : NOTE_GONE);
       return;
     }
-    if (commit && (home !== d.home || next !== d.next)) {
-      const groupId = home === d.lane.list ? null : ownerOfNode(home);
-      const body = { cardId: d.id, groupId: groupId };
-      const beforeId = next && ownerOfNode(next);
-      if (beforeId) body.beforeId = beforeId;
-      sendMove("move-card", body, function () {
-        const places = groupId ? membersOf(groupId) : itemsOf(d.lane.id);
-        const at = places.findIndex(function (p) {
-          return p.id === d.id;
-        });
-        return "Moved. Position " + (at + 1) + " of " + places.length + " in " + (groupId ? "the group " + groupById(groupId).title : columnTitle(d.lane.id)) + ".";
-      });
-    } else {
+    // What it was aimed at may have gone the same way.
+    const there =
+      aim.lane &&
+      board.columns.some(function (c) {
+        return c.id === aim.lane.id;
+      }) &&
+      (aim.type !== "into" || groupById(aim.groupId)) &&
+      (aim.type !== "onto" || cardById(aim.noteId));
+    if (!commit || aim.type === "stay" || !there || (aim.type !== "onto" && !moved)) {
       patchLanes();
+      if (commit && aim.type === "stay" && aim.lane) notify(SORTED_OFF);
+      else if (commit && !there && aim.lane) notify(GONE);
+      else if (!commit) setText(live, "Not moved.");
+    } else if (aim.type === "onto") {
+      patchLanes();
+      openGroupName(aim.noteId, d.id);
+      return;
+    } else {
+      // The same bodies the menu sends: a lane change names the lane, joining
+      // a group names the group, and a place names what it is in front of.
+      const body = group ? { groupId: d.id } : { cardId: d.id };
+      if (aim.lane.id !== thing.columnId && aim.type === "lane") body.columnId = aim.lane.id;
+      else if (!group) body.groupId = aim.type === "into" ? aim.groupId : null;
+      if (beforeId && (cardById(beforeId) || groupById(beforeId))) body.beforeId = beforeId;
+      sendMove(group ? "move-group" : "move-card", body, function () {
+        return placeSaid(d.kind, d.id);
+      });
     }
-    // The note itself comes to rest from where the copy was let go.
+    // It comes to rest from where the copy was let go.
     if (motionOn()) {
       const to = rectOf(d.node);
       animate(d.node, { transform: "translate(" + (from.left - to.left) + "px," + (from.top - to.top) + "px) rotate(" + d.tilt.toFixed(2) + "deg)", boxShadow: "var(--shadow-lift)" }, GLIDE);
@@ -3219,8 +3509,8 @@
     const groupable = ids.length >= 2 && laneCount === 1;
     const named = !!groupTitle.value.trim();
     // A note shows its checkbox while notes are being picked: in the Group
-    // stage, and whenever it is itself selected. Otherwise it shows its
-    // handle, and the menu moves from the handle to the end of the note.
+    // stage, and whenever it is itself selected. Its handle and its menu
+    // button stay where they are.
     const held = document.activeElement;
     for (const id in view.notes) {
       const note = view.notes[id];
@@ -3228,10 +3518,7 @@
       note.box.checked = !!selected[id];
       note.el.classList.toggle("selected", !!selected[id]);
       note.pick.hidden = !picking;
-      note.grip.hidden = picking;
-      note.more.hidden = !picking;
-      if (held === note.grip && picking) note.more.focus();
-      if ((held === note.more || held === note.box) && !picking) note.grip.focus();
+      if (held === note.box && !picking) note.more.focus();
     }
     selectBar.hidden = ids.length === 0;
     setText(selectCount, ids.length + " selected");
@@ -3259,7 +3546,25 @@
 
   function groupSelected() {
     if (groupButton.disabled) return;
-    const ids = selectedIds();
+    grouping = true;
+    sendGroup(selectedIds(), groupTitle.value, "Could not confirm that the notes were grouped. They are still selected.", function (outcome, group) {
+      grouping = false;
+      if (outcome === "landed") {
+        const heldFocus = contains(selectBar, document.activeElement);
+        selected = bag();
+        groupTitle.value = "";
+        patchSelection();
+        if (heldFocus && group) group.title.focus();
+        return;
+      }
+      patchSelection();
+    });
+    patchSelection();
+  }
+
+  // Notes become a group one way, whether they were selected and grouped from
+  // the bar or one was dropped on another: the same request, in board order.
+  function sendGroup(ids, title, unsure, done) {
     const had = idsOf(board.groups);
     const made = function (b) {
       return b.groups.filter(function (g) {
@@ -3271,27 +3576,67 @@
         );
       })[0];
     };
-    grouping = true;
-    propose("group-cards", { cardIds: ids, title: groupTitle.value.trim().slice(0, TITLE_LIMIT) }, {
+    propose("group-cards", { cardIds: ids, title: title.trim().slice(0, TITLE_LIMIT) }, {
       landed: made,
       refused: { "not-found": "Not grouped: one of those notes is no longer on the board.", conflict: "Not grouped. A board holds 40 groups." + OR_STORE },
-      unsure: "Could not confirm that the notes were grouped. They are still selected.",
+      unsure: unsure,
       settle: function (outcome) {
-        if (outcome === "accepted") return;
-        grouping = false;
-        const group = outcome === "landed" && made(board) && view.groups[made(board).id];
-        if (outcome === "landed") {
-          const heldFocus = contains(selectBar, document.activeElement);
-          selected = bag();
-          groupTitle.value = "";
-          patchSelection();
-          if (heldFocus && group) group.title.focus();
-          return;
-        }
-        patchSelection();
+        if (outcome !== "accepted") done(outcome, outcome === "landed" && made(board) && view.groups[made(board).id]);
       },
     });
-    patchSelection();
+  }
+
+  // A note dropped on another makes a group of the two. A group has to be
+  // named and cannot be renamed, so the drop asks for the name before anything
+  // is sent: Cancel, Escape or a press elsewhere leaves both notes as they were.
+  function openGroupName(targetId, draggedId) {
+    const ids = board.cards
+      .filter(function (c) {
+        return c.id === targetId || c.id === draggedId;
+      })
+      .map(function (c) {
+        return c.id;
+      });
+    const anchor = view.notes[targetId].more;
+    const name = el("input", { id: "merge-title", class: "field", maxlength: TITLE_LIMIT, placeholder: "Name this group", dir: "auto" });
+    const go = el("button", { type: "button", class: "btn btn-primary btn-small", text: "Group" });
+    const cancel = el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Cancel" });
+    const panel = el("div", { class: "pop sheet", role: "dialog", "aria-label": "Group these two notes" }, [
+      el("p", { class: "sheet-title", text: "Group these two notes" }),
+      el("div", { class: "stack" }, [el("label", { class: "label", for: "merge-title", text: "Group name" }), name]),
+      el("div", { class: "row" }, [go, cancel]),
+    ]);
+    let sending = false;
+    const patch = function () {
+      go.disabled = sending || !name.value.trim();
+      name.readOnly = sending;
+    };
+    const submit = function () {
+      if (go.disabled) return;
+      sending = true;
+      sendGroup(ids, name.value, "Could not confirm that the notes were grouped.", function (outcome, group) {
+        sending = false;
+        if (outcome !== "landed") return patch();
+        if (pop && pop.el === panel) closePop(false);
+        if (group) group.title.focus();
+      });
+      patch();
+    };
+    // The first words of the note it was dropped on, selected: typing replaces
+    // them, Enter takes them.
+    name.value = cardById(targetId).text.trim().split(/\s+/).slice(0, 3).join(" ").slice(0, TITLE_LIMIT);
+    name.addEventListener("input", patch);
+    name.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter" && !ev.isComposing) submit();
+    });
+    go.addEventListener("click", submit);
+    cancel.addEventListener("click", function () {
+      closePop(true);
+    });
+    patch();
+    openPop(anchor, panel, patch);
+    name.focus();
+    if (name.select) name.select();
   }
 
   groupButton.addEventListener("click", groupSelected);
@@ -3350,7 +3695,7 @@
     const card = cardById(id);
     const group = groupById(id);
     if (card && view.notes[id]) return { el: view.notes[id].el, focus: leadOf(view.notes[id]), kind: "note", name: card.text, lane: card.columnId };
-    if (group && view.groups[id]) return { el: view.groups[id].el, focus: view.groups[id].grip, kind: "group", name: group.title, lane: group.columnId };
+    if (group && view.groups[id]) return { el: view.groups[id].el, focus: view.groups[id].more, kind: "group", name: group.title, lane: group.columnId };
     return null;
   }
 
@@ -3731,6 +4076,7 @@
     el("div", { class: "dock" }, [el("div", { role: "status" }, [toast]), selectBar]),
     layer,
     stampHelp,
+    gripHelp,
   ]);
 
   // A host that sends the scheme has already set color-scheme on the root. An
@@ -3853,6 +4199,7 @@
   });
   document.addEventListener("pointerdown", function (ev) {
     clearSpot();
+    unswallow();
     if (pop && !contains(pop.el, ev.target) && !contains(pop.anchor, ev.target)) closePop(false);
   });
   window.addEventListener("resize", function () {

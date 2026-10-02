@@ -360,6 +360,11 @@ function applyAction(board, { action, user, body, now }) {
     case "move-group": {
       const moved = find(board.groups, body.groupId, "group");
       const members = board.cards.filter((c) => c.groupId === moved.id);
+      // A group changes lane whole: it and its notes, votes and stamps with them.
+      if (body.columnId !== undefined) {
+        moved.columnId = column(board, body.columnId).id;
+        for (const m of members) m.columnId = moved.columnId;
+      }
       board.cards = board.cards.filter((c) => c.groupId !== moved.id);
       board.cards.splice(indexBefore(board, body.beforeId), 0, ...members);
       return moved;
