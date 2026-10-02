@@ -141,32 +141,87 @@ const RETRO_FONTS = [
     chevron: "M4.5 6.5L8 10l3.5-3.5",
   };
 
-  // A stamp is told apart by its glyph and its name; the hue only agrees.
-  // `press` is where the glyph starts from as it settles after being pressed.
-  const STAMPS = bag({
-    "me-too": { label: "Me too", hue: "settled", press: "translateX(-5px) rotate(-8deg)", glyph: "M6 3.25a3.75 3.75 0 1 0 0 7.5a3.75 3.75 0 0 0 0-7.5zM10 5.25a3.75 3.75 0 1 0 0 7.5a3.75 3.75 0 0 0 0-7.5z" },
-    thanks: { label: "Thank you", hue: "brass", press: "scale(1.45)", glyph: "M8 13.5S2.5 10.2 2.5 6.3A2.9 2.9 0 0 1 8 5a2.9 2.9 0 0 1 5.5 1.3C13.5 10.2 8 13.5 8 13.5z" },
-    idea: { label: "Great idea", hue: "accent", press: "rotate(-80deg) scale(1.2)", glyph: "M8 1.8l1.5 4.7 4.7 1.5-4.7 1.5L8 14.2l-1.5-4.7L1.8 8l4.7-1.5z" },
-    "quick-win": { label: "Quick win", hue: "go", press: "translate(-5px,3px) rotate(-14deg)", glyph: "M9 1.8L3.5 9h4l-.5 5.2L12.5 7h-4z" },
-    chat: { label: "Needs a chat", hue: "accent", press: "rotate(-14deg) translateY(2px)", glyph: "M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" },
-    blocker: { label: "Blocker", hue: "stop", press: "rotate(18deg)", glyph: "M4 14V2.5M4 3h8l-1.8 2.8L12 8.6H4" },
-    laugh: { label: "Made me laugh", hue: "brass", press: "scaleX(1.2) scaleY(.7)", glyph: CIRCLE + "M5.2 9.2a3 3 0 0 0 5.6 0M6 6.4v.1M10 6.4v.1" },
+  // A sticker is told apart by its shape and its name; the color only agrees.
+  // There are seven meanings, each printed twice: as a vinyl sticker and as
+  // pixel art. The plain ids are the vinyl set, which is what a board stored
+  // before the pixel set existed already holds, and `p-` is the pixel set.
+  // The actions and the state keep the name they shipped with, "stamp".
+  const MEANINGS = [
+    ["me-too", "Me too"],
+    ["thanks", "Thank you"],
+    ["idea", "Great idea"],
+    ["quick-win", "Quick win"],
+    ["chat", "Needs a chat"],
+    ["blocker", "Blocker"],
+    ["laugh", "Made me laugh"],
+  ];
+  // Vinyl, in a 40-unit box: the outline, which is drawn four times (edge,
+  // paper, ink line, color), then pairs of a detail's type and its path.
+  // s is an ink stroke, f an ink fill, p a paper stroke, q a paper fill.
+  const VINYL = bag({
+    "me-too": ["M14 12h12a8 8 0 0 1 0 16H14a8 8 0 0 1 0-16z", "q", "M11.5 18.6h3.2v-3.2h2.8v3.2h3.2v2.8h-3.2v3.2h-2.8v-3.2h-3.2zM25.2 14.6h3v10.8h-3v-7.2l-2 1.2-1.4-2.4z"],
+    thanks: ["M20 33.5C9 26 6.5 19.8 6.5 15.1C6.5 10.6 9.9 7.5 13.7 7.5C16.4 7.5 18.7 9 20 11.4C21.3 9 23.6 7.5 26.3 7.5C30.1 7.5 33.5 10.6 33.5 15.1C33.5 19.8 31 26 20 33.5Z", "p", "M11.2 15.4a3.4 3.4 0 0 1 2.9-3.6"],
+    idea: ["M20 5.5a10.5 10.5 0 0 0-6.2 19c1.2 1 1.7 2 1.7 3.5v3.5a3 3 0 0 0 3 3h3a3 3 0 0 0 3-3V28c0-1.5.5-2.5 1.7-3.5A10.5 10.5 0 0 0 20 5.5z", "f", "M20 9.8l1.5 4.2 4.2 1.5-4.2 1.5-1.5 4.2-1.5-4.2-4.2-1.5 4.2-1.5z", "s", "M16.6 28h6.8M17.2 31.2h5.6"],
+    "quick-win": ["M23.5 6L9.5 22.2h8l-3.2 11.8L30 17.8h-8.2z", "p", "M20.6 11.6l-5.4 6.4"],
+    chat: ["M10.5 7.5h19a4.5 4.5 0 0 1 4.5 4.5v10.5a4.5 4.5 0 0 1-4.5 4.5H19.5l-7.5 7V27h-1.5a4.5 4.5 0 0 1-4.5-4.5V12a4.5 4.5 0 0 1 4.5-4.5z", "q", "M11.4 17.3a2 2 0 1 0 4 0a2 2 0 1 0-4 0zM18 17.3a2 2 0 1 0 4 0a2 2 0 1 0-4 0zM24.6 17.3a2 2 0 1 0 4 0a2 2 0 1 0-4 0z"],
+    blocker: ["M14.2 6h11.6l8.2 8.2v11.6L25.8 34H14.2L6 25.8V14.2z", "q", "M11.5 17.2h17v5.6h-17z"],
+    laugh: ["M20 6a14 14 0 1 0 0 28a14 14 0 0 0 0-28z", "s", "M11.8 17.2l3.2-2.8 3.2 2.8M21.8 17.2l3.2-2.8 3.2 2.8", "f", "M12.4 21.2h15.2a7.6 7.6 0 0 1-15.2 0z"],
   });
-  const STAMP_SIZE = 32;
-  const STAMP_STEP = 6;
-  // A stamp's center runs from STAMP_RISE above its note's top edge to 16px
-  // above its bottom edge (STAMP_SPAN is the two together), so one can hang over the top and the sides but
-  // never over the note underneath.
-  const STAMP_RISE = 6;
-  const STAMP_SPAN = 10;
-  const ONLY_PRESSER = "Only the person who pressed a stamp, or the facilitator, can move or remove it.";
-  const NOT_KNOWN_MINE = "You can move a stamp you pressed in this visit. Open an older one of yours to remove it.";
+  // Pixel: rows of at most eleven cells, top to bottom. # is the sticker's
+  // color, o ink, + paper, and a dot is empty; dots at the end of a row are
+  // left off.
+  const PIXEL = bag({
+    "me-too": ".#########/#######+###/##+###++###/#+++###+###/##+####+###/######+++##/.#########",
+    thanks: ".###...###/#####.#####/#++########/#+#########/###########/.#########/..#######/...#####/....###/.....#",
+    idea: "..#####/.#######/##++#####/##+######/#########/.#######/..#####/..#####/..ooooo/..#####/...ooo",
+    "quick-win": ".....###/....###/...###/..###/.########/########/....###/...###/..###/.###/###",
+    chat: ".#########/###########/###########/##++#++#++#/##++#++#++#/###########/.#########/..####/..###/..##/..#",
+    blocker: "...#####/..#######/.#########/###########/#+++++++++#/#+++++++++#/#+++++++++#/###########/.#########/..#######/...#####",
+    laugh: ".#########/###########/###o###o###/##o#o#o#o##/###########/#ooooooooo#/#o+++++++o#/##ooooooo##/###ooooo###/.#########",
+  });
+  // Where the print starts from as it settles after landing, by meaning.
+  const SETTLE = bag({
+    "me-too": "translateY(-6px) scale(1.12)",
+    thanks: "scale(1.24)",
+    idea: "scale(1.16) rotate(10deg)",
+    "quick-win": "translate(-4px,3px) rotate(-13deg)",
+    chat: "scale(.84,1.16)",
+    blocker: "scale(1.1,.86)",
+    laugh: "rotate(15deg) scale(1.08)",
+  });
+  // Each color takes its hue from a host token and fixes how light and how
+  // strong it is, so a sticker reads the same on a light note and a dark one.
+  const INKS = [
+    ["me-too", "settled", ".6 .13 h"],
+    ["thanks", "stop", ".72 .14 calc(h - 14)"],
+    ["idea", "brass", ".87 .15 calc(h + 8)"],
+    ["quick-win", "go", ".68 .13 h"],
+    ["chat", "accent", ".64 .11 h"],
+    ["blocker", "stop", ".57 .19 h"],
+    ["laugh", "brass", ".8 .16 calc(h - 22)"],
+  ];
+  const STAMPS = bag();
+  MEANINGS.forEach(function (m) {
+    STAMPS[m[0]] = { meaning: m[0], label: m[1], set: "vinyl" };
+    STAMPS["p-" + m[0]] = { meaning: m[0], label: m[1], set: "pixel" };
+  });
+  // A sticker's center may be anywhere from ST_PAD_X inside its note's left
+  // and right edges to ST_PAD_Y outside its top and bottom ones. It is 42px
+  // across, so it hangs at most 15px over a side, inside the lane's padding,
+  // and 27px over the top or the bottom, inside the gap between notes.
+  const ST_PAD_X = 8;
+  const ST_PAD_Y = 4;
+  const ST_STEP = 6;
+  const PER_NOTE = 12;
+  const PER_PERSON = 3;
+  const ONLY_PRESSER = "Only the person who placed a sticker, or the facilitator, can move or remove it.";
+  const NOT_KNOWN_MINE = "You can move a sticker you placed in this visit. Open an older one of yours to remove it.";
   const ONLY_AUTHOR = "Only the person who wrote a note, or the facilitator, can delete it.";
   const NOTE_GONE = "That note is no longer on the board.";
   // The board answers "conflict" for a limit reached and for a store that is
   // full, and the code does not say which.
   const OR_STORE = " If that is not it, this organization's storage for the plugin is full: delete notes or actions, or ask an admin.";
-  const STAMP_CAPS = "That stamp was not pressed. A note holds twelve stamps, three per person." + OR_STORE;
+  const STAMP_CAPS = "That sticker was not placed. A note holds twelve stickers, three per person." + OR_STORE;
 
   // A lane is told apart by its glyph and its title; the hue only agrees.
   const LANES = bag({
@@ -180,7 +235,7 @@ const RETRO_FONTS = [
   // front of people and refuses nothing: a late note or vote is still taken.
   const STEPS = ["Write", "Group", "Vote", "Decide"];
   const HINTS = [
-    "Write what went well, what to improve and what puzzles you. The three dots on a note open its options: stamps, moving, actions.",
+    "Write what went well, what to improve and what puzzles you. The three dots on a note open its options: stickers, moving, actions.",
     "Drag a note onto another to group them, or select several and group them. Drag the important ones to the top.",
     "Vote for the notes that matter most. One vote per person per note.",
     "Agree on what to change and who owns it. Start an action from any note.",
@@ -233,13 +288,13 @@ const RETRO_FONTS = [
     "--color-brass:#D9AE54;--color-settled:#C89BD1;--color-go:#5FBFA6;--color-stop:#E3695C;",
   ].join("");
   const LIGHT_DEPTH = [
-    "color-scheme:light;",
+    "color-scheme:light;--sh:18 32 47;",
     "--shadow-rest:0 1px 2px rgb(18 32 47/.1),0 2px 8px rgb(18 32 47/.08);",
     "--shadow-lift:0 2px 4px rgb(18 32 47/.12),0 10px 24px rgb(18 32 47/.16);",
     "--shadow-well:inset 0 2px 6px rgb(18 32 47/.12);",
   ].join("");
   const DARK_DEPTH = [
-    "color-scheme:dark;",
+    "color-scheme:dark;--sh:0 0 0;",
     "--shadow-rest:0 1px 2px rgb(0 0 0/.4),0 2px 8px rgb(0 0 0/.3);",
     "--shadow-lift:0 2px 4px rgb(0 0 0/.45),0 12px 28px rgb(0 0 0/.4);",
     "--shadow-well:inset 0 2px 6px rgb(0 0 0/.45);",
@@ -355,7 +410,7 @@ const RETRO_FONTS = [
     ".sort:hover{background:var(--color-felt-deep)}",
     '.sort[aria-pressed="true"]{border-color:var(--color-accent);background:var(--color-accent-soft);color:var(--color-ink)}',
     ".sort-line .fine{flex:1 1 100%}",
-    // Above the stamps: one that hangs over a note's edge must not sit on
+    // Above the stickers: one that hangs over a note's edge must not sit on
     // top of the composer or the sort controls.
     ".composer,.sort-line{position:relative;z-index:2}",
     ".count{display:inline-block;font:12px/24px var(--mono);font-variant-numeric:tabular-nums;color:var(--color-ink-faint)}",
@@ -366,15 +421,18 @@ const RETRO_FONTS = [
     ".left{margin-top:6px;font-size:13px;color:var(--color-ink-faint)}",
     ".empty{font-size:13px;color:var(--color-ink-faint);text-wrap:pretty}",
 
-    // Notes stand 22px apart, under a group's heading and under the composer
-    // too: a stamp hangs 22px over a note's top edge, 21px past its border, and that room is always
-    // there, so nothing moves when the first one lands.
-    ".notes{display:flex;flex-direction:column;gap:22px}",
+    // Notes stand 26px apart, under a group's heading and under the composer
+    // too, and the last one stands clear of the foot of its lane: a sticker
+    // hangs at most 27px over a note's top or bottom edge, and that room is
+    // always there, so nothing moves when the first one lands.
+    ".notes{display:flex;flex-direction:column;gap:26px}",
+    ".notes:not(:empty){padding-bottom:12px}",
     ".lane>.notes:not(:empty){margin-top:10px}",
     ".note{position:relative;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;column-gap:6px;padding:5px 8px 5px 4px;background:var(--color-surface-hi);border:1px solid var(--color-line);border-radius:14px;box-shadow:var(--shadow-rest);transition:background-color .15s,border-color .15s}",
     ".note.selected{background:var(--color-accent-soft);border-color:var(--color-accent);box-shadow:0 0 0 1px var(--color-accent),var(--shadow-rest)}",
-    // A note's controls are drawn over its stamps, and over a neighbor's:
-    // a stamp may cover text, which shows through it, but never a control.
+    // A note's controls are drawn over its stickers, and over a neighbor's:
+    // a sticker may cover text, and steps back when the text is pointed at,
+    // but it never covers a control.
     ".lead,.trail{position:relative;z-index:2;display:flex;align-items:center}",
     // In front of the text: the handle, and the checkbox while notes are being
     // picked. After it, on the first line whatever the width: what the note
@@ -426,25 +484,57 @@ const RETRO_FONTS = [
     ".ghost .note-text{grid-column:2/-1;color:var(--color-ink-soft)}",
     ".ghost-foot{grid-column:2/-1;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding-bottom:5px;font-size:13px;color:var(--color-ink-faint)}",
     ".group{padding:8px;border-radius:14px;background:var(--color-felt-deep);box-shadow:var(--shadow-well)}",
-    ".group-head{position:relative;z-index:2;display:flex;align-items:flex-start;gap:6px;margin:0 0 22px}",
+    ".group-head{position:relative;z-index:2;display:flex;align-items:flex-start;gap:6px;margin:0 0 26px}",
     ".group-title{flex:1;min-width:0;padding-top:4px}",
 
-    // A stamp is an ink impression: a ring and a glyph in one hue, with
-    // almost no fill, so the words under it stay readable. It is placed by
-    // its center, as a fraction of the note, and may hang over the edge.
+    // A sticker is die-cut: an ink line, a paper border, a hairline and one
+    // soft shadow from above. Both sets are made the same way and only the
+    // print differs. It is placed by its center, as a fraction of the note.
+    ":root{" +
+      INKS.map(function (k) {
+        return "--k-" + k[0] + ":var(--color-" + k[1] + ");";
+      }).join("") +
+      "--st-paper:#FBFAF6;--st-ink:#16293A;--st-rest:drop-shadow(0 1px .6px rgb(var(--sh)/.3)) drop-shadow(0 2px 3px rgb(var(--sh)/.2))}",
+    "@supports (color:oklch(from red l c h)){:root{" +
+      INKS.map(function (k) {
+        return "--k-" + k[0] + ":oklch(from var(--color-" + k[1] + ") " + k[2] + ");";
+      }).join("") +
+      "--st-paper:oklch(from var(--color-brass) .985 .008 h);--st-ink:oklch(from var(--color-accent) .25 .04 h)}}",
+    MEANINGS.map(function (m) {
+      return ".k-" + m[0] + "{--k:var(--k-" + m[0] + ")}";
+    }).join(""),
     ".stamps{position:absolute;inset:0;z-index:1;pointer-events:none}",
-    ".stamp,.stamp-face{display:grid;place-items:center;width:32px;height:32px;padding:0;border:2px solid var(--hue);border-radius:50%;outline:1px solid var(--hue);outline-offset:-6px;color:var(--hue);background:color-mix(in srgb,var(--hue) 10%,transparent)}",
-    ".stamp{position:absolute;margin:-16px 0 0 -16px;opacity:.9;pointer-events:auto;cursor:grab;touch-action:none;transition:opacity .15s,box-shadow .4s}",
-    // The tilt is the glyph's. The ring is a circle and looks the same turned,
-    // and left unturned the stamp takes up exactly its 32px.
-    ".stamp svg{rotate:var(--rot)}",
-    ".stamp.new{opacity:1;box-shadow:0 0 0 3px color-mix(in srgb,var(--hue) 40%,transparent)}",
-    ".stamp:hover,.stamp:focus-visible,.stamp.lift{opacity:1;background:color-mix(in srgb,var(--hue) 10%,var(--color-surface-hi))}",
-    ".stamp:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}",
-    ".stamp.lift{scale:1.15;box-shadow:var(--shadow-lift);cursor:grabbing}",
-    // Somebody else's stamp, or one not known to be the viewer's: it opens,
+    ".st{position:absolute;display:block;width:42px;height:42px;margin:-21px 0 0 -21px;padding:0;border:0;border-radius:50%;background:none;pointer-events:auto;cursor:grab;touch-action:none;transition:opacity .2s .15s}",
+    ".st svg{display:block;width:100%;height:100%;overflow:visible;rotate:var(--rot,0deg);filter:var(--st-rest);transition:translate .18s cubic-bezier(.22,1,.36,1),scale .18s cubic-bezier(.22,1,.36,1),filter .18s}",
+    ".st path{fill:none;stroke-linejoin:round;stroke-linecap:round}",
+    ".st .e{stroke:var(--color-line-strong);stroke-width:9.2;fill:var(--color-line-strong)}",
+    ".st .w{stroke:var(--st-paper);stroke-width:8;fill:var(--st-paper)}",
+    ".st .o{stroke:var(--st-ink);stroke-width:3.2}",
+    ".st .c{fill:var(--k)}.st .f{fill:var(--st-ink)}.st .q{fill:var(--st-paper)}",
+    ".st .s{stroke:var(--st-ink);stroke-width:1.6}.st .p{stroke:var(--st-paper);stroke-width:1.8;opacity:.85}",
+    // Pixel: the units are cells, three pixels each at this size, so the
+    // sticker has to be exactly 42px or the cells leave the pixel grid.
+    ".st.px path{stroke-linejoin:miter}",
+    ".st.px .e{stroke-width:2}.st.px .w{stroke-width:1.6}.st.px .o{stroke:none;fill:var(--st-ink)}",
+    ".st:hover svg{translate:0 -2px;scale:1.06;filter:drop-shadow(0 2px 1px rgb(var(--sh)/.26)) drop-shadow(0 6px 6px rgb(var(--sh)/.24))}",
+    // Drawn on top while it is pointed at or focused; the pile does not change.
+    ".st:hover,.st:focus-visible{z-index:3}",
+    ".st:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}",
+    ".st.lift{cursor:grabbing;z-index:4}",
+    ".st.lift svg{translate:0 -5px;scale:1.14;filter:drop-shadow(0 3px 2px rgb(var(--sh)/.24)) drop-shadow(0 14px 12px rgb(var(--sh)/.3))}",
+    // Somebody else's sticker, or one not known to be the viewer's: it opens,
     // and it does not offer to be dragged.
-    ".stamp.fixed{cursor:pointer;touch-action:auto}",
+    ".st.fixed{cursor:pointer;touch-action:auto}",
+    ".st.fixed:hover svg{translate:none;scale:1;filter:var(--st-rest)}",
+    // Peek: stickers lying over a note's words go faint while the words are
+    // pointed at, or while one of the note's controls has keyboard focus.
+    ".note.peek .st.over,.note:has(.lead :focus-visible,.trail :focus-visible) .st.over{opacity:.2;transition:opacity .12s}",
+    // Where the next sticker would land: a dashed plus, shown with the note.
+    ".add-st{position:absolute;z-index:2;display:grid;place-items:center;width:32px;height:32px;margin:-16px 0 0 -16px;padding:0;border:1.5px dashed var(--color-line-strong);border-radius:50%;background:var(--color-surface-hi);color:var(--color-ink-soft);opacity:0;transition:opacity .15s,background-color .15s}",
+    '.note:hover .add-st,.note:focus-within .add-st,.add-st[aria-expanded="true"]{opacity:1}',
+    "@media (hover:none){.add-st{opacity:1}}",
+    '.add-st:hover,.add-st[aria-expanded="true"]{border-color:var(--color-accent);background:var(--color-accent-soft);color:var(--color-ink)}',
+    ".add-st svg{width:14px;height:14px}",
     // A group's name is at most 80 characters and is shown whole.
     "h3{font-size:14px;font-weight:700;line-height:20px;overflow-wrap:anywhere}",
     ".group-meta{font:11px/16px var(--mono);color:var(--color-ink-faint)}",
@@ -497,17 +587,41 @@ const RETRO_FONTS = [
     ".sheet .row .field{flex:1 1 4rem;padding:5px 10px}",
     // A sheet is a column: its fields take the height they need, no more.
     ".sheet .stack{flex:none}",
-    ".stamp-face.small{flex:none;width:24px;height:24px;outline:0}",
-    ".stamp-face.small svg{width:12px;height:12px}",
-    ".stamp-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}",
-    ".stamp-choice{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 2px;border:0;border-radius:10px;background:transparent;color:var(--color-ink-soft);font-size:12px;line-height:16px;text-wrap:balance}",
-    ".stamp-choice:hover{background:var(--color-felt-deep);color:var(--color-ink)}",
+    ".menu-title{padding:4px 10px 6px}",
+    ".menu-note{max-width:15rem;padding:4px 10px 6px}",
+    // The sticker book: two sheets of the same seven, with what they mean
+    // written once, between them.
+    ".st.small{position:static;flex:none;width:28px;height:28px;margin:0;pointer-events:none}",
+    ".book-pop{width:372px;gap:8px;padding:12px}",
+    ".book-head{display:flex;align-items:center;justify-content:space-between;gap:8px}",
+    ".left3{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--color-ink-soft)}",
+    ".left3 i{width:8px;height:8px;border:1.5px solid var(--color-line-strong);border-radius:50%}",
+    ".left3 i.have{border-color:var(--color-accent);background:var(--color-accent)}",
+    ".book{padding:6px;border-radius:12px;background:var(--color-felt);box-shadow:var(--shadow-well)}",
+    ".leaf{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));padding:4px 0;border:1px solid transparent;border-radius:9px}",
+    ".leaf.active{border-color:var(--color-line);background:var(--color-surface-hi)}",
+    ".set{display:flex;align-items:center;gap:6px;padding:2px 6px}",
+    ".set kbd,.spine kbd{font:10px/12px var(--mono);color:var(--color-ink-faint)}",
+    ".set kbd{padding:0 4px;border:1px solid var(--color-line-strong);border-radius:4px}",
+    ".set .on{display:none;color:var(--color-accent)}",
+    ".set.active .on{display:inline}",
+    ".choice{display:grid;place-items:center;height:50px;padding:0;border:0;border-radius:9px;background:transparent}",
+    ".choice .st{position:static;margin:0;pointer-events:none}",
+    ".choice:hover{background:var(--color-felt-deep)}",
+    ".choice:hover .st svg{translate:0 -3px;scale:1.08}",
+    ".choice:focus-visible{outline-offset:-2px}",
+    ".choice:disabled{opacity:.4}",
+    ".spine{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));padding:3px 0;font-size:10.5px;line-height:13px;text-align:center;color:var(--color-ink-soft);text-wrap:balance}",
+    ".spine span{display:flex;flex-direction:column;align-items:center;padding:0 1px}",
+    ".scrim{display:none}",
     ".from{padding:6px 10px;border-radius:8px;background:var(--color-felt-deep);color:var(--color-ink-soft);font-size:13px;overflow-wrap:anywhere}",
     ".link-list{display:flex;flex-direction:column;gap:6px;max-height:10rem;overflow-y:auto}",
-    ".link-list li{display:flex;align-items:center;gap:8px}",
-    ".link-list span{flex:1;min-width:0;overflow-wrap:anywhere}",
+    ".link-list li{display:flex;flex-wrap:wrap;align-items:center;gap:8px}",
+    ".link-list span{flex:1 1 5rem;min-width:0;overflow-wrap:anywhere}",
 
-    "@media (pointer:coarse){.btn,.menu-item,.stage-2 .vote{min-height:44px}.pick,.stage-3 .target{width:36px;height:44px}.grip,.more{width:44px;height:44px}.board:not(.stage-2) .vote,.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.trail{min-height:44px}.note-text{padding:12px 0}}",
+    "@media (pointer:coarse){.btn,.menu-item,.stage-2 .vote{min-height:44px}.pick,.grip,.more{width:44px;height:44px}.stage-3 .target{min-width:44px;height:44px}.board:not(.stage-2) .vote,.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.trail{min-height:44px}.note-text{padding:12px 0}" +
+      // What is drawn smaller than a fingertip is still pressed over 44px.
+      '.vote,.target{position:relative;justify-content:center;min-width:44px}.board:not(.stage-2) .vote::after,.board:not(.stage-3) .target::after{content:"";position:absolute;inset:-6px 0}.st::after{content:"";position:absolute;inset:-1px}.add-st::after{content:"";position:absolute;inset:-7px}}',
 
     // A phone. The header is two short rows and a hint: the steps shrink to
     // their numbers around the current one, the hint is one line that opens,
@@ -544,7 +658,13 @@ const RETRO_FONTS = [
     ".pop{position:fixed;left:8px!important;right:8px;top:auto!important;bottom:8px;width:auto;max-width:none;max-height:min(70vh,480px);border-radius:20px}",
     ".sheet{width:auto}",
     ".link-list{max-height:none}",
+    // The sticker book is a sheet along the bottom edge, over a scrim.
+    ".book-pop{left:0!important;right:0;bottom:0;max-height:none;padding:8px 12px calc(14px + env(safe-area-inset-bottom,0px));border-width:1px 0 0;border-radius:20px 20px 0 0}",
+    '.book-pop::before{content:"";flex:none;width:36px;height:4px;margin:0 auto;border-radius:2px;background:var(--color-line-strong)}',
+    ".choice{height:52px}",
+    ".scrim{display:block;position:fixed;inset:0;background:rgb(var(--sh)/.35)}",
     "}",
+    "@media (max-width:340px){.book-pop{padding-inline:4px}.book{padding:6px 2px}}",
 
     // The host's own keyframes for a note being set down: a short fall under
     // gravity, then a slide that friction brings to a dead stop.
@@ -988,6 +1108,19 @@ const RETRO_FONTS = [
     return message;
   }
 
+  // Say something that may be what was said last. A live region speaks when
+  // its text changes, so it is emptied first and filled a moment later; asked
+  // several times in that moment, it speaks once.
+  let again = 0;
+
+  function sayAgain(text) {
+    setText(live, "");
+    clearTimeout(again);
+    again = setTimeout(function () {
+      if (live.textContent === "") setText(live, text);
+    }, 60);
+  }
+
   // Take a message back, if it is still the one on screen.
   function retract(message) {
     if (message && toast.textContent === message) hideToast();
@@ -995,15 +1128,16 @@ const RETRO_FONTS = [
 
   // --------------------------------------------------------------- popovers
 
-  // One floating thing at a time: a menu, the stamp sheet, the action form or
+  // One floating thing at a time: a menu, the sticker book, the action form or
   // the timer controls. It hangs from the control that opened it, closes on
   // Escape or a press elsewhere, and hands focus back to that control.
   const layer = el("div", { class: "layer" });
   let pop = null;
 
-  function openPop(anchor, node, patch) {
+  // `alive` says whether what the popover is about is still on the board.
+  function openPop(anchor, node, patch, alive) {
     closePop(false);
-    pop = { anchor: anchor, el: node, patch: patch };
+    pop = { anchor: anchor, el: node, patch: patch, alive: alive };
     // A menu closes on Tab. A sheet keeps Tab inside itself: the board under
     // it is inert, so the next stop would be the host page.
     if (node.getAttribute("role") !== "menu") {
@@ -1055,6 +1189,7 @@ const RETRO_FONTS = [
     pop = null;
     was.anchor.setAttribute("aria-expanded", "false");
     layer.removeChild(was.el);
+    if (was.under) layer.removeChild(was.under);
     setBehind(false);
     if (refocus) was.anchor.focus();
   }
@@ -1080,9 +1215,11 @@ const RETRO_FONTS = [
 
   // A menu is a list of { label, keys, run }. `off` holds the reason an item
   // cannot be used just now, which is said when it is chosen; `stay` keeps
-  // the menu open, for an item that is pressed several times running.
-  function openMenu(anchor, label, items) {
+  // the menu open, for an item that is pressed several times running. `title`
+  // is shown above the items and `note` under them.
+  function openMenu(anchor, label, items, title, note) {
     const menu = el("div", { class: "pop menu", role: "menu", "aria-label": label });
+    if (title) menu.appendChild(el("p", { class: "label menu-title", "aria-hidden": "true", text: title }));
     const buttons = items.map(function (item) {
       const row = el("button", { type: "button", class: "menu-item", role: "menuitem", tabindex: -1 }, [el("span", { text: item.label })]);
       if (item.keys) row.appendChild(el("span", { class: "keys", "aria-hidden": "true", text: item.keys }));
@@ -1117,6 +1254,7 @@ const RETRO_FONTS = [
       ev.preventDefault();
       buttons[to].focus();
     });
+    if (note) menu.appendChild(el("p", { class: "fine menu-note", text: note }));
     openPop(anchor, menu);
     buttons[0].focus();
   }
@@ -1305,28 +1443,39 @@ const RETRO_FONTS = [
       if (sequence(before, after) !== sequence(after, before)) said.push("Notes were reordered in " + col.title + ".");
     });
 
-    // A stamp is announced by what it is and how many there are, never by who.
-    const hadStamps = idsOf(before.stamps);
-    const hasStamps = idsOf(after.stamps);
-    const pressed = after.stamps.filter(function (s) {
-      return !hadStamps[s.id];
+    // A sticker is announced by what it is and how many there are, never by who.
+    const was = bag();
+    before.stamps.forEach(function (s) {
+      was[s.id] = s;
     });
-    // A stamp that left with its note is not a stamp somebody lifted.
+    const hasStamps = idsOf(after.stamps);
+    const placed = after.stamps.filter(function (s) {
+      return !was[s.id];
+    });
+    // A sticker that left with its note is not a sticker somebody removed.
     const lifted = before.stamps.filter(function (s) {
       return !hasStamps[s.id] && kept[s.cardId];
     });
-    const stampWords = function (s, verb) {
+    const stickerSaid = function (s, verb) {
       const on = after.cards.filter(function (c) {
         return c.id === s.cardId;
       })[0];
       const count = after.stamps.filter(function (o) {
         return o.cardId === s.cardId;
       }).length;
-      return STAMPS[s.kind].label + " stamp " + verb + ": " + short(on ? on.text : "a note") + ". " + plural(count, "stamp") + " on that note.";
+      return STAMPS[s.kind].label + " sticker " + verb + ": " + short(on ? on.text : "a note") + ". " + plural(count, "sticker") + " on that note.";
     };
-    if (pressed.length === 1 && !lifted.length) said.push(stampWords(pressed[0], "pressed on"));
-    else if (lifted.length === 1 && !pressed.length) said.push(stampWords(lifted[0], "removed from"));
-    else if (pressed.length + lifted.length) said.push("Stamps changed on the board.");
+    const shifted = after.stamps.filter(function (s) {
+      return was[s.id] && (was[s.id].x !== s.x || was[s.id].y !== s.y);
+    });
+    const raised = after.stamps.filter(function (s) {
+      return was[s.id] && topOf(after, s.cardId) === s.id && topOf(before, s.cardId) !== s.id;
+    });
+    if (placed.length === 1 && !lifted.length) said.push(stickerSaid(placed[0], "placed on"));
+    else if (lifted.length === 1 && !placed.length) said.push(stickerSaid(lifted[0], "removed from"));
+    else if (placed.length + lifted.length || shifted.length > 1) said.push("Stickers changed on the board.");
+    else if (shifted.length) said.push(STAMPS[shifted[0].kind].label + " sticker moved.");
+    else if (raised.length) said.push(STAMPS[raised[0].kind].label + " sticker brought to the front.");
 
     const a = after.timer;
     const b = before.timer;
@@ -2072,7 +2221,9 @@ const RETRO_FONTS = [
       vote: el("button", { type: "button", class: "vote" }),
       word: el("span", { text: "Vote" }),
       count: el("span", { class: "mono" }),
-      stamps: el("ul", { class: "stamps", "aria-label": "Stamps" }),
+      stamps: el("ul", { class: "stamps", "aria-label": "Stickers" }),
+      add: el("button", { type: "button", class: "add-st", "aria-haspopup": "dialog" }, [icon(GLYPH.plus)]),
+      sig: "",
     };
     note.pick = el("label", { class: "pick" }, [note.box]);
     note.target.appendChild(note.targetCount);
@@ -2085,7 +2236,9 @@ const RETRO_FONTS = [
       el("span", { class: "trail" }, [note.target, note.vote, note.more]),
       note.author.el,
       note.stamps,
+      note.add,
     ]);
+    note.add.hidden = true;
 
     note.box.addEventListener("change", function () {
       selected[id] = note.box.checked;
@@ -2106,7 +2259,31 @@ const RETRO_FONTS = [
         return view.actions[a.id] && view.actions[a.id].el;
       });
     });
+    toggles(note.add, function () {
+      openStamps(id, note.add);
+    });
+    // The words a sticker lies over are still there to be read: pointing at
+    // them, or tapping them, thins the stickers on top.
+    note.text.addEventListener("pointerenter", function (ev) {
+      if (ev.pointerType !== "mouse") return;
+      layoutStickers([id]);
+      note.el.classList.add("peek");
+    });
+    note.text.addEventListener("pointerleave", function (ev) {
+      if (ev.pointerType === "mouse") note.el.classList.remove("peek");
+    });
+    note.text.addEventListener("pointerup", function (ev) {
+      if (ev.pointerType === "mouse") return;
+      layoutStickers([id]);
+      note.el.classList.toggle("peek", !note.el.classList.contains("peek"));
+    });
     note.el.addEventListener("keydown", function (ev) {
+      // S opens the stickers from anywhere on the note but a sticker.
+      if ((ev.key === "s" || ev.key === "S") && !ev.altKey && !ev.ctrlKey && !ev.metaKey && !pop && !contains(note.stamps, ev.target)) {
+        ev.preventDefault();
+        openStamps(id, note.add.hidden ? note.more : note.add);
+        return;
+      }
       const way = ev.altKey && ARROWS[ev.key];
       if (!way) return;
       ev.preventDefault();
@@ -2126,7 +2303,7 @@ const RETRO_FONTS = [
   // opens nothing and moves nothing: it says how a move is made.
   function saysHowToMove(grip, owner) {
     grip.addEventListener("click", function () {
-      if (!owner.dragged) setText(live, MOVE_HELP);
+      if (!owner.dragged) sayAgain(MOVE_HELP);
     });
   }
 
@@ -2147,6 +2324,7 @@ const RETRO_FONTS = [
     note.box.setAttribute("aria-label", "Select note: " + brief);
     note.grip.setAttribute("aria-label", "Drag to reorder: " + brief);
     note.more.setAttribute("aria-label", "Options for note: " + brief);
+    note.add.setAttribute("aria-label", "Add a sticker to: " + brief);
 
     note.vote.hidden = board.stage !== 2 && card.votes === 0;
     note.vote.setAttribute("aria-label", "Vote for: " + brief + ". " + plural(card.votes, "vote") + "." + (note.mine ? " You voted." : ""));
@@ -2227,7 +2405,8 @@ const RETRO_FONTS = [
       });
     }
     items.push({
-      label: "Add a stamp…",
+      label: "Add a sticker…",
+      keys: "S",
       run: function () {
         openStamps(id, opener);
       },
@@ -2237,7 +2416,7 @@ const RETRO_FONTS = [
     }).length;
     if (pressed) {
       items.push({
-        label: "Stamps on this note (" + pressed + ")…",
+        label: "Stickers on this note (" + pressed + ")…",
         run: function () {
           openStampList(id, opener);
         },
@@ -2319,7 +2498,7 @@ const RETRO_FONTS = [
       label: "Delete note…",
       off: others ? ONLY_AUTHOR : "",
       run: function () {
-        openConfirm(opener, "Delete this note?", "Its votes, stamps and links to actions go with it. This cannot be undone.", "Delete note", function () {
+        openConfirm(opener, "Delete this note?", "Its votes, stickers and links to actions go with it. This cannot be undone.", "Delete note", function () {
           deleteNote(id);
         });
       },
@@ -2474,6 +2653,10 @@ const RETRO_FONTS = [
       }
     }
     board.cards = rest.slice(0, at).concat(moved, rest.slice(at));
+    // As board.js does: a group lasts as long as it holds a note.
+    board.groups = board.groups.filter(function (g) {
+      return membersOf(g.id).length;
+    });
   }
 
   function sendMove(action, body, said) {
@@ -2481,6 +2664,7 @@ const RETRO_FONTS = [
     const was = board.cards.map(function (c) {
       return { card: c, columnId: c.columnId, groupId: c.groupId };
     });
+    // Every group as it stood, one emptied by this move included.
     const lanesWere = board.groups.map(function (g) {
       return { group: g, columnId: g.columnId };
     });
@@ -2506,8 +2690,9 @@ const RETRO_FONTS = [
             w.card.groupId = w.groupId;
             return w.card;
           });
-          lanesWere.forEach(function (w) {
+          board.groups = lanesWere.map(function (w) {
             w.group.columnId = w.columnId;
+            return w.group;
           });
           patchLanes();
           patchSelection();
@@ -2642,7 +2827,11 @@ const RETRO_FONTS = [
   let gesture = null;
 
   function follow(pointerId, heard, stop) {
-    const g = { active: false };
+    // Another pointer never ends, cancels or replaces a gesture: a second
+    // finger set down anywhere, a sticker included, is simply not followed.
+    // Only a press of the same pointer means its own release was never heard.
+    if (gesture && gesture.pointerId !== undefined && pointerId !== undefined && gesture.pointerId !== pointerId) return null;
+    const g = { active: false, pointerId: pointerId };
     // A second finger on the screen is not this drag.
     const other = function (e) {
       return e.pointerId !== undefined && pointerId !== undefined && e.pointerId !== pointerId;
@@ -2732,6 +2921,7 @@ const RETRO_FONTS = [
           drag.py = e.clientY;
           drag.seen = sightTop();
           dragTo(e.clientX, e.clientY);
+          keepScrolling(drag, true);
         },
         function (e) {
           if (!drag) return;
@@ -2781,7 +2971,34 @@ const RETRO_FONTS = [
       ripe: false,
       timer: 0,
       scroll: 0,
+      scrolled: 0,
+      stillSince: clockNow(),
+      rects: new Map(),
+      settled: 0,
     };
+  }
+
+  // Where a lane, a group or a note is, for as long as that can be trusted.
+  // A drag asks on every move of the pointer, and at the caps there are more
+  // than a hundred and sixty boxes to ask about, so each is measured once and
+  // kept until something moves them: the slot changing place, the window
+  // changing size or scrolling. While notes are still gliding to their new
+  // places a box is measured afresh, since it is on its way somewhere.
+  function boxOf(node) {
+    const d = drag;
+    if (clockNow() < d.settled) return rectOf(node);
+    let box = d.rects.get(node);
+    if (!box) {
+      box = rectOf(node);
+      d.rects.set(node, box);
+    }
+    return box;
+  }
+
+  function forgetBoxes() {
+    if (!drag) return;
+    drag.rects.clear();
+    drag.settled = motionOn() ? clockNow() + GLIDE.duration : 0;
   }
 
   // Which part of a note the pointer is over. Its middle half means "group
@@ -2804,7 +3021,7 @@ const RETRO_FONTS = [
   function aimAt(x, y) {
     const d = drag;
     for (const id in view.lanes) {
-      const box = rectOf(view.lanes[id].el);
+      const box = boxOf(view.lanes[id].el);
       if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) d.lane = view.lanes[id];
     }
     const lane = d.lane;
@@ -2813,7 +3030,7 @@ const RETRO_FONTS = [
       for (let i = 0; i < list.children.length; i++) {
         const child = list.children[i];
         if (child === d.node) continue;
-        const box = rectOf(child);
+        const box = boxOf(child);
         if (child.classList.contains("ghost") || y < box.top + box.height / 2) return child;
       }
       return null;
@@ -2822,7 +3039,7 @@ const RETRO_FONTS = [
     if (d.kind === "note") {
       for (const gid in view.groups) {
         const group = view.groups[gid];
-        const box = rectOf(group.el);
+        const box = boxOf(group.el);
         if (contains(lane.list, group.el) && y >= box.top && y <= box.bottom) {
           restless();
           // In a sorted lane a group can be joined, at its end, but a note
@@ -2836,7 +3053,7 @@ const RETRO_FONTS = [
       for (let i = 0; i < lane.list.children.length && lane.id === d.from; i++) {
         const child = lane.list.children[i];
         const id = child !== d.node && ownerOfNode(child);
-        const box = rectOf(child);
+        const box = boxOf(child);
         if (id && view.notes[id] && y >= box.top && y <= box.bottom && zoneOf(y, box.top, box.height, d.dwell === id) === "onto") onto = id;
       }
     }
@@ -2906,6 +3123,7 @@ const RETRO_FONTS = [
         reflow(function () {
           list.insertBefore(d.node, before);
         });
+        forgetBoxes();
       }
     }
     d.node.classList.toggle("faded", aim.type === "onto");
@@ -2914,22 +3132,73 @@ const RETRO_FONTS = [
     mark("lane", "dropzone", aim.lane.id !== d.from ? aim.lane.el : null);
     const said = aimSaid(aim);
     if (said !== d.said) setText(live, (d.said = said));
+  }
 
-    // Held near the top or the bottom of what is in sight, the page keeps
-    // scrolling for as long as the pointer stays there, moving or not: that
-    // is how a note gets from one lane to another on a phone, where lanes are
-    // stacked. The pointer stays where it is on the screen while the board
-    // moves under it, so its place on the board is worked out from how far
-    // the board has moved since it was last heard from.
-    clearTimeout(d.scroll);
+  // Held near the top or the bottom of what is in sight, the page keeps
+  // scrolling for as long as the pointer stays there, moving or not: that is
+  // how a note gets from one lane to another on a phone, where lanes are
+  // stacked. The nearer the edge, the faster. The pointer stays where it is
+  // on the screen while the board moves under it, so its place on the board
+  // is worked out from how far the board has moved since it was last heard
+  // from. A pointer held still does not scroll for ever: after SCROLL_MS, or
+  // once the page has gone as far as the board is tall, it waits for the
+  // pointer to move again.
+  const SCROLL_MIN = 120;
+  const SCROLL_MAX = 900;
+  const SCROLL_MS = 10000;
+  const nextFrame = window.requestAnimationFrame
+    ? function (fn) {
+        return window.requestAnimationFrame(fn);
+      }
+    : function (fn) {
+        return setTimeout(fn, 16);
+      };
+  const dropFrame = window.cancelAnimationFrame
+    ? function (id) {
+        window.cancelAnimationFrame(id);
+      }
+    : clearTimeout;
+
+  // How fast to scroll with the pointer at `y`, in pixels a second: negative
+  // is up, and nothing at all away from the edges.
+  function edgeSpeed(y) {
     const sight = inSight || { top: 0, bottom: window.innerHeight || 0 };
-    const by = y < sight.top + EDGE ? -1 : y > sight.bottom - EDGE ? 1 : 0;
-    if (by) {
-      scrollPage(by, sight);
-      d.scroll = setTimeout(function () {
-        if (drag === d) dragTo(d.x, d.py + sightTop() - d.seen);
-      }, 16);
+    const past = y < sight.top + EDGE ? y - sight.top - EDGE : y > sight.bottom - EDGE ? y - sight.bottom + EDGE : 0;
+    if (!past) return 0;
+    const pull = Math.min(1, Math.abs(past) / EDGE);
+    return (past < 0 ? -1 : 1) * (SCROLL_MIN + pull * (SCROLL_MAX - SCROLL_MIN));
+  }
+
+  function keepScrolling(d, moved) {
+    const now = clockNow();
+    if (moved) {
+      d.stillSince = now;
+      d.scrolled = 0;
     }
+    // One frame at a time: a pointer that moves faster than frames come
+    // must not keep putting the next one off.
+    if (d.scroll) return;
+    if (!edgeSpeed(d.y) || now - d.stillSince > SCROLL_MS || d.scrolled > rectOf(main).height + (window.innerHeight || 0)) return;
+    d.scrollAt = now;
+    d.scroll = nextFrame(function () {
+      d.scroll = 0;
+      if (drag !== d) return;
+      // What is carried has left the page: there is nothing to scroll for.
+      if (!d.node.isConnected) {
+        if (gesture) gesture.end({ type: "pointercancel" });
+        return;
+      }
+      const y = d.py + sightTop() - d.seen;
+      if (y !== d.y) dragTo(d.x, y);
+      const speed = edgeSpeed(d.y);
+      const dt = Math.min(50, Math.max(8, clockNow() - d.scrollAt));
+      const by = Math.round((speed * dt) / 1000) || (speed < 0 ? -1 : speed > 0 ? 1 : 0);
+      if (by) {
+        scrollPage(by);
+        d.scrolled += Math.abs(by);
+      }
+      keepScrolling(d, false);
+    });
   }
 
   // The frame is as tall as the board and does not scroll: the host page
@@ -2943,10 +3212,10 @@ const RETRO_FONTS = [
     return inSight ? inSight.top : 0;
   }
 
-  function scrollPage(by, sight) {
-    window.scrollBy(0, by * 14);
+  function scrollPage(by) {
+    window.scrollBy(0, by);
     if (!inSight || !scrollSpot.scrollIntoView) return;
-    scrollSpot.style.top = (by < 0 ? sight.top - 15 : sight.bottom + 14) - rectOf(layer).top + "px";
+    scrollSpot.style.top = (by < 0 ? inSight.top + by : inSight.bottom + by - 1) - rectOf(layer).top + "px";
     scrollSpot.scrollIntoView({ block: "nearest" });
   }
 
@@ -2959,7 +3228,7 @@ const RETRO_FONTS = [
     const moved = d.node.parentNode !== d.home || d.node.nextElementSibling !== d.next;
     const beforeId = aim.before ? ownerOfNode(aim.before) : null;
     restless();
-    clearTimeout(d.scroll);
+    dropFrame(d.scroll);
     // Left where it was, the spot would keep the page a little taller.
     scrollSpot.style.top = "0px";
     mark("note", "merge", null);
@@ -3018,24 +3287,116 @@ const RETRO_FONTS = [
     }
   }
 
-  // ----------------------------------------------------------------- stamps
+  // --------------------------------------------------------------- stickers
 
-  // A stamp is pressed onto a note and stays where it was put: it sits over
-  // the note, may hang over its top and its sides, and takes up no room. The
-  // gap between notes is wide enough for the overhang (see .notes), so
-  // nothing moves when one arrives or leaves. The state says what each stamp is and where, and never
-  // who pressed it. Which ones are this viewer's own is known only from what
-  // happened in this visit: a stamp that appeared exactly as it was sent, and
-  // a move the server accepted or refused.
-  const stampHelp = el("p", { id: "stamp-help", class: "sr-only", text: "Left and Right go between this note's stamps. Shift with an arrow key moves this one. Delete removes it. Enter opens its options." });
+  // A sticker is placed on a note and stays where it was put: it sits over
+  // the note, may hang a little over its edges, and takes up no room, so
+  // nothing moves when one arrives or leaves. Stickers pile up in the order
+  // they land: the state lists them bottom to top, and one that is moved goes
+  // back down on top. The state says what each sticker is and where, and
+  // never who placed it. Which ones are this viewer's own is known only from
+  // what happened in this visit: a sticker that appeared exactly as it was
+  // sent, and a move the server accepted or refused.
+  const stampHelp = el("p", {
+    id: "stamp-help",
+    class: "sr-only",
+    text: "The arrow keys move this sticker, with Shift for bigger steps. Page Up and Page Down go up and down the pile. F brings it to the front. Delete removes it. Enter opens its options.",
+  });
   const mineStamps = bag();
   const notMine = bag();
-  // Where a stamp has been put by this viewer, until the state agrees.
+  // Where a sticker has been put by this viewer, until the state agrees. It
+  // is drawn there, and on top, in the order these were made.
   const stampAt = bag();
+  let moves = 0;
   let pressing = [];
+  // The sheet last placed from, for this visit. The frame has no storage.
+  let stickerSet = "vinyl";
+  const FLY = spring(360, 23);
+  const AT_REST = "drop-shadow(0 1px .6px rgb(var(--sh)/.3)) drop-shadow(0 2px 3px rgb(var(--sh)/.2))";
 
   function round3(n) {
     return Math.round(n * 1000) / 1000;
+  }
+
+  function svgOf(viewBox, parts) {
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("viewBox", viewBox);
+    svg.setAttribute("aria-hidden", "true");
+    parts.forEach(function (part) {
+      if (!part[1]) return;
+      const path = document.createElementNS(NS, "path");
+      path.setAttribute("class", part[0]);
+      path.setAttribute("d", part[1]);
+      svg.appendChild(path);
+    });
+    return svg;
+  }
+
+  // Pixel rows become paths of one-cell-high runs: the art centered in a box
+  // of fourteen cells, a ring of ink one cell wide around it, and the three
+  // fills. The ring is also the shape of the paper border and the edge.
+  function pixelParts(art) {
+    const rows = art.split("/");
+    const wide = rows.reduce(function (w, r) {
+      return Math.max(w, r.length);
+    }, 0);
+    const ox = (14 - wide) >> 1;
+    const oy = (14 - rows.length) >> 1;
+    const at = function (x, y) {
+      return (rows[y - oy] || "")[x - ox] || ".";
+    };
+    const on = function (x, y) {
+      return at(x, y) !== ".";
+    };
+    const runs = function (test) {
+      let d = "";
+      for (let y = 0; y < 14; y++) {
+        for (let x = 0; x < 14; x++) {
+          if (!test(x, y)) continue;
+          let n = 1;
+          while (x + n < 14 && test(x + n, y)) n++;
+          d += "M" + x + " " + y + "h" + n + "v1h-" + n + "z";
+          x += n;
+        }
+      }
+      return d;
+    };
+    const ring = runs(function (x, y) {
+      return on(x, y) || on(x - 1, y) || on(x + 1, y) || on(x, y - 1) || on(x, y + 1);
+    });
+    const fill = function (c) {
+      return runs(function (x, y) {
+        return at(x, y) === c;
+      });
+    };
+    return [["e", ring], ["w", ring], ["o", ring], ["c", fill("#")], ["f", fill("o")], ["q", fill("+")]];
+  }
+
+  function stickerArt(kind) {
+    const k = STAMPS[kind];
+    if (k.set === "pixel") {
+      const svg = svgOf("0 0 14 14", pixelParts(PIXEL[k.meaning]));
+      svg.setAttribute("shape-rendering", "crispEdges");
+      return svg;
+    }
+    const v = VINYL[k.meaning];
+    const parts = [["e", v[0]], ["w", v[0]], ["o", v[0]], ["c", v[0]]];
+    for (let i = 1; i < v.length; i += 2) parts.push([v[i], v[i + 1]]);
+    return svgOf("3 3 34 34", parts);
+  }
+
+  function stickerClass(kind) {
+    return "st k-" + STAMPS[kind].meaning + (STAMPS[kind].set === "pixel" ? " px" : "");
+  }
+
+  // A sticker to look at, in the book and in the list: not a control.
+  function face(kind, more) {
+    return el("span", { class: stickerClass(kind) + (more || "") }, [stickerArt(kind)]);
+  }
+
+  function nameOf(kind) {
+    return STAMPS[kind].label + ", " + STAMPS[kind].set;
   }
 
   // The size a note is taken to be when it cannot be measured.
@@ -3044,46 +3405,103 @@ const RETRO_FONTS = [
     return { left: box.left, top: box.top, width: box.width || 240, height: box.height || 44 };
   }
 
-  // How far a stamp's center can travel down its note, in pixels.
-  function stampRun(box) {
-    return Math.max(1, box.height - STAMP_SPAN);
+  // A sticker's center on its note, in pixels from the note's corner, and
+  // the same thing the other way: the fractions a point on the note is.
+  function centerOf(at, box) {
+    return [ST_PAD_X + at.x * (box.width - 2 * ST_PAD_X), at.y * (box.height + 2 * ST_PAD_Y) - ST_PAD_Y];
   }
 
-  // Where a stamp lands when no spot is pointed at: hanging off the note's top
-  // edge, above the first line of text, starting over the top-left corner and
-  // working right, short of the note's own controls. Once that row is full the
-  // next stamps go between the ones already there, so each of the twelve a
-  // note holds gets a place of its own. A stamp still on its way counts.
-  function freeSpot(cardId) {
-    const box = noteBox(cardId);
-    const run = stampRun(box);
-    const there = board.stamps
+  function fractionAt(cx, cy, box) {
+    return {
+      x: round3(unit((cx - ST_PAD_X) / Math.max(1, box.width - 2 * ST_PAD_X))),
+      y: round3(unit((cy + ST_PAD_Y) / (box.height + 2 * ST_PAD_Y))),
+    };
+  }
+
+  function putAt(node, at) {
+    node.style.left = "calc(" + ST_PAD_X + "px + " + at.x + " * (100% - " + 2 * ST_PAD_X + "px))";
+    node.style.top = "calc(" + at.y + " * (100% + " + 2 * ST_PAD_Y + "px) - " + ST_PAD_Y + "px)";
+  }
+
+  // A note's pile, bottom to top, as the state has it.
+  function pileOf(cardId) {
+    return board.stamps.filter(function (s) {
+      return s.cardId === cardId;
+    });
+  }
+
+  function topOf(b, cardId) {
+    let top = null;
+    b.stamps.forEach(function (s) {
+      if (s.cardId === cardId) top = s.id;
+    });
+    return top;
+  }
+
+  // A press nobody answered is not waited for forever.
+  function pressingOn(cardId) {
+    pressing = pressing.filter(function (old) {
+      return clockNow() - old.at < WAIT_MS + LATE_MS;
+    });
+    return pressing.filter(function (wait) {
+      return wait.body.cardId === cardId;
+    });
+  }
+
+  // How many more stickers this viewer may place on a note, as far as this
+  // visit knows. The server counts for certain, and says so when it differs.
+  function leftFor(cardId) {
+    const mine = pileOf(cardId).filter(function (s) {
+      return mineStamps[s.id];
+    }).length;
+    return Math.max(0, PER_PERSON - mine - pressingOn(cardId).length);
+  }
+
+  function roomOn(cardId) {
+    return Math.max(0, PER_NOTE - pileOf(cardId).length - pressingOn(cardId).length);
+  }
+
+  // Where a sticker lands when it is picked from the book: clear of the
+  // words. The corner under the note's handle when the note is tall enough
+  // to have one, then along the bottom edge, then between those.
+  function slots(width, height) {
+    const out = [];
+    const coarse = window.matchMedia && window.matchMedia("(pointer:coarse)").matches;
+    const deep = height >= (coarse ? 76 : 64);
+    if (deep) out.push([14, height - 10]);
+    [0, 15].forEach(function (shift) {
+      for (let x = (deep ? 50 : 14) + shift; x <= width - 60; x += 30) out.push([x, height + ST_PAD_Y]);
+    });
+    return out.length ? out : [[14, height + ST_PAD_Y]];
+  }
+
+  // The first of those places with no sticker within 14px of it. With every
+  // one taken, they are gone round again, a little off each time. A sticker
+  // still on its way counts.
+  function freeSpot(cardId, box, loose) {
+    const there = pileOf(cardId)
+      .map(function (s) {
+        return stampAt[s.id] || s;
+      })
       .concat(
-        pressing.map(function (wait) {
+        pressingOn(cardId).map(function (wait) {
           return wait.body;
         }),
       )
-      .filter(function (s) {
-        return s.cardId === cardId && s.y * run < 12;
+      .map(function (at) {
+        return centerOf(at, box);
       });
-    // The row stops where the note's menu begins.
-    const last = Math.max(6, box.width - 52);
-    let best = 6;
-    let room = -1;
-    [0, 13, 6.5, 19.5].some(function (shift) {
-      for (let cx = 6 + shift; cx <= last; cx += 26) {
-        const gap = there.reduce(function (least, s) {
-          return Math.min(least, Math.abs(s.x * box.width - cx));
-        }, Infinity);
-        if (gap > room) {
-          room = gap;
-          best = cx;
-        }
-        if (gap >= 6) return true;
-      }
-      return false;
-    });
-    return { x: round3(best / box.width), y: 0 };
+    const places = slots(box.width, box.height);
+    let spot = places.filter(function (p) {
+      return !there.some(function (c) {
+        return Math.abs(c[0] - p[0]) < 14 && Math.abs(c[1] - p[1]) < 14 && Math.hypot(c[0] - p[0], c[1] - p[1]) < 14;
+      });
+    })[0];
+    if (!spot) {
+      const base = places[there.length % places.length];
+      spot = loose ? [base[0] + Math.random() * 8 - 4, base[1] - Math.random() * 6] : base;
+    }
+    return fractionAt(spot[0], spot[1], box);
   }
 
   function isPress(s, wait) {
@@ -3092,14 +3510,11 @@ const RETRO_FONTS = [
   }
 
   function pressStamp(cardId, kind) {
-    const spot = freeSpot(cardId);
+    const spot = freeSpot(cardId, noteBox(cardId), true);
     // The tilt is the hand's: a little different every time.
-    // A press nobody answered is not waited for forever.
-    pressing = pressing.filter(function (old) {
-      return clockNow() - old.at < WAIT_MS + LATE_MS;
-    });
     const wait = { at: clockNow(), had: idsOf(board.stamps), body: { cardId: cardId, kind: kind, x: spot.x, y: spot.y, rot: Math.round((Math.random() * 18 - 9) * 10) / 10 } };
     pressing.push(wait);
+    patchStamps();
     propose("stamp", wait.body, {
       landed: function (b) {
         return b.stamps.some(function (s) {
@@ -3107,20 +3522,21 @@ const RETRO_FONTS = [
         });
       },
       refused: { conflict: STAMP_CAPS, failed: STAMP_CAPS, "not-found": NOTE_GONE },
-      unsure: "Could not confirm that the stamp was pressed.",
+      unsure: "Could not confirm that the sticker was placed.",
       settle: function (outcome) {
         if (outcome !== "refused") return;
         pressing = pressing.filter(function (other) {
           return other !== wait;
         });
+        patchStamps();
       },
     });
   }
 
-  // The state is one payload for every viewer, so it cannot say which stamps
-  // are whose. A stamp is known to be this viewer's when it was pressed, or
-  // the server took a change to it, in this visit; the facilitator may change
-  // any. Only those look movable.
+  // The state is one payload for every viewer, so it cannot say which
+  // stickers are whose. A sticker is known to be this viewer's when it was
+  // placed, or the server took a change to it, in this visit; the facilitator
+  // may change any. Only those look movable.
   function ownStamp(id) {
     return viewerRole() === "facilitator" || !!mineStamps[id];
   }
@@ -3131,18 +3547,38 @@ const RETRO_FONTS = [
     return false;
   }
 
-  // Removing is asked of the server for any stamp it has not already refused:
-  // it knows whose a stamp is after a reload, and the board does not.
+  // Removing is asked of the server for any sticker it has not already
+  // refused: it knows whose a sticker is after a reload, and the board does not.
   function mayRemove(id) {
     if (ownStamp(id) || !notMine[id]) return true;
     notify(ONLY_PRESSER);
     return false;
   }
 
-  // The facilitator moves and removes any stamp, through an action the host
+  function stampById(id) {
+    return board.stamps.filter(function (s) {
+      return s.id === id;
+    })[0];
+  }
+
+  function rankOn(b, id) {
+    const s = b.stamps.filter(function (o) {
+      return o.id === id;
+    })[0];
+    return s
+      ? b.stamps
+          .filter(function (o) {
+            return o.cardId === s.cardId;
+          })
+          .indexOf(s)
+      : -1;
+  }
+
+  // The facilitator moves and removes any sticker, through an action the host
   // keeps for the facilitator. Everyone else asks as themselves, and the
-  // server answers no unless the stamp is theirs.
-  function sendStamp(id, remove) {
+  // server answers no unless the sticker is theirs. A move puts the sticker
+  // on top of its pile, so bringing one to the front is a move to where it is.
+  function sendStamp(id, remove, front) {
     const lead = viewerRole() === "facilitator";
     const at = stampAt[id];
     if (!remove && !at) return;
@@ -3152,6 +3588,7 @@ const RETRO_FONTS = [
       body.x = at.x;
       body.y = at.y;
     }
+    const rank = rankOn(board, id);
     // Declared first: a send the bridge refuses settles before propose returns.
     let watch = null;
     watch = propose(lead ? "moderate-stamp" : remove ? "remove-stamp" : "move-stamp", body, {
@@ -3159,35 +3596,42 @@ const RETRO_FONTS = [
         const now = b.stamps.filter(function (s) {
           return s.id === id;
         })[0];
-        return remove ? !now : !now || (now.x === at.x && now.y === at.y);
+        if (remove || !now) return !now;
+        if (now.x !== at.x || now.y !== at.y) return false;
+        // A teammate may have put one on top since: higher than it was is enough.
+        return !front || topOf(b, now.cardId) === id || rankOn(b, id) > rank;
       },
-      refused: { forbidden: ONLY_PRESSER, failed: ONLY_PRESSER, "not-found": "That stamp is no longer on the board." },
-      unsure: remove ? "Could not confirm that the stamp was removed." : "Could not confirm that the stamp moved.",
+      refused: { forbidden: ONLY_PRESSER, failed: ONLY_PRESSER, "not-found": "That sticker is no longer on the board." },
+      unsure: remove ? "Could not confirm that the sticker was removed." : front ? "Could not confirm that the sticker was brought to the front." : "Could not confirm that the sticker moved.",
       settle: function (outcome) {
-        // The stamp is this viewer's once the server said yes and the state
+        // The sticker is this viewer's once the server said yes and the state
         // shows the change: a yes the state contradicts proves nothing.
         if (watch && watch.accepted && watch.shown && !mineStamps[id]) {
           mineStamps[id] = true;
           patchStamps();
         }
-        if (outcome !== "refused" && outcome !== "unsure") return;
-        if (watch && (watch.reason === "failed" || watch.reason === "forbidden")) notMine[id] = true;
+        if (outcome === "accepted") return;
+        if (outcome !== "landed" && watch && (watch.reason === "failed" || watch.reason === "forbidden")) notMine[id] = true;
+        // Landed, refused or given up on: the state is what is drawn now.
         if (stampAt[id] === at) delete stampAt[id];
         patchStamps();
       },
     });
   }
 
-  function nudgeStamp(id, dx, dy) {
+  function nudgeStamp(id, dx, dy, far) {
     const s = stampById(id);
     if (!s || !mayMove(id)) return;
     const box = noteBox(s.cardId);
     const from = stampAt[id] || s;
-    const to = { x: round3(unit(from.x + (dx * STAMP_STEP) / box.width)), y: round3(unit(from.y + (dy * STAMP_STEP) / stampRun(box))) };
+    const c = centerOf(from, box);
+    const step = ST_STEP * (far ? 4 : 1);
+    const to = fractionAt(c[0] + dx * step, c[1] + dy * step, box);
     if (to.x === from.x && to.y === from.y) {
       setText(live, "At the edge of the note.");
       return;
     }
+    to.n = ++moves;
     stampAt[id] = to;
     patchStamps();
     // Several presses of an arrow key are one move.
@@ -3205,7 +3649,7 @@ const RETRO_FONTS = [
     clearTimeout(stamp.timer);
     stamp.timer = 0;
     if (s && stampAt[id] && (stampAt[id].x !== s.x || stampAt[id].y !== s.y)) {
-      setText(live, STAMPS[s.kind].label + " stamp moved.");
+      setText(live, STAMPS[s.kind].label + " sticker moved.");
       sendStamp(id, false);
     }
   }
@@ -3214,134 +3658,182 @@ const RETRO_FONTS = [
     if (mayRemove(id)) sendStamp(id, true);
   }
 
-  // A note's stamps are one stop for the Tab key: the last one focused, or
-  // the first. The arrow keys go between them.
-  function patchStampStops(cardId) {
+  function frontStamp(id) {
+    const s = stampById(id);
+    const stamp = view.stamps[id];
+    if (!s || !stamp || !mayMove(id)) return;
+    // Keys still resting are part of the same move.
+    clearTimeout(stamp.timer);
+    stamp.timer = 0;
+    const from = stampAt[id] || s;
+    const pile = drawnPile(s.cardId);
+    if (pile[pile.length - 1] === s && from.x === s.x && from.y === s.y) {
+      setText(live, "Already at the front.");
+      return;
+    }
+    stampAt[id] = { x: from.x, y: from.y, n: ++moves };
+    patchStamps();
+    if (motionOn()) animate(stamp.art, { transform: "scale(1.2)" }, SLAP);
+    setText(live, STAMPS[s.kind].label + " sticker brought to the front.");
+    sendStamp(id, false, true);
+  }
+
+  // The pile as it is drawn: the state's order, with what this viewer has
+  // just moved on top.
+  function drawnPile(cardId) {
+    const list = pileOf(cardId);
+    return list
+      .filter(function (s) {
+        return !stampAt[s.id];
+      })
+      .concat(
+        list
+          .filter(function (s) {
+            return stampAt[s.id];
+          })
+          .sort(function (a, b) {
+            return stampAt[a.id].n - stampAt[b.id].n;
+          }),
+      );
+  }
+
+  // A note's stickers are one stop for the Tab key: the last one focused, or
+  // the one on top. Page Up and Page Down go through the pile from there, so
+  // a sticker lying under another can be reached without aiming at it.
+  function patchStampStops(cardId, pile) {
     const note = view.notes[cardId];
-    if (!note) return;
-    const on = board.stamps.filter(function (s) {
-      return s.cardId === cardId && view.stamps[s.id];
-    });
     const stop =
-      on.filter(function (s) {
+      pile.filter(function (s) {
         return s.id === note.stampStop;
-      })[0] || on[0];
-    on.forEach(function (s) {
+      })[0] || pile[pile.length - 1];
+    pile.forEach(function (s) {
       view.stamps[s.id].btn.setAttribute("tabindex", s === stop ? "0" : "-1");
     });
   }
 
-  function stepStamp(id, by) {
+  function walkPile(id, key) {
     const s = stampById(id);
-    const on = board.stamps.filter(function (o) {
-      return o.cardId === s.cardId;
-    });
-    const next = on[(on.indexOf(s) + by + on.length) % on.length];
-    view.stamps[next.id].btn.focus();
+    if (!s) return;
+    const pile = drawnPile(s.cardId);
+    const at = pile.indexOf(s);
+    const to = Math.max(0, Math.min(pile.length - 1, key === "Home" ? 0 : key === "End" ? pile.length - 1 : at + (key === "PageUp" ? 1 : -1)));
+    if (to === at) {
+      setText(live, at === 0 && key !== "PageUp" && key !== "End" ? "Bottom of the pile." : "Top of the pile.");
+      return;
+    }
+    view.stamps[pile[to].id].btn.focus();
   }
 
-  function stampById(id) {
-    return board.stamps.filter(function (s) {
-      return s.id === id;
-    })[0];
-  }
+  const STEPS_BY_KEY = bag({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] });
+  const PILE_KEYS = bag({ PageUp: 1, PageDown: 1, Home: 1, End: 1 });
 
   function buildStamp(s) {
     const id = s.id;
     const kind = STAMPS[s.kind];
-    const stamp = { cardId: s.cardId, timer: 0, glyph: icon(kind.glyph) };
-    stamp.btn = el("button", { type: "button", class: "stamp", "aria-describedby": "stamp-help", "aria-haspopup": "menu", style: "--hue:var(--color-" + kind.hue + ")" }, [stamp.glyph]);
+    const stamp = { cardId: s.cardId, timer: 0, at: 0, art: stickerArt(s.kind) };
+    stamp.btn = el("button", { type: "button", class: stickerClass(s.kind), "aria-describedby": "stamp-help", "aria-haspopup": "menu" }, [stamp.art]);
     stamp.el = el("li", {}, [stamp.btn]);
 
     stamp.btn.addEventListener("keydown", function (ev) {
-      const step = bag({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] })[ev.key];
-      if (step && ev.altKey) return;
-      if (step && ev.shiftKey) nudgeStamp(id, step[0], step[1]);
-      else if (step) stepStamp(id, step[0] + step[1]);
+      const step = STEPS_BY_KEY[ev.key];
+      // Alt with an arrow moves the note, and a chord is the browser's.
+      if (ev.altKey || ev.ctrlKey || ev.metaKey) return;
+      if (step) nudgeStamp(id, step[0], step[1], ev.shiftKey);
+      else if (PILE_KEYS[ev.key]) walkPile(id, ev.key);
+      else if (ev.key === "f" || ev.key === "F") frontStamp(id);
       else if (ev.key === "Delete" || ev.key === "Backspace") removeStamp(id);
       else return;
       ev.preventDefault();
       ev.stopPropagation();
     });
     stamp.btn.addEventListener("focus", function () {
-      if (!view.notes[stamp.cardId]) return;
-      view.notes[stamp.cardId].stampStop = id;
-      patchStampStops(stamp.cardId);
+      const note = view.notes[stamp.cardId];
+      if (!note || note.stampStop === id) return;
+      note.stampStop = id;
+      patchStampStops(stamp.cardId, drawnPile(stamp.cardId));
     });
     stamp.btn.addEventListener("blur", function () {
       settleStamp(id);
     });
     toggles(stamp.btn, function () {
       if (stamp.dragged) return;
-      const nudge = function (label, keys, dx, dy) {
-        return {
-          label: label,
-          keys: keys,
-          stay: true,
-          run: function () {
-            nudgeStamp(id, dx, dy);
-          },
-        };
+      const remove = function () {
+        removeStamp(id);
       };
-      const remove = function (label) {
-        return {
-          label: label,
-          keys: "Delete",
-          off: !ownStamp(id) && notMine[id] ? ONLY_PRESSER : "",
-          run: function () {
-            removeStamp(id);
-          },
-        };
-      };
-      // Moving is offered only for a stamp known to be the viewer's own.
+      const label = nameOf(s.kind) + " sticker";
+      if (!ownStamp(id)) {
+        // Whose it is cannot be seen. It is not offered as movable, and
+        // removing it is the server's to refuse, once.
+        openMenu(stamp.btn, label, [{ label: notMine[id] ? "Remove sticker" : "Remove, if you placed it", keys: "Delete", off: notMine[id] ? ONLY_PRESSER : "", run: remove }], nameOf(s.kind), notMine[id] ? ONLY_PRESSER : NOT_KNOWN_MINE);
+        return;
+      }
       openMenu(
         stamp.btn,
-        kind.label + " stamp",
-        ownStamp(id)
-          ? [nudge("Move left", "Shift+Left", -1, 0), nudge("Move right", "Shift+Right", 1, 0), nudge("Move up", "Shift+Up", 0, -1), nudge("Move down", "Shift+Down", 0, 1), remove("Remove stamp")]
-          : [remove("Remove, if you pressed it")],
+        label,
+        [
+          {
+            label: "Bring to front",
+            keys: "F",
+            run: function () {
+              frontStamp(id);
+            },
+          },
+          {
+            label: "Move with the arrow keys",
+            keys: "Arrows",
+            run: function () {
+              stamp.btn.focus();
+              setText(live, "The arrow keys move this sticker. Hold Shift for bigger steps.");
+            },
+          },
+          { label: "Remove sticker", keys: "Delete", run: remove },
+        ],
+        nameOf(s.kind),
       );
     });
-    // Dragging puts the stamp anywhere on its note. It follows the pointer
-    // directly, and is sent once, when it is let go.
+    // Dragging puts the sticker anywhere on its note. It follows the pointer
+    // directly, held where it was taken hold of, and is sent once, when it
+    // is let go. One that is not the viewer's to move does not come along.
     stamp.btn.addEventListener("pointerdown", function (ev) {
-      if (ev.button) return;
+      if (ev.button || !ownStamp(id) || !stampById(id)) return;
       ev.stopPropagation();
       const start = { x: ev.clientX, y: ev.clientY };
-      let moved = false;
-      let over = false;
+      let grab = null;
       const g = follow(
         ev.pointerId,
         function (e) {
           const now = stampById(id);
-          if (!now || over) return;
-          if (!moved) {
+          if (!now) return;
+          const box = noteBox(now.cardId);
+          if (!grab) {
             if (Math.abs(e.clientX - start.x) + Math.abs(e.clientY - start.y) < 4) return;
-            over = !mayMove(id);
-            if (over) return;
-            moved = true;
+            const c = centerOf(stampAt[id] || now, box);
+            grab = [start.x - box.left - c[0], start.y - box.top - c[1]];
             g.active = true;
             closePop(false);
             hold(ev);
             stamp.btn.classList.add("lift");
+            clearTimeout(stamp.timer);
+            stamp.timer = 0;
           }
-          const box = noteBox(now.cardId);
-          stampAt[id] = { x: round3(unit((e.clientX - box.left) / box.width)), y: round3(unit((e.clientY - box.top + STAMP_RISE) / stampRun(box))) };
-          patchStamps();
+          const to = fractionAt(e.clientX - box.left - grab[0], e.clientY - box.top - grab[1], box);
+          to.n = ++moves;
+          stampAt[id] = to;
+          putAt(stamp.btn, to);
         },
         function (e) {
-          if (over) swallowClick(stamp);
-          if (!moved) return;
+          if (!grab) return;
           swallowClick(stamp);
           stamp.btn.classList.remove("lift");
           // A teammate, or the facilitator, removed it while it was held.
           if (!stampById(id) || !stampAt[id]) {
-            notify("That stamp is no longer on the board.");
+            notify("That sticker is no longer on the board.");
             return;
           }
           if (e.type !== "pointerup") delete stampAt[id];
           else {
-            if (motionOn()) animate(stamp.btn, { transform: "scale(1.2)" }, SLAP);
+            if (motionOn()) animate(stamp.art, { transform: "scale(1.2)" }, SLAP);
+            setText(live, kind.label + " sticker moved.");
             sendStamp(id, false);
           }
           patchStamps();
@@ -3351,52 +3843,78 @@ const RETRO_FONTS = [
     return stamp;
   }
 
-  // The press: the stamp comes down from above the note, overshoots as it
-  // meets the paper, the note gives under it, and the glyph settles. Each
-  // part is a spring run to rest; the note is hit when the stamp arrives.
-  function pressDown(stamp, s) {
-    animate(stamp.btn, { transform: "translate(-10px,-30px) rotate(-22deg) scale(1.9)", opacity: 0.25 }, SLAP);
-    const after = function (spring) {
-      return Object.assign({}, spring, { delay: SLAP.hit, fill: "none" });
+  // The landing: the sticker comes down onto the note from above and to one
+  // side, its shadow closing as it does, the note gives under it, and the
+  // print settles in a way of its own. Each part is a spring run to rest; the
+  // note is hit when the sticker arrives. Both sets land the same way.
+  function landOwn(stamp, s) {
+    const after = function (timing) {
+      return Object.assign({}, timing, { delay: FLY.hit, fill: "none" });
     };
+    stamp.btn.animate([{ transform: "translate(20px,-58px) rotate(-20deg) scale(1.32)" }, { transform: "none" }], FLY);
+    stamp.art.animate([{ filter: "drop-shadow(0 4px 2px rgb(var(--sh)/.2)) drop-shadow(0 22px 14px rgb(var(--sh)/.3))" }, { filter: AT_REST }], FLY);
     view.notes[s.cardId].el.animate([{ transform: "translateY(2.5px)" }, { transform: "none" }], after(NUDGE));
-    stamp.glyph.animate([{ transform: STAMPS[s.kind].press }, { transform: "none" }], after(FLICK));
-    // Ink: a ring of the stamp's own color spreads from under it as it lands.
-    stamp.btn.animate(
-      [{ boxShadow: "0 0 0 0 color-mix(in srgb,var(--hue) 50%,transparent)" }, { boxShadow: "0 0 0 10px transparent" }],
-      { duration: 320, delay: SLAP.hit, easing: "cubic-bezier(0.22,1,0.36,1)" },
-    );
+    stamp.art.animate([{ transform: SETTLE[STAMPS[s.kind].meaning] }, { transform: "none" }], after(FLICK));
   }
 
-  // A teammate's stamp comes down the same way from less high, and the note
-  // gives a little. It is smaller than the viewer's own press on purpose.
-  function setDown(stamp, s) {
-    animate(stamp.btn, { transform: "translate(-3px,-14px) scale(1.4)", opacity: 0 }, SLAP);
-    view.notes[s.cardId].el.animate([{ transform: "translateY(1px)" }, { transform: "none" }], Object.assign({}, NUDGE, { delay: SLAP.hit, fill: "none" }));
+  // A teammate's comes down the same way from less high, and the note gives
+  // a little. It is smaller than the viewer's own on purpose.
+  function landOther(stamp, s) {
+    stamp.btn.animate([{ transform: "translate(4px,-18px) scale(1.15)" }, { transform: "none" }], FLY);
+    view.notes[s.cardId].el.animate([{ transform: "translateY(1px)" }, { transform: "none" }], Object.assign({}, NUDGE, { delay: FLY.hit, fill: "none" }));
+  }
+
+  // What needs the note measured: which stickers lie over its words, and
+  // where the next one would land. Every note is measured before anything is
+  // written, so the page is laid out once however many notes there are.
+  function layoutStickers(ids) {
+    const measured = ids
+      .filter(function (cardId) {
+        return view.notes[cardId] && cardById(cardId);
+      })
+      .map(function (cardId) {
+        const note = view.notes[cardId];
+        const raw = rectOf(note.el);
+        const text = rectOf(note.text);
+        return { cardId: cardId, note: note, box: noteBox(cardId), words: { left: text.left - raw.left, top: text.top - raw.top + 6, width: text.width, height: text.height - 12 } };
+      });
+    measured.forEach(function (m) {
+      const w = m.words;
+      // A sticker is 42px across; four of those at its rim are let go.
+      const r = 17;
+      pileOf(m.cardId).forEach(function (s) {
+        const stamp = view.stamps[s.id];
+        if (!stamp) return;
+        const c = centerOf(stampAt[s.id] || s, m.box);
+        stamp.btn.classList.toggle("over", w.width > 0 && w.height > 0 && c[0] + r > w.left && c[0] - r < w.left + w.width && c[1] + r > w.top && c[1] - r < w.top + w.height);
+      });
+      const full = roomOn(m.cardId) === 0 || leftFor(m.cardId) === 0;
+      if (m.note.add.hidden !== full) m.note.add.hidden = full;
+      if (!full) putAt(m.note.add, freeSpot(m.cardId, m.box, false));
+    });
   }
 
   function patchStamps() {
     const kept = idsOf(board.stamps);
-    const byNote = bag();
+    const held = document.activeElement;
     const fresh = [];
+    const changed = [];
     let orphan = null;
     let claimed = null;
     for (const id in view.stamps) {
       if (kept[id]) continue;
-      if (view.stamps[id].btn === document.activeElement) orphan = view.stamps[id].cardId;
+      if (view.stamps[id].btn === held) orphan = view.stamps[id];
       if (pop && pop.anchor === view.stamps[id].btn) closePop(false);
       clearTimeout(view.stamps[id].timer);
       delete stampAt[id];
     }
-    board.stamps.forEach(function (s) {
-      if (view.notes[s.cardId]) (byNote[s.cardId] = byNote[s.cardId] || []).push(s);
-    });
     for (const cardId in view.notes) {
-      const list = byNote[cardId] || [];
+      const pile = drawnPile(cardId);
       const note = view.notes[cardId];
+      const card = cardById(cardId);
       sync(
         note.stamps,
-        list.map(function (s, i) {
+        pile.map(function (s, i) {
           let stamp = view.stamps[s.id];
           if (!stamp) {
             stamp = view.stamps[s.id] = buildStamp(s);
@@ -3410,102 +3928,192 @@ const RETRO_FONTS = [
               claimed = stamp;
             }
           }
-          const at = stampAt[s.id] || s;
-          if (stampAt[s.id] && !stamp.timer && at.x === s.x && at.y === s.y) delete stampAt[s.id];
-          stamp.btn.style.left = at.x * 100 + "%";
-          stamp.btn.style.top = "calc(" + at.y + " * (100% - " + STAMP_SPAN + "px) - " + STAMP_RISE + "px)";
+          stamp.at = i;
+          putAt(stamp.btn, stampAt[s.id] || s);
           stamp.btn.style.setProperty("--rot", s.rot + "deg");
           stamp.btn.classList.toggle("fixed", !ownStamp(s.id));
-          stamp.btn.setAttribute("aria-label", STAMPS[s.kind].label + " stamp, " + (i + 1) + " of " + list.length + " on this note");
+          stamp.btn.setAttribute("aria-label", nameOf(s.kind) + " sticker, " + (i + 1) + " of " + pile.length + " on this note, counting from the bottom of the pile");
           return stamp.el;
         }),
       );
-      note.stamps.hidden = list.length === 0;
-      patchStampStops(cardId);
+      note.stamps.hidden = pile.length === 0;
+      patchStampStops(cardId, pile);
+      // Measured again only when something that could move things has changed.
+      const sig = [board.stage, board.revealed, card ? card.text.length : 0, leftFor(cardId), roomOn(cardId)]
+        .concat(
+          pile.map(function (s) {
+            const at = stampAt[s.id] || s;
+            return s.id + ":" + at.x + ":" + at.y;
+          }),
+        )
+        .join("|");
+      if (note.sig !== sig) {
+        note.sig = sig;
+        changed.push(cardId);
+      }
     }
     forgetMissing(view.stamps, kept);
-    if (orphan && view.notes[orphan]) leadOf(view.notes[orphan]).focus();
-    // The stamp this viewer just pressed takes focus, so the arrow keys can
+    layoutStickers(changed);
+    // Focus on a sticker that was removed goes to the next one down the pile,
+    // then to the place a new one is added, then to the note.
+    if (orphan && view.notes[orphan.cardId]) {
+      const note = view.notes[orphan.cardId];
+      const left = drawnPile(orphan.cardId);
+      const next = left[Math.min(Math.max(0, orphan.at - 1), left.length - 1)];
+      (next ? view.stamps[next.id].btn : note.add.hidden ? leadOf(note) : note.add).focus();
+    }
+    // Putting one sticker on top moves the others in the document, and a
+    // moved node drops its focus.
+    if (held && held !== document.activeElement && held.isConnected && document.activeElement === document.body) held.focus({ preventScroll: true });
+    // The sticker this viewer just placed takes focus, so the arrow keys can
     // move it at once; unless they have already gone on to something else.
     if (claimed) {
-      const held = document.activeElement;
-      if (held === document.body || contains(view.notes[claimed.cardId].el, held)) claimed.btn.focus({ preventScroll: true });
+      const now = document.activeElement;
+      if (now === document.body || contains(view.notes[claimed.cardId].el, now)) claimed.btn.focus({ preventScroll: true });
     }
-    if (!drawn || fresh.length > 3) return;
-    // A new stamp is ringed for a moment. That is a change of state, not a
-    // movement, so it is also what somebody who asked for less motion sees.
+    // Nothing lands on the first paint, in a flood, or for someone who has
+    // asked for less motion: there the sticker is simply there, and is
+    // announced like any other.
+    if (!drawn || fresh.length > 3 || !motionOn()) return;
     fresh.forEach(function (s) {
       const stamp = view.stamps[s.id];
-      stamp.btn.classList.add("new");
-      setTimeout(function () {
-        stamp.btn.classList.remove("new");
-      }, 1600);
-      if (!motionOn()) return;
-      if (stamp === claimed) pressDown(stamp, s);
-      else setDown(stamp, s);
+      if (stamp === claimed) landOwn(stamp, s);
+      else landOther(stamp, s);
     });
   }
 
+  // The sticker book: two sheets of the same seven stickers, vinyl and
+  // pixel, with what they mean written once between them. The marked sheet
+  // is the one the keys 1 to 7 place from.
   function openStamps(cardId, opener) {
     const card = cardById(cardId);
-    const choices = Object.keys(STAMPS).map(function (kind) {
-      const choice = el("button", { type: "button", class: "stamp-choice" }, [
-        el("span", { class: "stamp-face", style: "--hue:var(--color-" + STAMPS[kind].hue + ")" }, [icon(STAMPS[kind].glyph)]),
-        el("span", { text: STAMPS[kind].label }),
-      ]);
-      choice.addEventListener("click", function () {
-        closePop(true);
-        pressStamp(cardId, kind);
+    const leaves = bag();
+    let off = false;
+    const mark = function (set) {
+      stickerSet = set;
+      for (const name in leaves) {
+        leaves[name].row.classList.toggle("active", name === set);
+        leaves[name].tag.classList.toggle("active", name === set);
+      }
+    };
+    const choose = function (kind) {
+      if (off) return;
+      mark(STAMPS[kind].set);
+      closePop(true);
+      pressStamp(cardId, kind);
+    };
+    [["vinyl", "Vinyl", ""], ["pixel", "Pixel", "p-"]].forEach(function (set) {
+      const kinds = MEANINGS.map(function (m) {
+        return set[2] + m[0];
       });
-      return choice;
+      const cells = kinds.map(function (kind, i) {
+        const cell = el("button", { type: "button", class: "choice", "aria-label": nameOf(kind), "aria-keyshortcuts": String(i + 1), tabindex: -1 }, [face(kind)]);
+        cell.addEventListener("click", function () {
+          choose(kind);
+        });
+        cell.addEventListener("focus", function () {
+          mark(set[0]);
+        });
+        return cell;
+      });
+      leaves[set[0]] = {
+        kinds: kinds,
+        cells: cells,
+        row: el("div", { class: "leaf", role: "group", "aria-label": set[1] + " stickers" }, cells),
+        tag: el("p", { class: "label set" }, [el("span", { class: "on", "aria-hidden": "true", text: "▸" }), el("span", { text: set[1] }), el("kbd", { text: set[1][0] })]),
+      };
     });
-    const grid = el("div", { class: "stamp-grid" }, choices);
-    grid.addEventListener("keydown", function (ev) {
-      const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[ev.key];
-      if (!step) return;
-      ev.preventDefault();
-      const at = choices.indexOf(document.activeElement);
-      choices[(at + step + choices.length) % choices.length].focus();
+    // Every choice already says what it means, so the middle is for the eye.
+    const spine = el(
+      "div",
+      { class: "spine", "aria-hidden": "true" },
+      MEANINGS.map(function (m, i) {
+        return el("span", {}, [el("kbd", { text: String(i + 1) }), el("span", { text: m[1] })]);
+      }),
+    );
+    const pips = [0, 1, 2].map(function () {
+      return el("i");
     });
-    const sheet = el("div", { class: "pop sheet", role: "dialog", "aria-label": "Stamps for: " + short(card.text) }, [
-      el("p", { class: "label", text: "Press a stamp" }),
-      grid,
-      el("p", { class: "fine", text: "Nobody can see who pressed a stamp. Drag yours to move it, or hold Shift and use the arrow keys." }),
+    const count = el("span");
+    const fine = el("p", { class: "fine", tabindex: -1 });
+    const sheet = el("div", { class: "pop sheet book-pop", role: "dialog", "aria-label": "Add a sticker to: " + short(card.text) }, [
+      el("div", { class: "book-head" }, [el("p", { class: "label", text: "Add a sticker" }), el("span", { class: "left3" }, pips.concat([count]))]),
+      el("div", { class: "book" }, [leaves.vinyl.tag, leaves.vinyl.row, spine, leaves.pixel.row, leaves.pixel.tag]),
+      fine,
     ]);
-    openPop(opener, sheet);
-    choices[0].focus();
+    // A teammate can fill the note while the book is open.
+    const patch = function () {
+      const left = leftFor(cardId);
+      off = left === 0 || roomOn(cardId) === 0;
+      pips.forEach(function (pip, i) {
+        pip.className = i < left ? "have" : "";
+      });
+      setText(count, left + " of " + PER_PERSON + " left on this note");
+      setText(fine, left === 0 ? "You have placed your three on this note." : off ? "This note is full: twelve stickers." : "Pick one and it lands clear of the words; then drag it anywhere. Nobody can see who placed a sticker.");
+      for (const name in leaves) {
+        leaves[name].cells.forEach(function (cell) {
+          cell.disabled = off;
+        });
+      }
+    };
+    sheet.addEventListener("keydown", function (ev) {
+      if (ev.altKey || ev.ctrlKey || ev.metaKey) return;
+      const key = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
+      const here = leaves[stickerSet];
+      const col = Math.max(0, here.cells.indexOf(document.activeElement));
+      const other = stickerSet === "vinyl" ? "pixel" : "vinyl";
+      let to = null;
+      if (key >= "1" && key <= "7" && key.length === 1) choose(here.kinds[Number(key) - 1]);
+      else if (key === "v" || key === "p") to = [key === "v" ? "vinyl" : "pixel", col];
+      else if (key === "ArrowLeft" || key === "ArrowRight") to = [stickerSet, (col + (key === "ArrowRight" ? 1 : 6)) % 7];
+      else if (key === "ArrowUp" || key === "ArrowDown" || key === "Tab") to = [other, col];
+      else return;
+      ev.preventDefault();
+      if (!to) return;
+      // A choice that cannot be used cannot be focused; its sheet is still marked.
+      mark(to[0]);
+      if (!off) leaves[to[0]].cells[to[1]].focus();
+    });
+    patch();
+    openPop(opener, sheet, patch);
+    // On a phone the book is a sheet along the bottom, over a scrim.
+    pop.under = el("div", { class: "scrim", "aria-hidden": "true" });
+    layer.insertBefore(pop.under, sheet);
+    mark(stickerSet);
+    (off ? fine : leaves[stickerSet].cells[0]).focus();
   }
 
-  // Stamps may be pressed one over another, and then the one underneath is
-  // hard to hit. This list reaches every stamp on a note without aiming.
+  // Stickers lie one over another, and then the one underneath is hard to
+  // hit. This list reaches every sticker on a note without aiming.
   function openStampList(cardId, opener) {
     const card = cardById(cardId);
-    const on = board.stamps.filter(function (s) {
-      return s.cardId === cardId;
-    });
-    const control = function (label, name, run) {
-      const btn = el("button", { type: "button", class: "btn btn-quiet btn-small", text: label, "aria-label": label + " " + name });
+    const pile = drawnPile(cardId);
+    const control = function (label, said, run) {
+      const btn = el("button", { type: "button", class: "btn btn-quiet btn-small", text: label, "aria-label": said });
       btn.addEventListener("click", function () {
         closePop(true);
         run();
       });
       return btn;
     };
-    const rows = on.map(function (s, i) {
-      const kind = STAMPS[s.kind];
-      const name = kind.label + " stamp, " + (i + 1) + " of " + on.length;
-      const parts = [el("span", { class: "stamp-face small", style: "--hue:var(--color-" + kind.hue + ")" }, [icon(kind.glyph)]), el("span", { text: kind.label })];
+    const rows = pile.map(function (s, i) {
+      const name = nameOf(s.kind) + " sticker, " + (i + 1) + " of " + pile.length;
+      const parts = [face(s.kind, " small"), el("span", { text: nameOf(s.kind) })];
       if (ownStamp(s.id)) {
         parts.push(
-          control("Move", name, function () {
+          control("Move", "Move " + name, function () {
             view.stamps[s.id].btn.focus();
             setText(live, name + ". " + stampHelp.textContent);
+          }),
+          control("To front", "Bring to front " + name, function () {
+            view.stamps[s.id].btn.focus();
+            frontStamp(s.id);
           }),
         );
       }
       if (ownStamp(s.id) || !notMine[s.id]) {
         parts.push(
-          control("Remove", name, function () {
+          control("Remove", "Remove " + name, function () {
             removeStamp(s.id);
           }),
         );
@@ -3517,9 +4125,9 @@ const RETRO_FONTS = [
         return row.children[2];
       })
       .filter(Boolean)[0];
-    const note = el("p", { class: "fine", tabindex: -1, text: viewerRole() === "facilitator" ? "As facilitator you can move or remove any stamp." : "You can move a stamp you pressed in this visit, and remove any that is yours." });
-    const sheet = el("div", { class: "pop sheet", role: "dialog", "aria-label": "Stamps on: " + short(card.text) }, [
-      el("p", { class: "label", text: "Stamps on this note" }),
+    const note = el("p", { class: "fine", tabindex: -1, text: (viewerRole() === "facilitator" ? "As facilitator you can move or remove any sticker." : "You can move a sticker you placed in this visit, and remove any that is yours.") + " They are listed from the bottom of the pile up." });
+    const sheet = el("div", { class: "pop sheet", role: "dialog", "aria-label": "Stickers on: " + short(card.text) }, [
+      el("p", { class: "label", text: "Stickers on this note" }),
       el("ul", { class: "link-list" }, rows),
       note,
     ]);
@@ -3770,7 +4378,7 @@ const RETRO_FONTS = [
     };
     // The first words of the note it was dropped on, selected: typing replaces
     // them, Enter takes them.
-    name.value = cardById(targetId).text.trim().split(/\s+/).slice(0, 3).join(" ").slice(0, TITLE_LIMIT);
+    name.value = firstWords(cardById(targetId).text);
     name.addEventListener("input", patch);
     name.addEventListener("keydown", function (ev) {
       if (ev.key === "Enter" && !ev.isComposing) submit();
@@ -3780,9 +4388,31 @@ const RETRO_FONTS = [
       closePop(true);
     });
     patch();
-    openPop(anchor, panel, patch);
+    // Either note can be deleted by a teammate while the name is being typed.
+    openPop(anchor, panel, patch, function () {
+      return ids.every(cardById);
+    });
     name.focus();
     if (name.select) name.select();
+  }
+
+  // The first three words of a note, as a name for a group: at most
+  // TITLE_LIMIT long, cut between characters as a reader sees them and never
+  // through one, and without the marks that change how text is laid out and
+  // show nothing themselves (controls, zero-width spaces, direction marks).
+  // The joiners inside an emoji or between letters are kept.
+  function firstWords(text) {
+    const clean = text.replace(/[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b\u200e\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g, " ");
+    const three = clean.trim().split(/\s+/).slice(0, 3).join(" ");
+    const parts =
+      typeof Intl !== "undefined" && Intl.Segmenter
+        ? Array.from(new Intl.Segmenter().segment(three), function (part) {
+            return part.segment;
+          })
+        : Array.from(three);
+    let name = "";
+    for (let i = 0; i < parts.length && name.length + parts[i].length <= TITLE_LIMIT; i++) name += parts[i];
+    return name.replace(/[\u200c\u200d\ud800-\udbff]+$/, "").trim();
   }
 
   groupButton.addEventListener("click", groupSelected);
@@ -4308,8 +4938,8 @@ const RETRO_FONTS = [
     patchTimer();
     // A teammate can delete the note a menu or a form was opened from. The
     // board under it is inert while it is open, so it cannot be left there.
-    if (pop && !pop.anchor.isConnected) {
-      closePop(false);
+    if (pop && (!pop.anchor.isConnected || (pop.alive && !pop.alive()))) {
+      closePop(pop.anchor.isConnected);
       notify("That was removed from the board while you had it open.");
       if (fromActions && document.activeElement === document.body) (actionForm.hidden ? actionReopen : actionText).focus({ preventScroll: true });
     }
@@ -4373,7 +5003,14 @@ const RETRO_FONTS = [
     unswallow();
     if (pop && !contains(pop.el, ev.target) && !contains(pop.anchor, ev.target)) closePop(false);
   });
+  // A page that cannot be seen is not dragged on: whatever is carried is put
+  // back, and nothing goes on scrolling behind a tab.
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden && gesture) gesture.end({ type: "pointercancel" });
+  });
+  window.addEventListener("scroll", forgetBoxes);
   window.addEventListener("resize", function () {
+    forgetBoxes();
     reserveForBar();
     placeThumb(false);
     // A phone's keyboard resizes the frame when it opens. The form somebody

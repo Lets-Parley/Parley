@@ -139,6 +139,8 @@ class FakeNode {
   // Nothing is laid out here. A test that needs a note to be somewhere says
   // where by setting `box`; everything else measures as nothing.
   getBoundingClientRect() {
+    // Counted, so a test can say how often the board measures.
+    this.ownerDocument.rectReads += 1;
     const { left = 0, top = 0, width = 0, height = 0 } = this.box || {};
     return { left, top, width, height, right: left + width, bottom: top + height };
   }
@@ -175,8 +177,11 @@ function load({ host = "old" } = {}) {
   // The frame's clock. A test moves it by hand; nothing reads the real time.
   const clock = { t: 0 };
   const acts = [];
+  const scrolls = [];
   const document = {
     activeElement: null,
+    hidden: false,
+    rectReads: 0,
     listeners: {},
     createElement: (tag) => new FakeNode(document, tag),
     createElementNS: (_, tag) => new FakeNode(document, tag),
@@ -223,7 +228,10 @@ function load({ host = "old" } = {}) {
     listeners: {},
     innerWidth: 1280,
     innerHeight: 800,
-    scrollBy() {},
+    // How far the board asked the page to scroll, each time it asked.
+    scrollBy(x, y) {
+      scrolls.push(y);
+    },
     addEventListener(type, fn) {
       (this.listeners[type] ||= []).push(fn);
     },
@@ -263,7 +271,10 @@ function load({ host = "old" } = {}) {
   const pressOn = (target) => {
     for (const fn of document.listeners.pointerdown || []) fn({ type: "pointerdown", target });
   };
-  return { root, document, push, acts, sent, runTimers, bridge, clock, press, pressOn, fireWindow, hearing };
+  const fireDocument = (type) => {
+    for (const fn of document.listeners[type] || []) fn({ type });
+  };
+  return { root, document, push, acts, sent, runTimers, bridge, clock, press, pressOn, fireWindow, fireDocument, hearing, scrolls };
 }
 
 // Lets a settled promise's callbacks run.
@@ -934,7 +945,7 @@ test("a note's handle and its menu button are there in every stage, in the same 
 });
 
 test("a handle only drags: pressed or clicked it opens no menu, and says how a move is made", () => {
-  const { root, push, sent } = load();
+  const { root, push, sent, runTimers } = load();
   push(session({ cards: three }));
   const grip = one(noteWith(root, "two"), "grip");
   assert.equal(grip.getAttribute("aria-haspopup"), null, "it does not claim to open anything");
@@ -946,6 +957,7 @@ test("a handle only drags: pressed or clicked it opens no menu, and says how a m
   grip.click();
   assert.equal(byClass(root, "pop").length, 0, "no menu");
   assert.deepEqual(sent(), [], "and nothing moved");
+  runTimers(60);
   assert.equal(liveOf(root), help.textContent, "the keys are read out");
   assert.equal(noteOrder(root, "Went well"), "one two three");
 });
@@ -1008,7 +1020,7 @@ test("a menu is walked with the arrow keys and a typed letter, and Escape hands 
   assert.equal(grip.getAttribute("aria-expanded"), "true");
   same(document.activeElement, menuItem(root, "Vote for this note"), "the first item has focus");
   menu.fire("keydown", { key: "ArrowDown" });
-  same(document.activeElement, menuItem(root, "Add a stamp"), "down");
+  same(document.activeElement, menuItem(root, "Add a sticker"), "down");
   menu.fire("keydown", { key: "End" });
   same(document.activeElement, menuItem(root, "Delete note"), "end");
   menu.fire("keydown", { key: "ArrowDown" });
@@ -1101,7 +1113,7 @@ test("a teammate's reorder is announced, and typing through it loses nothing", (
   box.type("still typing");
   push(session({ cards: [three[2], three[0], three[1]], stamps: [{ id: "s1", cardId: "c1", kind: "idea", x: 0.5, y: 0.5, rot: 3 }] }));
   assert.equal(noteOrder(root, "Went well"), "three one two");
-  assert.equal(liveOf(root), "Notes were reordered in Went well. Great idea stamp pressed on: one. 1 stamp on that note.");
+  assert.equal(liveOf(root), "Notes were reordered in Went well. Great idea sticker placed on: one. 1 sticker on that note.");
   assert.equal(box.value, "still typing");
   same(document.activeElement, box, "focus stays in the composer");
 });
@@ -1165,234 +1177,630 @@ test("the facilitator can make the vote order everyone's; a participant is not o
   assert.ok(!button(member.root, "Use this order for everyone"));
 });
 
-// ---- stamps
+// ---- stickers
 
-const stampsOf = (root, text) => byClass(noteWith(root, text), "stamp");
-const leftOf = (node) => Math.round(parseFloat(node.style.left) * 10) / 10;
+const stickersOf = (root, text) => byClass(noteWith(root, text), "st");
+const addOf = (root, text) => one(noteWith(root, text), "add-st");
+// Where a sticker is drawn: its center, as fractions, 8px inside the note's
+// sides and 4px outside its top and bottom.
+const AT = (x, y) => ["calc(8px + " + x + " * (100% - 16px))", "calc(" + y + " * (100% + 8px) - 4px)"];
+const placeOf = (node) => [node.style.left, node.style.top];
+const pileOf = (root, text) => stickersOf(root, text).map((n) => n.getAttribute("aria-label").split(" sticker,")[0]);
+const bookOf = (root) => one(root, "book-pop");
+const openBook = (root, text) => {
+  one(noteWith(root, text), "more").click();
+  menuItem(root, "Add a sticker").click();
+};
+const st = (id, kind, x, y, cardId = "c1") => ({ id, cardId, kind, x, y, rot: 0 });
 
-const TOP = "calc(0 * (100% - 10px) - 6px)";
+test("the book holds fourteen stickers, seven meanings in vinyl and in pixel, each drawn from its own art", () => {
+  const { root, push } = load({ host: "new" });
+  push(session({ cards: [card("c1", "went-well", "one")] }, PARTICIPANT));
+  openBook(root, "one");
+  const book = bookOf(root);
+  assert.equal(book.getAttribute("role"), "dialog");
+  assert.equal(book.getAttribute("aria-label"), "Add a sticker to: one");
+  const groups = all(book, (n) => n.getAttribute("role") === "group");
+  assert.deepEqual(groups.map((g) => g.getAttribute("aria-label")), ["Vinyl stickers", "Pixel stickers"]);
+  assert.deepEqual(
+    byClass(book, "choice").map((c) => c.getAttribute("aria-label")),
+    [
+      "Me too, vinyl", "Thank you, vinyl", "Great idea, vinyl", "Quick win, vinyl", "Needs a chat, vinyl", "Blocker, vinyl", "Made me laugh, vinyl",
+      "Me too, pixel", "Thank you, pixel", "Great idea, pixel", "Quick win, pixel", "Needs a chat, pixel", "Blocker, pixel", "Made me laugh, pixel",
+    ],
+  );
+  assert.equal(one(book, "spine").getAttribute("aria-hidden"), "true", "the meanings between the sheets are for the eye: every choice says its own");
+  assert.match(one(book, "spine").textContent, /1Me too2Thank you3Great idea4Quick win5Needs a chat6Blocker7Made me laugh/);
 
-test("a stamp is pressed from the note's menu, lands under focus, and is moved and removed by key", () => {
+  const paths = (name) => labeled(book, name).children[0].children[0].children.map((p) => [p.getAttribute("class"), p.getAttribute("d")]);
+  const svg = (name) => labeled(book, name).children[0].children[0];
+  // Vinyl: the outline four times, then its details.
+  const heart = paths("Thank you, vinyl");
+  assert.equal(svg("Thank you, vinyl").getAttribute("viewBox"), "3 3 34 34");
+  assert.deepEqual(heart.map((p) => p[0]), ["e", "w", "o", "c", "p"]);
+  assert.ok(heart.slice(0, 4).every((p) => p[1] === heart[0][1] && p[1].startsWith("M20 33.5C9 26")));
+  assert.equal(heart[4][1], "M11.2 15.4a3.4 3.4 0 0 1 2.9-3.6");
+  assert.deepEqual(paths("Great idea, vinyl").map((p) => p[0]), ["e", "w", "o", "c", "f", "s"]);
+
+  // Pixel "Me too": seven rows, eleven wide, so it starts one cell in and
+  // three down in the box of fourteen. Counted by hand from the art: sixty
+  // cells of color, thirteen of paper, none of ink.
+  const tag = paths("Me too, pixel");
+  assert.equal(svg("Me too, pixel").getAttribute("viewBox"), "0 0 14 14");
+  assert.equal(svg("Me too, pixel").getAttribute("shape-rendering"), "crispEdges");
+  assert.deepEqual(tag.map((p) => p[0]), ["e", "w", "o", "c", "q"], "an empty fill draws no path");
+  const cells = (d) => [...d.matchAll(/h(\d+)v1/g)].reduce((n, m) => n + Number(m[1]), 0);
+  const d = Object.fromEntries(tag);
+  assert.ok(d.c.startsWith("M2 3h9v1h-9zM1 4h7v1h-7zM9 4h3v1h-3z"), d.c.slice(0, 40));
+  assert.ok(d.q.startsWith("M8 4h1v1h-1z"), d.q.slice(0, 20));
+  assert.equal(cells(d.c), 60);
+  assert.equal(cells(d.q), 13);
+  // The ring is the art grown by one cell: its first run lies over the top row.
+  assert.ok(d.e.startsWith("M2 2h9v1h-9z"), d.e.slice(0, 20));
+  assert.equal(d.e, d.w);
+  assert.equal(d.e, d.o);
+  // Every row of the laugh is drawn inside the fourteen cells.
+  for (const name of ["Made me laugh, pixel", "Blocker, pixel", "Quick win, pixel"]) {
+    for (const [, path] of paths(name)) for (const m of path.matchAll(/M(\d+) (\d+)h(\d+)/g)) assert.ok(Number(m[1]) + Number(m[3]) <= 14 && Number(m[2]) < 14, name);
+  }
+  assert.ok(Object.fromEntries(paths("Made me laugh, pixel")).f, "the laugh has ink of its own");
+});
+
+test("a sticker is placed from the book, lands clear of the words under focus, and is moved and removed by key", () => {
   const { root, document, push, sent, runTimers } = load({ host: "new" });
   const cards = [card("c1", "went-well", "one")];
   push(session({ cards }, PARTICIPANT));
-  one(noteWith(root, "one"), "more").click();
-  menuItem(root, "Add a stamp").click();
-  assert.equal(one(root, "sheet").getAttribute("aria-label"), "Stamps for: one");
-  assert.equal(byClass(root, "stamp-choice").length, 7);
-  button(root, "Quick win").click();
+  openBook(root, "one");
+  labeled(bookOf(root), "Quick win, pixel").click();
+  assert.equal(byClass(root, "book-pop").length, 0, "the book closes");
 
   const { rot, ...where } = sent()[0].payload;
   const bare = noteWith(root, "one").className;
   assert.equal(sent()[0].action, "stamp");
   // The note cannot be measured here, so it is taken to be 240 by 44. The
-  // default spot hangs off the top-left corner: 6 in from the left, 6/240,
-  // and at the very top of the stamp's travel, which is drawn 6 above the edge.
-  assert.deepEqual(where, { cardId: "c1", kind: "quick-win", x: 0.025, y: 0 });
+  // first spot is on the bottom edge, 14 in: 6 of the 224 a center can
+  // travel across, and at the very end of its travel down.
+  assert.deepEqual(where, { cardId: "c1", kind: "p-quick-win", x: 0.027, y: 1 });
   assert.ok(Math.abs(rot) <= 9, "the tilt is a small one");
 
   push(session({ cards, stamps: [{ id: "s1", ...where, rot }] }, PARTICIPANT));
-  const stamp = stampsOf(root, "one")[0];
-  assert.equal(stamp.getAttribute("aria-label"), "Quick win stamp, 1 of 1 on this note");
-  assert.equal(stamp.style.left, "2.5%");
-  assert.equal(stamp.style.top, TOP);
-  // The room a stamp hangs into is the gap every note already has: the note
-  // is given no class and no style of its own for having one.
-  assert.equal(noteWith(root, "one").className, bare, "a first stamp changes nothing about its note");
+  const sticker = stickersOf(root, "one")[0];
+  assert.equal(sticker.getAttribute("aria-label"), "Quick win, pixel sticker, 1 of 1 on this note, counting from the bottom of the pile");
+  assert.deepEqual(placeOf(sticker), AT(0.027, 1));
+  assert.equal(sticker.className, "st k-quick-win px", "a sticker this viewer placed looks movable");
+  // The room a sticker hangs into is the gap every note already has: the
+  // note is given no class and no style of its own for having one.
+  assert.equal(noteWith(root, "one").className, bare, "a first sticker changes nothing about its note");
   assert.equal(noteWith(root, "one").style.marginTop, undefined);
-  assert.doesNotMatch(src, /\.stamped/);
-  assert.ok(!stamp.className.includes("fixed"), "a stamp this viewer pressed looks movable");
-  same(document.activeElement, stamp, "the stamp just pressed has focus, ready for the keys");
+  same(document.activeElement, sticker, "the sticker just placed has focus, ready for the keys");
 
-  stamp.fire("keydown", { key: "ArrowRight", shiftKey: true });
-  stamp.fire("keydown", { key: "ArrowRight", shiftKey: true });
-  // One step is 6 of the note's 240: 0.025 + 0.025 + 0.025.
-  assert.equal(leftOf(stamp), 7.5, "it moves at once");
+  sticker.fire("keydown", { key: "ArrowRight" });
+  sticker.fire("keydown", { key: "ArrowRight" });
+  // One step is 6px. The center is at 8 + 0.027 * 224 = 14.05; 20.05 is
+  // 12.05 / 224 = 0.054, and the next step from there is 0.081.
+  assert.deepEqual(placeOf(sticker), AT(0.081, 1), "it moves at once");
   assert.equal(sent().length, 1, "and is not sent until the keys rest");
   runTimers(500);
-  assert.deepEqual(sent()[1], { action: "move-stamp", payload: { stampId: "s1", x: 0.075, y: 0 } });
-  assert.equal(liveOf(root), "Quick win stamp moved.");
+  assert.deepEqual(sent()[1], { action: "move-stamp", payload: { stampId: "s1", x: 0.081, y: 1 } });
+  assert.equal(liveOf(root), "Quick win sticker moved.");
 
-  stamp.fire("keydown", { key: "ArrowUp", shiftKey: true });
+  // With Shift a step is 24px: 8 + 0.081 * 224 + 24 = 50.14, and 42.14 / 224 = 0.188.
+  sticker.fire("keydown", { key: "ArrowRight", shiftKey: true });
+  assert.deepEqual(placeOf(sticker), AT(0.188, 1));
+  runTimers(500);
+  assert.deepEqual(sent()[2], { action: "move-stamp", payload: { stampId: "s1", x: 0.188, y: 1 } });
+
+  sticker.fire("keydown", { key: "ArrowDown" });
   assert.equal(liveOf(root), "At the edge of the note.");
   runTimers(500);
-  assert.equal(sent().length, 2, "a move that goes nowhere is not sent");
+  assert.equal(sent().length, 3, "a move that goes nowhere is not sent");
 
-  stamp.fire("keydown", { key: "Delete" });
-  assert.deepEqual(sent()[2], { action: "remove-stamp", payload: { stampId: "s1" } });
+  sticker.fire("keydown", { key: "ArrowUp", altKey: true });
+  runTimers(500);
+  assert.equal(sent().length, 3, "Alt with an arrow is the note's key, not the sticker's");
+
+  sticker.fire("keydown", { key: "Delete" });
+  assert.deepEqual(sent()[3], { action: "remove-stamp", payload: { stampId: "s1" } });
   push(session({ cards }, PARTICIPANT));
-  assert.equal(stampsOf(root, "one").length, 0);
+  assert.equal(stickersOf(root, "one").length, 0);
   assert.equal(noteWith(root, "one").className, bare);
-  same(document.activeElement, one(noteWith(root, "one"), "more"), "focus falls back to the note");
+  same(document.activeElement, addOf(root, "one"), "with the pile empty, focus goes to where a sticker is added");
 });
 
-test("each of the twelve stamps a note holds lands on a spot of its own, along the top edge", () => {
+test("stickers land along the bottom edge, each on a spot of its own, and a tall note's first goes in its corner", () => {
+  const { root, push, sent } = load();
+  const cards = [card("c1", "went-well", "one")];
+  const pick = (name) => {
+    openBook(root, "one");
+    labeled(bookOf(root), name).click();
+    const { x, y } = sent().at(-1).payload;
+    return [x, y];
+  };
+  push(session({ cards }));
+  // 240 wide: the row runs 14, 44, 74 ... in steps of 30, 4px below the edge.
+  assert.deepEqual(pick("Blocker, vinyl"), [0.027, 1]);
+  assert.deepEqual(pick("Blocker, pixel"), [0.161, 1], "one still on its way keeps its spot");
+
+  // With the first six spots taken by teammates, the next goes between them: 29px in.
+  const row = [0.027, 0.161, 0.295, 0.429, 0.563, 0.696].map((x, i) => st("t" + i, "laugh", x, 1));
+  const full = load();
+  full.push(session({ cards, stamps: row }));
+  openBook(full.root, "one");
+  labeled(bookOf(full.root), "Thank you, vinyl").click();
+  assert.deepEqual([full.sent()[0].payload.x, full.sent()[0].payload.y], [0.094, 1]);
+
+  // A note 80 tall has room under its handle: 14 in and 10 above the bottom
+  // edge, which is 74 of the 88 a center can travel down. The next is on the
+  // bottom edge, 50 in.
+  const tall = load();
+  tall.push(session({ cards }));
+  noteWith(tall.root, "one").box = { left: 0, top: 0, width: 240, height: 80 };
+  for (const [name, x, y] of [["Me too, vinyl", 0.027, 0.841], ["Me too, pixel", 0.188, 1]]) {
+    openBook(tall.root, "one");
+    labeled(bookOf(tall.root), name).click();
+    assert.deepEqual([tall.sent().at(-1).payload.x, tall.sent().at(-1).payload.y], [x, y]);
+  }
+});
+
+test("the book counts what is left: three per person on a note, twelve on a note, and then it places nothing", () => {
   const { root, push, sent } = load();
   const cards = [card("c1", "went-well", "one")];
   const stamps = [];
   push(session({ cards }));
-  for (let i = 0; i < 12; i++) {
-    one(noteWith(root, "one"), "more").click();
-    menuItem(root, "Add a stamp").click();
-    button(root, "Blocker").click();
-    const { x, y } = sent()[i].payload;
-    stamps.push({ id: "s" + i, cardId: "c1", kind: "blocker", x, y, rot: 0 });
+  const left = () => one(bookOf(root), "left3");
+  for (let i = 0; i < 3; i++) {
+    addOf(root, "one").click();
+    assert.equal(left().textContent, 3 - i + " of 3 left on this note");
+    assert.equal(byClass(left(), "have").length, 3 - i, "one pip for each");
+    bookOf(root).fire("keydown", { key: "1" });
+    stamps.push({ id: "s" + i, ...sent()[i].payload });
     push(session({ cards, stamps }));
   }
-  // On a note 240 wide the row runs from 6 to 188, where the note's menu
-  // begins, in steps of 26: 6, 32, 58, 84, 110, 136, 162, 188. The next four
-  // go halfway between those: 19, 45, 71, 97.
-  assert.deepEqual(
-    stamps.map((s) => s.x),
-    [0.025, 0.133, 0.242, 0.35, 0.458, 0.567, 0.675, 0.783, 0.079, 0.188, 0.296, 0.404],
-  );
-  assert.ok(stamps.every((s) => s.y === 0), "none of them is put lower, where the words are");
+  assert.equal(addOf(root, "one").hidden, true, "the plus goes once the viewer has placed three");
+  openBook(root, "one");
+  assert.equal(left().textContent, "0 of 3 left on this note");
+  assert.match(bookOf(root).textContent, /You have placed your three on this note\./);
+  assert.ok(byClass(bookOf(root), "choice").every((c) => c.disabled));
+  bookOf(root).fire("keydown", { key: "1" });
+  labeled(bookOf(root), "Blocker, pixel").click();
+  assert.equal(sent().length, 3, "nothing more is sent");
+
+  // Twelve on the note, none of them this viewer's.
+  const other = load();
+  const twelve = Array.from({ length: 12 }, (_, i) => st("t" + i, i % 2 ? "p-chat" : "chat", i / 12, 1));
+  other.push(session({ cards, stamps: twelve.slice(0, 11) }));
+  assert.equal(addOf(other.root, "one").hidden, false);
+  other.push(session({ cards, stamps: twelve }));
+  assert.equal(addOf(other.root, "one").hidden, true, "and at twelve on the note");
+  openBook(other.root, "one");
+  assert.match(bookOf(other.root).textContent, /3 of 3 left on this note/);
+  assert.match(bookOf(other.root).textContent, /This note is full: twelve stickers\./);
+  bookOf(other.root).fire("keydown", { key: "5" });
+  assert.deepEqual(other.sent(), []);
 });
 
-test("a stamp pressed before the last one has landed does not take its spot", () => {
-  const { root, push, sent } = load();
-  push(session({ cards: [card("c1", "went-well", "one")] }));
-  for (const kind of ["Blocker", "Quick win"]) {
-    one(noteWith(root, "one"), "more").click();
-    menuItem(root, "Add a stamp").click();
-    button(root, kind).click();
-  }
-  assert.deepEqual(sent().map((a) => a.payload.x), [0.025, 0.133]);
+test("in the book the keys 1 to 7 place from the marked sheet, V and P and Up, Down and Tab change sheets, and the sheet is remembered", () => {
+  const { root, document, push, sent, press } = load({ host: "new" });
+  const cards = [card("c1", "went-well", "one"), card("c2", "went-well", "two")];
+  push(session({ cards }, PARTICIPANT));
+  const key = (k) => bookOf(root).fire("keydown", { key: k });
+  const marked = () => byClass(bookOf(root), "leaf").filter((l) => l.className.includes("active")).map((l) => l.getAttribute("aria-label")).join();
+  const focused = () => document.activeElement.getAttribute("aria-label");
+
+  const plus = addOf(root, "one");
+  assert.equal(plus.getAttribute("aria-label"), "Add a sticker to: one");
+  assert.equal(plus.getAttribute("aria-haspopup"), "dialog");
+  plus.click();
+  assert.equal(plus.getAttribute("aria-expanded"), "true");
+  assert.equal(marked(), "Vinyl stickers", "vinyl first");
+  assert.equal(focused(), "Me too, vinyl");
+  key("ArrowRight");
+  key("ArrowRight");
+  assert.equal(focused(), "Great idea, vinyl");
+  key("ArrowLeft");
+  assert.equal(focused(), "Thank you, vinyl");
+  key("ArrowDown");
+  assert.equal(focused(), "Thank you, pixel", "down changes sheet and keeps the column");
+  assert.equal(marked(), "Pixel stickers");
+  key("Tab");
+  assert.equal(focused(), "Thank you, vinyl", "Tab goes between the sheets, not out of the book");
+  key("P");
+  assert.equal(focused(), "Thank you, pixel");
+  key("ArrowLeft");
+  key("ArrowLeft");
+  assert.equal(focused(), "Made me laugh, pixel", "and round");
+  key("v");
+  assert.equal(focused(), "Made me laugh, vinyl");
+  assert.deepEqual(sent(), [], "going about the book places nothing");
+  key("3");
+  assert.equal(sent()[0].payload.kind, "idea", "3 on the vinyl sheet");
+  assert.equal(byClass(root, "book-pop").length, 0);
+  same(document.activeElement, plus, "focus is back on the plus until the sticker lands");
+
+  plus.click();
+  key("p");
+  key("4");
+  assert.equal(sent()[1].payload.kind, "p-quick-win", "4 on the pixel sheet");
+
+  // Another note, later in the visit: the pixel sheet is still the marked one.
+  addOf(root, "two").click();
+  assert.equal(marked(), "Pixel stickers");
+  assert.equal(focused(), "Me too, pixel");
+  key("7");
+  assert.deepEqual([sent()[2].payload.cardId, sent()[2].payload.kind], ["c2", "p-laugh"]);
+
+  addOf(root, "two").click();
+  for (const k of ["8", "0", "x", "Enter"]) key(k);
+  bookOf(root).fire("keydown", { key: "1", ctrlKey: true });
+  assert.equal(sent().length, 3, "no other key places anything");
+  press("Escape");
+  assert.equal(byClass(root, "book-pop").length, 0);
+  same(document.activeElement, addOf(root, "two"), "Escape hands focus back to the plus");
+  assert.equal(byClass(root, "scrim").length, 0, "and the scrim goes with the book");
 });
 
-test("a stamp is announced by what it is and how many there are, never by who", () => {
+test("S on a note opens the book, but not from one of its stickers and not as part of a chord", () => {
   const { root, push } = load({ host: "new" });
-  const cards = [card("c1", "went-well", "one", { authorId: "u-cy" })];
-  const s = (id, kind) => ({ id, cardId: "c1", kind, x: 0.5, y: 0.5, rot: 0 });
-  push(session({ revealed: true, cards }, PARTICIPANT));
-  push(session({ revealed: true, cards, stamps: [s("s1", "blocker")] }, PARTICIPANT));
-  assert.equal(liveOf(root), "Blocker stamp pressed on: one. 1 stamp on that note.");
-  push(session({ revealed: true, cards, stamps: [s("s1", "blocker"), s("s2", "thanks")] }, PARTICIPANT));
-  assert.equal(liveOf(root), "Thank you stamp pressed on: one. 2 stamps on that note.");
-  assert.equal(stampsOf(root, "one")[1].getAttribute("aria-label"), "Thank you stamp, 2 of 2 on this note");
-  push(session({ revealed: true, cards, stamps: [s("s2", "thanks")] }, PARTICIPANT));
-  assert.equal(liveOf(root), "Blocker stamp removed from: one. 1 stamp on that note.");
-  for (const stamp of stampsOf(root, "one")) assert.doesNotMatch(stamp.getAttribute("aria-label"), /Alice|Reyes|Park|yours|mine/i);
+  push(session({ cards: [card("c1", "went-well", "one")], stamps: [st("s1", "idea", 0.5, 0.5)] }, FACILITATOR));
+  const note = noteWith(root, "one");
+  note.fire("keydown", { key: "s", ctrlKey: true });
+  note.fire("keydown", { key: "s", metaKey: true });
+  note.fire("keydown", { key: "s", target: stickersOf(root, "one")[0] });
+  assert.equal(byClass(root, "book-pop").length, 0);
+  note.fire("keydown", { key: "S" });
+  assert.equal(byClass(root, "book-pop").length, 1);
+  assert.equal(addOf(root, "one").getAttribute("aria-expanded"), "true", "it hangs from the plus");
 });
 
-const others = { cards: [card("c1", "went-well", "one")], stamps: [{ id: "s9", cardId: "c1", kind: "chat", x: 0.5, y: 0.5, rot: 0 }] };
+test("the pile is the order of the state, bottom to top, and what this viewer moves goes on top at once", () => {
+  const { root, push, sent, fireWindow } = load({ host: "new" });
+  const cards = [card("c1", "went-well", "one")];
+  const a = st("s1", "idea", 0.5, 0.5);
+  const b = st("s2", "p-laugh", 0.5, 0.5);
+  const c = st("s3", "chat", 0.5, 0.5);
+  push(session({ cards, stamps: [a, b, c] }, FACILITATOR));
+  assert.deepEqual(pileOf(root, "one"), ["Great idea, vinyl", "Made me laugh, pixel", "Needs a chat, vinyl"]);
+  assert.match(stickersOf(root, "one")[2].getAttribute("aria-label"), /3 of 3 on this note, counting from the bottom of the pile$/);
 
-test("a stamp not known to be the viewer's does not look movable, and says why when it is tried", () => {
+  // A teammate moved the first: the server put it at the end, and so is it drawn.
+  push(session({ cards, stamps: [b, c, { ...a, x: 0.6 }] }, FACILITATOR));
+  assert.deepEqual(pileOf(root, "one"), ["Made me laugh, pixel", "Needs a chat, vinyl", "Great idea, vinyl"]);
+  assert.equal(liveOf(root), "Great idea sticker moved.");
+
+  // Dragged a little and let go, the bottom one is on top before the server has said anything.
+  const bottom = stickersOf(root, "one")[0];
+  bottom.fire("pointerdown", { clientX: 120, clientY: 22 });
+  fireWindow("pointermove", { clientX: 130, clientY: 22 });
+  fireWindow("pointerup", { clientX: 130, clientY: 22 });
+  assert.deepEqual(pileOf(root, "one"), ["Needs a chat, vinyl", "Great idea, vinyl", "Made me laugh, pixel"]);
+  assert.equal(sent().length, 1);
+  assert.equal(sent()[0].action, "moderate-stamp");
+});
+
+test("a sticker is dragged anywhere on its note, held where it was taken hold of, and stops at the limits", () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ cards: [card("c1", "went-well", "one")], stamps: [st("s9", "chat", 0.5, 0.5)] }, FACILITATOR));
+  // The note is 240 by 44 at 100, 200. A center travels 224 across, from 8
+  // inside the left edge, and 52 down, from 4 above the top edge: at a half
+  // and a half it is at 120, 22 on the note, 220, 222 on the page.
+  noteWith(ui.root, "one").box = { left: 100, top: 200, width: 240, height: 44 };
+  const sticker = stickersOf(ui.root, "one")[0];
+  const drag = (from, to) => {
+    sticker.fire("pointerdown", { clientX: from[0], clientY: from[1] });
+    ui.fireWindow("pointermove", { clientX: to[0], clientY: to[1] });
+    assert.ok(sticker.className.includes("lift"));
+    const sentBefore = ui.sent().length;
+    ui.fireWindow("pointerup", { clientX: to[0], clientY: to[1] });
+    assert.equal(ui.sent().length, sentBefore + 1, "sent once, when it is let go");
+    assert.ok(!sticker.className.includes("lift"));
+    const { x, y } = ui.sent().at(-1).payload;
+    ui.push(session({ cards: [card("c1", "went-well", "one")], stamps: [st("s9", "chat", x, y)] }, FACILITATOR));
+    ui.runTimers(0);
+    return [x, y];
+  };
+  // To 164, 235 on the page: 56 of 224 across and 39 of 52 down.
+  assert.deepEqual(drag([220, 222], [164, 235]), [0.25, 0.75]);
+  assert.deepEqual(placeOf(sticker), AT(0.25, 0.75));
+  // Taken hold of 5 right and 3 below its center, and carried by that point:
+  // the center goes to 220, 222 again, not to the pointer.
+  assert.deepEqual(drag([169, 238], [225, 225]), [0.5, 0.5]);
+  // Far past the top-left corner, and far past the bottom-right one.
+  assert.deepEqual(drag([220, 222], [-400, -400]), [0, 0]);
+  assert.deepEqual(placeOf(sticker), AT(0, 0));
+  assert.deepEqual(drag([108, 196], [2000, 2000]), [1, 1]);
+  assert.deepEqual(placeOf(sticker), AT(1, 1));
+  assert.equal(liveOf(ui.root), "Needs a chat sticker moved.");
+
+  // A press that barely moves is a click, and a cancelled drag puts it back.
+  sticker.fire("pointerdown", { clientX: 332, clientY: 248 });
+  ui.fireWindow("pointermove", { clientX: 333, clientY: 249 });
+  ui.fireWindow("pointerup", { clientX: 333, clientY: 249 });
+  sticker.fire("pointerdown", { clientX: 332, clientY: 248 });
+  ui.fireWindow("pointermove", { clientX: 200, clientY: 220 });
+  ui.press("Escape");
+  assert.deepEqual(placeOf(sticker), AT(1, 1));
+  assert.equal(ui.sent().length, 4, "neither sent anything");
+});
+
+test("a sticker removed while it is dragged, or while its keys are still resting, is let go without a word to the server", () => {
+  const cards = [card("c1", "went-well", "one")];
+  const state = { cards, stamps: [st("s1", "blocker", 0.5, 0.5)] };
+  const ui = load({ host: "new" });
+  ui.push(session(state, FACILITATOR));
+  const sticker = stickersOf(ui.root, "one")[0];
+  sticker.fire("pointerdown", { clientX: 120, clientY: 22 });
+  ui.fireWindow("pointermove", { clientX: 150, clientY: 22 });
+  ui.push(session({ cards }, FACILITATOR));
+  ui.fireWindow("pointermove", { clientX: 160, clientY: 22 });
+  ui.fireWindow("pointerup", { clientX: 160, clientY: 22 });
+  assert.deepEqual(ui.sent(), [], "no move");
+  assert.equal(toastOf(ui.root).textContent, "That sticker is no longer on the board.");
+
+  const keyed = load({ host: "new" });
+  keyed.push(session(state, FACILITATOR));
+  stickersOf(keyed.root, "one")[0].fire("keydown", { key: "ArrowRight" });
+  keyed.push(session({ cards }, FACILITATOR));
+  keyed.runTimers(500);
+  assert.deepEqual(keyed.sent(), []);
+});
+
+test("stickers lying over a note's words are marked, and step back while the words are pointed at", () => {
+  const { root, push } = load({ host: "new" });
+  const cards = [card("c1", "went-well", "one")];
+  push(session({ cards }, PARTICIPANT));
+  const note = noteWith(root, "one");
+  const words = one(note, "note-text");
+  // The note is 240 by 60. Its words are drawn from 40 to 190 across and,
+  // inside the paragraph's 6px of padding, from 11 to 31 down.
+  note.box = { left: 0, top: 0, width: 240, height: 60 };
+  words.box = { left: 40, top: 5, width: 150, height: 32 };
+  // Centers: 120, 23 (on the words); 8, 23 (17 across reaches 25, short of
+  // the words); 120, 64 (17 up reaches 47, below them); 204, 23 (reaches
+  // back to 187, three inside the words' right edge).
+  push(session({ cards, stamps: [st("s1", "idea", 0.5, 0.4), st("s2", "p-idea", 0, 0.4), st("s3", "thanks", 0.5, 1), st("s4", "p-thanks", 0.875, 0.4)] }, PARTICIPANT));
+  assert.deepEqual(stickersOf(root, "one").map((n) => n.className.includes("over")), [true, false, false, true]);
+
+  assert.ok(!note.className.includes("peek"));
+  words.fire("pointerenter", { pointerType: "mouse" });
+  assert.ok(note.className.includes("peek"), "pointing at the words thins the stickers over them");
+  words.fire("pointerleave", { pointerType: "mouse" });
+  assert.ok(!note.className.includes("peek"));
+  words.fire("pointerenter", { pointerType: "touch" });
+  assert.ok(!note.className.includes("peek"), "a finger passing over is not pointing");
+  words.fire("pointerup", { pointerType: "touch" });
+  assert.ok(note.className.includes("peek"), "a tap on the words does it on touch");
+  words.fire("pointerup", { pointerType: "touch" });
+  assert.ok(!note.className.includes("peek"), "and a second tap puts them back");
+  words.fire("pointerup", { pointerType: "mouse" });
+  assert.ok(!note.className.includes("peek"), "a mouse click is not a tap");
+  assert.equal(words.textContent, "one", "the words themselves are never taken away");
+  // The rule that thins them, and the one for a control in the note holding focus.
+  assert.match(src, /\.note\.peek \.st\.over,\.note:has\(\.lead :focus-visible,\.trail :focus-visible\) \.st\.over\{opacity:\.2/);
+});
+
+test("a sticker is announced by what it is and how many there are, never by who or by which set", () => {
+  const { root, push } = load({ host: "new" });
+  const cards = [card("c1", "went-well", "Flaky", { authorId: "u-cy" })];
+  const say = (stamps) => {
+    push(session({ revealed: true, cards, stamps }, PARTICIPANT));
+    return liveOf(root);
+  };
+  say([]);
+  assert.equal(say([st("s1", "blocker", 0.5, 0.5)]), "Blocker sticker placed on: Flaky. 1 sticker on that note.");
+  assert.equal(say([st("s1", "blocker", 0.5, 0.5), st("s2", "p-thanks", 0.5, 0.5)]), "Thank you sticker placed on: Flaky. 2 stickers on that note.");
+  assert.equal(say([st("s2", "p-thanks", 0.5, 0.5), st("s1", "blocker", 0.7, 0.5)]), "Blocker sticker moved.");
+  assert.equal(say([st("s1", "blocker", 0.7, 0.5), st("s2", "p-thanks", 0.5, 0.5)]), "Thank you sticker brought to the front.");
+  assert.equal(say([st("s2", "p-thanks", 0.5, 0.5)]), "Blocker sticker removed from: Flaky. 1 sticker on that note.");
+  assert.equal(say([st("s3", "idea", 0.1, 0.1), st("s4", "p-idea", 0.2, 0.2)]), "Stickers changed on the board.");
+  assert.equal(say([st("s3", "idea", 0.1, 0.1), st("s4", "p-idea", 0.2, 0.2)]), "", "nothing changed, nothing said");
+  for (const sticker of stickersOf(root, "Flaky")) assert.doesNotMatch(sticker.getAttribute("aria-label"), /Alice|Reyes|Park|yours|mine/i);
+  assert.doesNotMatch(src, /\b[Ss]tamps? (pressed|moved|removed)|a stamp\b|Stamps on|Add a stamp/, "the board says sticker everywhere");
+});
+
+const others = { cards: [card("c1", "went-well", "one")], stamps: [st("s9", "chat", 0.5, 0.5)] };
+
+test("a sticker not known to be the viewer's does not look movable, does not come along, and says why", () => {
   const { root, push, sent, runTimers, fireWindow } = load({ host: "new" });
   push(session(others, PARTICIPANT));
-  const stamp = stampsOf(root, "one")[0];
-  assert.ok(stamp.className.split(" ").includes("fixed"), "no grab cursor");
+  const sticker = stickersOf(root, "one")[0];
+  assert.ok(sticker.className.split(" ").includes("fixed"), "no grab cursor, no lift on hover");
 
-  stamp.fire("keydown", { key: "ArrowLeft", shiftKey: true });
-  runTimers(500);
-  assert.equal(leftOf(stamp), 50);
-  assert.equal(toastOf(root).textContent, "You can move a stamp you pressed in this visit. Open an older one of yours to remove it.");
+  sticker.fire("pointerdown", { clientX: 120, clientY: 22 });
+  fireWindow("pointermove", { clientX: 180, clientY: 30 });
+  assert.ok(!sticker.className.includes("lift"), "a drag does not carry it");
+  fireWindow("pointerup", { clientX: 180, clientY: 30 });
+  assert.deepEqual(placeOf(sticker), AT(0.5, 0.5));
+  assert.equal(toastOf(root).hidden, true, "and it does not complain about a press");
 
-  stamp.fire("pointerdown", { clientX: 100, clientY: 100 });
-  fireWindow("pointermove", { clientX: 140, clientY: 100 });
-  fireWindow("pointerup", { clientX: 140, clientY: 100 });
-  assert.equal(leftOf(stamp), 50, "a drag does not carry it");
-  assert.deepEqual(sent(), [], "and nothing is asked of the server");
+  for (const key of ["ArrowLeft", "f"]) {
+    sticker.fire("keydown", { key });
+    runTimers(500);
+    assert.deepEqual(placeOf(sticker), AT(0.5, 0.5));
+    assert.equal(toastOf(root).textContent, "You can move a sticker you placed in this visit. Open an older one of yours to remove it.");
+  }
+  assert.deepEqual(sent(), [], "nothing is asked of the server");
 
-  // The click that ends a drag is swallowed; the next one is a click.
-  runTimers(0);
-  stamp.click();
-  assert.deepEqual(all(root, (n) => n.getAttribute("role") === "menuitem").map((n) => n.children[0].textContent), ["Remove, if you pressed it"]);
+  sticker.click();
+  const menu = one(root, "menu");
+  assert.equal(menu.getAttribute("aria-label"), "Needs a chat, vinyl sticker");
+  assert.deepEqual(all(root, (n) => n.getAttribute("role") === "menuitem").map((n) => n.children[0].textContent), ["Remove, if you placed it"]);
+  assert.match(menu.textContent, /You can move a sticker you placed in this visit\./);
 });
 
-test("removing a stamp is the server's to refuse, once: the answer is remembered", async () => {
+test("removing a sticker is the server's to refuse, once: the answer is remembered", async () => {
   const { root, push, acts } = load({ host: "new" });
   push(session(others, PARTICIPANT));
-  const stamp = stampsOf(root, "one")[0];
-  stamp.click();
-  menuItem(root, "Remove, if you pressed it").click();
+  const sticker = stickersOf(root, "one")[0];
+  sticker.click();
+  menuItem(root, "Remove, if you placed it").click();
   assert.deepEqual(acts.map((a) => a.action), ["remove-stamp"], "after a reload the board does not know whose it is; the server does");
   acts[0].answer({ ok: false, reason: "forbidden" });
   await settled();
-  assert.equal(toastOf(root).textContent, "Only the person who pressed a stamp, or the facilitator, can move or remove it.");
+  assert.equal(toastOf(root).textContent, "Only the person who placed a sticker, or the facilitator, can move or remove it.");
 
-  stamp.fire("keydown", { key: "Delete" });
-  stamp.click();
-  assert.equal(menuItem(root, "Remove, if you pressed it").getAttribute("aria-disabled"), "true");
-  menuItem(root, "Remove, if you pressed it").click();
+  sticker.fire("keydown", { key: "Delete" });
+  sticker.click();
+  assert.equal(menuItem(root, "Remove sticker").getAttribute("aria-disabled"), "true");
+  assert.match(one(root, "menu").textContent, /Only the person who placed a sticker, or the facilitator, can move or remove it\./);
+  menuItem(root, "Remove sticker").click();
   assert.equal(acts.length, 1, "it is not asked again");
 });
 
-test("the facilitator moves and removes any stamp, through the action kept for the facilitator", () => {
+test("the facilitator moves and removes any sticker, through the action kept for the facilitator", () => {
   const { root, push, sent, runTimers } = load({ host: "new" });
   push(session(others, FACILITATOR));
-  const stamp = stampsOf(root, "one")[0];
-  assert.ok(!stamp.className.includes("fixed"));
-  stamp.fire("keydown", { key: "ArrowDown", shiftKey: true });
+  const sticker = stickersOf(root, "one")[0];
+  assert.ok(!sticker.className.includes("fixed"));
+  sticker.fire("keydown", { key: "ArrowDown" });
   runTimers(500);
-  // One step is 6 of the 34 a stamp can travel down a note 44 high: 0.5 + 6/34 = 0.676.
-  assert.deepEqual(sent()[0], { action: "moderate-stamp", payload: { stampId: "s9", x: 0.5, y: 0.676 } });
-  stamp.click();
-  menuItem(root, "Remove stamp").click();
+  // One step is 6 of the 52 a center travels down a note 44 high: the center
+  // is at 22, and 28 + 4 over 52 is 0.615.
+  assert.deepEqual(sent()[0], { action: "moderate-stamp", payload: { stampId: "s9", x: 0.5, y: 0.615 } });
+  sticker.click();
+  assert.deepEqual(all(root, (n) => n.getAttribute("role") === "menuitem").map((n) => n.textContent), ["Bring to frontF", "Move with the arrow keysArrows", "Remove stickerDelete"]);
+  menuItem(root, "Remove sticker").click();
   assert.deepEqual(sent()[1], { action: "moderate-stamp", payload: { stampId: "s9", remove: true } });
 });
 
-test("a note's stamps are one Tab stop, and the arrow keys go between them", () => {
-  const { root, document, push, sent } = load({ host: "new" });
-  const stamps = ["idea", "laugh", "chat"].map((kind, i) => ({ id: "s" + i, cardId: "c1", kind, x: 0.1 * i, y: 0, rot: 0 }));
-  push(session({ cards: [card("c1", "went-well", "one")], stamps }, PARTICIPANT));
-  const [first, second, third] = stampsOf(root, "one");
-  const stops = () => stampsOf(root, "one").map((n) => n.getAttribute("tabindex")).join(" ");
-  assert.equal(stops(), "0 -1 -1");
-  first.focus();
-  first.fire("keydown", { key: "ArrowRight" });
-  same(document.activeElement, second, "right goes to the next stamp");
-  second.fire("focus");
-  assert.equal(stops(), "-1 0 -1", "and Tab comes back to the one that was left");
-  second.fire("keydown", { key: "ArrowLeft" });
-  first.fire("keydown", { key: "ArrowLeft" });
-  same(document.activeElement, third, "and round");
-  assert.deepEqual(sent(), [], "going between stamps moves none of them");
+test("a sticker is brought to the front by F or from its menu: a move to where it is, on top at once, and back if it is refused", async () => {
+  const cards = [card("c1", "went-well", "one")];
+  const pile = [st("s1", "idea", 0.2, 0.5), st("s2", "p-laugh", 0.25, 0.5), st("s3", "chat", 0.3, 0.5)];
+  const ui = load({ host: "new" });
+  ui.push(session({ cards, stamps: pile }, FACILITATOR));
+  const [bottom, middle] = stickersOf(ui.root, "one");
+  bottom.focus();
+  bottom.fire("keydown", { key: "f" });
+  assert.deepEqual(ui.sent(), [{ action: "moderate-stamp", payload: { stampId: "s1", x: 0.2, y: 0.5 } }]);
+  assert.deepEqual(pileOf(ui.root, "one"), ["Made me laugh, pixel", "Needs a chat, vinyl", "Great idea, vinyl"], "on top before the server answers");
+  assert.equal(liveOf(ui.root), "Great idea sticker brought to the front.");
+  same(ui.document.activeElement, bottom, "and focus stays on it");
+  assert.deepEqual(placeOf(bottom), AT(0.2, 0.5), "it has not moved");
+
+  bottom.fire("keydown", { key: "F" });
+  assert.equal(ui.sent().length, 1, "already there: nothing more is sent");
+  assert.equal(liveOf(ui.root), "Already at the front.");
+
+  ui.push(session({ cards, stamps: [pile[1], pile[2], pile[0]] }, FACILITATOR));
+  assert.deepEqual(pileOf(ui.root, "one"), ["Made me laugh, pixel", "Needs a chat, vinyl", "Great idea, vinyl"]);
+  ui.runTimers(WAIT);
+  assert.equal(toastOf(ui.root).hidden, true, "the state showed it: nothing is in doubt");
+
+  middle.click();
+  menuItem(ui.root, "Bring to front").click();
+  assert.deepEqual(ui.sent()[1], { action: "moderate-stamp", payload: { stampId: "s2", x: 0.25, y: 0.5 } });
+  assert.deepEqual(pileOf(ui.root, "one"), ["Needs a chat, vinyl", "Great idea, vinyl", "Made me laugh, pixel"]);
+  ui.acts[1].answer({ ok: false, reason: "failed" });
+  await settled();
+  assert.deepEqual(pileOf(ui.root, "one"), ["Made me laugh, pixel", "Needs a chat, vinyl", "Great idea, vinyl"], "refused: the pile is the server's again");
+
+  // A participant asks as themselves.
+  const member = load({ host: "new" });
+  member.push(session({ cards }, PARTICIPANT));
+  addOf(member.root, "one").click();
+  bookOf(member.root).fire("keydown", { key: "2" });
+  const mine = { id: "s7", ...member.sent()[0].payload };
+  member.push(session({ cards, stamps: [mine, st("s8", "p-chat", 0.5, 0.5)] }, PARTICIPANT));
+  stickersOf(member.root, "one")[0].fire("keydown", { key: "f" });
+  assert.deepEqual(member.sent()[1], { action: "move-stamp", payload: { stampId: "s7", x: mine.x, y: mine.y } });
 });
 
-test("every stamp on a note can be reached from the note's menu, without aiming at it", () => {
+test("a note's stickers are one Tab stop, the one on top, and Page Up and Page Down walk the pile without moving anything", () => {
   const { root, document, push, sent } = load({ host: "new" });
-  const stamps = [
-    { id: "s1", cardId: "c1", kind: "idea", x: 0.5, y: 0.5, rot: 0 },
-    { id: "s2", cardId: "c1", kind: "laugh", x: 0.5, y: 0.5, rot: 0 },
-  ];
-  push(session({ cards: [card("c1", "went-well", "one")], stamps }, FACILITATOR));
-  one(noteWith(root, "one"), "more").click();
-  menuItem(root, "Stamps on this note (2)").click();
-  labeled(root, "Move Made me laugh stamp, 2 of 2").click();
-  same(document.activeElement, stampsOf(root, "one")[1], "Move puts focus on that stamp, for the keys");
-  assert.match(liveOf(root), /Shift with an arrow key moves this one\. Delete removes it\./);
+  const stamps = ["idea", "p-laugh", "chat"].map((kind, i) => st("s" + i, kind, 0.5, 0.5));
+  push(session({ cards: [card("c1", "went-well", "one")], stamps }, PARTICIPANT));
+  const [bottom, middle, top] = stickersOf(root, "one");
+  const stops = () => stickersOf(root, "one").map((n) => n.getAttribute("tabindex")).join(" ");
+  assert.equal(stops(), "-1 -1 0", "Tab lands on the one that can be seen");
+  top.focus();
+  top.fire("keydown", { key: "PageDown" });
+  same(document.activeElement, middle, "down the pile, to the one underneath");
+  middle.fire("focus");
+  assert.equal(stops(), "-1 0 -1", "and Tab comes back to the one that was left");
+  middle.fire("keydown", { key: "PageDown" });
+  same(document.activeElement, bottom);
+  bottom.fire("keydown", { key: "PageDown" });
+  same(document.activeElement, bottom, "no further than the bottom");
+  assert.equal(liveOf(root), "Bottom of the pile.");
+  bottom.fire("keydown", { key: "End" });
+  same(document.activeElement, top);
+  top.fire("keydown", { key: "PageUp" });
+  assert.equal(liveOf(root), "Top of the pile.");
+  top.fire("keydown", { key: "Home" });
+  same(document.activeElement, bottom);
+  bottom.fire("keydown", { key: "PageUp" });
+  same(document.activeElement, middle);
+  assert.deepEqual(sent(), [], "walking the pile moves none of them");
+  assert.match(all(root, (n) => n.getAttribute("id") === "stamp-help")[0].textContent, /The arrow keys move this sticker, with Shift for bigger steps\. Page Up and Page Down go up and down the pile\. F brings it to the front\. Delete removes it\./);
+  assert.equal(top.getAttribute("aria-describedby"), "stamp-help");
+});
 
-  one(noteWith(root, "one"), "more").click();
-  menuItem(root, "Stamps on this note (2)").click();
-  labeled(root, "Remove Great idea stamp, 1 of 2").click();
-  assert.deepEqual(sent(), [{ action: "moderate-stamp", payload: { stampId: "s1", remove: true } }]);
+test("focus on a sticker that is removed goes to the next one down the pile", () => {
+  const { root, document, push } = load({ host: "new" });
+  const cards = [card("c1", "went-well", "one")];
+  const stamps = ["idea", "p-laugh", "chat"].map((kind, i) => st("s" + i, kind, 0.5, 0.5));
+  push(session({ cards, stamps }, FACILITATOR));
+  const [bottom, middle] = stickersOf(root, "one");
+  middle.focus();
+  push(session({ cards, stamps: [stamps[0], stamps[2]] }, FACILITATOR));
+  same(document.activeElement, bottom, "the one that was under it");
+  push(session({ cards, stamps: [stamps[2]] }, FACILITATOR));
+  same(document.activeElement, stickersOf(root, "one")[0], "from the bottom, the one now there");
+});
+
+test("every sticker on a note can be reached from the note's menu, without aiming at it", () => {
+  const { root, document, push, sent } = load({ host: "new" });
+  const stamps = [st("s1", "p-idea", 0.5, 0.5), st("s2", "laugh", 0.5, 0.5)];
+  push(session({ cards: [card("c1", "went-well", "one")], stamps }, FACILITATOR));
+  const list = () => {
+    one(noteWith(root, "one"), "more").click();
+    menuItem(root, "Stickers on this note (2)").click();
+    return one(root, "sheet");
+  };
+  assert.equal(list().getAttribute("aria-label"), "Stickers on: one");
+  assert.match(one(root, "sheet").textContent, /Stickers on this note/);
+  assert.match(one(root, "sheet").textContent, /listed from the bottom of the pile up/);
+  labeled(root, "Move Made me laugh, vinyl sticker, 2 of 2").click();
+  same(document.activeElement, stickersOf(root, "one")[1], "Move puts focus on that sticker, for the keys");
+  assert.match(liveOf(root), /^Made me laugh, vinyl sticker, 2 of 2\. The arrow keys move this sticker/);
+
+  list();
+  labeled(root, "Bring to front Great idea, pixel sticker, 1 of 2").click();
+  assert.deepEqual(sent(), [{ action: "moderate-stamp", payload: { stampId: "s1", x: 0.5, y: 0.5 } }]);
+  assert.deepEqual(pileOf(root, "one"), ["Made me laugh, vinyl", "Great idea, pixel"], "the one underneath is on top");
+
+  list();
+  labeled(root, "Remove Made me laugh, vinyl sticker, 1 of 2").click();
+  assert.deepEqual(sent()[1], { action: "moderate-stamp", payload: { stampId: "s2", remove: true } });
 
   const member = load({ host: "new" });
   member.push(session({ cards: [card("c1", "went-well", "one")], stamps }, PARTICIPANT));
   one(noteWith(member.root, "one"), "more").click();
-  menuItem(member.root, "Stamps on this note (2)").click();
-  assert.ok(!labeled(member.root, "Move Made me laugh stamp"), "Move is not offered for a stamp that may be somebody else's");
-  assert.ok(labeled(member.root, "Remove Made me laugh stamp, 2 of 2"));
-  assert.match(one(member.root, "sheet").textContent, /You can move a stamp you pressed in this visit, and remove any that is yours\./);
+  menuItem(member.root, "Stickers on this note (2)").click();
+  assert.ok(!labeled(member.root, "Move Made me laugh"), "Move is not offered for a sticker that may be somebody else's");
+  assert.ok(!labeled(member.root, "Bring to front"), "nor is the front");
+  assert.ok(labeled(member.root, "Remove Made me laugh, vinyl sticker, 2 of 2"));
+  assert.match(one(member.root, "sheet").textContent, /You can move a sticker you placed in this visit, and remove any that is yours\./);
 });
 
-test("a stamp nobody can place is not drawn, and one off the note is brought back onto it", () => {
+test("a sticker nobody can place is not drawn, and one off the note is brought back onto it", () => {
   const { root, push } = load();
   push(
     session({
       cards: [card("c1", "went-well", "one")],
       stamps: [
         { id: "s1", cardId: "c1", kind: "<img>", x: 0.5, y: 0.5 },
-        { id: "s2", cardId: "c1", kind: "idea", x: 7, y: -3, rot: "x" },
+        { id: "s2", cardId: "c1", kind: "p-idea", x: 7, y: -3, rot: "x" },
         { id: "s3", cardId: "c404", kind: "idea", x: 0.5, y: 0.5 },
+        { id: "s4", cardId: "c1", kind: "p-", x: 0.5, y: 0.5 },
+        { id: "s5", cardId: "c1", kind: "v-idea", x: 0.5, y: 0.5 },
+        { id: "s6", cardId: "c1", kind: "constructor", x: 0.5, y: 0.5 },
         null,
       ],
     }),
   );
-  const drawn = byClass(root, "stamp");
+  const drawn = byClass(root, "st");
   assert.equal(drawn.length, 1);
-  assert.deepEqual([drawn[0].style.left, drawn[0].style.top], ["100%", TOP]);
+  assert.deepEqual(placeOf(drawn[0]), AT(1, 0));
 });
 
 // ---- hiding authors again
@@ -1705,51 +2113,6 @@ test("a note in a lane sorted by votes can be lifted, but a drop inside that lan
   assert.equal(noteOrder(ui.root, "Went well"), "two three one");
 });
 
-// A stamp this viewer pressed, on a note 240 by 44 at the page's corner.
-function pressed(ui) {
-  const cards = [card("c1", "went-well", "one")];
-  ui.push(session({ cards }, PARTICIPANT));
-  one(noteWith(ui.root, "one"), "more").click();
-  menuItem(ui.root, "Add a stamp").click();
-  button(ui.root, "Blocker").click();
-  const stamps = [{ id: "s1", ...ui.sent()[0].payload }];
-  ui.push(session({ cards, stamps }, PARTICIPANT));
-  return { cards, stamps, stamp: stampsOf(ui.root, "one")[0] };
-}
-
-test("a stamp is dragged to a point on its note and sent once, when it is let go", () => {
-  const ui = load({ host: "new" });
-  const { stamp } = pressed(ui);
-  stamp.fire("pointerdown", { clientX: 6, clientY: 0 });
-  ui.fireWindow("pointermove", { clientX: 60, clientY: 5 });
-  ui.fireWindow("pointermove", { clientX: 120, clientY: 11 });
-  assert.ok(stamp.className.includes("lift"));
-  assert.equal(ui.sent().length, 1, "only the press so far");
-  ui.fireWindow("pointerup", { clientX: 120, clientY: 11 });
-  // 120 of 240 across; 11 down is 17 of the 34 it can travel, counted from 6 above the edge.
-  assert.deepEqual(ui.sent()[1], { action: "move-stamp", payload: { stampId: "s1", x: 0.5, y: 0.5 } });
-  assert.ok(!stamp.className.includes("lift"));
-});
-
-test("a stamp removed while it is dragged, or while its keys are still resting, is let go without a word to the server", () => {
-  const ui = load({ host: "new" });
-  const { cards, stamp } = pressed(ui);
-  stamp.fire("pointerdown", { clientX: 6, clientY: 0 });
-  ui.fireWindow("pointermove", { clientX: 120, clientY: 11 });
-  ui.push(session({ cards }, PARTICIPANT));
-  ui.fireWindow("pointermove", { clientX: 130, clientY: 11 });
-  ui.fireWindow("pointerup", { clientX: 130, clientY: 11 });
-  assert.equal(ui.sent().length, 1, "the press, and no move");
-  assert.equal(toastOf(ui.root).textContent, "That stamp is no longer on the board.");
-
-  const keyed = load({ host: "new" });
-  const again = pressed(keyed);
-  again.stamp.fire("keydown", { key: "ArrowRight", shiftKey: true });
-  keyed.push(session({ cards: again.cards }, PARTICIPANT));
-  keyed.runTimers(500);
-  assert.equal(keyed.sent().length, 1);
-});
-
 // ---- popovers
 
 test("the board under a popover is inert, and is given back on every way out", () => {
@@ -1822,7 +2185,7 @@ test("ids and kinds that are names the language already uses are drawn, or left 
   ui.push(session(state, PARTICIPANT));
   assert.equal(byClass(ui.root, "note").length, 4);
   assert.equal(noteOrder(ui.root, "Odd lane"), "note toString");
-  assert.equal(byClass(ui.root, "stamp").length, 1, "a kind that is not a stamp is not drawn as one");
+  assert.equal(byClass(ui.root, "st").length, 1, "a kind that is not a sticker is not drawn as one");
   assert.doesNotMatch(ui.root.textContent, /undefined/);
   assert.equal(byClass(one(ui.root, "action"), "src").length, 3, "four sources: two chips and the rest");
 
@@ -1846,7 +2209,7 @@ test("deleting a note is asked about, with focus on the way out, and sent as the
   const sheet = one(ui.root, "sheet");
   assert.equal(sheet.getAttribute("role"), "alertdialog");
   assert.equal(sheet.getAttribute("aria-label"), "Delete this note?");
-  assert.match(sheet.textContent, /Its votes, stamps and links to actions go with it\. This cannot be undone\./);
+  assert.match(sheet.textContent, /Its votes, stickers and links to actions go with it\. This cannot be undone\./);
   same(ui.document.activeElement, button(sheet, "Keep it"), "Enter keeps the note");
   assert.deepEqual(ui.sent(), [], "opening the question deletes nothing");
   button(sheet, "Keep it").click();
@@ -1957,13 +2320,13 @@ test("a cap the board answers with is explained as that cap, not as a room that 
   const ui = load({ host: "new" });
   ui.push(session({ cards: three }, PARTICIPANT));
   one(noteWith(ui.root, "one"), "more").click();
-  menuItem(ui.root, "Add a stamp").click();
-  button(ui.root, "Blocker").click();
+  menuItem(ui.root, "Add a sticker").click();
+  labeled(ui.root, "Blocker, vinyl").click();
   ui.acts[0].answer({ ok: false, reason: "conflict" });
   await settled();
   assert.equal(
     toastOf(ui.root).textContent,
-    "That stamp was not pressed. A note holds twelve stamps, three per person. If that is not it, this organization's storage for the plugin is full: delete notes or actions, or ask an admin.",
+    "That sticker was not placed. A note holds twelve stickers, three per person. If that is not it, this organization's storage for the plugin is full: delete notes or actions, or ask an admin.",
   );
 
   const input = composer(ui.root, "Went well");
@@ -2019,25 +2382,26 @@ test("the hint opens and closes from its own control, and Back is named in full 
 const others9 = { cards: three, stamps: [{ id: "s9", cardId: "c1", kind: "chat", x: 0.5, y: 0.5, rot: 0 }], actionItems: [{ id: "a1", text: "fix it", owner: "", sourceIds: [] }] };
 const unborne = [
   {
-    name: "a stamp move",
+    name: "a sticker move",
     who: FACILITATOR,
     make: (ui) => {
-      stampsOf(ui.root, "one")[0].fire("keydown", { key: "ArrowRight", shiftKey: true });
+      stickersOf(ui.root, "one")[0].fire("keydown", { key: "ArrowRight" });
       ui.runTimers(500);
     },
     action: "moderate-stamp",
-    drawnAhead: (ui) => leftOf(stampsOf(ui.root, "one")[0]) === 52.5,
-    back: (ui) => leftOf(stampsOf(ui.root, "one")[0]) === 50,
-    said: /Could not confirm that the stamp moved\./,
+    // One step from the middle of a note 240 wide: 126 - 8 over 224 is 0.527.
+    drawnAhead: (ui) => stickersOf(ui.root, "one")[0].style.left === AT(0.527, 0.5)[0],
+    back: (ui) => stickersOf(ui.root, "one")[0].style.left === AT(0.5, 0.5)[0],
+    said: /Could not confirm that the sticker moved\./,
   },
   {
-    name: "a stamp removal",
+    name: "a sticker removal",
     who: PARTICIPANT,
-    make: (ui) => stampsOf(ui.root, "one")[0].fire("keydown", { key: "Delete" }),
+    make: (ui) => stickersOf(ui.root, "one")[0].fire("keydown", { key: "Delete" }),
     action: "remove-stamp",
-    drawnAhead: (ui) => stampsOf(ui.root, "one").length === 1,
-    back: (ui) => stampsOf(ui.root, "one").length === 1 && stampsOf(ui.root, "one")[0].className.split(" ").includes("fixed"),
-    said: /Could not confirm that the stamp was removed\./,
+    drawnAhead: (ui) => stickersOf(ui.root, "one").length === 1,
+    back: (ui) => stickersOf(ui.root, "one").length === 1 && stickersOf(ui.root, "one")[0].className.split(" ").includes("fixed"),
+    said: /Could not confirm that the sticker was removed\./,
   },
   {
     name: "a note move",
@@ -2119,15 +2483,14 @@ test("a yes from the host is believed only when the state shows the change", asy
   }
 });
 
-test("a stamp is the viewer's once the server said yes and the state shows it, in either order, and not before", async () => {
+test("a sticker is the viewer's once the server said yes and the state shows it, in either order, and not before", async () => {
   const moved = { ...others9, stamps: [{ ...others9.stamps[0], x: 0.6 }] };
-  const mine = (ui) => !stampsOf(ui.root, "one")[0].className.split(" ").includes("fixed");
-  // Removing is the one change a participant can ask for on a stamp not known
-  // to be theirs, so the stamp is first made theirs by a press of their own.
+  const mine = (ui) => !stickersOf(ui.root, "one")[0].className.split(" ").includes("fixed");
+  // Removing is the one change a participant can ask for on a sticker not
+  // known to be theirs, so one is first made theirs by placing it.
   const press = (ui) => {
-    one(noteWith(ui.root, "one"), "more").click();
-    menuItem(ui.root, "Add a stamp").click();
-    button(ui.root, "Blocker").click();
+    openBook(ui.root, "one");
+    labeled(ui.root, "Blocker, vinyl").click();
     return { id: "s1", ...ui.sent()[0].payload };
   };
 
@@ -2137,15 +2500,15 @@ test("a stamp is the viewer's once the server said yes and the state shows it, i
   ui.acts[0].answer({ ok: true });
   await settled();
   ui.runTimers(WAIT);
-  assert.equal(stampsOf(ui.root, "one").length, 0, "a yes with no stamp in the state draws no stamp");
+  assert.equal(stickersOf(ui.root, "one").length, 0, "a yes with no sticker in the state draws no sticker");
   ui.push(session({ cards: three, stamps: [s] }, PARTICIPANT));
-  assert.ok(mine(ui), "the press that the state then shows is the viewer's");
+  assert.ok(mine(ui), "the one that the state then shows is the viewer's");
 
-  // The facilitator's every stamp is movable; a participant's yes for a move
-  // the state contradicts must not make somebody else's stamp theirs.
+  // The facilitator's every sticker is movable; a participant's yes for a
+  // move the state contradicts must not make somebody else's sticker theirs.
   const other = load({ host: "new" });
   other.push(session(others9, PARTICIPANT));
-  stampsOf(other.root, "one")[0].fire("keydown", { key: "Delete" });
+  stickersOf(other.root, "one")[0].fire("keydown", { key: "Delete" });
   other.acts[0].answer({ ok: true });
   await settled();
   other.runTimers(WAIT);
@@ -2575,11 +2938,14 @@ test("the click that ends a drag is not a press, and the next press anywhere is 
   const grip = one(noteWith(ui.root, "one"), "grip");
   carryTo(ui, "one", 10, 105);
   drop(ui, 10, 105);
+  const said = liveOf(ui.root);
+  assert.notEqual(said, "");
   grip.click();
-  assert.notEqual(liveOf(ui.root).slice(0, 4), "Drag", "the release is not read as a press of the handle");
+  assert.equal(liveOf(ui.root), said, "the release is not read as a press of the handle: nothing new is said");
   // No timer has run: the next press on the page clears it on its own.
   ui.pressOn(lane(ui.root, "Puzzles"));
   grip.click();
+  ui.runTimers(60);
   assert.match(liveOf(ui.root), /^Drag to move this/);
 });
 
@@ -2595,4 +2961,327 @@ test("a press while a drag is still open, its release never heard, ends that dra
   assert.deepEqual(ui.sent(), [], "it is a cancel, not a drop");
   assert.ok(noteWith(ui.root, "six"), "and the state that waited is shown");
   assert.equal(noteOrder(ui.root, "Went well"), "one two three");
+});
+
+// ---- review round: pointers, emptied groups, scrolling, measuring, names
+
+test("a second finger set down on a sticker, or on another handle, does not end the drag the first is making", () => {
+  const state = { cards: three, stamps: [st("s1", "idea", 0.5, 0.5)] };
+  const ui = load({ host: "new" });
+  ui.push(session(state, FACILITATOR));
+  carry(ui, "three", 110);
+  assert.equal(byClass(ui.root, "drag").length, 1);
+  const sticker = stickersOf(ui.root, "one")[0];
+  sticker.fire("pointerdown", { pointerId: 2, clientX: 120, clientY: 122 });
+  assert.equal(byClass(ui.root, "drag").length, 1, "the note is still carried");
+  ui.fireWindow("pointermove", { pointerId: 2, clientX: 180, clientY: 130 });
+  ui.fireWindow("pointerup", { pointerId: 2, clientX: 180, clientY: 130 });
+  assert.ok(!sticker.className.includes("lift"), "and the second finger carries nothing of its own");
+  assert.deepEqual(ui.sent(), []);
+  one(noteWith(ui.root, "two"), "grip").fire("pointerdown", { pointerId: 3, clientX: 10, clientY: 165 });
+  ui.fireWindow("pointermove", { pointerId: 3, clientX: 10, clientY: 400 });
+  assert.equal(byClass(ui.root, "drag").length, 1, "nor does a third on another handle");
+  ui.fireWindow("pointerup", { pointerId: 1, clientX: 10, clientY: 110 });
+  assert.deepEqual(ui.sent(), [{ action: "move-card", payload: { cardId: "c3", groupId: null, beforeId: "c1" } }], "the first finger's drop is the one that counts");
+
+  // A press that has not yet become a drag is not cancelled either.
+  const early = load({ host: "new" });
+  early.push(session(state, FACILITATOR));
+  place(early.root, ["one", "two", "three"]);
+  one(noteWith(early.root, "three"), "grip").fire("pointerdown", { pointerId: 1, clientX: 10, clientY: 215 });
+  stickersOf(early.root, "one")[0].fire("pointerdown", { pointerId: 2, clientX: 120, clientY: 122 });
+  early.fireWindow("pointermove", { pointerId: 1, clientX: 10, clientY: 180 });
+  assert.equal(byClass(early.root, "drag").length, 1, "the first finger goes on to lift its note");
+});
+
+const solo = { cards: [card("c1", "went-well", "one", { groupId: "g1" }), three[1], three[2]], groups: [{ id: "g1", columnId: "went-well", title: "Solo" }] };
+
+test("taking the last note out of a group takes the group away at once, as the server does, and a refusal brings it back whole", async () => {
+  const ui = load({ host: "new" });
+  ui.push(session(solo, PARTICIPANT));
+  assert.equal(byClass(ui.root, "group").length, 1);
+  byMenu(ui, "one", "Take out of group");
+  assert.deepEqual(ui.sent(), [{ action: "move-card", payload: { cardId: "c1", groupId: null } }]);
+  assert.equal(byClass(ui.root, "group").length, 0, "the emptied group is gone before the server answers");
+  assert.equal(noteOrder(ui.root, "Went well"), "two three one", "with no place named, the note goes to the end");
+  // The server's own state: the note loose at the end, and no group.
+  ui.acts[0].answer({ ok: true });
+  await settled();
+  ui.push(session({ cards: [three[1], three[2], three[0]] }, PARTICIPANT));
+  ui.runTimers(WAIT);
+  assert.equal(toastOf(ui.root).hidden, true, "the state agrees with what was drawn, so nothing is in doubt");
+  assert.equal(byClass(ui.root, "group").length, 0);
+
+  const refused = load({ host: "new" });
+  refused.push(session(solo, PARTICIPANT));
+  byMenu(refused, "one", "Take out of group");
+  assert.equal(byClass(refused.root, "group").length, 0);
+  refused.acts[0].answer({ ok: false, reason: "conflict" });
+  await settled();
+  const group = one(refused.root, "group");
+  assert.ok(group, "the group is back");
+  assert.match(one(group, "group-title").textContent, /Solo/);
+  assert.deepEqual(byClass(group, "note").map((n) => one(n, "note-text").textContent), ["one"], "with its note inside it");
+  assert.equal(noteOrder(refused.root, "Went well"), "one two three");
+
+  // Carried out of its group into another lane: the same, by a drop.
+  const dragged = board5({ cards: [...solo.cards, five[3], five[4]], groups: solo.groups });
+  carryTo(dragged, "one", 400, 400);
+  drop(dragged, 400, 400);
+  assert.deepEqual(dragged.sent(), [{ action: "move-card", payload: { cardId: "c1", columnId: "to-improve" } }]);
+  assert.equal(byClass(dragged.root, "group").length, 0);
+  dragged.acts[0].answer({ ok: false, reason: "failed" });
+  await settled();
+  assert.equal(byClass(one(dragged.root, "group"), "note").length, 1, "and back in it when refused");
+});
+
+// The window is 800 tall, and a drag scrolls within 56 of its top or bottom.
+function nearEdge(y = 790) {
+  const ui = load({ host: "new" });
+  ui.push(session({ cards: three }, PARTICIPANT));
+  carry(ui, "three", y);
+  return ui;
+}
+const frame = (ui, ms = 16) => {
+  ui.clock.t += ms;
+  ui.runTimers(16);
+};
+
+test("a note held near the edge of what is in sight scrolls the page, faster the nearer it is, and not at all away from it", () => {
+  const down = nearEdge(790);
+  assert.deepEqual(down.scrolls, [], "nothing until a frame has passed");
+  frame(down);
+  // 46 of the 56 past the line: 120 + 46/56 * 780 = 760.7 pixels a second, 12 in 16ms.
+  assert.deepEqual(down.scrolls, [12]);
+  frame(down);
+  frame(down);
+  assert.deepEqual(down.scrolls, [12, 12, 12], "it goes on while the pointer stays, without the pointer moving");
+
+  const up = nearEdge(10);
+  frame(up);
+  assert.deepEqual(up.scrolls, [-12], "up, near the top");
+
+  const out = nearEdge(1200);
+  frame(out);
+  // Past the edge it is as fast as it gets: 900 a second, 14 in 16ms.
+  assert.deepEqual(out.scrolls, [14]);
+
+  const just = nearEdge(745);
+  frame(just);
+  // One pixel past the line: 120 + 1/56 * 780 = 133.9 a second, 2 in 16ms.
+  assert.deepEqual(just.scrolls, [2]);
+
+  const middle = nearEdge(400);
+  frame(middle);
+  frame(middle);
+  assert.deepEqual(middle.scrolls, []);
+
+  // Carried back to the middle, it stops; carried out again, it starts.
+  down.fireWindow("pointermove", { clientX: 10, clientY: 400 });
+  frame(down);
+  frame(down);
+  assert.deepEqual(down.scrolls, [12, 12, 12], "the frame already on its way finds nothing to do");
+  down.fireWindow("pointermove", { clientX: 10, clientY: 790 });
+  frame(down);
+  assert.deepEqual(down.scrolls, [12, 12, 12, 12]);
+});
+
+test("every way a drag ends stops the scrolling with it", () => {
+  const ends = {
+    "the pointer let go": (ui) => ui.fireWindow("pointerup", { clientX: 10, clientY: 790 }),
+    Escape: (ui) => ui.press("Escape"),
+    "the window losing focus": (ui) => ui.fireWindow("blur"),
+    "the capture being taken away": (ui) => main(ui.root).fire("lostpointercapture"),
+    "the pointer being cancelled": (ui) => ui.fireWindow("pointercancel"),
+    "the page being hidden": (ui) => {
+      ui.document.hidden = true;
+      ui.fireDocument("visibilitychange");
+    },
+    "the carried note leaving the page": (ui) => {
+      const node = noteWith(ui.root, "three");
+      node.parentNode.removeChild(node);
+    },
+  };
+  for (const [name, end] of Object.entries(ends)) {
+    const ui = nearEdge(790);
+    frame(ui);
+    assert.deepEqual(ui.scrolls, [12], name);
+    end(ui);
+    for (let i = 0; i < 5; i++) frame(ui);
+    assert.deepEqual(ui.scrolls, [12], name + ": not one more step");
+    assert.equal(byClass(ui.root, "drag").length, 0, name + ": and nothing is carried any more");
+    assert.equal(ui.hearing("pointermove"), 0, name);
+  }
+  // A page that is merely told it is visible again is not interrupted.
+  const seen = nearEdge(790);
+  seen.document.hidden = false;
+  seen.fireDocument("visibilitychange");
+  frame(seen);
+  assert.deepEqual(seen.scrolls, [12]);
+  assert.equal(byClass(seen.root, "drag").length, 1);
+});
+
+test("a pointer held still at the edge does not scroll for ever: it stops after ten seconds, or once the page has gone as far as the board is tall", () => {
+  const timed = nearEdge(790);
+  frame(timed);
+  assert.deepEqual(timed.scrolls, [12]);
+  // Ten seconds on with the pointer not moved: the frame on its way runs, and no other follows.
+  frame(timed, 10001);
+  assert.equal(timed.scrolls.length, 2);
+  for (let i = 0; i < 20; i++) frame(timed);
+  assert.equal(timed.scrolls.length, 2, "it has stopped");
+  assert.equal(byClass(timed.root, "drag").length, 1, "the note is still held");
+  timed.fireWindow("pointermove", { clientX: 10, clientY: 791 });
+  frame(timed);
+  assert.equal(timed.scrolls.length, 3, "and a move of the pointer starts it again");
+
+  // A board 1000 tall in a window 800 tall: 1800 at most, in steps of 12.
+  // After 150 steps it has gone exactly 1800, which is not yet past it, so
+  // there is one more: 151 steps, 1812.
+  const far = nearEdge(790);
+  main(far.root).box = { left: 0, top: 0, width: 1280, height: 1000 };
+  for (let i = 0; i < 400; i++) frame(far);
+  assert.equal(far.scrolls.length, 151);
+  assert.equal(far.scrolls.reduce((a, b) => a + b, 0), 1812);
+});
+
+test("while a note is carried each box is measured once, until the slot, the window or the scroll moves things", () => {
+  const ui = board5();
+  carryTo(ui, "three", 10, 108);
+  assert.equal(noteOrder(ui.root, "Went well"), "three one two", "in front of one");
+  // Still over the top quarter of "one", which runs from 100 to 111.
+  ui.fireWindow("pointermove", { clientX: 12, clientY: 107 });
+  const before = ui.document.rectReads;
+  for (let i = 0; i < 20; i++) ui.fireWindow("pointermove", { clientX: 10 + i, clientY: 101 + (i % 9) });
+  assert.equal(ui.document.rectReads - before, 0, "twenty moves, and nothing measured again");
+  assert.equal(noteOrder(ui.root, "Went well"), "three one two");
+
+  // The window is resized and "one" is now far down the lane. Measured
+  // afresh, a pointer at 140 is above its middle, so the slot stays in front
+  // of it. Had the old box (100 to 144) been kept, 140 would be past its
+  // middle and the slot would have gone after it.
+  noteWith(ui.root, "one").box = { left: 0, top: 400, width: 240, height: 44 };
+  ui.fireWindow("resize");
+  ui.fireWindow("pointermove", { clientX: 10, clientY: 140 });
+  assert.ok(ui.document.rectReads > before, "measured again");
+  assert.equal(noteOrder(ui.root, "Went well"), "three one two");
+
+  // The same for a scroll of the frame itself.
+  noteWith(ui.root, "one").box = { left: 0, top: 100, width: 240, height: 44 };
+  ui.fireWindow("scroll");
+  ui.fireWindow("pointermove", { clientX: 10, clientY: 140 });
+  assert.equal(noteOrder(ui.root, "Went well"), "one three two", "back where it was, 140 is past its middle");
+  // And the slot having moved is itself a reason: two, at 150, is now measured where it stands.
+  ui.fireWindow("pointermove", { clientX: 10, clientY: 190 });
+  assert.equal(noteOrder(ui.root, "Went well"), "one two three");
+  drop(ui, 10, 190);
+  assert.deepEqual(ui.sent(), [], "back where it started");
+});
+
+test("on a touch screen the checkbox, the handle, the menu button and the action button are 44 by 44, and what is drawn smaller is pressed over 44", () => {
+  const coarse = src.split("\n").find((line) => line.includes("@media (pointer:coarse){.btn"));
+  assert.match(coarse, /\.pick,\.grip,\.more\{width:44px;height:44px\}/);
+  assert.match(coarse, /\.stage-3 \.target\{min-width:44px;height:44px\}/);
+  assert.doesNotMatch(src, /width:36px;height:44px/);
+  const reach = src.split("\n").find((line) => line.includes(".st::after"));
+  assert.match(reach, /\.vote,\.target\{position:relative;justify-content:center;min-width:44px\}/);
+  assert.match(reach, /\.board:not\(\.stage-2\) \.vote::after,\.board:not\(\.stage-3\) \.target::after\{content:"";position:absolute;inset:-6px 0\}/);
+  assert.match(reach, /\.st::after\{content:"";position:absolute;inset:-1px\}/);
+  assert.match(reach, /\.add-st::after\{content:"";position:absolute;inset:-7px\}/);
+});
+
+// Drop the third note on the second, whose text is `text`, and read the name the sheet offers.
+function nameSheet(text) {
+  const ui = load({ host: "new" });
+  ui.push(session({ cards: [card("c1", "went-well", "first"), card("c2", "went-well", text), card("c3", "went-well", "third")] }, PARTICIPANT));
+  lane(ui.root, "Went well").box = { left: 0, top: 0, width: 300, height: 600 };
+  const notes = byClass(ui.root, "note");
+  notes.forEach((n, i) => (n.box = { left: 0, top: 100 + 50 * i, width: 240, height: 44 }));
+  one(notes[2], "grip").fire("pointerdown", { clientX: 10, clientY: 215 });
+  ui.fireWindow("pointermove", { clientX: 10, clientY: 225 });
+  ui.fireWindow("pointermove", { clientX: 10, clientY: 172 });
+  ui.runTimers(300);
+  drop(ui, 10, 172);
+  return { ui, name: all(one(ui.root, "sheet"), (n) => n.tagName === "INPUT")[0] };
+}
+const loneSurrogate = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+
+test("the name offered for a group is the note's first three words: whole characters, at most eighty long, and nothing invisible", () => {
+  assert.equal(nameSheet("standup ran long again today").name.value, "standup ran long");
+  assert.equal(nameSheet("  two\n\twords  ").name.value, "two words");
+
+  // One word of 200 letters is cut at 80.
+  assert.equal(nameSheet("a".repeat(200)).name.value, "a".repeat(80));
+  // Letters that take two code units each: forty fit, and with one plain
+  // letter in front thirty-nine do, 79 in all, since the fortieth would be cut in half.
+  const wide = "\u{1d4b3}";
+  assert.equal(nameSheet(wide.repeat(200)).name.value, wide.repeat(40));
+  const odd = nameSheet("a" + wide.repeat(100)).name.value;
+  assert.equal(odd, "a" + wide.repeat(39));
+  assert.equal(odd.length, 79);
+  assert.doesNotMatch(odd, loneSurrogate);
+
+  // A family is one character to its reader and eleven code units: seven fit in eighty.
+  const family = "\u{1f469}‍\u{1f469}‍\u{1f467}‍\u{1f466}";
+  assert.equal(family.length, 11);
+  const families = nameSheet(family.repeat(100)).name.value;
+  assert.equal(families, family.repeat(7));
+  assert.doesNotMatch(families, loneSurrogate);
+  assert.equal(nameSheet("\u{1f389}\u{1f389} party \u{1f389} time now").name.value, "\u{1f389}\u{1f389} party \u{1f389}");
+
+  // Right-to-left text keeps its letters and loses the marks that override direction.
+  assert.equal(nameSheet("‮שלום ‏עולם​ טוב מאוד").name.value, "שלום עולם טוב");
+  assert.equal(nameSheet("⁦evil⁩‭name‬ here and more").name.value, "evil name here");
+  // Controls and other marks that draw nothing are not carried into a name.
+  assert.equal(nameSheet("line\u0000one﻿two\u0007 three­ four").name.value, "line one two");
+});
+
+test("the name sheet closes, gives the board back and says why when either of its two notes is deleted", () => {
+  const cards = (ids) => [card("c1", "went-well", "first"), card("c2", "went-well", "second"), card("c3", "went-well", "third")].filter((c) => ids.includes(c.id));
+  for (const [name, left, focus] of [["the note that was dropped", ["c1", "c2"], "second"], ["the note it was dropped on", ["c1", "c3"], null]]) {
+    const { ui, name: field } = nameSheet("second");
+    assert.equal(inert(ui.root), "true true", "the board waits under the sheet");
+    field.type("Pair");
+    ui.push(session({ cards: cards(left) }, PARTICIPANT));
+    assert.equal(byClass(ui.root, "sheet").length, 0, name + ": the sheet is closed");
+    assert.equal(inert(ui.root), "false false", name + ": and the board is usable again");
+    assert.equal(toastOf(ui.root).textContent, "That was removed from the board while you had it open.", name);
+    assert.deepEqual(ui.sent(), [], "nothing was grouped");
+    if (focus) same(ui.document.activeElement, one(noteWith(ui.root, focus), "more"), "focus goes to the note that is left");
+  }
+  // A teammate's change that touches neither note leaves the sheet, and what was typed, alone.
+  const { ui, name: field } = nameSheet("second");
+  field.type("Pair");
+  ui.push(session({ cards: [...cards(["c1", "c2", "c3"]), card("c4", "puzzles", "new")] }, PARTICIPANT));
+  assert.equal(byClass(ui.root, "sheet").length, 1);
+  assert.equal(field.value, "Pair");
+});
+
+test("a handle says how a move is made every time it is pressed, and once for a burst of presses", () => {
+  const { root, push, runTimers } = load();
+  push(session({ cards: three }));
+  const grip = one(noteWith(root, "two"), "grip");
+  const help = all(root, (n) => n.getAttribute("id") === "grip-help")[0].textContent;
+  grip.click();
+  assert.equal(liveOf(root), "", "the region is emptied first, so the same words are a change");
+  runTimers(60);
+  assert.equal(liveOf(root), help);
+  grip.click();
+  assert.equal(liveOf(root), "", "the second press is not silent: it empties the region again");
+  runTimers(60);
+  assert.equal(liveOf(root), help);
+  // Five quick presses are one announcement.
+  let spoken = 0;
+  for (let i = 0; i < 5; i++) grip.click();
+  for (let i = 0; i < 5; i++) {
+    const was = liveOf(root);
+    runTimers(60);
+    if (liveOf(root) !== was) spoken += 1;
+  }
+  assert.equal(spoken, 1);
+  // Something said in the meantime is not written over.
+  grip.click();
+  push(session({ cards: [...three, card("c4", "puzzles", "new")] }));
+  runTimers(60);
+  assert.equal(liveOf(root), "New note in Puzzles.");
 });
