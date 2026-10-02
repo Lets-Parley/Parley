@@ -177,11 +177,12 @@ const RETRO_FONTS = [
     ".main{flex:1;display:grid;grid-template-columns:minmax(0,1fr);gap:20px}",
     ".lanes{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}",
     "@media (min-width:860px){.lanes{grid-template-columns:repeat(3,minmax(0,1fr))}}",
-    "@media (min-width:1200px){.main{grid-template-columns:minmax(0,1fr) 300px}.actions{position:sticky;top:20px;align-self:start;max-height:calc(100vh - 40px);overflow-y:auto}.action-form{flex-direction:column;align-items:stretch}.stack,.stack.narrow{flex:none}}",
     ".lane{display:flex;flex-direction:column;gap:12px;min-width:0;padding:16px}",
-    ".lane-head{display:flex;align-items:center;gap:10px}",
+    ".lane-head{display:flex;align-items:flex-start;gap:10px}",
+    ".lane-title{flex:1;min-width:0}",
+    ".prompt{font-size:13px;line-height:18px;color:var(--color-ink-soft);text-wrap:pretty}",
     ".lane-glyph{flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:8px;color:var(--hue);background:color-mix(in srgb,var(--hue) 14%,transparent)}",
-    ".count{display:inline-block;margin-left:auto;font:12px var(--mono);font-variant-numeric:tabular-nums;color:var(--color-ink-faint)}",
+    ".count{display:inline-block;margin-left:auto;font:12px/24px var(--mono);font-variant-numeric:tabular-nums;color:var(--color-ink-faint)}",
     ".composer-row{display:flex;align-items:flex-end;gap:8px}",
     ".reopen{display:flex;align-items:center;gap:8px;width:100%;height:40px;padding:0 12px;border:1px dashed var(--color-line-strong);border-radius:8px;background:transparent;color:var(--color-ink-soft);font-weight:700;transition:background-color .15s}",
     ".reopen:hover{background:var(--color-felt-deep)}",
@@ -226,6 +227,8 @@ const RETRO_FONTS = [
     ".action-form{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;margin-top:16px;padding-top:16px;border-top:1px solid var(--color-line)}",
     ".stack{display:flex;flex-direction:column;gap:4px;flex:1 1 12rem;min-width:0}",
     ".stack.narrow{flex:0 1 11rem}",
+    // Wide enough for the poker room's split: the lanes, and the actions beside them.
+    "@media (min-width:1200px){.main{grid-template-columns:minmax(0,1fr) 300px}.actions{position:sticky;top:20px;align-self:start;max-height:calc(100vh - 40px);overflow-y:auto}.action-form{flex-flow:column nowrap;align-items:stretch}.stack,.stack.narrow{flex:none}.action-form .btn{align-self:flex-start}}",
 
     ".dock{position:fixed;z-index:2;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;gap:8px;padding:0 12px 12px;pointer-events:none}",
     ".toast,.select-bar{pointer-events:auto}",
@@ -839,7 +842,7 @@ const RETRO_FONTS = [
       count: el("span", { class: "count", "aria-hidden": "true" }),
       countWords: el("span", { class: "sr-only" }),
       label: el("label", { class: "sr-only", for: inputId }),
-      input: el("textarea", { id: inputId, class: "field", rows: 1, maxlength: NOTE_LIMIT, placeholder: meta.prompt, dir: "auto" }),
+      input: el("textarea", { id: inputId, class: "field", rows: 1, maxlength: NOTE_LIMIT, placeholder: "Add a note", dir: "auto" }),
       add: el("button", { type: "button", class: "btn btn-primary", text: "Add" }),
       reopen: el("button", { type: "button", class: "reopen" }, [icon(GLYPH.plus), el("span", { text: "Add a note" })]),
       left: el("p", { class: "left" }),
@@ -850,7 +853,7 @@ const RETRO_FONTS = [
     lane.el = el("section", { class: "lane panel", "aria-labelledby": headingId, style: "--hue:var(--color-" + meta.hue + ")" }, [
       el("div", { class: "lane-head" }, [
         el("span", { class: "lane-glyph" }, [icon(meta.glyph)]),
-        lane.title,
+        el("div", { class: "lane-title" }, [lane.title, el("p", { class: "prompt", text: meta.prompt })]),
         lane.count,
         lane.countWords,
       ]),
