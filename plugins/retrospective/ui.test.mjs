@@ -3186,7 +3186,7 @@ test("on a touch screen the checkbox, the handle, the menu button and the action
   assert.doesNotMatch(src, /width:36px;height:44px/);
   const reach = src.split("\n").find((line) => line.includes(".st::after"));
   assert.match(reach, /\.vote,\.target\{position:relative;justify-content:center;min-width:44px\}/);
-  assert.match(reach, /\.board:not\(\.stage-2\) \.vote::after,\.board:not\(\.stage-3\) \.target::after\{content:"";position:absolute;inset:-6px 0\}/);
+  assert.match(reach, /\.board:not\(\.stage-2\) \.vote::after,\.board:not\(\.stage-3\) \.target::after\{content:"";position:absolute;inset:-7px -1px\}/);
   assert.match(reach, /\.st::after\{content:"";position:absolute;inset:-1px\}/);
   assert.match(reach, /\.add-st::after\{content:"";position:absolute;inset:-7px\}/);
 });

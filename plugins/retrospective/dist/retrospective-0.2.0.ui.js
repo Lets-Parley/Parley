@@ -621,7 +621,7 @@ const RETRO_FONTS = [
 
     "@media (pointer:coarse){.btn,.menu-item,.stage-2 .vote{min-height:44px}.pick,.grip,.more{width:44px;height:44px}.stage-3 .target{min-width:44px;height:44px}.board:not(.stage-2) .vote,.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.trail{min-height:44px}.note-text{padding:12px 0}" +
       // What is drawn smaller than a fingertip is still pressed over 44px.
-      '.vote,.target{position:relative;justify-content:center;min-width:44px}.board:not(.stage-2) .vote::after,.board:not(.stage-3) .target::after{content:"";position:absolute;inset:-6px 0}.st::after{content:"";position:absolute;inset:-1px}.add-st::after{content:"";position:absolute;inset:-7px}}',
+      '.vote,.target{position:relative;justify-content:center;min-width:44px}.board:not(.stage-2) .vote::after,.board:not(.stage-3) .target::after{content:"";position:absolute;inset:-7px -1px}.st::after{content:"";position:absolute;inset:-1px}.add-st::after{content:"";position:absolute;inset:-7px}}',
 
     // A phone. The header is two short rows and a hint: the steps shrink to
     // their numbers around the current one, the hint is one line that opens,
