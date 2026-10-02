@@ -677,6 +677,25 @@ test("Send again is one more send, and the first landing settles the note", () =
   assert.equal(sent().length, 2, "nothing further is sent");
 });
 
+test("Send again on a note that reached the board after all sends nothing", async () => {
+  const { root, push, bridge, sent } = load({ host: "new" });
+  push(session({}));
+  bridge.fail = "reject";
+  composer(root, "Went well").type("once");
+  composer(root, "Went well").fire("keydown", ENTER);
+  await settled();
+  assert.match(byClass(root, "ghost")[0].textContent, /Not saved/);
+  assert.equal(sent().length, 1);
+
+  // The send got through even though its answer did not.
+  bridge.fail = null;
+  push(session({ cards: [card("c1", "went-well", "once")] }));
+  assert.equal(byClass(root, "ghost").length, 1, "a refused note is the writer's to resolve");
+  button(byClass(root, "ghost")[0], "Send again").click();
+  assert.equal(byClass(root, "ghost").length, 0);
+  assert.equal(sent().length, 1, "the note is on the board, so it is not sent a second time");
+});
+
 test("a note the host accepted stays in sight until the state shows it", async () => {
   const { root, push, acts, runTimers } = load({ host: "new" });
   push(session({}));
@@ -731,7 +750,7 @@ test("a theme sent again re-schemes the board without rebuilding it", () => {
   assert.equal(html.getAttribute("data-scheme"), "dark");
   old.bridge.tokens({ surface: "#F7F6F2" });
   assert.equal(html.getAttribute("data-scheme"), "light");
-  assert.equal(composer(old.root, "Went well"), box);
+  same(composer(old.root, "Went well"), box, "the composer is the same node");
   assert.equal(box.value, "still here");
 
   // A host that names the scheme is believed over the color.
