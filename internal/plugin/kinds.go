@@ -426,15 +426,63 @@ func (h *Host) runAction(w http.ResponseWriter, r *http.Request, installID, kind
 		http.Error(w, `{"error":"could not run that action"}`, http.StatusInternalServerError)
 		return
 	}
-	if _, err := h.Call(r.Context(), installID, ExportSessionAction, in, ModeSync); err != nil {
+	out, err := h.Call(r.Context(), installID, ExportSessionAction, in, ModeSync)
+	if err != nil {
 		if h.Log != nil {
 			h.Log.Warn("a plugin action failed", "install_id", installID, "kind", kind, "action", action, "error", err)
 		}
 		http.Error(w, `{"error":"the plugin could not run that action"}`, http.StatusBadGateway)
 		return
 	}
+	if code, _ := actionRefusal(out); code != "" {
+		if h.Log != nil {
+			h.Log.Debug("a plugin refused an action", "install_id", installID, "kind", kind, "action", action, "refused", code)
+		}
+		refusal := actionRefusals[code]
+		http.Error(w, refusal.body, refusal.status)
+		return
+	}
 	ac.Broadcast(r.Context(), ac.Session.ID)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// actionRefusals is every way a guest may decline an action, and what the
+// caller is told for each. The sentences are the host's: a guest picks a code
+// and never supplies text, so nothing it writes reaches the response.
+var actionRefusals = map[string]struct {
+	status int
+	body   string
+}{
+	"invalid":   {http.StatusBadRequest, `{"error":"the plugin refused that action as invalid"}`},
+	"forbidden": {http.StatusForbidden, `{"error":"the plugin does not allow you to do that"}`},
+	"not-found": {http.StatusNotFound, `{"error":"the plugin could not find what that action names"}`},
+	"conflict":  {http.StatusConflict, `{"error":"the plugin refused that action as the room stands"}`},
+}
+
+// ErrBadRefusal is an action reply that claims to be a refusal and is not one
+// the host knows. It is a fault, charged like a trap, so a guest cannot use
+// the refusal channel to report anything but the four codes.
+var ErrBadRefusal = errors.New("the plugin's refusal is not one of the known codes")
+
+// actionRefusal reads the code out of an action's output. Only a JSON object
+// with a "refused" key, spelled exactly so, is a refusal; everything else is
+// an accepted action, because what a guest printed there was ignored before
+// refusals existed and a guest built then must keep working.
+func actionRefusal(out []byte) (string, error) {
+	// A map, not a struct: struct tags match keys case-insensitively.
+	var reply map[string]json.RawMessage
+	if json.Unmarshal(out, &reply) != nil {
+		return "", nil
+	}
+	refused, ok := reply["refused"]
+	if !ok {
+		return "", nil
+	}
+	var code string
+	if err := json.Unmarshal(refused, &code); err != nil || actionRefusals[code].status == 0 {
+		return "", fmt.Errorf("%w: %.64q", ErrBadRefusal, refused)
+	}
+	return code, nil
 }
 
 // readActionBody reads the request body a plugin action was called with. An
