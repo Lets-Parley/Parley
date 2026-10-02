@@ -4,10 +4,16 @@
 // gates nothing, so a late note or vote is accepted in any of them.
 const STAGES = 4;
 
-// A stamp is pressed onto a note at a point inside it: x and y are fractions
-// of the note's width and height, so the same stamp sits in the same place on
-// a phone and on a wide screen.
-const STAMP_KINDS = ["me-too", "thanks", "idea", "quick-win", "chat", "blocker", "laugh"];
+// A sticker is placed on a note at a point inside it: x and y are fractions
+// of the note's width and height, so the same sticker sits in the same place
+// on a phone and on a wide screen. There are seven meanings in two printings:
+// the plain ids are the vinyl set, which is what boards stored before the
+// pixel set existed already hold, and `p-` is the pixel set. The actions and
+// the stored field keep the name they shipped with, "stamp".
+const STAMP_MEANINGS = ["me-too", "thanks", "idea", "quick-win", "chat", "blocker", "laugh"];
+const STAMP_KINDS = STAMP_MEANINGS.concat(STAMP_MEANINGS.map((m) => "p-" + m));
+// Looked up by identity, so "constructor" or an array is not a kind.
+const KNOWN_KINDS = new Set(STAMP_KINDS);
 const STAMP_TILT = 12;
 
 const TIMER_MIN_MS = 10 * 1000;
@@ -347,6 +353,9 @@ function applyAction(board, { action, user, body, now }) {
       if (body.groupId === null) groupId = null;
       else if (body.groupId !== undefined) {
         const joined = find(board.groups, body.groupId, "group");
+        // A group is in one lane. Asked to join it and to go to another lane,
+        // the request contradicts itself, and neither half is guessed at.
+        if (body.columnId !== undefined && body.columnId !== joined.columnId) refuse("invalid", "that group is in another lane");
         groupId = joined.id;
         columnId = joined.columnId;
       }
@@ -399,7 +408,7 @@ function applyAction(board, { action, user, body, now }) {
     }
     case "stamp": {
       const row = card(board, body.cardId);
-      if (!STAMP_KINDS.includes(body.kind)) refuse("invalid", "unknown stamp");
+      if (typeof body.kind !== "string" || !KNOWN_KINDS.has(body.kind)) refuse("invalid", "unknown stamp");
       const x = fraction(body.x);
       const y = fraction(body.y);
       const tilt = typeof body.rot === "number" && Number.isFinite(body.rot) ? body.rot : 0;
@@ -434,6 +443,11 @@ function applyAction(board, { action, user, body, now }) {
       const x = fraction(body.x);
       row.y = fraction(body.y);
       row.x = x;
+      // The order of the stamps is the pile, bottom to top: what is picked up
+      // goes back down on top. Moving one to where it already is brings it
+      // to the front.
+      board.stamps.splice(board.stamps.indexOf(row), 1);
+      board.stamps.push(row);
       return row;
     }
     case "add-action": {

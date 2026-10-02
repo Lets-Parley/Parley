@@ -740,3 +740,91 @@ test("building the state of a board at every cap, and regrouping on it, takes mi
   assert.ok(each < 200, "one call took " + each.toFixed(1) + " ms");
   assert.equal(redactBoard(board, T0).actionItems.every((item) => item.sourceIds.length <= 12), true);
 });
+
+test("there are fourteen stickers: seven meanings, in vinyl and in pixel, and nothing else is one", () => {
+  const { board, a, b, c } = threeNotes();
+  const vinyl = ["me-too", "thanks", "idea", "quick-win", "chat", "blocker", "laugh"];
+  const pixel = ["p-me-too", "p-thanks", "p-idea", "p-quick-win", "p-chat", "p-blocker", "p-laugh"];
+  const rows = [a, b, c];
+  vinyl.concat(pixel).forEach((kind, i) => {
+    const s = act(board, "stamp", "p" + i, { cardId: rows[i % 3].id, kind, x: 0.5, y: 0.5 });
+    assert.equal(s.kind, kind);
+  });
+  assert.equal(board.stamps.length, 14);
+  assert.deepEqual(redactBoard(board, 0).stamps.map((s) => s.kind), vinyl.concat(pixel), "both sets leave the server as they were stored");
+
+  const ok = { cardId: a.id, x: 0.5, y: 0.5 };
+  const hostile = ["v-thanks", "p-", "p-thumbs-up", "P-THANKS", "p-p-thanks", " thanks", "thanks ", "", "constructor", "__proto__", "toString", "hasOwnProperty", "size", "has", 0, 7, null, undefined, true, ["p-thanks"], { toString: () => "thanks" }, "p-thanks\u0000"];
+  for (const kind of hostile) assert.throws(() => act(board, "stamp", "mallory", { ...ok, kind }), /unknown stamp/, JSON.stringify(kind));
+  assert.equal(board.stamps.length, 14, "a refused kind stores nothing");
+});
+
+test("the order of the stickers is the pile: one that is moved goes back down on top", () => {
+  const { board, a, b } = threeNotes();
+  const press = (who, row, kind) => act(board, "stamp", who, { cardId: row.id, kind, x: 0.2, y: 0.2 });
+  const s1 = press("bob", a, "thanks");
+  const s2 = press("carol", a, "p-idea");
+  const s3 = press("bob", b, "laugh");
+  const s4 = press("carol", a, "p-chat");
+  const pile = () => redactBoard(board, 0).stamps.map((s) => s.id).join(" ");
+  assert.equal(pile(), [s1.id, s2.id, s3.id, s4.id].join(" "), "placing puts the newest on top");
+
+  act(board, "move-stamp", "bob", { stampId: s1.id, x: 0.6, y: 0.9 });
+  assert.equal(pile(), [s2.id, s3.id, s4.id, s1.id].join(" "), "moved: on top");
+  assert.deepEqual([s1.x, s1.y], [0.6, 0.9]);
+
+  // Bring to front is a move to where it already is.
+  act(board, "move-stamp", "carol", { stampId: s2.id, x: s2.x, y: s2.y });
+  assert.equal(pile(), [s3.id, s4.id, s1.id, s2.id].join(" "));
+  assert.deepEqual([s2.x, s2.y], [0.2, 0.2]);
+
+  act(board, "moderate-stamp", "fac", { stampId: s3.id, x: 0.1, y: 0.1 });
+  assert.equal(pile(), [s4.id, s1.id, s2.id, s3.id].join(" "), "the facilitator's move does the same");
+
+  assert.throws(() => act(board, "move-stamp", "carol", { stampId: s1.id, x: 0.5, y: 0.5 }), /only the person who pressed/);
+  assert.throws(() => act(board, "move-stamp", "bob", { stampId: s1.id, x: 2, y: 0.5 }), /0 to 1/);
+  assert.equal(pile(), [s4.id, s1.id, s2.id, s3.id].join(" "), "a refused move leaves the pile as it was");
+  assert.equal(board.stamps.length, 4, "nothing is added or lost by moving");
+
+  act(board, "moderate-stamp", "fac", { stampId: s1.id, remove: true });
+  assert.equal(pile(), [s4.id, s2.id, s3.id].join(" "), "removing takes one out and reorders nothing");
+});
+
+test("a note asked to join a group and to go to another lane is refused, and nothing moves", () => {
+  const board = emptyBoard();
+  const [a, b, c] = ["a", "b", "c"].map((t) => note(board, "alice", "to-improve", t));
+  const p = note(board, "alice", "puzzles", "p");
+  const g = act(board, "group-cards", "alice", { cardIds: [a.id, b.id], title: "pair" });
+  assert.throws(() => act(board, "move-card", "bob", { cardId: p.id, groupId: g.id, columnId: "went-well" }), /another lane/);
+  assert.throws(() => act(board, "move-card", "bob", { cardId: c.id, groupId: g.id, columnId: "puzzles" }), /another lane/);
+  assert.equal(answerAction(board, { action: "move-card", user: "bob", body: { cardId: p.id, groupId: g.id, columnId: "went-well" } }).refused, "invalid");
+  assert.deepEqual([p.columnId, p.groupId, c.columnId, c.groupId], ["puzzles", null, "to-improve", null]);
+  assert.equal(order(board), "a b c p");
+
+  // Naming the group's own lane as well says the same thing twice, and is taken.
+  act(board, "move-card", "bob", { cardId: p.id, groupId: g.id, columnId: "to-improve" });
+  assert.deepEqual([p.columnId, p.groupId], ["to-improve", g.id]);
+  assert.throws(() => act(board, "move-card", "bob", { cardId: c.id, groupId: g.id, columnId: "nope" }), /unknown column/);
+});
+
+test("a group set down in front of a note of another lane stays in its own lane, whole", () => {
+  const board = emptyBoard();
+  const [a, b, c] = ["a", "b", "c"].map((t) => note(board, "alice", "to-improve", t));
+  const [p, q] = ["p", "q"].map((t) => note(board, "alice", "puzzles", t));
+  const g = act(board, "group-cards", "alice", { cardIds: [a.id, b.id], title: "pair" });
+  act(board, "move-group", "bob", { groupId: g.id, beforeId: q.id });
+  assert.equal(g.columnId, "to-improve", "no lane was named, so none changes");
+  assert.deepEqual([a.columnId, b.columnId, a.groupId, b.groupId], ["to-improve", "to-improve", g.id, g.id]);
+  assert.equal(order(board), "c p a b q", "its notes stay side by side");
+  assert.deepEqual(redactBoard(board, 0).cards.filter((x) => x.columnId === "to-improve").map((x) => x.text), ["c", "a", "b"], "in its lane it is now after the note it was in front of");
+  assert.deepEqual(redactBoard(board, 0).cards.filter((x) => x.columnId === "puzzles").map((x) => x.text), ["p", "q"], "the other lane is as it was");
+
+  // With a lane named, the place is in that lane.
+  act(board, "move-group", "bob", { groupId: g.id, columnId: "puzzles", beforeId: q.id });
+  assert.equal(order(board), "c p a b q");
+  assert.deepEqual([g.columnId, a.columnId, b.columnId], ["puzzles", "puzzles", "puzzles"]);
+  // A place in a third lane, with a lane named: the lane wins, the place is only an order.
+  act(board, "move-group", "bob", { groupId: g.id, columnId: "went-well", beforeId: c.id });
+  assert.equal(order(board), "a b c p q");
+  assert.deepEqual([g.columnId, a.columnId, c.columnId], ["went-well", "went-well", "to-improve"]);
+});
