@@ -3,7 +3,7 @@
 A whole ceremony delivered as a plugin: four stages the facilitator steps
 through, columns, cards, authorship hidden until the facilitator reveals it (and
 hidden again when they say so), grouping, one-dot-per-person voting, a shared
-order, stamps, a timer, and action items that remember the cards they came from.
+order, stickers, a timer, and action items that remember the cards they came from.
 
 It does not live in `internal/` or `web/src`. The host already frames an unknown
 kind in the full-room slot and exports the guest's `on_session_state` document as
@@ -79,8 +79,8 @@ the parts worth copying:
   and if the change turns up late the message is taken back. A yes from the
   host is believed only once the state shows the change, because a host that
   cannot decline answers yes to a request the board declined: whatever was
-  drawn ahead of the state (a moved stamp, a moved note) is put back after
-  the same three seconds, and a stamp becomes "the viewer's" only when both
+  drawn ahead of the state (a moved sticker, a moved note) is put back after
+  the same three seconds, and a sticker becomes "the viewer's" only when both
   the yes and the state are in. The one exception is a vote, which the state
   cannot show when it was already counted. A note waits in
   its lane as a dashed ghost from Enter until the state shows the real one, so
@@ -93,7 +93,7 @@ the parts worth copying:
   nothing else: pressed without a drag it opens nothing and reads out how a
   move is made. The three dots after the text are the note's menu, in every
   stage and always last on the note, so the vote and action chips stay on its
-  first line at any width. Voting, stamping, selecting, moving and starting an
+  first line at any width. Voting, adding a sticker, selecting, moving and starting an
   action are all in that menu, which makes it the keyboard and touch path for
   every pointer gesture: a drag is never the only way (`openMenu`, `moveNote`,
   `toLane`, and `Alt`+arrow keys, Left and Right for the next lane). Groups
@@ -111,8 +111,8 @@ the parts worth copying:
   carried by the handle in its heading. A group left with one note stays a
   group; an empty one is removed.
 - **Optimistic, and taken back.** A move is applied to the board at once and
-  sent; if the host refuses, the board is put back (`sendMove`). A stamp is
-  dragged locally and sent once, on release.
+  sent; if the host refuses, the board is put back (`sendMove`). A sticker
+  is dragged locally and sent once, on release.
 - **Popovers are one layer.** `openPop` shows one floating thing at a time,
   hangs it from the control that opened it, closes on Escape or a press
   elsewhere, and hands focus back. The board under it is inert while it is
@@ -139,9 +139,8 @@ the parts worth copying:
 - **Motion reports a change and then stops.** A note is set down, a count ticks
   on a spring that runs to rest, notes glide into a new group, and the reveal
   uncovers names across the board once. Nothing moves on first paint, and
-  nothing moves under `prefers-reduced-motion`; a new stamp is then marked by a
-  ring that is there for a moment and gone, a change of state rather than a
-  movement.
+  nothing moves under `prefers-reduced-motion`; a new sticker is then simply
+  there, and is announced like any other.
 - **No forms.** The frame is sandboxed without `allow-forms`, so Enter is a
   `keydown` handler. Changes made by other people are announced through a
   polite live region. The frame has no `h1`: it sits under the host page's
@@ -152,29 +151,59 @@ are, so a note is marked as voted only for the rest of the visit in which the
 host confirmed the vote. Showing it after a reload would need the plugin to
 publish who voted, which it deliberately does not.
 
-Stamps follow the same rule. The state says what each stamp is and where it
-sits (`{id, cardId, kind, x, y, rot}`, with `x` and `y` as fractions of the
-note so they hold at any width) and never who pressed it. The frame learns
-which stamps are the viewer's only from this visit: a stamp that appears
-exactly as it was sent, and the server's yes to a change. Only those, and
-every stamp for the facilitator, look movable and offer Move. A per-viewer
-"mine" flag cannot be published, because the state is one payload for every
-viewer. So after a reload a stamp of the viewer's own looks like anybody's: it
-can still be removed from its menu ("Remove, if you pressed it"), the server
-refuses unless it is theirs, and the board remembers the refusal.
+Stickers follow the same rule. There are fourteen: seven meanings (Me too,
+Thank you, Great idea, Quick win, Needs a chat, Blocker, Made me laugh), each
+as a vinyl sticker and as pixel art, and the two sets mix freely on a note.
+The state says what each sticker is and where it sits (`{id, cardId, kind, x,
+y, rot}`, with `x` and `y` as fractions of the note so they hold at any width)
+and never who placed it. The frame learns which stickers are the viewer's only
+from this visit: one that appears exactly as it was sent, and the server's yes
+to a change. Only those, and every sticker for the facilitator, look movable
+and offer Move and Bring to front. A per-viewer "mine" flag cannot be
+published, because the state is one payload for every viewer. So after a
+reload a sticker of the viewer's own looks like anybody's: it can still be
+removed from its menu ("Remove, if you placed it"), the server refuses unless
+it is theirs, and the board remembers the refusal.
 
-A stamp's `y` runs from 6px above its note's top edge (0) to 16px above the
-bottom edge (1), and `x` from the left edge to the right. A stamp can
-therefore hang over the top and the sides and never over the note underneath.
-The default spot is on the top edge, above the first line of text, where a
-stamp rises 21px past the note's border and stops 1px short of the first
-line. The tilt is applied to the glyph, not the ring, so a stamp takes up
-exactly its 32px. Notes stand 22px apart everywhere (under a
-group's heading and under the composer too), so that room is always there:
-nothing moves when a first stamp lands or a last one leaves, and a note is
-given no class or style for having stamps.
+The interface says "sticker" everywhere. The actions and the stored field
+keep the name they shipped with (`stamp`, `move-stamp`, `remove-stamp`,
+`moderate-stamp`, `stamps`): renaming them would change the manifest and every
+stored board for nothing a person can see. The seven kind ids boards already
+hold (`me-too`, `thanks`, `idea`, `quick-win`, `chat`, `blocker`, `laugh`) are
+the vinyl set, and the pixel set is the same ids with `p-` in front, so no
+stored board needs migrating.
 
-Deleting works the same way as stamps. Before the reveal the state does not
+Placement is free. A sticker's center may be anywhere from 8px inside its
+note's left and right edges (`x` 0 and 1) to 4px outside its top and bottom
+edges (`y` 0 and 1). A sticker is 42px across, so it hangs at most 15px over a
+side, inside the lane's padding, and 27px over the top or bottom, inside the
+26px gap notes keep everywhere (under a group's heading and under the composer
+too): nothing moves when a first sticker lands or a last one leaves, and a
+note is given no class or style for having stickers. Picked from the book, a
+sticker lands clear of the words where it can: the corner under the handle of
+a tall note, then along the bottom edge.
+
+Stickers pile in the order they land. The order of `stamps` in the state is
+the pile, bottom to top: placing appends, and `move-stamp` (and a
+`moderate-stamp` that moves) puts the row back at the end, so what is picked
+up goes back down on top and "Bring to front" is a move to where the sticker
+already is. Nothing is grouped, counted or spread out. The topmost sticker is
+the one a pointer hits; one underneath is reached with Page Up and Page Down
+from a focused sticker, or from "Stickers on this note" in the note's menu. A
+note's controls are drawn above every sticker and stay clickable. Stickers
+lying over a note's words go faint while the words are pointed at, while one
+of the note's controls has keyboard focus, or after a tap on the words.
+
+Keys. On a note, `S` opens the sticker book. In the book, `1` to `7` place
+from the marked sheet, `V` and `P` (or Up, Down and Tab) change sheets, Left
+and Right go along a sheet, and Escape closes it. On a sticker, the arrow keys
+move it 6px (24px with Shift), Page Up and Page Down go up and down the pile,
+Home and End go to its bottom and top, `F` brings it to the front, Delete
+removes it and Enter opens its menu. An earlier draft of this board used Left
+and Right to step between stamps and Shift with an arrow to move one; that was
+never released, and stepping left and right means nothing in a pile.
+
+Deleting works the same way as stickers. Before the reveal the state does not
 say whose a note is, and what the viewer wrote is not remembered past a
 reload, so "Delete note" is offered to everyone and the server answers; hiding
 it from non-authors would hide it from the author after a reload. After the
@@ -195,11 +224,11 @@ note that is not yours, it tells you so.
 | `delete-card` | `{cardId}` | whoever wrote it |
 | `group-cards` | `{cardIds, title}` | anyone |
 | `vote` | `{cardId}` | anyone |
-| `move-card` | `{cardId, beforeId?, columnId?, groupId?}` | anyone |
+| `move-card` | `{cardId, beforeId?, columnId?, groupId?}`; a `groupId` with a `columnId` the group is not in is `invalid` | anyone |
 | `move-group` | `{groupId, beforeId?, columnId?}` | anyone |
-| `stamp` | `{cardId, kind, x, y, rot?}` | anyone |
-| `move-stamp` | `{stampId, x, y}` | whoever pressed it |
-| `remove-stamp` | `{stampId}` | whoever pressed it |
+| `stamp` (place a sticker) | `{cardId, kind, x, y, rot?}`; `kind` is one of the fourteen ids | anyone |
+| `move-stamp` | `{stampId, x, y}`; also puts it on top of its pile | whoever placed it |
+| `remove-stamp` | `{stampId}` | whoever placed it |
 | `add-action` | `{text, owner?, sourceIds?}` | anyone |
 | `set-owner` | `{actionId, owner?}`; blank means unassigned | anyone |
 | `delete-action` | `{actionId}` | anyone |
@@ -218,8 +247,8 @@ the board is one document and the last write wins.
 The host enforces `facilitatorOnly` from `manifest.json` before the guest is
 called, and the guest is never told who the facilitator is, so the manifest is
 the whole of that check (`package.test.mjs` pins the list). Everything else is
-validated in `board.js`: ids must exist, text must be text, a stamp's `x` and
-`y` must be finite numbers from 0 to 1, a note or a stamp is changed only by
+validated in `board.js`: ids must exist, text must be text, a sticker's `x` and
+`y` must be finite numbers from 0 to 1, a note or a sticker is changed only by
 whoever made it, and the limits below hold. `redactBoard` is the only thing
 that decides what leaves the server.
 
@@ -234,8 +263,8 @@ accepted action answers `{}`.
 | Code | Status | When |
 | --- | --- | --- |
 | `invalid` | 400 | empty, non-text or too-long text; a bad coordinate, stage, timer operation or duration; fewer than two notes to group; an unknown action |
-| `forbidden` | 403 | somebody else's note or stamp |
-| `not-found` | 404 | a note, group, stamp, action item or column the board does not hold |
+| `forbidden` | 403 | somebody else's note or sticker |
+| `not-found` | 404 | a note, group, sticker, action item or column the board does not hold |
 | `conflict` | 409 | a limit reached; pause, resume or add with no timer set; the org's plugin storage is full |
 
 The guest throws only for a real fault: a stored document it cannot read, a
@@ -260,7 +289,7 @@ Every board of an org is a key in one store with one quota: `quotaBytes`,
 | Groups, title 80 characters | 40 | |
 | Notes named in one `group-cards` | 50 | |
 | Votes | 1,000 | one per note |
-| Stamps | 300; 12 per note | 60; 3 per note |
+| Stickers | 300; 12 per note | 60; 3 per note |
 | Action items, text 500 and owner 64 characters | 30 | |
 | Links per action | 12 | |
 
@@ -275,13 +304,13 @@ document these allow, stored as JSON with 36-character user ids:
 | Note text | 120 × 500 × 3 | 180,000 |
 | Note structure | 120 × about 120 | 14,600 |
 | Votes | 1,000 × 41 (`"<user id>":1,`) | 41,000 |
-| Stamps | 300 × about 124 | 37,200 |
+| Stickers | 300 × about 124 | 37,200 |
 | Groups | 40 × (240 + about 48) | 11,500 |
 | Action items | 30 × (1,500 + 192 + about 130) | 54,700 |
 | **Total** | measured by `board.test.mjs` | **339,312** |
 
 That is 32% of the quota: three boards at every limit fit, a fourth does not.
-An ordinary board (60 notes of 120 ASCII characters, 100 votes, 40 stamps) is
+An ordinary board (60 notes of 120 ASCII characters, 100 votes, 40 stickers) is
 about 25 KB, so the quota holds some forty of them. The limits bound a board,
 not the number of rooms: an org that keeps hundreds of finished retrospectives
 will reach the quota. A full store declines every write that grows a board

@@ -1,6 +1,6 @@
 ---
 title: Retrospective (plugin)
-description: A retrospective ceremony delivered entirely as a plugin — stages, columns, cards, hidden authorship, grouping, dot voting, stamps, a timer, and action items linked to the notes they came from.
+description: A retrospective ceremony delivered entirely as a plugin — stages, columns, cards, hidden authorship, grouping, dot voting, stickers, a timer, and action items linked to the notes they came from.
 ---
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
@@ -25,7 +25,7 @@ shipped frontend.
   reads **Unassigned**; anyone can name an owner later, or delete the action,
   from its menu.
 - **A note can be deleted** by whoever wrote it, or by the facilitator, from
-  the note's menu, after a confirmation. Its votes, stamps and links go with
+  the note's menu, after a confirmation. Its votes, stickers and links go with
   it. Before the reveal the board does not know whose a note is, so Delete is
   offered to everyone and the server answers; the removal is announced as "A
   note was removed", never as whose. Anonymity before the reveal means that
@@ -72,18 +72,28 @@ shipped frontend.
   so; a card can still be carried out of it, into one of its groups, or into
   it from another column, where it is added at the end of the shared order.
   The facilitator can apply the vote order for everyone.
-- **Stamps.** Anyone can press one of seven stamps (Me too, Thank you, Great
-  idea, Quick win, Needs a chat, Blocker, Made me laugh) onto a card from its
-  menu. It lands hanging off the card's top edge, clear of the words, into the
-  gap every card already has above it, so nothing moves when one arrives; each
-  of the twelve a card holds gets a spot of its own. Whoever pressed it can drag it anywhere on the
-  card, nudge it with `Shift`+arrow keys, or remove it with `Delete`; so can
-  the facilitator. The arrow keys alone go between a card's stamps, which are
-  one Tab stop. **Nobody can see who pressed a stamp**: the server records it
-  only to enforce that rule and the limits below, and never publishes it. So
-  only a stamp you pressed in this visit looks movable; after a reload you can
-  still remove one of yours from its menu, and the server refuses anyone
-  else's.
+- **Stickers.** Anyone can put a sticker on a card. There are fourteen: seven
+  meanings (Me too, Thank you, Great idea, Quick win, Needs a chat, Blocker,
+  Made me laugh), each as a vinyl sticker and as pixel art, and the two sets
+  mix freely. Hover a card and press the dashed **+**, press `S` with focus on
+  the card, or use "Add a sticker" in its menu: the sticker book opens with the
+  two sheets, `1` to `7` place from the marked sheet and `V` and `P` change
+  sheets. A sticker lands clear of the words where it can, in room every card
+  already has around it, so nothing moves when one arrives.
+- **Stickers go anywhere and pile up.** Whoever placed a sticker can drag it
+  anywhere on its card, a little over the edges included, and so can the
+  facilitator. Stickers overlap freely, the newest on top, and one that is
+  moved goes on top; "Bring to front" (`F`) does that without moving it. With a
+  sticker focused, the arrow keys move it (`Shift` for bigger steps), `Page Up`
+  and `Page Down` go through the pile, and `Delete` removes it; a card's pile
+  is one Tab stop, and "Stickers on this note" in the card's menu reaches every
+  one without aiming. A card's controls always stay on top of its stickers,
+  and stickers lying over a card's words go faint while you point at the words
+  (or tap them), so covered text can still be read.
+- **Nobody can see who placed a sticker**: the server records it only to
+  enforce that rule and the limits below, and never publishes it. So only a
+  sticker you placed in this visit looks movable; after a reload you can still
+  remove one of yours from its menu, and the server refuses anyone else's.
 - **An action can come from a card.** The target on a card (or "Start an
   action from this note" in its menu) opens a small form; the action then
   shows the card it came from, and the card shows that it has an action. More
@@ -100,28 +110,28 @@ CSV export is the host's: it flattens the guest's `on_session_state` document
 (`revealed`, `stage`, `timer`, `stamps`, `columns`, `cards`, `groups`,
 `actionItems`) next to `id,kind,title,phase`. Authorship that has not been
 revealed is not in that document, so it is not in the file; who voted and who
-pressed a stamp are never in it.
+placed a sticker are never in it.
 
 ## Actions and limits
 
 | Action | Who | What it does |
 | --- | --- | --- |
 | `add-card`, `group-cards`, `vote`, `add-action` | anyone in the room | as before; `add-action` also takes `sourceIds`, and a blank `owner` means nobody |
-| `delete-card` | the card's author | delete a card with its votes, stamps and links |
+| `delete-card` | the card's author | delete a card with its votes, stickers and links |
 | `set-owner`, `delete-action` | anyone | name or clear an action's owner; delete an action |
 | `move-card`, `move-group` | anyone | reorder a card or a group, move a card to another column or group, move a group to another column |
-| `stamp`, `move-stamp`, `remove-stamp` | anyone; move and remove only for the stamp's presser | press, move, lift a stamp |
+| `stamp`, `move-stamp`, `remove-stamp` | anyone; move and remove only for whoever placed it | place, move (which also puts it on top), remove a sticker; the actions keep their first name |
 | `link-action` | anyone | tie a card or group to an action, or untie it |
 | `reveal`, `conceal` | facilitator | show or hide authors |
 | `set-stage` | facilitator | set the stage, 0 to 3 |
 | `timer` | facilitator | `start`, `pause`, `resume`, `add`, `clear` |
 | `order-by-votes` | facilitator | reorder one column by votes for everyone |
-| `moderate-stamp` | facilitator | move or remove any stamp |
+| `moderate-stamp` | facilitator | move or remove any sticker |
 | `moderate-card` | facilitator | delete any card |
 
 Facilitator-only actions are refused by the host before the plugin runs.
 Everything else is validated by the guest: unknown ids, text that is empty or
-too long, coordinates outside the card, somebody else's card or stamp, and
+too long, coordinates outside the card, somebody else's card or sticker, and
 anything over a limit are **declined** and change nothing. The guest answers
 the host with one of four codes (`invalid`, `forbidden`, `not-found`,
 `conflict`) instead of failing, so a participant sending nonsense cannot count
@@ -132,7 +142,7 @@ older host treats a declined request as accepted with no change.
   **500 characters**; **40 groups**, named in up to 80 characters; **1,000
   votes**; **30 action items** of up to 500 characters, with an owner of up to
   64.
-- A card holds at most **12 stamps**, **3 from any one person**; a board holds
+- A card holds at most **12 stickers**, **3 from any one person**; a board holds
   **300**, **60 from any one person**.
 - A timer runs from **10 seconds to 3 hours**.
 - An action links to at most **12** cards or groups.
