@@ -200,6 +200,16 @@ describe("what the sidebar admits it is hiding", () => {
     expect(more.getAttribute("href")).toBe("/o/acme/s/platform-team");
   });
 
+  it("acts in place where the page already holds every session", async () => {
+    stubAuthMode("open");
+    const onShowAllSessions = vi.fn();
+    renderShell({ sessions: manySessions(12) as never, onShowAllSessions });
+    // A link here would point at the page it is on, and do nothing.
+    expect(screen.queryByRole("link", { name: /12 sessions/ })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Show all 12 sessions" }));
+    expect(onShowAllSessions).toHaveBeenCalledTimes(1);
+  });
+
   it("says nothing about more sessions when the list is whole", () => {
     stubAuthMode("open");
     renderShell({ sessions: manySessions(3) as never });

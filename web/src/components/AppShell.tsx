@@ -131,6 +131,12 @@ type Props = {
    * wall that person's id.
    */
   onThank?: (userId: string) => void;
+  /**
+   * Set by the page that already holds every session — the space page. There
+   * the "all sessions" entry would link to the page it is on and do nothing,
+   * so it becomes a button and the page reveals the rest itself.
+   */
+  onShowAllSessions?: () => void;
   children: ReactNode;
 };
 
@@ -153,6 +159,7 @@ export function AppShell({
   actions,
   navExtra,
   onThank,
+  onShowAllSessions,
   children,
 }: Props) {
   // Below md there is no room for a rail, so the same nav arrives as a sheet.
@@ -219,12 +226,26 @@ export function AppShell({
                   /* Silent truncation reads as "that is all there is", and a
                      facilitator hunting yesterday's round concludes it is gone. */
                   <li>
-                    <Link
-                      to={spacePath(orgSlug, spaceSlug)}
-                      className="block rounded-chip px-2.5 py-1.5 text-[13px] font-semibold text-accent hover:bg-felt-deep"
-                    >
-                      All {sessions.length} sessions
-                    </Link>
+                    {onShowAllSessions ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // The sheet covers the list this is about to reveal.
+                          if (!wide) setSideOpen(false);
+                          onShowAllSessions();
+                        }}
+                        className="block w-full rounded-chip px-2.5 py-1.5 text-left text-[13px] font-semibold text-accent hover:bg-felt-deep"
+                      >
+                        Show all {sessions.length} sessions
+                      </button>
+                    ) : (
+                      <Link
+                        to={spacePath(orgSlug, spaceSlug)}
+                        className="block rounded-chip px-2.5 py-1.5 text-[13px] font-semibold text-accent hover:bg-felt-deep"
+                      >
+                        All {sessions.length} sessions
+                      </Link>
+                    )}
                   </li>
                 )}
               </ul>

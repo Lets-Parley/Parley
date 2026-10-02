@@ -2529,3 +2529,82 @@ describe("SpacePage plugin kinds", () => {
     expect([...slot.classList]).toContain("min-w-0");
   });
 });
+
+describe("SpacePage sidebar: show all sessions", () => {
+  // Two rooms still open and ten ended: the sidebar lists eight and offers the
+  // rest, while the main column keeps the ended ten folded in the Logbook.
+  const many = {
+    ...space,
+    sessions: Array.from({ length: 12 }, (_, i) => ({
+      id: `m${i}`,
+      kind: i % 2 ? "standup" : "poker",
+      title: `Round ${i}`,
+      createdAt: "2026-08-18T10:00:00.000Z",
+      endedAt: i < 2 ? null : "2026-08-18T11:00:00.000Z",
+      here: 0,
+      lastActivityAt: "2026-08-18T10:00:00.000Z",
+      present: [],
+      progress: null,
+    })),
+  } as unknown as SpaceView;
+  const main = () => within(screen.getByRole("main"));
+  const logbook = () => main().getByText("Logbook · 10 ended").closest("details")!;
+
+  it("opens the Logbook and moves focus to it, instead of linking to this page", async () => {
+    view = many;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Round 0");
+    expect(logbook().open).toBe(false);
+
+    await userEvent.click(screen.getByRole("button", { name: "Show all 12 sessions" }));
+
+    expect(logbook().open).toBe(true);
+    // A boolean, so a failure does not print two DOM trees.
+    expect(document.activeElement === logbook().querySelector("summary")).toBe(true);
+  });
+
+  it("drops a search and a kind filter that were hiding sessions", async () => {
+    view = many;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Round 0");
+    await userEvent.click(main().getByRole("button", { name: "Standup" }));
+    await userEvent.type(main().getByLabelText("Search sessions"), "Round 1");
+    expect(main().queryByText("Round 0")).toBe(null);
+
+    await userEvent.click(screen.getByRole("button", { name: "Show all 12 sessions" }));
+
+    expect((main().getByLabelText("Search sessions") as HTMLInputElement).value).toBe("");
+    expect(main().getByRole("button", { name: "All" }).getAttribute("aria-pressed")).toBe("true");
+    expect(main().getByText("Round 0")).toBeTruthy();
+    expect(logbook().open).toBe(true);
+  });
+
+  it("closes the phone sheet so the list it opened can be seen", async () => {
+    vi.stubGlobal("matchMedia", ((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia);
+    try {
+      view = many;
+      renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+      await screen.findAllByText("Round 0");
+      await userEvent.click(screen.getByRole("button", { name: "Toggle sidebar" }));
+      const sheet = screen.getByRole("dialog", { name: "Platform Team" });
+
+      await userEvent.click(within(sheet).getByRole("button", { name: "Show all 12 sessions" }));
+
+      expect(screen.queryByRole("dialog", { name: "Platform Team" })).toBe(null);
+      expect(logbook().open).toBe(true);
+      // A boolean, so a failure does not print two DOM trees.
+    expect(document.activeElement === logbook().querySelector("summary")).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
