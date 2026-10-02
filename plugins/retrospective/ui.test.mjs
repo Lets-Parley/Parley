@@ -3453,7 +3453,7 @@ test("a pixel sticker is never tilted, whatever tilt is stored; a vinyl one keep
   assert.match(src, /\.st\.px\{width:var\(--px,42px\);height:var\(--px,42px\)/);
 });
 
-test("a sticker picked from the book lands on no word: beside the last line where there is room, and otherwise on the pile in the corner", () => {
+test("a sticker picked from the book lands on no word where there is room, and otherwise on a place of its own, never on the pile", () => {
   const pick = (ui, name) => {
     openBook(ui.root, "one");
     labeled(bookOf(ui.root), name).click();
@@ -3478,17 +3478,11 @@ test("a sticker picked from the book lands on no word: beside the last line wher
   assert.deepEqual(pick(short, "Thank you, vinyl"), [0.696, 1], "then 164");
 
   // Words across the whole line: nowhere on the bottom edge is clear but the
-  // corner, so the second and the third go onto the first, 3px either way
-  // at most, and not one of them onto the words.
+  // corner. The second and the third do not go onto the first: each takes
+  // the next place along, 30 apart, though it lies on the words.
   const full = laid([[38, 11, 200, 31]]);
   const spots = ["Me too, vinyl", "Me too, pixel", "Thank you, pixel"].map((name) => pick(full, name));
-  assert.deepEqual(spots[0], [0.027, 1]);
-  for (const [x, y] of spots.slice(1)) {
-    const cx = 8 + x * 224;
-    const cy = y * 52 - 4;
-    assert.ok(cx >= 11 && cx <= 17 && cy >= 44 && cy <= 48, "piled in the corner: " + cx + ", " + cy);
-    assert.ok(cx + 21 <= 38 || cy - 21 >= 31, "and off the words");
-  }
+  assert.deepEqual(spots, [[0.027, 1], [0.161, 1], [0.295, 1]], "14, 44 and 74 across");
   // The plus is not placed: it stands with the thumbs on the note's lower edge.
   const bare = laid([[38, 11, 110, 31]]);
   bare.push(session({ cards: [card("c1", "went-well", "one")], stamps: [st("t0", "chat", 0.1, 0.1)] }));
@@ -5101,4 +5095,103 @@ test("the sticker book hands focus back to where it was opened from: the note's 
   menuItem(root, "Add a sticker").click();
   press("Escape");
   same(document.activeElement, one(note, "more"), "opened from the menu, it goes back to the menu's button");
+});
+
+// ---- fix round: stickers apart, the split label, the failure panel's focus, a take-back, the menu's side
+
+test("with every usual place taken, the next sticker goes where it is farthest from the others, never onto one and never onto a control", () => {
+  const ui = load();
+  const cards = [card("c1", "went-well", "one")];
+  // The buttons take 116 to 200 of the bottom edge, so the usual places are 14, 44, 74 and 29, 59, 89: all six taken.
+  const taken = [0.027, 0.161, 0.295, 0.094, 0.228, 0.362].map((x, i) => st("t" + i, "laugh", x, 1));
+  ui.push(session({ cards, stamps: taken }));
+  const note = noteWith(ui.root, "one");
+  note.box = { left: 0, top: 0, width: 240, height: 44 };
+  one(note, "rx").box = { left: 116, top: 32, width: 84, height: 24 };
+  const centers = taken.map((t) => [8 + t.x * 224, 48]);
+  for (const name of ["Blocker, vinyl", "Great idea, vinyl", "Thank you, vinyl"]) {
+    openBook(ui.root, "one");
+    labeled(bookOf(ui.root), name).click();
+    const { x, y } = ui.sent().at(-1).payload;
+    const c = [8 + x * 224, y * 52 - 4];
+    const least = Math.min(...centers.map((o) => Math.hypot(o[0] - c[0], o[1] - c[1])));
+    assert.ok(least >= 12, name + " is " + least.toFixed(1) + "px from the nearest sticker");
+    // 21 to its rim and 6 clear: not within 89 to 227 across while it is within 5 to 83 down.
+    assert.ok(!(c[0] > 89 && c[0] < 227 && c[1] > 5), name + " is off the buttons: " + c);
+    centers.push(c);
+  }
+});
+
+test("the split beside the tag shows for the pointer and for keyboard focus, not for focus a mouse press left behind", () => {
+  assert.match(src, /\.note:hover \.brk,\.note:has\(:focus-visible\) \.brk\{opacity:1\}/);
+  assert.doesNotMatch(src, /focus-within \.brk/);
+});
+
+test("a vote failing while somebody types elsewhere does not take their focus; from the thumbs it goes to Try again", async () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ stage: 0, cards: [card("c1", "went-well", "one")] }, PARTICIPANT));
+  const fail = async () => {
+    for (const i of [0, 1]) {
+      ui.acts.at(-1).answer({ ok: false, reason: "busy" });
+      await settled();
+      if (i === 0) ui.runTimers(600);
+    }
+  };
+  thumb(ui.root, "one", "up").click();
+  const box = composer(ui.root, "Puzzles");
+  box.focus();
+  await fail();
+  assert.equal(one(ui.root, "oops").textContent, "Your vote did not go through.Try again");
+  same(ui.document.activeElement, box, "focus stays in the box being typed in");
+  assert.equal(liveOf(ui.root), "Your vote on this note did not go through. Try again is available.");
+
+  later(ui);
+  const up = thumb(ui.root, "one", "up");
+  up.focus();
+  up.click();
+  await fail();
+  same(ui.document.activeElement, button(one(ui.root, "oops"), "Try again"), "from the note's own buttons, focus goes to the way to try again");
+});
+
+test("a press on a thumb that shows as the viewer's takes the vote back, even before the host has answered for it", async () => {
+  const ui = load({ host: "new" });
+  const cards = (up) => [card("c1", "went-well", "one", { up })];
+  ui.push(session({ stage: 2, cards: cards(0) }, PARTICIPANT));
+  const up = thumb(ui.root, "one", "up");
+  up.click();
+  // The state shows the vote; the host's answer is still out.
+  ui.push(session({ stage: 2, cards: cards(1) }, PARTICIPANT));
+  assert.equal(pressedOf(ui), "true false");
+  assert.match(up.getAttribute("aria-label"), /Your vote\. Press to take it back\.$/);
+  later(ui);
+  up.click();
+  assert.deepEqual(ui.sent().map((a) => a.payload.value), ["up", "none"], "it does what it says: takes it back");
+});
+
+test("a menu stays on the side of its button it opened on when its rows change: stepping into Move to and back", () => {
+  const { root, push, fireWindow } = load();
+  push(session({ cards: three }));
+  const more = one(noteWith(root, "two"), "more");
+  // Low in an 800px frame: 300 tall does not fit below 700 + 32, so it opens above, its foot 6 over the button.
+  more.box = { left: 500, top: 700, width: 32, height: 32 };
+  more.click();
+  const menu = one(root, "menu");
+  menu.offsetWidth = 240;
+  menu.offsetHeight = 300;
+  fireWindow("resize");
+  assert.equal(menu.style.top, "394px");
+  // The step is shorter, and would fit below. It stays above, still 6 over the button: 700 - 6 - 120.
+  menu.offsetHeight = 120;
+  menuItem(root, "Move to…").click();
+  assert.deepEqual([menu.style.top, menu.style.transformOrigin], ["574px", "100% 100%"]);
+  menu.offsetHeight = 300;
+  menuItem(root, "Back").click();
+  assert.equal(menu.style.top, "394px");
+  // Opened below, a taller panel stays below, held inside the frame.
+  more.box = { left: 500, top: 440, width: 32, height: 32 };
+  fireWindow("resize");
+  assert.equal(menu.style.top, "478px");
+  menu.offsetHeight = 330;
+  menuItem(root, "Move to…").click();
+  assert.deepEqual([menu.style.top, menu.style.transformOrigin], ["462px", "100% 0"]);
 });

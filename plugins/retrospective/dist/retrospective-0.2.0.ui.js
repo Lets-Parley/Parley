@@ -529,7 +529,9 @@ const RETRO_FONTS = [
     ".score b{display:block}",
     ".score.mixed b{translate:0 -1px}",
     ".brk{padding:0 7px;font-size:11px;line-height:18px;color:var(--color-ink-soft);border-color:var(--color-line-strong);opacity:0;transition:opacity .15s}",
-    ".note:hover .brk,.note:focus-within .brk{opacity:1}",
+    // Keyboard focus, not any focus: a thumb pressed with the mouse keeps
+    // focus, and the split must still go when the pointer leaves.
+    ".note:hover .brk,.note:has(:focus-visible) .brk{opacity:1}",
     // Under the words, on the note's lower edge: the dashed plus for a
     // sticker, a thumb up and a thumb down. They take no room from the note,
     // and are shown with it: pointed at, focused, in the Vote stage, or once
@@ -1318,16 +1320,20 @@ const RETRO_FONTS = [
   // an edge of the frame. A menu hangs from the right edge of its button, so
   // it does not lie over the next lane. The layer scrolls with the page, so
   // it stays put.
-  function placePop() {
+  // `keep` is for a popover whose content changed while it is open: it stays
+  // on the side of its control it opened on, held by the edge nearest it.
+  function placePop(keep) {
     if (!pop) return;
     const a = rectOf(pop.anchor);
     const width = pop.el.offsetWidth || 0;
     const height = pop.el.offsetHeight || 0;
     const high = window.innerHeight || 0;
     const menu = pop.el.getAttribute("role") === "menu";
-    const below = a.bottom + 6 + height <= high - 8;
-    const above = !below && a.top - 6 - height >= 8;
-    const top = below ? a.bottom + 6 : above ? a.top - 6 - height : Math.max(8, high - 8 - height);
+    const kept = keep && pop.side;
+    const below = kept ? kept === "below" : a.bottom + 6 + height <= high - 8;
+    const above = kept ? kept === "above" : !below && a.top - 6 - height >= 8;
+    pop.side = below ? "below" : above ? "above" : "fit";
+    const top = below ? (kept ? Math.min(a.bottom + 6, Math.max(8, high - 8 - height)) : a.bottom + 6) : above ? Math.max(8, a.top - 6 - height) : Math.max(8, high - 8 - height);
     const left = Math.max(8, Math.min(menu ? a.right - width : a.left, (window.innerWidth || 0) - width - 8));
     pop.el.style.left = left + (window.scrollX || 0) + "px";
     pop.el.style.top = top + (window.scrollY || 0) + "px";
@@ -1496,7 +1502,7 @@ const RETRO_FONTS = [
         menu.appendChild(done);
         grid.push([done]);
       }
-      if (pop && pop.el === menu) placePop();
+      if (pop && pop.el === menu) placePop(true);
       if (want === undefined || !flat.length) return;
       const named = flat.filter(function (f) {
         return f.label === want;
@@ -2815,7 +2821,10 @@ const RETRO_FONTS = [
     const now = clockNow();
     if (note.pressed && note.pressed.way === way && now - note.pressed.at < DOUBLE_MS) return;
     note.pressed = { way: way, at: now };
-    sendVote(id, way, note.mine === way ? "none" : way, true);
+    // A press acts on what the thumb shows: a vote the state has shown but
+    // the host has not yet answered for is already drawn as the viewer's.
+    const shown = note.pending !== null ? note.pending : note.mine;
+    sendVote(id, way, shown === way ? "none" : way, true);
   }
 
   // The thumb shows pressed at once; the tag does not change until the state
@@ -2923,7 +2932,10 @@ const RETRO_FONTS = [
     note.failed = note[way].btn;
     note.failed.classList.add("failed");
     note.el.appendChild(note.oops);
-    (go || close).focus();
+    // Focus goes to the panel only from the note's own buttons, or from
+    // nowhere: somebody typing elsewhere keeps their place and hears it.
+    const held = document.activeElement;
+    if (held === document.body || contains(note.rx, held)) (go || close).focus();
     setText(live, retry ? "Your vote on this note did not go through. Try again is available." : message);
   }
 
@@ -4437,9 +4449,8 @@ const RETRO_FONTS = [
   }
 
   // The first of those places that is on no word and has no sticker within
-  // 14px of it. With every one of them taken, stickers pile up where the
-  // first one went, a little off each time: on each other, never on the
-  // words. A sticker still on its way counts.
+  // 14px of it; successive stickers are always visibly apart until the note
+  // is full. A sticker still on its way counts.
   function freeSpot(cardId, box, kind) {
     const there = centersOn(cardId, box);
     const half = halfOf(kind);
@@ -4452,16 +4463,39 @@ const RETRO_FONTS = [
     const clear = safe.filter(function (p) {
       return !onWords(p, half, box.lines || []);
     });
-    const places = clear.length ? clear : (safe.length ? safe : every).slice(0, 1);
-    let spot = places.filter(function (p) {
-      return !there.some(function (c) {
-        return Math.hypot(c[0] - p[0], c[1] - p[1]) < 14;
-      });
-    })[0];
+    // Apart from every sticker already there, one still on its way included.
+    const apart = function (p) {
+      return there.reduce(function (least, c) {
+        return Math.min(least, Math.hypot(c[0] - p[0], c[1] - p[1]));
+      }, Infinity);
+    };
+    const free = function (p) {
+      return apart(p) >= 14;
+    };
+    // A place off the words first; then one of the same places that lies on
+    // them, which is still its own place and not on top of another sticker.
+    let spot = clear.filter(free)[0] || safe.filter(free)[0];
     if (!spot) {
-      const base = places[there.length % places.length];
-      spot = [base[0] + Math.random() * 6 - 3, base[1] - Math.random() * 4];
-      if (onWords(spot, half, box.lines || []) || onControls(spot, half, controls)) spot = base;
+      // Every one of those is taken. The whole note is looked over, 12px at
+      // a time, for the place farthest from the stickers on it: off the
+      // words if any such place is 12 clear, and never on a control.
+      const grid = [];
+      for (let y = box.height + ST_PAD_Y; y >= -ST_PAD_Y; y -= 12) {
+        for (let x = 14; x <= box.width - 14; x += 12) {
+          if (!onControls([x, y], half, controls)) grid.push([x, y]);
+        }
+      }
+      const far = function (list) {
+        return list.reduce(function (best, p) {
+          return !best || apart(p) > apart(best) ? p : best;
+        }, null);
+      };
+      const off = far(
+        grid.filter(function (p) {
+          return !onWords(p, half, box.lines || []);
+        }),
+      );
+      spot = (off && apart(off) >= 12 ? off : far(grid)) || (safe.length ? safe : every)[0];
     }
     return fractionAt(spot[0], spot[1], box);
   }
