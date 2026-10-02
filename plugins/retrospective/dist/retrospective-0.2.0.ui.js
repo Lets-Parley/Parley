@@ -133,12 +133,26 @@ const RETRO_FONTS = [
     other: CIRCLE + "M8 8v.1",
     arrow: "M3.5 8h9M9 4.5L12.5 8 9 11.5",
     grip: "M6 4v.1M10 4v.1M6 8v.1M10 8v.1M6 12v.1M10 12v.1",
-    dots: "M3.5 8v.1M8 8v.1M12.5 8v.1",
+    dots: "M3 8h.01M8 8h.01M13 8h.01",
     bars: "M3 4h10M3 8h7M3 12h4",
     target: CIRCLE + "M8 5.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 0 0 0-5z",
     clock: CIRCLE + "M8 4.5V8l2.4 1.6",
     pause: "M5.5 3.5v9M10.5 3.5v9",
     chevron: "M4.5 6.5L8 10l3.5-3.5",
+    // The options menu's own.
+    edit: "M3 13l.6-2.8L10.8 3a1.4 1.4 0 0 1 2 0l.2.2a1.4 1.4 0 0 1 0 2L5.8 12.4zM9.5 4.5l2 2",
+    sticker: "M3 3h10v6l-4 4H3zM13 9H9v4",
+    move: "M2.5 4.5h4l1.5 2h5.5v6h-11zM7 9.5h4M9.5 8l1.5 1.5L9.5 11",
+    trash: "M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5M7 7v3.5M9 7v3.5",
+    owner: "M8 8a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM3 13.5c.6-2.3 2.6-3.5 5-3.5s4.4 1.2 5 3.5",
+    into: "M6 3.5 10.5 8 6 12.5",
+    back: "M10 3.5 5.5 8 10 12.5",
+    top: "M3 3h10M8 13V6M4.5 9.5 8 6l3.5 3.5",
+    up: "M8 13V3M4 7l4-4 4 4",
+    down: "M8 3v10M4 9l4 4 4-4",
+    bottom: "M3 13h10M8 3v7M4.5 6.5 8 10l3.5-3.5",
+    select: "M3 3h10v10H3zM5.5 8l2 2 3.5-4",
+    out: "M9 3H3v10h6M7 8h6.5M11 5.5 13.5 8 11 10.5",
   };
 
   // A sticker is told apart by its shape and its name; the color only agrees.
@@ -239,7 +253,7 @@ const RETRO_FONTS = [
   // front of people and refuses nothing: a late note or vote is still taken.
   const STEPS = ["Write", "Group", "Vote", "Decide"];
   const HINTS = [
-    "Write what went well, what to improve and what puzzles you. The three dots on a note open its options: stickers, moving, actions.",
+    "Write what went well, what to improve and what puzzles you. The three dots on a note open its menu: edit it, add a sticker, start an action, move it.",
     "Drag a note onto another to group them, or select several and group them. Drag the important ones to the top.",
     "Vote each note up or down. One vote per person per note; press your thumb again to take it back.",
     "Agree on what to change and who owns it. Start an action from any note.",
@@ -344,7 +358,7 @@ const RETRO_FONTS = [
     "button{font:inherit;cursor:pointer}",
     "button:disabled{cursor:default}",
     ".btn{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:999px;font-size:14px;font-weight:700;line-height:20px;transition:box-shadow .15s,background-color .15s,opacity .15s}",
-    ".btn:disabled{opacity:.5}",
+    '.btn:disabled,.btn[aria-disabled="true"]{opacity:.5;cursor:default}',
     ".btn-primary,.btn-brass{border:0;padding:10px 20px;color:var(--color-accent-ink);box-shadow:var(--shadow-rest)}",
     ".btn-primary{background:var(--color-accent)}",
     ".btn-brass{background:var(--color-brass)}",
@@ -454,6 +468,9 @@ const RETRO_FONTS = [
     ".note-edit{position:relative;z-index:2;display:block;width:100%;margin:0;padding:6px 0;border:0;outline:0;background:transparent;color:inherit;font:inherit;resize:none;overflow:hidden;overflow-wrap:break-word}",
     ".edit-row{grid-column:2/-1;position:relative;z-index:2;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;padding:2px 0 6px}",
     ".edit-said{flex:1 1 6rem;font-size:12px;color:var(--color-ink-soft)}",
+    // The question has a line to itself, and its two answers the next.
+    ".edit-row.asking .edit-said{flex-basis:100%}",
+    ".edit-row .btn{white-space:nowrap}",
     ".note.editing .st.over{opacity:.2}",
     ".note.editing .add-st{display:none}",
     ".edited{font:11px/16px var(--mono);color:var(--color-ink-soft);margin-right:auto}",
@@ -463,7 +480,8 @@ const RETRO_FONTS = [
     ".grip,.more,.target{padding:0;border:0;border-radius:8px;background:transparent;color:var(--color-ink-faint);transition:background-color .15s,color .15s}",
     ".grip:hover,.more:hover,.target:hover{background:var(--color-felt-deep);color:var(--color-ink)}",
     ".grip{cursor:grab;touch-action:none}",
-    ".more{color:var(--color-ink-soft)}",
+    ".more{width:32px;color:var(--color-ink-soft)}",
+    '.more[aria-expanded="true"]{background:var(--color-felt-deep);color:var(--color-ink)}',
     ".target{color:var(--color-ink-soft)}",
     ".target.linked{display:inline-flex;align-items:center;gap:4px;width:auto;padding:0 6px;color:var(--color-brass);font-size:13px;font-weight:700}",
     ".lit{outline:2px solid var(--color-accent);outline-offset:1px}",
@@ -621,18 +639,35 @@ const RETRO_FONTS = [
 
     // Menus and sheets float in one layer that scrolls with the page.
     ".layer{position:absolute;top:0;left:0;z-index:3}",
-    ".pop{position:absolute;width:max-content;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow-y:auto;border:1px solid var(--color-line);border-radius:14px;background:var(--color-surface-hi);box-shadow:var(--shadow-lift);transform-origin:0 0}",
-    ".menu{display:flex;flex-direction:column;min-width:13rem;padding:6px}",
-    ".menu-item{display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:32px;padding:0 10px;border:0;border-radius:8px;background:transparent;color:var(--color-ink);text-align:left}",
-    ".menu-item:hover,.menu-item:focus-visible{background:var(--color-felt-deep)}",
+    ".pop{position:absolute;width:max-content;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow-y:auto;overscroll-behavior:contain;border:1px solid var(--color-line);border-radius:14px;background:var(--color-surface-hi);box-shadow:var(--shadow-lift);transform-origin:0 0}",
+    // A menu: a short title, rows with an icon and a shortcut, a strip of
+    // four small buttons for the order, and the one row that cannot be taken
+    // back alone under a rule, in the stop color.
+    ".menu{display:flex;flex-direction:column;min-width:15rem;padding:6px}",
+    ".menu-item{flex:none;display:flex;align-items:center;gap:10px;min-height:32px;padding:0 10px;border:0;border-radius:8px;background:transparent;color:var(--color-ink);text-align:left}",
+    ".menu-item svg,.menu-gap{flex:none;width:16px;color:var(--color-ink-soft)}",
+    ".menu-item .w{flex:1;min-width:0;overflow-wrap:anywhere}",
+    ".menu-item:hover,.menu-item:focus-visible,.strip button:hover,.strip button:focus-visible{background:var(--color-felt-deep)}",
     ".menu-item:focus-visible{outline-offset:-2px}",
-    '.menu-item[aria-disabled="true"]{color:var(--color-ink-faint)}',
-    ".keys{font:11px/16px var(--mono);color:var(--color-ink-faint)}",
+    '.menu-item[aria-disabled="true"],.menu-item[aria-disabled="true"] svg{color:var(--color-ink-faint)}',
+    ".menu-item.danger,.menu-item.danger svg{color:var(--color-stop)}",
+    ".menu-item.danger:hover,.menu-item.danger:focus-visible{background:color-mix(in srgb,var(--color-stop) 12%,var(--color-surface-hi))}",
+    ".menu-item.back{font-weight:700}",
+    ".menu-done{display:none}",
+    ".keys,.menu-kind{font:11px/16px var(--mono);color:var(--color-ink-faint)}",
+    ".menu-kind{color:var(--color-ink-soft)}",
+    ".sep{flex:none;height:1px;margin:6px 4px;background:var(--color-line)}",
+    ".strip{flex:none;display:flex;align-items:center;gap:4px;min-height:36px;padding:0 4px 0 10px}",
+    ".strip .w{flex:1;display:flex;flex-direction:column}",
+    ".strip .w .keys{line-height:14px}",
+    ".strip button{display:grid;place-items:center;width:32px;height:32px;padding:0;border:1px solid var(--color-line-strong);border-radius:8px;background:transparent;color:var(--color-ink)}",
+    '.strip button[aria-disabled="true"]{color:var(--color-ink-faint);border-color:var(--color-line)}',
+    ".off-why{max-width:15rem;padding:2px 10px 6px;font-size:12px;line-height:16px;color:var(--color-ink-soft)}",
     ".sheet{display:flex;flex-direction:column;gap:10px;width:20rem;padding:14px}",
     ".sheet .row .field{flex:1 1 4rem;padding:5px 10px}",
     // A sheet is a column: its fields take the height they need, no more.
     ".sheet .stack{flex:none}",
-    ".menu-title{padding:4px 10px 6px}",
+    ".menu-title{max-width:15rem;padding:6px 10px 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
     ".menu-note{max-width:15rem;padding:4px 10px 6px}",
     // The sticker book: two sheets of the same seven, with what they mean
     // written once, between them.
@@ -664,7 +699,7 @@ const RETRO_FONTS = [
     ".link-list li{display:flex;flex-wrap:wrap;align-items:center;gap:8px}",
     ".link-list span{flex:1 1 5rem;min-width:0;overflow-wrap:anywhere}",
 
-    "@media (pointer:coarse){.btn,.menu-item,.stage-2 .rate{min-height:44px}.pick,.grip,.more{width:44px;height:44px}.stage-3 .target{min-width:44px;height:44px}.board:not(.stage-2) .rate,.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.trail,.chips{min-height:44px}.chips{padding-bottom:0}.note-text{padding:12px 0}" +
+    "@media (pointer:coarse){.btn,.menu-item,.stage-2 .rate{min-height:44px}.pick,.grip,.more{width:44px;height:44px}.stage-3 .target{min-width:44px;height:44px}.board:not(.stage-2) .rate,.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.strip button{width:44px;height:44px}.trail,.chips{min-height:44px}.chips{padding-bottom:0}.note-text{padding:12px 0}" +
       // What is drawn smaller than a fingertip is still pressed over 44px.
       '.rate,.target{position:relative;justify-content:center;min-width:44px}.board:not(.stage-2) .rate::after,.board:not(.stage-3) .target::after{content:"";position:absolute;inset:-7px -1px}.st::after{content:"";position:absolute;inset:-1px}.add-st::after{content:"";position:absolute;inset:-7px}}',
 
@@ -708,6 +743,15 @@ const RETRO_FONTS = [
     '.book-pop::before{content:"";flex:none;width:36px;height:4px;margin:0 auto;border-radius:2px;background:var(--color-line-strong)}',
     ".choice{height:52px}",
     ".scrim{display:block;position:fixed;inset:0;background:rgb(var(--sh)/.35)}",
+    // A menu is a sheet along the bottom edge too, with rows a thumb can
+    // press, no shortcuts, and a way out in sight.
+    ".pop.menu{left:0!important;right:0;bottom:0;max-height:76vh;padding:8px 10px calc(14px + env(safe-area-inset-bottom,0px));border-width:1px 0 0;border-radius:20px 20px 0 0}",
+    '.pop.menu::before{content:"";flex:none;align-self:center;width:36px;height:4px;margin:0 0 6px;border-radius:2px;background:var(--color-line-strong)}',
+    ".menu-item{min-height:48px;font-size:15px}",
+    ".menu-title,.off-why{max-width:none}",
+    ".strip{min-height:52px}.strip button{width:46px;height:44px}",
+    ".menu .keys{display:none}",
+    ".menu-done{display:flex;justify-content:center;margin-top:6px;border:1px solid var(--color-line-strong);font-weight:700}",
     ".book-done{display:block;align-self:flex-end;min-width:88px;min-height:44px}",
     "}",
     "@media (max-width:340px){.book-pop{padding-inline:4px}.book{padding:6px 2px}}",
@@ -761,13 +805,14 @@ const RETRO_FONTS = [
     return node;
   }
 
-  function icon(d) {
+  // `width` is the line's, for the few glyphs that are not drawn at 1.75.
+  function icon(d, width) {
     const NS = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(NS, "svg");
     const path = document.createElementNS(NS, "path");
     const attrs = { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true" };
     for (const key in attrs) svg.setAttribute(key, attrs[key]);
-    const stroke = { d: d, stroke: "currentColor", "stroke-width": 1.75, "stroke-linecap": "round", "stroke-linejoin": "round" };
+    const stroke = { d: d, stroke: "currentColor", "stroke-width": width || 1.75, "stroke-linecap": "round", "stroke-linejoin": "round" };
     for (const key in stroke) path.setAttribute(key, stroke[key]);
     svg.appendChild(path);
     return svg;
@@ -1234,7 +1279,7 @@ const RETRO_FONTS = [
     // The frame cannot see how far the host page is scrolled, so the sheet
     // asks to be brought into sight.
     if (node.scrollIntoView) node.scrollIntoView({ block: "nearest" });
-    if (motionOn()) animate(node, { transform: "translateY(-6px) scale(.97)", opacity: 0 }, POP);
+    if (motionOn()) animate(node, { transform: node.rises ? "translateY(40px)" : "translateY(-6px) scale(.97)", opacity: 0 }, POP);
   }
 
   function tabStops(node, found) {
@@ -1247,17 +1292,25 @@ const RETRO_FONTS = [
     return found;
   }
 
-  // Under its control, or above it when there is no room below; never off
-  // either side. The layer scrolls with the page, so it stays put.
+  // Under its control; above it when there is no room below; and, with room
+  // on neither side, as low as it can go and still be whole. It is never off
+  // an edge of the frame. A menu hangs from the right edge of its button, so
+  // it does not lie over the next lane. The layer scrolls with the page, so
+  // it stays put.
   function placePop() {
     if (!pop) return;
     const a = rectOf(pop.anchor);
     const width = pop.el.offsetWidth || 0;
     const height = pop.el.offsetHeight || 0;
-    const below = a.bottom + 6 + height <= (window.innerHeight || 0) || a.top - 6 - height < 0;
-    const left = Math.max(8, Math.min(a.left, (window.innerWidth || 0) - width - 8));
+    const high = window.innerHeight || 0;
+    const menu = pop.el.getAttribute("role") === "menu";
+    const below = a.bottom + 6 + height <= high - 8;
+    const above = !below && a.top - 6 - height >= 8;
+    const top = below ? a.bottom + 6 : above ? a.top - 6 - height : Math.max(8, high - 8 - height);
+    const left = Math.max(8, Math.min(menu ? a.right - width : a.left, (window.innerWidth || 0) - width - 8));
     pop.el.style.left = left + (window.scrollX || 0) + "px";
-    pop.el.style.top = (below ? a.bottom + 6 : a.top - 6 - height) + (window.scrollY || 0) + "px";
+    pop.el.style.top = top + (window.scrollY || 0) + "px";
+    pop.el.style.transformOrigin = (menu ? "100% " : "0 ") + (above ? "100%" : "0");
   }
 
   function closePop(refocus) {
@@ -1268,7 +1321,9 @@ const RETRO_FONTS = [
     layer.removeChild(was.el);
     if (was.under) layer.removeChild(was.under);
     setBehind(false);
-    if (refocus) was.anchor.focus();
+    // Focus goes back to where it came from, which is not always the control
+    // the popover hangs from.
+    if (refocus) (was.back && was.back.isConnected ? was.back : was.anchor).focus();
   }
 
   // While something floats over the board, the board under it is inert: a
@@ -1290,50 +1345,214 @@ const RETRO_FONTS = [
     });
   }
 
-  // A menu is a list of { label, keys, run }. `off` holds the reason an item
-  // cannot be used just now, which is said when it is chosen; `stay` keeps
-  // the menu open, for an item that is pressed several times running. `title`
-  // is shown above the items and `note` under them.
-  function openMenu(anchor, label, items, title, note) {
+  // A menu is a list of rows, and a row is one of four things:
+  //
+  //   { label, icon, keys, kind, off, danger, stay, run }   an item
+  //   { sep: true }                                         a rule
+  //   { strip, keys, off, items }                           small buttons on one line
+  //   { label, icon, title, sub }                           a step in: `sub` is the rows shown instead, under a Back row
+  //
+  // `off` holds the reason an item cannot be used just now: it is written
+  // under the item and said when the item is chosen. `stay` keeps the menu
+  // open, as a strip's buttons always do, for what is pressed several times
+  // running. `rows` may be a function, and is then asked again whenever the
+  // board changes, so an open menu is never about a board that has gone.
+  // `title` is shown above the rows and `note` under them.
+  let whys = 0;
+
+  function openMenu(anchor, label, rows, title, note) {
     const menu = el("div", { class: "pop menu", role: "menu", "aria-label": label });
-    if (title) menu.appendChild(el("p", { class: "label menu-title", "aria-hidden": "true", text: title }));
-    const buttons = items.map(function (item) {
-      const row = el("button", { type: "button", class: "menu-item", role: "menuitem", tabindex: -1 }, [el("span", { text: item.label })]);
-      if (item.keys) row.appendChild(el("span", { class: "keys", "aria-hidden": "true", text: item.keys }));
-      if (item.off) row.setAttribute("aria-disabled", "true");
-      row.addEventListener("click", function () {
-        if (item.off) {
-          notify(item.off);
+    const rowsNow = typeof rows === "function" ? rows : function () { return rows; };
+    const phone = !!(window.matchMedia && window.matchMedia("(max-width:480px)").matches);
+    // The label of the row that was stepped into, or null at the top.
+    let step = null;
+    // The buttons, row by row: a strip is one row. And all of them in order.
+    let grid = [];
+    let flat = [];
+    let drawn = "";
+
+    function specNow() {
+      const top = rowsNow();
+      const from = top.filter(function (row) {
+        return row.sub && row.label === step;
+      })[0];
+      if (!from) step = null;
+      return { rows: from ? from.sub() : top, back: from ? from.title || from.label : "", title: typeof title === "function" ? title() : title };
+    }
+
+    function sigOf(spec) {
+      return JSON.stringify(spec, function (key, value) {
+        return typeof value === "function" ? 1 : value;
+      });
+    }
+
+    function choose(row) {
+      if (row.off) {
+        notify(row.off);
+        return;
+      }
+      if (row.sub) {
+        step = row.label;
+        draw(1);
+        return;
+      }
+      if (!row.stay) closePop(true);
+      row.run();
+    }
+
+    function button(row, attrs, kids) {
+      const btn = el("button", Object.assign({ type: "button", role: "menuitem", tabindex: -1 }, attrs), kids);
+      if (row.off) btn.setAttribute("aria-disabled", "true");
+      btn.addEventListener("click", function () {
+        choose(row);
+      });
+      flat.push({ el: btn, label: row.label });
+      return btn;
+    }
+
+    function why(off, btns) {
+      const said = el("p", { id: "menu-why-" + ++whys, class: "off-why", text: off });
+      btns.forEach(function (btn) {
+        btn.setAttribute("aria-describedby", said.id);
+      });
+      menu.appendChild(said);
+    }
+
+    function stepBack() {
+      const from = step;
+      step = null;
+      draw(from);
+    }
+
+    // `want` is the row to put focus on: its label, or its place.
+    function draw(want) {
+      const spec = specNow();
+      drawn = sigOf(spec);
+      while (menu.lastChild) menu.removeChild(menu.lastChild);
+      grid = [];
+      flat = [];
+      const iconed = spec.rows.some(function (row) {
+        return row.icon;
+      });
+      if (spec.back) {
+        const back = button({ label: "Back", stay: true, run: stepBack }, { class: "menu-item back", "aria-label": "Back" }, [icon(GLYPH.back), el("span", { class: "w", text: spec.back })]);
+        menu.appendChild(back);
+        grid.push([back]);
+      } else if (spec.title) menu.appendChild(el("p", { class: "label menu-title", "aria-hidden": "true", text: spec.title }));
+      spec.rows.forEach(function (row, i) {
+        if (row.sep) {
+          // A rule stands between two things, never first, last or twice.
+          const next = spec.rows[i + 1];
+          if (grid.length > (spec.back ? 1 : 0) && next && !next.sep) menu.appendChild(el("div", { class: "sep", role: "separator" }));
           return;
         }
-        if (!item.stay) closePop(true);
-        item.run();
+        if (row.strip) {
+          const btns = row.items.map(function (item) {
+            return button({ label: item.label, off: row.off, stay: true, run: item.run }, { "aria-label": item.label, title: item.label + " (" + item.keys + ")" }, [icon(item.icon)]);
+          });
+          const name = el("span", { class: "w" }, [el("span", { text: row.strip }), el("span", { class: "keys", "aria-hidden": "true", text: row.keys })]);
+          menu.appendChild(el("div", { class: "strip", role: "group", "aria-label": row.strip }, [name].concat(btns)));
+          grid.push(btns);
+          if (row.off) why(row.off, btns);
+          return;
+        }
+        const kids = [el("span", { class: "w", text: row.label })];
+        if (row.icon) kids.unshift(icon(row.icon));
+        else if (iconed) kids.unshift(el("span", { class: "menu-gap" }));
+        if (row.keys) kids.push(el("span", { class: "keys", "aria-hidden": "true", text: row.keys }));
+        if (row.kind) kids.push(el("span", { class: "menu-kind", text: row.kind }));
+        if (row.sub) kids.push(icon(GLYPH.into));
+        const btn = button(row, { class: "menu-item" + (row.danger ? " danger" : "") }, kids);
+        if (row.sub) btn.setAttribute("aria-haspopup", "menu");
+        menu.appendChild(btn);
+        grid.push([btn]);
+        if (row.off) why(row.off, [btn]);
       });
-      menu.appendChild(row);
-      return row;
-    });
+      if (note) menu.appendChild(el("p", { class: "fine menu-note", text: note }));
+      // On a phone the menu is a sheet, and a sheet has a way out in sight.
+      if (phone) {
+        const done = button({ label: "Done", run: function () {} }, { class: "menu-item menu-done" }, [el("span", { text: "Done" })]);
+        menu.appendChild(done);
+        grid.push([done]);
+      }
+      if (pop && pop.el === menu) placePop();
+      if (want === undefined || !flat.length) return;
+      const named = flat.filter(function (f) {
+        return f.label === want;
+      })[0];
+      (named || flat[Math.min(typeof want === "number" ? want : 0, flat.length - 1)]).el.focus({ preventScroll: true });
+    }
+
     menu.addEventListener("keydown", function (ev) {
-      const at = buttons.indexOf(document.activeElement);
-      const n = buttons.length;
-      let to = -1;
-      if (ev.key === "ArrowDown") to = (at + 1) % n;
-      else if (ev.key === "ArrowUp") to = (at - 1 + n) % n;
-      else if (ev.key === "Home") to = 0;
-      else if (ev.key === "End") to = n - 1;
-      else if (ev.key === "Tab") closePop(true);
-      else if (ev.key.length === 1) {
+      const held = document.activeElement;
+      const n = grid.length;
+      if (!n) return;
+      let r = -1;
+      let c = 0;
+      grid.forEach(function (row, i) {
+        if (row.indexOf(held) === -1) return;
+        r = i;
+        c = row.indexOf(held);
+      });
+      const key = ev.key;
+      const across = r !== -1 && grid[r].length > 1;
+      let to = null;
+      if (key === "ArrowDown") to = grid[(r + 1) % n][0];
+      else if (key === "ArrowUp") to = grid[(Math.max(r, 0) - 1 + n) % n][0];
+      else if (key === "Home") to = grid[0][0];
+      else if (key === "End") to = grid[n - 1][0];
+      else if (across && (key === "ArrowRight" || key === "ArrowLeft")) to = grid[r][(c + (key === "ArrowRight" ? 1 : grid[r].length - 1)) % grid[r].length];
+      else if (key === "ArrowRight" && held.getAttribute && held.getAttribute("aria-haspopup") === "menu" && contains(menu, held)) {
+        ev.preventDefault();
+        held.click();
+        return;
+      } else if ((key === "ArrowLeft" || key === "Escape") && step !== null) {
+        // One level at a time: out of the step first, then out of the menu.
+        ev.preventDefault();
+        ev.stopPropagation();
+        stepBack();
+        return;
+      } else if (key === "Tab" && phone) {
+        // A sheet keeps Tab inside itself, as the other sheets do.
+        const at = flat.findIndex(function (f) {
+          return f.el === held;
+        });
+        to = flat[(Math.max(at, 0) + (ev.shiftKey ? flat.length - 1 : 1)) % flat.length].el;
+      } else if (key === "Tab") {
+        closePop(true);
+        return;
+      } else if (key.length === 1 && key !== " " && !ev.altKey && !ev.ctrlKey && !ev.metaKey) {
         // Type a letter to reach the next item that starts with it.
-        for (let i = 1; i <= n && to === -1; i++) {
-          if (items[(at + i) % n].label.toLowerCase().indexOf(ev.key.toLowerCase()) === 0) to = (at + i) % n;
+        const at = flat.findIndex(function (f) {
+          return f.el === held;
+        });
+        for (let i = 1; i <= flat.length && !to; i++) {
+          const item = flat[(at + i) % flat.length];
+          if (item.label.toLowerCase().indexOf(key.toLowerCase()) === 0) to = item.el;
         }
       }
-      if (to === -1) return;
+      if (!to) return;
       ev.preventDefault();
-      buttons[to].focus();
+      to.focus();
     });
-    if (note) menu.appendChild(el("p", { class: "fine menu-note", text: note }));
-    openPop(anchor, menu);
-    buttons[0].focus();
+    draw();
+    menu.rises = phone;
+    // The board changed under the menu: the rows are asked for again, and
+    // drawn again only if they differ, with focus on the row it was on.
+    openPop(anchor, menu, function () {
+      const at = flat.findIndex(function (f) {
+        return f.el === document.activeElement;
+      });
+      if (sigOf(specNow()) === drawn) return;
+      const want = at === -1 ? undefined : flat[at].label;
+      draw(want);
+      // The row focus was on is gone: the one now in its place takes it.
+      if (at !== -1 && !contains(menu, document.activeElement) && flat.length) flat[Math.min(at, flat.length - 1)].el.focus({ preventScroll: true });
+    });
+    // On a phone the menu is a sheet along the bottom, over a scrim.
+    pop.under = el("div", { class: "scrim", "aria-hidden": "true" });
+    layer.insertBefore(pop.under, menu);
+    if (flat.length) flat[0].el.focus({ preventScroll: true });
   }
 
   // Deleting cannot be taken back, so it is asked about. The sheet opens with
@@ -1650,7 +1869,12 @@ const RETRO_FONTS = [
     stageNav.hidden = viewerRole() === "participant";
     stageNext.hidden = stage === STEPS.length - 1;
     stageBack.hidden = stage === 0;
-    stageNext.disabled = stageBack.disabled = staging;
+    // Not `disabled`: a button that is disabled while it has focus drops it,
+    // and the facilitator who changed the stage with a key would be nowhere.
+    [stageNext, stageBack].forEach(function (btn) {
+      if (staging) btn.setAttribute("aria-disabled", "true");
+      else btn.removeAttribute("aria-disabled");
+    });
     if (!stageNext.hidden) setText(stageNextWord, "Move to " + STEPS[stage + 1]);
     if (!stageBack.hidden) {
       setText(stageBackTo, " to " + STEPS[stage - 1]);
@@ -2301,7 +2525,7 @@ const RETRO_FONTS = [
       voting: false,
       box: el("input", { type: "checkbox" }),
       grip: el("button", { type: "button", class: "grip", "aria-describedby": "grip-help" }, [icon(GLYPH.grip)]),
-      more: el("button", { type: "button", class: "more", "aria-haspopup": "menu" }, [icon(GLYPH.dots)]),
+      more: el("button", { type: "button", class: "more", "aria-haspopup": "menu", title: "Options" }, [icon(GLYPH.dots, 3)]),
       // The words are a stop for the Tab key: it is from here, and not from a
       // button, that the note's single-letter keys are heard.
       text: el("p", { class: "note-text", dir: "auto", tabindex: 0 }),
@@ -2401,9 +2625,11 @@ const RETRO_FONTS = [
       // S opens the stickers.
       if (plain && (ev.key === "s" || ev.key === "S")) {
         ev.preventDefault();
-        openStamps(id, note.add.hidden ? note.more : note.add);
+        openStamps(id, note.add.hidden ? note.more : note.add, note.text);
         return;
       }
+      // A note whose editor is open is not moved by a key, from any control in it.
+      if (editing && editing.id === id) return;
       const way = ev.altKey && ARROWS[ev.key];
       if (!way) return;
       ev.preventDefault();
@@ -2569,102 +2795,137 @@ const RETRO_FONTS = [
 
   const notMyNotes = bag();
 
-  function openNoteMenu(id, opener) {
+  // The four ways a thing goes up and down its lane: the strip in a menu,
+  // and the keys that do the same.
+  const WAYS = [["top", "Move to top", "Alt+Shift+Up"], ["up", "Move up", "Alt+Up"], ["down", "Move down", "Alt+Down"], ["bottom", "Move to bottom", "Alt+Shift+Down"]];
+
+  function reorderStrip(off, word, move) {
+    return {
+      strip: "Reorder",
+      keys: "Alt+arrows",
+      off: off,
+      items: WAYS.map(function (way) {
+        return {
+          label: way[1].replace("Move", word),
+          icon: GLYPH[way[0]],
+          keys: way[2],
+          run: function () {
+            move(way[0]);
+          },
+        };
+      }),
+    };
+  }
+
+  // Voting is not here: the thumbs are on the note, and U and D are the keys.
+  function noteRows(id, opener) {
     const card = cardById(id);
     const note = view.notes[id];
+    if (!card || !note) return [];
     const off = view.lanes[card.columnId].sorted ? SORTED_OFF : "";
     const linked = actionsFrom(id).length;
-    const items = [];
-    [["up", "U"], ["down", "D"]].forEach(function (way) {
-      items.push({
-        label: note.mine === way[0] ? "Take back your " + way[0] + " vote" : "Vote " + way[0],
-        keys: way[1],
+    const pressed = pileOf(id).length;
+    const rows = [
+      {
+        label: "Edit note…",
+        icon: GLYPH.edit,
+        keys: "E",
+        off: notMineNote(id) ? ONLY_AUTHOR_EDITS : "",
         run: function () {
-          castVote(id, way[0]);
+          editNote(id);
         },
-      });
-    });
-    items.push({
-      label: "Add a sticker…",
-      keys: "S",
-      run: function () {
-        openStamps(id, opener);
       },
-    });
-    const pressed = board.stamps.filter(function (s) {
-      return s.cardId === id;
-    }).length;
-    if (pressed) {
-      items.push({
-        label: "Stickers on this note (" + pressed + ")…",
+      // With stickers on the note, the row opens the list of them, which
+      // also adds one; S opens the book either way.
+      pressed
+        ? {
+            label: "Stickers (" + pressed + ")…",
+            icon: GLYPH.sticker,
+            run: function () {
+              openStampList(id, opener);
+            },
+          }
+        : {
+            label: "Add a sticker…",
+            icon: GLYPH.sticker,
+            keys: "S",
+            run: function () {
+              openStamps(id, opener);
+            },
+          },
+      {
+        label: linked ? "Actions from this note (" + linked + ")…" : "Start an action…",
+        icon: GLYPH.target,
         run: function () {
-          openStampList(id, opener);
+          openLinks(id, opener);
+        },
+      },
+    ];
+    // Where the checkbox is showing, it is the way to select.
+    if (note.pick.hidden) {
+      rows.push({
+        label: "Select to group",
+        icon: GLYPH.select,
+        run: function () {
+          selected[id] = true;
+          patchSelection();
+          leadOf(note).focus();
         },
       });
     }
-    items.push({
-      label: linked ? "Actions from this note (" + linked + ")…" : "Start an action from this note…",
-      run: function () {
-        openLinks(id, opener);
-      },
-    });
-    items.push({
-      label: selected[id] ? "Deselect" : "Select to group",
-      run: function () {
-        selected[id] = !selected[id];
-        patchSelection();
-        leadOf(note).focus();
-      },
-    });
-    if (card.groupId) {
-      items.push({
-        label: "Take out of group",
-        off: off,
-        run: function () {
-          sendMove("move-card", { cardId: id, groupId: null }, "Taken out of its group.");
+    rows.push(
+      { sep: true },
+      reorderStrip(off, "Move", function (way) {
+        moveNote(id, way);
+      }),
+    );
+    // Everywhere else the note can go, one step in: out of its group, the
+    // other lanes, the other groups.
+    const places = [];
+    const group = card.groupId && groupById(card.groupId);
+    if (group) {
+      places.push(
+        {
+          label: "Out of “" + group.title + "”",
+          icon: GLYPH.out,
+          off: off,
+          run: function () {
+            sendMove("move-card", { cardId: id, groupId: null }, "Taken out of its group.");
+          },
         },
-      });
+        { sep: true },
+      );
     }
-    [["up", "Move up", "Alt+Up"], ["down", "Move down", "Alt+Down"], ["top", "Move to top", "Alt+Shift+Up"], ["bottom", "Move to bottom", "Alt+Shift+Down"]].forEach(function (way) {
-      items.push({
-        label: way[1],
-        keys: way[2],
-        off: off,
-        run: function () {
-          moveNote(id, way[0]);
-        },
-      });
-    });
     board.columns.forEach(function (col) {
       if (col.id === card.columnId) return;
-      items.push({
-        label: "Move to " + col.title,
+      places.push({
+        label: col.title,
+        kind: "lane",
         run: function () {
           toLane("note", id, col.id);
         },
       });
     });
-    const groups = board.groups.filter(function (g) {
-      return g.id !== card.groupId;
-    });
-    if (groups.length) {
-      items.push({
-        label: "Add to group…",
+    places.push({ sep: true });
+    board.groups.forEach(function (g) {
+      if (g.id === card.groupId) return;
+      places.push({
+        label: g.title,
+        kind: g.columnId === card.columnId ? "group" : "group in " + columnTitle(g.columnId),
         run: function () {
-          openMenu(
-            opener,
-            "Add to group",
-            groups.map(function (g) {
-              return {
-                label: g.title + (g.columnId === card.columnId ? "" : " (" + columnTitle(g.columnId) + ")"),
-                run: function () {
-                  sendMove("move-card", { cardId: id, groupId: g.id }, function () {
-                    return placeSaid("note", id);
-                  });
-                },
-              };
-            }),
-          );
+          sendMove("move-card", { cardId: id, groupId: g.id }, function () {
+            return placeSaid("note", id);
+          });
+        },
+      });
+    });
+    if (places.some(function (row) { return !row.sep; })) {
+      rows.push({
+        label: "Move to…",
+        title: "Move to",
+        icon: GLYPH.move,
+        sub: function () {
+          return places;
         },
       });
     }
@@ -2673,25 +2934,36 @@ const RETRO_FONTS = [
     // and the server answers. After the reveal the board does know.
     // A note the server has already said is somebody else's stays that way
     // for the visit.
-    items.push({
-      label: "Edit note\u2026",
-      keys: "E",
-      off: notMineNote(id) ? ONLY_AUTHOR_EDITS : "",
-      run: function () {
-        editNote(id);
-      },
-    });
     const others = (viewerRole() !== "facilitator" && notMyNotes[id]) || (board.revealed && card.authorId && viewerRole() === "participant" && card.authorId !== session.selfId);
-    items.push({
-      label: "Delete note…",
-      off: others ? ONLY_AUTHOR : "",
-      run: function () {
-        openConfirm(opener, "Delete this note?", "Its votes, stickers and links to actions go with it. This cannot be undone.", "Delete note", function () {
-          deleteNote(id);
-        });
+    rows.push(
+      { sep: true },
+      {
+        label: "Delete note…",
+        icon: GLYPH.trash,
+        danger: true,
+        off: others ? ONLY_AUTHOR : "",
+        run: function () {
+          openConfirm(opener, "Delete this note?", "Its votes, stickers and links to actions go with it. This cannot be undone.", "Delete note", function () {
+            deleteNote(id);
+          });
+        },
       },
-    });
-    openMenu(opener, "Options for note: " + short(card.text), items);
+    );
+    return rows;
+  }
+
+  function openNoteMenu(id, opener) {
+    openMenu(
+      opener,
+      "Options for note: " + short(cardById(id).text),
+      function () {
+        return noteRows(id, opener);
+      },
+      function () {
+        const card = cardById(id);
+        return card ? card.text : "";
+      },
+    );
   }
 
   // ---------------------------------------------------------------- editing
@@ -2802,6 +3074,7 @@ const RETRO_FONTS = [
     e.cancel.disabled = e.sending;
     setText(e.save, e.asking ? "Keep editing" : "Save");
     setText(e.cancel, e.asking ? "Discard" : "Cancel");
+    e.row.classList.toggle("asking", e.asking);
     setText(e.said, e.asking ? "Discard changes?" : e.sending ? "Saving\u2026" : empty ? "A note needs words. To remove it, use Delete in its menu." : room <= 100 ? plural(room, "character") + " left" : "");
     e.said.hidden = !e.said.textContent;
     // As tall as its words, like the paragraph it stands in for.
@@ -2906,7 +3179,7 @@ const RETRO_FONTS = [
   function buildGroup(id) {
     const group = {
       grip: el("button", { type: "button", class: "grip", "aria-describedby": "grip-help" }, [icon(GLYPH.grip)]),
-      more: el("button", { type: "button", class: "more", "aria-haspopup": "menu" }, [icon(GLYPH.dots)]),
+      more: el("button", { type: "button", class: "more", "aria-haspopup": "menu", title: "Options" }, [icon(GLYPH.dots, 3)]),
       title: el("h3", { tabindex: -1, dir: "auto" }),
       meta: el("p", { class: "group-meta" }),
       target: el("button", { type: "button", class: "target", "aria-haspopup": "dialog" }, [icon(GLYPH.target)]),
@@ -2917,37 +3190,57 @@ const RETRO_FONTS = [
     group.head = el("div", { class: "group-head" }, [group.grip, el("div", { class: "group-title" }, [group.title, group.meta]), group.target, group.more]);
     group.el = el("li", { class: "group" }, [group.head, group.list]);
 
-    const ways = [["up", "Move group up", "Alt+Up"], ["down", "Move group down", "Alt+Down"], ["top", "Move group to top", "Alt+Shift+Up"], ["bottom", "Move group to bottom", "Alt+Shift+Down"]];
     toggles(group.more, function () {
-      const g = groupById(id);
-      const off = view.lanes[g.columnId].sorted ? SORTED_OFF : "";
-      const linked = actionsFrom(id).length;
-      const items = ways.map(function (way) {
-        return {
-          label: way[1],
-          keys: way[2],
-          off: off,
-          run: function () {
-            moveGroup(id, way[0]);
-          },
-        };
-      });
-      items.unshift({
-        label: linked ? "Actions from this group (" + linked + ")…" : "Start an action from this group…",
-        run: function () {
-          openLinks(id, group.more);
+      openMenu(
+        group.more,
+        "Options for group: " + groupById(id).title,
+        function () {
+          const g = groupById(id);
+          if (!g) return [];
+          const linked = actionsFrom(id).length;
+          const lanes = board.columns
+            .filter(function (col) {
+              return col.id !== g.columnId;
+            })
+            .map(function (col) {
+              return {
+                label: col.title,
+                kind: "lane",
+                run: function () {
+                  toLane("group", id, col.id);
+                },
+              };
+            });
+          const rows = [
+            {
+              label: linked ? "Actions from this group (" + linked + ")…" : "Start an action…",
+              icon: GLYPH.target,
+              run: function () {
+                openLinks(id, group.more);
+              },
+            },
+            { sep: true },
+            reorderStrip(view.lanes[g.columnId].sorted ? SORTED_OFF : "", "Move group", function (way) {
+              moveGroup(id, way);
+            }),
+          ];
+          if (lanes.length) {
+            rows.push({
+              label: "Move to…",
+              title: "Move group to",
+              icon: GLYPH.move,
+              sub: function () {
+                return lanes;
+              },
+            });
+          }
+          return rows;
         },
-      });
-      board.columns.forEach(function (col) {
-        if (col.id === g.columnId) return;
-        items.push({
-          label: "Move group to " + col.title,
-          run: function () {
-            toLane("group", id, col.id);
-          },
-        });
-      });
-      openMenu(group.more, "Options for group: " + g.title, items);
+        function () {
+          const g = groupById(id);
+          return g ? g.title : "";
+        },
+      );
     });
     saysHowToMove(group.grip, group);
     drags(group.grip, "group", id);
@@ -3659,6 +3952,10 @@ const RETRO_FONTS = [
         return placeSaid(d.kind, d.id);
       });
     }
+    // Moving a node drops its focus. It goes to the handle of what was
+    // carried, so the keyboard carries on from there; the page is not scrolled.
+    const carried = group ? view.groups[d.id] : view.notes[d.id];
+    if (carried && document.activeElement === document.body) carried.grip.focus({ preventScroll: true });
     // It comes to rest from where the copy was let go.
     if (motionOn()) {
       const to = rectOf(d.node);
@@ -3843,6 +4140,36 @@ const RETRO_FONTS = [
     return { left: box.left, top: box.top, width: box.width || 240, height: box.height || 44, kept: kept, lines: linesOf(note, box) };
   }
 
+  // Where the note's controls are, from the note's corner: the handle with
+  // the checkbox, and the menu button. With the checkbox hidden, the room it
+  // takes when it is shown is counted too (under the handle in a narrow lane,
+  // beside it otherwise), so a sticker placed in one stage is not on a
+  // checkbox in the next.
+  function controlsOf(cardId, note, box) {
+    const card = cardById(cardId);
+    const fine = !(window.matchMedia && window.matchMedia("(pointer:coarse)").matches);
+    return [note.grip.parentNode, note.more]
+      .map(function (node, i) {
+        const r = rectOf(node);
+        const grow = i === 0 && note.pick.hidden;
+        const grip = grow ? rectOf(note.grip) : r;
+        const stacked = fine && card && lanesNarrow[card.columnId];
+        return { left: r.left - box.left, top: r.top - box.top, right: r.right - box.left + (grow && !stacked ? grip.width : 0), bottom: r.bottom - box.top + (grow && stacked ? grip.height : 0), width: r.width };
+      })
+      .filter(function (r) {
+        return r.width > 0;
+      });
+  }
+
+  // Whether a sticker centered on a point would be on, or within 6px of, a
+  // control: that is the room a small target needs around it.
+  function onControls(point, half, controls) {
+    const r = half + 6;
+    return (controls || []).some(function (c) {
+      return point[0] + r > c.left && point[0] - r < c.right && point[1] + r > c.top && point[1] - r < c.bottom;
+    });
+  }
+
   // Where the words of a note are, line by line, from the note's corner:
   // each box is as wide as the words on that line, not as the paragraph.
   function linesOf(note, box) {
@@ -3971,10 +4298,16 @@ const RETRO_FONTS = [
   function freeSpot(cardId, box, kind) {
     const there = centersOn(cardId, box);
     const half = halfOf(kind);
-    const clear = slots(box.width, box.height, box.kept).filter(function (p) {
+    // Never on a control; then, of what is left, clear of the words.
+    const controls = controlsOf(cardId, view.notes[cardId], box);
+    const every = slots(box.width, box.height, box.kept);
+    const safe = every.filter(function (p) {
+      return !onControls(p, half, controls);
+    });
+    const clear = safe.filter(function (p) {
       return !onWords(p, half, box.lines || []);
     });
-    const places = clear.length ? clear : slots(box.width, box.height, box.kept).slice(0, 1);
+    const places = clear.length ? clear : (safe.length ? safe : every).slice(0, 1);
     let spot = places.filter(function (p) {
       return !there.some(function (c) {
         return Math.hypot(c[0] - p[0], c[1] - p[1]) < 14;
@@ -3983,7 +4316,7 @@ const RETRO_FONTS = [
     if (!spot) {
       const base = places[there.length % places.length];
       spot = [base[0] + Math.random() * 6 - 3, base[1] - Math.random() * 4];
-      if (onWords(spot, half, box.lines || [])) spot = base;
+      if (onWords(spot, half, box.lines || []) || onControls(spot, half, controls)) spot = base;
     }
     return fractionAt(spot[0], spot[1], box);
   }
@@ -4611,7 +4944,9 @@ const RETRO_FONTS = [
   // The sticker book: two sheets of the same seven stickers, vinyl and
   // pixel, with what they mean written once between them. The marked sheet
   // is the one the keys 1 to 7 place from.
-  function openStamps(cardId, opener) {
+  // `back` is where focus goes when the book closes, when that is not the
+  // control it hangs from: S is pressed on the note's words.
+  function openStamps(cardId, opener, back) {
     const card = cardById(cardId);
     const leaves = bag();
     let off = false;
@@ -4723,6 +5058,7 @@ const RETRO_FONTS = [
     patch();
     sheet.ownTab = true;
     openPop(opener, sheet, patch);
+    pop.back = back;
     // On a phone the book is a sheet along the bottom, over a scrim.
     pop.under = el("div", { class: "scrim", "aria-hidden": "true" });
     layer.insertBefore(pop.under, sheet);
@@ -4781,7 +5117,12 @@ const RETRO_FONTS = [
       const first = tabStops(list, [])[0];
       if (held || document.activeElement === document.body) (first || note).focus();
     };
-    const sheet = el("div", { class: "pop sheet", role: "dialog", "aria-label": "Stickers on: " + short(card.text) }, [el("p", { class: "label", text: "Stickers on this note" }), list, note]);
+    const add = el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Add a sticker\u2026" });
+    add.addEventListener("click", function () {
+      closePop(false);
+      openStamps(cardId, opener);
+    });
+    const sheet = el("div", { class: "pop sheet", role: "dialog", "aria-label": "Stickers on: " + short(card.text) }, [el("p", { class: "label", text: "Stickers on this note" }), list, note, el("div", { class: "row" }, [add])]);
     openPop(opener, sheet, fill);
     fill();
   }
@@ -5212,7 +5553,7 @@ const RETRO_FONTS = [
       owner: buildPerson(),
       sources: el("ul", { class: "sources", "aria-label": "From" }),
       unowned: el("p", { class: "unowned", text: "Unassigned" }),
-      menu: el("button", { type: "button", class: "more", "aria-haspopup": "menu" }, [icon(GLYPH.dots)]),
+      menu: el("button", { type: "button", class: "more", "aria-haspopup": "menu", title: "Options" }, [icon(GLYPH.dots, 3)]),
       more: el("button", { type: "button", class: "src" }),
       chips: bag(),
       wide: false,
@@ -5225,12 +5566,16 @@ const RETRO_FONTS = [
       openMenu(row.menu, "Options for action: " + short(item.text), [
         {
           label: item.owner ? "Change owner…" : "Set an owner…",
+          icon: GLYPH.owner,
           run: function () {
             openOwner(id, row.menu);
           },
         },
+        { sep: true },
         {
           label: "Delete action…",
+          icon: GLYPH.trash,
+          danger: true,
           run: function () {
             openConfirm(row.menu, "Delete this action?", "Anyone in the room can delete an action. This cannot be undone.", "Delete action", function () {
               propose("delete-action", { actionId: id }, {
@@ -5245,7 +5590,7 @@ const RETRO_FONTS = [
             });
           },
         },
-      ]);
+      ], item.text);
     });
     row.more.addEventListener("click", function () {
       row.wide = true;

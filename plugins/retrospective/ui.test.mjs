@@ -356,7 +356,8 @@ const lane = (root, title) => byClass(root, "lane").find((n) => n.textContent.in
 const pick = (root, text) => all(noteWith(root, text), (n) => n.tagName === "INPUT")[0];
 const one = (node, name) => byClass(node, name)[0];
 const labeled = (node, start) => all(node, (n) => visible(n) && (n.getAttribute("aria-label") || "").startsWith(start))[0];
-const menuItem = (root, label) => all(root, (n) => n.getAttribute("role") === "menuitem" && n.textContent.startsWith(label))[0];
+// A menu item by its words, or by its name when it is drawn as an icon.
+const menuItem = (root, label) => all(root, (n) => n.getAttribute("role") === "menuitem" && (n.getAttribute("aria-label") || n.textContent).startsWith(label))[0];
 const noteOrder = (root, title) => byClass(lane(root, title), "note").map((n) => one(n, "note-text").textContent).join(" ");
 const liveOf = (root) => one(root, "live").textContent;
 // A note's thumb, up or down.
@@ -1050,8 +1051,7 @@ test("the stage focuses the board and blocks nothing: a late note and a late vot
   box.type("a late thought");
   box.fire("keydown", ENTER);
 
-  one(noteWith(root, "one"), "more").click();
-  menuItem(root, "Vote up").click();
+  noteWith(root, "one").fire("keydown", { key: "u", target: one(noteWith(root, "one"), "note-text") });
   assert.deepEqual(sent(), [
     { action: "add-card", payload: { columnId: "went-well", text: "a late thought" } },
     { action: "vote", payload: { cardId: "c1", value: "up" } },
@@ -1082,17 +1082,23 @@ test("a menu is walked with the arrow keys and a typed letter, and Escape hands 
   const menu = one(root, "menu");
   assert.equal(menu.getAttribute("role"), "menu");
   assert.equal(grip.getAttribute("aria-expanded"), "true");
-  same(document.activeElement, menuItem(root, "Vote up"), "the first item has focus");
+  same(document.activeElement, menuItem(root, "Edit note"), "the first item has focus");
   menu.fire("keydown", { key: "ArrowDown" });
-  same(document.activeElement, menuItem(root, "Vote down"), "down");
+  same(document.activeElement, menuItem(root, "Add a sticker"), "down");
   menu.fire("keydown", { key: "End" });
   same(document.activeElement, menuItem(root, "Delete note"), "end");
   menu.fire("keydown", { key: "ArrowDown" });
-  same(document.activeElement, menuItem(root, "Vote up"), "and round again");
+  same(document.activeElement, menuItem(root, "Edit note"), "and round again");
+  menu.fire("keydown", { key: "Home" });
+  same(document.activeElement, menuItem(root, "Edit note"), "home");
+  menu.fire("keydown", { key: "ArrowUp" });
+  same(document.activeElement, menuItem(root, "Delete note"), "up from the first is the last");
   menu.fire("keydown", { key: "s" });
   same(document.activeElement, menuItem(root, "Start an action"), "a letter goes to the next item that starts with it");
   menu.fire("keydown", { key: "s" });
   same(document.activeElement, menuItem(root, "Select to group"), "and then the one after");
+  menu.fire("keydown", { key: "m" });
+  same(document.activeElement, menuItem(root, "Move to top"), "a button of the strip is reached by its name");
 
   press("Escape");
   assert.equal(byClass(root, "menu").length, 0);
@@ -1113,7 +1119,8 @@ test("a note is moved from its menu, for everyone, and is already there before t
   assert.equal(liveOf(root), "Moved up. Position 2 of 3 in Went well.");
 
   one(noteWith(root, "one"), "more").click();
-  menuItem(root, "Move to Puzzles").click();
+  menuItem(root, "Move to\u2026").click();
+  menuItem(root, "Puzzles").click();
   assert.deepEqual(sent()[1], { action: "move-card", payload: { cardId: "c1", columnId: "puzzles" } });
   assert.equal(noteOrder(root, "Puzzles"), "one");
   assert.equal(noteOrder(root, "Went well"), "three two");
@@ -1251,9 +1258,9 @@ const AT = (x, y) => ["calc(8px + " + x + " * (100% - 16px))", "calc(" + y + " *
 const placeOf = (node) => [node.style.left, node.style.top];
 const pileOf = (root, text) => stickersOf(root, text).map((n) => n.getAttribute("aria-label").split(" sticker,")[0]);
 const bookOf = (root) => one(root, "book-pop");
+// The book, by its key: the menu's row for it is there only on a bare note.
 const openBook = (root, text) => {
-  one(noteWith(root, text), "more").click();
-  menuItem(root, "Add a sticker").click();
+  noteWith(root, text).fire("keydown", { key: "s", target: one(noteWith(root, text), "note-text") });
 };
 const st = (id, kind, x, y, cardId = "c1") => ({ id, cardId, kind, x, y, rot: 0 });
 
@@ -1844,7 +1851,7 @@ test("every sticker on a note can be reached from the note's menu, without aimin
   push(session({ cards: [card("c1", "went-well", "one")], stamps }, FACILITATOR));
   const list = () => {
     one(noteWith(root, "one"), "more").click();
-    menuItem(root, "Stickers on this note (2)").click();
+    menuItem(root, "Stickers (2)").click();
     return one(root, "sheet");
   };
   assert.equal(list().getAttribute("aria-label"), "Stickers on: one");
@@ -1866,7 +1873,7 @@ test("every sticker on a note can be reached from the note's menu, without aimin
   const member = load({ host: "new" });
   member.push(session({ cards: [card("c1", "went-well", "one")], stamps }, PARTICIPANT));
   one(noteWith(member.root, "one"), "more").click();
-  menuItem(member.root, "Stickers on this note (2)").click();
+  menuItem(member.root, "Stickers (2)").click();
   assert.ok(!labeled(member.root, "Move Made me laugh"), "Move is not offered for a sticker that may be somebody else's");
   assert.ok(!labeled(member.root, "Bring to front"), "nor is the front");
   assert.ok(labeled(member.root, "Remove Made me laugh, vinyl sticker, 2 of 2"));
@@ -2299,8 +2306,7 @@ test("ids and kinds that are names the language already uses are drawn, or left 
   assert.doesNotMatch(ui.root.textContent, /undefined/);
   assert.equal(byClass(one(ui.root, "action"), "src").length, 3, "four sources: two chips and the rest");
 
-  one(noteWith(ui.root, "note __proto__"), "more").click();
-  menuItem(ui.root, "Vote up").click();
+  noteWith(ui.root, "note __proto__").fire("keydown", { key: "u", target: one(noteWith(ui.root, "note __proto__"), "note-text") });
   assert.deepEqual(ui.sent(), [{ action: "vote", payload: { cardId: "__proto__", value: "up" } }]);
   ui.acts[0].answer({ ok: false, reason: "constructor" });
   ui.push(session({ cards: [] }, PARTICIPANT));
@@ -2766,7 +2772,7 @@ test("a note dropped on another lane's empty space goes to the end of it: the re
   assert.equal(marked(ui.root, "dropzone"), 0, "the mark is gone once it is put down");
 
   const other = board5();
-  byMenu(other, "one", "Move to Puzzles");
+  byMenu(other, "one", "Move to\u2026", "Puzzles");
   assert.deepEqual(other.sent(), ui.sent(), "the menu and the drop ask for the same thing");
   assert.equal(liveOf(other.root), "Moved to Puzzles, position 1 of 1.");
 });
@@ -2791,7 +2797,7 @@ test("a note's own lane is not marked as somewhere to drop it", () => {
   assert.deepEqual(ui.sent(), [{ action: "move-card", payload: { cardId: "c3", groupId: null, beforeId: "c1" } }]);
 });
 
-test("a note dropped on a group joins it where it was dropped, also from another lane; the menu's Add to group asks for the same", () => {
+test("a note dropped on a group joins it where it was dropped, also from another lane; the menu's Move to asks for the same", () => {
   const ui = board5({ cards: paired, groups: pair });
   one(ui.root, "group").box = { left: 320, top: 60, width: 300, height: 150 };
   // Over the group's heading: in front of its first note.
@@ -2811,7 +2817,7 @@ test("a note dropped on a group joins it where it was dropped, also from another
   carryTo(end, "one", 400, 205);
   drop(end, 400, 205);
   const menu = board5({ cards: paired, groups: pair });
-  byMenu(menu, "one", "Add to group", "Pair (To improve)");
+  byMenu(menu, "one", "Move to\u2026", "Pair");
   assert.deepEqual(end.sent(), [{ action: "move-card", payload: { cardId: "c1", groupId: "g1" } }]);
   assert.deepEqual(menu.sent(), end.sent());
 });
@@ -2899,7 +2905,7 @@ test("Alt with Left or Right moves a note to the next lane, the way its menu doe
   same(ui.document.activeElement, one(note, "grip"), "focus goes with the note");
 
   const menu = board5();
-  byMenu(menu, "two", "Move to To improve");
+  byMenu(menu, "two", "Move to\u2026", "To improve");
   assert.deepEqual(menu.sent(), ui.sent());
 });
 
@@ -3017,7 +3023,8 @@ test("a group is carried to another lane whole, by its handle or from its menu",
 
   const menu = board5({ cards: paired, groups: pair });
   labeled(menu.root, "Options for group: Pair").click();
-  menuItem(menu.root, "Move group to Puzzles").click();
+  menuItem(menu.root, "Move to\u2026").click();
+  menuItem(menu.root, "Puzzles").click();
   assert.deepEqual(menu.sent(), ui.sent());
 
   // Refused, it goes back, group and notes together.
@@ -3110,7 +3117,7 @@ test("taking the last note out of a group takes the group away at once, as the s
   const ui = load({ host: "new" });
   ui.push(session(solo, PARTICIPANT));
   assert.equal(byClass(ui.root, "group").length, 1);
-  byMenu(ui, "one", "Take out of group");
+  byMenu(ui, "one", "Move to\u2026", "Out of \u201cSolo\u201d");
   assert.deepEqual(ui.sent(), [{ action: "move-card", payload: { cardId: "c1", groupId: null } }]);
   assert.equal(byClass(ui.root, "group").length, 0, "the emptied group is gone before the server answers");
   assert.equal(noteOrder(ui.root, "Went well"), "two three one", "with no place named, the note goes to the end");
@@ -3124,7 +3131,7 @@ test("taking the last note out of a group takes the group away at once, as the s
 
   const refused = load({ host: "new" });
   refused.push(session(solo, PARTICIPANT));
-  byMenu(refused, "one", "Take out of group");
+  byMenu(refused, "one", "Move to\u2026", "Out of \u201cSolo\u201d");
   assert.equal(byClass(refused.root, "group").length, 0);
   refused.acts[0].answer({ ok: false, reason: "conflict" });
   await settled();
@@ -3509,7 +3516,7 @@ test("the list of a note's stickers keeps up: one a teammate removes leaves the 
   const ui = load({ host: "new" });
   ui.push(session({ cards, stamps }, FACILITATOR));
   one(noteWith(ui.root, "one"), "more").click();
-  menuItem(ui.root, "Stickers on this note (2)").click();
+  menuItem(ui.root, "Stickers (2)").click();
   const sheet = one(ui.root, "sheet");
   const rows = () => all(sheet, (n) => n.tagName === "LI").length;
   assert.equal(rows(), 2);
@@ -3524,7 +3531,7 @@ test("the list of a note's stickers keeps up: one a teammate removes leaves the 
   assert.equal(toastOf(ui.root).textContent, "That sticker is no longer on the board.");
 
   one(noteWith(ui.root, "one"), "more").click();
-  menuItem(ui.root, "Stickers on this note (1)").click();
+  menuItem(ui.root, "Stickers (1)").click();
   ui.push(session({ cards, stamps: [] }, FACILITATOR));
   assert.match(one(ui.root, "sheet").textContent, /There are no stickers on this note now\./);
   ui.push(session({ cards: [] }, FACILITATOR));
