@@ -22,7 +22,10 @@ ui.js: ui.fonts.js ui.src.js
 # The limits are there so a test that runs away fails instead of taking the
 # machine with it.
 test: $(DIST)/$(STEM).ui.js
-	node --max-old-space-size=512 --test --test-timeout=10000 board.test.mjs ui.test.mjs package.test.mjs
+	@# The address-space limit is inherited by the per-file test processes,
+	@# which the heap flag is not; a runaway dies at 3 GB instead of taking
+	@# the machine. Where the shell cannot set it, the tests still run.
+	ulimit -v 3145728 2>/dev/null; node --max-old-space-size=512 --test --test-timeout=10000 board.test.mjs ui.test.mjs package.test.mjs
 
 bundle: ui.js
 

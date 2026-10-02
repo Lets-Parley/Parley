@@ -5,6 +5,7 @@ import { createContext, runInContext } from "node:vm";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { inspect } from "node:util";
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const { version } = createRequire(import.meta.url)("./manifest.json");
@@ -26,10 +27,22 @@ function* upFrom(node) {
   }
 }
 
+// Whether two references are one node. The assertion is handed a boolean, so
+// a failure never carries a node for the runner to print or send anywhere.
+function same(actual, expected, message) {
+  assert.ok(actual === expected, message);
+}
+
 // The smallest document ui.js can run against. It models the two things the
 // tests are about: a tree of nodes, and focus that is lost when the focused
 // node is removed or moved, the way a browser loses it.
 class FakeNode {
+  // A node prints as its tag. Every node reaches the whole document through
+  // ownerDocument, so printing one in full to report a failed assertion costs
+  // gigabytes: that, not a loop, is what a failing test used to die of.
+  [inspect.custom]() {
+    return "<" + this.tagName.toLowerCase() + (this.className ? "." + this.className.split(" ").join(".") : "") + ">";
+  }
   constructor(doc, tag) {
     this.ownerDocument = doc;
     this.tagName = tag.toUpperCase();
@@ -295,9 +308,9 @@ test("typed text and focus survive a teammate's change", () => {
   );
 
   const after = all(lane(root, "Went well"), (n) => n.tagName === "TEXTAREA")[0];
-  assert.equal(after, box, "the composer is the same node");
+  same(after, box, "the composer is the same node");
   assert.equal(box.value, "half a thou");
-  assert.equal(document.activeElement, box);
+  same(document.activeElement, box, "focus stays in the composer");
   assert.ok(noteWith(root, "pairing"));
 });
 
@@ -313,7 +326,7 @@ test("focus on a note survives the note moving into a group", () => {
       groups: [{ id: "g1", columnId: "went-well", title: "Numbers" }],
     }),
   );
-  assert.equal(document.activeElement, vote);
+  same(document.activeElement, vote, "focus stays on the vote button");
 });
 
 test("a group holds its own notes and nobody else's", () => {
@@ -413,14 +426,14 @@ test("revealing authors takes a second, explicit confirmation", () => {
   assert.equal(confirm.disabled, true, "no second press while the first is pending");
 
   push(session({ revealed: true, cards: [card("c1", "went-well", "one", { authorId: "u-bo" })] }));
-  assert.equal(button(root, "Reveal"), undefined);
+  assert.ok(!button(root, "Reveal"), "no such button is offered");
   assert.ok(all(root, (n) => visible(n) && n.text === "Authors visible").length);
 });
 
 test("Reveal is not offered on an empty board", () => {
   const { root, push } = load();
   push(session({}));
-  assert.equal(button(root, "Reveal authors"), undefined);
+  assert.ok(!button(root, "Reveal authors"), "no such button is offered");
   push(session({ cards: [card("c1", "went-well", "one")] }));
   assert.ok(button(root, "Reveal authors"));
 });
@@ -431,7 +444,7 @@ test("with the viewer known, only the facilitator is offered Reveal", () => {
 
   const participant = load({ host: "new" });
   participant.push(session({ cards }, { selfId: "u-bo" }));
-  assert.equal(button(participant.root, "Reveal authors"), undefined);
+  assert.ok(!button(participant.root, "Reveal authors"), "no such button is offered");
   assert.match(words(participant.root), /Alice Ng, the facilitator, reveals/);
 
   const facilitator = load({ host: "new" });
@@ -741,4 +754,14 @@ test("the fake document refuses what a real one refuses", () => {
   assert.throws(() => a.appendChild(a), /HierarchyRequestError/);
   assert.throws(() => b.removeChild(a), /NotFoundError/);
   assert.throws(() => a.insertBefore(document.createElement("p"), document.createElement("p")), /NotFoundError/);
+});
+
+// A failed assertion that is handed a node makes the runner describe it, and
+// through ownerDocument a node reaches every other node. Nodes therefore print
+// as a tag, and identity is asserted with same().
+test("a fake node prints as its tag, not as the document it belongs to", () => {
+  const { root } = load();
+  const text = inspect(root);
+  assert.ok(text.length < 200, "a node printed " + text.length + " characters");
+  assert.match(text, /^<[a-z]+/);
 });
