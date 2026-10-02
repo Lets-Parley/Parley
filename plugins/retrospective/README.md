@@ -1,7 +1,9 @@
 # Retrospective
 
-A whole ceremony delivered as a plugin: columns, cards, hidden authorship until
-the facilitator reveals, grouping, one-dot-per-person voting, and action items.
+A whole ceremony delivered as a plugin: four stages the facilitator steps
+through, columns, cards, authorship hidden until the facilitator reveals it (and
+hidden again when they say so), grouping, one-dot-per-person voting, a shared
+order, stamps, a timer, and action items that remember the cards they came from.
 
 It does not live in `internal/` or `web/src`. The host already frames an unknown
 kind in the full-room slot and exports the guest's `on_session_state` document as
@@ -81,6 +83,17 @@ the parts worth copying:
   `parley.act`, `parley.supports("results")` and `parley.scheme()` are all used
   when present and never assumed. With `selfId`, only the facilitator is
   offered Reveal; without it, the control is shown with the rule spelled out.
+- **One menu holds the long tail.** A note shows one control in front of its
+  text and the one the current stage promotes after it. Voting, stamping,
+  selecting, moving and starting an action are all in the note's menu, which
+  makes the menu the keyboard and touch path for every pointer gesture: a drag
+  is never the only way (`openMenu`, `moveNote`, and `Alt`+arrow keys).
+- **Optimistic, and taken back.** A move is applied to the board at once and
+  sent; if the host refuses, the board is put back (`sendMove`). A stamp is
+  dragged locally and sent once, on release.
+- **Popovers are one layer.** `openPop` shows one floating thing at a time,
+  hangs it from the control that opened it, closes on Escape or a press
+  elsewhere, and hands focus back.
 - **Motion reports a change and then stops.** A note is set down, a count ticks
   on a spring that runs to rest, notes glide into a new group, and the reveal
   uncovers names across the board once. Nothing moves on first paint, and
@@ -94,6 +107,56 @@ The state carries a vote count per note and nothing about whose votes they
 are, so a note is marked as voted only for the rest of the visit in which the
 host confirmed the vote. Showing it after a reload would need the plugin to
 publish who voted, which it deliberately does not.
+
+Stamps follow the same rule. The state says what each stamp is and where it
+sits (`{id, cardId, kind, x, y, rot}`, with `x` and `y` as fractions of the
+note so they hold at any width) and never who pressed it. The frame learns
+which stamps are the viewer's only from this visit: a stamp that appears
+exactly as it was sent, and the server's yes or no to a move. After a reload
+anyone may try to move any stamp; the server refuses unless it is theirs, and
+the board says why and does not ask again.
+
+## Actions
+
+| Action | Body | Who |
+| --- | --- | --- |
+| `add-card` | `{columnId, text}` | anyone |
+| `group-cards` | `{cardIds, title}` | anyone |
+| `vote` | `{cardId}` | anyone |
+| `move-card` | `{cardId, beforeId?, columnId?, groupId?}` | anyone |
+| `move-group` | `{groupId, beforeId?}` | anyone |
+| `stamp` | `{cardId, kind, x, y, rot?}` | anyone |
+| `move-stamp` | `{stampId, x, y}` | whoever pressed it |
+| `remove-stamp` | `{stampId}` | whoever pressed it |
+| `add-action` | `{text, owner?, sourceIds?}` | anyone |
+| `link-action` | `{actionId, sourceId, linked}` | anyone |
+| `reveal`, `conceal` | `{}` | facilitator |
+| `set-stage` | `{stage}` (0 to 3) | facilitator |
+| `timer` | `{op, durationMs?}`; `op` is `start`, `pause`, `resume`, `add` or `clear` | facilitator |
+| `order-by-votes` | `{columnId}` | facilitator |
+| `moderate-stamp` | `{stampId, x, y}` or `{stampId, remove: true}` | facilitator |
+
+`beforeId` names a card or a group to sit in front of; without one, or with one
+that is gone, the move goes to the end. Nothing is addressed by index, because
+the board is one document and the last write wins.
+
+The host enforces `facilitatorOnly` from `manifest.json` before the guest is
+called, and the guest is never told who the facilitator is, so the manifest is
+the whole of that check (`package.test.mjs` pins the list). Everything else is
+validated in `board.js`: ids must exist, a stamp's `x` and `y` must be finite
+numbers from 0 to 1, and the limits are 3 stamps per person per note, 12 per
+note, 300 per board, 12 links per action, and 10 seconds to 3 hours for a
+timer. `redactBoard` is the only thing that decides what leaves the server.
+
+The timer is stamped by the server: the guest reads its own clock
+(`Date.now()`, which the host provides as wall time) and publishes the time
+remaining with each state, so the frame never compares its clock with the
+server's. The frame counts down from there and reads the timer again only when
+its `rev` changes.
+
+Adding actions does not change the grants. The host decides whether an upgrade
+needs a new consent from the capabilities alone, so 0.1.0 to 0.2.0 applies
+without one.
 
 `slots.json` is `["room"]`: the board is the room of a retrospective session and
 is not offered as a side panel in other rooms.

@@ -1,6 +1,6 @@
 ---
 title: Retrospective (plugin)
-description: A retrospective ceremony delivered entirely as a plugin — columns, cards, hidden authorship, grouping, dot voting, and action items.
+description: A retrospective ceremony delivered entirely as a plugin — stages, columns, cards, hidden authorship, grouping, dot voting, stamps, a timer, and action items linked to the notes they came from.
 ---
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
@@ -22,22 +22,79 @@ shipped frontend.
 - Cards in the same column can be grouped.
 - Each person may put one dot on a card (a second click does not stack).
 - Action items are a list on the same board, with an optional owner.
-- Revealing authors asks for a second confirmation and cannot be undone. Once
-  revealed, each card shows its author's name. Only the facilitator is offered
-  the control; everyone else is told who holds it.
+- Revealing authors asks for a second confirmation. Once revealed, each card
+  shows its author's name. The facilitator can **hide authors again** in one
+  press: the wire state stops carrying them, though anyone who was looking has
+  already seen them. Only the facilitator is offered either control; everyone
+  else is told who holds it.
 - Selecting cards opens a bar that says how many are selected and why they can
   or cannot be grouped yet. A group is named when it is made.
 - A card you add waits in its lane, drawn dashed, until the server has it. If
   the server refuses, the reason is shown and the text is kept.
-- A strip at the top (Write, Group, Vote, Decide) reflects how far the board
-  has come. It is a marker only and never blocks an action.
+- The facilitator moves the room through four **stages**: Write, Group, Vote,
+  Decide, forward or back. A stage changes what the board puts in front of
+  people (the composer in Write, checkboxes in Group, the vote button in Vote,
+  the action target in Decide) and **blocks nothing**: a late card, vote or
+  action is still accepted in any stage.
+- Everything a card can do is in its **menu** (the handle in front of its
+  text), which is also the keyboard and touch path for every pointer gesture.
+- **Order is shared.** Drag a card by its handle, use Move up / Move down /
+  Move to top / Move to bottom / Move to another column in its menu, or press
+  `Alt`+`↑`/`↓` (`Shift` for top and bottom). A group moves as one from its own
+  menu. **Most votes** re-sorts a column for one reader only and writes
+  nothing; while it is on, that column cannot be reordered, and says so. The
+  facilitator can apply the vote order for everyone.
+- **Stamps.** Anyone can press one of seven stamps (Me too, Thank you, Great
+  idea, Quick win, Needs a chat, Blocker, Made me laugh) onto a card from its
+  menu. A stamp sits on the card at a point, may hang over its edge, and takes
+  no room. Whoever pressed it can drag it, nudge it with the arrow keys, or
+  remove it with `Delete`; so can the facilitator. **Nobody can see who pressed
+  a stamp**: the server records it only to enforce that rule and the limits
+  below, and never publishes it. A reload forgets which stamps were yours; the
+  server still knows, and still lets you move them.
+- **An action can come from a card.** The target on a card (or "Start an
+  action from this note" in its menu) opens a small form; the action then
+  shows the card it came from, and the card shows that it has an action. More
+  cards can be tied to an existing action, and untied.
+- **A timer** the facilitator can start (1, 3, 5, 10 minutes or a custom
+  1–180), pause, extend by a minute, and clear. It is counted on the server's
+  clock and published as time remaining. It never blocks anything: when it
+  runs out the board says "Time's up" and keeps working. Changing the stage
+  clears it.
 - Typing is never interrupted: other people's changes update the board in
   place and are announced to screen readers.
 
 CSV export is the host's: it flattens the guest's `on_session_state` document
-(`revealed`, `columns`, `cards`, `groups`, `actionItems`) next to
-`id,kind,title,phase`. Authorship that has not been revealed is not in that
-document, so it is not in the file.
+(`revealed`, `stage`, `timer`, `stamps`, `columns`, `cards`, `groups`,
+`actionItems`) next to `id,kind,title,phase`. Authorship that has not been
+revealed is not in that document, so it is not in the file; who voted and who
+pressed a stamp are never in it.
+
+## Actions and limits
+
+| Action | Who | What it does |
+| --- | --- | --- |
+| `add-card`, `group-cards`, `vote`, `add-action` | anyone in the room | as before; `add-action` also takes `sourceIds` |
+| `move-card`, `move-group` | anyone | reorder a card or a group, move a card to another column or group |
+| `stamp`, `move-stamp`, `remove-stamp` | anyone; move and remove only for the stamp's presser | press, move, lift a stamp |
+| `link-action` | anyone | tie a card or group to an action, or untie it |
+| `reveal`, `conceal` | facilitator | show or hide authors |
+| `set-stage` | facilitator | set the stage, 0 to 3 |
+| `timer` | facilitator | `start`, `pause`, `resume`, `add`, `clear` |
+| `order-by-votes` | facilitator | reorder one column by votes for everyone |
+| `moderate-stamp` | facilitator | move or remove any stamp |
+
+Facilitator-only actions are refused by the host before the plugin runs.
+Everything else is validated by the guest: unknown ids, coordinates outside the
+card, and anything over a limit are refused and change nothing.
+
+- A card holds at most **12 stamps**, **3 from any one person**; a board holds
+  **300**.
+- A timer runs from **10 seconds to 3 hours**.
+- An action links to at most **12** cards or groups.
+
+The new actions do not change what the plugin is granted. An upgrade from
+0.1.0 asks for the same three grants, so it applies without a new consent.
 
 ## Installing it
 
