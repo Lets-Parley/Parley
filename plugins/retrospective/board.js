@@ -139,6 +139,15 @@ function withDefaults(board) {
   if (!board.timer) board.timer = null;
   if (!board.timerRev) board.timerRev = 0;
   if (!Array.isArray(board.stamps)) board.stamps = [];
+  // Votes stored before there were two directions were all up: a count of
+  // them becomes that many, and anything that is not a down is an up.
+  for (const c of board.cards) {
+    if (typeof c.votes === "number") {
+      const made = {};
+      for (let i = 0; i < Math.min(Math.max(0, Math.floor(c.votes)), LIMITS.votes); i++) made["earlier-" + i] = 1;
+      c.votes = made;
+    } else if (!c.votes || typeof c.votes !== "object" || Array.isArray(c.votes)) c.votes = {};
+  }
   for (const item of board.actionItems) {
     if (!Array.isArray(item.sourceIds)) item.sourceIds = [];
     if (typeof item.owner !== "string" || USER_ID.test(item.owner)) item.owner = "";
@@ -156,8 +165,26 @@ function dropEmptyGroups(board) {
   for (const c of board.cards) if (c.groupId && !board.groups.some((g) => g.id === c.groupId)) c.groupId = null;
 }
 
+// A person has at most one vote on a note: up (1) or down (-1). A note with
+// no vote from somebody has no row for them, so the cap on votes bounds the
+// document whichever way they point.
 function votesOf(row) {
   return Object.keys(row.votes).length;
+}
+
+function upOf(row) {
+  let n = 0;
+  for (const who of Object.keys(row.votes)) if (row.votes[who] !== -1) n += 1;
+  return n;
+}
+
+function downOf(row) {
+  return votesOf(row) - upOf(row);
+}
+
+// What a note is ranked by: ups less downs.
+function netOf(row) {
+  return upOf(row) - downOf(row);
 }
 
 // The ids an action item may point at: every note and every group.
@@ -229,7 +256,8 @@ function redactBoard(board, now) {
         columnId: c.columnId,
         groupId: c.groupId,
         text: c.text,
-        voteCount: votesOf(c),
+        up: upOf(c),
+        down: downOf(c),
       };
       if (c.edited === true) row.edited = true;
       if (board.revealed) row.authorId = c.authorId;
@@ -310,10 +338,23 @@ function applyAction(board, { action, user, body, now }) {
       dropEmptyGroups(board);
       return made;
     }
+    // A vote is set, not toggled: "up", "down" or "none" says what this
+    // person's vote on the note is to be, and saying it twice changes
+    // nothing. The board cannot show anyone which votes are theirs, so a
+    // press that flipped a vote would take it away from somebody who only
+    // meant to make sure of it. With no value it is an up vote.
     case "vote": {
       const row = card(board, body.cardId);
-      if (row.votes[user] !== 1) full(board.cards.reduce((n, c) => n + votesOf(c), 0), LIMITS.votes, "the board is full of votes");
-      row.votes[user] = 1;
+      const value = body.value === undefined ? "up" : body.value;
+      if (value !== "up" && value !== "down" && value !== "none") refuse("invalid", "a vote is up, down or none");
+      const had = Object.prototype.hasOwnProperty.call(row.votes, user);
+      if (value === "none") {
+        if (had) delete row.votes[user];
+        return row;
+      }
+      if (!had) full(board.cards.reduce((n, c) => n + votesOf(c), 0), LIMITS.votes, "the board is full of votes");
+      // Defined, not assigned: a voter called "__proto__" is a voter too.
+      Object.defineProperty(row.votes, user, { value: value === "up" ? 1 : -1, enumerable: true, writable: true, configurable: true });
       return row;
     }
     case "reveal": {
@@ -409,16 +450,18 @@ function applyAction(board, { action, user, body, now }) {
         places.push(i);
         let item = c.groupId && byGroup.get(c.groupId);
         if (!item) {
-          item = { votes: 0, cards: [] };
+          item = { votes: 0, up: 0, cards: [] };
           items.push(item);
           if (c.groupId) byGroup.set(c.groupId, item);
         }
         item.cards.push(c);
-        item.votes += votesOf(c);
+        item.votes += netOf(c);
+        item.up += upOf(c);
       });
-      // Array.prototype.sort is stable: ties keep the shared order.
-      items.sort((a, b) => b.votes - a.votes);
-      const dealt = items.flatMap((item) => item.cards.sort((a, b) => votesOf(b) - votesOf(a)));
+      // By ups less downs; of two the same, the one with more ups; and
+      // Array.prototype.sort is stable, so ties after that keep the shared order.
+      items.sort((a, b) => b.votes - a.votes || b.up - a.up);
+      const dealt = items.flatMap((item) => item.cards.sort((a, b) => netOf(b) - netOf(a) || upOf(b) - upOf(a)));
       places.forEach((at, i) => {
         board.cards[at] = dealt[i];
       });

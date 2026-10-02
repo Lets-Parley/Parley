@@ -32,7 +32,7 @@ test("redactBoard hides authorship until reveal", () => {
   assert.equal(hidden.cards[0].text, "shipped the export");
   assert.equal("authorId" in hidden.cards[0], false);
   assert.equal("votes" in hidden.cards[0], false);
-  assert.equal(hidden.cards[0].voteCount, 1);
+  assert.equal(hidden.cards[0].up, 1);
   assert.equal(hiddenJSON.includes("alice"), false);
   assert.equal(hiddenJSON.includes("carol"), false);
   assert.equal(hiddenJSON.includes("votes"), false);
@@ -41,7 +41,7 @@ test("redactBoard hides authorship until reveal", () => {
   const shown = redactBoard(board);
   assert.equal(shown.cards[0].authorId, "alice");
   assert.equal("votes" in shown.cards[0], false);
-  assert.equal(shown.cards[0].voteCount, 1);
+  assert.equal(shown.cards[0].up, 1);
   assert.equal(JSON.stringify(shown).includes("carol"), false);
 });
 
@@ -139,7 +139,7 @@ test("the stage is one of four, and a late note or vote is accepted in any of th
   assert.equal(redactBoard(board).stage, 3);
   const late = note(board, "alice", "puzzles", "late thought");
   act(board, "vote", "bob", { cardId: late.id });
-  assert.equal(redactBoard(board).cards[0].voteCount, 1);
+  assert.equal(redactBoard(board).cards[0].up, 1);
   act(board, "set-stage", "fac", { stage: 0 });
   assert.equal(board.stage, 0);
   for (const stage of [4, -1, 1.5, "2", null, undefined, NaN, Infinity, {}]) {
@@ -192,7 +192,7 @@ test("a group changes lane whole: its notes go with it, with their votes, stamps
   assert.deepEqual([a.columnId, c.columnId, b.columnId], ["puzzles", "puzzles", "to-improve"]);
   assert.deepEqual([a.groupId, c.groupId], [g.id, g.id], "they are still the group");
   const seen = redactBoard(board, 0);
-  assert.equal(seen.cards.find((x) => x.id === a.id).voteCount, 1);
+  assert.equal(seen.cards.find((x) => x.id === a.id).up, 1);
   assert.equal(seen.stamps.length, 1);
   assert.deepEqual(seen.actionItems[0].sourceIds, item.sourceIds);
   // Without a place, it goes to the end of the lane it is sent to.
@@ -545,7 +545,7 @@ test("a name the language already uses is not a note, a stamp or a lane", () => 
   act(board, "vote", "toString", { cardId: a.id });
   act(board, "vote", "constructor", { cardId: a.id });
   act(board, "vote", "constructor", { cardId: a.id });
-  assert.equal(redactBoard(board, T0).cards[0].voteCount, 2);
+  assert.equal(redactBoard(board, T0).cards[0].up, 2);
   assert.equal({}.polluted, undefined);
 });
 
@@ -863,7 +863,7 @@ test("a note's words are edited by whoever wrote it, and everything on the note 
   const hidden = redactBoard(board, 0);
   assert.equal(hidden.cards[0].text, "hidden again");
   assert.equal(JSON.stringify(hidden).includes("alice"), false);
-  assert.deepEqual(Object.keys(hidden.cards[0]).sort(), ["columnId", "edited", "groupId", "id", "text", "voteCount"]);
+  assert.deepEqual(Object.keys(hidden.cards[0]).sort(), ["columnId", "down", "edited", "groupId", "id", "text", "up"]);
 
   // The same words again are accepted and mark nothing.
   const fresh = emptyBoard();
@@ -885,4 +885,107 @@ test("nobody else edits a note, the facilitator included, and a bad edit changes
   assert.equal(refused("alice", null), "not-found");
   assert.equal(JSON.stringify(board), stored, "not one refusal wrote anything");
   assert.deepEqual(answerAction(board, { action: "edit-card", user: "alice", body: { cardId: a.id, text: "x".repeat(500) } }), {}, "five hundred is allowed");
+});
+
+test("a vote is set to up, down or none, one per person per note, and setting it again changes nothing", () => {
+  const { board, a, b } = threeNotes();
+  const counts = (row) => { const c = redactBoard(board, 0).cards.find((x) => x.id === row.id); return [c.up, c.down]; };
+  const vote = (who, row, value) => act(board, "vote", who, { cardId: row.id, value });
+  vote("bob", a, "up");
+  assert.deepEqual(counts(a), [1, 0]);
+  vote("bob", a, "up");
+  vote("bob", a, "up");
+  assert.deepEqual(counts(a), [1, 0], "pressed again, it is still one vote, and still there");
+  vote("bob", a, "down");
+  assert.deepEqual(counts(a), [0, 1], "one press switches it");
+  vote("bob", a, "down");
+  assert.deepEqual(counts(a), [0, 1]);
+  vote("carol", a, "up");
+  vote("dave", a, "up");
+  assert.deepEqual(counts(a), [2, 1]);
+  vote("bob", a, "none");
+  assert.deepEqual(counts(a), [2, 0]);
+  vote("bob", a, "none");
+  vote("nobody", a, "none");
+  assert.deepEqual(counts(a), [2, 0], "taking back a vote that is not there is accepted and changes nothing");
+  assert.equal("bob" in a.votes, false, "none leaves no row behind");
+  assert.deepEqual(counts(b), [0, 0], "another note is another matter");
+  // With no value it is an up vote, as it always was.
+  act(board, "vote", "erin", { cardId: b.id });
+  assert.deepEqual(counts(b), [1, 0]);
+
+  const stored = JSON.stringify(board);
+  for (const value of ["UP", "Up", " up", "1", 1, -1, 0, true, null, "", "toggle", "constructor", "__proto__", ["up"], { value: "up" }]) {
+    assert.equal(answerAction(board, { action: "vote", user: "mallory", body: { cardId: a.id, value } }).refused, "invalid", JSON.stringify(value));
+  }
+  for (const cardId of ["c404", "__proto__", "constructor", null, 5, {}]) assert.equal(answerAction(board, { action: "vote", user: "mallory", body: { cardId, value: "down" } }).refused, "not-found");
+  assert.equal(JSON.stringify(board), stored, "a refused vote writes nothing");
+  // A voter whose id is a name the language uses is a voter like any other.
+  vote("constructor", a, "down");
+  vote("__proto__", a, "down");
+  vote("hasOwnProperty", a, "up");
+  assert.deepEqual(counts(a), [3, 2]);
+  vote("constructor", a, "none");
+  assert.deepEqual(counts(a), [3, 1]);
+
+  // Who voted, and which way, never leaves the server, revealed or not.
+  board.revealed = true;
+  const out = JSON.stringify(redactBoard(board, 0));
+  // (bob and carol also wrote notes, and authors are revealed here; dave and erin only voted.)
+  for (const who of ["dave", "erin", "hasOwnProperty"]) assert.equal(out.includes(who), false, who);
+  assert.equal(out.includes("votes"), false);
+  assert.deepEqual(Object.keys(redactBoard(board, 0).cards[0]).sort(), ["authorId", "columnId", "down", "groupId", "id", "text", "up"]);
+});
+
+test("the cap on votes counts a vote either way, and switching or taking one back is always allowed", () => {
+  const board = emptyBoard();
+  const rows = Array.from({ length: 100 }, (_, i) => note(board, "author" + (i % 5), "went-well", "n" + i));
+  for (let i = 0; i < LIMITS.votes; i++) act(board, "vote", "v" + Math.floor(i / 100), { cardId: rows[i % 100].id, value: i % 2 ? "down" : "up" });
+  const refused = (user, body) => answerAction(board, { action: "vote", user, body }).refused;
+  assert.equal(refused("late", { cardId: rows[0].id, value: "up" }), "conflict");
+  assert.equal(refused("late", { cardId: rows[0].id, value: "down" }), "conflict", "a down vote is a vote");
+  assert.equal(refused("v0", { cardId: rows[0].id, value: "down" }), undefined, "switching adds nothing");
+  assert.equal(refused("late", { cardId: rows[0].id, value: "none" }), undefined);
+  assert.equal(refused("v0", { cardId: rows[0].id, value: "none" }), undefined);
+  assert.equal(refused("late", { cardId: rows[0].id, value: "down" }), undefined, "and the place freed is one somebody else can take");
+});
+
+test("a board stored when votes only went up loads with every one of them up", () => {
+  const board = emptyBoard();
+  board.cards = [
+    { id: "c1", columnId: "went-well", groupId: null, text: "map of voters", authorId: "alice", votes: { bob: 1, carol: 1, dave: true } },
+    { id: "c2", columnId: "went-well", groupId: null, text: "a count", authorId: "alice", votes: 3 },
+    { id: "c3", columnId: "went-well", groupId: null, text: "nothing", authorId: "alice" },
+    { id: "c4", columnId: "went-well", groupId: null, text: "nonsense", authorId: "alice", votes: ["x"] },
+    { id: "c5", columnId: "went-well", groupId: null, text: "a huge count", authorId: "alice", votes: 1e9 },
+  ];
+  const seen = redactBoard(board, 0).cards.map((c) => [c.up, c.down]);
+  assert.deepEqual(seen, [[3, 0], [3, 0], [0, 0], [0, 0], [LIMITS.votes, 0]]);
+  // (Without the last note, whose thousand votes are all the board may hold.)
+  board.cards.pop();
+  act(board, "vote", "bob", { cardId: "c1", value: "down" });
+  act(board, "vote", "erin", { cardId: "c3", value: "down" });
+  assert.deepEqual(redactBoard(board, 0).cards.slice(0, 3).map((c) => [c.up, c.down]), [[2, 1], [3, 0], [0, 1]]);
+});
+
+test("ordering by votes ranks by ups less downs, then by more ups, then leaves the order as it was", () => {
+  const board = emptyBoard();
+  const [a, b, c, d, e] = ["a", "b", "c", "d", "e"].map((t) => note(board, "alice", "went-well", t));
+  const cast = (row, up, down) => {
+    for (let i = 0; i < up; i++) act(board, "vote", "u" + i, { cardId: row.id, value: "up" });
+    for (let i = 0; i < down; i++) act(board, "vote", "d" + i, { cardId: row.id, value: "down" });
+  };
+  cast(a, 1, 0); // net 1
+  cast(b, 4, 3); // net 1, more ups than a
+  cast(c, 0, 2); // net -2
+  cast(d, 3, 0); // net 3
+  // e: nothing, net 0, and after it in the order nothing else is 0.
+  act(board, "order-by-votes", "fac", { columnId: "went-well" });
+  assert.equal(order(board), "d b a e c");
+  act(board, "order-by-votes", "fac", { columnId: "went-well" });
+  assert.equal(order(board), "d b a e c", "ordering again changes nothing");
+  // A group is ranked by its notes together: c and d make 1 net with 3 ups.
+  act(board, "group-cards", "alice", { cardIds: [c.id, d.id], title: "pair" });
+  act(board, "order-by-votes", "fac", { columnId: "went-well" });
+  assert.equal(order(board), "b d c a e", "b (1 net, 4 up), the pair (1 net, 3 up) with d before c, a (1 net, 1 up), e");
 });
