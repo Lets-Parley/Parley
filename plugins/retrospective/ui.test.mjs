@@ -1599,7 +1599,7 @@ test("the facilitator starts, pauses, extends and clears the timer", () => {
 // ---- the pointer: drags followed on the window
 
 const main = (root) => one(root, "board");
-const place = (root, texts) => texts.forEach((text, i) => (noteWith(root, text).box = { left: 0, top: 100 + 50 * i, width: 240, height: 40 }));
+const place = (root, texts, left = 0) => texts.forEach((text, i) => (noteWith(root, text).box = { left, top: 100 + 50 * i, width: 240, height: 44 }));
 const inert = (root) => ["top", "main"].map((name) => one(root, name).getAttribute("inert") !== null).join(" ");
 
 // Press a note's handle and carry it to `y`: far enough to count as a drag.
@@ -1619,8 +1619,8 @@ test("a note is lifted, carried and dropped: one move, in front of the note it w
   ui.fireWindow("pointerup", { clientX: 11, clientY: 216 });
   assert.equal(ui.hearing("pointermove"), 0);
 
-  // The notes stand at 100, 150 and 200, each 40 high. Carried to 110, the
-  // third is above the middle of the first, so it goes in front of it.
+  // The notes stand at 100, 150 and 200, each 44 high. Carried to 110, the
+  // third is over the top quarter of the first, so it goes in front of it.
   carry(ui, "three", 110);
   assert.equal(byClass(ui.root, "drag").length, 1, "a copy follows the pointer");
   assert.ok(noteWith(ui.root, "three").className.includes("slot"), "and the note shows where it would land");
@@ -2239,4 +2239,346 @@ test("after the server says a note is not the viewer's, Delete is shown as unava
   ui.press("Escape");
   one(noteWith(ui.root, "one"), "more").click();
   assert.equal(menuItem(ui.root, "Delete note").getAttribute("aria-disabled"), null, "another note is still asked about");
+});
+
+// ---- carrying a note to another lane, into a group, or onto another note
+
+// Three lanes side by side, each 300 wide and 600 tall. "Went well" holds
+// one, two and three at 100, 150 and 200; "To improve" holds four and five at
+// 100 and 150. Every note is 44 high: its top quarter ends at 11, its middle
+// half runs from 11 to 33.
+const five = [...three, card("c4", "to-improve", "four"), card("c5", "to-improve", "five")];
+const pair = [{ id: "g1", columnId: "to-improve", title: "Pair" }];
+const paired = [...three, card("c4", "to-improve", "four", { groupId: "g1" }), card("c5", "to-improve", "five", { groupId: "g1" })];
+
+function lanesLaid(ui) {
+  ["Went well", "To improve", "Puzzles"].forEach((title, i) => (lane(ui.root, title).box = { left: 320 * i, top: 0, width: 300, height: 600 }));
+  place(ui.root, ["one", "two", "three"]);
+  place(ui.root, ["four", "five"], 320);
+}
+
+function board5(state = { cards: five }, who = PARTICIPANT) {
+  const ui = load({ host: "new" });
+  ui.push(session(state, who));
+  lanesLaid(ui);
+  return ui;
+}
+
+// Press the handle of a note and carry it to a point.
+function carryTo(ui, text, x, y) {
+  const from = noteWith(ui.root, text).box;
+  one(noteWith(ui.root, text), "grip").fire("pointerdown", { clientX: from.left + 10, clientY: from.top + 15 });
+  ui.fireWindow("pointermove", { clientX: from.left + 10, clientY: from.top + 25 });
+  ui.fireWindow("pointermove", { clientX: x, clientY: y });
+}
+const drop = (ui, x, y) => ui.fireWindow("pointerup", { clientX: x, clientY: y });
+const marked = (root, name) => byClass(root, name).length;
+const byMenu = (ui, text, ...labels) => {
+  one(noteWith(ui.root, text), "more").click();
+  for (const label of labels) menuItem(ui.root, label).click();
+};
+
+test("a note dropped on another lane's empty space goes to the end of it: the request the menu sends", () => {
+  const ui = board5();
+  carryTo(ui, "one", 700, 300);
+  assert.ok(lane(ui.root, "Puzzles").className.includes("dropzone"), "the lane under the pointer is marked");
+  assert.equal(marked(ui.root, "dropzone"), 1, "and only that one");
+  assert.equal(liveOf(ui.root), "Drop at the end of Puzzles");
+  assert.deepEqual(ui.sent(), []);
+  drop(ui, 700, 300);
+  assert.deepEqual(ui.sent(), [{ action: "move-card", payload: { cardId: "c1", columnId: "puzzles" } }]);
+  assert.equal(noteOrder(ui.root, "Puzzles"), "one");
+  assert.equal(noteOrder(ui.root, "Went well"), "two three");
+  assert.equal(liveOf(ui.root), "Moved to Puzzles, position 1 of 1.");
+  assert.equal(marked(ui.root, "dropzone"), 0, "the mark is gone once it is put down");
+
+  const other = board5();
+  byMenu(other, "one", "Move to Puzzles");
+  assert.deepEqual(other.sent(), ui.sent(), "the menu and the drop ask for the same thing");
+  assert.equal(liveOf(other.root), "Moved to Puzzles, position 1 of 1.");
+});
+
+test("a note dropped between two notes of another lane lands between them", () => {
+  const ui = board5();
+  // 160 is above the middle of five (150 to 194) and below four.
+  carryTo(ui, "one", 400, 160);
+  assert.ok(lane(ui.root, "To improve").className.includes("dropzone"));
+  assert.equal(liveOf(ui.root), "Drop to move before: five");
+  drop(ui, 400, 160);
+  assert.deepEqual(ui.sent(), [{ action: "move-card", payload: { cardId: "c1", columnId: "to-improve", beforeId: "c5" } }]);
+  assert.equal(noteOrder(ui.root, "To improve"), "four one five");
+  assert.equal(liveOf(ui.root), "Moved to To improve, position 2 of 3.");
+});
+
+test("a note's own lane is not marked as somewhere to drop it", () => {
+  const ui = board5();
+  carryTo(ui, "three", 10, 105);
+  assert.equal(marked(ui.root, "dropzone"), 0);
+  drop(ui, 10, 105);
+  assert.deepEqual(ui.sent(), [{ action: "move-card", payload: { cardId: "c3", groupId: null, beforeId: "c1" } }]);
+});
+
+test("a note dropped on a group joins it where it was dropped, also from another lane; the menu's Add to group asks for the same", () => {
+  const ui = board5({ cards: paired, groups: pair });
+  one(ui.root, "group").box = { left: 320, top: 60, width: 300, height: 150 };
+  // Over the group's heading: in front of its first note.
+  carryTo(ui, "one", 400, 70);
+  assert.ok(one(ui.root, "group").className.includes("dropzone"), "the group is marked");
+  assert.equal(liveOf(ui.root), "Drop into Pair");
+  ui.fireWindow("pointermove", { clientX: 400, clientY: 160 });
+  drop(ui, 400, 160);
+  assert.deepEqual(ui.sent(), [{ action: "move-card", payload: { cardId: "c1", groupId: "g1", beforeId: "c5" } }]);
+  assert.equal(noteOrder(ui.root, "To improve"), "four one five");
+  assert.equal(liveOf(ui.root), "Moved to the group Pair, position 2 of 3.");
+  assert.equal(marked(ui.root, "dropzone"), 0);
+
+  // Dropped under its last note, it is the request the menu sends.
+  const end = board5({ cards: paired, groups: pair });
+  one(end.root, "group").box = { left: 320, top: 60, width: 300, height: 150 };
+  carryTo(end, "one", 400, 205);
+  drop(end, 400, 205);
+  const menu = board5({ cards: paired, groups: pair });
+  byMenu(menu, "one", "Add to group", "Pair (To improve)");
+  assert.deepEqual(end.sent(), [{ action: "move-card", payload: { cardId: "c1", groupId: "g1" } }]);
+  assert.deepEqual(menu.sent(), end.sent());
+});
+
+test("a grouped note dropped among loose notes, or in another lane, leaves its group", () => {
+  const ui = board5({ cards: paired, groups: pair });
+  one(ui.root, "group").box = { left: 320, top: 60, width: 300, height: 150 };
+  carryTo(ui, "four", 400, 400);
+  assert.equal(liveOf(ui.root), "Drop at the end of To improve");
+  drop(ui, 400, 400);
+  assert.deepEqual(ui.sent(), [{ action: "move-card", payload: { cardId: "c4", groupId: null } }]);
+
+  const away = board5({ cards: paired, groups: pair });
+  one(away.root, "group").box = { left: 320, top: 60, width: 300, height: 150 };
+  carryTo(away, "four", 700, 300);
+  drop(away, 700, 300);
+  assert.deepEqual(away.sent(), [{ action: "move-card", payload: { cardId: "c4", columnId: "puzzles" } }]);
+  assert.equal(noteOrder(away.root, "Puzzles"), "four");
+  assert.equal(byClass(lane(away.root, "Puzzles"), "group").length, 0, "it arrives loose");
+});
+
+test("a lane sorted by votes takes a note from another lane, at its end, and says the sort is the viewer's own", () => {
+  const cards = [...three, card("c4", "to-improve", "four", { voteCount: 1 }), card("c5", "to-improve", "five", { voteCount: 3 })];
+  const ui = board5({ cards });
+  button(lane(ui.root, "To improve"), "Votes").click();
+  assert.equal(noteOrder(ui.root, "To improve"), "five four");
+  carryTo(ui, "one", 400, 105);
+  assert.equal(liveOf(ui.root), "Drop to add to To improve. That lane is sorted by votes for you, so no place in it can be picked.");
+  drop(ui, 400, 105);
+  assert.deepEqual(ui.sent(), [{ action: "move-card", payload: { cardId: "c1", columnId: "to-improve" } }], "no place is asked for");
+  assert.equal(noteOrder(ui.root, "To improve"), "five four one");
+  assert.equal(liveOf(ui.root), "Moved to To improve, position 3 of 3. That lane is sorted by votes for you: this is its place in the shared order.");
+});
+
+test("a note can be carried out of a lane sorted by votes", () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ cards: voted }, PARTICIPANT));
+  lanesLaid2(ui);
+  button(lane(ui.root, "Went well"), "Votes").click();
+  carryTo(ui, "one", 700, 300);
+  drop(ui, 700, 300);
+  assert.deepEqual(ui.sent(), [{ action: "move-card", payload: { cardId: "c1", columnId: "puzzles" } }]);
+});
+function lanesLaid2(ui) {
+  ["Went well", "To improve", "Puzzles"].forEach((title, i) => (lane(ui.root, title).box = { left: 320 * i, top: 0, width: 300, height: 600 }));
+  place(ui.root, ["one", "two", "three"]);
+}
+
+test("Escape over another lane returns the note and sends nothing", () => {
+  const ui = board5();
+  carryTo(ui, "one", 400, 160);
+  assert.equal(noteOrder(ui.root, "To improve"), "four one five", "the slot shows where it would land");
+  ui.press("Escape");
+  assert.deepEqual(ui.sent(), []);
+  assert.equal(noteOrder(ui.root, "Went well"), "one two three");
+  assert.equal(noteOrder(ui.root, "To improve"), "four five");
+  assert.equal(marked(ui.root, "dropzone") + marked(ui.root, "slot") + marked(ui.root, "drag"), 0);
+  assert.equal(liveOf(ui.root), "Not moved.");
+  drop(ui, 400, 160);
+  assert.deepEqual(ui.sent(), [], "letting go afterwards is not a drop");
+});
+
+test("a lane change the server refuses is taken back, with the server's reason", async () => {
+  const ui = board5();
+  carryTo(ui, "one", 400, 160);
+  drop(ui, 400, 160);
+  assert.equal(noteOrder(ui.root, "To improve"), "four one five");
+  ui.acts[0].answer({ ok: false, reason: "rate-limited" });
+  await settled();
+  assert.equal(noteOrder(ui.root, "Went well"), "one two three");
+  assert.equal(noteOrder(ui.root, "To improve"), "four five");
+  assert.equal(toastOf(ui.root).textContent, "Too many changes at once. Wait a moment, then try again.");
+});
+
+test("Alt with Left or Right moves a note to the next lane, the way its menu does, and says where it is", () => {
+  const ui = board5();
+  const note = noteWith(ui.root, "two");
+  one(note, "grip").focus();
+  note.fire("keydown", { key: "ArrowLeft", altKey: true });
+  assert.deepEqual(ui.sent(), [], "there is no lane before the first");
+  assert.equal(liveOf(ui.root), "Already in the first lane.");
+  note.fire("keydown", { key: "ArrowRight", altKey: true });
+  assert.deepEqual(ui.sent(), [{ action: "move-card", payload: { cardId: "c2", columnId: "to-improve" } }]);
+  assert.equal(liveOf(ui.root), "Moved to To improve, position 3 of 3.");
+  same(ui.document.activeElement, one(note, "grip"), "focus goes with the note");
+
+  const menu = board5();
+  byMenu(menu, "two", "Move to To improve");
+  assert.deepEqual(menu.sent(), ui.sent());
+});
+
+test("the middle of a note means group with it only after the pointer rests there, and is kept until it is nearly off the note", () => {
+  const ui = board5();
+  const two = noteWith(ui.root, "two");
+  const three3 = noteWith(ui.root, "three");
+  // two stands from 150 to 194. Its middle half is 161 to 183.
+  carryTo(ui, "three", 10, 165);
+  assert.equal(marked(ui.root, "merge"), 0, "passing over is not resting");
+  assert.equal(noteOrder(ui.root, "Went well"), "one two three", "and the slot has not moved either");
+  ui.runTimers(300);
+  assert.ok(two.className.includes("merge"), "after a rest the note is the target");
+  assert.ok(three3.className.includes("faded"), "and the slot steps back");
+  assert.equal(liveOf(ui.root), "Drop to group with: two");
+  // 156 is in the top quarter, but still inside the margin a held target keeps.
+  ui.fireWindow("pointermove", { clientX: 10, clientY: 156 });
+  assert.ok(two.className.includes("merge"), "a small slip does not lose it");
+  // 152 is nearly off the note.
+  ui.fireWindow("pointermove", { clientX: 10, clientY: 152 });
+  assert.equal(marked(ui.root, "merge") + marked(ui.root, "faded"), 0);
+  assert.equal(liveOf(ui.root), "Drop to move before: two");
+  assert.equal(noteOrder(ui.root, "Went well"), "one three two", "the top quarter means in front of it");
+  // Back in the middle: the rest starts again.
+  ui.fireWindow("pointermove", { clientX: 10, clientY: 170 });
+  assert.equal(marked(ui.root, "merge"), 0);
+  // The bottom quarter means after it.
+  ui.fireWindow("pointermove", { clientX: 10, clientY: 190 });
+  assert.equal(noteOrder(ui.root, "Went well"), "one two three");
+  ui.runTimers(300);
+  assert.equal(marked(ui.root, "merge"), 0, "a rest that was left does not ripen later");
+  drop(ui, 10, 190);
+  assert.deepEqual(ui.sent(), [], "back where it started, nothing is sent");
+});
+
+test("a note dropped on another asks for the group's name, sends what the Group bar sends, and Cancel sends nothing", () => {
+  const ui = board5();
+  const ontoTwo = () => {
+    carryTo(ui, "three", 10, 172);
+    ui.runTimers(300);
+    drop(ui, 10, 172);
+  };
+  ontoTwo();
+  const sheet = one(ui.root, "sheet");
+  assert.equal(sheet.getAttribute("role"), "dialog");
+  assert.equal(sheet.getAttribute("aria-label"), "Group these two notes");
+  const name = all(sheet, (n) => n.tagName === "INPUT")[0];
+  assert.equal(name.value, "two", "the name starts as the first words of the note it was dropped on");
+  same(ui.document.activeElement, name);
+  assert.deepEqual(ui.sent(), [], "nothing is sent until it is named");
+  assert.equal(noteOrder(ui.root, "Went well"), "one two three", "and neither note has moved");
+  button(sheet, "Cancel").click();
+  assert.equal(byClass(ui.root, "sheet").length, 0);
+  assert.deepEqual(ui.sent(), []);
+  same(ui.document.activeElement, one(noteWith(ui.root, "two"), "more"), "focus is on the note it was dropped on");
+
+  ontoTwo();
+  const again = all(one(ui.root, "sheet"), (n) => n.tagName === "INPUT")[0];
+  again.type("  ");
+  assert.equal(button(one(ui.root, "sheet"), "Group").disabled, true, "a group needs a name");
+  again.type("Pairing");
+  button(one(ui.root, "sheet"), "Group").click();
+  assert.deepEqual(ui.sent(), [{ action: "group-cards", payload: { cardIds: ["c2", "c3"], title: "Pairing" } }]);
+
+  const bar = board5();
+  select(bar.root, "three");
+  select(bar.root, "two");
+  all(one(bar.root, "select-bar"), (n) => n.tagName === "INPUT")[0].type("Pairing");
+  button(one(bar.root, "select-bar"), "Group").click();
+  assert.deepEqual(bar.sent(), ui.sent(), "the bar and the drop make the same group");
+});
+
+test("a note is never grouped with a note of another lane by a drop: there it is set down", () => {
+  const ui = board5();
+  carryTo(ui, "one", 400, 172);
+  ui.runTimers(300);
+  assert.equal(marked(ui.root, "merge"), 0);
+  drop(ui, 400, 172);
+  assert.deepEqual(ui.sent(), [{ action: "move-card", payload: { cardId: "c1", columnId: "to-improve" } }]);
+});
+
+test("a group or a note that is deleted while something is carried to it is not sent anything", () => {
+  const ui = board5({ cards: paired, groups: pair });
+  one(ui.root, "group").box = { left: 320, top: 60, width: 300, height: 150 };
+  carryTo(ui, "one", 400, 160);
+  ui.push(session({ cards: three }, PARTICIPANT));
+  drop(ui, 400, 160);
+  assert.deepEqual(ui.sent(), []);
+  assert.equal(toastOf(ui.root).textContent, "That is no longer on the board.");
+  assert.equal(noteOrder(ui.root, "Went well"), "one two three");
+
+  const onto = board5();
+  carryTo(onto, "three", 10, 172);
+  onto.runTimers(300);
+  onto.push(session({ cards: [five[0], five[2], five[3], five[4]] }, PARTICIPANT));
+  drop(onto, 10, 172);
+  assert.deepEqual(onto.sent(), []);
+  assert.equal(byClass(onto.root, "sheet").length, 0);
+  assert.equal(toastOf(onto.root).textContent, "That is no longer on the board.");
+});
+
+test("a group is carried to another lane whole, by its handle or from its menu", async () => {
+  const ui = board5({ cards: paired, groups: pair });
+  const group = one(ui.root, "group");
+  group.box = { left: 320, top: 60, width: 300, height: 150 };
+  one(group, "grip").fire("pointerdown", { clientX: 330, clientY: 70 });
+  ui.fireWindow("pointermove", { clientX: 330, clientY: 80 });
+  ui.fireWindow("pointermove", { clientX: 700, clientY: 300 });
+  assert.ok(lane(ui.root, "Puzzles").className.includes("dropzone"));
+  drop(ui, 700, 300);
+  assert.deepEqual(ui.sent(), [{ action: "move-group", payload: { groupId: "g1", columnId: "puzzles" } }]);
+  assert.equal(noteOrder(ui.root, "Puzzles"), "four five");
+  assert.equal(byClass(lane(ui.root, "Puzzles"), "group").length, 1);
+  assert.equal(liveOf(ui.root), "Group Pair moved to Puzzles, position 1 of 1.");
+
+  const menu = board5({ cards: paired, groups: pair });
+  labeled(menu.root, "Options for group: Pair").click();
+  menuItem(menu.root, "Move group to Puzzles").click();
+  assert.deepEqual(menu.sent(), ui.sent());
+
+  // Refused, it goes back, group and notes together.
+  ui.acts[0].answer({ ok: false, reason: "not-found" });
+  await settled();
+  assert.equal(noteOrder(ui.root, "To improve"), "four five");
+  assert.equal(byClass(lane(ui.root, "To improve"), "group").length, 1);
+  assert.equal(noteOrder(ui.root, "Puzzles"), "");
+});
+
+test("a drag that ends without a release gives the pointer back to the page", () => {
+  for (const end of [(ui) => ui.press("Escape"), (ui) => ui.fireWindow("blur"), (ui) => drop(ui, 400, 160)]) {
+    const ui = board5();
+    const board = main(ui.root);
+    let captured = null;
+    board.setPointerCapture = (id) => (captured = id);
+    board.hasPointerCapture = (id) => captured === id;
+    board.releasePointerCapture = () => (captured = null);
+    carryTo(ui, "one", 400, 160);
+    assert.equal(captured, 1, "the board follows the pointer while it carries");
+    end(ui);
+    assert.equal(captured, null, "and lets it go however the drag ends");
+  }
+});
+
+test("the click that ends a drag is not a press, and the next press anywhere is one again", () => {
+  const ui = board5();
+  const grip = one(noteWith(ui.root, "one"), "grip");
+  carryTo(ui, "one", 10, 105);
+  drop(ui, 10, 105);
+  grip.click();
+  assert.notEqual(liveOf(ui.root).slice(0, 4), "Drag", "the release is not read as a press of the handle");
+  // No timer has run: the next press on the page clears it on its own.
+  ui.pressOn(lane(ui.root, "Puzzles"));
+  grip.click();
+  assert.match(liveOf(ui.root), /^Drag to move this/);
 });

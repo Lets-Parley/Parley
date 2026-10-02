@@ -2662,7 +2662,7 @@
       tilt: 0,
       home: node.parentNode,
       next: node.nextElementSibling,
-      aim: { type: "stay" },
+      aim: { type: "stay", lane: view.lanes[from] },
       marks: bag(),
       said: "",
       dwell: null,
@@ -2673,10 +2673,10 @@
   }
 
   // Which part of a note the pointer is over. Its middle half means "group
-  // with this"; the quarter above and the quarter below mean "set down before
-  // or after it". Once the middle is held it is kept until the pointer is
-  // nearly off the note, so a hand resting on the line between two parts does
-  // not flicker between two answers.
+  // with this", once the pointer has rested there; the quarter above and the
+  // quarter below mean "set down before or after it". Once the middle is held
+  // it is kept until the pointer is nearly off the note, so a hand resting on
+  // the line between two parts does not flicker between two answers.
   function zoneOf(y, top, height, held) {
     const at = height ? (y - top) / height : 0;
     const edge = held ? 0.1 : 0.25;
@@ -2739,6 +2739,9 @@
       }, DWELL_MS);
     }
     if (onto && d.ripe) return { type: "onto", lane: lane, noteId: onto };
+    // Resting on the middle of a note but not yet for long enough: the slot
+    // stays where it last was, so passing over a note does not shuffle the lane.
+    if (onto && d.aim.type !== "onto") return d.aim;
     if (lane.sorted) return lane.id === d.from ? { type: "stay", lane: lane } : { type: "lane", lane: lane, list: lane.list, before: null };
     return { type: "lane", lane: lane, list: lane.list, before: firstBelow(lane.list) };
   }

@@ -178,6 +178,45 @@ test("a note moves in front of another note, to the end, or to another lane", ()
   assert.equal(a.columnId, "puzzles");
 });
 
+test("a group changes lane whole: its notes go with it, with their votes, stamps and links", () => {
+  const board = emptyBoard();
+  const [a, b, c] = ["a", "b", "c"].map((t) => note(board, "alice", "to-improve", t));
+  const p = note(board, "alice", "puzzles", "p");
+  const g = act(board, "group-cards", "alice", { cardIds: [a.id, c.id], title: "pair" });
+  act(board, "vote", "bob", { cardId: a.id });
+  act(board, "stamp", "bob", { cardId: c.id, kind: "idea", x: 0.5, y: 0.5 });
+  const item = act(board, "add-action", "bob", { text: "fix", sourceIds: [g.id, a.id] });
+  act(board, "move-group", "bob", { groupId: g.id, columnId: "puzzles", beforeId: p.id });
+  assert.equal(order(board), "b a c p");
+  assert.equal(g.columnId, "puzzles");
+  assert.deepEqual([a.columnId, c.columnId, b.columnId], ["puzzles", "puzzles", "to-improve"]);
+  assert.deepEqual([a.groupId, c.groupId], [g.id, g.id], "they are still the group");
+  const seen = redactBoard(board, 0);
+  assert.equal(seen.cards.find((x) => x.id === a.id).voteCount, 1);
+  assert.equal(seen.stamps.length, 1);
+  assert.deepEqual(seen.actionItems[0].sourceIds, item.sourceIds);
+  // Without a place, it goes to the end of the lane it is sent to.
+  act(board, "move-group", "bob", { groupId: g.id, columnId: "went-well" });
+  assert.equal(order(board), "b p a c");
+  assert.equal(g.columnId, "went-well");
+});
+
+test("a group sent to a lane that is not one is refused, and nothing about it changes", () => {
+  const board = emptyBoard();
+  const [a, b] = ["a", "b"].map((t) => note(board, "alice", "to-improve", t));
+  const z = note(board, "alice", "to-improve", "z");
+  const g = act(board, "group-cards", "alice", { cardIds: [a.id, b.id], title: "pair" });
+  act(board, "move-group", "bob", { groupId: g.id, beforeId: z.id });
+  const before = JSON.stringify(board);
+  for (const columnId of ["nope", "", null, 7, {}, ["puzzles"], { id: "puzzles" }, "__proto__", "constructor", "toString"]) {
+    assert.throws(() => act(board, "move-group", "bob", { groupId: g.id, columnId }), /unknown column/, JSON.stringify(columnId));
+    assert.equal(JSON.stringify(board), before, JSON.stringify(columnId));
+  }
+  assert.throws(() => act(board, "move-group", "bob", { groupId: { id: g.id }, columnId: "puzzles" }), /unknown group/);
+  assert.equal(JSON.stringify(board), before);
+  assert.equal(code(board, "move-group", "bob", { groupId: g.id, columnId: "nope" }), "not-found");
+});
+
 test("a moved note joins a group, leaves one, and loses its group when it changes lane", () => {
   const { board, a, b, c } = threeNotes();
   const g = act(board, "group-cards", "alice", { cardIds: [a.id, b.id], title: "pair" });
