@@ -420,7 +420,7 @@ mutate "one action per room at the lock" \
 # that wait ends at the action's deadline.
 mutate "the wait for an in-flight slot" \
     'TestActionsPastTheInFlightCapWaitForASlot' \
-    host.go 'if !h.acquireBy(ctx, installID, info.lockBy) {' 'if !h.acquire(installID) {'
+    host.go 'if !slotBy.IsZero() {' 'if false {'
 
 # Freed slots go straight to waiting actions, so a state build that did not
 # wait in the same line would be refused for as long as any action was queued.
@@ -1017,7 +1017,7 @@ mutate "an older version through install refused as a downgrade" \
 # what used up a plugin's call slots in an ordinary room.
 mutate "the broadcast a newer one already covered" \
     'TestABurstOfBroadcastsOnOneRoomSharesStateBuilds' \
-    sessions.go 'if c.sent >= mine {' 'if false {'
+    sessions.go 'if c.sent >= mine {' 'if c.sent >= mine && false {'
 
 target internal/store
 
@@ -1138,10 +1138,12 @@ mutate "a pinned install loading by its digest, not its name and version" \
 
 mutate "Enable compiling before it switches an install on" \
     'TestEnableLeavesAnInstallOffWhenItsBundleWillNotLoad' \
-    host.go '	if _, err := h.module(ctx, installID); err != nil {
+    host.go '	entry, err := h.module(ctx, installID)
+	if err != nil {
 		h.evict(ctx, installID)
 		return err
 	}
+	h.unuse(ctx, entry)
 ' ''
 
 mutate "recording every pin in the install's history" \
