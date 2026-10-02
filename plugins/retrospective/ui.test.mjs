@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url";
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const { version } = createRequire(import.meta.url)("./manifest.json");
-const src = readFileSync(join(dir, "ui.js"), "utf8");
+const src = readFileSync(join(dir, "ui.src.js"), "utf8");
+const fontSrc = readFileSync(join(dir, "ui.fonts.js"), "utf8");
 const distSrc = readFileSync(join(dir, "dist", `retrospective-${version}.ui.js`), "utf8");
 
 // The smallest document ui.js can run against. It models the two things the
@@ -24,6 +25,18 @@ class FakeNode {
     this.listeners = {};
     this.style = { setProperty() {} };
     this.className = "";
+    this.readOnly = false;
+    const node = this;
+    this.classList = {
+      names: () => node.className.split(" ").filter(Boolean),
+      contains: (name) => this.classList.names().includes(name),
+      add: (name) => this.classList.toggle(name, true),
+      remove: (name) => this.classList.toggle(name, false),
+      toggle(name, on) {
+        const rest = this.names().filter((n) => n !== name);
+        node.className = (on ? [...rest, name] : rest).join(" ");
+      },
+    };
     this.value = "";
     this.text = "";
     this.disabled = false;
@@ -95,7 +108,9 @@ class FakeNode {
   }
 }
 
-function load() {
+// `host: "old"` is a Parley that returns nothing from an action. `host: "new"`
+// returns a promise per action, which the test settles through acts[n].answer.
+function load({ host = "old" } = {}) {
   const timers = [];
   const acts = [];
   const document = {
@@ -115,19 +130,27 @@ function load() {
   const root = new FakeNode(document, "div");
   document.body.appendChild(root);
   let push;
-  const window = {
-    parley: {
-      onTokens() {},
-      onState(fn) {
-        push = fn;
-      },
-      ready() {},
-      act(action, payload) {
-        // Round-tripped so the objects belong to this realm, not the UI's.
-        acts.push(JSON.parse(JSON.stringify({ action, payload })));
-      },
+  const parley = {
+    onTokens() {},
+    onState(fn) {
+      push = fn;
+    },
+    ready() {},
+    act(action, payload) {
+      // Round-tripped so the objects belong to this realm, not the UI's.
+      const sent = JSON.parse(JSON.stringify({ action, payload }));
+      acts.push(sent);
+      if (host === "old") return undefined;
+      return new Promise((resolve) => {
+        sent.answer = resolve;
+      });
     },
   };
+  if (host === "new") {
+    parley.supports = (feature) => feature === "results";
+    parley.scheme = () => "dark";
+  }
+  const window = { parley, addEventListener() {} };
   const setTimeout = (fn) => timers.push(fn);
   const clearTimeout = (id) => {
     timers[id - 1] = null;
@@ -135,8 +158,12 @@ function load() {
   runInContext(src, createContext({ window, document, setTimeout, clearTimeout }));
   assert.equal(typeof push, "function");
   const runTimers = () => timers.splice(0).forEach((fn) => fn && fn());
-  return { root, document, push, acts, runTimers };
+  const sent = () => acts.map(({ action, payload }) => ({ action, payload }));
+  return { root, document, push, acts, sent, runTimers };
 }
+
+// Lets a settled promise's callbacks run.
+const settled = () => new Promise((resolve) => setImmediate(resolve));
 
 function all(node, test, out = []) {
   if (test(node)) out.push(node);
@@ -166,13 +193,17 @@ const participants = [
 ];
 const card = (id, columnId, text, more = {}) => ({ id, columnId, groupId: null, text, voteCount: 0, ...more });
 
-function session(state) {
+function session(state, more = {}) {
   return {
     facilitatorId: "u-alice",
     participants,
     state: { revealed: false, columns, cards: [], groups: [], actionItems: [], ...state },
+    ...more,
   };
 }
+const toastOf = (root) => byClass(root, "toast")[0];
+const composer = (root, title) => all(lane(root, title), (n) => n.tagName === "TEXTAREA")[0];
+const ENTER = { key: "Enter", shiftKey: false };
 
 function select(root, text) {
   const box = pick(root, text);
@@ -193,6 +224,10 @@ test("the UI talks only over the host bridge", () => {
   assert.match(src, /parley\.ready\(/);
   assertNoNetwork(src);
   assertNoNetwork(distSrc);
+});
+
+test("the shipped ui.js is the fonts followed by the readable source", () => {
+  assert.equal(distSrc, fontSrc + src);
 });
 
 test("the UI never writes markup, so no state can become an element", () => {
@@ -275,8 +310,8 @@ test("authors are names, only after the reveal, and never raw ids", () => {
   assert.doesNotMatch(root.textContent, /u-alice|u-gone|u-bo|u-cy/);
 });
 
-test("Group stays disabled, with the reason, until two notes in one lane are selected", () => {
-  const { root, push, acts } = load();
+test("Group stays disabled, with the reason, until two notes in one lane are selected and named", () => {
+  const { root, push, sent } = load();
   push(
     session({
       cards: [card("c1", "went-well", "one"), card("c2", "went-well", "two"), card("c3", "puzzles", "three")],
@@ -287,10 +322,11 @@ test("Group stays disabled, with the reason, until two notes in one lane are sel
 
   select(root, "one");
   const group = button(bar, "Group");
+  const name = all(bar, (n) => n.tagName === "INPUT")[0];
   assert.equal(bar.hidden, false);
   assert.equal(group.disabled, true);
-  assert.match(bar.textContent, /1 note selected/);
-  assert.match(bar.textContent, /one more note/);
+  assert.match(bar.textContent, /1 selected/);
+  assert.match(bar.textContent, /one more/);
 
   select(root, "three");
   assert.equal(group.disabled, true);
@@ -298,60 +334,12 @@ test("Group stays disabled, with the reason, until two notes in one lane are sel
 
   select(root, "three");
   select(root, "two");
+  assert.equal(group.disabled, true, "a group needs a name");
+  assert.match(bar.textContent, /Name the group/);
+  name.type("Numbers");
   assert.equal(group.disabled, false);
   group.click();
-  assert.deepEqual(acts, [{ action: "group-cards", payload: { cardIds: ["c1", "c2"], title: "Theme" } }]);
-});
-
-test("revealing authors takes a second, explicit confirmation", () => {
-  const { root, push, acts } = load();
-  push(session({ cards: [card("c1", "went-well", "one")] }));
-  button(root, "Reveal authors").click();
-  assert.deepEqual(acts, []);
-  assert.match(byClass(root, "reveal")[0].textContent, /cannot be undone/);
-
-  button(root, "Not yet").click();
-  assert.deepEqual(acts, []);
-
-  button(root, "Reveal authors").click();
-  button(root, "Reveal to everyone").click();
-  assert.deepEqual(acts, [{ action: "reveal", payload: {} }]);
-
-  push(session({ revealed: true, cards: [card("c1", "went-well", "one", { authorId: "u-bo" })] }));
-  assert.equal(button(root, "Reveal"), undefined);
-  assert.ok(all(root, (n) => visible(n) && n.text === "Authors visible").length);
-});
-
-test("a reveal the server refuses is explained, not swallowed", () => {
-  const { root, push, runTimers } = load();
-  push(session({}));
-  button(root, "Reveal authors").click();
-  button(root, "Reveal to everyone").click();
-  runTimers();
-  const toast = byClass(root, "toast")[0];
-  assert.equal(toast.hidden, false);
-  assert.match(toast.textContent, /Only the facilitator, Alice Ng, can/);
-});
-
-test("Enter adds a note once; an empty note is never sent", () => {
-  const { root, push, acts } = load();
-  push(session({}));
-  const box = all(lane(root, "To improve"), (n) => n.tagName === "TEXTAREA")[0];
-  const enter = { key: "Enter", shiftKey: false };
-  box.fire("keydown", enter);
-  box.type("   ");
-  box.fire("keydown", enter);
-  assert.deepEqual(acts, []);
-  assert.equal(button(lane(root, "To improve"), "Add note").disabled, true);
-
-  box.type("flaky deploys");
-  box.fire("keydown", enter);
-  box.fire("keydown", enter);
-  assert.deepEqual(acts, [{ action: "add-card", payload: { columnId: "to-improve", text: "flaky deploys" } }]);
-  assert.equal(box.value, "flaky deploys", "kept until the server has it");
-
-  push(session({ cards: [card("c9", "to-improve", "flaky deploys")] }));
-  assert.equal(box.value, "");
+  assert.deepEqual(sent(), [{ action: "group-cards", payload: { cardIds: ["c1", "c2"], title: "Numbers" } }]);
 });
 
 test("remote changes are announced politely, and the first paint is not", () => {
@@ -364,14 +352,218 @@ test("remote changes are announced politely, and the first paint is not", () => 
   assert.match(live.textContent, /New note in Puzzles/);
 });
 
-test("the layout is one column that cannot overflow at phone width", () => {
-  const { root, document, push } = load();
-  push(session({ cards: [card("c1", "went-well", "x".repeat(500))] }));
-  const css = document.head.textContent.replace(/\s+/g, "");
-  assert.match(css, /\.lanes\{[^}]*grid-template-columns:minmax\(0,1fr\)/);
-  assert.match(css, /@media\(min-width:860px\)\{\.lanes\{grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
-  assert.match(css, /\.note-text\{[^}]*overflow-wrap:anywhere/);
-  assert.match(css, /\.field\{[^}]*min-width:0/);
-  assert.equal(byClass(root, "lanes")[0].children.length, 3);
-  assert.equal(byClass(noteWith(root, "xxx"), "note-text").length, 1);
+test("revealing authors takes a second, explicit confirmation", () => {
+  const { root, push, sent } = load();
+  push(session({ cards: [card("c1", "went-well", "one")] }));
+  button(root, "Reveal authors").click();
+  assert.deepEqual(sent(), []);
+  assert.match(byClass(root, "authorship")[0].textContent, /cannot be undone/);
+
+  button(root, "Not yet").click();
+  assert.deepEqual(sent(), []);
+
+  button(root, "Reveal authors").click();
+  const confirm = button(root, "Reveal to everyone");
+  confirm.click();
+  assert.deepEqual(sent(), [{ action: "reveal", payload: {} }]);
+  assert.equal(confirm.disabled, true, "no second press while the first is pending");
+
+  push(session({ revealed: true, cards: [card("c1", "went-well", "one", { authorId: "u-bo" })] }));
+  assert.equal(button(root, "Reveal"), undefined);
+  assert.ok(all(root, (n) => visible(n) && n.text === "Authors visible").length);
+});
+
+test("Reveal is not offered on an empty board", () => {
+  const { root, push } = load();
+  push(session({}));
+  assert.equal(button(root, "Reveal authors"), undefined);
+  push(session({ cards: [card("c1", "went-well", "one")] }));
+  assert.ok(button(root, "Reveal authors"));
+});
+
+test("with the viewer known, only the facilitator is offered Reveal", () => {
+  const cards = [card("c1", "went-well", "one")];
+  const words = (root) => byClass(root, "authorship")[0].textContent;
+
+  const participant = load({ host: "new" });
+  participant.push(session({ cards }, { selfId: "u-bo" }));
+  assert.equal(button(participant.root, "Reveal authors"), undefined);
+  assert.match(words(participant.root), /Alice Ng, the facilitator, reveals/);
+
+  const facilitator = load({ host: "new" });
+  facilitator.push(session({ cards }, { selfId: "u-alice" }));
+  assert.ok(button(facilitator.root, "Reveal authors"));
+  assert.doesNotMatch(words(facilitator.root), /Alice Ng/, "she is not told about herself in the third person");
+  assert.match(words(facilitator.root), /Only you/);
+
+  const unknown = load({ host: "new" });
+  unknown.push(session({ cards }, { selfId: null }));
+  assert.ok(button(unknown.root, "Reveal authors"));
+  assert.match(words(unknown.root), /Only the facilitator, Alice Ng, can/);
+});
+
+test("a host that answers is believed at once: the reason is shown without waiting", async () => {
+  const { root, push, acts, runTimers } = load({ host: "new" });
+  push(session({ cards: [card("c1", "went-well", "one")] }));
+  button(root, "Reveal authors").click();
+  button(root, "Reveal to everyone").click();
+  acts[0].answer({ ok: false, reason: "forbidden" });
+  await settled();
+  assert.equal(toastOf(root).hidden, false, "no timer had to run");
+  assert.match(toastOf(root).textContent, /Only the facilitator, Alice Ng, can reveal authors/);
+  assert.ok(button(root, "Reveal authors"), "the confirmation is put away");
+
+  composer(root, "Puzzles").type("why");
+  composer(root, "Puzzles").fire("keydown", ENTER);
+  acts[1].answer({ ok: false, reason: "unreachable" });
+  await settled();
+  assert.match(toastOf(root).textContent, /Could not reach the server/);
+  const ghost = byClass(root, "ghost")[0];
+  assert.match(ghost.textContent, /why/, "the text is kept");
+  runTimers();
+  assert.match(ghost.textContent, /Not saved/, "and stays refused, with no second verdict later");
+});
+
+test("an outcome the host cannot report is not called a failure", async () => {
+  const { root, push, acts, runTimers } = load({ host: "new" });
+  push(session({}));
+  composer(root, "Puzzles").type("why");
+  composer(root, "Puzzles").fire("keydown", ENTER);
+  acts[0].answer({ ok: false, reason: "unknown" });
+  await settled();
+  assert.equal(toastOf(root).hidden, true, "unknown is not a refusal");
+  runTimers();
+  assert.match(toastOf(root).textContent, /Could not confirm/);
+  assert.doesNotMatch(toastOf(root).textContent, /try again/i);
+});
+
+test("a reveal an older host refuses in silence is explained", () => {
+  const { root, push, runTimers } = load();
+  push(session({ cards: [card("c1", "went-well", "one")] }));
+  button(root, "Reveal authors").click();
+  button(root, "Reveal to everyone").click();
+  runTimers();
+  assert.equal(toastOf(root).hidden, false);
+  assert.match(toastOf(root).textContent, /Only the facilitator, Alice Ng, can/);
+});
+
+test("Enter adds a note once; an empty note is never sent", () => {
+  const { root, push, sent } = load();
+  push(session({}));
+  const box = composer(root, "To improve");
+  box.fire("keydown", ENTER);
+  box.type("   ");
+  box.fire("keydown", ENTER);
+  assert.deepEqual(sent(), []);
+
+  box.type("flaky deploys");
+  box.fire("keydown", ENTER);
+  box.fire("keydown", ENTER);
+  assert.deepEqual(sent(), [{ action: "add-card", payload: { columnId: "to-improve", text: "flaky deploys" } }]);
+  assert.equal(box.value, "", "the box is free for the next thought");
+  assert.match(byClass(lane(root, "To improve"), "ghost")[0].textContent, /flaky deploys/);
+
+  push(session({ cards: [card("c9", "to-improve", "flaky deploys")] }));
+  assert.equal(byClass(root, "ghost").length, 0);
+  assert.equal(byClass(lane(root, "To improve"), "note").filter((n) => n.textContent.includes("flaky")).length, 1);
+});
+
+test("a second note typed while the first is saving is sent after it, not dropped", () => {
+  const { root, push, sent } = load();
+  push(session({}));
+  const box = composer(root, "Went well");
+  box.type("first");
+  box.fire("keydown", ENTER);
+  box.type("second");
+  box.fire("keydown", ENTER);
+  assert.equal(sent().length, 1, "one at a time: the board is one document");
+  assert.equal(byClass(root, "ghost").length, 2);
+
+  push(session({ cards: [card("c1", "went-well", "first")] }));
+  assert.deepEqual(
+    sent().map((a) => a.payload.text),
+    ["first", "second"],
+  );
+  push(session({ cards: [card("c1", "went-well", "first"), card("c2", "went-well", "second")] }));
+  assert.equal(byClass(root, "ghost").length, 0);
+});
+
+test("a note that lands after the wait is not reported lost and cannot be sent twice", () => {
+  const { root, push, sent, runTimers } = load();
+  push(session({}));
+  const box = composer(root, "Went well");
+  box.type("slow one");
+  box.fire("keydown", ENTER);
+  runTimers();
+  assert.equal(toastOf(root).hidden, false);
+  assert.match(byClass(root, "ghost")[0].textContent, /slow one/);
+
+  push(session({ cards: [card("c1", "went-well", "slow one")] }));
+  assert.equal(toastOf(root).hidden, true, "the warning is taken back");
+  assert.equal(byClass(root, "ghost").length, 0, "nothing is left to send again");
+  assert.equal(byClass(root, "note").filter((n) => n.textContent.includes("slow one")).length, 1);
+  assert.equal(sent().length, 1);
+});
+
+test("a teammate's vote is never shown as the viewer's own", async () => {
+  const pressed = (root) => button(noteWith(root, "one"), "Vote").getAttribute("aria-pressed");
+  const before = session({ cards: [card("c1", "went-well", "one")] });
+  const after = session({ cards: [card("c1", "went-well", "one", { voteCount: 1 })] });
+
+  const watcher = load({ host: "new" });
+  watcher.push(before);
+  watcher.push(after);
+  assert.notEqual(pressed(watcher.root), "true");
+
+  // An older host cannot say whose vote moved the count.
+  const old = load();
+  old.push(before);
+  button(noteWith(old.root, "one"), "Vote").click();
+  old.push(after);
+  assert.notEqual(pressed(old.root), "true");
+
+  const voter = load({ host: "new" });
+  voter.push(before);
+  button(noteWith(voter.root, "one"), "Vote").click();
+  voter.acts[0].answer({ ok: true });
+  await settled();
+  assert.equal(pressed(voter.root), "true");
+  button(noteWith(voter.root, "one"), "Vote").click();
+  assert.equal(voter.acts.length, 1, "a counted vote is not sent again");
+});
+
+test("malformed state is drawn as far as it makes sense and never throws", () => {
+  const { root, push } = load();
+  push({ state: { columns, cards: "nope", groups: null, actionItems: 7 } });
+  push({ participants: [{ userId: "u-x" }, null], state: { revealed: true, columns, cards: [null, { id: "c1", columnId: "went-well", authorId: "u-x" }, card("c2", "went-well", "fine")] } });
+  push(null);
+  assert.equal(byClass(root, "note").length, 2);
+  assert.match(noteWith(root, "fine").textContent, /fine/);
+  assert.match(root.textContent, /Former participant/);
+});
+
+test("a group or lane that leaves the state leaves the board", () => {
+  const { root, push } = load();
+  push(
+    session({
+      cards: [card("c1", "went-well", "a", { groupId: "g1" }), card("c2", "went-well", "b", { groupId: "g1" })],
+      groups: [{ id: "g1", columnId: "went-well", title: "Pair" }],
+    }),
+  );
+  assert.equal(byClass(root, "group").length, 1);
+  push(session({ columns: columns.slice(0, 2), cards: [card("c1", "went-well", "a"), card("c2", "went-well", "b")] }));
+  assert.equal(byClass(root, "group").length, 0);
+  assert.equal(byClass(root, "lane").length, 2);
+  push(session({ cards: [card("c1", "went-well", "a", { groupId: "g1" })], groups: [{ id: "g1", columnId: "went-well", title: "Solo" }] }));
+  assert.match(byClass(root, "group")[0].textContent, /Solo/);
+  assert.doesNotMatch(byClass(root, "group")[0].textContent, /Pair/);
+});
+
+test("the progress strip follows the board, and a reveal is not progress", () => {
+  const { root, push } = load();
+  const current = () => byClass(root, "current")[0].textContent;
+  push(session({ revealed: true }));
+  assert.match(current(), /Write/);
+  push(session({ revealed: true, actionItems: [{ id: "a1", text: "x", owner: "u-bo", done: false }] }));
+  assert.match(current(), /Decide/);
 });

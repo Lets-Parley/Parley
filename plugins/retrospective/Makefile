@@ -14,8 +14,15 @@ DIST      := dist
 
 all: test dist check-dist
 
-test:
+# ui.js is what the host loads: the embedded fonts, then the readable source.
+# It is built, never edited; ui.src.js is the file to read and to copy from.
+ui.js: ui.fonts.js ui.src.js
+	cat ui.fonts.js ui.src.js > $@
+
+test: $(DIST)/$(STEM).ui.js
 	node --test board.test.mjs ui.test.mjs package.test.mjs
+
+bundle: ui.js
 
 include ../../sdk/plugin-sdk/extism.mk
 
