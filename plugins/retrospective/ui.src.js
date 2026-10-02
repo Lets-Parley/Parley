@@ -401,7 +401,7 @@
     ".link-list li{display:flex;align-items:center;gap:8px}",
     ".link-list span{flex:1;min-width:0;overflow-wrap:anywhere}",
 
-    "@media (pointer:coarse){.btn,.menu-item,.stage-2 .vote{min-height:44px}.pick,.grip,.more,.stage-3 .target{width:36px;height:44px}.board:not(.stage-2) .vote,.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.trail{min-height:44px}.note-text{padding:12px 0}}",
+    "@media (pointer:coarse){.btn,.menu-item,.stage-2 .vote{min-height:44px}.pick,.stage-3 .target{width:36px;height:44px}.grip,.more{width:44px;height:44px}.board:not(.stage-2) .vote,.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.trail{min-height:44px}.note-text{padding:12px 0}}",
 
     // A phone. The header is two short rows and a hint: the steps shrink to
     // their numbers around the current one, the hint is one line that opens,
@@ -3634,6 +3634,13 @@
     const cancel = el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Cancel" });
     const panel = el("div", { class: "pop sheet", role: "dialog", "aria-label": "Group these two notes" }, [
       el("p", { class: "sheet-title", text: "Group these two notes" }),
+      el(
+        "ul",
+        { class: "stack" },
+        ids.map(function (id) {
+          return el("li", { class: "from", dir: "auto", text: short(cardById(id).text) });
+        }),
+      ),
       el("div", { class: "stack" }, [el("label", { class: "label", for: "merge-title", text: "Group name" }), name]),
       el("div", { class: "row" }, [go, cancel]),
     ]);
