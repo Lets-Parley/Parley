@@ -704,7 +704,7 @@ test("a teammate's vote is never shown as the viewer's own", async () => {
   const watcher = load({ host: "new" });
   watcher.push(before);
   watcher.push(after);
-  assert.deepEqual([pressed(watcher.root, "up"), pressed(watcher.root, "down")], ["false", "false"]);
+  assert.deepEqual([pressed(watcher.root, "up"), pressed(watcher.root, "down")], [null, null], "not known, so neither pressed nor not");
   assert.equal(liveOf(watcher.root), "", "and other people's votes are not read out");
 
   // An older host cannot say whose vote moved the count.
@@ -713,7 +713,7 @@ test("a teammate's vote is never shown as the viewer's own", async () => {
   thumb(old.root, "one", "up").click();
   assert.equal(pressed(old.root), "true", "pressed while it is on its way");
   old.push(after);
-  assert.equal(pressed(old.root), "false", "the count moved, but whose vote it was is not known");
+  assert.equal(pressed(old.root), null, "the count moved, but whose vote it was is not known");
 
   const voter = load({ host: "new" });
   voter.push(before);
@@ -3414,7 +3414,7 @@ test("a note's words share their row with the handle and the menu only: the vote
   push(session({ stage: 2, cards }, PARTICIPANT));
   assert.equal(one(noteWith(root, "plain"), "chips").hidden, false, "in the Vote stage every note has its vote");
   assert.match(src, /\.chips\{grid-column:2\/-1;justify-self:end/);
-  assert.match(src, /\.note-text\{padding:6px 0;white-space:pre-wrap;overflow-wrap:break-word\}/);
+  assert.match(src, /\.note-text\{padding:6px 0;white-space:pre-wrap;overflow-wrap:break-word;border-radius:4px\}/);
   assert.doesNotMatch(src, /word-break:break-all|overflow-wrap:anywhere\}".*note-text/);
 });
 
@@ -4058,6 +4058,7 @@ test("a refused edit keeps what was typed, says why, and a note known to be some
   assert.equal(area.readOnly, false);
   assert.equal(one(noteWith(ui.root, "two") || area.parentNode, "note-text").textContent, "two", "the note itself was never changed");
   area.fire("keydown", { key: "Escape" });
+  area.fire("keydown", { key: "Escape" });
   // Remembered for the visit: the menu says why, and the keys do too.
   one(noteWith(ui.root, "two"), "more").click();
   assert.equal(menuItem(ui.root, "Edit note").getAttribute("aria-disabled"), "true");
@@ -4116,7 +4117,10 @@ test("a note deleted while it is being edited does not take the draft with it: t
 
 // ---- thumbs up and down
 
-const pressedOf = (ui, text = "one") => ["up", "down"].map((way) => thumb(ui.root, text, way).getAttribute("aria-pressed")).join(" ");
+// "unknown" where the thumb says nothing about being pressed.
+const pressedOf = (ui, text = "one") => ["up", "down"].map((way) => thumb(ui.root, text, way).getAttribute("aria-pressed") ?? "unknown").join(" ");
+// Long enough after a press that the next one is a press of its own.
+const later = (ui) => (ui.clock.t += 1000);
 
 test("a vote is set, not flipped: up, a switch to down in one press, and the held thumb pressed again takes it back", async () => {
   const ui = load({ host: "new" });
@@ -4126,7 +4130,7 @@ test("a vote is set, not flipped: up, a switch to down in one press, and the hel
   const down = thumb(ui.root, "one", "down");
   assert.equal(up.getAttribute("aria-label"), "Vote up: one. 0 up, 0 down.");
   assert.equal(down.getAttribute("aria-label"), "Vote down: one. 0 up, 0 down.");
-  assert.equal(pressedOf(ui), "false false");
+  assert.equal(pressedOf(ui), "unknown unknown", "nothing is claimed before the server has been heard");
   assert.deepEqual([up, down].map((b) => one(b, "mono").hidden), [true, true], "a count of none is not written");
 
   up.click();
@@ -4150,6 +4154,7 @@ test("a vote is set, not flipped: up, a switch to down in one press, and the hel
   ui.push(session({ stage: 2, cards: cards(0, 1) }, PARTICIPANT));
   assert.equal(pressedOf(ui), "false true");
 
+  later(ui);
   down.click();
   assert.deepEqual(ui.sent().at(-1), { action: "vote", payload: { cardId: "c1", value: "none" } }, "the held thumb, pressed again, takes the vote back");
   assert.equal(pressedOf(ui), "false false");
@@ -4159,6 +4164,7 @@ test("a vote is set, not flipped: up, a switch to down in one press, and the hel
   ui.push(session({ stage: 2, cards: cards(0, 0) }, PARTICIPANT));
   assert.equal(pressedOf(ui), "false false");
   // Known to have none: the next press sets again.
+  later(ui);
   up.click();
   assert.deepEqual(ui.sent().at(-1), { action: "vote", payload: { cardId: "c1", value: "up" } });
 });
@@ -4168,7 +4174,8 @@ test("after a reload a press on the thumb somebody already holds sets it again a
   const ui = load({ host: "new" });
   const cards = [card("c1", "went-well", "one", { up: 1, down: 0 })];
   ui.push(session({ stage: 2, cards }, PARTICIPANT));
-  assert.equal(pressedOf(ui), "false false", "not known to be theirs");
+  assert.equal(pressedOf(ui), "unknown unknown", "not known to be theirs, and not said to be nobody's");
+  assert.equal(thumb(ui.root, "one", "up").getAttribute("aria-pressed"), null);
   thumb(ui.root, "one", "up").click();
   assert.deepEqual(ui.sent(), [{ action: "vote", payload: { cardId: "c1", value: "up" } }], "it asks for up, which they already have: never for none");
   // The server takes it and nothing changes: no push comes. The yes is all there is.
@@ -4180,6 +4187,7 @@ test("after a reload a press on the thumb somebody already holds sets it again a
   assert.equal(toastOf(ui.root).hidden, true, "and a yes with nothing to show for it is not called unconfirmed");
   assert.equal(pressedOf(ui), "true false");
   // Only now does the same thumb take it back.
+  later(ui);
   thumb(ui.root, "one", "up").click();
   assert.deepEqual(ui.sent().at(-1), { action: "vote", payload: { cardId: "c1", value: "none" } });
 
@@ -4189,7 +4197,8 @@ test("after a reload a press on the thumb somebody already holds sets it again a
   thumb(old.root, "one", "up").click();
   old.runTimers(WAIT);
   assert.match(toastOf(old.root).textContent, /No change to show\. Your vote may already have been counted that way\./);
-  assert.equal(pressedOf(old), "false false");
+  assert.equal(pressedOf(old), "unknown unknown");
+  later(old);
   thumb(old.root, "one", "up").click();
   assert.deepEqual(old.sent().map((a) => a.payload.value), ["up", "up"]);
 });
@@ -4201,9 +4210,10 @@ test("a refused vote is put back and says why; the state arriving before the ans
   thumb(ui.root, "one", "up").click();
   ui.acts[0].answer({ ok: false, reason: "conflict" });
   await settled();
-  assert.equal(pressedOf(ui), "false false");
+  assert.equal(pressedOf(ui), "unknown unknown");
   assert.equal(toastOf(ui.root).textContent, "That vote was not counted. The board has all the votes it can hold.");
   // The push first, the yes after.
+  later(ui);
   thumb(ui.root, "one", "up").click();
   ui.push(session({ stage: 2, cards: cards(1) }, PARTICIPANT));
   assert.equal(pressedOf(ui), "true false", "still shown as on its way");
@@ -4216,6 +4226,7 @@ test("a refused vote is put back and says why; the state arriving before the ans
   assert.deepEqual(ui.sent().at(-1), { action: "vote", payload: { cardId: "c1", value: "down" } });
   ui.acts[2].answer({ ok: true });
   await settled();
+  later(ui);
   noteWith(ui.root, "one").fire("keydown", { key: "D" });
   assert.deepEqual(ui.sent().at(-1), { action: "vote", payload: { cardId: "c1", value: "none" } });
   noteWith(ui.root, "one").fire("keydown", { key: "u", ctrlKey: true });
@@ -4299,4 +4310,165 @@ test("the viewer's own vote gets a small press and a teammate's does not; nothin
   still.acts[0].answer({ ok: true });
   await settled();
   assert.equal(still.document.animations.length, 0);
+});
+
+// ---- review round: keys, double presses, leaving the editor
+
+test("a note's letters are shortcuts only from the note or its words: not from a button, not from a box being typed in, not while it is edited", async () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ stage: 2, cards: three }, PARTICIPANT));
+  const note = noteWith(ui.root, "two");
+  const words = one(note, "note-text");
+  assert.equal(words.getAttribute("tabindex"), "0", "the words can take focus, to be the place the keys are pressed");
+  const quiet = () => ui.sent().length === 0 && byClass(ui.root, "pop").length === 0 && !editorOf(ui.root);
+  const type = (target, text) => [...text].forEach((key) => note.fire("keydown", { key, target }));
+  // From each of the note's own buttons.
+  for (const name of ["grip", "more", "rate"]) type(one(note, name), "duesDUES");
+  note.fire("keydown", { key: "F2", target: one(note, "more") });
+  assert.ok(quiet(), "letters pressed on a button do nothing");
+  // Typed into a box: the lane's composer, and a box inside the note.
+  const box = composer(ui.root, "Went well");
+  box.type("due used 123 svp");
+  type(box, "due used 123 svp");
+  type({ tagName: "TEXTAREA" }, "due used 123 svp");
+  type({ tagName: "INPUT" }, "due used 123 svp");
+  assert.ok(quiet(), "typing is typing");
+  // From the words: E edits.
+  note.fire("keydown", { key: "e", target: words });
+  const area = editorOf(ui.root);
+  assert.ok(area);
+  // With the editor open: nothing from the textarea, Save, Cancel, the words or the note itself.
+  for (const target of [area, button(note, "Save"), button(note, "Cancel"), words, note]) type(target, "due used 123 svp");
+  note.fire("keydown", { key: "F2", target: button(note, "Save") });
+  assert.deepEqual(ui.sent(), [], "no vote was cast and nothing was sent");
+  assert.equal(byClass(ui.root, "pop").length, 0, "no sticker book opened");
+  same(editorOf(ui.root), area, "and the editor is the one that was open");
+  assert.equal(area.value, "two", "untouched");
+  area.fire("keydown", { key: "Escape" });
+  // And from the words again, with nothing open, they are shortcuts.
+  note.fire("keydown", { key: "u", target: words });
+  assert.deepEqual(ui.sent(), [{ action: "vote", payload: { cardId: "c2", value: "up" } }]);
+  note.fire("keydown", { key: "s", target: note });
+  assert.equal(byClass(ui.root, "book-pop").length, 1);
+});
+
+test("two presses of a thumb in quick succession are one vote; a press after that is a press of its own", async () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ stage: 2, cards: [card("c1", "went-well", "one")] }, PARTICIPANT));
+  const up = thumb(ui.root, "one", "up");
+  up.click();
+  ui.acts[0].answer({ ok: true });
+  await settled();
+  // The host has answered, and 150ms after the first press comes the second click of a double click.
+  ui.clock.t += 150;
+  up.click();
+  assert.deepEqual(ui.sent().map((a) => a.payload.value), ["up"], "one up, and no none");
+  assert.equal(pressedOf(ui), "true false");
+  ui.clock.t += 100;
+  up.click();
+  assert.equal(ui.sent().length, 1, "still inside the window");
+  // The other thumb is another matter: a quick switch is allowed.
+  thumb(ui.root, "one", "down").click();
+  assert.deepEqual(ui.sent().map((a) => a.payload.value), ["up", "down"]);
+  ui.acts[1].answer({ ok: true });
+  await settled();
+  ui.clock.t += 401;
+  thumb(ui.root, "one", "down").click();
+  assert.deepEqual(ui.sent().map((a) => a.payload.value), ["up", "down", "none"], "a deliberate second press takes it back");
+});
+
+test("leaving the editor with changed words is asked about once; with a save out, nothing leaves", async () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ cards: three }, PARTICIPANT));
+  const open = () => {
+    noteWith(ui.root, "two").fire("keydown", { key: "e" });
+    return editorOf(ui.root);
+  };
+  const note = noteWith(ui.root, "two");
+  const said = () => one(note, "edit-said").textContent;
+  // Nothing changed: Escape just closes.
+  open().fire("keydown", { key: "Escape" });
+  absent(editorOf(ui.root));
+
+  let area = open();
+  area.type("two, with a thought worth keeping");
+  area.fire("keydown", { key: "Escape" });
+  same(editorOf(ui.root), area, "the first Escape does not drop the words");
+  assert.equal(said(), "Discard changes?");
+  const keep = button(note, "Keep editing");
+  const discard = button(note, "Discard");
+  assert.ok(keep && discard);
+  same(ui.document.activeElement, keep, "staying is the way out that has focus");
+  keep.click();
+  assert.equal(area.value, "two, with a thought worth keeping");
+  same(ui.document.activeElement, area);
+  assert.ok(button(note, "Save") && button(note, "Cancel"), "and the buttons are Save and Cancel again");
+  // Cancel asks the same question; Discard answers it.
+  button(note, "Cancel").click();
+  assert.equal(said(), "Discard changes?");
+  button(note, "Discard").click();
+  absent(editorOf(ui.root));
+  assert.deepEqual(ui.sent(), []);
+  // A second Escape answers it too, from the box or from the row.
+  area = open();
+  area.type("changed again");
+  area.fire("keydown", { key: "Escape" });
+  one(note, "edit-row").fire("keydown", { key: "Escape" });
+  absent(editorOf(ui.root));
+  // Typing after being asked is an answer: keep editing.
+  area = open();
+  area.type("changed");
+  area.fire("keydown", { key: "Escape" });
+  area.type("changed, and more");
+  assert.ok(button(note, "Save"));
+  assert.notEqual(said(), "Discard changes?");
+
+  // A save is out: Cancel is off, Escape does nothing, and the answer is still heard.
+  area.fire("keydown", ENTER);
+  assert.equal(ui.sent().length, 1);
+  assert.equal(button(note, "Cancel").disabled, true);
+  area.fire("keydown", { key: "Escape" });
+  one(note, "edit-row").fire("keydown", { key: "Escape" });
+  button(note, "Cancel").click();
+  same(editorOf(ui.root), area, "the editor stays until the save is answered");
+  ui.acts[0].answer({ ok: false, reason: "forbidden" });
+  await settled();
+  assert.equal(toastOf(ui.root).textContent, NOT_YOURS, "the refusal is heard, by somebody");
+  assert.equal(area.value, "changed, and more");
+  assert.equal(button(note, "Cancel").disabled, false);
+});
+
+test("an Enter that ends an input method's composition does not save", () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ cards: three }, PARTICIPANT));
+  noteWith(ui.root, "two").fire("keydown", { key: "e" });
+  const area = editorOf(ui.root);
+  area.type("こんにちは");
+  area.fire("keydown", { key: "Enter", isComposing: true });
+  area.fire("keydown", { key: "Enter", keyCode: 229 });
+  area.fire("keydown", { key: "Process", keyCode: 229 });
+  assert.deepEqual(ui.sent(), [], "neither the flag nor Safari's 229 saves");
+  area.fire("keydown", { key: "Enter", keyCode: 13 });
+  assert.deepEqual(ui.sent(), [{ action: "edit-card", payload: { cardId: "c2", text: "こんにちは" } }]);
+});
+
+test("a rescued draft goes after what is already in the lane's box, and is cut, and said to be, only if the two do not fit", () => {
+  const rescue = (already, draft) => {
+    const ui = load({ host: "new" });
+    ui.push(session({ cards: three }, PARTICIPANT));
+    const box = composer(ui.root, "Went well");
+    if (already) box.type(already);
+    noteWith(ui.root, "two").fire("keydown", { key: "e" });
+    editorOf(ui.root).type(draft);
+    ui.push(session({ cards: [three[0], three[2]] }, PARTICIPANT));
+    return { value: box.value, toast: toastOf(ui.root).textContent };
+  };
+  const both = rescue("half a thought", "two, reworded");
+  assert.equal(both.value, "half a thought\ntwo, reworded", "appended on a line of its own; nothing written over");
+  assert.equal(both.toast, "That note was deleted while you were editing it. Your words are in the box above, ready to add as a new note.");
+  // 300 already there, a line break, and 250 more: 551 in all, 51 too many.
+  const long = rescue("a".repeat(300), "b".repeat(250));
+  assert.equal(long.value.length, 500);
+  assert.equal(long.value, "a".repeat(300) + "\n" + "b".repeat(199));
+  assert.equal(long.toast, "That note was deleted while you were editing it. Your words are in the box above, ready to add as a new note. They did not all fit with what was already there: the end was cut at 500 characters.");
 });

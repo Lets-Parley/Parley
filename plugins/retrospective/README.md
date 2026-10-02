@@ -169,12 +169,17 @@ ups less downs, then by more ups, then leave the order as it was. A group's
 heading says its ups and downs. Other people's votes are not read out as they
 arrive (in the Vote stage that would be the whole room at once): each thumb
 carries both counts in its name, and a person hears the outcome of their own
-vote. `U` and `D` on a focused note vote up and down.
+vote. `U` and `D` on a note's words vote up and down. A second press of the
+same thumb within 400ms is taken as part of the first, so a double click does
+not set a vote and take it back. A thumb says whether it is pressed only when
+that is known; after a reload it says neither.
 
 A note's words can be edited by whoever wrote it, and by nobody else: there is
-no facilitator's way in. "Edit note" in the menu, `E` or `F2` on the note, or
-a double click on its words turns them into a box in place; Enter saves,
-Shift+Enter is a new line, Escape cancels. The note keeps its place, group,
+no facilitator's way in. "Edit note" in the menu, `E` or `F2` on the note's
+words, or a double click on them turns them into a box in place, with Save and
+Cancel in a row of the note's own under it; Enter saves, Shift+Enter is a new
+line, Escape cancels. Leaving with changed words asks once ("Discard
+changes?"), and while a save is out the editor cannot be left. The note keeps its place, group,
 votes, stickers and links. Because votes cast on the old words now sit on the
 new ones, an edited note is published with `edited: true` and says "edited";
 who edited is never published (it is the author, who is published only while
@@ -247,7 +252,10 @@ note's controls are drawn above every sticker and stay clickable. Stickers
 lying over a note's words go faint while the words are pointed at, while one
 of the note's controls has keyboard focus, or after a tap on the words.
 
-Keys. On a note, `S` opens the sticker book. In the book, `1` to `7` place
+Keys. A note's single-letter keys (`S`, `E`, `F2`, `U`, `D`) are heard only
+with focus on the note's words, which are a Tab stop: never from a button or a
+box being typed in, and never while the note is being edited, so typing "due"
+cannot vote or edit. On a note's words, `S` opens the sticker book. In the book, `1` to `7` place
 from the marked sheet, `V` and `P` (or Up, Down and Tab) change sheets, Left
 and Right go along a sheet, and Escape closes it. On a sticker, the arrow keys
 move it 6px (24px with Shift), Page Up and Page Down go up and down the pile,

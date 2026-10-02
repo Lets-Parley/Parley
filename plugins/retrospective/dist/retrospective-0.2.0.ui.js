@@ -446,13 +446,14 @@ const RETRO_FONTS = [
     ".trail{gap:4px;min-height:32px}",
     "@media (pointer:fine){.narrow .lead,.note.narrow .lead{flex-direction:column}.narrow .note .grip,.narrow .note .pick,.note.narrow .grip,.note.narrow .pick{height:24px}}",
     // A note being edited: its words are a box of the same face and measure,
-    // so nothing but the caret appears; Save and Cancel float under it and
-    // take no room; and it stands over its stickers, which step back.
+    // with Save and Cancel in a row of the note's own under it, so they are
+    // never over a neighbor and never cut off; the note is that much taller
+    // while it is edited. It stands over its stickers, which step back.
     ".note.editing{border-color:var(--color-accent);box-shadow:0 0 0 1px var(--color-accent),var(--shadow-rest);z-index:3}",
     ".note.editing .note-text{display:none}",
     ".note-edit{position:relative;z-index:2;display:block;width:100%;margin:0;padding:6px 0;border:0;outline:0;background:transparent;color:inherit;font:inherit;resize:none;overflow:hidden;overflow-wrap:break-word}",
-    ".edit-row{position:absolute;z-index:3;top:calc(100% + 5px);right:6px;display:flex;align-items:center;gap:6px;max-width:calc(100% - 12px);padding:4px 4px 4px 10px;border:1px solid var(--color-line);border-radius:12px;background:var(--color-surface-hi);box-shadow:var(--shadow-lift)}",
-    ".edit-said{font-size:12px;color:var(--color-ink-soft)}",
+    ".edit-row{grid-column:2/-1;position:relative;z-index:2;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;padding:2px 0 6px}",
+    ".edit-said{flex:1 1 6rem;font-size:12px;color:var(--color-ink-soft)}",
     ".note.editing .st.over{opacity:.2}",
     ".note.editing .add-st{display:none}",
     ".edited{font:11px/16px var(--mono);color:var(--color-ink-soft);margin-right:auto}",
@@ -485,7 +486,7 @@ const RETRO_FONTS = [
     ".pick input{appearance:none;display:grid;place-items:center;width:14px;height:14px;margin:0;border:1px solid var(--color-line-strong);border-radius:4px;background:transparent;cursor:pointer;transition:background-color .15s,border-color .15s}",
     ".pick input:checked{border-color:var(--color-accent);background:var(--color-accent)}",
     '.pick input:checked::after{content:"";width:4px;height:7px;margin-top:-2px;border:solid var(--color-accent-ink);border-width:0 2px 2px 0;transform:rotate(45deg)}',
-    ".note-text{padding:6px 0;white-space:pre-wrap;overflow-wrap:break-word}",
+    ".note-text{padding:6px 0;white-space:pre-wrap;overflow-wrap:break-word;border-radius:4px}",
     ".person{grid-column:2/-1;display:flex;align-items:center;gap:8px;min-width:0;padding-bottom:5px;font-size:13px;color:var(--color-ink-soft)}",
     ".person-name{min-width:0;overflow-wrap:anywhere}",
     ".disc{flex:none;display:grid;place-items:center;width:24px;height:24px;margin:3px;border-radius:50%;font-size:9px;font-weight:700;color:#F4F8FB;background:#3F5466;box-shadow:0 0 0 2px var(--color-surface-hi),0 0 0 3px var(--color-line)}",
@@ -2001,7 +2002,7 @@ const RETRO_FONTS = [
       open: false,
       ghosts: [],
       title: el("h2", { id: headingId, dir: "auto" }),
-      // "Most votes" is a lens for one reader: `sorted` holds the ranking as
+      // "Top rated" is a lens for one reader: `sorted` holds the ranking as
       // it stood when it was switched on, and nothing is written anywhere.
       sorted: null,
       sortToggle: el("button", { type: "button", class: "sort", "aria-pressed": "false" }, [icon(GLYPH.bars), el("span", { class: "sort-word", text: "Top rated" })]),
@@ -2301,7 +2302,9 @@ const RETRO_FONTS = [
       box: el("input", { type: "checkbox" }),
       grip: el("button", { type: "button", class: "grip", "aria-describedby": "grip-help" }, [icon(GLYPH.grip)]),
       more: el("button", { type: "button", class: "more", "aria-haspopup": "menu" }, [icon(GLYPH.dots)]),
-      text: el("p", { class: "note-text", dir: "auto" }),
+      // The words are a stop for the Tab key: it is from here, and not from a
+      // button, that the note's single-letter keys are heard.
+      text: el("p", { class: "note-text", dir: "auto", tabindex: 0 }),
       author: buildPerson(),
       target: el("button", { type: "button", class: "target", "aria-haspopup": "dialog" }, [icon(GLYPH.target)]),
       targetCount: el("span", { class: "mono" }),
@@ -2378,21 +2381,25 @@ const RETRO_FONTS = [
       editNote(id);
     });
     note.el.addEventListener("keydown", function (ev) {
-      const plain = !ev.altKey && !ev.ctrlKey && !ev.metaKey && !pop && !contains(note.stamps, ev.target) && ev.target.tagName !== "TEXTAREA";
+      // A letter is a shortcut only when focus is on the note itself or on
+      // its words: never from a button, a box that is being typed in, or a
+      // sticker, and never while the note's own editor is open. Otherwise
+      // "due" typed anywhere near a note would vote down, up and edit it.
+      const plain = !ev.altKey && !ev.ctrlKey && !ev.metaKey && !pop && (ev.target === note.el || ev.target === note.text) && !(editing && editing.id === id);
       if (plain && (ev.key === "e" || ev.key === "E" || ev.key === "F2")) {
         ev.preventDefault();
         editNote(id);
         return;
       }
       if (ev.target.tagName === "TEXTAREA") return;
-      // U and D vote, from anywhere on the note but a sticker.
+      // U and D vote.
       if (plain && /^[uUdD]$/.test(ev.key)) {
         ev.preventDefault();
         castVote(id, /u/i.test(ev.key) ? "up" : "down");
         return;
       }
-      // S opens the stickers from anywhere on the note but a sticker.
-      if ((ev.key === "s" || ev.key === "S") && !ev.altKey && !ev.ctrlKey && !ev.metaKey && !pop && !contains(note.stamps, ev.target)) {
+      // S opens the stickers.
+      if (plain && (ev.key === "s" || ev.key === "S")) {
         ev.preventDefault();
         openStamps(id, note.add.hidden ? note.more : note.add);
         return;
@@ -2447,7 +2454,10 @@ const RETRO_FONTS = [
       const n = card[way];
       thumb.btn.hidden = board.stage !== 2 && card.up + card.down === 0;
       thumb.btn.setAttribute("aria-label", "Vote " + way + ": " + brief + ". " + card.up + " up, " + card.down + " down." + (shown === way ? " Your vote." : ""));
-      thumb.btn.setAttribute("aria-pressed", shown === way ? "true" : "false");
+      // Pressed or not is said only when it is known: after a reload it is
+      // not, and "not pressed" would be a claim.
+      if (shown === null) thumb.btn.removeAttribute("aria-pressed");
+      else thumb.btn.setAttribute("aria-pressed", shown === way ? "true" : "false");
       thumb.count.hidden = n === 0;
       if (thumb.n !== n) {
         setText(thumb.count, String(n));
@@ -2478,10 +2488,12 @@ const RETRO_FONTS = [
   // one outline, die-cut like a sticker.
   const THUMB = "M8.5 18.5h5v14h-5zM16 18.6l4.6-10.4c2.6-.3 4.3 1.9 3.7 4.4l-1 4.4h6.2c2.1 0 3.6 1.9 3.1 3.9l-2.1 8.6c-.4 1.7-1.9 2.9-3.7 2.9H16z";
 
+  const DOUBLE_MS = 400;
+
   function buildThumb(way) {
     const thumb = { n: null, count: el("span", { class: "mono" }) };
     thumb.icon = el("span", { class: "tb k-" + (way === "up" ? "quick-win" : "chat") }, [svgOf("3 3 34 34", [["e", THUMB], ["w", THUMB], ["o", THUMB], ["c", THUMB], ["s", "M13.5 20v11"]])]);
-    thumb.btn = el("button", { type: "button", class: "rate " + way, "aria-pressed": "false" }, [thumb.icon, thumb.count]);
+    thumb.btn = el("button", { type: "button", class: "rate " + way }, [thumb.icon, thumb.count]);
     return thumb;
   }
 
@@ -2502,6 +2514,11 @@ const RETRO_FONTS = [
     const note = view.notes[id];
     const card = cardById(id);
     if (!note || !card || note.voting) return;
+    // Two presses of one thumb in quick succession are one press: a double
+    // click must not set a vote and then take it straight back.
+    const now = clockNow();
+    if (note.pressed && note.pressed.way === way && now - note.pressed.at < DOUBLE_MS) return;
+    note.pressed = { way: way, at: now };
     const value = note.mine === way ? "none" : way;
     const before = { up: card.up, down: card.down };
     note.voting = true;
@@ -2713,30 +2730,43 @@ const RETRO_FONTS = [
       closeEditor(false);
     }
     closePop(false);
-    const e = { id: id, was: card.text, sending: false };
+    const e = { id: id, was: card.text, sending: false, asking: false };
     e.area = el("textarea", { class: "note-edit", rows: 1, maxlength: NOTE_LIMIT, dir: "auto", "aria-label": "Edit note: " + short(card.text) });
     e.area.value = card.text;
     e.said = el("span", { class: "edit-said", role: "status" });
     e.save = el("button", { type: "button", class: "btn btn-primary btn-small", text: "Save" });
     e.cancel = el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Cancel" });
     e.row = el("div", { class: "edit-row" }, [e.said, e.save, e.cancel]);
-    e.area.addEventListener("input", patchEditor);
+    e.area.addEventListener("input", function () {
+      e.asking = false;
+      patchEditor();
+    });
+    const escape = function (ev) {
+      if (ev.key !== "Escape") return false;
+      ev.preventDefault();
+      ev.stopPropagation();
+      leaveEditor();
+      return true;
+    };
     e.area.addEventListener("keydown", function (ev) {
-      if (ev.key === "Escape") {
-        ev.preventDefault();
-        ev.stopPropagation();
-        closeEditor(true);
-      } else if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) {
-        // Enter saves; Shift and Enter is a new line; an Enter that only
-        // picks a word in an input method is neither.
+      if (escape(ev)) return;
+      // Enter saves; Shift and Enter is a new line; an Enter that only picks
+      // a word in an input method is neither (229 is how Safari reports the
+      // Enter that ends a composition).
+      if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing && ev.keyCode !== 229) {
         ev.preventDefault();
         saveEdit();
       }
     });
-    e.save.addEventListener("click", saveEdit);
-    e.cancel.addEventListener("click", function () {
-      closeEditor(true);
+    e.row.addEventListener("keydown", escape);
+    e.save.addEventListener("click", function () {
+      // While leaving is being asked about, this button is "Keep editing".
+      if (!e.asking) return saveEdit();
+      e.asking = false;
+      patchEditor();
+      e.area.focus();
     });
+    e.cancel.addEventListener("click", leaveEditor);
     editing = e;
     note.el.insertBefore(e.area, note.text);
     note.el.appendChild(e.row);
@@ -2747,6 +2777,20 @@ const RETRO_FONTS = [
     setText(live, "Editing. Enter saves, Escape cancels.");
   }
 
+  // Cancel, or Escape. Words that were changed are not dropped without being
+  // asked about: the first time asks, in the editor's own row, with staying
+  // as the way out that has focus; the second time, or Discard, drops them.
+  // While a save is out nothing leaves: its answer is still to be heard.
+  function leaveEditor() {
+    const e = editing;
+    if (!e || e.sending) return;
+    const now = cardById(e.id);
+    if (e.asking || !now || e.area.value === now.text) return closeEditor(true);
+    e.asking = true;
+    patchEditor();
+    e.save.focus();
+  }
+
   function patchEditor() {
     const e = editing;
     if (!e) return;
@@ -2754,8 +2798,11 @@ const RETRO_FONTS = [
     const room = NOTE_LIMIT - text.length;
     const empty = !text.trim();
     e.area.readOnly = e.sending;
-    e.save.disabled = e.sending || empty;
-    setText(e.said, e.sending ? "Saving\u2026" : empty ? "A note needs words. To remove it, use Delete in its menu." : room <= 100 ? plural(room, "character") + " left" : "");
+    e.save.disabled = e.sending || (empty && !e.asking);
+    e.cancel.disabled = e.sending;
+    setText(e.save, e.asking ? "Keep editing" : "Save");
+    setText(e.cancel, e.asking ? "Discard" : "Cancel");
+    setText(e.said, e.asking ? "Discard changes?" : e.sending ? "Saving\u2026" : empty ? "A note needs words. To remove it, use Delete in its menu." : room <= 100 ? plural(room, "character") + " left" : "");
     e.said.hidden = !e.said.textContent;
     // As tall as its words, like the paragraph it stands in for.
     e.area.style.height = "";
@@ -2824,11 +2871,14 @@ const RETRO_FONTS = [
       notify(NOTE_GONE);
       return;
     }
-    lane.input.value = (lane.input.value ? lane.input.value + "\n" : "") + text;
+    // After whatever is already being typed there, on a line of its own, and
+    // no longer than a note may be.
+    const whole = (lane.input.value ? lane.input.value + "\n" : "") + text;
+    lane.input.value = whole.slice(0, NOTE_LIMIT);
     lane.open = true;
     patchComposer(lane);
     lane.input.focus();
-    notify("That note was deleted while you were editing it. Your words are in the box above, ready to add as a new note.");
+    notify("That note was deleted while you were editing it. Your words are in the box above, ready to add as a new note." + (whole.length > NOTE_LIMIT ? " They did not all fit with what was already there: the end was cut at " + NOTE_LIMIT + " characters." : ""));
   }
 
   // The facilitator deletes any note, through an action the host keeps for
