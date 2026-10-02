@@ -3480,6 +3480,8 @@
     const coarse = window.matchMedia && window.matchMedia("(pointer:coarse)").matches;
     const deep = height >= (coarse ? 76 : 64);
     if (deep) out.push([14, height - 10]);
+    // And up the handle's column, as far as the handle: no word is there.
+    for (let y = height - 34; deep && y >= (coarse ? 74 : 62); y -= 24) out.push([14, y]);
     [0, 15].forEach(function (shift) {
       for (let x = (deep ? 50 : 14) + shift; x <= width - Math.max(60, kept || 0); x += 30) out.push([x, height + ST_PAD_Y]);
     });

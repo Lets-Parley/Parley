@@ -181,8 +181,26 @@ side, inside the lane's padding, and 27px over the top or bottom, inside the
 26px gap notes keep everywhere (under a group's heading and under the composer
 too): nothing moves when a first sticker lands or a last one leaves, and a
 note is given no class or style for having stickers. Picked from the book, a
-sticker lands clear of the words where it can: the corner under the handle of
-a tall note, then along the bottom edge.
+sticker lands on no word: the note's lines are measured, and of the corner
+under the handle, the handle's column and the bottom edge, only places where
+the sticker would cover no word are used. When every one is taken the next
+stickers pile where the first went, on each other and still off the words.
+Only a sticker somebody drags can lie on the words. The dashed plus stands at
+the far end of the note's foot, clear of stickers, words and controls, and is
+not shown when there is no such place or the note or the viewer is at a cap.
+
+The vinyl set keeps the small tilt it was placed with. A pixel sticker is
+never tilted (the stored `rot` is ignored for the `p-` kinds) and is sized so
+that each of its fourteen cells is a whole number of device pixels at the
+current zoom, so no cell is uneven. A sticker of a kind this version does not
+know, from a newer one, is drawn as a plain sticker named "Sticker": it still
+counts against the caps, and whoever placed it can remove it. A removed
+sticker peels off (271ms); a teammate's only lifts away.
+
+The book says "N of 3 left on this note" only when it can know: when every
+sticker on the note arrived during this visit. Otherwise it says "Up to 3 of
+yours on a note" and leaves the count to the server, whose refusal is put in
+words.
 
 Stickers pile in the order they land. The order of `stamps` in the state is
 the pile, bottom to top: placing appends, and `move-stamp` (and a
