@@ -329,9 +329,12 @@
     // but it never covers a control.
     ".lead,.trail{position:relative;z-index:2;display:flex;align-items:center}",
     // In front of the text: the handle, and the checkbox while notes are being
-    // picked. After it, on the first line whatever the width: what the note
-    // has gathered, then its menu, which is always the last thing on the row.
+    // picked. After it: the note's menu, always the last thing on the row.
+    // The vote and the action count are a row of their own under the words,
+    // there only when there is one to show, so the words are never squeezed
+    // between controls and a one-line note with nothing to show stays one line.
     ".trail{gap:4px;min-height:32px}",
+    ".chips{grid-column:2/-1;justify-self:end;position:relative;z-index:2;display:flex;align-items:center;gap:4px;padding-bottom:3px}",
     ".pick,.grip,.more,.target{display:grid;place-items:center;width:28px;height:32px}",
     ".pick{cursor:pointer}",
     ".grip,.more,.target{padding:0;border:0;border-radius:8px;background:transparent;color:var(--color-ink-faint);transition:background-color .15s,color .15s}",
@@ -360,7 +363,7 @@
     ".pick input{appearance:none;display:grid;place-items:center;width:14px;height:14px;margin:0;border:1px solid var(--color-line-strong);border-radius:4px;background:transparent;cursor:pointer;transition:background-color .15s,border-color .15s}",
     ".pick input:checked{border-color:var(--color-accent);background:var(--color-accent)}",
     '.pick input:checked::after{content:"";width:4px;height:7px;margin-top:-2px;border:solid var(--color-accent-ink);border-width:0 2px 2px 0;transform:rotate(45deg)}',
-    ".note-text{padding:6px 0;white-space:pre-wrap;overflow-wrap:anywhere}",
+    ".note-text{padding:6px 0;white-space:pre-wrap;overflow-wrap:break-word}",
     ".person{grid-column:2/-1;display:flex;align-items:center;gap:8px;min-width:0;padding-bottom:5px;font-size:13px;color:var(--color-ink-soft)}",
     ".person-name{min-width:0;overflow-wrap:anywhere}",
     ".disc{flex:none;display:grid;place-items:center;width:24px;height:24px;margin:3px;border-radius:50%;font-size:9px;font-weight:700;color:#F4F8FB;background:#3F5466;box-shadow:0 0 0 2px var(--color-surface-hi),0 0 0 3px var(--color-line)}",
@@ -422,15 +425,16 @@
     ".st.fixed:hover svg{translate:none;scale:1;filter:var(--st-rest)}",
     // Peek: stickers lying over a note's words go faint while the words are
     // pointed at, or while one of the note's controls has keyboard focus.
-    ".note.peek .st.over,.note:has(.lead :focus-visible,.trail :focus-visible) .st.over{opacity:.2;transition:opacity .12s}",
+    ".note.peek .st.over,.note:has(.lead :focus-visible,.trail :focus-visible,.chips :focus-visible) .st.over{opacity:.2;transition:opacity .12s}",
     // Where the next sticker would land: a dashed plus, shown with the note.
-    ".add-st{position:absolute;z-index:2;display:grid;place-items:center;width:32px;height:32px;margin:-16px 0 0 -16px;padding:0;border:1.5px dashed var(--color-line-strong);border-radius:50%;background:var(--color-surface-hi);color:var(--color-ink-soft);opacity:0;transition:opacity .15s,background-color .15s}",
+    // It is over the stickers and under the note's controls, like them.
+    ".add-st{position:absolute;z-index:1;display:grid;place-items:center;width:32px;height:32px;margin:-16px 0 0 -16px;padding:0;border:1.5px dashed var(--color-line-strong);border-radius:50%;background:var(--color-surface-hi);color:var(--color-ink-soft);opacity:0;transition:opacity .15s,background-color .15s}",
     '.note:hover .add-st,.note:focus-within .add-st,.add-st[aria-expanded="true"]{opacity:1}',
     "@media (hover:none){.add-st{opacity:1}}",
     '.add-st:hover,.add-st[aria-expanded="true"]{border-color:var(--color-accent);background:var(--color-accent-soft);color:var(--color-ink)}',
     ".add-st svg{width:14px;height:14px}",
     // A group's name is at most 80 characters and is shown whole.
-    "h3{font-size:14px;font-weight:700;line-height:20px;overflow-wrap:anywhere}",
+    "h3{font-size:14px;font-weight:700;line-height:20px;overflow-wrap:break-word}",
     ".group-meta{font:11px/16px var(--mono);color:var(--color-ink-faint)}",
 
     ".actions{min-width:0;padding:16px 20px 20px}",
@@ -513,7 +517,7 @@
     ".link-list li{display:flex;flex-wrap:wrap;align-items:center;gap:8px}",
     ".link-list span{flex:1 1 5rem;min-width:0;overflow-wrap:anywhere}",
 
-    "@media (pointer:coarse){.btn,.menu-item,.stage-2 .vote{min-height:44px}.pick,.grip,.more{width:44px;height:44px}.stage-3 .target{min-width:44px;height:44px}.board:not(.stage-2) .vote,.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.trail{min-height:44px}.note-text{padding:12px 0}" +
+    "@media (pointer:coarse){.btn,.menu-item,.stage-2 .vote{min-height:44px}.pick,.grip,.more{width:44px;height:44px}.stage-3 .target{min-width:44px;height:44px}.board:not(.stage-2) .vote,.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.trail,.chips{min-height:44px}.chips{padding-bottom:0}.note-text{padding:12px 0}" +
       // What is drawn smaller than a fingertip is still pressed over 44px.
       '.vote,.target{position:relative;justify-content:center;min-width:44px}.board:not(.stage-2) .vote::after,.board:not(.stage-3) .target::after{content:"";position:absolute;inset:-7px -1px}.st::after{content:"";position:absolute;inset:-1px}.add-st::after{content:"";position:absolute;inset:-7px}}',
 
@@ -2121,6 +2125,9 @@
       sig: "",
     };
     note.pick = el("label", { class: "pick" }, [note.box]);
+    // What a note has gathered goes on a row of its own under the words, so
+    // the words keep the width of the note whatever it has gathered.
+    note.chips = el("span", { class: "chips" }, [note.target, note.vote]);
     note.target.appendChild(note.targetCount);
     note.vote.appendChild(el("span", { class: "vote-dot", "aria-hidden": "true" }));
     note.vote.appendChild(note.word);
@@ -2128,7 +2135,8 @@
     note.el = el("li", { class: "note" }, [
       el("span", { class: "lead" }, [note.grip, note.pick]),
       note.text,
-      el("span", { class: "trail" }, [note.target, note.vote, note.more]),
+      el("span", { class: "trail" }, [note.more]),
+      note.chips,
       note.author.el,
       note.stamps,
       note.add,
@@ -2240,6 +2248,7 @@
     setText(note.targetCount, String(linked));
     if (note.linked === 0 && linked > 0 && motionOn()) animate(note.target, { transform: "scale(.4)" }, POP);
     note.linked = linked;
+    note.chips.hidden = note.vote.hidden && note.target.hidden;
 
     const named = board.revealed && card.authorId;
     note.author.el.hidden = !named;
@@ -3297,7 +3306,10 @@
   // The size a note is taken to be when it cannot be measured.
   function noteBox(cardId) {
     const box = rectOf(view.notes[cardId].el);
-    return { left: box.left, top: box.top, width: box.width || 240, height: box.height || 44 };
+    const note = view.notes[cardId];
+    // The row of chips at the foot of a note is not somewhere a sticker lands.
+    const kept = note.chips.hidden ? 0 : rectOf(note.chips).width + 33;
+    return { left: box.left, top: box.top, width: box.width || 240, height: box.height || 44, kept: kept };
   }
 
   // A sticker's center on its note, in pixels from the note's corner, and
@@ -3359,13 +3371,13 @@
   // Where a sticker lands when it is picked from the book: clear of the
   // words. The corner under the note's handle when the note is tall enough
   // to have one, then along the bottom edge, then between those.
-  function slots(width, height) {
+  function slots(width, height, kept) {
     const out = [];
     const coarse = window.matchMedia && window.matchMedia("(pointer:coarse)").matches;
     const deep = height >= (coarse ? 76 : 64);
     if (deep) out.push([14, height - 10]);
     [0, 15].forEach(function (shift) {
-      for (let x = (deep ? 50 : 14) + shift; x <= width - 60; x += 30) out.push([x, height + ST_PAD_Y]);
+      for (let x = (deep ? 50 : 14) + shift; x <= width - Math.max(60, kept || 0); x += 30) out.push([x, height + ST_PAD_Y]);
     });
     return out.length ? out : [[14, height + ST_PAD_Y]];
   }
@@ -3386,7 +3398,7 @@
       .map(function (at) {
         return centerOf(at, box);
       });
-    const places = slots(box.width, box.height);
+    const places = slots(box.width, box.height, box.kept);
     let spot = places.filter(function (p) {
       return !there.some(function (c) {
         return Math.abs(c[0] - p[0]) < 14 && Math.abs(c[1] - p[1]) < 14 && Math.hypot(c[0] - p[0], c[1] - p[1]) < 14;

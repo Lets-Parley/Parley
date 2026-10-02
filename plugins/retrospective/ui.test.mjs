@@ -924,15 +924,16 @@ test("a note's handle and its menu button are there in every stage, in the same 
   const row = (part) => one(note(), part).children.filter(visible).map((n) => n.className.split(" ")[0]).join(" ");
   const cards = [card("c1", "went-well", "one")];
   const expected = [
-    ["grip", "more"],
-    ["grip pick", "more"],
-    ["grip", "vote more"],
-    ["grip", "target more"],
+    ["grip", ""],
+    ["grip pick", ""],
+    ["grip", "vote"],
+    ["grip", "target"],
   ];
-  expected.forEach(([lead, trail], stage) => {
+  expected.forEach(([lead, chips], stage) => {
     push(session({ stage, cards }));
     assert.equal(row("lead"), lead, "in front of the text, stage " + stage);
-    assert.equal(row("trail"), trail, "after the text, stage " + stage);
+    assert.equal(row("trail"), "more", "after the text, the menu and only the menu, stage " + stage);
+    assert.equal(visible(one(note(), "chips")) ? row("chips") : "", chips, "under the text, stage " + stage);
   });
   const more = one(note(), "more");
   assert.equal(more.getAttribute("aria-haspopup"), "menu");
@@ -941,7 +942,8 @@ test("a note's handle and its menu button are there in every stage, in the same 
   // A vote already cast stays in sight in every stage.
   push(session({ stage: 0, cards: [card("c1", "went-well", "one", { voteCount: 2 })] }));
   assert.equal(shown("vote"), true);
-  assert.equal(row("trail"), "vote more");
+  assert.equal(row("chips"), "vote");
+  assert.equal(row("trail"), "more");
 });
 
 test("a handle only drags: pressed or clicked it opens no menu, and says how a move is made", () => {
@@ -1575,7 +1577,7 @@ test("stickers lying over a note's words are marked, and step back while the wor
   assert.ok(!note.className.includes("peek"), "a mouse click is not a tap");
   assert.equal(words.textContent, "one", "the words themselves are never taken away");
   // The rule that thins them, and the one for a control in the note holding focus.
-  assert.match(src, /\.note\.peek \.st\.over,\.note:has\(\.lead :focus-visible,\.trail :focus-visible\) \.st\.over\{opacity:\.2/);
+  assert.match(src, /\.note\.peek \.st\.over,\.note:has\(\.lead :focus-visible,\.trail :focus-visible,\.chips :focus-visible\) \.st\.over\{opacity:\.2/);
 });
 
 test("a sticker is announced by what it is and how many there are, never by who or by which set", () => {
@@ -3285,4 +3287,26 @@ test("a handle says how a move is made every time it is pressed, and once for a 
   push(session({ cards: [...three, card("c4", "puzzles", "new")] }));
   runTimers(60);
   assert.equal(liveOf(root), "New note in Puzzles.");
+});
+
+test("a note's words share their row with the handle and the menu only: the vote and the action count are a row under them, there only when there is one", () => {
+  const { root, push } = load({ host: "new" });
+  const cards = [card("c1", "went-well", "plain"), card("c2", "went-well", "voted", { voteCount: 2 }), card("c3", "went-well", "linked")];
+  push(session({ stage: 1, cards, actionItems: [{ id: "a1", text: "fix", owner: "", sourceIds: ["c3"] }] }, PARTICIPANT));
+  const kids = (text) => noteWith(root, text).children.map((n) => n.className.split(" ")[0]);
+  assert.deepEqual(kids("plain").slice(0, 4), ["lead", "note-text", "trail", "chips"]);
+  for (const text of ["plain", "voted", "linked"]) {
+    const note = noteWith(root, text);
+    assert.deepEqual(one(note, "trail").children.map((n) => n.className), ["more"], "beside the words: the menu and nothing else");
+    assert.deepEqual(one(note, "chips").children.map((n) => n.className.split(" ")[0]), ["target", "vote"]);
+    same(one(note, "chips").parentNode, note, "the chips are a row of the note, not part of the first one");
+  }
+  assert.equal(one(noteWith(root, "plain"), "chips").hidden, true, "nothing to show, no row: the note stays one line");
+  assert.equal(one(noteWith(root, "voted"), "chips").hidden, false);
+  assert.equal(one(noteWith(root, "linked"), "chips").hidden, false);
+  push(session({ stage: 2, cards }, PARTICIPANT));
+  assert.equal(one(noteWith(root, "plain"), "chips").hidden, false, "in the Vote stage every note has its vote");
+  assert.match(src, /\.chips\{grid-column:2\/-1;justify-self:end/);
+  assert.match(src, /\.note-text\{padding:6px 0;white-space:pre-wrap;overflow-wrap:break-word\}/);
+  assert.doesNotMatch(src, /word-break:break-all|overflow-wrap:anywhere\}".*note-text/);
 });

@@ -92,8 +92,9 @@ the parts worth copying:
 - **One control, one job.** The handle in front of a note drags it and does
   nothing else: pressed without a drag it opens nothing and reads out how a
   move is made. The three dots after the text are the note's menu, in every
-  stage and always last on the note, so the vote and action chips stay on its
-  first line at any width. Voting, adding a sticker, selecting, moving and starting an
+  stage and always last on the note's first row. The vote and the action count
+  are a row of their own under the words, there only when there is one to
+  show, so the words keep the note's width and never break inside a word. Voting, adding a sticker, selecting, moving and starting an
   action are all in that menu, which makes it the keyboard and touch path for
   every pointer gesture: a drag is never the only way (`openMenu`, `moveNote`,
   `toLane`, and `Alt`+arrow keys, Left and Right for the next lane). Groups
