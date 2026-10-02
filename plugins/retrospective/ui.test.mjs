@@ -94,9 +94,17 @@ class FakeNode {
     }
     this.value = "";
     this.text = "";
-    this.disabled = false;
+    this.off = false;
     this.checked = false;
     this.hidden = false;
+  }
+  // As a browser does: a control that is disabled while it has focus drops it.
+  get disabled() {
+    return this.off;
+  }
+  set disabled(value) {
+    this.off = !!value;
+    if (this.off && this.ownerDocument.activeElement === this) this.ownerDocument.activeElement = this.ownerDocument.body;
   }
   get isConnected() {
     for (const n of upFrom(this)) if (n === this.ownerDocument.body) return true;
@@ -4478,4 +4486,402 @@ test("a rescued draft goes after what is already in the lane's box, and is cut, 
   assert.equal(long.value.length, 500);
   assert.equal(long.value, "a".repeat(300) + "\n" + "b".repeat(199));
   assert.equal(long.toast, "That note was deleted while you were editing it. Your words are in the box above, ready to add as a new note. They did not all fit with what was already there: the end was cut at 500 characters.");
+});
+
+// ---- the options menu, redrawn
+
+// What a menu holds, top to bottom: an item by its words, a strip as the
+// names of its buttons, a rule as "--", and its title in brackets.
+const menuRows = (root) =>
+  one(root, "menu").children.map((n) => {
+    if (n.className.includes("menu-title")) return "[" + n.textContent + "]";
+    if (n.className === "sep") return "--";
+    if (n.className === "strip") return n.getAttribute("aria-label") + ": " + all(n, (b) => b.tagName === "BUTTON").map((b) => b.getAttribute("aria-label")).join(", ");
+    if (n.className === "off-why") return "(" + n.textContent + ")";
+    return n.textContent;
+  });
+const STRIP = "Reorder: Move to top, Move up, Move down, Move to bottom";
+const openMenuOf = (root, text) => one(noteWith(root, text), "more").click();
+
+test("a note's menu is a title, four rows, a reorder strip, one Move to step, and Delete alone under a rule: no votes", () => {
+  const { root, push } = load();
+  push(session({ cards: three }));
+  openMenuOf(root, "two");
+  assert.deepEqual(menuRows(root), ["[two]", "Edit note…E", "Add a sticker…S", "Start an action…", "Select to group", "--", STRIP, "Move to…", "--", "Delete note…"]);
+  assert.equal(all(one(root, "menu"), (n) => /vote/i.test(n.textContent + (n.getAttribute("aria-label") || ""))).length, 0, "voting is on the note, not in its menu");
+  assert.equal(one(root, "menu-title").getAttribute("aria-hidden"), "true");
+  assert.ok(menuItem(root, "Delete note").className.split(" ").includes("danger"), "Delete is drawn in the stop color");
+  assert.equal(menuItem(root, "Move to…").getAttribute("aria-haspopup"), "menu");
+  for (const item of byClass(root, "menu-item")) {
+    const icons = all(item, (n) => n.tagName === "SVG");
+    assert.ok(icons.length >= 1 && icons.every((n) => n.getAttribute("aria-hidden") === "true"), "every row has an icon, and no icon is read out: " + item.textContent);
+  }
+  assert.equal(one(noteWith(root, "two"), "more").getAttribute("title"), "Options");
+});
+
+test("the note's menu follows the stage and the note: no Select where the checkbox shows, and its stickers and actions are counted", () => {
+  const { root, push } = load();
+  const cards = [card("c1", "went-well", "one"), card("c2", "to-improve", "two")];
+  const stamps = [st("s1", "idea", 0.5, 0.5), st("s2", "laugh", 0.6, 0.5)];
+  push(session({ stage: 1, cards, stamps, actionItems: [{ id: "a1", text: "x", owner: "", sourceIds: ["c1"] }] }));
+  openMenuOf(root, "one");
+  assert.deepEqual(menuRows(root), ["[one]", "Edit note…E", "Stickers (2)…", "Actions from this note (1)…", "--", STRIP, "Move to…", "--", "Delete note…"]);
+  // The list of stickers is also where one more is added.
+  menuItem(root, "Stickers (2)").click();
+  button(one(root, "sheet"), "Add a sticker").click();
+  assert.equal(bookOf(root).getAttribute("aria-label"), "Add a sticker to: one");
+});
+
+test("a group's menu and an action's menu are drawn the same way", () => {
+  const ui = load({ host: "new" });
+  const actionItems = [{ id: "a1", text: "book the room", owner: "" }, { id: "a2", text: "tell the team", owner: "u-bo" }];
+  ui.push(session({ cards: paired, groups: pair, actionItems }, PARTICIPANT));
+  labeled(ui.root, "Options for group: Pair").click();
+  assert.deepEqual(menuRows(ui.root), ["[Pair]", "Start an action…", "--", "Reorder: Move group to top, Move group up, Move group down, Move group to bottom", "Move to…"]);
+  menuItem(ui.root, "Move to…").click();
+  assert.deepEqual(menuRows(ui.root), ["Move group to", "Went welllane", "Puzzleslane"]);
+  ui.press("Escape");
+
+  labeled(ui.root, "Options for action: book the room").click();
+  assert.deepEqual(menuRows(ui.root), ["[book the room]", "Set an owner…", "--", "Delete action…"]);
+  assert.ok(menuItem(ui.root, "Delete action").className.split(" ").includes("danger"));
+  ui.press("Escape");
+  labeled(ui.root, "Options for action: tell the team").click();
+  assert.deepEqual(menuRows(ui.root), ["[tell the team]", "Change owner…", "--", "Delete action…"]);
+});
+
+test("the reorder strip is a named group of four buttons that keep the menu open, and each sends what Alt and an arrow sends", () => {
+  const byStrip = load();
+  byStrip.push(session({ cards: three }));
+  openMenuOf(byStrip.root, "three");
+  const strip = one(byStrip.root, "strip");
+  assert.equal(strip.getAttribute("role"), "group");
+  assert.equal(strip.getAttribute("aria-label"), "Reorder");
+  assert.match(strip.textContent, /^ReorderAlt\+arrows$/);
+  const up = menuItem(byStrip.root, "Move up");
+  assert.equal(up.getAttribute("title"), "Move up (Alt+Up)");
+  up.focus();
+  up.click();
+  assert.equal(liveOf(byStrip.root), "Moved up. Position 2 of 3 in Went well.");
+  same(one(byStrip.root, "menu"), strip.parentNode, "the menu is still open");
+  same(byStrip.document.activeElement, up, "and focus is still on the button, for the next press");
+  up.click();
+  assert.equal(liveOf(byStrip.root), "Moved up. Position 1 of 3 in Went well.");
+  menuItem(byStrip.root, "Move to bottom").click();
+  menuItem(byStrip.root, "Move to top").click();
+  menuItem(byStrip.root, "Move down").click();
+
+  const byKeys = load();
+  byKeys.push(session({ cards: three }));
+  const note = noteWith(byKeys.root, "three");
+  for (const [key, shiftKey] of [["ArrowUp", false], ["ArrowUp", false], ["ArrowDown", true], ["ArrowUp", true], ["ArrowDown", false]]) note.fire("keydown", { key, altKey: true, shiftKey });
+  assert.deepEqual(byStrip.sent(), [
+    { action: "move-card", payload: { cardId: "c3", beforeId: "c2" } },
+    { action: "move-card", payload: { cardId: "c3", beforeId: "c1" } },
+    { action: "move-card", payload: { cardId: "c3" } },
+    { action: "move-card", payload: { cardId: "c3", beforeId: "c1" } },
+    { action: "move-card", payload: { cardId: "c3", beforeId: "c2" } },
+  ]);
+  assert.deepEqual(byKeys.sent(), byStrip.sent(), "the strip and the keys ask for the same thing");
+});
+
+test("on a lane sorted by rating the strip is off, says why under itself, and a press sends nothing", () => {
+  const { root, push, sent } = load();
+  push(session({ cards: voted }));
+  button(lane(root, "Went well"), "Top rated").click();
+  openMenuOf(root, "one");
+  assert.deepEqual(menuRows(root).slice(6, 9), [STRIP, "(Sorted by rating. Show shared order to move notes here.)", "Move to…"]);
+  const why = one(root, "off-why");
+  for (const name of ["Move to top", "Move up", "Move down", "Move to bottom"]) {
+    assert.equal(menuItem(root, name).getAttribute("aria-disabled"), "true", name);
+    assert.equal(menuItem(root, name).getAttribute("aria-describedby"), why.getAttribute("id"), name + " is described by the reason");
+  }
+  menuItem(root, "Move down").click();
+  assert.deepEqual(sent(), []);
+  assert.equal(toastOf(root).textContent, "Sorted by rating. Show shared order to move notes here.");
+  assert.equal(byClass(root, "menu").length, 1);
+});
+
+test("Move to is one step in: out of the group, the other lanes, the other groups, under a Back row", () => {
+  const ui = load({ host: "new" });
+  const groups = [...pair, { id: "g2", columnId: "went-well", title: "Wins" }];
+  ui.push(session({ cards: [...paired, card("c6", "went-well", "six", { groupId: "g2" })], groups }, PARTICIPANT));
+  const more = one(noteWith(ui.root, "four"), "more");
+  more.click();
+  const menu = one(ui.root, "menu");
+  menuItem(ui.root, "Move to…").focus();
+  menu.fire("keydown", { key: "ArrowRight" });
+  assert.deepEqual(menuRows(ui.root), ["Move to", "Out of “Pair”", "--", "Went welllane", "Puzzleslane", "--", "Winsgroup in Went well"]);
+  assert.equal(menuItem(ui.root, "Back").textContent, "Move to");
+  same(ui.document.activeElement, menuItem(ui.root, "Out of"), "focus is on the first place, not on Back");
+
+  // Escape, or Left, goes back one level, to the row that was stepped into.
+  let stopped = 0;
+  menu.fire("keydown", { key: "Escape", stopPropagation: () => stopped++ });
+  assert.equal(stopped, 1, "this Escape is not also heard as closing the menu");
+  assert.equal(menuRows(ui.root)[0], "[four]");
+  same(ui.document.activeElement, menuItem(ui.root, "Move to…"));
+  menuItem(ui.root, "Move to…").click();
+  menu.fire("keydown", { key: "ArrowLeft" });
+  same(ui.document.activeElement, menuItem(ui.root, "Move to…"));
+  menuItem(ui.root, "Move to…").click();
+  menuItem(ui.root, "Back").click();
+  assert.equal(menuRows(ui.root)[0], "[four]");
+
+  // The second Escape closes the menu and hands focus back.
+  ui.press("Escape");
+  assert.equal(byClass(ui.root, "menu").length, 0);
+  same(ui.document.activeElement, more);
+
+  more.click();
+  menuItem(ui.root, "Move to…").click();
+  menuItem(ui.root, "Wins").click();
+  assert.deepEqual(ui.sent(), [{ action: "move-card", payload: { cardId: "c4", groupId: "g2" } }]);
+  assert.equal(byClass(ui.root, "menu").length, 0, "a place chosen closes the menu");
+  same(ui.document.activeElement, more);
+});
+
+test("in a menu Left and Right walk the strip, Up and Down take a strip as one row, and Tab closes it", () => {
+  const { root, document, push } = load();
+  push(session({ cards: three }));
+  const more = one(noteWith(root, "two"), "more");
+  more.click();
+  const menu = one(root, "menu");
+  menuItem(root, "Select to group").focus();
+  menu.fire("keydown", { key: "ArrowDown" });
+  same(document.activeElement, menuItem(root, "Move to top"), "down into the strip: its first button");
+  menu.fire("keydown", { key: "ArrowRight" });
+  same(document.activeElement, menuItem(root, "Move up"));
+  menu.fire("keydown", { key: "ArrowLeft" });
+  menu.fire("keydown", { key: "ArrowLeft" });
+  same(document.activeElement, menuItem(root, "Move to bottom"), "and round");
+  menu.fire("keydown", { key: "ArrowDown" });
+  same(document.activeElement, menuItem(root, "Move to…"), "down leaves the strip");
+  menu.fire("keydown", { key: "ArrowUp" });
+  same(document.activeElement, menuItem(root, "Move to top"));
+  menu.fire("keydown", { key: " " });
+  same(document.activeElement, menuItem(root, "Move to top"), "Space is a press, not a letter to look for");
+  menu.fire("keydown", { key: "Tab" });
+  assert.equal(byClass(root, "menu").length, 0);
+  same(document.activeElement, more);
+});
+
+test("a row that cannot be used says why under itself, without saying whose the note is", () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ revealed: true, cards: [card("c1", "went-well", "one", { authorId: "u-cy" })] }, PARTICIPANT));
+  openMenuOf(ui.root, "one");
+  assert.deepEqual(menuRows(ui.root).slice(1, 3), ["Edit note…E", "(Only the person who wrote a note can edit it.)"]);
+  assert.deepEqual(menuRows(ui.root).slice(-2), ["Delete note…", "(Only the person who wrote a note, or the facilitator, can delete it.)"]);
+  const edit = menuItem(ui.root, "Edit note");
+  assert.equal(edit.getAttribute("aria-disabled"), "true");
+  assert.equal(edit.getAttribute("aria-describedby"), byClass(ui.root, "off-why")[0].getAttribute("id"));
+  edit.click();
+  assert.equal(toastOf(ui.root).textContent, "Only the person who wrote a note can edit it.");
+  assert.equal(byClass(ui.root, "note-edit").length, 0);
+  assert.deepEqual(ui.sent(), []);
+});
+
+test("an open menu keeps up with the board: its rows change, focus stays on its row, and it closes when its note goes", () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ cards: three }, PARTICIPANT));
+  openMenuOf(ui.root, "two");
+  const menu = one(ui.root, "menu");
+  menuItem(ui.root, "Delete note").focus();
+  // A teammate's change that is not about this note redraws nothing.
+  const before = menuItem(ui.root, "Delete note");
+  ui.push(session({ cards: [...three, card("c9", "puzzles", "nine")] }, PARTICIPANT));
+  same(menuItem(ui.root, "Delete note"), before, "the same rows: nothing was drawn again");
+  // A sticker lands on the note, a group appears, and the stage changes.
+  ui.push(session({ stage: 1, cards: [three[0], three[1], card("c3", "went-well", "three", { groupId: "g1" })], groups: [{ id: "g1", columnId: "went-well", title: "Solo" }], stamps: [st("s1", "idea", 0.5, 0.5, "c2")] }, PARTICIPANT));
+  same(one(ui.root, "menu"), menu, "the menu is still open");
+  assert.deepEqual(menuRows(ui.root), ["[two]", "Edit note…E", "Stickers (1)…", "Start an action…", "--", STRIP, "Move to…", "--", "Delete note…"]);
+  same(ui.document.activeElement, menuItem(ui.root, "Delete note"), "focus is on the row it was on");
+  // One step in, the places keep up too.
+  menuItem(ui.root, "Move to…").click();
+  assert.deepEqual(menuRows(ui.root), ["Move to", "To improvelane", "Puzzleslane", "--", "Sologroup"]);
+  ui.push(session({ stage: 1, cards: three }, PARTICIPANT));
+  assert.deepEqual(menuRows(ui.root), ["Move to", "To improvelane", "Puzzleslane"]);
+
+  ui.push(session({ stage: 1, cards: [three[0], three[2]] }, PARTICIPANT));
+  assert.equal(byClass(ui.root, "menu").length, 0);
+  assert.equal(toastOf(ui.root).textContent, "That was removed from the board while you had it open.");
+  same(ui.document.activeElement, pick(ui.root, "three"), "focus goes to the note now in its place");
+});
+
+test("on a phone the menu is a sheet over a scrim, with Done in sight, and Tab stays inside it", () => {
+  const ui = load({ host: "new", phone: true });
+  ui.push(session({ cards: three }, PARTICIPANT));
+  const more = one(noteWith(ui.root, "two"), "more");
+  more.click();
+  const menu = one(ui.root, "menu");
+  assert.equal(menuRows(ui.root).at(-1), "Done");
+  assert.equal(byClass(ui.root, "scrim").length, 1);
+  const done = menuItem(ui.root, "Done");
+  menuItem(ui.root, "Delete note").focus();
+  menu.fire("keydown", { key: "Tab" });
+  same(ui.document.activeElement, done, "Tab goes on to Done");
+  assert.equal(byClass(ui.root, "menu").length, 1, "and does not close the sheet");
+  menu.fire("keydown", { key: "Tab" });
+  same(ui.document.activeElement, menuItem(ui.root, "Edit note"), "and round to the first row");
+  menu.fire("keydown", { key: "Tab", shiftKey: true });
+  same(ui.document.activeElement, done, "Shift+Tab goes back round");
+  // Done is there one step in as well.
+  menuItem(ui.root, "Move to…").click();
+  assert.deepEqual(menuRows(ui.root), ["Move to", "To improvelane", "Puzzleslane", "Done"]);
+  menuItem(ui.root, "Done").click();
+  assert.equal(byClass(ui.root, "menu").length, 0);
+  assert.equal(byClass(ui.root, "scrim").length, 0);
+  same(ui.document.activeElement, more);
+  assert.deepEqual(ui.sent(), []);
+
+  const desk = load();
+  desk.push(session({ cards: three }));
+  openMenuOf(desk.root, "two");
+  absent(menuItem(desk.root, "Done"), "a menu on a desk has no Done");
+});
+
+test("a menu hangs from the right edge of its button, goes above it when there is no room below, and never leaves the frame", () => {
+  const { root, push, fireWindow, window } = load();
+  push(session({ cards: three }));
+  const more = one(noteWith(root, "two"), "more");
+  more.click();
+  const menu = one(root, "menu");
+  menu.offsetWidth = 240;
+  menu.offsetHeight = 300;
+  const at = (box) => {
+    more.box = box;
+    fireWindow("resize");
+    return [menu.style.left, menu.style.top, menu.style.transformOrigin];
+  };
+  // The frame is 1280 by 800. Room below: 6 under the button, its right edge on the button's.
+  assert.deepEqual(at({ left: 500, top: 100, width: 32, height: 32 }), ["292px", "138px", "100% 0"]);
+  // The last note of a tall lane: 700 + 32 + 6 + 300 is past 792, so above: 700 - 6 - 300.
+  assert.deepEqual(at({ left: 500, top: 700, width: 32, height: 32 }), ["292px", "394px", "100% 100%"]);
+  // A lane at the left edge: held 8 in.
+  assert.deepEqual(at({ left: 40, top: 100, width: 32, height: 32 }), ["8px", "138px", "100% 0"]);
+  // A frame too short for it either way: as low as it can be and still whole.
+  window.innerHeight = 400;
+  assert.deepEqual(at({ left: 500, top: 200, width: 32, height: 32 }), ["292px", "92px", "100% 0"]);
+  // And one shorter than the menu: at the top, where its own scrolling takes over.
+  window.innerHeight = 250;
+  assert.deepEqual(at({ left: 500, top: 100, width: 32, height: 32 }), ["292px", "8px", "100% 0"]);
+});
+
+// ---- the final audit's findings
+
+test("a stage changed with a key leaves focus on the button that was pressed, and a second press while it is out sends nothing", () => {
+  const ui = load({ host: "new" });
+  const cards = [card("c1", "went-well", "one")];
+  ui.push(session({ stage: 1, cards }, FACILITATOR));
+  const next = button(ui.root, "Move to Vote");
+  next.focus();
+  next.click();
+  same(ui.document.activeElement, next, "focus is not dropped while the change is on its way");
+  assert.equal(next.getAttribute("aria-disabled"), "true");
+  next.click();
+  assert.deepEqual(ui.sent(), [{ action: "set-stage", payload: { stage: 2 } }]);
+  ui.push(session({ stage: 2, cards }, FACILITATOR));
+  same(ui.document.activeElement, next, "nor when it lands");
+  assert.equal(next.textContent, "Move to Decide");
+  assert.equal(next.getAttribute("aria-disabled"), null);
+  assert.match(liveOf(ui.root), /Vote/, "and the new stage is said");
+
+  const back = button(ui.root, "Back");
+  back.focus();
+  back.click();
+  same(ui.document.activeElement, back);
+  ui.push(session({ stage: 1, cards }, FACILITATOR));
+  same(ui.document.activeElement, back);
+  assert.equal(back.getAttribute("aria-label"), "Back to Write");
+});
+
+test("after a drop, focus is on the handle of the note that was carried", () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ cards: three }, PARTICIPANT));
+  const grip = one(noteWith(ui.root, "three"), "grip");
+  // As a press of the mouse does.
+  grip.focus();
+  carry(ui, "three", 110);
+  ui.fireWindow("pointerup", { clientX: 10, clientY: 110 });
+  assert.equal(noteOrder(ui.root, "Went well"), "three one two");
+  same(ui.document.activeElement, grip);
+});
+
+test("a note whose editor is open is not moved by Alt and an arrow, from any control inside it", () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ cards: three }, PARTICIPANT));
+  const note = noteWith(ui.root, "two");
+  note.fire("keydown", { key: "e", target: one(note, "note-text") });
+  for (const target of [button(note, "Save"), button(note, "Cancel"), one(note, "note-edit"), one(note, "grip")]) {
+    for (const key of ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]) note.fire("keydown", { key, altKey: true, target });
+  }
+  assert.deepEqual(ui.sent(), []);
+  assert.equal(noteOrder(ui.root, "Went well"), "one two three");
+  // The question about dropping changes has a line of its own.
+  one(note, "note-edit").type("two, changed");
+  button(note, "Cancel").click();
+  assert.ok(one(note, "edit-row").className.split(" ").includes("asking"));
+  button(note, "Keep editing").click();
+  assert.ok(!one(note, "edit-row").className.split(" ").includes("asking"));
+});
+
+test("a sticker's default spot is clear of the handle, the checkbox and the menu button, and of where the checkbox will be", () => {
+  const laid = (stage, narrow) => {
+    const ui = load();
+    ui.push(session({ stage, cards: [card("c1", "went-well", "one")] }));
+    const note = noteWith(ui.root, "one");
+    note.box = { left: 0, top: 0, width: 240, height: 44 };
+    one(note, "more").box = { left: 200, top: 5, width: 32, height: 32 };
+    if (narrow) ui.resize(lane(ui.root, "Went well"), 300);
+    return ui;
+  };
+  const pickOn = (ui, name) => {
+    openBook(ui.root, "one");
+    labeled(bookOf(ui.root), name).click();
+    return [ui.sent().at(-1).payload.x, ui.sent().at(-1).payload.y];
+  };
+  const leadOf = (ui) => one(noteWith(ui.root, "one"), "lead");
+  const gripOf = (ui) => one(noteWith(ui.root, "one"), "grip");
+
+  // Write stage, a wide lane: the handle is 4 to 32 across, and the checkbox
+  // will stand beside it, to 60. A sticker is 21 to its rim and keeps 6
+  // clear, so its center is 87 or more across: of 14, 44, 74, 104 it is 104,
+  // which is 96 of the 224 a center travels.
+  const write = laid(0, false);
+  leadOf(write).box = gripOf(write).box = { left: 4, top: 5, width: 28, height: 32 };
+  assert.deepEqual(pickOn(write, "Blocker, vinyl"), [0.429, 1]);
+  // The next is 134. 164 is the last: 194 would be within 6 of the menu button at 200.
+  assert.deepEqual(pickOn(write, "Idea, vinyl".replace("Idea", "Great idea")), [0.563, 1]);
+  assert.deepEqual(pickOn(write, "Me too, vinyl"), [0.696, 1]);
+
+  // Group stage: the checkbox is showing and the two are measured together.
+  const group = laid(1, false);
+  leadOf(group).box = { left: 4, top: 5, width: 56, height: 32 };
+  gripOf(group).box = { left: 4, top: 5, width: 28, height: 32 };
+  assert.deepEqual(pickOn(group, "Blocker, vinyl"), [0.429, 1]);
+
+  // A narrow lane stacks them: the handle is 24 high and the checkbox will
+  // be under it, down to 53. On the bottom edge of a 44px note a sticker
+  // reaches up to 21, so it has to be past 32 + 27 = 59 across: 74.
+  const narrow = laid(0, true);
+  leadOf(narrow).box = gripOf(narrow).box = { left: 4, top: 5, width: 28, height: 24 };
+  assert.deepEqual(pickOn(narrow, "Blocker, vinyl"), [0.295, 1]);
+});
+
+test("the sticker book hands focus back to where it was opened from: the note's words for S, the menu button for the menu", () => {
+  const { root, document, push, press } = load();
+  push(session({ cards: [card("c1", "went-well", "one")] }));
+  const note = noteWith(root, "one");
+  const words = one(note, "note-text");
+  words.focus();
+  note.fire("keydown", { key: "s", target: words });
+  assert.equal(byClass(root, "book-pop").length, 1);
+  press("Escape");
+  assert.equal(byClass(root, "book-pop").length, 0);
+  same(document.activeElement, words, "S was pressed on the words");
+
+  one(note, "more").click();
+  menuItem(root, "Add a sticker").click();
+  press("Escape");
+  same(document.activeElement, one(note, "more"), "opened from the menu, it goes back to the menu's button");
 });

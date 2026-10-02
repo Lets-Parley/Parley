@@ -1411,11 +1411,11 @@ const RETRO_FONTS = [
     }
 
     function why(off, btns) {
-      const said = el("p", { id: "menu-why-" + ++whys, class: "off-why", text: off });
+      const id = "menu-why-" + ++whys;
       btns.forEach(function (btn) {
-        btn.setAttribute("aria-describedby", said.id);
+        btn.setAttribute("aria-describedby", id);
       });
-      menu.appendChild(said);
+      menu.appendChild(el("p", { id: id, class: "off-why", text: off }));
     }
 
     function stepBack() {
