@@ -532,6 +532,11 @@ func (h *Host) call(ctx context.Context, installID, fn string, input []byte, mod
 	}
 	// A reported error is free only when the call was cheap; see record.
 	free := action && errors.Is(err, ErrGuestReported) && cheap(elapsed, h.cfg.CallTimeout)
+	// A call that ended because its caller went away says nothing about the
+	// plugin: a closed tab would otherwise count as the guest failing.
+	if err != nil && errors.Is(ctx.Err(), context.Canceled) {
+		free = true
+	}
 	h.record(ctx, installID, state.Install.Name, err, action, free)
 	return out, err
 }

@@ -17,21 +17,16 @@ import (
 	"github.com/tetratelabs/wabin/leb128"
 	"github.com/tetratelabs/wabin/wasm"
 
+	"github.com/lets-parley/parley/internal/plugin/plugintest"
 	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/store"
 )
 
 const (
-	opBlock    = 0x02
-	opBrIf     = 0x0d
 	opLocalGet = 0x20
 	opLocalSet = 0x21
-	opLocalTee = 0x22
 	opI64Const = 0x42
-	opI64GeU   = 0x5a
-	opI32Sub   = 0x6b
 	opI64Add   = 0x7c
-	opI64Sub   = 0x7d
 )
 
 func i64Const(v int) []byte {
@@ -117,98 +112,8 @@ func guestTraps() []byte {
 	return b.buildAction(nil, []byte{opUnreachable, opEnd})
 }
 
-// guestAppends is the shape every ceremony's action has: read a document from
-// the key-value store, change it, write it back. It appends three bytes to
-// the value under "n", and spins between the read and the write so two calls
-// that are allowed to overlap do overlap. The value's length is then a count
-// of the writes that survived.
-//
-// It never parses: the stored value comes back as base64 inside a response of
-// a fixed shape, three bytes are four base64 characters, so the new value is
-// the old one's characters with four more on the end.
-func guestAppends() []byte {
-	const (
-		getReq   = `{"key":"n"}`
-		respHead = `{"ok":true,"data":{"found":true,"value":"`
-		respTail = `"}}`
-		setHead  = `{"key":"n","value":"`
-		setTail  = `QUFB"}`
-
-		req, resp, n, out, i, spin = 0, 1, 2, 3, 4, 5
-	)
-	var b guestBuilder
-	i64, i32 := wasm.ValueTypeI64, wasm.ValueTypeI32
-	alloc := b.importFunc("extism:host/env", "alloc", []wasm.ValueType{i64}, []wasm.ValueType{i64})
-	length := b.importFunc("extism:host/env", "length", []wasm.ValueType{i64}, []wasm.ValueType{i64})
-	loadU8 := b.importFunc("extism:host/env", "load_u8", []wasm.ValueType{i64}, []wasm.ValueType{i32})
-	storeU8 := b.importFunc("extism:host/env", "store_u8", []wasm.ValueType{i64, i32}, nil)
-	kvGet := b.importFunc("extism:host/user", "parley_kv_get", []wasm.ValueType{i64}, []wasm.ValueType{i64})
-	kvSet := b.importFunc("extism:host/user", "parley_kv_set", []wasm.ValueType{i64}, []wasm.ValueType{i64})
-
-	var body []byte
-	add := func(parts ...[]byte) {
-		for _, p := range parts {
-			body = append(body, p...)
-		}
-	}
-	// resp = kv_get(getReq); n = length(resp) - the fixed wrapping.
-	add(i64Const(len(getReq)), []byte{opCall, byte(alloc), opLocalSet, req},
-		storeBytes(storeU8, req, getReq),
-		[]byte{opLocalGet, req, opCall, byte(kvGet), opLocalSet, resp},
-		[]byte{opLocalGet, resp, opCall, byte(length)}, i64Const(len(respHead)+len(respTail)),
-		[]byte{opI64Sub, opLocalSet, n})
-	// The window a second writer falls into.
-	add(i32Const(3_000_000), []byte{opLocalSet, spin, opLoop, blockTypeEmpty, opLocalGet, spin},
-		i32Const(1), []byte{opI32Sub, opLocalTee, spin, opBrIf, 0, opEnd})
-	// out = setHead + resp[len(respHead):][:n] + setTail
-	add([]byte{opLocalGet, n}, i64Const(len(setHead)+len(setTail)),
-		[]byte{opI64Add, opCall, byte(alloc), opLocalSet, out},
-		storeBytes(storeU8, out, setHead))
-	add([]byte{opBlock, blockTypeEmpty, opLoop, blockTypeEmpty,
-		opLocalGet, i, opLocalGet, n, opI64GeU, opBrIf, 1,
-		opLocalGet, out}, i64Const(len(setHead)), []byte{opI64Add, opLocalGet, i, opI64Add,
-		opLocalGet, resp}, i64Const(len(respHead)), []byte{opI64Add, opLocalGet, i, opI64Add,
-		opCall, byte(loadU8), opCall, byte(storeU8),
-		opLocalGet, i}, i64Const(1), []byte{opI64Add, opLocalSet, i,
-		opBr, 0, opEnd, opEnd})
-	add([]byte{opLocalGet, out}, i64Const(len(setHead)), []byte{opI64Add, opLocalGet, n, opI64Add, opLocalSet, req},
-		storeBytes(storeU8, req, setTail),
-		[]byte{opLocalGet, out, opCall, byte(kvSet), opDrop},
-		i32Const(0), []byte{opEnd})
-	// on_session_state: the stored value, as kv_get answered it. The envelope
-	// is JSON, which is all a state payload has to be.
-	outputSet := b.importFunc("extism:host/env", "output_set", []wasm.ValueType{i64, i64}, nil)
-	var state []byte
-	for _, part := range [][]byte{
-		i64Const(len(getReq)), {opCall, byte(alloc), opLocalSet, 0},
-		storeBytes(storeU8, 0, getReq),
-		{opLocalGet, 0, opCall, byte(kvGet), opLocalSet, 1},
-		{opLocalGet, 1, opLocalGet, 1, opCall, byte(length), opCall, byte(outputSet)},
-		i32Const(0), {opEnd},
-	} {
-		state = append(state, part...)
-	}
-	return b.buildActionAndState([]wasm.ValueType{i64, i64, i64, i64, i64, i32}, body, []wasm.ValueType{i64, i64}, state)
-}
-
-// buildActionAndState is buildAction with a second function exported as
-// on_session_state.
-func (b *guestBuilder) buildActionAndState(locals []wasm.ValueType, action []byte, stateLocals []wasm.ValueType, state []byte) []byte {
-	b.types = append(b.types, &wasm.FunctionType{Results: []wasm.ValueType{wasm.ValueTypeI32}})
-	fn := uint32(len(b.types) - 1)
-	first := uint32(len(b.imports))
-	m := &wasm.Module{
-		TypeSection:     b.types,
-		ImportSection:   b.imports,
-		FunctionSection: []wasm.Index{fn, fn},
-		ExportSection: []*wasm.Export{
-			{Type: wasm.ExternTypeFunc, Name: ExportSessionAction, Index: first},
-			{Type: wasm.ExternTypeFunc, Name: ExportSessionState, Index: first + 1},
-		},
-		CodeSection: []*wasm.Code{{LocalTypes: locals, Body: action}, {LocalTypes: stateLocals, Body: state}},
-	}
-	return binary.EncodeModule(m)
-}
+// guestAppends is the read-change-write guest, shared with the API's tests.
+func guestAppends() []byte { return plugintest.Counter() }
 
 // room serves one plugin action over HTTP the way the dispatcher hands it to
 // the kind, and counts the broadcasts it asked for.
@@ -706,7 +611,7 @@ func TestTheRoomIsReleasedAfterAGuestFault(t *testing.T) {
 }
 
 func TestTheRoomIsReleasedWhenTheCallerGoesAwayMidCall(t *testing.T) {
-	h, in := hosted(t, guestHangs(), HostConfig{CallTimeout: time.Minute}, 1024)
+	h, in := hosted(t, guestHangs(), HostConfig{CallTimeout: time.Minute, BreakerFailures: 1, BreakerCooldown: time.Hour}, 1024)
 	st, err := h.Store.State(context.Background(), in.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -730,6 +635,11 @@ func TestTheRoomIsReleasedWhenTheCallerGoesAwayMidCall(t *testing.T) {
 		t.Fatal("the action outlived its caller")
 	}
 	released(t, h, in, "gone")
+	// The guest was stopped because nobody was waiting for it any more, which
+	// is not the plugin failing.
+	if !h.breakerAllows(in.ID) {
+		t.Fatal("a call abandoned by its caller was charged to the plugin")
+	}
 }
 
 // What kind of failure an action was decides what it costs the plugin. A
