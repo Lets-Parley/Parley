@@ -3402,7 +3402,7 @@ test("a note's words share their row with the handle and the menu only: the vote
   for (const text of ["plain", "voted", "linked"]) {
     const note = noteWith(root, text);
     assert.deepEqual(one(note, "trail").children.map((n) => n.className), ["more"], "beside the words: the menu and nothing else");
-    assert.deepEqual(one(note, "chips").children.map((n) => n.className.split(" ")[0]), ["target", "vote"]);
+    assert.deepEqual(one(note, "chips").children.map((n) => n.className.split(" ")[0]), ["edited", "target", "vote"]);
     same(one(note, "chips").parentNode, note, "the chips are a row of the note, not part of the first one");
   }
   assert.equal(one(noteWith(root, "plain"), "chips").hidden, true, "nothing to show, no row: the note stays one line");
@@ -3930,4 +3930,183 @@ test("dust is always swept up: when an arc finishes, when it is cancelled, when 
   assert.equal(byClass(ui.root, "st").length, 9, "every sticker landed all the same");
   ui.document.animations.filter((a) => a.target.className.includes("dust")).forEach((a) => a.finish());
   assert.equal(dustOf(ui).length, 0);
+});
+
+// ---- editing a note's words
+
+const editorOf = (root) => all(root, (n) => n.tagName === "TEXTAREA" && n.className === "note-edit")[0];
+const NOT_YOURS = "Only the person who wrote a note can edit it.";
+
+test("a note's words are edited in place from its menu, E, F2 or a double click; Enter saves and the note is believed when the state shows it", async () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ cards: three }, PARTICIPANT));
+  const note = noteWith(ui.root, "two");
+  byMenu(ui, "two", "Edit note");
+  const area = editorOf(ui.root);
+  assert.ok(area, "the menu opens the editor");
+  same(area.parentNode, note, "inside the note itself");
+  assert.equal(area.value, "two");
+  assert.equal(area.getAttribute("maxlength"), "500");
+  assert.equal(area.getAttribute("aria-label"), "Edit note: two");
+  same(ui.document.activeElement, area);
+  assert.ok(note.className.split(" ").includes("editing"));
+  assert.equal(liveOf(ui.root), "Editing. Enter saves, Escape cancels.");
+  const save = button(note, "Save");
+  assert.ok(button(note, "Cancel"));
+
+  area.type("   ");
+  assert.equal(save.disabled, true, "a note cannot be saved empty");
+  assert.match(one(note, "edit-said").textContent, /A note needs words\. To remove it, use Delete in its menu\./);
+  area.fire("keydown", ENTER);
+  assert.deepEqual(ui.sent(), []);
+
+  area.type("x".repeat(450));
+  assert.equal(one(note, "edit-said").textContent, "50 characters left", "the limit is said as it is approached");
+  area.type("two, reworded");
+  assert.equal(one(note, "edit-said").hidden, true);
+  area.fire("keydown", { key: "Enter", shiftKey: true });
+  area.fire("keydown", { key: "Enter", isComposing: true });
+  assert.deepEqual(ui.sent(), [], "Shift and Enter is a new line; an input method's Enter is its own");
+  area.fire("keydown", ENTER);
+  assert.deepEqual(ui.sent(), [{ action: "edit-card", payload: { cardId: "c2", text: "two, reworded" } }]);
+  assert.equal(area.readOnly, true, "pending");
+  assert.equal(save.disabled, true);
+  assert.equal(one(note, "edit-said").textContent, "Saving…");
+  area.fire("keydown", ENTER);
+  save.click();
+  assert.equal(ui.sent().length, 1, "no second send while the first is out");
+  // The host says yes: not believed until the state shows the words.
+  ui.acts[0].answer({ ok: true });
+  await settled();
+  assert.ok(editorOf(ui.root), "a yes alone does not close it");
+  ui.push(session({ cards: [three[0], { ...three[1], text: "two, reworded", edited: true }, three[2]] }, PARTICIPANT));
+  absent(editorOf(ui.root), "the state shows it: the editor is gone");
+  assert.ok(!note.className.includes("editing"));
+  assert.equal(one(note, "note-text").textContent, "two, reworded");
+  same(ui.document.activeElement, one(note, "more"), "focus is back on the note's menu button");
+  assert.equal(one(note, "edited").hidden, false, "and the note says it was edited, in a word");
+  assert.equal(one(note, "edited").textContent, "edited");
+  assert.equal(one(noteWith(ui.root, "one"), "edited").hidden, true);
+
+  // The other ways in.
+  for (const open of [(n) => n.fire("keydown", { key: "e" }), (n) => n.fire("keydown", { key: "F2" }), (n) => one(n, "note-text").fire("dblclick")]) {
+    open(noteWith(ui.root, "one"));
+    assert.equal(editorOf(ui.root).value, "one");
+    editorOf(ui.root).fire("keydown", { key: "Escape" });
+    absent(editorOf(ui.root), "Escape cancels");
+    same(ui.document.activeElement, one(noteWith(ui.root, "one"), "more"));
+  }
+  noteWith(ui.root, "one").fire("keydown", { key: "e", ctrlKey: true });
+  noteWith(ui.root, "one").fire("keydown", { key: "e", target: editorOf(ui.root) || { tagName: "TEXTAREA" } });
+  absent(editorOf(ui.root), "a chord, or an e typed into a box, opens nothing");
+  assert.equal(ui.sent().length, 1, "cancelling sent nothing");
+  // Saving words that did not change sends nothing either.
+  noteWith(ui.root, "one").fire("keydown", { key: "e" });
+  editorOf(ui.root).fire("keydown", ENTER);
+  absent(editorOf(ui.root));
+  assert.equal(ui.sent().length, 1);
+});
+
+test("a teammate's change while a note is being edited leaves the draft, the editor and the focus where they are", () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ cards: three }, PARTICIPANT));
+  noteWith(ui.root, "two").fire("keydown", { key: "e" });
+  const area = editorOf(ui.root);
+  area.type("two, half typ");
+  // A vote on this note, a new note, and the note itself moved to another lane.
+  ui.push(session({ cards: [three[0], { ...three[1], voteCount: 1 }, three[2], card("c4", "puzzles", "four")] }, PARTICIPANT));
+  ui.push(session({ cards: [three[0], three[2], { ...three[1], columnId: "puzzles", voteCount: 1 }, card("c4", "puzzles", "four")] }, PARTICIPANT));
+  same(editorOf(ui.root), area, "the same box");
+  assert.equal(area.value, "two, half typ");
+  same(ui.document.activeElement, area, "still holding focus");
+  assert.equal(noteOrder(ui.root, "Puzzles"), "two four", "the note went where it was moved, editor and all");
+  // Somebody else rewording it meanwhile does not write over what is being typed.
+  ui.push(session({ cards: [three[0], three[2], { ...three[1], columnId: "puzzles", text: "two, by its author elsewhere", edited: true }] }, PARTICIPANT));
+  assert.equal(area.value, "two, half typ");
+
+  // While it is open the note is not dragged, and a second editor does not throw the first away.
+  const grip = one(noteWith(ui.root, "half") || area.parentNode, "grip");
+  grip.fire("pointerdown", { clientX: 10, clientY: 10 });
+  ui.fireWindow("pointermove", { clientX: 10, clientY: 60 });
+  assert.equal(byClass(ui.root, "drag").length, 0, "no drag while its words are being typed");
+  ui.fireWindow("pointerup", { clientX: 10, clientY: 60 });
+  noteWith(ui.root, "one").fire("keydown", { key: "e" });
+  assert.equal(all(ui.root, (n) => n.tagName === "TEXTAREA" && n.className === "note-edit").length, 1, "one editor at a time");
+  same(editorOf(ui.root), area);
+  assert.equal(toastOf(ui.root).textContent, "Save or cancel the note you are editing first.");
+  // With nothing changed in the first, the second simply takes over.
+  area.type("two, by its author elsewhere");
+  noteWith(ui.root, "one").fire("keydown", { key: "e" });
+  assert.equal(editorOf(ui.root).value, "one");
+});
+
+test("a refused edit keeps what was typed, says why, and a note known to be somebody else's is not offered for editing again", async () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ cards: three }, PARTICIPANT));
+  noteWith(ui.root, "two").fire("keydown", { key: "e" });
+  const area = editorOf(ui.root);
+  area.type("not mine to change");
+  area.fire("keydown", ENTER);
+  ui.acts[0].answer({ ok: false, reason: "forbidden" });
+  await settled();
+  assert.equal(toastOf(ui.root).textContent, NOT_YOURS);
+  same(editorOf(ui.root), area, "the editor stays, with the words");
+  assert.equal(area.value, "not mine to change");
+  assert.equal(area.readOnly, false);
+  assert.equal(one(noteWith(ui.root, "two") || area.parentNode, "note-text").textContent, "two", "the note itself was never changed");
+  area.fire("keydown", { key: "Escape" });
+  // Remembered for the visit: the menu says why, and the keys do too.
+  one(noteWith(ui.root, "two"), "more").click();
+  assert.equal(menuItem(ui.root, "Edit note").getAttribute("aria-disabled"), "true");
+  menuItem(ui.root, "Edit note").click();
+  assert.equal(toastOf(ui.root).textContent, NOT_YOURS);
+  ui.press("Escape");
+  noteWith(ui.root, "two").fire("keydown", { key: "F2" });
+  absent(editorOf(ui.root));
+  assert.equal(ui.acts.length, 1, "the server is not asked again");
+  // Nobody answers at all: the words are still there, and it can be sent again.
+  noteWith(ui.root, "one").fire("keydown", { key: "e" });
+  editorOf(ui.root).type("one, again");
+  editorOf(ui.root).fire("keydown", ENTER);
+  ui.runTimers(WAIT);
+  assert.match(toastOf(ui.root).textContent, /Could not confirm that the note was saved\. Your words are still in the box\./);
+  assert.equal(editorOf(ui.root).value, "one, again");
+  assert.equal(button(noteWith(ui.root, "one"), "Save").disabled, false);
+
+  // After the reveal the board knows whose a note is.
+  const shown = load({ host: "new" });
+  const cards = [card("c1", "went-well", "mine", { authorId: "u-bo" }), card("c2", "went-well", "hers", { authorId: "u-cy" })];
+  shown.push(session({ revealed: true, cards }, PARTICIPANT));
+  noteWith(shown.root, "hers").fire("keydown", { key: "e" });
+  absent(editorOf(shown.root));
+  assert.equal(toastOf(shown.root).textContent, NOT_YOURS);
+  noteWith(shown.root, "mine").fire("keydown", { key: "e" });
+  assert.equal(editorOf(shown.root).value, "mine");
+  // The facilitator has no way in to other people's words either.
+  const lead = load({ host: "new" });
+  lead.push(session({ revealed: true, cards }, FACILITATOR));
+  noteWith(lead.root, "hers").fire("keydown", { key: "e" });
+  absent(editorOf(lead.root));
+});
+
+test("a note deleted while it is being edited does not take the draft with it: the words go to its lane's box, and it is said", () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ stage: 1, cards: three }, PARTICIPANT));
+  noteWith(ui.root, "two").fire("keydown", { key: "e" });
+  editorOf(ui.root).type("two, with a lot more thought");
+  ui.push(session({ stage: 1, cards: [three[0], three[2]] }, PARTICIPANT));
+  absent(editorOf(ui.root));
+  const box = composer(ui.root, "Went well");
+  assert.equal(box.value, "two, with a lot more thought");
+  assert.equal(visible(box), true, "the box is open, though the room is past Write");
+  same(ui.document.activeElement, box);
+  assert.equal(toastOf(ui.root).textContent, "That note was deleted while you were editing it. Your words are in the box above, ready to add as a new note.");
+  // Nothing typed, nothing to rescue: it only says the note is gone.
+  noteWith(ui.root, "one").fire("keydown", { key: "e" });
+  ui.push(session({ stage: 1, cards: [three[2]] }, PARTICIPANT));
+  assert.equal(toastOf(ui.root).textContent, "That note is no longer on the board.");
+  assert.equal(box.value, "two, with a lot more thought");
+  // And an edit made by its author is announced to the others without a name.
+  ui.push(session({ stage: 1, cards: [{ ...three[2], text: "three, reworded", edited: true }] }, PARTICIPANT));
+  assert.equal(liveOf(ui.root), "A note in Went well was edited.");
 });

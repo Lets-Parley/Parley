@@ -113,6 +113,7 @@
   const PER_PERSON = 3;
   const ONLY_PRESSER = "Only the person who placed a sticker, or the facilitator, can move or remove it.";
   const NOT_KNOWN_MINE = "You can move a sticker you placed in this visit. Open an older one of yours to remove it.";
+  const ONLY_AUTHOR_EDITS = "Only the person who wrote a note can edit it.";
   const ONLY_AUTHOR = "Only the person who wrote a note, or the facilitator, can delete it.";
   const NOTE_GONE = "That note is no longer on the board.";
   // The board answers "conflict" for a limit reached and for a store that is
@@ -338,7 +339,17 @@
     // between controls and a one-line note with nothing to show stays one line.
     ".trail{gap:4px;min-height:32px}",
     "@media (pointer:fine){.narrow .lead,.note.narrow .lead{flex-direction:column}.narrow .note .grip,.narrow .note .pick,.note.narrow .grip,.note.narrow .pick{height:24px}}",
-    ".chips{grid-column:2/-1;justify-self:end;position:relative;z-index:2;display:flex;align-items:center;gap:4px;padding-bottom:3px}",
+    // A note being edited: its words are a box of the same face and measure,
+    // so nothing but the caret appears; Save and Cancel float under it and
+    // take no room; and it stands over its stickers, which step back.
+    ".note.editing{border-color:var(--color-accent);box-shadow:0 0 0 1px var(--color-accent),var(--shadow-rest);z-index:3}",
+    ".note.editing .note-text{display:none}",
+    ".note-edit{position:relative;z-index:2;display:block;width:100%;margin:0;padding:6px 0;border:0;outline:0;background:transparent;color:inherit;font:inherit;resize:none;overflow:hidden;overflow-wrap:break-word}",
+    ".edit-row{position:absolute;z-index:3;top:calc(100% + 5px);right:6px;display:flex;align-items:center;gap:6px;max-width:calc(100% - 12px);padding:4px 4px 4px 10px;border:1px solid var(--color-line);border-radius:12px;background:var(--color-surface-hi);box-shadow:var(--shadow-lift)}",
+    ".edit-said{font-size:12px;color:var(--color-ink-soft)}",
+    ".note.editing .st.over{opacity:.2}",
+    ".edited{font:11px/16px var(--mono);color:var(--color-ink-soft);margin-right:auto}",
+    ".chips{grid-column:2/-1;justify-self:end;max-width:100%;position:relative;z-index:2;display:flex;align-items:center;gap:4px;padding-bottom:3px}",
     ".pick,.grip,.more,.target{display:grid;place-items:center;width:28px;height:32px}",
     ".pick{cursor:pointer}",
     ".grip,.more,.target{padding:0;border:0;border-radius:8px;background:transparent;color:var(--color-ink-faint);transition:background-color .15s,color .15s}",
@@ -741,6 +752,7 @@
           columnId: words(c.columnId),
           groupId: typeof c.groupId === "string" ? c.groupId : null,
           text: words(c.text),
+          edited: c.edited === true,
           votes: Math.max(0, Math.floor(Number(c.voteCount)) || 0),
           authorId: typeof c.authorId === "string" ? c.authorId : null,
         };
@@ -1333,6 +1345,15 @@
     });
     if (gone.length === 1) said.push("A note was removed from " + columnTitle(gone[0].columnId) + ".");
     if (gone.length > 1) said.push(gone.length + " notes were removed.");
+
+    const reworded = after.cards.filter(function (c) {
+      const old = before.cards.filter(function (o) {
+        return o.id === c.id;
+      })[0];
+      return old && old.text !== c.text;
+    });
+    if (reworded.length === 1) said.push("A note in " + columnTitle(reworded[0].columnId) + " was edited.");
+    if (reworded.length > 1) said.push(reworded.length + " notes were edited.");
 
     const hadGroups = idsOf(before.groups);
     after.groups.forEach(function (g) {
@@ -2162,7 +2183,9 @@
     note.pick = el("label", { class: "pick" }, [note.box]);
     // What a note has gathered goes on a row of its own under the words, so
     // the words keep the width of the note whatever it has gathered.
-    note.chips = el("span", { class: "chips" }, [note.target, note.vote]);
+    // Said in a word, not a color: the words were changed after they were written.
+    note.mark = el("span", { class: "edited", text: "edited", title: "This note was edited after it was written" });
+    note.chips = el("span", { class: "chips" }, [note.mark, note.target, note.vote]);
     note.target.appendChild(note.targetCount);
     note.vote.appendChild(el("span", { class: "vote-dot", "aria-hidden": "true" }));
     note.vote.appendChild(note.word);
@@ -2220,7 +2243,18 @@
     note.el.addEventListener("pointerleave", function (ev) {
       if (ev.pointerType === "mouse") note.el.classList.remove("peek");
     });
+    // Twice on the words, or E or F2 with focus on the note, edits them.
+    note.text.addEventListener("dblclick", function () {
+      editNote(id);
+    });
     note.el.addEventListener("keydown", function (ev) {
+      const plain = !ev.altKey && !ev.ctrlKey && !ev.metaKey && !pop && !contains(note.stamps, ev.target) && ev.target.tagName !== "TEXTAREA";
+      if (plain && (ev.key === "e" || ev.key === "E" || ev.key === "F2")) {
+        ev.preventDefault();
+        editNote(id);
+        return;
+      }
+      if (ev.target.tagName === "TEXTAREA") return;
       // S opens the stickers from anywhere on the note but a sticker.
       if ((ev.key === "s" || ev.key === "S") && !ev.altKey && !ev.ctrlKey && !ev.metaKey && !pop && !contains(note.stamps, ev.target)) {
         ev.preventDefault();
@@ -2288,7 +2322,8 @@
     setText(note.targetCount, String(linked));
     if (note.linked === 0 && linked > 0 && motionOn()) animate(note.target, { transform: "scale(.4)" }, POP);
     note.linked = linked;
-    note.chips.hidden = note.vote.hidden && note.target.hidden;
+    note.mark.hidden = !card.edited;
+    note.chips.hidden = note.vote.hidden && note.target.hidden && note.mark.hidden;
 
     const named = board.revealed && card.authorId;
     note.author.el.hidden = !named;
@@ -2437,6 +2472,14 @@
     // and the server answers. After the reveal the board does know.
     // A note the server has already said is somebody else's stays that way
     // for the visit.
+    items.push({
+      label: "Edit note\u2026",
+      keys: "E",
+      off: notMineNote(id) ? ONLY_AUTHOR_EDITS : "",
+      run: function () {
+        editNote(id);
+      },
+    });
     const others = (viewerRole() !== "facilitator" && notMyNotes[id]) || (board.revealed && card.authorId && viewerRole() === "participant" && card.authorId !== session.selfId);
     items.push({
       label: "Delete note…",
@@ -2448,6 +2491,160 @@
       },
     });
     openMenu(opener, "Options for note: " + short(card.text), items);
+  }
+
+  // ---------------------------------------------------------------- editing
+
+  // A note's words are edited where they stand, by whoever wrote them. Whose
+  // a note is is not in the state before the reveal, so the editor opens for
+  // anyone and the server answers; a no is remembered for the visit. One
+  // editor at a time. It is a node of the note itself, so a teammate's
+  // change, which patches the note and never rebuilds it, leaves the draft,
+  // the caret and the focus alone.
+  let editing = null;
+
+  // Known to be somebody else's: the server has said so, or authors are
+  // revealed and this one is not the viewer.
+  function notMineNote(id) {
+    const card = cardById(id);
+    return !!notMyNotes[id] || !!(card && board.revealed && card.authorId && session && session.selfId && card.authorId !== session.selfId);
+  }
+
+  function editNote(id) {
+    const note = view.notes[id];
+    const card = cardById(id);
+    if (!note || !card) return;
+    if (notMineNote(id)) {
+      notify(ONLY_AUTHOR_EDITS);
+      return;
+    }
+    if (editing) {
+      if (editing.id === id) return editing.area.focus();
+      // Words half typed elsewhere are not thrown away by starting here.
+      const there = cardById(editing.id);
+      if (there && editing.area.value !== there.text) {
+        notify("Save or cancel the note you are editing first.");
+        return editing.area.focus();
+      }
+      closeEditor(false);
+    }
+    closePop(false);
+    const e = { id: id, was: card.text, sending: false };
+    e.area = el("textarea", { class: "note-edit", rows: 1, maxlength: NOTE_LIMIT, dir: "auto", "aria-label": "Edit note: " + short(card.text) });
+    e.area.value = card.text;
+    e.said = el("span", { class: "edit-said", role: "status" });
+    e.save = el("button", { type: "button", class: "btn btn-primary btn-small", text: "Save" });
+    e.cancel = el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Cancel" });
+    e.row = el("div", { class: "edit-row" }, [e.said, e.save, e.cancel]);
+    e.area.addEventListener("input", patchEditor);
+    e.area.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        closeEditor(true);
+      } else if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) {
+        // Enter saves; Shift and Enter is a new line; an Enter that only
+        // picks a word in an input method is neither.
+        ev.preventDefault();
+        saveEdit();
+      }
+    });
+    e.save.addEventListener("click", saveEdit);
+    e.cancel.addEventListener("click", function () {
+      closeEditor(true);
+    });
+    editing = e;
+    note.el.insertBefore(e.area, note.text);
+    note.el.appendChild(e.row);
+    note.el.classList.add("editing");
+    patchEditor();
+    e.area.focus();
+    if (e.area.setSelectionRange) e.area.setSelectionRange(card.text.length, card.text.length);
+    setText(live, "Editing. Enter saves, Escape cancels.");
+  }
+
+  function patchEditor() {
+    const e = editing;
+    if (!e) return;
+    const text = e.area.value;
+    const room = NOTE_LIMIT - text.length;
+    const empty = !text.trim();
+    e.area.readOnly = e.sending;
+    e.save.disabled = e.sending || empty;
+    setText(e.said, e.sending ? "Saving\u2026" : empty ? "A note needs words. To remove it, use Delete in its menu." : room <= 100 ? plural(room, "character") + " left" : "");
+    e.said.hidden = !e.said.textContent;
+    // As tall as its words, like the paragraph it stands in for.
+    e.area.style.height = "";
+    if (e.area.scrollHeight > 32) e.area.style.height = e.area.scrollHeight + "px";
+  }
+
+  function closeEditor(refocus) {
+    const e = editing;
+    if (!e) return;
+    editing = null;
+    const note = view.notes[e.id];
+    if (e.watch) forget(e.watch);
+    if (e.area.parentNode) e.area.parentNode.removeChild(e.area);
+    if (e.row.parentNode) e.row.parentNode.removeChild(e.row);
+    if (!note) return;
+    note.el.classList.remove("editing");
+    if (refocus) note.more.focus();
+  }
+
+  function saveEdit() {
+    const e = editing;
+    if (!e || e.sending) return;
+    const text = e.area.value.trim().slice(0, NOTE_LIMIT);
+    if (!text) return;
+    const now = cardById(e.id);
+    if (now && text === now.text) return closeEditor(true);
+    e.sending = true;
+    patchEditor();
+    const id = e.id;
+    // Declared first: a send the bridge refuses settles before propose returns.
+    let watch = null;
+    watch = e.watch = propose("edit-card", { cardId: id, text: text }, {
+      landed: function (b) {
+        return b.cards.some(function (c) {
+          return c.id === id && c.text === text;
+        });
+      },
+      refused: { forbidden: ONLY_AUTHOR_EDITS, "not-found": NOTE_GONE, invalid: "That could not be saved as written. A note needs words, 500 characters at most." },
+      unsure: "Could not confirm that the note was saved. Your words are still in the box.",
+      settle: function (outcome) {
+        if (outcome === "accepted" || editing !== e) return;
+        e.watch = null;
+        if (outcome === "landed") {
+          const held = contains(view.notes[id] && view.notes[id].el, document.activeElement) || document.activeElement === document.body;
+          closeEditor(held);
+          setText(live, "Saved.");
+          return;
+        }
+        // Refused, or nobody answered: the words typed stay where they are.
+        if (watch && watch.reason === "forbidden") notMyNotes[id] = true;
+        e.sending = false;
+        patchEditor();
+      },
+    });
+  }
+
+  // The note being edited was deleted by somebody else. What was typed is not
+  // lost with it: it goes into its lane's box for a new note, and is said.
+  function rescueDraft(columnId) {
+    const e = editing;
+    editing = null;
+    if (e.watch) forget(e.watch);
+    const text = e.area.value.trim();
+    const lane = view.lanes[columnId] || view.lanes[board.columns[0] && board.columns[0].id];
+    if (!text || text === e.was || !lane) {
+      notify(NOTE_GONE);
+      return;
+    }
+    lane.input.value = (lane.input.value ? lane.input.value + "\n" : "") + text;
+    lane.open = true;
+    patchComposer(lane);
+    lane.input.focus();
+    notify("That note was deleted while you were editing it. Your words are in the box above, ready to add as a new note.");
   }
 
   // The facilitator deletes any note, through an action the host keeps for
@@ -2845,10 +3042,12 @@
     handle.addEventListener("pointerdown", function (ev) {
       const owner = (kind === "group" ? view.groups : view.notes)[id];
       if (ev.button || drag || !owner) return;
+      // A note whose words are being typed is not carried about.
+      if (kind === "note" && editing && editing.id === id) return;
       if (handle !== owner.grip) {
         if (ev.pointerType !== "mouse") return;
         for (let n = ev.target; n && n !== handle; n = n.parentNode) {
-          if (/^(BUTTON|INPUT|LABEL)$/.test(n.tagName)) return;
+          if (/^(BUTTON|INPUT|LABEL|TEXTAREA)$/.test(n.tagName)) return;
         }
       }
       const start = { x: ev.clientX, y: ev.clientY };
@@ -5145,6 +5344,7 @@
 
     session = next;
     board = boardOf(next);
+    const orphaned = editing && !cardById(editing.id) ? (before.cards.filter(function (c) { return c.id === editing.id; })[0] || {}).columnId : null;
     if (drawn && before.revealed && !board.revealed) hiddenAgain = true;
     patchProgress();
     patchNotes();
@@ -5155,6 +5355,8 @@
     patchAuthorship();
     patchSelection();
     patchTimer();
+    if (editing && !cardById(editing.id)) rescueDraft(orphaned);
+    else if (editing) patchEditor();
     // A teammate can delete the note a menu or a form was opened from. The
     // board under it is inert while it is open, so it cannot be left there.
     if (pop && (!pop.anchor.isConnected || (pop.alive && !pop.alive()))) {
