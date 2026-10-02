@@ -1,6 +1,12 @@
 (function () {
   "use strict";
-  var port = null, queue = [], state = null, tokens = null;
+  var port = null, queue = [], state = null, tokens = null, scheme = null;
+  // Actions waiting on the host's answer, by the id this frame chose. Every
+  // one of them settles: with the host's answer, or as "unknown" when it is
+  // pushed out by newer ones, when the host closes the bridge, or when the
+  // host turns out to be one that never answers.
+  var pending = {}, nextId = 0, MAX_PENDING = 64, results = false;
+  var REASON = /^[a-z-]{1,32}$/;
   var handlers = { state: [], tokens: [] };
   var MAX_BYTES = 65536;
 
@@ -27,6 +33,31 @@
     }
   }
 
+  // color-scheme decides how the browser draws native controls and scrollbars.
+  // It is one of two words or it is not applied: the value goes into a style
+  // declaration, exactly as a token does.
+  function applyScheme(value) {
+    if (value === "light" || value === "dark") { scheme = value; document.documentElement.style.setProperty("color-scheme", value); }
+  }
+
+  function unknown() { return { ok: false, reason: "unknown" }; }
+
+  function settleAll() {
+    var waiting = pending;
+    pending = {};
+    for (var id in waiting) {
+      if (Object.prototype.hasOwnProperty.call(waiting, id)) { waiting[id](unknown()); }
+    }
+  }
+
+  function settle(message) {
+    if (!Object.prototype.hasOwnProperty.call(pending, message.id)) { return; }
+    var resolve = pending[message.id];
+    delete pending[message.id];
+    if (message.ok === true) { resolve({ ok: true }); return; }
+    resolve({ ok: false, reason: typeof message.reason === "string" && REASON.test(message.reason) ? message.reason : "failed" });
+  }
+
   function send(message) {
     var body = JSON.stringify(message);
     if (body.length > MAX_BYTES) { throw new Error("message too large"); }
@@ -38,7 +69,20 @@
     onState: function (fn) { handlers.state.push(fn); if (state) { fn(state); } },
     onTokens: function (fn) { handlers.tokens.push(fn); if (tokens) { fn(tokens); } },
     state: function () { return state; },
-    act: function (action, payload) { send({ type: "act", action: action, payload: payload || {} }); },
+    scheme: function () { return scheme; },
+    supports: function (feature) { return feature === "results" && results; },
+    act: function (action, payload) {
+      var id = ++nextId;
+      send({ type: "act", id: id, action: action, payload: payload || {} });
+      if (port && !results) { return Promise.resolve(unknown()); }
+      var oldest = id - MAX_PENDING;
+      if (Object.prototype.hasOwnProperty.call(pending, oldest)) {
+        var evicted = pending[oldest];
+        delete pending[oldest];
+        evicted(unknown());
+      }
+      return new Promise(function (resolve) { pending[id] = resolve; });
+    },
     ready: function () { send({ type: "ready" }); }
   };
 
@@ -47,7 +91,9 @@
     try { message = JSON.parse(event.data); } catch (e) { return; }
     if (!message || typeof message !== "object") { return; }
     if (message.type === "state") { state = message.state; emit("state", state); }
-    else if (message.type === "tokens") { tokens = message.tokens; applyTokens(tokens); emit("tokens", tokens); }
+    else if (message.type === "tokens") { tokens = message.tokens; applyTokens(tokens); applyScheme(message.scheme); emit("tokens", tokens); }
+    else if (message.type === "result") { settle(message); }
+    else if (message.type === "closed") { results = false; settleAll(); }
   }
 
   function onHandshake(event) {
@@ -64,7 +110,12 @@
     if (!event.ports || event.ports.length !== 1) { return; }
     window.removeEventListener("message", onHandshake);
     port = event.ports[0];
+    results = event.data.results === true;
+    if (!results) { settleAll(); }
     port.onmessage = onPort;
+    // Where the browser reports it, a port whose other end has gone is treated
+    // as the host having closed the bridge.
+    port.addEventListener("close", function () { results = false; settleAll(); });
     port.start();
     while (queue.length) { port.postMessage(queue.shift()); }
     send({ type: "hello" });

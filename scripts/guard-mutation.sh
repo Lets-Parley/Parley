@@ -595,6 +595,12 @@ mutate "the handshake happening only once" \
     'src/lib/pluginFrameBootstrap.test.ts::takes the embedder'"'"'s port and then stops listening to the window' \
     pluginframe_bootstrap.js 'window.removeEventListener("message", onHandshake);' '/* the frame goes on listening */'
 
+# color-scheme is written into a style declaration like a token is, so it is
+# one of two words or it is not applied.
+mutate "the allow-list on the frame's color-scheme" \
+    'src/lib/pluginFrameBootstrap.test.ts::refuses a scheme that is not light or dark' \
+    pluginframe_bootstrap.js 'if (value === "light" || value === "dark") { scheme = value;' 'if (value) { scheme = value;'
+
 target internal/api
 
 mutate "the screen on a design token's value" \
@@ -694,6 +700,18 @@ mutate "the frame sandbox attribute" \
     'src/components/PluginPanel.test.tsx::sandboxes the frame without allow-same-origin' \
     lib/pluginBridge.ts 'export const PLUGIN_SANDBOX = "allow-scripts";' 'export const PLUGIN_SANDBOX = "allow-scripts allow-same-origin";'
 
+# What the server answered an action with is information about the room, so a
+# frame outside its plugin's own rooms is told one thing whatever happened.
+mutate "the room gate on an action's result" \
+    'src/lib/pluginBridge.test.ts::reports a real outcome only in a room the plugin provides' \
+    lib/pluginBridge.ts 'const disclose = room !== null && seesRoom(room, opts.grants, opts.plugin);' 'const disclose = room !== null;'
+
+# A refused action is reported to the frame as a code from a fixed list. The
+# server's sentence, or an unexpected error's, never crosses.
+mutate "the refusal reason a frame is told" \
+    'src/lib/pluginBridge.test.ts::tells the frame an action was refused with a code, never the server'"'"'s own words' \
+    lib/pluginBridge.ts '(e: unknown) => answer({ ok: false, reason: refusalReason(e) }),' '(e: unknown) => answer({ ok: false, reason: String((e as Error).message) }),'
+
 mutate "inerting a plugin frame under a modal" \
     'src/components/PluginPanel.test.tsx::marks the frame inert while a host modal is open' \
     components/PluginPanel.tsx 'el.toggleAttribute("inert", modalOpen);' 'el.toggleAttribute("inert", false);'
@@ -712,7 +730,13 @@ mutate "the own-ceremony check on state crossing the bridge" \
 
 mutate "the session:read grant check" \
     'src/lib/pluginBridge.test.ts::hands a plugin with no session:read grant nothing at all' \
-    lib/pluginBridge.ts 'if (!grants.includes(GRANT_SESSION_READ)) return null;' 'if (grants.includes("no-such-grant")) return null;'
+    lib/pluginBridge.ts 'return grants.includes(GRANT_SESSION_READ) && providesRoom(env, plugin);' 'return grants.includes("no-such-grant") || providesRoom(env, plugin);'
+
+# The same predicate gates an action's outcome, so the same break must turn
+# that test red too.
+mutate "the session:read grant check on an action's outcome" \
+    'src/lib/pluginBridge.test.ts::reports no outcome to a plugin that holds session:act without session:read' \
+    lib/pluginBridge.ts 'return grants.includes(GRANT_SESSION_READ) && providesRoom(env, plugin);' 'return grants.includes("no-such-grant") || providesRoom(env, plugin);'
 
 mutate "the session:act grant check" \
     'src/lib/pluginBridge.test.ts::refuses an action the plugin was not granted' \

@@ -154,3 +154,14 @@ func TestShippedPluginCapabilitiesAreAllRecognized(t *testing.T) {
 		}
 	}
 }
+
+// The frame is told which seat is the viewer's own (selfId in
+// web/src/lib/pluginBridge.ts), so the sentence an admin agrees to says so.
+func TestASessionReadGrantSaysThePanelLearnsWhoIsLooking(t *testing.T) {
+	for _, scope := range []string{"", "room-42"} {
+		permits := Describe(Grant{Capability: CapabilitySessionRead, Scope: scope}).Permits
+		if !strings.Contains(permits, "who is seated, which of them is looking at its panel, and whatever that ceremony records") {
+			t.Errorf("scope %q: the consent copy does not say the panel learns who its viewer is: %q", scope, permits)
+		}
+	}
+}

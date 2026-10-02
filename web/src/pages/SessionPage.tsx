@@ -218,8 +218,8 @@ export function SessionPage() {
                 onBlockedChange={setAudioBlocked}
               />
             )}
-            <PluginChrome slot="toolbar" env={env} />
-            {!Room && <PluginChrome slot="export-menu" env={env} />}
+            <PluginChrome slot="toolbar" env={env} selfId={identity.id} />
+            {!Room && <PluginChrome slot="export-menu" env={env} selfId={identity.id} />}
             {isFacilitator && (
               <button className={buttonQuiet + " shrink-0 whitespace-nowrap"} onClick={() => setLinksOpen(true)}>
                 Guest links
@@ -282,6 +282,7 @@ export function SessionPage() {
             version={pluginUI.version}
             grants={pluginUI.grants}
             env={env}
+            selfId={identity.id}
             onAction={(name, payload) =>
               action(env.id, name, payload, { "X-Parley-Plugin-Route": pluginUI.name })
             }
