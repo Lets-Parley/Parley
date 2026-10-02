@@ -366,6 +366,26 @@ mutate "the breaker's reset on success" \
     'TestASuccessBetweenTwoFailuresKeepsTheBreakerClosed' \
     breaker.go 'func (b *breaker) success() { b.failures = 0 }' 'func (b *breaker) success() {}'
 
+# A guest that declines an action has done its job. Treated as an accepted
+# action the refusal is broadcast as though something changed; treated as a
+# failure it is charged, and a participant sending bad input switches the
+# plugin off.
+mutate "the action refusal" \
+    'TestAPluginRefusesAnActionWithoutBeingChargedForIt' \
+    kinds.go 'if code, _ := actionRefusal(out); code != "" {' 'if code, _ := actionRefusal(out); code != "" && false {'
+
+mutate "the fault on a refusal code the host does not know" \
+    'TestAMalformedRefusalIsAPluginFault' \
+    host.go '_, err = actionRefusal(out)' '_, _ = actionRefusal(out)'
+
+mutate "no durable disable from failed actions" \
+    'TestFailingActionsDegradeAPluginButNeverDisableIt' \
+    host.go 'if action && outcome != breakerHealthy {' 'if false {'
+
+mutate "the per-room action lock" \
+    'TestConcurrentActionsOnOneRoomDoNotLoseUpdates|TestAnActionThatCannotGetTheRoomIsRefusedRatherThanLeftWaiting' \
+    kinds.go 'select pg_advisory_xact_lock($1, hashtext($2))' 'select $1::int, $2::text'
+
 # Uninstall destroys a plugin's key-value store and its unrecoverable encrypted
 # secrets. The refusal while sessions of a provided kind exist is the only thing
 # standing between an operator and rooms that name a kind nothing can run.

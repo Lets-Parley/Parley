@@ -174,6 +174,8 @@ type Host struct {
 	breakers map[string]*breaker
 	inflight map[string]int
 	total    int
+
+	actionSlots chan struct{}
 }
 
 // NewHost builds a host with the containment budget filled in.
@@ -185,6 +187,8 @@ func NewHost(store *Store, cfg HostConfig) *Host {
 		cache:    map[string]*cachedModule{},
 		breakers: map[string]*breaker{},
 		inflight: map[string]int{},
+
+		actionSlots: make(chan struct{}, actionLockSlots),
 	}
 	store.onChange = h.changed
 	return h
@@ -423,7 +427,14 @@ func (h *Host) call(ctx context.Context, installID, fn string, input []byte, mod
 	}
 
 	out, err := h.invoke(ctx, compiled, fn, input, info)
-	h.record(ctx, installID, state.Install.Name, err)
+	// An action is the one export a room participant calls at will.
+	action := fn == ExportSessionAction
+	if err == nil && action {
+		// A refusal is the guest working, so it reaches record as a success;
+		// only a reply that is not a refusal the host knows is a fault.
+		_, err = actionRefusal(out)
+	}
+	h.record(ctx, installID, state.Install.Name, err, action)
 	return out, err
 }
 
@@ -534,7 +545,14 @@ func (h *Host) breakerAllows(installID string) bool {
 // record feeds the breaker and disables an install that has degraded too many
 // times. Disabling is durable: a plugin that has proved it cannot run does not
 // come back on the next restart.
-func (h *Host) record(ctx context.Context, installID, name string, callErr error) {
+//
+// A failed action degrades and never disables. Anyone in the room, a signed
+// link's guest included, can send an action a guest throws on, so counting
+// those toward the trip limit would let one participant switch a plugin off
+// for the whole org. The cooldown still contains a guest that fails every
+// action; giving up on it for good is left to the calls nobody in a room
+// chooses.
+func (h *Host) record(ctx context.Context, installID, name string, callErr error, action bool) {
 	h.mu.Lock()
 	b := h.breakerFor(installID)
 	if callErr == nil {
@@ -552,6 +570,13 @@ func (h *Host) record(ctx context.Context, installID, name string, callErr error
 	// whatever stage the breaker reached.
 	b.lastErr = callErr.Error()
 	outcome := b.failure(time.Now(), h.cfg.BreakerCooldown)
+	if action && outcome != breakerHealthy {
+		// Take back the trip failure just counted, and open the cooldown it
+		// skips when it reports exhaustion.
+		b.trips--
+		b.openTill = time.Now().Add(h.cfg.BreakerCooldown)
+		outcome = breakerDegraded
+	}
 	switch outcome {
 	case breakerDegraded:
 		b.reason = "it failed repeatedly, so calls to it are being refused until the cooldown expires"
