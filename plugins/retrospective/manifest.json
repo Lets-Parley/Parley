@@ -18,7 +18,18 @@
         { "name": "group-cards", "verb": "POST" },
         { "name": "vote", "verb": "POST" },
         { "name": "reveal", "verb": "POST", "facilitatorOnly": true },
-        { "name": "add-action", "verb": "POST" }
+        { "name": "conceal", "verb": "POST", "facilitatorOnly": true },
+        { "name": "set-stage", "verb": "POST", "facilitatorOnly": true },
+        { "name": "timer", "verb": "POST", "facilitatorOnly": true },
+        { "name": "move-card", "verb": "POST" },
+        { "name": "move-group", "verb": "POST" },
+        { "name": "order-by-votes", "verb": "POST", "facilitatorOnly": true },
+        { "name": "stamp", "verb": "POST" },
+        { "name": "move-stamp", "verb": "POST" },
+        { "name": "remove-stamp", "verb": "POST" },
+        { "name": "moderate-stamp", "verb": "POST", "facilitatorOnly": true },
+        { "name": "add-action", "verb": "POST" },
+        { "name": "link-action", "verb": "POST" }
       ]
     }
   ]

@@ -46,7 +46,7 @@ function on_session_state() {
   var fns = Host.getFunctions();
   var input = JSON.parse(Host.inputString() || "{}");
   var board = loadBoard(fns.parley_kv_get, input.session);
-  Host.outputString(JSON.stringify(redactBoard(board)));
+  Host.outputString(JSON.stringify(redactBoard(board, Date.now())));
 }
 
 function on_session_action() {
@@ -57,6 +57,7 @@ function on_session_action() {
     action: input.action,
     user: input.user,
     body: input.body || {},
+    now: Date.now(),
   });
   saveBoard(fns.parley_kv_set, input.session, board);
   Host.outputString("{}");
