@@ -1,6 +1,6 @@
 // Instrument Sans and JetBrains Mono, latin subset, as base64 woff2. The frame's
 // policy allows fonts from data: URIs and from nowhere else. `make` puts this
-// file in front of ui.src.js to build ui.js, so the notices and the license
+// file in front of ui.board.js to build ui.js, so the notices and the license
 // below travel inside the bundle with the fonts they cover.
 //
 // Instrument Sans: Copyright 2022 The Instrument Sans Project Authors

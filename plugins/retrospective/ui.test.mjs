@@ -9,9 +9,10 @@ import { inspect } from "node:util";
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const { version } = createRequire(import.meta.url)("./manifest.json");
-// RETRO_UI_SRC points the suite at another copy of the source, for checking
-// that a test can fail. The tracked file is never edited for that.
-const srcPath = process.env.RETRO_UI_SRC || join(dir, "ui.src.js");
+// The suite runs ui.board.js, the ui/ modules as `make` joins them. RETRO_UI_SRC
+// points it at another build of the board, for checking that a test can fail.
+// The tracked sources are never edited for that.
+const srcPath = process.env.RETRO_UI_SRC || join(dir, "ui.board.js");
 const src = readFileSync(srcPath, "utf8");
 const fontSrc = readFileSync(join(dir, "ui.fonts.js"), "utf8");
 const distSrc = readFileSync(join(dir, "dist", `retrospective-${version}.ui.js`), "utf8");
@@ -418,8 +419,8 @@ test("the UI talks only over the host bridge", () => {
   assertNoNetwork(distSrc);
 });
 
-test("the shipped ui.js is the fonts followed by the readable source", () => {
-  assert.equal(distSrc, fontSrc + readFileSync(join(dir, "ui.src.js"), "utf8"));
+test("the shipped ui.js is the fonts followed by the joined board", () => {
+  assert.equal(distSrc, fontSrc + readFileSync(join(dir, "ui.board.js"), "utf8"));
 });
 
 test("the font license travels inside the shipped file", () => {

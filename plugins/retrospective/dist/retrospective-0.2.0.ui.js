@@ -1,6 +1,6 @@
 // Instrument Sans and JetBrains Mono, latin subset, as base64 woff2. The frame's
 // policy allows fonts from data: URIs and from nowhere else. `make` puts this
-// file in front of ui.src.js to build ui.js, so the notices and the license
+// file in front of ui.board.js to build ui.js, so the notices and the license
 // below travel inside the bundle with the fonts they cover.
 //
 // Instrument Sans: Copyright 2022 The Instrument Sans Project Authors
@@ -319,7 +319,7 @@ const RETRO_FONTS = [
     "--shadow-well:inset 0 2px 6px rgb(0 0 0/.45);",
   ].join("");
 
-  const STYLES = [
+  const BASE_STYLES = [
     ":root{" + LIGHT + LIGHT_DEPTH,
     '--sans:"Instrument Sans",-apple-system,"Segoe UI",system-ui,sans-serif;',
     '--mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}',
@@ -373,7 +373,9 @@ const RETRO_FONTS = [
     ".field:focus-visible{outline-offset:1px;border-color:var(--color-accent)}",
     ".field:read-only{color:var(--color-ink-soft)}",
     "textarea.field{height:42px;max-height:122px;padding:10px 12px;resize:none;overflow-y:auto}",
+  ];
 
+  const HEADER_STYLES = [
     // Progress and authorship are two things, in two boxes.
     ".top{display:flex;flex-wrap:wrap;align-items:stretch;gap:16px 20px}",
     // The strip is a fixed grid: steps and timer above, hint and stage buttons
@@ -413,7 +415,9 @@ const RETRO_FONTS = [
     ".authorship.armed{flex-basis:36rem}",
     ".auth-title{font-size:15px;font-weight:700;text-wrap:pretty}",
     ".brass-dot{width:10px;height:10px;border-radius:50%;background:var(--color-brass)}",
+  ];
 
+  const LANE_STYLES = [
     ".main{flex:1;display:grid;grid-template-columns:minmax(0,1fr);gap:20px}",
     ".lanes{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}",
     "@media (min-width:860px){.lanes{grid-template-columns:repeat(3,minmax(0,1fr))}}",
@@ -441,7 +445,9 @@ const RETRO_FONTS = [
     ".reopen:hover{background:var(--color-felt-deep)}",
     ".left{margin-top:6px;font-size:13px;color:var(--color-ink-faint)}",
     ".empty{font-size:13px;color:var(--color-ink-faint);text-wrap:pretty}",
+  ];
 
+  const NOTE_STYLES = [
     // Notes stand 26px apart, under a group's heading and under the composer
     // too, and the last one stands clear of the foot of its lane: a sticker
     // hangs at most 27px over a note's top or bottom edge, and that room is
@@ -565,7 +571,9 @@ const RETRO_FONTS = [
     ".group{padding:8px;border-radius:14px;background:var(--color-felt-deep);box-shadow:var(--shadow-well)}",
     ".group-head{position:relative;z-index:2;display:flex;align-items:flex-start;gap:6px;margin:0 0 26px}",
     ".group-title{flex:1;min-width:0;padding-top:4px}",
+  ];
 
+  const STICKER_STYLES = [
     // A sticker is die-cut: an ink line, a paper border, a hairline and one
     // soft shadow from above. Both sets are made the same way and only the
     // print differs. It is placed by its center, as a fraction of the note.
@@ -620,7 +628,9 @@ const RETRO_FONTS = [
     // A group's name is at most 80 characters and is shown whole.
     "h3{font-size:14px;font-weight:700;line-height:20px;overflow-wrap:break-word}",
     ".group-meta{font:11px/16px var(--mono);color:var(--color-ink-soft)}",
+  ];
 
+  const ACTION_STYLES = [
     ".actions{min-width:0;padding:16px 20px 20px}",
     ".actions-head{display:flex;align-items:baseline;gap:10px}",
     ".actions-head h2{flex:1}",
@@ -655,7 +665,9 @@ const RETRO_FONTS = [
     ".select-count{font-weight:700}",
     ".select-name{flex:1 1 6rem;min-width:0}",
     ".toast{max-width:34rem;padding:12px 24px;border:1px solid var(--color-line);border-radius:22px;background:var(--color-surface-hi);box-shadow:var(--shadow-lift);font-weight:700;text-align:center;text-wrap:pretty}",
+  ];
 
+  const POPOVER_STYLES = [
     // Menus and sheets float in one layer that scrolls with the page.
     ".layer{position:absolute;top:0;left:0;z-index:3}",
     ".pop{position:absolute;width:max-content;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow-y:auto;overscroll-behavior:contain;border:1px solid var(--color-line);border-radius:14px;background:var(--color-surface-hi);box-shadow:var(--shadow-lift);transform-origin:0 0}",
@@ -729,7 +741,9 @@ const RETRO_FONTS = [
     ".link-list{display:flex;flex-direction:column;gap:6px;max-height:10rem;overflow-y:auto}",
     ".link-list li{display:flex;flex-wrap:wrap;align-items:center;gap:8px}",
     ".link-list span{flex:1 1 5rem;min-width:0;overflow-wrap:anywhere}",
+  ];
 
+  const RESPONSIVE_STYLES = [
     "@media (pointer:coarse){.btn,.menu-item{min-height:44px}.pick,.grip,.more{width:44px;height:44px}.stage-3 .target{min-width:44px;height:44px}.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.strip button{width:44px;height:44px}.trail{min-height:44px}.chips{padding-bottom:20px}.note-text{padding:12px 0}" +
       // What is drawn smaller than a fingertip is still pressed over 44px.
       '.target{position:relative;justify-content:center;min-width:44px}.board:not(.stage-3) .target::after{content:"";position:absolute;inset:-7px -1px}.st::after{content:"";position:absolute;inset:-1px}' +
@@ -811,7 +825,12 @@ const RETRO_FONTS = [
     "100%{transform:translate(0,0) rotate(0)}}",
     ".arriving{animation:note-set-down 790ms linear both}",
     "@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}",
-  ].join("\n");
+  ];
+
+  const STYLES = [].concat(
+    BASE_STYLES, HEADER_STYLES, LANE_STYLES, NOTE_STYLES,
+    STICKER_STYLES, ACTION_STYLES, POPOVER_STYLES, RESPONSIVE_STYLES,
+  ).join("\n");
 
   // ui.fonts.js is put in front of this file by the build. Run on its own, as
   // the tests do, the board falls back to the system faces.
