@@ -483,7 +483,7 @@ test("no ui/ file assigns a binding it imports", () => {
     const imported = [...text.matchAll(/^import \{([^}]*)\} from/gm)].flatMap((m) => m[1].split(",").map((n) => n.trim()).filter(Boolean));
     const code = codeOnly(text.replace(/^import \{[^}]*\} from "[^"]*";$/gm, ""));
     for (const name of imported) {
-      const n = name.replace(/\$/g, "\\$");
+      const n = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const assigned = new RegExp(`(^|[^.\\w$])${n}\\s*(=(?![=>])|[-+*/%&|^]=|\\*\\*=|<<=|>>>?=|&&=|\\|\\|=|\\?\\?=|\\+\\+|--)|(\\+\\+|--)\\s*${n}(?![\\w$.])`);
       if (assigned.test(code)) found.push(f + ": " + name);
     }
