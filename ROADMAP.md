@@ -81,7 +81,7 @@ always works is. The same job for GitHub does not start until this one is
 boring.
 
 - Status: Backlog
-- Tracking: [#391](https://github.com/lets-parley/parley/issues/391), under [#378](https://github.com/lets-parley/parley/issues/378)
+- Tracking: [#765](https://github.com/lets-parley/parley/issues/765), including [#391](https://github.com/lets-parley/parley/issues/391), under [#378](https://github.com/lets-parley/parley/issues/378)
 
 
 ### Async standup
