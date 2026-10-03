@@ -1076,6 +1076,7 @@
     node.classList.add("arriving");
     node.addEventListener("animationend", function () {
       node.classList.remove("arriving");
+      node.style.animationDelay = "";
     });
   }
 
@@ -2325,8 +2326,12 @@
     lane.input.value = "";
     lane.input.focus();
     patchComposer(lane);
-    lane.ghosts.push(buildGhost(lane, text));
+    const ghost = buildGhost(lane, text);
+    lane.ghosts.push(ghost);
     patchLanes();
+    // The note drops in now, as the ghost: the real one only takes its place.
+    ghost.born = clockNow();
+    if (motionOn()) arrive(ghost.el);
     sendNext();
   }
 
@@ -2392,16 +2397,26 @@
     );
   }
 
-  // Whether a note just drawn is the one a ghost of this viewer's stood for.
-  function fromMyGhost(note) {
-    const card = board.cards.filter(function (c) {
-      return view.notes[c.id] === note;
-    })[0];
+  // The ghost of this viewer's a note just drawn stands for, if any.
+  function myGhostOf(note) {
+    const card = cardById(idOfNote(note));
     const lane = card && view.lanes[card.columnId];
-    return !!(lane && lane.ghosts.some(function (ghost) {
-      return ghost.status !== "refused" && ghost.text === card.text && !(ghost.had && ghost.had[card.id]);
-    }));
+    return (
+      (lane &&
+        lane.ghosts.filter(function (ghost) {
+          return ghost.status !== "refused" && ghost.text === card.text && !!ghost.had && !ghost.had[card.id];
+        })[0]) ||
+      null
+    );
   }
+
+  function idOfNote(note) {
+    for (const id in view.notes) if (view.notes[id] === note) return id;
+    return null;
+  }
+
+  // Where notes stood before a state was drawn, for the one being drawn.
+  let landingBoxes = null;
 
   // Run on every state push, whether or not the send is still being watched:
   // a note that turns up a minute late must not leave its ghost beside it.
@@ -5239,8 +5254,16 @@
     // where it is, and never starts from nothing.
     if (motionOn() && fresh.length <= 6) {
       fresh.forEach(function (note) {
-        if (fromMyGhost(note)) animate(note.el, { transform: "translateY(-3px)", boxShadow: "var(--shadow-lift)" }, NUDGE);
-        else arrive(note.el);
+        const ghost = myGhostOf(note);
+        if (!ghost) return arrive(note.el);
+        // The real note takes the ghost's place. While the ghost is still
+        // dropping in, it carries on that same drop from where it had got
+        // to; after that, it glides from where the ghost stood, if anywhere else.
+        const age = clockNow() - (ghost.born || 0);
+        if (ghost.el.classList.contains("arriving") && age < 790) {
+          note.el.style.animationDelay = -Math.round(age) + "ms";
+          arrive(note.el);
+        } else if (landingBoxes) landingBoxes[idOfNote(note)] = rectOf(ghost.el);
       });
     }
   }
@@ -5984,6 +6007,7 @@
       : [];
     const wasFocused = document.activeElement;
     const boxes = motionOn() ? measure() : null;
+    landingBoxes = boxes;
     // The note focus is in, and its place in its lane, in case it is deleted.
     let lost = null;
     board.cards.forEach(function (c) {
@@ -6054,6 +6078,7 @@
       heir.focus({ preventScroll: true });
     }
     if (boxes) glideFrom(boxes);
+    landingBoxes = null;
     if (motionOn() && board.revealed && !before.revealed) revealWave();
     if (motionOn() && !board.revealed && before.revealed) concealWave(named);
     if (drawn) setText(live, describeChanges(before, board));

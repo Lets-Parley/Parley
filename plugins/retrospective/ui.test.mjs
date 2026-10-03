@@ -5217,29 +5217,52 @@ test("the list of a note's stickers is one line each: a face, a name, and icon b
   assert.equal(button(sheet, "Add a sticker").className, "menu-item");
 });
 
-test("the viewer's own note replaces its ghost without vanishing first; a teammate's still sets down", () => {
-  const ui = load({ host: "new", motion: true });
-  ui.push(session({ cards: [] }, PARTICIPANT));
-  const box = composer(ui.root, "Went well");
-  box.type("mine");
-  box.fire("keydown", ENTER);
-  assert.equal(byClass(ui.root, "ghost").length, 1);
-  ui.document.animations.length = 0;
-  ui.push(session({ cards: [card("c1", "went-well", "mine"), card("c2", "went-well", "theirs")] }, PARTICIPANT));
-  const mine = noteWith(ui.root, "mine");
-  assert.ok(!mine.className.split(" ").includes("arriving"), "no entrance that starts from nothing");
-  const onMine = ui.document.animations.filter((a) => a.target === mine);
-  assert.equal(onMine.length, 1, "it settles where it is");
-  assert.ok(onMine.every((a) => a.frames.every((f) => f.opacity === undefined || f.opacity === 1)), "and is never faded");
-  assert.ok(noteWith(ui.root, "theirs").className.split(" ").includes("arriving"), "a teammate's note keeps its entrance");
-  assert.equal(byClass(ui.root, "ghost").length, 0);
+test("the viewer's own note drops in once, as its ghost, and the real note takes its place: never two, never from nothing again", () => {
+  const add = (ui, text) => {
+    const box = composer(ui.root, "Went well");
+    box.type(text);
+    box.fire("keydown", ENTER);
+  };
+  const shown = (ui, text) => all(ui.root, (n) => n.className.split(" ").includes("note") && n.textContent.includes(text) && n.isConnected).length;
+  // A quick host: the state comes 300ms into the drop.
+  const quick = load({ host: "new", motion: true });
+  quick.push(session({ cards: [] }, PARTICIPANT));
+  add(quick, "mine");
+  const ghost = one(quick.root, "ghost");
+  assert.ok(ghost.className.split(" ").includes("arriving"), "the drop starts the moment Enter is pressed");
+  quick.clock.t += 300;
+  quick.push(session({ cards: [card("c1", "went-well", "mine"), card("c2", "went-well", "theirs")] }, PARTICIPANT));
+  assert.equal(shown(quick, "mine"), 1, "the ghost leaves in the same patch the note arrives");
+  const mine = noteWith(quick.root, "mine");
+  assert.ok(mine.className.split(" ").includes("arriving"));
+  assert.equal(mine.style.animationDelay, "-300ms", "it carries on the same drop from 300ms in, not from the start");
+  assert.ok(noteWith(quick.root, "theirs").className.split(" ").includes("arriving"), "a teammate's note keeps its own entrance");
+  assert.equal(noteWith(quick.root, "theirs").style.animationDelay || "", "");
 
+  // A slow host: the drop is over and the ghost waits, saying so; the note then glides from where the ghost stood.
+  const slow = load({ host: "new", motion: true });
+  slow.push(session({ cards: [card("c0", "went-well", "first")] }, PARTICIPANT));
+  add(slow, "mine");
+  const g = one(slow.root, "ghost");
+  assert.match(g.textContent, /Saving/);
+  g.box = { left: 0, top: 160, width: 240, height: 44 };
+  slow.clock.t += 1500;
+  slow.document.animations.length = 0;
+  slow.push(session({ cards: [card("c1", "went-well", "mine"), card("c0", "went-well", "first")] }, PARTICIPANT));
+  assert.equal(shown(slow, "mine"), 1);
+  const real = noteWith(slow.root, "mine");
+  assert.ok(!real.className.split(" ").includes("arriving"), "no second entrance");
+  const moves = slow.document.animations.filter((a) => a.target === real);
+  assert.equal(moves.length, 1, "it glides from the ghost's place to its own");
+  assert.equal(moves[0].frames[0].transform, "translate(0px,160px)");
+  assert.ok(moves.every((a) => a.frames.every((f) => f.opacity === undefined || f.opacity === 1)), "and is never faded");
+
+  // Less motion: one note, still, and no blink.
   const still = load({ host: "new" });
   still.push(session({ cards: [] }, PARTICIPANT));
-  const b2 = composer(still.root, "Went well");
-  b2.type("mine");
-  b2.fire("keydown", ENTER);
+  add(still, "mine");
   still.push(session({ cards: [card("c1", "went-well", "mine")] }, PARTICIPANT));
-  assert.equal(still.document.animations.length, 0, "with less motion, nothing moves");
-  assert.ok(!noteWith(still.root, "mine").className.split(" ").includes("arriving"));
+  assert.equal(shown(still, "mine"), 1);
+  assert.equal(still.document.animations.length, 0);
+  assert.equal(byClass(still.root, "arriving").length, 0);
 });
