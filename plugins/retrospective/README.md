@@ -44,299 +44,109 @@ The grants it asks for:
 - `session:read` — so the iframe is allowed to see the envelope
 - `session:act` — so the iframe can propose the kind's actions
 
-`make dist` still writes the legacy `PLUGIN_DIR` files,
-`dist/retrospective-0.2.0.wasm`, `dist/retrospective-0.2.0.ui.js` and
-`dist/retrospective-0.2.0.slots.json`.
+`make dist` also writes the legacy `PLUGIN_DIR` files:
+`dist/retrospective-0.2.0.ui.js` and `dist/retrospective-0.2.0.slots.json`,
+which are committed, and `dist/retrospective-0.2.0.wasm`, which is build output
+and is not.
 `package.json` is a copy of `manifest.json` kept for the host's consent-copy
 test; the unit tests fail if the two differ.
 
 ## The board UI
 
-`ui.src.js` is the board: plain JavaScript, no build step of its own and no
-dependencies. It runs in the host's sandboxed frame and talks only to
-`window.parley`. `make` builds `ui.js`, the file the host loads, by putting
-`ui.fonts.js` (the embedded typefaces) in front of it; `ui.js` is never edited
-and is not tracked, and `dist/retrospective-<version>.ui.js` is the built copy
-CI checks. If you are writing your own plugin UI, read `ui.src.js`. These are
-the parts worth copying:
+`ui.src.js` is the board: plain JavaScript, no dependencies and no build step
+of its own. It runs in the host's sandboxed frame and talks to nothing but
+`window.parley`. If you are writing your own plugin UI, this is the file to
+read. Its sections open with a banner comment, a long run of dashes and then
+a name (`// ------ state`); the names below are those banners, so search for
+the name to find where each idea lives.
 
-- **Build once, then patch.** The shell is created a single time. Each state
-  push updates notes, groups and action items by id and leaves every other node
-  alone, so a teammate's vote never costs anyone the text they were typing,
-  their focus or their place on the page. Nothing is ever written as markup,
-  and the state is read through one function that tolerates missing or
-  malformed parts.
-- **Colors come from the host, everything else is mirrored.** The frame is
-  handed sixteen `--color-*` tokens and nothing more. Radii, shadows, type
-  sizes, the pill buttons and the focus ring are the values from
-  `web/src/tokens.css` written out as literals in the stylesheet at the top of
-  `ui.src.js`, with both palettes as the fallback until the tokens arrive.
-- **An action is a proposal, and every proposal has an end.** `propose()` is
-  the one place the board calls `parley.act`. On a host that reports results it
-  acts on the answer at once and puts the reason for a refusal into words. On
-  an older host, where `act` returns nothing, it watches the state instead:
-  three seconds without the change is reported as unconfirmed, never as lost,
-  and if the change turns up late the message is taken back. A yes from the
-  host is believed only once the state shows the change, because a host that
-  cannot decline answers yes to a request the board declined: whatever was
-  drawn ahead of the state (a moved sticker, a moved note) is put back after
-  the same three seconds, and a sticker becomes "the viewer's" only when both
-  the yes and the state are in. The one exception is a vote: setting a vote to what it already was
-  shows nothing new in the state, so there the host's yes is enough. A note waits in
-  its lane as a dashed ghost from Enter until the state shows the real one, so
-  the box is free for the next thought and nothing is sent twice or dropped.
-- **Feature-detect the host.** `session.selfId`, the promise from
-  `parley.act`, `parley.supports("results")` and `parley.scheme()` are all used
-  when present and never assumed. With `selfId`, only the facilitator is
-  offered Reveal; without it, the control is shown with the rule spelled out.
-- **One control, one job.** The handle in front of a note drags it and does
-  nothing else: pressed without a drag it opens nothing and reads out how a
-  move is made. The three dots after the text are the note's menu, in every
-  stage and always last on the note's first row. The action count and the
-  "edited" mark are a row of their own under the words, there only when there
-  is one to show, so the words keep the note's width and never break inside a
-  word; votes are never in that row.
-  Editing, adding a sticker, selecting, moving and starting an action are all
-  in that menu, which makes it the keyboard and touch path for every pointer
-  gesture: a drag is never the only way (`openMenu`, `moveNote`, `toLane`, and
-  `Alt`+arrow keys, Left and Right for the next lane). Voting is not in it:
-  the thumbs are on the note, and `U` and `D` are the keys. Groups have the
-  same pair in their heading.
-- **The menu is short, and never leaves the frame.** A note's menu
-  (`noteRows`) is a title, "Edit note…" (`E`), "Add a sticker…" (`S`; with
-  stickers on the note it reads "Stickers (3)…" and opens the list, which also
-  adds one), "Start an action…", "Select to group" where the checkbox is not
-  showing, a **Reorder** strip of four buttons (to top, up, down, to bottom),
-  **Move to…**, and "Delete note…" alone under a rule. The strip's buttons
-  keep the menu open, so a note can be walked up a lane, and each sends what
-  `Alt` and an arrow sends. "Move to…" is one step in, under a Back row: out
-  of the note's group, the other lanes, the other groups. A group's menu is
-  "Start an action…", the strip and "Move to…"; an action's is its owner and
-  "Delete action…". A row that cannot be used says why under itself. Keys:
-  Up and Down between rows (the strip is one row), Left and Right along the
-  strip, Right or Enter into "Move to…", Left or Escape back out, Home and
-  End, a letter for the next item that starts with it, Escape to close, Tab
-  to close and move on. `placePop` hangs a menu from the right edge of its
-  button, under it; above it when there is no room below; and otherwise as
-  low as it fits, scrolling inside itself only in a frame shorter than the
-  menu. The rows are asked for again whenever the board changes, so an open
-  menu keeps up with it.
-- **Tab order on a note** follows what is seen, row by row: the handle, the
-  checkbox while notes are being picked, the words, the three dots, the
-  action count when it is showing, then the three buttons on the lower edge
-  (the dashed plus, thumb up, thumb down), then the stickers (one stop for
-  the pile). The three dots are the last stop of the note's first row, not of
-  the note. The buttons on the lower edge are Tab stops while they are out of
-  sight, and show when one has focus.
-- **A drop aims at one of three things** (`aimAt`): a place in a lane, which
-  may be another lane; a group, which the note joins where it is dropped; or a
-  loose note in the same lane, which it is grouped with. The middle half of a
-  note means "group with this" only after the pointer has rested there for
-  300ms, and is then kept until the pointer is nearly off the note
-  (`zoneOf`); the quarters above and below mean before and after. Grouping by
-  drop asks for the group's name first and sends nothing until it has one,
-  because a group cannot be renamed. Every drop sends exactly the body the
-  menu sends for the same move. A lane sorted by "Top rated" takes a note
-  from another lane at its end and takes no positions; a whole group is
-  carried by the handle in its heading. A group left with one note stays a
-  group; an empty one is removed.
-- **Optimistic, and taken back.** A move is applied to the board at once and
-  sent; if the host refuses, the board is put back (`sendMove`). A sticker
-  is dragged locally and sent once, on release.
-- **Popovers are one layer.** `openPop` shows one floating thing at a time,
-  hangs it from the control that opened it, closes on Escape or a press
-  elsewhere, and hands focus back. The board under it is inert while it is
-  open. A resize puts it back beside its control and does not close it (a
-  phone's keyboard resizes the frame); if a teammate deletes the note it hangs
-  from, it closes, says so, and puts focus on the note in its place. Tab and
-  Shift+Tab go round inside a sheet (a menu closes on Tab). At 480px and under
-  every popover is a sheet along the bottom edge, at most 70% of the frame
-  high; there a menu is a sheet too, over a scrim, with rows 48px high, a
-  visible Done, and Tab kept inside it.
-- **A drag is followed on the window, and ends once.** `follow()` owns the
-  listeners for one gesture and one pointer, and takes them off on release,
-  cancel, Escape, the window losing focus or the capture being taken away. A
-  second finger's events are not that pointer's and are ignored. State pushes wait while
-  a note is carried and are applied when it is put down, also when the note
-  itself was deleted meanwhile.
-  A press while a gesture is still open means its release was never heard:
-  that gesture is ended first, and every ending gives the pointer capture
-  back. Held at the edge of what is in sight, the page keeps scrolling: the
-  frame may be as tall as the board, so it learns what is in sight from an
-  `IntersectionObserver` and asks for a spot just past that edge.
-- **State strings never index a plain object.** Ids and kinds come from the
-  state, so every map they index is made by `bag()`, which has no inherited
-  keys: a note called `constructor` is a note.
-- **Motion reports a change and then stops.** A note is set down, a count ticks
-  on a spring that runs to rest, notes glide into a new group, and the reveal
-  uncovers names across the board once. Nothing moves on first paint, and
-  nothing moves under `prefers-reduced-motion`; a new sticker is then simply
-  there, and is announced like any other.
+### Building and testing it
+
+`make` builds `ui.js`, the file the host loads, as `cat ui.fonts.js ui.src.js`:
+the embedded typefaces first, then the readable source. `ui.js` is never edited
+and is not tracked. `dist/retrospective-<version>.ui.js` and
+`dist/retrospective-<version>.slots.json` are committed because CI rebuilds
+them and fails on any diff, which proves the committed bundle inputs match the
+source.
+
+`make test` runs `board.test.mjs`, `guest.test.mjs`, `ui.test.mjs` and
+`package.test.mjs` under Node's test runner, with a heap and address-space cap
+so a runaway test fails instead of taking the machine with it. Run them through
+`make`, not with `node --test` directly. `ui.test.mjs` drives `ui.src.js`
+against a fake `window.parley` and checks the built copy in `dist/`; the detailed behavior of notes,
+votes, stickers, menus and drag is pinned there rather than in this README.
+
+### Talking to the host
+
+The frame's whole interface is `window.parley`:
+
+- **`parley.onState(fn)`** delivers the room envelope: the kind's redacted
+  state from `on_session_state`, plus `participants`, `facilitatorId` and, on
+  hosts that send it, `selfId`. See `// ---- state` and `// ---- people`.
+- **`parley.act(action, payload)`** proposes one of the actions in the table
+  below. Every call goes through `propose()` in `// ---- actions`. On a host
+  that reports results, `act` returns a promise of the outcome, and a refusal
+  arrives with its code so the board can put the reason into words. On an older
+  host it returns nothing, and the board watches the state instead: three
+  seconds without the change is reported as unconfirmed, and a change that
+  turns up late takes the message back. `parley.supports("results")` is the
+  documented way to ask up front; the board just checks whether `act` returned
+  a promise.
+- **`session.selfId`** says who is looking. `viewerRole()` treats a missing
+  `selfId` as "unknown", never as "nobody": with it, only the facilitator is
+  offered facilitator controls; without it, they are shown and the host's
+  refusal is put into words.
+- **Theme tokens.** `parley.onTokens(fn)` hands the frame the host's
+  `--color-*` tokens, and `parley.scheme()` says whether they are light or
+  dark. Only colors come from the host. Radii, shadows and type sizes are the
+  values from `web/src/tokens.css` written out in `// ---- styles`, with both
+  palettes as the fallback until the tokens arrive. `applyScheme` in
+  `// ---- shell` falls back to the surface token's luminance on a host that
+  sends no scheme.
+- **`parley.ready()`** is called last, once the shell is built and both
+  listeners are attached.
+
+Feature-detect each of these; never assume them.
+
+### Patterns worth copying
+
+- **Build once, then patch** (`// ---- shell`, `// ---- notes`, `// ----
+  groups`, `// ---- action items`). The shell is created a single time, and
+  each state push updates notes, groups and action items by id, so a
+  teammate's vote never costs anyone their focus or a half-typed sentence.
+  Nothing is written as markup.
+- **Read the state through one tolerant function** (`// ---- state`). Missing
+  or malformed parts degrade to empty, and every map indexed by an id from the
+  state is made by `bag()`, which has no inherited keys: a note called
+  `constructor` is just a note.
+- **Optimistic, and taken back** (`// ---- moves`). A move is drawn at once
+  and sent; if the host refuses, `sendMove` puts it back. A drag sends exactly
+  the body the keyboard and menu path sends for the same move.
+- **Every pointer gesture has a keyboard and touch path** (`// ---- popovers`,
+  `// ---- drag`). The note's menu (`openMenu`) and `Alt`+arrow keys cover
+  every drag. `openPop` keeps one popover at a time and returns focus to its
+  control; `follow()` owns one gesture's listeners and always releases them.
 - **No forms.** The frame is sandboxed without `allow-forms`, so Enter is a
-  `keydown` handler. Changes made by other people are announced through a
-  polite live region. The frame has no `h1`: it sits under the host page's
-  own, and the lanes and the actions are its `h2`s.
+  `keydown` handler. Changes by other people go to a polite live region
+  (`// ---- notices`).
+- **Motion reports a change and stops** (`// ---- motion`). Nothing moves on
+  first paint or under `prefers-reduced-motion`.
 
-Voting is a thumb up and a thumb down on every note: one vote per person per
-note, up, down or none. The state carries the two counts per note (`up`,
-`down`) and nothing about whose votes they are, so a thumb is shown as the
-viewer's only for the rest of the visit in which the host confirmed it.
-Showing it after a reload would need the plugin to publish who voted, which it
-deliberately does not.
+### What the state does not say
 
-That is why `vote` **sets** a vote and never flips one. After a reload the
-board cannot tell someone which thumb is theirs; with a toggle, pressing the
-thumb they already hold would silently take their vote away. With a set, the
-same press asks for what they already have, the server takes it and changes
-nothing, and the yes tells the board the thumb is theirs. The rule on the
-board: a thumb known to be yours, pressed again, takes the vote back (`none`);
-the other thumb switches in one press; a thumb not known to be yours is set.
+The state is one payload for every viewer, so it never says who voted, who
+placed a sticker, or (before the reveal) who wrote a note. The board learns
+"mine" only from what the host confirmed during this visit. That is why `vote`
+**sets** a vote rather than toggling it: after a reload the board cannot tell
+which thumb is yours, and a toggle would silently take a vote away. Delete,
+edit and sticker removal are offered to everyone before the reveal; the server
+answers, and the board remembers a refusal for the rest of the visit.
 
-A note's **score** is its ups less its downs, and is written with its sign on
-a small tag on the note's top corner: six up and one down is `+5`, never a
-count of the votes cast; a tie that has votes is `±0`; a note nobody has
-voted on has no tag. Green for a score above nothing and red for one below
-agree with the sign and say nothing by themselves, and a note with both ups
-and downs has a rule under the number, drawn to the share that is up. The
-split ("6 up · 1 down") is written beside the tag while the note is pointed
-at or holds focus, always on a touch screen, and is the tag's name ("Score
-+5: 6 up, 1 down"). The tag is a picture, not a control: a press on that
-corner reaches the menu button.
-
-The two thumbs are small round buttons on the note's lower edge, with the
-dashed plus, in every stage. They carry no counts and take no room, so a
-one-line note is the same height in the Vote stage as in Write. They are in
-sight while the note is pointed at or holds focus, always in the Vote stage
-and on a touch screen, and on a note where the viewer's own vote is known;
-out of sight they are still Tab stops. Pressed is a filled thumb and a ring.
-
-A vote the host could not take just now (`busy`, `failed`, `rate-limited`,
-`unreachable`, or a message the bridge would not carry) is sent once more
-600ms later, quietly: it is a set, so sending it twice counts once. If that
-fails too, the thumb goes back to what it was, the previous vote stays shown,
-and the note says "Your vote did not go through." with a Try again button.
-A no that asking again would not change is said in the same place without
-the button. The tag never moves until a vote lands, and the server's own
-words are never shown.
-
-"Top rated" (a lens for one reader) and the facilitator's order-for-everyone
-rank by that same score, then by more ups, then leave the order as it was. A
-group's heading gives its score first and the split when there are downs:
-"2 notes · +5 (6 up · 1 down)". Other people's votes are not read out as they
-arrive (in the Vote stage that would be the whole room at once): each thumb
-carries the score in its name, and a person hears the outcome of their own
-vote. `U` and `D` on a note's words vote up and down. A second press of the
-same thumb within 400ms is taken as part of the first, so a double click does
-not set a vote and take it back. A thumb says whether it is pressed only when
-that is known; after a reload it says neither.
-
-A note's words can be edited by whoever wrote it, and by nobody else: there is
-no facilitator's way in. "Edit note" in the menu, `E` or `F2` on the note's
-words, or a double click on them turns them into a box in place, with Save and
-Cancel in a row of the note's own under it; Enter saves, Shift+Enter is a new
-line, Escape cancels. Leaving with changed words asks once ("Discard
-changes?"), and while a save is out the editor cannot be left. The note keeps its place, group,
-votes, stickers and links. Because votes cast on the old words now sit on the
-new ones, an edited note is published with `edited: true` and says "edited";
-who edited is never published (it is the author, who is published only while
-authors are revealed). Edits are allowed in every stage. As with Delete, the
-board does not know whose a note is before the reveal, so Edit is offered to
-everyone, the server answers, and a refusal is remembered for the visit. A
-teammate's change never touches a draft; if the note is deleted while it is
-being edited, the words typed go to its lane's box for a new note.
-
-Stickers follow the same rule. There are fourteen: seven meanings (Me too,
-Thank you, Great idea, Quick win, Needs a chat, Blocker, Made me laugh), each
-as a vinyl sticker and as pixel art, and the two sets mix freely on a note.
-The state says what each sticker is and where it sits (`{id, cardId, kind, x,
-y, rot}`, with `x` and `y` as fractions of the note so they hold at any width)
-and never who placed it. The frame learns which stickers are the viewer's only
-from this visit: one that appears exactly as it was sent, and the server's yes
-to a change. Only those, and every sticker for the facilitator, look movable
-and offer Move and Bring to front. A per-viewer "mine" flag cannot be
-published, because the state is one payload for every viewer. So after a
-reload a sticker of the viewer's own looks like anybody's: it can still be
-removed from its menu ("Remove, if you placed it"), the server refuses unless
-it is theirs, and the board remembers the refusal.
-
-The interface says "sticker" everywhere. The actions and the stored field
-keep the name they shipped with (`stamp`, `move-stamp`, `remove-stamp`,
-`moderate-stamp`, `stamps`): renaming them would change the manifest and every
-stored board for nothing a person can see. The seven kind ids boards already
-hold (`me-too`, `thanks`, `idea`, `quick-win`, `chat`, `blocker`, `laugh`) are
-the vinyl set, and the pixel set is the same ids with `p-` in front, so no
+The interface says "sticker"; the actions and the stored field keep the names
+they shipped with (`stamp`, `move-stamp`, `remove-stamp`, `moderate-stamp`,
+`stamps`), because renaming them would change the manifest and every stored
+board. The pixel stickers are the vinyl kind ids with `p-` in front, so no
 stored board needs migrating.
-
-Placement is free. A sticker's center may be anywhere from 8px inside its
-note's left and right edges (`x` 0 and 1) to 4px outside its top and bottom
-edges (`y` 0 and 1). A sticker is 42px across, so it hangs at most 15px over a
-side, inside the lane's padding, and 27px over the top or bottom, inside the
-26px gap notes keep everywhere (under a group's heading and under the composer
-too): nothing moves when a first sticker lands or a last one leaves, and a
-note is given no class or style for having stickers. Picked from the book, a
-sticker lands on no word: the note's lines are measured, and of the corner
-under the handle, the handle's column and the bottom edge, only places where
-the sticker would cover no word are used. When every one is taken the next
-stickers pile where the first went, on each other and still off the words.
-Only a sticker somebody drags can lie on the words. A place is also never on,
-or within 6px of, the note's handle, its checkbox (or where the checkbox will
-stand in the Group stage), its menu button, or the strip its three lower
-buttons stand on (`controlsOf`). The dashed plus stands with the thumbs on
-the note's lower edge, and is not there when the note or the viewer is at a
-cap. A sticker keeps the place it was given as a fraction of its note, so one
-placed at one width can come to lie near a control at another; the controls
-are drawn above it and stay pressable.
-
-The vinyl set keeps the small tilt it was placed with. A pixel sticker is
-never tilted (the stored `rot` is ignored for the `p-` kinds) and is sized so
-that each of its fourteen cells is a whole number of device pixels at the
-current zoom, so no cell is uneven. A sticker of a kind this version does not
-know, from a newer one, is drawn as a plain sticker named "Sticker": it still
-counts against the caps, and whoever placed it can remove it. A removed
-sticker peels off (271ms); a teammate's only lifts away. When its placer sets a pixel sticker down, four of its cells are
-kicked up as dust at the moment of contact and are gone within a third of a
-second; a teammate's pixel sticker, and every vinyl one, lands without.
-
-The book says "N of 3 left on this note" only when it can know: when every
-sticker on the note arrived during this visit. Otherwise it says "Up to 3 of
-yours on a note" and leaves the count to the server, whose refusal is put in
-words.
-
-Stickers pile in the order they land. The order of `stamps` in the state is
-the pile, bottom to top: placing appends, and `move-stamp` (and a
-`moderate-stamp` that moves) puts the row back at the end, so what is picked
-up goes back down on top and "Bring to front" is a move to where the sticker
-already is. Nothing is grouped, counted or spread out. The topmost sticker is
-the one a pointer hits; one underneath is reached with Page Up and Page Down
-from a focused sticker, or from "Stickers (n)…" in the note's menu. A
-note's controls are drawn above every sticker and stay clickable. Stickers
-lying over a note's words go faint while the words are pointed at, while one
-of the note's controls has keyboard focus, or after a tap on the words.
-
-Keys. A note's single-letter keys (`S`, `E`, `F2`, `U`, `D`) are heard only
-with focus on the note's words, which are a Tab stop: never from a button or a
-box being typed in, and never while the note is being edited, so typing "due"
-cannot vote or edit. On a note's words, `S` opens the sticker book. In the book, `1` to `7` place
-from the marked sheet, `V` and `P` (or Up, Down and Tab) change sheets, Left
-and Right go along a sheet, and Escape closes it. On a sticker, the arrow keys
-move it 6px (24px with Shift), Page Up and Page Down go up and down the pile,
-Home and End go to its bottom and top, `F` brings it to the front, Delete
-removes it and Enter opens its menu. An earlier draft of this board used Left
-and Right to step between stamps and Shift with an arrow to move one; that was
-never released, and stepping left and right means nothing in a pile.
-
-Deleting works the same way as stickers. Before the reveal the state does not
-say whose a note is, and what the viewer wrote is not remembered past a
-reload, so "Delete note" is offered to everyone and the server answers; hiding
-it from non-authors would hide it from the author after a reload. After the
-reveal the board does know, and says so without asking. The removal is
-announced as "A note was removed from <lane>" and nothing else. A refusal is
-remembered for the visit, and Delete for that note is then shown as
-unavailable with the same reason.
-
-Anonymity before the reveal means that nobody else can see who wrote a note.
-It does not mean the server pretends not to know: when you try to delete a
-note that is not yours, it tells you so.
 
 ## Actions
 
@@ -378,10 +188,9 @@ that decides what leaves the server.
 ### Declining, not failing
 
 A request the board will not take is **declined**: `on_session_action` answers
-`{"refused":"<code>"}` and saves nothing. A host that reads the answer (the
-protocol is a host change of its own) answers the caller with the matching
-status, broadcasts nothing, and does not count it against the plugin. An
-accepted action answers `{}`.
+`{"refused":"<code>"}` and saves nothing. The host answers the caller with the
+matching status, broadcasts nothing, and does not count it against the plugin.
+An accepted action answers `{}`.
 
 | Code | Status | When |
 | --- | --- | --- |
@@ -391,15 +200,13 @@ accepted action answers `{}`.
 | `conflict` | 409 | a limit reached; pause, resume or add with no timer set; the org's plugin storage is full |
 
 The guest throws only for a real fault: a stored document it cannot read, a
-host function that fails, a missing clock. Before this, every one of the above
-was thrown, which the host counts as a plugin failure, so any participant could
-get the install disabled by sending nonsense.
+host function that fails, a missing clock. A thrown error is counted as a
+plugin failure, so declining instead of throwing is what keeps a participant
+from getting the install disabled by sending nonsense.
 
 The codes are the host's own, so the frame cannot tell a full board from an
 ended room by the code alone; each `propose()` call brings its own words for
-the codes the board can answer with. On a host that does not yet read the
-answer, a declined request is treated as accepted and changes nothing; the
-frame then hears "yes" and sees no change.
+the codes the board can answer with.
 
 ### Limits
 
@@ -481,14 +288,13 @@ repository. A `.parley` bundle holds exactly `manifest.json`, `plugin.wasm`,
 `ui.js` and `slots.json` and refuses any other file, which is why the license
 rides in the script rather than beside it.
 
-## Storage (open question 2)
+## Storage
 
-The host key-value store has get and set, not list or prefix scan. Grouping and
-dot-voting therefore live on **one namespaced document** per session (`scope=board`,
+The host key-value store has get and set, not list or prefix scan, so the whole
+board is **one namespaced document** per session (`scope=board`,
 `key=<session id>`). `on_session_state` reads that document; `on_session_action`
-reads, mutates, writes. Concurrent writes are last-write-wins. Compare-and-swap
-is still the right next step before #22 freezes the wire protocol; it is not
-required to express the board.
+reads, mutates and writes it. Concurrent writes are last write wins: the store
+has no compare-and-swap yet.
 
 ## Disable and uninstall
 

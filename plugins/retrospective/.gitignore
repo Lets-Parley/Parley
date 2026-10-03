@@ -3,3 +3,4 @@
 plugin.wasm
 dist/*.parley
 ui.js
+dist/*.wasm

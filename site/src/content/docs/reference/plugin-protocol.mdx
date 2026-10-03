@@ -24,7 +24,7 @@ Python is **not** a guest PDK — do not plan on it. The Go PDK targets TinyGo,
 so a guest cannot use goroutine-heavy or reflection-heavy parts of the standard
 library.
 
-## Storage model (from the retrospective, PR 527)
+## Storage model
 
 Grouping and dot-vote work as **one key-value document per session**. There is
 no list or prefix API on `kv`. Relational storage is not required for a
