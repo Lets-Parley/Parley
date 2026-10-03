@@ -3,8 +3,8 @@
 # it). The toolchain pins live in sdk/plugin-sdk/extism.mk.
 #
 # `make dist` still writes the legacy PLUGIN_DIR pair
-# (`<name>-<version>.wasm` and `<name>-<version>.ui.js`); do not hand-edit the
-# .wasm.
+# (`<name>-<version>.wasm`, `<name>-<version>.ui.js` and
+# `<name>-<version>.slots.json`); do not hand-edit the .wasm.
 
 GUEST_SRC := board.js guest.js
 STEM      := retrospective-$(shell node -p 'require("./manifest.json").version')
@@ -14,8 +14,20 @@ DIST      := dist
 
 all: test dist check-dist
 
-test:
-	node --test board.test.mjs ui.test.mjs package.test.mjs
+# ui.js is what the host loads: the embedded fonts, then the readable source.
+# It is built, never edited; ui.src.js is the file to read and to copy from.
+ui.js: ui.fonts.js ui.src.js
+	cat ui.fonts.js ui.src.js > $@
+
+# The limits are there so a test that runs away fails instead of taking the
+# machine with it.
+test: $(DIST)/$(STEM).ui.js
+	@# The address-space limit is inherited by the per-file test processes,
+	@# which the heap flag is not; a runaway dies at 3 GB instead of taking
+	@# the machine. Where the shell cannot set it, the tests still run.
+	ulimit -v 3145728 2>/dev/null; node --max-old-space-size=512 --test --test-timeout=10000 board.test.mjs guest.test.mjs ui.test.mjs package.test.mjs
+
+bundle: ui.js
 
 include ../../sdk/plugin-sdk/extism.mk
 
@@ -27,8 +39,13 @@ $(DIST)/$(STEM).ui.js: ui.js
 	mkdir -p $(DIST)
 	cp ui.js $@
 
-dist: $(DIST)/$(STEM).wasm $(DIST)/$(STEM).ui.js
+$(DIST)/$(STEM).slots.json: slots.json
+	mkdir -p $(DIST)
+	cp slots.json $@
+
+dist: $(DIST)/$(STEM).wasm $(DIST)/$(STEM).ui.js $(DIST)/$(STEM).slots.json
 
 check-dist: dist
 	cmp -s ui.js $(DIST)/$(STEM).ui.js
+	cmp -s slots.json $(DIST)/$(STEM).slots.json
 	test -s $(DIST)/$(STEM).wasm
