@@ -44,10 +44,10 @@ The grants it asks for:
 - `session:read` — so the iframe is allowed to see the envelope
 - `session:act` — so the iframe can propose the kind's actions
 
-`make dist` also writes the legacy `PLUGIN_DIR` files,
-`dist/retrospective-0.2.0.wasm`, `dist/retrospective-0.2.0.ui.js` and
-`dist/retrospective-0.2.0.slots.json`. The `.wasm` is build output and is not
-tracked.
+`make dist` also writes the legacy `PLUGIN_DIR` files:
+`dist/retrospective-0.2.0.ui.js` and `dist/retrospective-0.2.0.slots.json`,
+which are committed, and `dist/retrospective-0.2.0.wasm`, which is build output
+and is not.
 `package.json` is a copy of `manifest.json` kept for the host's consent-copy
 test; the unit tests fail if the two differ.
 
