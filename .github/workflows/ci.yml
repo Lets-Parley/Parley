@@ -207,7 +207,25 @@ jobs:
           cache-dependency-path: site/package-lock.json
       - run: npm ci
       - run: npm run build
-      - run: npm audit --audit-level=high
+      # npm audit cannot ignore an advisory, so high and critical findings are
+      # read from its JSON and only ids in the allow-list are let through. They
+      # are build-time dependencies of the docs with no patched release yet;
+      # remove each id as soon as one ships (#759).
+      - name: npm audit (high, minus unpatched build-time advisories)
+        env:
+          SITE_AUDIT_ALLOW: GHSA-vfj7-8cjw-p6xm GHSA-ch52-4w7c-c8xp
+        run: |
+          npm audit --json > "$RUNNER_TEMP/audit.json" || true
+          # A report without the key would read as clean, so refuse it.
+          found=$(jq -er '[.vulnerabilities[].via[] | objects
+            | select(.severity == "high" or .severity == "critical")
+            | .url | sub(".*/"; "")] | unique | .[]' "$RUNNER_TEMP/audit.json" \
+            || { [ $? -eq 4 ] || exit 1; })
+          left=$(echo "$found" | grep -vxF -f <(tr ' ' '\n' <<< "$SITE_AUDIT_ALLOW") || true)
+          if [ -n "$left" ]; then
+            echo "high or critical advisories:"; echo "$left"; npm audit --audit-level=high; exit 1
+          fi
+          echo "no high advisories outside the allow-list"
 
   dependency-review:
     name: dependency review
@@ -308,7 +326,7 @@ jobs:
       - name: Test and build the retrospective plugin
         run: |
           make -C plugins/retrospective all bundle
-          git diff --exit-code -- plugins/retrospective/dist/retrospective-0.1.0.ui.js
+          git diff --exit-code -- plugins/retrospective/dist/retrospective-0.2.0.ui.js plugins/retrospective/dist/retrospective-0.2.0.slots.json
       - name: Test and bundle the example plugins
         run: |
           for p in hello settings-demo; do

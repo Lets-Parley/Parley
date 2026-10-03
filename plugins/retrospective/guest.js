@@ -34,32 +34,48 @@ function loadBoard(kvGet, session) {
   return board;
 }
 
+// The store is one quota for every room of the org. When it is full the host
+// function says so in words (internal/plugin/kv.go, ErrQuotaExceeded), and
+// that is the room's to hear as "no", not a fault of the plugin: false means
+// the board did not fit. Anything else the host refuses is thrown on.
+var STORE_FULL = "plugin storage quota exceeded";
+
 function saveBoard(kvSet, session, board) {
-  hostCall(kvSet, {
-    scope: "board",
-    key: session,
-    value: utf8ToB64(JSON.stringify(board)),
-  });
+  try {
+    hostCall(kvSet, {
+      scope: "board",
+      key: session,
+      value: utf8ToB64(JSON.stringify(board)),
+    });
+  } catch (err) {
+    if (String(err && err.message).indexOf(STORE_FULL) !== -1) return false;
+    throw err;
+  }
+  return true;
 }
 
 function on_session_state() {
   var fns = Host.getFunctions();
   var input = JSON.parse(Host.inputString() || "{}");
   var board = loadBoard(fns.parley_kv_get, input.session);
-  Host.outputString(JSON.stringify(redactBoard(board)));
+  Host.outputString(JSON.stringify(redactBoard(board, Date.now())));
 }
 
+// A refused action is answered with its code and nothing is saved: the host
+// tells the caller no and counts nothing against the plugin. Anything thrown
+// from here on is a fault, and is the host's to count.
 function on_session_action() {
   var fns = Host.getFunctions();
   var input = JSON.parse(Host.inputString() || "{}");
   var board = loadBoard(fns.parley_kv_get, input.session);
-  applyAction(board, {
+  var answer = answerAction(board, {
     action: input.action,
     user: input.user,
     body: input.body || {},
+    now: Date.now(),
   });
-  saveBoard(fns.parley_kv_set, input.session, board);
-  Host.outputString("{}");
+  if (!answer.refused && !saveBoard(fns.parley_kv_set, input.session, board)) answer = { refused: "conflict" };
+  Host.outputString(JSON.stringify(answer));
 }
 
 module.exports = { on_session_state: on_session_state, on_session_action: on_session_action };

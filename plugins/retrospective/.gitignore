@@ -2,3 +2,4 @@
 .build/
 plugin.wasm
 dist/*.parley
+ui.js

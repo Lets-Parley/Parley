@@ -1,12 +1,12 @@
 ---
 title: Retrospective (plugin)
-description: A retrospective ceremony delivered entirely as a plugin — columns, cards, hidden authorship, grouping, dot voting, and action items.
+description: A retrospective ceremony delivered entirely as a plugin — stages, columns, cards, hidden authorship, grouping, dot voting, stickers, a timer, and action items linked to the notes they came from.
 ---
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["plugins/retrospective/package.json", "plugins/retrospective/board.js", "plugins/retrospective/guest.js", "plugins/retrospective/ui.js", "plugins/retrospective/Makefile"]} />
+<VerifiedStamp source={["plugins/retrospective/package.json", "plugins/retrospective/board.js", "plugins/retrospective/guest.js", "plugins/retrospective/ui.src.js", "plugins/retrospective/Makefile"]} />
 
 A retrospective in Parley is not a core session kind. It is a plugin: the
 package under `plugins/retrospective/` declares the kind, the Wasm guest stores
@@ -21,12 +21,177 @@ shipped frontend.
   state until the facilitator reveals**.
 - Cards in the same column can be grouped.
 - Each person may put one dot on a card (a second click does not stack).
-- Action items are a list on the same board, with an optional owner.
+- Action items are a list on the same board. An action with no owner typed
+  reads **Unassigned**; anyone can name an owner later, or delete the action,
+  from its menu.
+- **A note's words can be edited** by whoever wrote it, and by nobody else,
+  the facilitator included. "Edit note" in its menu, `E` or `F2` with focus
+  on the card's words, or a double click on them edits them in place: `Enter` saves,
+  `Shift`+`Enter` is a new line, `Escape` cancels. The card keeps its place,
+  group, votes, stickers and links, and says "edited" from then on, since votes
+  cast on the old words now sit on the new ones. Who edited is never shown.
+  Before the reveal the board does not know whose a card is, so Edit is offered
+  to everyone and the server answers.
+- **A note can be deleted** by whoever wrote it, or by the facilitator, from
+  the note's menu, after a confirmation. Its votes, stickers and links go with
+  it. Before the reveal the board does not know whose a note is, so Delete is
+  offered to everyone and the server answers; the removal is announced as "A
+  note was removed", never as whose. Anonymity before the reveal means that
+  nobody else can see who wrote a note; the server will still tell you a note
+  is not yours when you try to delete it.
+- Revealing authors asks for a second confirmation. Once revealed, each card
+  shows its author's name. The facilitator can **hide authors again** in one
+  press: the wire state stops carrying them, though anyone who was looking has
+  already seen them. Only the facilitator is offered either control; everyone
+  else is told who holds it.
+- Selecting cards opens a bar that says how many are selected and why they can
+  or cannot be grouped yet. A group is named when it is made.
+- A card you add waits in its lane, drawn dashed, until the server has it. If
+  the server refuses, the reason is shown and the text is kept.
+- The facilitator moves the room through four **stages**: Write, Group, Vote,
+  Decide, forward or back. A stage changes what the board puts in front of
+  people (the composer in Write, checkboxes in Group, the thumbs kept in sight in Vote,
+  the action target in Decide) and **blocks nothing**: a late card, vote or
+  action is still accepted in any stage.
+- Each control on a card does one thing. The **handle** in front of its text
+  drags it and opens nothing. The **three dots** after its text open its
+  **menu**, in every stage and always in the same place: Edit, Add a sticker,
+  Start an action, Select to group, a **Reorder** strip of four buttons, **Move
+  to…** (one step in: the other columns and groups) and Delete on its own at
+  the foot. That makes the menu the keyboard and touch path for every pointer
+  gesture; voting is on the card itself. The menu never runs off the board: it
+  opens above its button when there is no room below, and on a phone it is a
+  sheet along the bottom edge with a Done button. A group has the same pair in
+  its heading.
+- **Order is shared.** Drag a card by its handle, use the Reorder buttons
+  (to top, up, down, to bottom) or "Move to…" in its menu, or press
+  `Alt`+`↑`/`↓` (`Shift` for top and bottom) and `Alt`+`←`/`→` for the next
+  column. A group moves as one, by its own handle or from its own menu, also
+  to another column.
+- **A drop goes where it is aimed.** Dragged over another column, that column
+  is outlined and the card lands where the dashed slot shows, or at the end
+  when dropped on empty space. Dragged over a group, the group is outlined and
+  the card joins it at that place, also from another column. Held for a moment
+  over the middle of a loose card in the same column, that card is marked
+  "Group with this": dropping there asks for the group's name and makes a
+  group of the two, and Cancel leaves both where they were. A grouped card
+  dropped among loose cards or in another column leaves its group; a group
+  keeps going with one card. Every drop sends the same request as the matching
+  menu item ("Move to…" a column or a group, or Select to group and the Group
+  bar), `Escape` puts the card back, and holding it at the top or bottom edge
+  scrolls the page.
+- **Voting is a thumb up and a thumb down** on every card, in every stage: one
+  vote per person per card. The two thumbs are small buttons on the card's
+  lower edge; point at the card (or Tab to them) to see them, and they are
+  always in sight in the Vote stage and on a touch screen. Press a thumb to
+  vote; press the other to switch; press your own again to take it back; or
+  press `U` or `D` with focus on the card's words. Nobody can see who voted
+  which way. After a reload the board no longer knows which thumb is yours, so
+  the first press sets it again (which changes nothing) rather than removing
+  it.
+- **A card's score is its ups less its downs**, written with its sign on a
+  small tag on the card's top corner: six up and one down is **+5**, a tie is
+  **±0**, and a card nobody has voted on has no tag. Point at the card to see
+  the split ("6 up · 1 down"). A group's heading gives the group's score the
+  same way. If a vote does not go through, the board tries once more by
+  itself and then says so on the card, with a **Try again** button; the score
+  does not change until a vote lands.
+- **Top rated** re-sorts a column for one reader only, by ups less downs, and
+  writes nothing.
+  While it is on, cards in that column cannot be given a new place, and it says
+  so; a card can still be carried out of it, into one of its groups, or into
+  it from another column, where it is added at the end of the shared order.
+  The facilitator can apply the vote order for everyone.
+- **Stickers.** Anyone can put a sticker on a card. There are fourteen: seven
+  meanings (Me too, Thank you, Great idea, Quick win, Needs a chat, Blocker,
+  Made me laugh), each as a vinyl sticker and as pixel art, and the two sets
+  mix freely. Hover a card and press the dashed **+**, press `S` with focus on
+  the card's words, or use "Add a sticker" in its menu: the sticker book opens with the
+  two sheets, `1` to `7` place from the marked sheet and `V` and `P` change
+  sheets. A sticker picked from the book lands on no word, in room every card
+  already has around it, so nothing moves when one arrives; only a sticker
+  somebody drags can cover words. Pixel stickers are never tilted, stay
+  crisp at any zoom, and kick up a little pixel dust when you set one down;
+  vinyl ones keep a small tilt.
+- **Stickers go anywhere and pile up.** Whoever placed a sticker can drag it
+  anywhere on its card, a little over the edges included, and so can the
+  facilitator. Stickers overlap freely, the newest on top, and one that is
+  moved goes on top; "Bring to front" (`F`) does that without moving it. With a
+  sticker focused, the arrow keys move it (`Shift` for bigger steps), `Page Up`
+  and `Page Down` go through the pile, and `Delete` removes it; a card's pile
+  is one Tab stop, and "Stickers (n)…" in the card's menu reaches every
+  one without aiming. A card's controls always stay on top of its stickers,
+  and stickers lying over a card's words go faint while you point at the words
+  (or tap them), so covered text can still be read.
+- **Nobody can see who placed a sticker**: the server records it only to
+  enforce that rule and the limits below, and never publishes it. So only a
+  sticker you placed in this visit looks movable; after a reload you can still
+  remove one of yours from its menu, and the server refuses anyone else's.
+- **An action can come from a card.** The target on a card (or "Start an
+  action…" in its menu) opens a small form; the action then
+  shows the card it came from, and the card shows that it has an action. More
+  cards can be tied to an existing action, and untied.
+- **A timer** the facilitator can start (1, 3, 5, 10 minutes or a custom
+  1–180), pause, extend by a minute, and clear. It is counted on the server's
+  clock and published as time remaining. It never blocks anything: when it
+  runs out the board says "Time's up" and keeps working. Changing the stage
+  clears it.
+- Typing is never interrupted: other people's changes update the board in
+  place and are announced to screen readers.
 
 CSV export is the host's: it flattens the guest's `on_session_state` document
-(`revealed`, `columns`, `cards`, `groups`, `actionItems`) next to
-`id,kind,title,phase`. Authorship that has not been revealed is not in that
-document, so it is not in the file.
+(`revealed`, `stage`, `timer`, `stamps`, `columns`, `cards`, `groups`,
+`actionItems`) next to `id,kind,title,phase`. Authorship that has not been
+revealed is not in that document, so it is not in the file; who voted and who
+placed a sticker are never in it.
+
+## Actions and limits
+
+| Action | Who | What it does |
+| --- | --- | --- |
+| `add-card`, `group-cards`, `vote`, `add-action` | anyone in the room | as before; `add-action` also takes `sourceIds`, and a blank `owner` means nobody |
+| `delete-card` | the card's author | delete a card with its votes, stickers and links |
+| `edit-card` | the card's author | change a card's words; everything else on it stays |
+| `vote` | anyone | `value` is `up`, `down` or `none`; it sets the caller's vote and never toggles it |
+| `set-owner`, `delete-action` | anyone | name or clear an action's owner; delete an action |
+| `move-card`, `move-group` | anyone | reorder a card or a group, move a card to another column or group, move a group to another column |
+| `stamp`, `move-stamp`, `remove-stamp` | anyone; move and remove only for whoever placed it | place, move (which also puts it on top), remove a sticker; the actions keep their first name |
+| `link-action` | anyone | tie a card or group to an action, or untie it |
+| `reveal`, `conceal` | facilitator | show or hide authors |
+| `set-stage` | facilitator | set the stage, 0 to 3 |
+| `timer` | facilitator | `start`, `pause`, `resume`, `add`, `clear` |
+| `order-by-votes` | facilitator | reorder one column by ups less downs for everyone |
+| `moderate-stamp` | facilitator | move or remove any sticker |
+| `moderate-card` | facilitator | delete any card |
+
+Facilitator-only actions are refused by the host before the plugin runs.
+Everything else is validated by the guest: unknown ids, text that is empty or
+too long, coordinates outside the card, somebody else's card or sticker, and
+anything over a limit are **declined** and change nothing. The guest answers
+the host with one of four codes (`invalid`, `forbidden`, `not-found`,
+`conflict`) instead of failing, so a participant sending nonsense cannot count
+against the plugin; that needs a host that understands the answer, and an
+older host treats a declined request as accepted with no change.
+
+- A board holds at most **120 cards**, **30 from any one person**, each up to
+  **500 characters**; **40 groups**, named in up to 80 characters; **1,000
+  votes**; **30 action items** of up to 500 characters, with an owner of up to
+  64.
+- A card holds at most **12 stickers**, **3 from any one person**; a board holds
+  **300**, **60 from any one person**.
+- A timer runs from **10 seconds to 3 hours**.
+- An action links to at most **12** cards or groups.
+- A group is removed when its last card leaves it.
+- An action's owner is a typed name; a bare user id is declined.
+
+Every board of an org shares the plugin's one storage quota (1 MiB). A board
+at every limit at once, written in characters that take three bytes each, is
+about 340 KB; an ordinary one is a few tens of kilobytes. When that store is
+full, a change that would grow a board is declined and the board says so;
+deleting cards or action items still works, and frees room.
+
+The new actions do not change what the plugin is granted. An upgrade from
+0.1.0 asks for the same three grants, so it applies without a new consent.
 
 ## Installing it
 
@@ -55,3 +220,6 @@ sees arrives over the MessageChannel bridge, including design tokens.
   { name: "Core kind in the binary", status: "not-built", detail: "On purpose. A retrospective that needed a commit under internal/ or web/src would mean the extension points were not enough." },
   { name: "Compare-and-swap on the board document", status: "not-built", detail: "Last-write-wins is enough to express grouping and dots. CAS belongs with the wire-protocol freeze, not this ceremony." },
 ]} />
+
+The UI embeds Instrument Sans and JetBrains Mono, both under the SIL Open Font
+License 1.1. The license text is in `plugins/retrospective/OFL.txt`.
