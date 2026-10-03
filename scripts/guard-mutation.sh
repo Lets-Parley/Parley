@@ -330,8 +330,8 @@ mutate "the memory cap" \
     host.go 'RuntimeConfig: wazero.NewRuntimeConfig().WithMemoryLimitPages(h.cfg.MemoryPages).WithCloseOnContextDone(true),' 'RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),'
 
 mutate "the in-flight cap" \
-    'TestInFlightCallsAreCappedPerInstallAndInTotal' \
-    host.go 'if h.total >= h.cfg.MaxConcurrentCalls || h.inflight[installID] >= h.cfg.MaxConcurrentPerInstall {' 'if false {'
+    'TestInFlightCallsAreCappedPerInstallAndInTotal|TestAnActionThatNeverGetsASlotIsToldThePluginIsAtCapacity' \
+    host.go 'return h.total < h.cfg.MaxConcurrentCalls && h.inflight[installID] < h.cfg.MaxConcurrentPerInstall' 'return true'
 
 mutate "the circuit breaker" \
     'TestARepeatedlyFailingPluginIsDegradedAndThenDisabled' \
@@ -401,6 +401,59 @@ mutate "the call site's use of how long a reported error took" \
 mutate "a stopped call is never read as a reported error" \
     'TestOnlyAnActionThatHadToBeStoppedIsCharged' \
     host.go 'ctx.Err() == nil && reported != "" && reported == err.Error() {' 'true {'
+
+mutate "no charge for a call its caller abandoned" \
+    'TestTheRoomIsReleasedWhenTheCallerGoesAwayMidCall' \
+    host.go 'if err != nil && errors.Is(ctx.Err(), context.Canceled) {' 'if false {'
+
+# The lock in Postgres is what holds the other replicas out; the line in the
+# process is what keeps one room to one connection. Each is broken alone.
+mutate "the per-room action lock across replicas" \
+    'TestAnActionThatCannotGetTheRoomIsRefusedRatherThanLeftWaiting' \
+    kinds.go 'select pg_advisory_xact_lock($1, hashtext($2))' 'select $1::int, $2::text'
+
+mutate "one action per room at the lock" \
+    'TestABusyRoomHoldsOneConnectionAndDoesNotDelayAnother' \
+    kinds.go 'q = &roomQueue{turn: make(chan struct{}, 1)}' 'q = &roomQueue{turn: make(chan struct{}, 64)}'
+
+# An action waits for an in-flight slot rather than failing a whole burst, and
+# that wait ends at the action's deadline.
+mutate "the wait for an in-flight slot" \
+    'TestActionsPastTheInFlightCapWaitForASlot' \
+    host.go 'if !slotBy.IsZero() {' 'if false {'
+
+# Freed slots go straight to waiting actions, so a state build that did not
+# wait in the same line would be refused for as long as any action was queued.
+mutate "the wait for a slot by a state build" \
+    'TestQueuedActionsDoNotStarveTheStateBuildAfterEachAction|TestAStateBuildWaitsForASlot' \
+    host.go 'if fn == ExportSessionState {' 'if false {'
+
+# A module is compiled once however many first calls arrive together, and is
+# never closed under a call that is running on it.
+mutate "one compile per install at a time" \
+    'TestConcurrentFirstCallsCompileTheModuleOnce' \
+    host.go 'compiling.Lock()' '_ = compiling' \
+    host.go 'defer compiling.Unlock()' '_ = compiling'
+
+mutate "no close of a module a call is running on" \
+    'TestAModuleEvictedUnderACallIsNotClosedUntilTheCallIsDone' \
+    host.go 'return entry.users == 0' 'return true'
+
+mutate "the deadline on waiting for an in-flight slot" \
+    'TestAnActionThatNeverGetsASlotIsToldThePluginIsAtCapacity' \
+    host.go 'ctx, cancel := context.WithDeadline(ctx, by)' 'ctx, cancel := context.WithCancel(ctx)'
+
+mutate "waiting actions served oldest first" \
+    'TestSlotsGoToWaitingActionsInOrder' \
+    host.go 'h.slotWaiters = append(h.slotWaiters, w)' 'h.slotWaiters = append([]*slotWaiter{w}, h.slotWaiters...)'
+
+mutate "the pool reserve room locks leave free" \
+    'TestRoomLocksLeaveTheReserveOfThePoolFree' \
+    kinds.go 'if h.roomLocks.Add(1) > max(1, pool.Config().MaxConns-lockReserve) {' 'if h.roomLocks.Add(1) < 0 {'
+
+mutate "the one deadline on waiting for a room" \
+    'TestAnActionThatCannotGetTheRoomIsRefusedRatherThanLeftWaiting|TestAnActionWaitingInLineGivesUpAtTheSameDeadline' \
+    kinds.go 'by := time.Now().Add(2 * h.cfg.CallTimeout)' 'by := time.Now().Add(time.Hour)'
 
 # Uninstall destroys a plugin's key-value store and its unrecoverable encrypted
 # secrets. The refusal while sessions of a provided kind exist is the only thing
@@ -748,6 +801,10 @@ mutate "the refusal reason a frame is told" \
     'src/lib/pluginBridge.test.ts::tells the frame an action was refused with a code, never the server'"'"'s own words' \
     lib/pluginBridge.ts '(e: unknown) => answer({ ok: false, reason: refusalReason(e) }),' '(e: unknown) => answer({ ok: false, reason: String((e as Error).message) }),'
 
+mutate "the busy reason for a server that could not take the request" \
+    'src/lib/pluginBridge.test.ts::tells the frame an action was refused with a code, never the server'"'"'s own words' \
+    lib/pluginBridge.ts '  503: "busy",' ''
+
 mutate "inerting a plugin frame under a modal" \
     'src/components/PluginPanel.test.tsx::marks the frame inert while a host modal is open' \
     components/PluginPanel.tsx 'el.toggleAttribute("inert", modalOpen);' 'el.toggleAttribute("inert", false);'
@@ -956,6 +1013,12 @@ mutate "an older version through install refused as a downgrade" \
     'TestRollbackMovesToAnyTrustedVersionOfTheSamePlugin' \
     plugins.go '	if versionLess(pkg.Version, current.Install.Version) {' '	if false && versionLess(pkg.Version, current.Install.Version) {'
 
+# A burst of changes to one room shares state builds. A build per change is
+# what used up a plugin's call slots in an ordinary room.
+mutate "the broadcast a newer one already covered" \
+    'TestABurstOfBroadcastsOnOneRoomSharesStateBuilds' \
+    sessions.go 'if c.sent >= mine {' 'if c.sent >= mine && false {'
+
 target internal/store
 
 mutate "an embed handoff redeeming once" \
@@ -1075,10 +1138,12 @@ mutate "a pinned install loading by its digest, not its name and version" \
 
 mutate "Enable compiling before it switches an install on" \
     'TestEnableLeavesAnInstallOffWhenItsBundleWillNotLoad' \
-    host.go '	if _, err := h.module(ctx, installID); err != nil {
+    host.go '	entry, err := h.module(ctx, installID)
+	if err != nil {
 		h.evict(ctx, installID)
 		return err
 	}
+	h.unuse(ctx, entry)
 ' ''
 
 mutate "recording every pin in the install's history" \

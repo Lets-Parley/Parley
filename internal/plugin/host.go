@@ -148,6 +148,11 @@ func (c HostConfig) withDefaults() HostConfig {
 type cachedModule struct {
 	key      string // what Bundles.Resolve answered when this was compiled
 	compiled *extism.CompiledPlugin
+	// users counts the calls running on this module, and retired says it has
+	// left the cache. It is closed when both hold: never under a call. Both
+	// are guarded by Host.mu.
+	users   int
+	retired bool
 }
 
 // Host loads, runs and contains plugins.
@@ -179,6 +184,16 @@ type Host struct {
 	breakers map[string]*breaker
 	inflight map[string]int
 	total    int
+	rooms    map[string]*roomQueue
+	// slotWaiters are actions waiting for an in-flight slot, oldest first.
+	slotWaiters []*slotWaiter
+
+	roomLocks atomic.Int32 // connections parked on room locks
+
+	// compiles holds one mutex per install, so a module is compiled once
+	// however many first calls arrive together. Guarded by mu.
+	compiles map[string]*sync.Mutex
+
 	// now is the clock a call's duration is read from; nil means time.Now.
 	now func() time.Time
 }
@@ -192,6 +207,7 @@ func NewHost(store *Store, cfg HostConfig) *Host {
 		cache:    map[string]*cachedModule{},
 		breakers: map[string]*breaker{},
 		inflight: map[string]int{},
+		rooms:    map[string]*roomQueue{},
 	}
 	store.onChange = h.changed
 	return h
@@ -218,10 +234,12 @@ func (h *Host) Config() HostConfig { return h.cfg }
 // ceremony on offer on every replica only once the module exists. A compile
 // failure evicts the module; any failure leaves `enabled` as it was.
 func (h *Host) Enable(ctx context.Context, installID string) error {
-	if _, err := h.module(ctx, installID); err != nil {
+	entry, err := h.module(ctx, installID)
+	if err != nil {
 		h.evict(ctx, installID)
 		return err
 	}
+	h.unuse(ctx, entry)
 	if err := h.Store.SetEnabled(ctx, installID, true); err != nil {
 		return err
 	}
@@ -251,9 +269,30 @@ func (h *Host) evict(ctx context.Context, installID string) {
 	entry, ok := h.cache[installID]
 	delete(h.cache, installID)
 	h.lru = removeString(h.lru, installID)
+	idle := ok && h.retire(entry)
 	h.mu.Unlock()
-	if ok {
+	if idle {
 		_ = entry.compiled.Close(ctx)
+	}
+}
+
+// retire marks a module as out of the cache and reports whether it can be
+// closed now. If a call is still running on it, the last unuse closes it.
+// Called with h.mu held.
+func (h *Host) retire(entry *cachedModule) bool {
+	entry.retired = true
+	return entry.users == 0
+}
+
+// unuse ends one call's hold on a module, closing it if it was retired
+// meanwhile and this was the last call on it.
+func (h *Host) unuse(ctx context.Context, entry *cachedModule) {
+	h.mu.Lock()
+	entry.users--
+	idle := entry.retired && entry.users == 0
+	h.mu.Unlock()
+	if idle {
+		_ = entry.compiled.Close(context.WithoutCancel(ctx))
 	}
 }
 
@@ -278,8 +317,9 @@ func (h *Host) CachedModules() int {
 }
 
 // module returns the compiled module for an install, compiling and caching it
-// on the way if it is not resident or the version moved.
-func (h *Host) module(ctx context.Context, installID string) (*extism.CompiledPlugin, error) {
+// on the way if it is not resident or the version moved. The caller holds the
+// module until it calls unuse, and a held module is not closed.
+func (h *Host) module(ctx context.Context, installID string) (*cachedModule, error) {
 	state, err := h.Store.State(ctx, installID)
 	if err != nil {
 		return nil, err
@@ -333,13 +373,36 @@ func (h *Host) module(ctx context.Context, installID string) (*extism.CompiledPl
 	h.mu.Lock()
 	if entry, ok := h.cache[installID]; ok && (err != nil || entry.key == key) {
 		h.lru = append(removeString(h.lru, installID), installID)
+		entry.users++
 		h.mu.Unlock()
-		return entry.compiled, nil
+		return entry, nil
 	}
-	h.mu.Unlock()
 	if err != nil {
+		h.mu.Unlock()
 		return nil, fmt.Errorf("resolving the bundle for %s: %w", state.Install.Name, err)
 	}
+	// One compile per install at a time. Two first calls that both missed
+	// the cache would otherwise each compile, and the second would replace
+	// the first's module while the first was running on it.
+	if h.compiles == nil {
+		h.compiles = map[string]*sync.Mutex{}
+	}
+	compiling := h.compiles[installID]
+	if compiling == nil {
+		compiling = &sync.Mutex{}
+		h.compiles[installID] = compiling
+	}
+	h.mu.Unlock()
+	compiling.Lock()
+	defer compiling.Unlock()
+	h.mu.Lock()
+	if entry, ok := h.cache[installID]; ok && entry.key == key {
+		h.lru = append(removeString(h.lru, installID), installID)
+		entry.users++
+		h.mu.Unlock()
+		return entry, nil
+	}
+	h.mu.Unlock()
 
 	var wasm []byte
 	if pin != nil {
@@ -370,26 +433,29 @@ func (h *Host) module(ctx context.Context, installID string) (*extism.CompiledPl
 		return nil, fmt.Errorf("compiling %s %s: %w", state.Install.Name, state.Install.Version, err)
 	}
 
+	entry := &cachedModule{key: key, compiled: compiled, users: 1}
+	var idle []*cachedModule
 	h.mu.Lock()
-	if old, ok := h.cache[installID]; ok {
-		defer func() { _ = old.compiled.Close(ctx) }()
+	if old, ok := h.cache[installID]; ok && h.retire(old) {
+		idle = append(idle, old)
 	}
-	h.cache[installID] = &cachedModule{key: key, compiled: compiled}
+	h.cache[installID] = entry
 	h.lru = append(removeString(h.lru, installID), installID)
-	var overflow []*cachedModule
 	for len(h.cache) > h.cfg.MaxCachedModules {
 		oldest := h.lru[0]
 		h.lru = h.lru[1:]
 		if e, ok := h.cache[oldest]; ok {
-			overflow = append(overflow, e)
 			delete(h.cache, oldest)
+			if h.retire(e) {
+				idle = append(idle, e)
+			}
 		}
 	}
 	h.mu.Unlock()
-	for _, e := range overflow {
+	for _, e := range idle {
 		_ = e.compiled.Close(ctx)
 	}
-	return compiled, nil
+	return entry, nil
 }
 
 func removeString(xs []string, want string) []string {
@@ -419,18 +485,43 @@ func (h *Host) call(ctx context.Context, installID, fn string, input []byte, mod
 	if !h.breakerAllows(installID) {
 		return nil, fmt.Errorf("%s: %w", state.Install.Name, ErrCircuitOpen)
 	}
-	if !h.acquire(installID) {
+	// An action waits for its slot, up to the deadline it already has for the
+	// room, and so does a state build: slots are handed straight to waiting
+	// actions, so a state build that did not wait would find none free for as
+	// long as any action was queued, and the room would be shown stale state.
+	// Events and jobs are refused at once, as they always were; they retry.
+	slotBy := info.lockBy
+	if fn == ExportSessionState {
+		slotBy = time.Now().Add(2 * h.cfg.CallTimeout)
+	}
+	if !slotBy.IsZero() {
+		if !h.acquireBy(ctx, installID, slotBy) {
+			return nil, fmt.Errorf("%s: %w", state.Install.Name, ErrTooBusy)
+		}
+	} else if !h.acquire(installID) {
 		return nil, fmt.Errorf("%s: %w", state.Install.Name, ErrTooBusy)
 	}
 	defer h.release(installID)
 
-	compiled, err := h.module(ctx, installID)
+	entry, err := h.module(ctx, installID)
 	if err != nil {
 		return nil, err
 	}
+	defer h.unuse(ctx, entry)
+
+	if info.room != "" {
+		// After the in-flight slot, so locks parked on connections are bounded
+		// by the same caps as the calls themselves; released when this
+		// returns, which is before the caller broadcasts.
+		unlock, err := h.lockRoom(ctx, info.room, info.lockBy)
+		if err != nil {
+			return nil, err
+		}
+		defer unlock()
+	}
 
 	started := h.clock()
-	out, err := h.invoke(ctx, compiled, fn, input, info)
+	out, err := h.invoke(ctx, entry.compiled, fn, input, info)
 	elapsed := h.clock().Sub(started)
 	// An action is the one export a room participant calls at will.
 	action := fn == ExportSessionAction
@@ -441,6 +532,11 @@ func (h *Host) call(ctx context.Context, installID, fn string, input []byte, mod
 	}
 	// A reported error is free only when the call was cheap; see record.
 	free := action && errors.Is(err, ErrGuestReported) && cheap(elapsed, h.cfg.CallTimeout)
+	// A call that ended because its caller went away says nothing about the
+	// plugin: a closed tab would otherwise count as the guest failing.
+	if err != nil && errors.Is(ctx.Err(), context.Canceled) {
+		free = true
+	}
 	h.record(ctx, installID, state.Install.Name, err, action, free)
 	return out, err
 }
@@ -518,7 +614,7 @@ func exceedsAMemoryBound(msg string) bool {
 func (h *Host) acquire(installID string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.total >= h.cfg.MaxConcurrentCalls || h.inflight[installID] >= h.cfg.MaxConcurrentPerInstall {
+	if !h.hasSlot(installID) {
 		return false
 	}
 	h.total++
@@ -534,11 +630,81 @@ func (h *Host) release(installID string) {
 	if h.inflight[installID] <= 0 {
 		delete(h.inflight, installID)
 	}
+	h.grantSlots()
 }
 
 // cheap reports whether a call that took elapsed cost little enough that a
 // guest reporting an error from it is validation rather than waste.
 func cheap(elapsed, timeout time.Duration) bool { return elapsed <= timeout/2 }
+
+// slotWaiter is one action or state build waiting for an in-flight slot.
+type slotWaiter struct {
+	installID string
+	granted   chan struct{}
+}
+
+func (h *Host) hasSlot(installID string) bool {
+	return h.total < h.cfg.MaxConcurrentCalls && h.inflight[installID] < h.cfg.MaxConcurrentPerInstall
+}
+
+// grantSlots hands freed slots to waiting calls, oldest first, skipping any
+// whose own install is still full. Called with h.mu held.
+func (h *Host) grantSlots() {
+	kept := h.slotWaiters[:0]
+	for _, w := range h.slotWaiters {
+		if !h.hasSlot(w.installID) {
+			kept = append(kept, w)
+			continue
+		}
+		h.total++
+		h.inflight[w.installID]++
+		close(w.granted)
+	}
+	clear(h.slotWaiters[len(kept):])
+	h.slotWaiters = kept
+}
+
+// acquireBy is acquire for an action or a state build: it waits for a slot
+// until by. Waiting holds no connection. A freed slot is handed over inside
+// release, to the call that has waited longest among those its install has
+// room for, so no slot is ever free while such a call waits and a newcomer
+// cannot take one past it: a room that keeps sending goes to the back each
+// time, behind the state build of the action before it.
+func (h *Host) acquireBy(ctx context.Context, installID string, by time.Time) bool {
+	h.mu.Lock()
+	if h.hasSlot(installID) {
+		h.total++
+		h.inflight[installID]++
+		h.mu.Unlock()
+		return true
+	}
+	w := &slotWaiter{installID: installID, granted: make(chan struct{})}
+	h.slotWaiters = append(h.slotWaiters, w)
+	h.mu.Unlock()
+
+	ctx, cancel := context.WithDeadline(ctx, by)
+	defer cancel()
+	select {
+	case <-w.granted:
+		return true
+	case <-ctx.Done():
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	select {
+	case <-w.granted:
+		// Granted as it gave up: the slot is this call's, so use it.
+		return true
+	default:
+	}
+	for i, other := range h.slotWaiters {
+		if other == w {
+			h.slotWaiters = append(h.slotWaiters[:i], h.slotWaiters[i+1:]...)
+			break
+		}
+	}
+	return false
+}
 
 func (h *Host) clock() time.Time {
 	if h.now != nil {

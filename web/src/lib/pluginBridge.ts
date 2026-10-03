@@ -221,6 +221,9 @@ const REFUSALS: Record<number, string> = {
   404: "not-found",
   409: "conflict",
   429: "rate-limited",
+  // The server could not take the request right now and nothing was done; the
+  // same request may succeed a moment later.
+  503: "busy",
 };
 
 /**

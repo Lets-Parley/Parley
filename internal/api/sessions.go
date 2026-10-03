@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
@@ -33,7 +35,68 @@ func (a *app) broadcastState(ctx context.Context, sessionID string) {
 // by THIS replica. It deliberately does not notify: it is also what the
 // notification listener calls, and a replica that re-notified on every message
 // it received would keep the whole cluster talking forever.
+//
+// One room's broadcasts run one at a time, build and send together, so the
+// frame sent last is the one built last: two overlapping broadcasts could
+// otherwise deliver the older state after the newer. And a broadcast that
+// waited behind one which began after it was asked for has nothing left to
+// do — that one already carried its change — so a burst of changes costs
+// far fewer state builds than changes.
 func (a *app) broadcastLocal(ctx context.Context, sessionID string) {
+	c := a.casts.enter(sessionID)
+	defer a.casts.leave(sessionID, c)
+	mine := c.asked.Add(1)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sent >= mine {
+		return
+	}
+	began := c.asked.Load()
+	if a.broadcastNow(ctx, sessionID) {
+		c.sent = began
+	}
+}
+
+// roomCast is one room's broadcasts on this replica.
+type roomCast struct {
+	mu    sync.Mutex   // held across a build and its send
+	asked atomic.Int64 // broadcasts asked for so far
+	sent  int64        // what asked read when the last sent build began; guarded by mu
+	users int          // guarded by roomCasts.mu
+}
+
+// roomCasts holds a roomCast for each room with a broadcast under way.
+type roomCasts struct {
+	mu    sync.Mutex
+	rooms map[string]*roomCast
+}
+
+func (r *roomCasts) enter(sessionID string) *roomCast {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	c := r.rooms[sessionID]
+	if c == nil {
+		if r.rooms == nil {
+			r.rooms = map[string]*roomCast{}
+		}
+		c = &roomCast{}
+		r.rooms[sessionID] = c
+	}
+	c.users++
+	return c
+}
+
+func (r *roomCasts) leave(sessionID string, c *roomCast) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if c.users--; c.users == 0 {
+		delete(r.rooms, sessionID)
+	}
+}
+
+// broadcastNow builds the room's envelope and sends it, and reports whether
+// it did.
+func (a *app) broadcastNow(ctx context.Context, sessionID string) bool {
 	env, err := a.kinds.BuildEnvelope(ctx, a.pool, a.presence, a.sessions, sessionID)
 	// The room is gone — deleted outright, or cascaded away with its space.
 	// Every replica reaches this through the same notification, so this one
@@ -42,16 +105,16 @@ func (a *app) broadcastLocal(ctx context.Context, sessionID string) {
 	// the revalidation tick could notice.
 	if errors.Is(err, store.ErrNoSession) {
 		a.hub.DisconnectSession(sessionID)
-		return
+		return true
 	}
 	if err != nil {
 		slog.Error("could not build session state for broadcast", "session", sessionID, "error", err)
-		return
+		return false
 	}
 	payload, err := json.Marshal(env)
 	if err != nil {
 		slog.Error("could not marshal session state", "session", sessionID, "error", err)
-		return
+		return false
 	}
 	// One room, two audiences: a link guest gets the redacted envelope. The
 	// guest payload is built even when nobody in the room is one — the hub
@@ -60,9 +123,10 @@ func (a *app) broadcastLocal(ctx context.Context, sessionID string) {
 	guestPayload, err := json.Marshal(env.RedactForGuest(""))
 	if err != nil {
 		slog.Error("could not marshal redacted session state", "session", sessionID, "error", err)
-		return
+		return false
 	}
 	a.hub.BroadcastGuest(sessionID, payload, guestPayload)
+	return true
 }
 
 // unknownKindMessage names the kinds the server actually has registered, so

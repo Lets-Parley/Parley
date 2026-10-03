@@ -546,3 +546,33 @@ issue first. For anything large, open an issue before writing code.
     half its call timeout), and counts an
     action that had to be stopped in `breaker.actionFailures`, which opens the
     cooldown and never trips. Do not merge that counter back into `failures`.
+45. **A room's actions run one at a time, in two stages, and the order of the
+    stages is the capacity bound.** `Host.callAction` lines a room's actions up
+    in-process first (`enterRoom`, holding nothing), so one room has at most
+    one call in flight and one connection parked per replica. Only then does
+    `call` wait for the in-flight slot (`acquireBy`: actions and state builds
+    wait, oldest first; events and jobs are still refused at once). State
+    builds must stay in that line: `release` hands a freed slot straight to
+    the oldest waiter, so a call that does not wait finds none while any
+    action is queued, and the broadcast after every action fails silently.
+    With the slot held, `call` takes `lockRoom`'s advisory lock (two-key
+    form, class `actionLockClass`, never the single-key ids of gotcha 3),
+    which holds a pooled connection for the whole guest call. Taking the
+    lock before the in-flight slot, or before the in-process line, lets one
+    room or one install park the pool. `lockReserve` keeps the last two
+    connections free for the guest's own key-value calls. The lock is released
+    by `defer` before the broadcast; do not hold it across one.
+46. **A compiled plugin module is never closed under a call.** `Host.module`
+    hands out a held `cachedModule` and the caller must `unuse` it; eviction
+    and replacement only `retire` it, and the last `unuse` closes it. Compiles
+    are single-flight per install (`Host.compiles`). Calling `Close` on a
+    cached module directly, or compiling outside that mutex, brings back
+    `module closed` failures on concurrent first calls — which are charged to
+    the breaker.
+47. **A room's broadcasts are built and sent one at a time, and may be
+    skipped.** `broadcastLocal` (`internal/api/sessions.go`) holds a per-room
+    mutex across the build and the send, so the last frame sent is the newest
+    state, and returns without building when a broadcast that began after it
+    was asked for has already been sent. Do not move the send outside that
+    mutex, and do not "fix" the skip: a state build per change is what
+    exhausted the plugin call slots in an ordinary room.

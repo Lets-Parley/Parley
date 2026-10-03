@@ -31,6 +31,8 @@ import (
 )
 
 type app struct {
+	// casts orders each room's broadcasts; see broadcastLocal.
+	casts     roomCasts
 	pool      *pgxpool.Pool
 	users     *store.Users
 	spaces    *store.Spaces
