@@ -5,3 +5,4 @@ dist/*.parley
 ui.js
 dist/*.wasm
 ui.board.js
+ui.board.js.tmp
